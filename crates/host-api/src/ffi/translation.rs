@@ -579,7 +579,7 @@ pub unsafe extern "C" fn msime_client_candidate_gloss_request(
                     &candidates,
                 )
                 .map_err(|_| "candidate gloss dictionary unavailable")?;
-                crate::character_glosses::fill_single_characters(
+                crate::supplementary_glosses::fill(
                     std::path::Path::new(resources),
                     &candidates,
                     &mut glosses,

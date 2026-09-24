@@ -4,7 +4,7 @@ umask 077
 
 repo_root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$repo_root"
-source_dir=${1:?usage: stage-resources.sh <verified-resource-directory> [settled-model-directory] [offline-glosses-directory] [pronunciations-directory] [character-glosses-directory]}
+source_dir=${1:?usage: stage-resources.sh <verified-resource-directory> [settled-model-directory] [offline-glosses-directory] [pronunciations-directory] [character-glosses-directory] [word-glosses-directory]}
 source_dir=$(cd "$source_dir" && pwd)
 destination="$repo_root/target/macos/EngineResources"
 
@@ -85,5 +85,16 @@ if [ -f "$characters_source/zh-en.db" ] && [ -f "$characters_source/character-gl
   echo "character glosses staged: $characters_destination"
 else
   echo "no character glosses at $characters_source; single characters have no English gloss"
+fi
+# Optional: English glosses for words english.db does not cover, built from CC-CEDICT by scripts/build_word_glosses.py; read beside the resource directory.
+words_source=${6:-$repo_root/target/word-glosses}
+words_destination="$repo_root/target/macos/word-glosses"
+rm -rf "$words_destination"
+if [ -f "$words_source/zh-en.db" ] && [ -f "$words_source/word-glosses-NOTICE.txt" ]; then
+  mkdir -p "$words_destination"
+  cp "$words_source/zh-en.db" "$words_source/word-glosses-NOTICE.txt" "$words_destination/"
+  echo "word glosses staged: $words_destination"
+else
+  echo "no word glosses at $words_source; English glosses come from english.db only"
 fi
 echo "macOS resources staged from the pinned dictionary release: $destination"

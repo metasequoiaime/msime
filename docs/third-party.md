@@ -226,7 +226,24 @@ kaikki 每周覆盖同一个 URL，所以能复现构建的是 `filtered_input`�
 | 产物 | `character-glosses/zh-en.db`（与离线释义同一结构：`zh_glosses(chinese, gloss, source)`，`meta.target_language = en`，`user_version = 1`，约 2.3 万字、1.2 MB），外加含许可全文的 `character-glosses-NOTICE.txt` |
 | 取词范围 | 去掉辞书附注（部首编号、姓氏、干支、星宿、`numerary adjunct` 之类、括号注记），每字最多两个义项、每义项最多三个词；Unihan 标注「simp. for」的义项排到前面；简化字本身没有释义时取其繁体的释义；少数简化字 Unihan 只给了其本字的冷僻义（几、里、干等），在脚本的 `CORRECTIONS` 表里逐字改写 |
 
-host-api 在 `english.db` 与用户已学释义都没有给出结果、且候选恰好是一个字时才查这张表；表缺失或损坏时保持原样，不影响其余释义。退出方式：不安装 `character-glosses/` 即可。
+host-api 在 `english.db` 与用户已学释义都没有给出结果、且候选恰好是一个字时先查这张表，再查下一节的词表；表缺失或损坏时保持原样，不影响其余释义。退出方式：不安装 `character-glosses/` 即可。
+
+## 词语英文释义（`resources/word-glosses.lock.json`）
+
+`english.db` 的中译英只收能对上常用英文词的中文词，约 1.86 万条；日语离线释义约 2.79 万条，其中 1.82 万个词有日语而没有英语（芋头、贺卡、店员、支票簿）。这张表从中文一侧编写的汉英词典补上英语。
+
+| 项 | 值 |
+| --- | --- |
+| 来源 | [CC-CEDICT](https://cc-cedict.org/)，MDBG 发布的社区汉英词典；CEDICT - Copyright (C) 1997, 1998 Paul Andrew Denisowski |
+| 文件 | `https://www.mdbg.net/chinese/export/cedict/cedict_1_0_ts_utf-8_mdbg.zip`，2026-09-23 导出，`sha256:5189396e…6fe5`，3,975,894 字节 |
+| 许可 | CC BY-SA 4.0，与非英语离线释义相同，可单向兼容到 GPL-3.0 |
+| 生成器 | `scripts/build_word_glosses.py`，只用 Python 标准库；离线测试 `scripts/test-word-glosses.py` 用真实词条 |
+| 产物 | `word-glosses/zh-en.db`（离线释义同一结构，`meta.target_language = en`，约 9.8 万条、4.8 MB），外加 `word-glosses-NOTICE.txt` |
+| 取词范围 | 去掉量词 `CL:`、`variant of`、`see`、姓氏、`abbr. for`、台湾读音等非释义项与交叉引用的拼音，每条最多两个义项、每义项最多三个短语；一个简体词有多个读音条目（便宜 biànyí/piányi）时各取第一个义项；专名（拼音首字母大写）排在最后 |
+
+MDBG 每天用新导出覆盖同一个地址，所以锁里的摘要只对应 2026-09-23 这一份；换新导出要同时更新锁，能复现构建的是锁住的那份文件。与 `offline-glosses/` 一样，适合由维护者把生成物发布到固定位置。
+
+CC-CEDICT 同一个字的多个读音按拼音排序而不是按常用程度（要 yāo 在 yào 前），所以 host-api 对单字先查 Unihan 表，词表只补 Unihan 没有的字；对词语直接查词表。两张表都只填 `english.db` 与已学释义留空的候选，不覆盖它们。**分发义务**：发布时必须随附 `word-glosses-NOTICE.txt` 并保持 CC BY-SA 4.0。退出方式：不安装 `word-glosses/` 即可。
 
 ## 编译进共享库的数据
 

@@ -7657,3 +7657,75 @@ fn english_glosses_fill_single_characters_from_the_character_table() {
         json!([{"text": "你好", "translation": "hello"}])
     );
 }
+
+#[test]
+fn english_glosses_fill_words_from_the_word_table_after_characters() {
+    let root = tempfile::tempdir().unwrap();
+    let resources = root.path().join("generation");
+    std::fs::create_dir_all(&resources).unwrap();
+    rusqlite::Connection::open(resources.join("english.db"))
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE english_words(word TEXT COLLATE BINARY NOT NULL,display TEXT NOT NULL,weight INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(word,display)) WITHOUT ROWID;
+             CREATE TABLE en_zh_glosses(english TEXT COLLATE BINARY PRIMARY KEY,chinese_gloss TEXT NOT NULL) WITHOUT ROWID;
+             CREATE TABLE zh_en_glosses(chinese TEXT COLLATE BINARY PRIMARY KEY,english_gloss TEXT NOT NULL) WITHOUT ROWID;
+             INSERT INTO zh_en_glosses VALUES ('你好','hello');",
+        )
+        .unwrap();
+    let characters = root.path().join("character-glosses/zh-en.db");
+    offline_gloss_fixture(&characters, "en");
+    rusqlite::Connection::open(&characters)
+        .unwrap()
+        .execute_batch("INSERT INTO zh_glosses VALUES('看', 'look, see', 'unihan:kDefinition');")
+        .unwrap();
+    let words = root.path().join("word-glosses/zh-en.db");
+    offline_gloss_fixture(&words, "en");
+    rusqlite::Connection::open(&words)
+        .unwrap()
+        .execute_batch(
+            "UPDATE zh_glosses SET gloss = 'hi there' WHERE chinese = '你好';
+             INSERT INTO zh_glosses VALUES('芋头', 'taro', 'cc-cedict');
+             INSERT INTO zh_glosses VALUES('看', 'to look after', 'cc-cedict');
+             INSERT INTO zh_glosses VALUES('猫', 'cat', 'cc-cedict');",
+        )
+        .unwrap();
+    let resources = resources.to_str().unwrap().to_owned();
+    let call = || {
+        let request = serde_json::to_vec(&json!({"generation": 9, "candidates": [
+            {"text": "你好", "source": 0},
+            {"text": "芋头", "source": 0},
+            {"text": "看", "source": 0},
+            {"text": "猫", "source": 0},
+            {"text": "狗狗", "source": 0}
+        ]}))
+        .unwrap();
+        read(unsafe {
+            msime_client_candidate_gloss_request(
+                request.as_ptr(),
+                request.len(),
+                resources.as_ptr(),
+                resources.len(),
+            )
+        })
+    };
+    // english.db keeps its answer; words come from the word table; a character asks Unihan first and the word table
+    // only when Unihan has nothing.
+    assert_eq!(
+        call()["value"]["translations"],
+        json!([
+            {"text": "你好", "translation": "hello"},
+            {"text": "芋头", "translation": "taro"},
+            {"text": "看", "translation": "look, see"},
+            {"text": "猫", "translation": "cat"}
+        ])
+    );
+    // A damaged word table costs only what it would have added.
+    std::fs::write(&words, "synthetic damaged database").unwrap();
+    assert_eq!(
+        call()["value"]["translations"],
+        json!([
+            {"text": "你好", "translation": "hello"},
+            {"text": "看", "translation": "look, see"}
+        ])
+    );
+}
