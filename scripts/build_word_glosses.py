@@ -4,8 +4,10 @@
 english.db's Chinese-to-English side is ECDICT reversed and deliberately conservative: it keeps Chinese words that are
 the translation of a common English word, about 18 600 of them. The Japanese offline gloss, built the other way round
 from Wiktionary's translation tables, covers 27 900, and 18 200 of those words — 芋头, 贺卡, 店员, 支票簿 — had a Japanese
-line and no English one. CC-CEDICT is written from the Chinese side, 125 000 entries, CC BY-SA 4.0 like the offline
-glosses already shipped, so it fills English where english.db is silent. It never replaces an english.db answer.
+line and no English one, and some english.db answers are loose (漂亮 "chic", 电源 "ps"). CC-CEDICT is written from the
+Chinese side, 125 000 entries, CC BY-SA 4.0 like the offline glosses already shipped. This input method is also a
+learning tool, so host-api shows its entry in place of english.db's; english.db answers what it lacks, and a gloss from
+the user's own glossary is never replaced.
 
 The output has the offline-gloss shape, so the bridge's candidate_target_glosses reads it unchanged:
 ``word-glosses/zh-en.db`` with ``zh_glosses(chinese, gloss, source)``, ``meta.target_language = en`` and

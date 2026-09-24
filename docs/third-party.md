@@ -226,7 +226,7 @@ kaikki 每周覆盖同一个 URL，所以能复现构建的是 `filtered_input`�
 | 产物 | `character-glosses/zh-en.db`（与离线释义同一结构：`zh_glosses(chinese, gloss, source)`，`meta.target_language = en`，`user_version = 1`，约 2.3 万字、1.2 MB），外加含许可全文的 `character-glosses-NOTICE.txt` |
 | 取词范围 | 去掉辞书附注（部首编号、姓氏、干支、星宿、`numerary adjunct` 之类、括号注记），每字最多两个义项、每义项最多三个词；Unihan 标注「simp. for」的义项排到前面；简化字本身没有释义时取其繁体的释义；少数简化字 Unihan 只给了其本字的冷僻义（几、里、干等），在脚本的 `CORRECTIONS` 表里逐字改写 |
 
-host-api 在 `english.db` 与用户已学释义都没有给出结果、且候选恰好是一个字时先查这张表，再查下一节的词表；表缺失或损坏时保持原样，不影响其余释义。退出方式：不安装 `character-glosses/` 即可。
+候选恰好是一个字时 host-api 先查这张表，再查下一节的词表（`english.db` 本就没有单字）；用户自己已学的释义不被替换，表缺失或损坏时保持原样。退出方式：不安装 `character-glosses/` 即可。
 
 ## 词语英文释义（`resources/word-glosses.lock.json`）
 
@@ -243,7 +243,7 @@ host-api 在 `english.db` 与用户已学释义都没有给出结果、且候选
 
 MDBG 每天用新导出覆盖同一个地址，所以锁里的摘要只对应 2026-09-23 这一份；换新导出要同时更新锁，能复现构建的是锁住的那份文件。与 `offline-glosses/` 一样，适合由维护者把生成物发布到固定位置。
 
-CC-CEDICT 同一个字的多个读音按拼音排序而不是按常用程度（要 yāo 在 yào 前），所以 host-api 对单字先查 Unihan 表，词表只补 Unihan 没有的字；对词语直接查词表。两张表都只填 `english.db` 与已学释义留空的候选，不覆盖它们。**分发义务**：发布时必须随附 `word-glosses-NOTICE.txt` 并保持 CC BY-SA 4.0。退出方式：不安装 `word-glosses/` 即可。
+这个输入法也是学英语的工具，所以释义以准确为先：词表有的词，显示词表的释义而不是 `english.db` 的（`english.db` 有些释义过于宽泛，漂亮 → chic、电源 → ps）；`english.db` 只回答词表没有的词和英文候选，用户自己已学的释义始终保留。CC-CEDICT 同一个字的多个读音按拼音排序而不是按常用程度（要 yāo 在 yào 前），所以 host-api 对单字先查 Unihan 表，词表只补 Unihan 没有的字；对词语直接查词表。**分发义务**：发布时必须随附 `word-glosses-NOTICE.txt` 并保持 CC BY-SA 4.0。退出方式：不安装 `word-glosses/` 即可。
 
 ## 编译进共享库的数据
 

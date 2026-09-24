@@ -579,10 +579,25 @@ pub unsafe extern "C" fn msime_client_candidate_gloss_request(
                     &candidates,
                 )
                 .map_err(|_| "candidate gloss dictionary unavailable")?;
-                crate::supplementary_glosses::fill(
+                // What the user's own glossary contributed is what differs from the packaged answer; that stays.
+                let learned = if user_data.is_empty() {
+                    vec![false; glosses.len()]
+                } else {
+                    msime_engine::host::candidate_glosses(resources, &candidates)
+                        .map(|packaged| {
+                            glosses
+                                .iter()
+                                .zip(&packaged)
+                                .map(|(gloss, packaged)| gloss != packaged)
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_else(|_| vec![true; glosses.len()])
+                };
+                crate::supplementary_glosses::prefer(
                     std::path::Path::new(resources),
                     &candidates,
                     &mut glosses,
+                    &learned,
                 );
                 glosses
             }
