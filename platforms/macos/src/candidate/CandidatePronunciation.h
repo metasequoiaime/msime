@@ -134,13 +134,14 @@ static inline NSArray<NSString *> *MSIMEGlossEnglishTexts(NSString *candidateTex
     return texts;
 }
 
-// The gloss as drawn: each line followed by its reading. The reading ranges are reported so they can be styled apart,
-// and `lineStarts` gives where each gloss line begins in the result, for underlining an armed column.
-static inline NSString *MSIMECandidateGlossDisplay(NSString *translation, NSString *pronunciation,
+// The gloss as drawn: each line followed by its reading, then the word-by-word breakdown on a line of its own. The
+// reading and breakdown ranges are reported so they can be styled apart, and `lineStarts` gives where each gloss line
+// begins in the result, for underlining an armed column; the breakdown is never a column.
+static inline NSString *MSIMECandidateGlossDisplay(NSString *translation, NSString *pronunciation, NSString *breakdown,
                                                    NSMutableArray<NSValue *> *readingRanges,
                                                    NSMutableArray<NSNumber *> *lineStarts)
 {
-    NSArray<NSString *> *lines = [translation ?: @"" componentsSeparatedByString:@"\n"];
+    NSArray<NSString *> *lines = translation.length ? [translation componentsSeparatedByString:@"\n"] : @[];
     NSArray<NSString *> *readings = pronunciation.length ? [pronunciation componentsSeparatedByString:@"\n"] : @[];
     NSMutableString *display = [NSMutableString string];
     for (NSUInteger index = 0; index < lines.count; ++index) {
@@ -153,6 +154,11 @@ static inline NSString *MSIMECandidateGlossDisplay(NSString *translation, NSStri
             [readingRanges addObject:[NSValue valueWithRange:NSMakeRange(display.length, reading.length)]];
             [display appendString:reading];
         }
+    }
+    if (breakdown.length) {
+        if (display.length) [display appendString:@"\n"];
+        [readingRanges addObject:[NSValue valueWithRange:NSMakeRange(display.length, breakdown.length)]];
+        [display appendString:breakdown];
     }
     return display;
 }

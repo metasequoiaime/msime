@@ -66,7 +66,7 @@ int main()
 
         NSMutableArray<NSValue *> *ranges = [NSMutableArray array];
         NSMutableArray<NSNumber *> *starts = [NSMutableArray array];
-        NSString *display = MSIMECandidateGlossDisplay(@"love; affection\n愛する", @"/lʌv/\naisuru", ranges, starts);
+        NSString *display = MSIMECandidateGlossDisplay(@"love; affection\n愛する", @"/lʌv/\naisuru", nil, ranges, starts);
         Check([display isEqual:@"love; affection  /lʌv/\n愛する  aisuru"], "display appends each reading to its line");
         Check(ranges.count == 2 && [[display substringWithRange:ranges[0].rangeValue] isEqual:@"/lʌv/"] &&
                   [[display substringWithRange:ranges[1].rangeValue] isEqual:@"aisuru"],
@@ -76,9 +76,18 @@ int main()
               "line starts point at each gloss line");
         [ranges removeAllObjects];
         [starts removeAllObjects];
-        Check([MSIMECandidateGlossDisplay(@"sky", @"", ranges, starts) isEqual:@"sky"] && ranges.count == 0,
+        Check([MSIMECandidateGlossDisplay(@"sky", @"", nil, ranges, starts) isEqual:@"sky"] && ranges.count == 0,
               "no reading leaves the gloss as it is");
-        Check([MSIMECandidateGlossDisplay(@"sky", @"/skai/", nil, nil) isEqual:@"sky  /skai/"], "ranges are optional");
+        Check([MSIMECandidateGlossDisplay(@"sky", @"/skai/", nil, nil, nil) isEqual:@"sky  /skai/"], "ranges are optional");
+        [ranges removeAllObjects];
+        [starts removeAllObjects];
+        display = MSIMECandidateGlossDisplay(@"I like you", @"/aɪ laɪk juː/", @"我 I · 喜欢 to like · 你 you", ranges, starts);
+        Check([display isEqual:@"I like you  /aɪ laɪk juː/\n我 I · 喜欢 to like · 你 you"], "the breakdown takes a line of its own after the glosses");
+        Check(ranges.count == 2 && [[display substringWithRange:ranges[1].rangeValue] isEqual:@"我 I · 喜欢 to like · 你 you"],
+              "the breakdown range covers the breakdown");
+        Check(starts.count == 1, "the breakdown is not a gloss column");
+        Check([MSIMECandidateGlossDisplay(@"", @"", @"我 I · 你 you", nil, nil) isEqual:@"我 I · 你 you"],
+              "a breakdown shows without any gloss");
     }
     if (failures) std::fprintf(stderr, "%d failure(s)\n", failures);
     return failures ? EXIT_FAILURE : EXIT_SUCCESS;
