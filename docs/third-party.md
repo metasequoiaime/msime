@@ -213,6 +213,21 @@ kaikki 每周覆盖同一个 URL，所以能复现构建的是 `filtered_input`�
 
 退出方式：不安装 `pronunciations/` 即可。`msime_client_pronunciation_request` 返回空结果，释义照旧显示、只是没有音标。日语罗马音在 macOS 上由系统的 `CFStringTokenizer` 生成，不需要数据文件。
 
+## 单字英文释义（`resources/character-glosses.lock.json`）
+
+`english.db` 的中译英是把 ECDICT 反查得到的，只收 2 到 6 字的词（单字出现在太多英文词的译文里，反查没有意义），所以爱、天、我这样的单字候选原来没有英文释义。单字释义改用逐字编写的来源。
+
+| 项 | 值 |
+| --- | --- |
+| 来源 | Unicode 汉字数据库 [Unihan](https://www.unicode.org/charts/unihan.html) 的 `kDefinition` 字段，Unicode 17.0.0 |
+| 文件 | `https://www.unicode.org/Public/17.0.0/ucd/Unihan.zip`，`sha256:f7a48b2b…4b5e`，8,518,517 字节 |
+| 许可 | Unicode License v3，宽松许可，与 GPL-3.0 兼容；全文收在 `resources/licenses/Unicode-License-V3.txt`（取自 `https://www.unicode.org/license.txt`，该地址不分版本，所以原文进了仓库，锁里记摘要） |
+| 生成器 | `scripts/build_character_glosses.py`，只用 Python 标准库；离线测试 `scripts/test-character-glosses.py` 用 Unihan 17.0.0 的真实释义 |
+| 产物 | `character-glosses/zh-en.db`（与离线释义同一结构：`zh_glosses(chinese, gloss, source)`，`meta.target_language = en`，`user_version = 1`，约 2.3 万字、1.2 MB），外加含许可全文的 `character-glosses-NOTICE.txt` |
+| 取词范围 | 去掉辞书附注（部首编号、姓氏、干支、星宿、`numerary adjunct` 之类、括号注记），每字最多两个义项、每义项最多三个词；Unihan 标注「simp. for」的义项排到前面；简化字本身没有释义时取其繁体的释义；少数简化字 Unihan 只给了其本字的冷僻义（几、里、干等），在脚本的 `CORRECTIONS` 表里逐字改写 |
+
+host-api 在 `english.db` 与用户已学释义都没有给出结果、且候选恰好是一个字时才查这张表；表缺失或损坏时保持原样，不影响其余释义。退出方式：不安装 `character-glosses/` 即可。
+
 ## 编译进共享库的数据
 
 | 组件 | 许可证 | 位置与说明 |

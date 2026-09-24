@@ -7590,3 +7590,70 @@ fn pronunciation_request_reads_the_table_beside_resources() {
     });
     assert_eq!(refused["ok"], false);
 }
+
+#[test]
+fn english_glosses_fill_single_characters_from_the_character_table() {
+    let root = tempfile::tempdir().unwrap();
+    let resources = root.path().join("generation");
+    std::fs::create_dir_all(&resources).unwrap();
+    rusqlite::Connection::open(resources.join("english.db"))
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE english_words(word TEXT COLLATE BINARY NOT NULL,display TEXT NOT NULL,weight INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(word,display)) WITHOUT ROWID;
+             CREATE TABLE en_zh_glosses(english TEXT COLLATE BINARY PRIMARY KEY,chinese_gloss TEXT NOT NULL) WITHOUT ROWID;
+             CREATE TABLE zh_en_glosses(chinese TEXT COLLATE BINARY PRIMARY KEY,english_gloss TEXT NOT NULL) WITHOUT ROWID;
+             INSERT INTO zh_en_glosses VALUES ('你好','hello');",
+        )
+        .unwrap();
+    let resources = resources.to_str().unwrap().to_owned();
+    let call = || {
+        let request = serde_json::to_vec(&json!({"generation": 5, "candidates": [
+            {"text": "你好", "source": 0},
+            {"text": "猫", "source": 0},
+            {"text": "狗", "source": 0},
+            {"text": "天天", "source": 0},
+            {"text": "🙂", "source": 6}
+        ]}))
+        .unwrap();
+        read(unsafe {
+            msime_client_candidate_gloss_request(
+                request.as_ptr(),
+                request.len(),
+                resources.as_ptr(),
+                resources.len(),
+            )
+        })
+    };
+    // Without the table, single characters have no English gloss, as before.
+    assert_eq!(
+        call()["value"]["translations"],
+        json!([{"text": "你好", "translation": "hello"}])
+    );
+
+    let table = root.path().join("character-glosses/zh-en.db");
+    offline_gloss_fixture(&table, "en");
+    rusqlite::Connection::open(&table)
+        .unwrap()
+        .execute_batch(
+            "INSERT INTO zh_glosses VALUES('猫', 'cat; feline', 'unihan:kDefinition');
+             INSERT INTO zh_glosses VALUES('天', 'sky, heaven; god', 'unihan:kDefinition');",
+        )
+        .unwrap();
+    // english.db still answers words; the table fills only single characters it did not, and never two-character text.
+    assert_eq!(
+        call()["value"]["translations"],
+        json!([
+            {"text": "你好", "translation": "hello"},
+            {"text": "猫", "translation": "cat; feline"}
+        ])
+    );
+
+    // A damaged table costs the supplement, not the words english.db answered.
+    std::fs::write(&table, "synthetic damaged database").unwrap();
+    let damaged = call();
+    assert_eq!(damaged["ok"], true);
+    assert_eq!(
+        damaged["value"]["translations"],
+        json!([{"text": "你好", "translation": "hello"}])
+    );
+}

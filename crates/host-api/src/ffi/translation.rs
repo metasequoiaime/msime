@@ -573,8 +573,18 @@ pub unsafe extern "C" fn msime_client_candidate_gloss_request(
         }
         let glosses = match target_language.as_deref() {
             None | Some("en") => {
-                msime_engine::host::candidate_glosses_with_user(resources, user_data, &candidates)
-                    .map_err(|_| "candidate gloss dictionary unavailable")?
+                let mut glosses = msime_engine::host::candidate_glosses_with_user(
+                    resources,
+                    user_data,
+                    &candidates,
+                )
+                .map_err(|_| "candidate gloss dictionary unavailable")?;
+                crate::character_glosses::fill_single_characters(
+                    std::path::Path::new(resources),
+                    &candidates,
+                    &mut glosses,
+                );
+                glosses
             }
             // Another language reads only its offline dictionary: the learned store and custom_translations.txt hold English. A dictionary that is not installed answers nothing, so the host keeps whatever the online path brings.
             Some(language) if crate::OFFLINE_GLOSS_LANGUAGES.contains(&language) => {

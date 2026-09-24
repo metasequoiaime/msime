@@ -29,7 +29,7 @@ pub(crate) fn english_database_beside(resources: &Path) -> Option<PathBuf> {
 /// it is dropped, so `"(of a person) kind"` is pronounced as `kind`.
 pub(crate) fn english_words(text: &str) -> Option<Vec<String>> {
     let first = text
-        .split([';', '；', ',', '，', '/'])
+        .split([';', '；', ',', '，', '/', '?', '？'])
         .next()
         .unwrap_or_default();
     let mut plain = String::with_capacity(first.len());
@@ -131,6 +131,8 @@ mod tests {
         assert_eq!(words("  sky  "), Some("sky".into()));
         assert_eq!(words("well-known"), Some("well-known".into()));
         assert_eq!(words("don't"), Some("don't".into()));
+        // Unihan writes question words as "who? whom? whose?".
+        assert_eq!(words("who? whom? whose? anyone?"), Some("who".into()));
     }
 
     #[test]
