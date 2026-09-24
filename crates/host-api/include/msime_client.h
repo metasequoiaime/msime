@@ -425,6 +425,10 @@ char *msime_client_candidate_gloss_request(const uint8_t *request, size_t reques
  * JSON request: {generation,items:[{text,language}]}; language must be "en". text is an English candidate or one line of an English gloss; only its first term is pronounced, without a leading to/a/an/the, and a term with any unknown word gets nothing. The response is {generation,pronunciations:[{text,language,pronunciation}]} with "/…/" IPA, omitting texts that have none. The table is pronunciations/en-phonetic.db beside resources; when it is not installed the result is {generation,pronunciations:[]}, not an error. May run on a worker thread. */
 char *msime_client_pronunciation_request(const uint8_t *request, size_t request_length,
                                          const uint8_t *resources, size_t resources_length);
+/* Break copied Chinese candidates into words with their English, without a session, for a line a host draws under the gloss lines (never a committable gloss column).
+ * JSON request: {generation,texts:[...]}, at most 64 texts. Only all-Han texts of 2 to 32 characters are considered; each is cut left to right by longest match (up to 8 characters) against character-glosses/zh-en.db (single characters first) and word-glosses/zh-en.db beside resources, and each piece shows the first phrase of its gloss: "我 I · 喜欢 to like · 你 you". A text with fewer than two glossed pieces or more than eight pieces is omitted. The response is {generation,breakdowns:[{text,breakdown}]}; with neither table installed it is empty, not an error. May run on a worker thread. */
+char *msime_client_gloss_breakdown_request(const uint8_t *request, size_t request_length,
+                                           const uint8_t *resources, size_t resources_length);
 /* Query the packaged English dictionary without creating a session.
  * JSON request: {prefix,limit}; prefix is an ASCII-letter word fragment and
  * limit is 1..32. The response echoes prefix and returns {items:[...]}.
