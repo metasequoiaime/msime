@@ -347,9 +347,28 @@ struct MSIMECandidatePageGeometry {
     CGFloat contentLeft = 0;
 };
 
+// A gloss has one line per translation target, but the shared session keeps a single control-free gloss per candidate
+// (msime_client_apply_translations refuses every control character, "\n" included). The lines therefore travel through
+// the session joined with U+2028 LINE SEPARATOR, which is not a control character, and are split again here, the one
+// place a candidate's gloss is read. Provider glosses cannot carry a U+2028 of their own: formatting collapses it as
+// whitespace.
+static NSString *const MSIMEGlossLineSeparator = @"\u2028";
+
 static NSString *CandidateTranslation(NSDictionary *candidate) {
     id text = candidate[@"translation"];
-    return [text isKindOfClass:NSString.class] ? text : @"";
+    return [text isKindOfClass:NSString.class] ? [text stringByReplacingOccurrencesOfString:MSIMEGlossLineSeparator withString:@"\n"] : @"";
+}
+
+static NSArray<NSDictionary *> *MSIMESessionTranslations(NSArray<NSDictionary *> *results) {
+    NSMutableArray<NSDictionary *> *session = [NSMutableArray arrayWithCapacity:results.count];
+    for (NSDictionary *entry in results) {
+        NSString *translation = entry[@"translation"];
+        if (![translation isKindOfClass:NSString.class] || ![translation containsString:@"\n"]) { [session addObject:entry]; continue; }
+        NSMutableDictionary *joined = [entry mutableCopy];
+        joined[@"translation"] = [translation stringByReplacingOccurrencesOfString:@"\n" withString:MSIMEGlossLineSeparator];
+        [session addObject:joined];
+    }
+    return session;
 }
 
 // Candidate pinning is a macOS presentation preference. The Engine's ranking is
@@ -1930,7 +1949,7 @@ static NSImage *MSIMECandidateLogoImage() {
     // Applying translations advances the Engine snapshot. Any enclosing service pass must
     // fetch the new query/view before it asks another provider to synchronize.
     [self invalidateServiceSnapshots];
-    NSDictionary *applied = [_session applyTranslations:results generation:[view[@"generation"] unsignedLongLongValue] error:nil];
+    NSDictionary *applied = [_session applyTranslations:MSIMESessionTranslations(results) generation:[view[@"generation"] unsignedLongLongValue] error:nil];
     if (![applied[@"applied"] boolValue]) return NO;
     // A gloss changes what the card shows, never the composition, so only the card is redrawn. Going through apply: re-sent the marked text on every arrival, and IMK services the next key inside that synchronous setMarkedText: call - the whole keystroke, reranking included, ran nested in it, after which the outer apply: wrote the older view back over the newer one.
     NSDictionary *next = applied[@"view"];

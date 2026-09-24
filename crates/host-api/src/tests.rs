@@ -7470,3 +7470,35 @@ fn statistics_record_reports_the_milestone_field() {
     assert_eq!(quiet["value"]["recorded"], 2, "{quiet}");
     assert!(quiet["value"].get("milestone").is_some());
 }
+
+#[test]
+fn translation_results_carry_line_separated_glosses() {
+    // The macOS host joins one gloss line per translation target with U+2028 LINE SEPARATOR, because "\n" is a
+    // control character and refused. U+2028 is not, so it must be accepted and handed back unchanged.
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host(dir.path());
+    read(msime_client_focus(handle, true));
+    let mut view = Value::Null;
+    for byte in b"U4e2d" {
+        view = read(msime_client_character(
+            handle,
+            *byte,
+            byte.is_ascii_uppercase(),
+        ))["value"]["view"]
+            .clone();
+    }
+    let generation = view["generation"].as_u64().unwrap();
+    let candidate = view["candidates"][0]["text"].as_str().unwrap().to_owned();
+    let gloss = "middle\u{2028}中央";
+    let encoded = serde_json::to_vec(&json!([{"text": candidate, "translation": gloss}])).unwrap();
+    let applied = read(unsafe {
+        msime_client_apply_translations(handle, generation, encoded.as_ptr(), encoded.len())
+    });
+    assert_eq!(applied["ok"], true);
+    assert_eq!(applied["value"]["applied"], true);
+    assert_eq!(
+        applied["value"]["view"]["candidates"][0]["translation"],
+        gloss
+    );
+    read(msime_client_destroy(handle));
+}
