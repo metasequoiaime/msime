@@ -9,7 +9,7 @@ use crate::*;
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) -> *mut c_char {
     response(|| {
-        if options.is_null() || length > 16384 {
+        if options.is_null() || length > HOST_OPTIONS_DOCUMENT_LIMIT {
             return Err("invalid options buffer".into());
         }
         // SAFETY: guaranteed by the C caller's documented buffer contract.

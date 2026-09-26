@@ -2,6 +2,7 @@
 
 use super::{
     edit_personal_dictionary, invalid_dictionary_entry, response, DictionaryAccess, HostOptions,
+    DICTIONARY_REQUEST_LIMIT,
 };
 use msime_client_core::dictionary::import::{dictionary_row_matches, PageSelector};
 use msime_client_core::dictionary::personal::{
@@ -240,7 +241,7 @@ fn parse_personal_dictionary_import(text: &str) -> Result<Vec<PersonalWord>, Str
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_dictionary(request: *const u8, length: usize) -> *mut c_char {
     response(|| {
-        if request.is_null() || length > 65536 {
+        if request.is_null() || length > DICTIONARY_REQUEST_LIMIT {
             return Err("invalid dictionary buffer".into());
         }
         // SAFETY: guaranteed by the caller contract above.
@@ -275,7 +276,7 @@ pub unsafe extern "C" fn msime_client_personal_dictionary_request(
     response(|| {
         // The Apple-compatible import file is bounded at 1 MiB and the request framing needs room
         // on top of it; `personal_dictionary_request_json` applies the same ceiling itself.
-        if request.is_null() || length > 1_200_000 {
+        if request.is_null() || length > DICTIONARY_REQUEST_LIMIT {
             return Err("invalid dictionary buffer".into());
         }
         // SAFETY: guaranteed by the caller contract above.
@@ -495,7 +496,7 @@ fn queued_import(
 }
 
 pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String> {
-    if bytes.len() > 65536 {
+    if bytes.len() > DICTIONARY_REQUEST_LIMIT {
         return Err("invalid dictionary buffer".into());
     }
     let request: Request =
@@ -750,7 +751,7 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
 pub fn personal_dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String> {
     // JSON imports are bounded by the Apple-compatible 1 MiB file limit; the
     // small amount of request framing needs room in addition to the file.
-    if bytes.len() > 1_200_000 {
+    if bytes.len() > DICTIONARY_REQUEST_LIMIT {
         return Err("invalid dictionary buffer".into());
     }
     let request: Request =
@@ -1028,7 +1029,7 @@ fn user_entries_page(
 ///
 /// The request is the bare HostOptions a host passes to `msime_client_create`, as the C header documents and as both the Android and HarmonyOS hosts send it. Parsing it as an `{options, action}` envelope refused every call, which Android swallowed and HarmonyOS answered by rebuilding its session every two seconds.
 pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, String> {
-    if bytes.len() > 65536 {
+    if bytes.len() > DICTIONARY_REQUEST_LIMIT {
         return Err("invalid dictionary buffer".into());
     }
     let options: HostOptions =
@@ -1100,7 +1101,7 @@ pub unsafe extern "C" fn msime_client_personal_dictionary_sync(
     length: usize,
 ) -> *mut c_char {
     response(|| {
-        if request.is_null() || length > 65536 {
+        if request.is_null() || length > DICTIONARY_REQUEST_LIMIT {
             return Err("invalid dictionary buffer".into());
         }
         let bytes = unsafe { std::slice::from_raw_parts(request, length) };

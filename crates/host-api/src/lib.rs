@@ -57,6 +57,13 @@ mod dictionary;
 ///
 /// A valid document carries the custom touch-keyboard skin, whose photo alone may be 682,668 base64 characters; at the 16 KiB every other buffer uses, a document holding a photo could never be written back, which failed every later preference write from that host.
 pub(crate) const PREFERENCES_DOCUMENT_LIMIT: usize = 1 << 20;
+/// Largest serialized HostOptions document accepted by native entry points.
+/// Preferences may carry a base64 custom keyboard photo, so the old 16 KiB
+/// ABI limit rejected valid saved preferences before a session could start.
+pub(crate) const HOST_OPTIONS_DOCUMENT_LIMIT: usize = PREFERENCES_DOCUMENT_LIMIT;
+/// Largest dictionary-management request: one HostOptions document plus the
+/// bounded personal-dictionary import payload and a small amount of framing.
+pub(crate) const DICTIONARY_REQUEST_LIMIT: usize = HOST_OPTIONS_DOCUMENT_LIMIT + 1_200_000;
 mod ffi;
 pub use ffi::*;
 mod doubao_auth;

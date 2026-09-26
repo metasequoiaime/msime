@@ -58,7 +58,7 @@ uint32_t msime_client_abi_version(void);
 char *msime_client_prepare_host(const uint8_t *options, size_t length);
 /* path is an absolute UTF-8 runtime options file path of length bytes; maximum 4096. When its dictionaries directory is not the installed resource generation (after a package upgrade), prepares that generation, replays the user dictionary into it and atomically rewrites resources/dictionaries, keeping every other key. Value is true when the file was rewritten. Call before creating any session from the file. When the recorded resource directory does not match the compiled dictionary lock (downloaded dictionaries an upgrade did not replace) the error text begins with "dictionary_outdated:" and the file is left unchanged; the rest of that text may name private paths. */
 char *msime_client_refresh_host(const uint8_t *path, size_t length);
-/* options is a readable UTF-8 buffer of length bytes; maximum 16384 bytes.
+/* options is a readable UTF-8 buffer of length bytes; maximum 1 MiB.
  * Object: api_version=1, resources/user_data/cache/dictionaries (absolute paths),
  * preferences={scheme, candidate_page_size, learning, chinese_punctuation,
  *              shuangpin_profile?}. Missing profile defaults to xiaohe; allowed
@@ -83,7 +83,7 @@ char *msime_client_refresh_host(const uint8_t *path, size_t length);
  * not participate; preparation/upgrades still require stopped sessions.
  */
 char *msime_client_create(const uint8_t *options, size_t length);
-/* Management JSON (<=65536 bytes), trusted native caller only:
+/* Management JSON (<=2248576 bytes), trusted native caller only:
  * {options: <same HostOptions as create>, action: {operation:"list",offset:0,limit:100}}
  * List takes optional kind and query (a code prefix). Without them it lists the user's own words; with a kind and a nonblank query (quick_phrase needs none) it also finds the bundled words of that dictionary, user words first. user_only:true keeps any list to the user's own words, filtered by the kind and code prefix across the whole store.
  * or action:{operation:"edit",previous:null|Entry,replacement:null|Entry,request_id:"..."}.
@@ -342,7 +342,7 @@ char *msime_client_voice_capture(uint32_t milliseconds);
 char *msime_client_voice_apply(uint64_t session, uint64_t generation,
                                const uint8_t *text, size_t length);
 /* On-device speech models and user-dictionary hotwords. JSON request buffers of length bytes; standard responses. Error text of the model calls is a stable code beginning with "local_model_".
- * voice_hotwords: {options: HostOptions as msime_client_dictionary, limit?: 200} -> {hotwords:[{text,pinyin}]}, the user's own pinyin words (two or more Chinese characters), heaviest first. Worker thread; fails with "dictionary maintenance busy" while maintenance holds the store. <=65536 bytes.
+ * voice_hotwords: {options: HostOptions as msime_client_dictionary, limit?: 200} -> {hotwords:[{text,pinyin}]}, the user's own pinyin words (two or more Chinese characters), heaviest first. Worker thread; fails with "dictionary maintenance busy" while maintenance holds the store. <=1 MiB.
  * voice_hotword_correct: {text, hotwords:[{text,pinyin}]} -> {text}. Pinyin-similarity replacement for models whose msime-model.json has "hotwords":"pinyin". Pure. <=1048576 bytes.
  * voice_local_models: {root: absolute dir} -> {models:[{id,title,description,languages,streaming,default,desktop_only,installed,path,installed_size,archive_size,memory,license_spdx,license_source,license_terms,license_notice,hotwords}], default: id}. path is <root>/<id>, the value for voice_input.asr_model_path.
  * voice_local_model_install: {root, id, mirror?: "https://..." prefix} -> {path}. Blocks for the whole download: worker thread only. progress (nullable) gets {id,stage:"download"|"verify"|"extract"|"done",downloaded,total} on the calling thread; copy the buffer before returning. One install per id at a time ("local_model_install_running").

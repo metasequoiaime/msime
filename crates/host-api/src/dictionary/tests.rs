@@ -747,7 +747,7 @@ fn malformed_and_oversized_requests_are_redacted() {
         );
     }
     assert_eq!(
-        dictionary_request_json(&vec![0u8; 65537]).unwrap_err(),
+        dictionary_request_json(&vec![0u8; DICTIONARY_REQUEST_LIMIT + 1]).unwrap_err(),
         "invalid dictionary buffer"
     );
 }

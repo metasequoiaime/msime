@@ -1940,6 +1940,28 @@ fn a_document_holding_a_custom_skin_photo_can_still_be_saved_and_applied() {
     let handle = test_host(&directory.path().join("host"));
     assert_eq!(update(handle, 1, &preferences)["ok"], true);
     read(msime_client_destroy(handle));
+
+    // HostOptions carries the same preference object. Session creation must
+    // accept the saved design too; the old 16 KiB boundary rejected this
+    // otherwise valid configuration before the Engine was even opened.
+    let oversized_options = serde_json::to_string(&json!({
+        "api_version": 1,
+        "resources": directory.path().join("oversized-host/resources"),
+        "user_data": directory.path().join("oversized-host/user"),
+        "cache": directory.path().join("oversized-host/cache"),
+        "dictionaries": directory.path().join("oversized-host/dictionaries"),
+        "preferences": preferences,
+    }))
+    .unwrap();
+    for name in ["resources", "user", "cache", "dictionaries"] {
+        std::fs::create_dir_all(directory.path().join("oversized-host").join(name)).unwrap();
+    }
+    assert!(oversized_options.len() > 16_384);
+    let oversized_handle =
+        read(unsafe { msime_client_create(oversized_options.as_ptr(), oversized_options.len()) });
+    assert_eq!(oversized_handle["ok"], true, "{oversized_handle}");
+    let oversized_handle = oversized_handle["value"]["session"].as_u64().unwrap();
+    read(msime_client_destroy(oversized_handle));
 }
 #[test]
 fn background_preferences_reader_uses_shared_store_and_preserves_bad_files() {

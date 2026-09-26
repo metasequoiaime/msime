@@ -421,7 +421,8 @@ pub unsafe extern "C" fn msime_client_voice_hotwords(
             #[serde(default)]
             limit: Option<usize>,
         }
-        let request: HotwordsRequest = local_voice_request(request, length, 65_536)?;
+        let request: HotwordsRequest =
+            local_voice_request(request, length, HOST_OPTIONS_DOCUMENT_LIMIT)?;
         let limit = request
             .limit
             .unwrap_or(msime_client_core::voice::hotwords::DEFAULT_HOTWORD_LIMIT)

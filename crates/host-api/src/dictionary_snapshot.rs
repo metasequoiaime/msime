@@ -1,6 +1,6 @@
 //! Native-only snapshot preparation. Staged paths stay private until a future
 //! activation transaction can own publication and session coordination.
-use super::{response, DictionaryAccess, HostOptions};
+use super::{response, DictionaryAccess, HostOptions, HOST_OPTIONS_DOCUMENT_LIMIT};
 use msime_client_core::account::{
     AccountDictionarySnapshotRestore, AccountError, BackendAccountClient,
 };
@@ -31,6 +31,7 @@ use std::{
 mod record;
 
 const BUFFER_LIMIT: usize = 65536;
+const REQUEST_LIMIT: usize = HOST_OPTIONS_DOCUMENT_LIMIT;
 const HANDLE_LIMIT: usize = 8;
 const ACTIVATION_RECEIPT_NAME: &str = ".msime-snapshot-activation";
 const MAX_SNAPSHOT_BYTES: u64 = 512 * 1024 * 1024;
@@ -695,7 +696,7 @@ fn restore_snapshot_with(
 pub type SnapshotNext = unsafe extern "C" fn(*mut c_void, *mut u8, usize) -> isize;
 
 fn parse_options(bytes: &[u8]) -> Result<EngineOptions, &'static str> {
-    if bytes.len() > BUFFER_LIMIT {
+    if bytes.len() > REQUEST_LIMIT {
         return Err("invalid snapshot options");
     }
     let options: HostOptions =
@@ -1337,7 +1338,7 @@ pub unsafe extern "C" fn msime_client_snapshot_queue(
     length: usize,
 ) -> *mut c_char {
     response(|| {
-        if request.is_null() || length == 0 || length > BUFFER_LIMIT {
+        if request.is_null() || length == 0 || length > REQUEST_LIMIT {
             return Err("snapshot_invalid".to_owned());
         }
         let action: SnapshotQueueAction =
@@ -1417,7 +1418,7 @@ pub unsafe extern "C" fn msime_client_snapshot_version(
     length: usize,
 ) -> *mut c_char {
     response(|| {
-        if options.is_null() || length > BUFFER_LIMIT {
+        if options.is_null() || length > REQUEST_LIMIT {
             return Err("invalid snapshot buffer".into());
         }
         let options = parse_options(unsafe { std::slice::from_raw_parts(options, length) })?;
@@ -1439,7 +1440,7 @@ pub unsafe extern "C" fn msime_client_snapshot_prepare(
     context: *mut c_void,
 ) -> *mut c_char {
     response(|| {
-        if request.is_null() || length > BUFFER_LIMIT {
+        if request.is_null() || length > REQUEST_LIMIT {
             return Err("invalid snapshot buffer".into());
         }
         let next = next.ok_or("missing snapshot reader")?;
