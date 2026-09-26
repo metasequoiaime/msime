@@ -177,9 +177,12 @@ function CommunitySkinPublishDialog({
   // failure the dialog can do something about rather than only name.
   const [signInRequired, setSignInRequired] = useState(false);
   const [publicationId, setPublicationId] = useState(randomPublicationId);
+  const clientGeneration = useRef(0);
 
   useEffect(() => {
+    const generation = ++clientGeneration.current;
     let active = true;
+    setBusy(true);
     void library
       .load()
       .then((items) => {
@@ -201,13 +204,15 @@ function CommunitySkinPublishDialog({
       });
     return () => {
       active = false;
+      if (generation === clientGeneration.current) clientGeneration.current++;
     };
-  }, [library]);
+  }, [client, library]);
 
   const selected = saved.find((item) => item.id === selectedId) ?? null;
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (busy || !selected) return;
+    const generation = clientGeneration.current;
     const normalizedName = name.trim();
     const normalizedDescription = description.trim();
     if (
@@ -225,11 +230,13 @@ function CommunitySkinPublishDialog({
     setSignInRequired(false);
     try {
       await client.publish(publicationId, normalizedName, normalizedDescription, selected.design);
+      if (generation !== clientGeneration.current) return;
       await onPublished();
     } catch (publishError) {
+      if (generation !== clientGeneration.current) return;
       setError(publishMessage(publishError));
       setSignInRequired(needsSignIn(publishError));
-      setBusy(false);
+      if (generation === clientGeneration.current) setBusy(false);
     }
   };
 

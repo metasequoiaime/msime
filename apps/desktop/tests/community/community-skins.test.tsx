@@ -357,6 +357,39 @@ test("publishes a selected local design only after explicit rights confirmation"
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "发布我的皮肤" })).toBeNull());
 });
 
+test("a publish response from a replaced community client is ignored", async () => {
+  const local = { id: "30000000-0000-4000-0001", name: "替换发布设计", design };
+  const pending = deferred<void>();
+  const oldClient = client({
+    list: vi.fn().mockResolvedValue({ skins: [], has_more: false }),
+    publish: vi.fn().mockReturnValue(pending.promise),
+  });
+  const replacement = client({ list: vi.fn().mockResolvedValue({ skins: [], has_more: false }) });
+  const view = render(
+    <CommunitySkinsPage
+      client={oldClient}
+      theme="light"
+      localSkinLibrary={{ load: vi.fn().mockResolvedValue([local]), mutate: vi.fn() }}
+    />,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "发布我的设计" }));
+  await screen.findByText("替换发布设计");
+  fireEvent.click(screen.getByRole("checkbox", { name: "确认拥有发布素材权利" }));
+  fireEvent.click(screen.getByRole("button", { name: "公开发布" }));
+  await waitFor(() => expect(oldClient.publish).toHaveBeenCalled());
+  view.rerender(
+    <CommunitySkinsPage
+      client={replacement}
+      theme="light"
+      localSkinLibrary={{ load: vi.fn().mockResolvedValue([local]), mutate: vi.fn() }}
+    />,
+  );
+  pending.resolve();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(screen.getByRole("dialog", { name: "发布我的皮肤" })).not.toBeNull();
+  expect(screen.queryByText("已发布到社区。")).toBeNull();
+});
+
 test("a download refused for want of a sign-in offers the way there", async () => {
   // Browsing works signed out and downloading does not, so this is the first wall a new user meets.
   // It used to say the login had expired and leave them to find the account page themselves.
