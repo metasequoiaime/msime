@@ -952,7 +952,11 @@ impl UnixSocketProvider {
 pub struct OnlineProviderWorker {
     pending: Arc<Mutex<Option<OnlineQuery>>>,
     wake: Option<mpsc::SyncSender<()>>,
-    results: mpsc::Receiver<OnlineCandidate>,
+    /// A latest-value slot keeps completed provider responses bounded too.
+    /// An unbounded channel here would let a host that stopped polling grow
+    /// memory once for every completed query, even though only the newest
+    /// generation can ever be applied.
+    results: Arc<Mutex<Option<OnlineCandidate>>>,
     join: Option<JoinHandle<()>>,
 }
 
@@ -979,10 +983,11 @@ impl OnlineProviderWorker {
         }
         let pending = Arc::new(Mutex::new(None::<OnlineQuery>));
         let slot = Arc::clone(&pending);
+        let results = Arc::new(Mutex::new(None::<OnlineCandidate>));
+        let result_slot = Arc::clone(&results);
         // A wake-up signal only; the query itself lives in the slot. A full
         // signal channel already promises the worker will look again.
         let (wake, incoming) = mpsc::sync_channel::<()>(1);
-        let (outgoing, results) = mpsc::channel();
         let join = thread::Builder::new()
             .name("msime-online-provider".into())
             .spawn(move || {
@@ -1017,15 +1022,17 @@ impl OnlineProviderWorker {
                         if text.is_empty() || source > 1 {
                             continue;
                         }
-                        if outgoing
-                            .send(OnlineCandidate {
-                                query,
-                                text,
-                                source,
-                            })
-                            .is_err()
-                        {
-                            break;
+                        let candidate = OnlineCandidate {
+                            query,
+                            text,
+                            source,
+                        };
+                        // Replacing a queued answer is safe: Runtime checks
+                        // the query's session and generation before applying
+                        // it, and only the newest answer can still be useful.
+                        match result_slot.lock() {
+                            Ok(mut result) => *result = Some(candidate),
+                            Err(poisoned) => *poisoned.into_inner() = Some(candidate),
                         }
                     }
                 }
@@ -1053,7 +1060,10 @@ impl OnlineProviderWorker {
     }
 
     pub fn try_recv(&self) -> Option<OnlineCandidate> {
-        self.results.try_recv().ok()
+        match self.results.lock() {
+            Ok(mut result) => result.take(),
+            Err(poisoned) => poisoned.into_inner().take(),
+        }
     }
 
     pub fn shutdown(mut self) {

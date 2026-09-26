@@ -9,6 +9,7 @@ use super::*;
 use std::os::unix::fs::PermissionsExt;
 #[cfg(unix)]
 use std::os::unix::net::UnixListener;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 #[derive(Default)]
 struct Fixture {
@@ -1672,6 +1673,54 @@ fn online_provider_worker_is_bounded_and_filters_invalid_results() {
     assert_eq!(result.query, query);
     assert_eq!(result.text, "你好");
     assert_eq!(result.source, 0);
+    worker.shutdown();
+}
+
+#[test]
+fn online_provider_worker_keeps_only_the_latest_completed_result() {
+    let calls = std::sync::Arc::new(AtomicUsize::new(0));
+    let observed = std::sync::Arc::clone(&calls);
+    let worker = OnlineProviderWorker::spawn(1, move |query| {
+        observed.fetch_add(1, Ordering::SeqCst);
+        Some((query.query_text, 0))
+    })
+    .unwrap();
+    let query = |text: &str| OnlineQuery {
+        scheme: 0,
+        generation: 1,
+        identity: "identity".into(),
+        query_text: text.into(),
+        cache_key: text.into(),
+        pinyin_segments: vec![],
+        cloud_eligible: true,
+        ai_eligible: false,
+        cloud_candidates: true,
+        session_id: 9,
+        ai_context: String::new(),
+        ai_assistant: None,
+        ai_cache_only: false,
+    };
+    assert!(worker.submit(query("first")));
+    for _ in 0..100 {
+        if calls.load(Ordering::SeqCst) >= 1 {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert!(worker.submit(query("second")));
+    for _ in 0..100 {
+        if calls.load(Ordering::SeqCst) >= 2 {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        worker.try_recv().map(|result| result.text),
+        Some("second".into())
+    );
+    assert!(worker.try_recv().is_none());
     worker.shutdown();
 }
 
