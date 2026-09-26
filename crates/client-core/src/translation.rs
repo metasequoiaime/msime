@@ -135,13 +135,14 @@ pub fn translate_tencent_batch(
     for (name, value) in tencent_tmt_headers(region, timestamp, &authorization) {
         request = request.header(name, value);
     }
-    let response = match request.send() {
+    let mut response = match request.send() {
         Ok(response) if response.status().is_success() => response,
         _ => return results,
     };
-    let body = match response.text() {
-        Ok(body) => body,
-        Err(_) => return results,
+    let body = match read_bounded_body(&mut response).and_then(|body| String::from_utf8(body).ok())
+    {
+        Some(body) => body,
+        None => return results,
     };
     parse_tencent_tmt_response(&body, texts.len())
         .into_iter()
@@ -368,15 +369,18 @@ fn request_timeout(elapsed: Duration) -> Duration {
     BATCH_BUDGET.saturating_sub(elapsed).min(REQUEST_TIMEOUT)
 }
 
-fn read_translation_response(reader: impl Read) -> Option<String> {
+fn read_bounded_body(mut reader: impl Read) -> Option<Vec<u8>> {
     let mut body = Vec::new();
     reader
+        .by_ref()
         .take((MAX_RESPONSE_BYTES + 1) as u64)
         .read_to_end(&mut body)
         .ok()?;
-    if body.len() > MAX_RESPONSE_BYTES {
-        return None;
-    }
+    (body.len() <= MAX_RESPONSE_BYTES).then_some(body)
+}
+
+fn read_translation_response(reader: impl Read) -> Option<String> {
+    let body = read_bounded_body(reader)?;
     parse_translation_response(std::str::from_utf8(&body).ok()?)
 }
 
@@ -455,6 +459,28 @@ mod tests {
         boundary.push(b' ');
         assert!(read_translation_response(boundary.as_slice()).is_none());
         assert!(read_translation_response(&b"\xff"[..]).is_none());
+    }
+
+    #[test]
+    fn tencent_response_body_is_bounded_before_decoding() {
+        struct Endless {
+            read: usize,
+        }
+        impl Read for Endless {
+            fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+                buffer.fill(b'x');
+                self.read += buffer.len();
+                Ok(buffer.len())
+            }
+        }
+        let mut endless = Endless { read: 0 };
+        assert!(read_bounded_body(&mut endless).is_none());
+        assert_eq!(endless.read, MAX_RESPONSE_BYTES + 1);
+        let valid = br#"{"Response":{"TargetTextList":["synthetic"]}}"#;
+        assert_eq!(
+            read_bounded_body(valid.as_slice()).as_deref(),
+            Some(valid.as_slice())
+        );
     }
 
     #[test]
