@@ -71,6 +71,19 @@ fn windows_legacy_mixed_input_ignores_invalid_values_and_documents() {
 }
 
 #[test]
+fn windows_legacy_config_reader_bounds_startup_input() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("config.toml");
+    std::fs::write(&path, "[general]\ncn_en_mixed_input = false\n").unwrap();
+    assert_eq!(
+        read_windows_legacy_config(&path).as_deref(),
+        Some("[general]\ncn_en_mixed_input = false\n")
+    );
+    std::fs::write(&path, vec![b'x'; MAX_WINDOWS_LEGACY_CONFIG_BYTES + 1]).unwrap();
+    assert!(read_windows_legacy_config(&path).is_none());
+}
+
+#[test]
 fn local_mode_resource_gates_preserve_unrelated_modes() {
     let root = tempfile::tempdir().unwrap();
     for name in ["others.db", "english.db", "dict_japanese.dat"] {

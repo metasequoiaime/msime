@@ -868,7 +868,7 @@ fn migrate_windows_legacy_mixed_input(
         return Ok(snapshot);
     }
     let path = state_root.join("config.toml");
-    let Ok(document) = std::fs::read_to_string(path) else {
+    let Some(document) = read_windows_legacy_config(&path) else {
         return Ok(snapshot);
     };
     let mut preferences = snapshot.preferences.clone();
@@ -876,6 +876,27 @@ fn migrate_windows_legacy_mixed_input(
         return Ok(snapshot);
     }
     Ok(store.save(snapshot.revision, preferences)?)
+}
+
+/// Read the optional installer-era TOML without letting a replaced file consume startup memory.
+/// The legacy document only carries four scalar switches, so a 64 KiB ceiling is generous; an
+/// absent, malformed or oversized file is ignored just like any other migration miss.
+const MAX_WINDOWS_LEGACY_CONFIG_BYTES: usize = 64 * 1024;
+
+#[cfg_attr(not(windows), allow(dead_code))]
+fn read_windows_legacy_config(path: &Path) -> Option<String> {
+    use std::io::Read;
+
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)
+        .ok()?
+        .take((MAX_WINDOWS_LEGACY_CONFIG_BYTES + 1) as u64)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    if bytes.len() > MAX_WINDOWS_LEGACY_CONFIG_BYTES {
+        return None;
+    }
+    String::from_utf8(bytes).ok()
 }
 
 #[cfg_attr(not(windows), allow(dead_code))]
