@@ -9,6 +9,7 @@ use msime_client_core::preferences::{
 use rmcp::schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::io::Read;
 use std::path::Path;
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
@@ -392,7 +393,14 @@ const TOO_LARGE: &str = "the runtime options would be too large for the input me
 /// Replace the preferences in the runtime-options document, the way `sync_runtime_options` in the desktop app does. Everything else in the document, the skin catalog included, is kept as it is.
 fn publish_to_runtime_options(path: &Path, preferences: &Preferences) -> Result<(), String> {
     use std::io::Write;
-    let bytes = std::fs::read(path).map_err(|_| "cannot read the runtime options")?;
+    let file = std::fs::File::open(path).map_err(|_| "cannot read the runtime options")?;
+    let mut bytes = Vec::new();
+    file.take((LINUX_RUNTIME_OPTIONS_LIMIT + 1) as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|_| "cannot read the runtime options")?;
+    if bytes.len() > LINUX_RUNTIME_OPTIONS_LIMIT {
+        return Err(TOO_LARGE.into());
+    }
     let mut document: Value =
         serde_json::from_slice(&bytes).map_err(|_| "cannot parse the runtime options")?;
     if !document.is_object() {
@@ -589,6 +597,17 @@ mod tests {
         preferences.candidate_page_size = 5;
         assert_eq!(
             publish_to_runtime_options(&options, &preferences).unwrap_err(),
+            TOO_LARGE
+        );
+    }
+
+    #[test]
+    fn an_oversized_source_is_rejected_before_json_decoding() {
+        let directory = tempfile::tempdir().unwrap();
+        let options = directory.path().join("runtime-options.json");
+        std::fs::write(&options, vec![b'x'; LINUX_RUNTIME_OPTIONS_LIMIT + 1]).unwrap();
+        assert_eq!(
+            publish_to_runtime_options(&options, &Preferences::default()).unwrap_err(),
             TOO_LARGE
         );
     }
