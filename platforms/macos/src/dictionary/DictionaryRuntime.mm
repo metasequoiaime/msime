@@ -1,4 +1,5 @@
 #include "DictionaryRuntime.h"
+#import "../settings/RuntimeOptions.h"
 #include "../../../../shared/apple-bridge/DictionaryInstallation.h"
 #include <stdexcept>
 #include <fstream>
@@ -9,6 +10,16 @@ NSURL *MetasequoiaDictionaryUserDirectory()
 {
     const auto legacy = metasequoia::RuntimePaths::legacy();
     return [NSURL fileURLWithFileSystemRepresentation:legacy.user_data.c_str() isDirectory:YES relativeToURL:nil];
+}
+
+static NSString *MetasequoiaEngineResourcesDirectory()
+{
+    NSDictionary *runtime = MSIMELoadRuntimeOptions();
+    NSString *resources = [runtime[@"resources"] isKindOfClass:NSString.class] ? runtime[@"resources"] : nil;
+    if (resources.length > 0 && resources.isAbsolutePath &&
+        [[NSFileManager defaultManager] fileExistsAtPath:resources isDirectory:nil])
+        return resources;
+    return NSBundle.mainBundle.resourceURL.path;
 }
 
 metasequoia::RuntimePaths MetasequoiaCurrentDictionaryPaths()
@@ -30,7 +41,7 @@ metasequoia::RuntimePaths MetasequoiaCurrentDictionaryPaths()
                 .location != NSNotFound)
         throw std::runtime_error("Invalid desktop dictionary generation");
     metasequoia::RuntimePaths paths{
-        NSBundle.mainBundle.resourceURL.fileSystemRepresentation, journal.fileSystemRepresentation,
+        MetasequoiaEngineResourcesDirectory().fileSystemRepresentation, journal.fileSystemRepresentation,
         [generation URLByAppendingPathComponent:@"cache"].fileSystemRepresentation,
         [[journal URLByAppendingPathComponent:@"dictionaries"] URLByAppendingPathComponent:content]
             .fileSystemRepresentation};
