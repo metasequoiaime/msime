@@ -21,6 +21,20 @@ struct CommunityFailure: LocalizedError {
   var errorDescription: String? { message }
 }
 
+enum CommunityProfilePolicy {
+  static let maximumNameScalars = 64
+
+  static func normalizedName(_ value: String) -> String {
+    value.trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  static func validName(_ value: String) -> Bool {
+    let name = normalizedName(value)
+    return !name.isEmpty && name.unicodeScalars.count <= maximumNameScalars
+      && !name.unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) }
+  }
+}
+
 actor SkinCommunityAPI {
   static let shared = SkinCommunityAPI()
   private let client: BackendAccountClient
@@ -89,9 +103,8 @@ actor SkinCommunityAPI {
     return profile
   }
   func updateProfile(name: String) async throws -> CommunityProfile {
-    let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !name.isEmpty, name.unicodeScalars.count <= 64,
-          !name.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else {
+    let name = CommunityProfilePolicy.normalizedName(name)
+    guard CommunityProfilePolicy.validName(name) else {
       throw CommunityFailure(message: "昵称需为 1–64 个字符，不能包含换行或控制字符。")
     }
     let token = try await account.accessToken()

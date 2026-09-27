@@ -266,11 +266,8 @@ struct AccountProfileEditor: View {
   @State private var confirmRelogin = false
   @State private var confirmDeleteAccount = false
 
-  private var normalizedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
-  private var validName: Bool {
-    !normalizedName.isEmpty && normalizedName.unicodeScalars.count <= 64 &&
-      !normalizedName.unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) }
-  }
+  private var normalizedName: String { CommunityProfilePolicy.normalizedName(name) }
+  private var validName: Bool { CommunityProfilePolicy.validName(name) }
   private var hasChanges: Bool {
     guard let profile else { return false }
     return normalizedName != profile.user.preferredDisplayName
