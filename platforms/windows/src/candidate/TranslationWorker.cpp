@@ -1,5 +1,6 @@
 #include "CandidateTranslationPolicy.h"
 #include "TranslationWorker.h"
+#include "CandidateHttpPolicy.h"
 #include "TranslationDisplay.h"
 
 #include "msime_client.h"
@@ -103,11 +104,7 @@ std::optional<std::string> http_request(const nlohmann::json &descriptor,
     if (!descriptor.is_object() || !descriptor.at("url").is_string())
       return std::nullopt;
     const auto url = descriptor.at("url").get<std::string>();
-    const bool https = url.rfind("https://", 0) == 0;
-    const bool http = allow_http && url.rfind("http://", 0) == 0;
-    if (url.size() > 2048 || (!https && !http) ||
-        std::any_of(url.begin(), url.end(),
-                    [](unsigned char ch) { return ch < 32 || ch == 127; }))
+    if (!valid_candidate_url(url, allow_http))
       return std::nullopt;
     const auto headers = descriptor.value("headers", nlohmann::json::object());
     if (!headers.is_object())
