@@ -4,6 +4,10 @@ mod aliases_macos;
 #[cfg(windows)]
 mod aliases_windows;
 
+pub(super) fn valid_font_name(value: &str) -> bool {
+    !value.is_empty() && value.len() <= 128 && !value.chars().any(char::is_control)
+}
+
 /// Resolve display-only CSS names without changing stored font preferences.
 ///
 /// A preference can hold a face name where a stylesheet needs a family, because the picker is not the
@@ -13,11 +17,7 @@ mod aliases_windows;
 /// so both ask their own font system what family the name belongs to. The remaining hosts have only
 /// family names to begin with.
 pub fn resolve_css_families(names: Vec<String>) -> Result<Vec<String>, &'static str> {
-    if names.len() > 33
-        || names
-            .iter()
-            .any(|name| name.is_empty() || name.len() > 128 || name.chars().any(char::is_control))
-    {
+    if names.len() > 33 || names.iter().any(|name| !valid_font_name(name)) {
         return Err("font_family");
     }
     #[cfg(windows)]
@@ -72,16 +72,12 @@ pub fn list() -> Result<Vec<String>, &'static str> {
 fn parse_catalog(output: &[u8], max_families: usize) -> Result<Vec<String>, &'static str> {
     use std::collections::BTreeSet;
 
-    const MAX_BYTES: usize = 128;
     let output = std::str::from_utf8(output).map_err(|_| "font_catalog")?;
     let mut names = BTreeSet::new();
     for line in output.lines() {
         for family in line.split(',') {
             let family = family.trim();
-            if !family.is_empty()
-                && family.len() <= MAX_BYTES
-                && !family.chars().any(char::is_control)
-            {
+            if valid_font_name(family) {
                 names.insert(family.to_owned());
             }
             if names.len() > max_families {
