@@ -5,6 +5,7 @@ use crate::account::{
     AccountApi, AccountError, AccountSessionStorage, BackendAccountClient, BackendAccountSession,
 };
 use crate::cloud::dictionary::DictionaryKind;
+use crate::community::valid_text;
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -619,14 +620,6 @@ fn validate_content(
         }
     }
     Ok(())
-}
-
-fn valid_text(value: &str, minimum: usize, maximum: usize, multiline: bool) -> bool {
-    let count = value.chars().count();
-    (minimum..=maximum).contains(&count)
-        && value.chars().all(|character| {
-            !character.is_control() || (multiline && matches!(character, '\n' | '\t'))
-        })
 }
 
 fn encode_query(value: &str) -> String {
