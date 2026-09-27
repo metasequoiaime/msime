@@ -148,7 +148,7 @@ public final class BackendAccount {
 
     public ClipboardPage clipboard(String search) throws Exception {
         String token = accessToken();
-        if (token.isEmpty() || search == null || search.length() > 1024 || search.chars().anyMatch(Character::isISOControl))
+        if (token.isEmpty() || search == null || search.length() > 1024 || TextPolicy.hasControl(search))
             throw new IllegalStateException("invalid clipboard request");
         String encoded = java.net.URLEncoder.encode(search, StandardCharsets.UTF_8.name()).replace("+", "%20");
         JSONObject response = request("GET", "/v1/users/me/clipboard?q=" + encoded, null, token);
@@ -163,7 +163,7 @@ public final class BackendAccount {
             String updated = item.optString("updated_at", "");
             if (!id.matches("[0-9a-f]{64}") || !CloudClipboardTextPolicy.valid(text)
                     || updated.isEmpty() || updated.length() > 128
-                    || updated.chars().anyMatch(Character::isISOControl))
+                    || TextPolicy.hasControl(updated))
                 throw new IllegalStateException("invalid clipboard response");
             items.add(new ClipboardItem(id, text, updated));
         }

@@ -613,7 +613,7 @@ public final class VoiceRecognitionActivity extends Activity {
 
     private static String safeLanguage(String language) {
         if (language != null && !language.isEmpty() && language.length() <= 64
-                && language.chars().noneMatch(Character::isISOControl)) {
+                && !TextPolicy.hasControl(language)) {
             Locale locale = Locale.forLanguageTag(language.replace('_', '-'));
             if (!locale.getLanguage().isEmpty()) return locale.toLanguageTag();
         }

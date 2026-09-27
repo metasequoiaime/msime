@@ -1,6 +1,5 @@
 package app.msime.client;
 
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -58,17 +57,17 @@ public final class OnlineCandidatePolicy {
 
     /** Whether a cloud body is small enough to hand to the shared parser. */
     public static boolean acceptsCloudBody(String body) {
-        return body != null && !body.isEmpty() && utf8Length(body) <= MAX_CLOUD_RESPONSE_BYTES;
+        return body != null && !body.isEmpty() && TextPolicy.utf8Length(body) <= MAX_CLOUD_RESPONSE_BYTES;
     }
 
     /** Whether an AI reply is small enough to parse. */
     public static boolean acceptsAiBody(String body) {
-        return body != null && !body.isEmpty() && utf8Length(body) <= MAX_AI_RESPONSE_BYTES;
+        return body != null && !body.isEmpty() && TextPolicy.utf8Length(body) <= MAX_AI_RESPONSE_BYTES;
     }
 
     /** Whether the JSON-mode content inside an AI reply is small enough to parse. */
     public static boolean acceptsAiContent(String content) {
-        return content != null && !content.isEmpty() && utf8Length(content) <= MAX_AI_CONTENT_BYTES;
+        return content != null && !content.isEmpty() && TextPolicy.utf8Length(content) <= MAX_AI_CONTENT_BYTES;
     }
 
     /**
@@ -82,8 +81,8 @@ public final class OnlineCandidatePolicy {
         if (texts == null || aiCandidateLimit(limit) == 0) return result;
         for (String text : texts) {
             if (result.size() == limit) break;
-            if (text == null || text.trim().isEmpty() || utf8Length(text) > MAX_CANDIDATE_BYTES
-                    || hasControl(text) || result.contains(text)) {
+            if (text == null || text.trim().isEmpty() || TextPolicy.utf8Length(text) > MAX_CANDIDATE_BYTES
+                    || TextPolicy.hasControl(text) || result.contains(text)) {
                 continue;
             }
             result.add(text);
@@ -98,16 +97,4 @@ public final class OnlineCandidatePolicy {
         return value.length() + ":" + value;
     }
 
-    private static boolean hasControl(String value) {
-        for (int index = 0; index < value.length();) {
-            int codePoint = value.codePointAt(index);
-            if (codePoint <= 0x1f || (codePoint >= 0x7f && codePoint <= 0x9f)) return true;
-            index += Character.charCount(codePoint);
-        }
-        return false;
-    }
-
-    private static int utf8Length(String value) {
-        return value.getBytes(StandardCharsets.UTF_8).length;
-    }
 }

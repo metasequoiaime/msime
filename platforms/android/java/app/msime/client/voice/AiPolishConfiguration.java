@@ -46,12 +46,12 @@ public final class AiPolishConfiguration {
     }
 
     public static boolean acceptableText(String text) {
-        if (text == null || text.trim().isEmpty() || !validUnicode(text)) return false;
+        if (text == null || text.trim().isEmpty() || !TextPolicy.validUnicode(text)) return false;
         return text.codePointCount(0, text.length()) <= MAXIMUM_TEXT_CODE_POINTS;
     }
 
     private static URI validatedEndpoint(String value) {
-        if (value == null || value.isEmpty() || value.length() > 2048 || hasControl(value)) {
+        if (value == null || value.isEmpty() || value.length() > 2048 || TextPolicy.hasControl(value)) {
             throw new IllegalArgumentException("AI 接口地址无效");
         }
         try {
@@ -74,36 +74,16 @@ public final class AiPolishConfiguration {
 
     private static String bounded(String value, int maximum, String message) {
         String result = value == null ? "" : value.trim();
-        if (result.isEmpty() || result.length() > maximum || hasControlExceptWhitespace(result)
-                || !validUnicode(result)) throw new IllegalArgumentException(message);
+        if (result.isEmpty() || result.length() > maximum || TextPolicy.hasControlExceptWhitespace(result)
+                || !TextPolicy.validUnicode(result)) throw new IllegalArgumentException(message);
         return result;
     }
 
     private static String boundedOptional(String value, int maximum, String message) {
         String result = value == null ? "" : value.trim();
-        if (result.length() > maximum || hasControl(result) || !validUnicode(result))
+        if (result.length() > maximum || TextPolicy.hasControl(result) || !TextPolicy.validUnicode(result))
             throw new IllegalArgumentException(message);
         return result;
-    }
-
-    private static boolean hasControl(String value) {
-        return value.codePoints().anyMatch(Character::isISOControl);
-    }
-
-    private static boolean hasControlExceptWhitespace(String value) {
-        return value.codePoints().anyMatch(code -> Character.isISOControl(code)
-            && code != '\n' && code != '\r' && code != '\t');
-    }
-
-    private static boolean validUnicode(String value) {
-        for (int index = 0; index < value.length(); index++) {
-            char unit = value.charAt(index);
-            if (Character.isHighSurrogate(unit)) {
-                if (++index >= value.length() || !Character.isLowSurrogate(value.charAt(index)))
-                    return false;
-            } else if (Character.isLowSurrogate(unit)) return false;
-        }
-        return true;
     }
 
     @Override public boolean equals(Object other) {

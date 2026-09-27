@@ -166,11 +166,7 @@ public final class CandidateAppearance {
     private static boolean validFont(String value) {
         if (value == null || value.isEmpty()
                 || value.getBytes(StandardCharsets.UTF_8).length > 128) return false;
-        for (int index = 0; index < value.length(); index++) {
-            char character = value.charAt(index);
-            if (character < 0x20 || (character >= 0x7f && character <= 0x9f)) return false;
-        }
-        return true;
+        return !TextPolicy.hasControl(value);
     }
 
     public static final class Palette {
