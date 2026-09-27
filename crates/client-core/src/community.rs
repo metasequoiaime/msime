@@ -12,6 +12,15 @@ pub(crate) fn valid_text(value: &str, minimum: usize, maximum: usize, multiline:
         })
 }
 
+pub(crate) const MAXIMUM_OFFSET: usize = 1_000_000;
+pub(crate) const MAXIMUM_SEARCH_CHARACTERS: usize = 128;
+
+pub(crate) fn valid_query(offset: usize, search: &str) -> bool {
+    offset <= MAXIMUM_OFFSET
+        && search.chars().count() <= MAXIMUM_SEARCH_CHARACTERS
+        && !search.chars().any(char::is_control)
+}
+
 pub(crate) fn encode_query(value: &str) -> String {
     let mut encoded = String::with_capacity(value.len());
     for byte in value.bytes() {

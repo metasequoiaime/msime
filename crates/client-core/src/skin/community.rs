@@ -5,16 +5,14 @@
 use crate::account::{
     AccountApi, AccountError, AccountSessionStorage, BackendAccountClient, BackendAccountSession,
 };
-use crate::community::{encode_query, valid_text};
+use crate::community::{encode_query, valid_query, valid_text, MAXIMUM_OFFSET};
 use crate::preferences::TouchKeyboardSkinDesign;
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
 
-const MAXIMUM_OFFSET: usize = 1_000_000;
 const MAXIMUM_PAGE_ITEMS: usize = 20;
-const MAXIMUM_SEARCH_CHARACTERS: usize = 128;
 const MAXIMUM_JAVASCRIPT_INTEGER: u64 = 9_007_199_254_740_991;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -320,10 +318,7 @@ where
 }
 
 fn validate_query(offset: usize, search: &str) -> Result<(), AccountError> {
-    if offset > MAXIMUM_OFFSET
-        || search.chars().count() > MAXIMUM_SEARCH_CHARACTERS
-        || search.chars().any(char::is_control)
-    {
+    if !valid_query(offset, search) {
         return Err(AccountError::Invalid);
     }
     Ok(())
