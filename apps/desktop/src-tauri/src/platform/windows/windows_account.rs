@@ -1,20 +1,12 @@
-//! Windows desktop account commands.
+//! Windows desktop account session storage.
 //!
-//! Session tokens stay in the per-user Windows Credential Manager. The React
-//! surface only receives the same redacted DTOs as the mobile hosts.
+//! Session tokens stay in the per-user Windows Credential Manager. The commands themselves live in [`crate::platform::desktop::desktop_account`], and the React surface only receives the same redacted DTOs as the mobile hosts.
 
-use crate::shared::account_dto::{
-    providers_response, ChallengeResponse, ProfileResponse, ProvidersResponse, StatusResponse,
-};
-use msime_client_core::account::{
-    AccountError, AccountSessionStorage, BackendAccountClient, BackendAccountSession,
-    SavedAccountSession,
-};
-use std::sync::Arc;
-use tauri::Manager;
+use crate::platform::desktop::desktop_account;
+use msime_client_core::account::{AccountError, AccountSessionStorage, SavedAccountSession};
 
 #[derive(Clone, Copy)]
-struct WindowsAccountStorage;
+pub(crate) struct WindowsAccountStorage;
 
 impl AccountSessionStorage for WindowsAccountStorage {
     fn load(&self) -> Result<Option<SavedAccountSession>, AccountError> {
@@ -34,119 +26,7 @@ impl AccountSessionStorage for WindowsAccountStorage {
     }
 }
 
-type Session = BackendAccountSession<BackendAccountClient, WindowsAccountStorage>;
-
-pub struct AccountState {
-    pub(crate) session: Arc<Session>,
-}
-
+/// Registers the shared desktop account state around the Credential Manager store.
 pub fn setup(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
-    let client = BackendAccountClient::new()?;
-    let session = Arc::new(BackendAccountSession::new(client, WindowsAccountStorage));
-    app.manage(AccountState { session });
-    Ok(())
-}
-
-async fn call<T, F>(
-    state: tauri::State<'_, AccountState>,
-    operation: F,
-) -> Result<T, crate::CommandError>
-where
-    T: Send + 'static,
-    F: FnOnce(&Session) -> Result<T, AccountError> + Send + 'static,
-{
-    let session = Arc::clone(&state.session);
-    tauri::async_runtime::spawn_blocking(move || operation(&session))
-        .await
-        .map_err(|_| crate::CommandError {
-            code: "account_unavailable",
-        })?
-        .map_err(|error| crate::CommandError { code: error.code() })
-}
-
-#[tauri::command]
-pub async fn account_status(
-    state: tauri::State<'_, AccountState>,
-) -> Result<StatusResponse, crate::CommandError> {
-    call(state, |session| {
-        session.status().map(|user| StatusResponse {
-            user: user.map(Into::into),
-        })
-    })
-    .await
-}
-
-#[tauri::command]
-pub async fn account_providers(
-    state: tauri::State<'_, AccountState>,
-) -> Result<ProvidersResponse, crate::CommandError> {
-    call(state, |session| session.providers().map(providers_response)).await
-}
-
-#[tauri::command]
-pub async fn account_request_code(
-    state: tauri::State<'_, AccountState>,
-    provider: String,
-    target: String,
-) -> Result<ChallengeResponse, crate::CommandError> {
-    call(state, move |session| {
-        session.request_code(&provider, &target).map(Into::into)
-    })
-    .await
-}
-
-#[tauri::command]
-pub async fn account_login(
-    state: tauri::State<'_, AccountState>,
-    challenge_id: String,
-    code: String,
-) -> Result<StatusResponse, crate::CommandError> {
-    call(state, move |session| {
-        session
-            .sign_in(&challenge_id, &code)
-            .map(|user| StatusResponse {
-                user: Some(user.into()),
-            })
-    })
-    .await
-}
-
-#[tauri::command]
-pub async fn account_profile(
-    state: tauri::State<'_, AccountState>,
-) -> Result<ProfileResponse, crate::CommandError> {
-    call(state, |session| session.profile().map(Into::into)).await
-}
-
-#[tauri::command]
-pub async fn account_rename(
-    state: tauri::State<'_, AccountState>,
-    display_name: String,
-) -> Result<ProfileResponse, crate::CommandError> {
-    call(state, move |session| {
-        session.rename(&display_name).map(Into::into)
-    })
-    .await
-}
-
-#[tauri::command]
-pub async fn account_logout(
-    state: tauri::State<'_, AccountState>,
-    all: bool,
-) -> Result<(), crate::CommandError> {
-    call(state, move |session| session.logout(all)).await
-}
-
-#[tauri::command]
-pub async fn account_delete(
-    state: tauri::State<'_, AccountState>,
-) -> Result<(), crate::CommandError> {
-    call(state, |session| session.delete_account()).await
-}
-
-#[tauri::command]
-pub async fn account_forget(
-    state: tauri::State<'_, AccountState>,
-) -> Result<(), crate::CommandError> {
-    call(state, |session| session.forget()).await
+    desktop_account::manage(app, WindowsAccountStorage)
 }
