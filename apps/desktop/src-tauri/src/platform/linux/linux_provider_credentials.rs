@@ -10,7 +10,7 @@ use reqwest::Url;
 use serde::Serialize;
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -206,7 +206,18 @@ fn read_private(path: &Path) -> Result<Option<Map<String, Value>>, CredentialErr
     {
         return Err(CredentialError::Existing);
     }
-    let text = std::fs::read_to_string(path).map_err(|_| CredentialError::Storage)?;
+    // The file can grow after symlink_metadata returns. Read through a bounded handle so a
+    // concurrent replacement cannot turn the size check into an unbounded allocation.
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)
+        .map_err(|_| CredentialError::Storage)?
+        .take(MAX_PROVIDER_CONFIG_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| CredentialError::Storage)?;
+    if bytes.len() > MAX_PROVIDER_CONFIG_BYTES {
+        return Err(CredentialError::Existing);
+    }
+    let text = std::str::from_utf8(&bytes).map_err(|_| CredentialError::Storage)?;
     match serde_json::from_str::<Value>(&text) {
         Ok(Value::Object(map)) => Ok(Some(map)),
         _ => Err(CredentialError::Existing),
@@ -1437,5 +1448,16 @@ mod tests {
             Err(CredentialError::TooManyProfiles)
         );
         assert_eq!(status_in(root).unwrap().ai.len(), MAX_AI_PROFILES);
+    }
+
+    #[test]
+    fn oversized_private_document_is_rejected_after_a_bounded_read() {
+        let temp = directory();
+        let path = temp.path().join(AI_FILE);
+        std::fs::write(&path, vec![b' '; MAX_PROVIDER_CONFIG_BYTES + 1]).unwrap();
+        assert!(matches!(
+            read_private(&path),
+            Err(CredentialError::Existing)
+        ));
     }
 }
