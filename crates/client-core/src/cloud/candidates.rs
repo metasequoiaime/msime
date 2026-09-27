@@ -21,6 +21,14 @@ pub const REQUEST_TIMEOUT_MS: u64 = 2000;
 const MAX_CANDIDATE: usize = 512;
 const MAX_CACHE_ENTRIES: usize = 4096;
 
+fn valid_input(value: &str) -> bool {
+    !value.is_empty() && value.len() <= MAX_INPUT && !value.chars().any(char::is_control)
+}
+
+fn valid_candidate(value: &str) -> bool {
+    !value.is_empty() && value.len() <= MAX_CANDIDATE && !value.chars().any(char::is_control)
+}
+
 #[derive(Debug)]
 pub struct TranslationCache {
     positive: HashMap<String, (String, Instant)>,
@@ -85,11 +93,7 @@ impl CloudCandidateState {
             return None;
         }
         self.generation += 1;
-        if !enabled
-            || input.is_empty()
-            || input.len() > MAX_INPUT
-            || input.chars().any(|c| c.is_control())
-        {
+        if !enabled || !valid_input(input) {
             return None;
         }
         self.input.push_str(input);
@@ -97,12 +101,7 @@ impl CloudCandidateState {
     }
 
     pub fn apply(&self, generation: u64, candidate: &str) -> Option<String> {
-        if generation != self.generation
-            || self.input.is_empty()
-            || candidate.is_empty()
-            || candidate.len() > MAX_CANDIDATE
-            || candidate.chars().any(|c| c.is_control())
-        {
+        if generation != self.generation || self.input.is_empty() || !valid_candidate(candidate) {
             return None;
         }
         Some(candidate.to_owned())
@@ -110,7 +109,7 @@ impl CloudCandidateState {
 }
 
 pub fn build_google_url(input: &str, japanese: bool) -> Option<String> {
-    if input.is_empty() || input.len() > MAX_INPUT || input.chars().any(|c| c.is_control()) {
+    if !valid_input(input) {
         return None;
     }
     let scheme = if japanese {
@@ -134,10 +133,7 @@ pub fn parse_google_response(response: &[u8]) -> Option<String> {
     }
     let candidate = root.get(1)?.get(0)?.get(1)?.get(0)?.as_str()?;
     let candidate = candidate.trim();
-    if candidate.is_empty()
-        || candidate.len() > MAX_CANDIDATE
-        || candidate.chars().any(|c| c.is_control())
-    {
+    if !valid_candidate(candidate) {
         return None;
     }
     Some(candidate.to_owned())
