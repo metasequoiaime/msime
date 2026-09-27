@@ -7,7 +7,7 @@
 use crate::file_lock;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
@@ -543,11 +543,18 @@ fn validate_request_id(id: &str) -> Result<(), PersonalDictionaryError> {
 }
 
 fn read_file(file: &Path) -> Result<PersonalDictionaryState, PersonalDictionaryError> {
-    let metadata = fs::metadata(file)?;
+    let file_handle = File::open(file)?;
+    let metadata = file_handle.metadata()?;
     if metadata.len() as usize > MAX_STATE_BYTES {
         return Err(PersonalDictionaryError::InvalidState);
     }
-    let bytes = fs::read(file)?;
+    let mut bytes = Vec::new();
+    file_handle
+        .take((MAX_STATE_BYTES + 1) as u64)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() > MAX_STATE_BYTES {
+        return Err(PersonalDictionaryError::InvalidState);
+    }
     let state: PersonalDictionaryState =
         serde_json::from_slice(&bytes).map_err(|_| PersonalDictionaryError::InvalidState)?;
     validate_state(&state)?;
@@ -763,6 +770,18 @@ mod tests {
             Err(PersonalDictionaryError::InvalidState)
         ));
         assert_eq!(fs::read(directory.join("sync.json")).unwrap(), b"not-json");
+    }
+
+    #[test]
+    fn oversized_state_is_rejected_before_json_decode() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("sync.json");
+        fs::write(&path, vec![b'x'; MAX_STATE_BYTES + 1]).unwrap();
+        let store = PersonalDictionaryStore::new(root.path());
+        assert!(matches!(
+            store.read(),
+            Err(PersonalDictionaryError::InvalidState)
+        ));
     }
 
     #[test]
