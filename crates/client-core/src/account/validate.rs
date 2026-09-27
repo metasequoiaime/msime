@@ -37,12 +37,15 @@ pub(super) fn validate_clipboard_text(value: &str) -> Result<(), AccountError> {
     }
 }
 
-pub(super) fn validate_clipboard_id(value: &str) -> Result<(), AccountError> {
-    if value.len() != 64
-        || !value
+fn valid_lower_hex(value: &str, length: usize) -> bool {
+    value.len() == length
+        && value
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-    {
+}
+
+pub(super) fn validate_clipboard_id(value: &str) -> Result<(), AccountError> {
+    if !valid_lower_hex(value, 64) {
         Err(AccountError::Invalid)
     } else {
         Ok(())
@@ -327,11 +330,7 @@ pub(super) fn mutation_path(kind: DictionaryKind, operation: &str) -> Option<Str
 }
 
 pub(super) fn validate_dictionary_id(value: &str) -> Result<(), AccountError> {
-    if value.len() == 64
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-    {
+    if valid_lower_hex(value, 64) {
         Ok(())
     } else {
         Err(AccountError::Invalid)
@@ -706,10 +705,7 @@ pub(super) fn validate_tokens(tokens: &AccountTokens) -> Result<(), AccountError
 }
 
 pub(super) fn valid_token(value: &str) -> bool {
-    value.len() == 64
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    valid_lower_hex(value, 64)
 }
 
 pub(super) fn validate_user(user: &AccountUser) -> Result<(), AccountError> {
