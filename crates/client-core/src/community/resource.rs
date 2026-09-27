@@ -5,7 +5,7 @@ use crate::account::{
     AccountApi, AccountError, AccountSessionStorage, BackendAccountClient, BackendAccountSession,
 };
 use crate::cloud::dictionary::DictionaryKind;
-use crate::community::{encode_query, valid_query, valid_text, MAXIMUM_OFFSET};
+use crate::community::{encode_query, valid_query, valid_text};
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;

@@ -5,7 +5,7 @@
 use crate::account::{
     AccountApi, AccountError, AccountSessionStorage, BackendAccountClient, BackendAccountSession,
 };
-use crate::community::{encode_query, valid_query, valid_text, MAXIMUM_OFFSET};
+use crate::community::{encode_query, valid_query, valid_text};
 use crate::preferences::TouchKeyboardSkinDesign;
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
@@ -381,6 +381,7 @@ mod tests {
     use crate::account::{
         AccountChallenge, AccountProfile, AccountTokens, AccountUser, SavedAccountSession,
     };
+    use crate::community::MAXIMUM_OFFSET;
     use std::collections::HashMap;
     use std::io::{Read, Write};
     use std::net::TcpListener;
