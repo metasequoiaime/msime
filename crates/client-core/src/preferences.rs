@@ -17,6 +17,12 @@ fn valid_font_family(value: &str) -> bool {
     !value.is_empty() && value.len() <= 128 && !value.chars().any(char::is_control)
 }
 
+fn valid_hex_color(value: &str) -> bool {
+    value.len() == 7
+        && value.as_bytes()[0] == b'#'
+        && value[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum InputScheme {
@@ -1744,42 +1750,27 @@ impl Preferences {
             return Err(PreferencesError::InvalidCandidateFontSize);
         }
         if let Some(color) = &self.candidate_text_color {
-            if color.len() != 7
-                || color.as_bytes()[0] != b'#'
-                || !color[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
-            {
+            if !valid_hex_color(color) {
                 return Err(PreferencesError::InvalidCandidateTextColor);
             }
         }
         if let Some(color) = &self.candidate_number_color {
-            if color.len() != 7
-                || color.as_bytes()[0] != b'#'
-                || !color[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
-            {
+            if !valid_hex_color(color) {
                 return Err(PreferencesError::InvalidCandidateNumberColor);
             }
         }
         if let Some(color) = &self.candidate_accent_color {
-            if color.len() != 7
-                || color.as_bytes()[0] != b'#'
-                || !color[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
-            {
+            if !valid_hex_color(color) {
                 return Err(PreferencesError::InvalidCandidateAccentColor);
             }
         }
         if let Some(color) = &self.candidate_selected_color {
-            if color.len() != 7
-                || color.as_bytes()[0] != b'#'
-                || !color[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
-            {
+            if !valid_hex_color(color) {
                 return Err(PreferencesError::InvalidCandidateSelectedColor);
             }
         }
         if let Some(color) = &self.candidate_hover_color {
-            if color.len() != 7
-                || color.as_bytes()[0] != b'#'
-                || !color[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
-            {
+            if !valid_hex_color(color) {
                 return Err(PreferencesError::InvalidCandidateHoverColor);
             }
         }
@@ -1794,10 +1785,7 @@ impl Preferences {
             ),
         ] {
             if let Some(color) = color {
-                if color.len() != 7
-                    || color.as_bytes()[0] != b'#'
-                    || !color[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
-                {
+                if !valid_hex_color(color) {
                     return Err(error);
                 }
             }
