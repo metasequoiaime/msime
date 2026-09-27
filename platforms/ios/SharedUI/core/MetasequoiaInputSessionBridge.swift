@@ -295,8 +295,11 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   func reloadSharedPreferences(completion: @escaping (Bool) -> Void) {
     guard handle != 0, let stateRoot else { completion(false); return }
     let path = Data(stateRoot.utf8)
-    DispatchQueue.global(qos: .utility).async { [weak self, path] in
-      guard self != nil else { return }
+    // Keep the bridge alive until the main-thread callback has applied the snapshot. A weak
+    // capture here can drop the bridge while the worker is reading, leaving callers waiting
+    // forever for a completion that is never delivered. Capturing it strongly in both closures
+    // also keeps the final release on the main queue, where the session handle is owned.
+    DispatchQueue.global(qos: .utility).async { [self, path] in
       let snapshot: [String: Any]?
       do {
         snapshot = try path.withUnsafeBytes { bytes in
@@ -306,8 +309,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       } catch {
         snapshot = nil
       }
-      DispatchQueue.main.async { [weak self] in
-        guard let self, let snapshot,
+      DispatchQueue.main.async { [self] in
+        guard let snapshot,
               let preferences = snapshot["preferences"] as? [String: Any],
               let revision = snapshot["revision"] as? NSNumber else {
           completion(false)
