@@ -13,6 +13,10 @@ use std::path::{Path, PathBuf};
 /// from forcing an unbounded allocation during startup or recovery.
 const MAX_DOCUMENT_BYTES: u64 = 1024 * 1024;
 
+fn valid_font_family(value: &str) -> bool {
+    !value.is_empty() && value.len() <= 128 && !value.chars().any(char::is_control)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum InputScheme {
@@ -1800,15 +1804,14 @@ impl Preferences {
         }
         // Font family names are Unicode display names, not paths or identifiers.
         // Keep the existing UTF-8 byte budget while allowing localized families.
-        if self.candidate_font_family.is_empty()
-            || self.candidate_font_family.len() > 128
-            || self.candidate_font_family.chars().any(char::is_control)
-        {
+        if !valid_font_family(&self.candidate_font_family) {
             return Err(PreferencesError::InvalidCandidateFontFamily);
         }
-        if self.candidate_english_font.as_ref().is_some_and(|font| {
-            font.is_empty() || font.len() > 128 || font.chars().any(char::is_control)
-        }) {
+        if self
+            .candidate_english_font
+            .as_deref()
+            .is_some_and(|font| !valid_font_family(font))
+        {
             return Err(PreferencesError::InvalidCandidateFontFamily);
         }
         if self.candidate_skin.is_empty()
@@ -1827,9 +1830,10 @@ impl Preferences {
         }
         // Match the 32 ordered supplementary families in Windows appearance.ts.
         if self.candidate_fallback_fonts.len() > 32
-            || self.candidate_fallback_fonts.iter().any(|font| {
-                font.is_empty() || font.len() > 128 || font.chars().any(char::is_control)
-            })
+            || self
+                .candidate_fallback_fonts
+                .iter()
+                .any(|font| !valid_font_family(font))
         {
             return Err(PreferencesError::InvalidCandidateFontFamily);
         }
