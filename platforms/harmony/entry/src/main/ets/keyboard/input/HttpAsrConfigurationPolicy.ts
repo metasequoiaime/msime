@@ -65,11 +65,7 @@ export class HttpAsrConfigurationPolicy {
     const token: string = this.token(config);
     return (
       this.supported(config.asr_provider) &&
-      TextPolicy.hasHttpsAuthority(endpoint) &&
-      utf8Length(endpoint) <= 2048 &&
-      !endpoint.includes("@") &&
-      !endpoint.includes("#") &&
-      !TextPolicy.hasControl(endpoint) &&
+      TextPolicy.validAuthority(endpoint, ["https://"]) &&
       model.length > 0 &&
       utf8Length(model) <= 512 &&
       !TextPolicy.hasControl(model) &&

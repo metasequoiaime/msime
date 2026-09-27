@@ -1866,18 +1866,14 @@ class SettingsBridge {
 
   private validCredentialEndpoint(value: string, allowHttp: boolean): string | null {
     const endpoint: string = value.trim();
-    const validScheme: boolean = TextPolicy.hasAuthority(endpoint, 'https://')
-      || (allowHttp && TextPolicy.hasAuthority(endpoint, 'http://'));
-    if (endpoint.length === 0 || utf8Length(endpoint) > 2048 || TextPolicy.hasControl(endpoint)
-      || !validScheme || endpoint.includes('@') || endpoint.includes('#')) return null;
+    const schemes: string[] = allowHttp ? ['https://', 'http://'] : ['https://'];
+    if (!TextPolicy.validAuthority(endpoint, schemes)) return null;
     return endpoint;
   }
 
   private validDoubaoEndpoint(value: string): string | null {
     const endpoint: string = value.trim();
-    if (endpoint.length === 0 || utf8Length(endpoint) > 2048 || TextPolicy.hasControl(endpoint)
-      || !TextPolicy.hasAuthority(endpoint, 'wss://') || endpoint.includes('@')
-      || endpoint.includes('#')) {
+    if (!TextPolicy.validAuthority(endpoint, ['wss://'])) {
       return null;
     }
     return endpoint;
@@ -1891,10 +1887,7 @@ class SettingsBridge {
 
   private validAiEndpoint(value: string): string | null {
     const endpoint: string = value.trim();
-    if (endpoint.length === 0 || utf8Length(endpoint) > 2048 || TextPolicy.hasControl(endpoint)
-      || (!TextPolicy.hasAuthority(endpoint, 'http://')
-        && !TextPolicy.hasAuthority(endpoint, 'https://'))
-      || endpoint.includes('@') || endpoint.includes('#')) return null;
+    if (!TextPolicy.validAuthority(endpoint, ['http://', 'https://'])) return null;
     return endpoint;
   }
 

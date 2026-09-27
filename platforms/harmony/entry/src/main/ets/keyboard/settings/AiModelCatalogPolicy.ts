@@ -19,8 +19,7 @@ export interface AiCatalogPage {
 export class AiModelCatalogPolicy {
   static modelsUrl(endpoint: string): string | null {
     const trimmed: string = endpoint.trim();
-    if (!TextPolicy.hasHttpsAuthority(trimmed) || trimmed.length > 2048
-      || trimmed.includes("@") || trimmed.includes("#") || TextPolicy.hasControl(trimmed)) {
+    if (!TextPolicy.validAuthority(trimmed, ["https://"])) {
       return null;
     }
     const queryIndex: number = trimmed.indexOf("?");

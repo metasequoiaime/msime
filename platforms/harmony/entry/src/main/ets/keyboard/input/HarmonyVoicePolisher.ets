@@ -180,7 +180,6 @@ export class HarmonyVoicePolisher {
   }
 
   private validEndpoint(value: string): boolean {
-    return value.length > 0 && utf8Length(value) <= MAX_ENDPOINT_BYTES && !TextPolicy.hasControl(value)
-      && TextPolicy.hasHttpsAuthority(value) && !value.includes('@') && !value.includes('#');
+    return TextPolicy.validAuthority(value, ['https://'], MAX_ENDPOINT_BYTES);
   }
 }

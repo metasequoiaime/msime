@@ -14,6 +14,13 @@ export class TextPolicy {
     return TextPolicy.hasAuthority(value, "https://");
   }
 
+  /** Validates a bounded endpoint with one of the supplied schemes and no user-info or fragment. */
+  static validAuthority(value: string, schemes: string[], maxBytes: number = 2048): boolean {
+    return value.length > 0 && utf8Length(value) <= maxBytes && !TextPolicy.hasControl(value)
+      && schemes.some((scheme: string): boolean => TextPolicy.hasAuthority(value, scheme))
+      && !value.includes("@") && !value.includes("#");
+  }
+
   /** Rejects the C0 and C1 control ranges while leaving printable Unicode untouched. */
   static hasControl(value: string): boolean {
     return Array.from(value).some((character: string): boolean => {
