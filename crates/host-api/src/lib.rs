@@ -776,15 +776,23 @@ fn outdated_resources(error: Box<dyn std::error::Error>) -> Box<dyn std::error::
 ///
 /// Returns whether the file was rewritten. Run it before the caller's own sessions exist. The previous generation is never modified, so a host still using it keeps working until it restarts. A symlink, or a document whose paths do not follow the layout `prepare_host_configuration` produces, is left alone rather than guessed at. When the recorded resources do not match the compiled lock the error is [`DictionaryOutdated`] and the file is left as it was.
 pub fn refresh_host_options(path: &std::path::Path) -> Result<bool, Box<dyn std::error::Error>> {
+    use std::io::Read;
+
     use std::io::Write as _;
     let metadata = std::fs::symlink_metadata(path)?;
     if !metadata.is_file() {
         return Ok(false);
     }
-    if metadata.len() > HOST_OPTIONS_DOCUMENT_LIMIT as u64 {
+    // The file can be replaced or grow after symlink_metadata returns. Read through a
+    // limit-aware handle so that the size check remains effective across that race.
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)?
+        .take((HOST_OPTIONS_DOCUMENT_LIMIT + 1) as u64)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() > HOST_OPTIONS_DOCUMENT_LIMIT {
         return Err("runtime options exceed 1 MiB".into());
     }
-    let document: Value = serde_json::from_slice(&std::fs::read(path)?)?;
+    let document: Value = serde_json::from_slice(&bytes)?;
     let specification: ResourceSet = serde_json::from_str(include_str!(
         "../../../resources/desktop-dictionary.lock.json"
     ))?;

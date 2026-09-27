@@ -5788,6 +5788,15 @@ fn refresh_accepts_full_sized_options_documents() {
 }
 
 #[test]
+fn refresh_rejects_oversized_options_without_reading_them_unboundedly() {
+    let directory = tempfile::tempdir().unwrap();
+    let options = directory.path().join("runtime-options.json");
+    std::fs::write(&options, vec![b' '; super::HOST_OPTIONS_DOCUMENT_LIMIT + 1]).unwrap();
+    let error = super::refresh_host_options(&options).unwrap_err();
+    assert!(error.to_string().contains("runtime options exceed 1 MiB"));
+}
+
+#[test]
 fn a_failed_preparation_is_reported_and_incomplete_output_rejected() {
     let stale = json!({
         "resources": "/r",
