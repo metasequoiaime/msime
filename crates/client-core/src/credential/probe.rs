@@ -56,19 +56,7 @@ pub fn test_chat(service: &str, config: &Value, transport: &impl ProbeTransport)
     if !crate::credential::usable_token(token) {
         return result(false, "请先填写有效的 API Key。");
     }
-    let url = reqwest::Url::parse(endpoint).ok();
-    if endpoint.len() > 2048
-        || model.is_empty()
-        || model.len() > 256
-        || model.chars().any(char::is_control)
-        || !url.is_some_and(|url| {
-            url.scheme() == "https"
-                && url.host_str().is_some()
-                && url.username().is_empty()
-                && url.password().is_none()
-                && url.fragment().is_none()
-        })
-    {
+    if !crate::credential::valid_https_endpoint_and_model(endpoint, model) {
         return result(false, "请填写有效的 HTTPS 接口地址和模型名。");
     }
     // Same minimal chat request as the pinned Windows reference implementation.
