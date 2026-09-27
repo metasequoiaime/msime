@@ -9,7 +9,7 @@ use crate::preferences::{
 };
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use thiserror::Error;
@@ -179,13 +179,11 @@ impl KeyboardSkinTrialStore {
         if !metadata.file_type().is_file() || metadata.len() > MAXIMUM_RECORD_BYTES {
             return Err(KeyboardSkinTrialError::Invalid);
         }
-        let mut bytes = Vec::with_capacity(metadata.len() as usize);
-        File::open(self.path())?
-            .take(MAXIMUM_RECORD_BYTES + 1)
-            .read_to_end(&mut bytes)?;
-        if bytes.len() as u64 > MAXIMUM_RECORD_BYTES {
-            return Err(KeyboardSkinTrialError::Invalid);
-        }
+        let bytes = crate::bounded_io::read_bounded_file(
+            File::open(self.path())?,
+            MAXIMUM_RECORD_BYTES,
+            || KeyboardSkinTrialError::Invalid,
+        )?;
         let record: TrialRecord = serde_json::from_slice(&bytes)?;
         if record.id.is_nil()
             || normalized_name(&record.name)? != record.name
