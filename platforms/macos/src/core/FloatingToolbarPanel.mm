@@ -691,8 +691,9 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     NSUInteger count = 0;
     for (NSUInteger index = 0; index < keys.count; ++index) {
         id value = toolbar[keys[index]];
-        // Only the screen keyboard is off until asked for, as it is on the reference's toolbar.
-        const BOOL defaultEnabled = ![keys[index] isEqualToString:@"screen_keyboard"];
+        // Keep optional utility buttons off when an older or partial settings
+        // snapshot omits their keys. They can still be enabled explicitly.
+        const BOOL defaultEnabled = ![@[@"emoji", @"handwriting", @"voice", @"screen_keyboard"] containsObject:keys[index]];
         const BOOL enabled = [value isKindOfClass:NSNumber.class] ? [value boolValue] : defaultEnabled;
         if (enabled) { mask |= 1u << index; ++count; }
     }
