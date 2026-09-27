@@ -5,7 +5,7 @@
 use crate::account::{
     AccountApi, AccountError, AccountSessionStorage, BackendAccountClient, BackendAccountSession,
 };
-use crate::community::valid_text;
+use crate::community::{encode_query, valid_text};
 use crate::preferences::TouchKeyboardSkinDesign;
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
@@ -378,19 +378,6 @@ fn validate_skin(skin: &CommunitySkin) -> Result<(), AccountError> {
         return Err(AccountError::Unavailable);
     }
     Ok(())
-}
-
-fn encode_query(value: &str) -> String {
-    let mut encoded = String::with_capacity(value.len());
-    for byte in value.bytes() {
-        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
-            encoded.push(char::from(byte));
-        } else {
-            use std::fmt::Write;
-            let _ = write!(encoded, "%{byte:02X}");
-        }
-    }
-    encoded
 }
 
 #[cfg(test)]
