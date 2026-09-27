@@ -79,12 +79,17 @@
 @property(nonatomic) CGFloat scale;
 @end
 @implementation MetasequoiaFloatingToolbarLogoView
+{
+    NSImage *_image;
+}
 - (instancetype)initWithFrame:(NSRect)frameRect
 {
     self = [super initWithFrame:frameRect];
     if (self != nil)
     {
         _scale = 1.0;
+        NSString *path = [[NSBundle bundleForClass:self.class] pathForResource:@"MSIMEClientInputMethod" ofType:@"icns"];
+        _image = path == nil ? nil : [[NSImage alloc] initWithContentsOfFile:path];
         self.accessibilityIdentifier = @"MetasequoiaFloatingToolbarLogo";
         self.accessibilityLabel = @"水杉输入法";
     }
@@ -100,6 +105,11 @@
     (void)dirtyRect;
     const CGFloat side = std::min(NSWidth(self.bounds), NSHeight(self.bounds)) - 4.0 * _scale;
     const NSRect mark = NSMakeRect(NSMidX(self.bounds) - side * 0.5, NSMidY(self.bounds) - side * 0.5, side, side);
+    if (_image != nil)
+    {
+        [_image drawInRect:mark fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1.0 respectFlipped:YES hints:nil];
+        return;
+    }
     const CGFloat radius = 4.0 * _scale;
     NSBezierPath *background = [NSBezierPath bezierPathWithRoundedRect:mark xRadius:radius yRadius:radius];
     [[NSColor colorWithSRGBRed:0x25 / 255.0 green:0x25 / 255.0 blue:0x25 / 255.0 alpha:1.0] setFill];
