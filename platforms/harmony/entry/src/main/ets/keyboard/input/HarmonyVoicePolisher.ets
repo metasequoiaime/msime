@@ -93,8 +93,8 @@ export class HarmonyVoicePolisher {
     const prompt: string = this.prompt(config);
     if (!this.validEndpoint(endpoint) || defaultEndpoint.length === 0
       || model.length === 0 || utf8Length(model) > MAX_MODEL_BYTES
-      || this.hasControl(model) || token.length === 0 || utf8Length(token) > MAX_TOKEN_BYTES
-      || this.hasControl(token) || !TextPolicy.validMultiline(prompt, MAX_PROMPT_BYTES, true)
+      || TextPolicy.hasControl(model) || token.length === 0 || utf8Length(token) > MAX_TOKEN_BYTES
+      || TextPolicy.hasControl(token) || !TextPolicy.validMultiline(prompt, MAX_PROMPT_BYTES, true)
       || !TextPolicy.validMultiline(text, MAX_REQUEST_TEXT_BYTES, true)) return null;
 
     const body: PolishRequestBody = {
@@ -180,14 +180,7 @@ export class HarmonyVoicePolisher {
   }
 
   private validEndpoint(value: string): boolean {
-    return value.length > 0 && utf8Length(value) <= MAX_ENDPOINT_BYTES && !this.hasControl(value)
+    return value.length > 0 && utf8Length(value) <= MAX_ENDPOINT_BYTES && !TextPolicy.hasControl(value)
       && TextPolicy.hasHttpsAuthority(value) && !value.includes('@') && !value.includes('#');
-  }
-
-  private hasControl(value: string, allowWhitespace: boolean = false): boolean {
-    return Array.from(value).some((character: string): boolean => {
-      const code: number = character.codePointAt(0) ?? 0;
-      return code < 0x20 && !(allowWhitespace && (code === 0x09 || code === 0x0a || code === 0x0d));
-    });
   }
 }
