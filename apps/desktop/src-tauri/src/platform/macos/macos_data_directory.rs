@@ -6,12 +6,13 @@
 
 use serde_json::Value;
 use std::collections::BTreeSet;
-use std::fs;
-use std::io::{self, Write};
+use std::fs::{self, File};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
 pub(crate) const DATA_DIRECTORY_MARKER: &str = ".metasequoiaime-data";
 const OPTIONS_FILE: &str = "runtime-options.json";
+const MAX_LOCATOR_BYTES: u64 = 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MoveError {
@@ -55,8 +56,17 @@ fn locator_backups(locators: &[PathBuf]) -> Result<Vec<LocatorBackup>, MoveError
         if !unique.insert(path.clone()) {
             continue;
         }
-        let contents = match fs::read(path) {
-            Ok(contents) => Some(contents),
+        let contents = match File::open(path) {
+            Ok(file) => {
+                let mut contents = Vec::new();
+                file.take(MAX_LOCATOR_BYTES + 1)
+                    .read_to_end(&mut contents)
+                    .map_err(|_| MoveError::Publish)?;
+                if contents.len() as u64 > MAX_LOCATOR_BYTES {
+                    return Err(MoveError::Publish);
+                }
+                Some(contents)
+            }
             Err(error) if error.kind() == io::ErrorKind::NotFound => None,
             Err(_) => return Err(MoveError::Publish),
         };
@@ -361,6 +371,19 @@ mod tests {
             b"synthetic-preferences"
         );
         assert!(fs::read_dir(target).unwrap().next().is_none());
+    }
+
+    #[test]
+    fn oversized_locator_is_rejected_before_relocation() {
+        let (_root, default, native, target, locators) = setup();
+        fs::write(&locators[0], vec![b'x'; MAX_LOCATOR_BYTES as usize + 1]).unwrap();
+        assert_eq!(
+            move_data_directory(&default, &target, &default, &native, &locators, |_| {
+                Ok(json!({}))
+            }),
+            Err(MoveError::Publish)
+        );
+        assert!(default.join("preferences.json").is_file());
     }
 
     #[test]
