@@ -1,5 +1,6 @@
 import http from '@ohos.net.http';
 import { KeyboardLog, describeError } from '../KeyboardLog';
+import { TextPolicy } from '../TextPolicy';
 import { utf8Length } from '../Utf8';
 import { VoiceRecognitionPolicy } from './VoiceRecognitionPolicy';
 import { VoiceInputConfiguration, VoicePolishTokens } from './VoiceInputConfiguration';
@@ -179,8 +180,7 @@ export class HarmonyVoicePolisher {
 
   private validEndpoint(value: string): boolean {
     return value.length > 0 && utf8Length(value) <= MAX_ENDPOINT_BYTES && !this.hasControl(value)
-      && value.startsWith('https://') && !value.includes('@') && !value.includes('#')
-      && value.substring(8).split('/')[0].split('?')[0].length > 0;
+      && TextPolicy.hasHttpsAuthority(value) && !value.includes('@') && !value.includes('#');
   }
 
   private validText(value: string, maxBytes: number, requireNonEmpty: boolean): boolean {

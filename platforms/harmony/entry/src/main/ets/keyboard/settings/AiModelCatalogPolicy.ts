@@ -19,7 +19,10 @@ export interface AiCatalogPage {
 export class AiModelCatalogPolicy {
   static modelsUrl(endpoint: string): string | null {
     const trimmed: string = endpoint.trim();
-    if (!this.validHttpsEndpoint(trimmed)) return null;
+    if (!TextPolicy.hasHttpsAuthority(trimmed) || trimmed.length > 2048
+      || trimmed.includes("@") || trimmed.includes("#") || TextPolicy.hasControl(trimmed)) {
+      return null;
+    }
     const queryIndex: number = trimmed.indexOf("?");
     const query: string = queryIndex >= 0 ? trimmed.substring(queryIndex) : "";
     let path: string = queryIndex >= 0 ? trimmed.substring(0, queryIndex) : trimmed;
@@ -77,18 +80,5 @@ export class AiModelCatalogPolicy {
     )
       return null;
     return cursor;
-  }
-
-  private static validHttpsEndpoint(value: string): boolean {
-    if (
-      !value.startsWith("https://") ||
-      value.length > 2048 ||
-      value.includes("@") ||
-      value.includes("#") ||
-      TextPolicy.hasControl(value)
-    )
-      return false;
-    const authority: string = value.substring(8).split("/")[0].split("?")[0];
-    return authority.length > 0;
   }
 }

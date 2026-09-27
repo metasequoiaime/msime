@@ -65,7 +65,11 @@ export class HttpAsrConfigurationPolicy {
     const token: string = this.token(config);
     return (
       this.supported(config.asr_provider) &&
-      this.validEndpoint(endpoint) &&
+      TextPolicy.hasHttpsAuthority(endpoint) &&
+      utf8Length(endpoint) <= 2048 &&
+      !endpoint.includes("@") &&
+      !endpoint.includes("#") &&
+      !TextPolicy.hasControl(endpoint) &&
       model.length > 0 &&
       utf8Length(model) <= 512 &&
       !TextPolicy.hasControl(model) &&
@@ -84,16 +88,4 @@ export class HttpAsrConfigurationPolicy {
     return "";
   }
 
-  private static validEndpoint(value: string): boolean {
-    if (
-      !value.startsWith("https://") ||
-      utf8Length(value) > 2048 ||
-      value.includes("@") ||
-      value.includes("#") ||
-      TextPolicy.hasControl(value)
-    )
-      return false;
-    const authority: string = value.substring(8).split("/")[0].split("?")[0];
-    return authority.length > 0;
-  }
 }
