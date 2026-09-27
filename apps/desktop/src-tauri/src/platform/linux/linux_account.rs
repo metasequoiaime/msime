@@ -18,7 +18,7 @@ use msime_client_core::account::{
     BackendAccountClient, BackendAccountSession, SavedAccountSession,
 };
 use serde::Serialize;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -137,7 +137,18 @@ impl AccountSessionStorage for LinuxAccountStorage {
         {
             return Err(AccountError::Storage);
         }
-        let text = std::fs::read_to_string(&self.path).map_err(|_| AccountError::Storage)?;
+        // The file can grow after symlink_metadata returns. Read through a bounded handle so a
+        // concurrent replacement cannot turn the size check into an unbounded allocation.
+        let mut bytes = Vec::new();
+        std::fs::File::open(&self.path)
+            .map_err(|_| AccountError::Storage)?
+            .take(MAX_ACCOUNT_SESSION_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|_| AccountError::Storage)?;
+        if bytes.len() as u64 > MAX_ACCOUNT_SESSION_BYTES {
+            return Err(AccountError::Storage);
+        }
+        let text = std::str::from_utf8(&bytes).map_err(|_| AccountError::Storage)?;
         serde_json::from_str(&text)
             .map(Some)
             .map_err(|_| AccountError::Storage)
@@ -306,4 +317,21 @@ pub async fn account_forget(
     state: tauri::State<'_, AccountState>,
 ) -> Result<(), crate::CommandError> {
     call(state, |session| session.forget()).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn oversized_session_is_rejected_after_a_bounded_read() {
+        let directory = tempfile::tempdir().unwrap();
+        let storage = LinuxAccountStorage::new(directory.path());
+        std::fs::write(
+            directory.path().join("account-session.json"),
+            vec![b' '; MAX_ACCOUNT_SESSION_BYTES as usize + 1],
+        )
+        .unwrap();
+        assert!(matches!(storage.load(), Err(AccountError::Storage)));
+    }
 }
