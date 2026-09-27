@@ -133,6 +133,12 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
                 .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
     };
     let valid_value = |kind: &str, code: &str, word: &str, weight: i64| {
+        let max_code_bytes = match kind {
+            "wubi" => 4,
+            "quick" => 32,
+            "english" => 64,
+            _ => 256,
+        };
         let code_alphabet_ok = match kind {
             "quick" => code
                 .bytes()
@@ -145,17 +151,9 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
         };
         code_alphabet_ok
             && !code.is_empty()
-            && code.len()
-                <= match kind {
-                    "wubi" => 4,
-                    "quick" => 32,
-                    "english" => 64,
-                    _ => 256,
-                }
-            && !code.chars().any(char::is_control)
+            && valid_text(code, max_code_bytes)
             && !word.is_empty()
-            && word.len() <= 1024
-            && !word.chars().any(char::is_control)
+            && valid_text(word, 1024)
             && weight >= 0
             && (kind != "quick"
                 || word.encode_utf16().count()
@@ -213,11 +211,7 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
             offset,
             search,
         } => {
-            if valid_kind(kind)
-                && *offset <= 1_000_000
-                && search.len() <= 1024
-                && !search.chars().any(char::is_control)
-            {
+            if valid_kind(kind) && *offset <= 1_000_000 && valid_text(search, 1024) {
                 Ok(())
             } else {
                 Err("invalid cloud dictionary request")
@@ -235,11 +229,9 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
                 && code.len() <= 256
                 && !code.contains('\0')
                 && !scheme.is_empty()
-                && scheme.len() <= 64
                 && !profile.is_empty()
-                && profile.len() <= 64
-                && !scheme.chars().any(char::is_control)
-                && !profile.chars().any(char::is_control)
+                && valid_text(scheme, 64)
+                && valid_text(profile, 64)
             {
                 Ok(())
             } else {
@@ -299,11 +291,9 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
         } => {
             let identity_ok = valid_kind(kind)
                 && !code.is_empty()
-                && code.len() <= 256
-                && !code.chars().any(char::is_control)
+                && valid_text(code, 256)
                 && !word.is_empty()
-                && word.len() <= 1024
-                && !word.chars().any(char::is_control)
+                && valid_text(word, 1024)
                 && *revision >= 0;
             let replacement_ok = replacement
                 .as_ref()
