@@ -5,7 +5,7 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 /// The largest preference document accepted by the shared host boundary. This
@@ -1953,15 +1953,7 @@ pub struct PreferencesStore {
 }
 
 fn read_bounded_document(file: File, maximum: u64) -> Result<Vec<u8>, PreferencesError> {
-    if file.metadata()?.len() > maximum {
-        return Err(PreferencesError::DocumentTooLarge);
-    }
-    let mut bytes = Vec::new();
-    file.take(maximum + 1).read_to_end(&mut bytes)?;
-    if bytes.len() as u64 > maximum {
-        return Err(PreferencesError::DocumentTooLarge);
-    }
-    Ok(bytes)
+    crate::bounded_io::read_bounded_file(file, maximum, || PreferencesError::DocumentTooLarge)
 }
 
 impl PreferencesStore {

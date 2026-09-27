@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use unicode_general_category::{get_general_category, GeneralCategory};
@@ -748,15 +748,9 @@ impl TypingStatisticsStore {
 }
 
 fn read_bounded_document(file: File) -> Result<Vec<u8>, TypingStatisticsError> {
-    if file.metadata()?.len() > MAX_DOCUMENT_BYTES {
-        return Err(TypingStatisticsError::InvalidDocument);
-    }
-    let mut bytes = Vec::new();
-    file.take(MAX_DOCUMENT_BYTES + 1).read_to_end(&mut bytes)?;
-    if bytes.len() as u64 > MAX_DOCUMENT_BYTES {
-        return Err(TypingStatisticsError::InvalidDocument);
-    }
-    Ok(bytes)
+    crate::bounded_io::read_bounded_file(file, MAX_DOCUMENT_BYTES, || {
+        TypingStatisticsError::InvalidDocument
+    })
 }
 
 /// Milliseconds since the Unix epoch, saturating at zero for clocks set before 1970.
