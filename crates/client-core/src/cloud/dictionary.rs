@@ -169,7 +169,7 @@ pub fn valid_candidate_query(
     limit: usize,
 ) -> bool {
     !text.is_empty()
-        && crate::text::is_bounded_text(text, 256)
+        && valid_bounded_text(text, 256)
         && matches!(kind, "pinyin" | "jianpin" | "wubi" | "quick" | "english")
         && matches!(scheme, "pinyin" | "shuangpin")
         && matches!(profile, "xiaohe" | "ziranma" | "microsoft" | "shoudao")
@@ -179,8 +179,12 @@ pub fn valid_candidate_query(
 pub fn valid_candidate_value(code: &str, word: &str) -> bool {
     !code.is_empty()
         && !word.is_empty()
-        && crate::text::is_bounded_text(code, 256)
-        && crate::text::is_bounded_text(word, 1024)
+        && valid_bounded_text(code, 256)
+        && valid_bounded_text(word, 1024)
+}
+
+pub fn valid_bounded_text(value: &str, maximum_bytes: usize) -> bool {
+    crate::text::is_bounded_text(value, maximum_bytes)
 }
 
 #[cfg(test)]

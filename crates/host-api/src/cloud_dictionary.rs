@@ -1,3 +1,4 @@
+use msime_client_core::cloud::dictionary::valid_bounded_text;
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -151,9 +152,9 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
         };
         code_alphabet_ok
             && !code.is_empty()
-            && valid_text(code, max_code_bytes)
+            && valid_bounded_text(code, max_code_bytes)
             && !word.is_empty()
-            && valid_text(word, 1024)
+            && valid_bounded_text(word, 1024)
             && weight >= 0
             && (kind != "quick"
                 || word.encode_utf16().count()
@@ -211,7 +212,7 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
             offset,
             search,
         } => {
-            if valid_kind(kind) && *offset <= 1_000_000 && valid_text(search, 1024) {
+            if valid_kind(kind) && *offset <= 1_000_000 && valid_bounded_text(search, 1024) {
                 Ok(())
             } else {
                 Err("invalid cloud dictionary request")
@@ -230,8 +231,8 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
                 && !code.contains('\0')
                 && !scheme.is_empty()
                 && !profile.is_empty()
-                && valid_text(scheme, 64)
-                && valid_text(profile, 64)
+                && valid_bounded_text(scheme, 64)
+                && valid_bounded_text(profile, 64)
             {
                 Ok(())
             } else {
@@ -291,9 +292,9 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
         } => {
             let identity_ok = valid_kind(kind)
                 && !code.is_empty()
-                && valid_text(code, 256)
+                && valid_bounded_text(code, 256)
                 && !word.is_empty()
-                && valid_text(word, 1024)
+                && valid_bounded_text(word, 1024)
                 && *revision >= 0;
             let replacement_ok = replacement
                 .as_ref()
@@ -372,7 +373,7 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
             }
         }
         CloudDictionaryRequest::FixedPositions { context, offset } => {
-            if valid_text(context, 1024) && *offset <= 1_000_000 {
+            if valid_bounded_text(context, 1024) && *offset <= 1_000_000 {
                 Ok(())
             } else {
                 Err("invalid cloud dictionary request")
@@ -385,9 +386,9 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
             position,
             revision,
         } => {
-            if valid_text(context, 1024)
-                && valid_text(code, 256)
-                && valid_text(word, 1024)
+            if valid_bounded_text(context, 1024)
+                && valid_bounded_text(code, 256)
+                && valid_bounded_text(word, 1024)
                 && !code.is_empty()
                 && !word.is_empty()
                 && *revision >= 0
@@ -421,10 +422,6 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
             }
         }
     }
-}
-
-fn valid_text(value: &str, maximum_bytes: usize) -> bool {
-    value.len() <= maximum_bytes && !value.chars().any(char::is_control)
 }
 
 fn valid_snapshot_text(value: &str) -> bool {
