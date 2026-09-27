@@ -13,11 +13,22 @@ pub(crate) fn read_bounded_file<E>(
 where
     E: From<io::Error>,
 {
-    if file.metadata()?.len() > maximum {
+    read_bounded_file_with(file, maximum, too_large, E::from)
+}
+
+pub(crate) fn read_bounded_file_with<E>(
+    file: File,
+    maximum: u64,
+    too_large: impl FnOnce() -> E,
+    io_error: impl FnOnce(io::Error) -> E + Copy,
+) -> Result<Vec<u8>, E> {
+    if file.metadata().map_err(io_error)?.len() > maximum {
         return Err(too_large());
     }
     let mut bytes = Vec::new();
-    file.take(maximum + 1).read_to_end(&mut bytes)?;
+    file.take(maximum + 1)
+        .read_to_end(&mut bytes)
+        .map_err(io_error)?;
     if bytes.len() as u64 > maximum {
         return Err(too_large());
     }
