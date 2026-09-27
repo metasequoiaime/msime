@@ -7,7 +7,6 @@
 
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::io::Read;
 use std::path::Path;
 use toml::Value;
 
@@ -245,14 +244,12 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
     {
         return Err("skin.toml is not a regular file".into());
     }
-    let mut bytes = Vec::new();
-    input
-        .take(65_537)
-        .read_to_end(&mut bytes)
-        .map_err(|_| "unreadable skin.toml")?;
-    if bytes.len() > 65_536 {
-        return Err("skin.toml is too large".into());
-    }
+    let bytes = crate::bounded_io::read_bounded_file_with(
+        input,
+        65_536,
+        || "skin.toml is too large".to_owned(),
+        |_| "unreadable skin.toml".to_owned(),
+    )?;
     let value: Value =
         toml::from_str(std::str::from_utf8(&bytes).map_err(|_| "skin.toml is not UTF-8")?)
             .map_err(|_| "invalid TOML")?;
