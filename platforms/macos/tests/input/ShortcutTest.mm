@@ -5503,6 +5503,36 @@ static void TestGlossModePolicy() {
     [controller cancelCandidateGloss];
 }
 
+// A controller that opens no session hands every key to the application, which is indistinguishable from the
+// user having chosen English. So the reason has to be recorded, and recorded once: a dictionary that was
+// never prepared otherwise looks like an input method bug, which is how #912 came to be diagnosed from
+// silence and fixed in a file no target compiles.
+//
+// Driven through the reason and the report rather than through prepareSession, which would read whichever
+// runtime options the machine running the test happens to have installed.
+static void TestSessionUnavailableIsReported() {
+    assert([MSIMESessionUnavailableReason(nil) isEqual:@"no usable runtime options"]);
+    assert([MSIMESessionUnavailableReason(@{}) isEqual:@"session refused the runtime options"]);
+
+    NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:
+        [@"msime.session-unavailable." stringByAppendingString:NSUUID.UUID.UUIDString]];
+    assert([NSFileManager.defaultManager createDirectoryAtPath:directory withIntermediateDirectories:YES
+                                                    attributes:nil error:nil]);
+    msime_macos_diagnostic_configure(directory.UTF8String, true);
+    MSIMEInputController *controller = [MSIMEInputController alloc];
+    [controller reportSessionUnavailable:MSIMESessionUnavailableReason(nil)];
+    [controller reportSessionUnavailable:MSIMESessionUnavailableReason(nil)];
+    [controller reportSessionUnavailable:MSIMESessionUnavailableReason(@{})];
+    NSString *log = [NSString stringWithContentsOfFile:[directory stringByAppendingPathComponent:@"diagnostic.log"]
+                                              encoding:NSUTF8StringEncoding error:nil];
+    msime_macos_diagnostic_configure("", false);
+    [NSFileManager.defaultManager removeItemAtPath:directory error:nil];
+    assert(log);
+    // The repeat says nothing new; without this every focus while the dictionary is missing writes a line.
+    assert([log componentsSeparatedByString:@"reason=no usable runtime options"].count - 1 == 1);
+    assert([log componentsSeparatedByString:@"reason=session refused the runtime options"].count - 1 == 1);
+}
+
 int main(int argc, char **argv) {
     assert(!MSIMEShouldRegisterInputSource(1, nullptr));
     const char *registerArguments[] = {"test", "--register-input-source"};
@@ -5531,6 +5561,7 @@ int main(int argc, char **argv) {
         NSUserDefaults *standardDefaults = NSUserDefaults.standardUserDefaults;
         id previousVoiceHoldSpace = [standardDefaults objectForKey:@"MSIMEClientVoiceHotkeyHoldSpace"];
         [standardDefaults setBool:NO forKey:@"MSIMEClientVoiceHotkeyHoldSpace"];
+        TestSessionUnavailableIsReported();
         TestCloudCandidateScheduling();
         TestCloudCandidateRetryAfterRejectedResponse();
         TestCloudCandidateEngineDelivery();
