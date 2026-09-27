@@ -1061,10 +1061,12 @@ pub unsafe extern "C" fn msime_client_dictionary_manifest(
         // Bounded before parsing: this is a packaged file, and one that has grown to megabytes is
         // not a manifest whatever it parses as.
         let file = path.join("dictionary-manifest.json");
-        let text = std::fs::read_to_string(&file)
-            .ok()
-            .filter(|text| text.len() <= 1024 * 1024)
-            .ok_or("dictionary_manifest_unavailable")?;
+        let bytes = crate::bounded_file::read(
+            std::fs::File::open(&file).map_err(|_| "dictionary_manifest_unavailable")?,
+            1024 * 1024,
+        )
+        .map_err(|_| "dictionary_manifest_unavailable")?;
+        let text = std::str::from_utf8(&bytes).map_err(|_| "dictionary_manifest_unavailable")?;
         let manifest: Manifest =
             serde_json::from_str(&text).map_err(|_| "dictionary_manifest_unavailable")?;
         if manifest.profile.is_empty()
