@@ -58,6 +58,8 @@ CARGO_TARGET_DIR=target/macos-cargo cargo build -p msime-host-api --locked \
 - bundle 名字是中文。`cp -R target/macos-isolated/水杉输入法.app …` 会因 APFS 的 NFC/NFD 归一化报 `No such file or directory`——用 `find target/macos-isolated -maxdepth 1 -name "*.app" -exec cp -R {} <目标> \;`。
 - 安装与输入源注册走 `platforms/macos/scripts/install.sh`。注册后有分钟级不稳定窗口：`check_input_source.swift` 要隔几秒多查几次再下结论，只查一次两个方向都可能误判。
 - 换新 bundle identifier 需要重新登录一次，这是 macOS 本身的限制，与签名和 plist 无关。
+- `check_input_source.swift` 报某个模式 `disabled`（典型是英文模式 `.Roman`）而中文模式 enabled 时，安装是成功的，别去重新登录或反复重装：macOS 27 上进程启用不了键盘输入模式，`TISEnableInputSource` 返回 noErr 而状态不变，苹果自己的模式一样如此。该脚本为此退 2（可用但有源未启用），退 1 才是不可用。测量见 `docs/macos-parity.md`。
+- 钥匙串里有两张同名 Developer ID Application 证书时，`codesign` 会因名字歧义拒签。`install.sh` 已改为按 SHA-1 取身份，要指定就把 `MSIME_SIGNING_IDENTITY` 设成哈希而不是名字。
 
 看共享设置页时，Tauri 设置壳把 `target/macos/水杉输入法.app` 和 `target/macos/EngineResources` 列为 bundle 资源，两者必须先就位：
 

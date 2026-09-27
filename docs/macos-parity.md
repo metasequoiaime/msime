@@ -137,7 +137,7 @@
 
 另有一条记录需要收紧。#3182 把「以词定字占用的键不参与翻页」写成宿主侧要处理的一个可达状态，实际不是：`crates/client-core/src/preferences.rs` 的 `validate()` 在 `word_character.enabled` 与对应翻页键同时为真时返回 `ConflictingKeyBindings`，而保存（`preferences.validate()?`）和读取（`snapshot.preferences.validate()?`）两条路径都会调用它——带着这个组合的偏好文件根本加载不进来，设置页也存不下去，`key_conflict` 就是它在界面上的那句提示。所以宿主里那段排除是防御，不是在修一个用户能走到的状态；两个布尔项看着独立，共享层已经把互斥钉死了。
 
-宿主使用的输入源标识（`app.msime.inputmethod.MetasequoiaIME`）在系统里已登记，`platforms/macos/scripts/install.sh` 安装后两个输入源都注册启用，可以直接从输入菜单选中使用。读注册结果有个坑：替换 bundle 之后会有分钟级的一段时间查不到、之后自行恢复，按那段时间里的读数下结论会错——判据与测量过程见下面的《输入源注册的读数怎么看》一节。
+宿主使用的输入源标识（`app.msime.inputmethod.MetasequoiaIME`）在系统里已登记，`platforms/macos/scripts/install.sh` 安装后中文模式注册并启用，可以直接从输入菜单选中使用。读注册结果有两个坑：替换 bundle 之后会有分钟级的一段时间查不到、之后自行恢复，按那段时间里的读数下结论会错；另外某个模式已经是 disabled 时，进程启用不了它，这既不是安装失败也不是重新登录能解决的事。判据与测量过程见下面的《输入源注册的读数怎么看》和《模式启用不了不是安装失败》两节。
 
 ## 功能分组与目的地入口
 
@@ -218,6 +218,18 @@ app.msime.inputmethod.MetasequoiaIME: enabled
 - 因此**紧接安装之后的任何读数都不能用**——单次命中可能是上一份 bundle 的残留，单次查不到也可能只是还没回来。要判断就隔开一段时间再连查若干次，并且用直接枚举（`TISCreateInputSourceList(nil, true)` 再按 `kTISPropertyInputSourceID` 匹配）交叉对一下。
 
 `install.sh` 在注册前会把指向其他路径的竞争记录 `lsregister -u` 掉，这一步裸跑 `cmake --build` 没有；构建产物确实会以同一个 identifier 被 LaunchServices 登记，所以构建完顺手 `install.sh` 重装是稳妥的做法。但「裸构建会把已装的那份顶掉、且只有重新登录能恢复」这个更强的说法没有证据支持。
+
+## 模式启用不了不是安装失败（2026-09-27 实测，macOS 27.0 / 26A428）
+
+上面那段的读数规矩管的是「查不查得到」，还有一种结果与它无关：查得到、已启用、能打字，但 bundle 的另一个模式是 disabled。这台机器上 `install.sh` 装完稳定报出三条——`.Hans` enabled、总源 enabled（不可选中）、`.Roman` disabled，隔 10 秒连查四次不变，所以不是上面那个分钟级窗口。
+
+`.Roman` 加不回来，而且这一条不在本项目的控制范围内：类型为键盘输入模式（`TISTypeKeyboardInputMode`）的输入源无法由进程启用，`TISEnableInputSource` 返回 noErr 而模式仍是 disabled。三组对照把原因钉死在「输入源类型」上，而不是签名、bundle、plist 或那条登录会话限制：
+
+- 本输入法的 `.Roman`：`TISEnableInputSource` 返回 0，再读仍 disabled。
+- 苹果自己的 `com.apple.inputmethod.SCIM.Shuangpin`（父输入法已启用、同胞模式 `ITABC` 正在使用，形状与我们完全一致）：返回 0，再读仍 disabled。
+- 同一会话里的键盘布局 `com.apple.keylayout.US`：返回 0，再读变成 enabled，`TISDisableInputSource` 也能还原。测完已还原为 disabled。
+
+`--register-input-source` 因此会在这种机器上退 0 而模式没启用——系统不报错，所以退出码不能当判据。`check_input_source.swift` 为此退 2（可用但有源未启用），与退 1（不在注册表里，或没有任何可选中的源是 enabled 的）分开；`install.sh` 按退出码选提示，不再对这种情况打「注销重新登录」——那条提示对它不成立。英文模式缺失时输入法的行为见 `platforms/macos/README.md` 的《输入源菜单与输入模式》：控制器不请求这个不可选的模式，菜单栏保持「中」，中英切换照常工作。
 
 bundle 自身是否装配正确由 `bundle-contents` 持续检查，不依赖安装：图标是否真的暂存进 `Resources`、菜单图标是否带 16×16 与 32×32 两页、每条用途字符串是否在每种已暂存语言中都有、可执行文件是否链接了本地识别器。
 
