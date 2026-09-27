@@ -1842,7 +1842,9 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     if (!_sharedToolbarOptions) _sharedToolbarOptions = [NSMutableDictionary dictionary];
     for (NSString *key in FloatingToolbarComponentKeys()) {
         id value = toolbar[key];
-        if (LocalModeBoolean(value)) _sharedToolbarOptions[key] = value;
+        // Shared settings must carry both states. Treating false as "unset"
+        // made an account snapshot silently re-enable optional toolbar items.
+        if (LocalModeBoolean(value) || [value isEqual:@NO]) _sharedToolbarOptions[key] = value;
     }
     id scale = toolbar[@"scale_percent"];
     if (ValidToolbarScale(scale)) _sharedToolbarOptions[@"scale_percent"] = scale;
