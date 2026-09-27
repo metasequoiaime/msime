@@ -94,8 +94,8 @@ export class HarmonyVoicePolisher {
     if (!this.validEndpoint(endpoint) || defaultEndpoint.length === 0
       || model.length === 0 || utf8Length(model) > MAX_MODEL_BYTES
       || this.hasControl(model) || token.length === 0 || utf8Length(token) > MAX_TOKEN_BYTES
-      || this.hasControl(token) || !this.validText(prompt, MAX_PROMPT_BYTES, true)
-      || !this.validText(text, MAX_REQUEST_TEXT_BYTES, true)) return null;
+      || this.hasControl(token) || !TextPolicy.validMultiline(prompt, MAX_PROMPT_BYTES, true)
+      || !TextPolicy.validMultiline(text, MAX_REQUEST_TEXT_BYTES, true)) return null;
 
     const body: PolishRequestBody = {
       model: model,
@@ -126,7 +126,8 @@ export class HarmonyVoicePolisher {
       }
       const document: CompletionDocument = JSON.parse(response.result) as CompletionDocument;
       const content: string | undefined = document.choices?.[0]?.message?.content;
-      if (content === undefined || !this.validText(content, MAX_REQUEST_TEXT_BYTES, true)) return null;
+      if (content === undefined
+        || !TextPolicy.validMultiline(content, MAX_REQUEST_TEXT_BYTES, true)) return null;
       const result: string = VoiceRecognitionPolicy.result(content);
       return result.length > 0 ? result : null;
     } catch (error) {
@@ -181,11 +182,6 @@ export class HarmonyVoicePolisher {
   private validEndpoint(value: string): boolean {
     return value.length > 0 && utf8Length(value) <= MAX_ENDPOINT_BYTES && !this.hasControl(value)
       && TextPolicy.hasHttpsAuthority(value) && !value.includes('@') && !value.includes('#');
-  }
-
-  private validText(value: string, maxBytes: number, requireNonEmpty: boolean): boolean {
-    return (!requireNonEmpty || value.trim().length > 0) && utf8Length(value) <= maxBytes
-      && !this.hasControl(value, true);
   }
 
   private hasControl(value: string, allowWhitespace: boolean = false): boolean {

@@ -1379,8 +1379,8 @@ class SettingsBridge {
     const model: string = request.model.trim();
     if (endpoint === null || token.length === 0 || utf8Length(token) > 16 * 1024
       || TextPolicy.hasControl(token) || model.length === 0 || utf8Length(model) > 256
-      || TextPolicy.hasControl(model) || !this.validAiText(request.prompt, true)
-      || !this.validAiText(request.text, false)) {
+      || TextPolicy.hasControl(model) || !TextPolicy.validMultiline(request.prompt, 16 * 1024, true)
+      || !TextPolicy.validMultiline(request.text, 16 * 1024, false)) {
       return JSON.stringify({ ok: false, error: 'ai_invalid' });
     }
     const body: AiTestBody = {
@@ -1408,7 +1408,7 @@ class SettingsBridge {
       }
       const document: AiCompletionDocument = JSON.parse(response.result) as AiCompletionDocument;
       const content: string | undefined = document.choices?.[0]?.message?.content;
-      if (content === undefined || !this.validAiText(content, false)) {
+      if (content === undefined || !TextPolicy.validMultiline(content, 16 * 1024, false)) {
         return JSON.stringify({ ok: false, error: 'ai_test_invalid' });
       }
       return JSON.stringify({ ok: true, value: content.trim() });
@@ -1896,14 +1896,6 @@ class SettingsBridge {
         && !TextPolicy.hasAuthority(endpoint, 'https://'))
       || endpoint.includes('@') || endpoint.includes('#')) return null;
     return endpoint;
-  }
-
-  private validAiText(value: string, allowEmpty: boolean): boolean {
-    return (allowEmpty || value.trim().length > 0) && utf8Length(value) <= 16 * 1024
-      && !value.includes('\u0000') && !Array.from(value).some((character: string): boolean => {
-        const code: number = character.codePointAt(0) ?? 0;
-        return code < 0x20 && code !== 0x09 && code !== 0x0a && code !== 0x0d;
-      });
   }
 
   appVersion(): string {
