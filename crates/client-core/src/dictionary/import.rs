@@ -225,11 +225,7 @@ pub fn parse(
     }
     // A NUL or stray control byte means the file is not the text format claimed;
     // examining rows from it would be guesswork.
-    if text.contains('\0')
-        || text
-            .chars()
-            .any(|character| character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
-    {
+    if text.contains('\0') || crate::text::has_disallowed_control(text) {
         return Err(ImportError::ControlCharacters);
     }
 

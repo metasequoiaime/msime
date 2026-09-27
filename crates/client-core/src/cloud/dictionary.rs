@@ -156,9 +156,7 @@ pub fn validate_import(text: &str) -> Result<(), &'static str> {
     if text.is_empty()
         || text.len() > MAX_IMPORT_BYTES
         || text.contains('\0')
-        || text
-            .chars()
-            .any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t'))
+        || crate::text::has_disallowed_control(text)
     {
         return Err("invalid dictionary import");
     }

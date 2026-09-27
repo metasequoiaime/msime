@@ -32,6 +32,7 @@ pub mod preferences;
 pub mod punctuation;
 pub mod resources;
 pub mod skin;
+mod text;
 pub mod translation;
 pub mod typing_statistics;
 pub mod vocabulary;

@@ -25,17 +25,11 @@ pub(super) fn percent_encode_query(value: &str) -> String {
     encoded
 }
 
-fn has_disallowed_control(value: &str) -> bool {
-    value
-        .chars()
-        .any(|character| character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
-}
-
 pub(super) fn validate_clipboard_text(value: &str) -> Result<(), AccountError> {
     if value.trim().is_empty()
         || value.encode_utf16().count() > 4000
         || value.contains('\0')
-        || has_disallowed_control(value)
+        || crate::text::has_disallowed_control(value)
     {
         Err(AccountError::Invalid)
     } else {
@@ -684,7 +678,7 @@ pub(super) fn validate_chat_models(value: &AccountChatModels) -> Result<(), Acco
 /// Chat text is multi-line on both sides (the chat page sends on Ctrl/⌘+Enter, and replies are
 /// paragraphs), so line breaks and tabs pass, as they do for the clipboard; other controls do not.
 pub(super) fn chat_text_has_disallowed_control(text: &str) -> bool {
-    has_disallowed_control(text)
+    crate::text::has_disallowed_control(text)
 }
 
 pub(super) fn validate_chat_request(
