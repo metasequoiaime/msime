@@ -3233,11 +3233,12 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
         [fuzzyRuleBoxes addObject:button];
     }
     NSBox *fuzzyCard = MSIMECardWithViews(@[
+        MSIMEDetailLabel(@"全拼与双拼均支持；更改会在当前输入结束后生效。"),
         [self settingRow:@"启用模糊音" control:_fuzzyPinyinToggle],
         MSIMECardSeparator(),
         [self settingCheckboxes:fuzzyRuleBoxes columns:3],
     ], 8.0);
-    fuzzyCard.accessibilityLabel = @"模糊音卡片";
+    fuzzyCard.accessibilityLabel = @"模糊音卡片（全拼与双拼）";
 
     // 实用功能 was a page holding this one card, and its summary was the only place in the window
     // that said how the eight modes are entered. The page is gone and the sentence is not: it is the
@@ -3266,7 +3267,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
         // 拼音纠错 and 模糊音 were two headings over two cards, and they answer one question between
         // them: what a mistyped syllable is still allowed to match. One heading, and the restore link
         // on it puts the whole answer back rather than half of it.
-        [self sectionHeader:@"拼音匹配"
+        [self sectionHeader:@"拼音匹配（全拼与双拼）"
                        keys:@[TranspositionKey, NeighborKey, FuzzyPinyinKey, FuzzyPinyinRulesKey]],
         correctionCard, fuzzyCard,
         [self sectionHeader:@"扩展输入模式" keys:@[LocalModesKey]], localModesCard,

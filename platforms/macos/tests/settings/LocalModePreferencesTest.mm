@@ -32,10 +32,13 @@ int main() {
             buttons[control.identifier] = (id)control;
         assert(buttons.count == 8);
         NSButton *fuzzy = (id)MSIMEFindPreferenceControl(prefsRoot, @selector(fuzzyPinyinChanged:));
+        NSView *fuzzyCard = MSIMEFindPreferenceView(prefsRoot, ^BOOL(NSView *view) {
+            return [view.accessibilityLabel isEqual:@"模糊音卡片（全拼与双拼）"];
+        });
         NSMutableDictionary<NSString *, NSButton *> *fuzzyRules = [NSMutableDictionary dictionary];
         for (NSControl *control in MSIMEFindPreferenceControls(prefsRoot, @selector(fuzzyPinyinRuleChanged:)))
             fuzzyRules[control.identifier] = (id)control;
-        assert(fuzzy != nil && fuzzyRules.count == 11 && !fuzzyRules[@"z-zh"].enabled);
+        assert(fuzzy != nil && fuzzyCard != nil && fuzzyRules.count == 11 && !fuzzyRules[@"z-zh"].enabled);
         fuzzy.state = NSControlStateValueOn;
         [NSApp sendAction:fuzzy.action to:fuzzy.target from:fuzzy];
         assert(prefs.fuzzyPinyinEnabled && fuzzyRules[@"z-zh"].enabled);
