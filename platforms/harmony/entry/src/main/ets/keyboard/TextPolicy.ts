@@ -9,11 +9,6 @@ export class TextPolicy {
     return authority.length > 0;
   }
 
-  /** Accepts an HTTPS URL with a non-empty authority before callers apply their own size rules. */
-  static hasHttpsAuthority(value: string): boolean {
-    return TextPolicy.hasAuthority(value, "https://");
-  }
-
   /** Validates a bounded endpoint with one of the supplied schemes and no user-info or fragment. */
   static validAuthority(value: string, schemes: string[], maxBytes: number = 2048): boolean {
     return value.length > 0 && utf8Length(value) <= maxBytes && !TextPolicy.hasControl(value)

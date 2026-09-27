@@ -8601,8 +8601,8 @@ group("rewriting a reply touches only the refusals", () => {
 });
 
 group("AI model catalogs keep each provider's protocol and path", () => {
-  check(TextPolicy.hasHttpsAuthority("https://example.test/path"), "accepts a populated HTTPS authority");
-  check(!TextPolicy.hasHttpsAuthority("https:///path"), "rejects an empty HTTPS authority");
+  check(TextPolicy.hasAuthority("https://example.test/path", "https://"), "accepts a populated HTTPS authority");
+  check(!TextPolicy.hasAuthority("https:///path", "https://"), "rejects an empty HTTPS authority");
   check(TextPolicy.hasAuthority("wss://speech.example.test/live", "wss://"), "shares authority parsing for WSS");
   check(TextPolicy.validMultiline("line\nfeed", 32, true), "allows prompt line breaks");
   check(!TextPolicy.validMultiline("bad\u0001", 32, true), "rejects other control characters");
