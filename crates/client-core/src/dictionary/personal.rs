@@ -7,7 +7,7 @@
 use crate::file_lock;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Read, Write};
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
@@ -544,17 +544,9 @@ fn validate_request_id(id: &str) -> Result<(), PersonalDictionaryError> {
 
 fn read_file(file: &Path) -> Result<PersonalDictionaryState, PersonalDictionaryError> {
     let file_handle = File::open(file)?;
-    let metadata = file_handle.metadata()?;
-    if metadata.len() as usize > MAX_STATE_BYTES {
-        return Err(PersonalDictionaryError::InvalidState);
-    }
-    let mut bytes = Vec::new();
-    file_handle
-        .take((MAX_STATE_BYTES + 1) as u64)
-        .read_to_end(&mut bytes)?;
-    if bytes.len() > MAX_STATE_BYTES {
-        return Err(PersonalDictionaryError::InvalidState);
-    }
+    let bytes = crate::bounded_io::read_bounded_file(file_handle, MAX_STATE_BYTES as u64, || {
+        PersonalDictionaryError::InvalidState
+    })?;
     let state: PersonalDictionaryState =
         serde_json::from_slice(&bytes).map_err(|_| PersonalDictionaryError::InvalidState)?;
     validate_state(&state)?;
