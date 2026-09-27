@@ -65,6 +65,11 @@ pub(crate) const HOST_OPTIONS_DOCUMENT_LIMIT: usize = PREFERENCES_DOCUMENT_LIMIT
 /// Largest dictionary-management request: one HostOptions document plus the
 /// bounded personal-dictionary import payload and a small amount of framing.
 pub(crate) const DICTIONARY_REQUEST_LIMIT: usize = HOST_OPTIONS_DOCUMENT_LIMIT + 1_200_000;
+
+pub(crate) fn valid_sha256(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
 mod ffi;
 pub use ffi::*;
 mod doubao_auth;

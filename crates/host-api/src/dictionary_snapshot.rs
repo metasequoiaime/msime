@@ -619,9 +619,7 @@ fn inspect_snapshot(path: &Path) -> Result<SnapshotMetadata, &'static str> {
                 let expected_sha = map
                     .get("sha256")
                     .and_then(Value::as_str)
-                    .filter(|value| {
-                        value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
-                    })
+                    .filter(|value| crate::valid_sha256(value))
                     .ok_or("invalid snapshot document")?;
                 let actual = lower_hex(&body_digest.clone().finalize());
                 if expected_records != records || expected_sha != actual {

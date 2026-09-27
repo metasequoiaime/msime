@@ -186,7 +186,7 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
             expected_sha256,
             revision,
         } => {
-            if valid_snapshot_text(text) && valid_sha256(expected_sha256) && *revision >= 0 {
+            if valid_snapshot_text(text) && crate::valid_sha256(expected_sha256) && *revision >= 0 {
                 Ok(())
             } else {
                 Err("invalid cloud dictionary request")
@@ -431,10 +431,6 @@ fn valid_snapshot_text(value: &str) -> bool {
         && value
             .chars()
             .all(|character| !character.is_control() || matches!(character, '\n' | '\r' | '\t'))
-}
-
-fn valid_sha256(value: &str) -> bool {
-    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 fn valid_candidate_query(
