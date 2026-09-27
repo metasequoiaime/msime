@@ -1804,13 +1804,12 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 - (void)setFloatingToolbarFullWidth:(BOOL)value { [self setFloatingToolbarBoolean:@"fullwidth" value:value]; }
 - (BOOL)floatingToolbarCharacterSet { return [self floatingToolbarBoolean:@"character_set" defaultValue:YES]; }
 - (void)setFloatingToolbarCharacterSet:(BOOL)value { [self setFloatingToolbarBoolean:@"character_set" value:value]; }
-- (BOOL)floatingToolbarEmoji { return [self floatingToolbarBoolean:@"emoji" defaultValue:YES]; }
+- (BOOL)floatingToolbarEmoji { return [self floatingToolbarBoolean:@"emoji" defaultValue:NO]; }
 - (void)setFloatingToolbarEmoji:(BOOL)value { [self setFloatingToolbarBoolean:@"emoji" value:value]; }
-// The handwriting panel and voice buttons, which the reference's toolbar does not have. Both default
-// on: they have been on the toolbar since it shipped, and a switch appearing must not remove them.
-- (BOOL)floatingToolbarHandwriting { return [self floatingToolbarBoolean:@"handwriting" defaultValue:YES]; }
+// Optional utility buttons are opt-in so the default toolbar stays compact.
+- (BOOL)floatingToolbarHandwriting { return [self floatingToolbarBoolean:@"handwriting" defaultValue:NO]; }
 - (void)setFloatingToolbarHandwriting:(BOOL)value { [self setFloatingToolbarBoolean:@"handwriting" value:value]; }
-- (BOOL)floatingToolbarVoice { return [self floatingToolbarBoolean:@"voice" defaultValue:YES]; }
+- (BOOL)floatingToolbarVoice { return [self floatingToolbarBoolean:@"voice" defaultValue:NO]; }
 - (void)setFloatingToolbarVoice:(BOOL)value { [self setFloatingToolbarBoolean:@"voice" value:value]; }
 - (BOOL)floatingToolbarScreenKeyboard { return [self floatingToolbarBoolean:@"screen_keyboard" defaultValue:NO]; }
 - (void)setFloatingToolbarScreenKeyboard:(BOOL)value { [self setFloatingToolbarBoolean:@"screen_keyboard" value:value]; }
