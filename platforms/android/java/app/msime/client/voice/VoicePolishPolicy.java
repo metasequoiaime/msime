@@ -37,11 +37,11 @@ public final class VoicePolishPolicy {
     /** Whether this host can run the request as configured. Same scheme rule as transcription. */
     public static boolean usable(String endpoint, String model, String token, String prompt) {
         return endpoint != null && endpoint.startsWith("https://") && endpoint.length() <= 2048
-            && !hasControl(endpoint)
+            && !TextPolicy.hasControl(endpoint)
             && model != null && !model.trim().isEmpty() && model.length() <= 512
-            && !hasControl(model)
+            && !TextPolicy.hasControl(model)
             && token != null && !token.trim().isEmpty() && token.length() <= 16 * 1024
-            && !hasControl(token)
+            && !TextPolicy.hasControl(token)
             && prompt != null && !prompt.trim().isEmpty()
             && prompt.getBytes(StandardCharsets.UTF_8).length <= MAX_PROMPT_BYTES;
     }
@@ -98,11 +98,4 @@ public final class VoicePolishPolicy {
         return out.append('"').toString();
     }
 
-    private static boolean hasControl(String value) {
-        for (int index = 0; index < value.length(); index++) {
-            char character = value.charAt(index);
-            if (character < 0x20 || character >= 0x7f && character <= 0x9f) return true;
-        }
-        return false;
-    }
 }

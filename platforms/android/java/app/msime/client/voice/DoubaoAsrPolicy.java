@@ -35,7 +35,7 @@ public final class DoubaoAsrPolicy {
     public static boolean usable(String provider, String endpoint, List<String> headerNames) {
         if (!isStreaming(provider)) return false;
         if (endpoint == null || !endpoint.startsWith("wss://") || endpoint.length() > 2048
-                || hasControl(endpoint)) {
+                || TextPolicy.hasControl(endpoint)) {
             return false;
         }
         if (headerNames == null || headerNames.size() < 3 || headerNames.size() > 8) return false;
@@ -43,7 +43,7 @@ public final class DoubaoAsrPolicy {
         boolean request = false;
         boolean credential = false;
         for (String name : headerNames) {
-            if (name == null || name.isEmpty() || hasControl(name)) return false;
+            if (name == null || name.isEmpty() || TextPolicy.hasControl(name)) return false;
             switch (name) {
                 case RESOURCE_HEADER -> resource = true;
                 case REQUEST_HEADER -> request = true;
@@ -56,11 +56,4 @@ public final class DoubaoAsrPolicy {
         return resource && request && credential;
     }
 
-    private static boolean hasControl(String value) {
-        for (int index = 0; index < value.length(); index++) {
-            char character = value.charAt(index);
-            if (character < 0x20 || character >= 0x7f && character <= 0x9f) return true;
-        }
-        return false;
-    }
 }
