@@ -640,27 +640,12 @@ pub(super) fn validate_display_name(value: &str) -> Result<(), AccountError> {
 }
 
 pub(super) fn validate_chat_models(value: &AccountChatModels) -> Result<(), AccountError> {
-    if value.data.is_empty()
-        || value.data.len() > MAX_CHAT_MODELS
-        || value.default_model.is_empty()
-        || value.default_model.len() > MAX_CHAT_MODEL_ID_BYTES
-        || !value
-            .data
-            .iter()
-            .any(|model| model.id == value.default_model)
-        || value.data.iter().any(|model| {
-            model.id.is_empty()
-                || model.id.len() > MAX_CHAT_MODEL_ID_BYTES
-                || model.id.chars().any(char::is_control)
-        })
-        || value
-            .data
-            .iter()
-            .map(|model| &model.id)
-            .collect::<std::collections::HashSet<_>>()
-            .len()
-            != value.data.len()
-    {
+    if !crate::account::valid_model_catalog(
+        value.data.iter().map(|model| model.id.as_str()),
+        &value.default_model,
+        MAX_CHAT_MODELS,
+        MAX_CHAT_MODEL_ID_BYTES,
+    ) {
         return Err(AccountError::Unavailable);
     }
     Ok(())
