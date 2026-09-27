@@ -335,7 +335,7 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
         } => {
             if msime_client_core::cloud::dictionary::valid_candidate_query(
                 text, kind, scheme, profile, *limit,
-            ) && valid_candidate_value(code, word)
+            ) && msime_client_core::cloud::dictionary::valid_candidate_value(code, word)
                 && *revision >= 0
                 && kind != "quick"
                 && matches!(
@@ -362,7 +362,7 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
         } => {
             if msime_client_core::cloud::dictionary::valid_candidate_query(
                 text, kind, scheme, profile, *limit,
-            ) && valid_candidate_value(code, word)
+            ) && msime_client_core::cloud::dictionary::valid_candidate_value(code, word)
                 && *revision >= 0
                 && kind != "quick"
             {
@@ -435,10 +435,6 @@ fn valid_snapshot_text(value: &str) -> bool {
         && value
             .chars()
             .all(|character| !character.is_control() || matches!(character, '\n' | '\r' | '\t'))
-}
-
-fn valid_candidate_value(code: &str, word: &str) -> bool {
-    !code.is_empty() && !word.is_empty() && valid_text(code, 256) && valid_text(word, 1024)
 }
 
 #[cfg(test)]

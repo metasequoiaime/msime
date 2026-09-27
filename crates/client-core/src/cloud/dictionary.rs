@@ -176,6 +176,13 @@ pub fn valid_candidate_query(
         && (1..=100).contains(&limit)
 }
 
+pub fn valid_candidate_value(code: &str, word: &str) -> bool {
+    !code.is_empty()
+        && !word.is_empty()
+        && crate::text::is_bounded_text(code, 256)
+        && crate::text::is_bounded_text(word, 1024)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

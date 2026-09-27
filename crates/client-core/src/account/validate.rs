@@ -229,12 +229,11 @@ pub(super) fn validate_candidate_value(
     code: &str,
     word: &str,
 ) -> Result<(), AccountError> {
-    validate_bounded_text(code, 256)?;
-    validate_bounded_text(word, 1024)?;
-    if code.is_empty()
-        || word.is_empty()
-        || (query.kind == "quick"
-            && word.encode_utf16().count() > crate::dictionary::import::MAX_QUICK_PHRASE_UTF16)
+    if !crate::cloud::dictionary::valid_candidate_value(code, word) {
+        return Err(AccountError::Invalid);
+    }
+    if query.kind == "quick"
+        && word.encode_utf16().count() > crate::dictionary::import::MAX_QUICK_PHRASE_UTF16
     {
         Err(AccountError::Invalid)
     } else {
