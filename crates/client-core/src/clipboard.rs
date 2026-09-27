@@ -1,7 +1,7 @@
 //! Bounded persistent clipboard history. Hosts decide which clipboard events to observe.
 
 use std::fs;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use unicode_segmentation::UnicodeSegmentation;
@@ -61,14 +61,12 @@ impl ClipboardHistoryStore {
     pub fn load(&mut self) -> std::io::Result<()> {
         match fs::File::open(&self.path) {
             Ok(file) => {
-                let mut bytes = Vec::new();
-                file.take(MAX_HISTORY_BYTES + 1).read_to_end(&mut bytes)?;
-                if bytes.len() as u64 > MAX_HISTORY_BYTES {
-                    return Err(std::io::Error::new(
+                let bytes = crate::bounded_io::read_bounded_file(file, MAX_HISTORY_BYTES, || {
+                    std::io::Error::new(
                         std::io::ErrorKind::InvalidData,
                         "clipboard history exceeds size limit",
-                    ));
-                }
+                    )
+                })?;
                 let stored: StoredHistory = serde_json::from_slice(&bytes).map_err(|_| {
                     std::io::Error::new(
                         std::io::ErrorKind::InvalidData,
