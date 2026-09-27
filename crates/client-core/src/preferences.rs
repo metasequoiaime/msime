@@ -1686,9 +1686,7 @@ impl Preferences {
             return Err(PreferencesError::InvalidNiuTrans);
         }
         let translation = &self.custom_translation;
-        if translation.endpoint.len() > 2048
-            || translation.api_key.len() > 4096
-            || translation.endpoint.chars().any(char::is_control)
+        if translation.api_key.len() > 4096
             || translation.api_key.chars().any(char::is_control)
             || (!translation.endpoint.is_empty()
                 && !crate::translation::is_supported_endpoint(&translation.endpoint))
