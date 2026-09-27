@@ -10,18 +10,13 @@ pub mod translation;
 
 pub(crate) fn usable_token(value: &str) -> bool {
     !value.is_empty()
-        && value.len() <= 8192
-        && !value.chars().any(char::is_control)
+        && crate::text::is_bounded_text(value, 8192)
         && !value.starts_with('<')
         && !value.chars().all(|character| character == '*')
 }
 
 pub(crate) fn valid_https_endpoint_and_model(endpoint: &str, model: &str) -> bool {
-    if endpoint.len() > 2048
-        || model.is_empty()
-        || model.len() > 256
-        || model.chars().any(char::is_control)
-    {
+    if endpoint.len() > 2048 || model.is_empty() || !crate::text::is_bounded_text(model, 256) {
         return false;
     }
     reqwest::Url::parse(endpoint).ok().is_some_and(|url| {

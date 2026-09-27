@@ -196,7 +196,7 @@ pub(super) fn validate_dictionary_catalog_page(
 }
 
 pub(super) fn validate_bounded_text(value: &str, maximum_bytes: usize) -> Result<(), AccountError> {
-    if value.len() > maximum_bytes || value.chars().any(char::is_control) {
+    if !crate::text::is_bounded_text(value, maximum_bytes) {
         Err(AccountError::Invalid)
     } else {
         Ok(())

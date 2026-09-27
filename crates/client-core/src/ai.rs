@@ -53,8 +53,7 @@ pub fn chat_completion_body(
     request.validate()?;
     if !AI_PROVIDERS.contains(&provider)
         || model.is_empty()
-        || model.len() > 256
-        || model.chars().any(char::is_control)
+        || !crate::text::is_bounded_text(model, 256)
         || prompt.len() > 16384
     {
         return Err(AiError::InvalidConfiguration);
@@ -80,10 +79,7 @@ pub fn chat_completion_body(
 /// have keyed is not matched by accident.
 fn credential_origin(endpoint: &str) -> Option<String> {
     let endpoint = endpoint.trim();
-    if endpoint.is_empty() || endpoint.len() > 2048 {
-        return None;
-    }
-    if endpoint.chars().any(char::is_control) {
+    if endpoint.is_empty() || !crate::text::is_bounded_text(endpoint, 2048) {
         return None;
     }
     let url = reqwest::Url::parse(endpoint).ok()?;
@@ -109,8 +105,7 @@ pub fn chat_completion_http_request(
     }
     let endpoint = &config.endpoint;
     let url = reqwest::Url::parse(endpoint).map_err(|_| AiError::InvalidConfiguration)?;
-    if endpoint.len() > 2048
-        || endpoint.chars().any(char::is_control)
+    if !crate::text::is_bounded_text(endpoint, 2048)
         || !matches!(url.scheme(), "http" | "https")
         || url.host_str().is_none()
         || !url.username().is_empty()
@@ -148,8 +143,7 @@ pub fn chat_completion_http_request(
         .unwrap_or(&config.token)
         .trim();
     if token.is_empty()
-        || token.len() > 4096
-        || token.chars().any(char::is_control)
+        || !crate::text::is_bounded_text(token, 4096)
         || token.starts_with("FAKESECRET_")
         || (token.starts_with('<') && token.ends_with('>'))
     {

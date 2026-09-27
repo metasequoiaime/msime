@@ -12,7 +12,7 @@
 use crate::preferences::Preferences;
 
 fn valid_voice_field(value: &str, maximum_bytes: usize) -> bool {
-    value.len() <= maximum_bytes && !value.chars().any(char::is_control)
+    crate::text::is_bounded_text(value, maximum_bytes)
 }
 
 /// One HTTP or WebSocket header the provider requires, already filled in.
