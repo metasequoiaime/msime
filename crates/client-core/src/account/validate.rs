@@ -199,20 +199,13 @@ pub(super) fn validate_bounded_text(value: &str, maximum_bytes: usize) -> Result
 }
 
 pub(super) fn validate_candidate_query(query: &AccountCandidateQuery) -> Result<(), AccountError> {
-    if query.text.is_empty()
-        || query.text.len() > 256
-        || query.text.chars().any(char::is_control)
-        || !matches!(
-            query.kind.as_str(),
-            "pinyin" | "jianpin" | "wubi" | "quick" | "english"
-        )
-        || !matches!(query.scheme.as_str(), "pinyin" | "shuangpin")
-        || !matches!(
-            query.profile.as_str(),
-            "xiaohe" | "ziranma" | "microsoft" | "shoudao"
-        )
-        || !(1..=100).contains(&query.limit)
-    {
+    if !crate::cloud::dictionary::valid_candidate_query(
+        &query.text,
+        &query.kind,
+        &query.scheme,
+        &query.profile,
+        query.limit,
+    ) {
         Err(AccountError::Invalid)
     } else {
         Ok(())

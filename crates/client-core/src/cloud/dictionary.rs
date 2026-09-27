@@ -161,6 +161,21 @@ pub fn validate_import(text: &str) -> Result<(), &'static str> {
     Ok(())
 }
 
+pub fn valid_candidate_query(
+    text: &str,
+    kind: &str,
+    scheme: &str,
+    profile: &str,
+    limit: usize,
+) -> bool {
+    !text.is_empty()
+        && crate::text::is_bounded_text(text, 256)
+        && matches!(kind, "pinyin" | "jianpin" | "wubi" | "quick" | "english")
+        && matches!(scheme, "pinyin" | "shuangpin")
+        && matches!(profile, "xiaohe" | "ziranma" | "microsoft" | "shoudao")
+        && (1..=100).contains(&limit)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

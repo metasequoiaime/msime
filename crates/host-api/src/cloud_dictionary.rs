@@ -311,7 +311,9 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
             profile,
             limit,
         } => {
-            if valid_candidate_query(text, kind, scheme, profile, *limit) {
+            if msime_client_core::cloud::dictionary::valid_candidate_query(
+                text, kind, scheme, profile, *limit,
+            ) {
                 Ok(())
             } else {
                 Err("invalid cloud dictionary request")
@@ -331,8 +333,9 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
             trigger_count,
             ..
         } => {
-            if valid_candidate_query(text, kind, scheme, profile, *limit)
-                && valid_candidate_value(code, word)
+            if msime_client_core::cloud::dictionary::valid_candidate_query(
+                text, kind, scheme, profile, *limit,
+            ) && valid_candidate_value(code, word)
                 && *revision >= 0
                 && kind != "quick"
                 && matches!(
@@ -357,8 +360,9 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
             word,
             revision,
         } => {
-            if valid_candidate_query(text, kind, scheme, profile, *limit)
-                && valid_candidate_value(code, word)
+            if msime_client_core::cloud::dictionary::valid_candidate_query(
+                text, kind, scheme, profile, *limit,
+            ) && valid_candidate_value(code, word)
                 && *revision >= 0
                 && kind != "quick"
             {
@@ -431,21 +435,6 @@ fn valid_snapshot_text(value: &str) -> bool {
         && value
             .chars()
             .all(|character| !character.is_control() || matches!(character, '\n' | '\r' | '\t'))
-}
-
-fn valid_candidate_query(
-    text: &str,
-    kind: &str,
-    scheme: &str,
-    profile: &str,
-    limit: usize,
-) -> bool {
-    !text.is_empty()
-        && valid_text(text, 256)
-        && matches!(kind, "pinyin" | "jianpin" | "wubi" | "quick" | "english")
-        && matches!(scheme, "pinyin" | "shuangpin")
-        && matches!(profile, "xiaohe" | "ziranma" | "microsoft" | "shoudao")
-        && (1..=100).contains(&limit)
 }
 
 fn valid_candidate_value(code: &str, word: &str) -> bool {
