@@ -4,7 +4,7 @@
 use super::*;
 
 pub(super) fn validate_clipboard_search(value: &str) -> Result<(), AccountError> {
-    if value.len() > 1024 || value.chars().any(char::is_control) {
+    if !crate::text::is_bounded_text(value, 1024) {
         Err(AccountError::Invalid)
     } else {
         Ok(())
@@ -88,7 +88,7 @@ pub(super) fn dictionary_path(
     offset: usize,
     search: &str,
 ) -> Result<String, AccountError> {
-    if offset > 1_000_000 || search.len() > 1024 || search.chars().any(char::is_control) {
+    if offset > 1_000_000 || !crate::text::is_bounded_text(search, 1024) {
         return Err(AccountError::Invalid);
     }
     Ok(format!(
@@ -105,14 +105,11 @@ pub(super) fn validate_dictionary_catalog_query(
     profile: &str,
 ) -> Result<(), AccountError> {
     if offset > 1_000_000
-        || code.len() > 256
-        || code.contains('\0')
+        || !crate::text::is_bounded_text(code, 256)
         || scheme.is_empty()
-        || scheme.len() > 64
+        || !crate::text::is_bounded_text(scheme, 64)
         || profile.is_empty()
-        || profile.len() > 64
-        || scheme.chars().any(char::is_control)
-        || profile.chars().any(char::is_control)
+        || !crate::text::is_bounded_text(profile, 64)
     {
         Err(AccountError::Invalid)
     } else {
@@ -154,11 +151,9 @@ pub(super) fn validate_dictionary_catalog_identity(
     };
     if !code_ok
         || code.is_empty()
-        || code.len() > 256
+        || !crate::text::is_bounded_text(code, 256)
         || word.is_empty()
-        || word.len() > 1024
-        || code.chars().any(char::is_control)
-        || word.chars().any(char::is_control)
+        || !crate::text::is_bounded_text(word, 1024)
     {
         Err(AccountError::Invalid)
     } else {
@@ -575,9 +570,8 @@ pub(super) fn validate_provider_target(provider: &str, target: &str) -> Result<(
     }
     if !matches!(provider, "email" | "phone")
         || target.is_empty()
-        || target.len() > 320
+        || !crate::text::is_bounded_text(target, 320)
         || target.trim() != target
-        || target.chars().any(char::is_control)
     {
         return Err(AccountError::Invalid);
     }
@@ -586,17 +580,16 @@ pub(super) fn validate_provider_target(provider: &str, target: &str) -> Result<(
 
 pub(super) fn validate_challenge(challenge: &AccountChallenge) -> Result<(), AccountError> {
     if challenge.challenge_id.is_empty()
-        || challenge.challenge_id.len() > 256
-        || challenge.challenge_id.chars().any(char::is_control)
+        || !crate::text::is_bounded_text(&challenge.challenge_id, 256)
         || challenge.expires_in == 0
         || challenge
             .nonce
             .as_ref()
-            .is_some_and(|value| value.len() > 4096 || value.chars().any(char::is_control))
+            .is_some_and(|value| !crate::text::is_bounded_text(value, 4096))
         || challenge
             .authorization_url
             .as_ref()
-            .is_some_and(|value| value.len() > 4096 || value.chars().any(char::is_control))
+            .is_some_and(|value| !crate::text::is_bounded_text(value, 4096))
     {
         return Err(AccountError::Unavailable);
     }
@@ -605,8 +598,7 @@ pub(super) fn validate_challenge(challenge: &AccountChallenge) -> Result<(), Acc
 
 pub(super) fn validate_login(challenge: &str, credential: &str) -> Result<(), AccountError> {
     if challenge.is_empty()
-        || challenge.len() > 256
-        || challenge.chars().any(char::is_control)
+        || !crate::text::is_bounded_text(challenge, 256)
         || credential.len() != 6
         || !credential.bytes().all(|byte| byte.is_ascii_digit())
     {
@@ -617,11 +609,9 @@ pub(super) fn validate_login(challenge: &str, credential: &str) -> Result<(), Ac
 
 pub(super) fn validate_apple_login(challenge: &str, credential: &str) -> Result<(), AccountError> {
     if challenge.is_empty()
-        || challenge.len() > 256
-        || challenge.chars().any(char::is_control)
+        || !crate::text::is_bounded_text(challenge, 256)
         || credential.is_empty()
-        || credential.len() > 16 * 1024
-        || credential.chars().any(char::is_control)
+        || !crate::text::is_bounded_text(credential, 16 * 1024)
     {
         return Err(AccountError::Invalid);
     }
@@ -662,8 +652,7 @@ pub(super) fn validate_chat_request(
     model: &str,
 ) -> Result<(), AccountError> {
     if model.is_empty()
-        || model.len() > MAX_CHAT_MODEL_ID_BYTES
-        || model.chars().any(char::is_control)
+        || !crate::text::is_bounded_text(model, MAX_CHAT_MODEL_ID_BYTES)
         || messages.is_empty()
         || messages.len() > MAX_CHAT_MESSAGES
         || messages.iter().any(|message| {
@@ -700,8 +689,7 @@ pub(super) fn validate_user(user: &AccountUser) -> Result<(), AccountError> {
     .map_err(|_| AccountError::Invalid)?;
     if user.display_name.chars().count() > 64
         || user.display_name.chars().any(char::is_control)
-        || user.created_at.len() > 128
-        || user.created_at.chars().any(char::is_control)
+        || !crate::text::is_bounded_text(&user.created_at, 128)
     {
         return Err(AccountError::Invalid);
     }
@@ -718,8 +706,7 @@ pub(super) fn validate_profile(profile: &AccountProfile) -> Result<(), AccountEr
                     .provider
                     .bytes()
                     .all(|byte| byte.is_ascii_lowercase() || byte == b'_' || byte == b'-')
-                || identity.subject.len() > 512
-                || identity.subject.chars().any(char::is_control)
+                || !crate::text::is_bounded_text(&identity.subject, 512)
         })
     {
         return Err(AccountError::Unavailable);
@@ -728,10 +715,7 @@ pub(super) fn validate_profile(profile: &AccountProfile) -> Result<(), AccountEr
 }
 
 pub fn validate_identity(identity: &AccountIdentity) -> Result<(), &'static str> {
-    if identity.user_id.is_empty()
-        || identity.user_id.len() > 256
-        || identity.user_id.chars().any(char::is_control)
-    {
+    if identity.user_id.is_empty() || !crate::text::is_bounded_text(&identity.user_id, 256) {
         return Err("invalid account identity");
     }
     Ok(())
