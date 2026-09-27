@@ -1,4 +1,5 @@
 import { utf8Length } from "../Utf8";
+import { TextPolicy } from "../TextPolicy";
 import { VoiceInputConfiguration, VoiceAsrTokens } from "./VoiceInputConfiguration";
 
 export interface HttpAsrDefaults {
@@ -67,10 +68,10 @@ export class HttpAsrConfigurationPolicy {
       this.validEndpoint(endpoint) &&
       model.length > 0 &&
       utf8Length(model) <= 512 &&
-      !this.hasControl(model) &&
+      !TextPolicy.hasControl(model) &&
       token.length > 0 &&
       utf8Length(token) <= 16384 &&
-      !this.hasControl(token)
+      !TextPolicy.hasControl(token)
     );
   }
 
@@ -89,17 +90,10 @@ export class HttpAsrConfigurationPolicy {
       utf8Length(value) > 2048 ||
       value.includes("@") ||
       value.includes("#") ||
-      this.hasControl(value)
+      TextPolicy.hasControl(value)
     )
       return false;
     const authority: string = value.substring(8).split("/")[0].split("?")[0];
     return authority.length > 0;
-  }
-
-  private static hasControl(value: string): boolean {
-    return Array.from(value).some((character: string): boolean => {
-      const code: number = character.codePointAt(0) ?? 0;
-      return code < 0x20 || (code >= 0x7f && code <= 0x9f);
-    });
   }
 }

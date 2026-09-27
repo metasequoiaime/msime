@@ -1,3 +1,5 @@
+import { TextPolicy } from "../TextPolicy";
+
 /** One model row returned by an OpenAI-compatible or Anthropic catalog. */
 export interface AiCatalogModel {
   id?: string;
@@ -44,7 +46,7 @@ export class AiModelCatalogPolicy {
 
   static accepts(model: AiCatalogModel): boolean {
     const id: string = model.id ?? "";
-    if (model.active === false || id.length === 0 || id.length > 256 || this.hasControl(id)) {
+    if (model.active === false || id.length === 0 || id.length > 256 || TextPolicy.hasControl(id)) {
       return false;
     }
     const endpoints: string[] | undefined = model.supported_endpoint_types;
@@ -70,7 +72,7 @@ export class AiModelCatalogPolicy {
       !anthropic ||
       cursor.length === 0 ||
       cursor.length > 256 ||
-      this.hasControl(cursor) ||
+      TextPolicy.hasControl(cursor) ||
       previous.includes(cursor)
     )
       return null;
@@ -83,17 +85,10 @@ export class AiModelCatalogPolicy {
       value.length > 2048 ||
       value.includes("@") ||
       value.includes("#") ||
-      this.hasControl(value)
+      TextPolicy.hasControl(value)
     )
       return false;
     const authority: string = value.substring(8).split("/")[0].split("?")[0];
     return authority.length > 0;
-  }
-
-  private static hasControl(value: string): boolean {
-    return Array.from(value).some((character: string): boolean => {
-      const code: number = character.codePointAt(0) ?? 0;
-      return code <= 0x1f || (code >= 0x7f && code <= 0x9f);
-    });
   }
 }
