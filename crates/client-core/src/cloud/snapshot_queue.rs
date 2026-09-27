@@ -215,7 +215,15 @@ impl DictionarySnapshotQueue {
         {
             return Err(SnapshotQueueError::Invalid);
         }
-        let bytes = fs::read(path).map_err(|_| SnapshotQueueError::Unavailable)?;
+        let mut bytes = Vec::new();
+        File::open(path)
+            .map_err(|_| SnapshotQueueError::Unavailable)?
+            .take(MAXIMUM_STATE_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|_| SnapshotQueueError::Unavailable)?;
+        if bytes.len() as u64 > MAXIMUM_STATE_BYTES {
+            return Err(SnapshotQueueError::Invalid);
+        }
         let state: SnapshotQueueState =
             serde_json::from_slice(&bytes).map_err(|_| SnapshotQueueError::Invalid)?;
         state.validate()?;
@@ -634,6 +642,20 @@ mod tests {
         fs::write(root.join(STATE_NAME), b"{not-json").unwrap();
         assert!(matches!(queue.read(), Err(SnapshotQueueError::Invalid)));
         assert_eq!(fs::read(root.join(STATE_NAME)).unwrap(), b"{not-json");
+    }
+
+    #[test]
+    fn queue_rejects_oversized_state_without_reading_it_unboundedly() {
+        let parent = tempfile::tempdir().unwrap();
+        let root = parent.path().join("queue");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join(STATE_NAME),
+            vec![b' '; MAXIMUM_STATE_BYTES as usize + 1],
+        )
+        .unwrap();
+        let queue = DictionarySnapshotQueue::new(root).unwrap();
+        assert!(matches!(queue.read(), Err(SnapshotQueueError::Invalid)));
     }
 
     #[test]
