@@ -22,6 +22,11 @@ pub(crate) const SENTENCE_MODEL_FILE: &str = "sentence-model.safetensors";
 /// the small one keep today's behaviour exactly.
 pub(crate) const SETTLED_MODEL_FILE: &str = "sentence-model-desktop.safetensors";
 
+/// Largest model file a host will read into memory. The shipped settled model is about 25 MiB;
+/// this leaves room for a larger compatible model without allowing an arbitrary configured path to
+/// make startup allocate unbounded memory.
+pub(crate) const MAX_SENTENCE_MODEL_BYTES: u64 = 64 * 1024 * 1024;
+
 /// The candidate reranking model, loaded once per path and shared by every session using it.
 ///
 /// The small model is part of the verified resource set. Prepared dictionaries contain only the
@@ -58,8 +63,9 @@ pub(crate) fn sentence_model(
     if let Some(cached) = cache.get(&path) {
         return cached.clone();
     }
-    let loaded = std::fs::read(&path)
+    let loaded = std::fs::File::open(&path)
         .ok()
+        .and_then(|file| crate::bounded_file::read(file, MAX_SENTENCE_MODEL_BYTES).ok())
         .and_then(|bytes| match SentenceModel::load(&bytes) {
             Ok(model) => Some(Arc::new(model)),
             Err(error) => {
