@@ -1,13 +1,5 @@
 //! Shared authentication policy for credential probes and native recognition.
 
-fn usable(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= 8192
-        && !value.chars().any(char::is_control)
-        && !value.starts_with('<')
-        && !value.chars().all(|c| c == '*')
-}
-
 /// Produces sensitive request headers; callers must not log or persist them.
 /// An absent historical mode infers legacy auth from a usable App ID. Explicit
 /// API-key mode always ignores stale App IDs, including masked placeholders.
@@ -21,10 +13,13 @@ pub fn headers(
     let legacy = match mode.trim() {
         "api_key" => false,
         "legacy" => true,
-        "" => usable(app_id),
+        "" => crate::credential::usable_token(app_id),
         _ => return None,
     };
-    if !usable(token) || !usable(resource_id) || (legacy && !usable(app_id)) {
+    if !crate::credential::usable_token(token)
+        || !crate::credential::usable_token(resource_id)
+        || (legacy && !crate::credential::usable_token(app_id))
+    {
         return None;
     }
     let mut headers = vec![

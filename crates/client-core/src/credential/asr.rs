@@ -66,12 +66,7 @@ pub fn test(config: &Value, transport: &impl Transport) -> ProbeResult {
         };
     }
     let (token, endpoint, model) = (get("token"), get("endpoint"), get("model"));
-    if token.is_empty()
-        || token.len() > 8192
-        || token.chars().any(char::is_control)
-        || token.starts_with('<')
-        || token.chars().all(|c| c == '*')
-    {
+    if !crate::credential::usable_token(token) {
         return ProbeResult {
             ok: false,
             message: "请先填写有效的 API Key。".into(),

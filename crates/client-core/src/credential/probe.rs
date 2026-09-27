@@ -53,12 +53,7 @@ pub fn test_chat(service: &str, config: &Value, transport: &impl ProbeTransport)
     let token = value("token");
     let endpoint = value("endpoint");
     let model = value("model");
-    if token.is_empty()
-        || token.len() > 8192
-        || token.chars().any(char::is_control)
-        || token.starts_with('<')
-        || token.chars().all(|c| c == '*')
-    {
+    if !crate::credential::usable_token(token) {
         return result(false, "请先填写有效的 API Key。");
     }
     let url = reqwest::Url::parse(endpoint).ok();
