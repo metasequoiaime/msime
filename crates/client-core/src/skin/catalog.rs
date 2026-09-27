@@ -479,17 +479,12 @@ pub fn read_resource(
     if !metadata.is_file() {
         return Err(ResourceError::Unavailable);
     }
-    if metadata.len() > MAX_RESOURCE_BYTES as u64 {
-        return Err(ResourceError::TooLarge);
-    }
-    let mut bytes = Vec::new();
-    input
-        .take(MAX_RESOURCE_BYTES as u64 + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|_| ResourceError::Unavailable)?;
-    if bytes.len() > MAX_RESOURCE_BYTES {
-        return Err(ResourceError::TooLarge);
-    }
+    let bytes = crate::bounded_io::read_bounded_file_with(
+        input,
+        MAX_RESOURCE_BYTES as u64,
+        || ResourceError::TooLarge,
+        |_| ResourceError::Unavailable,
+    )?;
     Ok(SkinResource {
         content_type,
         bytes,
