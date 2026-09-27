@@ -139,10 +139,8 @@ pub fn validate_value(value: &DictionaryValue) -> Result<(), &'static str> {
     {
         return Err("invalid dictionary value");
     }
-    if value.code.contains('\0')
-        || value.word.contains('\0')
-        || value.code.chars().any(char::is_control)
-        || value.word.chars().any(char::is_control)
+    if !crate::text::is_bounded_text(&value.code, 256)
+        || !crate::text::is_bounded_text(&value.word, 1024)
     {
         return Err("invalid dictionary value");
     }
