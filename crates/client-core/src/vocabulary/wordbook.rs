@@ -27,6 +27,12 @@ pub const MAX_NAME_CHARS: usize = 64;
 /// is a guard against a malformed file rather than a ceiling a real book runs into.
 pub const MAX_ENTRIES: usize = 20_000;
 
+fn text_is_valid(value: &str, maximum: usize, required: bool) -> bool {
+    (!required || !value.is_empty())
+        && value.chars().count() <= maximum
+        && !value.chars().any(char::is_control)
+}
+
 /// One word as a wordbook stores it.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -47,16 +53,11 @@ impl WordbookEntry {
     /// it could not have stored. A word accepted by one and refused by another is a card that
     /// imports and then cannot be scheduled.
     pub fn is_valid(&self) -> bool {
-        !self.word.is_empty()
-            && !self.meaning.is_empty()
-            && self.word.chars().count() <= MAX_WORD_CHARS
-            && self.phonetic.chars().count() <= MAX_PHONETIC_CHARS
-            && self.meaning.chars().count() <= MAX_MEANING_CHARS
+        text_is_valid(&self.word, MAX_WORD_CHARS, true)
             // A control character in a headword would be invisible on every host's card, and it
             // would let two words that look identical compare as different store keys.
-            && !self.word.chars().any(char::is_control)
-            && !self.phonetic.chars().any(char::is_control)
-            && !self.meaning.chars().any(char::is_control)
+            && text_is_valid(&self.phonetic, MAX_PHONETIC_CHARS, false)
+            && text_is_valid(&self.meaning, MAX_MEANING_CHARS, true)
     }
 }
 
@@ -92,9 +93,7 @@ impl Wordbook {
     /// whichever came last would make the book's own contents depend on row order.
     pub fn is_valid(&self) -> bool {
         if !id_is_well_formed(&self.id)
-            || self.name.is_empty()
-            || self.name.chars().count() > MAX_NAME_CHARS
-            || self.name.chars().any(char::is_control)
+            || !text_is_valid(&self.name, MAX_NAME_CHARS, true)
             || self.entries.is_empty()
             || self.entries.len() > MAX_ENTRIES
             || !self.entries.iter().all(WordbookEntry::is_valid)
