@@ -5,7 +5,7 @@ use crate::preferences::TouchKeyboardSkinDesign;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 use unicode_segmentation::UnicodeSegmentation;
@@ -190,13 +190,9 @@ impl CustomSkinLibraryStore {
         if !metadata.file_type().is_file() || metadata.len() > MAXIMUM_BYTES {
             return Err(CustomSkinLibraryError::Invalid);
         }
-        let mut bytes = Vec::with_capacity(metadata.len() as usize);
-        File::open(path)?
-            .take(MAXIMUM_BYTES + 1)
-            .read_to_end(&mut bytes)?;
-        if bytes.len() as u64 > MAXIMUM_BYTES {
-            return Err(CustomSkinLibraryError::Invalid);
-        }
+        let bytes = crate::bounded_io::read_bounded_file(File::open(path)?, MAXIMUM_BYTES, || {
+            CustomSkinLibraryError::Invalid
+        })?;
         let mut items: Vec<SavedTouchKeyboardSkin> = serde_json::from_slice(&bytes)?;
         if items.len() > MAXIMUM_ITEMS {
             return Err(CustomSkinLibraryError::Invalid);
