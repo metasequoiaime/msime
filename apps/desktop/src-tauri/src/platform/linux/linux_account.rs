@@ -6,7 +6,7 @@
 
 use crate::platform::desktop::desktop_account;
 use msime_client_core::account::{AccountError, AccountSessionStorage, SavedAccountSession};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
@@ -46,7 +46,18 @@ impl AccountSessionStorage for LinuxAccountStorage {
         {
             return Err(AccountError::Storage);
         }
-        let text = std::fs::read_to_string(&self.path).map_err(|_| AccountError::Storage)?;
+        // The file can grow after symlink_metadata returns. Read through a bounded handle so a
+        // concurrent replacement cannot turn the size check into an unbounded allocation.
+        let mut bytes = Vec::new();
+        std::fs::File::open(&self.path)
+            .map_err(|_| AccountError::Storage)?
+            .take(MAX_ACCOUNT_SESSION_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|_| AccountError::Storage)?;
+        if bytes.len() as u64 > MAX_ACCOUNT_SESSION_BYTES {
+            return Err(AccountError::Storage);
+        }
+        let text = std::str::from_utf8(&bytes).map_err(|_| AccountError::Storage)?;
         serde_json::from_str(&text)
             .map(Some)
             .map_err(|_| AccountError::Storage)
@@ -100,4 +111,21 @@ impl AccountSessionStorage for LinuxAccountStorage {
 /// Registers the shared desktop account state around the session file in `directory`, the resolved shared state directory.
 pub fn setup(app: &tauri::AppHandle, directory: &Path) -> Result<(), Box<dyn std::error::Error>> {
     desktop_account::manage(app, LinuxAccountStorage::new(directory))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn oversized_session_is_rejected_after_a_bounded_read() {
+        let directory = tempfile::tempdir().unwrap();
+        let storage = LinuxAccountStorage::new(directory.path());
+        std::fs::write(
+            directory.path().join("account-session.json"),
+            vec![b' '; MAX_ACCOUNT_SESSION_BYTES as usize + 1],
+        )
+        .unwrap();
+        assert!(matches!(storage.load(), Err(AccountError::Storage)));
+    }
 }
