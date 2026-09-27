@@ -166,11 +166,7 @@ impl VocabularyProgress {
                 return Err(VocabularyProgressError::InvalidDocument);
             }
             for (word, state) in words {
-                if word.is_empty()
-                    || word.chars().count() > wordbook::MAX_WORD_CHARS
-                    || word.chars().any(char::is_control)
-                    || !state.is_valid()
-                {
+                if !wordbook::word_is_valid(word) || !state.is_valid() {
                     return Err(VocabularyProgressError::InvalidDocument);
                 }
             }

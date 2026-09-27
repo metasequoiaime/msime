@@ -33,6 +33,10 @@ fn text_is_valid(value: &str, maximum: usize, required: bool) -> bool {
         && !value.chars().any(char::is_control)
 }
 
+pub(crate) fn word_is_valid(value: &str) -> bool {
+    text_is_valid(value, MAX_WORD_CHARS, true)
+}
+
 /// One word as a wordbook stores it.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -53,7 +57,7 @@ impl WordbookEntry {
     /// it could not have stored. A word accepted by one and refused by another is a card that
     /// imports and then cannot be scheduled.
     pub fn is_valid(&self) -> bool {
-        text_is_valid(&self.word, MAX_WORD_CHARS, true)
+        word_is_valid(&self.word)
             // A control character in a headword would be invisible on every host's card, and it
             // would let two words that look identical compare as different store keys.
             && text_is_valid(&self.phonetic, MAX_PHONETIC_CHARS, false)
