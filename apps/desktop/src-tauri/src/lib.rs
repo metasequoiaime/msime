@@ -40,7 +40,7 @@ use panel_input::{send_panel_key_windows, send_panel_text_windows, windows_panel
 #[cfg(target_os = "android")]
 use platform::android::android_account;
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
-use platform::desktop::desktop_preferences_monitor;
+use platform::desktop::{desktop_account, desktop_preferences_monitor};
 #[cfg(target_os = "ios")]
 use platform::ios::ios_account;
 #[cfg(target_os = "linux")]
@@ -4610,16 +4610,12 @@ pub fn run() {
             pick_voice_model_path,
             #[cfg(target_os = "android")]
             android_account::account_status,
-            #[cfg(target_os = "windows")]
-            windows_account::account_status,
-            #[cfg(target_os = "linux")]
-            linux_account::account_status,
+            #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+            desktop_account::account_status,
             #[cfg(target_os = "linux")]
             linux_setup::linux_setup_status,
             #[cfg(target_os = "linux")]
             linux_setup::run_linux_setup,
-            #[cfg(target_os = "macos")]
-            macos_account::account_status,
             #[cfg(target_os = "android")]
             android_account::android_open_input_method_settings,
             #[cfg(target_os = "android")]
@@ -4636,72 +4632,40 @@ pub fn run() {
             android_account::ai_test,
             #[cfg(target_os = "android")]
             android_account::account_providers,
-            #[cfg(target_os = "windows")]
-            windows_account::account_providers,
-            #[cfg(target_os = "linux")]
-            linux_account::account_providers,
-            #[cfg(target_os = "macos")]
-            macos_account::account_providers,
+            #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+            desktop_account::account_providers,
             #[cfg(target_os = "android")]
             android_account::account_request_code,
-            #[cfg(target_os = "windows")]
-            windows_account::account_request_code,
-            #[cfg(target_os = "linux")]
-            linux_account::account_request_code,
-            #[cfg(target_os = "macos")]
-            macos_account::account_request_code,
+            #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+            desktop_account::account_request_code,
             #[cfg(target_os = "android")]
             android_account::account_login,
-            #[cfg(target_os = "windows")]
-            windows_account::account_login,
-            #[cfg(target_os = "linux")]
-            linux_account::account_login,
-            #[cfg(target_os = "macos")]
-            macos_account::account_login,
+            #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+            desktop_account::account_login,
             #[cfg(target_os = "android")]
             android_account::account_profile,
-            #[cfg(target_os = "windows")]
-            windows_account::account_profile,
-            #[cfg(target_os = "linux")]
-            linux_account::account_profile,
-            #[cfg(target_os = "macos")]
-            macos_account::account_profile,
+            #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+            desktop_account::account_profile,
             #[cfg(target_os = "android")]
             android_account::account_chat_models,
             #[cfg(target_os = "android")]
             android_account::account_chat,
             #[cfg(target_os = "android")]
             android_account::account_rename,
-            #[cfg(target_os = "windows")]
-            windows_account::account_rename,
-            #[cfg(target_os = "linux")]
-            linux_account::account_rename,
-            #[cfg(target_os = "macos")]
-            macos_account::account_rename,
+            #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+            desktop_account::account_rename,
             #[cfg(target_os = "android")]
             android_account::account_logout,
-            #[cfg(target_os = "windows")]
-            windows_account::account_logout,
-            #[cfg(target_os = "linux")]
-            linux_account::account_logout,
-            #[cfg(target_os = "macos")]
-            macos_account::account_logout,
+            #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+            desktop_account::account_logout,
             #[cfg(target_os = "android")]
             android_account::account_delete,
-            #[cfg(target_os = "windows")]
-            windows_account::account_delete,
-            #[cfg(target_os = "linux")]
-            linux_account::account_delete,
-            #[cfg(target_os = "macos")]
-            macos_account::account_delete,
+            #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+            desktop_account::account_delete,
             #[cfg(target_os = "android")]
             android_account::account_forget,
-            #[cfg(target_os = "windows")]
-            windows_account::account_forget,
-            #[cfg(target_os = "linux")]
-            linux_account::account_forget,
-            #[cfg(target_os = "macos")]
-            macos_account::account_forget,
+            #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+            desktop_account::account_forget,
             #[cfg(target_os = "android")]
             android_account::app_icon_info,
             #[cfg(target_os = "android")]
