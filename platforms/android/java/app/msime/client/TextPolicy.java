@@ -6,6 +6,12 @@ import java.nio.charset.StandardCharsets;
 public final class TextPolicy {
     private TextPolicy() {}
 
+    public static boolean blank(String value) {
+        if (value == null || value.isEmpty()) return true;
+        return value.codePoints().allMatch(codePoint -> Character.isWhitespace(codePoint)
+            || Character.isSpaceChar(codePoint));
+    }
+
     public static boolean hasControl(String value) {
         if (value == null) return false;
         return value.codePoints().anyMatch(Character::isISOControl);

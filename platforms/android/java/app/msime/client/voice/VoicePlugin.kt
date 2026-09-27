@@ -270,6 +270,6 @@ class VoicePlugin(activity: Activity) : Plugin(activity) {
         return args.requestId.length in 1..64
             && args.requestId.all { it.isLetterOrDigit() || it == '-' }
             && args.language.length in 1..64
-            && args.language.none { it.isISOControl() }
+            && !TextPolicy.hasControl(args.language)
     }
 }

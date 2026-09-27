@@ -71,7 +71,9 @@ final class BackendAnonymousAccount {
                     .put("target", identity.getString("subject"))
                     .put("purpose", "login"), null);
             String challengeID = challenge.optString("challenge_id", "");
-            if (challengeID.isEmpty()) throw new IllegalStateException("anonymous account unavailable");
+            if (challengeID.isEmpty() || TextPolicy.hasControl(challengeID)) {
+                throw new IllegalStateException("anonymous account unavailable");
+            }
             JSONObject tokens = request("POST", "/v1/auth/login",
                 new JSONObject().put("challenge_id", challengeID)
                     .put("credential", identity.getString("secret")), null);
