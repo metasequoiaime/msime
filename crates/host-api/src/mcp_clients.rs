@@ -161,19 +161,18 @@ pub fn install_client(
 
 /// The configuration as it is, or an empty object when there is no file yet.
 fn read_config(path: &Path) -> Result<Map<String, Value>, &'static str> {
-    use std::io::Read;
     let file = match std::fs::File::open(path) {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Map::new()),
         Err(_) => return Err("storage"),
     };
-    let mut bytes = Vec::new();
-    file.take(CONFIG_READ_LIMIT + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|_| "storage")?;
-    if bytes.len() as u64 > CONFIG_READ_LIMIT {
-        return Err("mcp_config_invalid");
-    }
+    let bytes = crate::bounded_file::read(file, CONFIG_READ_LIMIT).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::InvalidData {
+            "mcp_config_invalid"
+        } else {
+            "storage"
+        }
+    })?;
     // An empty file is what some editors leave behind; it holds nothing to keep.
     if bytes.iter().all(u8::is_ascii_whitespace) {
         return Ok(Map::new());

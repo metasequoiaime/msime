@@ -20,7 +20,7 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::{HashMap, HashSet},
     ffi::{c_char, c_void},
-    io::{BufRead, BufReader, Read, Write},
+    io::{BufRead, BufReader, Write},
     path::Path,
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -757,21 +757,13 @@ fn activation_receipt(options: &EngineOptions) -> Result<Option<String>, &'stati
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(_) => return Err("snapshot activation receipt unavailable"),
     };
-    if file
-        .metadata()
-        .map_err(|_| "snapshot activation receipt unavailable")?
-        .len()
-        > MAX_ACTIVATION_RECEIPT_BYTES
-    {
-        return Err("invalid snapshot activation receipt");
-    }
-    let mut value = Vec::new();
-    file.take(MAX_ACTIVATION_RECEIPT_BYTES + 1)
-        .read_to_end(&mut value)
-        .map_err(|_| "snapshot activation receipt unavailable")?;
-    if value.len() as u64 > MAX_ACTIVATION_RECEIPT_BYTES {
-        return Err("invalid snapshot activation receipt");
-    }
+    let value = crate::bounded_file::read(file, MAX_ACTIVATION_RECEIPT_BYTES).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::InvalidData {
+            "invalid snapshot activation receipt"
+        } else {
+            "snapshot activation receipt unavailable"
+        }
+    })?;
     let value = std::str::from_utf8(&value).map_err(|_| "invalid snapshot activation receipt")?;
     if !valid_activation_id(value) {
         return Err("invalid snapshot activation receipt");

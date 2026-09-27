@@ -1215,8 +1215,6 @@ fn apple_clipboard_migration_lock(root: &std::path::Path) -> Result<std::fs::Fil
 /// Migrate the fixed legacy Apple history into the shared mobile state once.
 /// The source is removed only after the destination has been persisted.
 pub fn migrate_apple_clipboard_history(root: &std::path::Path) -> Result<bool, String> {
-    use std::io::Read;
-
     let _lock = apple_clipboard_migration_lock(root)?;
 
     let shared_path = root.join("MSIME").join("clipboard_history.json");
@@ -1234,19 +1232,20 @@ pub fn migrate_apple_clipboard_history(root: &std::path::Path) -> Result<bool, S
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
         Err(_) => return Err("legacy clipboard history unavailable".into()),
     };
-    if !metadata.file_type().is_file() || metadata.len() > MAX_APPLE_LEGACY_CLIPBOARD_BYTES {
+    if !metadata.file_type().is_file() {
         return Err("invalid legacy clipboard history".into());
     }
-    let mut bytes = Vec::new();
-    std::fs::File::open(&legacy_path)
-        .and_then(|file| {
-            file.take(MAX_APPLE_LEGACY_CLIPBOARD_BYTES + 1)
-                .read_to_end(&mut bytes)
-        })
-        .map_err(|_| "legacy clipboard history unavailable")?;
-    if bytes.len() as u64 > MAX_APPLE_LEGACY_CLIPBOARD_BYTES {
-        return Err("invalid legacy clipboard history".into());
-    }
+    let bytes = crate::bounded_file::read(
+        std::fs::File::open(&legacy_path).map_err(|_| "legacy clipboard history unavailable")?,
+        MAX_APPLE_LEGACY_CLIPBOARD_BYTES,
+    )
+    .map_err(|error| {
+        if error.kind() == std::io::ErrorKind::InvalidData {
+            "invalid legacy clipboard history"
+        } else {
+            "legacy clipboard history unavailable"
+        }
+    })?;
     let legacy: Vec<AppleLegacyClipboardEntry> =
         serde_json::from_slice(&bytes).map_err(|_| "invalid legacy clipboard history")?;
     if legacy.len() > 50 {
@@ -1285,8 +1284,6 @@ pub fn migrate_apple_clipboard_history(root: &std::path::Path) -> Result<bool, S
 /// The caller opts into this path explicitly, so an unrelated `state` directory in an Apple App
 /// Group can never be mistaken for Harmony data.
 fn migrate_harmony_clipboard_history(root: &std::path::Path) -> Result<bool, String> {
-    use std::io::Read;
-
     let _lock = apple_clipboard_migration_lock(root)?;
     let shared_path = root.join("MSIME").join("clipboard_history.json");
     let mut shared = msime_client_core::clipboard::ClipboardHistoryStore::open(&shared_path);
@@ -1303,19 +1300,20 @@ fn migrate_harmony_clipboard_history(root: &std::path::Path) -> Result<bool, Str
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
         Err(_) => return Err("legacy clipboard history unavailable".into()),
     };
-    if !metadata.file_type().is_file() || metadata.len() > MAX_APPLE_LEGACY_CLIPBOARD_BYTES {
+    if !metadata.file_type().is_file() {
         return Err("invalid legacy clipboard history".into());
     }
-    let mut bytes = Vec::new();
-    std::fs::File::open(&legacy_path)
-        .and_then(|file| {
-            file.take(MAX_APPLE_LEGACY_CLIPBOARD_BYTES + 1)
-                .read_to_end(&mut bytes)
-        })
-        .map_err(|_| "legacy clipboard history unavailable")?;
-    if bytes.len() as u64 > MAX_APPLE_LEGACY_CLIPBOARD_BYTES {
-        return Err("invalid legacy clipboard history".into());
-    }
+    let bytes = crate::bounded_file::read(
+        std::fs::File::open(&legacy_path).map_err(|_| "legacy clipboard history unavailable")?,
+        MAX_APPLE_LEGACY_CLIPBOARD_BYTES,
+    )
+    .map_err(|error| {
+        if error.kind() == std::io::ErrorKind::InvalidData {
+            "invalid legacy clipboard history"
+        } else {
+            "legacy clipboard history unavailable"
+        }
+    })?;
     let legacy: Vec<HarmonyLegacyClipboardEntry> =
         serde_json::from_slice(&bytes).map_err(|_| "invalid legacy clipboard history")?;
     if legacy.len() > 50 {
