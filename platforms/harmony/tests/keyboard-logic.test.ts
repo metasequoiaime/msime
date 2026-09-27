@@ -8603,6 +8603,7 @@ group("rewriting a reply touches only the refusals", () => {
 group("AI model catalogs keep each provider's protocol and path", () => {
   check(TextPolicy.hasHttpsAuthority("https://example.test/path"), "accepts a populated HTTPS authority");
   check(!TextPolicy.hasHttpsAuthority("https:///path"), "rejects an empty HTTPS authority");
+  check(TextPolicy.hasAuthority("wss://speech.example.test/live", "wss://"), "shares authority parsing for WSS");
   check(
     AiModelCatalogPolicy.modelsUrl("https://api.everyapi.ai/v1/chat/completions") ===
       "https://api.everyapi.ai/v1/models",

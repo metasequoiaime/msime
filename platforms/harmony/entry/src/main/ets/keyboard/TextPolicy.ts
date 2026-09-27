@@ -1,10 +1,15 @@
 /** Text validation shared by settings, network and candidate policies. */
 export class TextPolicy {
+  /** Accepts one URL scheme with a non-empty authority before callers apply their own bounds. */
+  static hasAuthority(value: string, scheme: string): boolean {
+    if (!value.startsWith(scheme)) return false;
+    const authority: string = value.substring(scheme.length).split("/")[0].split("?")[0];
+    return authority.length > 0;
+  }
+
   /** Accepts an HTTPS URL with a non-empty authority before callers apply their own size rules. */
   static hasHttpsAuthority(value: string): boolean {
-    if (!value.startsWith("https://")) return false;
-    const authority: string = value.substring(8).split("/")[0].split("?")[0];
-    return authority.length > 0;
+    return TextPolicy.hasAuthority(value, "https://");
   }
 
   /** Rejects the C0 and C1 control ranges while leaving printable Unicode untouched. */
