@@ -2,7 +2,7 @@
 use crate::credential::probe::ProbeResult;
 use crate::translation;
 use serde_json::{json, Value};
-use std::{io::Read, time::Duration};
+use std::time::Duration;
 
 pub struct Request {
     pub endpoint: String,
@@ -27,11 +27,7 @@ impl Transport for HttpTransport {
         }
         let response = post.send().ok()?;
         let status = response.status().as_u16();
-        let mut bytes = Vec::new();
-        response.take(256 * 1024 + 1).read_to_end(&mut bytes).ok()?;
-        if bytes.len() > 256 * 1024 {
-            return None;
-        }
+        let bytes = crate::bounded_io::read_bounded(response, 256 * 1024).ok()?;
         Some((status, String::from_utf8(bytes).ok()?))
     }
 }

@@ -466,7 +466,7 @@ pub(super) fn validate_dictionary_import_result(
 }
 
 pub(super) fn read_bounded_response(
-    mut response: Response,
+    response: Response,
     maximum_response_bytes: usize,
 ) -> Result<Vec<u8>, AccountError> {
     if !response.status().is_success() {
@@ -478,16 +478,8 @@ pub(super) fn read_bounded_response(
     {
         return Err(AccountError::Unavailable);
     }
-    let mut bytes = Vec::new();
-    response
-        .by_ref()
-        .take((maximum_response_bytes + 1) as u64)
-        .read_to_end(&mut bytes)
-        .map_err(|_| AccountError::Unavailable)?;
-    if bytes.len() > maximum_response_bytes {
-        return Err(AccountError::Unavailable);
-    }
-    Ok(bytes)
+    crate::bounded_io::read_bounded(response, maximum_response_bytes as u64)
+        .map_err(|_| AccountError::Unavailable)
 }
 
 pub fn validate_account_preferences(value: &AccountPreferences) -> Result<(), AccountError> {

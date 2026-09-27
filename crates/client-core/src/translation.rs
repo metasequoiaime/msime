@@ -370,13 +370,7 @@ fn request_timeout(elapsed: Duration) -> Duration {
 }
 
 fn read_bounded_body(mut reader: impl Read) -> Option<Vec<u8>> {
-    let mut body = Vec::new();
-    reader
-        .by_ref()
-        .take((MAX_RESPONSE_BYTES + 1) as u64)
-        .read_to_end(&mut body)
-        .ok()?;
-    (body.len() <= MAX_RESPONSE_BYTES).then_some(body)
+    crate::bounded_io::read_bounded(&mut reader, MAX_RESPONSE_BYTES as u64).ok()
 }
 
 fn read_translation_response(reader: impl Read) -> Option<String> {
