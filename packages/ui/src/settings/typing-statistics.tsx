@@ -6,6 +6,7 @@ import {
   withUnknown,
   type TypingBreakdown,
 } from "./typing-speed";
+export type { TypingBreakdown } from "./typing-speed";
 import {
   dayKey,
   dayLabel,
