@@ -68,3 +68,45 @@ export function statisticsHeatmapWeeks(
     }),
   );
 }
+
+export function addDays(key: string, days: number): string {
+  const parsed = Date.parse(`${key}T00:00:00Z`);
+  if (Number.isNaN(parsed)) return key;
+  const shifted = new Date(parsed + days * 86_400_000);
+  const month = String(shifted.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(shifted.getUTCDate()).padStart(2, "0");
+  return `${shifted.getUTCFullYear()}-${month}-${day}`;
+}
+
+export function currentStreak(recorded: readonly string[], todayKey: string): number {
+  const present = new Set(recorded);
+  let cursor = present.has(todayKey) ? todayKey : addDays(todayKey, -1);
+  let streak = 0;
+  while (present.has(cursor)) {
+    streak += 1;
+    cursor = addDays(cursor, -1);
+  }
+  return streak;
+}
+
+export function longestStreak(recorded: readonly string[]): number {
+  if (recorded.length === 0) return 0;
+  let longest = 1;
+  let run = 1;
+  for (let index = 1; index < recorded.length; index += 1) {
+    if (recorded[index] === recorded[index - 1]) continue;
+    run = recorded[index] === addDays(recorded[index - 1], 1) ? run + 1 : 1;
+    if (run > longest) longest = run;
+  }
+  return longest;
+}
+
+export function formatActiveTime(milliseconds: number): string {
+  if (milliseconds <= 0) return "0分";
+  const totalMinutes = Math.floor(milliseconds / 60_000);
+  if (totalMinutes === 0) return `${Math.max(1, Math.round(milliseconds / 1000))}秒`;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours === 0) return `${minutes}分`;
+  return minutes === 0 ? `${hours}小时` : `${hours}小时${minutes}分`;
+}

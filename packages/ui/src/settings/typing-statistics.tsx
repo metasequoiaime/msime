@@ -12,10 +12,20 @@ export type { TypingBreakdown } from "./typing-speed";
 import {
   dayKey,
   dayLabel,
+  addDays,
+  currentStreak,
+  formatActiveTime,
+  longestStreak,
   mobileTrendLength,
   recentDays,
   statisticsHeatmapWeeks,
   sumStatisticValues,
+} from "./typing-statistics-helpers";
+export {
+  addDays,
+  currentStreak,
+  formatActiveTime,
+  longestStreak,
 } from "./typing-statistics-helpers";
 
 const heading = "m-0 text-[15px] font-semibold text-body";
@@ -213,15 +223,6 @@ export const HOURS = 24;
  * arithmetic would lose or repeat a day at a daylight-saving boundary - which on those two days a
  * year would break a streak that was never broken.
  */
-export function addDays(key: string, days: number): string {
-  const parsed = Date.parse(`${key}T00:00:00Z`);
-  if (Number.isNaN(parsed)) return key;
-  const shifted = new Date(parsed + days * 86_400_000);
-  const month = String(shifted.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(shifted.getUTCDate()).padStart(2, "0");
-  return `${shifted.getUTCFullYear()}-${month}-${day}`;
-}
-
 /**
  * A day needs this much active time before it can win "fastest day".
  *
@@ -317,41 +318,6 @@ export function activityMetrics(statistics: TypingStatistics, todayKey: string):
  *
  * Today is still in progress, so it must not reset a streak the user has not actually broken.
  */
-export function currentStreak(recorded: readonly string[], todayKey: string): number {
-  const present = new Set(recorded);
-  let cursor = present.has(todayKey) ? todayKey : addDays(todayKey, -1);
-  let streak = 0;
-  while (present.has(cursor)) {
-    streak += 1;
-    cursor = addDays(cursor, -1);
-  }
-  return streak;
-}
-
-/** The longest run of consecutive recorded days. `recorded` must be sorted ascending. */
-export function longestStreak(recorded: readonly string[]): number {
-  if (recorded.length === 0) return 0;
-  let longest = 1;
-  let run = 1;
-  for (let index = 1; index < recorded.length; index += 1) {
-    if (recorded[index] === recorded[index - 1]) continue;
-    run = recorded[index] === addDays(recorded[index - 1], 1) ? run + 1 : 1;
-    if (run > longest) longest = run;
-  }
-  return longest;
-}
-
-/** `1小时23分` / `12分` / `45秒`, so a reader does not divide milliseconds in their head. */
-export function formatActiveTime(milliseconds: number): string {
-  if (milliseconds <= 0) return "0分";
-  const totalMinutes = Math.floor(milliseconds / 60_000);
-  if (totalMinutes === 0) return `${Math.max(1, Math.round(milliseconds / 1000))}秒`;
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  if (hours === 0) return `${minutes}分`;
-  return minutes === 0 ? `${hours}小时` : `${hours}小时${minutes}分`;
-}
-
 /** `9月21日` from a `YYYY-MM-DD` key, matching the labels the trend axis uses. */
 /** How many recorded days the per-day detail table lists, as in the Windows source's `DETAIL_DAYS`. */
 export const DETAIL_DAYS = 30;
