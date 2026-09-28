@@ -383,13 +383,18 @@ int main() {
         assert(delegate.keyboardRequests == 1 && delegate.emojiRequests == 1);
         SendButton(voice);
         assert(delegate.voiceToggles == 1);
+        // The gear opens settings on click; the utility menu is only its right-click menu.
+        SendButton(settings);
+        assert(delegate.settingsRequests == 1);
+        assert(settings.menu.numberOfItems == 10 && [settings.menu itemAtIndex:1].action == @selector(openSettings:));
+        assert([settings.accessibilityLabel isEqualToString:@"打开水杉输入法设置"]);
         for (NSString *selectorName in @[@"openCharacterPalette:", @"openSettings:", @"checkForUpdates:",
                                          @"openWebsite:", @"dismissFloatingToolbar:"]) {
             [NSApp sendAction:NSSelectorFromString(selectorName) to:panel from:nil];
         }
         assert(delegate.inputModeToggles == 1 && delegate.punctuationToggles == 1 &&
                delegate.fullWidthToggles == 1 && delegate.traditionalToggles == 1 &&
-               delegate.characterPaletteRequests == 1 && delegate.settingsRequests == 1 &&
+               delegate.characterPaletteRequests == 1 && delegate.settingsRequests == 2 &&
                delegate.updateRequests == 1 && delegate.websiteRequests == 1 && delegate.hideRequests == 1);
 
         NSMenu *menu = CreateMSIMEFloatingToolbarUtilityMenu(panel);

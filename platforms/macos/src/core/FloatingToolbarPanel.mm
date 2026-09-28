@@ -581,9 +581,11 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     _voiceButton.image = [NSImage imageWithSystemSymbolName:@"mic.fill" accessibilityDescription:@"语音输入"];
     _voiceButton.accessibilityLabel = @"开始或结束语音输入";
     _voiceButton.toolTip = _voiceButton.accessibilityLabel;
-    _settingsButton = ToolbarButton(@"", @"MetasequoiaFloatingToolbarSettings", self, @selector(showUtilityMenu:));
+    // A click opens settings directly; the utility menu (updates, help, hiding the toolbar) stays reachable on right-click / control-click.
+    _settingsButton = ToolbarButton(@"", @"MetasequoiaFloatingToolbarSettings", self, @selector(openSettings:));
     _settingsButton.image = [NSImage imageWithSystemSymbolName:@"gearshape" accessibilityDescription:@"设置"];
-    _settingsButton.accessibilityLabel = @"打开水杉输入法工具菜单";
+    _settingsButton.menu = CreateMetasequoiaFloatingToolbarUtilityMenu(self);
+    _settingsButton.accessibilityLabel = @"打开水杉输入法设置";
     _settingsButton.toolTip = _settingsButton.accessibilityLabel;
 
     NSStackView *actions = [NSStackView stackViewWithViews:@[
@@ -1038,13 +1040,5 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
 {
     (void)sender;
     [self.toolbarDelegate floatingToolbarDidRequestHide:self];
-}
-
-- (void)showUtilityMenu:(NSButton *)sender
-{
-    NSMenu *menu = CreateMetasequoiaFloatingToolbarUtilityMenu(self);
-    [menu popUpMenuPositioningItem:nil
-                        atLocation:NSMakePoint(NSMinX(sender.bounds), NSMaxY(sender.bounds) + 4.0)
-                            inView:sender];
 }
 @end
