@@ -53,6 +53,14 @@ fn with_terminator(request: &str) -> String {
     line
 }
 
+#[cfg(unix)]
+fn valid_ai_provider_endpoint(provider: &str, endpoint: &str) -> bool {
+    !provider.is_empty()
+        && msime_client_core::is_bounded_text(provider, 64)
+        && !endpoint.is_empty()
+        && msime_client_core::is_bounded_text(endpoint, 2048)
+}
+
 // Read one newline-delimited response before the deadline, retaining only the
 // line itself and refusing to grow the buffer past the provider contract.
 #[cfg(unix)]
@@ -378,11 +386,7 @@ impl UnixSocketProvider {
     /// the request. `provider` and `endpoint` come from the settings page and the
     /// provider refuses unless its private configuration names the same two.
     pub fn ai_models(&self, provider: &str, endpoint: &str) -> Option<Vec<String>> {
-        if provider.is_empty()
-            || !msime_client_core::is_bounded_text(provider, 64)
-            || endpoint.is_empty()
-            || !msime_client_core::is_bounded_text(endpoint, 2048)
-        {
+        if !valid_ai_provider_endpoint(provider, endpoint) {
             return None;
         }
         let request = json!({
@@ -426,10 +430,7 @@ impl UnixSocketProvider {
         prompt: &str,
         text: &str,
     ) -> Option<String> {
-        if provider.is_empty()
-            || !msime_client_core::is_bounded_text(provider, 64)
-            || endpoint.is_empty()
-            || !msime_client_core::is_bounded_text(endpoint, 2048)
+        if !valid_ai_provider_endpoint(provider, endpoint)
             || model.is_empty()
             || !msime_client_core::is_bounded_text(model, 256)
             || text.trim().is_empty()
