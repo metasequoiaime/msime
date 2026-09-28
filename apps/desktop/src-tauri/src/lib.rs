@@ -1611,7 +1611,7 @@ fn sync_runtime_options(
         #[cfg(target_os = "android")]
         let bytes = serde_json::to_vec_pretty(&current)
             .map_err(|error| std::io::Error::other(error.to_string()))?;
-        atomic_write(path, &bytes)?;
+        shared::atomic_file::write(path, &bytes)?;
         *document = current;
     }
     #[cfg(not(any(target_os = "linux", target_os = "android")))]
@@ -1705,7 +1705,7 @@ fn publish_candidate_skin_catalog(
     let bytes = runtime_options_with_skin_catalog(&mut current, root, catalog)?;
     // A rescan that finds what was already published leaves the file alone, so the hosts watching it do not reload for nothing.
     if current.get("candidate_skin_catalog") != unchanged.as_ref() {
-        atomic_write(path, &bytes)?;
+        shared::atomic_file::write(path, &bytes)?;
     }
     *document = current;
     Ok(())
@@ -1771,19 +1771,6 @@ fn start_desktop_preferences_monitor(
                 monitor.poll(&app, &store, &history);
             }
         });
-}
-
-#[cfg(any(target_os = "linux", target_os = "android"))]
-fn atomic_write(path: &Path, contents: &[u8]) -> Result<(), std::io::Error> {
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    fs::create_dir_all(parent)?;
-    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
-    temporary.write_all(contents)?;
-    temporary.as_file().sync_all()?;
-    temporary
-        .persist(path)
-        .map(|_| ())
-        .map_err(|error| error.error)
 }
 
 /// Keep the host's reason instead of flattening every failure to "storage".

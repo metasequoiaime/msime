@@ -7,7 +7,7 @@
 use serde_json::Value;
 use std::collections::BTreeSet;
 use std::fs::{self, File};
-use std::io::{self, Read, Write};
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
 pub(crate) const DATA_DIRECTORY_MARKER: &str = ".metasequoiaime-data";
@@ -33,20 +33,6 @@ pub(crate) struct MoveOutcome {
 struct LocatorBackup {
     path: PathBuf,
     contents: Option<Vec<u8>>,
-}
-
-fn atomic_write(path: &Path, contents: &[u8]) -> io::Result<()> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
-    fs::create_dir_all(parent)?;
-    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
-    temporary.write_all(contents)?;
-    temporary.as_file().sync_all()?;
-    temporary
-        .persist(path)
-        .map(|_| ())
-        .map_err(|error| error.error)
 }
 
 fn locator_backups(locators: &[PathBuf]) -> Result<Vec<LocatorBackup>, MoveError> {
@@ -82,7 +68,7 @@ fn restore_locators(backups: &[LocatorBackup]) {
     for backup in backups {
         match &backup.contents {
             Some(contents) => {
-                let _ = atomic_write(&backup.path, contents);
+                let _ = crate::shared::atomic_file::write(&backup.path, contents);
             }
             None => {
                 let _ = fs::remove_file(&backup.path);
@@ -259,12 +245,12 @@ where
         }
     };
     let serialized = serde_json::to_vec_pretty(&document).map_err(|_| MoveError::Prepare)?;
-    if atomic_write(&target.join(OPTIONS_FILE), &serialized).is_err() {
+    if crate::shared::atomic_file::write(&target.join(OPTIONS_FILE), &serialized).is_err() {
         restore_target(&target, had_marker, &backups);
         return Err(MoveError::Prepare);
     }
     for locator in locators {
-        if atomic_write(locator, &serialized).is_err() {
+        if crate::shared::atomic_file::write(locator, &serialized).is_err() {
             restore_target(&target, had_marker, &backups);
             return Err(MoveError::Publish);
         }
