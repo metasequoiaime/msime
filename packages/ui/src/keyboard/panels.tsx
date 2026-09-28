@@ -35,6 +35,8 @@ import {
   flattenGroups,
   matchesEmojiItem,
 } from "./emoji-panel-helpers";
+
+export { emojiDisplayName } from "./emoji-panel-helpers";
 import {
   appendPointerSamples,
   MAX_HANDWRITING_STROKES,
