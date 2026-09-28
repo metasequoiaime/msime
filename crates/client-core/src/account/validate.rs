@@ -263,13 +263,10 @@ pub(super) fn validate_ranking_arguments(
 pub(super) fn validate_personal_candidates(
     result: &AccountPersonalCandidates,
 ) -> Result<(), AccountError> {
-    if result.candidates.len() > 100
-        || result.revision < 0
-        || result.context.len() > 1024
-        || result.context.chars().any(char::is_control)
-    {
+    if result.candidates.len() > 100 || result.revision < 0 {
         return Err(AccountError::Unavailable);
     }
+    validate_bounded_text(&result.context, 1024).map_err(|_| AccountError::Unavailable)?;
     for candidate in &result.candidates {
         validate_bounded_text(&candidate.code, 256).map_err(|_| AccountError::Unavailable)?;
         validate_bounded_text(&candidate.word, 1024).map_err(|_| AccountError::Unavailable)?;
