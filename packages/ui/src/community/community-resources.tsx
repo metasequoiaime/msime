@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { boundedGraphemes } from "../core/text";
 import { randomUuid } from "../core/random-id";
 import { pushMobileSettingsState } from "../settings/mobile-navigation";
 import { CommunitySkinsPage, type CommunitySkinClient } from "./community-skins";
@@ -12,6 +11,7 @@ import {
 } from "./community-helpers";
 import type { CustomSkinLibraryClient } from "../keyboard/touch-keyboard-skin-design";
 import * as style from "./community-style";
+import { CommunitySearchForm } from "./community-search-form";
 
 export type CommunityResourceKind = "dictionary" | "reply";
 export type CommunityResourceScope = "" | "mine" | "saved";
@@ -739,25 +739,12 @@ export function CommunityResourcesPage({
     );
   return (
     <div className={style.page}>
-      <form
-        className={style.searchRow}
-        role="search"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void load();
-        }}
-      >
-        <input
-          className={style.searchInput}
-          aria-label={`搜索${resourceKindTitle(kind)}`}
-          placeholder={`搜索${resourceKindTitle(kind)}`}
-          value={search}
-          onChange={(event) => setSearch(boundedGraphemes(event.target.value, 128))}
-        />
-        <button type="submit" className={style.searchSubmit}>
-          搜索
-        </button>
-      </form>
+      <CommunitySearchForm
+        label={`搜索${resourceKindTitle(kind)}`}
+        value={search}
+        onChange={setSearch}
+        onSubmit={() => void load()}
+      />
       <div className={style.heading}>
         <div className={style.headingBody}>
           <h2 className={style.headingTitle}>

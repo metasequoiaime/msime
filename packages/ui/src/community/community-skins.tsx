@@ -13,6 +13,7 @@ import {
   communitySkinPublishMessage,
 } from "./community-helpers";
 import * as style from "./community-style";
+import { CommunitySearchForm } from "./community-search-form";
 import type {
   CustomSkinLibraryClient,
   SavedTouchKeyboardSkin,
@@ -684,25 +685,12 @@ export function CommunitySkinsPage({
 
   return (
     <div className={style.page}>
-      <form
-        className={style.searchRow}
-        role="search"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void requestList(search, false);
-        }}
-      >
-        <input
-          className={style.searchInput}
-          aria-label="搜索皮肤设计"
-          placeholder="搜索皮肤设计"
-          value={search}
-          onChange={(event) => setSearch(boundedGraphemes(event.target.value, 128))}
-        />
-        <button type="submit" className={style.searchSubmit}>
-          搜索
-        </button>
-      </form>
+      <CommunitySearchForm
+        label="搜索皮肤设计"
+        value={search}
+        onChange={setSearch}
+        onSubmit={() => void requestList(search, false)}
+      />
       <div className={style.heading}>
         <div className={style.headingBody}>
           <h2 className={style.headingTitle}>
