@@ -53,6 +53,42 @@ fn with_terminator(request: &str) -> String {
     line
 }
 
+// Read one newline-delimited response before the deadline, retaining only the
+// line itself and refusing to grow the buffer past the provider contract.
+#[cfg(unix)]
+fn read_bounded_line(
+    stream: &mut UnixStream,
+    deadline: std::time::Instant,
+    response_limit: usize,
+    accept_eof: bool,
+) -> Option<String> {
+    let mut bytes = Vec::new();
+    loop {
+        let remaining = deadline.checked_duration_since(std::time::Instant::now())?;
+        if remaining.is_zero() {
+            return None;
+        }
+        stream.set_read_timeout(Some(remaining)).ok()?;
+        let mut chunk = [0_u8; 1024];
+        let count = match stream.read(&mut chunk) {
+            Ok(0) if accept_eof => return String::from_utf8(bytes).ok(),
+            Ok(0) => return None,
+            Ok(count) => count,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => return None,
+        };
+        let end = chunk[..count].iter().position(|byte| *byte == b'\n');
+        let consumed = end.map_or(count, |index| index + 1);
+        if bytes.len() + consumed > response_limit {
+            return None;
+        }
+        bytes.extend_from_slice(&chunk[..consumed]);
+        if end.is_some() {
+            return String::from_utf8(bytes).ok();
+        }
+    }
+}
+
 // One-shot panel providers have a fixed transfer deadline, including writes.
 // Check the response envelope before appending bytes, not after allocating it.
 #[cfg(unix)]
@@ -78,30 +114,7 @@ fn exchange_panel_request(
             Err(_) => return None,
         }
     }
-    let mut bytes = Vec::new();
-    loop {
-        let remaining = deadline.checked_duration_since(std::time::Instant::now())?;
-        if remaining.is_zero() {
-            return None;
-        }
-        stream.set_read_timeout(Some(remaining)).ok()?;
-        let mut chunk = [0_u8; 1024];
-        let count = match stream.read(&mut chunk) {
-            Ok(0) => return String::from_utf8(bytes).ok(),
-            Ok(count) => count,
-            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
-            Err(_) => return None,
-        };
-        let end = chunk[..count].iter().position(|byte| *byte == b'\n');
-        let consumed = end.map_or(count, |index| index + 1);
-        if bytes.len() + consumed > response_limit {
-            return None;
-        }
-        bytes.extend_from_slice(&chunk[..consumed]);
-        if end.is_some() {
-            return String::from_utf8(bytes).ok();
-        }
-    }
+    read_bounded_line(stream, deadline, response_limit, true)
 }
 
 // Retain incomplete UTF-8/JSON lines across polling timeouts. Bound the
@@ -216,28 +229,7 @@ impl UnixSocketProvider {
         // One response deadline: partial writes by the provider must not
         // restart the inference timeout or grow an unbounded line buffer.
         let deadline = std::time::Instant::now() + timeout;
-        let mut bytes = Vec::new();
-        loop {
-            let remaining = deadline.checked_duration_since(std::time::Instant::now())?;
-            if remaining.is_zero() {
-                return None;
-            }
-            stream.set_read_timeout(Some(remaining)).ok()?;
-            let mut chunk = [0_u8; 1024];
-            let count = stream.read(&mut chunk).ok()?;
-            if count == 0 {
-                return None;
-            }
-            let end = chunk[..count].iter().position(|byte| *byte == b'\n');
-            bytes.extend_from_slice(&chunk[..end.map_or(count, |index| index + 1)]);
-            if bytes.len() > 16384 {
-                return None;
-            }
-            if end.is_some() {
-                break;
-            }
-        }
-        let line = String::from_utf8(bytes).ok()?;
+        let line = read_bounded_line(&mut stream, deadline, 16_384, false)?;
         #[derive(Deserialize)]
         struct Reply {
             text: String,
@@ -320,28 +312,7 @@ impl UnixSocketProvider {
         // Leave room for the provider's six-second translation batch budget.
         // A partial response cannot renew this deadline or grow without bound.
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
-        let mut bytes = Vec::new();
-        loop {
-            let remaining = deadline.checked_duration_since(std::time::Instant::now())?;
-            if remaining.is_zero() {
-                return None;
-            }
-            stream.set_read_timeout(Some(remaining)).ok()?;
-            let mut chunk = [0_u8; 1024];
-            let count = stream.read(&mut chunk).ok()?;
-            if count == 0 {
-                return None;
-            }
-            let end = chunk[..count].iter().position(|byte| *byte == b'\n');
-            bytes.extend_from_slice(&chunk[..end.map_or(count, |index| index + 1)]);
-            if bytes.len() > 131_072 {
-                return None;
-            }
-            if end.is_some() {
-                break;
-            }
-        }
-        let line = String::from_utf8(bytes).ok()?;
+        let line = read_bounded_line(&mut stream, deadline, 131_072, false)?;
         #[derive(Deserialize)]
         struct Reply {
             translations: Vec<TranslationResult>,
