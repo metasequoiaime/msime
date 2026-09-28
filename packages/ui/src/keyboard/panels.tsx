@@ -1,4 +1,5 @@
 import { useConfirm } from "../core/confirm";
+import { utf8ByteLength } from "../core/text";
 import { readDictionaryFile } from "../dictionary/dictionary-file";
 import { usePanelDrag } from "./use-panel-drag";
 import { useEmojiNavigation } from "../emoji/use-emoji-navigation";
@@ -1680,8 +1681,7 @@ export function VoicePanel({
   const [language, setLanguage] = useState("zh-CN");
   const [text, setText] = useState("");
   const exceedsSubmitLimit =
-    client.maxSubmitBytes !== undefined &&
-    new TextEncoder().encode(text).length > client.maxSubmitBytes;
+    client.maxSubmitBytes !== undefined && utf8ByteLength(text) > client.maxSubmitBytes;
   const textRevision = useRef(0);
   function updateText(value: string) {
     textRevision.current++;

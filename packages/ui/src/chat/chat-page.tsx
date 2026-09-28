@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useConfirm } from "../core/confirm";
 import { errorCode } from "../core/error-code";
+import { utf8ByteLength } from "../core/text";
 import * as chat from "./chat-style";
 
 export type ChatMessage = {
@@ -40,13 +41,11 @@ function chatError(error: unknown): string {
 // maxLength counts UTF-16 units, so a long CJK message passes it at a third of that size and
 // would only come back as the generic 消息或模型无效.
 const MAX_MESSAGE_BYTES = 16 * 1024;
-const utf8 = new TextEncoder();
-
 function boundedHistory(messages: DisplayMessage[]): ChatMessage[] {
   const result: ChatMessage[] = [];
   let bytes = 0;
   for (const message of [...messages].reverse()) {
-    const nextBytes = bytes + utf8.encode(message.content).length;
+    const nextBytes = bytes + utf8ByteLength(message.content);
     if (result.length >= 14 || nextBytes >= 48_000) break;
     result.unshift({ role: message.role, content: message.content });
     bytes = nextBytes;
@@ -151,7 +150,7 @@ export function ChatPage({
     }
     if (!selectedModel) return;
     // Refused before it joins the conversation; otherwise every retry would resend it and fail.
-    if (utf8.encode(content).length > MAX_MESSAGE_BYTES) {
+    if (utf8ByteLength(content) > MAX_MESSAGE_BYTES) {
       setError("消息过长，请精简后再发送。");
       return;
     }

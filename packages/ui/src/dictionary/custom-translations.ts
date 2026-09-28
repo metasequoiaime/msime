@@ -1,3 +1,5 @@
+import { utf8ByteLength } from "../core/text";
+
 /**
  * The user's own candidate glosses, as the Engine reads them.
  *
@@ -58,7 +60,7 @@ export function parseCustomTranslations(text: string): CustomTranslationReport {
 
 /** Whether a document is small enough to send across a bridge and keep on a phone. */
 export function customTranslationsWithinBounds(text: string): boolean {
-  return new TextEncoder().encode(text).length <= MAX_BYTES;
+  return utf8ByteLength(text) <= MAX_BYTES;
 }
 
 export const customTranslationsExample =

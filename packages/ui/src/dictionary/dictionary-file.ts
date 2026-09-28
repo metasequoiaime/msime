@@ -1,3 +1,5 @@
+import { utf8ByteLength } from "../core/text";
+
 // Dictionary exports in the wild are not all UTF-8: Windows tools still write
 // UTF-16 with a BOM and GB18030. Ported from the shipped settings page so an
 // imported file reads the same here.
@@ -69,12 +71,12 @@ const personalDictionaryKinds = new Set<PersonalDictionaryImportEntry["kind"]>([
 ]);
 
 function personalEntryIdentity(entry: PersonalDictionaryImportEntry): string {
-  return `${entry.kind}:${new TextEncoder().encode(entry.key).length}:${entry.key}${entry.value}`;
+  return `${entry.kind}:${utf8ByteLength(entry.key)}:${entry.key}${entry.value}`;
 }
 
 /** Parse the Apple-compatible bounded personal dictionary envelope before previewing it. */
 export function parsePersonalDictionaryImport(text: string): PersonalDictionaryImportEntry[] {
-  if (new TextEncoder().encode(text).length > 1_048_576) throw new Error("文件不能超过 1 MB。");
+  if (utf8ByteLength(text) > 1_048_576) throw new Error("文件不能超过 1 MB。");
   let file: unknown;
   try {
     file = JSON.parse(text);
@@ -121,7 +123,7 @@ export function parsePersonalDictionaryImport(text: string): PersonalDictionaryI
       value: word,
       weight: weight as number,
     };
-    const keyBytes = new TextEncoder().encode(normalizedKey).length;
+    const keyBytes = utf8ByteLength(normalizedKey);
     const keyValid =
       entry.kind === "pinyin"
         ? normalizedKey.length > 0 && keyBytes <= 512 && /^[a-z']+$/.test(normalizedKey)
@@ -133,7 +135,7 @@ export function parsePersonalDictionaryImport(text: string): PersonalDictionaryI
     if (
       !keyValid ||
       word.length === 0 ||
-      new TextEncoder().encode(word).length > 4096 ||
+      utf8ByteLength(word) > 4096 ||
       (entry.kind === "quickPhrase"
         ? /[\u0000-\u0008\u000b-\u001f\u007f]/.test(word)
         : /[\u0000-\u001f\u007f]/.test(word)) ||
