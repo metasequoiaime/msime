@@ -227,10 +227,15 @@ import {
   type InputSourceStartupStatus,
 } from "./settings/input-source-startup-notice";
 import { VoiceModelMirrorSection } from "./settings/voice-model-mirror-section";
-import {
-  CredentialTestSection,
-  type CredentialTestState,
-} from "./settings/credential-test-section";
+import { useProviderCredentials } from "./settings/use-provider-credentials";
+export {
+  useProviderCredentials,
+  type ProviderCredentialBusy,
+  type ProviderCredentialInput,
+  type ProviderCredentialMessage,
+  type ProviderCredentialsHost,
+  type UseProviderCredentialsOptions,
+} from "./settings/use-provider-credentials";
 import { ProviderPresetSection, type ProviderPreset } from "./settings/provider-preset-section";
 import { AiCredentialSection } from "./settings/ai-credential-section";
 import { AiLinuxProviderSection } from "./settings/ai-linux-provider-section";
@@ -1944,36 +1949,20 @@ export function SettingsPage({
   const [aiTestStatus, setAiTestStatus] = useState("");
   const [aiTestBusy, setAiTestBusy] = useState(false);
   const aiRequestGeneration = useRef(0);
-  const [credentialTests, setCredentialTests] = useState<
-    Partial<
-      Record<
-        ApiCredentialTestService,
-        {
-          signature: string;
-          busy: boolean;
-          ok?: boolean;
-          message: string;
-        }
-      >
-    >
-  >({});
-  const credentialTestGeneration = useRef<Partial<Record<ApiCredentialTestService, number>>>({});
-  const [providerCredentials, setProviderCredentials] = useState<ProviderCredentialStatus>();
-  const [aiCredentialInput, setAiCredentialInput] = useState("");
-  const [tencentCredentialInput, setTencentCredentialInput] = useState<{
-    secretId: string;
-    secretKey: string;
-    region?: string;
-  }>({ secretId: "", secretKey: "" });
-  const [voiceCredentialInput, setVoiceCredentialInput] = useState<
-    Record<VoiceCredentialKind, { token: string; appKey: string; endpoint?: string }>
-  >({ asr: { token: "", appKey: "" }, polish: { token: "", appKey: "" } });
-  const [providerCredentialBusy, setProviderCredentialBusy] = useState<
-    "ai" | "tencent" | VoiceCredentialKind
-  >();
-  const [providerCredentialMessages, setProviderCredentialMessages] = useState<
-    Partial<Record<"ai" | "tencent" | VoiceCredentialKind, { ok: boolean; text: string }>>
-  >({});
+  const {
+    providerCredentials,
+    aiCredentialInput,
+    setAiCredentialInput,
+    tencentCredentialInput,
+    setTencentCredentialInput,
+    voiceCredentialInput,
+    setVoiceCredentialInput,
+    providerCredentialBusy,
+    providerCredentialMessages,
+    runProviderCredential,
+    runVoiceCredential,
+    credentialTestControl,
+  } = useProviderCredentials({ client });
   // What a report needs first is the release and the scheme, because that is what a repro is
   // written against. The user agent only says which web view drew this window, so it is the
   // fallback for a host that cannot name its own OS rather than a line of its own.
@@ -2040,20 +2029,6 @@ export function SettingsPage({
     return () => {
       active = false;
       unsubscribe?.();
-    };
-  }, [client]);
-  useEffect(() => {
-    const credentials = client.providerCredentials;
-    if (!credentials) return;
-    let active = true;
-    void credentials
-      .status()
-      .then((status) => {
-        if (active) setProviderCredentials(status);
-      })
-      .catch(() => undefined);
-    return () => {
-      active = false;
     };
   }, [client]);
   useEffect(() => {
@@ -2828,112 +2803,6 @@ export function SettingsPage({
       niutrans: { ...niutrans, enabled: provider === "niutrans" },
       translation_account: provider === "account" ? true : undefined,
     });
-  };
-  const runCredentialTest = async (
-    service: ApiCredentialTestService,
-    config: Record<string, unknown>,
-  ) => {
-    if (!client.testApiCredential) return;
-    const signature = JSON.stringify(config);
-    const generation = (credentialTestGeneration.current[service] ?? 0) + 1;
-    credentialTestGeneration.current[service] = generation;
-    setCredentialTests((current) => ({
-      ...current,
-      [service]: { signature, busy: true, message: "" },
-    }));
-    try {
-      const result = await client.testApiCredential(service, config);
-      if (credentialTestGeneration.current[service] !== generation) return;
-      setCredentialTests((current) => ({
-        ...current,
-        [service]: { signature, busy: false, ...result },
-      }));
-    } catch {
-      if (credentialTestGeneration.current[service] !== generation) return;
-      setCredentialTests((current) => ({
-        ...current,
-        [service]: {
-          signature,
-          busy: false,
-          ok: false,
-          message: "无法连接 provider，请确认服务已启动。",
-        },
-      }));
-    }
-  };
-  const runProviderCredential = async (
-    kind: "ai" | "tencent",
-    operation: (credentials: ProviderCredentialClient) => Promise<ProviderCredentialStatus>,
-    success: string,
-  ) => {
-    const credentials = client.providerCredentials;
-    if (!credentials) return;
-    setProviderCredentialBusy(kind);
-    setProviderCredentialMessages((current) => ({ ...current, [kind]: undefined }));
-    try {
-      setProviderCredentials(await operation(credentials));
-      if (kind === "ai") setAiCredentialInput("");
-      else setTencentCredentialInput({ secretId: "", secretKey: "" });
-      setProviderCredentialMessages((current) => ({
-        ...current,
-        [kind]: { ok: true, text: success },
-      }));
-    } catch (error) {
-      setProviderCredentialMessages((current) => ({
-        ...current,
-        [kind]: { ok: false, text: providerCredentialErrorMessage(error) },
-      }));
-    } finally {
-      setProviderCredentialBusy(undefined);
-    }
-  };
-  const runVoiceCredential = async (
-    kind: VoiceCredentialKind,
-    operation: (credentials: ProviderCredentialClient) => Promise<VoiceCredentialSaveResult>,
-    success: string,
-  ) => {
-    const credentials = client.providerCredentials;
-    if (!credentials) return;
-    setProviderCredentialBusy(kind);
-    setProviderCredentialMessages((current) => ({ ...current, [kind]: undefined }));
-    try {
-      const result = await operation(credentials);
-      setProviderCredentials(result.status);
-      setVoiceCredentialInput((current) => ({ ...current, [kind]: { token: "", appKey: "" } }));
-      setProviderCredentialMessages((current) => ({
-        ...current,
-        [kind]: result.serviceUpdated
-          ? { ok: true, text: success }
-          : {
-              ok: false,
-              text: `${success}但未能更新语音服务，请运行 systemctl --user enable --now msime-linux-voice.socket。`,
-            },
-      }));
-    } catch (error) {
-      setProviderCredentialMessages((current) => ({
-        ...current,
-        [kind]: { ok: false, text: providerCredentialErrorMessage(error) },
-      }));
-    } finally {
-      setProviderCredentialBusy(undefined);
-    }
-  };
-  const credentialTestControl = (
-    service: ApiCredentialTestService,
-    label: string,
-    config: Record<string, unknown>,
-    disabled = false,
-  ) => {
-    return (
-      <CredentialTestSection
-        label={label}
-        config={config}
-        state={credentialTests[service] as CredentialTestState | undefined}
-        disabled={disabled}
-        available={Boolean(client.testApiCredential)}
-        onTest={() => void runCredentialTest(service, config)}
-      />
-    );
   };
   /**
    * The provider's known models and its own integration page.
