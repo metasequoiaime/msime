@@ -21,6 +21,7 @@ import {
 import { touchKeyboardSkinOptions, type TouchKeyboardSkin } from "./screen-keyboard-preview";
 import * as cloud from "./cloud-panel-style";
 import * as surface from "./panel-surface-style";
+import { normalizeHandwritingCandidates } from "./handwriting";
 import {
   skinColor,
   skinLuminance,
@@ -998,30 +999,6 @@ type Point = InkPoint;
 const MAX_HANDWRITING_STROKES = 32;
 // Windows never reaches that provider: it recognizes with the Windows Ink recognizer and then the packaged Engine model. The shipped HandwritingPanel keeps every stroke, so the only bound left is the shared request contract (MAX_STROKES in crates/client-core/src/panels.rs), which rejects anything longer before a recognizer sees it.
 const WINDOWS_HANDWRITING_STROKES = 64;
-const MAX_HANDWRITING_CANDIDATES = 12;
-
-function hasBmpCjk(text: string) {
-  return Array.from(text).some((character) => {
-    const code = character.codePointAt(0) ?? 0;
-    return (
-      (code >= 0x3400 && code <= 0x4dbf) ||
-      (code >= 0x4e00 && code <= 0x9fff) ||
-      (code >= 0xf900 && code <= 0xfaff)
-    );
-  });
-}
-
-function normalizeHandwritingCandidates(candidates: string[]) {
-  const seen = new Set<string>();
-  const chinese: string[] = [];
-  const other: string[] = [];
-  for (const candidate of candidates) {
-    if (!candidate || seen.has(candidate)) continue;
-    seen.add(candidate);
-    (hasBmpCjk(candidate) ? chinese : other).push(candidate);
-  }
-  return [...chinese, ...other].slice(0, MAX_HANDWRITING_CANDIDATES);
-}
 const MAX_CAPTURED_POINTS = 256;
 function appendInkPoint(points: Point[], point: Point, endpoint = false): Point[] {
   if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return points;
