@@ -109,6 +109,7 @@ export {
 } from "./dictionary/dictionary-export";
 export { describeImportResult, dictionaryKindKeyHint } from "./dictionary/dictionary-messages";
 import { SkinCandidatePreview } from "./skin/skin-candidate-preview";
+import { skinOptions } from "./skin/skin-options";
 import { AppearanceCandidatePreview } from "./candidate/appearance-candidate-preview";
 import { useCandidatePreviewTheme } from "./candidate/candidate-preview-theme";
 import { CandidateFontControls } from "./candidate/candidate-font-controls";
@@ -1319,13 +1320,6 @@ export interface DictionaryClient {
   retry?(request_id: string): Promise<void>;
   dismissFailure?(request_id: string): Promise<void>;
 }
-// The last column is the description on a host whose skin reaches only the candidate window (Linux presents the toolbar as an input method menu).
-const skinOptions: [NonNullable<Preferences["candidate_skin"]>, string, string, string][] = [
-  ["fluent", "Fluent", "简洁、紧凑的默认候选窗", "简洁、紧凑的默认候选窗"],
-  ["wechat", "微信绿", "微信绿候选窗与悬浮工具栏", "微信绿候选窗"],
-  ["graphite", "石墨 Graphite", "克制、平直的候选窗与悬浮工具栏", "克制、平直的候选窗"],
-  ["willow_green", "杨柳青 Willow green", "柔和圆角与柳绿色整行高亮", "柔和圆角与柳绿色整行高亮"],
-];
 export type FloatingToolbarPreferences = {
   enabled: boolean;
   english_mode: boolean;
