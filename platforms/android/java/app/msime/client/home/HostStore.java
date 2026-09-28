@@ -5,9 +5,8 @@ import androidx.annotation.Nullable;
 import app.msime.client.NativeClient;
 import app.msime.client.TypingStatisticsDocument;
 import app.msime.client.TypingStatisticsModel;
+import app.msime.client.policy.HostOptionsPolicy;
 import java.io.File;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.time.LocalDate;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -42,8 +41,7 @@ public final class HostStore {
         File options = new File(files, "runtime-options.json");
         if (!options.isFile()) return "";
         try {
-            JSONObject root = new JSONObject(
-                new String(Files.readAllBytes(options.toPath()), StandardCharsets.UTF_8));
+            JSONObject root = new JSONObject(HostOptionsPolicy.read(options));
             return root.optString("preferences_directory", "");
         } catch (JSONException | java.io.IOException | SecurityException error) {
             return "";

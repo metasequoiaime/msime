@@ -393,6 +393,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/dictionary/ClipboardHistoryPolicySmoke.java" \
   "$repo_root/platforms/android/tests/dictionary/DictionarySnapshotQueueSmoke.java" \
   "$repo_root/platforms/android/tests/settings/DiagnosticPolicySmoke.java" \
+  "$repo_root/platforms/android/tests/settings/HostOptionsPolicySmoke.java" \
   "$repo_root/platforms/android/tests/settings/TypingStatisticsModelSmoke.java" \
   "$repo_root/platforms/android/tests/settings/VocabularyReviewModelSmoke.java" \
   "$repo_root/platforms/android/tests/settings/InputFeatureToggleSmoke.java" \
@@ -473,6 +474,7 @@ java -cp "$output_dir" CandidateScrollPolicySmoke
 java -cp "$output_dir" ClipboardHistoryPolicySmoke
 java -cp "$output_dir" DictionarySnapshotQueueSmoke
 java -cp "$output_dir" DiagnosticPolicySmoke
+java -cp "$output_dir" HostOptionsPolicySmoke
 java -cp "$output_dir" TypingStatisticsModelSmoke
 java -cp "$output_dir" VocabularyReviewModelSmoke
 java -cp "$output_dir" InputFeatureToggleSmoke
