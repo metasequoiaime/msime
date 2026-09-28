@@ -58,9 +58,13 @@ import { VoiceInputIntroSection } from "./settings/voice-input-intro-section";
 import { VoiceInputCoreSection } from "./settings/voice-input-core-section";
 import { VoiceModelPathSection } from "./settings/voice-model-path-section";
 import { VoiceModelSection } from "./settings/voice-model-section";
-import { DoubaoAuthModeSection, type DoubaoAuthMode } from "./settings/doubao-auth-mode-section";
+import { DoubaoAuthModeSection } from "./settings/doubao-auth-mode-section";
 import { DoubaoStreamEndpointSection } from "./settings/doubao-stream-endpoint-section";
 import { VoiceModelMirrorSection } from "./settings/voice-model-mirror-section";
+import {
+  VoiceCredentialSection,
+  type VoiceCredentialSaveInput,
+} from "./settings/voice-credential-section";
 import {
   MobileKeyboardFeedbackSection,
   type MobileKeyboardFeedback,
@@ -74,7 +78,6 @@ import {
   asrProviderUpdate,
   polishProviderUpdate,
   ASR_PROVIDER_DEFAULTS,
-  DOUBAO_STREAM_ENDPOINTS,
   POLISH_PROVIDER_DEFAULTS,
 } from "./voice/voice-providers";
 import {
@@ -424,6 +427,16 @@ export {
   VoiceModelMirrorSection,
   type VoiceModelMirrorSectionProps,
 } from "./settings/voice-model-mirror-section";
+export {
+  VoiceCredentialSection,
+  type VoiceCredentialEntry,
+  type VoiceCredentialInput,
+  type VoiceCredentialMessage,
+  type VoiceCredentialSaveInput,
+  type VoiceCredentialSectionProps,
+  type VoiceCredentialSectionKind,
+  type VoiceCredentialStatus,
+} from "./settings/voice-credential-section";
 export {
   MobileKeyboardFeedbackSection,
   type MobileKeyboardFeedback,
@@ -4071,173 +4084,6 @@ export function SettingsPage({
       setProviderCredentialBusy(undefined);
     }
   };
-  /**
-   * The Linux voice provider's credential for the recognition or polishing service selected above. The provider only uses an entry whose model matches the request's, so a save binds the current model; the endpoint is stored in the provider's file, not in the shared preferences.
-   */
-  const voiceCredentialControls = (kind: VoiceCredentialKind) => {
-    if (!client.providerCredentials) return null;
-    const provider =
-      kind === "asr"
-        ? (voiceInput.asr_provider ?? "doubao")
-        : (voiceInput.polish_provider ?? "siliconflow");
-    const model = (kind === "asr" ? voiceInput.asr_model : voiceInput.polish_model) ?? "";
-    const doubao = kind === "asr" && provider === "doubao";
-    const legacy = doubao && doubaoAuthMode === "legacy";
-    const stored = (
-      kind === "asr" ? providerCredentials?.voiceAsr : providerCredentials?.voicePolish
-    )?.find((entry) => entry.provider === provider);
-    const input = voiceCredentialInput[kind];
-    const endpoint = input.endpoint ?? stored?.endpoint ?? "";
-    const update = (patch: Partial<typeof input>) =>
-      setVoiceCredentialInput((current) => ({ ...current, [kind]: { ...input, ...patch } }));
-    const name = kind === "asr" ? "识别" : "润色";
-    const tokenLabel = doubao && !legacy ? "Doubao API Key" : `${name} API Token`;
-    const mismatch =
-      stored &&
-      ((model.trim() && stored.model !== model.trim()) ||
-        (doubao &&
-          ((voiceInput.asr_resource_id?.trim() &&
-            stored.resourceId !== voiceInput.asr_resource_id.trim()) ||
-            stored.authMode !== doubaoAuthMode)));
-    return (
-      <div className="section" role="group" aria-label={`语音${name}凭据`}>
-        <div className="section-title">
-          {name}凭据
-          <small>
-            {providerCredentials?.voiceInvalid
-              ? "现有 voice-provider.json 无效，语音 provider 不会启动；请修复或删除该文件"
-              : !stored
-                ? "尚未保存；保存后只写入用户配置目录的 voice-provider.json，由语音 provider 读取"
-                : mismatch
-                  ? "已保存的凭据与上方模型或豆包设置不一致；保存后改为绑定当前设置"
-                  : "已保存，留空则保留原凭据"}
-          </small>
-        </div>
-        {doubao && (
-          <label className="section-header">
-            <span className="section-title">
-              流式接口
-              <small>
-                整句流式边录边传、说完返回整句，服务方称准确率更高并推荐用于输入法；双向流式返回增量结果，流式预编辑刷新更频繁。选择后写入下方接口地址，保存凭据后生效；地址留空时语音
-                provider 使用双向流式。
-              </small>
-            </span>
-            <select
-              aria-label="流式接口"
-              value={
-                // An empty address is the provider's default, which is the bidirectional endpoint.
-                DOUBAO_STREAM_ENDPOINTS.find(
-                  (option) =>
-                    option.endpoint ===
-                    (endpoint.trim() ||
-                      DOUBAO_STREAM_ENDPOINTS.find((preset) => preset.id === "async")?.endpoint),
-                )?.id ?? "custom"
-              }
-              onChange={(event) => {
-                const chosen = DOUBAO_STREAM_ENDPOINTS.find(
-                  (option) => option.id === event.target.value,
-                );
-                if (chosen) update({ endpoint: chosen.endpoint });
-              }}
-            >
-              {DOUBAO_STREAM_ENDPOINTS.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.title}
-                </option>
-              ))}
-              <option value="custom">自定义地址</option>
-            </select>
-          </label>
-        )}
-        <label className="section-header">
-          <span className="section-title">
-            接口地址<small>留空使用当前 provider 默认地址</small>
-          </span>
-          <input
-            aria-label={`${name}接口地址`}
-            type="url"
-            value={endpoint}
-            onChange={(event) => update({ endpoint: event.target.value })}
-          />
-        </label>
-        {legacy && (
-          <label className="section-header">
-            <span className="section-title">
-              Doubao App Key<small>旧版控制台鉴权使用</small>
-            </span>
-            <input
-              aria-label="Doubao App Key"
-              type="password"
-              autoComplete="off"
-              value={input.appKey}
-              onChange={(event) => update({ appKey: event.target.value })}
-            />
-          </label>
-        )}
-        <label className="section-header">
-          <span className="section-title">{tokenLabel}</span>
-          <input
-            aria-label={tokenLabel}
-            type="password"
-            autoComplete="off"
-            value={input.token}
-            onChange={(event) => update({ token: event.target.value })}
-          />
-        </label>
-        <div className={settings.serviceRow}>
-          <div>
-            <button
-              type="button"
-              className="secondary"
-              aria-label={`保存${name}凭据`}
-              disabled={
-                providerCredentialBusy === kind ||
-                (!input.token.trim() && !stored) ||
-                (legacy && !input.appKey.trim() && stored?.authMode !== "legacy")
-              }
-              onClick={() =>
-                void runVoiceCredential(
-                  kind,
-                  (credentials) =>
-                    credentials.saveVoice({
-                      kind,
-                      provider,
-                      endpoint,
-                      model,
-                      ...(input.token.trim() ? { token: input.token } : {}),
-                      ...(legacy && input.appKey.trim() ? { appKey: input.appKey } : {}),
-                      resourceId: doubao ? (voiceInput.asr_resource_id ?? "") : "",
-                      authMode: doubao ? doubaoAuthMode : "",
-                    }),
-                  "凭据已保存，语音 provider 下次请求时生效。",
-                )
-              }
-            >
-              保存凭据
-            </button>
-            {stored && (
-              <button
-                type="button"
-                className="secondary"
-                aria-label={`清除${name}凭据`}
-                disabled={providerCredentialBusy === kind}
-                onClick={() =>
-                  void runVoiceCredential(
-                    kind,
-                    (credentials) => credentials.clearVoice(kind, provider),
-                    "凭据已清除。",
-                  )
-                }
-              >
-                清除凭据
-              </button>
-            )}
-            {providerCredentialMessage(kind)}
-          </div>
-        </div>
-      </div>
-    );
-  };
   const providerCredentialMessage = (kind: "ai" | "tencent" | VoiceCredentialKind) => {
     const message = providerCredentialMessages[kind];
     return message ? <span role={message.ok ? "status" : "alert"}>{message.text}</span> : null;
@@ -7481,10 +7327,46 @@ export function SettingsPage({
                       </div>
                     )}
                     {linuxPlatform &&
+                      client.providerCredentials &&
                       ["openai", "siliconflow", "groq", "everyapi", "mistral", "doubao"].includes(
                         voiceInput.asr_provider ?? "doubao",
                       ) &&
-                      voiceCredentialControls("asr")}
+                      (() => {
+                        const provider = voiceInput.asr_provider ?? "doubao";
+                        return (
+                          <VoiceCredentialSection
+                            kind="asr"
+                            provider={provider}
+                            model={voiceInput.asr_model ?? ""}
+                            resourceId={voiceInput.asr_resource_id}
+                            authMode={doubaoAuthMode}
+                            credentials={providerCredentials}
+                            input={voiceCredentialInput.asr}
+                            busy={providerCredentialBusy === "asr"}
+                            message={providerCredentialMessages.asr}
+                            onChange={(patch) =>
+                              setVoiceCredentialInput((current) => ({
+                                ...current,
+                                asr: { ...current.asr, ...patch },
+                              }))
+                            }
+                            onSave={(credential: VoiceCredentialSaveInput) =>
+                              void runVoiceCredential(
+                                "asr",
+                                (credentials) => credentials.saveVoice(credential),
+                                "凭据已保存，语音 provider 下次请求时生效。",
+                              )
+                            }
+                            onClear={() =>
+                              void runVoiceCredential(
+                                "asr",
+                                (credentials) => credentials.clearVoice("asr", provider),
+                                "凭据已清除。",
+                              )
+                            }
+                          />
+                        );
+                      })()}
                     {linuxPlatform &&
                       credentialTestControl("voice.asr", "测试语音识别配置", {
                         asr_provider: voiceInput.asr_provider ?? "doubao",
@@ -7880,7 +7762,42 @@ export function SettingsPage({
                         >
                           恢复默认
                         </button>
-                        {linuxPlatform && voiceCredentialControls("polish")}
+                        {linuxPlatform &&
+                          client.providerCredentials &&
+                          (() => {
+                            const provider = voiceInput.polish_provider ?? "siliconflow";
+                            return (
+                              <VoiceCredentialSection
+                                kind="polish"
+                                provider={provider}
+                                model={voiceInput.polish_model ?? ""}
+                                credentials={providerCredentials}
+                                input={voiceCredentialInput.polish}
+                                busy={providerCredentialBusy === "polish"}
+                                message={providerCredentialMessages.polish}
+                                onChange={(patch) =>
+                                  setVoiceCredentialInput((current) => ({
+                                    ...current,
+                                    polish: { ...current.polish, ...patch },
+                                  }))
+                                }
+                                onSave={(credential: VoiceCredentialSaveInput) =>
+                                  void runVoiceCredential(
+                                    "polish",
+                                    (credentials) => credentials.saveVoice(credential),
+                                    "凭据已保存，语音 provider 下次请求时生效。",
+                                  )
+                                }
+                                onClear={() =>
+                                  void runVoiceCredential(
+                                    "polish",
+                                    (credentials) => credentials.clearVoice("polish", provider),
+                                    "凭据已清除。",
+                                  )
+                                }
+                              />
+                            );
+                          })()}
                         {linuxPlatform &&
                           credentialTestControl(
                             "voice.polish",
