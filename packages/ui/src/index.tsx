@@ -62,6 +62,7 @@ import { VoiceModelSection } from "./settings/voice-model-section";
 import { VoiceEndpointSection } from "./settings/voice-endpoint-section";
 import { VoiceCredentialFieldsSection } from "./settings/voice-credential-fields-section";
 import { VoiceStreamPreeditSection } from "./settings/voice-stream-preedit-section";
+import { VoiceCommitModeSection, type VoiceCommitMode } from "./settings/voice-commit-mode-section";
 import { DoubaoAuthModeSection } from "./settings/doubao-auth-mode-section";
 import { DoubaoStreamEndpointSection } from "./settings/doubao-stream-endpoint-section";
 import { DoubaoOptionsSection } from "./settings/doubao-options-section";
@@ -451,6 +452,11 @@ export {
   VoiceStreamPreeditSection,
   type VoiceStreamPreeditSectionProps,
 } from "./settings/voice-stream-preedit-section";
+export {
+  VoiceCommitModeSection,
+  type VoiceCommitMode,
+  type VoiceCommitModeSectionProps,
+} from "./settings/voice-commit-mode-section";
 export {
   DoubaoAuthModeSection,
   type DoubaoAuthMode,
@@ -6872,32 +6878,11 @@ export function SettingsPage({
                       />
                     )}
                     {showVoiceCommitMode && (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">
-                            结果提交策略
-                            <small>
-                              {macosPlatform
-                                ? "系统按键和 Command-V 粘贴需要系统事件权限；不可用时回退到输入法会话，粘贴会替换剪贴板内容"
-                                : "由当前桌面宿主决定如何把识别结果交给前台窗口"}
-                            </small>
-                          </span>
-                          <select
-                            aria-label="结果提交策略"
-                            value={voiceInput.commit_mode ?? "tsf"}
-                            onChange={(event) =>
-                              updateVoice({
-                                commit_mode: event.target
-                                  .value as VoiceInputPreferences["commit_mode"],
-                              })
-                            }
-                          >
-                            <option value="tsf">输入法会话</option>
-                            <option value="sendinput">系统按键</option>
-                            <option value="ctrl_v">剪贴板粘贴</option>
-                          </select>
-                        </label>
-                      </div>
+                      <VoiceCommitModeSection
+                        macos={macosPlatform}
+                        value={voiceInput.commit_mode ?? "tsf"}
+                        onChange={(commit_mode) => updateVoice({ commit_mode })}
+                      />
                     )}
                     {showVoiceCaptureDevices && (
                       <div className="section">
