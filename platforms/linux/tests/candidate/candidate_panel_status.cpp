@@ -54,6 +54,15 @@ int main() {
   assert(!std::filesystem::exists(std::filesystem::path(file.string() + ".new")));
   assert((std::filesystem::status(file.parent_path()).permissions() & std::filesystem::perms::group_write) ==
          std::filesystem::perms::none);
+  {
+    std::ofstream oversized(file, std::ios::binary | std::ios::trunc);
+    oversized << std::string(8 * 1024 * 1024, 'x');
+  }
+  assert(write_candidate_panel_status(file, document));
+  {
+    std::ifstream in(file, std::ios::binary);
+    assert(std::string(std::istreambuf_iterator<char>(in), {}) == document);
+  }
   const auto cleared = candidate_panel_status_document("ibus", CandidatePanelLimit::None);
   assert(write_candidate_panel_status(file, cleared));
   {

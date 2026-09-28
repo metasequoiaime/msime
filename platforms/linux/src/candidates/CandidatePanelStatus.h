@@ -87,7 +87,14 @@ inline bool write_candidate_panel_status(const std::filesystem::path &file, cons
     return false;
   {
     std::ifstream current(file, std::ios::binary);
-    if (current && std::string(std::istreambuf_iterator<char>(current), {}) == document) return true;
+    if (current) {
+      std::string existing(document.size() + 1, '\0');
+      current.read(existing.data(), static_cast<std::streamsize>(existing.size()));
+      const auto count = current.gcount();
+      if (count == static_cast<std::streamsize>(document.size()) &&
+          existing.compare(0, document.size(), document) == 0)
+        return true;
+    }
   }
   auto staged = file;
   staged += ".new";
