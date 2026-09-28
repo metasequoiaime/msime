@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { boundedGraphemes } from "../core/text";
 import { randomUuid } from "../core/random-id";
 import { CommunitySkinsPage, type CommunitySkinClient } from "./community-skins";
 import {
@@ -759,7 +760,7 @@ export function CommunityResourcesPage({
           aria-label={`搜索${resourceKindTitle(kind)}`}
           placeholder={`搜索${resourceKindTitle(kind)}`}
           value={search}
-          onChange={(event) => setSearch([...event.target.value].slice(0, 128).join(""))}
+          onChange={(event) => setSearch(boundedGraphemes(event.target.value, 128))}
         />
         <button type="submit" className={style.searchSubmit}>
           搜索
