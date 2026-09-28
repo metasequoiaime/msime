@@ -4642,6 +4642,8 @@ static void TestAiCandidateDescriptorFailureIsRetryable() {
 @interface CustomTranslationController : CloudShortcutController
 @property(nonatomic, strong) NSMutableArray<ControlledTranslationBatch *> *batches;
 @property(nonatomic, strong) NSMutableArray<NSArray *> *onDeviceFetches;
+// Packaged English dictionary answers beyond Hello's.
+@property(nonatomic, copy) NSDictionary<NSString *, NSString *> *extraEnglishGlosses;
 @property(nonatomic) BOOL useRealDelay;
 @end
 @implementation CustomTranslationController
@@ -4667,7 +4669,9 @@ static void TestAiCandidateDescriptorFailureIsRetryable() {
 }
 - (NSDictionary *)readCandidateGloss:(NSDictionary *)request resources:(NSString *)resources {
     assert(!NSThread.isMainThread && [resources isEqual:@"/synthetic"]);
-    return @{@"generation":request[@"generation"], @"translations":@[@{@"text":@"Hello", @"translation":@"本地释义"}]};
+    NSMutableArray *translations = [NSMutableArray arrayWithObject:@{@"text":@"Hello", @"translation":@"本地释义"}];
+    for (NSString *text in self.extraEnglishGlosses) [translations addObject:@{@"text":text, @"translation":self.extraEnglishGlosses[text]}];
+    return @{@"generation":request[@"generation"], @"translations":translations};
 }
 - (NSDictionary *)readTargetGloss:(NSDictionary *)request language:(NSString *)language resources:(NSString *)resources {
     assert(!NSThread.isMainThread && [resources isEqual:@"/synthetic"]);
@@ -5172,10 +5176,29 @@ static void TestOnDeviceGlosses() {
     session.generation++; session.targetLanguage = @"en"; session.targetLanguages = @[@"en", @"de"]; session.offlineGlossLanguages = @[];
     session.page = @[@{@"text":@"Hello", @"source":@4}, @{@"text":@"测试", @"source":@0}];
     session.queryCandidates = @[@{@"text":@"Hello", @"online_gloss":@NO}, @{@"text":@"测试", @"online_gloss":@YES}];
+    // Nothing is asked before the English dictionary has answered; its completion asks.
+    [controller synchronizeCandidateGloss];
+    [controller synchronizeOnDeviceGloss];
+    assert(controller.onDeviceFetches.count == 2);
     settle();
-    assert(controller.onDeviceFetches.count == 3 && ([controller.onDeviceFetches[2] isEqual:@[@[@"测试"], @[@"en", @"de"]]]));
+    // Each target is asked for its own words, so one target's gap does not send the word through the other's line too.
+    assert(controller.onDeviceFetches.count == 4 && ([controller.onDeviceFetches[2] isEqual:@[@[@"测试"], @[@"en"]]]) &&
+           ([controller.onDeviceFetches[3] isEqual:@[@[@"测试"], @[@"de"]]]));
     reply(@"de", @{@"测试":@"Test"});
     assert(([session.delivered isEqual:@[@{@"text":@"Hello", @"translation":@"本地释义"}, @{@"text":@"测试", @"translation":@"\nTest"}]]));
+    // A Chinese word the English dictionary answers keeps its place in the page but is not sent to the model for English, which spends half a second on every word it is given.
+    controller.extraEnglishGlosses = @{@"你好":@"hello"};
+    session.generation++; session.targetLanguages = @[@"en"];
+    session.page = @[@{@"text":@"Hello", @"source":@4}, @{@"text":@"你好", @"source":@0}, @{@"text":@"再见", @"source":@0}];
+    session.queryCandidates = @[@{@"text":@"Hello", @"online_gloss":@NO}, @{@"text":@"你好", @"online_gloss":@YES},
+                                @{@"text":@"再见", @"online_gloss":@YES}];
+    settle();
+    assert(controller.onDeviceFetches.count == 5 && ([controller.onDeviceFetches[4] isEqual:@[@[@"再见"], @[@"en"]]]));
+    reply(@"en", @{@"再见":@"goodbye"});
+    assert(([session.delivered isEqual:@[@{@"text":@"Hello", @"translation":@"本地释义"}, @{@"text":@"你好", @"translation":@"hello"},
+                                         @{@"text":@"再见", @"translation":@"goodbye"}]]));
+    controller.extraEnglishGlosses = nil;
+    session.targetLanguages = @[@"en", @"de"];
     // A service of the user's own, or the MSIME account, answers every candidate; this path stays idle for both.
     session.generation++; session.custom = @{@"enabled":@YES, @"endpoint":@"https://on-device.invalid/api", @"api_key":@""};
     assert(![controller currentOnDeviceGlossRequest]);

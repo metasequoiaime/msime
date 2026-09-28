@@ -2,6 +2,7 @@
 #if compiler(>=6.2) && canImport(Translation)
 import Foundation
 import Translation
+import os
 
 // Candidate glosses from Apple's on-device translation models, for the Chinese candidates the packaged offline dictionaries leave empty. Only a language pair the user already downloaded in System Settings is used: nothing here starts a download, and a pair that is merely supported is skipped until it is installed. Translation runs on this Mac, so the candidates never leave it.
 @available(macOS 26, *)
@@ -13,9 +14,10 @@ private enum BackendOnDeviceGloss {
   private static let recheck: Duration = .seconds(30)
   private static var sessions: [String: TranslationSession] = [:]
   private static var missing: [String: ContinuousClock.Instant] = [:]
-  // One batch in flight per language. Typing replaces the page faster than a batch completes, so only the newest page waits behind it; the pages in between were never going to be shown.
+  // One word in flight per language, taken from the newest page. The translation service works through its requests one at a time, about half a second per candidate and two to three seconds while it reloads a model that sat idle, and it keeps working through a batch after the task that asked for it is cancelled. A whole page as one batch therefore showed nothing for three to five seconds, and while the user typed on, the pages in between still had to finish before the one on screen started. Asking word by word, in page order, puts the first candidate's gloss up as soon as it alone is done and lets a newer page take over after at most one word.
   private static var busy: Set<String> = []
   private static var queued: [String: [String]] = [:]
+  private static let log = Logger(subsystem: "app.msime.inputmethod.MetasequoiaIME", category: "translation")
 
   static func fetch(words: [String], targets: [String]) {
     for code in targets {
@@ -25,29 +27,39 @@ private enum BackendOnDeviceGloss {
   }
 
   private static func pump(_ code: String) {
-    guard !busy.contains(code), let words = queued.removeValue(forKey: code) else { return }
+    guard !busy.contains(code), queued[code] != nil else { return }
     busy.insert(code)
     Task { @MainActor in
       defer {
         busy.remove(code)
         pump(code)
       }
-      guard let session = await session(for: code) else { return }
-      let responses: [TranslationSession.Response]
-      do {
-        responses = try await session.translations(from: words.map { TranslationSession.Request(sourceText: $0) })
-      } catch {
-        // The model was removed or the service restarted. The next page asks whether the pair is still installed.
-        sessions[code] = nil
+      guard let session = await session(for: code) else {
+        // Not installed: drop the page rather than asking again the moment this returns.
+        queued[code] = nil
         return
       }
-      // A gloss equal to the word itself (a place name the model keeps in kanji, say) tells the reader nothing. It still goes back, empty, so the controller remembers the word as answered instead of asking on every keystroke.
-      var table: [String: String] = [:]
-      for response in responses where table[response.sourceText]?.isEmpty ?? true {
-        table[response.sourceText] = response.targetText == response.sourceText ? "" : response.targetText
+      while var words = queued[code], !words.isEmpty {
+        let word = words.removeFirst()
+        queued[code] = words.isEmpty ? nil : words
+        let started = ContinuousClock.now
+        let response: TranslationSession.Response
+        do {
+          response = try await session.translate(word)
+        } catch {
+          // The model was removed or the service restarted. The next page asks whether the pair is still installed.
+          sessions[code] = nil
+          queued[code] = nil
+          log.log("on_device_gloss_failed target=\(code, privacy: .public)")
+          return
+        }
+        let elapsed = ContinuousClock.now - started
+        // Counts and timings only, never the candidate.
+        log.log("on_device_gloss target=\(code, privacy: .public) ms=\(elapsed.components.seconds * 1000 + elapsed.components.attoseconds / 1_000_000_000_000_000) chars=\(word.count) waiting=\(queued[code]?.count ?? 0)")
+        // A gloss equal to the word itself (a place name the model keeps in kanji, say) tells the reader nothing. It still goes back, empty, so the controller remembers the word as answered instead of asking on every keystroke.
+        let gloss = response.targetText == word ? "" : response.targetText
+        NotificationCenter.default.post(name: notification, object: nil, userInfo: ["target": code, "translations": [word: gloss]])
       }
-      guard !table.isEmpty else { return }
-      NotificationCenter.default.post(name: notification, object: nil, userInfo: ["target": code, "translations": table])
     }
   }
 

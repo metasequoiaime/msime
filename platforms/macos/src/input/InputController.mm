@@ -1818,22 +1818,29 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSDictionary *request = [self currentOnDeviceGlossRequest];
     if (!request) { [self cancelOnDeviceGloss]; return; }
     if ([_onDeviceGlossRequest isEqual:request]) return;
+    // The on-device model spends about half a second on each word, one word at a time, so a word the packaged English dictionary already answers is not worth its place in that line. The dictionary lookup takes milliseconds; wait for it, as the user's own services do, and its completion comes back here.
+    NSDictionary *gloss = [self currentGlossRequest];
+    if (gloss && (![_glossRequest isEqual:gloss] || !_glossResults)) return;
+    NSMutableSet<NSString *> *dictionaryAnswered = [NSMutableSet set];
+    for (NSDictionary *result in gloss ? _glossResults : @[])
+        if ([result[@"text"] isKindOfClass:NSString.class] && [result[@"translation"] isKindOfClass:NSString.class] &&
+            [result[@"translation"] length])
+            [dictionaryAnswered addObject:result[@"text"]];
     _onDeviceGlossRequest = request;
-    // Only what no earlier page already answered. The backend keeps one batch in flight per language and lets a newer page replace a waiting one, so typing does not queue up stale work.
-    NSMutableArray<NSString *> *words = [NSMutableArray array];
-    NSMutableArray<NSString *> *targets = [NSMutableArray array];
+    [self applyCandidateTranslationResults];
+    // Only what no earlier page or dictionary already answered, per target, in page order so the first candidate is translated first. The backend works one word at a time and a newer page takes over after the word in flight, so typing does not queue up stale work.
     for (NSString *target in request[@"target_languages"]) {
+        NSMutableArray<NSString *> *words = [NSMutableArray array];
         for (NSDictionary *candidate in request[@"candidates"]) {
             NSString *text = candidate[@"text"];
+            if ([target isEqualToString:@"en"] && [dictionaryAnswered containsObject:text]) continue;
             if ([[MSIMETranslationCache sharedCache] valueForIdentity:MSIMEOnDeviceGlossIdentity(target, text)]) continue;
             if (![words containsObject:text]) [words addObject:text];
-            if (![targets containsObject:target]) [targets addObject:target];
         }
+        // The backend takes at most 32 words, more than any page shows.
+        if (words.count > 32) [words removeObjectsInRange:NSMakeRange(32, words.count - 32)];
+        if (words.count) [self fetchOnDeviceGlosses:words targets:@[target]];
     }
-    // The backend takes at most 32 words, more than any page shows.
-    if (words.count > 32) [words removeObjectsInRange:NSMakeRange(32, words.count - 32)];
-    [self applyCandidateTranslationResults];
-    if (words.count) [self fetchOnDeviceGlosses:words targets:targets];
 }
 
 - (void)onDeviceCandidateTranslationsDidArrive:(NSNotification *)notification {
@@ -2154,6 +2161,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
                 ![[current currentGlossRequest] isEqual:request] || (result && ![result[@"generation"] isEqual:request[@"generation"]])) return;
             current->_glossResults = [translations copy];
             [current applyCandidateTranslationResults];
+            // On-device translation waits for the dictionary so it can skip what the dictionary answered.
+            [current synchronizeOnDeviceGloss];
         });
     }];
 }
