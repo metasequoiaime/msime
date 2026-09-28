@@ -272,8 +272,8 @@ pub unsafe extern "C" fn msime_client_custom_translation_http_request(
         if !msime_client_core::translation::is_supported_endpoint(&config.endpoint)
             || !valid_bounded_text(&config.api_key, 4096)
             || text.is_empty()
+            || !valid_bounded_text(&text, 160)
             || text.chars().count() > 40
-            || text.chars().any(char::is_control)
             || !valid_language(&source_language)
             || !valid_language(&target_language)
         {
