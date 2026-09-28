@@ -182,6 +182,7 @@ import { VoiceCaptureDevicesSection } from "./settings/voice-capture-devices-sec
 import { VoiceHotkeysSection } from "./settings/voice-hotkeys-section";
 import { FloatingToolbarAppearanceSection } from "./settings/floating-toolbar-appearance-section";
 import { FloatingToolbarComponentsSection } from "./settings/floating-toolbar-components-section";
+import { FloatingToolbarToggleSection } from "./settings/floating-toolbar-toggle-section";
 import { DoubaoAuthModeSection } from "./settings/doubao-auth-mode-section";
 import { DoubaoStreamEndpointSection } from "./settings/doubao-stream-endpoint-section";
 import { DoubaoOptionsSection } from "./settings/doubao-options-section";
@@ -850,6 +851,10 @@ export {
 } from "./keyboard/window-host";
 export { emojiDisplayName } from "./keyboard/panels";
 export type { TouchKeyboardSkin } from "./keyboard/screen-keyboard-preview";
+export {
+  FloatingToolbarToggleSection,
+  type FloatingToolbarToggleSectionProps,
+} from "./settings/floating-toolbar-toggle-section";
 export {
   ScreenKeyboardLaunchSection,
   type ScreenKeyboardLaunchSectionProps,
@@ -4484,43 +4489,17 @@ export function SettingsPage({
                     hidden={page !== "floating-toolbar"}
                     aria-label="悬浮工具栏"
                   >
-                    <div className={`section ${settings.toolbarCard}`}>
-                      <label className={`section-header ${settings.toolbarSettingRow}`}>
-                        <span className="section-title">
-                          在桌面显示悬浮工具栏<small>快速访问输入法状态与常用功能</small>
-                        </span>
-                        <input
-                          aria-label="在桌面显示悬浮工具栏"
-                          className="toggle"
-                          type="checkbox"
-                          checked={floatingToolbar.enabled}
-                          onChange={(event) =>
-                            setDraft({
-                              ...draft,
-                              floating_toolbar: {
-                                ...floatingToolbar,
-                                enabled: event.target.checked,
-                              },
-                            })
-                          }
-                        />
-                      </label>
-                      <div className={settings.toolbarPreviewArea} aria-label="悬浮工具栏预览">
-                        <div className={settings.toolbarPreviewLabel}>预览</div>
-                        <div
-                          className={`${settings.skinCardPreview} skin-${draft.candidate_skin ?? "willow_green"}`}
-                          data-skin-preview=""
-                          data-toolbar-preview=""
-                          data-preview-theme={toolbarPreviewTheme}
-                          style={candidateSkinPalette(
-                            draft.candidate_skin ?? "willow_green",
-                            toolbarPreviewTheme,
-                          )}
-                        >
-                          <SkinToolbarPreview preferences={floatingToolbar} />
-                        </div>
-                      </div>
-                    </div>
+                    <FloatingToolbarToggleSection
+                      preferences={floatingToolbar}
+                      skin={draft.candidate_skin ?? "willow_green"}
+                      theme={toolbarPreviewTheme}
+                      onEnabledChange={(enabled) =>
+                        setDraft({
+                          ...draft,
+                          floating_toolbar: { ...floatingToolbar, enabled },
+                        })
+                      }
+                    />
                     {!showToolbarAppearance && (
                       <div className="section">
                         <small>
