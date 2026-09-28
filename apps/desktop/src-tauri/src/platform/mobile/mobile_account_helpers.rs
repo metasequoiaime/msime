@@ -1,3 +1,7 @@
+use crate::shared::account_dto::{
+    ChallengeResponse, ChatModelsResponse, ChatResponse, ProfileResponse, StatusResponse,
+};
+use msime_client_core::account::AccountChatMessage;
 use msime_client_core::account::AccountError;
 use msime_client_core::cloud::dictionary::DictionaryKind;
 use serde_json::Value;
@@ -46,4 +50,81 @@ where
             code: "account_unavailable",
         })?
         .map_err(|error| crate::CommandError { code: error.code() })
+}
+
+pub(crate) async fn account_status(
+    state: tauri::State<'_, crate::platform::mobile::MobileAccountState>,
+) -> Result<StatusResponse, crate::CommandError> {
+    call(state, |session| {
+        session.status().map(|user| StatusResponse {
+            user: user.map(Into::into),
+        })
+    })
+    .await
+}
+
+pub(crate) async fn account_request_code(
+    state: tauri::State<'_, crate::platform::mobile::MobileAccountState>,
+    provider: String,
+    target: String,
+) -> Result<ChallengeResponse, crate::CommandError> {
+    call(state, move |session| {
+        session
+            .request_code(&provider, &target)
+            .map(ChallengeResponse::from)
+    })
+    .await
+}
+
+pub(crate) async fn account_login(
+    state: tauri::State<'_, crate::platform::mobile::MobileAccountState>,
+    challenge_id: String,
+    code: String,
+) -> Result<StatusResponse, crate::CommandError> {
+    call(state, move |session| {
+        session
+            .sign_in(&challenge_id, &code)
+            .map(|user| StatusResponse {
+                user: Some(user.into()),
+            })
+    })
+    .await
+}
+
+pub(crate) async fn account_profile(
+    state: tauri::State<'_, crate::platform::mobile::MobileAccountState>,
+) -> Result<ProfileResponse, crate::CommandError> {
+    call(state, |session| {
+        session.profile().map(ProfileResponse::from)
+    })
+    .await
+}
+
+pub(crate) async fn account_chat_models(
+    state: tauri::State<'_, crate::platform::mobile::MobileAccountState>,
+) -> Result<ChatModelsResponse, crate::CommandError> {
+    call(state, |session| session.chat_models().map(Into::into)).await
+}
+
+pub(crate) async fn account_chat(
+    state: tauri::State<'_, crate::platform::mobile::MobileAccountState>,
+    messages: Vec<AccountChatMessage>,
+    model: String,
+) -> Result<ChatResponse, crate::CommandError> {
+    call(state, move |session| {
+        session
+            .chat(&messages, &model)
+            .map(|content| ChatResponse { content })
+    })
+    .await
+}
+
+pub(crate) async fn account_rename(
+    state: tauri::State<'_, crate::platform::mobile::MobileAccountState>,
+    display_name: String,
+) -> Result<ProfileResponse, crate::CommandError> {
+    call(state, move |session| {
+        session.rename(&display_name).map(ProfileResponse::from)
+    })
+    .await
 }

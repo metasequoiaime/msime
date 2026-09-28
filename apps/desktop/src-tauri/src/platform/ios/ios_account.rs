@@ -1,10 +1,15 @@
-use crate::shared::account_dto::{ChatModelsResponse, ChatResponse, PreferenceSchemaResponse};
 #[cfg(target_os = "ios")]
-use crate::platform::mobile::mobile_account_helpers::call;
+use crate::platform::mobile::mobile_account_helpers::{
+    account_chat as shared_account_chat, account_chat_models as shared_account_chat_models,
+    account_login as shared_account_login, account_profile as shared_account_profile,
+    account_rename as shared_account_rename, account_request_code as shared_account_request_code,
+    account_status as shared_account_status, call,
+};
 #[cfg(target_os = "ios")]
 use crate::shared::account_dto::{
     providers_response, ChallengeResponse, ProfileResponse, ProvidersResponse, StatusResponse,
 };
+use crate::shared::account_dto::{ChatModelsResponse, ChatResponse, PreferenceSchemaResponse};
 use serde::Serialize;
 use std::collections::BTreeMap;
 #[cfg(target_os = "ios")]
@@ -189,12 +194,7 @@ pub async fn ai_test(
 pub async fn account_status(
     state: State<'_, AccountState>,
 ) -> Result<StatusResponse, crate::CommandError> {
-    call(state, |session| {
-        session.status().map(|user| StatusResponse {
-            user: user.map(Into::into),
-        })
-    })
-    .await
+    shared_account_status(state).await
 }
 
 #[cfg(target_os = "ios")]
@@ -212,12 +212,7 @@ pub async fn account_request_code(
     provider: String,
     target: String,
 ) -> Result<ChallengeResponse, crate::CommandError> {
-    call(state, move |session| {
-        session
-            .request_code(&provider, &target)
-            .map(ChallengeResponse::from)
-    })
-    .await
+    shared_account_request_code(state, provider, target).await
 }
 
 #[cfg(target_os = "ios")]
@@ -227,14 +222,7 @@ pub async fn account_login(
     challenge_id: String,
     code: String,
 ) -> Result<StatusResponse, crate::CommandError> {
-    call(state, move |session| {
-        session
-            .sign_in(&challenge_id, &code)
-            .map(|user| StatusResponse {
-                user: Some(user.into()),
-            })
-    })
-    .await
+    shared_account_login(state, challenge_id, code).await
 }
 
 #[cfg(target_os = "ios")]
@@ -274,10 +262,7 @@ pub async fn account_apple_login(
 pub async fn account_profile(
     state: State<'_, AccountState>,
 ) -> Result<ProfileResponse, crate::CommandError> {
-    call(state, |session| {
-        session.profile().map(ProfileResponse::from)
-    })
-    .await
+    shared_account_profile(state).await
 }
 
 #[cfg(target_os = "ios")]
@@ -285,7 +270,7 @@ pub async fn account_profile(
 pub async fn account_chat_models(
     state: State<'_, AccountState>,
 ) -> Result<ChatModelsResponse, crate::CommandError> {
-    call(state, |session| session.chat_models().map(Into::into)).await
+    shared_account_chat_models(state).await
 }
 
 #[cfg(target_os = "ios")]
@@ -295,12 +280,7 @@ pub async fn account_chat(
     messages: Vec<AccountChatMessage>,
     model: String,
 ) -> Result<ChatResponse, crate::CommandError> {
-    call(state, move |session| {
-        session
-            .chat(&messages, &model)
-            .map(|content| ChatResponse { content })
-    })
-    .await
+    shared_account_chat(state, messages, model).await
 }
 
 #[cfg(target_os = "ios")]
@@ -309,10 +289,7 @@ pub async fn account_rename(
     state: State<'_, AccountState>,
     display_name: String,
 ) -> Result<ProfileResponse, crate::CommandError> {
-    call(state, move |session| {
-        session.rename(&display_name).map(ProfileResponse::from)
-    })
-    .await
+    shared_account_rename(state, display_name).await
 }
 
 #[cfg(target_os = "ios")]
