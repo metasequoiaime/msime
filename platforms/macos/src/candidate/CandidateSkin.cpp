@@ -556,6 +556,7 @@ void ApplyToolbarCssProperty(std::string property, std::string value, const std:
 void ApplyToolbarStylesheet(const std::filesystem::path &skinsRoot, const SkinPackage &package, bool dark,
                             SkinTokens &tokens)
 {
+    constexpr std::size_t kMaxToolbarStylesheetBytes = 65536;
     if (package.toolbarStylesheet.empty()) return;
     const std::filesystem::path stylesheet = skinsRoot / package.id / package.toolbarStylesheet;
     std::error_code ec;
@@ -563,11 +564,11 @@ void ApplyToolbarStylesheet(const std::filesystem::path &skinsRoot, const SkinPa
         return;
     std::ifstream stream(stylesheet);
     if (!stream) return;
-    stream.seekg(0, std::ios::end);
-    const std::streamoff size = stream.tellg();
-    if (size < 0 || static_cast<std::size_t>(size) > 65536) return;
-    stream.seekg(0);
-    const std::string css = StripCssComments(std::string((std::istreambuf_iterator<char>(stream)), {}));
+    std::string stylesheetBytes(kMaxToolbarStylesheetBytes + 1, '\0');
+    stream.read(stylesheetBytes.data(), static_cast<std::streamsize>(stylesheetBytes.size()));
+    if (stream.bad() || stream.gcount() > static_cast<std::streamsize>(kMaxToolbarStylesheetBytes)) return;
+    stylesheetBytes.resize(static_cast<std::size_t>(stream.gcount()));
+    const std::string css = StripCssComments(std::move(stylesheetBytes));
     std::unordered_map<std::string, std::string> variables;
     std::size_t cursor = 0;
     while (cursor < css.size())

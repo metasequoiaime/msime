@@ -239,6 +239,11 @@ show_selected_bar = false
     const auto toolbarFull = msime::mac::ToolbarSkinTokens("full-toml", false, root);
     Require(toolbarFull.radius == 11.0f && toolbarFull.surface.b > 0.3f && toolbarFull.surface.r < 0.1f,
             "The toolbar did not pick up a full TOML manifest's stylesheet.");
+    WriteFile(root / "full-toml" / "toolbar.css", std::string(65537, 'x'));
+    const auto oversizedToolbar = msime::mac::ToolbarSkinTokens("full-toml", false, root);
+    const auto fluentToolbar = msime::mac::ToolbarSkinTokens("fluent", false, root);
+    Require(oversizedToolbar.radius == fluentToolbar.radius,
+            "An oversized toolbar stylesheet was not ignored.");
     Require(msime::mac::ListSkins(root).size() == 7, "The settings list lost the full TOML manifest.");
     std::filesystem::remove_all(root / "full-toml");
 
