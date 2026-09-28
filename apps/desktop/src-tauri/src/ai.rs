@@ -66,6 +66,9 @@ pub(crate) fn ai_models_request(endpoint: &str, token: &str) -> Result<Vec<Strin
     let endpoint = validate_ai_endpoint(endpoint)?;
     validate_ai_token(token)?;
     let client = reqwest::blocking::Client::builder()
+        // The configured endpoint receives the user's bearer token. A redirect could replay it
+        // to a different origin, so this test request must stop at the first response.
+        .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(std::time::Duration::from_secs(5))
         .timeout(std::time::Duration::from_secs(15))
         .build()
@@ -133,6 +136,9 @@ pub(crate) fn ai_test_request(
         ]
     });
     let client = reqwest::blocking::Client::builder()
+        // The configured endpoint receives the user's bearer token. A redirect could replay it
+        // to a different origin, so this test request must stop at the first response.
+        .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(std::time::Duration::from_secs(5))
         .timeout(std::time::Duration::from_secs(15))
         .build()
