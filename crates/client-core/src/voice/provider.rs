@@ -11,10 +11,6 @@
 
 use crate::preferences::Preferences;
 
-fn valid_voice_field(value: &str, maximum_bytes: usize) -> bool {
-    crate::text::is_bounded_text(value, maximum_bytes)
-}
-
 /// One HTTP or WebSocket header the provider requires, already filled in.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VoiceRequestHeader {
@@ -107,11 +103,11 @@ pub fn mobile_voice_polish_configuration(
         value => value,
     };
     if !endpoint.starts_with("https://")
-        || !valid_voice_field(endpoint, 2_048)
+        || !crate::text::is_bounded_text(endpoint, 2_048)
         || model.is_empty()
-        || !valid_voice_field(model, 512)
+        || !crate::text::is_bounded_text(model, 512)
         || token.is_empty()
-        || !valid_voice_field(token, 16 * 1024)
+        || !crate::text::is_bounded_text(token, 16 * 1024)
     {
         return None;
     }
@@ -181,10 +177,10 @@ pub fn mobile_voice_provider_configuration(
         value => value,
     };
     let boosting_table_id = voice.doubao_boosting_table_id.trim();
-    if !valid_voice_field(endpoint, 2_048)
-        || !valid_voice_field(model, 512)
-        || !valid_voice_field(token, 16 * 1024)
-        || !valid_voice_field(boosting_table_id, 4_096)
+    if !crate::text::is_bounded_text(endpoint, 2_048)
+        || !crate::text::is_bounded_text(model, 512)
+        || !crate::text::is_bounded_text(token, 16 * 1024)
+        || !crate::text::is_bounded_text(boosting_table_id, 4_096)
     {
         return None;
     }
@@ -233,7 +229,7 @@ fn local_provider_configuration(
     let voice = &preferences.voice_input;
     let model_path = voice.asr_model_path.trim();
     if model_path.is_empty()
-        || !valid_voice_field(model_path, 4096)
+        || !crate::text::is_bounded_text(model_path, 4096)
         || !crate::preferences::is_absolute_model_path(model_path)
     {
         return None;
