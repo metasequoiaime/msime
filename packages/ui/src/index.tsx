@@ -24,6 +24,12 @@ export {
   allTouchKeyboardSchemes,
 } from "./settings/touch-keyboard-scheme-helpers";
 import { platformOsName, schemeTitle } from "./settings/label-helpers";
+import { platformCopy, type PlatformCopyContext } from "./settings/platform-copy";
+export {
+  platformCopy,
+  type PlatformCopyContext,
+  type PlatformCopy,
+} from "./settings/platform-copy";
 import { mobileTabIcon, mobileTabTitle } from "./settings/mobile-tab-helpers";
 import {
   mobilePrimaryPageIds,
@@ -1696,54 +1702,19 @@ export function SettingsPage({
     ...(windowsPlatform ? ([["windows", "Windows Audio"]] as const) : []),
     ...(harmonyPlatform ? ([["harmony", "HarmonyOS 音频"]] as const) : []),
   ];
-  const platformHelpIntro = androidPlatform
-    ? "水杉输入法是一款 Android 平台的中文输入法，通过系统输入法服务接入应用。"
-    : linuxPlatform
-      ? "水杉输入法是一款 Linux 桌面环境下的中文输入法，通过 Fcitx5 或 IBus 接入 GTK、Qt 等应用。"
-      : macosPlatform
-        ? "水杉输入法是一款 macOS 平台的中文输入法，通过系统输入法组件接入应用。"
-        : harmonyPlatform
-          ? "水杉输入法是一款 HarmonyOS 平台的中文输入法，通过系统输入法服务接入应用。"
-          : iosPlatform
-            ? "水杉输入法是一款 iOS 平台的中文输入法，通过键盘扩展接入应用。"
-            : "水杉输入法是一款 Windows 平台的中文输入法。目前支持 Windows 11/Windows 10 平台。";
-  const platformQuickStart = androidPlatform
-    ? "在系统设置的“语言和输入法”或“屏幕键盘”中启用并选择水杉输入法，也可以从首次启动页打开这些入口。默认是全拼输入法。"
-    : linuxPlatform
-      ? "首次配置（首次配置页或 msime-linux-setup）完成后会把水杉输入法自动加入正在运行的 Fcitx5 或 IBus 的输入法列表，之后用输入法切换快捷键切换即可。未能自动加入时手动添加：使用 Fcitx5 时，用 fcitx5-configtool 把「水杉输入法」（英文界面显示为「MSIME」）加入当前输入法组；使用 IBus 时，执行 ibus restart 后在系统设置的输入源中添加「Metasequoia 水杉输入法」。默认是全拼输入法。"
-      : macosPlatform
-        ? "设置应用每次启动时会自动安装或更新随附的水杉输入法，并在系统设置的键盘输入法中启用它；首次安装后如提示需要重新登录，注销并重新登录一次即可。之后使用系统配置的输入法切换快捷键。默认是全拼输入法。"
-        : harmonyPlatform
-          ? mobilePlatform
-            ? "在系统设置中启用并选择水杉输入法，再从输入法键盘使用语音和触屏输入。默认是全拼输入法。"
-            : "在系统设置中启用并选择水杉输入法，再使用实体键盘、候选窗和悬浮工具栏输入。默认是全拼输入法。"
-          : iosPlatform
-            ? "在系统设置中启用水杉键盘，再从应用的输入源按钮切换使用。默认是全拼输入法。"
-            : "安装输入法后，可以使用 Win + Space 快捷键切换到水杉输入法。默认是全拼输入法。";
-  const platformNetworkDescription = androidPlatform
-    ? "语音输入会调用设备上的系统语音识别服务，识别结果回到键盘后需确认才会插入；AI 功能按需配置。日常拼音输入无需联网。"
-    : linuxPlatform
-      ? "日常拼音输入无需联网。云候选默认开启（首次配置时可以关闭，之后也可在设置里改），开启时会把正在输入的拼写发给 Google input-tools 换回一条候选；语音识别、候选词翻译和 AI 功能只在启用并配置好对应服务（凭据、自定义翻译服务，或显式选择水杉账号）后联网。这些请求由用户级的 msime-linux-online-provider 和 msime-linux-voice-provider 服务发出，输入法本身不联网。Linux 安装后的用户初始化会自动注册本机匿名水杉账号，网络失败时稍后重试；选择水杉账号才会把候选词发送到 api.msime.app。在 AI、腾讯翻译和语音页面填写的凭据只写入用户配置目录（通常是 ~/.config/msime-client）下仅本人可读的 ai-provider.json、tencent-provider.json 和 voice-provider.json，不进入共享设置；小牛翻译和自定义翻译服务的密钥则保存在共享设置中。普通账号功能只在登录后联网。"
-      : macosPlatform
-        ? "语音识别、候选词翻译和 AI 功能仅在用户配置并启用对应服务时联网；日常拼音输入无需联网。"
-        : harmonyPlatform
-          ? "豆包语音识别仅在用户配置并启用时联网；也可使用 HarmonyOS 系统语音识别。原始音频只在本次识别期间处理。"
-          : iosPlatform
-            ? "键盘扩展的日常拼音输入无需联网；账号、云同步、AI 和语音功能仅在用户启用时联网。"
-            : "语音识别和 AI 联想需要自行填入 API 和 token。云候选目前支持谷歌的云接口，请注意网络问题。";
-  const platformAboutDescription = androidPlatform
-    ? "为 Android 触屏输入体验打造的开放中文输入法。"
-    : linuxPlatform
-      ? "为 Linux 桌面输入体验打造的开放中文输入法。"
-      : macosPlatform
-        ? "为现代 macOS 桌面体验打造的开放中文输入法。"
-        : harmonyPlatform
-          ? mobilePlatform
-            ? "为 HarmonyOS 触屏输入体验打造的开放中文输入法。"
-            : "为 HarmonyOS 2-in-1 桌面输入体验打造的开放中文输入法。"
-          : iosPlatform
-            ? "为 iPhone 与 iPad 触屏输入体验打造的开放中文输入法。"
-            : "为现代 Windows 桌面体验打造的开放中文输入法。";
+  const {
+    helpIntro: platformHelpIntro,
+    quickStart: platformQuickStart,
+    networkDescription: platformNetworkDescription,
+    aboutDescription: platformAboutDescription,
+  } = platformCopy({
+    android: androidPlatform,
+    linux: linuxPlatform,
+    macos: macosPlatform,
+    harmony: harmonyPlatform,
+    ios: iosPlatform,
+    mobile: mobilePlatform,
+  } satisfies PlatformCopyContext);
   // Whether this host draws the shared panels as windows of its own — `panel_windows` is the
   // injected projection of `host_surface::is_desktop`.
   //
