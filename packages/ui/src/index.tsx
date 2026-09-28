@@ -394,6 +394,11 @@ export {
   ShortcutsSettingsSection,
   type ShortcutsSettingsSectionProps,
 } from "./settings/shortcuts-settings-section";
+import { FloatingToolbarSettingsSection } from "./settings/floating-toolbar-settings-section";
+export {
+  FloatingToolbarSettingsSection,
+  type FloatingToolbarSettingsSectionProps,
+} from "./settings/floating-toolbar-settings-section";
 import { availableSettingsPages } from "./settings/available-pages";
 export { availableSettingsPages, type AvailablePageCapabilities } from "./settings/available-pages";
 import * as surface from "./keyboard/panel-surface-style";
@@ -4167,61 +4172,47 @@ export function SettingsPage({
                       toolbarPreview={!linuxPlatform}
                     />
                   </fieldset>
-                  <fieldset
+                  <FloatingToolbarSettingsSection
                     disabled={busy}
                     hidden={page !== "floating-toolbar"}
-                    aria-label="悬浮工具栏"
-                  >
-                    <FloatingToolbarToggleSection
-                      preferences={floatingToolbar}
-                      skin={draft.candidate_skin ?? "willow_green"}
-                      theme={toolbarPreviewTheme}
-                      onEnabledChange={(enabled) =>
-                        setDraft({
-                          ...draft,
-                          floating_toolbar: { ...floatingToolbar, enabled },
-                        })
-                      }
-                    />
-                    {!showToolbarAppearance && <FloatingToolbarPlatformNotice />}
-                    {showToolbarAppearance && (
-                      <FloatingToolbarAppearanceSection
-                        scale={floatingToolbar.scale_percent}
-                        fontSize={floatingToolbar.font_size}
-                        onScaleChange={(scale_percent) =>
-                          setDraft({
-                            ...draft,
-                            floating_toolbar: { ...floatingToolbar, scale_percent },
-                          })
-                        }
-                        onFontSizeChange={(font_size) =>
-                          setDraft({
-                            ...draft,
-                            floating_toolbar: { ...floatingToolbar, font_size },
-                          })
-                        }
-                      />
-                    )}
-                    {showToolbarComponents && (
-                      <FloatingToolbarComponentsSection
-                        values={floatingToolbar}
-                        capabilities={
-                          host
-                            ? {
-                                floating_toolbar_handwriting: host.floating_toolbar_handwriting,
-                                floating_toolbar_voice: host.floating_toolbar_voice,
-                              }
-                            : undefined
-                        }
-                        onChange={(key, enabled) =>
-                          setDraft({
-                            ...draft,
-                            floating_toolbar: { ...floatingToolbar, [key]: enabled },
-                          })
-                        }
-                      />
-                    )}
-                  </fieldset>
+                    preferences={floatingToolbar}
+                    skin={draft.candidate_skin ?? "willow_green"}
+                    theme={toolbarPreviewTheme}
+                    onEnabledChange={(enabled) =>
+                      setDraft({
+                        ...draft,
+                        floating_toolbar: { ...floatingToolbar, enabled },
+                      })
+                    }
+                    showAppearance={showToolbarAppearance}
+                    showComponents={showToolbarComponents}
+                    capabilities={
+                      host
+                        ? {
+                            floating_toolbar_handwriting: host.floating_toolbar_handwriting,
+                            floating_toolbar_voice: host.floating_toolbar_voice,
+                          }
+                        : undefined
+                    }
+                    onScaleChange={(scale_percent) =>
+                      setDraft({
+                        ...draft,
+                        floating_toolbar: { ...floatingToolbar, scale_percent },
+                      })
+                    }
+                    onFontSizeChange={(font_size) =>
+                      setDraft({
+                        ...draft,
+                        floating_toolbar: { ...floatingToolbar, font_size },
+                      })
+                    }
+                    onComponentChange={(key, enabled) =>
+                      setDraft({
+                        ...draft,
+                        floating_toolbar: { ...floatingToolbar, [key]: enabled },
+                      })
+                    }
+                  />
                   <fieldset disabled={busy} hidden={page !== "input"} aria-label="输入">
                     {iosPlatform && (
                       <HandwritingPlatformNotice
