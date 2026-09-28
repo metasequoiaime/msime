@@ -1,5 +1,14 @@
 import type { NavigationPreferences, WordCharacterPreferences } from "./word-character-section";
 
+export const defaultNavigation: NavigationPreferences = {
+  minus_equal: true,
+  comma_period: true,
+  brackets: false,
+  tab: true,
+  page_up_down: true,
+  arrows: true,
+};
+
 const navigationOptions: [keyof NavigationPreferences, string][] = [
   ["minus_equal", "- / ="],
   ["comma_period", ", / ."],

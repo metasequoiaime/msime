@@ -275,10 +275,11 @@ import {
 } from "./settings/fuzzy-pinyin-section";
 import {
   WordCharacterSection,
+  defaultWordCharacter,
   type NavigationPreferences,
   type WordCharacterPreferences,
 } from "./settings/word-character-section";
-import { NavigationSection } from "./settings/navigation-section";
+import { NavigationSection, defaultNavigation } from "./settings/navigation-section";
 import {
   CandidateTranslationOptionsSection,
   type TranslationLanguage,
@@ -1313,24 +1314,6 @@ export interface DictionaryClient {
   retry?(request_id: string): Promise<void>;
   dismissFailure?(request_id: string): Promise<void>;
 }
-/** The user-facing name of a local dictionary, for messages about it. */
-/** Prefer the host's reason; fall back to the generic format hint. */
-/**
- * Turn a dictionary command failure into something the user can act on.
- *
- * The host distinguishes several reasons and the desktop bridge now forwards
- * them as codes. Printing one fixed "请稍后重试" for all of them told a user
- * whose IME was simply locked by another process to retry forever.
- */
-const defaultNavigation: NavigationPreferences = {
-  minus_equal: true,
-  comma_period: true,
-  brackets: false,
-  tab: true,
-  page_up_down: true,
-  arrows: true,
-};
-const defaultWordCharacter: WordCharacterPreferences = { enabled: true, keys: "brackets" };
 // The last column is the description on a host whose skin reaches only the candidate window (Linux presents the toolbar as an input method menu).
 const skinOptions: [NonNullable<Preferences["candidate_skin"]>, string, string, string][] = [
   ["fluent", "Fluent", "简洁、紧凑的默认候选窗", "简洁、紧凑的默认候选窗"],

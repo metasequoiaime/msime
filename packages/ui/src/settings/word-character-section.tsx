@@ -3,6 +3,8 @@ export type WordCharacterPreferences = {
   keys: "brackets" | "minus_equal";
 };
 
+export const defaultWordCharacter: WordCharacterPreferences = { enabled: true, keys: "brackets" };
+
 export type NavigationPreferences = {
   minus_equal: boolean;
   comma_period: boolean;
