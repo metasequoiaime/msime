@@ -78,7 +78,7 @@ import {
   defaultNiuTrans,
   defaultTencentTranslation,
 } from "./settings/translation-defaults";
-import { aiPolishTestPrompt, defaultAiAssistant } from "./settings/ai-assistant-defaults";
+import { defaultAiAssistant } from "./settings/ai-assistant-defaults";
 import {
   mobileTranslationLanguages,
   translationLanguages,
@@ -249,7 +249,6 @@ export {
   translationEndpointIssue,
 } from "./settings/translation-validation";
 import {
-  aiCredentialOrigin,
   providerCredentialErrorMessage,
   tencentSecretConfigured,
 } from "./settings/credential-utils";
@@ -260,6 +259,8 @@ export {
 } from "./settings/credential-utils";
 import { AiTestToolsSection } from "./settings/ai-test-tools-section";
 import { AiSettingsPageSection } from "./settings/ai-settings-page-section";
+import { useAiAssistant } from "./settings/use-ai-assistant";
+export { useAiAssistant, type UseAiAssistantOptions } from "./settings/use-ai-assistant";
 import { NiuTransSection } from "./settings/niutrans-section";
 import { CustomTranslationSection } from "./settings/custom-translation-section";
 import { CustomTranslationsSection } from "./settings/custom-translations-section";
@@ -1941,14 +1942,6 @@ export function SettingsPage({
     onPointerUp: endTouchGeometryDrag,
     onPointerCancel: cancelTouchGeometryDrag,
   } = useTouchKeyboardGeometryDrag(draft, setDraft);
-  const [aiModels, setAiModels] = useState<string[] | null>(null);
-  const [aiModelsStatus, setAiModelsStatus] = useState("");
-  const [aiModelsBusy, setAiModelsBusy] = useState(false);
-  const [aiTestInput, setAiTestInput] = useState("");
-  const [aiTestOutput, setAiTestOutput] = useState("");
-  const [aiTestStatus, setAiTestStatus] = useState("");
-  const [aiTestBusy, setAiTestBusy] = useState(false);
-  const aiRequestGeneration = useRef(0);
   const {
     providerCredentials,
     aiCredentialInput,
@@ -2554,110 +2547,38 @@ export function SettingsPage({
     (macosWubiAutoCommitUnique !== undefined &&
       macosWubiAutoCommitUnique !== savedMacosWubiAutoCommitUnique);
   const ai = draft?.ai_assistant ?? defaultAiAssistant;
-  const aiOrigin = aiCredentialOrigin(ai.endpoint);
-  const aiToken = aiOrigin ? (ai.tokens?.[aiOrigin] ?? "") : "";
+  const {
+    origin: aiOrigin,
+    token: aiToken,
+    models: aiModels,
+    modelsStatus: aiModelsStatus,
+    modelsBusy: aiModelsBusy,
+    testInput: aiTestInput,
+    setTestInput: setAiTestInput,
+    testOutput: aiTestOutput,
+    testStatus: aiTestStatus,
+    testBusy: aiTestBusy,
+    updateAi,
+    updateToken: updateAiToken,
+    fetchModels: fetchAiModels,
+    test: testAi,
+  } = useAiAssistant({
+    client: client.aiAssistant,
+    ai,
+    providerCredentialAvailable: aiProviderCredentials,
+    onChange: (patch) =>
+      setDraft((current) =>
+        current
+          ? {
+              ...current,
+              ai_assistant: { ...(current.ai_assistant ?? defaultAiAssistant), ...patch },
+            }
+          : current,
+      ),
+  });
   const storedAiCredential = providerCredentials?.ai.find(
     (entry) => entry.provider === ai.provider,
   );
-  const updateAi = (patch: Partial<AiAssistantPreferences>) => {
-    aiRequestGeneration.current += 1;
-    setAiModelsBusy(false);
-    setAiTestBusy(false);
-    setAiTestOutput("");
-    setAiTestStatus("");
-    if (patch.provider !== undefined || patch.endpoint !== undefined) {
-      setAiModels(null);
-      setAiModelsStatus("");
-    }
-    // Merged into the current draft, not this render's: fetchAiModels applies its result after an
-    // await, and a render-time copy would revert whatever was typed meanwhile.
-    setDraft((current) =>
-      current
-        ? {
-            ...current,
-            ai_assistant: { ...(current.ai_assistant ?? defaultAiAssistant), ...patch },
-          }
-        : current,
-    );
-  };
-  const updateAiToken = (value: string) => {
-    aiRequestGeneration.current += 1;
-    setAiModelsBusy(false);
-    setAiTestBusy(false);
-    setAiTestOutput("");
-    setAiTestStatus("");
-    if (aiOrigin) updateAi({ token: "", tokens: { ...ai.tokens, [aiOrigin]: value } });
-  };
-  const fetchAiModels = async () => {
-    if (!client.aiAssistant) return;
-    if (!aiOrigin) {
-      setAiModelsStatus("请先填写完整的 HTTPS 接口地址。");
-      return;
-    }
-    if (!aiProviderCredentials && !aiToken.trim()) {
-      setAiModelsStatus("请先填写 API Token，或使用已保存的密钥。");
-      return;
-    }
-    const generation = aiRequestGeneration.current;
-    setAiModelsBusy(true);
-    setAiModelsStatus("");
-    try {
-      const models = await client.aiAssistant.fetchModels({
-        endpoint: ai.endpoint,
-        token: aiToken,
-        provider: ai.provider,
-      });
-      if (generation !== aiRequestGeneration.current) return;
-      setAiModels(models);
-      setAiModelsStatus(`已获取 ${models.length} 个可用模型。`);
-      if (models.length && !models.includes(ai.model)) updateAi({ model: models[0] });
-    } catch (cause) {
-      setAiModelsStatus(
-        cause instanceof Error ? cause.message : "获取模型失败，请检查地址、密钥和网络。",
-      );
-    } finally {
-      if (generation === aiRequestGeneration.current) setAiModelsBusy(false);
-    }
-  };
-  const testAi = async () => {
-    if (!client.aiAssistant) return;
-    const text = aiTestInput;
-    if (!text.trim()) {
-      setAiTestStatus("请先输入待润色文字。");
-      return;
-    }
-    if (!aiOrigin || (!aiProviderCredentials && !aiToken.trim())) {
-      setAiTestStatus(
-        aiProviderCredentials
-          ? "请先填写有效的 HTTPS 接口地址。"
-          : "请先填写有效的 HTTPS 接口地址和 API Token。",
-      );
-      return;
-    }
-    const generation = ++aiRequestGeneration.current;
-    setAiTestBusy(true);
-    setAiTestStatus("");
-    setAiTestOutput("");
-    try {
-      const result = await client.aiAssistant.test({
-        endpoint: ai.endpoint,
-        model: ai.model,
-        provider: ai.provider,
-        prompt: aiPolishTestPrompt,
-        token: aiToken,
-        text,
-      });
-      if (generation !== aiRequestGeneration.current) return;
-      setAiTestOutput(result);
-      setAiTestStatus("已完成");
-    } catch (cause) {
-      setAiTestStatus(
-        cause instanceof Error ? cause.message : "AI 请求失败，请检查地址、模型、密钥和网络。",
-      );
-    } finally {
-      if (generation === aiRequestGeneration.current) setAiTestBusy(false);
-    }
-  };
   const wordCharacter = draft?.word_character ?? defaultWordCharacter;
   const keybindings = draft?.keybindings ?? defaultKeybindings;
   const frequency = draft?.frequency ?? defaultFrequency;
