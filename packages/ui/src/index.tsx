@@ -66,6 +66,7 @@ import { VoiceStreamPreeditSection } from "./settings/voice-stream-preedit-secti
 import { VoiceCommitModeSection, type VoiceCommitMode } from "./settings/voice-commit-mode-section";
 import { VoiceCaptureDevicesSection } from "./settings/voice-capture-devices-section";
 import { VoiceHotkeysSection } from "./settings/voice-hotkeys-section";
+import { FloatingToolbarAppearanceSection } from "./settings/floating-toolbar-appearance-section";
 import { DoubaoAuthModeSection } from "./settings/doubao-auth-mode-section";
 import { DoubaoStreamEndpointSection } from "./settings/doubao-stream-endpoint-section";
 import { DoubaoOptionsSection } from "./settings/doubao-options-section";
@@ -495,6 +496,12 @@ export {
   type VoiceHotkeyKey,
   type VoiceHotkeyPlatform,
 } from "./settings/voice-hotkeys-section";
+export {
+  FloatingToolbarAppearanceSection,
+  type FloatingToolbarAppearanceSectionProps,
+  type FloatingToolbarFontSize,
+  type FloatingToolbarScale,
+} from "./settings/floating-toolbar-appearance-section";
 export {
   DoubaoAuthModeSection,
   type DoubaoAuthMode,
@@ -1826,10 +1833,6 @@ const floatingToolbarOptions: [
   ["screen_keyboard", "屏幕键盘", null],
   ["voice", "语音输入", "floating_toolbar_voice"],
   ["settings", "设置", null],
-];
-const floatingToolbarScales: FloatingToolbarPreferences["scale_percent"][] = [75, 100, 125, 150];
-const floatingToolbarFontSizes: FloatingToolbarPreferences["font_size"][] = [
-  16, 18, 20, 22, 24, 26, 28,
 ];
 /** What the macOS settings app did with the input method it carries when it started. */
 export type InputSourceStartupStatus = {
@@ -5247,61 +5250,22 @@ export function SettingsPage({
                       </div>
                     )}
                     {showToolbarAppearance && (
-                      <div className={`section ${settings.toolbarAppearanceHeader}`}>
-                        <label className="section-header">
-                          <span className="section-title">
-                            工具栏缩放<small>相对系统 DPI 的额外缩放，不改变系统显示缩放</small>
-                          </span>
-                          <select
-                            aria-label="工具栏缩放"
-                            value={floatingToolbar.scale_percent}
-                            onChange={(event) =>
-                              setDraft({
-                                ...draft,
-                                floating_toolbar: {
-                                  ...floatingToolbar,
-                                  scale_percent: Number(
-                                    event.target.value,
-                                  ) as FloatingToolbarPreferences["scale_percent"],
-                                },
-                              })
-                            }
-                          >
-                            {floatingToolbarScales.map((value) => (
-                              <option key={value} value={value}>
-                                {value}%
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <div className="input-option-divider" />
-                        <label className="section-header">
-                          <span className="section-title">
-                            图标尺寸<small>图标基准大小（像素），再乘以上方缩放</small>
-                          </span>
-                          <select
-                            aria-label="图标尺寸"
-                            value={floatingToolbar.font_size}
-                            onChange={(event) =>
-                              setDraft({
-                                ...draft,
-                                floating_toolbar: {
-                                  ...floatingToolbar,
-                                  font_size: Number(
-                                    event.target.value,
-                                  ) as FloatingToolbarPreferences["font_size"],
-                                },
-                              })
-                            }
-                          >
-                            {floatingToolbarFontSizes.map((value) => (
-                              <option key={value} value={value}>
-                                {value}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                      </div>
+                      <FloatingToolbarAppearanceSection
+                        scale={floatingToolbar.scale_percent}
+                        fontSize={floatingToolbar.font_size}
+                        onScaleChange={(scale_percent) =>
+                          setDraft({
+                            ...draft,
+                            floating_toolbar: { ...floatingToolbar, scale_percent },
+                          })
+                        }
+                        onFontSizeChange={(font_size) =>
+                          setDraft({
+                            ...draft,
+                            floating_toolbar: { ...floatingToolbar, font_size },
+                          })
+                        }
+                      />
                     )}
                     {showToolbarComponents && (
                       <div className={`section ${settings.toolbarComponents}`}>
