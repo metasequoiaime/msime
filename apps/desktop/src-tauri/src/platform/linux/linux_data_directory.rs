@@ -18,6 +18,7 @@ use std::time::Duration;
 
 pub(crate) const DATA_DIRECTORY_MARKER: &str = ".metasequoiaime-data";
 const OPTIONS_FILE: &str = "runtime-options.json";
+const MAX_OPTIONS_BYTES: u64 = 1024 * 1024;
 /// Files that belong to the fixed configuration directory rather than to the movable state: the locator and the provider credentials the systemd services read from `$XDG_CONFIG_HOME/msime-client`.
 const PINNED_FILES: [&str; 4] = [
     OPTIONS_FILE,
@@ -166,7 +167,13 @@ fn rebased_locator(
     written_source: &Path,
     target: &Path,
 ) -> Result<(LocatorBackup, Vec<u8>), MoveError> {
-    let contents = fs::read(path).map_err(|_| MoveError::Publish)?;
+    let file = fs::File::open(path).map_err(|_| MoveError::Publish)?;
+    let mut contents = Vec::new();
+    std::io::Read::read_to_end(&mut file.take(MAX_OPTIONS_BYTES + 1), &mut contents)
+        .map_err(|_| MoveError::Publish)?;
+    if contents.len() as u64 > MAX_OPTIONS_BYTES {
+        return Err(MoveError::Publish);
+    }
     let mut document: Value = serde_json::from_slice(&contents).map_err(|_| MoveError::Publish)?;
     if !document.is_object() {
         return Err(MoveError::Publish);
@@ -1067,6 +1074,27 @@ mod tests {
         );
         assert!(fs::read_dir(&layout.target).unwrap().next().is_none());
         assert!(layout.default.join("preferences.json").is_file());
+    }
+
+    #[test]
+    fn oversized_locator_aborts_before_any_state_is_copied() {
+        let layout = setup();
+        fs::write(
+            &layout.locator,
+            vec![b'x'; (MAX_OPTIONS_BYTES + 1) as usize],
+        )
+        .unwrap();
+        assert_eq!(
+            relocate_state(
+                &layout.default,
+                &layout.default,
+                &layout.target,
+                &layout.default,
+                std::slice::from_ref(&layout.locator),
+            ),
+            Err(MoveError::Publish)
+        );
+        assert!(fs::read_dir(&layout.target).unwrap().next().is_none());
     }
 
     #[test]
