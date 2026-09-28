@@ -45,6 +45,7 @@ import { InputModeSection } from "./settings/input-mode-section";
 import { InputModeShortcutsSection } from "./settings/input-mode-shortcuts-section";
 import { PanelShortcutsSection } from "./settings/panel-shortcuts-section";
 import { CandidateShortcutsSection } from "./settings/candidate-shortcuts-section";
+import { MaintenanceShortcutsSection } from "./settings/maintenance-shortcuts-section";
 import { PreeditSettingsSection } from "./settings/preedit-settings-section";
 import { validCandidateFonts } from "./candidate/candidate-font-family";
 import type { FontCatalogReader } from "./candidate/font-catalog";
@@ -341,6 +342,10 @@ export {
   CandidateShortcutsSection,
   type CandidateShortcutsSectionProps,
 } from "./settings/candidate-shortcuts-section";
+export {
+  MaintenanceShortcutsSection,
+  type MaintenanceShortcutsSectionProps,
+} from "./settings/maintenance-shortcuts-section";
 export {
   PreeditSettingsSection,
   type CandidatePreeditStyle,
@@ -6874,75 +6879,12 @@ export function SettingsPage({
                         setDraft({ ...draft, number_row_selection })
                       }
                     />
-                    {showDesktopMaintenanceShortcuts && (
-                      <div className={`section ${settings.shortcutSectionTitle}`}>
-                        <div className="section-title">
-                          {macosPlatform ? "输入上下文维护快捷键" : "全局维护快捷键"}
-                        </div>
-                        <small>
-                          {macosPlatform
-                            ? "仅在水杉输入法当前输入上下文生效；Option 对应 Windows 基线中的 Alt。"
-                            : linuxPlatform
-                              ? "在当前 IBus 或 Fcitx5 输入上下文中维护候选与重启服务"
-                              : "程序运行时全局生效；用于维护与调试"}
-                        </small>
-                        <div className={settings.shortcutList}>
-                          <div className={settings.shortcutRow}>
-                            <span>删除当前候选窗口中的第 1–8 项</span>
-                            <kbd>{maintenanceChord}+1–8</kbd>
-                          </div>
-                          {linuxPlatform && (
-                            <>
-                              <div className={settings.shortcutRow}>
-                                <span>清除当前输入法会话的 Engine 缓存</span>
-                                <kbd>Ctrl+Shift+Alt+C</kbd>
-                              </div>
-                              <div className={settings.shortcutRow}>
-                                <span>
-                                  重启或重载输入法（IBus 执行 ibus restart，Fcitx5
-                                  重置水杉插件，不影响其他输入法）
-                                </span>
-                                <kbd>Ctrl+Shift+Alt+R</kbd>
-                              </div>
-                              <div
-                                className={`${settings.shortcutRow} ${settings.shortcutRowDanger}`}
-                              >
-                                <span>
-                                  立即退出 IBus 宿主进程（Fcitx5 下与 Fcitx5 同进程，不提供）
-                                </span>
-                                <kbd>Ctrl+Shift+Alt+T</kbd>
-                              </div>
-                            </>
-                          )}
-                          {!linuxPlatform && (
-                            <>
-                              <div className={settings.shortcutRow}>
-                                <span>
-                                  {macosPlatform
-                                    ? "清除当前输入法会话的 Engine 缓存"
-                                    : "清除输入法引擎缓存"}
-                                </span>
-                                <kbd>{maintenanceChord}+C</kbd>
-                              </div>
-                              <div className={settings.shortcutRow}>
-                                <span>
-                                  {macosPlatform ? "重新注册并重启当前输入法" : "重启输入法服务"}
-                                </span>
-                                <kbd>{maintenanceChord}+R</kbd>
-                              </div>
-                              <div
-                                className={`${settings.shortcutRow} ${settings.shortcutRowDanger}`}
-                              >
-                                <span>
-                                  {macosPlatform ? "立即退出当前输入法进程" : "立即退出输入法服务"}
-                                </span>
-                                <kbd>{maintenanceChord}+T</kbd>
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    )}
+                    <MaintenanceShortcutsSection
+                      visible={showDesktopMaintenanceShortcuts}
+                      macos={macosPlatform}
+                      linux={linuxPlatform}
+                      maintenanceChord={maintenanceChord}
+                    />
                     {showRestartInputMethod && (
                       <div className={`section ${settings.shortcutSectionTitle}`}>
                         <div className="section-title">输入法服务</div>
