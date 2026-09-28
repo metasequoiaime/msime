@@ -2858,7 +2858,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   private moveTranslationHighlight(delta: number): boolean {
     const translations: string[] | null = this.translationPage;
     if (translations === null) return false;
-    this.translationHighlight = Math.max(0, Math.min(translations.length - 1, this.translationHighlight + delta));
+    this.translationHighlight = KeyboardGeometry.bounded(
+      this.translationHighlight + delta, 0, translations.length - 1);
     this.publishTranslationPage();
     return true;
   }

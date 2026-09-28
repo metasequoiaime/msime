@@ -1,4 +1,5 @@
 import { KeyboardSkin } from './skin/KeyboardSkin';
+import { KeyboardGeometry } from './KeyboardGeometry';
 
 /** The subset of a toolbar stylesheet that ArkUI can render without executing CSS. */
 export interface ToolbarSkin {
@@ -57,7 +58,7 @@ function radius(value: string): number | null {
   const match: RegExpMatchArray | null = candidate.match(/^(\d+(?:\.\d+)?)px$/i);
   if (match === null) return null;
   const parsed: number = Number(match[1]);
-  return Number.isFinite(parsed) ? Math.max(0, Math.min(32, parsed)) : null;
+  return Number.isFinite(parsed) ? KeyboardGeometry.bounded(parsed, 0, 32) : null;
 }
 
 function declarationColor(value: string): string | null {
@@ -96,7 +97,7 @@ export class ToolbarSkinPolicy {
       settingsColor: skin.keyForeground,
       fontFamily: DEFAULT_FONT_FAMILY,
       englishFontFamily: DEFAULT_ENGLISH_FONT_FAMILY,
-      cornerRadiusVp: Math.max(0, Math.min(32, skin.cornerRadius))
+      cornerRadiusVp: KeyboardGeometry.bounded(skin.cornerRadius, 0, 32)
     };
   }
 

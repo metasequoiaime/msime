@@ -1,3 +1,5 @@
+import { KeyboardGeometry } from '../KeyboardGeometry';
+
 /** The independent symbol keyboard, separate from the Unicode emoji catalog. */
 export interface SymbolPanelCategory {
   readonly id: string;
@@ -257,7 +259,7 @@ export class SymbolPanelPolicy {
   static category(index: number): SymbolPanelCategory {
     const categories: SymbolPanelCategory[] = SymbolPanelPolicy.categories();
     const safeIndex: number = Number.isFinite(index)
-      ? Math.max(0, Math.min(Math.floor(index), categories.length - 1))
+      ? KeyboardGeometry.bounded(Math.floor(index), 0, categories.length - 1)
       : 0;
     return categories[safeIndex];
   }

@@ -1,3 +1,5 @@
+import { KeyboardGeometry } from '../KeyboardGeometry';
+
 /**
  * Where the caret sits in the composition being spelled.
  *
@@ -32,7 +34,7 @@ export class PreeditCaretPolicy {
     if (!Number.isFinite(caret)) {
       return { before: text, after: "" };
     }
-    const position: number = Math.max(0, Math.min(Math.trunc(caret), text.length));
+    const position: number = KeyboardGeometry.bounded(Math.trunc(caret), 0, text.length);
     return { before: text.substring(0, position), after: text.substring(position) };
   }
 
