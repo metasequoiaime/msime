@@ -1002,9 +1002,7 @@ pub(crate) async fn send_panel_text(
 ) -> Result<(), HostActionError> {
     if text.is_empty()
         || text.len() > 4096
-        || text
-            .chars()
-            .any(|character| character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
+        || msime_client_core::has_disallowed_control_with_options(&text, true)
     {
         return Err(HostActionError {
             code: "invalid_text",

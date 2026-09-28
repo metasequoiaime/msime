@@ -212,7 +212,7 @@ pub(crate) async fn recognize_voice(
         || !msime_client_core::is_ascii_alphanumeric_dash(&request.request_id)
         || request.language.is_empty()
         || request.language.len() > 64
-        || request.language.chars().any(char::is_control)
+        || msime_client_core::has_disallowed_control_with_options(&request.language, false)
     {
         return Err(HostActionError {
             code: "invalid_voice",

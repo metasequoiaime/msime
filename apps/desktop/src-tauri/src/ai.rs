@@ -58,10 +58,7 @@ pub(crate) fn validate_ai_token(token: &str) -> Result<(), CommandError> {
 pub(crate) fn ai_text_is_valid(value: &str, allow_empty: bool) -> bool {
     (allow_empty || !value.is_empty())
         && value.len() <= 16 * 1024
-        && !value.chars().any(|character| {
-            character == '\0'
-                || (character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
-        })
+        && !msime_client_core::has_disallowed_control_with_options(value, true)
 }
 
 /// The listing sits next to the chat endpoint, whatever its version prefix

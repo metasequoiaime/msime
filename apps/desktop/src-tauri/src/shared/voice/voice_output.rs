@@ -21,9 +21,7 @@ pub fn submit(
 ) -> Result<(), OutputError> {
     if text.is_empty()
         || text.len() > 4096
-        || text
-            .chars()
-            .any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t'))
+        || msime_client_core::has_disallowed_control_with_options(text, true)
     {
         return Err(OutputError::InvalidText);
     }
