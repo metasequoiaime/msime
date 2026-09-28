@@ -3,7 +3,7 @@
 //! Part of the C ABI; see the parent module for what these shims guarantee.
 
 use crate::*;
-use msime_client_core::{is_bounded_chars, is_bounded_text, is_bounded_text_with_chars};
+use msime_client_core::is_bounded_text;
 
 /// Plan eligible visible candidates using shared script filters. No I/O.
 /// # Safety
@@ -47,7 +47,7 @@ pub unsafe extern "C" fn msime_client_custom_translation_plan(
         for candidate in request.candidates {
             // Engine CandidateSource::Emoji / Kaomoji, and unknown sources.
             if matches!(candidate.source, 6 | 7 | 10..=255)
-                || !is_bounded_chars(&candidate.text, 40)
+                || !msime_client_core::translation::is_valid_source_text(&candidate.text)
             {
                 continue;
             }
@@ -274,7 +274,8 @@ pub unsafe extern "C" fn msime_client_custom_translation_http_request(
         if !msime_client_core::translation::is_supported_endpoint(&config.endpoint)
             || !is_bounded_text(&config.api_key, 4096)
             || text.is_empty()
-            || !is_bounded_text_with_chars(&text, 160, 40)
+            || !is_bounded_text(&text, 160)
+            || !msime_client_core::translation::is_valid_source_text(&text)
             || !valid_language(&source_language)
             || !valid_language(&target_language)
         {
@@ -419,7 +420,7 @@ pub unsafe extern "C" fn msime_client_translation_gloss_save(
             };
             for item in request.translations {
                 let english = is_cloud_translatable_english(&item.text);
-                if !is_bounded_chars(&item.text, 40)
+                if !msime_client_core::translation::is_valid_source_text(&item.text)
                     || (!english && !is_cloud_translatable_chinese(&item.text))
                 {
                     continue;

@@ -11,7 +11,7 @@ use serde_json::Value;
 use sha2::Digest;
 use sha2::Sha256;
 
-const MAX_SOURCE_CHARS: usize = 40;
+pub const MAX_SOURCE_CHARS: usize = 40;
 const MAX_PERSIST_GLOSS_CHARS: usize = 32;
 
 /// Tencent TC3 signing primitive. The caller owns credential lifetime.
@@ -88,9 +88,7 @@ pub fn tencent_tmt_payload(source: &str, target: &str, texts: &[String]) -> Opti
         || target.is_empty()
         || texts.is_empty()
         || texts.len() > 50
-        || texts
-            .iter()
-            .any(|text| text.is_empty() || !crate::text::is_bounded_chars(text, MAX_SOURCE_CHARS))
+        || texts.iter().any(|text| !is_valid_source_text(text))
     {
         return None;
     }
@@ -117,6 +115,11 @@ pub fn parse_tencent_tmt_response(response: &str, expected: usize) -> Option<Vec
             .map(|value| value.as_str().unwrap().to_owned())
             .collect(),
     )
+}
+
+/// Source text accepted by every cloud translation provider.
+pub fn is_valid_source_text(value: &str) -> bool {
+    !value.is_empty() && crate::text::is_bounded_chars(value, MAX_SOURCE_CHARS)
 }
 
 pub fn format_translation_gloss(text: &str) -> Option<String> {

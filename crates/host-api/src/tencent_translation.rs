@@ -48,7 +48,7 @@ pub fn descriptor(bytes: &[u8]) -> Result<Value, &'static str> {
         || request
             .texts
             .iter()
-            .any(|text| text.is_empty() || text.chars().count() > 40)
+            .any(|text| !translation::is_valid_source_text(text))
         || request.timestamp < 0
     {
         return Err("invalid Tencent parameters");

@@ -1,7 +1,7 @@
 //! Pure descriptors and response parsing for the host-owned NiuTrans v2 API.
 use msime_client_core::cloud::dictionary::percent_encode;
+use msime_client_core::is_bounded_text;
 use msime_client_core::translation;
-use msime_client_core::{is_bounded_chars, is_bounded_text};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -40,8 +40,7 @@ pub fn descriptor(bytes: &[u8]) -> Result<Value, &'static str> {
     let target = request.target_language.as_str();
     if !valid_credential(app_id)
         || !valid_credential(apikey)
-        || request.text.is_empty()
-        || !is_bounded_chars(&request.text, 40)
+        || !translation::is_valid_source_text(&request.text)
         || request.timestamp.is_empty()
         || request.timestamp.len() > 20
         || !msime_client_core::is_ascii_digits(&request.timestamp)

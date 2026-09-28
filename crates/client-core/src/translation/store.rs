@@ -5,7 +5,7 @@
 
 use crate::translation::{
     format_translation_gloss, is_cloud_translatable_chinese, is_cloud_translatable_english,
-    should_persist_translation,
+    is_valid_source_text, should_persist_translation,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -24,7 +24,7 @@ pub enum GlossDirection {
 
 impl GlossDirection {
     fn key(self, text: &str) -> Option<String> {
-        if !crate::text::is_bounded_chars(text, 40) {
+        if !is_valid_source_text(text) {
             return None;
         }
         match self {
