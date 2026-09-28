@@ -3,7 +3,7 @@
 //! Part of the C ABI; see the parent module for what these shims guarantee.
 
 use crate::*;
-use msime_client_core::is_bounded_text;
+use msime_client_core::{is_bounded_text, is_bounded_text_with_chars};
 
 /// Plan eligible visible candidates using shared script filters. No I/O.
 /// # Safety
@@ -272,8 +272,7 @@ pub unsafe extern "C" fn msime_client_custom_translation_http_request(
         if !msime_client_core::translation::is_supported_endpoint(&config.endpoint)
             || !is_bounded_text(&config.api_key, 4096)
             || text.is_empty()
-            || !is_bounded_text(&text, 160)
-            || text.chars().count() > 40
+            || !is_bounded_text_with_chars(&text, 160, 40)
             || !valid_language(&source_language)
             || !valid_language(&target_language)
         {

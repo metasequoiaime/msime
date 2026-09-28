@@ -1,5 +1,4 @@
 //! Bounded worker-thread operations on the private learned-gloss store.
-use msime_client_core::is_bounded_text;
 use msime_client_core::translation::store::{
     GlossDirection, GlossStoreError, TranslationGlossStore,
 };
@@ -7,6 +6,7 @@ use msime_client_core::translation::{
     format_translation_gloss, is_cloud_translatable_chinese, is_cloud_translatable_english,
     should_persist_translation,
 };
+use msime_client_core::{is_bounded_text, is_bounded_text_with_chars};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::path::Path;
@@ -47,8 +47,7 @@ pub fn execute(bytes: &[u8]) -> Result<Value, &'static str> {
         || request.items.len() > 9
         || request.items.iter().any(|item| {
             item.text.is_empty()
-                || !is_bounded_text(&item.text, 160)
-                || item.text.chars().count() > 40
+                || !is_bounded_text_with_chars(&item.text, 160, 40)
                 || match request.action {
                     Action::Lookup => item.translation.is_some(),
                     Action::Remember => item.translation.as_ref().is_none_or(|s| s.len() > 4096),

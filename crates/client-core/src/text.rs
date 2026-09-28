@@ -33,6 +33,15 @@ pub fn is_bounded_text(value: &str, maximum_bytes: usize) -> bool {
     value.len() <= maximum_bytes && !value.chars().any(char::is_control)
 }
 
+/// Whether `value` fits both byte and Unicode scalar bounds and contains no controls.
+pub fn is_bounded_text_with_chars(
+    value: &str,
+    maximum_bytes: usize,
+    maximum_characters: usize,
+) -> bool {
+    is_bounded_text(value, maximum_bytes) && value.chars().count() <= maximum_characters
+}
+
 /// Whether `value` fits a UTF-16 code-unit bound.
 pub fn is_bounded_utf16(value: &str, maximum_units: usize) -> bool {
     value.encode_utf16().count() <= maximum_units
