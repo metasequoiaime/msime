@@ -57,6 +57,23 @@ fn dictionary_code_is_well_formed(kind: DictionaryKind, code: &str) -> bool {
     }
 }
 
+fn validate_dictionary_fields(
+    kind: DictionaryKind,
+    code: &str,
+    word: &str,
+) -> Result<(), AccountError> {
+    if !dictionary_code_is_well_formed(kind, code)
+        || code.is_empty()
+        || !crate::text::is_bounded_text(code, 256)
+        || word.is_empty()
+        || !crate::text::is_bounded_text(word, 1024)
+    {
+        Err(AccountError::Invalid)
+    } else {
+        Ok(())
+    }
+}
+
 pub(super) fn validate_dictionary_catalog_query(
     code: &str,
     offset: usize,
@@ -98,16 +115,7 @@ pub(super) fn validate_dictionary_catalog_identity(
     code: &str,
     word: &str,
 ) -> Result<(), AccountError> {
-    if !dictionary_code_is_well_formed(kind, code)
-        || code.is_empty()
-        || !crate::text::is_bounded_text(code, 256)
-        || word.is_empty()
-        || !crate::text::is_bounded_text(word, 1024)
-    {
-        Err(AccountError::Invalid)
-    } else {
-        Ok(())
-    }
+    validate_dictionary_fields(kind, code, word)
 }
 
 pub(super) fn validate_dictionary_catalog_entry(
@@ -265,25 +273,17 @@ pub(super) fn validate_dictionary_value(
     word: &str,
     weight: i64,
 ) -> Result<(), AccountError> {
-    // Keep writes and inbound responses on the same shared contract. The cloud
-    // module owns the common bounds/control-character checks; this layer adds
-    // only the per-dictionary syntax and legacy inbound compatibility rules.
-    crate::cloud::dictionary::validate_value(&crate::cloud::dictionary::DictionaryValue {
-        code: code.to_owned(),
-        word: word.to_owned(),
-        weight,
-    })
-    .map_err(|_| AccountError::Invalid)?;
+    // Keep writes and inbound responses on the same shared contract. The
+    // shared field check runs first; this layer adds only the per-dictionary
+    // syntax and legacy inbound compatibility rules.
+    validate_dictionary_fields(kind, code, word)?;
     let code_limit = match kind {
         DictionaryKind::Pinyin => 256,
         DictionaryKind::Wubi => 4,
         DictionaryKind::Quick => 32,
         DictionaryKind::English => 64,
     };
-    if !dictionary_code_is_well_formed(kind, code)
-        || code.is_empty()
-        || code.len() > code_limit
-        || word.is_empty()
+    if code.len() > code_limit
         || weight < 0
         || (kind == DictionaryKind::Quick
             && !crate::is_bounded_utf16(word, crate::dictionary::import::MAX_QUICK_PHRASE_UTF16))
