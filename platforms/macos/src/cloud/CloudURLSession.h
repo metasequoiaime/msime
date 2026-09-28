@@ -2,5 +2,8 @@
 
 #import <Foundation/Foundation.h>
 
-/// A session for requests that may carry account credentials or private text.
-FOUNDATION_EXPORT NSURLSession *MSIMECloudURLSession(void);
+typedef void (^MSIMECloudDataCompletion)(NSData *data, NSURLResponse *response, NSError *error);
+
+/// Starts a credential-bearing cloud request with a hard response-body bound.
+FOUNDATION_EXPORT void MSIMEStartCloudDataTask(NSURLRequest *request, NSUInteger maximumBytes,
+                                                MSIMECloudDataCompletion completion);
