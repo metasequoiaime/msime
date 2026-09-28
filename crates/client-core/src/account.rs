@@ -40,11 +40,11 @@ pub(crate) fn valid_model_catalog<'a>(
     !ids.is_empty()
         && ids.len() <= maximum_models
         && !default_model.is_empty()
-        && default_model.len() <= maximum_id_bytes
+        && crate::text::is_bounded_text(default_model, maximum_id_bytes)
         && ids.iter().any(|id| *id == default_model)
-        && ids.iter().all(|id| {
-            !id.is_empty() && id.len() <= maximum_id_bytes && !id.chars().any(char::is_control)
-        })
+        && ids
+            .iter()
+            .all(|id| !id.is_empty() && crate::text::is_bounded_text(id, maximum_id_bytes))
         && ids.iter().collect::<std::collections::HashSet<_>>().len() == ids.len()
 }
 
