@@ -5,6 +5,7 @@ import android.util.AtomicFile;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.io.ByteArrayOutputStream;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.charset.StandardCharsets;
@@ -75,7 +76,7 @@ public final class Bootstrap {
             String stamp = Long.toString(context.getPackageManager()
                 .getPackageInfo(context.getPackageName(), 0).lastUpdateTime);
             File marker = new File(destination, ".package");
-            if (marker.isFile() && stamp.equals(new String(Files.readAllBytes(marker.toPath()), StandardCharsets.UTF_8))) return;
+            if (marker.isFile() && stamp.equals(readMarker(marker.toPath()))) return;
             File staging = new File(destination.getParentFile(), "offline-glosses.staging");
             deleteTree(staging);
             Files.createDirectories(staging.toPath());
@@ -92,6 +93,21 @@ public final class Bootstrap {
         } catch (Exception error) {
             // Bootstrap has no editor or session input; never use this logging for keystrokes.
             android.util.Log.w("MSIMEBootstrap", "Offline gloss extraction failed", error);
+        }
+    }
+
+    static String readMarker(java.nio.file.Path file) {
+        try (InputStream input = Files.newInputStream(file)) {
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream(64);
+            byte[] buffer = new byte[64];
+            int count;
+            while ((count = input.read(buffer)) != -1) {
+                if (bytes.size() > 64 - count) return null;
+                bytes.write(buffer, 0, count);
+            }
+            return bytes.toString(StandardCharsets.UTF_8.name());
+        } catch (Exception ignored) {
+            return null;
         }
     }
 
