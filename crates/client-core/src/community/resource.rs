@@ -4,8 +4,8 @@
 use crate::account::{
     AccountApi, AccountError, AccountSessionStorage, BackendAccountClient, BackendAccountSession,
 };
-use crate::cloud::dictionary::DictionaryKind;
-use crate::community::{encode_query, valid_query, valid_text};
+use crate::cloud::dictionary::{percent_encode, DictionaryKind};
+use crate::community::{valid_query, valid_text};
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -159,7 +159,7 @@ impl CommunityResourceApi for BackendAccountClient {
             "/v1/community/resources?kind={}&scope={}&q={}&offset={offset}",
             kind_name(kind),
             scope.query(),
-            encode_query(search)
+            percent_encode(search)
         );
         let page = self.json_with_limit::<CommunityResourcePage, ()>(
             Method::GET,
@@ -623,7 +623,7 @@ mod tests {
 
     #[test]
     fn resource_query_preserves_utf8_and_scope() {
-        assert_eq!(encode_query("C++ 词"), "C%2B%2B%20%E8%AF%8D");
+        assert_eq!(percent_encode("C++ 词"), "C%2B%2B%20%E8%AF%8D");
         assert!(validate_query(0, "词", CommunityResourceScope::All, None).is_ok());
         assert!(validate_query(0, "词", CommunityResourceScope::Mine, None).is_err());
     }

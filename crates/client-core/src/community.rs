@@ -19,18 +19,5 @@ pub(crate) fn valid_query(offset: usize, search: &str) -> bool {
     offset <= MAXIMUM_OFFSET && crate::text::is_bounded_chars(search, MAXIMUM_SEARCH_CHARACTERS)
 }
 
-pub(crate) fn encode_query(value: &str) -> String {
-    let mut encoded = String::with_capacity(value.len());
-    for byte in value.bytes() {
-        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
-            encoded.push(char::from(byte));
-        } else {
-            use std::fmt::Write;
-            let _ = write!(encoded, "%{byte:02X}");
-        }
-    }
-    encoded
-}
-
 pub mod resource;
 pub mod resource_library;

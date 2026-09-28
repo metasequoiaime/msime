@@ -5,7 +5,8 @@
 use crate::account::{
     AccountApi, AccountError, AccountSessionStorage, BackendAccountClient, BackendAccountSession,
 };
-use crate::community::{encode_query, valid_query, valid_text};
+use crate::cloud::dictionary::percent_encode;
+use crate::community::{valid_query, valid_text};
 use crate::preferences::TouchKeyboardSkinDesign;
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
@@ -104,7 +105,7 @@ impl CommunitySkinApi for BackendAccountClient {
         validate_query(offset, search)?;
         let path = format!(
             "/v1/community/skins?offset={offset}&q={}",
-            encode_query(search)
+            percent_encode(search)
         );
         let page = self.json::<CommunitySkinPage, ()>(Method::GET, &path, token, None)?;
         validate_page(&page)?;
