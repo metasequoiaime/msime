@@ -65,6 +65,7 @@ import {
   CredentialTestSection,
   type CredentialTestState,
 } from "./settings/credential-test-section";
+import { ProviderPresetSection, type ProviderPreset } from "./settings/provider-preset-section";
 import {
   VoiceCredentialSection,
   type VoiceCredentialSaveInput,
@@ -446,6 +447,11 @@ export {
   type CredentialTestSectionProps,
   type CredentialTestState,
 } from "./settings/credential-test-section";
+export {
+  ProviderPresetSection,
+  type ProviderPreset,
+  type ProviderPresetSectionProps,
+} from "./settings/provider-preset-section";
 export {
   MobileKeyboardFeedbackSection,
   type MobileKeyboardFeedback,
@@ -4126,48 +4132,20 @@ export function SettingsPage({
    */
   const providerPresetControls = (
     label: string,
-    preset: { models?: readonly string[]; documentation?: string } | undefined,
+    preset: ProviderPreset | undefined,
     model: string,
     onSelectModel: (model: string) => void,
     className = "section provider-preset-section",
   ) => {
-    const models = preset?.models ?? [];
-    const documentation = preset?.documentation;
-    const linkable = documentation && client.openExternalUrl;
-    if (models.length === 0 && !linkable) return null;
     return (
-      <div className={className}>
-        {models.length > 0 && (
-          <label className="section-header">
-            <span className="section-title">
-              预置模型<small>服务商已知支持的模型；也可以在模型框中自行填写</small>
-            </span>
-            <select
-              aria-label={`${label}预置模型`}
-              value={models.includes(model) ? model : ""}
-              onChange={(event) => {
-                if (event.target.value) onSelectModel(event.target.value);
-              }}
-            >
-              <option value="">自定义模型…</option>
-              {models.map((entry) => (
-                <option key={entry} value={entry}>
-                  {entry}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-        {linkable && (
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => void openExternalUrl(documentation)}
-          >
-            {label}接入说明与 API Key
-          </button>
-        )}
-      </div>
+      <ProviderPresetSection
+        label={label}
+        preset={preset}
+        model={model}
+        onSelectModel={onSelectModel}
+        openExternalUrl={client.openExternalUrl}
+        className={className}
+      />
     );
   };
   // Which prompt slot the 润色方案 select is on, and the text that slot means.
