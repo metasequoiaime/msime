@@ -165,6 +165,7 @@ import { ScreenKeyboardSkinsSection } from "./settings/screen-keyboard-skins-sec
 import { ScreenKeyboardCommunitySection } from "./settings/screen-keyboard-community-section";
 import { ScreenKeyboardLaunchSection } from "./settings/screen-keyboard-launch-section";
 import { CandidatePaletteSection } from "./settings/candidate-palette-section";
+import { CandidatePaletteFallbackNotice } from "./settings/candidate-palette-fallback-notice";
 import { TouchKeyboardSchemesSection } from "./settings/touch-keyboard-schemes-section";
 import {
   TouchKeyboardGeometrySection,
@@ -496,6 +497,7 @@ export {
   type CandidateColorKey,
   type CandidateColorPreferences,
 } from "./settings/candidate-colors-section";
+export { CandidatePaletteFallbackNotice } from "./settings/candidate-palette-fallback-notice";
 export {
   AiLinuxProviderSection,
   type AiLinuxProviderSectionProps,
@@ -3962,11 +3964,7 @@ export function SettingsPage({
                       onChange={(patch) => setDraft({ ...draft, ...patch })}
                     />
                     {mobileKeyboardFeedback?.candidatePaletteFollowsDesktop === false && (
-                      <div className="section">
-                        <small>
-                          候选栏正在使用键盘皮肤的颜色，下面的候选颜色要在「皮肤」页打开「使用桌面候选皮肤」后才生效。
-                        </small>
-                      </div>
+                      <CandidatePaletteFallbackNotice />
                     )}
                     <CandidateColorsSection
                       preferences={draft}
