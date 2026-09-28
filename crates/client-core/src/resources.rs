@@ -5,7 +5,7 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
@@ -145,12 +145,7 @@ impl ResourceStore {
     ) -> Result<PathBuf, ResourceError> {
         let generation = specification.generation()?;
         fs::create_dir_all(&self.root)?;
-        let lock = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(self.root.join("resources.lock"))?;
+        let lock = crate::file_lock::open_lock_file(self.root.join("resources.lock"))?;
         crate::file_lock::exclusive(&lock)?;
         sweep_abandoned_stages(&self.root);
         let destination = self.root.join(generation);

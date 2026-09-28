@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
-    fs::{self, File, OpenOptions},
+    fs::{self, File},
     io::{Read, Write},
     path::{Path, PathBuf},
 };
@@ -176,12 +176,7 @@ impl DictionarySnapshotQueue {
 
     fn lock(&self, name: &str) -> Result<(File, PathBuf), SnapshotQueueError> {
         let root = self.root()?;
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(root.join(name))
+        let file = crate::file_lock::open_lock_file(root.join(name))
             .map_err(|_| SnapshotQueueError::Unavailable)?;
         match crate::file_lock::try_exclusive_with_grace(&file) {
             Ok(true) => Ok((file, root)),
@@ -254,12 +249,7 @@ impl DictionarySnapshotQueue {
         action: impl FnOnce(&Path, &mut SnapshotQueueState) -> Result<T, SnapshotQueueError>,
     ) -> Result<T, SnapshotQueueError> {
         let root = self.root()?;
-        let lock = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(root.join(STATE_LOCK_NAME))
+        let lock = crate::file_lock::open_lock_file(root.join(STATE_LOCK_NAME))
             .map_err(|_| SnapshotQueueError::Unavailable)?;
         crate::file_lock::exclusive(&lock).map_err(|_| SnapshotQueueError::Unavailable)?;
         let mut state = Self::read_from(&root)?;

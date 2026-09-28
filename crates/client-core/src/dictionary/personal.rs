@@ -6,7 +6,7 @@
 
 use crate::file_lock;
 use serde::{Deserialize, Serialize};
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
@@ -450,12 +450,7 @@ impl PersonalDictionaryStore {
     {
         fs::create_dir_all(&self.directory)?;
         let lock_path = self.directory.join("sync.lock");
-        let lock = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(lock_path)?;
+        let lock = file_lock::open_lock_file(lock_path)?;
         if !file_lock::try_exclusive(&lock)? {
             return Err(PersonalDictionaryError::Busy);
         }
