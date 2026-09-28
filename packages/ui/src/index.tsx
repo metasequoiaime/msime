@@ -136,6 +136,7 @@ import { BuiltInSkinsSection } from "./settings/built-in-skins-section";
 import { EnglishSuggestionsSection } from "./settings/english-suggestions-section";
 import { LearningSection } from "./settings/learning-section";
 import { LearningDataSection } from "./settings/learning-data-section";
+import { SettingsActionsFooter } from "./settings/settings-actions-footer";
 import { AboutHeroSection } from "./settings/about-hero-section";
 import { SkinPlatformNotice } from "./settings/skin-platform-notice";
 import { DefaultImeModeSection, type DefaultImeMode } from "./settings/default-ime-mode-section";
@@ -543,6 +544,10 @@ export {
   LearningDataSection,
   type LearningDataSectionProps,
 } from "./settings/learning-data-section";
+export {
+  SettingsActionsFooter,
+  type SettingsActionsFooterProps,
+} from "./settings/settings-actions-footer";
 export { AboutHeroSection, type AboutHeroSectionProps } from "./settings/about-hero-section";
 export { SkinPlatformNotice, type SkinPlatformNoticeProps } from "./settings/skin-platform-notice";
 export {
@@ -5891,22 +5896,13 @@ export function SettingsPage({
                       字节，补充字体最多 32 项。
                     </p>
                   )}
-                  <footer className={settings.settingsActions}>
-                    {client.loadDefaultPreferences && (
-                      <button
-                        type="button"
-                        className="secondary"
-                        disabled={busy}
-                        onClick={() => void restoreDefaults()}
-                      >
-                        恢复默认设置
-                      </button>
-                    )}
-                    <span>{dirty ? "有未保存的修改" : ""}</span>
-                    <button type="submit" disabled={busy || !dirty || !validCandidateFonts(draft)}>
-                      {busy ? "处理中…" : "保存设置"}
-                    </button>
-                  </footer>
+                  <SettingsActionsFooter
+                    busy={busy}
+                    dirty={dirty}
+                    canSave={validCandidateFonts(draft)}
+                    showRestoreDefaults={Boolean(client.loadDefaultPreferences)}
+                    onRestoreDefaults={() => void restoreDefaults()}
+                  />
                 </form>
               )}
             {page !== "typing-statistics" &&
