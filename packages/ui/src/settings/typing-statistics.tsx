@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useConfirm } from "../core/confirm";
 import { charactersPerMinute, readableCharacters, type TypingBreakdown } from "./typing-speed";
+export type { TypingBreakdown } from "./typing-speed";
 import {
   dayKey,
   mobileTrendLength,
