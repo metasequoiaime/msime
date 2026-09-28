@@ -4,9 +4,7 @@ mod aliases_macos;
 #[cfg(windows)]
 mod aliases_windows;
 
-pub(super) fn valid_font_name(value: &str) -> bool {
-    !value.is_empty() && value.len() <= 128 && !value.chars().any(char::is_control)
-}
+use msime_client_core::preferences::valid_font_family as valid_font_name;
 
 /// Resolve display-only CSS names without changing stored font preferences.
 ///
