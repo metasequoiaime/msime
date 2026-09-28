@@ -24,7 +24,7 @@ pub enum GlossDirection {
 
 impl GlossDirection {
     fn key(self, text: &str) -> Option<String> {
-        if text.chars().count() > 40 {
+        if !crate::text::is_bounded_chars(text, 40) {
             return None;
         }
         match self {

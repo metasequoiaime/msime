@@ -115,7 +115,7 @@ pub fn is_lower_hex(value: &str, length: usize) -> bool {
 }
 
 /// Whether a single-line field fits its character bound and contains no controls.
-pub(crate) fn is_bounded_chars(value: &str, maximum_characters: usize) -> bool {
+pub fn is_bounded_chars(value: &str, maximum_characters: usize) -> bool {
     value.chars().count() <= maximum_characters && !value.chars().any(char::is_control)
 }
 

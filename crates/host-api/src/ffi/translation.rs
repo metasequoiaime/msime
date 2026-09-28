@@ -3,7 +3,7 @@
 //! Part of the C ABI; see the parent module for what these shims guarantee.
 
 use crate::*;
-use msime_client_core::{is_bounded_text, is_bounded_text_with_chars};
+use msime_client_core::{is_bounded_chars, is_bounded_text, is_bounded_text_with_chars};
 
 /// Plan eligible visible candidates using shared script filters. No I/O.
 /// # Safety
@@ -46,7 +46,9 @@ pub unsafe extern "C" fn msime_client_custom_translation_plan(
         let mut results = Vec::new();
         for candidate in request.candidates {
             // Engine CandidateSource::Emoji / Kaomoji, and unknown sources.
-            if matches!(candidate.source, 6 | 7 | 10..=255) || candidate.text.chars().count() > 40 {
+            if matches!(candidate.source, 6 | 7 | 10..=255)
+                || !is_bounded_chars(&candidate.text, 40)
+            {
                 continue;
             }
             let (source, target, key) =
@@ -417,7 +419,7 @@ pub unsafe extern "C" fn msime_client_translation_gloss_save(
             };
             for item in request.translations {
                 let english = is_cloud_translatable_english(&item.text);
-                if item.text.chars().count() > 40
+                if !is_bounded_chars(&item.text, 40)
                     || (!english && !is_cloud_translatable_chinese(&item.text))
                 {
                     continue;
