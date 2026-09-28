@@ -233,6 +233,21 @@ fn trial_error(error: KeyboardSkinTrialError) -> crate::CommandError {
     }
 }
 
+async fn storage_call<T, E, F, M>(operation: F, map_error: M) -> Result<T, crate::CommandError>
+where
+    T: Send + 'static,
+    E: Send + 'static,
+    F: FnOnce() -> Result<T, E> + Send + 'static,
+    M: FnOnce(E) -> crate::CommandError + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(operation)
+        .await
+        .map_err(|_| crate::CommandError {
+            code: "community_storage",
+        })?
+        .map_err(map_error)
+}
+
 fn resource_library_error(error: CommunityResourceLibraryError) -> crate::CommandError {
     crate::CommandError {
         code: match error {
@@ -353,12 +368,7 @@ pub async fn community_skin_finish_trial(
 ) -> Result<(), crate::CommandError> {
     let id = community_id(&id)?;
     let trials = trials.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || trials.finish(id, keep).map(|_| ()))
-        .await
-        .map_err(|_| crate::CommandError {
-            code: "community_storage",
-        })?
-        .map_err(trial_error)
+    storage_call(move || trials.finish(id, keep).map(|_| ()), trial_error).await
 }
 
 fn resource_scope(value: &str) -> Result<CommunityResourceScope, crate::CommandError> {
@@ -473,12 +483,7 @@ pub async fn community_resource_store_reply(
     item: CommunityResource,
 ) -> Result<(), crate::CommandError> {
     let library = library.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || library.save_reply(item))
-        .await
-        .map_err(|_| crate::CommandError {
-            code: "community_storage",
-        })?
-        .map_err(resource_library_error)
+    storage_call(move || library.save_reply(item), resource_library_error).await
 }
 
 #[tauri::command]
@@ -488,10 +493,5 @@ pub async fn community_resource_remove_reply(
 ) -> Result<(), crate::CommandError> {
     let id = community_id(&id)?;
     let library = library.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || library.remove(id))
-        .await
-        .map_err(|_| crate::CommandError {
-            code: "community_storage",
-        })?
-        .map_err(resource_library_error)
+    storage_call(move || library.remove(id), resource_library_error).await
 }
