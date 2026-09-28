@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { errorCode } from "../core/error-code";
+import { randomUuid } from "../core/random-id";
 import { CommunitySkinsPage, type CommunitySkinClient } from "./community-skins";
 import type { CustomSkinLibraryClient } from "../keyboard/touch-keyboard-skin-design";
 import * as style from "./community-style";
@@ -96,13 +97,6 @@ function unique(current: CommunityResource[], incoming: CommunityResource[]): Co
   return [...current, ...incoming.filter((item) => !ids.has(item.id) && ids.add(item.id))];
 }
 
-function publicationId(): string {
-  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
-  return (
-    "00000000-0000-4000-8000-" + Math.random().toString(16).slice(2).padEnd(12, "0").slice(0, 12)
-  );
-}
-
 function kindTitle(kind: CommunityResourceKind): string {
   return kind === "dictionary" ? "词库" : "回复";
 }
@@ -149,7 +143,7 @@ function ResourceEditor({
   close: () => void;
   onPublished: () => Promise<void>;
 }) {
-  const [id] = useState(existing?.id ?? publicationId);
+  const [id] = useState(existing?.id ?? randomUuid());
   const [name, setName] = useState(existing?.name ?? "");
   const [description, setDescription] = useState(existing?.description ?? "");
   const [prompt, setPrompt] = useState(existing?.content.prompt ?? "");

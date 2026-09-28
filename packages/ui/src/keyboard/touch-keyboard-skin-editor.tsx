@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { errorCode } from "../core/error-code";
+import { randomRequestId } from "../core/random-id";
 import { ScreenKeyboardPreview } from "./screen-keyboard-preview";
 import {
   defaultTouchKeyboardSkinDesign,
@@ -135,12 +136,6 @@ function aiSkinMessage(error: unknown): string {
   }
 }
 
-function randomSkinRequestId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function")
-    return crypto.randomUUID();
-  return `ai-skin-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
 function AiSkinGeneration({
   client,
   library,
@@ -202,7 +197,7 @@ function AiSkinGeneration({
 
   const generate = async () => {
     if (busy) return;
-    const id = randomSkinRequestId();
+    const id = randomRequestId("ai-skin");
     requestRef.current = id;
     setRequestId(id);
     setBusy(true);

@@ -2,6 +2,7 @@
 // (`SkinCommunityView.swift`, `CommunityGalleryStyle.swift`).
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { errorCode } from "../core/error-code";
+import { randomUuid } from "../core/random-id";
 import { ScreenKeyboardPreview } from "../keyboard/screen-keyboard-preview";
 import * as style from "./community-style";
 import type {
@@ -104,21 +105,6 @@ function boundedGraphemes(value: string, maximum: number): string {
   return [...value].slice(0, maximum).join("");
 }
 
-function randomPublicationId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function")
-    return crypto.randomUUID();
-  const bytes = new Uint8Array(16);
-  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function")
-    crypto.getRandomValues(bytes);
-  else
-    for (let index = 0; index < bytes.length; index += 1)
-      bytes[index] = Math.floor(Math.random() * 256);
-  bytes[6] = (bytes[6] & 0x0f) | 0x40;
-  bytes[8] = (bytes[8] & 0x3f) | 0x80;
-  const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-}
-
 function publishMessage(error: unknown): string {
   switch (errorCode(error)) {
     case "community_unauthorized":
@@ -168,7 +154,7 @@ function CommunitySkinPublishDialog({
   // Kept next to the sentence because publishMessage collapses the code, and this is the one
   // failure the dialog can do something about rather than only name.
   const [signInRequired, setSignInRequired] = useState(false);
-  const [publicationId, setPublicationId] = useState(randomPublicationId);
+  const [publicationId, setPublicationId] = useState(randomUuid);
   const clientGeneration = useRef(0);
 
   useEffect(() => {
@@ -284,7 +270,7 @@ function CommunitySkinPublishDialog({
                 onChange={(event) => {
                   const item = saved.find((value) => value.id === event.target.value);
                   setSelectedId(event.target.value);
-                  setPublicationId(randomPublicationId());
+                  setPublicationId(randomUuid());
                   if (item) setName(item.name);
                 }}
               >
@@ -309,7 +295,7 @@ function CommunitySkinPublishDialog({
                 value={name}
                 disabled={busy}
                 onChange={(event) => {
-                  setPublicationId(randomPublicationId());
+                  setPublicationId(randomUuid());
                   setName(boundedGraphemes(event.target.value, 32));
                 }}
               />
@@ -324,7 +310,7 @@ function CommunitySkinPublishDialog({
                 value={description}
                 disabled={busy}
                 onChange={(event) => {
-                  setPublicationId(randomPublicationId());
+                  setPublicationId(randomUuid());
                   setDescription(event.target.value);
                 }}
               />
