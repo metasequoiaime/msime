@@ -15,20 +15,15 @@ export function InputModeHudSection({
   const description = shortcut
     ? "切换后在光标下方短暂显示「中」或「英」。"
     : "切换输入模式后，在光标附近短暂显示“中”或“英”，不会抢占焦点。";
-  const control = (
-    <label className="section-header">
-      <span className="section-title">
-        {label}
-        <small>{description}</small>
-      </span>
-      <input
-        aria-label={label}
-        className="toggle"
-        type="checkbox"
-        checked={value ?? true}
-        onChange={(event) => onChange(event.target.checked)}
-      />
-    </label>
+  return (
+    <SettingToggle
+      label={label}
+      description={description}
+      ariaLabel={label}
+      checked={value ?? true}
+      compact={shortcut}
+      onChange={onChange}
+    />
   );
-  return shortcut ? control : <div className="section">{control}</div>;
 }
+import { SettingToggle } from "./setting-toggle";

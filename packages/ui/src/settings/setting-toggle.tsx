@@ -6,6 +6,8 @@ export interface SettingToggleProps {
   checked: boolean;
   ariaLabel?: string;
   disabled?: boolean;
+  /** Render only the labeled row when the toggle is embedded in another section. */
+  compact?: boolean;
   onChange: (checked: boolean) => void;
 }
 
@@ -16,24 +18,24 @@ export function SettingToggle({
   checked,
   ariaLabel,
   disabled,
+  compact = false,
   onChange,
 }: SettingToggleProps) {
-  return (
-    <div className="section">
-      <label className="section-header">
-        <span className="section-title">
-          {label}
-          <small>{description}</small>
-        </span>
-        <input
-          className="toggle"
-          type="checkbox"
-          aria-label={ariaLabel}
-          checked={checked}
-          disabled={disabled}
-          onChange={(event) => onChange(event.target.checked)}
-        />
-      </label>
-    </div>
+  const row = (
+    <label className="section-header">
+      <span className="section-title">
+        {label}
+        <small>{description}</small>
+      </span>
+      <input
+        className="toggle"
+        type="checkbox"
+        aria-label={ariaLabel}
+        checked={checked}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+    </label>
   );
+  return compact ? row : <div className="section">{row}</div>;
 }
