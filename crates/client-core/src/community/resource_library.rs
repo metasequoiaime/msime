@@ -12,6 +12,17 @@ use uuid::Uuid;
 const MAXIMUM_BYTES: u64 = 4_000_000;
 const MAXIMUM_ITEMS: usize = 50;
 
+fn is_valid_reply(item: &CommunityResource) -> bool {
+    item.id != Uuid::nil()
+        && item.kind == CommunityResourceKind::Reply
+        && item.content.entries.is_empty()
+        && item
+            .content
+            .prompt
+            .as_deref()
+            .is_some_and(|prompt| !prompt.is_empty())
+}
+
 #[derive(Debug, Error)]
 pub enum CommunityResourceLibraryError {
     #[error("community resource library storage failed")]
@@ -40,11 +51,7 @@ impl CommunityResourceLibraryStore {
     }
 
     pub fn save_reply(&self, item: CommunityResource) -> Result<(), CommunityResourceLibraryError> {
-        if item.kind != CommunityResourceKind::Reply
-            || item.id == Uuid::nil()
-            || !item.content.entries.is_empty()
-            || item.content.prompt.as_deref().is_none_or(str::is_empty)
-        {
+        if !is_valid_reply(&item) {
             return Err(CommunityResourceLibraryError::Invalid);
         }
         let _lock = self.lock()?;
@@ -94,14 +101,7 @@ impl CommunityResourceLibraryStore {
                 CommunityResourceLibraryError::Invalid
             })?;
         let items: Vec<CommunityResource> = from_slice(&bytes)?;
-        if items.len() > MAXIMUM_ITEMS
-            || items.iter().any(|item| {
-                item.id == Uuid::nil()
-                    || item.kind != CommunityResourceKind::Reply
-                    || !item.content.entries.is_empty()
-                    || item.content.prompt.as_deref().is_none_or(str::is_empty)
-            })
-        {
+        if items.len() > MAXIMUM_ITEMS || items.iter().any(|item| !is_valid_reply(item)) {
             return Err(CommunityResourceLibraryError::Invalid);
         }
         let mut ids = std::collections::BTreeSet::new();
