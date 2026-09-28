@@ -53,12 +53,7 @@ pub enum ResourceError {
 
 impl ResourceSet {
     pub fn validate(&self) -> Result<(), ResourceError> {
-        let hex = |text: &str, len| {
-            text.len() == len
-                && text
-                    .bytes()
-                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-        };
+        let hex = crate::is_lower_hex;
         if !hex(&self.source_commit, 40) || self.artifacts.is_empty() || self.artifacts.len() > 128
         {
             return Err(ResourceError::InvalidManifest);
