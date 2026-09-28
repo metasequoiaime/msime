@@ -146,6 +146,28 @@ fn rotate_to_front<T>(items: &mut [T], index: usize) {
     items[..=index].rotate_right(1);
 }
 
+/// How far the context handed to a reranker moves at a time once it no longer fits the model.
+pub(crate) const RERANK_CONTEXT_STEP: usize = 16;
+
+/// The tail of the committed text a reranker should see, trimmed so the window holds still while a candidate grows.
+///
+/// The reranker keeps the model state for its prefix across keystrokes, keyed on the prefix tokens, and that cache is what keeps a keystroke inside a frame. It trims the context itself to leave room for the longest candidate, so left to do that, a context longer than the window slides by one character every time a candidate gains one — which is most keystrokes that complete a syllable. Every slide is a different prefix, so it reran the prefix and dropped every resume point with it, and a keystroke cost 20-45ms instead of about 1ms. Nothing showed it in a short test: the context only outgrows the window after a few sentences in one application, which is when "typing falls behind" was reported.
+///
+/// Trimming here, in steps, keeps the prefix identical until the longest candidate crosses a step, and the reranker then finds nothing further to trim because everything handed over already fits. A context that fits whole is handed over unchanged, so short contexts rank exactly as before.
+pub(crate) fn rerank_context(context: &str, window: usize, longest: usize) -> &str {
+    let room = window.saturating_sub(longest + 1);
+    let keep = room / RERANK_CONTEXT_STEP * RERANK_CONTEXT_STEP;
+    let count = context.chars().count();
+    if count <= room {
+        return context;
+    }
+    let skip = count - keep;
+    context
+        .char_indices()
+        .nth(skip)
+        .map_or("", |(start, _)| &context[start..])
+}
+
 impl Runtime<Session> {
     /// A live host mode changes neither composition nor candidate identity.
     pub fn set_chinese_punctuation_enabled(&mut self, enabled: bool) -> Result<(), RuntimeError> {
@@ -1068,7 +1090,16 @@ impl<E: InputEngine> Runtime<E> {
             .candidate_corrected
             .iter()
             .any(|&corrected| corrected);
-        let Some(promote) = reranker.best_where(&self.ai_context, &texts, |index| CandidateFacts {
+        // Only candidates that answer the key are scored, so they are the ones the window has to leave room for.
+        let longest = texts
+            .iter()
+            .zip(&snapshot.candidate_answers_key)
+            .filter(|(_, answers)| **answers)
+            .map(|(text, _)| text.chars().count())
+            .max()
+            .unwrap_or(0);
+        let context = rerank_context(&self.ai_context, reranker.model().context_length(), longest);
+        let Some(promote) = reranker.best_where(context, &texts, |index| CandidateFacts {
             answers_key: snapshot.candidate_answers_key[index],
             trusted_dictionary_hit: DICTIONARY_SOURCES.contains(&snapshot.candidate_sources[index])
                 && !corrected_key,
