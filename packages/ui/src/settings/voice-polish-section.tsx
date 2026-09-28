@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { SettingToggle } from "./setting-toggle";
 
 export interface VoicePolishSectionProps {
   enabled: boolean;
@@ -34,16 +35,13 @@ export function VoicePolishSection({
       <div className="section-title">
         文本润色 provider<small>识别结果可交给用户管理的服务润色</small>
       </div>
-      <label className="section-header">
-        <span className="section-title">启用润色</span>
-        <input
-          aria-label="启用文本润色"
-          className="toggle"
-          type="checkbox"
-          checked={enabled}
-          onChange={(event) => onEnabledChange(event.target.checked)}
-        />
-      </label>
+      <SettingToggle
+        label="启用润色"
+        ariaLabel="启用文本润色"
+        checked={enabled}
+        compact
+        onChange={onEnabledChange}
+      />
       <label className="section-header">
         <span className="section-title">服务提供商</span>
         <select
