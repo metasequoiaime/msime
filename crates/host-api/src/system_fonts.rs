@@ -4,7 +4,7 @@ mod aliases_macos;
 #[cfg(windows)]
 mod aliases_windows;
 
-use msime_client_core::preferences::valid_font_family as valid_font_name;
+use msime_client_core::is_bounded_text;
 
 /// Resolve display-only CSS names without changing stored font preferences.
 ///
@@ -15,7 +15,11 @@ use msime_client_core::preferences::valid_font_family as valid_font_name;
 /// so both ask their own font system what family the name belongs to. The remaining hosts have only
 /// family names to begin with.
 pub fn resolve_css_families(names: Vec<String>) -> Result<Vec<String>, &'static str> {
-    if names.len() > 33 || names.iter().any(|name| !valid_font_name(name)) {
+    if names.len() > 33
+        || names
+            .iter()
+            .any(|name| name.is_empty() || !is_bounded_text(name, 128))
+    {
         return Err("font_family");
     }
     #[cfg(windows)]
@@ -75,7 +79,7 @@ fn parse_catalog(output: &[u8], max_families: usize) -> Result<Vec<String>, &'st
     for line in output.lines() {
         for family in line.split(',') {
             let family = family.trim();
-            if valid_font_name(family) {
+            if !family.is_empty() && is_bounded_text(family, 128) {
                 names.insert(family.to_owned());
             }
             if names.len() > max_families {

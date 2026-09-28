@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 /// from forcing an unbounded allocation during startup or recovery.
 const MAX_DOCUMENT_BYTES: u64 = 1024 * 1024;
 
-pub fn valid_font_family(value: &str) -> bool {
+fn valid_font_family(value: &str) -> bool {
     !value.is_empty() && crate::text::is_bounded_text(value, 128)
 }
 

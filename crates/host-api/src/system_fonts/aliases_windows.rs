@@ -32,7 +32,7 @@ fn preferred_name(names: &IDWriteLocalizedStrings) -> Option<String> {
         let mut buffer = vec![0; length + 1];
         names.GetString(index, &mut buffer).ok()?;
         let value = String::from_utf16(&buffer[..length]).ok()?;
-        super::valid_font_name(&value).then_some(value)
+        (!value.is_empty() && super::is_bounded_text(&value, 128)).then_some(value)
     }
 }
 

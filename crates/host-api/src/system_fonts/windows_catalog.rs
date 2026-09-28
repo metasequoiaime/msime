@@ -18,7 +18,7 @@ impl Catalog {
         let Ok(name) = String::from_utf16(value) else {
             return;
         };
-        if !super::valid_font_name(&name) || name.starts_with('@') {
+        if name.is_empty() || !super::is_bounded_text(&name, 128) || name.starts_with('@') {
             return;
         }
         if self.names.len() == MAX_FAMILIES && !self.names.contains(&name) {
