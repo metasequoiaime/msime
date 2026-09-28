@@ -36,6 +36,7 @@ import { EnglishSuggestionsSection } from "./settings/english-suggestions-sectio
 import { LearningSection } from "./settings/learning-section";
 import { DefaultImeModeSection, type DefaultImeMode } from "./settings/default-ime-mode-section";
 import { InputModeHudSection } from "./settings/input-mode-hud-section";
+import { ImeModeScopeSection } from "./settings/ime-mode-scope-section";
 import { PreeditSettingsSection } from "./settings/preedit-settings-section";
 import { validCandidateFonts } from "./candidate/candidate-font-family";
 import type { FontCatalogReader } from "./candidate/font-catalog";
@@ -299,6 +300,11 @@ export {
   InputModeHudSection,
   type InputModeHudSectionProps,
 } from "./settings/input-mode-hud-section";
+export {
+  ImeModeScopeSection,
+  type ImeModeScope,
+  type ImeModeScopeSectionProps,
+} from "./settings/ime-mode-scope-section";
 export {
   PreeditSettingsSection,
   type CandidatePreeditStyle,
@@ -6762,27 +6768,10 @@ export function SettingsPage({
                       onChange={(default_ime_mode) => setDraft({ ...draft, default_ime_mode })}
                     />
                     {showModeScope && (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">
-                            中英文状态
-                            <small>按应用分别记忆输入状态，或让所有输入上下文保持同一状态</small>
-                          </span>
-                          <select
-                            aria-label="中英文状态"
-                            value={draft.ime_mode_scope ?? "app"}
-                            onChange={(event) =>
-                              setDraft({
-                                ...draft,
-                                ime_mode_scope: event.target.value as Preferences["ime_mode_scope"],
-                              })
-                            }
-                          >
-                            <option value="app">按应用记忆</option>
-                            <option value="global">全局统一</option>
-                          </select>
-                        </label>
-                      </div>
+                      <ImeModeScopeSection
+                        value={draft.ime_mode_scope}
+                        onChange={(ime_mode_scope) => setDraft({ ...draft, ime_mode_scope })}
+                      />
                     )}
                     <div className="section">
                       <label className="section-header">
