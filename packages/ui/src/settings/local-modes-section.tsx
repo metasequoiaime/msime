@@ -8,7 +8,16 @@ export type LocalModeKey =
   | "temporary_english"
   | "temporary_japanese";
 
-export type LocalModePreferences = Record<LocalModeKey, boolean>;
+export type LocalModePreferences = {
+  unicode: boolean;
+  date_time: boolean;
+  quick_phrase: boolean;
+  emoji: boolean;
+  kaomoji: boolean;
+  super_jianpin: boolean;
+  temporary_english: boolean;
+  temporary_japanese: boolean;
+};
 
 export const defaultLocalModes: LocalModePreferences = {
   unicode: true,
