@@ -77,10 +77,27 @@ public actor BackendTelemetryClient {
     return readQueueUnlocked(url)
   }
 
+  static func readQueueBytes(_ url: URL) -> Data? {
+    guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+    do {
+      let handle = try FileHandle(forReadingFrom: url)
+      defer { try? handle.close() }
+      var data = Data()
+      data.reserveCapacity(min(maxQueueFileBytes, 64 * 1024))
+      while true {
+        let remaining = maxQueueFileBytes - data.count
+        let chunk = try handle.read(upToCount: min(64 * 1024, remaining + 1)) ?? Data()
+        if chunk.isEmpty { return data }
+        guard chunk.count <= remaining else { return nil }
+        data.append(chunk)
+      }
+    } catch {
+      return nil
+    }
+  }
+
   private static func readQueueUnlocked(_ url: URL) -> [BackendTelemetryEvent] {
-    guard let size = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? NSNumber,
-          size.intValue <= maxQueueFileBytes,
-          let data = try? Data(contentsOf: url),
+    guard let data = readQueueBytes(url),
           let events = try? JSONDecoder().decode([BackendTelemetryEvent].self, from: data) else { return [] }
     return events
   }
