@@ -119,8 +119,8 @@ fn validates_chat_catalog_and_request_boundaries() {
     for rejected in ["  \n", "a\u{0}b", "a\u{1b}[31mb"] {
         assert!(chat(rejected).is_err(), "{rejected:?}");
     }
-    assert!(!chat_text_has_disallowed_control("第一段\n\n第二段"));
-    assert!(chat_text_has_disallowed_control("a\u{7f}"));
+    assert!(!crate::text::has_disallowed_control("第一段\n\n第二段"));
+    assert!(crate::text::has_disallowed_control("a\u{7f}"));
 
     let mut duplicate = models.clone();
     duplicate.data.push(AccountChatModel {

@@ -574,12 +574,6 @@ pub(super) fn validate_chat_models(value: &AccountChatModels) -> Result<(), Acco
     Ok(())
 }
 
-/// Chat text is multi-line on both sides (the chat page sends on Ctrl/⌘+Enter, and replies are
-/// paragraphs), so line breaks and tabs pass, as they do for the clipboard; other controls do not.
-pub(super) fn chat_text_has_disallowed_control(text: &str) -> bool {
-    crate::text::has_disallowed_control(text)
-}
-
 pub(super) fn validate_chat_request(
     messages: &[AccountChatMessage],
     model: &str,
@@ -592,7 +586,7 @@ pub(super) fn validate_chat_request(
             !matches!(message.role.as_str(), "user" | "assistant" | "system")
                 || message.content.trim().is_empty()
                 || message.content.len() > MAX_CHAT_MESSAGE_BYTES
-                || chat_text_has_disallowed_control(&message.content)
+                || crate::text::has_disallowed_control(&message.content)
         })
     {
         return Err(AccountError::Invalid);

@@ -1076,7 +1076,7 @@ impl AccountApi for BackendAccountClient {
         if reply.role != "assistant"
             || reply.content.trim().is_empty()
             || reply.content.len() > MAX_CHAT_RESPONSE_BYTES
-            || chat_text_has_disallowed_control(&reply.content)
+            || crate::text::has_disallowed_control(&reply.content)
         {
             return Err(AccountError::Unavailable);
         }
