@@ -134,6 +134,7 @@ import { CandidateEnglishGlossSection } from "./settings/candidate-english-gloss
 import { BuiltInSkinsSection } from "./settings/built-in-skins-section";
 import { EnglishSuggestionsSection } from "./settings/english-suggestions-section";
 import { LearningSection } from "./settings/learning-section";
+import { LearningDataSection } from "./settings/learning-data-section";
 import { DefaultImeModeSection, type DefaultImeMode } from "./settings/default-ime-mode-section";
 import { InputModeHudSection } from "./settings/input-mode-hud-section";
 import { ImeModeScopeSection } from "./settings/ime-mode-scope-section";
@@ -536,6 +537,10 @@ export {
   type EnglishSuggestionsSectionProps,
 } from "./settings/english-suggestions-section";
 export { LearningSection, type LearningSectionProps } from "./settings/learning-section";
+export {
+  LearningDataSection,
+  type LearningDataSectionProps,
+} from "./settings/learning-data-section";
 export {
   DefaultImeModeSection,
   type DefaultImeMode,
@@ -4352,24 +4357,10 @@ export function SettingsPage({
                       </div>
                     )}
                     {macosPlatform && client.resetLearnedData && (
-                      <div className="section" role="region" aria-label="学习数据">
-                        <div className="section-header">
-                          <span className="section-title">
-                            学习数据
-                            <small>
-                              清除候选词频、用户词典和拼音学习记录；输入方案与其他设置不会改变。
-                            </small>
-                          </span>
-                          <button
-                            type="button"
-                            className="secondary danger-button"
-                            disabled={phraseBusy}
-                            onClick={() => void resetLearnedData()}
-                          >
-                            清除全部学习数据
-                          </button>
-                        </div>
-                      </div>
+                      <LearningDataSection
+                        disabled={phraseBusy}
+                        onReset={() => void resetLearnedData()}
+                      />
                     )}
                   </fieldset>
                   <fieldset disabled={busy} hidden={page !== "skin"} aria-label="皮肤">
