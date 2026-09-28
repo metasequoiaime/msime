@@ -12,17 +12,7 @@ pub(super) fn validate_clipboard_search(value: &str) -> Result<(), AccountError>
 }
 
 pub(super) fn percent_encode_query(value: &str) -> String {
-    let mut encoded = String::with_capacity(value.len());
-    for byte in value.bytes() {
-        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
-            encoded.push(byte as char);
-        } else {
-            encoded.push('%');
-            encoded.push(char::from(b"0123456789ABCDEF"[(byte >> 4) as usize]));
-            encoded.push(char::from(b"0123456789ABCDEF"[(byte & 0x0f) as usize]));
-        }
-    }
-    encoded
+    crate::cloud::dictionary::percent_encode(value)
 }
 
 pub(super) fn validate_clipboard_text(value: &str) -> Result<(), AccountError> {
