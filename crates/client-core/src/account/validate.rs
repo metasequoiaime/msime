@@ -471,8 +471,7 @@ pub fn validate_account_preferences(value: &AccountPreferences) -> Result<(), Ac
                 return Err(AccountError::Unavailable);
             }
             AccountPreferenceValue::String(string)
-                if string.len() > MAX_ACCOUNT_PREFERENCE_STRING_BYTES
-                    || string.chars().any(char::is_control) =>
+                if !crate::text::is_bounded_text(string, MAX_ACCOUNT_PREFERENCE_STRING_BYTES) =>
             {
                 return Err(AccountError::Unavailable);
             }
