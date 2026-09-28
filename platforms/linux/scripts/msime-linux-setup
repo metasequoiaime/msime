@@ -36,6 +36,8 @@ import urllib.request
 from pathlib import Path
 
 CHUNK = 1024 * 1024
+# IBus, Fcitx5 and the host refresh path all reject runtime-options.json above this size.
+RUNTIME_OPTIONS_LIMIT = 16 * 1024
 # Each registration step is a local D-Bus or dconf round trip; a wedged daemon must not hold up the end of setup.
 COMMAND_TIMEOUT = 10
 DOWNLOAD_TIMEOUT = 60
@@ -279,7 +281,11 @@ REFRESH_OUTDATED = 3
 
 def read_options(options_file: Path) -> dict:
     try:
-        document = json.loads(options_file.read_text())
+        with options_file.open("rb") as handle:
+            raw = handle.read(RUNTIME_OPTIONS_LIMIT + 1)
+        if len(raw) > RUNTIME_OPTIONS_LIMIT:
+            raise ValueError(f"文件超过 {RUNTIME_OPTIONS_LIMIT} 字节限制")
+        document = json.loads(raw.decode())
     except (OSError, ValueError) as error:
         raise SystemExit(f"无法读取 {options_file}：{error}")
     if not isinstance(document, dict):
