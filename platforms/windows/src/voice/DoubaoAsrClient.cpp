@@ -257,6 +257,12 @@ HINTERNET ConnectWebSocket(const std::string &endpoint, const std::string &auth_
                                              WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE));
     if (!request.value)
         return nullptr;
+    // The handshake carries provider credentials in its headers. Never replay them after a
+    // redirect to a different endpoint or protocol.
+    DWORD redirect_policy = WINHTTP_OPTION_REDIRECT_POLICY_NEVER;
+    if (!WinHttpSetOption(request.value, WINHTTP_OPTION_REDIRECT_POLICY,
+                          &redirect_policy, sizeof(redirect_policy)))
+        return nullptr;
     if (!WinHttpSetOption(request.value, WINHTTP_OPTION_UPGRADE_TO_WEB_SOCKET, nullptr, 0))
         return nullptr;
     const std::wstring headers = Utf8ToWide(*auth);
