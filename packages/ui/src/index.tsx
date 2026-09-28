@@ -43,7 +43,8 @@ export {
   type SettingsNavigationOptions,
 } from "./settings/use-settings-navigation";
 import { isLinuxDesktop } from "./settings/platform-helpers";
-import { resolveSettingsTheme } from "./settings/theme-helpers";
+import { useSettingsTheme } from "./settings/use-settings-theme";
+export { useSettingsTheme } from "./settings/use-settings-theme";
 import {
   UPDATE_CHECK_TIMEOUT_MS,
   androidPrivacyUrl,
@@ -3357,6 +3358,7 @@ export function SettingsPage({
   const floatingToolbar = { ...defaultFloatingToolbar, ...draft?.floating_toolbar };
   const themeMode = draft?.theme ?? "system";
   const settingsTheme = draft?.settings_theme ?? "follow";
+  useSettingsTheme(themeMode, settingsTheme);
   const candidatePreviewTheme = useCandidatePreviewTheme(themeMode, draft?.candidate_theme);
   const toolbarPreviewTheme = useCandidatePreviewTheme(themeMode, draft?.toolbar_theme);
   const keyboardPreviewTheme = useCandidatePreviewTheme(themeMode, draft?.screen_keyboard_theme);
