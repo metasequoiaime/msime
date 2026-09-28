@@ -315,6 +315,11 @@ if rg -n 'Files\.readAllBytes' \
   echo "Android custom skin library must use a bounded streaming read" >&2
   exit 1
 fi
+if rg -n 'Files\.readAllBytes' \
+    "$repo_root/platforms/android/java/app/msime/client/voice/CommunityReplyLibrary.java"; then
+  echo "Android community reply library must use a bounded streaming read" >&2
+  exit 1
+fi
 #
 # Match the launcher activities by their path *inside the repository*. The absolute pattern this
 # started as, `*/home/*`, also matches every source on a GitHub runner, where the checkout itself
