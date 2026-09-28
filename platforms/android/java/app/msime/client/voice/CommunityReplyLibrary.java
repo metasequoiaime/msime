@@ -1,6 +1,8 @@
 package app.msime.client;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CodingErrorAction;
@@ -32,10 +34,7 @@ public final class CommunityReplyLibrary {
     public static List<Template> read(Path file) throws IOException {
         if (!Files.exists(file, LinkOption.NOFOLLOW_LINKS)) return List.of();
         if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) throw new IOException("Invalid community library");
-        long size = Files.size(file);
-        if (size > MAXIMUM_BYTES) throw new IOException("Community library is too large");
-        byte[] bytes = Files.readAllBytes(file);
-        if (bytes.length > MAXIMUM_BYTES) throw new IOException("Community library is too large");
+        byte[] bytes = readBounded(file);
         final String json;
         try {
             json = StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
@@ -66,6 +65,21 @@ public final class CommunityReplyLibrary {
             replies.add(new Template(id, name, prompt));
         }
         return List.copyOf(replies);
+    }
+
+    /** Read only the library envelope, even if a replaced file grows after inspection. */
+    private static byte[] readBounded(Path file) throws IOException {
+        try (InputStream input = Files.newInputStream(file)) {
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream(MAXIMUM_BYTES);
+            byte[] buffer = new byte[8192];
+            int count;
+            while ((count = input.read(buffer)) != -1) {
+                if (bytes.size() + count > MAXIMUM_BYTES)
+                    throw new IOException("Community library is too large");
+                bytes.write(buffer, 0, count);
+            }
+            return bytes.toByteArray();
+        }
     }
 
     private static String string(Object value) { return value instanceof String text ? text : null; }

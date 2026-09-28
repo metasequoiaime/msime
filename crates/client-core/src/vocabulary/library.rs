@@ -98,15 +98,14 @@ impl WordbookLibrary {
 
     fn read_index_locked(&self) -> Result<LibraryIndex, WordbookLibraryError> {
         let bytes = match File::open(self.index_path()) {
-            Ok(file) => read_bounded_document(file, MAX_INDEX_BYTES)?,
+            Ok(file) => crate::bounded_io::read_bounded_file(file, MAX_INDEX_BYTES, || {
+                WordbookLibraryError::InvalidWordbook
+            })?,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 return Ok(LibraryIndex::default());
             }
             Err(error) => return Err(error.into()),
         };
-        if bytes.len() as u64 > MAX_INDEX_BYTES {
-            return Err(WordbookLibraryError::InvalidWordbook);
-        }
         let index: LibraryIndex = serde_json::from_slice(&bytes)?;
         if index.books.len() > MAX_BOOKS
             || !index
@@ -150,13 +149,12 @@ impl WordbookLibrary {
         }
         let _lock = self.lock()?;
         let bytes = match File::open(self.book_path(id)) {
-            Ok(file) => read_bounded_document(file, MAX_BOOK_BYTES)?,
+            Ok(file) => crate::bounded_io::read_bounded_file(file, MAX_BOOK_BYTES, || {
+                WordbookLibraryError::InvalidWordbook
+            })?,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(error.into()),
         };
-        if bytes.len() as u64 > MAX_BOOK_BYTES {
-            return Err(WordbookLibraryError::InvalidWordbook);
-        }
         let book: Wordbook = serde_json::from_slice(&bytes)?;
         // A book that does not validate is reported, never silently skipped: the user imported it
         // and would otherwise see it vanish from the picker with no explanation.
@@ -238,10 +236,6 @@ impl WordbookLibrary {
             Err(error) => Err(error.into()),
         }
     }
-}
-
-fn read_bounded_document(file: File, maximum: u64) -> Result<Vec<u8>, WordbookLibraryError> {
-    crate::bounded_io::read_bounded_file(file, maximum, || WordbookLibraryError::InvalidWordbook)
 }
 
 #[cfg(test)]

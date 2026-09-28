@@ -4,9 +4,11 @@ import XCTest
 
 private final class ResourceProtocol: URLProtocol {
   static let id = UUID(uuidString: "10000000-0000-0000-0000-000000000001")!
+  static var requests = 0
   override class func canInit(with request: URLRequest) -> Bool { true }
   override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
   override func startLoading() {
+    Self.requests += 1
     var data = request.httpBody ?? Data()
     if let stream = request.httpBodyStream {
       stream.open(); defer { stream.close() }
@@ -108,5 +110,15 @@ final class BackendCommunityResourceTests: XCTestCase {
         content:.init(entries:[]),revision:0,token:"session")
       XCTFail("Empty word pack was published")
     } catch let failure as BackendAccountClient.Failure { XCTAssertEqual(failure.status,400) }
+    ResourceProtocol.requests = 0
+    let invalid = BackendAccountClient.ResourceContent(entries: [
+      .init(kind: .quick, code: "", word: "合成", weight: -1),
+    ])
+    do {
+      _ = try await api.publishResource(id: ResourceProtocol.id, kind: .dictionary,
+        name: "词包", description: "", content: invalid, revision: 0, token: "session")
+      XCTFail("Invalid dictionary entry was sent")
+    } catch let failure as BackendAccountClient.Failure { XCTAssertEqual(failure.status, 400) }
+    XCTAssertEqual(ResourceProtocol.requests, 0)
   }
 }

@@ -31,8 +31,14 @@ public final class LocalAsrPolicySmoke {
             check(!LocalAsrPolicy.installed(model.toString()), "an empty manifest is not installed");
             Files.write(manifest, "{\"hotwords\":\"pinyin\"}".getBytes(StandardCharsets.UTF_8));
             check(LocalAsrPolicy.installed(model.toString()), "a directory with its manifest is installed");
+            check(new String(LocalAsrPolicy.readManifest(model.toString()), StandardCharsets.UTF_8)
+                .equals("{\"hotwords\":\"pinyin\"}"), "the manifest is read as bounded bytes");
             Files.write(manifest, new byte[(int) LocalAsrPolicy.MAX_MANIFEST_BYTES + 1]);
             check(!LocalAsrPolicy.installed(model.toString()), "an oversized manifest is refused");
+            boolean rejected = false;
+            try { LocalAsrPolicy.readManifest(model.toString()); }
+            catch (IOException expected) { rejected = true; }
+            check(rejected, "an oversized manifest is rejected before allocation");
             check(!LocalAsrPolicy.installed(manifest.toString()), "a file is not a model directory");
             check(!LocalAsrPolicy.installed(root.resolve("missing").toString()) && !LocalAsrPolicy.installed(null), "a missing directory is not installed");
             Files.delete(manifest);

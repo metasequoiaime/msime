@@ -79,27 +79,6 @@ rust::Vec<float> capture_audio(std::uint32_t milliseconds) {
 #endif
 }
 
-rust::Vec<rust::String> capture_device_names() {
-    rust::Vec<rust::String> names;
-#if !MSIME_ENGINE_BRIDGE_AUDIO_CAPTURE
-    return names;
-#else
-    ma_context context{};
-    if (ma_context_init(nullptr, 0, nullptr, &context) != MA_SUCCESS) return names;
-    ma_device_info *playback = nullptr;
-    ma_device_info *capture = nullptr;
-    ma_uint32 playback_count = 0;
-    ma_uint32 capture_count = 0;
-    if (ma_context_get_devices(&context, &playback, &playback_count,
-                               &capture, &capture_count) == MA_SUCCESS) {
-        for (ma_uint32 index = 0; index < capture_count; ++index) {
-            if (capture[index].name[0] != '\0') names.push_back(capture[index].name);
-        }
-    }
-    ma_context_uninit(&context);
-    return names;
-#endif
-}
 rust::Vec<CaptureDevice> capture_devices() {
     rust::Vec<CaptureDevice> devices;
 #if MSIME_ENGINE_BRIDGE_AUDIO_CAPTURE
@@ -992,11 +971,6 @@ bool EngineSession::apply_online_candidates(const OnlineQuerySnapshot& query,
     for (const auto& candidate : candidates) words.emplace_back(std::string(candidate));
     return session_.apply_online_candidates(request, words, kind);
 }
-rust::Vec<EmojiCatalogItem> emoji_catalog_page(rust::Str resources, rust::Str search,
-                                               rust::Str category, std::size_t offset,
-                                               std::uint16_t limit) {
-    return emoji_catalog_filtered_page(resources, search, category, "", offset, limit, "");
-}
 static EmojiCatalogSlice read_emoji_catalog_slice(rust::Str resources, rust::Str search,
     rust::Str category, rust::Str group, std::size_t offset, std::uint16_t limit, rust::Str parent,
     bool deduplicate) {
@@ -1089,10 +1063,6 @@ rust::Vec<EmojiCatalogItem> emoji_catalog_filtered_page(rust::Str resources, rus
 EmojiCatalogSlice emoji_catalog_slice(rust::Str resources, rust::Str search,
     rust::Str category, rust::Str group, std::size_t offset, std::uint16_t limit, rust::Str parent) {
     return read_emoji_catalog_slice(resources, search, category, group, offset, limit, parent, false);
-}
-rust::Vec<EmojiCatalogItem> emoji_catalog(rust::Str resources, rust::Str search,
-                                          rust::Str category, std::uint8_t limit) {
-    return emoji_catalog_page(resources, search, category, 0, limit);
 }
 rust::Vec<rust::String> emoji_catalog_groups(rust::Str resources, rust::Str category) {
     const auto path = std::filesystem::u8path(std::string(resources)) / "others.db";

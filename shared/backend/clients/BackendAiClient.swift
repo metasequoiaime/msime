@@ -6,12 +6,22 @@ struct BackendAiClient: Sendable {
   struct Candidate: Decodable, Sendable { let text: String }
   struct Result: Sendable { let candidates: [Candidate] }
   private let session: URLSession
+  private static let maxResponseBytes = 1024 * 1024
+
+  final class Redirects: NSObject, URLSessionTaskDelegate, Sendable {
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest,
+                    completionHandler: @escaping (URLRequest?) -> Void) {
+      completionHandler(nil)
+    }
+  }
 
   init(configuration: URLSessionConfiguration = .ephemeral) {
     let configuration = configuration.copy() as! URLSessionConfiguration
     configuration.httpCookieStorage = nil
     configuration.urlCache = nil
-    session = URLSession(configuration: configuration)
+    session = URLSession(configuration: configuration, delegate: Redirects(), delegateQueue: nil)
   }
 
   func suggest(endpoint: URL, model: String, token: String,
@@ -32,8 +42,16 @@ struct BackendAiClient: Sendable {
     request.httpBody = try JSONSerialization.data(withJSONObject: body)
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-    let (data, response) = try await session.data(for: request)
-    guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode), data.count <= 1024 * 1024 else { throw URLError(.badServerResponse) }
+    let (bytes, response) = try await session.bytes(for: request)
+    guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+          http.expectedContentLength < 0 || http.expectedContentLength <= Self.maxResponseBytes else {
+      throw URLError(.badServerResponse)
+    }
+    var data = Data()
+    for try await byte in bytes {
+      guard data.count < Self.maxResponseBytes else { throw URLError(.dataLengthExceedsMaximum) }
+      data.append(byte)
+    }
     let envelope = try JSONDecoder().decode(Envelope.self, from: data)
     guard let content = envelope.choices.first?.message.content.data(using: .utf8) else { throw URLError(.cannotParseResponse) }
     let result = try JSONDecoder().decode(ResultPayload.self, from: content)

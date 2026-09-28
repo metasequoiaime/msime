@@ -308,6 +308,26 @@ fi
 # so this script no longer compiles the whole source set -- `platforms/android/gradle-app` does, and
 # build-apk.sh drives it. What stays here is the part that is worth having without a Gradle daemon:
 # the pure-Java models and their smokes, which have no Android dependency at all and run in a second.
+# Custom skin libraries are user-writable; keep the reader streaming so a file that grows after
+# inspection cannot turn the one-megabyte envelope into an unbounded allocation.
+if rg -n 'Files\.readAllBytes' \
+    "$repo_root/platforms/android/java/app/msime/client/dictionary/CustomSkinLibrary.java"; then
+  echo "Android custom skin library must use a bounded streaming read" >&2
+  exit 1
+fi
+if rg -n 'Files\.readAllBytes' \
+    "$repo_root/platforms/android/java/app/msime/client/voice/CommunityReplyLibrary.java"; then
+  echo "Android community reply library must use a bounded streaming read" >&2
+  exit 1
+fi
+for source in \
+    "$repo_root/platforms/android/java/app/msime/client/core/MSIMEInputService.java" \
+    "$repo_root/platforms/android/java/app/msime/client/voice/VoiceRecognitionActivity.java"; do
+  if rg -n 'readAllBytes.*runtime-options|runtime-options.*readAllBytes' "$source"; then
+    echo "Android runtime-options readers must use HostOptionsPolicy" >&2
+    exit 1
+  fi
+done
 #
 # Match the launcher activities by their path *inside the repository*. The absolute pattern this
 # started as, `*/home/*`, also matches every source on a GitHub runner, where the checkout itself
@@ -393,6 +413,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/dictionary/ClipboardHistoryPolicySmoke.java" \
   "$repo_root/platforms/android/tests/dictionary/DictionarySnapshotQueueSmoke.java" \
   "$repo_root/platforms/android/tests/settings/DiagnosticPolicySmoke.java" \
+  "$repo_root/platforms/android/tests/settings/HostOptionsPolicySmoke.java" \
   "$repo_root/platforms/android/tests/settings/TypingStatisticsModelSmoke.java" \
   "$repo_root/platforms/android/tests/settings/VocabularyReviewModelSmoke.java" \
   "$repo_root/platforms/android/tests/settings/InputFeatureToggleSmoke.java" \
@@ -473,6 +494,7 @@ java -cp "$output_dir" CandidateScrollPolicySmoke
 java -cp "$output_dir" ClipboardHistoryPolicySmoke
 java -cp "$output_dir" DictionarySnapshotQueueSmoke
 java -cp "$output_dir" DiagnosticPolicySmoke
+java -cp "$output_dir" HostOptionsPolicySmoke
 java -cp "$output_dir" TypingStatisticsModelSmoke
 java -cp "$output_dir" VocabularyReviewModelSmoke
 java -cp "$output_dir" InputFeatureToggleSmoke

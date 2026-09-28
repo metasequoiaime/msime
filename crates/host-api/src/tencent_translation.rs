@@ -35,7 +35,7 @@ pub fn descriptor(bytes: &[u8]) -> Result<Value, &'static str> {
     let valid_token = |value: &str| {
         !value.is_empty()
             && is_bounded_text(value, 4096)
-            && translation::usable_tencent_secret(value)
+            && translation::usable_credential(value)
     };
     let languages = ["zh", "en", "fr", "ja", "es", "ru", "de", "ko"];
     if !valid_token(&id)

@@ -139,4 +139,19 @@ final class TypingStatisticsTests: XCTestCase {
     XCTAssertFalse(FileManager.default.fileExists(
       atPath: container.appendingPathComponent("typing-statistics.json").path))
   }
+
+  func testRejectsAnOversizedStatisticsDocumentBeforeMigration() throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("stats-too-large-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let url = directory.appendingPathComponent("typing-statistics.json")
+    FileManager.default.createFile(atPath: url.path, contents: nil)
+    let handle = try FileHandle(forWritingTo: url)
+    try handle.seek(toOffset: UInt64(TypingStatisticsStore.maximumDocumentBytes))
+    try handle.write(contentsOf: Data([0]))
+    try handle.close()
+
+    XCTAssertThrowsError(try TypingStatisticsStore(directory: directory).load())
+  }
 }

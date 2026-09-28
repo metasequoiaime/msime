@@ -57,14 +57,6 @@ extern "C" bool msime_macos_send_keyboard_key(unsigned short code, uint64_t flag
     }
 }
 
-extern "C" bool msime_macos_send_keyboard_key_to_target(int pid, double launched,
-                                                           unsigned short code, uint64_t flags) {
-    @autoreleasepool {
-        SystemKeyboardHost host;
-        return msime::SendKeyboardKeyToTarget(host, static_cast<pid_t>(pid), launched, code, flags);
-    }
-}
-
 extern "C" int msime_macos_capture_launch_target(double *launched) {
     @autoreleasepool {
         SystemKeyboardHost host;

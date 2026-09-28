@@ -105,15 +105,6 @@ pub use dictionary_snapshot::{
     msime_client_snapshot_queue, msime_client_snapshot_restore, msime_client_snapshot_version,
 };
 
-/// Names of the audio capture devices the Engine can record from.
-///
-/// The desktop shell depends on this crate, not on the Engine bridge, so the
-/// bridge is reached through here the same way the handwriting recognizer is.
-/// Names are display strings from the audio backend and carry no user data.
-pub fn voice_capture_device_names() -> Vec<String> {
-    msime_engine_bridge::capture_device_names()
-}
-
 /// Capture endpoint identities paired with labels. Neither belongs in logs.
 pub fn voice_capture_devices() -> Vec<(String, String)> {
     msime_engine_bridge::capture_devices()
@@ -1104,34 +1095,6 @@ pub fn local_symbol_catalog(resources: &str) -> Result<Vec<LocalSymbolCatalogGro
         });
     }
     Ok(result)
-}
-
-/// Read one bounded page from the Engine-owned `others.db` catalog.
-pub fn local_emoji_catalog_page(
-    resources: &str,
-    search: &str,
-    category: &str,
-    offset: usize,
-    limit: u16,
-) -> Result<Vec<LocalEmojiCatalogItem>, &'static str> {
-    if !std::path::Path::new(resources).is_absolute() {
-        return Err("resources path must be absolute");
-    }
-    if limit == 0 || limit > 4096 {
-        return Err("invalid local emoji page size");
-    }
-    msime_engine_bridge::emoji_catalog_page(resources, search, category, offset, limit)
-        .map(|items| {
-            items
-                .into_iter()
-                .map(|item| LocalEmojiCatalogItem {
-                    text: item.text,
-                    annotation: item.annotation,
-                    group: item.group,
-                })
-                .collect()
-        })
-        .map_err(|_| "local emoji catalog unavailable")
 }
 
 fn response(operation: impl FnOnce() -> Result<Value, String>) -> *mut c_char {

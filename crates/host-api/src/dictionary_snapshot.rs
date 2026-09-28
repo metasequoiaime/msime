@@ -621,7 +621,7 @@ fn inspect_snapshot(path: &Path) -> Result<SnapshotMetadata, &'static str> {
                     .and_then(Value::as_str)
                     .filter(|value| crate::valid_sha256(value))
                     .ok_or("invalid snapshot document")?;
-                let actual = lower_hex(&body_digest.clone().finalize());
+                let actual = hex::encode(body_digest.clone().finalize());
                 if expected_records != records || expected_sha != actual {
                     return Err("invalid snapshot document");
                 }
@@ -656,7 +656,7 @@ fn inspect_snapshot(path: &Path) -> Result<SnapshotMetadata, &'static str> {
     Ok(SnapshotMetadata {
         cloud_revision,
         sha256,
-        file_sha256: lower_hex(&file_digest.finalize()),
+        file_sha256: hex::encode(file_digest.finalize()),
         bytes: total_bytes,
         records,
         entries: counts[0],
@@ -735,7 +735,7 @@ fn version(options: &EngineOptions) -> Result<String, &'static str> {
         hash.update(text.as_bytes());
     }
     hash.update(dictionary_state_revision(options).map_err(|_| "snapshot revision unavailable")?);
-    Ok(lower_hex(&hash.finalize()))
+    Ok(hex::encode(hash.finalize()))
 }
 
 fn activation_receipt(options: &EngineOptions) -> Result<Option<String>, &'static str> {
@@ -1038,7 +1038,7 @@ fn version_without_access(options: &EngineOptions) -> Result<String, &'static st
         hash.update(text.as_bytes());
     }
     hash.update(dictionary_state_revision(options).map_err(|_| "snapshot revision unavailable")?);
-    Ok(lower_hex(&hash.finalize()))
+    Ok(hex::encode(hash.finalize()))
 }
 
 fn register(prepared: Prepared) -> Result<Value, &'static str> {
@@ -1497,11 +1497,6 @@ pub extern "C" fn msime_client_snapshot_activate(
             .map_err(|_| "invalid snapshot version")?;
         activate(handle, expected).map_err(Into::into)
     })
-}
-
-// sha2 0.11 digests no longer implement `LowerHex`, and this crate has no hex dependency for a handful of call sites.
-fn lower_hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 #[cfg(test)]

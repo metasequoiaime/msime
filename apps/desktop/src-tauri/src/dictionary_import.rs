@@ -5,6 +5,7 @@
 use msime_client_core::dictionary::import::{
     self, ImportError, ImportFailure, ImportFormat, ImportKind, REPORTED_FAILURES,
 };
+use msime_client_core::dictionary::is_han_character;
 use serde_json::{json, Value};
 
 /// The largest file text the page imports. The page refuses files over 32 MiB (`MAX_DICTIONARY_FILE_BYTES` in `packages/ui/src/dictionary/dictionary-file.ts`) before reading them, and a file that size decodes to at most 48 MiB of UTF-8, since a two-byte GBK or UTF-16 character becomes three; this is that bound, so a file the page accepted is never refused here. At 60 KiB a request, text this size is at least 820 requests, and more for a file of short lines, since a request also carries at most `import::MAX_ENTRIES` rows. That takes longer than the 30 seconds input sessions stay released, so every request renews the release before it goes: the lease through `QuiescedHosts::run` on Linux and macOS, the Server's DictionaryQuiesce on Windows.
@@ -147,14 +148,6 @@ fn hans_text_is_acceptable(text: &str) -> bool {
         .peekable();
     words.peek().is_some()
         && words.all(|word| word.len() <= 1024 && word.chars().all(is_han_character))
-}
-
-/// The CJK unified ideograph blocks the host's `hans` parser accepts.
-fn is_han_character(character: char) -> bool {
-    matches!(
-        character as u32,
-        0x3400..=0x4dbf | 0x4e00..=0x9fff | 0xf900..=0xfaff | 0x20000..=0x2fa1f
-    )
 }
 
 struct ImportRequest<'a> {

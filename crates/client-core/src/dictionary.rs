@@ -9,6 +9,15 @@ pub mod import;
 pub mod personal;
 pub mod quiesce;
 
+/// Whether `character` belongs to a CJK unified ideograph block accepted by the `hans` import
+/// format.
+pub fn is_han_character(character: char) -> bool {
+    matches!(
+        character as u32,
+        0x3400..=0x4dbf | 0x4e00..=0x9fff | 0xf900..=0xfaff | 0x20000..=0x2fa1f
+    )
+}
+
 /// Whether `code` is a usable English input code.
 ///
 /// The code is what the user types; the word beside it is what that types out, and the two need

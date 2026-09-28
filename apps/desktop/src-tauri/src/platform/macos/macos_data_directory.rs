@@ -120,15 +120,6 @@ fn copy_entry(source: &Path, destination: &Path) -> Result<(), MoveError> {
         .map_err(|_| MoveError::Copy)
 }
 
-fn remove_entry(path: &Path) -> io::Result<()> {
-    let metadata = fs::symlink_metadata(path)?;
-    if metadata.is_dir() && !metadata.file_type().is_symlink() {
-        fs::remove_dir_all(path)
-    } else {
-        fs::remove_file(path)
-    }
-}
-
 fn target_entries_are_replaceable(target: &Path, default_root: &Path) -> Result<bool, MoveError> {
     let allowed: BTreeSet<&str> = if target == default_root {
         [DATA_DIRECTORY_MARKER, OPTIONS_FILE].into_iter().collect()
@@ -151,17 +142,6 @@ fn target_entries_are_replaceable(target: &Path, default_root: &Path) -> Result<
     Ok(true)
 }
 
-fn validate_directory(path: &Path, error: MoveError) -> Result<PathBuf, MoveError> {
-    if !path.is_absolute() {
-        return Err(error);
-    }
-    let metadata = fs::symlink_metadata(path).map_err(|_| error)?;
-    if !metadata.is_dir() || metadata.file_type().is_symlink() {
-        return Err(error);
-    }
-    fs::canonicalize(path).map_err(|_| error)
-}
-
 fn overlaps(first: &Path, second: &Path) -> bool {
     first.starts_with(second) || second.starts_with(first)
 }
@@ -174,7 +154,7 @@ fn has_ownership_marker(directory: &Path) -> bool {
 
 fn restore_target(target: &Path, had_marker: bool, backups: &[LocatorBackup]) {
     if target.exists() {
-        let _ = remove_entry(target);
+        let _ = crate::platform::desktop::desktop_data_directory::remove_entry(target);
     }
     let _ = fs::create_dir_all(target);
     if had_marker {
@@ -212,7 +192,8 @@ fn cleanup_source(source: &Path, default_root: &Path, locators: &[PathBuf]) -> b
         if preserved.contains(&entry.file_name()) {
             continue;
         }
-        complete &= remove_entry(&entry.path()).is_ok();
+        complete &=
+            crate::platform::desktop::desktop_data_directory::remove_entry(&entry.path()).is_ok();
     }
     complete
 }
@@ -230,10 +211,19 @@ pub(crate) fn move_data_directory<F>(
 where
     F: FnOnce(&Path) -> Result<Value, MoveError>,
 {
-    let source = validate_directory(source, MoveError::InvalidSource)?;
-    let target = validate_directory(target, MoveError::InvalidTarget)?;
+    let source = crate::platform::desktop::desktop_data_directory::validate_directory(
+        source,
+        MoveError::InvalidSource,
+    )?;
+    let target = crate::platform::desktop::desktop_data_directory::validate_directory(
+        target,
+        MoveError::InvalidTarget,
+    )?;
     let default_root = fs::canonicalize(default_root).map_err(|_| MoveError::InvalidSource)?;
-    let native_locator_root = validate_directory(native_locator_root, MoveError::InvalidTarget)?;
+    let native_locator_root = crate::platform::desktop::desktop_data_directory::validate_directory(
+        native_locator_root,
+        MoveError::InvalidTarget,
+    )?;
     if source == target {
         return Ok(MoveOutcome {
             retained_old_data: false,
@@ -266,7 +256,8 @@ where
     )
     .map_err(|_| MoveError::Copy)?;
 
-    remove_entry(&target).map_err(|_| MoveError::Copy)?;
+    crate::platform::desktop::desktop_data_directory::remove_entry(&target)
+        .map_err(|_| MoveError::Copy)?;
     let staging = staging.keep();
     if fs::rename(&staging, &target).is_err() {
         let _ = fs::create_dir_all(&target);

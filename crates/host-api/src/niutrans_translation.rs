@@ -26,7 +26,7 @@ struct Request {
 }
 
 fn valid_credential(value: &str) -> bool {
-    translation::usable_niutrans_credential(value) && is_bounded_text(value, 4096)
+    translation::usable_credential(value) && is_bounded_text(value, 4096)
 }
 
 pub fn descriptor(bytes: &[u8]) -> Result<Value, &'static str> {

@@ -314,7 +314,9 @@ impl VocabularyProgressStore {
     fn read_locked(&self) -> Result<VocabularyProgress, VocabularyProgressError> {
         let path = self.path();
         let bytes = match File::open(&path) {
-            Ok(file) => read_bounded_document(file)?,
+            Ok(file) => crate::bounded_io::read_bounded_file(file, MAX_DOCUMENT_BYTES, || {
+                VocabularyProgressError::InvalidDocument
+            })?,
             // A missing file is a fresh profile. A damaged one is not, and is never overwritten
             // below — the two cases are deliberately different.
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -322,9 +324,6 @@ impl VocabularyProgressStore {
             }
             Err(error) => return Err(error.into()),
         };
-        if bytes.len() as u64 > MAX_DOCUMENT_BYTES {
-            return Err(VocabularyProgressError::InvalidDocument);
-        }
         let value: VocabularyProgress = serde_json::from_slice(&bytes)?;
         value.validate()?;
         Ok(value)
@@ -452,12 +451,6 @@ impl VocabularyProgressStore {
         self.write_locked(&document)?;
         Ok(document)
     }
-}
-
-fn read_bounded_document(file: File) -> Result<Vec<u8>, VocabularyProgressError> {
-    crate::bounded_io::read_bounded_file(file, MAX_DOCUMENT_BYTES, || {
-        VocabularyProgressError::InvalidDocument
-    })
 }
 
 #[cfg(test)]

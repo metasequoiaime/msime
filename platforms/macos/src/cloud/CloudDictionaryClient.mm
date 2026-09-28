@@ -81,7 +81,9 @@ void MSIMESendCloudCandidateRequest(NSString *path, NSData *body, NSString *bear
 
 void MSIMEListCloudFixedPositions(NSString *context, NSUInteger offset, NSString *bearerToken, MSIMECloudDictionaryCompletion completion) {
     if (context.length > 256 || offset > 1000000 || bearerToken.length == 0) { if (completion) completion(nil, 400, [NSError errorWithDomain:@"MSIMECloud" code:400 userInfo:nil]); return; }
-    NSString *path = [NSString stringWithFormat:@"https://api.msime.app/v1/users/me/dictionary/positions?context=%@&offset=%lu&limit=100", [context stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLQueryAllowedCharacterSet], (unsigned long)offset]; NSMutableURLRequest *r = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:path]];
+    NSURLComponents *components = [NSURLComponents componentsWithString:@"https://api.msime.app/v1/users/me/dictionary/positions"];
+    components.queryItems = @[[NSURLQueryItem queryItemWithName:@"context" value:context ?: @""], [NSURLQueryItem queryItemWithName:@"offset" value:[NSString stringWithFormat:@"%lu", (unsigned long)offset]], [NSURLQueryItem queryItemWithName:@"limit" value:@"100"]];
+    NSString *path = [components.percentEncodedPath stringByAppendingFormat:@"?%@", components.percentEncodedQuery]; NSMutableURLRequest *r = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:[@"https://api.msime.app" stringByAppendingString:path]]];
     [r setValue:[@"Bearer " stringByAppendingString:bearerToken] forHTTPHeaderField:@"Authorization"];
     MSIMEStartCloudDataTask(r, 1024 * 1024, ^(NSData *d, NSURLResponse *response, NSError *e) { dispatch_async(dispatch_get_main_queue(), ^{ if (completion) completion(d, [(NSHTTPURLResponse *)response statusCode], e); }); });
 }

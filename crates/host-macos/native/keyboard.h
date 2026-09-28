@@ -31,26 +31,4 @@ template<class Host> bool SendKeyboardKey(Host &host, unsigned short code, uint6
     return valid;
 }
 
-template<class Host>
-bool SendKeyboardKeyToTarget(Host &host, pid_t target, double launched, unsigned short code, uint64_t flags) {
-    if (!host.mainThread() || !host.allowed() || target <= 0 || target == host.ownProcess() || launched <= 0 ||
-        host.launchTime(target) != launched) return false;
-    CGEventRef down = host.event(code, true);
-    CGEventRef up = host.event(code, false);
-    if (!down || !up) {
-        if (down) CFRelease(down);
-        if (up) CFRelease(up);
-        return false;
-    }
-    CGEventSetFlags(down, flags);
-    CGEventSetFlags(up, flags);
-    // Do not deliver to a process whose identity changed while events were
-    // being allocated. Unlike the live-foreground path, this intentionally
-    // does not require the target to remain frontmost: the panel is
-    // non-activating and the user may briefly interact with another window.
-    const bool valid = host.allowed() && host.launchTime(target) == launched;
-    if (valid) { host.post(target, down); host.post(target, up); }
-    CFRelease(down); CFRelease(up);
-    return valid;
-}
 }

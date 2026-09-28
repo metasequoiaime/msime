@@ -1,6 +1,8 @@
 package app.msime.client;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -23,11 +25,19 @@ public final class CustomSkinLibrary {
 
     public static List<Item> read(Path preferencesDirectory) throws IOException {
         Path file = preferencesDirectory.resolve("CustomSkins").resolve("library.json");
-        if (!Files.isRegularFile(file) || Files.size(file) > MAX_LIBRARY_BYTES)
+        if (!Files.isRegularFile(file))
             return List.of();
-        // Files.readString arrived in API 34; this host runs from API 28, and only the real
-        // APK build rejects it. Read the bytes and decode them, which every level has.
-        String document = new String(Files.readAllBytes(file), StandardCharsets.UTF_8);
+        String document;
+        try (InputStream input = Files.newInputStream(file)) {
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream((int) MAX_LIBRARY_BYTES);
+            byte[] buffer = new byte[8192];
+            int count;
+            while ((count = input.read(buffer)) != -1) {
+                if (bytes.size() + count > MAX_LIBRARY_BYTES) return List.of();
+                bytes.write(buffer, 0, count);
+            }
+            document = new String(bytes.toByteArray(), StandardCharsets.UTF_8);
+        }
         final JSONArray values;
         try {
             values = new JSONArray(document);

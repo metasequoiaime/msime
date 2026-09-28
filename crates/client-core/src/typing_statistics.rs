@@ -496,15 +496,14 @@ impl TypingStatisticsStore {
     fn read_locked(&self) -> Result<TypingStatistics, TypingStatisticsError> {
         let path = self.path();
         let bytes = match File::open(&path) {
-            Ok(file) => read_bounded_document(file)?,
+            Ok(file) => crate::bounded_io::read_bounded_file(file, MAX_DOCUMENT_BYTES, || {
+                TypingStatisticsError::InvalidDocument
+            })?,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 return Ok(TypingStatistics::default());
             }
             Err(error) => return Err(error.into()),
         };
-        if bytes.len() as u64 > MAX_DOCUMENT_BYTES {
-            return Err(TypingStatisticsError::InvalidDocument);
-        }
         let value: TypingStatistics = serde_json::from_slice(&bytes)?;
         value.validate()?;
         Ok(value)
@@ -745,12 +744,6 @@ impl TypingStatisticsStore {
         self.write_locked(&value)?;
         Ok(value)
     }
-}
-
-fn read_bounded_document(file: File) -> Result<Vec<u8>, TypingStatisticsError> {
-    crate::bounded_io::read_bounded_file(file, MAX_DOCUMENT_BYTES, || {
-        TypingStatisticsError::InvalidDocument
-    })
 }
 
 /// Milliseconds since the Unix epoch, saturating at zero for clocks set before 1970.

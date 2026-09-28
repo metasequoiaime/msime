@@ -28,7 +28,7 @@ const snapshot: Snapshot = {
 };
 
 test("a placeholder is not a configured secret", () => {
-  // Mirrors usable_tencent_secret in client-core: the shipped config template
+  // Mirrors usable_credential in client-core: the shipped config template
   // carries <YOUR_TENCENT_SECRET_ID>, which must not read as configured.
   expect(tencentSecretConfigured("")).toBe(false);
   expect(tencentSecretConfigured("   ")).toBe(false);

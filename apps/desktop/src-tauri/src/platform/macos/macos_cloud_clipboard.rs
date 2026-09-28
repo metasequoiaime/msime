@@ -1,5 +1,5 @@
 use msime_client_core::host_surface::{PanelSurface, SurfaceRoute};
-use msime_host_macos::cloud_clipboard::{CloudClipboardError, CloudClipboardSession};
+use msime_host_macos::cloud_clipboard::CloudClipboardSession;
 use serde_json::Value;
 
 pub(crate) struct CloudState(Option<CloudClipboardSession>);
@@ -26,14 +26,7 @@ impl CloudState {
             }
             session
                 .request(action)
-                .map_err(|error| crate::CommandError {
-                    code: match error {
-                        CloudClipboardError::Invalid => "invalid",
-                        CloudClipboardError::Unavailable => "unavailable",
-                        CloudClipboardError::OutcomeUnknown => "outcome_unknown",
-                        CloudClipboardError::Conflict => "conflict",
-                    },
-                })
+                .map_err(super::cloud_clipboard_error)
         })
     }
 }
@@ -47,12 +40,7 @@ pub(crate) fn prepare_windows(
     windows: &mut [tauri::utils::config::WindowConfig],
     route: Option<SurfaceRoute>,
 ) {
-    if startup_panel(route).is_some() {
-        for window in windows.iter_mut().filter(|window| window.label == "main") {
-            window.visible = false;
-            window.focus = false;
-        }
-    }
+    super::prepare_windows_for_panel(windows, startup_panel(route));
 }
 
 #[cfg(test)]

@@ -1,0 +1,63 @@
+import { HostActionButton } from "../keyboard/HostActionButton";
+import * as settings from "./settings-style";
+
+export interface InputMethodServiceSectionProps {
+  visible: boolean;
+  macos: boolean;
+  linux: boolean;
+  restartInputMethod?: () => Promise<void>;
+  installInputSource?: () => Promise<void>;
+}
+
+/** Restart and installation actions for desktop input method services. */
+export function InputMethodServiceSection({
+  visible,
+  macos,
+  linux,
+  restartInputMethod,
+  installInputSource,
+}: InputMethodServiceSectionProps) {
+  if (!visible) return null;
+
+  return (
+    <div className={`section ${settings.shortcutSectionTitle}`}>
+      <div className="section-title">输入法服务</div>
+      <small>
+        {macos
+          ? "重新注册并启用已安装的水杉输入源；当前输入法进程继续按系统生命周期运行。"
+          : linux
+            ? "重启 IBus 输入法服务；使用 Fcitx5 时重载水杉插件，关闭并重建所有输入会话，不影响其他输入法。"
+            : "请求受监督的输入法服务重新启动。"}
+      </small>
+      <div className={settings.serviceRow}>
+        <span>{macos ? "重新注册当前输入源" : "立即重启输入法服务"}</span>
+        <HostActionButton
+          action={restartInputMethod}
+          label={macos ? "重新注册" : "重启"}
+          success={
+            macos ? "已重新注册输入源。" : linux ? "已请求重启输入法服务。" : "已发送重启请求。"
+          }
+          error={
+            macos
+              ? "重新注册输入源失败，请确认输入法已经安装。"
+              : "重启输入法服务失败，请稍后重试。"
+          }
+        />
+      </div>
+      {macos && installInputSource && (
+        <div className={settings.serviceRow}>
+          <span>
+            安装或更新水杉输入源
+            <small>将当前应用随附的 IMK bundle 安装到本机输入法目录，然后注册到系统。</small>
+          </span>
+          <HostActionButton
+            action={installInputSource}
+            label="安装 / 更新"
+            success="输入源已安装并注册。"
+            error="输入源安装或注册失败，请重试。"
+          />
+        </div>
+      )}
+    </div>
+  );
+}

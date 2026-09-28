@@ -68,7 +68,6 @@ private:
 };
 std::unique_ptr<EngineSession> create_session(const EngineOptions& options);
 rust::Vec<float> capture_audio(std::uint32_t milliseconds);
-rust::Vec<rust::String> capture_device_names();
 struct CaptureDevice;
 rust::Vec<CaptureDevice> capture_devices();
 EngineOptions prepare_options(rust::Str resources, rust::Str user_data, rust::Str cache, rust::Str content_id);
@@ -89,11 +88,6 @@ void dictionary_edit(const EngineOptions& options, rust::Slice<const DictionaryE
 void reset_learned_data(const EngineOptions& options);
 DictionaryReplaySummary replay_user_dictionary(rust::Str user_db_path, rust::Str main_db_path,
                                                 rust::Str english_db_path);
-rust::Vec<EmojiCatalogItem> emoji_catalog(rust::Str resources, rust::Str search,
-                                          rust::Str category, std::uint8_t limit);
-rust::Vec<EmojiCatalogItem> emoji_catalog_page(rust::Str resources, rust::Str search,
-                                               rust::Str category, std::size_t offset,
-                                               std::uint16_t limit);
 rust::Vec<EmojiCatalogItem> emoji_catalog_filtered_page(rust::Str resources, rust::Str search,
     rust::Str category, rust::Str group, std::size_t offset, std::uint16_t limit, rust::Str parent);
 EmojiCatalogSlice emoji_catalog_slice(rust::Str resources, rust::Str search,

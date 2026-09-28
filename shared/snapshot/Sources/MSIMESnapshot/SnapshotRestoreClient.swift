@@ -5,7 +5,27 @@ import Foundation
 public final class SnapshotRestoreClient {
   private let session: URLSession
 
-  public init(session: URLSession = .shared) { self.session = session }
+  final class Redirects: NSObject, URLSessionTaskDelegate, Sendable {
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest,
+                    completionHandler: @escaping (URLRequest?) -> Void) {
+      completionHandler(nil)
+    }
+  }
+
+  public init(configuration: URLSessionConfiguration = .ephemeral) {
+    let configuration = configuration.copy() as! URLSessionConfiguration
+    configuration.httpCookieStorage = nil
+    configuration.urlCache = nil
+    configuration.urlCredentialStorage = nil
+    configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+    session = URLSession(configuration: configuration, delegate: Redirects(), delegateQueue: nil)
+  }
+
+  // Test-only injection keeps URLProtocol fixtures deterministic without making
+  // the public default capable of following a credentialed redirect.
+  init(session: URLSession) { self.session = session }
 
   public struct Result: Decodable, Sendable {
     public let revision: Int64

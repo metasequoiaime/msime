@@ -71,7 +71,9 @@ extension BackendAccountClient {
           Self.resourceText(description, minimum: 0, maximum: 280, multiline: true) else { throw Failure(status: 400) }
     switch kind {
     case .dictionary:
-      guard content.prompt?.isEmpty != false, let entries = content.entries, (1...128).contains(entries.count) else { throw Failure(status: 400) }
+      guard content.prompt?.isEmpty != false, let entries = content.entries, (1...128).contains(entries.count),
+            entries.allSatisfy(Self.validSharedWord),
+            Set(entries.map { "\($0.kind.rawValue)\u{0}\($0.code)\u{0}\($0.word)" }).count == entries.count else { throw Failure(status: 400) }
     case .reply:
       guard content.entries?.isEmpty != false, let prompt = content.prompt,
             Self.resourceText(prompt, minimum: 1, maximum: 2000, multiline: true) else { throw Failure(status: 400) }
@@ -119,6 +121,10 @@ extension BackendAccountClient {
     guard response.deleted else { throw Failure(status: 502) }
   }
   private static func resourcePath(_ id: UUID) -> String { "/v1/community/resources/" + id.uuidString.lowercased() }
+  private static func validSharedWord(_ entry: SharedWord) -> Bool {
+    entry.weight >= 0 && resourceText(entry.code, minimum: 1, maximum: 256, multiline: false) &&
+      resourceText(entry.word, minimum: 1, maximum: 1_024, multiline: false)
+  }
   private static func resourceText(_ text: String, minimum: Int, maximum: Int, multiline: Bool) -> Bool {
     text.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.count >= minimum &&
       text.unicodeScalars.count <= maximum && text.unicodeScalars.allSatisfy {
@@ -126,4 +132,3 @@ extension BackendAccountClient {
       }
   }
 }
-

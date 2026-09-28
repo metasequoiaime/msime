@@ -270,6 +270,7 @@ targets:
       - path: App/Services/DoubaoWebSocketTransport.swift
       - path: App/Services/WAVPCMExtractor.swift
       - path: App/Services/VoiceLevel.swift
+      - path: App/Services/BoundedFileReader.swift
       - path: SharedUI/core/AppServicesBridge.swift
       - path: SharedUI/core/MetasequoiaTheme.swift
       - path: ../../shared/backend

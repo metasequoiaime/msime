@@ -119,12 +119,7 @@ pub(crate) fn startup_panel(route: Option<SurfaceRoute>) -> Option<PanelSurface>
 /// Runs before Tauri constructs any windows, so the hidden settings window
 /// cannot steal the editor's focus during a keyboard-only launch.
 pub(crate) fn prepare_windows(windows: &mut [WindowConfig], route: Option<SurfaceRoute>) {
-    if startup_panel(route).is_some() {
-        for window in windows.iter_mut().filter(|window| window.label == "main") {
-            window.visible = false;
-            window.focus = false;
-        }
-    }
+    super::prepare_windows_for_panel(windows, startup_panel(route));
 }
 
 #[cfg(test)]
