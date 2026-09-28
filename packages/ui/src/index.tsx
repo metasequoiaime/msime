@@ -64,6 +64,7 @@ import { VoiceCredentialFieldsSection } from "./settings/voice-credential-fields
 import { DoubaoAuthModeSection } from "./settings/doubao-auth-mode-section";
 import { DoubaoStreamEndpointSection } from "./settings/doubao-stream-endpoint-section";
 import { DoubaoOptionsSection } from "./settings/doubao-options-section";
+import { DoubaoResourceIdSection } from "./settings/doubao-resource-id-section";
 import { VoiceRecordingBehaviorSection } from "./settings/voice-recording-behavior-section";
 import { VoiceModelMirrorSection } from "./settings/voice-model-mirror-section";
 import {
@@ -458,6 +459,10 @@ export {
   DoubaoOptionsSection,
   type DoubaoOptionsSectionProps,
 } from "./settings/doubao-options-section";
+export {
+  DoubaoResourceIdSection,
+  type DoubaoResourceIdSectionProps,
+} from "./settings/doubao-resource-id-section";
 export {
   VoiceRecordingBehaviorSection,
   type VoiceRecordingBehaviorSectionProps,
@@ -6745,20 +6750,10 @@ export function SettingsPage({
                       </>
                     )}
                     {showVoiceProviderSettings && serviceVoice && (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">
-                            Doubao 资源 ID<small>仅由 Doubao provider 使用</small>
-                          </span>
-                          <input
-                            aria-label="Doubao 资源 ID"
-                            value={voiceInput.asr_resource_id ?? ""}
-                            onChange={(event) =>
-                              updateVoice({ asr_resource_id: event.target.value })
-                            }
-                          />
-                        </label>
-                      </div>
+                      <DoubaoResourceIdSection
+                        value={voiceInput.asr_resource_id ?? ""}
+                        onChange={(asr_resource_id) => updateVoice({ asr_resource_id })}
+                      />
                     )}
                     {linuxPlatform &&
                       client.providerCredentials &&
