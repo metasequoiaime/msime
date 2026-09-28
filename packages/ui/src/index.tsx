@@ -141,11 +141,16 @@ import { LearningSection } from "./settings/learning-section";
 import { LearningDataSection } from "./settings/learning-data-section";
 import { DictionaryManagerHeader } from "./settings/dictionary-manager-header";
 import { DictionaryFailuresNotice } from "./settings/dictionary-failures-notice";
+import { DictionaryManagerControls } from "./settings/dictionary-manager-controls";
 export {
   DictionaryFailuresNotice,
   type DictionaryFailuresNoticeProps,
   type DictionaryFailureNotice,
 } from "./settings/dictionary-failures-notice";
+export {
+  DictionaryManagerControls,
+  type DictionaryManagerControlsProps,
+} from "./settings/dictionary-manager-controls";
 import { SettingsActionsFooter } from "./settings/settings-actions-footer";
 import { AboutHeroSection } from "./settings/about-hero-section";
 import { AboutSettingsSection } from "./settings/about-settings-section";
@@ -3705,56 +3710,21 @@ export function SettingsPage({
                           onRetry={(requestId) => void retryDictionaryFailure(requestId)}
                           onDismiss={(requestId) => void dismissDictionaryFailure(requestId)}
                         />
-                        <div className={settings.managerControls}>
-                          <label>
-                            词库{" "}
-                            <select
-                              aria-label="本地词库类型"
-                              value={dictionaryKind}
-                              disabled={phraseBusy}
-                              onChange={(event) => {
-                                const kind = event.target.value as LocalDictionaryKind;
-                                setDictionaryKind(kind);
-                                if (kind !== "pinyin" && dictionaryFormat === "hans")
-                                  setDictionaryFormat("standard");
-                                setPhrases([]);
-                                void loadPhrases(kind);
-                              }}
-                            >
-                              {localDictionaryKinds.map(([kind, label]) => (
-                                <option key={kind} value={kind}>
-                                  {label}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          <label>
-                            文件格式{" "}
-                            <select
-                              aria-label="本地词库文件格式"
-                              value={dictionaryFormat}
-                              disabled={phraseBusy}
-                              onChange={(event) =>
-                                setDictionaryFormat(event.target.value as LocalDictionaryFormat)
-                              }
-                            >
-                              <option value="standard">词在前（标准 TSV）</option>
-                              <option value="windows">编码在前（Windows TSV）</option>
-                              <option value="rime">Rime userdb / dict.yaml</option>
-                              {dictionaryKind === "pinyin" && (
-                                <option value="hans">汉字自动注音（仅导入）</option>
-                              )}
-                            </select>
-                          </label>
-                          <label>
-                            编码前缀{" "}
-                            <input
-                              value={phraseSearch}
-                              placeholder="留空查看全部"
-                              onChange={(event) => setPhraseSearch(event.target.value)}
-                            />
-                          </label>
-                        </div>
+                        <DictionaryManagerControls
+                          kind={dictionaryKind}
+                          format={dictionaryFormat}
+                          search={phraseSearch}
+                          disabled={phraseBusy}
+                          onKindChange={(kind) => {
+                            setDictionaryKind(kind);
+                            if (kind !== "pinyin" && dictionaryFormat === "hans")
+                              setDictionaryFormat("standard");
+                            setPhrases([]);
+                            void loadPhrases(kind);
+                          }}
+                          onFormatChange={setDictionaryFormat}
+                          onSearchChange={setPhraseSearch}
+                        />
                         {phraseError && (
                           <p role="alert" className="error">
                             {phraseError}
