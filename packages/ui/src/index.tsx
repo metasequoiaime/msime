@@ -184,6 +184,7 @@ import { VoiceRecordingBehaviorSection } from "./settings/voice-recording-behavi
 import { FeedbackSettingsSection } from "./settings/feedback-settings-section";
 import { HandwritingSettingsSection } from "./settings/handwriting-settings-section";
 import { HandwritingPlatformNotice } from "./settings/handwriting-platform-notice";
+import { MobileInputAiNotice } from "./settings/mobile-input-ai-notice";
 import { VoiceModelMirrorSection } from "./settings/voice-model-mirror-section";
 import {
   CredentialTestSection,
@@ -443,6 +444,10 @@ export {
   type HandwritingPlatform,
   type HandwritingPlatformNoticeProps,
 } from "./settings/handwriting-platform-notice";
+export {
+  MobileInputAiNotice,
+  type MobileInputAiNoticeProps,
+} from "./settings/mobile-input-ai-notice";
 export {
   CandidateTranslationOptionsSection,
   type CandidateTranslationOptionsSectionProps,
@@ -4656,21 +4661,7 @@ export function SettingsPage({
                         onOpenExternalUrl={client.openExternalUrl ? openExternalUrl : undefined}
                       />
                     )}
-                    {mobilePlatform && (
-                      <div className="section input-ai-info">
-                        <div className="section-title">高情商回复</div>
-                        <p>
-                          复制对方的话，切换到高情商回复键盘，点“粘贴”后选择回复风格。支持帮你回、帮润色和换一句，点选回复插入聊天输入框。
-                        </p>
-                        <button
-                          type="button"
-                          className="secondary"
-                          onClick={() => selectPage("ai")}
-                        >
-                          配置键盘 AI
-                        </button>
-                      </div>
-                    )}
+                    {mobilePlatform && <MobileInputAiNotice onOpenAi={() => selectPage("ai")} />}
                     {!client.touchKeyboardSchemes && (
                       <InputModeSection
                         scheme={draft.scheme}
