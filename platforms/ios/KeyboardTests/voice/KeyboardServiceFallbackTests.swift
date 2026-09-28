@@ -3,12 +3,16 @@ import XCTest
 
 private final class KeyboardFallbackFixture: URLProtocol, @unchecked Sendable {
   static var response = Data()
+  static var requestedRedirect = false
   static var requestedSecret = false
 
   override class func canInit(with request: URLRequest) -> Bool { true }
   override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
   override func startLoading() {
+    if request.url?.path == "/redirect" {
+      Self.requestedRedirect = true
+    }
     if request.url?.path == "/secret" {
       Self.requestedSecret = true
     }
@@ -16,7 +20,7 @@ private final class KeyboardFallbackFixture: URLProtocol, @unchecked Sendable {
       let target = URL(string: "https://other.invalid/secret")!
       let response = HTTPURLResponse(url: request.url!, statusCode: 302, httpVersion: nil,
                                      headerFields: ["Location": target.absoluteString])!
-      client?.urlProtocol(self, wasRedirectedTo: URLRequest(url: target), response: response)
+      client?.urlProtocol(self, wasRedirectedTo: URLRequest(url: target), redirectResponse: response)
       return
     }
     let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
@@ -59,7 +63,11 @@ final class KeyboardServiceFallbackTests: XCTestCase {
 
   func testRefusesToFollowAResponseRedirect() async throws {
     KeyboardFallbackFixture.requestedSecret = false
-    defer { KeyboardFallbackFixture.requestedSecret = false }
+    KeyboardFallbackFixture.requestedRedirect = false
+    defer {
+      KeyboardFallbackFixture.requestedSecret = false
+      KeyboardFallbackFixture.requestedRedirect = false
+    }
 
     do {
       _ = try await CustomServiceClient.request(
@@ -67,6 +75,7 @@ final class KeyboardServiceFallbackTests: XCTestCase {
         text: "fixture", token: "fixture-token", sessionConfiguration: sessionConfiguration())
       XCTFail("redirect response was accepted")
     } catch {
+      XCTAssertTrue(KeyboardFallbackFixture.requestedRedirect)
       XCTAssertFalse(KeyboardFallbackFixture.requestedSecret)
     }
   }
