@@ -26,7 +26,7 @@
 <key>InputMethodServerPreferencesWindowControllerClass</key><string>MSIMEPreferencesWindowController</string>
 <!-- The input menu draws its icons through HIToolbox, which reads the file's pages rather than one page's DPI. A 256-point application icon in this slot is scaled into a 16-point menu slot as artwork rather than as a template, so it cannot tint for dark mode or for the highlighted menu row. The bundle's logo here, which the three input modes below reuse so every entry of the input-source list shows the same icon, carries 16x16 at 72 dpi and 32x32 at 144 dpi, which is the pairing Apple's own input methods ship, and is a black shape carried entirely by its alpha channel. Regenerate it with scripts/render_menu_icon.swift after editing the SVG beside it; info-plist-icons checks the pages. CFBundleIconFile stays the .icns: that one is the Dock icon for the preferences window and wants the full-colour artwork. -->
 <key>tsInputMethodIconFileKey</key><string>MSIMEClientInputMethodMenuIcon.tiff</string>
-<!-- macOS offers an input method through its visible input modes, and the bundle declares three: a Chinese mode, an English mode and a Japanese mode. All three show the bundle's logo, so the menu bar icon does not change with the mode; the switch HUD shows which mode is active. The input controller keeps the selected mode in step with its own state in both directions: the English mode follows the Chinese/English switch, the Japanese mode follows the japanese input scheme. Keeping a separate top-level TISInputSourceID beside these modes creates another menu entry with the same localized name, so the bundle-level source is intentionally left to the system; each mode carries its own localized name in InfoPlist.strings - 水杉输入法 · 中, · 日 and · 英 - so the entries read differently, and the visible order lists them 中, 日, 英. The mode identifiers are mirrored in src/input/InputModeIdentifiers.h. -->
+<!-- macOS offers an input method through its visible input modes, and the bundle declares three: a Chinese mode, an English mode and a Japanese mode. All three show the bundle's logo, so the menu bar icon does not change with the mode; the switch HUD shows which mode is active. The input controller keeps the selected mode in step with its own state in both directions: the English mode follows the Chinese/English switch, the Japanese mode follows the japanese input scheme. Keeping a separate top-level TISInputSourceID beside these modes creates another menu entry with the same localized name, so the bundle-level source is intentionally left to the system; each mode carries its own localized name in InfoPlist.strings - 水杉输入法 · 中, · 日 and · 英 - so the entries read differently, and the visible order lists them 中, 日, 英. All three declare the smSimpChinese script although the English mode writes Latin and the Japanese mode writes kana: the input menu groups its entries by script - Roman first, then the scripts of the user's preferred languages, then the rest - and sorts each group by name, so modes with their own scripts land in three groups with other input methods between them. Sharing one script keeps the three entries together, and the shared 水杉输入法 prefix keeps any other name from sorting between them. The add-input-source dialog files a mode under its intended language, not its script, so the Japanese mode still appears under 日语. The mode identifiers are mirrored in src/input/InputModeIdentifiers.h. -->
 <key>ComponentInputModeDict</key>
 <dict>
   <key>tsInputModeListKey</key>
@@ -53,7 +53,7 @@
       <key>tsInputModeMenuIconFileKey</key><string>MSIMEClientInputMethodMenuIcon.tiff</string>
       <key>tsInputModePaletteIconFileKey</key><string>MSIMEClientInputMethodMenuIcon.tiff</string>
       <key>tsInputModePrimaryInScriptKey</key><false/>
-      <key>tsInputModeScriptKey</key><string>smRoman</string>
+      <key>tsInputModeScriptKey</key><string>smSimpChinese</string>
     </dict>
     <key>app.msime.inputmethod.MetasequoiaIME.Japanese</key>
     <dict>
@@ -65,7 +65,7 @@
       <key>tsInputModeMenuIconFileKey</key><string>MSIMEClientInputMethodMenuIcon.tiff</string>
       <key>tsInputModePaletteIconFileKey</key><string>MSIMEClientInputMethodMenuIcon.tiff</string>
       <key>tsInputModePrimaryInScriptKey</key><true/>
-      <key>tsInputModeScriptKey</key><string>smJapanese</string>
+      <key>tsInputModeScriptKey</key><string>smSimpChinese</string>
     </dict>
   </dict>
   <key>tsVisibleInputModeOrderedArrayKey</key>

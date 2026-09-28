@@ -177,6 +177,14 @@ if ! "$destination/Contents/MacOS/$executable" --register-input-source; then
   echo "--register-input-source exited non-zero; what the registry says below is what decides" >&2
 fi
 
+# System Settings' add-input-source dialog does not read the input-source registry but a cache that the sandboxed Keyboard settings extension keeps in its own container, and nothing regenerates that copy when a bundle changes its modes - restarting System Settings does not. A mode added to the bundle stays missing from the dialog until the files are gone; the extension rebuilds them the next time it opens. It holds them while it runs, so the files are left alone then.
+keyboard_settings_cache="$(getconf DARWIN_USER_CACHE_DIR)com.apple.Keyboard-Settings.extension"
+if pgrep -xq "System Settings"; then
+  echo "System Settings is open: quit it and run this again, or its add-input-source dialog keeps showing the modes it cached before this install" >&2
+else
+  rm -f "$keyboard_settings_cache"/com.apple.IntlDataCache.le*
+fi
+
 # Three outcomes, and the note at the bottom is only right for one of them. Printing it for all three is
 # what this used to do: an input method that registers, enables its Chinese mode and types perfectly well
 # would be reported as absent from the session, with instructions to log out that cannot change anything,
