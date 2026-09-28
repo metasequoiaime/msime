@@ -86,9 +86,7 @@ struct AndroidVoiceResponse {
 fn valid_android_voice_request(request_id: &str, language: &str) -> bool {
     !request_id.is_empty()
         && request_id.len() <= 64
-        && request_id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        && msime_client_core::is_ascii_alphanumeric_dash(request_id)
         && !language.is_empty()
         && is_bounded_text(language, 64)
 }
@@ -294,10 +292,7 @@ impl MobileVoiceTranscriptionRequest {
     pub fn is_valid(&self) -> bool {
         let common = !self.request_id.is_empty()
             && self.request_id.len() <= 64
-            && self
-                .request_id
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+            && msime_client_core::is_ascii_alphanumeric_dash(&self.request_id)
             && is_bounded_text(&self.endpoint, MAX_MOBILE_VOICE_ENDPOINT_BYTES)
             && is_bounded_text(&self.model, MAX_MOBILE_VOICE_MODEL_BYTES)
             && is_bounded_text(&self.token, MAX_MOBILE_VOICE_TOKEN_BYTES)

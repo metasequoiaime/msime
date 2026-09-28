@@ -139,9 +139,7 @@ pub fn recognize(
     if controller >> 32 == 0
         || language.is_empty()
         || language.len() > 64
-        || !language
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        || !crate::is_ascii_alphanumeric_dash(language)
     {
         return Err(Error::Invalid);
     }

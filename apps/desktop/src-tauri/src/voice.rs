@@ -209,10 +209,7 @@ pub(crate) async fn recognize_voice(
     let _ = (&app, &runtime, &store, &dictionary);
     if request.request_id.is_empty()
         || request.request_id.len() > 64
-        || !request
-            .request_id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        || !msime_client_core::is_ascii_alphanumeric_dash(&request.request_id)
         || request.language.is_empty()
         || request.language.len() > 64
         || request.language.chars().any(char::is_control)
