@@ -9,6 +9,8 @@ struct LocalSpeechModelManifest: Equatable {
   }
 
   static let fileName = "msime-model.json"
+  /// The manifest is a small catalog entry, not a model payload. Keep a damaged or untrusted file from being read without a bound.
+  static let maximumManifestBytes = 256 * 1024
 
   let directory: URL
   let kind: Kind
@@ -19,14 +21,24 @@ struct LocalSpeechModelManifest: Equatable {
 
   init(directory: URL) throws {
     let url = directory.appendingPathComponent(Self.fileName)
-    guard let data = try? Data(contentsOf: url) else { throw ServiceFailure(message: "所选目录不是已安装的本地语音模型。") }
+    let invalidManifest = ServiceFailure(message: "本地语音模型的描述文件已损坏，请删除后重新下载。")
+    guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize else {
+      throw ServiceFailure(message: "所选目录不是已安装的本地语音模型。")
+    }
+    guard size <= Int64(Self.maximumManifestBytes) else { throw invalidManifest }
+    guard let handle = try? FileHandle(forReadingFrom: url) else {
+      throw ServiceFailure(message: "所选目录不是已安装的本地语音模型。")
+    }
+    defer { try? handle.close() }
+    guard let data = try? handle.read(upToCount: Self.maximumManifestBytes + 1),
+          data.count <= Self.maximumManifestBytes else { throw invalidManifest }
     guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
           let kindName = object["kind"] as? String, let files = object["files"] as? [String: Any]
-    else { throw ServiceFailure(message: "本地语音模型的描述文件已损坏，请删除后重新下载。") }
+    else { throw invalidManifest }
     guard let kind = Kind(rawValue: kindName) else { throw ServiceFailure(message: "暂不支持这种本地语音模型（\(kindName)）。") }
     var names: [String: String] = [:]
     for (role, value) in files {
-      guard let name = value as? String else { throw ServiceFailure(message: "本地语音模型的描述文件已损坏，请删除后重新下载。") }
+      guard let name = value as? String else { throw invalidManifest }
       names[role] = name
     }
     self.directory = directory

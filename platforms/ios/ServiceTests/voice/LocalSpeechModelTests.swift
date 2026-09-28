@@ -74,6 +74,15 @@ final class LocalSpeechModelTests: XCTestCase {
     XCTAssertThrowsError(try LocalSpeechModelManifest(directory: scratch.appendingPathComponent("missing")))
   }
 
+  func testManifestRejectsOversizedFiles() throws {
+    let model = try makeModel(id: "oversized", manifest: [
+      "kind": "online_transducer",
+      "files": [:],
+      "padding": String(repeating: "x", count: 256 * 1024),
+    ], files: [])
+    XCTAssertThrowsError(try LocalSpeechModelManifest(directory: model))
+  }
+
   func testStoredPathFollowsTheModelIntoAMovedContainer() throws {
     let root = scratch.appendingPathComponent("voice-models", isDirectory: true)
     let model = try makeModel(id: "zipformer", manifest: ["kind": "online_transducer", "files": [:]], files: [], root: root)
