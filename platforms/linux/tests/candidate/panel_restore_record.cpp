@@ -15,6 +15,7 @@ int main() {
   using msime::linux_host::panel_restore_file;
   using msime::linux_host::panel_takeover_entry;
   using msime::linux_host::record_panel_takeover;
+  using msime::linux_host::read_panel_restore;
   using Json = nlohmann::json;
 
   // $XDG_STATE_HOME when absolute, otherwise ~/.local/state; nothing without an absolute base.
@@ -62,6 +63,12 @@ int main() {
 
   // An unreadable record is replaced rather than blocking the write.
   std::ofstream(file) << "{not json";
+  assert(record_panel_takeover(file, "fcitx5", "Font", "Sans 10", "Noto Sans SC 18px"));
+
+  std::ofstream oversized(file, std::ios::binary | std::ios::trunc);
+  oversized << std::string(msime::linux_host::kPanelRestoreMaxBytes + 1, 'x');
+  oversized.close();
+  assert(!read_panel_restore(file));
   assert(record_panel_takeover(file, "fcitx5", "Font", "Sans 10", "Noto Sans SC 18px"));
   assert(read(file) == Json({{"fcitx5", {{"Font", {{"prior", "Sans 10"}, {"written", "Noto Sans SC 18px"}}}}}}));
 
