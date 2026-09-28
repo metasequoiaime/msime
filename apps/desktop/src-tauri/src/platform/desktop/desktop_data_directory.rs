@@ -51,3 +51,9 @@ where
     fs::set_permissions(destination, metadata.permissions())?;
     fs::File::open(destination).and_then(|file| file.sync_all())
 }
+
+pub(crate) fn has_ownership_marker(directory: &Path, marker: &str) -> bool {
+    fs::symlink_metadata(directory.join(marker))
+        .map(|metadata| metadata.is_file())
+        .unwrap_or(false)
+}

@@ -107,12 +107,6 @@ fn is_staging(name: &std::ffi::OsStr) -> bool {
         .is_some_and(|name| name.starts_with(STAGING_PREFIX))
 }
 
-fn has_ownership_marker(directory: &Path) -> bool {
-    fs::symlink_metadata(directory.join(DATA_DIRECTORY_MARKER))
-        .map(|metadata| metadata.is_file())
-        .unwrap_or(false)
-}
-
 /// The state entries of `source`: everything except the pinned configuration files, the ownership marker and leftover staging directories.
 fn state_entries(source: &Path) -> Result<Vec<OsString>, MoveError> {
     let mut entries = Vec::new();
@@ -209,7 +203,12 @@ fn rollback(target: &Path, placed: &[OsString], wrote_marker: bool, backups: &[L
 }
 
 fn cleanup_source(source: &Path, default_root: &Path, moved: &[OsString]) -> bool {
-    if source != default_root && !has_ownership_marker(source) {
+    if source != default_root
+        && !crate::platform::desktop::desktop_data_directory::has_ownership_marker(
+            source,
+            DATA_DIRECTORY_MARKER,
+        )
+    {
         return false;
     }
     // Take every entry out of place with one rename before deleting it, so a host still configured for the old paths finds no directory at all rather than one being emptied under it, which it could open and start a new library in.
@@ -322,7 +321,11 @@ impl MovePlan {
             )
             .map_err(|_| MoveError::Copy)?;
         }
-        let wrote_marker = target != default_root && !has_ownership_marker(&target);
+        let wrote_marker = target != default_root
+            && !crate::platform::desktop::desktop_data_directory::has_ownership_marker(
+                &target,
+                DATA_DIRECTORY_MARKER,
+            );
         if wrote_marker
             && fs::write(
                 target.join(DATA_DIRECTORY_MARKER),
