@@ -212,6 +212,7 @@ import { CustomTranslationSection } from "./settings/custom-translation-section"
 import { CustomTranslationsSection } from "./settings/custom-translations-section";
 import { TencentTranslationSection } from "./settings/tencent-translation-section";
 import { TranslationServiceSelectorSection } from "./settings/translation-service-selector-section";
+import { OnDeviceTranslationNotice } from "./settings/on-device-translation-notice";
 import {
   VoiceCredentialSection,
   type VoiceCredentialSaveInput,
@@ -718,6 +719,10 @@ export {
   type TranslationProvider,
   type TranslationServiceSelectorSectionProps,
 } from "./settings/translation-service-selector-section";
+export {
+  OnDeviceTranslationNotice,
+  type OnDeviceTranslationNoticeProps,
+} from "./settings/on-device-translation-notice";
 export {
   DictionaryManifestCard,
   type DictionaryManifestCardProps,
@@ -4873,32 +4878,11 @@ export function SettingsPage({
                       }
                     />
                     {onDeviceMissingLanguages.length > 0 && (
-                      <div role="status" className="notice" aria-label="系统翻译语言未下载">
-                        <p>
-                          整句候选暂时没有翻译：macOS 还没有下载「中文（简体）→{" "}
-                          {onDeviceMissingLanguages.map(([, label]) => label).join("、")}
-                          」翻译语言。离线词库只收词语，「现在几点了」这样的整句要靠系统在本机翻译，不联网。
-                        </p>
-                        <p>
-                          请在 系统设置 &gt; 通用 &gt; 语言与地区 &gt; 翻译语言
-                          中下载，然后回到输入框继续输入即可生效。也可以在下方选择一个在线翻译服务。
-                          <button
-                            type="button"
-                            className="secondary"
-                            onClick={() =>
-                              void client.onDeviceTranslation
-                                ?.openSettings()
-                                .catch(() =>
-                                  setError(
-                                    "无法打开系统设置，请手动前往 系统设置 > 通用 > 语言与地区 > 翻译语言。",
-                                  ),
-                                )
-                            }
-                          >
-                            打开语言与地区
-                          </button>
-                        </p>
-                      </div>
+                      <OnDeviceTranslationNotice
+                        languages={onDeviceMissingLanguages.map(([, label]) => label)}
+                        openSettings={client.onDeviceTranslation?.openSettings}
+                        onError={setError}
+                      />
                     )}
                     {!androidPlatform && (
                       <>
