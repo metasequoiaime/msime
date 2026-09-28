@@ -37,18 +37,14 @@ export function CandidateTranslationOptionsSection({
 }: CandidateTranslationOptionsSectionProps) {
   return (
     <div className="section">
-      <label className="section-header">
-        <span className="section-title">
-          候选词翻译<small>为当前候选请求翻译结果并显示在候选行</small>
-        </span>
-        <input
-          aria-label="候选词翻译"
-          className="toggle"
-          type="checkbox"
-          checked={enabled}
-          onChange={(event) => onEnabledChange(event.target.checked)}
-        />
-      </label>
+      <SettingToggle
+        label="候选词翻译"
+        description="为当前候选请求翻译结果并显示在候选行"
+        ariaLabel="候选词翻译"
+        checked={enabled}
+        compact
+        onChange={onEnabledChange}
+      />
       <div className="input-option-divider" />
       <label className="section-header">
         <span className="section-title">目标语言</span>
@@ -92,25 +88,23 @@ export function CandidateTranslationOptionsSection({
       {showAccountTranslation && (
         <>
           <div className="input-option-divider" />
-          <label className="section-header">
-            <span className="section-title">
-              使用水杉账号翻译候选词
-              <small>
+          <SettingToggle
+            label="使用水杉账号翻译候选词"
+            description={
+              <>
                 当前页的中文候选词会发送到 api.msime.app；匿名账号在 Linux
                 安装后的用户初始化中自动注册；不开启则不联网翻译
-              </small>
-            </span>
-            <input
-              aria-label="使用水杉账号翻译候选词"
-              className="toggle"
-              type="checkbox"
-              disabled={!enabled}
-              checked={accountTranslation}
-              onChange={(event) => onAccountTranslationChange(event.target.checked)}
-            />
-          </label>
+              </>
+            }
+            ariaLabel="使用水杉账号翻译候选词"
+            disabled={!enabled}
+            checked={accountTranslation}
+            compact
+            onChange={onAccountTranslationChange}
+          />
         </>
       )}
     </div>
   );
 }
+import { SettingToggle } from "./setting-toggle";
