@@ -397,11 +397,10 @@ pub unsafe extern "C" fn msime_client_translation_gloss_save(
             return Err("user data requires an existing absolute directory".into());
         }
         if request.translations.len() > 9
-            || request.translations.iter().any(|item| {
-                item.text.len() > 4096
-                    || item.translation.len() > 4096
-                    || item.text.chars().any(char::is_control)
-            })
+            || request
+                .translations
+                .iter()
+                .any(|item| !valid_bounded_text(&item.text, 4096) || item.translation.len() > 4096)
         {
             return Err("translation persistence entries exceed limits".into());
         }
