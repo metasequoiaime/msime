@@ -191,15 +191,12 @@ pub async fn ai_skin_cancel(
     Ok(())
 }
 
-async fn community_call<T, F>(
-    state: State<'_, MobileCommunityState>,
-    operation: F,
-) -> Result<T, crate::CommandError>
+async fn service_call<S, T, F>(service: Arc<S>, operation: F) -> Result<T, crate::CommandError>
 where
     T: Send + 'static,
-    F: FnOnce(&CommunityService) -> Result<T, AccountError> + Send + 'static,
+    S: Send + Sync + 'static,
+    F: FnOnce(&S) -> Result<T, AccountError> + Send + 'static,
 {
-    let service = Arc::clone(&state.community);
     tauri::async_runtime::spawn_blocking(move || operation(&service))
         .await
         .map_err(|_| crate::CommandError {
@@ -260,7 +257,10 @@ pub async fn community_skin_list(
     offset: usize,
     search: String,
 ) -> Result<CommunitySkinPage, crate::CommandError> {
-    community_call(state, move |service| service.list(offset, &search)).await
+    service_call(Arc::clone(&state.community), move |service| {
+        service.list(offset, &search)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -269,7 +269,10 @@ pub async fn community_skin_detail(
     id: String,
 ) -> Result<CommunitySkin, crate::CommandError> {
     let id = community_id(&id)?;
-    community_call(state, move |service| service.detail(id)).await
+    service_call(Arc::clone(&state.community), move |service| {
+        service.detail(id)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -309,7 +312,10 @@ pub async fn community_skin_rate(
     stars: u8,
 ) -> Result<(), crate::CommandError> {
     let id = community_id(&id)?;
-    community_call(state, move |service| service.rate(id, stars)).await
+    service_call(Arc::clone(&state.community), move |service| {
+        service.rate(id, stars)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -321,7 +327,7 @@ pub async fn community_skin_publish(
     design: TouchKeyboardSkinDesign,
 ) -> Result<(), crate::CommandError> {
     let id = community_id(&id)?;
-    community_call(state, move |service| {
+    service_call(Arc::clone(&state.community), move |service| {
         service.publish(id, &name, &description, &design)
     })
     .await
@@ -333,7 +339,10 @@ pub async fn community_skin_unpublish(
     id: String,
 ) -> Result<(), crate::CommandError> {
     let id = community_id(&id)?;
-    community_call(state, move |service| service.unpublish(id)).await
+    service_call(Arc::clone(&state.community), move |service| {
+        service.unpublish(id)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -363,23 +372,6 @@ fn resource_scope(value: &str) -> Result<CommunityResourceScope, crate::CommandE
     }
 }
 
-async fn resource_call<T, F>(
-    state: State<'_, MobileCommunityState>,
-    operation: F,
-) -> Result<T, crate::CommandError>
-where
-    T: Send + 'static,
-    F: FnOnce(&CommunityResourceService) -> Result<T, AccountError> + Send + 'static,
-{
-    let service = Arc::clone(&state.resources);
-    tauri::async_runtime::spawn_blocking(move || operation(&service))
-        .await
-        .map_err(|_| crate::CommandError {
-            code: "community_unavailable",
-        })?
-        .map_err(community_error)
-}
-
 #[tauri::command]
 pub async fn community_resource_list(
     state: State<'_, MobileCommunityState>,
@@ -389,7 +381,7 @@ pub async fn community_resource_list(
     offset: usize,
 ) -> Result<CommunityResourcePage, crate::CommandError> {
     let scope = resource_scope(&scope)?;
-    resource_call(state, move |service| {
+    service_call(Arc::clone(&state.resources), move |service| {
         service.list(kind, scope, &search, offset)
     })
     .await
@@ -401,7 +393,10 @@ pub async fn community_resource_detail(
     id: String,
 ) -> Result<CommunityResource, crate::CommandError> {
     let id = community_id(&id)?;
-    resource_call(state, move |service| service.detail(id)).await
+    service_call(Arc::clone(&state.resources), move |service| {
+        service.detail(id)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -415,7 +410,7 @@ pub async fn community_resource_publish(
     revision: u32,
 ) -> Result<CommunityResourcePublication, crate::CommandError> {
     let id = community_id(&id)?;
-    resource_call(state, move |service| {
+    service_call(Arc::clone(&state.resources), move |service| {
         service.publish(id, kind, &name, &description, &content, revision)
     })
     .await
@@ -428,7 +423,10 @@ pub async fn community_resource_apply(
     resource_revision: u32,
 ) -> Result<CommunityResourceApplication, crate::CommandError> {
     let id = community_id(&id)?;
-    resource_call(state, move |service| service.apply(id, resource_revision)).await
+    service_call(Arc::clone(&state.resources), move |service| {
+        service.apply(id, resource_revision)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -438,7 +436,10 @@ pub async fn community_resource_save(
     saved: bool,
 ) -> Result<(), crate::CommandError> {
     let id = community_id(&id)?;
-    resource_call(state, move |service| service.save(id, saved)).await
+    service_call(Arc::clone(&state.resources), move |service| {
+        service.save(id, saved)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -448,7 +449,10 @@ pub async fn community_resource_rate(
     stars: u8,
 ) -> Result<(), crate::CommandError> {
     let id = community_id(&id)?;
-    resource_call(state, move |service| service.rate(id, stars)).await
+    service_call(Arc::clone(&state.resources), move |service| {
+        service.rate(id, stars)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -457,7 +461,10 @@ pub async fn community_resource_unpublish(
     id: String,
 ) -> Result<(), crate::CommandError> {
     let id = community_id(&id)?;
-    resource_call(state, move |service| service.delete(id)).await
+    service_call(Arc::clone(&state.resources), move |service| {
+        service.delete(id)
+    })
+    .await
 }
 
 #[tauri::command]
