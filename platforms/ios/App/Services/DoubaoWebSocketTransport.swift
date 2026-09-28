@@ -87,6 +87,13 @@ final class DoubaoWebSocketTransport: NSObject, URLSessionWebSocketDelegate, Dou
     }
   }
 
+  func urlSession(_ session: URLSession, task: URLSessionTask,
+                  willPerformHTTPRedirection response: HTTPURLResponse,
+                  newRequest request: URLRequest,
+                  completionHandler: @escaping (URLRequest?) -> Void) {
+    completionHandler(nil)
+  }
+
   func send(binary frame: Data) async throws {
     guard let task, isConnected else { throw Failure.notConnected }
     try await task.send(.data(frame))

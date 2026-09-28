@@ -29,11 +29,20 @@ public actor BackendTelemetryClient {
   static let maxQueueFileBytes = 1024 * 1024
   private static let queueLock = NSLock()
 
+  private final class Redirects: NSObject, URLSessionTaskDelegate, Sendable {
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest,
+                    completionHandler: @escaping (URLRequest?) -> Void) {
+      completionHandler(nil)
+    }
+  }
+
   public init(configuration: URLSessionConfiguration = .ephemeral, queueURL: URL? = nil) {
     let configuration = configuration.copy() as! URLSessionConfiguration
     configuration.httpCookieStorage = nil; configuration.urlCache = nil
     configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-    self.session = URLSession(configuration: configuration)
+    self.session = URLSession(configuration: configuration, delegate: Redirects(), delegateQueue: nil)
     self.queueURL = queueURL ?? Self.defaultQueueURL()
   }
 

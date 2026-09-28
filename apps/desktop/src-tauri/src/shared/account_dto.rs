@@ -39,10 +39,18 @@ pub struct ProvidersResponse {
     apple: bool,
 }
 
+pub(crate) fn provider_flags(providers: &HashMap<String, bool>) -> (bool, bool) {
+    (
+        providers.get("email") == Some(&true),
+        providers.get("phone") == Some(&true) || providers.get("sms") == Some(&true),
+    )
+}
+
 pub(crate) fn providers_response(providers: HashMap<String, bool>) -> ProvidersResponse {
+    let (email, phone) = provider_flags(&providers);
     ProvidersResponse {
-        email: providers.get("email") == Some(&true),
-        phone: providers.get("phone") == Some(&true) || providers.get("sms") == Some(&true),
+        email,
+        phone,
         apple: providers.get("apple") == Some(&true),
     }
 }

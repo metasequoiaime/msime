@@ -65,6 +65,8 @@ import { PolishCredentialFieldsSection } from "./settings/polish-credential-fiel
 import { VoiceStreamPreeditSection } from "./settings/voice-stream-preedit-section";
 import { VoiceCommitModeSection, type VoiceCommitMode } from "./settings/voice-commit-mode-section";
 import { VoiceCaptureDevicesSection } from "./settings/voice-capture-devices-section";
+import { VoiceHotkeysSection } from "./settings/voice-hotkeys-section";
+import { FloatingToolbarAppearanceSection } from "./settings/floating-toolbar-appearance-section";
 import { DoubaoAuthModeSection } from "./settings/doubao-auth-mode-section";
 import { DoubaoStreamEndpointSection } from "./settings/doubao-stream-endpoint-section";
 import { DoubaoOptionsSection } from "./settings/doubao-options-section";
@@ -80,6 +82,16 @@ import {
 import { ProviderPresetSection, type ProviderPreset } from "./settings/provider-preset-section";
 import { CredentialStatusMessage } from "./settings/credential-status-message";
 import { AiCredentialSection } from "./settings/ai-credential-section";
+import {
+  tencentCredentialIssue,
+  translationEndpointIssue,
+} from "./settings/translation-validation";
+export {
+  tencentCredentialIssue,
+  translationEndpointIssue,
+} from "./settings/translation-validation";
+import { aiCredentialOrigin, providerCredentialErrorMessage } from "./settings/credential-utils";
+export { aiCredentialOrigin, providerCredentialErrorMessage } from "./settings/credential-utils";
 import { AiPromptSettingsSection } from "./settings/ai-prompt-settings-section";
 import { AiTestToolsSection } from "./settings/ai-test-tools-section";
 import { AiCandidateLimitSection } from "./settings/ai-candidate-limit-section";
@@ -478,6 +490,18 @@ export {
   type VoiceCaptureBackendOption,
   type VoiceCaptureBackend,
 } from "./settings/voice-capture-devices-section";
+export {
+  VoiceHotkeysSection,
+  type VoiceHotkeysSectionProps,
+  type VoiceHotkeyKey,
+  type VoiceHotkeyPlatform,
+} from "./settings/voice-hotkeys-section";
+export {
+  FloatingToolbarAppearanceSection,
+  type FloatingToolbarAppearanceSectionProps,
+  type FloatingToolbarFontSize,
+  type FloatingToolbarScale,
+} from "./settings/floating-toolbar-appearance-section";
 export {
   DoubaoAuthModeSection,
   type DoubaoAuthMode,
@@ -1164,35 +1188,6 @@ export type ProviderCredentialClient = {
   }): Promise<VoiceCredentialSaveResult>;
   clearVoice(kind: VoiceCredentialKind, provider: string): Promise<VoiceCredentialSaveResult>;
 };
-export function providerCredentialErrorMessage(error: unknown): string {
-  const code =
-    typeof error === "object" && error !== null && "code" in error
-      ? String((error as { code: unknown }).code)
-      : "";
-  switch (code) {
-    case "provider_credentials_invalid_endpoint":
-      return "接口地址必须是完整的 HTTPS 地址，且不能包含用户名、密码或 # 片段。";
-    case "provider_credentials_invalid_model":
-      return "请先填写模型。";
-    case "provider_credentials_invalid_provider":
-      return "请先选择服务商。";
-    case "provider_credentials_invalid_token":
-    case "provider_credentials_invalid_secret":
-      return "凭据只能包含可见的 ASCII 字符，且不能是示例占位值。";
-    case "provider_credentials_token_required":
-      return "请填写凭据。";
-    case "provider_credentials_invalid_region":
-      return "地域只能包含小写字母、数字和连字符，例如 ap-guangzhou。";
-    case "provider_credentials_too_many_profiles":
-      return "已保存的 AI 服务商过多，请先清除不再使用的凭据。";
-    case "provider_credentials_existing_invalid":
-      return "现有配置文件不是仅限当前用户读写的有效 JSON，请修复或删除后重试。";
-    case "provider_credentials_location":
-      return "无法确定用户配置目录，请检查 HOME 或 XDG_CONFIG_HOME。";
-    default:
-      return "无法写入凭据文件，请检查用户配置目录的权限。";
-  }
-}
 export type AiAssistantClient = {
   // `provider` is for the hosts whose provider service holds the credential: it
   // is what that service checks its private configuration against. The hosts that
@@ -1415,18 +1410,6 @@ const defaultVoiceInput: VoiceInputPreferences = {
   doubao_auth_mode: "api_key",
   asr_resource_id: "volc.seedasr.sauc.duration",
 };
-
-export function aiCredentialOrigin(endpoint: string): string | null {
-  if (!endpoint || endpoint.length > 2048 || /[\u0000-\u001f\u007f]/.test(endpoint)) return null;
-  try {
-    const url = new URL(endpoint.trim());
-    if (url.protocol !== "https:" || !url.hostname || url.username || url.password || url.hash)
-      return null;
-    return `https://${url.hostname.toLowerCase()}:${url.port || "443"}`;
-  } catch {
-    return null;
-  }
-}
 
 const defaultCustomTranslation = { enabled: false, endpoint: "", api_key: "" };
 const defaultTencentTranslation = {
@@ -1851,10 +1834,6 @@ const floatingToolbarOptions: [
   ["voice", "语音输入", "floating_toolbar_voice"],
   ["settings", "设置", null],
 ];
-const floatingToolbarScales: FloatingToolbarPreferences["scale_percent"][] = [75, 100, 125, 150];
-const floatingToolbarFontSizes: FloatingToolbarPreferences["font_size"][] = [
-  16, 18, 20, 22, 24, 26, 28,
-];
 /** What the macOS settings app did with the input method it carries when it started. */
 export type InputSourceStartupStatus = {
   /** `login_required`: the input method is installed, but this login session's input source list only picks it up after the user logs in again. */
@@ -2145,34 +2124,6 @@ export function tencentSecretConfigured(value: string): boolean {
  * outside them is rejected wholesale, so the user is told here instead of
  * losing the save with no explanation.
  */
-export function tencentCredentialIssue(
-  secretId: string,
-  secretKey: string,
-  region: string,
-): string {
-  if (secretId.length > 4096 || secretKey.length > 4096) return "凭据过长。";
-  if (secretId && !/^[A-Za-z0-9_-]+$/.test(secretId)) {
-    return "SecretId 只能包含字母、数字、下划线和连字符。";
-  }
-  // eslint-disable-next-line no-control-regex
-  if (/[\u0000-\u001f\u007f]/.test(secretKey)) return "SecretKey 不能包含控制字符。";
-  if (region.length > 64) return "地域过长。";
-  if (region && !/^[A-Za-z0-9-]+$/.test(region)) {
-    return "地域只能包含字母、数字和连字符。";
-  }
-  return "";
-}
-export function translationEndpointIssue(endpoint: string): string {
-  if (!endpoint) return "请填写完整的接口地址。";
-  if (endpoint.length > 2048) return "接口地址过长。";
-  // eslint-disable-next-line no-control-regex
-  if (/[\u0000-\u001f\u007f]/.test(endpoint)) return "接口地址不能包含控制字符。";
-  if (!endpoint.startsWith("https://") && !endpoint.startsWith("http://")) {
-    return "请填写以 http:// 或 https:// 开头的完整接口地址。";
-  }
-  return "";
-}
-
 export function SettingsPage({
   client,
   initialPage,
@@ -5299,61 +5250,22 @@ export function SettingsPage({
                       </div>
                     )}
                     {showToolbarAppearance && (
-                      <div className={`section ${settings.toolbarAppearanceHeader}`}>
-                        <label className="section-header">
-                          <span className="section-title">
-                            工具栏缩放<small>相对系统 DPI 的额外缩放，不改变系统显示缩放</small>
-                          </span>
-                          <select
-                            aria-label="工具栏缩放"
-                            value={floatingToolbar.scale_percent}
-                            onChange={(event) =>
-                              setDraft({
-                                ...draft,
-                                floating_toolbar: {
-                                  ...floatingToolbar,
-                                  scale_percent: Number(
-                                    event.target.value,
-                                  ) as FloatingToolbarPreferences["scale_percent"],
-                                },
-                              })
-                            }
-                          >
-                            {floatingToolbarScales.map((value) => (
-                              <option key={value} value={value}>
-                                {value}%
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <div className="input-option-divider" />
-                        <label className="section-header">
-                          <span className="section-title">
-                            图标尺寸<small>图标基准大小（像素），再乘以上方缩放</small>
-                          </span>
-                          <select
-                            aria-label="图标尺寸"
-                            value={floatingToolbar.font_size}
-                            onChange={(event) =>
-                              setDraft({
-                                ...draft,
-                                floating_toolbar: {
-                                  ...floatingToolbar,
-                                  font_size: Number(
-                                    event.target.value,
-                                  ) as FloatingToolbarPreferences["font_size"],
-                                },
-                              })
-                            }
-                          >
-                            {floatingToolbarFontSizes.map((value) => (
-                              <option key={value} value={value}>
-                                {value}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                      </div>
+                      <FloatingToolbarAppearanceSection
+                        scale={floatingToolbar.scale_percent}
+                        fontSize={floatingToolbar.font_size}
+                        onScaleChange={(scale_percent) =>
+                          setDraft({
+                            ...draft,
+                            floating_toolbar: { ...floatingToolbar, scale_percent },
+                          })
+                        }
+                        onFontSizeChange={(font_size) =>
+                          setDraft({
+                            ...draft,
+                            floating_toolbar: { ...floatingToolbar, font_size },
+                          })
+                        }
+                      />
                     )}
                     {showToolbarComponents && (
                       <div className={`section ${settings.toolbarComponents}`}>
@@ -7005,77 +6917,29 @@ export function SettingsPage({
                       </div>
                     )}
                     {desktopPanels && (
-                      <div className="section">
-                        <div className="section-title">
-                          语音快捷键
-                          <small>
-                            {linuxPlatform
-                              ? "在当前输入上下文中生效。长按快捷键录音，松开结束；按住期间按空格锁定录音，Escape 取消。Ctrl+F9 按一次开始、再按一次结束，也能结束锁定的录音。没有 provider 时快捷键不会拦截编辑器输入"
-                              : macosPlatform
-                                ? "输入法启用时按住修饰键快捷键录音，松开结束；组合键先按 Control。按住期间按空格锁定，Escape 取消。修饰键快捷键由输入法自身接收，不需要额外授权；Ctrl+F9 在输入法会话之外接收，需要在「系统设置 › 隐私与安全性 › 输入监控」中允许本输入法，否则按下没有任何反应。首次授权后请重新按键。"
-                                : windowsPlatform
-                                  ? "输入法运行时全局生效。长按快捷键录音，松开结束；按住期间按空格锁定录音，锁定后再按一次快捷键或点 ✓ 结束，Escape 或 ✗ 取消。Ctrl+F9 按一次开始、再按一次结束。"
-                                  : "输入法运行时全局生效，用于开始和结束语音录音"}
-                          </small>
-                        </div>
-                        {/* Both Linux hosts record while a modifier shortcut is held and lock on Space, as Windows does, so they share its labels; only Ctrl+F9 toggles. Only IBus requires the right Ctrl in the two-key chord: Fcitx5 starts on a Right Ctrl or Right Alt press while any Ctrl or Alt is down (so left Ctrl+Right Alt also records) and stops only when Right Alt or Right Ctrl is released. The label still holds because the right-Ctrl chord works on both hosts. */}
-                        {(
-                          [
-                            ["hotkey_ctrl_f9", "Ctrl+F9 切换语音"],
-                            [
-                              "hotkey_ralt",
-                              macosPlatform
-                                ? "按住右 Option 录音"
-                                : windowsPlatform || linuxPlatform
-                                  ? "长按右 Alt 录音"
-                                  : "右 Alt 切换语音",
-                            ],
-                            [
-                              "hotkey_rctrl_ralt",
-                              macosPlatform
-                                ? "按住右 Control+右 Option 录音"
-                                : windowsPlatform || linuxPlatform
-                                  ? "长按右 Ctrl+右 Alt 录音"
-                                  : "Ctrl+右 Alt 切换语音",
-                            ],
-                            [
-                              "hotkey_ctrl_win",
-                              macosPlatform
-                                ? "按住 Control+Command 录音"
-                                : windowsPlatform || linuxPlatform
-                                  ? "长按 Ctrl+Win 录音"
-                                  : "Ctrl+Win 切换语音",
-                            ],
-                            [
-                              "hotkey_hold_space_lock",
-                              windowsPlatform || linuxPlatform
-                                ? "长按录音时按空格锁定"
-                                : "空格锁定语音",
-                            ],
-                          ] as const
-                        ).map(([key, label]) => (
-                          <label className="section-header" key={key}>
-                            <span className="section-title">{label}</span>
-                            <input
-                              aria-label={label}
-                              className="toggle"
-                              type="checkbox"
-                              checked={draft.voice_input?.[key] !== false}
-                              onChange={(event) =>
-                                setDraft({
-                                  ...draft,
-                                  voice_input: {
-                                    ...draft.voice_input,
-                                    enabled: draft.voice_input?.enabled ?? true,
-                                    language: draft.voice_input?.language ?? "zh-CN",
-                                    [key]: event.target.checked,
-                                  },
-                                })
-                              }
-                            />
-                          </label>
-                        ))}
-                      </div>
+                      <VoiceHotkeysSection
+                        platform={
+                          macosPlatform
+                            ? "macos"
+                            : windowsPlatform
+                              ? "windows"
+                              : linuxPlatform
+                                ? "linux"
+                                : "other"
+                        }
+                        values={draft.voice_input ?? {}}
+                        onChange={(key, enabled) =>
+                          setDraft({
+                            ...draft,
+                            voice_input: {
+                              ...draft.voice_input,
+                              enabled: draft.voice_input?.enabled ?? true,
+                              language: draft.voice_input?.language ?? "zh-CN",
+                              [key]: enabled,
+                            },
+                          })
+                        }
+                      />
                     )}
                   </fieldset>
                   <fieldset disabled={busy} hidden={page !== "ai"} aria-label="AI 辅助">
