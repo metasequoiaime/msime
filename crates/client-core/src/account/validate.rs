@@ -357,10 +357,7 @@ pub(super) fn validate_dictionary_value(
         || code.is_empty()
         || code.len() > code_limit
         || word.is_empty()
-        || word.len() > 1024
         || weight < 0
-        || code.chars().any(char::is_control)
-        || word.chars().any(char::is_control)
         || (kind == DictionaryKind::Quick
             && word.encode_utf16().count() > crate::dictionary::import::MAX_QUICK_PHRASE_UTF16)
     {
