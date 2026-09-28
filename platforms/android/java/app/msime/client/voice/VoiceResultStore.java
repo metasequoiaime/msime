@@ -7,6 +7,7 @@ import java.io.DataOutputStream;
 import java.io.EOFException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.channels.FileChannel;
@@ -164,11 +165,13 @@ public final class VoiceResultStore {
         if (!Files.exists(result, LinkOption.NOFOLLOW_LINKS)) return null;
         if (!Files.isRegularFile(result, LinkOption.NOFOLLOW_LINKS))
             throw new Failure(Reason.INVALID);
-        long size = Files.size(result);
-        if (size <= 0 || size > MAXIMUM_FILE_BYTES) throw new Failure(Reason.INVALID);
-        byte[] bytes = Files.readAllBytes(result);
-        if (bytes.length != size || bytes.length > MAXIMUM_FILE_BYTES)
-            throw new Failure(Reason.INVALID);
+        byte[] bytes;
+        try {
+            bytes = readBounded(result);
+        } catch (IOException error) {
+            throw new Failure(Reason.INVALID, error);
+        }
+        if (bytes.length == 0) throw new Failure(Reason.INVALID);
         Entry entry = decode(bytes);
         if (entry.createdAtMillis() < 0 || entry.expiresAtMillis() <= entry.createdAtMillis()
                 || !validText(entry.text())
@@ -180,6 +183,21 @@ public final class VoiceResultStore {
             return null;
         }
         return entry;
+    }
+
+    /** Read only the accepted envelope size, even if an opened file grows after inspection. */
+    private static byte[] readBounded(Path file) throws IOException {
+        try (InputStream input = Files.newInputStream(file)) {
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream(MAXIMUM_FILE_BYTES);
+            byte[] buffer = new byte[8192];
+            int count;
+            while ((count = input.read(buffer)) != -1) {
+                if (bytes.size() + count > MAXIMUM_FILE_BYTES)
+                    throw new IOException("voice result too large");
+                bytes.write(buffer, 0, count);
+            }
+            return bytes.toByteArray();
+        }
     }
 
     private static byte[] encode(Entry entry) throws Failure {

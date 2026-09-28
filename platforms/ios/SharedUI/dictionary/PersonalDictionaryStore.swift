@@ -217,7 +217,12 @@ final class PersonalDictionaryStore: @unchecked Sendable {
     guard FileManager.default.fileExists(atPath: file.path) else { return PersonalDictionaryState() }
     let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
     guard size <= maximumBytes else { throw StoreError.invalidState }
-    let data = try Data(contentsOf: file)
+    let data: Data
+    do {
+      data = try BoundedFileReader.read(from: file, maximumBytes: maximumBytes)
+    } catch {
+      throw StoreError.invalidState
+    }
     guard data.count <= maximumBytes,
           let state = try? Self.decoder().decode(PersonalDictionaryState.self, from: data),
           state.version == 1, state.requests.count <= 160, state.entries.count <= 100,

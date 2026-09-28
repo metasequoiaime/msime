@@ -5,8 +5,6 @@
 //! would compile code nobody asked for. Left in place rather than deleted
 //! because the bound it implements is the one an updater will need.
 
-// Android serializes its own copies: its providers response has no `apple` field.
-#[cfg(not(target_os = "android"))]
 pub(crate) mod account_dto;
 pub(crate) mod export_file;
 pub(crate) mod mobile_ai;

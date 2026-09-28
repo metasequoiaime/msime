@@ -14,14 +14,10 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { HostActionButton } from "./keyboard/HostActionButton";
 import {
   DICTIONARY_PAGE_SIZE,
   dictionaryPageStatus,
-  parsePersonalDictionaryImport,
-  personalDictionaryExample,
   readDictionaryFile,
-  type PersonalDictionaryImportEntry,
 } from "./dictionary/dictionary-file";
 import { SkinCandidatePreview } from "./skin/skin-candidate-preview";
 import { AppearanceCandidatePreview } from "./candidate/appearance-candidate-preview";
@@ -30,6 +26,56 @@ import { CandidateFontControls } from "./candidate/candidate-font-controls";
 import { CandidateSizingSection } from "./settings/candidate-sizing-section";
 import { CandidatePageSizeSection } from "./settings/candidate-page-size-section";
 import { CandidateLayoutSection } from "./settings/candidate-layout-section";
+import { CandidateFollowCursorSection } from "./settings/candidate-follow-cursor-section";
+import { CandidateEnglishGlossSection } from "./settings/candidate-english-gloss-section";
+import { EnglishSuggestionsSection } from "./settings/english-suggestions-section";
+import { LearningSection } from "./settings/learning-section";
+import { DefaultImeModeSection, type DefaultImeMode } from "./settings/default-ime-mode-section";
+import { InputModeHudSection } from "./settings/input-mode-hud-section";
+import { ImeModeScopeSection } from "./settings/ime-mode-scope-section";
+import { TraditionalChineseOutputSection } from "./settings/traditional-chinese-output-section";
+import { CloudCandidatesSection } from "./settings/cloud-candidates-section";
+import { TelemetrySection } from "./settings/telemetry-section";
+import { WubiSection } from "./settings/wubi-section";
+import { InputModeSection } from "./settings/input-mode-section";
+import { InputModeShortcutsSection } from "./settings/input-mode-shortcuts-section";
+import { PanelShortcutsSection } from "./settings/panel-shortcuts-section";
+import { CandidateShortcutsSection } from "./settings/candidate-shortcuts-section";
+import { MaintenanceShortcutsSection } from "./settings/maintenance-shortcuts-section";
+import { InputMethodServiceSection } from "./settings/input-method-service-section";
+import { DataDirectorySection } from "./settings/data-directory-section";
+import { LicenseUninstallSection } from "./settings/license-uninstall-section";
+import { DiagnosticLogsSection } from "./settings/diagnostic-logs-section";
+import { HelpFeedbackSection } from "./settings/help-feedback-section";
+import { HelpSettingsPage } from "./settings/help-settings-page";
+import { ScreenKeyboardThemeSection } from "./settings/screen-keyboard-theme-section";
+import { ScreenKeyboardSkinsSection } from "./settings/screen-keyboard-skins-section";
+import { TouchKeyboardSchemesSection } from "./settings/touch-keyboard-schemes-section";
+import { VoiceInputIntroSection } from "./settings/voice-input-intro-section";
+import { VoiceInputCoreSection } from "./settings/voice-input-core-section";
+import { VoiceModelPathSection } from "./settings/voice-model-path-section";
+import { VoiceModelSection } from "./settings/voice-model-section";
+import { DoubaoAuthModeSection } from "./settings/doubao-auth-mode-section";
+import { DoubaoStreamEndpointSection } from "./settings/doubao-stream-endpoint-section";
+import { VoiceModelMirrorSection } from "./settings/voice-model-mirror-section";
+import {
+  CredentialTestSection,
+  type CredentialTestState,
+} from "./settings/credential-test-section";
+import { ProviderPresetSection, type ProviderPreset } from "./settings/provider-preset-section";
+import { CredentialStatusMessage } from "./settings/credential-status-message";
+import {
+  VoiceCredentialSection,
+  type VoiceCredentialSaveInput,
+} from "./settings/voice-credential-section";
+import {
+  MobileKeyboardFeedbackSection,
+  type MobileKeyboardFeedback,
+  type MobileKeyboardFeedbackClient,
+} from "./settings/mobile-keyboard-feedback-section";
+import { PreeditSettingsSection } from "./settings/preedit-settings-section";
+import { DictionaryManifestCard } from "./settings/dictionary-manifest-card";
+import { PersonalDictionaryImportCard } from "./settings/personal-dictionary-import-card";
 import { validCandidateFonts } from "./candidate/candidate-font-family";
 import type { FontCatalogReader } from "./candidate/font-catalog";
 import { SecretInput } from "./core/secret-input";
@@ -37,7 +83,6 @@ import {
   asrProviderUpdate,
   polishProviderUpdate,
   ASR_PROVIDER_DEFAULTS,
-  DOUBAO_STREAM_ENDPOINTS,
   POLISH_PROVIDER_DEFAULTS,
 } from "./voice/voice-providers";
 import {
@@ -48,10 +93,7 @@ import {
   polishPresetPrompt,
 } from "./voice/polish-presets";
 import { SkinToolbarPreview } from "./skin/skin-toolbar-preview";
-import {
-  ScreenKeyboardPreview,
-  touchKeyboardSkinOptions,
-} from "./keyboard/screen-keyboard-preview";
+import { ScreenKeyboardPreview } from "./keyboard/screen-keyboard-preview";
 import type { TouchKeyboardSkin } from "./keyboard/screen-keyboard-preview";
 import { TouchKeyboardSkinEditor } from "./keyboard/touch-keyboard-skin-editor";
 import * as skin from "./keyboard/touch-skin-style";
@@ -270,6 +312,172 @@ export {
 } from "./settings/candidate-sizing-section";
 export { CandidatePageSizeSection } from "./settings/candidate-page-size-section";
 export { CandidateLayoutSection, type CandidateLayout } from "./settings/candidate-layout-section";
+export {
+  CandidateFollowCursorSection,
+  type CandidateFollowCursorSectionProps,
+} from "./settings/candidate-follow-cursor-section";
+export {
+  CandidateEnglishGlossSection,
+  type CandidateEnglishGlossSectionProps,
+} from "./settings/candidate-english-gloss-section";
+export {
+  EnglishSuggestionsSection,
+  type EnglishSuggestionsSectionProps,
+} from "./settings/english-suggestions-section";
+export { LearningSection, type LearningSectionProps } from "./settings/learning-section";
+export {
+  DefaultImeModeSection,
+  type DefaultImeMode,
+  type DefaultImeModeSectionProps,
+} from "./settings/default-ime-mode-section";
+export {
+  InputModeHudSection,
+  type InputModeHudSectionProps,
+} from "./settings/input-mode-hud-section";
+export {
+  ImeModeScopeSection,
+  type ImeModeScope,
+  type ImeModeScopeSectionProps,
+} from "./settings/ime-mode-scope-section";
+export {
+  TraditionalChineseOutputSection,
+  type TraditionalChineseOutputSectionProps,
+} from "./settings/traditional-chinese-output-section";
+export {
+  CloudCandidatesSection,
+  type CloudCandidatesSectionProps,
+} from "./settings/cloud-candidates-section";
+export { TelemetrySection, type TelemetrySectionProps } from "./settings/telemetry-section";
+export { WubiSection, type WubiPreferences, type WubiSectionProps } from "./settings/wubi-section";
+export {
+  InputModeSection,
+  type InputModeScheme,
+  type InputModeSectionProps,
+} from "./settings/input-mode-section";
+export {
+  InputModeShortcutsSection,
+  type InputModeShortcutPreferences,
+  type InputModeShortcutsSectionProps,
+} from "./settings/input-mode-shortcuts-section";
+export {
+  PanelShortcutsSection,
+  type PanelShortcutsSectionProps,
+} from "./settings/panel-shortcuts-section";
+export {
+  CandidateShortcutsSection,
+  type CandidateShortcutsSectionProps,
+} from "./settings/candidate-shortcuts-section";
+export {
+  MaintenanceShortcutsSection,
+  type MaintenanceShortcutsSectionProps,
+} from "./settings/maintenance-shortcuts-section";
+export {
+  InputMethodServiceSection,
+  type InputMethodServiceSectionProps,
+} from "./settings/input-method-service-section";
+export {
+  DataDirectorySection,
+  type DataDirectoryInfo,
+  type DataDirectorySectionProps,
+} from "./settings/data-directory-section";
+export {
+  LicenseUninstallSection,
+  type LicenseUninstallSectionProps,
+} from "./settings/license-uninstall-section";
+export {
+  DiagnosticLogsSection,
+  type DiagnosticLogPreferences,
+  type DiagnosticLogsSectionProps,
+} from "./settings/diagnostic-logs-section";
+export {
+  HelpFeedbackSection,
+  type HelpFeedbackSectionProps,
+} from "./settings/help-feedback-section";
+export { HelpSettingsPage, type HelpSettingsPageProps } from "./settings/help-settings-page";
+export {
+  ScreenKeyboardThemeSection,
+  type ScreenKeyboardThemeSectionProps,
+} from "./settings/screen-keyboard-theme-section";
+export {
+  ScreenKeyboardSkinsSection,
+  type ScreenKeyboardSkinsSectionProps,
+} from "./settings/screen-keyboard-skins-section";
+export {
+  TouchKeyboardSchemesSection,
+  type TouchKeyboardSchemesSectionProps,
+} from "./settings/touch-keyboard-schemes-section";
+export {
+  VoiceInputIntroSection,
+  type VoiceInputIntroSectionProps,
+} from "./settings/voice-input-intro-section";
+export {
+  VoiceInputCoreSection,
+  type VoiceInputCoreSectionProps,
+} from "./settings/voice-input-core-section";
+export {
+  VoiceModelPathSection,
+  type VoiceModelPathSectionProps,
+} from "./settings/voice-model-path-section";
+export { VoiceModelSection, type VoiceModelSectionProps } from "./settings/voice-model-section";
+export {
+  DoubaoAuthModeSection,
+  type DoubaoAuthMode,
+  type DoubaoAuthModeSectionProps,
+} from "./settings/doubao-auth-mode-section";
+export {
+  DoubaoStreamEndpointSection,
+  type DoubaoStreamEndpointSectionProps,
+} from "./settings/doubao-stream-endpoint-section";
+export {
+  VoiceModelMirrorSection,
+  type VoiceModelMirrorSectionProps,
+} from "./settings/voice-model-mirror-section";
+export {
+  VoiceCredentialSection,
+  type VoiceCredentialEntry,
+  type VoiceCredentialInput,
+  type VoiceCredentialMessage,
+  type VoiceCredentialSaveInput,
+  type VoiceCredentialSectionProps,
+  type VoiceCredentialSectionKind,
+  type VoiceCredentialStatus,
+} from "./settings/voice-credential-section";
+export {
+  CredentialTestSection,
+  type CredentialTestSectionProps,
+  type CredentialTestState,
+} from "./settings/credential-test-section";
+export {
+  ProviderPresetSection,
+  type ProviderPreset,
+  type ProviderPresetSectionProps,
+} from "./settings/provider-preset-section";
+export {
+  CredentialStatusMessage,
+  type CredentialStatusMessageProps,
+  type CredentialStatusMessageValue,
+} from "./settings/credential-status-message";
+export {
+  DictionaryManifestCard,
+  type DictionaryManifestCardProps,
+} from "./settings/dictionary-manifest-card";
+export {
+  PersonalDictionaryImportCard,
+  type PersonalDictionaryImportCardProps,
+  type PersonalDictionaryImportClient,
+} from "./settings/personal-dictionary-import-card";
+export {
+  MobileKeyboardFeedbackSection,
+  type MobileKeyboardFeedback,
+  type MobileKeyboardFeedbackClient,
+  type MobileKeyboardFeedbackSectionProps,
+} from "./settings/mobile-keyboard-feedback-section";
+export {
+  PreeditSettingsSection,
+  type CandidatePreeditStyle,
+  type PreeditSettingsPreferences,
+  type TsfPreeditStyle,
+} from "./settings/preedit-settings-section";
 export {
   CommunitySkinsPage,
   type CommunitySkin,
@@ -596,64 +804,6 @@ const macosSidebarGroups = [
   ["dictionary", "account"],
   ["help", "feedback", "about"],
 ] as const satisfies readonly (readonly SettingsPageId[])[];
-/**
- * The macOS help page. The reference window answers the three questions a new user actually has --
- * how do I type, why is there English next to the candidates, and why is it not in my input menu --
- * as term/description rows rather than prose, so each answer is findable without reading the page.
- */
-const macosHelpCards = [
-  {
-    title: "开始输入",
-    rows: [
-      {
-        term: "Shift",
-        text: "在中文和英文之间切换。切换时光标下方会短暂显示「中」或「英」，可以在快捷键里关掉。",
-      },
-      { term: "数字键 1–9", text: "选中候选栏里对应位置的词，空格上屏第一个。" },
-      {
-        term: "翻页",
-        text: "默认是减号和等号（- / =）。在快捷键页可以换成逗号句号（, / .）或方括号（[ / ]）。",
-      },
-      { term: "Option+Shift+H", text: "切换全角与半角。" },
-    ],
-  },
-  {
-    title: "候选词释义",
-    rows: [
-      {
-        term: "离线优先",
-        text: "常见词直接用本机词典，不联网、没有延迟。选了在线服务后，生僻字和多字词的释义可能要等半秒左右才出现。",
-      },
-      {
-        term: "在线释义",
-        text: "默认不联网。只有在「翻译服务」里选了腾讯云、小牛翻译、自定义服务或「水杉账号」后，才会把当前页的中文候选词发给所选服务；选「水杉账号」会发到 api.msime.app，首次使用时创建一个匿名账号。",
-      },
-      { term: "两种语言", text: "可以同时显示两种语言的释义，在输入页的候选词翻译里设置。" },
-      {
-        term: "Tab",
-        text: "在候选词和它的释义之间切换要上屏的那一列，Shift+Tab 反向。切到哪一列，那一列就会加下划线，数字键、空格和点击上屏的都是它。",
-      },
-      {
-        term: "Option / Control + 数字",
-        text: "不切换，直接上屏那一格的释义：Option 是目标语言，Control 是第二语言。",
-      },
-    ],
-  },
-  {
-    title: "遇到问题",
-    rows: [
-      {
-        term: "输入菜单里没有",
-        text: "到「系统设置 › 键盘 › 文字输入 › 输入法」里添加水杉输入法。刚安装或刚更新过时，可能需要在输入菜单里切走再切回来。",
-      },
-      {
-        term: "候选旁没有释义",
-        text: "先确认输入页的候选词翻译是开着的。词典没收录的词要联网查询，断网时只会显示词典里有的那些。",
-      },
-      { term: "词库没有更新", text: "词库更新随版本发布。在「关于」页检查更新。" },
-    ],
-  },
-] as const;
 const logo = new URL("./assets/msime.svg", import.meta.url).href;
 const windowIcons = {
   minimize: new URL("./assets/minimize.svg", import.meta.url).href,
@@ -675,7 +825,6 @@ const linuxPrivacyUrl = "https://github.com/metasequoiaime/msime/blob/develop/PR
 const linuxLicenseUrl = "https://github.com/metasequoiaime/msime/blob/develop/LICENSE";
 const linuxIssuesUrl = "https://github.com/metasequoiaime/msime/issues";
 const desktopDownloadUrl = "https://msime.app/download/";
-const documentationUrl = "https://msime.app/docs/";
 const handwritingSdkPrivacyUrl = "https://developers.google.com/ml-kit/terms";
 
 export type HostPlatform = "windows" | "macos" | "linux" | "android" | "ios" | "harmony";
@@ -1648,26 +1797,6 @@ const floatingToolbarScales: FloatingToolbarPreferences["scale_percent"][] = [75
 const floatingToolbarFontSizes: FloatingToolbarPreferences["font_size"][] = [
   16, 18, 20, 22, 24, 26, 28,
 ];
-export type MobileKeyboardFeedback = {
-  soundEnabled: boolean;
-  hapticsEnabled: boolean;
-  hapticStrength: "light" | "medium" | "strong";
-  /** iOS keeps this Apple keyboard preference in the native App Group store. */
-  englishSuggestions?: boolean;
-  /** iOS draws the candidate strip in the keyboard skin unless this App Group switch hands it to the shared candidate skin and colours. */
-  candidatePaletteFollowsDesktop?: boolean;
-  /** iOS writes the composition into the text field as marked text only when this App Group switch is on; it has no raw/pinyin/empty choice because the strip already carries that one. */
-  inlinePreedit?: boolean;
-  /** False where the device cannot vibrate for key presses (iPad has no Taptic Engine): the vibration controls are hidden and the stored choice is left for the user's other devices. */
-  hapticsAvailable?: boolean;
-  /** iPad only: the digit row and Tab key of the full-width keyboard, kept in the App Group. Absent on a phone, where the keyboard has no room for either. */
-  tabletFullKeys?: boolean;
-};
-export type MobileKeyboardFeedbackClient = {
-  load(): Promise<MobileKeyboardFeedback>;
-  save(settings: MobileKeyboardFeedback): Promise<MobileKeyboardFeedback>;
-  preview?(strength: MobileKeyboardFeedback["hapticStrength"]): Promise<void>;
-};
 /** What the macOS settings app did with the input method it carries when it started. */
 export type InputSourceStartupStatus = {
   /** `login_required`: the input method is installed, but this login session's input source list only picks it up after the user logs in again. */
@@ -1945,252 +2074,6 @@ function schemeTitle(scheme: Preferences["scheme"]): string {
         : "日语";
 }
 
-function personalDictionaryKindTitle(kind: PersonalDictionaryImportEntry["kind"]): string {
-  return kind === "pinyin"
-    ? "拼音"
-    : kind === "wubi"
-      ? "五笔"
-      : kind === "quickPhrase"
-        ? "快捷短语"
-        : "英文";
-}
-
-/**
- * Which dictionary is installed, as the dictionary page's first statement.
- *
- * The packaged dictionary is the one thing on this page the user cannot change and may well want
- * to check: it is what every candidate comes out of, it updates with the application rather than
- * on its own, and when something looks wrong the specification and the upstream commit are the
- * two facts worth having.
- *
- * A host that cannot answer does not render this at all, rather than rendering an empty row. The
- * manifest is packaged, so failing to read it means the installation is not what it should be —
- * which is worth saying plainly instead of leaving a blank where a version belongs.
- */
-function DictionaryManifestCard({ read }: { read: () => Promise<DictionaryManifest> }) {
-  const [manifest, setManifest] = useState<DictionaryManifest | null>(null);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    void read()
-      .then((value) => {
-        if (active) setManifest(value);
-      })
-      .catch(() => {
-        if (active) setFailed(true);
-      });
-    return () => {
-      active = false;
-    };
-  }, [read]);
-
-  if (failed) {
-    return (
-      <div className="section" role="region" aria-label="词库信息">
-        <div className="section-header">
-          <span className="section-title">
-            词库信息
-            <small>无法读取随应用安装的词库清单，请重新安装后再试。</small>
-          </span>
-        </div>
-      </div>
-    );
-  }
-  if (!manifest) return null;
-  return (
-    <div className="section" role="region" aria-label="词库信息">
-      <div className="section-header">
-        <span className="section-title">
-          词库信息
-          <small>词库保存在设备上，日常输入不需要联网；它随应用更新，不单独下载。</small>
-        </span>
-      </div>
-      <p>
-        规格 <code>{manifest.profile}</code>
-      </p>
-      <p>
-        {/* Twelve characters is what the source shows: enough to identify the build, short enough
-            to read back over the phone. */}
-        词库版本 <code>{manifest.sourceCommit.slice(0, 12)}</code>
-      </p>
-    </div>
-  );
-}
-
-// The card is shown on every mobile host, so it must not name one of them. The queue it
-// feeds is the platform's own keyboard: on iOS the App Group queue the extension drains,
-// on Android the sync queue the input-method service drains.
-function PersonalDictionaryImportCard({
-  dictionary,
-  platform,
-}: {
-  dictionary: DictionaryClient;
-  platform?: string;
-}) {
-  const input = useRef<HTMLInputElement>(null);
-  const [fileName, setFileName] = useState("");
-  const [entries, setEntries] = useState<PersonalDictionaryImportEntry[] | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
-  const mounted = useRef(true);
-  const dictionaryGeneration = useRef(0);
-
-  useEffect(() => {
-    mounted.current = true;
-    dictionaryGeneration.current++;
-    setBusy(false);
-    return () => {
-      mounted.current = false;
-      dictionaryGeneration.current++;
-    };
-  }, [dictionary]);
-
-  const chooseFile = async (file: File | undefined) => {
-    if (!file) return;
-    const generation = dictionaryGeneration.current;
-    setEntries(null);
-    setFileName(file.name);
-    setError("");
-    setNotice("");
-    setBusy(true);
-    try {
-      // The Apple-compatible personal dictionary file is at most 1 MiB.
-      const parsed = parsePersonalDictionaryImport(await readDictionaryFile(file, 1_048_576));
-      if (!mounted.current || generation !== dictionaryGeneration.current) return;
-      setEntries(parsed);
-    } catch (cause) {
-      if (mounted.current && generation === dictionaryGeneration.current)
-        setError(cause instanceof Error ? cause.message : "无法读取所选文件，请重新选择。");
-    } finally {
-      if (mounted.current && generation === dictionaryGeneration.current) setBusy(false);
-    }
-  };
-
-  const importEntries = async () => {
-    if (!entries || !dictionary.importPersonal) return;
-    const generation = dictionaryGeneration.current;
-    setBusy(true);
-    setError("");
-    setNotice("");
-    try {
-      const text = JSON.stringify({ format: "msime-personal-dictionary", version: 1, entries });
-      const result = await dictionary.importPersonal(text, `ui-personal-import-${Date.now()}`);
-      if (!mounted.current || generation !== dictionaryGeneration.current) return;
-      setNotice(
-        `已加入本机同步队列，共 ${entries.length} 条；当前等待同步 ${result.pending_count} 条。`,
-      );
-      setEntries(null);
-      setFileName("");
-    } catch (cause) {
-      if (mounted.current && generation === dictionaryGeneration.current)
-        setError(cause instanceof Error ? cause.message : "导入失败，请稍后重试。");
-    } finally {
-      if (mounted.current && generation === dictionaryGeneration.current) setBusy(false);
-    }
-  };
-
-  const saveExample = () => {
-    const blob = new Blob([personalDictionaryExample], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = "msime-personal-dictionary-example.json";
-    anchor.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const countByKind = entries
-    ? Array.from(new Set(entries.map((entry) => entry.kind)))
-        .map(
-          (kind) =>
-            `${personalDictionaryKindTitle(kind)} ${entries.filter((entry) => entry.kind === kind).length} 条`,
-        )
-        .join(" · ")
-    : "";
-
-  return (
-    <div
-      className={`section ${settings.importSection}`}
-      role="region"
-      aria-label="个人词库文件导入"
-    >
-      <div className="section-header">
-        <span className="section-title">
-          个人词库文件
-          <small>
-            导入 Apple 兼容的 JSON 词条，确认后加入
-            {platform === "ios" ? " iOS " : platform === "android" ? " Android " : ""}
-            键盘同步队列；文件内容不会上传。
-          </small>
-        </span>
-        <span>
-          <button
-            type="button"
-            className="secondary"
-            disabled={busy}
-            onClick={() => input.current?.click()}
-          >
-            选择 JSON 文件
-          </button>{" "}
-          <button type="button" className="secondary" disabled={busy} onClick={saveExample}>
-            保存示例文件
-          </button>
-          <input
-            ref={input}
-            hidden
-            type="file"
-            aria-label="选择个人词库 JSON 文件"
-            accept=".json,application/json"
-            onChange={(event) => {
-              void chooseFile(event.currentTarget.files?.[0]);
-              event.currentTarget.value = "";
-            }}
-          />
-        </span>
-      </div>
-      {busy && <p role="status">正在读取或加入同步队列…</p>}
-      {fileName && entries && (
-        <div className={settings.importPreview}>
-          <strong>{fileName}</strong>
-          <span>
-            已校验 {entries.length} 条（{countByKind}），确认后逐条同步。
-          </span>
-          {entries.map((entry, index) => (
-            <div key={`${entry.kind}-${entry.key}-${index}`}>
-              <span>{entry.value}</span>
-              <code>
-                {personalDictionaryKindTitle(entry.kind)} · {entry.key}
-              </code>
-            </div>
-          ))}
-        </div>
-      )}
-      {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
-      {notice && (
-        <p role="status" className="notice">
-          {notice}
-        </p>
-      )}
-      {entries && (
-        <button
-          type="button"
-          className="primary"
-          disabled={busy}
-          onClick={() => void importEntries()}
-        >
-          确认导入
-        </button>
-      )}
-    </div>
-  );
-}
-
 /** Mirrors `client-core::translation::is_supported_endpoint`. */
 /** Mirrors `usable_credential` in client-core: a placeholder is not a key. */
 export function tencentSecretConfigured(value: string): boolean {
@@ -2268,19 +2151,6 @@ export function SettingsPage({
   const host = client.host;
   const showModeScope = host ? host.ime_mode_scope : linuxPlatform;
   const showModeSwitchShortcuts = host ? host.mode_switch_shortcuts : linuxPlatform;
-  // Named for the keys the user is actually looking at: macOS calls them Control and Option.
-  const modeSwitchShortcutRows: [keyof KeybindingPreferences, string][] = [
-    ["switch_language_shift", "Shift 切换中英文"],
-    ["switch_language_ctrl", macosPlatform ? "单击 Control 切换中英文" : "单击 Ctrl 切换中英文"],
-    [
-      "switch_language_ctrl_alt_space",
-      macosPlatform ? "Control+Option+Space 切换中英文" : "Ctrl+Alt+Space 切换中英文",
-    ],
-    [
-      "toggle_character_set_ctrl_shift_f",
-      macosPlatform ? "Control+Shift+F 切换简繁" : "Ctrl+Shift+F 切换简繁",
-    ],
-  ];
   const showPanelShortcuts = host ? host.panel_shortcuts : linuxPlatform;
   const showNumberRowSelection = host ? host.number_row_selection === true : linuxPlatform;
   const showRestartInputMethod =
@@ -3809,7 +3679,6 @@ export function SettingsPage({
     server: draft?.diagnostic_log?.server ?? false,
     tsf: draft?.diagnostic_log?.tsf ?? false,
   };
-  const cloudCandidates = draft?.cloud_candidates ?? true;
   const candidateTranslations = draft?.candidate_translations ?? true;
   // Offline glosses are opt-in in client-core and in every native host. Keep
   // the settings view aligned when older snapshots omit the optional field.
@@ -3849,39 +3718,6 @@ export function SettingsPage({
   const localVoiceAvailable = macosPlatform || client.localVoiceModels !== undefined;
   const localVoice = localVoiceAvailable && voiceInput.asr_provider === "local";
   // A Whisper file picked by hand: the whole setting on a host without a model store, and an advanced option under the model manager otherwise.
-  const manualVoiceModelPath = () => (
-    <div className="section">
-      <label className="section-header">
-        <span className="section-title">
-          Whisper 模型文件
-          <small>ggml 模型的绝对路径，例如 /Users/you/models/ggml-large-v3-turbo.bin</small>
-        </span>
-        <span className="flex items-center gap-2 [&>input]:min-w-0 [&>input]:flex-1">
-          <input
-            aria-label="Whisper 模型文件"
-            value={voiceInput.asr_model_path ?? ""}
-            placeholder="/path/to/ggml-model.bin"
-            onChange={(event) => updateVoice({ asr_model_path: event.target.value })}
-          />
-          {client.pickVoiceModelPath && (
-            <button
-              type="button"
-              className="secondary"
-              onClick={() => {
-                void (async () => {
-                  // Cancelling resolves to null and must leave the field as it was, rather than clearing a path that already worked.
-                  const chosen = await client.pickVoiceModelPath?.();
-                  if (chosen) updateVoice({ asr_model_path: chosen });
-                })();
-              }}
-            >
-              选择…
-            </button>
-          )}
-        </span>
-      </label>
-    </div>
-  );
   const serviceVoice = !systemVoice && !localVoice;
   const harmonyUnsupportedAsr =
     harmonyPlatform &&
@@ -4031,204 +3867,21 @@ export function SettingsPage({
       setProviderCredentialBusy(undefined);
     }
   };
-  /**
-   * The Linux voice provider's credential for the recognition or polishing service selected above. The provider only uses an entry whose model matches the request's, so a save binds the current model; the endpoint is stored in the provider's file, not in the shared preferences.
-   */
-  const voiceCredentialControls = (kind: VoiceCredentialKind) => {
-    if (!client.providerCredentials) return null;
-    const provider =
-      kind === "asr"
-        ? (voiceInput.asr_provider ?? "doubao")
-        : (voiceInput.polish_provider ?? "siliconflow");
-    const model = (kind === "asr" ? voiceInput.asr_model : voiceInput.polish_model) ?? "";
-    const doubao = kind === "asr" && provider === "doubao";
-    const legacy = doubao && doubaoAuthMode === "legacy";
-    const stored = (
-      kind === "asr" ? providerCredentials?.voiceAsr : providerCredentials?.voicePolish
-    )?.find((entry) => entry.provider === provider);
-    const input = voiceCredentialInput[kind];
-    const endpoint = input.endpoint ?? stored?.endpoint ?? "";
-    const update = (patch: Partial<typeof input>) =>
-      setVoiceCredentialInput((current) => ({ ...current, [kind]: { ...input, ...patch } }));
-    const name = kind === "asr" ? "识别" : "润色";
-    const tokenLabel = doubao && !legacy ? "Doubao API Key" : `${name} API Token`;
-    const mismatch =
-      stored &&
-      ((model.trim() && stored.model !== model.trim()) ||
-        (doubao &&
-          ((voiceInput.asr_resource_id?.trim() &&
-            stored.resourceId !== voiceInput.asr_resource_id.trim()) ||
-            stored.authMode !== doubaoAuthMode)));
-    return (
-      <div className="section" role="group" aria-label={`语音${name}凭据`}>
-        <div className="section-title">
-          {name}凭据
-          <small>
-            {providerCredentials?.voiceInvalid
-              ? "现有 voice-provider.json 无效，语音 provider 不会启动；请修复或删除该文件"
-              : !stored
-                ? "尚未保存；保存后只写入用户配置目录的 voice-provider.json，由语音 provider 读取"
-                : mismatch
-                  ? "已保存的凭据与上方模型或豆包设置不一致；保存后改为绑定当前设置"
-                  : "已保存，留空则保留原凭据"}
-          </small>
-        </div>
-        {doubao && (
-          <label className="section-header">
-            <span className="section-title">
-              流式接口
-              <small>
-                整句流式边录边传、说完返回整句，服务方称准确率更高并推荐用于输入法；双向流式返回增量结果，流式预编辑刷新更频繁。选择后写入下方接口地址，保存凭据后生效；地址留空时语音
-                provider 使用双向流式。
-              </small>
-            </span>
-            <select
-              aria-label="流式接口"
-              value={
-                // An empty address is the provider's default, which is the bidirectional endpoint.
-                DOUBAO_STREAM_ENDPOINTS.find(
-                  (option) =>
-                    option.endpoint ===
-                    (endpoint.trim() ||
-                      DOUBAO_STREAM_ENDPOINTS.find((preset) => preset.id === "async")?.endpoint),
-                )?.id ?? "custom"
-              }
-              onChange={(event) => {
-                const chosen = DOUBAO_STREAM_ENDPOINTS.find(
-                  (option) => option.id === event.target.value,
-                );
-                if (chosen) update({ endpoint: chosen.endpoint });
-              }}
-            >
-              {DOUBAO_STREAM_ENDPOINTS.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.title}
-                </option>
-              ))}
-              <option value="custom">自定义地址</option>
-            </select>
-          </label>
-        )}
-        <label className="section-header">
-          <span className="section-title">
-            接口地址<small>留空使用当前 provider 默认地址</small>
-          </span>
-          <input
-            aria-label={`${name}接口地址`}
-            type="url"
-            value={endpoint}
-            onChange={(event) => update({ endpoint: event.target.value })}
-          />
-        </label>
-        {legacy && (
-          <label className="section-header">
-            <span className="section-title">
-              Doubao App Key<small>旧版控制台鉴权使用</small>
-            </span>
-            <input
-              aria-label="Doubao App Key"
-              type="password"
-              autoComplete="off"
-              value={input.appKey}
-              onChange={(event) => update({ appKey: event.target.value })}
-            />
-          </label>
-        )}
-        <label className="section-header">
-          <span className="section-title">{tokenLabel}</span>
-          <input
-            aria-label={tokenLabel}
-            type="password"
-            autoComplete="off"
-            value={input.token}
-            onChange={(event) => update({ token: event.target.value })}
-          />
-        </label>
-        <div className={settings.serviceRow}>
-          <div>
-            <button
-              type="button"
-              className="secondary"
-              aria-label={`保存${name}凭据`}
-              disabled={
-                providerCredentialBusy === kind ||
-                (!input.token.trim() && !stored) ||
-                (legacy && !input.appKey.trim() && stored?.authMode !== "legacy")
-              }
-              onClick={() =>
-                void runVoiceCredential(
-                  kind,
-                  (credentials) =>
-                    credentials.saveVoice({
-                      kind,
-                      provider,
-                      endpoint,
-                      model,
-                      ...(input.token.trim() ? { token: input.token } : {}),
-                      ...(legacy && input.appKey.trim() ? { appKey: input.appKey } : {}),
-                      resourceId: doubao ? (voiceInput.asr_resource_id ?? "") : "",
-                      authMode: doubao ? doubaoAuthMode : "",
-                    }),
-                  "凭据已保存，语音 provider 下次请求时生效。",
-                )
-              }
-            >
-              保存凭据
-            </button>
-            {stored && (
-              <button
-                type="button"
-                className="secondary"
-                aria-label={`清除${name}凭据`}
-                disabled={providerCredentialBusy === kind}
-                onClick={() =>
-                  void runVoiceCredential(
-                    kind,
-                    (credentials) => credentials.clearVoice(kind, provider),
-                    "凭据已清除。",
-                  )
-                }
-              >
-                清除凭据
-              </button>
-            )}
-            {providerCredentialMessage(kind)}
-          </div>
-        </div>
-      </div>
-    );
-  };
-  const providerCredentialMessage = (kind: "ai" | "tencent" | VoiceCredentialKind) => {
-    const message = providerCredentialMessages[kind];
-    return message ? <span role={message.ok ? "status" : "alert"}>{message.text}</span> : null;
-  };
   const credentialTestControl = (
     service: ApiCredentialTestService,
     label: string,
     config: Record<string, unknown>,
     disabled = false,
   ) => {
-    if (!client.testApiCredential) return null;
-    const signature = JSON.stringify(config);
-    const state = credentialTests[service];
-    const visible = state?.signature === signature;
     return (
-      <div className={settings.serviceRow}>
-        <div>
-          <button
-            type="button"
-            className="secondary"
-            aria-label={label}
-            disabled={disabled || (visible && state.busy)}
-            onClick={() => void runCredentialTest(service, config)}
-          >
-            {visible && state.busy ? "测试中…" : "测试配置"}
-          </button>
-          {visible && state.message && (
-            <span role={state.ok ? "status" : "alert"}>{state.message}</span>
-          )}
-        </div>
-      </div>
+      <CredentialTestSection
+        label={label}
+        config={config}
+        state={credentialTests[service] as CredentialTestState | undefined}
+        disabled={disabled}
+        available={Boolean(client.testApiCredential)}
+        onTest={() => void runCredentialTest(service, config)}
+      />
     );
   };
   /**
@@ -4243,48 +3896,20 @@ export function SettingsPage({
    */
   const providerPresetControls = (
     label: string,
-    preset: { models?: readonly string[]; documentation?: string } | undefined,
+    preset: ProviderPreset | undefined,
     model: string,
     onSelectModel: (model: string) => void,
     className = "section provider-preset-section",
   ) => {
-    const models = preset?.models ?? [];
-    const documentation = preset?.documentation;
-    const linkable = documentation && client.openExternalUrl;
-    if (models.length === 0 && !linkable) return null;
     return (
-      <div className={className}>
-        {models.length > 0 && (
-          <label className="section-header">
-            <span className="section-title">
-              预置模型<small>服务商已知支持的模型；也可以在模型框中自行填写</small>
-            </span>
-            <select
-              aria-label={`${label}预置模型`}
-              value={models.includes(model) ? model : ""}
-              onChange={(event) => {
-                if (event.target.value) onSelectModel(event.target.value);
-              }}
-            >
-              <option value="">自定义模型…</option>
-              {models.map((entry) => (
-                <option key={entry} value={entry}>
-                  {entry}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-        {linkable && (
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => void openExternalUrl(documentation)}
-          >
-            {label}接入说明与 API Key
-          </button>
-        )}
-      </div>
+      <ProviderPresetSection
+        label={label}
+        preset={preset}
+        model={model}
+        onSelectModel={onSelectModel}
+        openExternalUrl={client.openExternalUrl}
+        className={className}
+      />
     );
   };
   // Which prompt slot the 润色方案 select is on, and the text that slot means.
@@ -4999,23 +4624,12 @@ export function SettingsPage({
                       </div>
                     )}
                     {showCandidateFollowCursor && (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">
-                            候选窗口跟随光标
-                            <small>关闭后保持首次出现的位置，直到候选窗口消失。</small>
-                          </span>
-                          <input
-                            aria-label="候选窗口跟随光标"
-                            className="toggle"
-                            type="checkbox"
-                            checked={draft.candidate_follow_cursor ?? true}
-                            onChange={(event) =>
-                              setDraft({ ...draft, candidate_follow_cursor: event.target.checked })
-                            }
-                          />
-                        </label>
-                      </div>
+                      <CandidateFollowCursorSection
+                        value={draft.candidate_follow_cursor}
+                        onChange={(candidate_follow_cursor) =>
+                          setDraft({ ...draft, candidate_follow_cursor })
+                        }
+                      />
                     )}
                     {showCandidateFontControls ? (
                       <CandidateFontControls
@@ -5074,99 +4688,21 @@ export function SettingsPage({
                       fixed={host?.fixed_candidate_layout !== undefined}
                       onChange={(candidate_layout) => setDraft({ ...draft, candidate_layout })}
                     />
-                    {showShuangpinPreedit && (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">
-                            双拼预编辑
-                            <small>
-                              仅在双拼方案下生效；选择保留原始双拼按键，或显示展开后的拼音分词。
-                            </small>
-                          </span>
-                          <select
-                            aria-label="双拼预编辑"
-                            value={draft.shuangpin_preedit_uses_raw === false ? "pinyin" : "raw"}
-                            onChange={(event) =>
-                              setDraft({
-                                ...draft,
-                                shuangpin_preedit_uses_raw: event.target.value === "raw",
-                              })
-                            }
-                          >
-                            <option value="raw">原始按键</option>
-                            <option value="pinyin">拼音分词</option>
-                          </select>
-                        </label>
-                      </div>
-                    )}
-                    {mobileKeyboardFeedback?.inlinePreedit !== undefined ? (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">
-                            行内预编辑
-                            <small>
-                              把正在拼写的编码也写进输入框，像系统键盘那样带下划线显示。默认关闭；个别
-                              App 显示不完整时可以关掉。
-                            </small>
-                          </span>
-                          <input
-                            aria-label="行内预编辑"
-                            className="toggle"
-                            type="checkbox"
-                            disabled={mobileKeyboardFeedbackBusy}
-                            checked={mobileKeyboardFeedback.inlinePreedit}
-                            onChange={(event) =>
-                              void saveMobileKeyboardFeedback({
-                                ...mobileKeyboardFeedback,
-                                inlinePreedit: event.target.checked,
-                              })
-                            }
-                          />
-                        </label>
-                      </div>
-                    ) : (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">行内预编辑</span>
-                          <select
-                            aria-label="行内预编辑"
-                            value={draft.tsf_preedit_style ?? "raw"}
-                            onChange={(event) =>
-                              setDraft({
-                                ...draft,
-                                tsf_preedit_style: event.target
-                                  .value as Preferences["tsf_preedit_style"],
-                              })
-                            }
-                          >
-                            <option value="raw">原始按键</option>
-                            <option value="pinyin">拼音分词</option>
-                            <option value="empty">不显示</option>
-                          </select>
-                        </label>
-                      </div>
-                    )}
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          {mobilePlatform ? "候选栏预编辑" : "候选窗预编辑"}
-                        </span>
-                        <select
-                          aria-label={mobilePlatform ? "候选栏预编辑" : "候选窗预编辑"}
-                          value={draft.candidate_preedit_style ?? "pinyin"}
-                          onChange={(event) =>
-                            setDraft({
-                              ...draft,
-                              candidate_preedit_style: event.target
-                                .value as Preferences["candidate_preedit_style"],
-                            })
-                          }
-                        >
-                          <option value="pinyin">拼音分词</option>
-                          <option value="empty">不显示</option>
-                        </select>
-                      </label>
-                    </div>
+                    <PreeditSettingsSection
+                      preferences={draft}
+                      mobile={mobilePlatform}
+                      showShuangpinPreedit={showShuangpinPreedit}
+                      inlinePreedit={mobileKeyboardFeedback?.inlinePreedit}
+                      inlinePreeditBusy={mobileKeyboardFeedbackBusy}
+                      onChange={(patch) => setDraft({ ...draft, ...patch })}
+                      onInlinePreeditChange={(inlinePreedit) =>
+                        mobileKeyboardFeedback &&
+                        void saveMobileKeyboardFeedback({
+                          ...mobileKeyboardFeedback,
+                          inlinePreedit,
+                        })
+                      }
+                    />
                   </fieldset>
                   <fieldset disabled={busy} hidden={page !== "dictionary"} aria-label="词库">
                     {client.dictionaryManifest && (
@@ -5873,102 +5409,25 @@ export function SettingsPage({
                         </button>
                       </div>
                     )}
-                    <div
-                      className="section"
-                      role="group"
-                      aria-labelledby="input-mode-title"
-                      hidden={client.touchKeyboardSchemes}
-                    >
-                      <div className="section-title" id="input-mode-title">
-                        输入模式
-                      </div>
-                      <div className="input-setting-description">
-                        切换中文或日文输入，并保留各模式上次选择的方案
-                      </div>
-                      <div className="input-option-content input-mode-options">
-                        <label className="radio-option">
-                          <input
-                            type="radio"
-                            name="input-mode"
-                            value="chinese"
-                            checked={draft.scheme !== "japanese"}
-                            onChange={() =>
-                              setDraft({ ...draft, scheme: draft.last_chinese_scheme ?? "quanpin" })
-                            }
-                          />
-                          <span>中文</span>
-                        </label>
-                        <div className="input-option-divider" />
-                        <label className="radio-option">
-                          <input
-                            type="radio"
-                            name="input-mode"
-                            value="japanese"
-                            checked={draft.scheme === "japanese"}
-                            onChange={() =>
-                              setDraft({
-                                ...draft,
-                                last_chinese_scheme:
-                                  draft.scheme === "japanese"
-                                    ? draft.last_chinese_scheme
-                                    : draft.scheme,
-                                scheme: "japanese",
-                              })
-                            }
-                          />
-                          <span>日文</span>
-                        </label>
-                      </div>
-                    </div>
+                    {!client.touchKeyboardSchemes && (
+                      <InputModeSection
+                        scheme={draft.scheme}
+                        lastChineseScheme={draft.last_chinese_scheme}
+                        onChange={(patch) => setDraft({ ...draft, ...patch })}
+                      />
+                    )}
                     {client.touchKeyboardSchemes && (
-                      <div
-                        className="section"
-                        role="group"
-                        aria-labelledby="touch-keyboard-schemes-title"
-                      >
-                        <div className="section-title" id="touch-keyboard-schemes-title">
-                          输入方案
-                        </div>
-                        <div className="input-setting-description">
-                          开启的方案会显示在键盘快捷切换中，至少保留一种。点击名称设为当前方案。
-                        </div>
-                        <div className="input-option-content">
-                          {touchKeyboardSchemeOptions.map(([scheme, label], index) => {
-                            const enabled = touchKeyboardSchemes.enabled.includes(scheme);
-                            const selected = selectedTouchKeyboardScheme === scheme;
-                            return (
-                              <div className="input-option-item" key={scheme}>
-                                {index > 0 && <div className="input-option-divider" />}
-                                <div className={skin.schemeRow}>
-                                  <button
-                                    type="button"
-                                    className={skin.schemeSelect(selected)}
-                                    aria-label={`设为当前输入方案 ${label}`}
-                                    aria-pressed={selected}
-                                    disabled={!enabled}
-                                    onClick={() =>
-                                      setDraft(selectTouchKeyboardScheme(draft, scheme))
-                                    }
-                                  >
-                                    <span>{label}</span>
-                                    {selected && <span aria-hidden="true">✓</span>}
-                                  </button>
-                                  <input
-                                    className="toggle"
-                                    type="checkbox"
-                                    aria-label={`显示输入方案 ${label}`}
-                                    checked={enabled}
-                                    disabled={enabled && touchKeyboardSchemes.enabled.length === 1}
-                                    onChange={(event) =>
-                                      setTouchKeyboardSchemeEnabled(scheme, event.target.checked)
-                                    }
-                                  />
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
+                      <TouchKeyboardSchemesSection
+                        options={touchKeyboardSchemeOptions}
+                        enabled={touchKeyboardSchemes.enabled}
+                        selected={selectedTouchKeyboardScheme}
+                        onSelect={(scheme) =>
+                          setDraft(selectTouchKeyboardScheme(draft, scheme as TouchKeyboardScheme))
+                        }
+                        onToggle={(scheme, enabled) =>
+                          setTouchKeyboardSchemeEnabled(scheme as TouchKeyboardScheme, enabled)
+                        }
+                      />
                     )}
                     <div
                       className="section"
@@ -6069,59 +5528,12 @@ export function SettingsPage({
                     {((client.touchKeyboardSchemes &&
                       touchKeyboardSchemes.enabled.includes("wubi")) ||
                       draft.scheme === "wubi") && (
-                      <div className="section" role="group" aria-label="五笔">
-                        <label className="section-header">
-                          <span className="section-title">
-                            编码打不出时用拼音候选
-                            <small>
-                              五笔词库无法回答当前编码时，用同一串字母查询全拼；词库能回答时不影响。
-                            </small>
-                          </span>
-                          <input
-                            aria-label="编码打不出时用拼音候选"
-                            className="toggle"
-                            type="checkbox"
-                            checked={draft.wubi_mixed_pinyin ?? false}
-                            onChange={(event) =>
-                              setDraft({ ...draft, wubi_mixed_pinyin: event.target.checked })
-                            }
-                          />
-                        </label>
-                        <label className="section-header">
-                          <span className="section-title">
-                            候选显示剩余编码
-                            <small>
-                              在候选后面标出还要再打哪几个字母才能单独打出它。已经打完整码的候选不标。
-                            </small>
-                          </span>
-                          <input
-                            aria-label="候选显示剩余编码"
-                            className="toggle"
-                            type="checkbox"
-                            checked={draft.wubi_code_hint ?? true}
-                            onChange={(event) =>
-                              setDraft({ ...draft, wubi_code_hint: event.target.checked })
-                            }
-                          />
-                        </label>
-                        {macosPlatform && macosWubiAutoCommitUnique !== undefined && (
-                          <label className="section-header">
-                            <span className="section-title">
-                              五笔四码唯一候选自动上屏
-                              <small>五笔输入达到四码且只有一个候选时，自动提交该候选。</small>
-                            </span>
-                            <input
-                              aria-label="五笔四码唯一候选自动上屏"
-                              className="toggle"
-                              type="checkbox"
-                              checked={macosWubiAutoCommitUnique}
-                              onChange={(event) =>
-                                setMacosWubiAutoCommitUnique(event.target.checked)
-                              }
-                            />
-                          </label>
-                        )}
-                      </div>
+                      <WubiSection
+                        preferences={draft}
+                        autoCommitUnique={macosPlatform ? macosWubiAutoCommitUnique : undefined}
+                        onChange={(patch) => setDraft({ ...draft, ...patch })}
+                        onAutoCommitUniqueChange={setMacosWubiAutoCommitUnique}
+                      />
                     )}
                     <div
                       className="section"
@@ -6474,7 +5886,9 @@ export function SettingsPage({
                                           清除凭据
                                         </button>
                                       )}
-                                      {providerCredentialMessage("tencent")}
+                                      <CredentialStatusMessage
+                                        message={providerCredentialMessages.tencent}
+                                      />
                                     </div>
                                   </div>
                                 </>
@@ -6775,21 +6189,10 @@ export function SettingsPage({
                         confirm={confirm}
                       />
                     )}
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          学习选词习惯<small>根据选词调整候选顺序</small>
-                        </span>
-                        <input
-                          className="toggle"
-                          type="checkbox"
-                          checked={draft.learning}
-                          onChange={(event) =>
-                            setDraft({ ...draft, learning: event.target.checked })
-                          }
-                        />
-                      </label>
-                    </div>
+                    <LearningSection
+                      value={draft.learning}
+                      onChange={(learning) => setDraft({ ...draft, learning })}
+                    />
                     <PunctuationSection
                       preferences={draft}
                       showCharacterWidth={showCharacterWidth}
@@ -6801,254 +6204,60 @@ export function SettingsPage({
                     />
                     {/* macOS keeps this with the chords that trigger it, on the shortcut page. */}
                     {showInputModeHUD && !macosPlatform && (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">
-                            中英文切换提示
-                            <small>
-                              切换输入模式后，在光标附近短暂显示“中”或“英”，不会抢占焦点。
-                            </small>
-                          </span>
-                          <input
-                            aria-label="中英文切换提示"
-                            className="toggle"
-                            type="checkbox"
-                            checked={inputModeHUD}
-                            onChange={(event) =>
-                              setDraft({ ...draft, input_mode_hud: event.target.checked })
-                            }
-                          />
-                        </label>
-                      </div>
+                      <InputModeHudSection
+                        value={draft.input_mode_hud}
+                        onChange={(input_mode_hud) => setDraft({ ...draft, input_mode_hud })}
+                      />
                     )}
                     {client.candidateEnglishGloss && (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">
-                            显示英文释义
-                            <small>
-                              在候选词后面标出它的英文意思，中文候选给英文、英文候选给中文。释义来自随键盘打包的离线词库，不联网。
-                            </small>
-                          </span>
-                          <input
-                            aria-label="显示英文释义"
-                            className="toggle"
-                            type="checkbox"
-                            checked={candidateEnglishGloss}
-                            onChange={(event) =>
-                              setDraft({ ...draft, candidate_english_gloss: event.target.checked })
-                            }
-                          />
-                        </label>
-                      </div>
+                      <CandidateEnglishGlossSection
+                        value={draft.candidate_english_gloss}
+                        onChange={(candidate_english_gloss) =>
+                          setDraft({ ...draft, candidate_english_gloss })
+                        }
+                      />
                     )}
                     {showEnglishSuggestions && (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">
-                            英文建议
-                            <small>
-                              英文 26
-                              键直接输入时，在候选栏显示当前单词的补全建议；关闭后仍可正常输入英文。
-                            </small>
-                          </span>
-                          <input
-                            aria-label="英文建议"
-                            className="toggle"
-                            type="checkbox"
-                            checked={englishSuggestions}
-                            onChange={(event) =>
-                              setDraft({ ...draft, english_suggestions: event.target.checked })
-                            }
-                          />
-                        </label>
-                      </div>
+                      <EnglishSuggestionsSection
+                        value={draft.english_suggestions}
+                        onChange={(english_suggestions) =>
+                          setDraft({ ...draft, english_suggestions })
+                        }
+                      />
                     )}
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          默认中英文<small>新焦点会话开始时使用的中文或英文状态</small>
-                        </span>
-                        <select
-                          aria-label="默认中英文"
-                          value={draft.default_ime_mode ?? "chinese"}
-                          onChange={(event) =>
-                            setDraft({
-                              ...draft,
-                              default_ime_mode: event.target
-                                .value as Preferences["default_ime_mode"],
-                            })
-                          }
-                        >
-                          <option value="chinese">中文</option>
-                          <option value="english">英文</option>
-                        </select>
-                      </label>
-                    </div>
+                    <DefaultImeModeSection
+                      value={draft.default_ime_mode}
+                      onChange={(default_ime_mode) => setDraft({ ...draft, default_ime_mode })}
+                    />
                     {showModeScope && (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">
-                            中英文状态
-                            <small>按应用分别记忆输入状态，或让所有输入上下文保持同一状态</small>
-                          </span>
-                          <select
-                            aria-label="中英文状态"
-                            value={draft.ime_mode_scope ?? "app"}
-                            onChange={(event) =>
-                              setDraft({
-                                ...draft,
-                                ime_mode_scope: event.target.value as Preferences["ime_mode_scope"],
-                              })
-                            }
-                          >
-                            <option value="app">按应用记忆</option>
-                            <option value="global">全局统一</option>
-                          </select>
-                        </label>
-                      </div>
+                      <ImeModeScopeSection
+                        value={draft.ime_mode_scope}
+                        onChange={(ime_mode_scope) => setDraft({ ...draft, ime_mode_scope })}
+                      />
                     )}
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          简繁输入<small>将提交的简体中文转换为繁体中文</small>
-                        </span>
-                        <input
-                          aria-label="简繁输入"
-                          className="toggle"
-                          type="checkbox"
-                          checked={draft.traditional_chinese_output ?? false}
-                          onChange={(event) =>
-                            setDraft({ ...draft, traditional_chinese_output: event.target.checked })
-                          }
-                        />
-                      </label>
-                    </div>
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          云候选<small>向在线服务请求额外候选</small>
-                        </span>
-                        <input
-                          className="toggle"
-                          type="checkbox"
-                          checked={cloudCandidates}
-                          onChange={(event) =>
-                            setDraft({ ...draft, cloud_candidates: event.target.checked })
-                          }
-                        />
-                      </label>
-                    </div>
+                    <TraditionalChineseOutputSection
+                      value={draft.traditional_chinese_output}
+                      onChange={(traditional_chinese_output) =>
+                        setDraft({ ...draft, traditional_chinese_output })
+                      }
+                    />
+                    <CloudCandidatesSection
+                      value={draft.cloud_candidates}
+                      onChange={(cloud_candidates) => setDraft({ ...draft, cloud_candidates })}
+                    />
                     <FrequencySection
                       preferences={frequency}
                       onChange={(frequency) => setDraft({ ...draft, frequency })}
                     />
                     {mobilePlatform && client.mobileKeyboardFeedback && mobileKeyboardFeedback && (
-                      <div className="section" role="group" aria-label="按键反馈">
-                        <div className="section-title">按键反馈</div>
-                        <label className="section-header">
-                          <span className="section-title">
-                            按键音<small>按键音受系统静音设置控制</small>
-                          </span>
-                          <input
-                            aria-label="按键音"
-                            className="toggle"
-                            type="checkbox"
-                            disabled={mobileKeyboardFeedbackBusy}
-                            checked={mobileKeyboardFeedback.soundEnabled}
-                            onChange={(event) =>
-                              void saveMobileKeyboardFeedback({
-                                ...mobileKeyboardFeedback,
-                                soundEnabled: event.target.checked,
-                              })
-                            }
-                          />
-                        </label>
-                        {mobileKeyboardFeedback.hapticsAvailable !== false && (
-                          <>
-                            <div className="input-option-divider" />
-                            <label className="section-header">
-                              <span className="section-title">
-                                按键振动<small>振动效果取决于设备与系统支持</small>
-                              </span>
-                              <input
-                                aria-label="按键振动"
-                                className="toggle"
-                                type="checkbox"
-                                disabled={mobileKeyboardFeedbackBusy}
-                                checked={mobileKeyboardFeedback.hapticsEnabled}
-                                onChange={(event) =>
-                                  void saveMobileKeyboardFeedback({
-                                    ...mobileKeyboardFeedback,
-                                    hapticsEnabled: event.target.checked,
-                                  })
-                                }
-                              />
-                            </label>
-                            {mobileKeyboardFeedback.hapticsEnabled && (
-                              <>
-                                <div className="input-option-divider" />
-                                <label className="section-header">
-                                  <span className="section-title">振动强度</span>
-                                  <select
-                                    aria-label="振动强度"
-                                    disabled={mobileKeyboardFeedbackBusy}
-                                    value={mobileKeyboardFeedback.hapticStrength}
-                                    onChange={(event) =>
-                                      void saveMobileKeyboardFeedback({
-                                        ...mobileKeyboardFeedback,
-                                        hapticStrength: event.target
-                                          .value as MobileKeyboardFeedback["hapticStrength"],
-                                      })
-                                    }
-                                  >
-                                    <option value="light">轻</option>
-                                    <option value="medium">中</option>
-                                    <option value="strong">强</option>
-                                  </select>
-                                </label>
-                                {client.mobileKeyboardFeedback?.preview && (
-                                  <button
-                                    type="button"
-                                    className="secondary"
-                                    disabled={mobileKeyboardFeedbackBusy}
-                                    onClick={() => void previewMobileKeyboardHaptics()}
-                                  >
-                                    试一下振动
-                                  </button>
-                                )}
-                              </>
-                            )}
-                          </>
-                        )}
-                        {iosPlatform && (
-                          <>
-                            <div className="input-option-divider" />
-                            <label className="section-header">
-                              <span className="section-title">
-                                英文建议
-                                <small>
-                                  英文 26
-                                  键直接输入时，在候选栏显示当前单词的补全建议；关闭后仍可正常输入英文。
-                                </small>
-                              </span>
-                              <input
-                                aria-label="英文建议"
-                                className="toggle"
-                                type="checkbox"
-                                disabled={mobileKeyboardFeedbackBusy}
-                                checked={mobileKeyboardFeedback.englishSuggestions !== false}
-                                onChange={(event) =>
-                                  void saveMobileKeyboardFeedback({
-                                    ...mobileKeyboardFeedback,
-                                    englishSuggestions: event.target.checked,
-                                  })
-                                }
-                              />
-                            </label>
-                          </>
-                        )}
-                      </div>
+                      <MobileKeyboardFeedbackSection
+                        value={mobileKeyboardFeedback}
+                        busy={mobileKeyboardFeedbackBusy}
+                        ios={iosPlatform}
+                        canPreview={Boolean(client.mobileKeyboardFeedback.preview)}
+                        onChange={(next) => void saveMobileKeyboardFeedback(next)}
+                        onPreview={() => void previewMobileKeyboardHaptics()}
+                      />
                     )}
                   </fieldset>
                   <HelpcodeSettingsPage
@@ -7065,303 +6274,51 @@ export function SettingsPage({
                         ? "输入法快捷键仅在对应输入状态或候选栏显示时生效。翻页方式可在“输入”中启用或关闭。"
                         : "输入法快捷键仅在对应输入状态或候选窗口显示时生效。翻页方式可在“输入”中启用或关闭。"}
                     </div>
-                    {showModeSwitchShortcuts && (
-                      <div className="section" role="group" aria-label="输入模式切换快捷键">
-                        <div className="section-title">输入模式切换</div>
-                        <small>
-                          在当前输入上下文中切换中英文模式；关闭后快捷键会交给应用处理。
-                        </small>
-                        {modeSwitchShortcutRows.map(([key, label]) => (
-                          <label className="section-header" key={key}>
-                            <span className="section-title">{label}</span>
-                            <input
-                              aria-label={label}
-                              className="toggle"
-                              type="checkbox"
-                              checked={keybindings[key]}
-                              onChange={(event) =>
-                                setDraft({
-                                  ...draft,
-                                  keybindings: { ...keybindings, [key]: event.target.checked },
-                                })
-                              }
-                            />
-                          </label>
-                        ))}
-                        {macosPlatform && showInputModeHUD && (
-                          <label className="section-header">
-                            <span className="section-title">
-                              切换中英文时显示提示
-                              <small>切换后在光标下方短暂显示「中」或「英」。</small>
-                            </span>
-                            <input
-                              aria-label="切换中英文时显示提示"
-                              className="toggle"
-                              type="checkbox"
-                              checked={inputModeHUD}
-                              onChange={(event) =>
-                                setDraft({ ...draft, input_mode_hud: event.target.checked })
-                              }
-                            />
-                          </label>
-                        )}
-                        {showFullwidthChord && (
-                          <label className="section-header">
-                            <span className="section-title">
-                              {fullwidthChord} 切换全半角
-                              <small>
-                                关掉后这个组合键交给应用处理；工具栏的全半角开关不受影响。
-                              </small>
-                            </span>
-                            <input
-                              aria-label={`${fullwidthChord} 切换全半角`}
-                              className="toggle"
-                              type="checkbox"
-                              checked={keybindings.toggle_fullwidth_option_shift_h}
-                              onChange={(event) =>
-                                setDraft({
-                                  ...draft,
-                                  keybindings: {
-                                    ...keybindings,
-                                    toggle_fullwidth_option_shift_h: event.target.checked,
-                                  },
-                                })
-                              }
-                            />
-                          </label>
-                        )}
-                        {windowsPlatform && (
-                          <div className={settings.shortcutIntro}>
-                            <div className="section-title">修改或关闭 Ctrl+Space（系统）</div>
-                            <small>
-                              Ctrl+Space 由 Windows 管理，此处不控制。请前往系统设置修改“输入法 /
-                              非输入法切换”的按键顺序：
-                            </small>
-                            <ol>
-                              <li>打开“设置”，进入“时间和语言” → “输入”。</li>
-                              <li>选择“高级键盘设置” → “输入语言热键”。</li>
-                              <li>
-                                选中“中文（简体）输入法 - 输入法 /
-                                非输入法切换”，点击“更改按键顺序”。
-                              </li>
-                              <li>关闭该按键顺序，或将 Ctrl+Space 改为其他不常用组合。</li>
-                            </ol>
-                            <small>
-                              不同 Windows
-                              版本的选项名称可能略有差异；修改后如未立即生效，请重新登录或重启电脑。
-                            </small>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    {showPanelShortcuts && (
-                      <div className="section" role="group" aria-label="面板快捷键">
-                        <div className="section-title">面板快捷键</div>
-                        <small>
-                          {macosPlatform
-                            ? "可从当前输入上下文使用 Command 组合键打开面板。"
-                            : harmonyPlatform
-                              ? "连接实体键盘后，在输入状态下可用 Super 组合键打开面板。"
-                              : "桌面环境转发 Super 组合键时可从当前输入上下文打开面板。"}
-                        </small>
-                        <div className={settings.shortcutList}>
-                          <div className={settings.shortcutRow}>
-                            <span>打开屏幕键盘</span>
-                            <kbd>Ctrl+Shift+{macosPlatform ? "Command" : "Super"}+K</kbd>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                    <div className={`section ${settings.shortcutSectionTitle}`}>
-                      <div className="section-title">候选操作</div>
-                      <small>输入和选取候选词时使用</small>
-                      {showNumberRowSelection && (
-                        <label className="section-header">
-                          <span className="section-title">
-                            数字键选词<small>关闭后，候选窗口显示时数字键仍交给当前应用。</small>
-                          </span>
-                          <input
-                            aria-label="数字键选词"
-                            className="toggle"
-                            type="checkbox"
-                            checked={draft.number_row_selection ?? true}
-                            onChange={(event) =>
-                              setDraft({ ...draft, number_row_selection: event.target.checked })
-                            }
-                          />
-                        </label>
-                      )}
-                      <div className={settings.shortcutList}>
-                        <div className={settings.shortcutRow}>
-                          <span>选择候选</span>
-                          <kbd>Space{(draft.number_row_selection ?? true) ? " 或 1–9" : ""}</kbd>
-                        </div>
-                        {(draft.navigation ?? defaultNavigation).minus_equal && (
-                          <div className={settings.shortcutRow}>
-                            <span>向前 / 向后翻页</span>
-                            <kbd>- / =</kbd>
-                          </div>
-                        )}
-                        {(draft.navigation ?? defaultNavigation).comma_period && (
-                          <div className={settings.shortcutRow}>
-                            <span>向前 / 向后翻页</span>
-                            <kbd>, / .</kbd>
-                          </div>
-                        )}
-                        {(draft.navigation ?? defaultNavigation).tab && (
-                          <div className={settings.shortcutRow}>
-                            <span>向前 / 向后翻页</span>
-                            <kbd>Shift+Tab / Tab</kbd>
-                          </div>
-                        )}
-                        {(draft.navigation ?? defaultNavigation).page_up_down && (
-                          <div className={settings.shortcutRow}>
-                            <span>向前 / 向后翻页</span>
-                            <kbd>Page Up / Page Down</kbd>
-                          </div>
-                        )}
-                        {(draft.navigation ?? defaultNavigation).mouse_wheel && (
-                          <div className={settings.shortcutRow}>
-                            <span>{mobilePlatform ? "候选栏翻页" : "候选窗口翻页"}</span>
-                            <kbd>鼠标滚轮</kbd>
-                          </div>
-                        )}
-                        {(draft.navigation ?? defaultNavigation).arrows && (
-                          <div className={settings.shortcutRow}>
-                            <span>移动候选项</span>
-                            <kbd>↑ / ↓</kbd>
-                          </div>
-                        )}
-                        <div className={settings.shortcutRow}>
-                          <span>移动到候选列表首项 / 末项（页码随之切换）</span>
-                          <kbd>Home / End</kbd>
-                        </div>
-                        <div className={settings.shortcutRow}>
-                          <span>编辑输入串</span>
-                          <kbd>← / → / Backspace</kbd>
-                        </div>
-                        <div className={settings.shortcutRow}>
-                          <span>提交原始输入 / 取消输入</span>
-                          <kbd>Enter / Esc</kbd>
-                        </div>
-                      </div>
-                    </div>
-                    {showDesktopMaintenanceShortcuts && (
-                      <div className={`section ${settings.shortcutSectionTitle}`}>
-                        <div className="section-title">
-                          {macosPlatform ? "输入上下文维护快捷键" : "全局维护快捷键"}
-                        </div>
-                        <small>
-                          {macosPlatform
-                            ? "仅在水杉输入法当前输入上下文生效；Option 对应 Windows 基线中的 Alt。"
-                            : linuxPlatform
-                              ? "在当前 IBus 或 Fcitx5 输入上下文中维护候选与重启服务"
-                              : "程序运行时全局生效；用于维护与调试"}
-                        </small>
-                        <div className={settings.shortcutList}>
-                          <div className={settings.shortcutRow}>
-                            <span>删除当前候选窗口中的第 1–8 项</span>
-                            <kbd>{maintenanceChord}+1–8</kbd>
-                          </div>
-                          {linuxPlatform && (
-                            <>
-                              <div className={settings.shortcutRow}>
-                                <span>清除当前输入法会话的 Engine 缓存</span>
-                                <kbd>Ctrl+Shift+Alt+C</kbd>
-                              </div>
-                              <div className={settings.shortcutRow}>
-                                <span>
-                                  重启或重载输入法（IBus 执行 ibus restart，Fcitx5
-                                  重置水杉插件，不影响其他输入法）
-                                </span>
-                                <kbd>Ctrl+Shift+Alt+R</kbd>
-                              </div>
-                              <div
-                                className={`${settings.shortcutRow} ${settings.shortcutRowDanger}`}
-                              >
-                                <span>
-                                  立即退出 IBus 宿主进程（Fcitx5 下与 Fcitx5 同进程，不提供）
-                                </span>
-                                <kbd>Ctrl+Shift+Alt+T</kbd>
-                              </div>
-                            </>
-                          )}
-                          {!linuxPlatform && (
-                            <>
-                              <div className={settings.shortcutRow}>
-                                <span>
-                                  {macosPlatform
-                                    ? "清除当前输入法会话的 Engine 缓存"
-                                    : "清除输入法引擎缓存"}
-                                </span>
-                                <kbd>{maintenanceChord}+C</kbd>
-                              </div>
-                              <div className={settings.shortcutRow}>
-                                <span>
-                                  {macosPlatform ? "重新注册并重启当前输入法" : "重启输入法服务"}
-                                </span>
-                                <kbd>{maintenanceChord}+R</kbd>
-                              </div>
-                              <div
-                                className={`${settings.shortcutRow} ${settings.shortcutRowDanger}`}
-                              >
-                                <span>
-                                  {macosPlatform ? "立即退出当前输入法进程" : "立即退出输入法服务"}
-                                </span>
-                                <kbd>{maintenanceChord}+T</kbd>
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                    {showRestartInputMethod && (
-                      <div className={`section ${settings.shortcutSectionTitle}`}>
-                        <div className="section-title">输入法服务</div>
-                        <small>
-                          {macosPlatform
-                            ? "重新注册并启用已安装的水杉输入源；当前输入法进程继续按系统生命周期运行。"
-                            : linuxPlatform
-                              ? "重启 IBus 输入法服务；使用 Fcitx5 时重载水杉插件，关闭并重建所有输入会话，不影响其他输入法。"
-                              : "请求受监督的输入法服务重新启动。"}
-                        </small>
-                        <div className={settings.serviceRow}>
-                          <span>{macosPlatform ? "重新注册当前输入源" : "立即重启输入法服务"}</span>
-                          <HostActionButton
-                            action={client.restartInputMethod}
-                            label={macosPlatform ? "重新注册" : "重启"}
-                            success={
-                              macosPlatform
-                                ? "已重新注册输入源。"
-                                : linuxPlatform
-                                  ? "已请求重启输入法服务。"
-                                  : "已发送重启请求。"
-                            }
-                            error={
-                              macosPlatform
-                                ? "重新注册输入源失败，请确认输入法已经安装。"
-                                : "重启输入法服务失败，请稍后重试。"
-                            }
-                          />
-                        </div>
-                        {showInstallInputSource && (
-                          <div className={settings.serviceRow}>
-                            <span>
-                              安装或更新水杉输入源
-                              <small>
-                                将当前应用随附的 IMK bundle 安装到本机输入法目录，然后注册到系统。
-                              </small>
-                            </span>
-                            <HostActionButton
-                              action={client.installInputSource}
-                              label="安装 / 更新"
-                              success="输入源已安装并注册。"
-                              error="输入源安装或注册失败，请重试。"
-                            />
-                          </div>
-                        )}
-                      </div>
-                    )}
+                    <InputModeShortcutsSection
+                      keybindings={keybindings}
+                      onChange={(patch) =>
+                        setDraft({ ...draft, keybindings: { ...keybindings, ...patch } })
+                      }
+                      onInputModeHUDChange={(input_mode_hud) =>
+                        setDraft({ ...draft, input_mode_hud })
+                      }
+                      showModeSwitchShortcuts={showModeSwitchShortcuts}
+                      macos={macosPlatform}
+                      showInputModeHUD={showInputModeHUD}
+                      inputModeHUD={inputModeHUD}
+                      showFullwidthChord={showFullwidthChord}
+                      fullwidthChord={fullwidthChord}
+                      windows={windowsPlatform}
+                    />
+                    <PanelShortcutsSection
+                      visible={showPanelShortcuts}
+                      macos={macosPlatform}
+                      harmony={harmonyPlatform}
+                    />
+                    <CandidateShortcutsSection
+                      navigation={draft.navigation ?? defaultNavigation}
+                      numberRowSelection={draft.number_row_selection ?? true}
+                      showNumberRowSelection={showNumberRowSelection}
+                      mobile={mobilePlatform}
+                      onNumberRowSelectionChange={(number_row_selection) =>
+                        setDraft({ ...draft, number_row_selection })
+                      }
+                    />
+                    <MaintenanceShortcutsSection
+                      visible={showDesktopMaintenanceShortcuts}
+                      macos={macosPlatform}
+                      linux={linuxPlatform}
+                      maintenanceChord={maintenanceChord}
+                    />
+                    <InputMethodServiceSection
+                      visible={Boolean(showRestartInputMethod)}
+                      macos={macosPlatform}
+                      linux={linuxPlatform}
+                      restartInputMethod={client.restartInputMethod}
+                      installInputSource={
+                        showInstallInputSource ? client.installInputSource : undefined
+                      }
+                    />
                   </fieldset>
                   <fieldset disabled={busy} hidden={page !== "tools"} aria-label="实用功能">
                     <ClipboardHistorySection
@@ -7407,100 +6364,27 @@ export function SettingsPage({
                       onChange={(local_modes) => setDraft({ ...draft, local_modes })}
                     />
                   </fieldset>
-                  <fieldset disabled={busy} hidden={page !== "help"} aria-label="帮助">
-                    {macosPlatform &&
-                      macosHelpCards.map((card) => (
-                        <div
-                          key={card.title}
-                          className={`section ${doc.guide}`}
-                          role="group"
-                          aria-label={card.title}
-                        >
-                          <div className="section-title">{card.title}</div>
-                          {card.rows.map((row, index) => (
-                            <div
-                              key={row.term}
-                              className={`${doc.guideRow}${index === 0 && card.rows.length > 1 ? ` ${doc.guideLead}` : ""}`}
-                            >
-                              <span className={doc.guideTerm}>{row.term}</span>
-                              <p className={doc.guideText}>{row.text}</p>
-                            </div>
-                          ))}
-                        </div>
-                      ))}
-                    {macosPlatform && client.openExternalUrl && (
-                      <div className="section" role="group" aria-label="更多">
-                        <div className="section-header">
-                          <span className="section-title">
-                            更多<small>更完整的说明、词库来源和更新记录在官网上。</small>
-                          </span>
-                          <button
-                            type="button"
-                            className="secondary"
-                            onClick={() => void openExternalUrl(documentationUrl)}
-                          >
-                            打开官网
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                    {!macosPlatform && (
-                      <div className={`section ${doc.page}`}>
-                        <p>{platformHelpIntro}</p>
-                        <div className={doc.subsection}>
-                          <div className="section-title">快速上手</div>
-                          <p>{platformQuickStart}</p>
-                          {mobilePlatform && client.openSystemKeyboardSettings && (
-                            <button
-                              type="button"
-                              className="secondary"
-                              onClick={() => void client.openSystemKeyboardSettings!()}
-                            >
-                              {iosPlatform ? "打开系统键盘设置" : "打开系统输入法设置"}
-                            </button>
-                          )}
-                        </div>
-                        {iosPlatform && (
-                          <div className={doc.subsection}>
-                            <div className="section-title">允许完全访问</div>
-                            <p>
-                              打字统计保存本机字数、手写首次下载识别模型时需要在系统键盘设置中开启“允许完全访问”。不开启也可以正常打字；键盘默认离线，不会因为未开启而上传输入内容。
-                            </p>
-                          </div>
-                        )}
-                        {androidPlatform && (
-                          <div className={doc.subsection}>
-                            <div className="section-title">输入权限</div>
-                            <p>
-                              Android
-                              的输入法服务只在当前编辑器请求时接收文本。云功能、语音和社区按你主动启用的功能联网，日常拼音输入无需联网。
-                            </p>
-                          </div>
-                        )}
-                        <div className={doc.subsection}>
-                          <div className="section-title">基本功能</div>
-                          <p>
-                            支持全拼、双拼和五笔。可以在设置窗口下的输入功能分区进行切换。全拼和双拼均支持辅助码，辅助码方案目前支持自然码辅助码、蓝天小雨点、首右
-                            2.0、首右 plus 和小鹤。
-                          </p>
-                          <p>{platformNetworkDescription}</p>
-                          <p>更多功能欢迎自由探索～</p>
-                        </div>
-                        {client.openExternalUrl && (
-                          <div className={doc.subsection}>
-                            <div className="section-title">更多</div>
-                            <button
-                              type="button"
-                              className="secondary"
-                              onClick={() => void openExternalUrl(documentationUrl)}
-                            >
-                              完整文档（网页）
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </fieldset>
+                  <HelpSettingsPage
+                    busy={busy}
+                    hidden={page !== "help"}
+                    macos={macosPlatform}
+                    mobile={mobilePlatform}
+                    ios={iosPlatform}
+                    android={androidPlatform}
+                    platformHelpIntro={platformHelpIntro}
+                    platformQuickStart={platformQuickStart}
+                    platformNetworkDescription={platformNetworkDescription}
+                    onOpenDocumentation={
+                      client.openExternalUrl
+                        ? () => void openExternalUrl("https://msime.app/docs/")
+                        : undefined
+                    }
+                    onOpenSystemKeyboardSettings={
+                      mobilePlatform && client.openSystemKeyboardSettings
+                        ? () => void client.openSystemKeyboardSettings!()
+                        : undefined
+                    }
+                  />
                   <fieldset disabled={busy} hidden={page !== "about"} aria-label="关于">
                     <div className={`section ${doc.hero}`}>
                       <div className={doc.mark}>
@@ -7582,278 +6466,54 @@ export function SettingsPage({
                         <span aria-hidden="true">↗</span>
                       </button>
                     </div>
-                    {(macosPlatform || linuxPlatform) && client.dataDirectory && (
-                      <div className="section" role="group" aria-label="数据目录">
-                        <div className="section-header">
-                          <span className="section-title">
-                            数据目录
-                            <small>
-                              词库、学习记录、皮肤、剪贴板历史和设置共用此位置。可移动到其他磁盘。
-                              {linuxPlatform &&
-                                "输入法入口配置和在线服务、语音服务的凭据固定保存在 ~/.config/msime-client，不随数据移动。"}
-                            </small>
-                          </span>
-                        </div>
-                        <div className={settings.serviceRow}>
-                          <span>
-                            当前目录
-                            <small>
-                              <code>{dataDirectory?.path ?? "正在读取…"}</code>
-                              {dataDirectory?.isDefault ? "（默认）" : ""}
-                            </small>
-                          </span>
-                          <div>
-                            <button
-                              type="button"
-                              className="secondary"
-                              disabled={dataDirectoryBusy || !dataDirectory}
-                              aria-busy={dataDirectoryBusy}
-                              onClick={() => void chooseDataDirectory()}
-                            >
-                              {dataDirectoryBusy ? "正在移动…" : "选择位置…"}
-                            </button>
-                          </div>
-                        </div>
-                        {dataDirectoryResult && <p role="status">{dataDirectoryResult}</p>}
-                      </div>
-                    )}
+                    <DataDirectorySection
+                      visible={Boolean((macosPlatform || linuxPlatform) && client.dataDirectory)}
+                      linux={linuxPlatform}
+                      dataDirectory={dataDirectory}
+                      busy={dataDirectoryBusy}
+                      result={dataDirectoryResult}
+                      onChoose={() => void chooseDataDirectory()}
+                    />
                     {macosPlatform && (
-                      <div className="section" role="group" aria-label="许可与卸载">
-                        <div className="section-header">
-                          <span className="section-title">
-                            许可与版权
-                            <small>水杉 IME 以 GPL-3.0 发布；第三方组件许可随应用资源提供。</small>
-                          </span>
-                          <span className={doc.version} aria-label="版权">
-                            © 2026 Metasequoia IME
-                          </span>
-                        </div>
-                        {client.openThirdPartyLicenses && (
-                          <button
-                            type="button"
-                            className="secondary"
-                            onClick={() => void client.openThirdPartyLicenses!()}
-                          >
-                            查看许可全文
-                          </button>
-                        )}
-                        {client.uninstallInputSource && (
-                          <div className={`${settings.serviceRow} ${settings.serviceRowDanger}`}>
-                            <span>
-                              卸载水杉输入法
-                              <small>
-                                输入源会移到废纸篓；默认保留词库、学习记录和偏好，重新安装后可继续使用。
-                              </small>
-                              <label>
-                                <input
-                                  type="checkbox"
-                                  checked={removeUserDataOnUninstall}
-                                  onChange={(event) =>
-                                    setRemoveUserDataOnUninstall(event.target.checked)
-                                  }
-                                />{" "}
-                                同时删除词库、偏好与语音密钥
-                              </label>
-                            </span>
-                            <div>
-                              <button
-                                type="button"
-                                className="secondary"
-                                disabled={uninstallBusy}
-                                aria-label="卸载…"
-                                aria-busy={uninstallBusy}
-                                onClick={() => {
-                                  setUninstallResult(null);
-                                  setUninstallConfirmation(true);
-                                }}
-                              >
-                                {uninstallBusy ? "处理中…" : "卸载…"}
-                              </button>
-                              {uninstallResult === "success" && (
-                                <span role="status">输入法已移到废纸篓。</span>
-                              )}
-                              {uninstallResult === "error" && (
-                                <span role="alert">卸载未能完成，请稍后重试。</span>
-                              )}
-                            </div>
-                            {uninstallConfirmation && (
-                              <div
-                                className={settings.serviceConfirmation}
-                                role="alertdialog"
-                                aria-modal="true"
-                                aria-label="确认卸载水杉输入法"
-                              >
-                                <p>
-                                  输入法会被移到废纸篓，放错了可以从那里放回原处。
-                                  {removeUserDataOnUninstall
-                                    ? "已选择同时删除词库、偏好与语音密钥。"
-                                    : "词库、学习记录和偏好会保留，重新安装后可以继续使用。"}{" "}
-                                  卸载后请重新登录系统，让它从输入源列表中消失。
-                                </p>
-                                <div>
-                                  <button
-                                    type="button"
-                                    className="danger"
-                                    disabled={uninstallBusy}
-                                    onClick={() => void uninstallInputSource()}
-                                  >
-                                    确认卸载
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="secondary"
-                                    disabled={uninstallBusy}
-                                    onClick={() => setUninstallConfirmation(false)}
-                                  >
-                                    取消
-                                  </button>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
+                      <LicenseUninstallSection
+                        openThirdPartyLicenses={client.openThirdPartyLicenses}
+                        uninstallInputSource={client.uninstallInputSource}
+                        removeUserData={removeUserDataOnUninstall}
+                        uninstallBusy={uninstallBusy}
+                        uninstallConfirmation={uninstallConfirmation}
+                        uninstallResult={uninstallResult}
+                        onRemoveUserDataChange={setRemoveUserDataOnUninstall}
+                        onRequestUninstall={() => {
+                          setUninstallResult(null);
+                          setUninstallConfirmation(true);
+                        }}
+                        onConfirmUninstall={() => void uninstallInputSource()}
+                        onCancelUninstall={() => setUninstallConfirmation(false)}
+                      />
                     )}
-                    {mobilePlatform && (
-                      <div className={`section ${doc.linkList}`} aria-label="帮助与反馈">
-                        <button
-                          type="button"
-                          className={doc.linkRow}
-                          onClick={() => selectPage("help")}
-                        >
-                          <span className={doc.linkTitle}>使用帮助</span>
-                          <span aria-hidden="true">›</span>
-                        </button>
-                        <button
-                          type="button"
-                          className={doc.linkRow}
-                          onClick={() => selectPage("feedback")}
-                        >
-                          <span className={doc.linkTitle}>反馈问题与建议</span>
-                          <span aria-hidden="true">›</span>
-                        </button>
-                      </div>
-                    )}
-                    {(!client.host || linuxPlatform || windowsPlatform || macosPlatform) && (
-                      <div className="section" role="group" aria-label="诊断日志">
-                        <label className="section-header">
-                          <span className="section-title">
-                            {linuxPlatform
-                              ? "输入法宿主日志"
-                              : macosPlatform
-                                ? "输入法日志"
-                                : "Server 端日志"}
-                            <small>
-                              {linuxPlatform
-                                ? "排查 IBus 或 Fcitx5 宿主的焦点切换、设置应用和菜单保存问题时开启。记录焦点进出、偏好应用、菜单保存、词库维护时释放会话的结果和操作失败的阶段，限量轮转，不记录按键、输入内容或候选文本。文件是数据目录下的 diagnostic.log，两个宿主写进同一个文件，复现后可直接发送。"
-                                : macosPlatform
-                                  ? "排查按键延迟、候选窗位置、焦点切换和设置加载失败时开启。记录焦点进出，偏好加载、应用、保存的结果，超过 8 毫秒的按键处理耗时，候选窗的显示位置与隐藏原因，以及输入统计写入失败的类别，限量轮转，不记录按键、输入内容或候选文本。文件是应用支持目录下的 diagnostic.log，复现后用「在 Finder 中显示」找到它并发送。"
-                                  : "排查 Server 启动和通信问题时开启。记录 Server 启停原因和各组件是否就绪，限量轮转，不记录按键、输入内容或候选文本。文件是数据目录下的 logs\\server.log，TSF 端日志也写进这个文件，复现后可直接发送。"}
-                            </small>
-                          </span>
-                          <input
-                            aria-label={
-                              linuxPlatform
-                                ? "输入法宿主日志"
-                                : macosPlatform
-                                  ? "输入法日志"
-                                  : "Server 端日志"
-                            }
-                            className="toggle"
-                            type="checkbox"
-                            checked={diagnosticLog.server}
-                            onChange={(event) =>
-                              setDraft({
-                                ...draft,
-                                diagnostic_log: { ...diagnosticLog, server: event.target.checked },
-                              })
-                            }
-                          />
-                        </label>
-                        {client.openDiagnosticLogDirectory && (
-                          <>
-                            <div className="input-option-divider" />
-                            <div className="section-header">
-                              <span className="section-title">
-                                日志文件
-                                <small>
-                                  {macosPlatform
-                                    ? "在 Finder 中选中 diagnostic.log；还没有写入时打开它所在的目录。"
-                                    : "打开日志文件所在的目录。"}
-                                </small>
-                              </span>
-                              <button
-                                type="button"
-                                className="secondary"
-                                onClick={() => {
-                                  const reveal = client.openDiagnosticLogDirectory;
-                                  if (!reveal) return;
-                                  setError("");
-                                  void reveal().catch(() =>
-                                    setError(
-                                      macosPlatform
-                                        ? "无法在 Finder 中显示诊断日志，请稍后重试。"
-                                        : "无法打开日志目录，可能是文件管理器不可用。",
-                                    ),
-                                  );
-                                }}
-                              >
-                                {macosPlatform ? "在 Finder 中显示" : "打开日志目录"}
-                              </button>
-                            </div>
-                          </>
-                        )}
-                        {(!client.host || windowsPlatform) && (
-                          <>
-                            <div className="input-option-divider" />
-                            <label className="section-header">
-                              <span className="section-title">
-                                TSF 端日志
-                                <small>
-                                  排查应用内预编辑和输入延迟时开启。日志在内存中限量缓冲，并通过独立管道批量汇总，不记录按键、输入内容或候选文本。
-                                </small>
-                              </span>
-                              <input
-                                aria-label="TSF 端日志"
-                                className="toggle"
-                                type="checkbox"
-                                checked={diagnosticLog.tsf}
-                                onChange={(event) =>
-                                  setDraft({
-                                    ...draft,
-                                    diagnostic_log: { ...diagnosticLog, tsf: event.target.checked },
-                                  })
-                                }
-                              />
-                            </label>
-                          </>
-                        )}
-                      </div>
-                    )}
+                    <HelpFeedbackSection
+                      visible={mobilePlatform}
+                      onHelp={() => selectPage("help")}
+                      onFeedback={() => selectPage("feedback")}
+                    />
+                    <DiagnosticLogsSection
+                      visible={!client.host || linuxPlatform || windowsPlatform || macosPlatform}
+                      linux={linuxPlatform}
+                      macos={macosPlatform}
+                      windows={windowsPlatform || !client.host}
+                      values={diagnosticLog}
+                      openDirectory={client.openDiagnosticLogDirectory}
+                      onChange={(patch) =>
+                        setDraft({ ...draft, diagnostic_log: { ...diagnosticLog, ...patch } })
+                      }
+                      onError={setError}
+                    />
                     {/* Only the Windows Server reads this switch; the other hosts report on their own terms, described in PRIVACY.md, so offering it there would be a switch that changes nothing. */}
                     {windowsPlatform && (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">
-                            匿名使用统计
-                            <small>
-                              默认关闭。开启后，Server 每次启动向
-                              https://api.msime.app/v1/telemetry/events 发送一条事件，只含随机事件
-                              id、类型、平台名 windows 和版本号；Server 崩溃时再发一条，另带固定文本
-                              std::terminate。不含输入内容、候选、剪贴板或账号信息。
-                            </small>
-                          </span>
-                          <input
-                            aria-label="匿名使用统计"
-                            className="toggle"
-                            type="checkbox"
-                            checked={draft?.telemetry_enabled ?? false}
-                            onChange={(event) =>
-                              setDraft({ ...draft, telemetry_enabled: event.target.checked })
-                            }
-                          />
-                        </label>
-                      </div>
+                      <TelemetrySection
+                        value={draft.telemetry_enabled}
+                        onChange={(telemetry_enabled) => setDraft({ ...draft, telemetry_enabled })}
+                      />
                     )}
                   </fieldset>
                   <fieldset
@@ -7861,111 +6521,25 @@ export function SettingsPage({
                     hidden={page !== "screen-keyboard"}
                     aria-label="屏幕键盘"
                   >
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          屏幕键盘主题
-                          <small>
-                            {mobilePlatform
-                              ? "覆盖主题模式；当前屏幕键盘支持此设置"
-                              : "覆盖主题模式；桌面屏幕键盘支持此设置"}
-                          </small>
-                        </span>
-                        <select
-                          aria-label="屏幕键盘主题"
-                          value={draft.screen_keyboard_theme ?? "follow"}
-                          onChange={(event) =>
-                            setDraft({
-                              ...draft,
-                              screen_keyboard_theme: event.target.value as SurfaceTheme,
-                            })
-                          }
-                        >
-                          <option value="follow">跟随全局</option>
-                          <option value="dark">深色</option>
-                          <option value="light">浅色</option>
-                        </select>
-                      </label>
-                    </div>
-                    <div
-                      className="section"
-                      role="group"
-                      aria-labelledby="touch-keyboard-skin-title"
-                    >
-                      <div className="section-title" id="touch-keyboard-skin-title">
-                        键盘皮肤
-                        <small>
-                          与 Apple 内置皮肤一致；独立于{mobilePlatform ? "候选栏" : "桌面候选窗"}
-                          皮肤
-                        </small>
-                      </div>
-                      <div className={skin.skinGrid}>
-                        {touchKeyboardSkinOptions.map((option) => (
-                          <article
-                            className={skin.skinCard(touchKeyboardSkin === option.id)}
-                            key={option.id}
-                          >
-                            <button
-                              type="button"
-                              className={skin.skinCardButton}
-                              role="switch"
-                              aria-label={`屏幕键盘皮肤 ${option.title}`}
-                              aria-checked={touchKeyboardSkin === option.id}
-                              onClick={() => setDraft({ ...draft, touch_keyboard_skin: option.id })}
-                            >
-                              <ScreenKeyboardPreview
-                                theme={keyboardPreviewTheme}
-                                skin={option.id}
-                                compact
-                              />
-                              <span className={skin.skinCardCopy}>
-                                <strong>{option.title}</strong>
-                                <small>{option.description}</small>
-                              </span>
-                              <span className={skin.skinCardCheck} aria-hidden="true">
-                                {touchKeyboardSkin === option.id ? "✓" : ""}
-                              </span>
-                            </button>
-                          </article>
-                        ))}
-                        {client.customTouchKeyboardSkins && (
-                          <article className={skin.skinCard(touchKeyboardSkin === "custom")}>
-                            <button
-                              type="button"
-                              className={skin.skinCardButton}
-                              role="switch"
-                              aria-label="屏幕键盘皮肤 我的皮肤"
-                              aria-checked={touchKeyboardSkin === "custom"}
-                              onClick={() => setDraft({ ...draft, touch_keyboard_skin: "custom" })}
-                            >
-                              <ScreenKeyboardPreview
-                                theme={keyboardPreviewTheme}
-                                skin="custom"
-                                customDesign={customTouchKeyboardSkin}
-                                compact
-                              />
-                              <span className={skin.skinCardCopy}>
-                                <strong>我的皮肤</strong>
-                                <small>自由配色 · 自定义键帽</small>
-                              </span>
-                              <span className={skin.skinCardCheck} aria-hidden="true">
-                                {touchKeyboardSkin === "custom" ? "✓" : ""}
-                              </span>
-                            </button>
-                          </article>
-                        )}
-                      </div>
-                      {client.customTouchKeyboardSkins && (
-                        <button
-                          type="button"
-                          className={`secondary ${skin.editorOpen}`}
-                          aria-expanded={showTouchSkinEditor}
-                          onClick={() => setShowTouchSkinEditor((value) => !value)}
-                        >
-                          {showTouchSkinEditor ? "收起自定义编辑器" : "设计我的皮肤"}
-                        </button>
-                      )}
-                    </div>
+                    <ScreenKeyboardThemeSection
+                      mobile={mobilePlatform}
+                      value={draft.screen_keyboard_theme ?? "follow"}
+                      onChange={(screen_keyboard_theme) =>
+                        setDraft({ ...draft, screen_keyboard_theme })
+                      }
+                    />
+                    <ScreenKeyboardSkinsSection
+                      mobile={mobilePlatform}
+                      theme={keyboardPreviewTheme}
+                      selected={touchKeyboardSkin}
+                      customDesign={customTouchKeyboardSkin}
+                      customAvailable={Boolean(client.customTouchKeyboardSkins)}
+                      editorOpen={showTouchSkinEditor}
+                      onSelect={(touch_keyboard_skin) =>
+                        setDraft({ ...draft, touch_keyboard_skin })
+                      }
+                      onToggleEditor={() => setShowTouchSkinEditor((value) => !value)}
+                    />
                     {mobilePlatform && client.communitySkins && (
                       <div className="section">
                         <div className="section-header">
@@ -8308,185 +6882,47 @@ export function SettingsPage({
                     )}
                   </fieldset>
                   <fieldset disabled={busy} hidden={page !== "voice"} aria-label="语音输入">
-                    {localVoice ? (
-                      <div className={`section ${settings.launchCard}`}>
-                        <div className="section-title">本地识别</div>
-                        <p className={settings.panelPreviewLabel}>
-                          {client.localVoiceModels
-                            ? "录音和识别都在这台设备上完成，音频不会离开本机，也不需要任何 API Key。在下方下载一个模型并点击“使用”，保存设置后生效；下载只会连接 GitHub 或你配置的镜像。你的用户词库会作为热词提高专有名词的识别率。可选的文本润色仍会调用你配置的云服务。"
-                            : "录音和识别都在这台机器上完成，音频不会离开本机，也不需要任何 API Key。需要自备 whisper.cpp 的 ggml 模型文件（.bin），在下方填写它的绝对路径；模型越大越准也越慢，首次识别要等模型载入。可选的文本润色仍会调用你配置的云服务。"}
-                        </p>
-                      </div>
-                    ) : systemVoice ? (
-                      <div className={`section ${settings.launchCard}`}>
-                        <div className="section-title">{systemVoiceHostName} 系统语音</div>
-                        <p className={settings.panelPreviewLabel}>
-                          保存设置后，在目标应用中启用水杉输入法，使用键盘内的语音入口录音。不需要识别
-                          API
-                          Key；首次使用需授予麦克风和语音识别权限。服务可用性及是否联网由系统决定，可选文本润色仍使用你配置的云服务。
-                        </p>
-                      </div>
-                    ) : androidPlatform ? (
-                      <div className={`section ${settings.launchCard}`}>
-                        <div className="section-title">
-                          {showVoiceProviderSettings ? "Android 语音输入" : "Android 系统语音"}
-                        </div>
-                        <p className={settings.panelPreviewLabel}>
-                          {showVoiceProviderSettings
-                            ? "键盘工具栏的“语音”入口按这里配置的服务商录音并转写；没有配置可用的服务商时回退到设备自带的系统语音识别，不需要任何 API Key。识别结果会回到键盘，确认后才插入当前输入框。"
-                            : "从键盘工具栏的“语音”入口调用设备上的系统语音识别服务。识别结果会回到键盘，确认后才插入当前输入框。"}
-                        </p>
-                      </div>
-                    ) : iosPlatform ? (
-                      <div className={`section ${settings.launchCard}`}>
-                        <div className="section-title">iOS 应用语音</div>
-                        <p className={settings.panelPreviewLabel}>
-                          iOS
-                          的录音、识别和文本提交在当前共享设置与应用语音服务中完成。保存设置后，从应用内的语音入口开始；识别结果会回到当前页面，再由你确认使用。不打开无法提交到键盘扩展输入会话的
-                          Tauri 语音面板。
-                        </p>
-                        {client.openVoice && (
-                          <button
-                            type="button"
-                            className="secondary"
-                            onClick={() => void openPanel(client.openVoice)}
-                          >
-                            开始 iOS 语音
-                          </button>
-                        )}
-                      </div>
-                    ) : macosPlatform ? (
-                      <div className={`section ${settings.launchCard}`}>
-                        <div className="section-title">macOS 输入法语音</div>
-                        <p className={settings.panelPreviewLabel}>
-                          macOS
-                          的语音录音、云端识别和文本提交由当前输入法进程负责；保存设置后，请在目标应用中使用下方语音快捷键或输入法悬浮工具栏开始。不打开无法提交到当前输入法会话的
-                          Tauri 面板。
-                        </p>
-                      </div>
-                    ) : harmonyPlatform ? (
-                      <div className={`section ${settings.launchCard}`}>
-                        <div className="section-title">HarmonyOS 输入法语音</div>
-                        <p className={settings.panelPreviewLabel}>
-                          豆包配置有效时，键盘直接采集 16 kHz
-                          麦克风音频并进行实时识别；选择系统识别时由 HarmonyOS CoreSpeechKit
-                          处理。识别结果会回到键盘，确认后才插入当前输入框。
-                        </p>
-                      </div>
-                    ) : (
-                      <div className={`section ${settings.launchCard}`}>
-                        <div className={`section-header ${settings.launchRow}`}>
-                          <span className="section-title">
-                            打开语音输入
-                            <small>
-                              {linuxPlatform
-                                ? "录音和识别由已配置的 provider 服务完成"
-                                : "录音和识别在本机完成"}
-                            </small>
-                          </span>
-                          <button
-                            type="button"
-                            className={`secondary ${settings.openButton}`}
-                            disabled={!client.openVoice}
-                            onClick={() => void openPanel(client.openVoice)}
-                          >
-                            打开
-                          </button>
-                        </div>
-                        {linuxPlatform && (
-                          <p className={settings.panelPreviewLabel}>
-                            语音需要 provider
-                            服务：录音、模型和凭据都由它负责，服务未运行时无法录音。
-                          </p>
-                        )}
-                      </div>
-                    )}
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          语音输入<small>使用语音识别将录音转换为文字</small>
-                        </span>
-                        <input
-                          aria-label="启用语音输入"
-                          className="toggle"
-                          type="checkbox"
-                          checked={voiceInput.enabled}
-                          onChange={(event) => updateVoice({ enabled: event.target.checked })}
-                        />
-                      </label>
-                    </div>
-                    {showVoiceProviderSettings && (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">识别服务</span>
-                          <select
-                            aria-label="识别服务"
-                            value={String(voiceInput.asr_provider)}
-                            onChange={(event) =>
-                              updateVoice({
-                                ...asrProviderUpdate(event.target.value, voiceInput),
-                                ...(event.target.value === "system" &&
-                                voiceInput.language === "auto"
-                                  ? { language: "zh-CN" }
-                                  : {}),
-                                ...(linuxPlatform
-                                  ? { asr_resource_id: "", doubao_boosting_table_id: "" }
-                                  : {}),
-                              })
-                            }
-                          >
-                            <option value="doubao">豆包</option>
-                            <option value="siliconflow">SiliconFlow</option>
-                            <option value="openai">OpenAI</option>
-                            <option value="groq">Groq</option>
-                            <option value="everyapi">EveryAPI</option>
-                            <option value="mistral">Mistral · Voxtral</option>
-                            {macosPlatform && <option value="system">macOS 系统识别</option>}
-                            {localVoiceAvailable && <option value="local">本地模型（离线）</option>}
-                            {!localVoiceAvailable && voiceInput.asr_provider === "local" && (
-                              <option value="local" disabled>
-                                本地模型（当前平台不可用）
-                              </option>
-                            )}
-                            {harmonyPlatform && <option value="system">HarmonyOS 系统识别</option>}
-                            {androidPlatform && <option value="system">Android 系统识别</option>}
-                            {!nativeVoicePlatform && voiceInput.asr_provider === "system" && (
-                              <option value="system" disabled>
-                                系统识别（当前平台不可用）
-                              </option>
-                            )}
-                            {harmonyUnsupportedAsr && (
-                              <option value={String(voiceInput.asr_provider)} disabled>
-                                {String(voiceInput.asr_provider)}（当前 HarmonyOS 版本不可用）
-                              </option>
-                            )}
-                          </select>
-                        </label>
-                      </div>
-                    )}
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          识别语言
-                          {systemVoice && (
-                            <small>选择明确的语言代码，例如 zh-CN、en-US；可用语言由系统决定</small>
-                          )}
-                        </span>
-                        <input
-                          aria-label="识别语言"
-                          maxLength={64}
-                          list="settings-voice-language-options"
-                          value={voiceInput.language}
-                          onChange={(event) => updateVoice({ language: event.target.value })}
-                        />
-                        <datalist id="settings-voice-language-options">
-                          <option value={systemVoice ? "zh-CN" : "zh-cn"}>中文（普通话）</option>
-                          <option value={systemVoice ? "en-US" : "en"}>English</option>
-                          <option value={systemVoice ? "ja-JP" : "ja"}>日本語</option>
-                          {!systemVoice && <option value="auto">自动识别</option>}
-                        </datalist>
-                      </label>
-                    </div>
+                    <VoiceInputIntroSection
+                      localVoice={localVoice}
+                      localVoiceModelsAvailable={Boolean(client.localVoiceModels)}
+                      systemVoice={systemVoice}
+                      systemVoiceHostName={systemVoiceHostName}
+                      android={androidPlatform}
+                      ios={iosPlatform}
+                      macos={macosPlatform}
+                      harmony={harmonyPlatform}
+                      linux={linuxPlatform}
+                      showVoiceProviderSettings={showVoiceProviderSettings}
+                      onOpenVoice={
+                        client.openVoice ? () => void openPanel(client.openVoice) : undefined
+                      }
+                    />
+                    <VoiceInputCoreSection
+                      enabled={voiceInput.enabled}
+                      provider={String(voiceInput.asr_provider)}
+                      language={voiceInput.language}
+                      showProviderSettings={showVoiceProviderSettings}
+                      systemVoice={systemVoice}
+                      macos={macosPlatform}
+                      harmony={harmonyPlatform}
+                      android={androidPlatform}
+                      localVoiceAvailable={localVoiceAvailable}
+                      nativeVoicePlatform={nativeVoicePlatform}
+                      harmonyUnsupportedAsr={harmonyUnsupportedAsr}
+                      onEnabledChange={(enabled) => updateVoice({ enabled })}
+                      onProviderChange={(provider) =>
+                        updateVoice({
+                          ...asrProviderUpdate(provider, voiceInput),
+                          ...(provider === "system" && voiceInput.language === "auto"
+                            ? { language: "zh-CN" }
+                            : {}),
+                          ...(linuxPlatform
+                            ? { asr_resource_id: "", doubao_boosting_table_id: "" }
+                            : {}),
+                        })
+                      }
+                      onLanguageChange={(language) => updateVoice({ language })}
+                    />
                     {localVoice && client.localVoiceModels && (
                       <LocalModelManager
                         client={client.localVoiceModels}
@@ -8514,39 +6950,27 @@ export function SettingsPage({
                       />
                     )}
                     {localVoice && client.localVoiceModels && (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">
-                            模型下载镜像
-                            <small>
-                              可选。以 https://
-                              开头的加速前缀，下载地址为“镜像/原始地址”；留空直接从 GitHub
-                              下载。保存设置后生效
-                            </small>
-                          </span>
-                          <input
-                            aria-label="模型下载镜像"
-                            maxLength={2048}
-                            value={voiceInput.asr_model_mirror ?? ""}
-                            placeholder="https://mirror.example.com"
-                            aria-invalid={
-                              !validModelMirror((voiceInput.asr_model_mirror ?? "").trim())
-                            }
-                            onChange={(event) =>
-                              updateVoice({ asr_model_mirror: event.target.value })
-                            }
-                          />
-                        </label>
-                      </div>
+                      <VoiceModelMirrorSection
+                        value={voiceInput.asr_model_mirror ?? ""}
+                        onChange={(asr_model_mirror) => updateVoice({ asr_model_mirror })}
+                      />
                     )}
                     {localVoice &&
                       (client.localVoiceModels ? (
                         <details className="section">
                           <summary>高级：手动指定 Whisper 模型文件</summary>
-                          {manualVoiceModelPath()}
+                          <VoiceModelPathSection
+                            path={voiceInput.asr_model_path ?? ""}
+                            pickPath={client.pickVoiceModelPath}
+                            onChange={(asr_model_path) => updateVoice({ asr_model_path })}
+                          />
                         </details>
                       ) : (
-                        manualVoiceModelPath()
+                        <VoiceModelPathSection
+                          path={voiceInput.asr_model_path ?? ""}
+                          pickPath={client.pickVoiceModelPath}
+                          onChange={(asr_model_path) => updateVoice({ asr_model_path })}
+                        />
                       ))}
                     {showVoiceProviderSettings &&
                       serviceVoice &&
@@ -8557,83 +6981,25 @@ export function SettingsPage({
                         (asr_model) => updateVoice({ asr_model }),
                       )}
                     {showVoiceProviderSettings && serviceVoice && (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">
-                            识别模型<small>由 provider 服务选择对应模型</small>
-                          </span>
-                          <input
-                            aria-label="识别模型"
-                            value={voiceInput.asr_model ?? ""}
-                            onChange={(event) => updateVoice({ asr_model: event.target.value })}
-                          />
-                        </label>
-                      </div>
+                      <VoiceModelSection
+                        value={voiceInput.asr_model ?? ""}
+                        onChange={(asr_model) => updateVoice({ asr_model })}
+                      />
                     )}
                     {showVoiceProviderSettings && voiceInput.asr_provider === "doubao" && (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">
-                            豆包鉴权方式
-                            <small>
-                              {linuxPlatform
-                                ? "provider 服务必须与此模式匹配"
-                                : "新版控制台使用单 API Key；旧版使用 App ID + Access Token"}
-                            </small>
-                          </span>
-                          <select
-                            aria-label="豆包鉴权方式"
-                            value={doubaoAuthMode}
-                            onChange={(event) =>
-                              updateVoice({
-                                doubao_auth_mode:
-                                  event.target.value === "legacy" ? "legacy" : "api_key",
-                              })
-                            }
-                          >
-                            <option value="api_key">新版 API Key</option>
-                            <option value="legacy">旧版 App ID + Access Token</option>
-                          </select>
-                        </label>
-                      </div>
+                      <DoubaoAuthModeSection
+                        value={doubaoAuthMode}
+                        linux={linuxPlatform}
+                        onChange={(doubao_auth_mode) => updateVoice({ doubao_auth_mode })}
+                      />
                     )}
                     {showVoiceProviderSettings && !linuxPlatform && serviceVoice && (
                       <>
                         {voiceInput.asr_provider === "doubao" && (
-                          <div className="section">
-                            <label className="section-header">
-                              <span className="section-title">
-                                流式接口
-                                <small>
-                                  整句流式边录边传、说完返回整句，服务方称准确率更高并推荐用于输入法；双向流式返回增量结果，流式预编辑刷新更频繁。选择后写入下方接口地址。
-                                </small>
-                              </span>
-                              <select
-                                aria-label="流式接口"
-                                value={
-                                  DOUBAO_STREAM_ENDPOINTS.find(
-                                    (option) => option.endpoint === (voiceInput.asr_endpoint ?? ""),
-                                  )?.id ?? "custom"
-                                }
-                                onChange={(event) => {
-                                  const chosen = DOUBAO_STREAM_ENDPOINTS.find(
-                                    (option) => option.id === event.target.value,
-                                  );
-                                  if (chosen) updateVoice({ asr_endpoint: chosen.endpoint });
-                                }}
-                              >
-                                {DOUBAO_STREAM_ENDPOINTS.map((option) => (
-                                  <option key={option.id} value={option.id}>
-                                    {option.title}
-                                  </option>
-                                ))}
-                                {/* Whatever is in the field now, when it is neither
-                                    preset. Selecting it does nothing: the address
-                                    below stays the place to type one. */}
-                                <option value="custom">自定义地址</option>
-                              </select>
-                            </label>
-                          </div>
+                          <DoubaoStreamEndpointSection
+                            endpoint={voiceInput.asr_endpoint ?? ""}
+                            onChange={(asr_endpoint) => updateVoice({ asr_endpoint })}
+                          />
                         )}
                         <div className="section">
                           <label className="section-header">
@@ -8702,10 +7068,46 @@ export function SettingsPage({
                       </div>
                     )}
                     {linuxPlatform &&
+                      client.providerCredentials &&
                       ["openai", "siliconflow", "groq", "everyapi", "mistral", "doubao"].includes(
                         voiceInput.asr_provider ?? "doubao",
                       ) &&
-                      voiceCredentialControls("asr")}
+                      (() => {
+                        const provider = voiceInput.asr_provider ?? "doubao";
+                        return (
+                          <VoiceCredentialSection
+                            kind="asr"
+                            provider={provider}
+                            model={voiceInput.asr_model ?? ""}
+                            resourceId={voiceInput.asr_resource_id}
+                            authMode={doubaoAuthMode}
+                            credentials={providerCredentials}
+                            input={voiceCredentialInput.asr}
+                            busy={providerCredentialBusy === "asr"}
+                            message={providerCredentialMessages.asr}
+                            onChange={(patch) =>
+                              setVoiceCredentialInput((current) => ({
+                                ...current,
+                                asr: { ...current.asr, ...patch },
+                              }))
+                            }
+                            onSave={(credential: VoiceCredentialSaveInput) =>
+                              void runVoiceCredential(
+                                "asr",
+                                (credentials) => credentials.saveVoice(credential),
+                                "凭据已保存，语音 provider 下次请求时生效。",
+                              )
+                            }
+                            onClear={() =>
+                              void runVoiceCredential(
+                                "asr",
+                                (credentials) => credentials.clearVoice("asr", provider),
+                                "凭据已清除。",
+                              )
+                            }
+                          />
+                        );
+                      })()}
                     {linuxPlatform &&
                       credentialTestControl("voice.asr", "测试语音识别配置", {
                         asr_provider: voiceInput.asr_provider ?? "doubao",
@@ -9101,7 +7503,42 @@ export function SettingsPage({
                         >
                           恢复默认
                         </button>
-                        {linuxPlatform && voiceCredentialControls("polish")}
+                        {linuxPlatform &&
+                          client.providerCredentials &&
+                          (() => {
+                            const provider = voiceInput.polish_provider ?? "siliconflow";
+                            return (
+                              <VoiceCredentialSection
+                                kind="polish"
+                                provider={provider}
+                                model={voiceInput.polish_model ?? ""}
+                                credentials={providerCredentials}
+                                input={voiceCredentialInput.polish}
+                                busy={providerCredentialBusy === "polish"}
+                                message={providerCredentialMessages.polish}
+                                onChange={(patch) =>
+                                  setVoiceCredentialInput((current) => ({
+                                    ...current,
+                                    polish: { ...current.polish, ...patch },
+                                  }))
+                                }
+                                onSave={(credential: VoiceCredentialSaveInput) =>
+                                  void runVoiceCredential(
+                                    "polish",
+                                    (credentials) => credentials.saveVoice(credential),
+                                    "凭据已保存，语音 provider 下次请求时生效。",
+                                  )
+                                }
+                                onClear={() =>
+                                  void runVoiceCredential(
+                                    "polish",
+                                    (credentials) => credentials.clearVoice("polish", provider),
+                                    "凭据已清除。",
+                                  )
+                                }
+                              />
+                            );
+                          })()}
                         {linuxPlatform &&
                           credentialTestControl(
                             "voice.polish",
@@ -9345,7 +7782,7 @@ export function SettingsPage({
                                 清除凭据
                               </button>
                             )}
-                            {providerCredentialMessage("ai")}
+                            <CredentialStatusMessage message={providerCredentialMessages.ai} />
                           </div>
                         </div>
                         {credentialTestControl(

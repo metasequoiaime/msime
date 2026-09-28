@@ -19,6 +19,18 @@ private final class RestoreProtocol: URLProtocol {
 }
 
 final class SnapshotRestoreTests: XCTestCase {
+  func testRefusesToFollowAResponseRedirect() {
+    let delegate = SnapshotRestoreClient.Redirects()
+    let expectation = expectation(description: "redirect completion")
+    delegate.urlSession(URLSession.shared, task: URLSession.shared.dataTask(with: URL(string: "https://api.msime.app")!),
+                        willPerformHTTPRedirection: HTTPURLResponse(url: URL(string: "https://api.msime.app")!, statusCode: 307, httpVersion: nil, headerFields: nil)!,
+                        newRequest: URLRequest(url: URL(string: "https://redirect.invalid")!)) { request in
+      XCTAssertNil(request)
+      expectation.fulfill()
+    }
+    wait(for: [expectation], timeout: 1)
+  }
+
   private func fixture() throws -> (URL, Data, String) {
     let body = Data(#"{"type":"header","format":"msime-dictionary-snapshot","version":1,"revision":1}"#.utf8) + Data([10])
     let digest = SHA256.hash(data: body).map { String(format: "%02x", $0) }.joined()

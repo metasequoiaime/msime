@@ -201,14 +201,6 @@ impl Runtime<Session> {
         }))
     }
 
-    /// Queue the current eligible query for an injected provider. Hosts call
-    /// this after dispatching input; the bounded worker performs I/O off-thread.
-    pub fn submit_online_query(&self, worker: &OnlineProviderWorker) -> Result<bool, RuntimeError> {
-        Ok(self
-            .online_query()?
-            .is_some_and(|query| worker.submit(query)))
-    }
-
     pub fn apply_online_candidate(
         &mut self,
         query: &OnlineQuery,

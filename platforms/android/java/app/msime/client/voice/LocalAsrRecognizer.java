@@ -6,10 +6,8 @@ import android.content.res.Configuration;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
-import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
@@ -248,9 +246,7 @@ public final class LocalAsrRecognizer {
     /** The manifest's hotword mode ("native", "pinyin" or ""), or null when it is not a manifest. */
     private static String hotwordMode(String modelDirectory) {
         try {
-            byte[] bytes = Files.readAllBytes(
-                new File(modelDirectory, LocalAsrPolicy.MANIFEST).toPath());
-            if (bytes.length > LocalAsrPolicy.MAX_MANIFEST_BYTES) return null;
+            byte[] bytes = LocalAsrPolicy.readManifest(modelDirectory);
             JSONObject manifest = new JSONObject(new String(bytes, StandardCharsets.UTF_8));
             if (manifest.isNull("hotwords")) return "";
             return manifest.optString("hotwords", "");

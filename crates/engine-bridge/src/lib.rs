@@ -219,7 +219,6 @@ mod ffi {
         /// platform-neutral AudioCapture implementation. An empty result
         /// means the host could not open a capture device.
         fn capture_audio(milliseconds: u32) -> Vec<f32>;
-        fn capture_device_names() -> Vec<String>;
         fn capture_devices() -> Vec<CaptureDevice>;
         fn dictionary_entries(
             options: &EngineOptions,
@@ -282,19 +281,6 @@ mod ffi {
             candidates: &[String],
             source: u8,
         ) -> Result<bool>;
-        fn emoji_catalog(
-            resources: &str,
-            search: &str,
-            category: &str,
-            limit: u8,
-        ) -> Result<Vec<EmojiCatalogItem>>;
-        fn emoji_catalog_page(
-            resources: &str,
-            search: &str,
-            category: &str,
-            offset: usize,
-            limit: u16,
-        ) -> Result<Vec<EmojiCatalogItem>>;
         fn emoji_catalog_filtered_page(
             resources: &str,
             search: &str,
@@ -463,11 +449,6 @@ pub fn capture_audio(milliseconds: u32) -> Vec<f32> {
     ffi::capture_audio(milliseconds)
 }
 
-/// Enumerate capture devices without opening one or exposing device handles.
-pub fn capture_device_names() -> Vec<String> {
-    ffi::capture_device_names()
-}
-
 /// Backend-qualified endpoint identities and display labels; never log them.
 pub fn capture_devices() -> Vec<ffi::CaptureDevice> {
     ffi::capture_devices()
@@ -538,37 +519,7 @@ pub fn replay_user_dictionary(
     (result.applied, result.skipped, result.failed, result.error)
 }
 
-pub fn emoji_catalog(
-    resources: &str,
-    search: &str,
-    category: &str,
-    limit: u8,
-) -> Result<Vec<EmojiCatalogItem>, cxx::Exception> {
-    ffi::emoji_catalog(resources, search, category, limit)
-}
-
-pub fn emoji_catalog_page(
-    resources: &str,
-    search: &str,
-    category: &str,
-    offset: usize,
-    limit: u16,
-) -> Result<Vec<EmojiCatalogItem>, cxx::Exception> {
-    ffi::emoji_catalog_page(resources, search, category, offset, limit)
-}
-
 pub fn emoji_catalog_filtered_page(
-    resources: &str,
-    search: &str,
-    category: &str,
-    group: &str,
-    offset: usize,
-    limit: u16,
-) -> Result<Vec<EmojiCatalogItem>, cxx::Exception> {
-    ffi::emoji_catalog_filtered_page(resources, search, category, group, offset, limit, "")
-}
-
-pub fn emoji_catalog_parent_page(
     resources: &str,
     search: &str,
     category: &str,

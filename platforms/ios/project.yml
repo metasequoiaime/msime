@@ -146,6 +146,7 @@ targets:
       - path: KeyboardExtension/Sources
         excludes:
           - keyboard/KeyboardServiceFallback.swift
+      - path: App/Services/BoundedFileReader.swift
       - path: SharedUI
       - path: ../../shared/backend/account/BackendAccountClient.swift
       - path: ../../shared/backend/clients/BackendChatClient.swift
@@ -270,6 +271,7 @@ targets:
       - path: App/Services/DoubaoWebSocketTransport.swift
       - path: App/Services/WAVPCMExtractor.swift
       - path: App/Services/VoiceLevel.swift
+      - path: App/Services/BoundedFileReader.swift
       - path: SharedUI/core/AppServicesBridge.swift
       - path: SharedUI/core/MetasequoiaTheme.swift
       - path: ../../shared/backend

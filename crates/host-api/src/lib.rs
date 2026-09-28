@@ -1097,34 +1097,6 @@ pub fn local_symbol_catalog(resources: &str) -> Result<Vec<LocalSymbolCatalogGro
     Ok(result)
 }
 
-/// Read one bounded page from the Engine-owned `others.db` catalog.
-pub fn local_emoji_catalog_page(
-    resources: &str,
-    search: &str,
-    category: &str,
-    offset: usize,
-    limit: u16,
-) -> Result<Vec<LocalEmojiCatalogItem>, &'static str> {
-    if !std::path::Path::new(resources).is_absolute() {
-        return Err("resources path must be absolute");
-    }
-    if limit == 0 || limit > 4096 {
-        return Err("invalid local emoji page size");
-    }
-    msime_engine_bridge::emoji_catalog_page(resources, search, category, offset, limit)
-        .map(|items| {
-            items
-                .into_iter()
-                .map(|item| LocalEmojiCatalogItem {
-                    text: item.text,
-                    annotation: item.annotation,
-                    group: item.group,
-                })
-                .collect()
-        })
-        .map_err(|_| "local emoji catalog unavailable")
-}
-
 fn response(operation: impl FnOnce() -> Result<Value, String>) -> *mut c_char {
     let value = match catch_unwind(AssertUnwindSafe(operation)) {
         Ok(Ok(value)) => json!({ "ok": true, "value": value }),

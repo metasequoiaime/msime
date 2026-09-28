@@ -7,6 +7,9 @@ use msime_client_core::account::{
 use msime_client_core::cloud::snapshot_queue::{
     local_version, local_version_digest, DictionarySnapshotQueue, SnapshotQueueError,
 };
+use msime_client_core::cloud::snapshot_validation::{
+    has_keys as snapshot_has_keys, valid_timestamp as snapshot_timestamp,
+};
 use msime_client_core::resources::{ResourceSet, ResourceStore};
 use msime_engine_bridge::{
     dictionary_state_revision, stage_dictionary_state, EngineOptions, Session, SnapshotReadError,
@@ -218,10 +221,6 @@ fn parse_snapshot_object(bytes: &[u8]) -> Result<serde_json::Map<String, Value>,
         .ok_or("invalid snapshot document")
 }
 
-fn snapshot_has_keys(map: &serde_json::Map<String, Value>, keys: &[&str]) -> bool {
-    map.len() == keys.len() && keys.iter().all(|key| map.contains_key(*key))
-}
-
 fn snapshot_text<'a>(
     data: &'a serde_json::Map<String, Value>,
     key: &str,
@@ -243,101 +242,6 @@ fn snapshot_integer(data: &serde_json::Map<String, Value>, key: &str) -> Result<
     data.get(key)
         .and_then(Value::as_i64)
         .ok_or("invalid snapshot document")
-}
-
-fn snapshot_timestamp(value: &str) -> bool {
-    fn digits(bytes: &[u8], start: usize, end: usize) -> Option<u32> {
-        (end <= bytes.len() && bytes[start..end].iter().all(u8::is_ascii_digit)).then(|| {
-            bytes[start..end]
-                .iter()
-                .fold(0, |value, byte| value * 10 + u32::from(byte - b'0'))
-        })
-    }
-    let bytes = value.as_bytes();
-    if bytes.len() < 20
-        || digits(bytes, 0, 4).is_none()
-        || bytes.get(4) != Some(&b'-')
-        || bytes.get(7) != Some(&b'-')
-        || bytes.get(10) != Some(&b'T')
-        || bytes.get(13) != Some(&b':')
-        || bytes.get(16) != Some(&b':')
-    {
-        return false;
-    }
-    let year = digits(bytes, 0, 4).unwrap();
-    let month = match digits(bytes, 5, 7) {
-        Some(value) => value,
-        None => return false,
-    };
-    let day = match digits(bytes, 8, 10) {
-        Some(value) => value,
-        None => return false,
-    };
-    let hour = match digits(bytes, 11, 13) {
-        Some(value) => value,
-        None => return false,
-    };
-    let minute = match digits(bytes, 14, 16) {
-        Some(value) => value,
-        None => return false,
-    };
-    let second = match digits(bytes, 17, 19) {
-        Some(value) => value,
-        None => return false,
-    };
-    let leap = year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400));
-    let days = [
-        31,
-        if leap { 29 } else { 28 },
-        31,
-        30,
-        31,
-        30,
-        31,
-        31,
-        30,
-        31,
-        30,
-        31,
-    ];
-    if year == 0
-        || !(1..=12).contains(&month)
-        || day == 0
-        || day > days[month as usize - 1]
-        || hour >= 24
-        || minute >= 60
-        || second >= 60
-    {
-        return false;
-    }
-    let mut offset = 19;
-    if matches!(bytes.get(offset), Some(b'.' | b',')) {
-        offset += 1;
-        let start = offset;
-        while bytes.get(offset).is_some_and(u8::is_ascii_digit) {
-            offset += 1;
-        }
-        if offset == start {
-            return false;
-        }
-    }
-    let zone = &bytes[offset..];
-    if zone == b"Z" {
-        return true;
-    }
-    if zone.len() != 6
-        || !matches!(zone[0], b'+' | b'-')
-        || !zone[1].is_ascii_digit()
-        || !zone[2].is_ascii_digit()
-        || zone[3] != b':'
-        || !zone[4].is_ascii_digit()
-        || !zone[5].is_ascii_digit()
-    {
-        return false;
-    }
-    let zone_hour = u32::from(zone[1] - b'0') * 10 + u32::from(zone[2] - b'0');
-    let zone_minute = u32::from(zone[4] - b'0') * 10 + u32::from(zone[5] - b'0');
-    zone_hour < 24 && zone_minute < 60
 }
 
 #[derive(Default)]
@@ -621,7 +525,7 @@ fn inspect_snapshot(path: &Path) -> Result<SnapshotMetadata, &'static str> {
                     .and_then(Value::as_str)
                     .filter(|value| crate::valid_sha256(value))
                     .ok_or("invalid snapshot document")?;
-                let actual = lower_hex(&body_digest.clone().finalize());
+                let actual = hex::encode(body_digest.clone().finalize());
                 if expected_records != records || expected_sha != actual {
                     return Err("invalid snapshot document");
                 }
@@ -656,7 +560,7 @@ fn inspect_snapshot(path: &Path) -> Result<SnapshotMetadata, &'static str> {
     Ok(SnapshotMetadata {
         cloud_revision,
         sha256,
-        file_sha256: lower_hex(&file_digest.finalize()),
+        file_sha256: hex::encode(file_digest.finalize()),
         bytes: total_bytes,
         records,
         entries: counts[0],
@@ -735,7 +639,7 @@ fn version(options: &EngineOptions) -> Result<String, &'static str> {
         hash.update(text.as_bytes());
     }
     hash.update(dictionary_state_revision(options).map_err(|_| "snapshot revision unavailable")?);
-    Ok(lower_hex(&hash.finalize()))
+    Ok(hex::encode(hash.finalize()))
 }
 
 fn activation_receipt(options: &EngineOptions) -> Result<Option<String>, &'static str> {
@@ -1038,7 +942,7 @@ fn version_without_access(options: &EngineOptions) -> Result<String, &'static st
         hash.update(text.as_bytes());
     }
     hash.update(dictionary_state_revision(options).map_err(|_| "snapshot revision unavailable")?);
-    Ok(lower_hex(&hash.finalize()))
+    Ok(hex::encode(hash.finalize()))
 }
 
 fn register(prepared: Prepared) -> Result<Value, &'static str> {
@@ -1497,11 +1401,6 @@ pub extern "C" fn msime_client_snapshot_activate(
             .map_err(|_| "invalid snapshot version")?;
         activate(handle, expected).map_err(Into::into)
     })
-}
-
-// sha2 0.11 digests no longer implement `LowerHex`, and this crate has no hex dependency for a handful of call sites.
-fn lower_hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 #[cfg(test)]

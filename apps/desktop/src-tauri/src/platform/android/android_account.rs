@@ -1,14 +1,35 @@
+use crate::platform::mobile::mobile_account_helpers::{
+    account_chat as shared_account_chat, account_chat_models as shared_account_chat_models,
+    account_delete as shared_account_delete, account_forget as shared_account_forget,
+    account_login as shared_account_login, account_logout as shared_account_logout,
+    account_preferences_load as shared_account_preferences_load,
+    account_preferences_schema as shared_account_preferences_schema,
+    account_profile as shared_account_profile, account_rename as shared_account_rename,
+    account_request_code as shared_account_request_code, account_status as shared_account_status,
+    call, clear_snapshot_previews, dictionary_kind, parse_snapshot_token, snapshot_command_error,
+    snapshot_response_without_account, PendingSnapshot, SnapshotMetadata,
+};
+use crate::platform::mobile::mobile_account_preferences::{
+    frequency_account_preferences, insert_bool, insert_string,
+};
 use crate::platform::mobile::mobile_community::MobileCommunityState;
+use crate::shared::account_dto::{
+    ChallengeResponse, ChatModelsResponse, ChatResponse, PreferenceSchemaResponse, ProfileResponse,
+    StatusResponse, UserResponse,
+};
 use msime_client_core::account::{
     merge_account_preferences, validate_account_preferences, AccountCandidateQuery,
-    AccountChallenge, AccountChatMessage, AccountChatModels, AccountError, AccountPreferenceSchema,
-    AccountPreferenceValue, AccountPreferences, AccountProfile, AccountSessionStorage, AccountUser,
-    BackendAccountClient, BackendAccountSession, SavedAccountSession,
+    AccountChatMessage, AccountError, AccountPreferenceSchema, AccountPreferenceValue,
+    AccountPreferences, AccountSessionStorage, BackendAccountClient, BackendAccountSession,
+    SavedAccountSession,
 };
 use msime_client_core::cloud::dictionary::DictionaryKind;
+use msime_client_core::cloud::snapshot_validation::{
+    has_keys as snapshot_has_keys, valid_timestamp as snapshot_timestamp,
+};
 use msime_client_core::preferences::{
-    FrequencyMode, FrequencyPreferences, InputScheme, Preferences, PreferencesSnapshot,
-    PreferencesStore, ShuangpinProfile, ThemeMode, TouchKeyboardLayout, TouchKeyboardSkin,
+    FrequencyMode, InputScheme, Preferences, PreferencesSnapshot, PreferencesStore,
+    ShuangpinProfile, ThemeMode, TouchKeyboardLayout, TouchKeyboardSkin,
 };
 use serde::de::{DeserializeSeed, MapAccess, Visitor};
 use serde::{Deserialize, Serialize};
@@ -123,12 +144,6 @@ impl AccountState {
     }
 }
 
-struct PendingSnapshot {
-    account_id: String,
-    path: PathBuf,
-    metadata: SnapshotMetadata,
-}
-
 pub fn init() -> TauriPlugin<Wry> {
     Builder::new("account-storage")
         .setup(|app, api| {
@@ -155,21 +170,6 @@ pub fn init() -> TauriPlugin<Wry> {
             Ok(())
         })
         .build()
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SnapshotMetadata {
-    cloud_revision: i64,
-    sha256: String,
-    #[serde(skip_serializing)]
-    file_sha256: String,
-    bytes: u64,
-    records: usize,
-    entries: usize,
-    overlays: usize,
-    positions: usize,
-    selections: usize,
 }
 
 struct StrictSnapshotValue {
@@ -261,11 +261,6 @@ impl<'de> DeserializeSeed<'de> for StrictSnapshotValue {
     }
 }
 
-// sha2 0.11 digests no longer implement `LowerHex`, and this crate has no hex dependency for two call sites.
-fn lower_hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
 fn parse_snapshot_object(bytes: &[u8]) -> Result<serde_json::Map<String, Value>, AccountError> {
     let mut deserializer = serde_json::Deserializer::from_slice(bytes);
     let value = StrictSnapshotValue { depth: 0 }
@@ -273,10 +268,6 @@ fn parse_snapshot_object(bytes: &[u8]) -> Result<serde_json::Map<String, Value>,
         .map_err(|_| AccountError::Invalid)?;
     deserializer.end().map_err(|_| AccountError::Invalid)?;
     value.as_object().cloned().ok_or(AccountError::Invalid)
-}
-
-fn snapshot_has_keys(map: &serde_json::Map<String, Value>, keys: &[&str]) -> bool {
-    map.len() == keys.len() && keys.iter().all(|key| map.contains_key(*key))
 }
 
 fn snapshot_text<'a>(
@@ -302,101 +293,6 @@ fn snapshot_integer(data: &serde_json::Map<String, Value>, key: &str) -> Result<
     data.get(key)
         .and_then(Value::as_i64)
         .ok_or(AccountError::Invalid)
-}
-
-fn snapshot_timestamp(value: &str) -> bool {
-    fn digits(bytes: &[u8], start: usize, end: usize) -> Option<u32> {
-        (end <= bytes.len() && bytes[start..end].iter().all(u8::is_ascii_digit)).then(|| {
-            bytes[start..end]
-                .iter()
-                .fold(0, |value, byte| value * 10 + u32::from(byte - b'0'))
-        })
-    }
-    let bytes = value.as_bytes();
-    if bytes.len() < 20
-        || digits(bytes, 0, 4).is_none()
-        || bytes.get(4) != Some(&b'-')
-        || bytes.get(7) != Some(&b'-')
-        || bytes.get(10) != Some(&b'T')
-        || bytes.get(13) != Some(&b':')
-        || bytes.get(16) != Some(&b':')
-    {
-        return false;
-    }
-    let year = digits(bytes, 0, 4).unwrap();
-    let month = match digits(bytes, 5, 7) {
-        Some(value) => value,
-        None => return false,
-    };
-    let day = match digits(bytes, 8, 10) {
-        Some(value) => value,
-        None => return false,
-    };
-    let hour = match digits(bytes, 11, 13) {
-        Some(value) => value,
-        None => return false,
-    };
-    let minute = match digits(bytes, 14, 16) {
-        Some(value) => value,
-        None => return false,
-    };
-    let second = match digits(bytes, 17, 19) {
-        Some(value) => value,
-        None => return false,
-    };
-    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
-    let days = [
-        31,
-        if leap { 29 } else { 28 },
-        31,
-        30,
-        31,
-        30,
-        31,
-        31,
-        30,
-        31,
-        30,
-        31,
-    ];
-    if year == 0
-        || !(1..=12).contains(&month)
-        || day == 0
-        || day > days[month as usize - 1]
-        || hour >= 24
-        || minute >= 60
-        || second >= 60
-    {
-        return false;
-    }
-    let mut offset = 19;
-    if matches!(bytes.get(offset), Some(b'.' | b',')) {
-        offset += 1;
-        let start = offset;
-        while bytes.get(offset).is_some_and(u8::is_ascii_digit) {
-            offset += 1;
-        }
-        if offset == start {
-            return false;
-        }
-    }
-    let zone = &bytes[offset..];
-    if zone == b"Z" {
-        return true;
-    }
-    if zone.len() != 6
-        || !matches!(zone[0], b'+' | b'-')
-        || !zone[1].is_ascii_digit()
-        || !zone[2].is_ascii_digit()
-        || zone[3] != b':'
-        || !zone[4].is_ascii_digit()
-        || !zone[5].is_ascii_digit()
-    {
-        return false;
-    }
-    let zone_hour = u32::from(zone[1] - b'0') * 10 + u32::from(zone[2] - b'0');
-    let zone_minute = u32::from(zone[4] - b'0') * 10 + u32::from(zone[5] - b'0');
-    zone_hour < 24 && zone_minute < 60
 }
 
 fn inspect_snapshot_record(
@@ -687,7 +583,7 @@ fn inspect_snapshot(path: &std::path::Path) -> Result<SnapshotMetadata, AccountE
                 // Cloned, not consumed: the loop keeps reading after the footer
                 // so that trailing data is rejected, and those iterations still
                 // reach the digest.
-                let actual = lower_hex(&digest.clone().finalize());
+                let actual = hex::encode(digest.clone().finalize());
                 if expected_records != records || expected_sha != actual {
                     return Err(AccountError::Invalid);
                 }
@@ -722,7 +618,7 @@ fn inspect_snapshot(path: &std::path::Path) -> Result<SnapshotMetadata, AccountE
     Ok(SnapshotMetadata {
         cloud_revision: revision,
         sha256,
-        file_sha256: lower_hex(&file_digest.finalize()),
+        file_sha256: hex::encode(file_digest.finalize()),
         bytes: total_bytes,
         records,
         entries: counts[0],
@@ -746,29 +642,6 @@ struct EnqueueSnapshotRequest {
 #[serde(rename_all = "camelCase")]
 struct CancelSnapshotRequest {
     account_id: String,
-}
-
-fn snapshot_command_error() -> crate::CommandError {
-    crate::CommandError {
-        code: "snapshot_unavailable",
-    }
-}
-
-fn snapshot_response_without_account(mut value: Value) -> Result<Value, crate::CommandError> {
-    let object = value.as_object_mut().ok_or_else(snapshot_command_error)?;
-    if let Some(request) = object.get_mut("request").and_then(Value::as_object_mut) {
-        request.remove("accountId");
-    }
-    Ok(value)
-}
-
-fn clear_snapshot_previews(previews: &Arc<Mutex<HashMap<String, PendingSnapshot>>>) {
-    let Ok(mut pending) = previews.lock() else {
-        return;
-    };
-    for item in pending.drain().map(|(_, item)| item) {
-        let _ = fs::remove_file(item.path);
-    }
 }
 
 async fn dictionary_snapshot_preview(
@@ -835,9 +708,7 @@ async fn dictionary_snapshot_enqueue(
     state: State<'_, AccountState>,
     token: String,
 ) -> Result<Value, crate::CommandError> {
-    let parsed = Uuid::parse_str(&token).map_err(|_| crate::CommandError {
-        code: "snapshot_invalid",
-    })?;
+    let parsed = parse_snapshot_token(&token)?;
     let pending = {
         let mut previews = state
             .snapshot_previews
@@ -1032,88 +903,9 @@ async fn dictionary_snapshot_cancel(
 }
 
 #[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct StatusResponse {
-    user: Option<UserResponse>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct UserResponse {
-    id: String,
-    display_name: String,
-    created_at: String,
-}
-
-impl From<AccountUser> for UserResponse {
-    fn from(user: AccountUser) -> Self {
-        Self {
-            id: user.id,
-            display_name: user.display_name,
-            created_at: user.created_at,
-        }
-    }
-}
-
-#[derive(Serialize)]
 pub struct ProvidersResponse {
     email: bool,
     phone: bool,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChallengeResponse {
-    challenge_id: String,
-    expires_in: u64,
-}
-
-impl From<AccountChallenge> for ChallengeResponse {
-    fn from(challenge: AccountChallenge) -> Self {
-        Self {
-            challenge_id: challenge.challenge_id,
-            expires_in: challenge.expires_in,
-        }
-    }
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProfileResponse {
-    user: UserResponse,
-    providers: Vec<String>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatModelResponse {
-    id: String,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatModelsResponse {
-    data: Vec<ChatModelResponse>,
-    default_model: String,
-}
-
-impl From<AccountChatModels> for ChatModelsResponse {
-    fn from(models: AccountChatModels) -> Self {
-        Self {
-            data: models
-                .data
-                .into_iter()
-                .map(|model| ChatModelResponse { id: model.id })
-                .collect(),
-            default_model: models.default_model,
-        }
-    }
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatResponse {
-    content: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -1128,65 +920,11 @@ struct AppIconRequest<'a> {
     style: &'a str,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PreferenceSchemaResponse {
-    fields: BTreeMap<String, msime_client_core::account::AccountPreferenceField>,
-    maximum_bytes: usize,
-    update_mode: String,
-    revision_required: bool,
-}
-
-impl From<AccountPreferenceSchema> for PreferenceSchemaResponse {
-    fn from(schema: AccountPreferenceSchema) -> Self {
-        Self {
-            fields: schema.fields,
-            maximum_bytes: schema.maximum_bytes,
-            update_mode: schema.update_mode,
-            revision_required: schema.revision_required,
-        }
-    }
-}
-
-impl From<AccountProfile> for ProfileResponse {
-    fn from(profile: AccountProfile) -> Self {
-        let mut providers = Vec::new();
-        for identity in profile.identities {
-            if !providers.contains(&identity.provider) {
-                providers.push(identity.provider);
-            }
-        }
-        Self {
-            user: profile.user.into(),
-            providers,
-        }
-    }
-}
-
-async fn call<T, F>(state: State<'_, AccountState>, operation: F) -> Result<T, crate::CommandError>
-where
-    T: Send + 'static,
-    F: FnOnce(&Session) -> Result<T, AccountError> + Send + 'static,
-{
-    let session = Arc::clone(&state.session);
-    tauri::async_runtime::spawn_blocking(move || operation(&session))
-        .await
-        .map_err(|_| crate::CommandError {
-            code: "account_unavailable",
-        })?
-        .map_err(|error| crate::CommandError { code: error.code() })
-}
-
 #[tauri::command]
 pub async fn account_status(
     state: State<'_, AccountState>,
 ) -> Result<StatusResponse, crate::CommandError> {
-    call(state, |session| {
-        session.status().map(|user| StatusResponse {
-            user: user.map(Into::into),
-        })
-    })
-    .await
+    shared_account_status(state).await
 }
 
 #[tauri::command]
@@ -1370,12 +1108,7 @@ pub async fn account_request_code(
     provider: String,
     target: String,
 ) -> Result<ChallengeResponse, crate::CommandError> {
-    call(state, move |session| {
-        session
-            .request_code(&provider, &target)
-            .map(ChallengeResponse::from)
-    })
-    .await
+    shared_account_request_code(state, provider, target).await
 }
 
 #[tauri::command]
@@ -1384,31 +1117,21 @@ pub async fn account_login(
     challenge_id: String,
     code: String,
 ) -> Result<StatusResponse, crate::CommandError> {
-    call(state, move |session| {
-        session
-            .sign_in(&challenge_id, &code)
-            .map(|user| StatusResponse {
-                user: Some(user.into()),
-            })
-    })
-    .await
+    shared_account_login(state, challenge_id, code).await
 }
 
 #[tauri::command]
 pub async fn account_profile(
     state: State<'_, AccountState>,
 ) -> Result<ProfileResponse, crate::CommandError> {
-    call(state, |session| {
-        session.profile().map(ProfileResponse::from)
-    })
-    .await
+    shared_account_profile(state).await
 }
 
 #[tauri::command]
 pub async fn account_chat_models(
     state: State<'_, AccountState>,
 ) -> Result<ChatModelsResponse, crate::CommandError> {
-    call(state, |session| session.chat_models().map(Into::into)).await
+    shared_account_chat_models(state).await
 }
 
 #[tauri::command]
@@ -1417,12 +1140,7 @@ pub async fn account_chat(
     messages: Vec<AccountChatMessage>,
     model: String,
 ) -> Result<ChatResponse, crate::CommandError> {
-    call(state, move |session| {
-        session
-            .chat(&messages, &model)
-            .map(|content| ChatResponse { content })
-    })
-    .await
+    shared_account_chat(state, messages, model).await
 }
 
 #[tauri::command]
@@ -1430,10 +1148,7 @@ pub async fn account_rename(
     state: State<'_, AccountState>,
     display_name: String,
 ) -> Result<ProfileResponse, crate::CommandError> {
-    call(state, move |session| {
-        session.rename(&display_name).map(ProfileResponse::from)
-    })
-    .await
+    shared_account_rename(state, display_name).await
 }
 
 #[tauri::command]
@@ -1442,7 +1157,7 @@ pub async fn account_logout(
     all: bool,
 ) -> Result<(), crate::CommandError> {
     let previews = Arc::clone(&state.snapshot_previews);
-    let result = call(state, move |session| session.logout(all)).await;
+    let result = shared_account_logout(state, all).await;
     if result.is_ok() {
         clear_snapshot_previews(&previews);
     }
@@ -1452,7 +1167,7 @@ pub async fn account_logout(
 #[tauri::command]
 pub async fn account_delete(state: State<'_, AccountState>) -> Result<(), crate::CommandError> {
     let previews = Arc::clone(&state.snapshot_previews);
-    let result = call(state, |session| session.delete_account()).await;
+    let result = shared_account_delete(state).await;
     if result.is_ok() {
         clear_snapshot_previews(&previews);
     }
@@ -1462,23 +1177,11 @@ pub async fn account_delete(state: State<'_, AccountState>) -> Result<(), crate:
 #[tauri::command]
 pub async fn account_forget(state: State<'_, AccountState>) -> Result<(), crate::CommandError> {
     let previews = Arc::clone(&state.snapshot_previews);
-    let result = call(state, |session| session.forget()).await;
+    let result = shared_account_forget(state).await;
     if result.is_ok() {
         clear_snapshot_previews(&previews);
     }
     result
-}
-
-fn dictionary_kind(value: &str) -> Result<DictionaryKind, crate::CommandError> {
-    match value {
-        "pinyin" => Ok(DictionaryKind::Pinyin),
-        "wubi" => Ok(DictionaryKind::Wubi),
-        "quick" => Ok(DictionaryKind::Quick),
-        "english" => Ok(DictionaryKind::English),
-        _ => Err(crate::CommandError {
-            code: "invalid_cloud_dictionary",
-        }),
-    }
 }
 
 pub async fn cloud_dictionary_request(
@@ -1804,38 +1507,8 @@ pub async fn app_icon_set(
     .map_err(|_| crate::CommandError { code: "app_icon" })?
 }
 
-fn insert_string(settings: &mut BTreeMap<String, AccountPreferenceValue>, key: &str, value: &str) {
-    settings.insert(
-        key.to_owned(),
-        AccountPreferenceValue::String(value.to_owned()),
-    );
-}
-
-fn insert_bool(settings: &mut BTreeMap<String, AccountPreferenceValue>, key: &str, value: bool) {
-    settings.insert(key.to_owned(), AccountPreferenceValue::Boolean(value));
-}
-
 fn insert_integer(settings: &mut BTreeMap<String, AccountPreferenceValue>, key: &str, value: i64) {
     settings.insert(key.to_owned(), AccountPreferenceValue::Integer(value));
-}
-
-fn frequency_account_preferences(
-    frequency: &FrequencyPreferences,
-) -> BTreeMap<String, AccountPreferenceValue> {
-    BTreeMap::from([
-        (
-            "input.frequency_mode".into(),
-            AccountPreferenceValue::String(frequency.mode.as_str().into()),
-        ),
-        (
-            "input.frequency_trigger_count".into(),
-            AccountPreferenceValue::Integer(i64::from(frequency.trigger_count)),
-        ),
-        (
-            "input.frequency_linear_step".into(),
-            AccountPreferenceValue::Integer(i64::from(frequency.linear_step)),
-        ),
-    ])
 }
 
 fn local_account_preferences(
@@ -2291,14 +1964,14 @@ fn apply_local_account_preferences(
 pub async fn account_preferences_schema(
     state: State<'_, AccountState>,
 ) -> Result<PreferenceSchemaResponse, crate::CommandError> {
-    call(state, |session| session.preference_schema().map(Into::into)).await
+    shared_account_preferences_schema(state).await
 }
 
 #[tauri::command]
 pub async fn account_preferences_load(
     state: State<'_, AccountState>,
 ) -> Result<AccountPreferences, crate::CommandError> {
-    call(state, |session| session.preferences()).await
+    shared_account_preferences_load(state).await
 }
 
 #[tauri::command]

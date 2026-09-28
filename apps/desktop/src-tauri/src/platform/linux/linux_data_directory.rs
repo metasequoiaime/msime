@@ -101,64 +101,10 @@ fn atomic_write(path: &Path, contents: &[u8]) -> io::Result<()> {
         .map_err(|error| error.error)
 }
 
-fn copy_entry(source: &Path, destination: &Path) -> Result<(), MoveError> {
-    let metadata = fs::symlink_metadata(source).map_err(|_| MoveError::Copy)?;
-    if metadata.file_type().is_symlink() {
-        return Err(MoveError::Copy);
-    }
-    if metadata.is_dir() {
-        fs::create_dir(destination).map_err(|_| MoveError::Copy)?;
-        for entry in fs::read_dir(source).map_err(|_| MoveError::Copy)? {
-            let entry = entry.map_err(|_| MoveError::Copy)?;
-            // The lease this move holds sits in the user directory; the copy must not carry it to where the hosts will look next.
-            if linux_dictionary_quiesce::is_lease_file(&entry.file_name()) {
-                continue;
-            }
-            copy_entry(&entry.path(), &destination.join(entry.file_name()))?;
-        }
-        fs::set_permissions(destination, metadata.permissions()).map_err(|_| MoveError::Copy)?;
-        return Ok(());
-    }
-    if !metadata.is_file() {
-        return Err(MoveError::Copy);
-    }
-    fs::copy(source, destination).map_err(|_| MoveError::Copy)?;
-    fs::set_permissions(destination, metadata.permissions()).map_err(|_| MoveError::Copy)?;
-    fs::File::open(destination)
-        .and_then(|file| file.sync_all())
-        .map_err(|_| MoveError::Copy)
-}
-
-fn remove_entry(path: &Path) -> io::Result<()> {
-    let metadata = fs::symlink_metadata(path)?;
-    if metadata.is_dir() && !metadata.file_type().is_symlink() {
-        fs::remove_dir_all(path)
-    } else {
-        fs::remove_file(path)
-    }
-}
-
-fn validate_directory(path: &Path, error: MoveError) -> Result<PathBuf, MoveError> {
-    if !path.is_absolute() {
-        return Err(error);
-    }
-    let metadata = fs::symlink_metadata(path).map_err(|_| error)?;
-    if !metadata.is_dir() || metadata.file_type().is_symlink() {
-        return Err(error);
-    }
-    fs::canonicalize(path).map_err(|_| error)
-}
-
 /// A staging directory of an earlier move, or the trash of a cleanup that could not finish. It is never state to carry along, nor user content that makes a directory non-empty.
 fn is_staging(name: &std::ffi::OsStr) -> bool {
     name.to_str()
         .is_some_and(|name| name.starts_with(STAGING_PREFIX))
-}
-
-fn has_ownership_marker(directory: &Path) -> bool {
-    fs::symlink_metadata(directory.join(DATA_DIRECTORY_MARKER))
-        .map(|metadata| metadata.is_file())
-        .unwrap_or(false)
 }
 
 /// The state entries of `source`: everything except the pinned configuration files, the ownership marker and leftover staging directories.
@@ -249,7 +195,7 @@ fn rollback(target: &Path, placed: &[OsString], wrote_marker: bool, backups: &[L
         let _ = atomic_write(&backup.path, &backup.contents);
     }
     for name in placed {
-        let _ = remove_entry(&target.join(name));
+        let _ = crate::platform::desktop::desktop_data_directory::remove_entry(&target.join(name));
     }
     if wrote_marker {
         let _ = fs::remove_file(target.join(DATA_DIRECTORY_MARKER));
@@ -257,7 +203,12 @@ fn rollback(target: &Path, placed: &[OsString], wrote_marker: bool, backups: &[L
 }
 
 fn cleanup_source(source: &Path, default_root: &Path, moved: &[OsString]) -> bool {
-    if source != default_root && !has_ownership_marker(source) {
+    if source != default_root
+        && !crate::platform::desktop::desktop_data_directory::has_ownership_marker(
+            source,
+            DATA_DIRECTORY_MARKER,
+        )
+    {
         return false;
     }
     // Take every entry out of place with one rename before deleting it, so a host still configured for the old paths finds no directory at all rather than one being emptied under it, which it could open and start a new library in.
@@ -308,8 +259,14 @@ pub(crate) fn plan_move(
     default_root: &Path,
     locators: &[PathBuf],
 ) -> Result<Option<MovePlan>, MoveError> {
-    let source = validate_directory(source, MoveError::InvalidSource)?;
-    let target = validate_directory(target, MoveError::InvalidTarget)?;
+    let source = crate::platform::desktop::desktop_data_directory::validate_directory(
+        source,
+        MoveError::InvalidSource,
+    )?;
+    let target = crate::platform::desktop::desktop_data_directory::validate_directory(
+        target,
+        MoveError::InvalidTarget,
+    )?;
     let default_root = fs::canonicalize(default_root).map_err(|_| MoveError::InvalidSource)?;
     if source == target {
         return Ok(None);
@@ -357,9 +314,18 @@ impl MovePlan {
             .tempdir_in(&target)
             .map_err(|_| MoveError::Copy)?;
         for name in &entries {
-            copy_entry(&source.join(name), &staging.path().join(name))?;
+            crate::platform::desktop::desktop_data_directory::copy_entry(
+                &source.join(name),
+                &staging.path().join(name),
+                &linux_dictionary_quiesce::is_lease_file,
+            )
+            .map_err(|_| MoveError::Copy)?;
         }
-        let wrote_marker = target != default_root && !has_ownership_marker(&target);
+        let wrote_marker = target != default_root
+            && !crate::platform::desktop::desktop_data_directory::has_ownership_marker(
+                &target,
+                DATA_DIRECTORY_MARKER,
+            );
         if wrote_marker
             && fs::write(
                 target.join(DATA_DIRECTORY_MARKER),

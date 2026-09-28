@@ -16,13 +16,8 @@ impl DictionaryRevision {
         self.0.update(value.as_bytes());
     }
     fn finish(self) -> String {
-        lower_hex(&self.0.finalize())
+        hex::encode(self.0.finalize())
     }
-}
-
-// sha2 0.11 digests no longer implement `LowerHex`, and this crate has no hex dependency for one call site.
-fn lower_hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 /// Digest of one consistent Engine journal transaction, not the input preedit.
@@ -50,7 +45,7 @@ mod tests {
         expected.update(9_u64.to_be_bytes());
         expected.update(b"synthetic");
         expected.update([0, 0, 0, 0, 0, 0, 1, 2]);
-        assert_eq!(actual.finish(), lower_hex(&expected.finalize()));
+        assert_eq!(actual.finish(), hex::encode(expected.finalize()));
     }
 
     #[test]

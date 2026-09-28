@@ -52,9 +52,8 @@ import android.widget.Toast;
 import app.msime.client.candidate.EnglishSuggestionModel;
 import app.msime.client.CandidateTranslationPolicy;
 import app.msime.client.keyboard.EnglishSuggestionPolicy;
+import app.msime.client.policy.HostOptionsPolicy;
 import java.io.File;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -717,8 +716,7 @@ public final class MSIMEInputService extends InputMethodService {
             && EditorPolicy.useEngine(info.inputType);
         try {
             File file = new File(getFilesDir(), "runtime-options.json");
-            if (file.length() > 16384) throw new IllegalArgumentException("Options too large");
-            JSONObject options = new JSONObject(new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8));
+            JSONObject options = new JSONObject(HostOptionsPolicy.read(file));
             JSONObject preferences = options.optJSONObject("preferences");
             applyEditorPreferences(preferences);
             if (newDocument) {

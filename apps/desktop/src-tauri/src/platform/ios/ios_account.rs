@@ -1,8 +1,19 @@
 #[cfg(target_os = "ios")]
+use crate::platform::mobile::mobile_account_helpers::{
+    account_chat as shared_account_chat, account_chat_models as shared_account_chat_models,
+    account_delete as shared_account_delete, account_forget as shared_account_forget,
+    account_login as shared_account_login, account_logout as shared_account_logout,
+    account_preferences_load as shared_account_preferences_load,
+    account_preferences_schema as shared_account_preferences_schema,
+    account_profile as shared_account_profile, account_rename as shared_account_rename,
+    account_request_code as shared_account_request_code, account_status as shared_account_status,
+    call, clear_snapshot_previews, parse_snapshot_token, PendingSnapshot, SnapshotMetadata,
+};
+#[cfg(target_os = "ios")]
 use crate::shared::account_dto::{
     providers_response, ChallengeResponse, ProfileResponse, ProvidersResponse, StatusResponse,
 };
-use msime_client_core::account::{AccountChatModels, AccountPreferenceSchema};
+use crate::shared::account_dto::{ChatModelsResponse, ChatResponse, PreferenceSchemaResponse};
 use serde::Serialize;
 use std::collections::BTreeMap;
 #[cfg(target_os = "ios")]
@@ -33,58 +44,6 @@ use std::sync::Arc;
 use std::{fs, path::PathBuf, sync::Mutex};
 #[cfg(target_os = "ios")]
 use tauri::{AppHandle, Manager, Runtime, State, Wry};
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatModelResponse {
-    id: String,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatModelsResponse {
-    data: Vec<ChatModelResponse>,
-    default_model: String,
-}
-
-impl From<AccountChatModels> for ChatModelsResponse {
-    fn from(models: AccountChatModels) -> Self {
-        Self {
-            data: models
-                .data
-                .into_iter()
-                .map(|model| ChatModelResponse { id: model.id })
-                .collect(),
-            default_model: models.default_model,
-        }
-    }
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatResponse {
-    content: String,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PreferenceSchemaResponse {
-    fields: BTreeMap<String, msime_client_core::account::AccountPreferenceField>,
-    maximum_bytes: usize,
-    update_mode: String,
-    revision_required: bool,
-}
-
-impl From<AccountPreferenceSchema> for PreferenceSchemaResponse {
-    fn from(schema: AccountPreferenceSchema) -> Self {
-        Self {
-            fields: schema.fields,
-            maximum_bytes: schema.maximum_bytes,
-            update_mode: schema.update_mode,
-            revision_required: schema.revision_required,
-        }
-    }
-}
 
 #[cfg(target_os = "ios")]
 #[derive(Clone)]
@@ -131,30 +90,6 @@ impl AccountState {
     pub(crate) fn session(&self) -> &Arc<Session> {
         &self.session
     }
-}
-
-#[cfg(target_os = "ios")]
-#[derive(Clone)]
-struct PendingSnapshot {
-    account_id: String,
-    path: PathBuf,
-    metadata: SnapshotMetadata,
-}
-
-#[cfg(target_os = "ios")]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SnapshotMetadata {
-    cloud_revision: i64,
-    sha256: String,
-    #[serde(skip_serializing)]
-    file_sha256: String,
-    bytes: u64,
-    records: usize,
-    entries: usize,
-    overlays: usize,
-    positions: usize,
-    selections: usize,
 }
 
 #[cfg(target_os = "ios")]
@@ -235,31 +170,11 @@ pub async fn ai_test(
 }
 
 #[cfg(target_os = "ios")]
-async fn call<T, F>(state: State<'_, AccountState>, operation: F) -> Result<T, crate::CommandError>
-where
-    T: Send + 'static,
-    F: FnOnce(&Session) -> Result<T, AccountError> + Send + 'static,
-{
-    let session = Arc::clone(&state.session);
-    tauri::async_runtime::spawn_blocking(move || operation(&session))
-        .await
-        .map_err(|_| crate::CommandError {
-            code: "account_unavailable",
-        })?
-        .map_err(|error| crate::CommandError { code: error.code() })
-}
-
-#[cfg(target_os = "ios")]
 #[tauri::command]
 pub async fn account_status(
     state: State<'_, AccountState>,
 ) -> Result<StatusResponse, crate::CommandError> {
-    call(state, |session| {
-        session.status().map(|user| StatusResponse {
-            user: user.map(Into::into),
-        })
-    })
-    .await
+    shared_account_status(state).await
 }
 
 #[cfg(target_os = "ios")]
@@ -277,12 +192,7 @@ pub async fn account_request_code(
     provider: String,
     target: String,
 ) -> Result<ChallengeResponse, crate::CommandError> {
-    call(state, move |session| {
-        session
-            .request_code(&provider, &target)
-            .map(ChallengeResponse::from)
-    })
-    .await
+    shared_account_request_code(state, provider, target).await
 }
 
 #[cfg(target_os = "ios")]
@@ -292,14 +202,7 @@ pub async fn account_login(
     challenge_id: String,
     code: String,
 ) -> Result<StatusResponse, crate::CommandError> {
-    call(state, move |session| {
-        session
-            .sign_in(&challenge_id, &code)
-            .map(|user| StatusResponse {
-                user: Some(user.into()),
-            })
-    })
-    .await
+    shared_account_login(state, challenge_id, code).await
 }
 
 #[cfg(target_os = "ios")]
@@ -339,10 +242,7 @@ pub async fn account_apple_login(
 pub async fn account_profile(
     state: State<'_, AccountState>,
 ) -> Result<ProfileResponse, crate::CommandError> {
-    call(state, |session| {
-        session.profile().map(ProfileResponse::from)
-    })
-    .await
+    shared_account_profile(state).await
 }
 
 #[cfg(target_os = "ios")]
@@ -350,7 +250,7 @@ pub async fn account_profile(
 pub async fn account_chat_models(
     state: State<'_, AccountState>,
 ) -> Result<ChatModelsResponse, crate::CommandError> {
-    call(state, |session| session.chat_models().map(Into::into)).await
+    shared_account_chat_models(state).await
 }
 
 #[cfg(target_os = "ios")]
@@ -360,12 +260,7 @@ pub async fn account_chat(
     messages: Vec<AccountChatMessage>,
     model: String,
 ) -> Result<ChatResponse, crate::CommandError> {
-    call(state, move |session| {
-        session
-            .chat(&messages, &model)
-            .map(|content| ChatResponse { content })
-    })
-    .await
+    shared_account_chat(state, messages, model).await
 }
 
 #[cfg(target_os = "ios")]
@@ -374,10 +269,7 @@ pub async fn account_rename(
     state: State<'_, AccountState>,
     display_name: String,
 ) -> Result<ProfileResponse, crate::CommandError> {
-    call(state, move |session| {
-        session.rename(&display_name).map(ProfileResponse::from)
-    })
-    .await
+    shared_account_rename(state, display_name).await
 }
 
 #[cfg(target_os = "ios")]
@@ -387,7 +279,7 @@ pub async fn account_logout(
     all: bool,
 ) -> Result<(), crate::CommandError> {
     let previews = Arc::clone(&state.snapshot_previews);
-    let result = call(state, move |session| session.logout(all)).await;
+    let result = shared_account_logout(state, all).await;
     if result.is_ok() {
         clear_snapshot_previews(&previews);
     }
@@ -398,7 +290,7 @@ pub async fn account_logout(
 #[tauri::command]
 pub async fn account_delete(state: State<'_, AccountState>) -> Result<(), crate::CommandError> {
     let previews = Arc::clone(&state.snapshot_previews);
-    let result = call(state, |session| session.delete_account()).await;
+    let result = shared_account_delete(state).await;
     if result.is_ok() {
         clear_snapshot_previews(&previews);
     }
@@ -409,7 +301,7 @@ pub async fn account_delete(state: State<'_, AccountState>) -> Result<(), crate:
 #[tauri::command]
 pub async fn account_forget(state: State<'_, AccountState>) -> Result<(), crate::CommandError> {
     let previews = Arc::clone(&state.snapshot_previews);
-    let result = call(state, |session| session.forget()).await;
+    let result = shared_account_forget(state).await;
     if result.is_ok() {
         clear_snapshot_previews(&previews);
     }
@@ -448,49 +340,10 @@ fn snapshot_bridge(action: Value) -> Result<Value, crate::CommandError> {
 }
 
 #[cfg(target_os = "ios")]
-fn dictionary_kind(value: &str) -> Result<DictionaryKind, crate::CommandError> {
-    match value {
-        "pinyin" => Ok(DictionaryKind::Pinyin),
-        "wubi" => Ok(DictionaryKind::Wubi),
-        "quick" => Ok(DictionaryKind::Quick),
-        "english" => Ok(DictionaryKind::English),
-        _ => Err(crate::CommandError {
-            code: "invalid_cloud_dictionary",
-        }),
-    }
-}
-
-#[cfg(target_os = "ios")]
-fn snapshot_command_error() -> crate::CommandError {
-    crate::CommandError {
-        code: "snapshot_unavailable",
-    }
-}
-
-#[cfg(target_os = "ios")]
-fn clear_snapshot_previews(previews: &Arc<Mutex<HashMap<String, PendingSnapshot>>>) {
-    let Ok(mut pending) = previews.lock() else {
-        return;
-    };
-    for item in pending.drain().map(|(_, item)| item) {
-        let _ = fs::remove_file(item.path);
-    }
-}
-
-#[cfg(target_os = "ios")]
 fn snapshot_metadata(value: Value) -> Result<SnapshotMetadata, crate::CommandError> {
     serde_json::from_value(value).map_err(|_| crate::CommandError {
         code: "snapshot_invalid",
     })
-}
-
-#[cfg(target_os = "ios")]
-fn snapshot_response_without_account(mut value: Value) -> Result<Value, crate::CommandError> {
-    let object = value.as_object_mut().ok_or_else(snapshot_command_error)?;
-    if let Some(request) = object.get_mut("request").and_then(Value::as_object_mut) {
-        request.remove("accountId");
-    }
-    Ok(value)
 }
 
 #[cfg(target_os = "ios")]
@@ -557,9 +410,7 @@ async fn dictionary_snapshot_enqueue(
     state: State<'_, AccountState>,
     token: String,
 ) -> Result<Value, crate::CommandError> {
-    let parsed = uuid::Uuid::parse_str(&token).map_err(|_| crate::CommandError {
-        code: "snapshot_invalid",
-    })?;
+    let parsed = parse_snapshot_token(&token)?;
     let pending = {
         let mut previews = state
             .snapshot_previews
@@ -1009,7 +860,7 @@ pub async fn cloud_dictionary_request(
 pub async fn account_preferences_schema(
     state: State<'_, AccountState>,
 ) -> Result<PreferenceSchemaResponse, crate::CommandError> {
-    call(state, |session| session.preference_schema().map(Into::into)).await
+    shared_account_preferences_schema(state).await
 }
 
 #[cfg(target_os = "ios")]
@@ -1017,7 +868,7 @@ pub async fn account_preferences_schema(
 pub async fn account_preferences_load(
     state: State<'_, AccountState>,
 ) -> Result<AccountPreferences, crate::CommandError> {
-    call(state, |session| session.preferences()).await
+    shared_account_preferences_load(state).await
 }
 
 #[cfg(target_os = "ios")]

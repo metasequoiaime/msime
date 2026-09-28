@@ -16,6 +16,20 @@ private final class TelemetryFlushProtocol: URLProtocol {
   override func stopLoading() {}
 }
 
+private final class TelemetryOversizedResponseProtocol: URLProtocol {
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    let body = Data(repeating: 0x41, count: 65 * 1024)
+    let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+                                   headerFields: nil)!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: body)
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
+
 final class BackendTelemetryClientTests: XCTestCase {
   func testCrashIsBoundedAndPersistedSynchronously() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("msime-telemetry-test-\(UUID().uuidString)")
@@ -72,6 +86,15 @@ final class BackendTelemetryClientTests: XCTestCase {
     XCTAssertEqual(kept.dropLast().last?.message, "old 9")
   }
 
+  func testQueueReaderRejectsAFileThatGrowsPastTheLimit() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("msime-telemetry-limit-\(UUID().uuidString)")
+    let queue = directory.appendingPathComponent("events.json")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    try Data(repeating: 0x41, count: BackendTelemetryClient.maxQueueFileBytes + 1).write(to: queue)
+    XCTAssertNil(BackendTelemetryClient.readQueueBytes(queue))
+  }
+
   func testCrashPersistedDuringFlushSurvivesSuccessfulUpload() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("msime-telemetry-test-\(UUID().uuidString)")
     let queue = directory.appendingPathComponent("events.json")
@@ -89,5 +112,22 @@ final class BackendTelemetryClientTests: XCTestCase {
     await flushing.value
     let events = try JSONDecoder().decode([BackendTelemetryEvent].self, from: Data(contentsOf: queue))
     XCTAssertEqual(events.map(\.message), ["during flush"])
+  }
+
+  func testOversizedResponseKeepsEventQueued() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("msime-telemetry-test-\(UUID().uuidString)")
+    let queue = directory.appendingPathComponent("events.json")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let original = BackendTelemetryEvent(kind: "download", platform: "test", version: "1")
+    try JSONEncoder().encode([original]).write(to: queue)
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [TelemetryOversizedResponseProtocol.self]
+    let client = BackendTelemetryClient(configuration: configuration, queueURL: queue)
+
+    await client.flush()
+
+    let events = try JSONDecoder().decode([BackendTelemetryEvent].self, from: Data(contentsOf: queue))
+    XCTAssertEqual(events, [original])
   }
 }

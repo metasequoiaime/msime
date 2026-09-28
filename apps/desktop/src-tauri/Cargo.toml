@@ -25,6 +25,7 @@ serde.workspace = true
 msime-client-core = { path = "../../../crates/client-core" }
 msime-host-api = { path = "../../../crates/host-api" }
 msime-input-runtime = { path = "../../../crates/input-runtime" }
+hex = "0.4"
 serde_json.workspace = true
 tempfile.workspace = true
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }

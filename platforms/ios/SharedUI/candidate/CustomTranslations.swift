@@ -66,7 +66,15 @@ enum CustomTranslations {
   /// The file as text without its BOM, or empty when there is none yet.
   static func read(at url: URL) throws -> String {
     let data: Data
-    do { data = try Data(contentsOf: url) } catch CocoaError.fileReadNoSuchFile { return "" } catch { throw Failure.storage }
+    do {
+      data = try BoundedFileReader.read(from: url, maximumBytes: maximumBytes)
+    } catch CocoaError.fileReadNoSuchFile {
+      return ""
+    } catch BoundedFileReader.Failure.tooLarge {
+      throw Failure.unreadable
+    } catch {
+      throw Failure.storage
+    }
     guard data.count <= maximumBytes, let text = String(data: data, encoding: .utf8) else { throw Failure.unreadable }
     return text.hasPrefix("\u{FEFF}") ? String(text.dropFirst()) : text
   }

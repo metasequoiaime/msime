@@ -1,6 +1,10 @@
 package app.msime.client;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.List;
 
 /**
@@ -46,6 +50,25 @@ public final class LocalAsrPolicy {
         File manifest = new File(modelPath, MANIFEST);
         return new File(modelPath).isDirectory() && manifest.isFile()
             && manifest.length() > 0 && manifest.length() <= MAX_MANIFEST_BYTES;
+    }
+
+    /** Reads the manifest with a hard cap, so a file that grows after inspection cannot cause an unbounded allocation. */
+    public static byte[] readManifest(String modelPath) throws IOException {
+        if (modelPath == null || modelPath.isEmpty()) throw new IOException("manifest unavailable");
+        File manifest = new File(modelPath, MANIFEST);
+        try (InputStream input = new FileInputStream(manifest)) {
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream((int) MAX_MANIFEST_BYTES);
+            byte[] buffer = new byte[8192];
+            int count;
+            while ((count = input.read(buffer)) != -1) {
+                if (bytes.size() + count > MAX_MANIFEST_BYTES) {
+                    throw new IOException("manifest too large");
+                }
+                bytes.write(buffer, 0, count);
+            }
+            if (bytes.size() == 0) throw new IOException("manifest empty");
+            return bytes.toByteArray();
+        }
     }
 
     /** Whether the model's manifest asks for post-correction rather than native biasing. */

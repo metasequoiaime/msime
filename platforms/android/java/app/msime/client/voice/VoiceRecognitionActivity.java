@@ -1,5 +1,6 @@
 package app.msime.client;
 
+import app.msime.client.policy.HostOptionsPolicy;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
@@ -463,9 +464,7 @@ public final class VoiceRecognitionActivity extends Activity {
         if (files == null) return "";
         File options = new File(files, "runtime-options.json");
         try {
-            if (!options.isFile() || options.length() > 16_384) return "";
-            return new String(java.nio.file.Files.readAllBytes(options.toPath()),
-                java.nio.charset.StandardCharsets.UTF_8);
+            return HostOptionsPolicy.read(options);
         } catch (java.io.IOException error) {
             return "";
         }

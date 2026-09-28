@@ -24,6 +24,7 @@ public actor BackendTelemetryClient {
   private let queueURL: URL
   static let maxEvents = 64
   static let maxPayloadBytes = 64 * 1024
+  static let maxResponseBytes = 64 * 1024
   // An older or foreign queue may exceed the payload bound; read it and keep what fits.
   static let maxQueueFileBytes = 1024 * 1024
   private static let queueLock = NSLock()
@@ -76,10 +77,27 @@ public actor BackendTelemetryClient {
     return readQueueUnlocked(url)
   }
 
+  static func readQueueBytes(_ url: URL) -> Data? {
+    guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+    do {
+      let handle = try FileHandle(forReadingFrom: url)
+      defer { try? handle.close() }
+      var data = Data()
+      data.reserveCapacity(min(maxQueueFileBytes, 64 * 1024))
+      while true {
+        let remaining = maxQueueFileBytes - data.count
+        let chunk = try handle.read(upToCount: min(64 * 1024, remaining + 1)) ?? Data()
+        if chunk.isEmpty { return data }
+        guard chunk.count <= remaining else { return nil }
+        data.append(chunk)
+      }
+    } catch {
+      return nil
+    }
+  }
+
   private static func readQueueUnlocked(_ url: URL) -> [BackendTelemetryEvent] {
-    guard let size = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? NSNumber,
-          size.intValue <= maxQueueFileBytes,
-          let data = try? Data(contentsOf: url),
+    guard let data = readQueueBytes(url),
           let events = try? JSONDecoder().decode([BackendTelemetryEvent].self, from: data) else { return [] }
     return events
   }
@@ -116,9 +134,15 @@ public actor BackendTelemetryClient {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("MSIME/Telemetry", forHTTPHeaderField: "User-Agent")
         request.httpBody = try JSONEncoder().encode(event)
-        let (_, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+        let (bytes, response) = try await session.bytes(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+              http.expectedContentLength < 0 || http.expectedContentLength <= Self.maxResponseBytes else {
           throw URLError(.badServerResponse)
+        }
+        var count = 0
+        for try await _ in bytes {
+          guard count < Self.maxResponseBytes else { throw URLError(.dataLengthExceedsMaximum) }
+          count += 1
         }
       } catch {
         pending.append(event)

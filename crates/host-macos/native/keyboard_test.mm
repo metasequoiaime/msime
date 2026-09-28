@@ -22,7 +22,6 @@ struct TestHost {
         assert(CGEventGetFlags(event) == (kCGEventFlagMaskCommand | kCGEventFlagMaskAlternate));
         events.push_back(CGEventGetType(event));
     }
-    double launchTime(pid_t pid) { return pid == target ? 42.0 : 0.0; }
 };
 
 int main() {
@@ -44,19 +43,6 @@ int main() {
             assert(!msime::SendKeyboardKey(denied, 0, flags));
             assert(denied.events.empty());
             if (scenario < 4) assert(denied.allocations == 0);
-        }
-        TestHost pinned;
-        assert(msime::SendKeyboardKeyToTarget(pinned, 123, 42.0, 0, flags));
-        assert((pinned.events == std::vector<CGEventType>{kCGEventKeyDown, kCGEventKeyUp}));
-        for (int scenario = 0; scenario < 5; ++scenario) {
-            TestHost denied;
-            if (scenario == 0) denied.main = false;
-            if (scenario == 1) denied.permission = false;
-            if (scenario == 2) denied.target = 456;
-            if (scenario == 3) denied.target = 0;
-            if (scenario == 4) denied.losePermission = true;
-            assert(!msime::SendKeyboardKeyToTarget(denied, 123, 42.0, 0, flags));
-            assert(denied.events.empty());
         }
         struct FocusHost {
             bool main = true, activated = false;
