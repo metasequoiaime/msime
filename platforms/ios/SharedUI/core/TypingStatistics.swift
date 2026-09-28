@@ -349,6 +349,8 @@ struct TypingStatisticsStore {
   private static let maximumRequestBytes = 65_536
   /// A commit is split into pieces this size, well inside the store's 40,000-byte commit limit and, even with every byte escaped, inside the request limit.
   private static let maximumChunkBytes = 8_000
+  /// Keep migrations aligned with the shared Rust store's document ceiling before JSON decoding allocates.
+  static let maximumDocumentBytes = 64 * 1_048_576
 
   private static let preparedLock = NSLock()
   private static var prepared = Set<String>()
@@ -394,7 +396,7 @@ struct TypingStatisticsStore {
 
   private func migrateLegacyRetention(at url: URL) throws {
     guard FileManager.default.fileExists(atPath: url.path),
-          var document = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any],
+          var document = try JSONSerialization.jsonObject(with: Self.readBoundedDocument(from: url)) as? [String: Any],
           let legacy = document["retentionDays"] else { return }
     document.removeValue(forKey: "retentionDays")
     if document["retention"] == nil {
@@ -419,8 +421,24 @@ struct TypingStatisticsStore {
 
     guard !FileManager.default.fileExists(atPath: destination.path),
           FileManager.default.fileExists(atPath: source.path) else { return }
-    _ = try JSONDecoder().decode(TypingStatistics.self, from: Data(contentsOf: source))
+    _ = try JSONDecoder().decode(TypingStatistics.self, from: Self.readBoundedDocument(from: source))
     try FileManager.default.moveItem(at: source, to: destination)
+  }
+
+  /// Read only the shared store's accepted document size, even if a legacy file grows after inspection.
+  private static func readBoundedDocument(from url: URL) throws -> Data {
+    let handle = try FileHandle(forReadingFrom: url)
+    defer { try? handle.close() }
+    var data = Data()
+    while data.count <= maximumDocumentBytes {
+      let chunk = try handle.read(upToCount: min(65_536, maximumDocumentBytes + 1 - data.count)) ?? Data()
+      if chunk.isEmpty { break }
+      data.append(chunk)
+    }
+    guard data.count <= maximumDocumentBytes else {
+      throw TypingStatisticsError.store("统计文件过大")
+    }
+    return data
   }
 
   func load() throws -> TypingStatistics {
