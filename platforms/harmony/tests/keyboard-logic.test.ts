@@ -143,7 +143,10 @@ import {
   KeyboardFeedbackBridge,
   MobileKeyboardFeedback,
 } from "../entry/src/main/ets/keyboard/KeyboardFeedbackBridge";
-import { HapticStrength } from "../entry/src/main/ets/keyboard/KeyboardFeedback";
+import {
+  HapticStrength,
+  KeyboardFeedback,
+} from "../entry/src/main/ets/keyboard/KeyboardFeedback";
 import {
   EnglishCompletions,
   EnglishReplacement,
@@ -4433,6 +4436,20 @@ group("an unfamiliar feedback value falls back by field rather than wholesale", 
     KeyboardFeedbackBridge.previewDuration("thunderous") ===
       KeyboardFeedbackBridge.previewDuration("medium"),
     "and an unknown one previews the default rather than nothing",
+  );
+});
+
+group("an oversized feedback document is refused before parsing", () => {
+  const oversized = JSON.stringify({
+    sound: true,
+    haptics: true,
+    strength: HapticStrength.HEAVY,
+    padding: "x".repeat(4096),
+  });
+  const parsed = KeyboardFeedback.parse(oversized);
+  check(
+    parsed.sound === false && parsed.haptics === false && parsed.strength === HapticStrength.MEDIUM,
+    "feedback documents over the storage bound fall back to defaults",
   );
 });
 

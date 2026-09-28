@@ -37,6 +37,9 @@ const DURATIONS: Map<HapticStrength, number> = new Map<HapticStrength, number>([
 ]);
 
 export class KeyboardFeedback {
+  /** The shared file is a tiny settings document; refuse oversized input before JSON parsing. */
+  static readonly MAX_BYTES: number = 4096;
+
   static readonly DEFAULTS: FeedbackSettings = {
     sound: false, haptics: false, strength: HapticStrength.MEDIUM
   };
@@ -62,7 +65,7 @@ export class KeyboardFeedback {
    * rather than propagating: feedback settings are not worth failing a keyboard over.
    */
   static parse(document: string | null): FeedbackSettings {
-    if (document === null || document.length === 0) {
+    if (document === null || document.length === 0 || document.length > KeyboardFeedback.MAX_BYTES) {
       return KeyboardFeedback.DEFAULTS;
     }
     try {
