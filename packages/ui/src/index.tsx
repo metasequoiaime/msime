@@ -82,6 +82,11 @@ import {
   type McpInstallOutcome,
   type McpServerStatus,
 } from "./settings/mcp-connect";
+import {
+  HelpcodeSettingsPage,
+  type HelpcodePreferences,
+  type HelpcodeSchema,
+} from "./settings/pages/helpcode-page";
 import * as surface from "./keyboard/panel-surface-style";
 import * as settings from "./settings/settings-style";
 import * as doc from "./settings/document-style";
@@ -174,6 +179,12 @@ export {
   type LinuxSetupStatus,
 } from "./account/linux-setup-page";
 export { SettingsStartupPage } from "./settings/settings-startup-page";
+export {
+  HelpcodeSettingsPage,
+  type HelpcodePreferences,
+  type HelpcodeSchema,
+  type HelpcodeSettings,
+} from "./settings/pages/helpcode-page";
 export {
   CommunitySkinsPage,
   type CommunitySkin,
@@ -299,22 +310,6 @@ export {
   type LocalVoiceModelProgress,
 } from "./voice/local-models";
 
-export type HelpcodeSchema =
-  | "lantian"
-  | "ziranma"
-  | "shouyou2_0"
-  | "shouyouplus"
-  | "xiaohe"
-  | "jiajia";
-export type HelpcodePreferences = {
-  enabled: boolean;
-  schema: HelpcodeSchema;
-  show_in_candidate_window?: boolean;
-};
-const defaultHelpcode: Record<"quanpin_helpcode" | "shuangpin_helpcode", HelpcodePreferences> = {
-  quanpin_helpcode: { enabled: true, schema: "ziranma", show_in_candidate_window: false },
-  shuangpin_helpcode: { enabled: true, schema: "lantian", show_in_candidate_window: true },
-};
 export type KeybindingPreferences = {
   switch_language_shift: boolean;
   switch_language_ctrl: boolean;
@@ -456,14 +451,6 @@ function selectTouchKeyboardScheme(
     touch_keyboard_schemes,
   };
 }
-const helpcodeSchemas: [HelpcodeSchema, string][] = [
-  ["lantian", "蓝天小雨点"],
-  ["ziranma", "自然码"],
-  ["shouyou2_0", "首右2.0"],
-  ["shouyouplus", "首右plus"],
-  ["xiaohe", "小鹤"],
-  ["jiajia", "加加"],
-];
 /**
  * The sidebar, in the reference window's order.
  *
@@ -8108,96 +8095,14 @@ export function SettingsPage({
                       </div>
                     )}
                   </fieldset>
-                  <fieldset disabled={busy} hidden={page !== "helpcode"} aria-label="辅助码">
-                    {showHelpcodeShiftEntry && (
-                      <div className="section input-setting-description">
-                        <p>
-                          全拼或双拼组字时，按 Shift
-                          再输入的字母作为辅助码交给输入引擎，用于缩小候选。五笔、日语和本地输入模式不使用辅助码。
-                        </p>
-                      </div>
-                    )}
-                    {(
-                      [
-                        ["shuangpin_helpcode", "双拼"],
-                        ["quanpin_helpcode", "全拼"],
-                      ] as const
-                    ).map(([key, label]) => {
-                      const value = {
-                        ...defaultHelpcode[key],
-                        ...draft[key],
-                      } as Required<HelpcodePreferences>;
-                      return (
-                        <div className="section" key={key}>
-                          <label className="section-header">
-                            <span className="section-title">{label}辅助码</span>
-                            <input
-                              className="toggle"
-                              type="checkbox"
-                              checked={value.enabled}
-                              onChange={(event) =>
-                                setDraft({
-                                  ...draft,
-                                  [key]: { ...value, enabled: event.target.checked },
-                                })
-                              }
-                            />
-                          </label>
-                          <label className="section-header helpcode-schema">
-                            <span className="section-title">{label}辅助码方案</span>
-                            <select
-                              disabled={!value.enabled}
-                              value={value.schema}
-                              onChange={(event) =>
-                                setDraft({
-                                  ...draft,
-                                  [key]: { ...value, schema: event.target.value as HelpcodeSchema },
-                                })
-                              }
-                            >
-                              {helpcodeSchemas.map(([schema, name]) => (
-                                <option key={schema} value={schema}>
-                                  {name}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          <label className="section-header">
-                            {/*
-                             * Named after its own scheme, the way the reference window names these:
-                             * both rows are on the page at once, so one shared wording left two
-                             * checkboxes with the same accessible name and nothing to tell a screen
-                             * reader -- or a test -- which one it had.
-                             */}
-                            <span className="section-title">
-                              {mobilePlatform
-                                ? `在候选栏中显示${label}辅助码`
-                                : `在候选窗口中显示${label}辅助码`}
-                            </span>
-                            <input
-                              aria-label={
-                                mobilePlatform
-                                  ? `在候选栏中显示${label}辅助码`
-                                  : `在候选窗口中显示${label}辅助码`
-                              }
-                              className="toggle"
-                              type="checkbox"
-                              checked={value.show_in_candidate_window}
-                              onChange={(event) =>
-                                setDraft({
-                                  ...draft,
-                                  [key]: {
-                                    ...value,
-                                    show_in_candidate_window: event.target.checked,
-                                  },
-                                })
-                              }
-                            />
-                          </label>
-                        </div>
-                      );
-                    })}
-                  </fieldset>
+                  <HelpcodeSettingsPage
+                    value={draft}
+                    mobile={mobilePlatform}
+                    showShiftEntry={showHelpcodeShiftEntry}
+                    disabled={busy}
+                    hidden={page !== "helpcode"}
+                    onChange={(patch) => setDraft({ ...draft, ...patch })}
+                  />
                   <fieldset disabled={busy} hidden={page !== "shortcuts"} aria-label="快捷键">
                     <div className={`section ${settings.shortcutIntro}`}>
                       {mobilePlatform
