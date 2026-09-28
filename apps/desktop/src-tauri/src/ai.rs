@@ -33,7 +33,7 @@ pub(crate) fn read_ai_response_body(reader: impl Read) -> Result<Vec<u8>, AiResp
 }
 
 pub(crate) fn validate_ai_endpoint(value: &str) -> Result<Url, CommandError> {
-    if value.len() > 2048 || value.chars().any(char::is_control) {
+    if value.len() > 2048 || msime_client_core::has_disallowed_control_with_options(value, false) {
         return Err(CommandError { code: "ai_invalid" });
     }
     let url = Url::parse(value).map_err(|_| CommandError { code: "ai_invalid" })?;
@@ -49,7 +49,10 @@ pub(crate) fn validate_ai_endpoint(value: &str) -> Result<Url, CommandError> {
 }
 
 pub(crate) fn validate_ai_token(token: &str) -> Result<(), CommandError> {
-    if token.is_empty() || token.len() > 16 * 1024 || token.chars().any(char::is_control) {
+    if token.is_empty()
+        || token.len() > 16 * 1024
+        || msime_client_core::has_disallowed_control_with_options(token, false)
+    {
         return Err(CommandError { code: "ai_invalid" });
     }
     Ok(())
@@ -111,7 +114,11 @@ pub(crate) fn ai_models_request(endpoint: &str, token: &str) -> Result<Vec<Strin
         })?
         .iter()
         .filter_map(|item| item.get("id").and_then(Value::as_str))
-        .filter(|id| !id.is_empty() && id.len() <= 256 && !id.chars().any(char::is_control))
+        .filter(|id| {
+            !id.is_empty()
+                && id.len() <= 256
+                && !msime_client_core::has_disallowed_control_with_options(id, false)
+        })
         .take(128)
         .map(str::to_owned)
         .collect::<Vec<_>>();
@@ -134,7 +141,7 @@ pub(crate) fn ai_test_request(
     validate_ai_token(token)?;
     if model.is_empty()
         || model.len() > 256
-        || model.chars().any(char::is_control)
+        || msime_client_core::has_disallowed_control_with_options(model, false)
         || !ai_text_is_valid(prompt, true)
         || !ai_text_is_valid(text, false)
     {
