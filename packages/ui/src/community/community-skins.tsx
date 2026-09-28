@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { errorCode } from "../core/error-code";
 import { randomUuid } from "../core/random-id";
+import { truncateGraphemes } from "../core/text";
 import { ScreenKeyboardPreview } from "../keyboard/screen-keyboard-preview";
 import { appendUniqueById, communityRating } from "./community-helpers";
 import * as style from "./community-style";
@@ -79,16 +80,6 @@ function communityMessage(error: unknown): string {
       return "无法安全保存试用状态，请稍后重试。";
   }
   return "社区暂时不可用，请稍后重试。";
-}
-
-function boundedGraphemes(value: string, maximum: number): string {
-  if (typeof Intl !== "undefined" && "Segmenter" in Intl) {
-    const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
-    return Array.from(segmenter.segment(value), (item) => item.segment)
-      .slice(0, maximum)
-      .join("");
-  }
-  return [...value].slice(0, maximum).join("");
 }
 
 function publishMessage(error: unknown): string {
@@ -181,7 +172,7 @@ function CommunitySkinPublishDialog({
     const normalizedDescription = description.trim();
     if (
       !normalizedName ||
-      boundedGraphemes(normalizedName, 32) !== normalizedName ||
+      truncateGraphemes(normalizedName, 32) !== normalizedName ||
       [...normalizedName].length > 32 ||
       [...normalizedDescription].length > 280 ||
       !agreed
@@ -282,7 +273,7 @@ function CommunitySkinPublishDialog({
                 disabled={busy}
                 onChange={(event) => {
                   setPublicationId(randomUuid());
-                  setName(boundedGraphemes(event.target.value, 32));
+                  setName(truncateGraphemes(event.target.value, 32));
                 }}
               />
             </label>

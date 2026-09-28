@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { errorCode } from "../core/error-code";
 import { randomRequestId } from "../core/random-id";
+import { truncateGraphemes } from "../core/text";
 import { ScreenKeyboardPreview } from "./screen-keyboard-preview";
 import {
   defaultTouchKeyboardSkinDesign,
@@ -31,13 +32,6 @@ type Confirmation = { operation: "update" | "delete"; item: SavedTouchKeyboardSk
 
 function colorNumber(value: string): number {
   return Number.parseInt(value.slice(1), 16);
-}
-
-function boundedSkinName(value: string): string {
-  const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
-  return Array.from(segmenter.segment(value), (item) => item.segment)
-    .slice(0, 32)
-    .join("");
 }
 
 async function boundedPhoto(file: File): Promise<string> {
@@ -672,7 +666,7 @@ export function TouchKeyboardSkinEditor({
             <input
               aria-label="皮肤名称"
               value={skinName}
-              onChange={(event) => setSkinName(boundedSkinName(event.target.value))}
+              onChange={(event) => setSkinName(truncateGraphemes(event.target.value, 32))}
             />
           </label>
           <div>
