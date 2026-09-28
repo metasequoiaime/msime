@@ -396,26 +396,6 @@ fn snapshot_bridge(action: Value) -> Result<Value, crate::CommandError> {
 }
 
 #[cfg(target_os = "ios")]
-fn dictionary_kind(value: &str) -> Result<DictionaryKind, crate::CommandError> {
-    match value {
-        "pinyin" => Ok(DictionaryKind::Pinyin),
-        "wubi" => Ok(DictionaryKind::Wubi),
-        "quick" => Ok(DictionaryKind::Quick),
-        "english" => Ok(DictionaryKind::English),
-        _ => Err(crate::CommandError {
-            code: "invalid_cloud_dictionary",
-        }),
-    }
-}
-
-#[cfg(target_os = "ios")]
-fn snapshot_command_error() -> crate::CommandError {
-    crate::CommandError {
-        code: "snapshot_unavailable",
-    }
-}
-
-#[cfg(target_os = "ios")]
 fn clear_snapshot_previews(previews: &Arc<Mutex<HashMap<String, PendingSnapshot>>>) {
     let Ok(mut pending) = previews.lock() else {
         return;
@@ -430,15 +410,6 @@ fn snapshot_metadata(value: Value) -> Result<SnapshotMetadata, crate::CommandErr
     serde_json::from_value(value).map_err(|_| crate::CommandError {
         code: "snapshot_invalid",
     })
-}
-
-#[cfg(target_os = "ios")]
-fn snapshot_response_without_account(mut value: Value) -> Result<Value, crate::CommandError> {
-    let object = value.as_object_mut().ok_or_else(snapshot_command_error)?;
-    if let Some(request) = object.get_mut("request").and_then(Value::as_object_mut) {
-        request.remove("accountId");
-    }
-    Ok(value)
 }
 
 #[cfg(target_os = "ios")]
