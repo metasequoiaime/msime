@@ -127,18 +127,14 @@ export function TouchKeyboardGeometrySection({
         />
       </label>
       <div className="input-option-divider" />
-      <label className="section-header">
-        <span className="section-title">
-          顶部语音入口 <small>在触屏键盘工具栏直接打开最近一次语音结果</small>
-        </span>
-        <input
-          aria-label="顶部语音入口"
-          className="toggle"
-          type="checkbox"
-          checked={touchVoiceShortcut}
-          onChange={(event) => onTouchVoiceShortcutChange(event.target.checked)}
-        />
-      </label>
+      <SettingToggle
+        label="顶部语音入口"
+        description="在触屏键盘工具栏直接打开最近一次语音结果"
+        ariaLabel="顶部语音入口"
+        checked={touchVoiceShortcut}
+        compact
+        onChange={onTouchVoiceShortcutChange}
+      />
       {toolbarComponents && (
         <>
           <div className="input-option-divider" />
@@ -164,23 +160,15 @@ export function TouchKeyboardGeometrySection({
       {tabletFullKeys !== undefined && (
         <>
           <div className="input-option-divider" />
-          <label className="section-header">
-            <span className="section-title">
-              数字行与 Tab 键
-              <small>
-                iPad 全宽键盘在字母上方显示数字行，并在 Q 左侧显示 Tab
-                键；浮动键盘和窄窗口没有空间，不显示。
-              </small>
-            </span>
-            <input
-              aria-label="数字行与 Tab 键"
-              className="toggle"
-              type="checkbox"
-              disabled={tabletFullKeysBusy}
-              checked={tabletFullKeys}
-              onChange={(event) => onTabletFullKeysChange(event.target.checked)}
-            />
-          </label>
+          <SettingToggle
+            label="数字行与 Tab 键"
+            description="iPad 全宽键盘在字母上方显示数字行，并在 Q 左侧显示 Tab 键；浮动键盘和窄窗口没有空间，不显示。"
+            ariaLabel="数字行与 Tab 键"
+            disabled={tabletFullKeysBusy}
+            checked={tabletFullKeys}
+            compact
+            onChange={onTabletFullKeysChange}
+          />
         </>
       )}
       <button
@@ -194,3 +182,4 @@ export function TouchKeyboardGeometrySection({
     </div>
   );
 }
+import { SettingToggle } from "./setting-toggle";
