@@ -101,8 +101,8 @@ pub fn voice_capture_devices() -> Vec<(String, String)> {
             || name.is_empty()
             || uid.len() > 512
             || name.len() > 512
-            || uid.chars().any(char::is_control)
-            || name.chars().any(char::is_control)
+            || msime_client_core::has_disallowed_control_with_options(uid, false)
+            || msime_client_core::has_disallowed_control_with_options(name, false)
         {
             return;
         }

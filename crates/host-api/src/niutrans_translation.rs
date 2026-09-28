@@ -42,7 +42,7 @@ pub fn descriptor(bytes: &[u8]) -> Result<Value, &'static str> {
         || !valid_credential(apikey)
         || request.text.is_empty()
         || request.text.chars().count() > 40
-        || request.text.chars().any(char::is_control)
+        || msime_client_core::has_disallowed_control_with_options(&request.text, false)
         || request.timestamp.is_empty()
         || request.timestamp.len() > 20
         || !request.timestamp.bytes().all(|byte| byte.is_ascii_digit())
