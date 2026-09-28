@@ -981,6 +981,7 @@ impl RuntimeOptionsState {
     target_os = "linux",
     target_os = "windows",
     target_os = "android",
+    target_os = "ios",
     test
 ))]
 const RUNTIME_OPTIONS_READ_LIMIT: u64 = 2 << 20;
@@ -989,6 +990,7 @@ const RUNTIME_OPTIONS_READ_LIMIT: u64 = 2 << 20;
     target_os = "linux",
     target_os = "windows",
     target_os = "android",
+    target_os = "ios",
     test
 ))]
 fn read_runtime_options_bytes(path: &Path) -> Result<Vec<u8>, std::io::Error> {
@@ -4411,8 +4413,8 @@ pub fn run() {
             let host_document: Value = {
                 #[cfg(target_os = "android")]
                 {
-                    match fs::read_to_string(&host_options_path) {
-                        Ok(host_options) => serde_json::from_str(&host_options)
+                    match read_runtime_options_bytes(&host_options_path) {
+                        Ok(host_options) => serde_json::from_slice(&host_options)
                             .map_err(|_| "Cannot parse prepared HostOptions JSON".to_string())?,
                         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                             // The Tauri shell owns the first-run guide. Before the
@@ -4430,12 +4432,16 @@ pub fn run() {
                 #[cfg(target_os = "ios")]
                 {
                     let resources = app.path().resource_dir()?.join("EngineResources");
-                    match fs::read_to_string(&host_options_path) {
-                        Ok(host_options) => ios_host_options_document(
-                            Some(&host_options),
-                            &resources,
-                            &directory,
-                        )?,
+                    match read_runtime_options_bytes(&host_options_path) {
+                        Ok(host_options) => {
+                            let host_options = std::str::from_utf8(&host_options)
+                                .map_err(|_| "Cannot parse prepared HostOptions JSON".to_string())?;
+                            ios_host_options_document(
+                                Some(host_options),
+                                &resources,
+                                &directory,
+                            )?
+                        }
                         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                             ios_host_options_document(None, &resources, &directory)?
                         }
@@ -4448,8 +4454,8 @@ pub fn run() {
                 }
                 #[cfg(target_os = "linux")]
                 {
-                    match fs::read_to_string(&host_options_path) {
-                        Ok(host_options) => serde_json::from_str(&host_options)
+                    match read_runtime_options_bytes(&host_options_path) {
+                        Ok(host_options) => serde_json::from_slice(&host_options)
                             .map_err(|_| "Cannot parse prepared HostOptions JSON".to_string())?,
                         // The first-run page prepares this file; until then every resource-backed command fails closed on the empty document, and the snapshot re-reads the file once it exists.
                         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -4465,9 +4471,9 @@ pub fn run() {
                     target_os = "linux"
                 )))]
                 {
-                    let host_options = fs::read_to_string(&host_options_path)
+                    let host_options = read_runtime_options_bytes(&host_options_path)
                         .map_err(|_| "Cannot read prepared HostOptions JSON".to_string())?;
-                    serde_json::from_str(&host_options)
+                    serde_json::from_slice(&host_options)
                         .map_err(|_| "Cannot parse prepared HostOptions JSON".to_string())?
                 }
             };
