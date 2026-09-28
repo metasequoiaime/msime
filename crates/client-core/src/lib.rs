@@ -33,6 +33,7 @@ pub mod preferences;
 pub mod punctuation;
 pub mod resources;
 pub mod skin;
+mod storage;
 mod text;
 
 /// Shared text and hexadecimal validation predicates used by host boundaries.

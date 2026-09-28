@@ -71,8 +71,7 @@ impl CommunityResourceLibraryStore {
         let Some(parent) = self.file.parent() else {
             return Err(CommunityResourceLibraryError::Invalid);
         };
-        fs::create_dir_all(parent)?;
-        if !fs::symlink_metadata(parent)?.file_type().is_dir() {
+        if !crate::storage::create_directory_and_check(parent)? {
             return Err(CommunityResourceLibraryError::Invalid);
         }
         let lock_path = self.file.with_extension("json.lock");

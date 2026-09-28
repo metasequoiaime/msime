@@ -152,8 +152,7 @@ impl KeyboardSkinTrialStore {
     }
 
     fn lock(&self) -> Result<File, KeyboardSkinTrialError> {
-        fs::create_dir_all(&self.directory)?;
-        if !fs::symlink_metadata(&self.directory)?.file_type().is_dir() {
+        if !crate::storage::create_directory_and_check(&self.directory)? {
             return Err(KeyboardSkinTrialError::Invalid);
         }
         let lock = file_lock::open_lock_file(self.directory.join("KeyboardSkinTrial.lock"))?;
