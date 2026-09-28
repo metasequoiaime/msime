@@ -1,4 +1,14 @@
 import { useConfirm } from "./core/confirm";
+import {
+  mobilePrimaryPageIds,
+  mobileTabForPage,
+  mobileTabIcon,
+  mobileTabTitle,
+  pages,
+  requestedPage,
+  type MobilePrimaryPageId,
+  type SettingsPageId,
+} from "./settings/mobile-navigation";
 import { errorMessage } from "./core/error-message";
 import {
   inferredTouchKeyboardScheme,
@@ -821,83 +831,6 @@ const defaultKeybindings: KeybindingPreferences = {
   toggle_character_set_ctrl_shift_f: true,
   toggle_fullwidth_option_shift_h: true,
 };
-/**
- * The sidebar, in the reference window's order.
- *
- * Everything from 外观 down is the reference's own list, item for item and in its sequence, so a
- * user who knows that window finds the same page in the same place here. The pages this client has
- * and that window does not -- the account, the AI conversation, the community and the typing
- * statistics -- sit ahead of it as a block of their own rather than being interleaved, which is
- * also the group the mobile hosts promote. macOS reorders this into `macosSidebarGroups`, because
- * its own reference window groups rather than lists.
- */
-const pages = [
-  { id: "home", title: "首页", icon: new URL("./assets/msime.svg", import.meta.url).href },
-  { id: "account", title: "我的", icon: new URL("./assets/account.svg", import.meta.url).href },
-  { id: "chat", title: "AI 对话", icon: new URL("./assets/help.svg", import.meta.url).href },
-  { id: "community", title: "社区", icon: new URL("./assets/community.svg", import.meta.url).href },
-  {
-    id: "typing-statistics",
-    title: "打字统计",
-    icon: new URL("./assets/statistics.svg", import.meta.url).href,
-  },
-  {
-    id: "appearance",
-    title: "外观",
-    icon: new URL("./assets/appearance.svg", import.meta.url).href,
-  },
-  { id: "input", title: "输入", icon: new URL("./assets/input.svg", import.meta.url).href },
-  { id: "helpcode", title: "辅助码", icon: new URL("./assets/helpcode.svg", import.meta.url).href },
-  {
-    id: "shortcuts",
-    title: "快捷键",
-    icon: new URL("./assets/shortcut.svg", import.meta.url).href,
-  },
-  {
-    id: "dictionary",
-    title: "词库",
-    icon: new URL("./assets/dictionary.svg", import.meta.url).href,
-  },
-  {
-    id: "vocabulary",
-    title: "背单词",
-    icon: new URL("./assets/vocabulary.svg", import.meta.url).href,
-  },
-  { id: "skin", title: "皮肤", icon: new URL("./assets/skin.svg", import.meta.url).href },
-  {
-    id: "voice",
-    title: "语音输入",
-    icon: new URL("./assets/voice-input.svg", import.meta.url).href,
-  },
-  {
-    id: "screen-keyboard",
-    title: "屏幕键盘",
-    icon: new URL("./assets/screen-keyboard.svg", import.meta.url).href,
-  },
-  {
-    id: "handwriting",
-    title: "手写识别板",
-    icon: new URL("./assets/handwriting.svg", import.meta.url).href,
-  },
-  { id: "tools", title: "实用功能", icon: new URL("./assets/utilities.svg", import.meta.url).href },
-  { id: "ai", title: "AI 辅助", icon: new URL("./assets/ai.svg", import.meta.url).href },
-  {
-    id: "floating-toolbar",
-    title: "悬浮工具栏",
-    icon: new URL("./assets/floating-toolbar.svg", import.meta.url).href,
-  },
-  // Mobile only, and the one page that is a list of the other pages. The phone bar carries the
-  // source's four tabs, so everything else is reached the way the source reaches it: through the
-  // 键盘 tab, down one level, into a list.
-  {
-    id: "more",
-    title: "全部设置",
-    icon: new URL("./assets/utilities.svg", import.meta.url).href,
-  },
-  { id: "help", title: "帮助", icon: new URL("./assets/help.svg", import.meta.url).href },
-  { id: "about", title: "关于", icon: new URL("./assets/about.svg", import.meta.url).href },
-  { id: "feedback", title: "反馈", icon: new URL("./assets/feedback.svg", import.meta.url).href },
-] as const;
 /**
  * macOS groups its sidebar the way the reference window does: what you type with, what it looks
  * like, what it stores, then where to get help. Pages the reference has no counterpart for keep
@@ -1736,55 +1669,6 @@ export interface PreferencesRecovery {
 
 /** What a load or save that failed on an unreadable document says; the repair button sits beside exactly this message. */
 const unreadablePreferencesMessage = "配置文件无法读取或版本较新，原文件已保留。";
-
-/**
- * The 键盘 tab draws a keyboard, not the app.
- *
- * Its page icon is the app logo, which the source does not put in the bar either — its first tab is
- * `systemImage: "keyboard"`. Three of the four tabs would otherwise be a subject and the fourth a
- * brand.
- */
-const keyboardTabIcon = new URL("./assets/screen-keyboard.svg", import.meta.url).href;
-
-function mobileTabIcon(id: string, icon: string): string {
-  return id === "home" ? keyboardTabIcon : icon;
-}
-
-/**
- * What a tab is called, which is not always what its page is called.
- *
- * The source names these four 键盘 / 社区 / 统计 / 我的 and nothing else appears in the bar. The page
- * titles are longer because they also head the page they open.
- */
-function mobileTabTitle(id: string, title: string): string {
-  if (id === "home") return "键盘";
-  if (id === "typing-statistics") return "统计";
-  if (id === "account") return "我的";
-  return title;
-}
-
-type SettingsPageId = (typeof pages)[number]["id"];
-type MobilePrimaryPageId = Extract<
-  SettingsPageId,
-  "home" | "community" | "typing-statistics" | "account"
->;
-
-const mobilePrimaryPageIds: readonly MobilePrimaryPageId[] = [
-  "home",
-  "community",
-  "typing-statistics",
-  "account",
-];
-
-const mobileTabForPage = (page: SettingsPageId): MobilePrimaryPageId =>
-  mobilePrimaryPageIds.includes(page as MobilePrimaryPageId)
-    ? (page as MobilePrimaryPageId)
-    : "home";
-// A host can ask for the section its menu entry names. An unknown id keeps the
-// default page rather than opening an empty one.
-function requestedPage(value: string | undefined): SettingsPageId {
-  return pages.some((page) => page.id === value) ? (value as SettingsPageId) : "appearance";
-}
 
 /** What the platform calls itself, for text a person reads rather than a switch the code takes. */
 /**
