@@ -187,6 +187,10 @@ import { FeedbackSettingsSection } from "./settings/feedback-settings-section";
 import { HandwritingSettingsSection } from "./settings/handwriting-settings-section";
 import { HandwritingPlatformNotice } from "./settings/handwriting-platform-notice";
 import { MobileInputAiNotice } from "./settings/mobile-input-ai-notice";
+import {
+  InputSourceStartupNotice,
+  type InputSourceStartupStatus,
+} from "./settings/input-source-startup-notice";
 import { VoiceModelMirrorSection } from "./settings/voice-model-mirror-section";
 import {
   CredentialTestSection,
@@ -1309,14 +1313,10 @@ export type FloatingToolbarPreferences = {
 };
 import { defaultFloatingToolbar } from "./settings/floating-toolbar-defaults";
 /** What the macOS settings app did with the input method it carries when it started. */
-export type InputSourceStartupStatus = {
-  /** `login_required`: the input method is installed, but this login session's input source list only picks it up after the user logs in again. */
-  action: "installed" | "updated" | "up_to_date" | "login_required" | "failed";
-  /** Whether the input source is in the System Settings list; `null` when that list could not be read. */
-  enabled: boolean | null;
-  bundled_version: string | null;
-  installed_version: string | null;
-};
+export {
+  InputSourceStartupNotice,
+  type InputSourceStartupStatus,
+} from "./settings/input-source-startup-notice";
 export interface SettingsClient {
   /** What the surrounding host can do. Absent hosts fall back to user-agent detection. */
   host?: HostCapabilities;
@@ -3743,68 +3743,12 @@ export function SettingsPage({
             {inputSourceStartup &&
               (inputSourceStartup.action !== "up_to_date" ||
                 inputSourceStartup.enabled === false) && (
-                <div
-                  role={inputSourceStartup.action === "failed" ? "alert" : "status"}
-                  className={inputSourceStartup.action === "failed" ? "error" : "notice"}
-                  aria-label="水杉输入法安装状态"
-                >
-                  {inputSourceStartup.action === "installed" && (
-                    <p>
-                      水杉输入法已安装
-                      {inputSourceStartup.installed_version
-                        ? `：${inputSourceStartup.installed_version}`
-                        : ""}
-                      。
-                    </p>
-                  )}
-                  {inputSourceStartup.action === "updated" && (
-                    <p>
-                      水杉输入法已更新
-                      {inputSourceStartup.installed_version
-                        ? `到 ${inputSourceStartup.installed_version}`
-                        : ""}
-                      。
-                    </p>
-                  )}
-                  {inputSourceStartup.action === "login_required" && (
-                    <p>
-                      水杉输入法已安装到本机，但本次登录的输入法列表还看不到它。请注销并重新登录，然后在
-                      系统设置 &gt; 键盘 &gt; 输入法 中添加水杉输入法。
-                    </p>
-                  )}
-                  {inputSourceStartup.action === "failed" && (
-                    <p>
-                      水杉输入法未能自动安装或更新。请在「快捷键」页的「输入法服务」中点「安装 /
-                      更新」重试。
-                    </p>
-                  )}
-                  {inputSourceStartup.enabled === false &&
-                    inputSourceStartup.action !== "login_required" && (
-                      <p>
-                        请在 系统设置 &gt; 键盘 &gt; 输入法 中添加并启用水杉输入法。
-                        <button
-                          type="button"
-                          className="secondary"
-                          onClick={() =>
-                            void client.inputSourceStartup
-                              ?.openSettings()
-                              .catch(() =>
-                                setError("无法打开系统设置，请手动前往 系统设置 > 键盘 > 输入法。"),
-                              )
-                          }
-                        >
-                          打开键盘设置
-                        </button>
-                      </p>
-                    )}
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() => setInputSourceStartup(null)}
-                  >
-                    知道了
-                  </button>
-                </div>
+                <InputSourceStartupNotice
+                  status={inputSourceStartup}
+                  onOpenSettings={() => client.inputSourceStartup?.openSettings()}
+                  onDismiss={() => setInputSourceStartup(null)}
+                  onError={setError}
+                />
               )}
             {busy && !draft && <p role="status">正在读取设置…</p>}
             {client.home && draft && page === "home" && (
