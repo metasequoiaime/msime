@@ -366,10 +366,10 @@ public final class DictionarySnapshotQueue {
         Path stateFile = directory.resolve(STATE_NAME);
         try {
             if (!Files.exists(stateFile, LinkOption.NOFOLLOW_LINKS)) return new State(null, null);
-            if (!Files.isRegularFile(stateFile, LinkOption.NOFOLLOW_LINKS)
-                    || Files.size(stateFile) > MAXIMUM_STATE_BYTES) throw new Failure(Reason.INVALID);
-            byte[] bytes = Files.readAllBytes(stateFile);
-            if (bytes.length == 0 || bytes.length > MAXIMUM_STATE_BYTES) throw new Failure(Reason.INVALID);
+            if (!Files.isRegularFile(stateFile, LinkOption.NOFOLLOW_LINKS))
+                throw new Failure(Reason.INVALID);
+            byte[] bytes = readBounded(stateFile);
+            if (bytes.length == 0) throw new Failure(Reason.INVALID);
             DataInputStream input = new DataInputStream(new ByteArrayInputStream(bytes));
             if (input.readInt() != 0x4d535131 || input.readInt() != 1) throw new Failure(Reason.INVALID);
             String local = input.readBoolean() ? input.readUTF() : null;
@@ -379,6 +379,21 @@ public final class DictionarySnapshotQueue {
             return new State(local, request);
         } catch (Failure error) { throw error; }
         catch (IOException | SecurityException error) { throw new Failure(Reason.INVALID, error); }
+    }
+
+    /** Read only the metadata envelope, even if a replaced state file grows after inspection. */
+    private static byte[] readBounded(Path file) throws IOException {
+        try (InputStream input = Files.newInputStream(file)) {
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream(MAXIMUM_STATE_BYTES);
+            byte[] buffer = new byte[4096];
+            int count;
+            while ((count = input.read(buffer)) != -1) {
+                if (bytes.size() + count > MAXIMUM_STATE_BYTES)
+                    throw new IOException("snapshot state too large");
+                bytes.write(buffer, 0, count);
+            }
+            return bytes.toByteArray();
+        }
     }
 
     private Request decodeRequest(DataInputStream input) throws IOException, Failure {
