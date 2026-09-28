@@ -398,10 +398,7 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
                 && valid_format(kind, format)
                 && !text.is_empty()
                 && text.len() <= msime_client_core::cloud::dictionary::MAX_IMPORT_BYTES
-                && !text.contains('\0')
-                && text.chars().all(|character| {
-                    !character.is_control() || matches!(character, '\n' | '\r' | '\t')
-                })
+                && !has_disallowed_control_with_options(text, true)
             {
                 Ok(())
             } else {
