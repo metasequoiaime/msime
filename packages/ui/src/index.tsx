@@ -61,6 +61,7 @@ import { VoiceModelPathSection } from "./settings/voice-model-path-section";
 import { VoiceModelSection } from "./settings/voice-model-section";
 import { VoiceEndpointSection } from "./settings/voice-endpoint-section";
 import { VoiceCredentialFieldsSection } from "./settings/voice-credential-fields-section";
+import { VoiceStreamPreeditSection } from "./settings/voice-stream-preedit-section";
 import { DoubaoAuthModeSection } from "./settings/doubao-auth-mode-section";
 import { DoubaoStreamEndpointSection } from "./settings/doubao-stream-endpoint-section";
 import { DoubaoOptionsSection } from "./settings/doubao-options-section";
@@ -446,6 +447,10 @@ export {
   VoiceCredentialFieldsSection,
   type VoiceCredentialFieldsSectionProps,
 } from "./settings/voice-credential-fields-section";
+export {
+  VoiceStreamPreeditSection,
+  type VoiceStreamPreeditSectionProps,
+} from "./settings/voice-stream-preedit-section";
 export {
   DoubaoAuthModeSection,
   type DoubaoAuthMode,
@@ -6861,22 +6866,10 @@ export function SettingsPage({
                         </>
                       )}
                     {showVoiceStreamPreedit && (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">
-                            流式预编辑<small>provider 支持时显示实时识别片段</small>
-                          </span>
-                          <input
-                            aria-label="流式预编辑"
-                            className="toggle"
-                            type="checkbox"
-                            checked={voiceInput.stream_inline_preedit === true}
-                            onChange={(event) =>
-                              updateVoice({ stream_inline_preedit: event.target.checked })
-                            }
-                          />
-                        </label>
-                      </div>
+                      <VoiceStreamPreeditSection
+                        enabled={voiceInput.stream_inline_preedit === true}
+                        onChange={(stream_inline_preedit) => updateVoice({ stream_inline_preedit })}
+                      />
                     )}
                     {showVoiceCommitMode && (
                       <div className="section">
