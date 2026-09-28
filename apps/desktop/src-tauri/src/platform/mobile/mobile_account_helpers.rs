@@ -1,8 +1,10 @@
 use crate::shared::account_dto::{
-    ChallengeResponse, ChatModelsResponse, ChatResponse, ProfileResponse, StatusResponse,
+    ChallengeResponse, ChatModelsResponse, ChatResponse, PreferenceSchemaResponse, ProfileResponse,
+    StatusResponse,
 };
 use msime_client_core::account::AccountChatMessage;
 use msime_client_core::account::AccountError;
+use msime_client_core::account::AccountPreferences;
 use msime_client_core::cloud::dictionary::DictionaryKind;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -163,6 +165,18 @@ pub(crate) async fn account_rename(
         session.rename(&display_name).map(ProfileResponse::from)
     })
     .await
+}
+
+pub(crate) async fn account_preferences_schema(
+    state: tauri::State<'_, crate::platform::mobile::MobileAccountState>,
+) -> Result<PreferenceSchemaResponse, crate::CommandError> {
+    call(state, |session| session.preference_schema().map(Into::into)).await
+}
+
+pub(crate) async fn account_preferences_load(
+    state: tauri::State<'_, crate::platform::mobile::MobileAccountState>,
+) -> Result<AccountPreferences, crate::CommandError> {
+    call(state, |session| session.preferences()).await
 }
 
 pub(crate) async fn account_logout(

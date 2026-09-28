@@ -3,6 +3,8 @@ use crate::platform::mobile::mobile_account_helpers::{
     account_chat as shared_account_chat, account_chat_models as shared_account_chat_models,
     account_delete as shared_account_delete, account_forget as shared_account_forget,
     account_login as shared_account_login, account_logout as shared_account_logout,
+    account_preferences_load as shared_account_preferences_load,
+    account_preferences_schema as shared_account_preferences_schema,
     account_profile as shared_account_profile, account_rename as shared_account_rename,
     account_request_code as shared_account_request_code, account_status as shared_account_status,
     call, clear_snapshot_previews, PendingSnapshot, SnapshotMetadata,
@@ -860,7 +862,7 @@ pub async fn cloud_dictionary_request(
 pub async fn account_preferences_schema(
     state: State<'_, AccountState>,
 ) -> Result<PreferenceSchemaResponse, crate::CommandError> {
-    call(state, |session| session.preference_schema().map(Into::into)).await
+    shared_account_preferences_schema(state).await
 }
 
 #[cfg(target_os = "ios")]
@@ -868,7 +870,7 @@ pub async fn account_preferences_schema(
 pub async fn account_preferences_load(
     state: State<'_, AccountState>,
 ) -> Result<AccountPreferences, crate::CommandError> {
-    call(state, |session| session.preferences()).await
+    shared_account_preferences_load(state).await
 }
 
 #[cfg(target_os = "ios")]
