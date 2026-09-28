@@ -73,15 +73,13 @@ impl PanelSession {
         }
     }
     pub fn parse(value: &str) -> Result<Self, SessionError> {
-        if value.len() > 2048 {
+        if value.len() > super::SESSION_JSON_MAX_BYTES {
             return Err(SessionError::Invalid);
         }
         let configuration: Configuration =
             serde_json::from_str(value).map_err(|_| SessionError::Invalid)?;
         if configuration.version != 1
-            || !Path::new(&configuration.path).is_absolute()
-            || configuration.path.len() >= 104
-            || configuration.path.contains('\0')
+            || !super::valid_session_socket_path(&configuration.path)
             || configuration.host_pid <= 0
             || configuration.target_pid <= 0
             || !configuration.target_started.is_finite()
