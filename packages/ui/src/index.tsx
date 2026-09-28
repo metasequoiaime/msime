@@ -114,6 +114,11 @@ import {
   type LocalModePreferences,
 } from "./settings/local-modes-section";
 import {
+  ThemeSettingsSection,
+  type SurfaceTheme,
+  type ThemeMode,
+} from "./settings/theme-settings-section";
+import {
   CandidateColorsSection,
   type CandidateColorKey,
   type CandidateColorPreferences,
@@ -249,6 +254,13 @@ export {
   type LocalModeKey,
   type LocalModePreferences,
 } from "./settings/local-modes-section";
+export {
+  ThemeSettingsSection,
+  type SurfaceTheme,
+  type ThemeMode,
+  type ThemePreferenceKey,
+  type ThemePreferences,
+} from "./settings/theme-settings-section";
 export {
   CandidateColorsSection,
   type CandidateColorKey,
@@ -732,8 +744,6 @@ function isLinuxDesktop(): boolean {
   return /\bLinux\b/i.test(userAgent) && !/\bjsdom\b/i.test(userAgent);
 }
 
-export type ThemeMode = "dark" | "light" | "system";
-export type SurfaceTheme = "follow" | "dark" | "light";
 export { useCandidatePreviewTheme } from "./candidate/candidate-preview-theme";
 
 function resolveSettingsTheme(theme: ThemeMode, surface: SurfaceTheme): "dark" | "light" {
@@ -5111,183 +5121,14 @@ export function SettingsPage({
                         </label>
                       </div>
                     )}
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          主题模式<small>设置窗口和各界面的默认明暗模式</small>
-                        </span>
-                        <select
-                          aria-label="主题模式"
-                          value={themeMode}
-                          onChange={(event) =>
-                            setDraft({ ...draft, theme: event.target.value as ThemeMode })
-                          }
-                        >
-                          <option value="dark">深色</option>
-                          <option value="light">浅色</option>
-                          <option value="system">跟随系统</option>
-                        </select>
-                      </label>
-                    </div>
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          设置界面主题<small>覆盖主题模式，仅影响当前设置窗口</small>
-                        </span>
-                        <select
-                          aria-label="设置界面主题"
-                          value={settingsTheme}
-                          onChange={(event) =>
-                            setDraft({
-                              ...draft,
-                              settings_theme: event.target.value as SurfaceTheme,
-                            })
-                          }
-                        >
-                          <option value="follow">跟随全局</option>
-                          <option value="dark">深色</option>
-                          <option value="light">浅色</option>
-                        </select>
-                      </label>
-                    </div>
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          {mobilePlatform ? "候选栏主题" : "候选窗口主题"}
-                          <small>
-                            {mobilePlatform
-                              ? "覆盖候选栏的明暗外观；跟随时使用键盘主题"
-                              : linuxPlatform
-                                ? "预览跟随主题模式；IBus 候选窗与 Fcitx5 经典界面按此明暗着色"
-                                : "预览跟随主题模式"}
-                          </small>
-                        </span>
-                        <select
-                          aria-label={mobilePlatform ? "候选栏主题" : "候选窗口主题"}
-                          value={draft.candidate_theme ?? "follow"}
-                          onChange={(event) =>
-                            setDraft({
-                              ...draft,
-                              candidate_theme: event.target.value as SurfaceTheme,
-                            })
-                          }
-                        >
-                          <option value="follow">跟随全局</option>
-                          <option value="dark">深色</option>
-                          <option value="light">浅色</option>
-                        </select>
-                      </label>
-                    </div>
-                    {/* The Linux toolbar is the same desktop-drawn IBus property menu and Fcitx5 status menu, so no Linux host reads toolbar_theme. */}
-                    {showFloatingToolbar && !linuxPlatform && (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">
-                            悬浮工具栏主题
-                            <small>
-                              覆盖主题模式；当前影响工具栏设置预览，原生工具栏需宿主支持
-                            </small>
-                          </span>
-                          <select
-                            aria-label="悬浮工具栏主题"
-                            value={draft.toolbar_theme ?? "follow"}
-                            onChange={(event) =>
-                              setDraft({
-                                ...draft,
-                                toolbar_theme: event.target.value as SurfaceTheme,
-                              })
-                            }
-                          >
-                            <option value="follow">跟随全局</option>
-                            <option value="dark">深色</option>
-                            <option value="light">浅色</option>
-                          </select>
-                        </label>
-                      </div>
-                    )}
-                    {/* Linux menus are the IBus property menu and the Fcitx5 status menu, drawn by the desktop panel in its own theme. */}
-                    {!mobilePlatform && !linuxPlatform && (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">
-                            菜单主题<small>覆盖托盘菜单与候选右键菜单的明暗外观</small>
-                          </span>
-                          <select
-                            aria-label="菜单主题"
-                            value={draft.menu_theme ?? "follow"}
-                            onChange={(event) =>
-                              setDraft({ ...draft, menu_theme: event.target.value as SurfaceTheme })
-                            }
-                          >
-                            <option value="follow">跟随全局</option>
-                            <option value="dark">深色</option>
-                            <option value="light">浅色</option>
-                          </select>
-                        </label>
-                      </div>
-                    )}
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          表情面板主题<small>覆盖 Emoji、颜文字和符号面板的明暗外观</small>
-                        </span>
-                        <select
-                          aria-label="表情面板主题"
-                          value={draft.emoji_theme ?? "follow"}
-                          onChange={(event) =>
-                            setDraft({ ...draft, emoji_theme: event.target.value as SurfaceTheme })
-                          }
-                        >
-                          <option value="follow">跟随全局</option>
-                          <option value="dark">深色</option>
-                          <option value="light">浅色</option>
-                        </select>
-                      </label>
-                    </div>
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          手写识别板主题<small>覆盖手写识别板的明暗外观</small>
-                        </span>
-                        <select
-                          aria-label="手写识别板主题"
-                          value={draft.handwriting_theme ?? "follow"}
-                          onChange={(event) =>
-                            setDraft({
-                              ...draft,
-                              handwriting_theme: event.target.value as SurfaceTheme,
-                            })
-                          }
-                        >
-                          <option value="follow">跟随全局</option>
-                          <option value="dark">深色</option>
-                          <option value="light">浅色</option>
-                        </select>
-                      </label>
-                    </div>
-                    {desktopPanels && (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">
-                            语音输入弹出条主题<small>覆盖语音输入面板的明暗外观</small>
-                          </span>
-                          <select
-                            aria-label="语音输入弹出条主题"
-                            value={draft.voice_theme ?? "follow"}
-                            onChange={(event) =>
-                              setDraft({
-                                ...draft,
-                                voice_theme: event.target.value as SurfaceTheme,
-                              })
-                            }
-                          >
-                            <option value="follow">跟随全局</option>
-                            <option value="dark">深色</option>
-                            <option value="light">浅色</option>
-                          </select>
-                        </label>
-                      </div>
-                    )}
+                    <ThemeSettingsSection
+                      preferences={draft}
+                      mobile={mobilePlatform}
+                      linux={linuxPlatform}
+                      floatingToolbar={showFloatingToolbar}
+                      desktopPanels={desktopPanels}
+                      onChange={(key, value) => setDraft({ ...draft, [key]: value })}
+                    />
                     {host?.fixed_candidate_layout === undefined && (
                       <div className="section">
                         <label className="section-header">
