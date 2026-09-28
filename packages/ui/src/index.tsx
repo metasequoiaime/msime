@@ -20,6 +20,22 @@ import {
   readDictionaryFile,
 } from "./dictionary/dictionary-file";
 import { describeImportResult, dictionaryKindKeyHint } from "./dictionary/dictionary-messages";
+import {
+  dictionaryExportName,
+  dictionaryExportPayload,
+  personalDictionaryExportName,
+  personalDictionaryExportPayload,
+  loadAllPersonalDictionaryEntries,
+  dictionaryKindLabel,
+} from "./dictionary/dictionary-export";
+export {
+  dictionaryExportName,
+  dictionaryExportPayload,
+  personalDictionaryExportName,
+  personalDictionaryExportPayload,
+  loadAllPersonalDictionaryEntries,
+  dictionaryKindLabel,
+} from "./dictionary/dictionary-export";
 export { describeImportResult, dictionaryKindKeyHint } from "./dictionary/dictionary-messages";
 import { SkinCandidatePreview } from "./skin/skin-candidate-preview";
 import { AppearanceCandidatePreview } from "./candidate/appearance-candidate-preview";
@@ -1500,60 +1516,6 @@ export interface DictionaryClient {
   retry?(request_id: string): Promise<void>;
   dismissFailure?(request_id: string): Promise<void>;
 }
-const personalDictionaryExportKinds: [LocalDictionaryKind, string][] = [
-  ["pinyin", "拼音"],
-  ["wubi", "五笔"],
-  ["quick_phrase", "快捷短语"],
-  ["english", "英文"],
-];
-
-/** The single-file name and layout used by the macOS personal dictionary. */
-export function personalDictionaryExportName(): string {
-  return "水杉用户词库.txt";
-}
-
-export function personalDictionaryExportPayload(entries: DictionaryEntry[]): {
-  body: string;
-  rows: number;
-} {
-  const rows = personalDictionaryExportKinds.flatMap(([kind, label]) =>
-    entries
-      .filter((entry) => entry.kind === kind)
-      .map((entry) => `${label}\t${entry.key}\t${entry.value}\t${entry.weight}`),
-  );
-  return {
-    body: `# 类别\t编码\t词条\t权重\n${rows.length ? `${rows.join("\n")}\n` : ""}`,
-    rows: rows.length,
-  };
-}
-
-/** Read every user-owned dictionary entry of every kind in bounded pages, preserving host ordering. */
-export async function loadAllPersonalDictionaryEntries(
-  dictionary: Pick<DictionaryClient, "list">,
-): Promise<DictionaryEntry[]> {
-  const entries: DictionaryEntry[] = [];
-  for (const [kind] of personalDictionaryExportKinds) {
-    let offset = 0;
-    let hasMore = true;
-    while (hasMore && offset <= 1_000_000) {
-      const page = await dictionary.list(offset, DICTIONARY_PAGE_SIZE, kind, "");
-      // Hosts that list the packaged dictionary return bundled rows too; the export holds the user's own words only. Paging still advances by the unfiltered page length.
-      const pageEntries = page.entries.filter(
-        (entry) => entry.kind === kind && entry.source !== "bundled",
-      );
-      entries.push(...pageEntries);
-      // An empty page ends the kind whatever has_more says, so a kind the user never added words to is not mistaken for a truncated export.
-      if (!page.entries.length) {
-        hasMore = false;
-        break;
-      }
-      offset += page.entries.length;
-      hasMore = page.has_more;
-    }
-    if (hasMore) throw new Error("dictionary_export_limit");
-  }
-  return entries;
-}
 const localDictionaryKinds: [LocalDictionaryKind, string][] = [
   ["pinyin", "全拼"],
   ["wubi", "五笔"],
@@ -1648,49 +1610,6 @@ function importFailureMessage(kind: string, error: unknown): string {
   const coded = dictionaryErrorMessage(error, "");
   if (coded) return `${kind}导入失败：${coded}`;
   return reason ? `${kind}导入失败：${reason}` : `${kind}导入失败，请检查文本格式。`;
-}
-
-/** The shipped export filenames, one per dictionary kind. */
-export function dictionaryExportName(kind: LocalDictionaryKind): string {
-  const names: Record<LocalDictionaryKind, string> = {
-    pinyin: "水杉IME-拼音用户词库.txt",
-    wubi: "水杉IME-五笔用户词库.txt",
-    english: "水杉IME-英文用户词库.txt",
-    quick_phrase: "水杉IME-快捷短语用户词库.txt",
-  };
-  return names[kind];
-}
-/**
- * Prepare the export payload.
- *
- * Two things the plain Blob did not do. A UTF-8 BOM, because Notepad and Excel
- * on a GBK-default Windows render the Chinese as mojibake without one. And for
- * the pinyin book, single-character rows are dropped: those are learning
- * artefacts the engine accumulated, not words the user added, so exporting
- * them buries the real entries.
- */
-export function dictionaryExportPayload(
-  kind: LocalDictionaryKind,
-  format: LocalDictionaryFormat,
-  text: string,
-): { body: string; rows: number } {
-  const lines = text.split("\n").filter((line) => line.trim().length > 0);
-  // Windows exports put the code first; every other format puts the word first.
-  const wordColumn = format === "windows" ? 1 : 0;
-  const kept =
-    kind === "pinyin"
-      ? lines.filter((line) => {
-          const columns = line.split("\t");
-          const word = columns[wordColumn]?.trim() ?? "";
-          return Array.from(word).length > 1;
-        })
-      : lines;
-  if (!kept.length) return { body: "", rows: 0 };
-  return { body: "\ufeff" + kept.join("\n") + "\n", rows: kept.length };
-}
-
-function dictionaryKindLabel(kind: LocalDictionaryKind): string {
-  return localDictionaryKinds.find(([value]) => value === kind)?.[1] ?? "词库";
 }
 
 const defaultNavigation: NavigationPreferences = {
