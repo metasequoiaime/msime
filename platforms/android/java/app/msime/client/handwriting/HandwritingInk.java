@@ -94,7 +94,8 @@ public final class HandwritingInk {
         if (!Float.isFinite(x) || !Float.isFinite(y)) {
             throw new IllegalArgumentException("Handwriting point is invalid");
         }
-        return new Point(Math.max(0, Math.min(x, width)), Math.max(0, Math.min(y, height)),
+        return new Point(KeyboardGeometry.bounded(x, 0, width),
+            KeyboardGeometry.bounded(y, 0, height),
             timeMillis);
     }
 }
