@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { errorCode } from "../core/error-code";
+import { boundedGraphemes } from "../core/text";
 import { randomRequestId } from "../core/random-id";
 import { ScreenKeyboardPreview } from "./screen-keyboard-preview";
 import {
@@ -34,10 +35,7 @@ function colorNumber(value: string): number {
 }
 
 function boundedSkinName(value: string): string {
-  const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
-  return Array.from(segmenter.segment(value), (item) => item.segment)
-    .slice(0, 32)
-    .join("");
+  return boundedGraphemes(value, 32);
 }
 
 async function boundedPhoto(file: File): Promise<string> {
