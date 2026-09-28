@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { errorCode } from "../core/error-code";
 import * as onboarding from "./onboarding-style";
 
 export interface LinuxSetupStatus {
@@ -28,7 +29,7 @@ export interface LinuxSetupClient {
 }
 
 function failureMessage(error: unknown) {
-  const code = (error as { code?: string } | null)?.code;
+  const code = errorCode(error);
   if (code === "setup_unavailable")
     return "找不到 msime-linux-setup，请确认安装完整，或在终端运行 msime-linux-setup。";
   if (code === "setup_directory_exists") return "配置目录已存在但不完整。请先移走它，再重新配置。";
