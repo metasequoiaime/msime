@@ -183,7 +183,7 @@ struct VocabularyReviewSettingsView: View {
   private func importWordbook(from url: URL) {
     let scoped = url.startAccessingSecurityScopedResource()
     defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-    guard let data = try? Data(contentsOf: url) else {
+    guard let data = try? VocabularyReviewStore.readWordbookData(from: url) else {
       message = VocabularyReviewStore.Failure.unreadableWordbook.errorDescription ?? ""
       return
     }
