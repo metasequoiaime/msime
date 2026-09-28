@@ -11,6 +11,8 @@ struct LocalSpeechModelManifest: Equatable {
   static let fileName = "msime-model.json"
   /// The manifest is a small catalog entry, not a model payload. Keep a damaged or untrusted file from being read without a bound.
   static let maximumManifestBytes = 256 * 1024
+  /// Token vocabularies are model data, but only their first field is needed for native hotwords.
+  static let maximumTokensBytes = 8 * 1024 * 1024
 
   let directory: URL
   let kind: Kind
@@ -58,6 +60,14 @@ struct LocalSpeechModelManifest: Equatable {
   }
 
   func optionalFile(_ role: String) throws -> String? { files[role] == nil ? nil : try file(role) }
+
+  func textFile(_ role: String, maximumBytes: Int) throws -> String {
+    let data = try BoundedFileReader.read(from: URL(fileURLWithPath: try file(role)), maximumBytes: maximumBytes)
+    guard let text = String(data: data, encoding: .utf8) else {
+      throw ServiceFailure(message: "本地语音模型的 \(role) 文件不是有效的 UTF-8。")
+    }
+    return text
+  }
 
   static func isModelDirectory(_ url: URL) -> Bool {
     var directory: ObjCBool = false

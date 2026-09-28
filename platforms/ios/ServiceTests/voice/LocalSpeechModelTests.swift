@@ -83,6 +83,18 @@ final class LocalSpeechModelTests: XCTestCase {
     XCTAssertThrowsError(try LocalSpeechModelManifest(directory: model))
   }
 
+  func testTokenVocabularyReadIsBounded() throws {
+    let model = try makeModel(id: "large-tokens", manifest: [
+      "kind": "online_transducer",
+      "files": ["tokens": "tokens.txt"],
+    ], files: ["tokens.txt"])
+    try Data(repeating: 0x41, count: LocalSpeechModelManifest.maximumTokensBytes + 1)
+      .write(to: model.appendingPathComponent("tokens.txt"))
+
+    XCTAssertThrowsError(try LocalSpeechModelManifest(directory: model)
+      .textFile("tokens", maximumBytes: LocalSpeechModelManifest.maximumTokensBytes))
+  }
+
   func testManifestRejectsFilesOutsideModelDirectory() throws {
     let model = try makeModel(id: "escape", manifest: [
       "kind": "offline_sense_voice",
