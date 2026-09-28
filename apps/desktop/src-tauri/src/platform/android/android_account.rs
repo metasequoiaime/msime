@@ -8,7 +8,8 @@ use crate::platform::mobile::mobile_account_helpers::{
     account_profile as shared_account_profile, account_rename as shared_account_rename,
     account_request_code as shared_account_request_code, account_status as shared_account_status,
     call, clear_snapshot_previews_after, cloud_dictionary_account_request, parse_snapshot_token,
-    snapshot_command_error, snapshot_response_without_account, PendingSnapshot, SnapshotMetadata,
+    snapshot_command_error, snapshot_response_without_account, valid_mobile_haptic_strength,
+    PendingSnapshot, SnapshotMetadata,
 };
 use crate::platform::mobile::mobile_account_preferences::{
     frequency_account_preferences, insert_bool, insert_integer, insert_string,
@@ -1178,7 +1179,7 @@ pub async fn cloud_dictionary_request(
 ) -> Result<Value, crate::CommandError> {
     use msime_host_api::cloud_dictionary::CloudDictionaryRequest;
 
-    if let Some(result) = cloud_dictionary_account_request(state, &request).await {
+    if let Some(result) = cloud_dictionary_account_request(&state, &request).await {
         return result;
     }
     match request {
@@ -1204,6 +1205,7 @@ pub async fn cloud_dictionary_request(
         }
         CloudDictionaryRequest::SnapshotStatus => dictionary_snapshot_status(state).await,
         CloudDictionaryRequest::SnapshotCancel => dictionary_snapshot_cancel(state).await,
+        _ => unreachable!("account cloud dictionary request was handled above"),
     }
 }
 
@@ -1670,7 +1672,7 @@ fn apply_local_account_preferences(
     }
     if let Some(value) = string_setting(values, "platform.android.haptic_strength")? {
         if supports("platform.android.haptic_strength", "string")? {
-            if !matches!(value.as_str(), "light" | "medium" | "strong") {
+            if !valid_mobile_haptic_strength(&value) {
                 return Err(AccountError::Invalid);
             }
             feedback_values
@@ -1786,10 +1788,7 @@ pub async fn mobile_keyboard_feedback_save(
     state: State<'_, AccountState>,
     request: MobileKeyboardFeedbackRequest,
 ) -> Result<FeedbackSettings, crate::CommandError> {
-    if !matches!(
-        request.settings.haptic_strength.as_str(),
-        "light" | "medium" | "strong"
-    ) {
+    if !valid_mobile_haptic_strength(&request.settings.haptic_strength) {
         return Err(crate::CommandError {
             code: "invalid_feedback",
         });
@@ -1819,7 +1818,7 @@ pub async fn mobile_keyboard_feedback_preview(
     state: State<'_, AccountState>,
     request: MobileKeyboardFeedbackPreviewRequest,
 ) -> Result<(), crate::CommandError> {
-    if !matches!(request.strength.as_str(), "light" | "medium" | "strong") {
+    if !valid_mobile_haptic_strength(&request.strength) {
         return Err(crate::CommandError {
             code: "invalid_feedback",
         });
