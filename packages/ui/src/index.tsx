@@ -62,6 +62,10 @@ import { DoubaoAuthModeSection } from "./settings/doubao-auth-mode-section";
 import { DoubaoStreamEndpointSection } from "./settings/doubao-stream-endpoint-section";
 import { VoiceModelMirrorSection } from "./settings/voice-model-mirror-section";
 import {
+  CredentialTestSection,
+  type CredentialTestState,
+} from "./settings/credential-test-section";
+import {
   VoiceCredentialSection,
   type VoiceCredentialSaveInput,
 } from "./settings/voice-credential-section";
@@ -437,6 +441,11 @@ export {
   type VoiceCredentialSectionKind,
   type VoiceCredentialStatus,
 } from "./settings/voice-credential-section";
+export {
+  CredentialTestSection,
+  type CredentialTestSectionProps,
+  type CredentialTestState,
+} from "./settings/credential-test-section";
 export {
   MobileKeyboardFeedbackSection,
   type MobileKeyboardFeedback,
@@ -4094,27 +4103,15 @@ export function SettingsPage({
     config: Record<string, unknown>,
     disabled = false,
   ) => {
-    if (!client.testApiCredential) return null;
-    const signature = JSON.stringify(config);
-    const state = credentialTests[service];
-    const visible = state?.signature === signature;
     return (
-      <div className={settings.serviceRow}>
-        <div>
-          <button
-            type="button"
-            className="secondary"
-            aria-label={label}
-            disabled={disabled || (visible && state.busy)}
-            onClick={() => void runCredentialTest(service, config)}
-          >
-            {visible && state.busy ? "测试中…" : "测试配置"}
-          </button>
-          {visible && state.message && (
-            <span role={state.ok ? "status" : "alert"}>{state.message}</span>
-          )}
-        </div>
-      </div>
+      <CredentialTestSection
+        label={label}
+        config={config}
+        state={credentialTests[service] as CredentialTestState | undefined}
+        disabled={disabled}
+        available={Boolean(client.testApiCredential)}
+        onTest={() => void runCredentialTest(service, config)}
+      />
     );
   };
   /**
