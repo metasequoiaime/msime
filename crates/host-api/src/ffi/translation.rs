@@ -3,7 +3,7 @@
 //! Part of the C ABI; see the parent module for what these shims guarantee.
 
 use crate::*;
-use msime_client_core::cloud::dictionary::valid_bounded_text;
+use msime_client_core::is_bounded_text;
 
 /// Plan eligible visible candidates using shared script filters. No I/O.
 /// # Safety
@@ -270,9 +270,9 @@ pub unsafe extern "C" fn msime_client_custom_translation_http_request(
                     .all(|byte| byte.is_ascii_alphabetic() || byte == b'-')
         };
         if !msime_client_core::translation::is_supported_endpoint(&config.endpoint)
-            || !valid_bounded_text(&config.api_key, 4096)
+            || !is_bounded_text(&config.api_key, 4096)
             || text.is_empty()
-            || !valid_bounded_text(&text, 160)
+            || !is_bounded_text(&text, 160)
             || text.chars().count() > 40
             || !valid_language(&source_language)
             || !valid_language(&target_language)
@@ -345,8 +345,7 @@ pub unsafe extern "C" fn msime_client_apply_translations(
             serde_json::from_slice(bytes).map_err(|_| "translations must be a UTF-8 JSON array")?;
         if values.len() > 4096
             || values.iter().any(|item| {
-                !valid_bounded_text(&item.text, 4096)
-                    || !valid_bounded_text(&item.translation, 4096)
+                !is_bounded_text(&item.text, 4096) || !is_bounded_text(&item.translation, 4096)
             })
         {
             return Err("translation entries exceed limits".into());
@@ -400,7 +399,7 @@ pub unsafe extern "C" fn msime_client_translation_gloss_save(
             || request
                 .translations
                 .iter()
-                .any(|item| !valid_bounded_text(&item.text, 4096) || item.translation.len() > 4096)
+                .any(|item| !is_bounded_text(&item.text, 4096) || item.translation.len() > 4096)
         {
             return Err("translation persistence entries exceed limits".into());
         }
@@ -487,7 +486,7 @@ pub unsafe extern "C" fn msime_client_candidate_gloss_request(
                 .map_err(|_| "invalid candidate gloss request")?;
         if request.candidates.len() > 4096
             || request.candidates.iter().any(|candidate| {
-                candidate.text.is_empty() || !valid_bounded_text(&candidate.text, 4096)
+                candidate.text.is_empty() || !is_bounded_text(&candidate.text, 4096)
             })
         {
             return Err("candidate gloss entries exceed limits".into());

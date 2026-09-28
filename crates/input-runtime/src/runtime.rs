@@ -220,7 +220,7 @@ impl Runtime<Session> {
         // subject to the same bounds as the batch path before handing text to
         // Engine; the Windows source rejects empty callback results as well.
         if candidate.is_empty()
-            || !msime_client_core::cloud::dictionary::valid_bounded_text(candidate, 4096)
+            || !msime_client_core::is_bounded_text(candidate, 4096)
             || source > 1
             // Windows only merges a cloud suggestion into an existing
             // candidate page.  A callback arriving after the local page was
@@ -279,10 +279,9 @@ impl Runtime<Session> {
         };
         if candidates.is_empty()
             || candidates.len() > limit
-            || candidates.iter().any(|text| {
-                text.is_empty()
-                    || !msime_client_core::cloud::dictionary::valid_bounded_text(text, 4096)
-            })
+            || candidates
+                .iter()
+                .any(|text| text.is_empty() || !msime_client_core::is_bounded_text(text, 4096))
             || source > 1
             || (source == 0 && self.cached.candidates.is_empty())
             || (source == 0 && (!query.cloud_candidates || !query.cloud_eligible))

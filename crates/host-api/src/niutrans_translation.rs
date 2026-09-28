@@ -1,5 +1,6 @@
 //! Pure descriptors and response parsing for the host-owned NiuTrans v2 API.
-use msime_client_core::cloud::dictionary::{percent_encode, valid_bounded_text};
+use msime_client_core::cloud::dictionary::percent_encode;
+use msime_client_core::is_bounded_text;
 use msime_client_core::translation;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -25,7 +26,7 @@ struct Request {
 }
 
 fn valid_credential(value: &str) -> bool {
-    translation::usable_niutrans_credential(value) && valid_bounded_text(value, 4096)
+    translation::usable_niutrans_credential(value) && is_bounded_text(value, 4096)
 }
 
 pub fn descriptor(bytes: &[u8]) -> Result<Value, &'static str> {

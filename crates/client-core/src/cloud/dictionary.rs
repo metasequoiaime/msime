@@ -65,7 +65,7 @@ pub(crate) fn kind_path(kind: DictionaryKind) -> &'static str {
 }
 
 pub fn dictionary_path(kind: DictionaryKind, offset: usize, search: &str) -> Option<String> {
-    if offset > 1_000_000 || !valid_bounded_text(search, 1024) {
+    if offset > 1_000_000 || !crate::is_bounded_text(search, 1024) {
         return None;
     }
     let kind = kind_path(kind);
@@ -124,8 +124,8 @@ pub fn percent_encode(value: &str) -> String {
 pub fn validate_value(value: &DictionaryValue) -> Result<(), &'static str> {
     if value.code.is_empty()
         || value.word.is_empty()
-        || !valid_bounded_text(&value.code, 256)
-        || !valid_bounded_text(&value.word, 1024)
+        || !crate::is_bounded_text(&value.code, 256)
+        || !crate::is_bounded_text(&value.word, 1024)
     {
         return Err("invalid dictionary value");
     }
@@ -154,7 +154,7 @@ pub fn valid_candidate_query(
     limit: usize,
 ) -> bool {
     !text.is_empty()
-        && valid_bounded_text(text, 256)
+        && crate::is_bounded_text(text, 256)
         && matches!(kind, "pinyin" | "jianpin" | "wubi" | "quick" | "english")
         && matches!(scheme, "pinyin" | "shuangpin")
         && matches!(profile, "xiaohe" | "ziranma" | "microsoft" | "shoudao")
@@ -164,12 +164,8 @@ pub fn valid_candidate_query(
 pub fn valid_candidate_value(code: &str, word: &str) -> bool {
     !code.is_empty()
         && !word.is_empty()
-        && valid_bounded_text(code, 256)
-        && valid_bounded_text(word, 1024)
-}
-
-pub fn valid_bounded_text(value: &str, maximum_bytes: usize) -> bool {
-    crate::text::is_bounded_text(value, maximum_bytes)
+        && crate::is_bounded_text(code, 256)
+        && crate::is_bounded_text(word, 1024)
 }
 
 #[cfg(test)]

@@ -1,5 +1,5 @@
 //! Pure descriptors for a native, host-owned Tencent TMT transport.
-use msime_client_core::cloud::dictionary::valid_bounded_text;
+use msime_client_core::is_bounded_text;
 use msime_client_core::translation;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -34,7 +34,7 @@ pub fn descriptor(bytes: &[u8]) -> Result<Value, &'static str> {
     let region = trim(request.config.region);
     let valid_token = |value: &str| {
         !value.is_empty()
-            && valid_bounded_text(value, 4096)
+            && is_bounded_text(value, 4096)
             && translation::usable_tencent_secret(value)
     };
     let languages = ["zh", "en", "fr", "ja", "es", "ru", "de", "ko"];

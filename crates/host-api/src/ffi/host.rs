@@ -3,7 +3,7 @@
 //! Part of the C ABI; see the parent module for what these shims guarantee.
 
 use crate::*;
-use msime_client_core::cloud::dictionary::valid_bounded_text;
+use msime_client_core::is_bounded_text;
 
 /// Candidate and commit text normally stays far below this bound. Keep the direct conversion ABI
 /// bounded as well so a malformed native length cannot make it scan an unbounded buffer or allocate
@@ -982,7 +982,7 @@ pub unsafe extern "C" fn msime_client_ai_skin_plan(
                     || prompt.chars().count() > 500
                     || prompt.chars().any(char::is_control)
                     || model.is_empty()
-                    || !valid_bounded_text(&model, 200)
+                    || !is_bounded_text(&model, 200)
                 {
                     return Err("ai_skin_invalid".into());
                 }
@@ -1070,7 +1070,7 @@ pub unsafe extern "C" fn msime_client_dictionary_manifest(
         let manifest: Manifest =
             serde_json::from_str(&text).map_err(|_| "dictionary_manifest_unavailable")?;
         if manifest.profile.is_empty()
-            || !valid_bounded_text(&manifest.profile, 64)
+            || !is_bounded_text(&manifest.profile, 64)
             || !manifest
                 .source
                 .commit

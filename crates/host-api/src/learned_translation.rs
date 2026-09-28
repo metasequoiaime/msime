@@ -1,5 +1,5 @@
 //! Bounded worker-thread operations on the private learned-gloss store.
-use msime_client_core::cloud::dictionary::valid_bounded_text;
+use msime_client_core::is_bounded_text;
 use msime_client_core::translation::store::{
     GlossDirection, GlossStoreError, TranslationGlossStore,
 };
@@ -40,14 +40,14 @@ pub fn execute(bytes: &[u8]) -> Result<Value, &'static str> {
     let request: Request =
         serde_json::from_slice(bytes).map_err(|_| "invalid learned translation request")?;
     let directory = Path::new(&request.directory);
-    if !valid_bounded_text(&request.directory, 4096)
+    if !is_bounded_text(&request.directory, 4096)
         || !directory.is_absolute()
         || directory.parent().is_none()
         || !["en", "fr", "ja", "es", "ru", "de", "ko"].contains(&request.target_language.as_str())
         || request.items.len() > 9
         || request.items.iter().any(|item| {
             item.text.is_empty()
-                || !valid_bounded_text(&item.text, 160)
+                || !is_bounded_text(&item.text, 160)
                 || item.text.chars().count() > 40
                 || match request.action {
                     Action::Lookup => item.translation.is_some(),
