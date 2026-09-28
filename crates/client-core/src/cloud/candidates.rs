@@ -21,6 +21,10 @@ pub const REQUEST_TIMEOUT_MS: u64 = 2000;
 const MAX_CANDIDATE: usize = 512;
 const MAX_CACHE_ENTRIES: usize = 4096;
 
+fn valid_cloud_input(input: &str) -> bool {
+    !input.is_empty() && crate::text::is_bounded_text(input, MAX_INPUT)
+}
+
 #[derive(Debug)]
 pub struct TranslationCache {
     positive: HashMap<String, (String, Instant)>,
@@ -85,7 +89,7 @@ impl CloudCandidateState {
             return None;
         }
         self.generation += 1;
-        if !enabled || input.is_empty() || !crate::text::is_bounded_text(input, MAX_INPUT) {
+        if !enabled || !valid_cloud_input(input) {
             return None;
         }
         self.input.push_str(input);
@@ -105,7 +109,7 @@ impl CloudCandidateState {
 }
 
 pub fn build_google_url(input: &str, japanese: bool) -> Option<String> {
-    if input.is_empty() || !crate::text::is_bounded_text(input, MAX_INPUT) {
+    if !valid_cloud_input(input) {
         return None;
     }
     let scheme = if japanese {
