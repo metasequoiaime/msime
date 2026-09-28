@@ -172,16 +172,10 @@ import { LicenseUninstallSection } from "./settings/license-uninstall-section";
 import { DiagnosticLogsSection } from "./settings/diagnostic-logs-section";
 import { HelpFeedbackSection } from "./settings/help-feedback-section";
 import { HelpSettingsPage } from "./settings/help-settings-page";
-import { ScreenKeyboardThemeSection } from "./settings/screen-keyboard-theme-section";
-import { ScreenKeyboardSkinsSection } from "./settings/screen-keyboard-skins-section";
-import { ScreenKeyboardCommunitySection } from "./settings/screen-keyboard-community-section";
-import { ScreenKeyboardLaunchSection } from "./settings/screen-keyboard-launch-section";
+import { ScreenKeyboardSettingsSection } from "./settings/screen-keyboard-settings-section";
 import { CandidatePaletteFallbackNotice } from "./settings/candidate-palette-fallback-notice";
 import { TouchKeyboardSchemesSection } from "./settings/touch-keyboard-schemes-section";
-import {
-  TouchKeyboardGeometrySection,
-  type TouchToolbarPreferences,
-} from "./settings/touch-keyboard-geometry-section";
+import type { TouchToolbarPreferences } from "./settings/touch-keyboard-geometry-section";
 import { VoiceInputIntroSection } from "./settings/voice-input-intro-section";
 import { VoiceInputCoreSection } from "./settings/voice-input-core-section";
 import { VoiceModelPathSection } from "./settings/voice-model-path-section";
@@ -277,7 +271,6 @@ import {
 } from "./voice/voice-providers";
 import { PolishPromptSection } from "./settings/polish-prompt-section";
 import type { TouchKeyboardSkin } from "./keyboard/screen-keyboard-preview";
-import { TouchKeyboardSkinEditor } from "./keyboard/touch-keyboard-skin-editor";
 import * as skin from "./keyboard/touch-skin-style";
 import {
   defaultTouchKeyboardSkinDesign,
@@ -970,6 +963,10 @@ export {
   ScreenKeyboardLaunchSection,
   type ScreenKeyboardLaunchSectionProps,
 } from "./settings/screen-keyboard-launch-section";
+export {
+  ScreenKeyboardSettingsSection,
+  type ScreenKeyboardSettingsSectionProps,
+} from "./settings/screen-keyboard-settings-section";
 export {
   CandidatePaletteSection,
   type CandidatePaletteSectionProps,
@@ -4743,109 +4740,79 @@ export function SettingsPage({
                     onHelp={() => selectPage("help")}
                     onFeedback={() => selectPage("feedback")}
                   />
-                  <fieldset
+                  <ScreenKeyboardSettingsSection
                     disabled={busy}
                     hidden={page !== "screen-keyboard"}
-                    aria-label="屏幕键盘"
-                  >
-                    <ScreenKeyboardThemeSection
-                      mobile={mobilePlatform}
-                      value={draft.screen_keyboard_theme ?? "follow"}
-                      onChange={(screen_keyboard_theme) =>
-                        setDraft({ ...draft, screen_keyboard_theme })
+                    mobile={mobilePlatform}
+                    screenKeyboardTheme={draft.screen_keyboard_theme ?? "follow"}
+                    previewTheme={keyboardPreviewTheme}
+                    onScreenKeyboardThemeChange={(screen_keyboard_theme) =>
+                      setDraft({ ...draft, screen_keyboard_theme })
+                    }
+                    selectedSkin={touchKeyboardSkin}
+                    customDesign={customTouchKeyboardSkin}
+                    customAvailable={Boolean(client.customTouchKeyboardSkins)}
+                    editorOpen={showTouchSkinEditor}
+                    onSkinSelect={(touch_keyboard_skin) =>
+                      setDraft({ ...draft, touch_keyboard_skin })
+                    }
+                    onToggleEditor={() => setShowTouchSkinEditor((value) => !value)}
+                    communityAvailable={Boolean(mobilePlatform && client.communitySkins)}
+                    onOpenCommunity={() => openCommunity("all")}
+                    library={client.customSkinLibrary}
+                    aiSkins={client.aiSkins}
+                    communitySkins={client.communitySkins}
+                    onDesignChange={(design) =>
+                      setDraft((current) =>
+                        current ? { ...current, custom_touch_keyboard_skin: design } : current,
+                      )
+                    }
+                    onUseDesign={() =>
+                      setDraft((current) =>
+                        current ? { ...current, touch_keyboard_skin: "custom" } : current,
+                      )
+                    }
+                    onCloseEditor={() => setShowTouchSkinEditor(false)}
+                    heightAdjustment={touchKeyboardHeightAdjustment}
+                    keySpacingTenths={touchKeySpacingTenths}
+                    rowSpacingTenths={touchRowSpacingTenths}
+                    touchVoiceShortcut={draft.touch_voice_shortcut ?? false}
+                    toolbarComponents={Boolean(host?.touch_toolbar_components)}
+                    toolbar={draft.touch_toolbar}
+                    tabletFullKeys={mobileKeyboardFeedback?.tabletFullKeys}
+                    tabletFullKeysBusy={mobileKeyboardFeedbackBusy}
+                    onHeightAdjustmentChange={(touch_keyboard_height_adjustment) =>
+                      setDraft({ ...draft, touch_keyboard_height_adjustment })
+                    }
+                    onKeySpacingChange={(touch_key_spacing_tenths) =>
+                      setDraft({ ...draft, touch_key_spacing_tenths })
+                    }
+                    onRowSpacingChange={(touch_row_spacing_tenths) =>
+                      setDraft({ ...draft, touch_row_spacing_tenths })
+                    }
+                    onTouchVoiceShortcutChange={(touch_voice_shortcut) =>
+                      setDraft({ ...draft, touch_voice_shortcut })
+                    }
+                    onToolbarChange={(touch_toolbar) => setDraft({ ...draft, touch_toolbar })}
+                    onTabletFullKeysChange={(tabletFullKeys) => {
+                      if (mobileKeyboardFeedback) {
+                        void saveMobileKeyboardFeedback({
+                          ...mobileKeyboardFeedback,
+                          tabletFullKeys,
+                        });
                       }
-                    />
-                    <ScreenKeyboardSkinsSection
-                      mobile={mobilePlatform}
-                      theme={keyboardPreviewTheme}
-                      selected={touchKeyboardSkin}
-                      customDesign={customTouchKeyboardSkin}
-                      customAvailable={Boolean(client.customTouchKeyboardSkins)}
-                      editorOpen={showTouchSkinEditor}
-                      onSelect={(touch_keyboard_skin) =>
-                        setDraft({ ...draft, touch_keyboard_skin })
-                      }
-                      onToggleEditor={() => setShowTouchSkinEditor((value) => !value)}
-                    />
-                    {mobilePlatform && client.communitySkins && (
-                      <ScreenKeyboardCommunitySection onOpen={() => openCommunity("all")} />
-                    )}
-                    {client.customTouchKeyboardSkins && showTouchSkinEditor && (
-                      <div className="section">
-                        <TouchKeyboardSkinEditor
-                          design={customTouchKeyboardSkin}
-                          selected={touchKeyboardSkin === "custom"}
-                          theme={keyboardPreviewTheme}
-                          disabled={busy}
-                          library={client.customSkinLibrary}
-                          aiSkins={client.aiSkins}
-                          communitySkins={client.communitySkins}
-                          onChange={(design) =>
-                            setDraft((current) =>
-                              current
-                                ? { ...current, custom_touch_keyboard_skin: design }
-                                : current,
-                            )
-                          }
-                          onUse={() =>
-                            setDraft((current) =>
-                              current ? { ...current, touch_keyboard_skin: "custom" } : current,
-                            )
-                          }
-                          onClose={() => setShowTouchSkinEditor(false)}
-                        />
-                      </div>
-                    )}
-                    <TouchKeyboardGeometrySection
-                      heightAdjustment={touchKeyboardHeightAdjustment}
-                      keySpacingTenths={touchKeySpacingTenths}
-                      rowSpacingTenths={touchRowSpacingTenths}
-                      touchVoiceShortcut={draft.touch_voice_shortcut ?? false}
-                      toolbarComponents={Boolean(host?.touch_toolbar_components)}
-                      toolbar={draft.touch_toolbar}
-                      tabletFullKeys={mobileKeyboardFeedback?.tabletFullKeys}
-                      tabletFullKeysBusy={mobileKeyboardFeedbackBusy}
-                      onHeightAdjustmentChange={(touch_keyboard_height_adjustment) =>
-                        setDraft({ ...draft, touch_keyboard_height_adjustment })
-                      }
-                      onKeySpacingChange={(touch_key_spacing_tenths) =>
-                        setDraft({ ...draft, touch_key_spacing_tenths })
-                      }
-                      onRowSpacingChange={(touch_row_spacing_tenths) =>
-                        setDraft({ ...draft, touch_row_spacing_tenths })
-                      }
-                      onTouchVoiceShortcutChange={(touch_voice_shortcut) =>
-                        setDraft({ ...draft, touch_voice_shortcut })
-                      }
-                      onToolbarChange={(touch_toolbar) => setDraft({ ...draft, touch_toolbar })}
-                      onTabletFullKeysChange={(tabletFullKeys) => {
-                        if (mobileKeyboardFeedback) {
-                          void saveMobileKeyboardFeedback({
-                            ...mobileKeyboardFeedback,
-                            tabletFullKeys,
-                          });
-                        }
-                      }}
-                      onReset={() => void resetTouchKeyboardSettings()}
-                    />
-                    <ScreenKeyboardLaunchSection
-                      openScreenKeyboard={
-                        client.openScreenKeyboard
-                          ? () => void openPanel(client.openScreenKeyboard)
-                          : undefined
-                      }
-                      theme={keyboardPreviewTheme}
-                      skin={touchKeyboardSkin}
-                      customDesign={customTouchKeyboardSkin}
-                      keySpacingTenths={touchKeySpacingTenths}
-                      rowSpacingTenths={touchRowSpacingTenths}
-                      heightAdjustment={touchKeyboardHeightAdjustment}
-                      onPointerDown={beginTouchGeometryDrag}
-                      onPointerMove={updateTouchGeometryDrag}
-                      onPointerUp={endTouchGeometryDrag}
-                      onPointerCancel={endTouchGeometryDrag}
-                    />
-                  </fieldset>
+                    }}
+                    onReset={() => void resetTouchKeyboardSettings()}
+                    openScreenKeyboard={
+                      client.openScreenKeyboard
+                        ? () => void openPanel(client.openScreenKeyboard)
+                        : undefined
+                    }
+                    onPointerDown={beginTouchGeometryDrag}
+                    onPointerMove={updateTouchGeometryDrag}
+                    onPointerUp={endTouchGeometryDrag}
+                    onPointerCancel={endTouchGeometryDrag}
+                  />
                   <fieldset disabled={busy} hidden={page !== "handwriting"} aria-label="手写识别板">
                     <HandwritingSettingsSection
                       ios={iosPlatform}
