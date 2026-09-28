@@ -81,13 +81,10 @@ fn prepare_windows_for_session(
     route: Option<SurfaceRoute>,
     voice_session_available: bool,
 ) {
-    if startup_panel_for_session(route, voice_session_available).is_none() {
-        return;
-    }
-    for window in windows.iter_mut().filter(|window| window.label == "main") {
-        window.visible = false;
-        window.focus = false;
-    }
+    super::prepare_windows_for_panel(
+        windows,
+        startup_panel_for_session(route, voice_session_available),
+    );
 }
 
 pub(crate) fn prepare_windows(

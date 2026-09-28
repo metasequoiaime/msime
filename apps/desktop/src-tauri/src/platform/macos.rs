@@ -4,6 +4,18 @@
 //! tests exercise on any machine; the rest link against AppKit and only build
 //! for macOS.
 
+use msime_client_core::host_surface::PanelSurface;
+use tauri::utils::config::WindowConfig;
+
+pub(crate) fn prepare_windows_for_panel(windows: &mut [WindowConfig], panel: Option<PanelSurface>) {
+    if panel.is_some() {
+        for window in windows.iter_mut().filter(|window| window.label == "main") {
+            window.visible = false;
+            window.focus = false;
+        }
+    }
+}
+
 #[cfg(target_os = "macos")]
 pub(crate) mod macos_account;
 #[cfg(target_os = "macos")]
