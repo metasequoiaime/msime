@@ -326,7 +326,7 @@ private final class IOSVoiceTranscriptionService {
       options: .notifyOthersOnDeactivation)
     guard let file = session.file else { return }
     session.file = nil
-    let audio = try? Data(contentsOf: file, options: .mappedIfSafe)
+    let audio = try? Self.readBoundedFile(file, maximumBytes: Self.maximumAudioBytes)
     try? FileManager.default.removeItem(at: file)
     guard let audio, audio.count >= 44, audio.count <= Self.maximumAudioBytes else {
       fail(session, code: "voice_recording")
@@ -350,6 +350,20 @@ private final class IOSVoiceTranscriptionService {
       case .failure(let failure):
         session.invoke.reject(failure.code, code: failure.code)
       }
+    }
+  }
+
+  private static func readBoundedFile(_ url: URL, maximumBytes: Int) throws -> Data {
+    let handle = try FileHandle(forReadingFrom: url)
+    defer { try? handle.close() }
+    var result = Data()
+    result.reserveCapacity(min(maximumBytes, 64 * 1024))
+    while true {
+      let remaining = maximumBytes - result.count
+      let chunk = try handle.read(upToCount: min(64 * 1024, remaining + 1)) ?? Data()
+      if chunk.isEmpty { return result }
+      guard chunk.count <= remaining else { throw VoicePluginFailure(code: "voice_recording") }
+      result.append(chunk)
     }
   }
 

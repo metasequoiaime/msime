@@ -3,6 +3,7 @@ import Foundation
 
 @MainActor
 final class VoiceRecorder: ObservableObject {
+  static let maximumAudioBytes = 2_100_000
   @Published private(set) var isRecording = false
   @Published private(set) var isPreparing = false
   @Published private(set) var audio: Data?
@@ -159,7 +160,7 @@ final class VoiceRecorder: ObservableObject {
     live = nil
     isRecording = false
     if let file {
-      audio = try? Data(contentsOf: file)
+      audio = try? BoundedFileReader.read(from: file, maximumBytes: Self.maximumAudioBytes)
       try? FileManager.default.removeItem(at: file)
     }
     file = nil
