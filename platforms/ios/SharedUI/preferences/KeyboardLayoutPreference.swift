@@ -184,4 +184,8 @@ struct KeyboardGeometry: Equatable {
   static func clamped(_ value: Double, _ lower: Double, _ upper: Double) -> Double {
     min(upper, max(lower, value))
   }
+
+  static func formattedHeightAdjustment(_ value: Double) -> String {
+    value > 0 ? "+\(Int(value))" : "\(Int(value))"
+  }
 }

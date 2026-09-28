@@ -171,13 +171,9 @@ final class KeyboardLayoutPickerView: UIView {
   }
 
   private func updateHeightValue() {
-    heightValue.text = "高度 " + Self.format(height)
+    heightValue.text = "高度 " + KeyboardGeometry.formattedHeightAdjustment(height)
     // 可调节元素读出来的就是这一个数,不再需要用户先改一下才知道现在是多少。
-    heightControl?.accessibilityValue = Self.format(height)
-  }
-
-  private static func format(_ value: Double) -> String {
-    value > 0 ? "+\(Int(value))" : "\(Int(value))"
+    heightControl?.accessibilityValue = KeyboardGeometry.formattedHeightAdjustment(height)
   }
 
   @objc private func dragHeight(_ gesture: UIPanGestureRecognizer) {

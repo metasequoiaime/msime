@@ -52,7 +52,7 @@ struct KeyboardLayoutSettingsView: View {
       .gesture(heightDrag)
       .accessibilityIdentifier("keyboardHeightGrip")
       .accessibilityLabel("键盘高度")
-      .accessibilityValue(format(height))
+      .accessibilityValue(KeyboardGeometry.formattedHeightAdjustment(height))
       .accessibilityAdjustableAction { direction in
         height = KeyboardGeometry.clamped(height + (direction == .increment ? 2 : -2), -12, 48)
         save()
@@ -106,15 +106,11 @@ struct KeyboardLayoutSettingsView: View {
     (height, keySpacing, rowSpacing)
   }
 
-  private func format(_ value: Double) -> String {
-    value > 0 ? "+\(Int(value))" : "\(Int(value))"
-  }
-
   private var form: some View {
     Form {
       Section {
         spacingRow("键盘高度", value: $height, range: -12...48, identifier: "appKeyboardHeightSlider",
-                   format: { $0 > 0 ? "+\(Int($0))" : "\(Int($0))" })
+                   format: KeyboardGeometry.formattedHeightAdjustment)
       } header: {
         Text("键盘高度")
       } footer: {
@@ -240,7 +236,7 @@ struct KeyboardLayoutSettingsView: View {
       HStack {
         Text(title)
         Spacer()
-        Text(format(value.wrappedValue)).font(.callout).monospacedDigit()
+        Text(KeyboardGeometry.formattedHeightAdjustment(value.wrappedValue)).font(.callout).monospacedDigit()
           .foregroundStyle(.secondary)
       }
       // Written once the thumb is let go: the slider reports every frame, and each write takes the shared document's lock.
