@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { boundedGraphemes } from "../core/text";
 import { randomUuid } from "../core/random-id";
+import { pushMobileSettingsState } from "../settings/mobile-navigation";
 import { CommunitySkinsPage, type CommunitySkinClient } from "./community-skins";
 import {
   appendUniqueById,
@@ -703,16 +704,7 @@ export function CommunityResourcesPage({
   }, [client, kind, scope]);
   const openDetail = (item: CommunityResource) => {
     if (mobile && typeof window !== "undefined") {
-      const current = window.history.state;
-      window.history.pushState(
-        {
-          ...(current && typeof current === "object" ? current : {}),
-          msimeSettings: true,
-          page: "community",
-          communityDetail: { kind, id: item.id },
-        },
-        "",
-      );
+      pushMobileSettingsState({ page: "community", communityDetail: { kind, id: item.id } });
     }
     setSelected(item);
   };

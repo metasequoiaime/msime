@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import * as account from "./account-style";
 import { accountProviderName, preferredAccountName } from "./account-labels";
 import { accountMessage, isAccountCancellation } from "./account-errors";
+import { pushMobileSettingsState } from "../settings/mobile-navigation";
 
 export type AccountUser = {
   id: string;
@@ -1029,16 +1030,7 @@ function AccountDetailsPage({
         onClick={() => {
           if (!user) return;
           if (mobile && typeof window !== "undefined") {
-            const current = window.history.state;
-            window.history.pushState(
-              {
-                ...(current && typeof current === "object" ? current : {}),
-                msimeSettings: true,
-                page: "account",
-                accountSubpage: "profile",
-              },
-              "",
-            );
+            pushMobileSettingsState({ page: "account", accountSubpage: "profile" });
             setMobileProfilePage(true);
           } else setEditingProfile(true);
         }}

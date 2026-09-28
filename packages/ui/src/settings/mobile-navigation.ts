@@ -129,3 +129,16 @@ export function mobileTabForPage(page: SettingsPageId): MobilePrimaryPageId {
 export function requestedPage(value: string | undefined): SettingsPageId {
   return pages.some((page) => page.id === value) ? (value as SettingsPageId) : "appearance";
 }
+
+/** Push a nested mobile settings route while preserving the host's existing history state. */
+export function pushMobileSettingsState(state: Record<string, unknown>): void {
+  const current = window.history.state;
+  window.history.pushState(
+    {
+      ...(current && typeof current === "object" ? current : {}),
+      msimeSettings: true,
+      ...state,
+    },
+    "",
+  );
+}

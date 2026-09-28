@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { boundedGraphemes } from "../core/text";
 import { randomUuid } from "../core/random-id";
+import { pushMobileSettingsState } from "../settings/mobile-navigation";
 import { ScreenKeyboardPreview } from "../keyboard/screen-keyboard-preview";
 import {
   appendUniqueById,
@@ -389,16 +390,10 @@ export function CommunitySkinsPage({
 
   const open = (skin: CommunitySkin) => {
     if (mobile && typeof window !== "undefined") {
-      const current = window.history.state;
-      window.history.pushState(
-        {
-          ...(current && typeof current === "object" ? current : {}),
-          msimeSettings: true,
-          page: "community",
-          communityDetail: { kind: "skin", id: skin.id },
-        },
-        "",
-      );
+      pushMobileSettingsState({
+        page: "community",
+        communityDetail: { kind: "skin", id: skin.id },
+      });
     }
     const generation = ++detailGeneration.current;
     setSelected(skin);
