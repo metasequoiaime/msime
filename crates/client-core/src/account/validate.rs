@@ -55,10 +55,7 @@ pub(super) fn validate_clipboard_id(value: &str) -> Result<(), AccountError> {
 pub(super) fn validate_clipboard_item(value: &AccountClipboardItem) -> Result<(), AccountError> {
     validate_clipboard_id(&value.id)?;
     validate_clipboard_text(&value.text)?;
-    if value.updated_at.is_empty()
-        || value.updated_at.len() > 128
-        || value.updated_at.chars().any(char::is_control)
-    {
+    if value.updated_at.is_empty() || !crate::text::is_bounded_text(&value.updated_at, 128) {
         return Err(AccountError::Unavailable);
     }
     Ok(())
