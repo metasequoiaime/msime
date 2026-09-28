@@ -40,8 +40,10 @@ pub fn descriptor(bytes: &[u8]) -> Result<Value, &'static str> {
         || !msime_client_core::is_ascii_identifier(&id)
         || region.len() > 64
         || !msime_client_core::is_ascii_alphanumeric_dash(&region)
-        || !translation::is_supported_translation_language(&request.source_language)
-        || !translation::is_supported_translation_language(&request.target_language)
+        || !translation::is_supported_translation_pair(
+            &request.source_language,
+            &request.target_language,
+        )
         || request.texts.is_empty()
         || request.texts.len() > 9
         || request

@@ -126,6 +126,10 @@ pub fn is_supported_translation_language(value: &str) -> bool {
     matches!(value, "zh" | "en" | "fr" | "ja" | "es" | "ru" | "de" | "ko")
 }
 
+pub fn is_supported_translation_pair(source: &str, target: &str) -> bool {
+    is_supported_translation_language(source) && is_supported_translation_language(target)
+}
+
 pub fn format_translation_gloss(text: &str) -> Option<String> {
     let mut output = String::with_capacity(text.len());
     let mut pending_space = false;
