@@ -5,7 +5,7 @@ use crate::platform::mobile::mobile_account_helpers::{
     account_login as shared_account_login, account_logout as shared_account_logout,
     account_profile as shared_account_profile, account_rename as shared_account_rename,
     account_request_code as shared_account_request_code, account_status as shared_account_status,
-    call,
+    call, clear_snapshot_previews, PendingSnapshot, SnapshotMetadata,
 };
 #[cfg(target_os = "ios")]
 use crate::shared::account_dto::{
@@ -88,30 +88,6 @@ impl AccountState {
     pub(crate) fn session(&self) -> &Arc<Session> {
         &self.session
     }
-}
-
-#[cfg(target_os = "ios")]
-#[derive(Clone)]
-struct PendingSnapshot {
-    account_id: String,
-    path: PathBuf,
-    metadata: SnapshotMetadata,
-}
-
-#[cfg(target_os = "ios")]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SnapshotMetadata {
-    cloud_revision: i64,
-    sha256: String,
-    #[serde(skip_serializing)]
-    file_sha256: String,
-    bytes: u64,
-    records: usize,
-    entries: usize,
-    overlays: usize,
-    positions: usize,
-    selections: usize,
 }
 
 #[cfg(target_os = "ios")]
@@ -359,16 +335,6 @@ fn snapshot_bridge(action: Value) -> Result<Value, crate::CommandError> {
         _ => "snapshot_unavailable",
     };
     Err(crate::CommandError { code })
-}
-
-#[cfg(target_os = "ios")]
-fn clear_snapshot_previews(previews: &Arc<Mutex<HashMap<String, PendingSnapshot>>>) {
-    let Ok(mut pending) = previews.lock() else {
-        return;
-    };
-    for item in pending.drain().map(|(_, item)| item) {
-        let _ = fs::remove_file(item.path);
-    }
 }
 
 #[cfg(target_os = "ios")]

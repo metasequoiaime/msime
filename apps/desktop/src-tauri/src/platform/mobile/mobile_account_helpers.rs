@@ -4,8 +4,44 @@ use crate::shared::account_dto::{
 use msime_client_core::account::AccountChatMessage;
 use msime_client_core::account::AccountError;
 use msime_client_core::cloud::dictionary::DictionaryKind;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SnapshotMetadata {
+    pub(crate) cloud_revision: i64,
+    pub(crate) sha256: String,
+    #[serde(skip_serializing)]
+    pub(crate) file_sha256: String,
+    pub(crate) bytes: u64,
+    pub(crate) records: usize,
+    pub(crate) entries: usize,
+    pub(crate) overlays: usize,
+    pub(crate) positions: usize,
+    pub(crate) selections: usize,
+}
+
+#[derive(Clone)]
+pub(crate) struct PendingSnapshot {
+    pub(crate) account_id: String,
+    pub(crate) path: PathBuf,
+    pub(crate) metadata: SnapshotMetadata,
+}
+
+pub(crate) fn clear_snapshot_previews(
+    previews: &std::sync::Arc<std::sync::Mutex<HashMap<String, PendingSnapshot>>>,
+) {
+    let Ok(mut pending) = previews.lock() else {
+        return;
+    };
+    for item in pending.drain().map(|(_, item)| item) {
+        let _ = std::fs::remove_file(item.path);
+    }
+}
 
 pub(crate) fn dictionary_kind(value: &str) -> Result<DictionaryKind, crate::CommandError> {
     match value {

@@ -4,7 +4,8 @@ use crate::platform::mobile::mobile_account_helpers::{
     account_login as shared_account_login, account_logout as shared_account_logout,
     account_profile as shared_account_profile, account_rename as shared_account_rename,
     account_request_code as shared_account_request_code, account_status as shared_account_status,
-    call, dictionary_kind, snapshot_command_error, snapshot_response_without_account,
+    call, clear_snapshot_previews, dictionary_kind, snapshot_command_error,
+    snapshot_response_without_account, PendingSnapshot, SnapshotMetadata,
 };
 use crate::platform::mobile::mobile_account_preferences::{
     frequency_account_preferences, insert_bool, insert_string,
@@ -138,12 +139,6 @@ impl AccountState {
     }
 }
 
-struct PendingSnapshot {
-    account_id: String,
-    path: PathBuf,
-    metadata: SnapshotMetadata,
-}
-
 pub fn init() -> TauriPlugin<Wry> {
     Builder::new("account-storage")
         .setup(|app, api| {
@@ -170,21 +165,6 @@ pub fn init() -> TauriPlugin<Wry> {
             Ok(())
         })
         .build()
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SnapshotMetadata {
-    cloud_revision: i64,
-    sha256: String,
-    #[serde(skip_serializing)]
-    file_sha256: String,
-    bytes: u64,
-    records: usize,
-    entries: usize,
-    overlays: usize,
-    positions: usize,
-    selections: usize,
 }
 
 struct StrictSnapshotValue {
@@ -756,15 +736,6 @@ struct EnqueueSnapshotRequest {
 #[serde(rename_all = "camelCase")]
 struct CancelSnapshotRequest {
     account_id: String,
-}
-
-fn clear_snapshot_previews(previews: &Arc<Mutex<HashMap<String, PendingSnapshot>>>) {
-    let Ok(mut pending) = previews.lock() else {
-        return;
-    };
-    for item in pending.drain().map(|(_, item)| item) {
-        let _ = fs::remove_file(item.path);
-    }
 }
 
 async fn dictionary_snapshot_preview(
