@@ -78,7 +78,10 @@ public final class BackendAccount {
             new JSONObject().put("challenge_id", challenge.id()).put("credential", idToken), null);
         String access = tokens.optString("access_token", "");
         long expires = tokens.optLong("expires_in", 0);
-        if (access.isEmpty() || expires <= 0) throw new IllegalStateException("login refused");
+        if (!AccountTokenPolicy.validSession(tokens.optString("token_type", ""), access,
+                tokens.optString("refresh_token", ""), expires)) {
+            throw new IllegalStateException("login refused");
+        }
         sessions.save(new JSONObject().put("tokens", tokens)
             .put("expires_at_unix_ms", System.currentTimeMillis() + expires * 1000L).toString());
     }
@@ -92,7 +95,11 @@ public final class BackendAccount {
             if (session.optLong("expires_at_unix_ms", 0) <= System.currentTimeMillis() + 30_000L) {
                 return "";
             }
-            return session.getJSONObject("tokens").optString("access_token", "");
+            JSONObject tokens = session.getJSONObject("tokens");
+            if (!AccountTokenPolicy.validSession(tokens.optString("token_type", ""),
+                    tokens.optString("access_token", ""), tokens.optString("refresh_token", ""),
+                    tokens.optLong("expires_in", 0))) return "";
+            return tokens.optString("access_token", "");
         } catch (Exception | LinkageError error) {
             return "";
         }

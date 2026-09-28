@@ -77,8 +77,10 @@ final class BackendAnonymousAccount {
             JSONObject tokens = request("POST", "/v1/auth/login",
                 new JSONObject().put("challenge_id", challengeID)
                     .put("credential", identity.getString("secret")), null);
-            String token = validToken(tokens.optString("access_token", ""));
-            String refresh = validToken(tokens.optString("refresh_token", ""));
+            String token = AccountTokenPolicy.validToken(tokens.optString("access_token", ""))
+                ? tokens.optString("access_token", "") : null;
+            String refresh = AccountTokenPolicy.validToken(tokens.optString("refresh_token", ""))
+                ? tokens.optString("refresh_token", "") : null;
             if (token == null || refresh == null || !"Bearer".equals(tokens.optString("token_type", "")))
                 throw new IllegalStateException("anonymous account unavailable");
             long expires = tokens.optLong("expires_in", 0);
@@ -150,12 +152,9 @@ final class BackendAnonymousAccount {
             JSONObject session = new JSONObject(encoded);
             long expiry = session.optLong("expires_at_unix_ms", 0);
             if (expiry <= System.currentTimeMillis() + 30_000L) return null;
-            return validToken(session.getJSONObject("tokens").optString("access_token", ""));
+            String token = session.getJSONObject("tokens").optString("access_token", "");
+            return AccountTokenPolicy.validToken(token) ? token : null;
         } catch (Exception ignored) { return null; }
-    }
-
-    private static String validToken(String token) {
-        return token.matches("[0-9a-fA-F]{64}") ? token : null;
     }
 
     private static JSONObject request(String method, String path, JSONObject body, String token) throws Exception {
