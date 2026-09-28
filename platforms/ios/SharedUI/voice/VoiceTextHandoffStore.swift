@@ -59,9 +59,7 @@ final class VoiceTextHandoffStore: @unchecked Sendable {
 
   private func readFile(_ file: URL, now: Date) throws -> VoiceTextHandoff? {
     guard FileManager.default.fileExists(atPath: file.path) else { return nil }
-    let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-    guard size <= Self.maximumBytes else { throw Failure.invalid }
-    let data = try Data(contentsOf: file)
+    let data = try Self.readBounded(file)
     guard data.count <= Self.maximumBytes,
           let entry = try? JSONDecoder().decode(VoiceTextHandoff.self, from: data), entry.version == 1,
           !entry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, entry.text.count <= 10_000,
@@ -71,6 +69,20 @@ final class VoiceTextHandoffStore: @unchecked Sendable {
       return nil
     }
     return entry
+  }
+
+  static func readBounded(_ file: URL) throws -> Data {
+    let handle = try FileHandle(forReadingFrom: file)
+    defer { try? handle.close() }
+    var data = Data()
+    data.reserveCapacity(min(Self.maximumBytes, 64 * 1024))
+    while true {
+      let remaining = Self.maximumBytes - data.count
+      let chunk = try handle.read(upToCount: min(64 * 1024, remaining + 1)) ?? Data()
+      if chunk.isEmpty { return data }
+      guard chunk.count <= remaining else { throw Failure.invalid }
+      data.append(chunk)
+    }
   }
 
   func read(now: Date = Date()) throws -> VoiceTextHandoff? {
