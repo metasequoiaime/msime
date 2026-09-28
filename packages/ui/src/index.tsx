@@ -29,6 +29,24 @@ import {
 } from "./settings/mobile-navigation";
 import { isLinuxDesktop } from "./settings/platform-helpers";
 import { resolveSettingsTheme } from "./settings/theme-helpers";
+import {
+  UPDATE_CHECK_TIMEOUT_MS,
+  androidPrivacyUrl,
+  clientReleasesUrl,
+  desktopDownloadUrl,
+  fallbackAppVersion,
+  handwritingSdkPrivacyUrl,
+  licenseUrl,
+  linuxIssuesUrl,
+  linuxLicenseUrl,
+  linuxPrivacyUrl,
+  linuxReleasesPageUrl,
+  logo,
+  privacyUrl,
+  releasesPageUrl,
+  updateManifestUrl,
+  windowIcons,
+} from "./settings/app-resources";
 import { AI_PROVIDER_OPTIONS } from "./settings/ai-provider-options";
 export { AI_PROVIDER_OPTIONS } from "./settings/ai-provider-options";
 import {
@@ -872,29 +890,6 @@ const macosSidebarGroups = [
   ["dictionary", "account"],
   ["help", "feedback", "about"],
 ] as const satisfies readonly (readonly SettingsPageId[])[];
-const logo = new URL("./assets/msime.svg", import.meta.url).href;
-const windowIcons = {
-  minimize: new URL("./assets/minimize.svg", import.meta.url).href,
-  maximize: new URL("./assets/maximize.svg", import.meta.url).href,
-  restore: new URL("./assets/restore.svg", import.meta.url).href,
-  close: new URL("./assets/close.svg", import.meta.url).href,
-};
-const fallbackAppVersion = "0.1.0";
-const releasesPageUrl = "https://github.com/metasequoiaime/msime/releases";
-const linuxReleasesPageUrl = "https://github.com/metasequoiaime/msime/releases";
-const updateManifestUrl = "https://msime.app/update.json";
-const clientReleasesUrl = "https://api.github.com/repos/metasequoiaime/msime/releases";
-const UPDATE_CHECK_TIMEOUT_MS = 10_000;
-const licenseUrl = "https://github.com/metasequoiaime/msime/blob/develop/LICENSE";
-const privacyUrl = "https://msime.app/privacy/";
-const androidPrivacyUrl = "https://msime.app/privacy/";
-// Linux links to the data-flow document that ships with this code, as the Windows reference links its own PRIVACY.md; the Linux section of msime.app/privacy/ describes a host without an update check and with Secret Service credentials, and this one has the update check and keeps provider credentials in 0600 files.
-const linuxPrivacyUrl = "https://github.com/metasequoiaime/msime/blob/develop/PRIVACY.md";
-const linuxLicenseUrl = "https://github.com/metasequoiaime/msime/blob/develop/LICENSE";
-const linuxIssuesUrl = "https://github.com/metasequoiaime/msime/issues";
-const desktopDownloadUrl = "https://msime.app/download/";
-const handwritingSdkPrivacyUrl = "https://developers.google.com/ml-kit/terms";
-
 export type HostPlatform = "windows" | "macos" | "linux" | "android" | "ios" | "harmony";
 /** Mirrors `client-core::host_surface::HostCapabilities`. */
 export interface HostCapabilities {
