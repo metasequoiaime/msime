@@ -283,6 +283,14 @@ def main() -> int:
         assert harness.record.read_text() == later, harness.record.read_text()
         assert "恢复期间宿主又记下了候选面板设置的改动" in result.stderr, result.stderr
 
+        # A concurrent host may replace the record with an oversized document between the first
+        # read and the locked compare. Keep that record and finish uninstall cleanly.
+        later = json.dumps({"fcitx5": {"Font": {"prior": "x" * (64 * 1024), "written": "msime"}}})
+        harness.world(fcitx5_running=True, record_during_set_config=later)
+        result = harness.unregister()
+        assert "Traceback" not in result.stderr, result.stderr
+        assert harness.record.read_text() == later, harness.record.read_text()
+
         # Without gsettings the IBus keys cannot be restored: say so, keep the record for a later run, still exit 0. The Fcitx5 options, and the theme, are dealt with regardless.
         python_only = Path(name) / "python-only"
         python_only.mkdir()

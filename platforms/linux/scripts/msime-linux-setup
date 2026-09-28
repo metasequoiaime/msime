@@ -948,8 +948,9 @@ def restore_panel_settings() -> None:
                     return
         except FileNotFoundError:
             return
-        except OSError as error:
-            print(f"未能删除候选面板设置的恢复记录 {record_file}：{error.strerror}", file=sys.stderr)
+        except (OSError, ValueError) as error:
+            detail = getattr(error, "strerror", None) or str(error)
+            print(f"未能删除候选面板设置的恢复记录 {record_file}：{detail}", file=sys.stderr)
             return
         print(f"恢复期间宿主又记下了候选面板设置的改动，恢复记录保留在 {record_file}，可稍后再次运行 msime-linux-setup --unregister。", file=sys.stderr)
     elif record is not None:
