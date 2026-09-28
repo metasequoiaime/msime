@@ -44,6 +44,7 @@ import { WubiSection } from "./settings/wubi-section";
 import { InputModeSection } from "./settings/input-mode-section";
 import { InputModeShortcutsSection } from "./settings/input-mode-shortcuts-section";
 import { PanelShortcutsSection } from "./settings/panel-shortcuts-section";
+import { CandidateShortcutsSection } from "./settings/candidate-shortcuts-section";
 import { PreeditSettingsSection } from "./settings/preedit-settings-section";
 import { validCandidateFonts } from "./candidate/candidate-font-family";
 import type { FontCatalogReader } from "./candidate/font-catalog";
@@ -336,6 +337,10 @@ export {
   PanelShortcutsSection,
   type PanelShortcutsSectionProps,
 } from "./settings/panel-shortcuts-section";
+export {
+  CandidateShortcutsSection,
+  type CandidateShortcutsSectionProps,
+} from "./settings/candidate-shortcuts-section";
 export {
   PreeditSettingsSection,
   type CandidatePreeditStyle,
@@ -6860,80 +6865,15 @@ export function SettingsPage({
                       macos={macosPlatform}
                       harmony={harmonyPlatform}
                     />
-                    <div className={`section ${settings.shortcutSectionTitle}`}>
-                      <div className="section-title">候选操作</div>
-                      <small>输入和选取候选词时使用</small>
-                      {showNumberRowSelection && (
-                        <label className="section-header">
-                          <span className="section-title">
-                            数字键选词<small>关闭后，候选窗口显示时数字键仍交给当前应用。</small>
-                          </span>
-                          <input
-                            aria-label="数字键选词"
-                            className="toggle"
-                            type="checkbox"
-                            checked={draft.number_row_selection ?? true}
-                            onChange={(event) =>
-                              setDraft({ ...draft, number_row_selection: event.target.checked })
-                            }
-                          />
-                        </label>
-                      )}
-                      <div className={settings.shortcutList}>
-                        <div className={settings.shortcutRow}>
-                          <span>选择候选</span>
-                          <kbd>Space{(draft.number_row_selection ?? true) ? " 或 1–9" : ""}</kbd>
-                        </div>
-                        {(draft.navigation ?? defaultNavigation).minus_equal && (
-                          <div className={settings.shortcutRow}>
-                            <span>向前 / 向后翻页</span>
-                            <kbd>- / =</kbd>
-                          </div>
-                        )}
-                        {(draft.navigation ?? defaultNavigation).comma_period && (
-                          <div className={settings.shortcutRow}>
-                            <span>向前 / 向后翻页</span>
-                            <kbd>, / .</kbd>
-                          </div>
-                        )}
-                        {(draft.navigation ?? defaultNavigation).tab && (
-                          <div className={settings.shortcutRow}>
-                            <span>向前 / 向后翻页</span>
-                            <kbd>Shift+Tab / Tab</kbd>
-                          </div>
-                        )}
-                        {(draft.navigation ?? defaultNavigation).page_up_down && (
-                          <div className={settings.shortcutRow}>
-                            <span>向前 / 向后翻页</span>
-                            <kbd>Page Up / Page Down</kbd>
-                          </div>
-                        )}
-                        {(draft.navigation ?? defaultNavigation).mouse_wheel && (
-                          <div className={settings.shortcutRow}>
-                            <span>{mobilePlatform ? "候选栏翻页" : "候选窗口翻页"}</span>
-                            <kbd>鼠标滚轮</kbd>
-                          </div>
-                        )}
-                        {(draft.navigation ?? defaultNavigation).arrows && (
-                          <div className={settings.shortcutRow}>
-                            <span>移动候选项</span>
-                            <kbd>↑ / ↓</kbd>
-                          </div>
-                        )}
-                        <div className={settings.shortcutRow}>
-                          <span>移动到候选列表首项 / 末项（页码随之切换）</span>
-                          <kbd>Home / End</kbd>
-                        </div>
-                        <div className={settings.shortcutRow}>
-                          <span>编辑输入串</span>
-                          <kbd>← / → / Backspace</kbd>
-                        </div>
-                        <div className={settings.shortcutRow}>
-                          <span>提交原始输入 / 取消输入</span>
-                          <kbd>Enter / Esc</kbd>
-                        </div>
-                      </div>
-                    </div>
+                    <CandidateShortcutsSection
+                      navigation={draft.navigation ?? defaultNavigation}
+                      numberRowSelection={draft.number_row_selection ?? true}
+                      showNumberRowSelection={showNumberRowSelection}
+                      mobile={mobilePlatform}
+                      onNumberRowSelectionChange={(number_row_selection) =>
+                        setDraft({ ...draft, number_row_selection })
+                      }
+                    />
                     {showDesktopMaintenanceShortcuts && (
                       <div className={`section ${settings.shortcutSectionTitle}`}>
                         <div className="section-title">
