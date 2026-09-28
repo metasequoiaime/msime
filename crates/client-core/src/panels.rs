@@ -109,10 +109,6 @@ impl<R> LeasedClientKeyRouter<R> {
         self.lease = Some(lease);
     }
 
-    pub fn clear_lease(&mut self) {
-        self.lease = None;
-    }
-
     pub fn into_inner(self) -> R {
         self.router
     }

@@ -58,6 +58,7 @@ import { VoiceInputIntroSection } from "./settings/voice-input-intro-section";
 import { VoiceInputCoreSection } from "./settings/voice-input-core-section";
 import { VoiceModelPathSection } from "./settings/voice-model-path-section";
 import { VoiceModelSection } from "./settings/voice-model-section";
+import { DoubaoAuthModeSection, type DoubaoAuthMode } from "./settings/doubao-auth-mode-section";
 import { VoiceModelMirrorSection } from "./settings/voice-model-mirror-section";
 import {
   MobileKeyboardFeedbackSection,
@@ -409,6 +410,11 @@ export {
   type VoiceModelPathSectionProps,
 } from "./settings/voice-model-path-section";
 export { VoiceModelSection, type VoiceModelSectionProps } from "./settings/voice-model-section";
+export {
+  DoubaoAuthModeSection,
+  type DoubaoAuthMode,
+  type DoubaoAuthModeSectionProps,
+} from "./settings/doubao-auth-mode-section";
 export {
   VoiceModelMirrorSection,
   type VoiceModelMirrorSectionProps,
@@ -7389,31 +7395,11 @@ export function SettingsPage({
                       />
                     )}
                     {showVoiceProviderSettings && voiceInput.asr_provider === "doubao" && (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">
-                            豆包鉴权方式
-                            <small>
-                              {linuxPlatform
-                                ? "provider 服务必须与此模式匹配"
-                                : "新版控制台使用单 API Key；旧版使用 App ID + Access Token"}
-                            </small>
-                          </span>
-                          <select
-                            aria-label="豆包鉴权方式"
-                            value={doubaoAuthMode}
-                            onChange={(event) =>
-                              updateVoice({
-                                doubao_auth_mode:
-                                  event.target.value === "legacy" ? "legacy" : "api_key",
-                              })
-                            }
-                          >
-                            <option value="api_key">新版 API Key</option>
-                            <option value="legacy">旧版 App ID + Access Token</option>
-                          </select>
-                        </label>
-                      </div>
+                      <DoubaoAuthModeSection
+                        value={doubaoAuthMode}
+                        linux={linuxPlatform}
+                        onChange={(doubao_auth_mode) => updateVoice({ doubao_auth_mode })}
+                      />
                     )}
                     {showVoiceProviderSettings && !linuxPlatform && serviceVoice && (
                       <>
