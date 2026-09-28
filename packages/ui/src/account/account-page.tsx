@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { errorCode } from "../core/error-code";
 import * as account from "./account-style";
+import { accountProviderName, preferredAccountName } from "./account-labels";
 
 export type AccountUser = {
   id: string;
@@ -301,7 +302,7 @@ function MobileAccountProfilePage({
           </div>
           <div>
             <dt>登录方式</dt>
-            <dd>{profile?.providers.map(providerName).join("、") || "正在读取"}</dd>
+            <dd>{profile?.providers.map(accountProviderName).join("、") || "正在读取"}</dd>
           </div>
           <div>
             <dt>加入水杉</dt>
@@ -391,18 +392,6 @@ function MobileAccountProfilePage({
       )}
     </div>
   );
-}
-
-function preferredName(user: AccountUser): string {
-  const name = user.displayName.trim();
-  return name || `水杉小鹿·${user.id.slice(0, 6).toUpperCase()}`;
-}
-
-function providerName(provider: string): string {
-  if (provider === "apple") return "Apple";
-  if (provider === "email") return "邮箱";
-  if (provider === "phone" || provider === "sms") return "手机号";
-  return provider;
 }
 
 const appIconOptions = [
@@ -1090,10 +1079,10 @@ function AccountDetailsPage({
         }}
       >
         <div className={account.avatar("medium")} aria-hidden="true">
-          {user ? preferredName(user).slice(0, 1) : "杉"}
+          {user ? preferredAccountName(user).slice(0, 1) : "杉"}
         </div>
         <div>
-          <h2 className={account.heading}>{user ? preferredName(user) : "欢迎来到水杉"}</h2>
+          <h2 className={account.heading}>{user ? preferredAccountName(user) : "欢迎来到水杉"}</h2>
           <p className={account.note}>{user ? "水杉账号已登录" : "登录，分享你的键盘设计"}</p>
         </div>
         {user && (
@@ -1155,7 +1144,7 @@ function AccountDetailsPage({
                 </div>
                 <div>
                   <dt>登录方式</dt>
-                  <dd>{profile?.providers.map(providerName).join("、") || "正在读取"}</dd>
+                  <dd>{profile?.providers.map(accountProviderName).join("、") || "正在读取"}</dd>
                 </div>
               </dl>
             </section>
@@ -1187,7 +1176,7 @@ function AccountDetailsPage({
                 </div>
                 <div className={account.profilePreview}>
                   <div className={account.avatar("small")} aria-hidden="true">
-                    {preferredName(user).slice(0, 1)}
+                    {preferredAccountName(user).slice(0, 1)}
                   </div>
                   <strong>{name.trim() || "你的昵称"}</strong>
                 </div>
@@ -1214,7 +1203,7 @@ function AccountDetailsPage({
                   </div>
                   <div>
                     <dt>登录方式</dt>
-                    <dd>{profile?.providers.map(providerName).join("、") || "正在读取"}</dd>
+                    <dd>{profile?.providers.map(accountProviderName).join("、") || "正在读取"}</dd>
                   </div>
                   <div>
                     <dt>加入水杉</dt>
