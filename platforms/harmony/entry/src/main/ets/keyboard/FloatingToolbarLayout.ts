@@ -1,3 +1,5 @@
+import { KeyboardGeometry } from './KeyboardGeometry';
+
 /**
  * Which buttons the floating toolbar carries, how wide that makes it, and what each one says.
  *
@@ -161,7 +163,7 @@ export class FloatingToolbarLayout {
 
   /** 宽度随显示出来的按钮个数变。齿轮总在,所以至少是一个。 */
   static widthVp(buttonCount: number): number {
-    const count: number = Math.min(Math.max(buttonCount, 1), MAXIMUM_BUTTONS);
+    const count: number = KeyboardGeometry.bounded(buttonCount, 1, MAXIMUM_BUTTONS);
     return Math.round(2 * EDGE_INSET_VP + count * BUTTON_WIDTH_VP + (count - 1) * BUTTON_GAP_VP);
   }
 

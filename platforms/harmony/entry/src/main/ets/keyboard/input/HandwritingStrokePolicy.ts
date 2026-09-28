@@ -1,3 +1,5 @@
+import { KeyboardGeometry } from '../KeyboardGeometry';
+
 export interface HandwritingPoint {
   x: number;
   y: number;
@@ -19,8 +21,8 @@ export const HANDWRITING_MAX_CANDIDATES: number = 12;
 export class HandwritingStrokePolicy {
   static point(x: number, y: number): HandwritingPoint {
     return {
-      x: Math.min(HANDWRITING_CANVAS_SIZE, Math.max(0, Number.isFinite(x) ? x : 0)),
-      y: Math.min(HANDWRITING_CANVAS_SIZE, Math.max(0, Number.isFinite(y) ? y : 0)),
+      x: KeyboardGeometry.bounded(Number.isFinite(x) ? x : 0, 0, HANDWRITING_CANVAS_SIZE),
+      y: KeyboardGeometry.bounded(Number.isFinite(y) ? y : 0, 0, HANDWRITING_CANVAS_SIZE),
     };
   }
 

@@ -1,3 +1,5 @@
+import { KeyboardGeometry } from '../KeyboardGeometry';
+
 /** The palette tokens an external candidate skin may contribute to the native Harmony card. */
 export interface CandidateSkinPaletteTokens {
   readonly accent?: string | null;
@@ -223,7 +225,7 @@ export class CandidateSkinCatalogPolicy {
         || width > 32768 || height > 32768) {
       return 1;
     }
-    return Math.max(0.05, Math.min(20, width / height));
+    return KeyboardGeometry.bounded(width / height, 0.05, 20);
   }
 
   private static u16Le(bytes: number[], offset: number): number {
