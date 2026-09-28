@@ -102,6 +102,12 @@ fn valid_ai_skin_request_id(value: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
 }
 
+fn community_id(value: &str) -> Result<uuid::Uuid, crate::CommandError> {
+    uuid::Uuid::parse_str(value).map_err(|_| crate::CommandError {
+        code: "community_invalid",
+    })
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct AiSkinProgress {
@@ -262,9 +268,7 @@ pub async fn community_skin_detail(
     state: State<'_, MobileCommunityState>,
     id: String,
 ) -> Result<CommunitySkin, crate::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| crate::CommandError {
-        code: "community_invalid",
-    })?;
+    let id = community_id(&id)?;
     community_call(state, move |service| service.detail(id)).await
 }
 
@@ -276,9 +280,7 @@ pub async fn community_skin_download(
     id: String,
     name: String,
 ) -> Result<CommunitySkinDownloadResponse, crate::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| crate::CommandError {
-        code: "community_invalid",
-    })?;
+    let id = community_id(&id)?;
     let service = Arc::clone(&state.community);
     let library = library.inner().clone();
     let trials = trials.inner().clone();
@@ -306,9 +308,7 @@ pub async fn community_skin_rate(
     id: String,
     stars: u8,
 ) -> Result<(), crate::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| crate::CommandError {
-        code: "community_invalid",
-    })?;
+    let id = community_id(&id)?;
     community_call(state, move |service| service.rate(id, stars)).await
 }
 
@@ -320,9 +320,7 @@ pub async fn community_skin_publish(
     description: String,
     design: TouchKeyboardSkinDesign,
 ) -> Result<(), crate::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| crate::CommandError {
-        code: "community_invalid",
-    })?;
+    let id = community_id(&id)?;
     community_call(state, move |service| {
         service.publish(id, &name, &description, &design)
     })
@@ -334,9 +332,7 @@ pub async fn community_skin_unpublish(
     state: State<'_, MobileCommunityState>,
     id: String,
 ) -> Result<(), crate::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| crate::CommandError {
-        code: "community_invalid",
-    })?;
+    let id = community_id(&id)?;
     community_call(state, move |service| service.unpublish(id)).await
 }
 
@@ -346,9 +342,7 @@ pub async fn community_skin_finish_trial(
     id: String,
     keep: bool,
 ) -> Result<(), crate::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| crate::CommandError {
-        code: "community_invalid",
-    })?;
+    let id = community_id(&id)?;
     let trials = trials.inner().clone();
     tauri::async_runtime::spawn_blocking(move || trials.finish(id, keep).map(|_| ()))
         .await
@@ -406,9 +400,7 @@ pub async fn community_resource_detail(
     state: State<'_, MobileCommunityState>,
     id: String,
 ) -> Result<CommunityResource, crate::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| crate::CommandError {
-        code: "community_invalid",
-    })?;
+    let id = community_id(&id)?;
     resource_call(state, move |service| service.detail(id)).await
 }
 
@@ -422,9 +414,7 @@ pub async fn community_resource_publish(
     content: CommunityResourceContent,
     revision: u32,
 ) -> Result<CommunityResourcePublication, crate::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| crate::CommandError {
-        code: "community_invalid",
-    })?;
+    let id = community_id(&id)?;
     resource_call(state, move |service| {
         service.publish(id, kind, &name, &description, &content, revision)
     })
@@ -437,9 +427,7 @@ pub async fn community_resource_apply(
     id: String,
     resource_revision: u32,
 ) -> Result<CommunityResourceApplication, crate::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| crate::CommandError {
-        code: "community_invalid",
-    })?;
+    let id = community_id(&id)?;
     resource_call(state, move |service| service.apply(id, resource_revision)).await
 }
 
@@ -449,9 +437,7 @@ pub async fn community_resource_save(
     id: String,
     saved: bool,
 ) -> Result<(), crate::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| crate::CommandError {
-        code: "community_invalid",
-    })?;
+    let id = community_id(&id)?;
     resource_call(state, move |service| service.save(id, saved)).await
 }
 
@@ -461,9 +447,7 @@ pub async fn community_resource_rate(
     id: String,
     stars: u8,
 ) -> Result<(), crate::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| crate::CommandError {
-        code: "community_invalid",
-    })?;
+    let id = community_id(&id)?;
     resource_call(state, move |service| service.rate(id, stars)).await
 }
 
@@ -472,9 +456,7 @@ pub async fn community_resource_unpublish(
     state: State<'_, MobileCommunityState>,
     id: String,
 ) -> Result<(), crate::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| crate::CommandError {
-        code: "community_invalid",
-    })?;
+    let id = community_id(&id)?;
     resource_call(state, move |service| service.delete(id)).await
 }
 
@@ -497,9 +479,7 @@ pub async fn community_resource_remove_reply(
     library: State<'_, CommunityResourceLibraryStore>,
     id: String,
 ) -> Result<(), crate::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| crate::CommandError {
-        code: "community_invalid",
-    })?;
+    let id = community_id(&id)?;
     let library = library.inner().clone();
     tauri::async_runtime::spawn_blocking(move || library.remove(id))
         .await
