@@ -20,38 +20,32 @@ impl DictionaryState {
     ) -> Option<Result<Value, crate::CommandError>> {
         self.0.as_ref().map(|session| {
             if label != "cloud-dictionary-panel" {
-                return Err(error(CloudClipboardError::Unavailable));
+                return Err(super::cloud_clipboard_error(
+                    CloudClipboardError::Unavailable,
+                ));
             }
-            let mut result = session.request_dictionary(action).map_err(error)?;
+            let mut result = session
+                .request_dictionary(action)
+                .map_err(super::cloud_clipboard_error)?;
             if action["operation"] == "export" {
                 let name = format!("dictionary-{}.tsv", action["kind"].as_str().unwrap_or(""));
-                let path = result["export_file"]["path"]
-                    .as_str()
-                    .ok_or_else(|| error(CloudClipboardError::Unavailable))?;
-                let bytes = result["export_file"]["bytes"]
-                    .as_u64()
-                    .ok_or_else(|| error(CloudClipboardError::Unavailable))?;
+                let path = result["export_file"]["path"].as_str().ok_or_else(|| {
+                    super::cloud_clipboard_error(CloudClipboardError::Unavailable)
+                })?;
+                let bytes = result["export_file"]["bytes"].as_u64().ok_or_else(|| {
+                    super::cloud_clipboard_error(CloudClipboardError::Unavailable)
+                })?;
                 let text = msime_host_macos::cloud_dictionary::read_export(
                     std::path::Path::new(path),
                     &name,
                     bytes,
                 )
-                .map_err(error)?;
+                .map_err(super::cloud_clipboard_error)?;
                 // The private descriptor is never returned to JavaScript.
                 result = serde_json::json!({"text":text,"filename":name});
             }
             Ok(result)
         })
-    }
-}
-fn error(error: CloudClipboardError) -> crate::CommandError {
-    crate::CommandError {
-        code: match error {
-            CloudClipboardError::Invalid => "invalid",
-            CloudClipboardError::Unavailable => "unavailable",
-            CloudClipboardError::OutcomeUnknown => "outcome_unknown",
-            CloudClipboardError::Conflict => "conflict",
-        },
     }
 }
 pub(crate) fn startup_panel(route: Option<SurfaceRoute>) -> Option<PanelSurface> {

@@ -1,5 +1,5 @@
 use msime_client_core::host_surface::{PanelSurface, SurfaceRoute};
-use msime_host_macos::cloud_clipboard::{CloudClipboardError, CloudClipboardSession};
+use msime_host_macos::cloud_clipboard::CloudClipboardSession;
 use serde_json::Value;
 
 pub(crate) struct CloudState(Option<CloudClipboardSession>);
@@ -26,14 +26,7 @@ impl CloudState {
             }
             session
                 .request(action)
-                .map_err(|error| crate::CommandError {
-                    code: match error {
-                        CloudClipboardError::Invalid => "invalid",
-                        CloudClipboardError::Unavailable => "unavailable",
-                        CloudClipboardError::OutcomeUnknown => "outcome_unknown",
-                        CloudClipboardError::Conflict => "conflict",
-                    },
-                })
+                .map_err(super::cloud_clipboard_error)
         })
     }
 }
