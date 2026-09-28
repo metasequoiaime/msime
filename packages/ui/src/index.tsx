@@ -98,6 +98,7 @@ import {
   type WordCharacterPreferences,
 } from "./settings/word-character-section";
 import { NavigationSection } from "./settings/navigation-section";
+import { PunctuationSection } from "./settings/punctuation-section";
 import {
   ClipboardHistorySection,
   type ClipboardHistoryClient,
@@ -212,6 +213,7 @@ export {
   type WordCharacterPreferences,
 } from "./settings/word-character-section";
 export { NavigationSection } from "./settings/navigation-section";
+export { PunctuationSection, type PunctuationPreferences } from "./settings/punctuation-section";
 export {
   CommunitySkinsPage,
   type CommunitySkin,
@@ -4345,14 +4347,7 @@ export function SettingsPage({
     if (!field) return polishPresetPrompt(slot);
     return ((current as Record<string, unknown>)[field] as string) ?? "";
   };
-  const smartPunctuation = draft?.smart_punctuation ?? false;
-  const smartPunctuationRepeat = draft?.smart_punctuation_repeat ?? false;
-  const smartPunctuationSpaceConvert = draft?.smart_punctuation_space_convert ?? false;
-  const smartPunctuationDirectDigit = draft?.smart_punctuation_direct_digit ?? false;
-  const smartPunctuationDirectLetter = draft?.smart_punctuation_direct_letter ?? false;
-  const pairedPunctuation = draft?.paired_punctuation ?? true;
   const inputModeHUD = draft?.input_mode_hud ?? true;
-  const punctuationLock = draft?.punctuation_lock ?? "follow";
   const floatingToolbar = { ...defaultFloatingToolbar, ...draft?.floating_toolbar };
   const themeMode = draft?.theme ?? "system";
   const settingsTheme = draft?.settings_theme ?? "follow";
@@ -7304,172 +7299,11 @@ export function SettingsPage({
                         />
                       </label>
                     </div>
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          中文标点<small>默认使用中文标点符号</small>
-                        </span>
-                        <input
-                          className="toggle"
-                          type="checkbox"
-                          checked={draft.chinese_punctuation}
-                          onChange={(event) =>
-                            setDraft({ ...draft, chinese_punctuation: event.target.checked })
-                          }
-                        />
-                      </label>
-                    </div>
-                    {showCharacterWidth && (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">
-                            全角输入
-                            <small>
-                              将英文字符和空格提交为全角形式，会话开始时生效；工具栏、键盘的更多工具或快捷键可临时切换
-                            </small>
-                          </span>
-                          <input
-                            aria-label="全角输入"
-                            className="toggle"
-                            type="checkbox"
-                            checked={(draft.character_width ?? "halfwidth") === "fullwidth"}
-                            onChange={(event) =>
-                              setDraft({
-                                ...draft,
-                                character_width: event.target.checked ? "fullwidth" : "halfwidth",
-                              })
-                            }
-                          />
-                        </label>
-                      </div>
-                    )}
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          智能标点
-                          <small>中文标点模式下，字母或数字后的 , . : 自动使用英文标点</small>
-                        </span>
-                        <input
-                          className="toggle"
-                          type="checkbox"
-                          checked={smartPunctuation}
-                          onChange={(event) =>
-                            setDraft({ ...draft, smart_punctuation: event.target.checked })
-                          }
-                        />
-                      </label>
-                    </div>
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          重复标点转中文
-                          <small>
-                            智能标点输出英文标点后，2 秒内再次输入同一标点时替换为中文标点
-                          </small>
-                        </span>
-                        <input
-                          className="toggle"
-                          type="checkbox"
-                          checked={smartPunctuationRepeat}
-                          onChange={(event) =>
-                            setDraft({ ...draft, smart_punctuation_repeat: event.target.checked })
-                          }
-                        />
-                      </label>
-                    </div>
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          中文标点后按空格转换
-                          <small>刚输入中文标点后按空格，转换为对应英文标点</small>
-                        </span>
-                        <input
-                          className="toggle"
-                          type="checkbox"
-                          checked={smartPunctuationSpaceConvert}
-                          onChange={(event) =>
-                            setDraft({
-                              ...draft,
-                              smart_punctuation_space_convert: event.target.checked,
-                            })
-                          }
-                        />
-                      </label>
-                    </div>
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          数字后直出<small>数字后输入逗号、句点或冒号时保留 ASCII 标点</small>
-                        </span>
-                        <input
-                          className="toggle"
-                          type="checkbox"
-                          checked={smartPunctuationDirectDigit}
-                          onChange={(event) =>
-                            setDraft({
-                              ...draft,
-                              smart_punctuation_direct_digit: event.target.checked,
-                            })
-                          }
-                        />
-                      </label>
-                    </div>
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          字母后直出<small>字母后输入逗号、句点或冒号时保留 ASCII 标点</small>
-                        </span>
-                        <input
-                          className="toggle"
-                          type="checkbox"
-                          checked={smartPunctuationDirectLetter}
-                          onChange={(event) =>
-                            setDraft({
-                              ...draft,
-                              smart_punctuation_direct_letter: event.target.checked,
-                            })
-                          }
-                        />
-                      </label>
-                    </div>
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          成对标点自动补全
-                          <small>输入左侧符号时自动补全右侧符号，并将光标置于中间</small>
-                        </span>
-                        <input
-                          className="toggle"
-                          type="checkbox"
-                          checked={pairedPunctuation}
-                          onChange={(event) =>
-                            setDraft({ ...draft, paired_punctuation: event.target.checked })
-                          }
-                        />
-                      </label>
-                    </div>
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          固定标点<small>切换中英文时的标点形态，三者互斥</small>
-                        </span>
-                        <select
-                          aria-label="固定标点"
-                          value={punctuationLock}
-                          onChange={(event) =>
-                            setDraft({
-                              ...draft,
-                              punctuation_lock: event.target
-                                .value as Preferences["punctuation_lock"],
-                            })
-                          }
-                        >
-                          <option value="follow">跟随中英文状态</option>
-                          <option value="chinese">始终使用中文标点</option>
-                          <option value="english">始终使用英文标点</option>
-                        </select>
-                      </label>
-                    </div>
+                    <PunctuationSection
+                      preferences={draft}
+                      showCharacterWidth={showCharacterWidth}
+                      onChange={(patch) => setDraft({ ...draft, ...patch })}
+                    />
                     <div className="section" role="group" aria-label="中英混输">
                       <label className="section-header">
                         <span className="section-title">
