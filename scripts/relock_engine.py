@@ -22,11 +22,28 @@ from typing import Callable
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCK = ROOT / "engine-lock.json"
+# Keep the scheduled relock download bounded even though the lock records only a digest.
+MAX_ARCHIVE_BYTES = 512 * 1024 * 1024
+DOWNLOAD_CHUNK_BYTES = 1024 * 1024
 
 
 def fetch(url: str) -> bytes:
     with urllib.request.urlopen(url, timeout=300) as response:
-        return response.read()
+        advertised = response.headers.get("Content-Length")
+        if advertised is not None:
+            try:
+                if int(advertised) > MAX_ARCHIVE_BYTES:
+                    raise RuntimeError(f"archive exceeds the {MAX_ARCHIVE_BYTES} byte limit")
+            except ValueError:
+                pass
+        chunks = []
+        size = 0
+        while chunk := response.read(DOWNLOAD_CHUNK_BYTES):
+            if size + len(chunk) > MAX_ARCHIVE_BYTES:
+                raise RuntimeError(f"archive exceeds the {MAX_ARCHIVE_BYTES} byte limit")
+            chunks.append(chunk)
+            size += len(chunk)
+        return b"".join(chunks)
 
 
 def relock(lock: dict, commit: str, download: Callable[[str], bytes] = fetch) -> dict:
@@ -35,6 +52,8 @@ def relock(lock: dict, commit: str, download: Callable[[str], bytes] = fetch) ->
         raise ValueError(f"not a full commit id: {commit!r}")
     archive = f"https://github.com/{lock['repository']}/archive/{commit}.tar.gz"
     data = download(archive)
+    if len(data) > MAX_ARCHIVE_BYTES:
+        raise RuntimeError(f"archive exceeds the {MAX_ARCHIVE_BYTES} byte limit")
     with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as source:
         roots = {member.name.split("/", 1)[0] for member in source.getmembers() if member.name}
     if len(roots) != 1 or not roots.pop().endswith(f"-{commit}"):
