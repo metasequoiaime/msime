@@ -54,7 +54,7 @@ use platform::macos::{
     macos_handwriting, macos_input_source, macos_keyboard, macos_launch, macos_panel_session,
 };
 #[cfg(any(target_os = "ios", target_os = "android"))]
-use platform::mobile::mobile_account_helpers::validate_cloud_dictionary_request;
+use platform::mobile::mobile_account_helpers::parse_cloud_dictionary_request;
 #[cfg(any(target_os = "ios", target_os = "android"))]
 use platform::mobile::mobile_cloud_clipboard;
 #[cfg(any(target_os = "ios", target_os = "android"))]
@@ -2091,8 +2091,8 @@ async fn cloud_dictionary_request(
     state: tauri::State<'_, ios_account::AccountState>,
     action: Value,
 ) -> Result<Value, CommandError> {
-    validate_cloud_dictionary_request(&action)?;
-    ios_account::cloud_dictionary_request(state, action).await
+    let request = parse_cloud_dictionary_request(&action)?;
+    ios_account::cloud_dictionary_request(state, request).await
 }
 
 #[cfg(target_os = "android")]
@@ -2101,8 +2101,8 @@ async fn cloud_dictionary_request(
     state: tauri::State<'_, android_account::AccountState>,
     action: Value,
 ) -> Result<Value, CommandError> {
-    validate_cloud_dictionary_request(&action)?;
-    android_account::cloud_dictionary_request(state, action).await
+    let request = parse_cloud_dictionary_request(&action)?;
+    android_account::cloud_dictionary_request(state, request).await
 }
 
 #[derive(serde::Serialize)]

@@ -1175,14 +1175,10 @@ pub async fn account_forget(state: State<'_, AccountState>) -> Result<(), crate:
 
 pub async fn cloud_dictionary_request(
     state: State<'_, AccountState>,
-    action: Value,
+    request: msime_host_api::cloud_dictionary::CloudDictionaryRequest,
 ) -> Result<Value, crate::CommandError> {
     use msime_host_api::cloud_dictionary::CloudDictionaryRequest;
 
-    let request: CloudDictionaryRequest =
-        serde_json::from_value(action).map_err(|_| crate::CommandError {
-            code: "invalid_cloud_dictionary",
-        })?;
     match request {
         CloudDictionaryRequest::SnapshotPreview => dictionary_snapshot_preview(state).await,
         CloudDictionaryRequest::SnapshotExport => dictionary_snapshot_export(state).await,

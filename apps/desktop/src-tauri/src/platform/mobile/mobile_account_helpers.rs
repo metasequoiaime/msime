@@ -55,19 +55,18 @@ pub(crate) fn clear_snapshot_previews_after<T>(
     result
 }
 
-pub(crate) fn validate_cloud_dictionary_request(action: &Value) -> Result<(), crate::CommandError> {
-    let request =
-        serde_json::from_value::<msime_host_api::cloud_dictionary::CloudDictionaryRequest>(
-            action.clone(),
-        )
-        .map_err(|_| crate::CommandError {
-            code: "invalid_cloud_dictionary",
-        })?;
+pub(crate) fn parse_cloud_dictionary_request(
+    action: &Value,
+) -> Result<msime_host_api::cloud_dictionary::CloudDictionaryRequest, crate::CommandError> {
+    let request = serde_json::from_value(action.clone()).map_err(|_| crate::CommandError {
+        code: "invalid_cloud_dictionary",
+    })?;
     msime_host_api::cloud_dictionary::validate_cloud_request(&request).map_err(|_| {
         crate::CommandError {
             code: "invalid_cloud_dictionary",
         }
-    })
+    })?;
+    Ok(request)
 }
 
 pub(crate) fn dictionary_kind(value: &str) -> Result<DictionaryKind, crate::CommandError> {
