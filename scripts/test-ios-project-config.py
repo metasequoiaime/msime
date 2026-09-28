@@ -362,14 +362,18 @@ class IOSProjectConfigTests(unittest.TestCase):
         generated = (APPLE_ROOT / "msime-desktop.xcodeproj/project.pbxproj").read_text()
         rust_entry = (TAURI_ROOT / "src/lib.rs").read_text()
         account = (TAURI_ROOT / "src/platform/ios/ios_account.rs").read_text()
+        shared_account = (TAURI_ROOT / "src/platform/mobile/mobile_account_helpers.rs").read_text()
         desktop_entry = (TAURI_ROOT.parent / "src/main.tsx").read_text()
         bridge = (TAURI_ROOT / "../../../platforms/ios/App/Sources/dictionary/TauriDictionarySnapshotBridge.swift").read_text()
 
-        self.assertIn("ios_account::cloud_dictionary_request(state, action).await", rust_entry)
+        self.assertIn("parse_cloud_dictionary_request(&action)?", rust_entry)
+        self.assertIn("ios_account::cloud_dictionary_request(state, request).await", rust_entry)
         self.assertIn("pub async fn cloud_dictionary_request", account)
+        # The account-backed dictionary calls are dispatched once for iOS and Android.
+        self.assertIn("cloud_dictionary_account_request(state, &request).await", account)
         for method in [
-            "session.dictionary(kind, &search, offset)",
-            "dictionary_catalog(kind, &code, offset, &scheme, &profile)",
+            "session.dictionary(kind, &search, *offset)",
+            "dictionary_catalog(kind, &code, *offset, &scheme, &profile)",
             ".add_dictionary(",
             ".update_dictionary(",
             ".personal_candidates(",
@@ -378,7 +382,7 @@ class IOSProjectConfigTests(unittest.TestCase):
             ".import_dictionary(",
             ".export_dictionary(",
         ]:
-            self.assertIn(method, account)
+            self.assertIn(method, shared_account)
         self.assertIn(
             'openCloudDictionary: async () => navigateMobilePanel("cloud-dictionary")',
             desktop_entry,
