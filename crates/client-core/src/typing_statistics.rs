@@ -388,7 +388,7 @@ impl TypingStatistics {
         let Some(days) = self.retention.days() else {
             return;
         };
-        let Some(boundary) = day_before(today, days) else {
+        let Some(boundary) = crate::calendar::shift_day(today, -i64::from(days)) else {
             return;
         };
         // Like the baseline's ClearThrough, which deletes the stats_daily rows its overview sums, a cleanup takes the pruned days out of the running totals too, so "累计", the category split and the daily average cover the retained window. A legacy day without a breakdown only lowers `total`; `breakdown(None)` reports the rest as unclassified.
@@ -809,11 +809,6 @@ fn validate_counts(value: &TypingBreakdown, total: u64) -> Result<(), TypingStat
         }
     }
     Ok(())
-}
-
-/// The day key `days` days before `day`, or `None` when `day` is not a date.
-fn day_before(day: &str, days: u32) -> Option<String> {
-    crate::calendar::shift_day(day, -i64::from(days))
 }
 
 fn validate_day(day: &str) -> Result<(), TypingStatisticsError> {

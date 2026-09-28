@@ -283,7 +283,7 @@ fn retention_and_reset_take_the_activity_axes_with_them() {
     // The first commit has no gap to measure, so it is the one day without active time.
     assert_eq!(value.daily_active_ms.len(), recorded - 1);
 
-    let boundary = day_before(&last_day, 365).unwrap();
+    let boundary = crate::calendar::shift_day(&last_day, -365).unwrap();
     let narrowed = store
         .set_retention(StatisticsRetention::Days365, &last_day)
         .unwrap();
@@ -377,15 +377,33 @@ fn a_document_with_more_than_a_year_of_days_loads() {
 fn the_retention_boundary_is_calendar_arithmetic() {
     // Across a month, a year and a leap day, which is what a subtraction on the day number
     // alone would get wrong.
-    assert_eq!(day_before("2026-09-21", 0).as_deref(), Some("2026-09-21"));
-    assert_eq!(day_before("2026-09-21", 30).as_deref(), Some("2026-08-22"));
-    assert_eq!(day_before("2026-01-05", 30).as_deref(), Some("2025-12-06"));
+    assert_eq!(
+        crate::calendar::shift_day("2026-09-21", 0).as_deref(),
+        Some("2026-09-21")
+    );
+    assert_eq!(
+        crate::calendar::shift_day("2026-09-21", -30).as_deref(),
+        Some("2026-08-22")
+    );
+    assert_eq!(
+        crate::calendar::shift_day("2026-01-05", -30).as_deref(),
+        Some("2025-12-06")
+    );
     // 2028 is a leap year: 2028-03-01 minus one day is the 29th.
-    assert_eq!(day_before("2028-03-01", 1).as_deref(), Some("2028-02-29"));
-    assert_eq!(day_before("2026-03-01", 1).as_deref(), Some("2026-02-28"));
-    assert_eq!(day_before("2027-01-01", 365).as_deref(), Some("2026-01-01"));
+    assert_eq!(
+        crate::calendar::shift_day("2028-03-01", -1).as_deref(),
+        Some("2028-02-29")
+    );
+    assert_eq!(
+        crate::calendar::shift_day("2026-03-01", -1).as_deref(),
+        Some("2026-02-28")
+    );
+    assert_eq!(
+        crate::calendar::shift_day("2027-01-01", -365).as_deref(),
+        Some("2026-01-01")
+    );
     // Not a date at all.
-    assert_eq!(day_before("not-a-day", 30), None);
+    assert_eq!(crate::calendar::shift_day("not-a-day", -30), None);
 }
 
 #[test]
