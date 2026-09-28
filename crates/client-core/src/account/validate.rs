@@ -51,12 +51,7 @@ pub(super) fn validate_clipboard_page(value: &AccountClipboardPage) -> Result<()
 }
 
 pub(super) fn dictionary_kind_path(kind: DictionaryKind) -> &'static str {
-    match kind {
-        DictionaryKind::Pinyin => "pinyin",
-        DictionaryKind::Wubi => "wubi",
-        DictionaryKind::Quick => "quick",
-        DictionaryKind::English => "english",
-    }
+    crate::cloud::dictionary::kind_path(kind)
 }
 
 fn dictionary_code_is_well_formed(kind: DictionaryKind, code: &str) -> bool {

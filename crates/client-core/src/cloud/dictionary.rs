@@ -55,16 +55,20 @@ pub fn validate_change_page(
 
 pub const MAX_IMPORT_BYTES: usize = 64 * 1024;
 
-pub fn dictionary_path(kind: DictionaryKind, offset: usize, search: &str) -> Option<String> {
-    if offset > 1_000_000 || !valid_bounded_text(search, 1024) {
-        return None;
-    }
-    let kind = match kind {
+pub(crate) fn kind_path(kind: DictionaryKind) -> &'static str {
+    match kind {
         DictionaryKind::Pinyin => "pinyin",
         DictionaryKind::Wubi => "wubi",
         DictionaryKind::Quick => "quick",
         DictionaryKind::English => "english",
-    };
+    }
+}
+
+pub fn dictionary_path(kind: DictionaryKind, offset: usize, search: &str) -> Option<String> {
+    if offset > 1_000_000 || !valid_bounded_text(search, 1024) {
+        return None;
+    }
+    let kind = kind_path(kind);
     Some(format!(
         "/v1/users/me/dictionaries/{kind}?q={}&offset={offset}&limit=100",
         percent_encode(search)
@@ -72,12 +76,7 @@ pub fn dictionary_path(kind: DictionaryKind, offset: usize, search: &str) -> Opt
 }
 
 pub fn mutation_path(kind: DictionaryKind, operation: &str) -> Option<String> {
-    let base = match kind {
-        DictionaryKind::Pinyin => "pinyin",
-        DictionaryKind::Wubi => "wubi",
-        DictionaryKind::Quick => "quick",
-        DictionaryKind::English => "english",
-    };
+    let base = kind_path(kind);
     match operation {
         "add" | "import" | "import-hans" | "export" => {
             Some(format!("/v1/users/me/dictionaries/{base}/{operation}"))
@@ -96,12 +95,7 @@ pub fn entry_path(entry: &DictionaryEntry) -> Option<String> {
     {
         return None;
     }
-    let kind = match entry.kind {
-        DictionaryKind::Pinyin => "pinyin",
-        DictionaryKind::Wubi => "wubi",
-        DictionaryKind::Quick => "quick",
-        DictionaryKind::English => "english",
-    };
+    let kind = kind_path(entry.kind);
     Some(format!("/v1/users/me/dictionaries/{kind}/{}", entry.id))
 }
 
