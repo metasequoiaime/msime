@@ -363,6 +363,12 @@ import {
 import { CloudPanelSessionNotice } from "./settings/cloud-panel-session-notice";
 import { WindowTitlebar } from "./settings/window-titlebar";
 export { WindowTitlebar, type WindowTitlebarProps } from "./settings/window-titlebar";
+import { windowResizeEdge } from "./settings/window-resize";
+export {
+  windowResizeEdge,
+  type WindowResizeBounds,
+  type WindowResizePoint,
+} from "./settings/window-resize";
 import * as surface from "./keyboard/panel-surface-style";
 import * as settings from "./settings/settings-style";
 import * as doc from "./settings/document-style";
@@ -3494,29 +3500,7 @@ export function SettingsPage({
       onPointerDownCapture={(event) => {
         if (!client.resizeWindow || event.button !== 0 || windowMaximized) return;
         const rect = event.currentTarget.getBoundingClientRect();
-        const edge = 8;
-        const n = event.clientY - rect.top < edge,
-          s = rect.bottom - event.clientY < edge;
-        const w = event.clientX - rect.left < edge,
-          e = rect.right - event.clientX < edge;
-        const value =
-          n && e
-            ? "ne"
-            : n && w
-              ? "nw"
-              : s && e
-                ? "se"
-                : s && w
-                  ? "sw"
-                  : n
-                    ? "n"
-                    : s
-                      ? "s"
-                      : e
-                        ? "e"
-                        : w
-                          ? "w"
-                          : null;
+        const value = windowResizeEdge(event, rect);
         if (value) {
           event.preventDefault();
           event.stopPropagation();
