@@ -589,16 +589,12 @@ pub(super) fn validate_chat_request(
 pub(super) fn validate_tokens(tokens: &AccountTokens) -> Result<(), AccountError> {
     if tokens.token_type != "Bearer"
         || tokens.expires_in == 0
-        || !valid_token(&tokens.access_token)
-        || !valid_token(&tokens.refresh_token)
+        || !crate::text::is_lower_hex(&tokens.access_token, 64)
+        || !crate::text::is_lower_hex(&tokens.refresh_token, 64)
     {
         return Err(AccountError::Unavailable);
     }
     validate_user(&tokens.user).map_err(|_| AccountError::Unavailable)
-}
-
-pub(super) fn valid_token(value: &str) -> bool {
-    crate::text::is_lower_hex(value, 64)
 }
 
 pub(super) fn validate_user(user: &AccountUser) -> Result<(), AccountError> {

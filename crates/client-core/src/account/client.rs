@@ -371,7 +371,7 @@ impl BackendAccountClient {
         destination: &Path,
         access_token: &str,
     ) -> Result<u64, AccountError> {
-        if !destination.is_absolute() || !valid_token(access_token) {
+        if !destination.is_absolute() || !crate::text::is_lower_hex(access_token, 64) {
             return Err(AccountError::Invalid);
         }
         let url = self
@@ -434,7 +434,7 @@ impl BackendAccountClient {
             || snapshot.is_empty()
             || snapshot.len() > MAX_DICTIONARY_SNAPSHOT_BYTES
             || snapshot.contains(&0)
-            || !valid_token(access_token)
+            || !crate::text::is_lower_hex(access_token, 64)
         {
             return Err(AccountError::Invalid);
         }
@@ -464,7 +464,7 @@ impl BackendAccountClient {
         revision: i64,
         access_token: &str,
     ) -> Result<AccountDictionarySnapshotRestore, AccountError> {
-        if revision < 0 || !snapshot.is_absolute() || !valid_token(access_token) {
+        if revision < 0 || !snapshot.is_absolute() || !crate::text::is_lower_hex(access_token, 64) {
             return Err(AccountError::Invalid);
         }
         let file = std::fs::File::open(snapshot).map_err(|_| AccountError::Invalid)?;
@@ -958,7 +958,7 @@ impl AccountApi for BackendAccountClient {
     }
 
     fn refresh(&self, refresh_token: &str) -> Result<AccountTokens, AccountError> {
-        if !valid_token(refresh_token) {
+        if !crate::text::is_lower_hex(refresh_token, 64) {
             return Err(AccountError::Invalid);
         }
         #[derive(Serialize)]
@@ -976,7 +976,7 @@ impl AccountApi for BackendAccountClient {
     }
 
     fn profile(&self, access_token: &str) -> Result<AccountProfile, AccountError> {
-        if !valid_token(access_token) {
+        if !crate::text::is_lower_hex(access_token, 64) {
             return Err(AccountError::Invalid);
         }
         let profile =
@@ -1017,7 +1017,7 @@ impl AccountApi for BackendAccountClient {
     }
 
     fn chat_models(&self, access_token: &str) -> Result<AccountChatModels, AccountError> {
-        if !valid_token(access_token) {
+        if !crate::text::is_lower_hex(access_token, 64) {
             return Err(AccountError::Invalid);
         }
         let models = self.json::<AccountChatModels, ()>(
@@ -1036,7 +1036,7 @@ impl AccountApi for BackendAccountClient {
         model: &str,
         access_token: &str,
     ) -> Result<String, AccountError> {
-        if !valid_token(access_token) {
+        if !crate::text::is_lower_hex(access_token, 64) {
             return Err(AccountError::Invalid);
         }
         validate_chat_request(messages, model)?;
@@ -1093,7 +1093,7 @@ impl AccountApi for BackendAccountClient {
         &self,
         access_token: &str,
     ) -> Result<AccountPreferenceSchema, AccountError> {
-        if !valid_token(access_token) {
+        if !crate::text::is_lower_hex(access_token, 64) {
             return Err(AccountError::Invalid);
         }
         let schema = self.json::<AccountPreferenceSchema, ()>(
@@ -1107,7 +1107,7 @@ impl AccountApi for BackendAccountClient {
     }
 
     fn preferences(&self, access_token: &str) -> Result<AccountPreferences, AccountError> {
-        if !valid_token(access_token) {
+        if !crate::text::is_lower_hex(access_token, 64) {
             return Err(AccountError::Invalid);
         }
         let preferences = self.json::<AccountPreferences, ()>(
@@ -1125,7 +1125,7 @@ impl AccountApi for BackendAccountClient {
         preferences: &AccountPreferences,
         access_token: &str,
     ) -> Result<AccountPreferences, AccountError> {
-        if !valid_token(access_token) {
+        if !crate::text::is_lower_hex(access_token, 64) {
             return Err(AccountError::Invalid);
         }
         validate_account_preferences(preferences)?;
