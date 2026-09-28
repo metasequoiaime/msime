@@ -129,6 +129,7 @@ import { CandidatePageSizeSection } from "./settings/candidate-page-size-section
 import { CandidateLayoutSection } from "./settings/candidate-layout-section";
 import { CandidateFollowCursorSection } from "./settings/candidate-follow-cursor-section";
 import { CandidatePanelLimitSection } from "./settings/candidate-panel-limit-section";
+import { CandidateFontUnsupportedNotice } from "./settings/candidate-font-unsupported-notice";
 import { CandidateEnglishGlossSection } from "./settings/candidate-english-gloss-section";
 import { BuiltInSkinsSection } from "./settings/built-in-skins-section";
 import { EnglishSuggestionsSection } from "./settings/english-suggestions-section";
@@ -518,6 +519,7 @@ export {
   type CandidatePanelLimit,
   type CandidatePanelLimitSectionProps,
 } from "./settings/candidate-panel-limit-section";
+export { CandidateFontUnsupportedNotice } from "./settings/candidate-font-unsupported-notice";
 export {
   CandidateEnglishGlossSection,
   type CandidateEnglishGlossSectionProps,
@@ -3950,9 +3952,7 @@ export function SettingsPage({
                         mobile={mobilePlatform}
                       />
                     ) : (
-                      <div className="section">
-                        <small>当前宿主的候选面板不支持自定义字体或字号。</small>
-                      </div>
+                      <CandidateFontUnsupportedNotice />
                     )}
                     <CandidateSizingSection
                       preferences={draft}
