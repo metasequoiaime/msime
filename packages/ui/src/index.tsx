@@ -144,6 +144,7 @@ import { LearningDataSection } from "./settings/learning-data-section";
 import { DictionaryManagerHeader } from "./settings/dictionary-manager-header";
 import { SettingsActionsFooter } from "./settings/settings-actions-footer";
 import { AboutHeroSection } from "./settings/about-hero-section";
+import { AboutSettingsSection } from "./settings/about-settings-section";
 import { DefaultImeModeSection, type DefaultImeMode } from "./settings/default-ime-mode-section";
 import { InputModeHudSection } from "./settings/input-mode-hud-section";
 import { ImeModeScopeSection } from "./settings/ime-mode-scope-section";
@@ -606,6 +607,10 @@ export {
   type SettingsActionsFooterProps,
 } from "./settings/settings-actions-footer";
 export { AboutHeroSection, type AboutHeroSectionProps } from "./settings/about-hero-section";
+export {
+  AboutSettingsSection,
+  type AboutSettingsSectionProps,
+} from "./settings/about-settings-section";
 export { SkinPlatformNotice, type SkinPlatformNoticeProps } from "./settings/skin-platform-notice";
 export {
   DefaultImeModeSection,
@@ -4678,128 +4683,66 @@ export function SettingsPage({
                         : undefined
                     }
                   />
-                  <fieldset disabled={busy} hidden={page !== "about"} aria-label="关于">
-                    <AboutHeroSection logo={logo} description={platformAboutDescription} />
-                    <div className={`section ${doc.linkList}`}>
-                      <div className={`${doc.linkRow} ${doc.versionRow}`}>
-                        <div>
-                          <div className={doc.linkTitle}>当前版本</div>
-                          <div className={doc.version}>v{currentAppVersion}</div>
-                          {updateStatus && (
-                            <p className={doc.updateStatus} role="status">
-                              {updateStatus}
-                            </p>
-                          )}
-                        </div>
-                        <button
-                          type="button"
-                          className={`secondary ${doc.updateButton}`}
-                          disabled={updateBusy}
-                          onClick={() => void checkForUpdate()}
-                        >
-                          {updateBusy ? "正在检查…" : "检查更新"}
-                        </button>
-                      </div>
-                      {availableUpdate && (
-                        <div className={doc.updateResult}>
-                          <p>水杉 IME v{availableUpdate.version.display} 已发布。</p>
-                          {installerTrust?.warning && (
-                            <p className={doc.updateWarning}>{installerTrust.warning}</p>
-                          )}
-                          {installerTrust?.verify && (
-                            <>
-                              <p>
-                                下载后请核对 SHA256：<code>{installerTrust.verify.sha256}</code>
-                              </p>
-                              <p>
-                                核对命令：<code>{installerTrust.verify.command}</code>
-                              </p>
-                            </>
-                          )}
-                          <button
-                            type="button"
-                            className="secondary"
-                            onClick={() => void openExternalUrl(availableUpdate.releaseUrl)}
-                          >
-                            前往下载
-                          </button>
-                        </div>
-                      )}
-                      <button
-                        type="button"
-                        className={doc.linkRow}
-                        onClick={() => void openExternalUrl(platformLicenseUrl)}
-                      >
-                        <span className={doc.linkTitle}>开源许可协议</span>
-                        <span aria-hidden="true">↗</span>
-                      </button>
-                      <button
-                        type="button"
-                        className={doc.linkRow}
-                        onClick={() =>
-                          void openExternalUrl(
-                            linuxPlatform
-                              ? linuxPrivacyUrl
-                              : clientHostedPlatform
-                                ? androidPrivacyUrl
-                                : privacyUrl,
-                          )
-                        }
-                      >
-                        <span className={doc.linkTitle}>隐私政策</span>
-                        <span aria-hidden="true">↗</span>
-                      </button>
-                    </div>
-                    <DataDirectorySection
-                      visible={Boolean((macosPlatform || linuxPlatform) && client.dataDirectory)}
-                      linux={linuxPlatform}
-                      dataDirectory={dataDirectory}
-                      busy={dataDirectoryBusy}
-                      result={dataDirectoryResult}
-                      onChoose={() => void chooseDataDirectory()}
-                    />
-                    {macosPlatform && (
-                      <LicenseUninstallSection
-                        openThirdPartyLicenses={client.openThirdPartyLicenses}
-                        uninstallInputSource={client.uninstallInputSource}
-                        removeUserData={removeUserDataOnUninstall}
-                        uninstallBusy={uninstallBusy}
-                        uninstallConfirmation={uninstallConfirmation}
-                        uninstallResult={uninstallResult}
-                        onRemoveUserDataChange={setRemoveUserDataOnUninstall}
-                        onRequestUninstall={() => {
-                          setUninstallResult(null);
-                          setUninstallConfirmation(true);
-                        }}
-                        onConfirmUninstall={() => void uninstallInputSource()}
-                        onCancelUninstall={() => setUninstallConfirmation(false)}
-                      />
+                  <AboutSettingsSection
+                    disabled={busy}
+                    hidden={page !== "about"}
+                    logo={logo}
+                    description={platformAboutDescription}
+                    currentAppVersion={currentAppVersion}
+                    updateStatus={updateStatus}
+                    updateBusy={updateBusy}
+                    availableUpdate={availableUpdate}
+                    installerTrust={installerTrust}
+                    licenseUrl={platformLicenseUrl}
+                    privacyUrl={
+                      linuxPlatform
+                        ? linuxPrivacyUrl
+                        : clientHostedPlatform
+                          ? androidPrivacyUrl
+                          : privacyUrl
+                    }
+                    macos={macosPlatform}
+                    linux={linuxPlatform}
+                    windows={windowsPlatform || !client.host}
+                    mobile={mobilePlatform}
+                    dataDirectoryVisible={Boolean(
+                      (macosPlatform || linuxPlatform) && client.dataDirectory,
                     )}
-                    <HelpFeedbackSection
-                      visible={mobilePlatform}
-                      onHelp={() => selectPage("help")}
-                      onFeedback={() => selectPage("feedback")}
-                    />
-                    <DiagnosticLogsSection
-                      visible={!client.host || linuxPlatform || windowsPlatform || macosPlatform}
-                      linux={linuxPlatform}
-                      macos={macosPlatform}
-                      windows={windowsPlatform || !client.host}
-                      values={diagnosticLog}
-                      openDirectory={client.openDiagnosticLogDirectory}
-                      onChange={(patch) =>
-                        setDraft({ ...draft, diagnostic_log: { ...diagnosticLog, ...patch } })
-                      }
-                      onError={setError}
-                    />
-                    {/* Only the Windows Server reads this switch; the other hosts report on their own terms, described in PRIVACY.md, so offering it there would be a switch that changes nothing. */}
-                    {windowsPlatform && (
-                      <TelemetrySection
-                        value={draft.telemetry_enabled}
-                        onChange={(telemetry_enabled) => setDraft({ ...draft, telemetry_enabled })}
-                      />
-                    )}
-                  </fieldset>
+                    dataDirectory={dataDirectory}
+                    dataDirectoryBusy={dataDirectoryBusy}
+                    dataDirectoryResult={dataDirectoryResult}
+                    onCheckForUpdate={() => void checkForUpdate()}
+                    onOpenExternalUrl={openExternalUrl}
+                    onChooseDataDirectory={() => void chooseDataDirectory()}
+                    openThirdPartyLicenses={client.openThirdPartyLicenses}
+                    uninstallInputSource={client.uninstallInputSource}
+                    removeUserData={removeUserDataOnUninstall}
+                    uninstallBusy={uninstallBusy}
+                    uninstallConfirmation={uninstallConfirmation}
+                    uninstallResult={uninstallResult}
+                    onRemoveUserDataChange={setRemoveUserDataOnUninstall}
+                    onRequestUninstall={() => {
+                      setUninstallResult(null);
+                      setUninstallConfirmation(true);
+                    }}
+                    onConfirmUninstall={() => void uninstallInputSource()}
+                    onCancelUninstall={() => setUninstallConfirmation(false)}
+                    diagnosticVisible={
+                      !client.host || linuxPlatform || windowsPlatform || macosPlatform
+                    }
+                    diagnosticLog={diagnosticLog}
+                    openDiagnosticLogDirectory={client.openDiagnosticLogDirectory}
+                    onDiagnosticLogChange={(patch) =>
+                      setDraft({ ...draft, diagnostic_log: { ...diagnosticLog, ...patch } })
+                    }
+                    onDiagnosticLogError={setError}
+                    telemetryEnabled={draft.telemetry_enabled}
+                    onTelemetryChange={(telemetry_enabled) =>
+                      setDraft({ ...draft, telemetry_enabled })
+                    }
+                    onHelp={() => selectPage("help")}
+                    onFeedback={() => selectPage("feedback")}
+                  />
                   <fieldset
                     disabled={busy}
                     hidden={page !== "screen-keyboard"}
