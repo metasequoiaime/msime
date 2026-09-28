@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { clamp } from "../core/number";
 import { touchKeyboardSkinOption, type TouchKeyboardSkin } from "./screen-keyboard-preview";
 import { keyboardRgba } from "./keyboard-colors";
 import { skinColor, type TouchKeyboardSkinDesign } from "./touch-keyboard-skin-design";
@@ -46,8 +47,8 @@ export function keyboardBackgroundStyle(
       ? custom.photo
       : undefined;
   if (photo) {
-    const shade = Math.max(0, Math.min(0.8, custom?.photoShade ?? 0.25));
-    const position = Math.max(0, Math.min(1, custom?.photoPosition ?? 0.5)) * 100;
+    const shade = clamp(custom?.photoShade ?? 0.25, 0, 0.8);
+    const position = clamp(custom?.photoPosition ?? 0.5, 0, 1) * 100;
     add(`url("data:image/jpeg;base64,${photo}")`, "cover", `${position}% ${position}%`);
     add(`linear-gradient(rgba(0, 0, 0, ${shade}), rgba(0, 0, 0, ${shade}))`, "cover");
   }

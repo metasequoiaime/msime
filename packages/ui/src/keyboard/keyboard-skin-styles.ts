@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { clamp } from "../core/number";
 import {
   touchKeyboardSkinOption,
   touchKeyboardSkinPalette,
@@ -30,8 +31,8 @@ export function keyboardSkinStyles(
       : keyShape === "pebble"
         ? "42% 58% 48% 52% / 52% 44% 56% 48%"
         : keyShape === "ticket"
-          ? `${Math.min(4, Math.max(0, radius))}px`
-          : `${Math.max(0, Math.min(20, radius))}px`;
+          ? `${clamp(radius, 0, 4)}px`
+          : `${clamp(radius, 0, 20)}px`;
   const fontFamily =
     (custom?.monospaced ?? option.monospaced)
       ? "ui-monospace, SFMono-Regular, Consolas, monospace"
@@ -51,7 +52,7 @@ export function keyboardSkinStyles(
     "--kb-active": mixKeyboardColor(palette.key, palette.accent, 0.3),
     "--kb-pressed": mixKeyboardColor(palette.key, palette.accent, 0.42),
     "--kb-key-radius": keyRadius,
-    "--kb-border-width": `${Math.max(0, Math.min(2, borderWidth))}px`,
+    "--kb-border-width": `${clamp(borderWidth, 0, 2)}px`,
     "--kb-border-color": palette.accent,
     "--kb-shadow":
       shadowOpacity > 0

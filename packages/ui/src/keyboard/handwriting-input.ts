@@ -1,5 +1,6 @@
 import type { InkPoint } from "./panels";
 import type { PointerEvent } from "react";
+import { clamp } from "../core/number";
 
 export type Point = InkPoint;
 export const MAX_HANDWRITING_STROKES = 32;
@@ -29,7 +30,7 @@ export function pointFromCoordinates(
       pointer.y = event.clientY;
       const local = pointer.matrixTransform(matrix.inverse());
       if (Number.isFinite(local.x) && Number.isFinite(local.y)) {
-        return { x: Math.max(0, Math.min(420, local.x)), y: Math.max(0, Math.min(420, local.y)) };
+        return { x: clamp(local.x, 0, 420), y: clamp(local.y, 0, 420) };
       }
     } catch {
       /* A detached or non-invertible canvas uses the bounded fallback. */
@@ -39,8 +40,8 @@ export function pointFromCoordinates(
   const width = rect.width || 420;
   const height = rect.height || 420;
   return {
-    x: Math.max(0, Math.min(420, ((event.clientX - rect.left) / width) * 420)),
-    y: Math.max(0, Math.min(420, ((event.clientY - rect.top) / height) * 420)),
+    x: clamp(((event.clientX - rect.left) / width) * 420, 0, 420),
+    y: clamp(((event.clientY - rect.top) / height) * 420, 0, 420),
   };
 }
 

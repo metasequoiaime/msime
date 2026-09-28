@@ -1,4 +1,5 @@
 import { skinLuminance } from "./touch-keyboard-skin-design";
+import { clamp } from "../core/number";
 
 export function mixKeyboardColor(first: string, second: string, amount: number) {
   const parse = (value: string) => Number.parseInt(value.replace(/^#/, ""), 16);
@@ -19,5 +20,5 @@ export function keyboardRgba(value: string, opacity: number) {
   const parsed = Number.parseInt(value.replace(/^#/, ""), 16);
   if (!Number.isFinite(parsed)) return value;
   const channel = (shift: number) => (parsed >> shift) & 0xff;
-  return `rgba(${channel(16)}, ${channel(8)}, ${channel(0)}, ${Math.max(0, Math.min(1, opacity))})`;
+  return `rgba(${channel(16)}, ${channel(8)}, ${channel(0)}, ${clamp(opacity, 0, 1)})`;
 }

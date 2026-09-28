@@ -1,6 +1,7 @@
 import { useConfirm } from "./core/confirm";
 import { errorCode } from "./core/error-code";
 import { errorMessage } from "./core/error-message";
+import { clamp } from "./core/number";
 import { randomRequestId } from "./core/random-id";
 import {
   inferredTouchKeyboardScheme,
@@ -2447,8 +2448,8 @@ export function SettingsPage({
         ? {
             ...current,
             ...(drag.axis === "row"
-              ? { touch_row_spacing_tenths: Math.min(100, Math.max(40, value)) }
-              : { touch_key_spacing_tenths: Math.min(60, Math.max(30, value)) }),
+              ? { touch_row_spacing_tenths: clamp(value, 40, 100) }
+              : { touch_key_spacing_tenths: clamp(value, 30, 60) }),
           }
         : current,
     );

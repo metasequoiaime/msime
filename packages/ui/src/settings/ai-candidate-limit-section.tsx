@@ -1,3 +1,5 @@
+import { clamp } from "../core/number";
+
 export function AiCandidateLimitSection({
   value,
   onChange,
@@ -15,7 +17,7 @@ export function AiCandidateLimitSection({
           min="1"
           max="10"
           value={value}
-          onChange={(event) => onChange(Math.max(1, Math.min(10, Number(event.target.value) || 3)))}
+          onChange={(event) => onChange(clamp(Number(event.target.value) || 3, 1, 10))}
         />
       </label>
     </div>

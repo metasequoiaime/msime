@@ -1,4 +1,5 @@
 import { errorCode } from "../core/error-code";
+import { clamp } from "../core/number";
 import type { LocalVoiceModel, LocalVoiceModelProgress } from "./local-models";
 
 const LANGUAGE_NAMES: Record<string, string> = {
@@ -39,7 +40,7 @@ export function visibleLocalModels(
 export function localModelProgressPercent(progress: LocalVoiceModelProgress | undefined): number {
   if (!progress || progress.total <= 0) return 0;
   if (progress.stage === "done") return 100;
-  return Math.min(100, Math.max(0, Math.floor((progress.downloaded / progress.total) * 100)));
+  return clamp(Math.floor((progress.downloaded / progress.total) * 100), 0, 100);
 }
 
 export function localModelStageLabel(stage: string): string {

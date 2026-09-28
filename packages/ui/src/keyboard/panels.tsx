@@ -1,4 +1,5 @@
 import { useConfirm } from "../core/confirm";
+import { clamp } from "../core/number";
 import { utf8ByteLength } from "../core/text";
 import { readDictionaryFile } from "../dictionary/dictionary-file";
 import { usePanelDrag } from "./use-panel-drag";
@@ -628,8 +629,8 @@ export function KeyboardPanel({
       );
     return match ?? fallback;
   }
-  const keyGap = Math.max(3, Math.min(6, keySpacingTenths / 10));
-  const rowGap = Math.max(4, Math.min(10, rowSpacingTenths / 10));
+  const keyGap = clamp(keySpacingTenths / 10, 3, 6);
+  const rowGap = clamp(rowSpacingTenths / 10, 4, 10);
   const keyboardStyle = {
     "--keyboard-key-gap": `${keyGap}px`,
     "--keyboard-row-gap": `${rowGap}px`,
@@ -3891,9 +3892,7 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
                 min="1"
                 max="100"
                 value={step}
-                onChange={(event) =>
-                  setStep(Math.max(1, Math.min(100, Number(event.target.value) || 1)))
-                }
+                onChange={(event) => setStep(clamp(Number(event.target.value) || 1, 1, 100))}
                 disabled={busy || mode !== "linear"}
               />
             </label>
@@ -3905,9 +3904,7 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
                 min="1"
                 max="10"
                 value={trigger}
-                onChange={(event) =>
-                  setTrigger(Math.max(1, Math.min(10, Number(event.target.value) || 1)))
-                }
+                onChange={(event) => setTrigger(clamp(Number(event.target.value) || 1, 1, 10))}
                 disabled={busy}
               />
             </label>

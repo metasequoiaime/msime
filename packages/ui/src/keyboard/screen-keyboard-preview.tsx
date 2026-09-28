@@ -1,4 +1,5 @@
 import { useId } from "react";
+import { clamp } from "../core/number";
 import {
   readableSkinText,
   skinColor,
@@ -365,9 +366,9 @@ export function ScreenKeyboardPreview({
   const backgroundId = `touch-skin-background-${unique}`;
   const keyMaterialId = `touch-skin-key-material-${unique}`;
   const actionMaterialId = `touch-skin-action-material-${unique}`;
-  const keySpacing = Math.min(6, Math.max(3, keySpacingTenths / 10));
-  const rowSpacing = Math.min(10, Math.max(4, rowSpacingTenths / 10));
-  const canvasHeight = 400 + Math.min(48, Math.max(-12, heightAdjustment));
+  const keySpacing = clamp(keySpacingTenths / 10, 3, 6);
+  const rowSpacing = clamp(rowSpacingTenths / 10, 4, 10);
+  const canvasHeight = 400 + clamp(heightAdjustment, -12, 48);
   // Keep the default artwork byte-for-byte equivalent while making the
   // non-default geometry visibly track the iOS keyboard settings sliders.
   const keyGap = 4 + keySpacing - 6;

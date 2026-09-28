@@ -1,3 +1,5 @@
+import { clamp } from "../core/number";
+
 export function dayKey(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -28,7 +30,7 @@ export function mobileTrendLength(days: Record<string, number>): number {
         start.getTime()) /
         86_400_000,
     ) + 1;
-  return Math.min(366, Math.max(30, span));
+  return clamp(span, 30, 366);
 }
 
 export function sumStatisticValues(
