@@ -1,42 +1,15 @@
+use crate::platform::mobile::mobile_account_preferences::{
+    frequency_account_preferences, insert_bool, insert_string,
+};
 use msime_client_core::account::{
     validate_account_preferences, AccountError, AccountPreferenceValue, AccountPreferences,
 };
 use msime_client_core::preferences::{
-    ChineseScheme, FrequencyMode, FrequencyPreferences, InputScheme, Preferences, ShuangpinProfile,
-    TouchKeyboardLayout, TouchKeyboardScheme, TouchKeyboardSkin, TouchKeyboardSkinDesign,
+    ChineseScheme, FrequencyMode, InputScheme, Preferences, ShuangpinProfile, TouchKeyboardLayout,
+    TouchKeyboardScheme, TouchKeyboardSkin, TouchKeyboardSkinDesign,
 };
 use msime_tauri_mobile_platform::IosKeyboardPreferences;
 use std::collections::BTreeMap;
-
-fn insert_string(settings: &mut BTreeMap<String, AccountPreferenceValue>, key: &str, value: &str) {
-    settings.insert(
-        key.to_owned(),
-        AccountPreferenceValue::String(value.to_owned()),
-    );
-}
-
-fn insert_bool(settings: &mut BTreeMap<String, AccountPreferenceValue>, key: &str, value: bool) {
-    settings.insert(key.to_owned(), AccountPreferenceValue::Boolean(value));
-}
-
-fn frequency_account_preferences(
-    frequency: &FrequencyPreferences,
-) -> BTreeMap<String, AccountPreferenceValue> {
-    BTreeMap::from([
-        (
-            "input.frequency_mode".into(),
-            AccountPreferenceValue::String(frequency.mode.as_str().into()),
-        ),
-        (
-            "input.frequency_trigger_count".into(),
-            AccountPreferenceValue::Integer(i64::from(frequency.trigger_count)),
-        ),
-        (
-            "input.frequency_linear_step".into(),
-            AccountPreferenceValue::Integer(i64::from(frequency.linear_step)),
-        ),
-    ])
-}
 
 fn decoded_custom_skin(
     value: Option<&str>,

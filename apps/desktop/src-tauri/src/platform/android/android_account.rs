@@ -1,3 +1,6 @@
+use crate::platform::mobile::mobile_account_preferences::{
+    frequency_account_preferences, insert_bool, insert_string,
+};
 use crate::platform::mobile::mobile_community::MobileCommunityState;
 use crate::shared::account_dto::{
     ChallengeResponse, ChatModelsResponse, ChatResponse, PreferenceSchemaResponse, ProfileResponse,
@@ -11,8 +14,8 @@ use msime_client_core::account::{
 };
 use msime_client_core::cloud::dictionary::DictionaryKind;
 use msime_client_core::preferences::{
-    FrequencyMode, FrequencyPreferences, InputScheme, Preferences, PreferencesSnapshot,
-    PreferencesStore, ShuangpinProfile, ThemeMode, TouchKeyboardLayout, TouchKeyboardSkin,
+    FrequencyMode, InputScheme, Preferences, PreferencesSnapshot, PreferencesStore,
+    ShuangpinProfile, ThemeMode, TouchKeyboardLayout, TouchKeyboardSkin,
 };
 use serde::de::{DeserializeSeed, MapAccess, Visitor};
 use serde::{Deserialize, Serialize};
@@ -1694,38 +1697,8 @@ pub async fn app_icon_set(
     .map_err(|_| crate::CommandError { code: "app_icon" })?
 }
 
-fn insert_string(settings: &mut BTreeMap<String, AccountPreferenceValue>, key: &str, value: &str) {
-    settings.insert(
-        key.to_owned(),
-        AccountPreferenceValue::String(value.to_owned()),
-    );
-}
-
-fn insert_bool(settings: &mut BTreeMap<String, AccountPreferenceValue>, key: &str, value: bool) {
-    settings.insert(key.to_owned(), AccountPreferenceValue::Boolean(value));
-}
-
 fn insert_integer(settings: &mut BTreeMap<String, AccountPreferenceValue>, key: &str, value: i64) {
     settings.insert(key.to_owned(), AccountPreferenceValue::Integer(value));
-}
-
-fn frequency_account_preferences(
-    frequency: &FrequencyPreferences,
-) -> BTreeMap<String, AccountPreferenceValue> {
-    BTreeMap::from([
-        (
-            "input.frequency_mode".into(),
-            AccountPreferenceValue::String(frequency.mode.as_str().into()),
-        ),
-        (
-            "input.frequency_trigger_count".into(),
-            AccountPreferenceValue::Integer(i64::from(frequency.trigger_count)),
-        ),
-        (
-            "input.frequency_linear_step".into(),
-            AccountPreferenceValue::Integer(i64::from(frequency.linear_step)),
-        ),
-    ])
 }
 
 fn local_account_preferences(

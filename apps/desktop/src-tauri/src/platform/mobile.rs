@@ -1,5 +1,6 @@
 //! Host integration shared by iOS and Android.
 
+pub(crate) mod mobile_account_preferences;
 pub(crate) mod mobile_cloud_clipboard;
 pub(crate) mod mobile_community;
 
