@@ -70,6 +70,7 @@ import { DoubaoStreamEndpointSection } from "./settings/doubao-stream-endpoint-s
 import { DoubaoOptionsSection } from "./settings/doubao-options-section";
 import { DoubaoResourceIdSection } from "./settings/doubao-resource-id-section";
 import { VoiceRecordingBehaviorSection } from "./settings/voice-recording-behavior-section";
+import { FeedbackSettingsSection } from "./settings/feedback-settings-section";
 import { HandwritingSettingsSection } from "./settings/handwriting-settings-section";
 import { VoiceModelMirrorSection } from "./settings/voice-model-mirror-section";
 import {
@@ -7430,131 +7431,45 @@ export function SettingsPage({
                     )}
                   </fieldset>
                   <fieldset disabled={busy} hidden={page !== "feedback"} aria-label="反馈">
-                    <div className={`section ${doc.hero}`}>
-                      <div className={doc.eyebrow}>反馈与交流</div>
-                      <div className={doc.heroTitle}>告诉我们你的想法</div>
-                      <p>遇到问题或有功能建议时，可以通过以下渠道提交和交流。</p>
-                    </div>
-                    <div className="section" aria-label="问题报告">
-                      <div className="section-title">
-                        提交可复现的问题
-                        <small>报告只在你点击按钮时生成，不会读取或上传输入历史。</small>
-                      </div>
-                      <label className="section-header">
-                        <span className="section-title">类型</span>
-                        <select
-                          aria-label="反馈类型"
-                          value={feedbackKind}
-                          onChange={(event) => setFeedbackKind(event.target.value)}
-                        >
-                          <option>功能异常</option>
-                          <option>候选词不对</option>
-                          <option>功能建议</option>
-                          <option>其他</option>
-                        </select>
-                      </label>
-                      <label className="section-title">
-                        描述
-                        <textarea
-                          aria-label="反馈描述"
-                          maxLength={4000}
-                          value={feedbackDetail}
-                          onChange={(event) => setFeedbackDetail(event.target.value)}
-                          placeholder="发生了什么？如果和打字有关，写出输入方案、编码和期望结果。"
-                          rows={6}
-                        />
-                      </label>
-                      <div className={doc.note}>
-                        <strong>会一起附上的信息</strong>
-                        <span className="block break-anywhere text-xs text-secondary">
-                          {supportDiagnostics}
-                        </span>
-                      </div>
-                      <div className={settings.serviceRow}>
-                        {client.copyText && (
-                          <button
-                            type="button"
-                            className="secondary"
-                            onClick={() =>
-                              void client.copyText!(feedbackReport).then(() => {
-                                setFeedbackReportCopied(true);
-                                window.setTimeout(() => setFeedbackReportCopied(false), 1600);
-                              })
-                            }
-                          >
-                            {feedbackReportCopied ? "已复制报告" : "复制报告"}
-                          </button>
-                        )}
-                        {client.openExternalUrl && (
-                          <button type="button" className="secondary" onClick={submitFeedback}>
-                            在 GitHub 提交
-                          </button>
-                        )}
-                      </div>
-                      <small>
-                        提交会打开 GitHub
-                        并预填报告；网址长度有限，过长描述会被截断，完整内容请先复制。
-                      </small>
-                    </div>
-                    <div className={doc.feedbackList}>
-                      <div className={`section ${doc.feedbackCard}`}>
-                        <div className={doc.feedbackIcon}>GH</div>
-                        <div className={doc.feedbackBody}>
-                          <div className={doc.feedbackTitle}>GitHub Issues</div>
-                          <p>适合提交可复现的问题、功能建议和开发讨论。</p>
-                          <code>{platformIssuesUrl.replace("https://", "")}</code>
-                        </div>
-                        <button
-                          type="button"
-                          className="secondary"
-                          onClick={() => void openExternalUrl(platformIssuesUrl)}
-                        >
-                          查看 Issues
-                        </button>
-                      </div>
-                      <div className={`section ${doc.feedbackCard}`}>
-                        <div className={doc.feedbackIcon}>QQ</div>
-                        <div className={doc.feedbackBody}>
-                          <div className={doc.feedbackTitle}>QQ 交流群</div>
-                          <p>适合中文用户进行日常交流、测试反馈和使用讨论。</p>
-                          <code>群号：829919142</code>
-                        </div>
-                        <button
-                          type="button"
-                          className="secondary"
-                          onClick={() => {
-                            if (!client.copyText) return;
-                            void client.copyText("829919142").then(() => {
-                              setFeedbackCopied(true);
-                              window.setTimeout(() => setFeedbackCopied(false), 1600);
-                            });
-                          }}
-                        >
-                          {feedbackCopied ? "已复制" : "复制群号"}
-                        </button>
-                      </div>
-                      <div className={`section ${doc.feedbackCard}`}>
-                        <div className={doc.feedbackIcon}>TG</div>
-                        <div className={doc.feedbackBody}>
-                          <div className={doc.feedbackTitle}>Telegram 群组</div>
-                          <p>面向国际用户和开发者的即时讨论频道。</p>
-                          <code>t.me/msimegroup</code>
-                        </div>
-                        <button
-                          type="button"
-                          className="secondary"
-                          onClick={() => void openExternalUrl("https://t.me/msimegroup")}
-                        >
-                          打开群组
-                        </button>
-                      </div>
-                    </div>
-                    <div className={`section ${doc.note}`}>
-                      <strong>提交问题时建议附上</strong>
-                      <span>
-                        系统版本、输入方案、复现步骤、相关截图，以及 Debug 输出中的关键日志。
-                      </span>
-                    </div>
+                    <FeedbackSettingsSection
+                      hero={doc.hero}
+                      eyebrow={doc.eyebrow}
+                      heroTitle={doc.heroTitle}
+                      note={doc.note}
+                      feedbackList={doc.feedbackList}
+                      feedbackCard={doc.feedbackCard}
+                      feedbackIcon={doc.feedbackIcon}
+                      feedbackBody={doc.feedbackBody}
+                      feedbackTitle={doc.feedbackTitle}
+                      serviceRow={settings.serviceRow}
+                      kind={feedbackKind}
+                      detail={feedbackDetail}
+                      reportCopied={feedbackReportCopied}
+                      feedbackCopied={feedbackCopied}
+                      supportDiagnostics={supportDiagnostics}
+                      issuesUrl={platformIssuesUrl}
+                      copyText={client.copyText}
+                      openExternalUrl={client.openExternalUrl}
+                      onKindChange={setFeedbackKind}
+                      onDetailChange={setFeedbackDetail}
+                      onCopyReport={() => {
+                        if (!client.copyText) return;
+                        void client.copyText(feedbackReport).then(() => {
+                          setFeedbackReportCopied(true);
+                          window.setTimeout(() => setFeedbackReportCopied(false), 1600);
+                        });
+                      }}
+                      onSubmitFeedback={submitFeedback}
+                      onOpenIssues={() => void openExternalUrl(platformIssuesUrl)}
+                      onCopyGroup={() => {
+                        if (!client.copyText) return;
+                        void client.copyText("829919142").then(() => {
+                          setFeedbackCopied(true);
+                          window.setTimeout(() => setFeedbackCopied(false), 1600);
+                        });
+                      }}
+                      onOpenTelegram={() => void openExternalUrl("https://t.me/msimegroup")}
+                    />
                   </fieldset>
                   {!validCandidateFonts(draft) && (
                     <p role="alert">
