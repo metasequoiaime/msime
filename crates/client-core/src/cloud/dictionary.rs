@@ -67,7 +67,7 @@ pub fn dictionary_path(kind: DictionaryKind, offset: usize, search: &str) -> Opt
     };
     Some(format!(
         "/v1/users/me/dictionaries/{kind}?q={}&offset={offset}&limit=100",
-        encode(search)
+        percent_encode(search)
     ))
 }
 
@@ -114,7 +114,7 @@ pub fn changes_path(after: i64, limit: usize) -> Option<String> {
     ))
 }
 
-fn encode(value: &str) -> String {
+pub fn percent_encode(value: &str) -> String {
     value
         .bytes()
         .map(|b| {
