@@ -33,6 +33,7 @@ import { CandidateLayoutSection } from "./settings/candidate-layout-section";
 import { CandidateFollowCursorSection } from "./settings/candidate-follow-cursor-section";
 import { CandidateEnglishGlossSection } from "./settings/candidate-english-gloss-section";
 import { EnglishSuggestionsSection } from "./settings/english-suggestions-section";
+import { LearningSection } from "./settings/learning-section";
 import { PreeditSettingsSection } from "./settings/preedit-settings-section";
 import { validCandidateFonts } from "./candidate/candidate-font-family";
 import type { FontCatalogReader } from "./candidate/font-catalog";
@@ -286,6 +287,7 @@ export {
   EnglishSuggestionsSection,
   type EnglishSuggestionsSectionProps,
 } from "./settings/english-suggestions-section";
+export { LearningSection, type LearningSectionProps } from "./settings/learning-section";
 export {
   PreeditSettingsSection,
   type CandidatePreeditStyle,
@@ -6708,21 +6710,10 @@ export function SettingsPage({
                         confirm={confirm}
                       />
                     )}
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          学习选词习惯<small>根据选词调整候选顺序</small>
-                        </span>
-                        <input
-                          className="toggle"
-                          type="checkbox"
-                          checked={draft.learning}
-                          onChange={(event) =>
-                            setDraft({ ...draft, learning: event.target.checked })
-                          }
-                        />
-                      </label>
-                    </div>
+                    <LearningSection
+                      value={draft.learning}
+                      onChange={(learning) => setDraft({ ...draft, learning })}
+                    />
                     <PunctuationSection
                       preferences={draft}
                       showCharacterWidth={showCharacterWidth}
