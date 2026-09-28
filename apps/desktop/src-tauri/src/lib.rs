@@ -101,13 +101,6 @@ use std::collections::HashMap;
     test
 ))]
 use std::fs;
-#[cfg(any(
-    target_os = "linux",
-    target_os = "windows",
-    target_os = "android",
-    test
-))]
-use std::io::Read;
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "android"))]
 use std::io::Write;
 #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
@@ -737,13 +730,8 @@ fn read_custom_translations_at(user: PathBuf) -> Result<String, CommandError> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(String::new()),
         Err(_) => return Err(CommandError { code: "storage" }),
     };
-    let mut bytes = Vec::new();
-    file.take((CUSTOM_TRANSLATIONS_MAX_BYTES + 1) as u64)
-        .read_to_end(&mut bytes)
+    let bytes = crate::shared::bounded_body::read_bounded(file, CUSTOM_TRANSLATIONS_MAX_BYTES)
         .map_err(|_| CommandError { code: "storage" })?;
-    if bytes.len() > CUSTOM_TRANSLATIONS_MAX_BYTES {
-        return Err(CommandError { code: "storage" });
-    }
     // A UTF-8 BOM is an encoding marker the reference accepts, not part of the first source word.
     let text = String::from_utf8(bytes).map_err(|_| CommandError { code: "storage" })?;
     Ok(text.strip_prefix('\u{feff}').unwrap_or(&text).to_owned())
@@ -995,16 +983,14 @@ const RUNTIME_OPTIONS_READ_LIMIT: u64 = 2 << 20;
 ))]
 fn read_runtime_options_bytes(path: &Path) -> Result<Vec<u8>, std::io::Error> {
     let file = fs::File::open(path)?;
-    let mut bytes = Vec::new();
-    file.take(RUNTIME_OPTIONS_READ_LIMIT + 1)
-        .read_to_end(&mut bytes)?;
-    if bytes.len() as u64 > RUNTIME_OPTIONS_READ_LIMIT {
-        return Err(std::io::Error::new(
+    match crate::shared::bounded_body::read_bounded(file, RUNTIME_OPTIONS_READ_LIMIT as usize) {
+        Ok(bytes) => Ok(bytes),
+        Err(crate::shared::bounded_body::BoundedReadError::TooLarge) => Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             "runtime options exceed size limit",
-        ));
+        )),
+        Err(crate::shared::bounded_body::BoundedReadError::Read(error)) => Err(error),
     }
-    Ok(bytes)
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
