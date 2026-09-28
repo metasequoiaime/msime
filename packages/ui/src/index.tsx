@@ -25,13 +25,9 @@ import {
 } from "./dictionary/dictionary-file";
 import { SkinCandidatePreview } from "./skin/skin-candidate-preview";
 import { AppearanceCandidatePreview } from "./candidate/appearance-candidate-preview";
-import {
-  candidateFontSize,
-  candidateFontSizes,
-  candidatePreeditFontSize,
-} from "./candidate/candidate-font-size";
 import { useCandidatePreviewTheme } from "./candidate/candidate-preview-theme";
 import { CandidateFontControls } from "./candidate/candidate-font-controls";
+import { CandidateSizingSection } from "./settings/candidate-sizing-section";
 import { validCandidateFonts } from "./candidate/candidate-font-family";
 import type { FontCatalogReader } from "./candidate/font-catalog";
 import { SecretInput } from "./core/secret-input";
@@ -266,6 +262,10 @@ export {
   type CandidateColorKey,
   type CandidateColorPreferences,
 } from "./settings/candidate-colors-section";
+export {
+  CandidateSizingSection,
+  type CandidateSizingPreferences,
+} from "./settings/candidate-sizing-section";
 export {
   CommunitySkinsPage,
   type CommunitySkin,
@@ -2258,7 +2258,8 @@ export function SettingsPage({
   // Hosts with a system recogniser of their own. Android's is what it falls back to when nothing
   // is configured, so `system` is a real choice there rather than a value to report unavailable.
   const nativeVoicePlatform = macosPlatform || harmonyPlatform || androidPlatform;
-  // One list for every host, and it is the reference window's three through nine. macOS used to be given 5, 7 and 9 - the Apple reference's set - while its own normalisation rewrote anything else to 9, so the shared default of six displayed and saved as nine on that platform alone. The shared preference still accepts one and two, so a document carrying one keeps it listed rather than showing a choice it does not hold.
+  // One list for every host, and it is the reference window's three through nine. Keep an older
+  // saved value visible while the user chooses a supported size.
   const candidatePageSizes = Array.from({ length: 7 }, (_, index) => index + 3);
   const offeredCandidatePageSizes = (current: number) =>
     candidatePageSizes.includes(current) ? candidatePageSizes : [current, ...candidatePageSizes];
@@ -5031,56 +5032,13 @@ export function SettingsPage({
                         <small>当前宿主的候选面板不支持自定义字体或字号。</small>
                       </div>
                     )}
-                    {showCandidateFontControls && (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">
-                            {mobilePlatform ? "候选栏字号" : "候选窗字号"}
-                          </span>
-                          <select
-                            aria-label={mobilePlatform ? "候选栏字号" : "候选窗字号"}
-                            value={candidateFontSize(draft.candidate_font_size)}
-                            onChange={(event) =>
-                              setDraft({
-                                ...draft,
-                                candidate_font_size: Number(event.target.value),
-                              })
-                            }
-                          >
-                            {candidateFontSizes.map((size) => (
-                              <option key={size} value={size}>
-                                {size}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                      </div>
-                    )}
-                    {showCandidatePreeditFont && (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">
-                            {mobilePlatform ? "候选栏预编辑字号" : "候选窗预编辑字号"}
-                          </span>
-                          <select
-                            aria-label={mobilePlatform ? "候选栏预编辑字号" : "候选窗预编辑字号"}
-                            value={candidatePreeditFontSize(draft.candidate_preedit_font_size)}
-                            onChange={(event) =>
-                              setDraft({
-                                ...draft,
-                                candidate_preedit_font_size: Number(event.target.value),
-                              })
-                            }
-                          >
-                            {candidateFontSizes.map((size) => (
-                              <option key={size} value={size}>
-                                {size}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                      </div>
-                    )}
+                    <CandidateSizingSection
+                      preferences={draft}
+                      mobile={mobilePlatform}
+                      showFontControls={showCandidateFontControls}
+                      showPreeditFont={showCandidatePreeditFont}
+                      onChange={(patch) => setDraft({ ...draft, ...patch })}
+                    />
                     {mobileKeyboardFeedback?.candidatePaletteFollowsDesktop === false && (
                       <div className="section">
                         <small>
