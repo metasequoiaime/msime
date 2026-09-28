@@ -588,11 +588,7 @@ pub(super) fn validate_apple_login(challenge: &str, credential: &str) -> Result<
 }
 
 pub(super) fn validate_display_name(value: &str) -> Result<(), AccountError> {
-    if value.is_empty()
-        || value.trim() != value
-        || value.chars().count() > 64
-        || value.chars().any(char::is_control)
-    {
+    if value.is_empty() || value.trim() != value || !crate::text::is_bounded_chars(value, 64) {
         return Err(AccountError::Invalid);
     }
     Ok(())
@@ -656,8 +652,7 @@ pub(super) fn validate_user(user: &AccountUser) -> Result<(), AccountError> {
         user_id: user.id.clone(),
     })
     .map_err(|_| AccountError::Invalid)?;
-    if user.display_name.chars().count() > 64
-        || user.display_name.chars().any(char::is_control)
+    if !crate::text::is_bounded_chars(&user.display_name, 64)
         || !crate::text::is_bounded_text(&user.created_at, 128)
     {
         return Err(AccountError::Invalid);
