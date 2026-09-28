@@ -4,11 +4,7 @@
 use super::*;
 
 pub(super) fn validate_clipboard_search(value: &str) -> Result<(), AccountError> {
-    if !crate::text::is_bounded_text(value, 1024) {
-        Err(AccountError::Invalid)
-    } else {
-        Ok(())
-    }
+    validate_bounded_text(value, 1024)
 }
 
 pub(super) fn validate_clipboard_text(value: &str) -> Result<(), AccountError> {
