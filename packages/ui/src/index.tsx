@@ -35,6 +35,7 @@ import { CandidateEnglishGlossSection } from "./settings/candidate-english-gloss
 import { EnglishSuggestionsSection } from "./settings/english-suggestions-section";
 import { LearningSection } from "./settings/learning-section";
 import { DefaultImeModeSection, type DefaultImeMode } from "./settings/default-ime-mode-section";
+import { InputModeHudSection } from "./settings/input-mode-hud-section";
 import { PreeditSettingsSection } from "./settings/preedit-settings-section";
 import { validCandidateFonts } from "./candidate/candidate-font-family";
 import type { FontCatalogReader } from "./candidate/font-catalog";
@@ -294,6 +295,10 @@ export {
   type DefaultImeMode,
   type DefaultImeModeSectionProps,
 } from "./settings/default-ime-mode-section";
+export {
+  InputModeHudSection,
+  type InputModeHudSectionProps,
+} from "./settings/input-mode-hud-section";
 export {
   PreeditSettingsSection,
   type CandidatePreeditStyle,
@@ -6731,25 +6736,10 @@ export function SettingsPage({
                     />
                     {/* macOS keeps this with the chords that trigger it, on the shortcut page. */}
                     {showInputModeHUD && !macosPlatform && (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">
-                            中英文切换提示
-                            <small>
-                              切换输入模式后，在光标附近短暂显示“中”或“英”，不会抢占焦点。
-                            </small>
-                          </span>
-                          <input
-                            aria-label="中英文切换提示"
-                            className="toggle"
-                            type="checkbox"
-                            checked={inputModeHUD}
-                            onChange={(event) =>
-                              setDraft({ ...draft, input_mode_hud: event.target.checked })
-                            }
-                          />
-                        </label>
-                      </div>
+                      <InputModeHudSection
+                        value={draft.input_mode_hud}
+                        onChange={(input_mode_hud) => setDraft({ ...draft, input_mode_hud })}
+                      />
                     )}
                     {client.candidateEnglishGloss && (
                       <CandidateEnglishGlossSection
@@ -6975,21 +6965,11 @@ export function SettingsPage({
                           </label>
                         ))}
                         {macosPlatform && showInputModeHUD && (
-                          <label className="section-header">
-                            <span className="section-title">
-                              切换中英文时显示提示
-                              <small>切换后在光标下方短暂显示「中」或「英」。</small>
-                            </span>
-                            <input
-                              aria-label="切换中英文时显示提示"
-                              className="toggle"
-                              type="checkbox"
-                              checked={inputModeHUD}
-                              onChange={(event) =>
-                                setDraft({ ...draft, input_mode_hud: event.target.checked })
-                              }
-                            />
-                          </label>
+                          <InputModeHudSection
+                            shortcut
+                            value={draft.input_mode_hud}
+                            onChange={(input_mode_hud) => setDraft({ ...draft, input_mode_hud })}
+                          />
                         )}
                         {showFullwidthChord && (
                           <label className="section-header">
