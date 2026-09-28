@@ -227,10 +227,20 @@ struct CustomServiceConfiguration: Codable, Sendable, Equatable {
     defaults.set(prompt, forKey: prefix + ".prompt")
   }
 
+  static func validatedEndpoint(_ value: String, allowWebSocket: Bool = false,
+                                maximumCharacters: Int? = nil) -> URL? {
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard maximumCharacters.map({ trimmed.count <= $0 }) ?? true,
+          !trimmed.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
+          let url = URL(string: trimmed),
+          (url.scheme?.lowercased() == "https" || (allowWebSocket && url.scheme?.lowercased() == "wss")),
+          let host = url.host, !host.isEmpty,
+          url.user == nil, url.password == nil, url.fragment == nil else { return nil }
+    return url
+  }
+
   func validatedURL(requiresModel: Bool = true, allowWebSocket: Bool = false) throws -> URL {
-    guard let url = URL(string: endpoint.trimmingCharacters(in: .whitespacesAndNewlines)),
-      (url.scheme?.lowercased() == "https" || (allowWebSocket && url.scheme?.lowercased() == "wss")), let host = url.host, !host.isEmpty,
-      url.user == nil, url.password == nil, url.fragment == nil,
+    guard let url = Self.validatedEndpoint(endpoint, allowWebSocket: allowWebSocket),
       (!requiresModel || !model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     else { throw ServiceFailure(message: "请填写完整的 HTTPS 接口地址和模型名称。") }
     return url

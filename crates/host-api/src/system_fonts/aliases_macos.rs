@@ -66,8 +66,7 @@ fn to_string(value: &Owned) -> Option<String> {
     }
     // SAFETY: a successful conversion NUL-terminates within the buffer.
     let text = unsafe { CStr::from_ptr(buffer.as_ptr()) }.to_str().ok()?;
-    (!text.is_empty() && text.len() <= MAX_BYTES && !text.chars().any(char::is_control))
-        .then(|| text.to_owned())
+    super::valid_font_name(text).then(|| text.to_owned())
 }
 
 fn cf_string(text: &str) -> Option<Owned> {

@@ -4,7 +4,7 @@ use crate::community::resource::{CommunityResource, CommunityResourceKind};
 use crate::file_lock;
 use serde_json::from_slice;
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 use uuid::Uuid;
@@ -95,13 +95,10 @@ impl CommunityResourceLibraryStore {
         if !metadata.file_type().is_file() || metadata.len() > MAXIMUM_BYTES {
             return Err(CommunityResourceLibraryError::Invalid);
         }
-        let mut bytes = Vec::with_capacity(metadata.len() as usize);
-        File::open(&self.file)?
-            .take(MAXIMUM_BYTES + 1)
-            .read_to_end(&mut bytes)?;
-        if bytes.len() as u64 > MAXIMUM_BYTES {
-            return Err(CommunityResourceLibraryError::Invalid);
-        }
+        let bytes =
+            crate::bounded_io::read_bounded_file(File::open(&self.file)?, MAXIMUM_BYTES, || {
+                CommunityResourceLibraryError::Invalid
+            })?;
         let items: Vec<CommunityResource> = from_slice(&bytes)?;
         if items.len() > MAXIMUM_ITEMS
             || items.iter().any(|item| {

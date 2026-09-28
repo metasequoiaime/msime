@@ -139,10 +139,8 @@ pub fn validate_value(value: &DictionaryValue) -> Result<(), &'static str> {
     {
         return Err("invalid dictionary value");
     }
-    if value.code.contains('\0')
-        || value.word.contains('\0')
-        || value.code.chars().any(char::is_control)
-        || value.word.chars().any(char::is_control)
+    if !crate::text::is_bounded_text(&value.code, 256)
+        || !crate::text::is_bounded_text(&value.word, 1024)
     {
         return Err("invalid dictionary value");
     }
@@ -156,13 +154,37 @@ pub fn validate_import(text: &str) -> Result<(), &'static str> {
     if text.is_empty()
         || text.len() > MAX_IMPORT_BYTES
         || text.contains('\0')
-        || text
-            .chars()
-            .any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t'))
+        || crate::text::has_disallowed_control(text)
     {
         return Err("invalid dictionary import");
     }
     Ok(())
+}
+
+pub fn valid_candidate_query(
+    text: &str,
+    kind: &str,
+    scheme: &str,
+    profile: &str,
+    limit: usize,
+) -> bool {
+    !text.is_empty()
+        && valid_bounded_text(text, 256)
+        && matches!(kind, "pinyin" | "jianpin" | "wubi" | "quick" | "english")
+        && matches!(scheme, "pinyin" | "shuangpin")
+        && matches!(profile, "xiaohe" | "ziranma" | "microsoft" | "shoudao")
+        && (1..=100).contains(&limit)
+}
+
+pub fn valid_candidate_value(code: &str, word: &str) -> bool {
+    !code.is_empty()
+        && !word.is_empty()
+        && valid_bounded_text(code, 256)
+        && valid_bounded_text(word, 1024)
+}
+
+pub fn valid_bounded_text(value: &str, maximum_bytes: usize) -> bool {
+    crate::text::is_bounded_text(value, maximum_bytes)
 }
 
 #[cfg(test)]

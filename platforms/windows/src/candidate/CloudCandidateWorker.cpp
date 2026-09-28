@@ -1,4 +1,5 @@
 #include "CloudCandidateWorker.h"
+#include "CandidateHttpPolicy.h"
 
 #include "msime_client.h"
 
@@ -55,8 +56,7 @@ std::string request_url(const std::string &query)
         if (!document.at("ok").get<bool>() || !document.at("value").is_string())
             return {};
         const auto url = document.at("value").get<std::string>();
-        if (url.size() > 2048 || url.rfind("https://", 0) != 0 ||
-            std::any_of(url.begin(), url.end(), [](unsigned char ch) { return ch < 32 || ch == 127; }))
+        if (!valid_candidate_url(url))
             return {};
         return url;
     }

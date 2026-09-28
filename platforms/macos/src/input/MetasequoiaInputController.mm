@@ -1,3 +1,7 @@
+// Retained controller from the pinned Apple snapshot, not compiled by any target. It pairs with
+// src/dictionary/DictionaryRuntime.mm; the shipping input method's controller is src/input/InputController.mm.
+// Changing behaviour here does not reach the product, so a fix belongs in that file, and
+// scripts/test-macos-orphan-sources.py keeps this note honest.
 #import "MetasequoiaInputController.h"
 
 #import "../dictionary/DictionaryInstaller.h"

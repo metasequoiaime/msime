@@ -30,6 +30,24 @@ const MAX_CHAT_REQUEST_BYTES: usize = 64 * 1024;
 const MAX_CHAT_RESPONSE_BYTES: usize = 16 * 1024;
 const REFRESH_EARLY_SECONDS: u64 = 30;
 
+pub(crate) fn valid_model_catalog<'a>(
+    models: impl IntoIterator<Item = &'a str>,
+    default_model: &str,
+    maximum_models: usize,
+    maximum_id_bytes: usize,
+) -> bool {
+    let ids: Vec<&str> = models.into_iter().collect();
+    !ids.is_empty()
+        && ids.len() <= maximum_models
+        && !default_model.is_empty()
+        && default_model.len() <= maximum_id_bytes
+        && ids.iter().any(|id| *id == default_model)
+        && ids.iter().all(|id| {
+            !id.is_empty() && id.len() <= maximum_id_bytes && !id.chars().any(char::is_control)
+        })
+        && ids.iter().collect::<std::collections::HashSet<_>>().len() == ids.len()
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AccountIdentity {
     pub user_id: String,

@@ -114,11 +114,7 @@ pub fn parse(text: &str, max_bytes: usize) -> Result<WordbookImportReport, Wordb
     if text.len() > max_bytes {
         return Err(WordbookImportError::TooLarge);
     }
-    if text.contains('\0')
-        || text
-            .chars()
-            .any(|character| character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
-    {
+    if text.contains('\0') || crate::text::has_disallowed_control(text) {
         return Err(WordbookImportError::ControlCharacters);
     }
 

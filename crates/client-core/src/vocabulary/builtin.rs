@@ -16,7 +16,6 @@
 //! imported book's, keyed by the same id.
 
 use super::wordbook::Wordbook;
-use std::io::Read;
 use std::path::{Path, PathBuf};
 
 /// The directory name the staging scripts publish under, inside the staging root.
@@ -78,11 +77,9 @@ pub fn load(resources: &Path) -> Result<Vec<Wordbook>, BuiltinWordbookError> {
             Err(error) => return Err(error.into()),
         }
         let file = std::fs::File::open(&path)?;
-        let mut bytes = Vec::new();
-        file.take(MAX_BOOK_BYTES + 1).read_to_end(&mut bytes)?;
-        if bytes.len() as u64 > MAX_BOOK_BYTES {
-            return Err(BuiltinWordbookError::InvalidWordbook);
-        }
+        let bytes = crate::bounded_io::read_bounded_file(file, MAX_BOOK_BYTES, || {
+            BuiltinWordbookError::InvalidWordbook
+        })?;
         let book: Wordbook = serde_json::from_slice(&bytes)?;
         // The id is the store key for this book's review progress. A document whose stored id
         // disagrees with its filename would record answers under a book nothing can open again.

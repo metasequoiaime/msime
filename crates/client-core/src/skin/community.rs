@@ -5,15 +5,14 @@
 use crate::account::{
     AccountApi, AccountError, AccountSessionStorage, BackendAccountClient, BackendAccountSession,
 };
+use crate::community::{encode_query, valid_query, valid_text};
 use crate::preferences::TouchKeyboardSkinDesign;
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
 
-const MAXIMUM_OFFSET: usize = 1_000_000;
 const MAXIMUM_PAGE_ITEMS: usize = 20;
-const MAXIMUM_SEARCH_CHARACTERS: usize = 128;
 const MAXIMUM_JAVASCRIPT_INTEGER: u64 = 9_007_199_254_740_991;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -319,10 +318,7 @@ where
 }
 
 fn validate_query(offset: usize, search: &str) -> Result<(), AccountError> {
-    if offset > MAXIMUM_OFFSET
-        || search.chars().count() > MAXIMUM_SEARCH_CHARACTERS
-        || search.chars().any(char::is_control)
-    {
+    if !valid_query(offset, search) {
         return Err(AccountError::Invalid);
     }
     Ok(())
@@ -379,33 +375,13 @@ fn validate_skin(skin: &CommunitySkin) -> Result<(), AccountError> {
     Ok(())
 }
 
-fn valid_text(value: &str, minimum: usize, maximum: usize, multiline: bool) -> bool {
-    let count = value.chars().count();
-    (minimum..=maximum).contains(&count)
-        && value.chars().all(|character| {
-            !character.is_control() || (multiline && matches!(character, '\n' | '\t'))
-        })
-}
-
-fn encode_query(value: &str) -> String {
-    let mut encoded = String::with_capacity(value.len());
-    for byte in value.bytes() {
-        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
-            encoded.push(char::from(byte));
-        } else {
-            use std::fmt::Write;
-            let _ = write!(encoded, "%{byte:02X}");
-        }
-    }
-    encoded
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::account::{
         AccountChallenge, AccountProfile, AccountTokens, AccountUser, SavedAccountSession,
     };
+    use crate::community::MAXIMUM_OFFSET;
     use std::collections::HashMap;
     use std::io::{Read, Write};
     use std::net::TcpListener;

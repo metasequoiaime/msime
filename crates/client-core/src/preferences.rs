@@ -5,13 +5,23 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 /// The largest preference document accepted by the shared host boundary. This
 /// covers a validated custom skin photo while preventing a damaged local file
 /// from forcing an unbounded allocation during startup or recovery.
 const MAX_DOCUMENT_BYTES: u64 = 1024 * 1024;
+
+pub fn valid_font_family(value: &str) -> bool {
+    !value.is_empty() && value.len() <= 128 && !value.chars().any(char::is_control)
+}
+
+fn valid_hex_color(value: &str) -> bool {
+    value.len() == 7
+        && value.as_bytes()[0] == b'#'
+        && value[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -1676,9 +1686,7 @@ impl Preferences {
             return Err(PreferencesError::InvalidNiuTrans);
         }
         let translation = &self.custom_translation;
-        if translation.endpoint.len() > 2048
-            || translation.api_key.len() > 4096
-            || translation.endpoint.chars().any(char::is_control)
+        if translation.api_key.len() > 4096
             || translation.api_key.chars().any(char::is_control)
             || (!translation.endpoint.is_empty()
                 && !crate::translation::is_supported_endpoint(&translation.endpoint))
@@ -1740,42 +1748,27 @@ impl Preferences {
             return Err(PreferencesError::InvalidCandidateFontSize);
         }
         if let Some(color) = &self.candidate_text_color {
-            if color.len() != 7
-                || color.as_bytes()[0] != b'#'
-                || !color[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
-            {
+            if !valid_hex_color(color) {
                 return Err(PreferencesError::InvalidCandidateTextColor);
             }
         }
         if let Some(color) = &self.candidate_number_color {
-            if color.len() != 7
-                || color.as_bytes()[0] != b'#'
-                || !color[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
-            {
+            if !valid_hex_color(color) {
                 return Err(PreferencesError::InvalidCandidateNumberColor);
             }
         }
         if let Some(color) = &self.candidate_accent_color {
-            if color.len() != 7
-                || color.as_bytes()[0] != b'#'
-                || !color[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
-            {
+            if !valid_hex_color(color) {
                 return Err(PreferencesError::InvalidCandidateAccentColor);
             }
         }
         if let Some(color) = &self.candidate_selected_color {
-            if color.len() != 7
-                || color.as_bytes()[0] != b'#'
-                || !color[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
-            {
+            if !valid_hex_color(color) {
                 return Err(PreferencesError::InvalidCandidateSelectedColor);
             }
         }
         if let Some(color) = &self.candidate_hover_color {
-            if color.len() != 7
-                || color.as_bytes()[0] != b'#'
-                || !color[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
-            {
+            if !valid_hex_color(color) {
                 return Err(PreferencesError::InvalidCandidateHoverColor);
             }
         }
@@ -1790,25 +1783,21 @@ impl Preferences {
             ),
         ] {
             if let Some(color) = color {
-                if color.len() != 7
-                    || color.as_bytes()[0] != b'#'
-                    || !color[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
-                {
+                if !valid_hex_color(color) {
                     return Err(error);
                 }
             }
         }
         // Font family names are Unicode display names, not paths or identifiers.
         // Keep the existing UTF-8 byte budget while allowing localized families.
-        if self.candidate_font_family.is_empty()
-            || self.candidate_font_family.len() > 128
-            || self.candidate_font_family.chars().any(char::is_control)
-        {
+        if !valid_font_family(&self.candidate_font_family) {
             return Err(PreferencesError::InvalidCandidateFontFamily);
         }
-        if self.candidate_english_font.as_ref().is_some_and(|font| {
-            font.is_empty() || font.len() > 128 || font.chars().any(char::is_control)
-        }) {
+        if self
+            .candidate_english_font
+            .as_deref()
+            .is_some_and(|font| !valid_font_family(font))
+        {
             return Err(PreferencesError::InvalidCandidateFontFamily);
         }
         if self.candidate_skin.is_empty()
@@ -1827,9 +1816,10 @@ impl Preferences {
         }
         // Match the 32 ordered supplementary families in Windows appearance.ts.
         if self.candidate_fallback_fonts.len() > 32
-            || self.candidate_fallback_fonts.iter().any(|font| {
-                font.is_empty() || font.len() > 128 || font.chars().any(char::is_control)
-            })
+            || self
+                .candidate_fallback_fonts
+                .iter()
+                .any(|font| !valid_font_family(font))
         {
             return Err(PreferencesError::InvalidCandidateFontFamily);
         }
@@ -1953,15 +1943,7 @@ pub struct PreferencesStore {
 }
 
 fn read_bounded_document(file: File, maximum: u64) -> Result<Vec<u8>, PreferencesError> {
-    if file.metadata()?.len() > maximum {
-        return Err(PreferencesError::DocumentTooLarge);
-    }
-    let mut bytes = Vec::new();
-    file.take(maximum + 1).read_to_end(&mut bytes)?;
-    if bytes.len() as u64 > maximum {
-        return Err(PreferencesError::DocumentTooLarge);
-    }
-    Ok(bytes)
+    crate::bounded_io::read_bounded_file(file, maximum, || PreferencesError::DocumentTooLarge)
 }
 
 impl PreferencesStore {

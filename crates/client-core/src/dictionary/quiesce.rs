@@ -8,7 +8,6 @@
 
 use std::ffi::OsStr;
 use std::fs::File;
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -26,15 +25,13 @@ pub const BUSY: &str = "dictionary maintenance busy";
 const MAX_LEASE_BYTES: u64 = 4096;
 
 fn read_lease(path: &Path) -> Option<String> {
-    let mut bytes = Vec::new();
-    File::open(path)
-        .ok()?
-        .take(MAX_LEASE_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .ok()?;
-    if bytes.len() as u64 > MAX_LEASE_BYTES {
-        return None;
-    }
+    let bytes = crate::bounded_io::read_bounded_file_with(
+        File::open(path).ok()?,
+        MAX_LEASE_BYTES,
+        || (),
+        |_| (),
+    )
+    .ok()?;
     String::from_utf8(bytes).ok()
 }
 

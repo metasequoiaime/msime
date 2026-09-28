@@ -8,6 +8,16 @@ macOS 平台源码统一放在 `src/` 下按 `backend/`、`voice/`、`candidate/
 
 ## 安装与输入源注册
 
+**`install.sh` 装的是 bundle，不准备词库，装完直接打字是打不出中文的。** 输入会话由 `InputController.mm` 的 `prepareSession` 用 `MSIMELoadRuntimeOptions()` 建起来，而 `RuntimeOptions.h` 的查找顺序是 bundle 内的 `Resources/runtime-options.json`、再退到 `~/Library/Application Support/app.msime.client/runtime-options.json`。开发构建两处都没有——发布包里这一步由设置应用在首次启动时完成（内嵌 `EngineResources`，见《发布包》一节），构建产物里没有任何等价物。没有配置就没有会话，而没有会话的控制器把每个按键原样交给应用，看起来与用户自己切到英文一模一样。开发机上补齐这一步：
+
+```sh
+cargo run --quiet -p msime-client-core --example install_resources --locked -- target/resources   # 拉取并逐个校验固定词库发布，打印目录
+ditto target/resources/<上一步的目录> "$HOME/Library/Application Support/app.msime.client/EngineResources"
+cargo run --quiet -p msime-host-api --example prepare_host --locked -- "$HOME/Library/Application Support/app.msime.client/EngineResources" "$HOME/Library/Application Support/app.msime.client"
+```
+
+第二条不是多余的。`prepare_host` 只是把传进去的目录记到 `runtime-options.json` 里，指向 `target/resources` 的安装会在这个被忽略的产物目录被清掉时（AGENTS.md 里那条磁盘写满的记录说明它随时会）安静地失效，表现又是打不出中文。词库不合适时输入法只写一行 `MSIME has no input session (…)` 到统一日志，`log show --predicate 'process == "水杉输入法"'` 能看到，原因分「no usable runtime options」（没准备）和「session refused the runtime options」（准备过但 Engine 不接受）两种。
+
 `scripts/install.sh` 会停掉正在运行的实例、在暂存目录用本机 Developer ID 连同 `resources/VoiceInput.entitlements` 重签名（`--deep`，因为 Sparkle 自带其发布方的签名，hardened runtime 下 Team ID 不一致会导致进程加载失败）、原子替换并保留旧 bundle，任一步失败自动回滚，最后调用 `--register-input-source` 并用 `scripts/check_input_source.swift` 查注册表，而不是只看退出码。
 
 签名身份按证书的 SHA-1 取，不按名字。钥匙串里同时存在两张有效的同名 Developer ID Application 证书是常态（续期的那张和它替换的那张并存），而 `codesign` 遇到同时匹配两张的名字不会自己挑一张，直接报 `ambiguous (matches … and …)` 拒签——那时运行中的输入法已经被停掉了。哈希不会有歧义；本机安装用哪张都可以，所以脚本取第一张并把找到几张打出来，要指定就把 `MSIME_SIGNING_IDENTITY` 设成 `security find-identity -v -p codesigning` 里的 SHA-1。
@@ -192,6 +202,8 @@ AI 候选与候选释义相互独立：与来源的 `ai_eligible` / `UpdateAiInp
 候选定位与焦点约束对照同一 Apple 提交的 `CandidatePanel.mm`：无效光标隐藏窗口、以光标垂直中点选屏、与光标相隔 4 点、底部不足时向上放置，超大窗口至少锚定可见屏幕原点。候选窗口不能成为 key/main window，按钮不接受键盘焦点但支持首次鼠标点击。宽度随候选文字变化，以屏幕可见区域的一半封顶，且至少是候选字号的 7 倍（与来源皮肤的 `.container { min-width: 7em }` 和 Windows `CandidateCardSize.h` 同一规则），皮肤包的 `min_width_dip` 与装饰宽度只能抬高这个下限，7em 下限本身不超过上述屏宽封顶；竖排行铺满卡片，横排列保持自然宽度靠左排列、余量留在右侧；超出列宽的文字在列内折行而不截断，tooltip 仍给出完整文本；候选行按 Windows 四套内置皮肤使用各自的圆角，并区分普通行和选中行的 hover 颜色。
 
 ## 构建与本地测试
+
+`src/` 下有两个文件不参与任何 target 的构建：`src/input/MetasequoiaInputController.mm` 与 `src/dictionary/DictionaryRuntime.mm`，它们是固定 Apple 快照里的一对适配器，留作参照；产品用的是 `src/input/InputController.mm` 与 `src/core/ClientDictionaryRuntime.mm`。改前者不会影响产品——#912 就是把一个输入会话的修复提交进 `DictionaryRuntime.mm`，通过评审、合并，而产品一行没变。两个文件各自在开头写明了这一点，`scripts/test-macos-orphan-sources.py` 负责让这句话不会烂掉：它列出 `src/` 下不被 CMake 编译的源文件，新出现的一个会直接失败，登记为保留的必须在开头带上那句说明。
 
 并行开发时使用独立产物目录，避免其他平台构建覆盖最低系统版本设置：
 

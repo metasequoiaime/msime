@@ -405,15 +405,13 @@ impl VerifiedMarker {
     /// A marker that is absent, unreadable or not the shape this version writes is simply a miss:
     /// the caller hashes, and writes a fresh one.
     pub fn read(path: &Path) -> Option<Self> {
-        let mut bytes = Vec::new();
-        File::open(path)
-            .ok()?
-            .take(MAX_MARKER_BYTES + 1)
-            .read_to_end(&mut bytes)
-            .ok()?;
-        if bytes.len() as u64 > MAX_MARKER_BYTES {
-            return None;
-        }
+        let bytes = crate::bounded_io::read_bounded_file_with(
+            File::open(path).ok()?,
+            MAX_MARKER_BYTES,
+            || (),
+            |_| (),
+        )
+        .ok()?;
         serde_json::from_slice(&bytes).ok()
     }
 

@@ -10,7 +10,7 @@ use crate::translation::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs::{self, File};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::PathBuf;
 
 const MAX_RECORD_BYTES: u64 = 4096;
@@ -163,11 +163,9 @@ impl TranslationGlossStore {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(error.into()),
         };
-        let mut bytes = Vec::new();
-        file.take(MAX_RECORD_BYTES + 1).read_to_end(&mut bytes)?;
-        if bytes.len() as u64 > MAX_RECORD_BYTES {
-            return Err(GlossStoreError::InvalidRecord);
-        }
+        let bytes = crate::bounded_io::read_bounded_file(file, MAX_RECORD_BYTES, || {
+            GlossStoreError::InvalidRecord
+        })?;
         let record: Record =
             serde_json::from_slice(&bytes).map_err(|_| GlossStoreError::InvalidRecord)?;
         if record.version != 1

@@ -1,3 +1,4 @@
+use msime_client_core::cloud::dictionary::valid_bounded_text;
 use serde_json::Value;
 
 pub fn validate_request(request: &Value) -> Result<(), &'static str> {
@@ -8,7 +9,7 @@ pub fn validate_request(request: &Value) -> Result<(), &'static str> {
     match operation {
         "list" => {
             let search = request.get("search").and_then(Value::as_str).unwrap_or("");
-            if search.len() > 1024 || search.chars().any(char::is_control) {
+            if !valid_bounded_text(search, 1024) {
                 return Err("invalid cloud clipboard request");
             }
         }

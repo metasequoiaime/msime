@@ -1,3 +1,8 @@
+// Retained adapter from the pinned Apple snapshot, not compiled by any target. It pairs with
+// src/input/MetasequoiaInputController.mm; the shipping input method resolves its dictionary paths in
+// src/core/ClientDictionaryRuntime.mm, from the runtime options the host is given. Changing behaviour here
+// does not reach the product - #912 fixed an input session bug in this file and shipped nothing - so a fix
+// belongs in that file, and scripts/test-macos-orphan-sources.py keeps this note honest.
 #include "DictionaryRuntime.h"
 #import "../settings/RuntimeOptions.h"
 #include "../../../../shared/apple-bridge/DictionaryInstallation.h"

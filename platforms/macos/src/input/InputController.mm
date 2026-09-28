@@ -827,6 +827,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     BOOL _focusPending;
     // Dedicated English lives in the Engine session, so a session released for dictionary maintenance takes it along; the reopen puts it back.
     BOOL _resumeDedicatedEnglish;
+    // The last reason prepareSession could not open a session, so the report is made once per reason rather than per focus.
+    NSString *_sessionUnavailableReason;
     unichar _lastSmartPunctuation;
     NSTimeInterval _lastSmartPunctuationTime;
     __weak id _smartPunctuationClient;
@@ -3753,6 +3755,26 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     return requested;
 }
 
+// The two reasons a session can be missing, as its own function for the reason MSIMESessionOptions is: what
+// it decides is reachable in a test, while the branch it is decided in needs a whole Engine to enter.
+// Nothing prepared the dictionary, or something did and the Engine would not take it - a different next step
+// each, which is the whole point of saying which one it was.
+static NSString *MSIMESessionUnavailableReason(NSDictionary *options) {
+    return options ? @"session refused the runtime options" : @"no usable runtime options";
+}
+
+// Why there is no session, said once per reason.
+//
+// A controller without a session passes every key straight to the application, which is indistinguishable from the user having chosen English - and until now it left nothing behind at all: the error from initWithOptions: was discarded and the path where the options themselves are missing said nothing. That silence is what a dictionary that was never prepared looks like, and it is what #912 was diagnosed from: the report was "the input method hands English keys to the application in Chinese mode", the cause was guessed at as a hardcoded resource path, and the fix landed in src/dictionary/DictionaryRuntime.mm, which no target compiles. The two reasons below are the ones that need telling apart - nothing prepared the dictionary, or something prepared it and the Engine would not take it - and each has a different next step.
+//
+// A category rather than the underlying error, because the Host API's errors can name private directories (see the note on MSIMERefreshRuntimeOptionsWith) and this goes to the unified log, which leaves the machine in a sysdiagnose. NSLog rather than the diagnostic log for the same reason the diagnostic log cannot carry it: it is configured from the preferences directory, which arrives in the very runtime options that are missing here.
+- (void)reportSessionUnavailable:(NSString *)reason {
+    if ([_sessionUnavailableReason isEqualToString:reason]) return;
+    _sessionUnavailableReason = [reason copy];
+    NSLog(@"MSIME has no input session (%@); keys pass through to the application until one opens", reason);
+    msime_macos_diagnostic_writef("session_unavailable reason=%s", reason.UTF8String);
+}
+
 - (void)prepareSession {
     BOOL reopened = NO;
     if (!_session) {
@@ -3775,6 +3797,8 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
                 _resumeDedicatedEnglish = NO;
             }
         }
+        if (_session) _sessionUnavailableReason = nil;
+        else [self reportSessionUnavailable:MSIMESessionUnavailableReason(options)];
     }
     [self syncPageSize];
     if (_session) {

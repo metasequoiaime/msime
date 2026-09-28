@@ -2,7 +2,7 @@
 use crate::credential::probe::ProbeResult;
 use crate::translation;
 use serde_json::{json, Value};
-use std::{io::Read, time::Duration};
+use std::time::Duration;
 
 pub struct Request {
     pub endpoint: String,
@@ -27,19 +27,14 @@ impl Transport for HttpTransport {
         }
         let response = post.send().ok()?;
         let status = response.status().as_u16();
-        let mut bytes = Vec::new();
-        response.take(256 * 1024 + 1).read_to_end(&mut bytes).ok()?;
-        if bytes.len() > 256 * 1024 {
-            return None;
-        }
+        let bytes = crate::bounded_io::read_bounded(response, 256 * 1024).ok()?;
         Some((status, String::from_utf8(bytes).ok()?))
     }
 }
 
 fn usable(value: &str) -> bool {
     !value.is_empty()
-        && value.len() <= 4096
-        && !value.chars().any(char::is_control)
+        && crate::text::is_bounded_text(value, 4096)
         && !value.starts_with('<')
         && !value.starts_with("FAKESECRET_")
         && !value.chars().all(|c| c == '*')
@@ -99,8 +94,7 @@ fn request(service: &str, config: &Value, milliseconds: u64) -> Option<Request> 
         "translation.custom" => {
             let endpoint = get("endpoint");
             let url = reqwest::Url::parse(endpoint).ok()?;
-            if endpoint.len() > 2048
-                || endpoint.chars().any(char::is_control)
+            if !crate::text::is_bounded_text(endpoint, 2048)
                 || !matches!(url.scheme(), "http" | "https")
                 || url.host_str().is_none()
                 || !url.username().is_empty()

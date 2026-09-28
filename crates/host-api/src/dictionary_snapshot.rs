@@ -20,7 +20,7 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::{HashMap, HashSet},
     ffi::{c_char, c_void},
-    io::{BufRead, BufReader, Read, Write},
+    io::{BufRead, BufReader, Write},
     path::Path,
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -619,9 +619,7 @@ fn inspect_snapshot(path: &Path) -> Result<SnapshotMetadata, &'static str> {
                 let expected_sha = map
                     .get("sha256")
                     .and_then(Value::as_str)
-                    .filter(|value| {
-                        value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
-                    })
+                    .filter(|value| crate::valid_sha256(value))
                     .ok_or("invalid snapshot document")?;
                 let actual = lower_hex(&body_digest.clone().finalize());
                 if expected_records != records || expected_sha != actual {
@@ -757,21 +755,13 @@ fn activation_receipt(options: &EngineOptions) -> Result<Option<String>, &'stati
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(_) => return Err("snapshot activation receipt unavailable"),
     };
-    if file
-        .metadata()
-        .map_err(|_| "snapshot activation receipt unavailable")?
-        .len()
-        > MAX_ACTIVATION_RECEIPT_BYTES
-    {
-        return Err("invalid snapshot activation receipt");
-    }
-    let mut value = Vec::new();
-    file.take(MAX_ACTIVATION_RECEIPT_BYTES + 1)
-        .read_to_end(&mut value)
-        .map_err(|_| "snapshot activation receipt unavailable")?;
-    if value.len() as u64 > MAX_ACTIVATION_RECEIPT_BYTES {
-        return Err("invalid snapshot activation receipt");
-    }
+    let value = crate::bounded_file::read(file, MAX_ACTIVATION_RECEIPT_BYTES).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::InvalidData {
+            "invalid snapshot activation receipt"
+        } else {
+            "snapshot activation receipt unavailable"
+        }
+    })?;
     let value = std::str::from_utf8(&value).map_err(|_| "invalid snapshot activation receipt")?;
     if !valid_activation_id(value) {
         return Err("invalid snapshot activation receipt");

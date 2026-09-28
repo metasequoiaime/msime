@@ -118,10 +118,7 @@ final class LocalSpeechModelManager: ObservableObject {
 
   static func isValidMirror(_ value: String) -> Bool {
     if value.isEmpty { return true }
-    guard value.count <= 2048, !value.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
-          let url = URL(string: value), url.scheme?.lowercased() == "https", let host = url.host, !host.isEmpty
-    else { return false }
-    return true
+    return CustomServiceConfiguration.validatedEndpoint(value, maximumCharacters: 2048) != nil
   }
 
   @discardableResult
