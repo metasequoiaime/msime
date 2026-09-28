@@ -30,6 +30,7 @@ import { CandidateFontControls } from "./candidate/candidate-font-controls";
 import { CandidateSizingSection } from "./settings/candidate-sizing-section";
 import { CandidatePageSizeSection } from "./settings/candidate-page-size-section";
 import { CandidateLayoutSection } from "./settings/candidate-layout-section";
+import { PreeditSettingsSection } from "./settings/preedit-settings-section";
 import { validCandidateFonts } from "./candidate/candidate-font-family";
 import type { FontCatalogReader } from "./candidate/font-catalog";
 import { SecretInput } from "./core/secret-input";
@@ -270,6 +271,12 @@ export {
 } from "./settings/candidate-sizing-section";
 export { CandidatePageSizeSection } from "./settings/candidate-page-size-section";
 export { CandidateLayoutSection, type CandidateLayout } from "./settings/candidate-layout-section";
+export {
+  PreeditSettingsSection,
+  type CandidatePreeditStyle,
+  type PreeditSettingsPreferences,
+  type TsfPreeditStyle,
+} from "./settings/preedit-settings-section";
 export {
   CommunitySkinsPage,
   type CommunitySkin,
@@ -5074,99 +5081,21 @@ export function SettingsPage({
                       fixed={host?.fixed_candidate_layout !== undefined}
                       onChange={(candidate_layout) => setDraft({ ...draft, candidate_layout })}
                     />
-                    {showShuangpinPreedit && (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">
-                            双拼预编辑
-                            <small>
-                              仅在双拼方案下生效；选择保留原始双拼按键，或显示展开后的拼音分词。
-                            </small>
-                          </span>
-                          <select
-                            aria-label="双拼预编辑"
-                            value={draft.shuangpin_preedit_uses_raw === false ? "pinyin" : "raw"}
-                            onChange={(event) =>
-                              setDraft({
-                                ...draft,
-                                shuangpin_preedit_uses_raw: event.target.value === "raw",
-                              })
-                            }
-                          >
-                            <option value="raw">原始按键</option>
-                            <option value="pinyin">拼音分词</option>
-                          </select>
-                        </label>
-                      </div>
-                    )}
-                    {mobileKeyboardFeedback?.inlinePreedit !== undefined ? (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">
-                            行内预编辑
-                            <small>
-                              把正在拼写的编码也写进输入框，像系统键盘那样带下划线显示。默认关闭；个别
-                              App 显示不完整时可以关掉。
-                            </small>
-                          </span>
-                          <input
-                            aria-label="行内预编辑"
-                            className="toggle"
-                            type="checkbox"
-                            disabled={mobileKeyboardFeedbackBusy}
-                            checked={mobileKeyboardFeedback.inlinePreedit}
-                            onChange={(event) =>
-                              void saveMobileKeyboardFeedback({
-                                ...mobileKeyboardFeedback,
-                                inlinePreedit: event.target.checked,
-                              })
-                            }
-                          />
-                        </label>
-                      </div>
-                    ) : (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">行内预编辑</span>
-                          <select
-                            aria-label="行内预编辑"
-                            value={draft.tsf_preedit_style ?? "raw"}
-                            onChange={(event) =>
-                              setDraft({
-                                ...draft,
-                                tsf_preedit_style: event.target
-                                  .value as Preferences["tsf_preedit_style"],
-                              })
-                            }
-                          >
-                            <option value="raw">原始按键</option>
-                            <option value="pinyin">拼音分词</option>
-                            <option value="empty">不显示</option>
-                          </select>
-                        </label>
-                      </div>
-                    )}
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          {mobilePlatform ? "候选栏预编辑" : "候选窗预编辑"}
-                        </span>
-                        <select
-                          aria-label={mobilePlatform ? "候选栏预编辑" : "候选窗预编辑"}
-                          value={draft.candidate_preedit_style ?? "pinyin"}
-                          onChange={(event) =>
-                            setDraft({
-                              ...draft,
-                              candidate_preedit_style: event.target
-                                .value as Preferences["candidate_preedit_style"],
-                            })
-                          }
-                        >
-                          <option value="pinyin">拼音分词</option>
-                          <option value="empty">不显示</option>
-                        </select>
-                      </label>
-                    </div>
+                    <PreeditSettingsSection
+                      preferences={draft}
+                      mobile={mobilePlatform}
+                      showShuangpinPreedit={showShuangpinPreedit}
+                      inlinePreedit={mobileKeyboardFeedback?.inlinePreedit}
+                      inlinePreeditBusy={mobileKeyboardFeedbackBusy}
+                      onChange={(patch) => setDraft({ ...draft, ...patch })}
+                      onInlinePreeditChange={(inlinePreedit) =>
+                        mobileKeyboardFeedback &&
+                        void saveMobileKeyboardFeedback({
+                          ...mobileKeyboardFeedback,
+                          inlinePreedit,
+                        })
+                      }
+                    />
                   </fieldset>
                   <fieldset disabled={busy} hidden={page !== "dictionary"} aria-label="词库">
                     {client.dictionaryManifest && (
