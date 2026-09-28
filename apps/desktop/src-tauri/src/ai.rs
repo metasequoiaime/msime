@@ -33,7 +33,7 @@ pub(crate) fn read_ai_response_body(reader: impl Read) -> Result<Vec<u8>, AiResp
 }
 
 pub(crate) fn validate_ai_endpoint(value: &str) -> Result<Url, CommandError> {
-    if value.len() > 2048 || msime_client_core::has_disallowed_control_with_options(value, false) {
+    if !msime_client_core::is_bounded_text_with_options(value, 2048, false) {
         return Err(CommandError { code: "ai_invalid" });
     }
     let url = Url::parse(value).map_err(|_| CommandError { code: "ai_invalid" })?;
@@ -49,9 +49,7 @@ pub(crate) fn validate_ai_endpoint(value: &str) -> Result<Url, CommandError> {
 }
 
 pub(crate) fn validate_ai_token(token: &str) -> Result<(), CommandError> {
-    if token.is_empty()
-        || token.len() > 16 * 1024
-        || msime_client_core::has_disallowed_control_with_options(token, false)
+    if token.is_empty() || !msime_client_core::is_bounded_text_with_options(token, 16 * 1024, false)
     {
         return Err(CommandError { code: "ai_invalid" });
     }
@@ -60,8 +58,7 @@ pub(crate) fn validate_ai_token(token: &str) -> Result<(), CommandError> {
 
 pub(crate) fn ai_text_is_valid(value: &str, allow_empty: bool) -> bool {
     (allow_empty || !value.is_empty())
-        && value.len() <= 16 * 1024
-        && !msime_client_core::has_disallowed_control_with_options(value, true)
+        && msime_client_core::is_bounded_text_with_options(value, 16 * 1024, true)
 }
 
 /// The listing sits next to the chat endpoint, whatever its version prefix
@@ -115,9 +112,7 @@ pub(crate) fn ai_models_request(endpoint: &str, token: &str) -> Result<Vec<Strin
         .iter()
         .filter_map(|item| item.get("id").and_then(Value::as_str))
         .filter(|id| {
-            !id.is_empty()
-                && id.len() <= 256
-                && !msime_client_core::has_disallowed_control_with_options(id, false)
+            !id.is_empty() && msime_client_core::is_bounded_text_with_options(id, 256, false)
         })
         .take(128)
         .map(str::to_owned)
@@ -140,8 +135,7 @@ pub(crate) fn ai_test_request(
     let endpoint = validate_ai_endpoint(endpoint)?;
     validate_ai_token(token)?;
     if model.is_empty()
-        || model.len() > 256
-        || msime_client_core::has_disallowed_control_with_options(model, false)
+        || !msime_client_core::is_bounded_text_with_options(model, 256, false)
         || !ai_text_is_valid(prompt, true)
         || !ai_text_is_valid(text, false)
     {

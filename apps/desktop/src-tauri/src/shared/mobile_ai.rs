@@ -5,7 +5,9 @@
 //! boundaries as the Android native implementation without exposing secrets to
 //! JavaScript logs or browser extensions.
 
-use msime_client_core::has_disallowed_control_with_options as has_disallowed_control;
+use msime_client_core::{
+    is_bounded_chars, is_bounded_chars_with_options, is_bounded_text_with_options,
+};
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::BTreeSet;
@@ -45,8 +47,7 @@ struct ModelEntry {
 
 fn valid_endpoint(endpoint: &str) -> Result<reqwest::Url, Error> {
     let value = endpoint.trim();
-    if value.is_empty() || value.len() > MAX_ENDPOINT_LENGTH || has_disallowed_control(value, false)
-    {
+    if value.is_empty() || !is_bounded_text_with_options(value, MAX_ENDPOINT_LENGTH, false) {
         return Err(Error::Invalid);
     }
     let url = reqwest::Url::parse(value).map_err(|_| Error::Invalid)?;
@@ -63,7 +64,7 @@ fn valid_endpoint(endpoint: &str) -> Result<reqwest::Url, Error> {
 
 fn valid_token(token: &str) -> Result<String, Error> {
     let value = token.trim();
-    if value.len() > MAX_TOKEN_LENGTH || has_disallowed_control(value, false) {
+    if !is_bounded_text_with_options(value, MAX_TOKEN_LENGTH, false) {
         return Err(Error::Invalid);
     }
     Ok(value.to_owned())
@@ -200,8 +201,7 @@ pub fn fetch_models(endpoint: &str, token: &str) -> Result<Vec<String>, Error> {
 
 fn valid_text(value: &str, maximum: usize, require_non_empty: bool) -> bool {
     (!require_non_empty || !value.trim().is_empty())
-        && value.chars().count() <= maximum
-        && !has_disallowed_control(value, true)
+        && is_bounded_chars_with_options(value, maximum, true)
 }
 
 fn parse_completion(body: &[u8]) -> Result<String, Error> {
@@ -233,11 +233,9 @@ pub fn polish(
     let prompt = prompt.trim();
     let token = valid_token(token)?;
     if model.is_empty()
-        || model.chars().count() > MAX_MODEL_LENGTH
-        || has_disallowed_control(model, false)
+        || !is_bounded_chars(model, MAX_MODEL_LENGTH)
         || prompt.is_empty()
-        || prompt.chars().count() > MAX_PROMPT_LENGTH
-        || has_disallowed_control(prompt, true)
+        || !is_bounded_chars_with_options(prompt, MAX_PROMPT_LENGTH, true)
         || !valid_text(text, MAX_TEXT_CODE_POINTS, true)
     {
         return Err(Error::Invalid);

@@ -30,7 +30,16 @@ pub fn has_disallowed_control_with_line_breaks(value: &str) -> bool {
 
 /// Whether a single-line field fits its byte bound and contains no controls.
 pub fn is_bounded_text(value: &str, maximum_bytes: usize) -> bool {
-    value.len() <= maximum_bytes && !value.chars().any(char::is_control)
+    is_bounded_text_with_options(value, maximum_bytes, false)
+}
+
+/// Whether `value` fits its byte bound and contains no control characters outside the selected whitespace policy.
+pub fn is_bounded_text_with_options(
+    value: &str,
+    maximum_bytes: usize,
+    allow_whitespace: bool,
+) -> bool {
+    value.len() <= maximum_bytes && !has_disallowed_control_with_options(value, allow_whitespace)
 }
 
 /// Whether `value` fits both byte and Unicode scalar bounds and contains no controls.
@@ -116,7 +125,17 @@ pub fn is_lower_hex(value: &str, length: usize) -> bool {
 
 /// Whether a single-line field fits its character bound and contains no controls.
 pub fn is_bounded_chars(value: &str, maximum_characters: usize) -> bool {
-    value.chars().count() <= maximum_characters && !value.chars().any(char::is_control)
+    is_bounded_chars_with_options(value, maximum_characters, false)
+}
+
+/// Whether `value` fits its character bound and contains no control characters outside the selected whitespace policy.
+pub fn is_bounded_chars_with_options(
+    value: &str,
+    maximum_characters: usize,
+    allow_whitespace: bool,
+) -> bool {
+    value.chars().count() <= maximum_characters
+        && !has_disallowed_control_with_options(value, allow_whitespace)
 }
 
 /// Whether `value` fits a character bound and contains no NUL character.
