@@ -22,11 +22,11 @@ const MAX_CANDIDATE: usize = 512;
 const MAX_CACHE_ENTRIES: usize = 4096;
 
 fn valid_input(value: &str) -> bool {
-    !value.is_empty() && value.len() <= MAX_INPUT && !value.chars().any(char::is_control)
+    !value.is_empty() && crate::text::is_bounded_text(value, MAX_INPUT)
 }
 
 fn valid_candidate(value: &str) -> bool {
-    !value.is_empty() && value.len() <= MAX_CANDIDATE && !value.chars().any(char::is_control)
+    !value.is_empty() && crate::text::is_bounded_text(value, MAX_CANDIDATE)
 }
 
 #[derive(Debug)]
