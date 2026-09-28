@@ -61,7 +61,7 @@ export function InputModeShortcutsSection({
           key={key}
           label={label}
           ariaLabel={label}
-          checked={keybindings[key]}
+          checked={keybindings[key] ?? false}
           compact
           onChange={(enabled) => onChange({ [key]: enabled })}
         />

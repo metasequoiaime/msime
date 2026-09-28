@@ -54,3 +54,20 @@ test("macOS input mode shortcut section exposes HUD and fullwidth controls", () 
   expect(screen.getByLabelText("切换中英文时显示提示")).toBeTruthy();
   expect(screen.getByLabelText("Option+Shift+H 切换全半角")).toBeTruthy();
 });
+
+test("missing optional HUD preference does not affect shortcut toggle rendering", () => {
+  render(
+    <InputModeShortcutsSection
+      keybindings={keybindings}
+      onChange={vi.fn()}
+      showModeSwitchShortcuts
+      macos={false}
+      showInputModeHUD={false}
+      inputModeHUD={false}
+      showFullwidthChord={false}
+      windows={false}
+    />,
+  );
+
+  expect((screen.getByLabelText("Shift 切换中英文") as HTMLInputElement).checked).toBe(true);
+});
