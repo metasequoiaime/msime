@@ -1855,9 +1855,7 @@ pub fn import_dictionary_words(
     }
     if request_id.is_empty()
         || request_id.len() > 120
-        || !request_id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+        || !msime_client_core::is_ascii_identifier(request_id)
     {
         return Err("invalid dictionary request ID".into());
     }

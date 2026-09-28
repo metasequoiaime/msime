@@ -1661,15 +1661,9 @@ impl Preferences {
         let tencent = &self.tencent_tmt;
         if tencent.secret_id.len() > 4096
             || !crate::text::is_bounded_text(&tencent.secret_key, 4096)
-            || !tencent
-                .secret_id
-                .bytes()
-                .all(|ch| ch.is_ascii_alphanumeric() || ch == b'_' || ch == b'-')
+            || !crate::is_ascii_identifier(&tencent.secret_id)
             || tencent.region.len() > 64
-            || !tencent
-                .region
-                .bytes()
-                .all(|ch| ch.is_ascii_alphanumeric() || ch == b'-')
+            || !crate::is_ascii_alphanumeric_dash(&tencent.region)
         {
             return Err(PreferencesError::InvalidTencentTmt);
         }
