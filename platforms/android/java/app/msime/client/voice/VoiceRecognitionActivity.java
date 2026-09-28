@@ -253,12 +253,12 @@ public final class VoiceRecognitionActivity extends Activity {
             getIntent().getStringExtra(EXTRA_LOCAL_MODEL));
     }
 
-    /** Whether this request carries a provider configuration this host can actually speak. */
     /** Whether this request is the streaming protocol rather than an upload. */
     private boolean usesStreaming() {
         return getIntent().getStringExtra(EXTRA_STREAM_ENDPOINT) != null;
     }
 
+    /** Whether this request carries a provider configuration this host can actually speak. */
     private boolean usesProvider() {
         Intent intent = getIntent();
         return HttpAsrPolicy.usable(intent.getStringExtra(EXTRA_PROVIDER),
@@ -357,12 +357,6 @@ public final class VoiceRecognitionActivity extends Activity {
         });
     }
 
-    /**
-     * Stream while the user speaks, then deliver what the provider settled on.
-     *
-     * <p>Interim results are not shown yet: this activity has no surface for them, and inventing
-     * one here would put partial text on screen that the final result may contradict.
-     */
     /**
      * A window that says it is recording, and a way to end the recording and keep the result.
      *
@@ -477,6 +471,7 @@ public final class VoiceRecognitionActivity extends Activity {
         }
     }
 
+    /** Stream while the user speaks, then deliver the provider's final result. */
     private void startStreamingRecognition() {
         if (streaming != null) return;
         showRecordingControls();
@@ -548,13 +543,6 @@ public final class VoiceRecognitionActivity extends Activity {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
     }
 
-    /**
-     * The rewrite the user asked for, or the transcript unchanged.
-     *
-     * <p>Best effort: a rewrite improves text the user already has, so any failure keeps the
-     * original rather than losing a recognised sentence to an unreachable service. It runs for
-     * both engines, because the setting is about the result and not about who produced it.
-     */
     /** Polish on a worker, then save and finish on the thread that owns this window. */
     private void deliver(String text) {
         if (getIntent().getStringExtra(EXTRA_POLISH_ENDPOINT) == null) {
@@ -573,6 +561,7 @@ public final class VoiceRecognitionActivity extends Activity {
         });
     }
 
+    /** Return the requested rewrite, or the original transcript if polishing fails. */
     private String polished(String text) {
         Intent intent = getIntent();
         String endpoint = intent.getStringExtra(EXTRA_POLISH_ENDPOINT);

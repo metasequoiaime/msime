@@ -119,7 +119,6 @@ public final class NativeClient {
             throw new IllegalArgumentException("Invalid English completion request", error);
         }
     }
-    /** Reads one bounded double-pinyin key-hint map from the Engine profile tables. */
     /**
      * The polish prompt the selected slot resolves to.
      *
@@ -138,12 +137,6 @@ public final class NativeClient {
     }
 
     /**
-     * Doubao streaming: authentication headers, and the frames that carry the audio.
-     *
-     * <p>All four are the shared implementation. The protocol's framing and its auth modes are the
-     * same on every host, and this one adds only the transport Android has no platform API for.
-     */
-    /**
      * The one clipboard history every mobile host shares.
      *
      * <p>Ordering, the fifty-entry limit, pinning and eviction are the shared store's, and the file
@@ -153,11 +146,17 @@ public final class NativeClient {
         return text(mobileClipboardHistoryRaw(utf8(request)));
     }
 
+    /**
+     * Decode a Doubao streaming response frame with the shared implementation.
+     *
+     * <p>The protocol's framing and auth modes are shared across hosts; Android supplies only the
+     * transport.
+     */
     public static String doubaoDecodeFrame(byte[] frame) {
         return text(doubaoDecodeFrameRaw(frame));
     }
 
-    /** The session's opening frame, or null when the shared builder refused the options. */
+    /** The Doubao session's opening frame, or null when the shared builder refused the options. */
     public static byte[] doubaoStartFrame(boolean itn, boolean punctuation, boolean ddc,
                                           String boostingTableId) {
         return doubaoStartFrameRaw(itn, punctuation, ddc, utf8(boostingTableId));
@@ -169,6 +168,7 @@ public final class NativeClient {
         return doubaoAudioFrameRaw(sequence, pcm, length, finalChunk);
     }
 
+    /** Reads one bounded double-pinyin key-hint map from the Engine profile tables. */
     public static String shuangpinKeyHints(String profile) {
         if (profile == null) throw new IllegalArgumentException("Missing double-pinyin profile");
         byte[] profileBytes = profile.getBytes(StandardCharsets.UTF_8);
@@ -196,25 +196,6 @@ public final class NativeClient {
     public static String setEnglishMode(long session, boolean enabled) {
         return text(setEnglishModeRaw(session, enabled));
     }
-    /**
-     * Route the fullwidth state through the runtime so Engine commits carry it too.
-     *
-     * <p>The host still widens what it commits on its own, but anything the Engine finishes -
-     * candidates, local input modes, Japanese kana - is only reachable here.
-     */
-    /**
-     * Route the Chinese/English punctuation state through the runtime.
-     *
-     * <p>The Engine decides what a punctuation key produces, so a toggle that only changed the key
-     * faces on this keyboard would show one mark and commit the other.
-     */
-    /** Drop the cached candidate list for this session; the next query is answered fresh. */
-    /**
-     * Simplified to Traditional with the shared OpenCC tables, the same conversion the other
-     * hosts use. Phrase-level, so 头发 becomes 頭髮 rather than 頭發.
-     *
-     * <p>Returns null when the text was not convertible; the caller keeps the original.
-     */
     /**
      * The transcription provider and optional rewrite this device is configured for.
      *
@@ -286,18 +267,36 @@ public final class NativeClient {
         return localSpeechReleaseRaw(Math.max(0, idleMillis));
     }
 
+    /**
+     * Convert whole phrases with the shared OpenCC tables; return null when conversion fails.
+     *
+     * <p>Phrase-level conversion means 头发 becomes 頭髮 rather than 頭發.
+     */
     public static String simplifiedToTraditional(String text) {
         if (text == null || text.isEmpty()) return text;
         byte[] converted = simplifiedToTraditionalRaw(text.getBytes(StandardCharsets.UTF_8));
         return converted == null ? null : text(converted);
     }
 
+    /** Drop the cached candidate list for this session; the next query is answered fresh. */
     public static String resetCache(long session) {
         return text(resetCacheRaw(session));
     }
+    /**
+     * Route punctuation through the runtime so Engine commits match the keyboard state.
+     *
+     * <p>The Engine decides what a punctuation key produces, so changing only the key face would
+     * show one mark and commit the other.
+     */
     public static String setChinesePunctuation(long session, boolean enabled) {
         return text(setChinesePunctuationRaw(session, enabled));
     }
+    /**
+     * Route fullwidth state through the runtime so Engine commits carry it too.
+     *
+     * <p>The host still widens its own commits, while Engine completions and local modes go through
+     * this call.
+     */
     public static String setCharacterWidth(long session, boolean fullwidth) {
         return text(setCharacterWidthRaw(session, fullwidth));
     }

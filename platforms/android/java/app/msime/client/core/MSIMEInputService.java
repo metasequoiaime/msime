@@ -462,7 +462,6 @@ public final class MSIMEInputService extends InputMethodService {
             KeyboardScheme.resolveEnabledSelection(engineScheme, selected, enabled), true);
     }
 
-    /** Keep a shared picker selection and the Engine session on the same scheme after a fallback. */
     /**
      * Everything about this keyboard that the user chose and can see: the skin, the scheme badge,
      * the candidate strip and the key geometry.
@@ -567,6 +566,7 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
+    /** Keep a shared picker selection and the Engine session on the same scheme after a fallback. */
     private void alignEngineSchemeWithSelection(
             JSONObject preferences, KeyboardScheme engineScheme,
             SchemeConfiguration configuration) throws JSONException {
@@ -3305,12 +3305,6 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
-    /**
-     * The toolbar card and the hardware chord switch the width for this session only.
-     *
-     * <p>「全角输入」 in the shared settings is the default a session starts from, the same way the
-     * other hosts treat it; changing it there is what makes a new value stick.
-     */
     /** Hand the punctuation state to the runtime and take the answer from the view it returns. */
     private void applyChinesePunctuation(boolean enabled) {
         chinesePunctuation = enabled;
@@ -3335,6 +3329,7 @@ public final class MSIMEInputService extends InputMethodService {
         renderMoreTools();
     }
 
+    /** Switch width for this session; the shared setting supplies the next session's default. */
     private void toggleFullWidthInput() {
         applyCharacterWidth(!fullWidthInput);
         render();
