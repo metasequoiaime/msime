@@ -1059,7 +1059,7 @@ fn japanese_single_kana_pair_stays_ahead_of_the_cloud_candidate() {
     assert_eq!(seated(3, "か", &["蚊", "か"], vec![2, 0]), vec!["か", "蚊"]);
 }
 
-// A pinned or promoted English word keeps the first seat when online candidates arrive. The Engine seats it first because its learned weight is the unique maximum of the mixed list, and the reference's `PromotedEnglishCandidateCanBecomeTheFirstMixedCandidate` expects exactly this order, so Space commits the English word rather than the Chinese one.
+// An English word the user fixed at position 1 keeps the first seat when online candidates arrive. That fixed position is the only way the Engine seats English ahead of a Chinese candidate, so Space commits the English word rather than the Chinese one.
 #[test]
 fn promoted_english_candidate_keeps_the_first_seat_with_cloud_and_ai() {
     let seated = |words: &[&str], sources: Vec<u8>| {

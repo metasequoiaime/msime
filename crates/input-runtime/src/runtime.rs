@@ -993,7 +993,7 @@ impl<E: InputEngine> Runtime<E> {
         // their seat as a group. The reference has only one of each to place and silently drops the
         // rest; dropping a candidate the user was offered is not an option here.
         //
-        // The reference then moves an English candidate whose learned weight is the unique maximum of the whole list to the first seat, which is how a pinned or promoted English word comes before the Chinese candidates. The snapshot carries no weights, but the Engine applies that same rule before this step and otherwise never puts English first while a Chinese candidate exists, so an English candidate at index zero with locals present is the promoted one. It keeps the first seat and the leading English seat is not filled a second time, exactly as the reference's move to index zero leaves it.
+        // The Engine never puts English first while a Chinese candidate exists, whatever its weight or pin, except for a word the user fixed at position 1 (`apply_candidate_positions`). An English candidate at index zero with locals present is that word. It keeps the first seat and the leading English seat is not filled a second time.
         let promoted_english = english.first() == Some(&0) && !locals.is_empty();
         let mut order = Vec::with_capacity(count);
         let mut english = english.into_iter();

@@ -746,6 +746,82 @@ fn commit_raw_applies_windows_english_learning_policy() {
     assert_eq!(learned, "hello");
 }
 
+// The shipped english.db weighs its words by Google unigram counts (dancing 14310606) while the pinyin tables use their own scale (单词 225415), so an English weight says nothing about a Chinese one. Mixed input therefore never seats an English word ahead of the leading Chinese candidate: not on its shipped weight, not after it is committed, not after it is pinned. Pinning only reorders it among the English words. The fixture gives every English word a weight above the Chinese ones, as the shipped dictionaries do.
+#[test]
+fn mixed_english_never_takes_the_first_seat_from_chinese() {
+    const ENGLISH: u8 = 4;
+    let dir = tempfile::tempdir().unwrap();
+    let mut value = options(dir.path());
+    value.learning = true;
+    value.english_minimum_prefix = 2;
+    for directory in [&value.resources, &value.dictionaries] {
+        let directory = std::path::Path::new(directory);
+        rusqlite::Connection::open(directory.join("msime.db"))
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+                 INSERT INTO tbl_1_n VALUES('ni','n','你',2000);\
+                 INSERT INTO tbl_1_n VALUES('ni','n','倪',1000);\
+                 CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);\
+                 CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);",
+            )
+            .unwrap();
+        rusqlite::Connection::open(directory.join("english.db"))
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER);\
+                 CREATE TABLE en_zh_glosses(english TEXT PRIMARY KEY,chinese_gloss TEXT);\
+                 CREATE TABLE zh_en_glosses(chinese TEXT PRIMARY KEY,english_gloss TEXT);\
+                 INSERT INTO english_words VALUES('nimbus','Nimbus',50000);\
+                 INSERT INTO english_words VALUES('ninja','Ninja',30000);",
+            )
+            .unwrap();
+    }
+    let mut session = Session::new(&value).unwrap();
+    let typed = |session: &mut Session| {
+        session.command(Command::Cancel).unwrap();
+        for character in b"ni" {
+            assert!(session.character(*character, false).unwrap().handled);
+        }
+        let snapshot = session.snapshot().unwrap();
+        assert_eq!(
+            snapshot.candidate_sources.first(),
+            Some(&0),
+            "an English word took the first seat: {:?}",
+            snapshot.candidates
+        );
+        assert_eq!(snapshot.candidates[0], "你", "{:?}", snapshot.candidates);
+        snapshot
+    };
+    let index_of = |snapshot: &EngineSnapshot, word: &str| {
+        snapshot
+            .candidates
+            .iter()
+            .zip(&snapshot.candidate_sources)
+            .position(|(candidate, source)| candidate == word && *source == ENGLISH)
+            .unwrap_or_else(|| panic!("{word} is not offered: {:?}", snapshot.candidates))
+    };
+
+    // Unlearned: the heaviest English word takes the leading English seat behind 你.
+    let snapshot = typed(&mut session);
+    assert_eq!(
+        snapshot.candidates[1], "Nimbus",
+        "{:?}",
+        snapshot.candidates
+    );
+
+    // Committing the leading English word keeps it behind 你.
+    session.select(index_of(&snapshot, "Nimbus")).unwrap();
+    typed(&mut session);
+
+    // Pinning an English word is an ordering among the English words too.
+    let snapshot = typed(&mut session);
+    let ninja = index_of(&snapshot, "Ninja");
+    assert!(session.pin_candidate(ninja).unwrap().handled);
+    let snapshot = typed(&mut session);
+    assert_eq!(snapshot.candidates[1], "Ninja", "{:?}", snapshot.candidates);
+}
+
 #[test]
 fn raw_commit_without_learning_leaves_the_english_dictionary_alone() {
     for dedicated in [true, false] {

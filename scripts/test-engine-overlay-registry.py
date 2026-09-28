@@ -16,7 +16,9 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 LOCK = ROOT / "engine-lock.json"
 
 # Overlay scripts kept on disk but intentionally not applied: {repo-relative path: reason}.
-RETIRED: dict[str, str] = {}
+RETIRED: dict[str, str] = {
+    "scripts/apply_engine_promoted_english_first.py": "Mixed input never seats an English word ahead of Chinese. The shipped english.db weighs words by corpus counts on a different scale from the pinyin tables, so promoting the unique heaviest English word seated shipped or once-pinned words ahead of Chinese across every prefix they matched, and ranking a mixed-input English word against the whole mixed list compared weights on the two scales. Upstream seats English at the priority slot behind the leading Chinese candidate and ranks a pinned English word among English words only.",
+}
 
 
 def duplicates(entries: list[str]) -> list[str]:

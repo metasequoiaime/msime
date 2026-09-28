@@ -20,7 +20,6 @@
     "scripts/apply_engine_shuangpin_yo.py",
     "scripts/apply_engine_punctuation_alternation.py",
     "scripts/apply_engine_bundled_dictionary_entries.py",
-    "scripts/apply_engine_promoted_english_first.py",
     "scripts/apply_engine_paired_punctuation_ipc.py",
     "scripts/apply_engine_local_mode_fallback.py"
   ],
