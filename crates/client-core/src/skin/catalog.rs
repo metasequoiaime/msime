@@ -91,10 +91,13 @@ pub struct SkinSummary {
 }
 
 impl SkinSummary {
+    fn supports_theme(&self, theme: &str) -> bool {
+        self.themes.iter().any(|value| value == theme)
+    }
+
     /// Compatibility comes from the manifest, not the base skin's capabilities.
     pub fn supports(&self, layout: &str, theme: &str) -> bool {
-        self.layouts.iter().any(|value| value == layout)
-            && self.themes.iter().any(|value| value == theme)
+        self.layouts.iter().any(|value| value == layout) && self.supports_theme(theme)
     }
 }
 
@@ -558,7 +561,7 @@ pub fn host_candidate_catalog(
                 ("light", &package.candidate.light),
                 ("dark", &package.candidate.dark),
             ] {
-                if !package.themes.iter().any(|value| value == theme) {
+                if !package.supports_theme(theme) {
                     continue;
                 }
                 let colors = host_palette(palette);
