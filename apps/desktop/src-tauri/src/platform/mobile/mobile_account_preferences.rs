@@ -21,6 +21,14 @@ pub(crate) fn insert_bool(
     settings.insert(key.to_owned(), AccountPreferenceValue::Boolean(value));
 }
 
+pub(crate) fn insert_integer(
+    settings: &mut BTreeMap<String, AccountPreferenceValue>,
+    key: &str,
+    value: i64,
+) {
+    settings.insert(key.to_owned(), AccountPreferenceValue::Integer(value));
+}
+
 pub(crate) fn frequency_account_preferences(
     frequency: &FrequencyPreferences,
 ) -> BTreeMap<String, AccountPreferenceValue> {

@@ -11,7 +11,7 @@ use crate::platform::mobile::mobile_account_helpers::{
     snapshot_command_error, snapshot_response_without_account, PendingSnapshot, SnapshotMetadata,
 };
 use crate::platform::mobile::mobile_account_preferences::{
-    frequency_account_preferences, insert_bool, insert_string,
+    frequency_account_preferences, insert_bool, insert_integer, insert_string,
 };
 use crate::platform::mobile::mobile_community::MobileCommunityState;
 use crate::shared::account_dto::{
@@ -1494,10 +1494,6 @@ pub async fn app_icon_set(
     })
     .await
     .map_err(|_| crate::CommandError { code: "app_icon" })?
-}
-
-fn insert_integer(settings: &mut BTreeMap<String, AccountPreferenceValue>, key: &str, value: i64) {
-    settings.insert(key.to_owned(), AccountPreferenceValue::Integer(value));
 }
 
 fn local_account_preferences(
