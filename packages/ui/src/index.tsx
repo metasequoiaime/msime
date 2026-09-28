@@ -288,6 +288,11 @@ import {
   POLISH_PROVIDER_DEFAULTS,
 } from "./voice/voice-providers";
 import { PolishPromptSection } from "./settings/polish-prompt-section";
+import { useVoiceInputSettings } from "./settings/use-voice-input-settings";
+export {
+  useVoiceInputSettings,
+  type UseVoiceInputSettingsOptions,
+} from "./settings/use-voice-input-settings";
 import type { TouchKeyboardSkin } from "./keyboard/screen-keyboard-preview";
 import * as skin from "./keyboard/touch-skin-style";
 import {
@@ -2654,38 +2659,33 @@ export function SettingsPage({
   ) {
     visibleTranslationLanguages.push(["ru", "俄语（已保存）"]);
   }
-  const voiceInput = { ...defaultVoiceInput, ...draft?.voice_input };
-  const systemVoice = nativeVoicePlatform && voiceInput.asr_provider === "system";
-  // Naming the host rather than assuming macOS. This read `harmonyPlatform ? "HarmonyOS" : "macOS"`
-  // and was correct while those were the only two; Android gained a system recogniser of its own
-  // and the card then announced itself as macOS on an Android phone.
-  const systemVoiceHostName = harmonyPlatform ? "HarmonyOS" : androidPlatform ? "Android" : "macOS";
-  // On-device Whisper. Like the system recognizer it has no service behind it, so it hides the same endpoint, token and model rows - but unlike it, the user has to say which model file to load.
-  // macOS has always run a hand-picked Whisper file; a host with a model store can run the downloadable models too.
-  const localVoiceAvailable = macosPlatform || client.localVoiceModels !== undefined;
-  const localVoice = localVoiceAvailable && voiceInput.asr_provider === "local";
-  // A Whisper file picked by hand: the whole setting on a host without a model store, and an advanced option under the model manager otherwise.
-  const serviceVoice = !systemVoice && !localVoice;
-  const harmonyUnsupportedAsr =
-    harmonyPlatform &&
-    !["doubao", "system", "openai", "siliconflow", "groq", "everyapi", "mistral"].includes(
-      String(voiceInput.asr_provider),
-    );
-  const doubaoAuthMode =
-    voiceInput.doubao_auth_mode ||
-    (voiceInput.asr_app_key && !voiceInput.asr_app_key.startsWith("<") ? "legacy" : "api_key");
-  // Functional for the same reason as updateAi: a local model download finishes into the draft
-  // minutes after the click, and the render-time copy would revert every edit made in between.
-  const updateVoice = (patch: Partial<VoiceInputPreferences>) => {
-    setDraft((current) =>
-      current
-        ? {
-            ...current,
-            voice_input: { ...defaultVoiceInput, ...current.voice_input, ...patch },
-          }
-        : current,
-    );
-  };
+  const {
+    voiceInput,
+    systemVoice,
+    systemVoiceHostName,
+    localVoiceAvailable,
+    localVoice,
+    serviceVoice,
+    harmonyUnsupportedAsr,
+    doubaoAuthMode,
+    updateVoice,
+  } = useVoiceInputSettings({
+    preferences: draft?.voice_input,
+    macos: macosPlatform,
+    android: androidPlatform,
+    harmony: harmonyPlatform,
+    nativeVoicePlatform,
+    localModelsAvailable: client.localVoiceModels !== undefined,
+    onChange: (patch) =>
+      setDraft((current) =>
+        current
+          ? {
+              ...current,
+              voice_input: { ...defaultVoiceInput, ...current.voice_input, ...patch },
+            }
+          : current,
+      ),
+  });
   const customTranslation = draft?.custom_translation ?? defaultCustomTranslation;
   const tencentTranslation = draft?.tencent_tmt ?? defaultTencentTranslation;
   const niutrans = draft?.niutrans ?? defaultNiuTrans;
