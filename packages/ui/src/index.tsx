@@ -184,6 +184,7 @@ import { VoiceCaptureDevicesSection } from "./settings/voice-capture-devices-sec
 import { VoiceHotkeysSection } from "./settings/voice-hotkeys-section";
 import { VoicePolishSection } from "./settings/voice-polish-section";
 import { FloatingToolbarAppearanceSection } from "./settings/floating-toolbar-appearance-section";
+import { FloatingToolbarPlatformNotice } from "./settings/floating-toolbar-platform-notice";
 import { FloatingToolbarComponentsSection } from "./settings/floating-toolbar-components-section";
 import { FloatingToolbarToggleSection } from "./settings/floating-toolbar-toggle-section";
 import { DoubaoAuthModeSection } from "./settings/doubao-auth-mode-section";
@@ -689,6 +690,7 @@ export {
   type FloatingToolbarFontSize,
   type FloatingToolbarScale,
 } from "./settings/floating-toolbar-appearance-section";
+export { FloatingToolbarPlatformNotice } from "./settings/floating-toolbar-platform-notice";
 export {
   FloatingToolbarComponentsSection,
   type FloatingToolbarCapability,
@@ -4443,13 +4445,7 @@ export function SettingsPage({
                         })
                       }
                     />
-                    {!showToolbarAppearance && (
-                      <div className="section">
-                        <small>
-                          当前宿主以输入法菜单呈现工具栏，缩放和图标尺寸不适用；组件选择仍然生效，上方开关仍然生效。
-                        </small>
-                      </div>
-                    )}
+                    {!showToolbarAppearance && <FloatingToolbarPlatformNotice />}
                     {showToolbarAppearance && (
                       <FloatingToolbarAppearanceSection
                         scale={floatingToolbar.scale_percent}
