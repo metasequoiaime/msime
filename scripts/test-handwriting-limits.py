@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The handwriting panel never offers more than the shared contract accepts.
 
-The shared panel and Harmony native keyboard cap strokes, points per stroke and
+The shared handwriting helpers and Harmony native keyboard cap strokes, points per stroke and
 candidates; `client-core`'s panel contract caps the same three and rejects a
 request that exceeds them. The three are written in different languages and
 live in different files, so this check keeps both producers within the contract.
@@ -23,7 +23,8 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONTRACT = ROOT / "crates/client-core/src/panels.rs"
-PANEL = ROOT / "packages/ui/src/keyboard/panels.tsx"
+HANDWRITING_INPUT = ROOT / "packages/ui/src/keyboard/handwriting-input.ts"
+HANDWRITING = ROOT / "packages/ui/src/keyboard/handwriting.ts"
 HARMONY = ROOT / "platforms/harmony/entry/src/main/ets/keyboard/input/HandwritingStrokePolicy.ts"
 
 # (what it bounds, Rust constant, TypeScript constant)
@@ -56,23 +57,32 @@ def arkts_value(text: str, name: str) -> int | None:
 
 
 def main() -> int:
-    if not CONTRACT.exists() or not PANEL.exists() or not HARMONY.exists():
-        print("skipped: the handwriting contract, shared panel or Harmony policy is not present")
+    if (
+        not CONTRACT.exists()
+        or not HANDWRITING_INPUT.exists()
+        or not HANDWRITING.exists()
+        or not HARMONY.exists()
+    ):
+        print("skipped: the handwriting contract, shared helpers or Harmony policy is not present")
         return 0
     contract = CONTRACT.read_text(encoding="utf-8")
-    panel = PANEL.read_text(encoding="utf-8")
+    handwriting_input = HANDWRITING_INPUT.read_text(encoding="utf-8")
+    handwriting = HANDWRITING.read_text(encoding="utf-8")
     harmony = HARMONY.read_text(encoding="utf-8")
 
     findings = []
     checked = []
     for description, rust_name, ts_name in LIMITS:
         allowed = rust_value(contract, rust_name)
-        offered = typescript_value(panel, ts_name)
+        source = handwriting if ts_name == "MAX_HANDWRITING_CANDIDATES" else handwriting_input
+        offered = typescript_value(source, ts_name)
         if allowed is None:
             findings.append(f"{rust_name} is no longer a plain constant in panels.rs")
             continue
         if offered is None:
-            findings.append(f"{ts_name} is no longer a plain constant in panels.tsx")
+            findings.append(
+                f"{ts_name} is no longer a plain constant in the shared handwriting helpers"
+            )
             continue
         if offered > allowed:
             findings.append(
