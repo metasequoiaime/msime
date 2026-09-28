@@ -161,6 +161,7 @@ import { HelpFeedbackSection } from "./settings/help-feedback-section";
 import { HelpSettingsPage } from "./settings/help-settings-page";
 import { ScreenKeyboardThemeSection } from "./settings/screen-keyboard-theme-section";
 import { ScreenKeyboardSkinsSection } from "./settings/screen-keyboard-skins-section";
+import { ScreenKeyboardCommunitySection } from "./settings/screen-keyboard-community-section";
 import { ScreenKeyboardLaunchSection } from "./settings/screen-keyboard-launch-section";
 import { CandidatePaletteSection } from "./settings/candidate-palette-section";
 import { TouchKeyboardSchemesSection } from "./settings/touch-keyboard-schemes-section";
@@ -614,6 +615,10 @@ export {
   ScreenKeyboardSkinsSection,
   type ScreenKeyboardSkinsSectionProps,
 } from "./settings/screen-keyboard-skins-section";
+export {
+  ScreenKeyboardCommunitySection,
+  type ScreenKeyboardCommunitySectionProps,
+} from "./settings/screen-keyboard-community-section";
 export {
   TouchKeyboardSchemesSection,
   type TouchKeyboardSchemesSectionProps,
@@ -5167,20 +5172,7 @@ export function SettingsPage({
                       onToggleEditor={() => setShowTouchSkinEditor((value) => !value)}
                     />
                     {mobilePlatform && client.communitySkins && (
-                      <div className="section">
-                        <div className="section-header">
-                          <span className="section-title">
-                            社区皮肤<small>看看别人做的键盘皮肤，可以直接试用或保存</small>
-                          </span>
-                          <button
-                            type="button"
-                            className="secondary"
-                            onClick={() => openCommunity("all")}
-                          >
-                            去社区发现皮肤
-                          </button>
-                        </div>
-                      </div>
+                      <ScreenKeyboardCommunitySection onOpen={() => openCommunity("all")} />
                     )}
                     {client.customTouchKeyboardSkins && showTouchSkinEditor && (
                       <div className="section">
