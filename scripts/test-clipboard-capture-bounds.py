@@ -34,14 +34,7 @@ MEASURE = re.compile(r"\.length\b|\.count\b|getBytes\(|utf8\.count|lengthOfBytes
 
 # Second copies that exist today, each with what is actually wrong with it. This is a ratchet, not
 # an exemption: a host is listed here only with a diagnosis, and a new copy anywhere else fails.
-PENDING = {
-    "platforms/ios/SharedUI/clipboard/ClipboardHistoryStore.swift": (
-        "Bounds agree - Swift's String.count is grapheme clusters, which is the shared unit - but "
-        "the control-character rule is missing, so text the store refuses passes this check and "
-        "arrives as Failure.invalidFile, which reads as a corrupt history rather than a bad entry. "
-        "Latent rather than live. Left for an iOS slice; platforms/ios is in flight."
-    ),
-}
+PENDING = {}
 
 HOSTS = [
     "platforms/android/java/app/msime/client/clipboard",

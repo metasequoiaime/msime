@@ -41,6 +41,14 @@ final class ClipboardHistoryTests: XCTestCase {
   func testInvalidInputAndCorruptHistoryDoNotOverwriteData() throws {
     let store = try temporaryStore()
     XCTAssertThrowsError(try store.add(" \n"))
+    do {
+      try store.add("前\0后")
+      XCTFail("NUL clipboard text was accepted")
+    } catch ClipboardHistoryStore.Failure.invalidText {
+      // Expected: the native bridge and shared store cannot persist NUL.
+    } catch {
+      XCTFail("unexpected NUL rejection: \(error)")
+    }
     XCTAssertThrowsError(try store.add(String(repeating: "字", count: 10_001)))
     try store.add("原文")
     try Data("invalid".utf8).write(to: store.file)
