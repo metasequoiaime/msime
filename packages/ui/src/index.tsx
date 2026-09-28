@@ -49,6 +49,7 @@ import {
 } from "./settings/app-resources";
 import { AI_PROVIDER_OPTIONS } from "./settings/ai-provider-options";
 export { AI_PROVIDER_OPTIONS } from "./settings/ai-provider-options";
+import { aiPolishTestPrompt, defaultAiAssistant } from "./settings/ai-assistant-defaults";
 import {
   mobileTranslationLanguages,
   translationLanguages,
@@ -1207,24 +1208,6 @@ export type VoiceInputPreferences = {
   doubao_boosting_table_id?: string;
   [key: string]: unknown;
 };
-/** What 「AI 润色测试」 asks the configured service to do. It is its own instruction: `ai_assistant.prompt` is the associative-candidate prompt, which demands candidate JSON and would make a polish sample come back as JSON. */
-const aiPolishTestPrompt = "请润色以下文字，保持原意，只返回修改后的文字。";
-// The prompt slots start empty as in AiAssistantPreferences::default(). The associative-candidate paths (client-core's chat_completion_http_request and the Linux online provider) treat a blank slot as the built-in DEFAULT_CANDIDATE_PROMPT, the text Windows compiles into ai_assistant.prompt. Android and the iOS keyboard mirror instead read ai_assistant.prompt as a polish instruction and use their own polish text when it is blank, which is why this default stays empty rather than holding the associative prompt.
-const defaultAiAssistant: AiAssistantPreferences = {
-  enabled: false,
-  provider: "deepseek",
-  model: "deepseek-v4-flash",
-  endpoint: "https://api.deepseek.com/chat/completions",
-  candidate_limit: 3,
-  token: "",
-  tokens: {},
-  prompt_id: "custom_1",
-  prompt: "",
-  prompt_custom_1: "",
-  prompt_custom_2: "",
-  prompt_custom_3: "",
-};
-
 /** Switch providers like the Apple settings page: preset values follow the
  * provider, while a deliberately edited custom endpoint/model are preserved. */
 export function aiProviderUpdate(
