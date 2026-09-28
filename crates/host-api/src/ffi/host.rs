@@ -1179,15 +1179,7 @@ fn apple_date_to_unix_ms(value: f64) -> Option<u64> {
 fn apple_clipboard_migration_lock(root: &std::path::Path) -> Result<std::fs::File, String> {
     std::fs::create_dir_all(root).map_err(|_| "clipboard migration unavailable")?;
     let lock_path = root.join(".msime-clipboard-history-migration.lock");
-    let mut options = std::fs::OpenOptions::new();
-    options.create(true).truncate(false).read(true).write(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let lock = options
-        .open(lock_path)
+    let lock = msime_client_core::file_lock::open_private_lock_file(lock_path)
         .map_err(|_| "clipboard migration unavailable")?;
     // Not `File::lock`: std has no implementation of it on Android, so it fails outright there and
     // takes every shared clipboard operation with it. `client-core` already owns the per-target
