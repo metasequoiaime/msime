@@ -31,13 +31,17 @@ export {
   type PlatformCopy,
 } from "./settings/platform-copy";
 import {
-  mobilePrimaryPageIds,
   mobileTabForPage,
   requestedPage,
   splitMobilePages,
   type MobilePrimaryPageId,
   type SettingsPageId,
 } from "./settings/mobile-navigation";
+import { useSettingsNavigation } from "./settings/use-settings-navigation";
+export {
+  useSettingsNavigation,
+  type SettingsNavigationOptions,
+} from "./settings/use-settings-navigation";
 import { isLinuxDesktop } from "./settings/platform-helpers";
 import { resolveSettingsTheme } from "./settings/theme-helpers";
 import {
@@ -3421,84 +3425,25 @@ export function SettingsPage({
   // A page without a tab of its own was reached from inside the 键盘 tab, so that is the tab still
   // standing on. Keyed off the page alone, the bar went blank the moment anyone opened one — nothing
   // lit, and no way to read where in the app you were.
-  const mobileActiveTab: MobilePrimaryPageId = mobileTabForPage(page);
   const untitledOnPhone: readonly SettingsPageId[] = ["home", "typing-statistics", "account"];
   const { primary: mobilePrimaryPages, secondary: mobileSecondaryPages } = splitMobilePages(
     availablePages,
     mobileHiddenPageIds,
   );
-  const selectPage = (next: SettingsPageId) => {
-    if (mobilePlatform && mobileHiddenPageIds.includes(next)) return;
-    if (next === page) return;
-    if (mobilePlatform) mobileLastPageByTab.current[mobileTabForPage(next)] = next;
-    setPage(next);
-    if (mobilePlatform && typeof window !== "undefined") {
-      const current = window.history.state;
-      const state = {
-        ...(current && typeof current === "object" ? current : {}),
-        msimeSettings: true,
-        page: next,
-      } as Record<string, unknown>;
-      delete state.panel;
-      window.history.pushState(state, "");
-    }
-    if (next === "community") setCommunityDestination("all");
-  };
-  // The request the page mounted with is already in `page`'s initializer; only later ones navigate.
-  const handledRoute = useRef(route?.nonce);
-  useEffect(() => {
-    if (!route || route.nonce === handledRoute.current) return;
-    handledRoute.current = route.nonce;
-    selectPage(requestedPage(route.page));
-  }, [route?.nonce]);
-  const selectMobileTab = (tab: SettingsPageId) => {
-    if (!mobilePrimaryPageIds.includes(tab as MobilePrimaryPageId)) return;
-    const primary = tab as MobilePrimaryPageId;
-    if (primary === "account") setAccountLoginReturnPage(null);
-    const remembered = mobileLastPageByTab.current[primary];
-    const available = availablePages.some((item) => item.id === remembered);
-    selectPage(available && !mobileHiddenPageIds.includes(remembered) ? remembered : primary);
-  };
-  const openAccountLogin = () => {
-    if (mobilePlatform) setAccountLoginReturnPage(page);
-    selectPage("account");
-  };
-  const finishAccountLogin = () => {
-    const previous = accountLoginReturnPage;
-    setAccountLoginReturnPage(null);
-    if (!previous) return;
-    mobileLastPageByTab.current[mobileTabForPage(previous)] = previous;
-    setPage(previous);
-    if (mobilePlatform && typeof window !== "undefined") window.history.back();
-  };
-  useEffect(() => {
-    const pageAvailable =
-      availablePages.some((item) => item.id === page) &&
-      (!mobilePlatform || !mobileHiddenPageIds.includes(page));
-    if (!pageAvailable) setPage(mobilePlatform && client.home ? "home" : "appearance");
-  }, [availablePages, client.home, mobilePlatform, page]);
-  useEffect(() => {
-    if (typeof document === "undefined") return;
-    const apply = () => {
-      document.documentElement.dataset.theme = resolveSettingsTheme(themeMode, settingsTheme);
-    };
-    apply();
-    if (
-      themeMode !== "system" ||
-      settingsTheme !== "follow" ||
-      typeof window === "undefined" ||
-      typeof window.matchMedia !== "function"
-    )
-      return;
-    const media = window.matchMedia("(prefers-color-scheme: light)");
-    const listener = () => apply();
-    if (typeof media.addEventListener === "function") {
-      media.addEventListener("change", listener);
-      return () => media.removeEventListener("change", listener);
-    }
-    media.addListener(listener);
-    return () => media.removeListener(listener);
-  }, [settingsTheme, themeMode]);
+  const { mobileActiveTab, selectPage, selectMobileTab, openAccountLogin, finishAccountLogin } =
+    useSettingsNavigation({
+      mobilePlatform,
+      mobileHiddenPageIds,
+      availablePages,
+      page,
+      setPage,
+      mobileLastPageByTab,
+      route,
+      hasHomePage: Boolean(client.home),
+      setCommunityDestination,
+      setAccountLoginReturnPage,
+      accountLoginReturnPage,
+    });
   const openLocalDesigns = () => {
     selectPage("appearance");
     setShowTouchSkinEditor(true);
