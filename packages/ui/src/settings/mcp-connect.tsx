@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useConfirm } from "../core/confirm";
+import { errorCode } from "../core/error-code";
 import * as settings from "./settings-style";
 import { mcpFailureMessage } from "./mcp-errors";
 
