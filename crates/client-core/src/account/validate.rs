@@ -13,7 +13,7 @@ pub(super) fn validate_clipboard_search(value: &str) -> Result<(), AccountError>
 
 pub(super) fn validate_clipboard_text(value: &str) -> Result<(), AccountError> {
     if value.trim().is_empty()
-        || value.encode_utf16().count() > 4000
+        || !crate::is_bounded_utf16(value, 4000)
         || value.contains('\0')
         || crate::text::has_disallowed_control(value)
     {

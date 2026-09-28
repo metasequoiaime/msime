@@ -430,7 +430,7 @@ fn installed_font_families(families: Vec<String>) -> Option<Vec<String>> {
 #[cfg(any(target_os = "ios", test))]
 fn is_valid_ios_clipboard_text(value: &str) -> bool {
     !value.is_empty()
-        && value.encode_utf16().count() <= MAX_IOS_CLIPBOARD_TEXT_UTF16_UNITS
+        && msime_client_core::is_bounded_utf16(value, MAX_IOS_CLIPBOARD_TEXT_UTF16_UNITS)
         && !value.contains('\0')
 }
 
