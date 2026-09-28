@@ -11,7 +11,7 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 use std::ffi::OsString;
 use std::fs;
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
@@ -169,7 +169,8 @@ fn rebased_locator(
 ) -> Result<(LocatorBackup, Vec<u8>), MoveError> {
     let file = fs::File::open(path).map_err(|_| MoveError::Publish)?;
     let mut contents = Vec::new();
-    std::io::Read::read_to_end(&mut file.take(MAX_OPTIONS_BYTES + 1), &mut contents)
+    file.take(MAX_OPTIONS_BYTES + 1)
+        .read_to_end(&mut contents)
         .map_err(|_| MoveError::Publish)?;
     if contents.len() as u64 > MAX_OPTIONS_BYTES {
         return Err(MoveError::Publish);

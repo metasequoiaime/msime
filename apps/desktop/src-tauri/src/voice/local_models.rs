@@ -259,7 +259,7 @@ pub(crate) fn dictionary_hotwords_with(
                 "kind": "pinyin",
                 "user_only": true,
             });
-            Ok(list(&action).map(|page| {
+            Ok::<_, ()>(list(&action).map(|page| {
                 let entries = page["entries"].as_array().cloned().unwrap_or_default();
                 msime_client_core::voice::hotwords::DictionaryHotwordPage {
                     entries: entries

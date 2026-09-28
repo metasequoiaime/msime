@@ -21,6 +21,7 @@ pub(crate) fn cloud_clipboard_error(error: CloudClipboardError) -> crate::Comman
     }
 }
 
+#[cfg(target_os = "macos")]
 pub(crate) fn native_cloud_session_from_environment(
     variable: &str,
     invalid_message: &'static str,
