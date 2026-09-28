@@ -161,7 +161,7 @@ pub unsafe extern "C" fn msime_client_voice_provider_request(
         let path =
             std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
                 .map_err(|_| "socket path is not UTF-8")?;
-        if !std::path::Path::new(path).is_absolute() {
+        if !super::absolute_path(path) {
             return Err("socket path must be absolute".into());
         }
         Ok(UnixSocketProvider::new(path)
@@ -264,7 +264,7 @@ pub unsafe extern "C" fn msime_client_voice_provider_stream_feedback(
         let path =
             std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
                 .map_err(|_| "socket path is not UTF-8")?;
-        if !std::path::Path::new(path).is_absolute() {
+        if !super::absolute_path(path) {
             return Err("socket path must be absolute".into());
         }
         let mut update = |text: &str, final_result: bool| {
@@ -338,7 +338,7 @@ pub unsafe extern "C" fn msime_client_voice_provider_cancel(
         let path =
             std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
                 .map_err(|_| "socket path is not UTF-8")?;
-        if !std::path::Path::new(path).is_absolute() {
+        if !super::absolute_path(path) {
             return Err("socket path must be absolute".into());
         }
         Ok(json!(UnixSocketProvider::new(path).voice_cancel(generation)))
@@ -364,7 +364,7 @@ pub unsafe extern "C" fn msime_client_voice_provider_stop(
         let path =
             std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
                 .map_err(|_| "socket path is not UTF-8")?;
-        if !std::path::Path::new(path).is_absolute() {
+        if !super::absolute_path(path) {
             return Err("socket path must be absolute".into());
         }
         Ok(json!(UnixSocketProvider::new(path).voice_stop(generation)))

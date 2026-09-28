@@ -244,12 +244,8 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
                 })
             });
             let niutrans = (preferences.niutrans.enabled
-                && msime_client_core::translation::usable_credential(
-                    &preferences.niutrans.app_id,
-                )
-                && msime_client_core::translation::usable_credential(
-                    &preferences.niutrans.apikey,
-                ))
+                && msime_client_core::translation::usable_credential(&preferences.niutrans.app_id)
+                && msime_client_core::translation::usable_credential(&preferences.niutrans.apikey))
             .then(|| serde_json::to_value(&preferences.niutrans))
             .transpose()
             .map_err(|_| "invalid NiuTrans translation configuration")?;
@@ -336,7 +332,7 @@ pub unsafe extern "C" fn msime_client_online_provider_request(
         let path =
             std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
                 .map_err(|_| "socket path is not UTF-8")?;
-        if !std::path::Path::new(path).is_absolute() {
+        if !super::absolute_path(path) {
             return Err("socket path must be absolute".into());
         }
         Ok(UnixSocketProvider::new(path)
@@ -385,7 +381,7 @@ pub unsafe extern "C" fn msime_client_cloud_dictionary_provider_request(
         let path =
             std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
                 .map_err(|_| "socket path is not UTF-8")?;
-        if !std::path::Path::new(path).is_absolute() {
+        if !super::absolute_path(path) {
             return Err("socket path must be absolute".into());
         }
         let request = serde_json::from_slice::<serde_json::Value>(request_bytes)
@@ -425,7 +421,7 @@ pub unsafe extern "C" fn msime_client_cloud_clipboard_provider_request(
         let path =
             std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
                 .map_err(|_| "socket path is not UTF-8")?;
-        if !std::path::Path::new(path).is_absolute() {
+        if !super::absolute_path(path) {
             return Err("socket path must be absolute".into());
         }
         msime_input_runtime::UnixSocketProvider::new(path)
@@ -459,7 +455,7 @@ pub unsafe extern "C" fn msime_client_translation_provider_request(
         let path =
             std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
                 .map_err(|_| "socket path is not UTF-8")?;
-        if !std::path::Path::new(path).is_absolute() {
+        if !super::absolute_path(path) {
             return Err("socket path must be absolute".into());
         }
         Ok(UnixSocketProvider::new(path)
@@ -499,7 +495,7 @@ pub unsafe extern "C" fn msime_client_handwriting_provider_request(
         let path =
             std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
                 .map_err(|_| "socket path is not UTF-8")?;
-        if !std::path::Path::new(path).is_absolute() {
+        if !super::absolute_path(path) {
             return Err("socket path must be absolute".into());
         }
         Ok(UnixSocketProvider::new(path)
@@ -570,7 +566,7 @@ pub unsafe extern "C" fn msime_client_emoji_provider_request(
         let path =
             std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
                 .map_err(|_| "socket path is not UTF-8")?;
-        if !std::path::Path::new(path).is_absolute() {
+        if !super::absolute_path(path) {
             return Err("socket path must be absolute".into());
         }
         Ok(UnixSocketProvider::new(path)

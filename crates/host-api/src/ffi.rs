@@ -24,6 +24,10 @@ pub(crate) unsafe fn with_bounded_bytes<T>(
     operation(unsafe { std::slice::from_raw_parts(pointer, length) })
 }
 
+pub(crate) fn absolute_path(value: &str) -> bool {
+    Path::new(value).is_absolute()
+}
+
 // Shared by the session and host modules below, so it lives in the parent.
 /// The file name the reranking model is published under inside the resource set.
 pub(crate) const SENTENCE_MODEL_FILE: &str = "sentence-model.safetensors";
