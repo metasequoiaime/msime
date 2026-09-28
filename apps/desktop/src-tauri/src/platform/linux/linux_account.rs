@@ -6,7 +6,7 @@
 
 use crate::platform::desktop::desktop_account;
 use msime_client_core::account::{AccountError, AccountSessionStorage, SavedAccountSession};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
@@ -48,11 +48,7 @@ impl AccountSessionStorage for LinuxAccountStorage {
         }
         // The file can grow after symlink_metadata returns. Read through a bounded handle so a
         // concurrent replacement cannot turn the size check into an unbounded allocation.
-        let mut bytes = Vec::new();
-        std::fs::File::open(&self.path)
-            .map_err(|_| AccountError::Storage)?
-            .take(MAX_ACCOUNT_SESSION_BYTES + 1)
-            .read_to_end(&mut bytes)
+        let bytes = super::read_bounded_file(&self.path, MAX_ACCOUNT_SESSION_BYTES)
             .map_err(|_| AccountError::Storage)?;
         if bytes.len() as u64 > MAX_ACCOUNT_SESSION_BYTES {
             return Err(AccountError::Storage);

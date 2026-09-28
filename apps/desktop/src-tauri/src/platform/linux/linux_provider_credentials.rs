@@ -12,7 +12,7 @@ use reqwest::Url;
 use serde::Serialize;
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -207,11 +207,7 @@ fn read_private(path: &Path) -> Result<Option<Map<String, Value>>, CredentialErr
     }
     // The file can grow after symlink_metadata returns. Read through a bounded handle so a
     // concurrent replacement cannot turn the size check into an unbounded allocation.
-    let mut bytes = Vec::new();
-    std::fs::File::open(path)
-        .map_err(|_| CredentialError::Storage)?
-        .take(MAX_PROVIDER_CONFIG_BYTES as u64 + 1)
-        .read_to_end(&mut bytes)
+    let bytes = super::read_bounded_file(path, MAX_PROVIDER_CONFIG_BYTES as u64)
         .map_err(|_| CredentialError::Storage)?;
     if bytes.len() > MAX_PROVIDER_CONFIG_BYTES {
         return Err(CredentialError::Existing);
