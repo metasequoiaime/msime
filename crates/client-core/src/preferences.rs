@@ -1659,8 +1659,7 @@ impl Preferences {
     pub fn validate(&self) -> Result<(), PreferencesError> {
         let tencent = &self.tencent_tmt;
         if tencent.secret_id.len() > 4096
-            || tencent.secret_key.len() > 4096
-            || tencent.secret_key.chars().any(char::is_control)
+            || !crate::text::is_bounded_text(&tencent.secret_key, 4096)
             || !tencent
                 .secret_id
                 .bytes()
@@ -1674,10 +1673,8 @@ impl Preferences {
             return Err(PreferencesError::InvalidTencentTmt);
         }
         let niutrans = &self.niutrans;
-        if niutrans.app_id.len() > 4096
-            || niutrans.apikey.len() > 4096
-            || niutrans.app_id.chars().any(char::is_control)
-            || niutrans.apikey.chars().any(char::is_control)
+        if !crate::text::is_bounded_text(&niutrans.app_id, 4096)
+            || !crate::text::is_bounded_text(&niutrans.apikey, 4096)
             || (!niutrans.app_id.is_empty()
                 && !crate::translation::usable_niutrans_credential(&niutrans.app_id))
             || (!niutrans.apikey.is_empty()
@@ -1686,8 +1683,7 @@ impl Preferences {
             return Err(PreferencesError::InvalidNiuTrans);
         }
         let translation = &self.custom_translation;
-        if translation.api_key.len() > 4096
-            || translation.api_key.chars().any(char::is_control)
+        if !crate::text::is_bounded_text(&translation.api_key, 4096)
             || (!translation.endpoint.is_empty()
                 && !crate::translation::is_supported_endpoint(&translation.endpoint))
         {
@@ -1701,8 +1697,7 @@ impl Preferences {
         let model_path = &self.voice_input.asr_model_path;
         if !ASR_PROVIDERS.contains(&self.voice_input.asr_provider.as_str())
             || !POLISH_PROVIDERS.contains(&self.voice_input.polish_provider.as_str())
-            || model_path.len() > 4096
-            || model_path.chars().any(char::is_control)
+            || !crate::text::is_bounded_text(model_path, 4096)
             || (!model_path.is_empty() && !is_absolute_model_path(model_path))
             || !valid_model_mirror(&self.voice_input.asr_model_mirror)
         {
