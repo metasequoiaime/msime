@@ -308,6 +308,13 @@ fi
 # so this script no longer compiles the whole source set -- `platforms/android/gradle-app` does, and
 # build-apk.sh drives it. What stays here is the part that is worth having without a Gradle daemon:
 # the pure-Java models and their smokes, which have no Android dependency at all and run in a second.
+# Custom skin libraries are user-writable; keep the reader streaming so a file that grows after
+# inspection cannot turn the one-megabyte envelope into an unbounded allocation.
+if rg -n 'Files\.readAllBytes' \
+    "$repo_root/platforms/android/java/app/msime/client/dictionary/CustomSkinLibrary.java"; then
+  echo "Android custom skin library must use a bounded streaming read" >&2
+  exit 1
+fi
 #
 # Match the launcher activities by their path *inside the repository*. The absolute pattern this
 # started as, `*/home/*`, also matches every source on a GitHub runner, where the checkout itself
