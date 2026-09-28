@@ -77,14 +77,7 @@ pub(super) fn dictionary_path(
     offset: usize,
     search: &str,
 ) -> Result<String, AccountError> {
-    if offset > 1_000_000 || !crate::text::is_bounded_text(search, 1024) {
-        return Err(AccountError::Invalid);
-    }
-    Ok(format!(
-        "/v1/users/me/dictionaries/{}?q={}&offset={offset}&limit=100",
-        dictionary_kind_path(kind),
-        crate::cloud::dictionary::percent_encode(search)
-    ))
+    crate::cloud::dictionary::dictionary_path(kind, offset, search).ok_or(AccountError::Invalid)
 }
 
 pub(super) fn validate_dictionary_catalog_query(
