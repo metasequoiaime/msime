@@ -17,8 +17,8 @@ use crate::platform::mobile::mobile_account_preferences::{
 };
 use crate::platform::mobile::mobile_community::MobileCommunityState;
 use crate::shared::account_dto::{
-    ChallengeResponse, ChatModelsResponse, ChatResponse, PreferenceSchemaResponse, ProfileResponse,
-    StatusResponse, UserResponse,
+    provider_flags, ChallengeResponse, ChatModelsResponse, ChatResponse, PreferenceSchemaResponse,
+    ProfileResponse, StatusResponse, UserResponse,
 };
 use msime_client_core::account::{
     merge_account_preferences, validate_account_preferences, AccountChatMessage, AccountError,
@@ -1062,9 +1062,9 @@ pub async fn account_providers(
     state: State<'_, AccountState>,
 ) -> Result<ProvidersResponse, crate::CommandError> {
     call(state, |session| {
-        session.providers().map(|providers| ProvidersResponse {
-            email: providers.get("email") == Some(&true),
-            phone: providers.get("phone") == Some(&true) || providers.get("sms") == Some(&true),
+        session.providers().map(|providers| {
+            let (email, phone) = provider_flags(&providers);
+            ProvidersResponse { email, phone }
         })
     })
     .await
