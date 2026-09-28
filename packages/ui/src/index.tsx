@@ -61,6 +61,7 @@ import { VoiceModelPathSection } from "./settings/voice-model-path-section";
 import { VoiceModelSection } from "./settings/voice-model-section";
 import { VoiceEndpointSection } from "./settings/voice-endpoint-section";
 import { VoiceCredentialFieldsSection } from "./settings/voice-credential-fields-section";
+import { PolishCredentialFieldsSection } from "./settings/polish-credential-fields-section";
 import { VoiceStreamPreeditSection } from "./settings/voice-stream-preedit-section";
 import { VoiceCommitModeSection, type VoiceCommitMode } from "./settings/voice-commit-mode-section";
 import { VoiceCaptureDevicesSection } from "./settings/voice-capture-devices-section";
@@ -450,6 +451,10 @@ export {
   VoiceCredentialFieldsSection,
   type VoiceCredentialFieldsSectionProps,
 } from "./settings/voice-credential-fields-section";
+export {
+  PolishCredentialFieldsSection,
+  type PolishCredentialFieldsSectionProps,
+} from "./settings/polish-credential-fields-section";
 export {
   VoiceStreamPreeditSection,
   type VoiceStreamPreeditSectionProps,
@@ -6903,31 +6908,12 @@ export function SettingsPage({
                           />
                         </label>
                         {!linuxPlatform && (
-                          <>
-                            <label className="section-header">
-                              <span className="section-title">
-                                润色接口地址<small>留空使用当前 provider 默认地址</small>
-                              </span>
-                              <input
-                                aria-label="润色接口地址"
-                                type="url"
-                                value={voiceInput.polish_endpoint ?? ""}
-                                onChange={(event) =>
-                                  updateVoice({ polish_endpoint: event.target.value })
-                                }
-                              />
-                            </label>
-                            <label className="section-header">
-                              <span className="section-title">
-                                润色 API Token<small>仅保存在本机设置中</small>
-                              </span>
-                              <SecretInput
-                                label="润色 API Token"
-                                value={voiceInput.polish_token ?? ""}
-                                onChange={(value) => updateVoice({ polish_token: value })}
-                              />
-                            </label>
-                          </>
+                          <PolishCredentialFieldsSection
+                            endpoint={voiceInput.polish_endpoint ?? ""}
+                            token={voiceInput.polish_token ?? ""}
+                            onEndpointChange={(polish_endpoint) => updateVoice({ polish_endpoint })}
+                            onTokenChange={(polish_token) => updateVoice({ polish_token })}
+                          />
                         )}
                         <label className="section-header">
                           <span className="section-title">润色方案</span>
