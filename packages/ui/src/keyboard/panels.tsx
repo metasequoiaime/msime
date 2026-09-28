@@ -29,7 +29,11 @@ import { normalizeHandwritingCandidates } from "./handwriting";
 import { validVoiceLanguage } from "./voice-panel";
 import { isImeCommitKey, keyboardKeyWeight, modifierPrefix, type Modifier } from "./keyboard-input";
 import { keyboardRgba, mixKeyboardColor, readableKeyboardText } from "./keyboard-colors";
-import { cloudClipboardItems, cloudDictionaryEntries } from "./cloud-response";
+import {
+  cloudClipboardItems,
+  cloudDictionaryCatalogEntries,
+  cloudDictionaryEntries,
+} from "./cloud-response";
 import {
   skinColor,
   skinLuminance,
@@ -3369,18 +3373,6 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
       </div>
     </main>
   );
-}
-
-function cloudDictionaryCatalogEntries(value: CloudDictionaryResponse) {
-  return Array.isArray(value.catalog_entries)
-    ? value.catalog_entries.filter(
-        (entry) =>
-          entry &&
-          typeof entry.kind === "string" &&
-          typeof entry.code === "string" &&
-          typeof entry.word === "string",
-      )
-    : [];
 }
 
 export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionaryPanelClient }) {
