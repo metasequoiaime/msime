@@ -1,8 +1,8 @@
 {
   "repository": "metasequoiaime/msime-engine",
-  "commit": "a116bc4bf9204b4ca882fd2f332672bf4cc5712f",
-  "archive": "https://github.com/metasequoiaime/msime-engine/archive/a116bc4bf9204b4ca882fd2f332672bf4cc5712f.tar.gz",
-  "sha256": "5154fae892fdc54a970576ca37f20b680341aa5402780d99cb993c4e9cbb5e14",
+  "commit": "a9b9f092219505166c927843762b650d1e0e501d",
+  "archive": "https://github.com/metasequoiaime/msime-engine/archive/a9b9f092219505166c927843762b650d1e0e501d.tar.gz",
+  "sha256": "9510e03f761e94c44c9dcba74f84de23db661251b0eb67766aba0991a7e5445e",
   "patches": [],
   "overlay_scripts": [
     "scripts/apply_engine_alternative_segmentation_page.py",
