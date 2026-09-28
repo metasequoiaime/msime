@@ -1,14 +1,4 @@
 import { useConfirm } from "./core/confirm";
-import {
-  mobilePrimaryPageIds,
-  mobileTabForPage,
-  mobileTabIcon,
-  mobileTabTitle,
-  pages,
-  requestedPage,
-  type MobilePrimaryPageId,
-  type SettingsPageId,
-} from "./settings/mobile-navigation";
 import { errorMessage } from "./core/error-message";
 import {
   inferredTouchKeyboardScheme,
@@ -27,6 +17,17 @@ export {
   allTouchKeyboardSchemes,
 } from "./settings/touch-keyboard-scheme-helpers";
 import { platformOsName, schemeTitle } from "./settings/label-helpers";
+import { mobileTabIcon, mobileTabTitle } from "./settings/mobile-tab-helpers";
+import {
+  mobilePrimaryPageIds,
+  mobileTabForPage,
+  pages,
+  requestedPage,
+  type MobilePrimaryPageId,
+  type SettingsPageId,
+} from "./settings/mobile-navigation";
+import { isLinuxDesktop } from "./settings/platform-helpers";
+import { resolveSettingsTheme } from "./settings/theme-helpers";
 import { updateAiProvider } from "./settings/ai-provider-update";
 import { VoiceDevicePicker, type VoiceDeviceReader } from "./voice/voice-device-picker";
 import {
@@ -936,24 +937,7 @@ export interface HostCapabilities {
   candidate_panel_limit?: "gnome_shell" | "fcitx_theme" | "kimpanel";
 }
 
-/** Superseded by the host-provided capabilities; used only when a host predates them. */
-function isLinuxDesktop(): boolean {
-  if (typeof navigator === "undefined") return false;
-  const userAgent = navigator.userAgent;
-  return /\bLinux\b/i.test(userAgent) && !/\bjsdom\b/i.test(userAgent);
-}
-
 export { useCandidatePreviewTheme } from "./candidate/candidate-preview-theme";
-
-function resolveSettingsTheme(theme: ThemeMode, surface: SurfaceTheme): "dark" | "light" {
-  if (surface !== "follow") return surface;
-  if (theme !== "system") return theme;
-  return typeof window !== "undefined" &&
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(prefers-color-scheme: light)").matches
-    ? "light"
-    : "dark";
-}
 
 export type Preferences = {
   theme?: ThemeMode;

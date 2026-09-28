@@ -102,20 +102,6 @@ export const mobilePrimaryPageIds: readonly MobilePrimaryPageId[] = [
   "account",
 ];
 
-const keyboardTabIcon = new URL("../assets/screen-keyboard.svg", import.meta.url).href;
-
-export function mobileTabIcon(id: string, icon: string): string {
-  return id === "home" ? keyboardTabIcon : icon;
-}
-
-/** The source names these four 键盘 / 社区 / 统计 / 我的 and nothing else appears in the bar. */
-export function mobileTabTitle(id: string, title: string): string {
-  if (id === "home") return "键盘";
-  if (id === "typing-statistics") return "统计";
-  if (id === "account") return "我的";
-  return title;
-}
-
 export function mobileTabForPage(page: SettingsPageId): MobilePrimaryPageId {
   return mobilePrimaryPageIds.includes(page as MobilePrimaryPageId)
     ? (page as MobilePrimaryPageId)
