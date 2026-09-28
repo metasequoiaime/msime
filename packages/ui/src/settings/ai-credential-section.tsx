@@ -1,10 +1,7 @@
 import type { ReactNode } from "react";
 import { SecretInput } from "../core/secret-input";
-import {
-  CredentialStatusMessage,
-  type CredentialStatusMessageValue,
-} from "./credential-status-message";
-import * as settings from "./settings-style";
+import { type CredentialStatusMessageValue } from "./credential-status-message";
+import { CredentialActions } from "./credential-actions";
 
 export interface AiCredentialStored {
   endpoint: string;
@@ -64,24 +61,14 @@ export function AiCredentialSection({
           onChange={onTokenChange}
         />
       </label>
-      <div className={settings.serviceRow}>
-        <div>
-          <button
-            type="button"
-            className="secondary"
-            disabled={busy || !origin || !model.trim() || (!token.trim() && !stored)}
-            onClick={onSave}
-          >
-            保存凭据
-          </button>
-          {stored && (
-            <button type="button" className="secondary" disabled={busy} onClick={onClear}>
-              清除凭据
-            </button>
-          )}
-          <CredentialStatusMessage message={message} />
-        </div>
-      </div>
+      <CredentialActions
+        saveDisabled={busy || !origin || !model.trim() || (!token.trim() && !stored)}
+        clearDisabled={busy}
+        hasStoredCredential={Boolean(stored)}
+        message={message}
+        onSave={onSave}
+        onClear={onClear}
+      />
       {children}
     </div>
   );

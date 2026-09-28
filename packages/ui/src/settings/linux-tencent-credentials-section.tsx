@@ -1,8 +1,6 @@
-import {
-  CredentialStatusMessage,
-  type CredentialStatusMessageValue,
-} from "./credential-status-message";
 import type { ReactNode } from "react";
+import { CredentialActions } from "./credential-actions";
+import { type CredentialStatusMessageValue } from "./credential-status-message";
 
 export interface LinuxTencentCredentialStatus {
   tencent: { region: string } | null;
@@ -89,30 +87,20 @@ export function LinuxTencentCredentialsSection({
               onChange={(event) => onInputChange({ region: event.target.value })}
             />
           </label>
-          <div className="flex items-center justify-between gap-4 pt-3 [&>div]:flex [&>div]:flex-wrap [&>div]:items-center [&>div]:gap-2 [&_.secondary]:mt-0 [&_[role=status]]:text-xs [&_[role=status]]:text-muted [&_[role=alert]]:text-xs [&_[role=alert]]:text-muted">
-            <div>
-              <button
-                type="button"
-                className="secondary"
-                disabled={busy || (!stored && (!input.secretId.trim() || !input.secretKey.trim()))}
-                onClick={() =>
-                  onSave({
-                    ...(input.secretId.trim() ? { secretId: input.secretId } : {}),
-                    ...(input.secretKey.trim() ? { secretKey: input.secretKey } : {}),
-                    region,
-                  })
-                }
-              >
-                保存凭据
-              </button>
-              {stored && (
-                <button type="button" className="secondary" disabled={busy} onClick={onClear}>
-                  清除凭据
-                </button>
-              )}
-              <CredentialStatusMessage message={message} />
-            </div>
-          </div>
+          <CredentialActions
+            saveDisabled={busy || (!stored && (!input.secretId.trim() || !input.secretKey.trim()))}
+            clearDisabled={busy}
+            hasStoredCredential={Boolean(stored)}
+            message={message}
+            onSave={() =>
+              onSave({
+                ...(input.secretId.trim() ? { secretId: input.secretId } : {}),
+                ...(input.secretKey.trim() ? { secretKey: input.secretKey } : {}),
+                region,
+              })
+            }
+            onClear={onClear}
+          />
           {children}
         </>
       )}

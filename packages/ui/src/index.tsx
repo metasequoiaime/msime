@@ -209,7 +209,6 @@ import {
   type CredentialTestState,
 } from "./settings/credential-test-section";
 import { ProviderPresetSection, type ProviderPreset } from "./settings/provider-preset-section";
-import { CredentialStatusMessage } from "./settings/credential-status-message";
 import { AiCredentialSection } from "./settings/ai-credential-section";
 import { AiLinuxProviderSection } from "./settings/ai-linux-provider-section";
 import { AiApiTokenSection } from "./settings/ai-api-token-section";
@@ -761,6 +760,7 @@ export {
   type CredentialStatusMessageProps,
   type CredentialStatusMessageValue,
 } from "./settings/credential-status-message";
+export { CredentialActions, type CredentialActionsProps } from "./settings/credential-actions";
 export {
   AiCredentialSection,
   type AiCredentialSectionProps,

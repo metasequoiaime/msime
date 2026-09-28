@@ -3,7 +3,8 @@ import {
   doubaoStreamEndpointId,
   findDoubaoStreamEndpoint,
 } from "../voice/voice-providers";
-import * as settings from "./settings-style";
+import { CredentialActions } from "./credential-actions";
+import { type CredentialStatusMessageValue } from "./credential-status-message";
 
 export type VoiceCredentialSectionKind = "asr" | "polish";
 
@@ -38,10 +39,7 @@ export interface VoiceCredentialSaveInput {
   authMode: string;
 }
 
-export interface VoiceCredentialMessage {
-  ok: boolean;
-  text: string;
-}
+export type VoiceCredentialMessage = CredentialStatusMessageValue;
 
 export interface VoiceCredentialSectionProps {
   kind: VoiceCredentialSectionKind;
@@ -165,46 +163,31 @@ export function VoiceCredentialSection({
           onChange={(event) => onChange({ token: event.target.value })}
         />
       </label>
-      <div className={settings.serviceRow}>
-        <div>
-          <button
-            type="button"
-            className="secondary"
-            aria-label={`保存${name}凭据`}
-            disabled={
-              busy ||
-              (!input.token.trim() && !stored) ||
-              (legacy && !input.appKey.trim() && stored?.authMode !== "legacy")
-            }
-            onClick={() =>
-              onSave({
-                kind,
-                provider,
-                endpoint,
-                model,
-                ...(input.token.trim() ? { token: input.token } : {}),
-                ...(legacy && input.appKey.trim() ? { appKey: input.appKey } : {}),
-                resourceId: doubao ? (resourceId ?? "") : "",
-                authMode: doubao ? (authMode ?? "") : "",
-              })
-            }
-          >
-            保存凭据
-          </button>
-          {stored && (
-            <button
-              type="button"
-              className="secondary"
-              aria-label={`清除${name}凭据`}
-              disabled={busy}
-              onClick={onClear}
-            >
-              清除凭据
-            </button>
-          )}
-          {message && <span role={message.ok ? "status" : "alert"}>{message.text}</span>}
-        </div>
-      </div>
+      <CredentialActions
+        saveDisabled={
+          busy ||
+          (!input.token.trim() && !stored) ||
+          (legacy && !input.appKey.trim() && stored?.authMode !== "legacy")
+        }
+        clearDisabled={busy}
+        hasStoredCredential={Boolean(stored)}
+        saveAriaLabel={`保存${name}凭据`}
+        clearAriaLabel={`清除${name}凭据`}
+        message={message}
+        onSave={() =>
+          onSave({
+            kind,
+            provider,
+            endpoint,
+            model,
+            ...(input.token.trim() ? { token: input.token } : {}),
+            ...(legacy && input.appKey.trim() ? { appKey: input.appKey } : {}),
+            resourceId: doubao ? (resourceId ?? "") : "",
+            authMode: doubao ? (authMode ?? "") : "",
+          })
+        }
+        onClear={onClear}
+      />
     </div>
   );
 }
