@@ -285,7 +285,11 @@ enum LocalSpeechModelLocation {
       return resolvedStored
     }
     let moved = root.appendingPathComponent(stored.lastPathComponent, isDirectory: true)
-    return LocalSpeechModelManifest.isModelDirectory(moved) ? moved.resolvingSymlinksInPath().standardizedFileURL : nil
+    let resolvedMoved = moved.resolvingSymlinksInPath().standardizedFileURL
+    guard isWithin(resolvedMoved, root: managedRoot), LocalSpeechModelManifest.isModelDirectory(resolvedMoved) else {
+      return nil
+    }
+    return resolvedMoved
   }
 
   /// Whether `storedPath` points at the model `id`, wherever the container was when it was written.
