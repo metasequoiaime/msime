@@ -1,3 +1,5 @@
+import { SettingToggle } from "./setting-toggle";
+
 export type MixedInputPreferences = {
   english: boolean;
   minimum_prefix: number;
@@ -68,20 +70,13 @@ export function MixedInputSection({ preferences, onChange }: MixedInputSectionPr
         </label>
       </div>
       {supplementalOptions.map(([key, label, description]) => (
-        <div className="section" key={key}>
-          <label className="section-header">
-            <span className="section-title">
-              {label}
-              <small>{description}</small>
-            </span>
-            <input
-              className="toggle"
-              type="checkbox"
-              checked={preferences[key]}
-              onChange={(event) => onChange({ ...preferences, [key]: event.target.checked })}
-            />
-          </label>
-        </div>
+        <SettingToggle
+          key={key}
+          label={label}
+          description={description}
+          checked={preferences[key]}
+          onChange={(checked) => onChange({ ...preferences, [key]: checked })}
+        />
       ))}
     </>
   );

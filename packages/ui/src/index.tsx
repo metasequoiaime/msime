@@ -761,6 +761,7 @@ export {
   type CredentialStatusMessageValue,
 } from "./settings/credential-status-message";
 export { CredentialActions, type CredentialActionsProps } from "./settings/credential-actions";
+export { SettingToggle, type SettingToggleProps } from "./settings/setting-toggle";
 export {
   AiCredentialSection,
   type AiCredentialSectionProps,

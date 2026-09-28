@@ -1,3 +1,5 @@
+import { SettingToggle } from "./setting-toggle";
+
 export type LocalModeKey =
   | "unicode"
   | "date_time"
@@ -91,20 +93,13 @@ export function LocalModesSection({ preferences, ios, onChange }: LocalModesSect
   return (
     <>
       {localModeRows.map(([key, label, description]) => (
-        <div className="section" key={key}>
-          <label className="section-header">
-            <span className="section-title">
-              {label}
-              <small>{ios ? iosLocalModeDescriptions[key] : description}</small>
-            </span>
-            <input
-              className="toggle"
-              type="checkbox"
-              checked={preferences[key]}
-              onChange={(event) => onChange({ ...preferences, [key]: event.target.checked })}
-            />
-          </label>
-        </div>
+        <SettingToggle
+          key={key}
+          label={label}
+          description={ios ? iosLocalModeDescriptions[key] : description}
+          checked={preferences[key]}
+          onChange={(checked) => onChange({ ...preferences, [key]: checked })}
+        />
       ))}
     </>
   );
