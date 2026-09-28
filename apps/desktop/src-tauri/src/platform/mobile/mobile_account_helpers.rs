@@ -63,6 +63,12 @@ pub(crate) fn snapshot_command_error() -> crate::CommandError {
     }
 }
 
+pub(crate) fn parse_snapshot_token(value: &str) -> Result<uuid::Uuid, crate::CommandError> {
+    uuid::Uuid::parse_str(value).map_err(|_| crate::CommandError {
+        code: "snapshot_invalid",
+    })
+}
+
 pub(crate) fn snapshot_response_without_account(
     mut value: Value,
 ) -> Result<Value, crate::CommandError> {

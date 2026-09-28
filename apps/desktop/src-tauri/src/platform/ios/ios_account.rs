@@ -7,7 +7,7 @@ use crate::platform::mobile::mobile_account_helpers::{
     account_preferences_schema as shared_account_preferences_schema,
     account_profile as shared_account_profile, account_rename as shared_account_rename,
     account_request_code as shared_account_request_code, account_status as shared_account_status,
-    call, clear_snapshot_previews, PendingSnapshot, SnapshotMetadata,
+    call, clear_snapshot_previews, parse_snapshot_token, PendingSnapshot, SnapshotMetadata,
 };
 #[cfg(target_os = "ios")]
 use crate::shared::account_dto::{
@@ -410,9 +410,7 @@ async fn dictionary_snapshot_enqueue(
     state: State<'_, AccountState>,
     token: String,
 ) -> Result<Value, crate::CommandError> {
-    let parsed = uuid::Uuid::parse_str(&token).map_err(|_| crate::CommandError {
-        code: "snapshot_invalid",
-    })?;
+    let parsed = parse_snapshot_token(&token)?;
     let pending = {
         let mut previews = state
             .snapshot_previews
