@@ -110,6 +110,11 @@ import {
   type FrequencyPreferences,
 } from "./settings/frequency-section";
 import {
+  LocalModesSection,
+  defaultLocalModes,
+  type LocalModePreferences,
+} from "./settings/local-modes-section";
+import {
   ClipboardHistorySection,
   type ClipboardHistoryClient,
 } from "./settings/clipboard-history-section";
@@ -234,6 +239,12 @@ export {
   defaultFrequency,
   type FrequencyPreferences,
 } from "./settings/frequency-section";
+export {
+  LocalModesSection,
+  defaultLocalModes,
+  type LocalModeKey,
+  type LocalModePreferences,
+} from "./settings/local-modes-section";
 export {
   CommunitySkinsPage,
   type CommunitySkin,
@@ -1335,78 +1346,6 @@ export async function loadAllPersonalDictionaryEntries(
   }
   return entries;
 }
-export type LocalModePreferences = {
-  unicode: boolean;
-  date_time: boolean;
-  quick_phrase: boolean;
-  emoji: boolean;
-  kaomoji: boolean;
-  super_jianpin: boolean;
-  temporary_english: boolean;
-  temporary_japanese: boolean;
-};
-const defaultLocalModes: LocalModePreferences = {
-  unicode: true,
-  date_time: true,
-  quick_phrase: true,
-  emoji: true,
-  kaomoji: true,
-  super_jianpin: true,
-  temporary_english: true,
-  temporary_japanese: true,
-};
-const localModeRows = [
-  ["quick_phrase", "快捷短语(K 模式)", "中文模式下按 Shift+K，再输入编码即可调用快捷短语"],
-  [
-    "date_time",
-    "日期与时间快捷输入(T 模式)",
-    "中文模式下按 Shift+T，再输入 rq / riqi / date 输入日期，sj / shijian / time 输入时间，xq / xingqi / week 输入星期",
-  ],
-  [
-    "unicode",
-    "Unicode 便捷录入(U 模式)",
-    "中文模式下按 Shift+U，再输入十六进制码位（如 4e00 / +1f600）。空格上屏；Shift+数字选词",
-  ],
-  [
-    "emoji",
-    "Emoji 快捷输入(E 模式)",
-    "中文模式下按 Shift+E，再输入全拼 / 简拼 / 双拼 / 英文关键词。空格上屏；数字选词",
-  ],
-  [
-    "kaomoji",
-    "颜文字快捷输入(M 模式)",
-    "中文模式下按 Shift+M，再输入全拼 / 简拼 / 双拼 / 英文关键词。空格上屏；数字选词",
-  ],
-  [
-    "super_jianpin",
-    "超级简拼(J 模式)",
-    "中文模式下按 Shift+J，每个字母作为简拼；双拼按当前方案转换声母。空格上屏；数字选词",
-  ],
-  [
-    "temporary_english",
-    "临时英文(Y 模式)",
-    "中文模式下按 Shift+Y，之后按英文处理。空格上屏当前输入；数字选词；上屏后回到中文",
-  ],
-  [
-    "temporary_japanese",
-    "临时日语(R 模式)",
-    "中文模式下按 Shift+R，之后按日语罗马字处理。空格上屏首选；数字选词；上屏后回到中文",
-  ],
-] as const;
-/** The iOS keyboard has no Shift chords for these: a mode opens from its 本地输入 menu, reached by tapping the idle 水杉输入法 title on the candidate bar or from 更多, under the names that menu uses, and candidates are tapped rather than numbered. */
-function iosLocalModeEntry(title: string): string {
-  return `在候选栏点「水杉输入法」，或在「更多 → 本地输入」里选「${title}」，`;
-}
-const iosLocalModeDescriptions: Record<(typeof localModeRows)[number][0], string> = {
-  quick_phrase: `${iosLocalModeEntry("快捷短语")}再输入编码即可调用快捷短语`,
-  date_time: `${iosLocalModeEntry("日期时间")}再输入 rq / riqi / date 输入日期，sj / shijian / time 输入时间，xq / xingqi / week 输入星期`,
-  unicode: `${iosLocalModeEntry("Unicode 码点")}再输入十六进制码位（如 4e00 / +1f600）。空格或点候选上屏`,
-  emoji: `${iosLocalModeEntry("表情")}再输入全拼 / 简拼 / 双拼 / 英文关键词。空格或点候选上屏`,
-  kaomoji: `${iosLocalModeEntry("颜文字")}再输入全拼 / 简拼 / 双拼 / 英文关键词。空格或点候选上屏`,
-  super_jianpin: `${iosLocalModeEntry("超级简拼")}每个字母作为简拼；双拼按当前方案转换声母。空格或点候选上屏`,
-  temporary_english: `${iosLocalModeEntry("英文补全")}之后按英文处理。空格上屏当前输入，也可以点候选；上屏后回到中文`,
-  temporary_japanese: `${iosLocalModeEntry("临时日语")}之后按日语罗马字处理。空格上屏首选，也可以点候选；上屏后回到中文`,
-};
 const localDictionaryKinds: [LocalDictionaryKind, string][] = [
   ["pinyin", "全拼"],
   ["wubi", "五笔"],
@@ -3839,7 +3778,6 @@ export function SettingsPage({
   // A host missing a catalog is still handled, and handled better than by hiding a switch: the runtime
   // turns that mode off when its resource is absent, so the trigger key inserts its capital instead of
   // being swallowed.
-  const visibleLocalModeRows = localModeRows;
   const clipboardHistory = iosPlatform || (draft?.clipboard_history ?? false);
   function toggleClipboardHistory(enabled: boolean) {
     if (!draft) return;
@@ -7908,29 +7846,11 @@ export function SettingsPage({
                         </>
                       )}
                     </ClipboardHistorySection>
-                    {visibleLocalModeRows.map(([key, label, description]) => (
-                      <div className="section" key={key}>
-                        <label className="section-header">
-                          <span className="section-title">
-                            {label}
-                            <small>
-                              {iosPlatform ? iosLocalModeDescriptions[key] : description}
-                            </small>
-                          </span>
-                          <input
-                            className="toggle"
-                            type="checkbox"
-                            checked={localModes[key]}
-                            onChange={(event) =>
-                              setDraft({
-                                ...draft,
-                                local_modes: { ...localModes, [key]: event.target.checked },
-                              })
-                            }
-                          />
-                        </label>
-                      </div>
-                    ))}
+                    <LocalModesSection
+                      preferences={localModes}
+                      ios={iosPlatform}
+                      onChange={(local_modes) => setDraft({ ...draft, local_modes })}
+                    />
                   </fieldset>
                   <fieldset disabled={busy} hidden={page !== "help"} aria-label="帮助">
                     {macosPlatform &&
