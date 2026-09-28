@@ -2772,3 +2772,27 @@ fn touch_toolbar_keeps_the_original_buttons_by_default_and_round_trips_partial_d
     assert!(saved.preferences.touch_toolbar.punctuation);
     assert!(!store.load().unwrap().preferences.touch_toolbar.skin);
 }
+
+#[test]
+fn saving_unchanged_preferences_keeps_the_revision_and_the_file() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    // The first save creates the document even though it holds only defaults.
+    let created = store.save(0, Preferences::default()).unwrap();
+    assert_eq!(created.revision, 1);
+    let path = directory.path().join("preferences.json");
+    let written = std::fs::metadata(&path).unwrap().modified().unwrap();
+
+    let again = store.save(1, Preferences::default()).unwrap();
+    assert_eq!(again, created);
+    assert_eq!(std::fs::metadata(&path).unwrap().modified().unwrap(), written);
+    // A stale revision is still a conflict, unchanged content or not.
+    assert!(matches!(
+        store.save(0, Preferences::default()),
+        Err(PreferencesError::Conflict)
+    ));
+
+    let mut changed = Preferences::default();
+    changed.telemetry_enabled = !changed.telemetry_enabled;
+    assert_eq!(store.save(1, changed).unwrap().revision, 2);
+}

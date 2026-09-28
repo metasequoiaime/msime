@@ -52,3 +52,10 @@ unsafe_code = "deny"
 [profile.dev]
 debug = 0
 incremental = false
+
+# Local installs of an input method are dev builds (the macOS CMake default links target/debug), and two dependencies sit on the path of every keystroke: the sentence reranker runs on the main thread per key, and every view crosses the host ABI as JSON. Unoptimised, the reranker's integer dot products alone took most of the main thread while typing and stalled the candidate window for seconds. Optimising just these keeps workspace crates quick to rebuild.
+[profile.dev.package.chinese-ime-lm]
+opt-level = 3
+
+[profile.dev.package.serde_json]
+opt-level = 3

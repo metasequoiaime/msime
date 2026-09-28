@@ -1797,6 +1797,80 @@ static void TestFloatingToolbarMenuToggle(MSIMEAppearancePreferences *appearance
 }
 
 // IMK gives each text input client its own controller and candidate window. A controller whose client went away without a matching deactivateServer: must not leave its last frame on screen once another controller shows candidates or takes focus.
+@interface GlossArrivalSession : ShortcutSession
+@property(nonatomic) BOOL translated;
+@property(nonatomic) NSUInteger applications;
+@end
+@implementation GlossArrivalSession
+- (NSDictionary *)translationQueryWithError:(NSError **)error { (void)error; return nil; }
+- (NSDictionary *)viewWithError:(NSError **)error {
+    (void)error;
+    NSMutableDictionary *candidate = [@{@"text":@"你", @"source":@4, @"id":@{@"session":@1, @"generation":@3, @"index":@0}} mutableCopy];
+    if (self.translated) candidate[@"translation"] = @"you";
+    return @{@"session":@1, @"generation":@3, @"editing_text":@"ni", @"preedit":@"ni", @"caret_position":@2, @"candidates":@[candidate]};
+}
+- (NSDictionary *)applyTranslations:(NSArray *)translations generation:(uint64_t)generation error:(NSError **)error {
+    (void)translations; (void)error;
+    assert(generation == 3);
+    ++self.applications;
+    self.translated = YES;
+    return @{@"applied":@YES, @"view":[self viewWithError:nil]};
+}
+@end
+
+@interface NestingClient : ShortcutClient
+@property(nonatomic, copy) void (^onMarkedText)(void);
+@property(nonatomic) NSUInteger markedWrites;
+@end
+@implementation NestingClient
+- (void)setMarkedText:(id)text selectionRange:(NSRange)selection replacementRange:(NSRange)range {
+    ++self.markedWrites;
+    [super setMarkedText:text selectionRange:selection replacementRange:range];
+    void (^nested)(void) = self.onMarkedText;
+    self.onMarkedText = nil;
+    if (nested) nested();
+}
+@end
+
+// A gloss changes what the card shows, never the composition. Its arrival must not write the marked text again: IMK services the next key inside that synchronous call, which is how a keystroke, reranking and all, came to run nested in every gloss arrival.
+static void TestGlossArrivalRedrawsOnlyTheCard(MSIMEAppearancePreferences *appearance) {
+    ModeController *controller = [ModeController alloc];
+    GlossArrivalSession *session = [GlossArrivalSession new];
+    NestingClient *client = [NestingClient new];
+    HiddenCandidatePanel *panel = [[HiddenCandidatePanel alloc] init];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:panel forKey:@"panel"];
+    [controller setValue:[session viewWithError:nil] forKey:@"view"];
+    [controller applyCandidateTranslationResults];
+    assert(session.applications == 1 && client.markedWrites == 0);
+    NSDictionary *view = [controller valueForKey:@"view"];
+    assert([view[@"candidates"][0][@"translation"] isEqual:@"you"]);
+    // The same gloss arriving again leaves everything as it is.
+    [controller applyCandidateTranslationResults];
+    assert(session.applications == 2 && client.markedWrites == 0 && [controller valueForKey:@"view"] == view);
+}
+
+// An apply: that writes marked text can have a newer key handled inside that call; the older transition finishing afterwards must not put its view back over the newer one.
+static void TestNestedApplyKeepsTheNewerView(MSIMEAppearancePreferences *appearance) {
+    ModeController *controller = [ModeController alloc];
+    ShortcutSession *session = [ShortcutSession new];
+    NestingClient *client = [NestingClient new];
+    HiddenCandidatePanel *panel = [[HiddenCandidatePanel alloc] init];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:panel forKey:@"panel"];
+    NSDictionary *older = @{@"session":@1, @"generation":@4, @"editing_text":@"jie", @"preedit":@"jie", @"caret_position":@3, @"candidates":@[]};
+    NSDictionary *newer = @{@"session":@1, @"generation":@5, @"editing_text":@"", @"preedit":@"", @"caret_position":@0, @"candidates":@[]};
+    __weak ModeController *weakController = controller;
+    client.onMarkedText = ^{ [weakController apply:@{@"view":newer}]; };
+    [controller apply:@{@"view":older}];
+    assert(client.markedWrites >= 1);
+    assert([[controller valueForKey:@"view"] isEqual:newer]);
+}
+
 static void TestCandidatePanelSingleOwner() {
     ModeController *stale = [ModeController alloc];
     ModeController *current = [ModeController alloc];
@@ -6828,6 +6902,8 @@ int main(int argc, char **argv) {
         TestKeypadDecimal(appearance);
         TestFloatingToolbarMenuToggle(appearance);
         TestCandidatePanelSingleOwner();
+        TestGlossArrivalRedrawsOnlyTheCard(appearance);
+        TestNestedApplyKeepsTheNewerView(appearance);
         TestJapaneseConversionKeys(appearance);
         TestGlossSensePage(appearance);
         TestGlossSenseTraditionalOutput(appearance);

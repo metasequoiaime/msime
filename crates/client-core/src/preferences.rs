@@ -2084,6 +2084,10 @@ impl PreferencesStore {
             preferences.fuzzy_pinyin.seeded = true;
         }
         preferences.validate()?;
+        // Hosts save whenever a setting might have changed, several processes and controllers at a time, and every reader reloads and reapplies the whole document when the revision moves. Writing the same settings again would cost an fsync under the exclusive lock and a reload everywhere for nothing, so an unchanged document keeps its revision. An existing file only: the first save still creates it.
+        if current.revision > 0 && preferences == current.preferences {
+            return Ok(current);
+        }
         let snapshot = PreferencesSnapshot {
             format_version: 1,
             revision: current

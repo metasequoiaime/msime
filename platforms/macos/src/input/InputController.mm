@@ -789,6 +789,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     MSIMEPanelTextCompletion _desktopEmojiCompletion;
     double _desktopEmojiDeadline;
     NSDictionary *_view;
+    // Bumped by every apply:. Writing marked text is a synchronous call into the client, and IMK services the next key inside it, so an apply: can finish after a newer one that ran nested in it.
+    uint64_t _applySequence;
     NSObject *_candidateMenuToken;
     NSPanel *_panel;
     NSRect _candidateAnchorCaret;
@@ -800,7 +802,6 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSString *_preferencesDirectory;
     NSTimer *_preferencesTimer;
     MSIMEPreferenceLoadState _preferenceLoadState;
-    MSIMEPreferenceSaveState _preferenceSaveState;
     MSIMEAppearancePreferences *_appearance;
     BOOL _wubiCodeHintEnabled;
     msime::input::EnglishPunctuationState _englishPunctuation;
@@ -1667,7 +1668,15 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSDictionary *view = [_session viewWithError:nil];
     if (!view) return;
     NSDictionary *applied = [_session applyTranslations:results generation:[view[@"generation"] unsignedLongLongValue] error:nil];
-    if ([applied[@"applied"] boolValue]) [self apply:applied];
+    if (![applied[@"applied"] boolValue]) return;
+    // A gloss changes what the card shows, never the composition, so only the card is redrawn. Going through apply: re-sent the marked text on every arrival, and IMK services the next key inside that synchronous setMarkedText: call - the whole keystroke, reranking included, ran nested in it, after which the outer apply: wrote the older view back over the newer one.
+    NSDictionary *next = applied[@"view"];
+    if (![next isKindOfClass:NSDictionary.class] || [next isEqual:_view]) return;
+    [self discardGlossSensePage];
+    _view = next;
+    [self renderCandidates];
+    // What one source answered decides what the next asks for: the online fallback, for one, waits for the offline lookup.
+    [self synchronizeCandidateServices];
 }
 
 - (void)cancelAccountGloss {
@@ -2424,9 +2433,13 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     if (_activeClient) [self syncSystemInputModeForClient:_activeClient];
     [self persistAppearancePreferences];
 }
+// One save in flight for the whole process. IMK keeps a controller per text input client and every one of them observes the same shared appearance, so one change asks each of them to save the same document; with a save state per controller they each ran a load and a compare-and-swap save under the exclusive preferences lock, fsync included, at the same time. What they save is the shared appearance, whichever controller asks, so one save and at most one queued behind it cover them all.
+static MSIMEPreferenceSaveState MSIMESharedPreferenceSaveState;
+// The controller behind the queued save, which runs it when the one in flight finishes, whether or not the controller that started that one is still alive.
+static __weak MSIMEInputController *MSIMEQueuedPreferenceSaver;
 - (void)persistAppearancePreferences {
     if (!_preferencesDirectory) return;
-    if (!_preferenceSaveState.request()) return;
+    if (!MSIMESharedPreferenceSaveState.request()) { MSIMEQueuedPreferenceSaver = self; return; }
     NSString *directory = [_preferencesDirectory copy];
     // Capture all host-owned fields together on the main thread. Both CAS
     // attempts use this same snapshot; later changes schedule a fresh save.
@@ -2452,12 +2465,15 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
             }
         }
         dispatch_async(dispatch_get_main_queue(), ^{
+            const bool again = MSIMESharedPreferenceSaveState.finish();
             MSIMEInputController *controller = weakSelf;
-            if (!controller) return;
-            const bool again = controller->_preferenceSaveState.finish();
-            if (saved && !saveError) [controller reloadPreferences];
-            else msime_macos_diagnostic_write("preferences_save_failed");
-            if (again) [controller persistAppearancePreferences];
+            if (!saved || saveError) msime_macos_diagnostic_write("preferences_save_failed");
+            else if (controller) [controller reloadPreferences];
+            if (again) {
+                MSIMEInputController *next = MSIMEQueuedPreferenceSaver ?: controller;
+                MSIMEQueuedPreferenceSaver = nil;
+                [next persistAppearancePreferences];
+            }
         });
     });
 }
@@ -3931,7 +3947,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
 }
 
 - (void)reloadPreferences {
-    if (!_activeClient || !_preferencesDirectory || _preferenceSaveState.saving || !_preferenceLoadState.begin()) return;
+    if (!_activeClient || !_preferencesDirectory || MSIMESharedPreferenceSaveState.saving || !_preferenceLoadState.begin()) return;
     const uint64_t generation = _preferenceLoadState.generation;
     MSIMEClientSession *session = _session;
     id client = _activeClient;
@@ -4987,6 +5003,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         converted[@"commit"] = MSIMEChineseOutputString(transition[@"commit"], YES);
         displayTransition = converted;
     }
+    const uint64_t applySequence = ++_applySequence;
     NSString *pendingClosing = _pendingPairedClosing;
     MSIMEApplyTransitionWithPendingClosing(displayTransition, (id<MSIMETextClient>)_activeClient,
                                            _appearance.inlinePreeditStyle, pendingClosing);
@@ -5014,11 +5031,18 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         MSIMERecordTypingStatistics(_preferencesDirectory ?: MSIMEStatisticsHostOptions(_session)[@"preferences_directory"],
                                     displayTransition[@"commit"], source);
     }
+    // A key handled while this transition's text was being written has already put the newer view on screen; this one is older and must not replace it.
+    if (applySequence != _applySequence) return;
     _view = transition[@"view"];
     if (![_view[@"candidates"] isKindOfClass:NSArray.class] || ![_view[@"candidates"] count])
         _armedGlossColumn = 0;
     [self refreshFloatingToolbarState];
     [self renderCandidates];
+    [self synchronizeCandidateServices];
+}
+
+// Everything that follows the candidates on screen. Each one returns at once when its request has not changed.
+- (void)synchronizeCandidateServices {
     [self synchronizeCloudCandidates];
     [self scheduleSettledRerank];
     [self synchronizeCandidateGloss];
