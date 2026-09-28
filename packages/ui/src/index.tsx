@@ -97,6 +97,7 @@ import {
   type NavigationPreferences,
   type WordCharacterPreferences,
 } from "./settings/word-character-section";
+import { NavigationSection } from "./settings/navigation-section";
 import {
   ClipboardHistorySection,
   type ClipboardHistoryClient,
@@ -210,6 +211,7 @@ export {
   type NavigationPreferences,
   type WordCharacterPreferences,
 } from "./settings/word-character-section";
+export { NavigationSection } from "./settings/navigation-section";
 export {
   CommunitySkinsPage,
   type CommunitySkin,
@@ -1567,17 +1569,6 @@ const translationSecondaryLanguages: [
 ][] = [["", "不显示第二种语言"], ...translationLanguages];
 const mobileTranslationLanguages = translationLanguages.filter(([value]) => value !== "ru");
 const defaultWordCharacter: WordCharacterPreferences = { enabled: true, keys: "brackets" };
-const navigationOptions: [keyof NavigationPreferences, string][] = [
-  ["minus_equal", "- / ="],
-  ["comma_period", ", / ."],
-  ["brackets", "[ / ]"],
-  ["tab", "Shift+Tab / Tab"],
-  ["page_up_down", "PageUp / PageDown"],
-  ["mouse_wheel", "鼠标滚轮（候选面板支持时翻页）"],
-  ["arrows", "上 / 下（移动候选项）"],
-];
-const linuxWheelPagingNote =
-  "鼠标滚轮：开启后在 IBus 候选窗口上滚动即翻页，关闭时滚轮不做任何事。Fcitx5 经典界面的滚轮翻页是 Fcitx5 自己的设置，开启或改回关闭后会同步写入，对 Fcitx5 中的所有输入法生效；从未开启过时沿用 Fcitx5 原有设置。";
 // The Fcitx5 classic UI theme format has no label or accent colour (platforms/linux/src/candidates/CandidateFcitxTheme.h), so on Linux the number and accent pickers reach only the IBus panel.
 const linuxFcitxClassicColorNote =
   "Fcitx5 经典界面中编号跟随正文颜色、固定候选不单独着色，此项仅对 IBus 生效";
@@ -6665,43 +6656,18 @@ export function SettingsPage({
                         直接输入罗马音，提供平假名、片假名及日语词库候选
                       </div>
                     </div>
-                    <div className="section" role="group" aria-labelledby="paging-title">
-                      <div className="section-title" id="paging-title">
-                        翻页方式
-                      </div>
-                      <div className="input-option-content">
-                        {navigationOptions.map(([key, label], index) => (
-                          <div className="input-option-item" key={key}>
-                            {index > 0 && <div className="input-option-divider" />}
-                            <label className="check-option">
-                              <input
-                                type="checkbox"
-                                checked={(draft.navigation ?? defaultNavigation)[key]}
-                                onChange={(event) =>
-                                  setDraft({
-                                    ...draft,
-                                    ...(event.target.checked &&
-                                    wordCharacter.enabled &&
-                                    wordCharacter.keys === key
-                                      ? { word_character: { ...wordCharacter, enabled: false } }
-                                      : {}),
-                                    navigation: {
-                                      ...(draft.navigation ?? defaultNavigation),
-                                      [key]: event.target.checked,
-                                    },
-                                  })
-                                }
-                              />
-                              <span>{label}</span>
-                            </label>
-                          </div>
-                        ))}
-                      </div>
-                      {/* IBus pages on the panel's cursor_up/down and button 4/5 only with the switch on; Fcitx5 classic UI pages by itself, so the host writes the switch into classicui's WheelForPaging once it leaves the default (platforms/linux/README.md). */}
-                      {linuxPlatform && (
-                        <div className="input-setting-description">{linuxWheelPagingNote}</div>
-                      )}
-                    </div>
+                    <NavigationSection
+                      navigation={draft.navigation ?? defaultNavigation}
+                      wordCharacter={wordCharacter}
+                      linux={linuxPlatform}
+                      onChange={({ navigation, wordCharacter: nextWordCharacter }) =>
+                        setDraft({
+                          ...draft,
+                          navigation,
+                          word_character: nextWordCharacter,
+                        })
+                      }
+                    />
                     <div className="section">
                       <label className="section-header">
                         <span className="section-title">
