@@ -1,4 +1,22 @@
 export type Modifier = "Shift" | "Caps Lock" | "Ctrl" | "Alt" | "Win";
+export type KeyboardKey = {
+  label: string;
+  shifted?: string;
+  virtualKey: number;
+  modifier?: Modifier;
+};
+
+export const key = (label: string, virtualKey: number, shifted?: string): KeyboardKey => ({
+  label,
+  virtualKey,
+  shifted,
+});
+
+export const modifier = (label: Modifier, virtualKey: number): KeyboardKey => ({
+  label,
+  virtualKey,
+  modifier: label,
+});
 
 export function modifierPrefix(modifiers: Set<Modifier>) {
   return ["Ctrl", "Alt", "Win", "Shift"]

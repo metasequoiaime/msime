@@ -23,7 +23,15 @@ import * as cloud from "./cloud-panel-style";
 import * as surface from "./panel-surface-style";
 import { normalizeHandwritingCandidates } from "./handwriting";
 import { validVoiceLanguage } from "./voice-panel";
-import { isImeCommitKey, keyboardKeyWeight, modifierPrefix, type Modifier } from "./keyboard-input";
+import {
+  isImeCommitKey,
+  key,
+  keyboardKeyWeight,
+  modifier,
+  modifierPrefix,
+  type KeyboardKey,
+  type Modifier,
+} from "./keyboard-input";
 import { keyboardSkinStyles } from "./keyboard-skin-styles";
 import {
   clipboardTooltip,
@@ -316,17 +324,6 @@ export interface EmojiPanelClient extends PanelClient {
   }>;
 }
 
-type KeyboardKey = { label: string; shifted?: string; virtualKey: number; modifier?: Modifier };
-const key = (label: string, virtualKey: number, shifted?: string): KeyboardKey => ({
-  label,
-  virtualKey,
-  shifted,
-});
-const modifier = (label: Modifier, virtualKey: number): KeyboardKey => ({
-  label,
-  virtualKey,
-  modifier: label,
-});
 const keyboardRows: KeyboardKey[][] = [
   [
     key("Num Lock", 0x90),
