@@ -19,6 +19,8 @@ import {
   dictionaryPageStatus,
   readDictionaryFile,
 } from "./dictionary/dictionary-file";
+import { describeImportResult, dictionaryKindKeyHint } from "./dictionary/dictionary-messages";
+export { describeImportResult, dictionaryKindKeyHint } from "./dictionary/dictionary-messages";
 import { SkinCandidatePreview } from "./skin/skin-candidate-preview";
 import { AppearanceCandidatePreview } from "./candidate/appearance-candidate-preview";
 import { useCandidatePreviewTheme } from "./candidate/candidate-preview-theme";
@@ -1447,30 +1449,6 @@ export interface DictionaryImportResult {
   swapped?: boolean;
   first_failures?: { line: number; issue: string }[];
 }
-
-/** A short account of an import the user can act on. */
-export function describeImportResult(kind: string, result: DictionaryImportResult): string {
-  const parts = [`${kind}导入完成，共 ${result.applied} 条。`];
-  if (result.failed) {
-    const failures = result.first_failures ?? [];
-    const lines = failures.map((failure) => failure.line).join("、");
-    parts.push(
-      lines ? `跳过 ${result.failed} 行，首先出现在第 ${lines} 行。` : `跳过 ${result.failed} 行。`,
-    );
-    // "rejected" means the row parsed but the engine refused it, which is a
-    // different thing for the user to fix than a malformed line.
-    if (failures.some((failure) => failure.issue === "rejected")) {
-      parts.push("其中部分行的编码与词不匹配，例如简拼、或音节数与汉字数不一致。");
-    }
-  }
-  if (result.truncated) parts.push("文件过长，仅导入了前一部分。");
-  // Said rather than done quietly: which column holds the code is the one thing about the file the
-  // reader may want to check, and the same settings page in the Windows version exports the two
-  // orders for different dictionaries.
-  if (result.swapped) parts.push("该文件的两列与所选格式相反，已按文件本身的顺序读取。");
-  return parts.join("");
-}
-
 /** What the packaged dictionary is: the specification it was built to, and where it came from. */
 export type DictionaryManifest = { profile: string; sourceCommit: string };
 
@@ -1500,7 +1478,7 @@ export interface DictionaryClient {
     text: string,
     request_id: string,
   ): Promise<DictionaryImportResult>;
-  /** The largest file, in bytes, the page reads for `import`. Absent means the desktop bridge's batched bound, `MAX_DICTIONARY_FILE_BYTES`; a host that sends the file in one request declares its own. */
+  /** The largest file, in bytes, the page reads for `import`. */
   maxImportFileBytes?: number;
   importPersonal?(
     text: string,
@@ -1521,20 +1499,6 @@ const personalDictionaryExportKinds: [LocalDictionaryKind, string][] = [
   ["quick_phrase", "快捷短语"],
   ["english", "英文"],
 ];
-
-/** The encoding rules shown beside the Apple personal-dictionary editor. */
-export function dictionaryKindKeyHint(kind: LocalDictionaryKind): string {
-  switch (kind) {
-    case "wubi":
-      return "1–4 个字母";
-    case "quick_phrase":
-      return "1–32 个字母";
-    case "english":
-      return "1–64 个字母";
-    case "pinyin":
-      return "完整音节，用 ' 分隔，如 ni'hao";
-  }
-}
 
 /** The single-file name and layout used by the macOS personal dictionary. */
 export function personalDictionaryExportName(): string {
