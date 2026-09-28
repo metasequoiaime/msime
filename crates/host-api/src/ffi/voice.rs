@@ -3,6 +3,7 @@
 //! Part of the C ABI; see the parent module for what these shims guarantee.
 
 use crate::*;
+use msime_client_core::cloud::dictionary::valid_bounded_text;
 
 /// Decode one Doubao v1 response frame for Apple hosts. The returned payload
 /// is UTF-8 JSON text; no frame bytes or credentials are retained.
@@ -389,7 +390,7 @@ fn local_voice_request<T: serde::de::DeserializeOwned>(
 }
 
 fn local_model_root(root: &str) -> Result<&Path, String> {
-    if root.is_empty() || root.len() > 4096 || root.chars().any(char::is_control) {
+    if !valid_bounded_text(root, 4096) {
         return Err("invalid local model root".into());
     }
     let path = Path::new(root);
