@@ -43,6 +43,7 @@ import { TelemetrySection } from "./settings/telemetry-section";
 import { WubiSection } from "./settings/wubi-section";
 import { InputModeSection } from "./settings/input-mode-section";
 import { InputModeShortcutsSection } from "./settings/input-mode-shortcuts-section";
+import { PanelShortcutsSection } from "./settings/panel-shortcuts-section";
 import { PreeditSettingsSection } from "./settings/preedit-settings-section";
 import { validCandidateFonts } from "./candidate/candidate-font-family";
 import type { FontCatalogReader } from "./candidate/font-catalog";
@@ -331,6 +332,10 @@ export {
   type InputModeShortcutPreferences,
   type InputModeShortcutsSectionProps,
 } from "./settings/input-mode-shortcuts-section";
+export {
+  PanelShortcutsSection,
+  type PanelShortcutsSectionProps,
+} from "./settings/panel-shortcuts-section";
 export {
   PreeditSettingsSection,
   type CandidatePreeditStyle,
@@ -6850,24 +6855,11 @@ export function SettingsPage({
                       fullwidthChord={fullwidthChord}
                       windows={windowsPlatform}
                     />
-                    {showPanelShortcuts && (
-                      <div className="section" role="group" aria-label="面板快捷键">
-                        <div className="section-title">面板快捷键</div>
-                        <small>
-                          {macosPlatform
-                            ? "可从当前输入上下文使用 Command 组合键打开面板。"
-                            : harmonyPlatform
-                              ? "连接实体键盘后，在输入状态下可用 Super 组合键打开面板。"
-                              : "桌面环境转发 Super 组合键时可从当前输入上下文打开面板。"}
-                        </small>
-                        <div className={settings.shortcutList}>
-                          <div className={settings.shortcutRow}>
-                            <span>打开屏幕键盘</span>
-                            <kbd>Ctrl+Shift+{macosPlatform ? "Command" : "Super"}+K</kbd>
-                          </div>
-                        </div>
-                      </div>
-                    )}
+                    <PanelShortcutsSection
+                      visible={showPanelShortcuts}
+                      macos={macosPlatform}
+                      harmony={harmonyPlatform}
+                    />
                     <div className={`section ${settings.shortcutSectionTitle}`}>
                       <div className="section-title">候选操作</div>
                       <small>输入和选取候选词时使用</small>
