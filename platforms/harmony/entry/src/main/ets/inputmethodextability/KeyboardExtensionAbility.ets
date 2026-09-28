@@ -9,6 +9,7 @@ import display from '@ohos.display';
 import window from '@ohos.window';
 import ConfigurationConstant from '@ohos.app.ability.ConfigurationConstant';
 import { KeyboardMetrics } from '../keyboard/KeyboardMetrics';
+import { KeyboardGeometry } from '../keyboard/KeyboardGeometry';
 import { KeyboardFormFactor } from '../keyboard/KeyboardFormFactor';
 import { HardwareKeyRouter, HardwareKey, HardwareKeyAction, HardwareKeyDecision }
   from '../keyboard/HardwareKeyRouter';
@@ -467,8 +468,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     let y: number = this.caret[2] > 0
       ? this.caret[1] + this.caret[2] + HUD_CARET_GAP_VP * this.density
       : this.screenHeight * 2 / 3;
-    x = Math.min(Math.max(margin, x), Math.max(margin, this.screenWidth - margin - width));
-    y = Math.min(Math.max(margin, y), Math.max(margin, this.screenHeight - margin - height));
+    x = KeyboardGeometry.bounded(x, margin, Math.max(margin, this.screenWidth - margin - width));
+    y = KeyboardGeometry.bounded(y, margin, Math.max(margin, this.screenHeight - margin - height));
     this.hud.moveTo(Math.round(x), Math.round(y)).catch((error: Object): void => {
       KeyboardLog.error(`mode badge would not move: ${describeError(error)}`);
     });
