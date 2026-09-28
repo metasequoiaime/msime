@@ -185,7 +185,7 @@ pub(super) fn validate_candidate_value(
         return Err(AccountError::Invalid);
     }
     if query.kind == "quick"
-        && word.encode_utf16().count() > crate::dictionary::import::MAX_QUICK_PHRASE_UTF16
+        && !crate::is_bounded_utf16(word, crate::dictionary::import::MAX_QUICK_PHRASE_UTF16)
     {
         Err(AccountError::Invalid)
     } else {
@@ -290,7 +290,7 @@ pub(super) fn validate_dictionary_value(
         || word.is_empty()
         || weight < 0
         || (kind == DictionaryKind::Quick
-            && word.encode_utf16().count() > crate::dictionary::import::MAX_QUICK_PHRASE_UTF16)
+            && !crate::is_bounded_utf16(word, crate::dictionary::import::MAX_QUICK_PHRASE_UTF16))
     {
         return Err(AccountError::Invalid);
     }

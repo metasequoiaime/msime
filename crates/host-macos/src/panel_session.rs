@@ -161,7 +161,7 @@ impl PanelSession {
 pub fn validate_clipboard_text(text: &str) -> Result<(), SessionError> {
     if text.is_empty()
         || text.len() > 12_000
-        || text.encode_utf16().count() > 4_000
+        || !msime_client_core::is_bounded_utf16(text, 4_000)
         || text.contains('\0')
     {
         return Err(SessionError::Invalid);

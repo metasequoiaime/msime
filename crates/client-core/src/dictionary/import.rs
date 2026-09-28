@@ -335,7 +335,7 @@ fn parse_row(
     if !crate::text::is_bounded_text(word, MAX_VALUE_BYTES) {
         return Err(ImportIssue::ValueTooLong);
     }
-    if kind == ImportKind::QuickPhrase && word.encode_utf16().count() > MAX_QUICK_PHRASE_UTF16 {
+    if kind == ImportKind::QuickPhrase && !crate::is_bounded_utf16(word, MAX_QUICK_PHRASE_UTF16) {
         return Err(ImportIssue::QuickPhraseTooLong);
     }
     if weight < 0 {
