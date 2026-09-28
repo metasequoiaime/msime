@@ -105,6 +105,11 @@ import {
   type MixedInputPreferences,
 } from "./settings/mixed-input-section";
 import {
+  FrequencySection,
+  defaultFrequency,
+  type FrequencyPreferences,
+} from "./settings/frequency-section";
+import {
   ClipboardHistorySection,
   type ClipboardHistoryClient,
 } from "./settings/clipboard-history-section";
@@ -224,6 +229,11 @@ export {
   defaultMixedInput,
   type MixedInputPreferences,
 } from "./settings/mixed-input-section";
+export {
+  FrequencySection,
+  defaultFrequency,
+  type FrequencyPreferences,
+} from "./settings/frequency-section";
 export {
   CommunitySkinsPage,
   type CommunitySkin,
@@ -1536,16 +1546,6 @@ function dictionaryKindLabel(kind: LocalDictionaryKind): string {
   return localDictionaryKinds.find(([value]) => value === kind)?.[1] ?? "词库";
 }
 
-export type FrequencyPreferences = {
-  mode: "disabled" | "pin" | "halve" | "linear" | "promote";
-  trigger_count: number;
-  linear_step: number;
-};
-const defaultFrequency: FrequencyPreferences = {
-  mode: "promote",
-  trigger_count: 1,
-  linear_step: 1,
-};
 const defaultNavigation: NavigationPreferences = {
   minus_equal: true,
   comma_period: true,
@@ -7446,70 +7446,10 @@ export function SettingsPage({
                         />
                       </label>
                     </div>
-                    <div className="section" role="group" aria-labelledby="frequency-title">
-                      <div className="section-title" id="frequency-title">
-                        拼音方案调频
-                      </div>
-                      <div className="frequency-option-content">
-                        <label className="section-header frequency-option-row">
-                          <span className="section-title">调频方式</span>
-                          <select
-                            value={frequency.mode}
-                            onChange={(event) =>
-                              setDraft({
-                                ...draft,
-                                frequency: {
-                                  ...frequency,
-                                  mode: event.target.value as FrequencyPreferences["mode"],
-                                },
-                              })
-                            }
-                          >
-                            <option value="disabled">关闭</option>
-                            <option value="pin">一次置顶</option>
-                            <option value="halve">折半调频</option>
-                            <option value="linear">线性调频</option>
-                            <option value="promote">一次置前</option>
-                          </select>
-                        </label>
-                        {(
-                          [
-                            ["trigger_count", "触发频次(第几次上屏触发)"],
-                            ["linear_step", "线性调频步长"],
-                          ] as const
-                        ).map(([key, label]) => (
-                          <div key={key}>
-                            <div className="input-option-divider" />
-                            <label className="section-header frequency-option-row">
-                              <span className="section-title">{label}</span>
-                              <select
-                                value={frequency[key]}
-                                onChange={(event) =>
-                                  setDraft({
-                                    ...draft,
-                                    frequency: { ...frequency, [key]: Number(event.target.value) },
-                                  })
-                                }
-                              >
-                                {[
-                                  1,
-                                  2,
-                                  3,
-                                  4,
-                                  5,
-                                  6,
-                                  ...(frequency[key] > 6 ? [frequency[key]] : []),
-                                ].map((value) => (
-                                  <option key={value} value={value}>
-                                    {value}
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+                    <FrequencySection
+                      preferences={frequency}
+                      onChange={(frequency) => setDraft({ ...draft, frequency })}
+                    />
                     {mobilePlatform && client.mobileKeyboardFeedback && mobileKeyboardFeedback && (
                       <div className="section" role="group" aria-label="按键反馈">
                         <div className="section-title">按键反馈</div>
