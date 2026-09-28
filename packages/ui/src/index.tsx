@@ -180,6 +180,7 @@ import { VoiceStreamPreeditSection } from "./settings/voice-stream-preedit-secti
 import { VoiceCommitModeSection, type VoiceCommitMode } from "./settings/voice-commit-mode-section";
 import { VoiceCaptureDevicesSection } from "./settings/voice-capture-devices-section";
 import { VoiceHotkeysSection } from "./settings/voice-hotkeys-section";
+import { VoicePolishSection } from "./settings/voice-polish-section";
 import { FloatingToolbarAppearanceSection } from "./settings/floating-toolbar-appearance-section";
 import { FloatingToolbarComponentsSection } from "./settings/floating-toolbar-components-section";
 import { FloatingToolbarToggleSection } from "./settings/floating-toolbar-toggle-section";
@@ -851,6 +852,7 @@ export {
 } from "./keyboard/window-host";
 export { emojiDisplayName } from "./keyboard/panels";
 export type { TouchKeyboardSkin } from "./keyboard/screen-keyboard-preview";
+export { VoicePolishSection, type VoicePolishSectionProps } from "./settings/voice-polish-section";
 export {
   FloatingToolbarToggleSection,
   type FloatingToolbarToggleSectionProps,
@@ -5649,57 +5651,27 @@ export function SettingsPage({
                       />
                     )}
                     {showVoiceProviderSettings && (
-                      <div className="section">
-                        <div className="section-title">
-                          文本润色 provider<small>识别结果可交给用户管理的服务润色</small>
-                        </div>
-                        <label className="section-header">
-                          <span className="section-title">启用润色</span>
-                          <input
-                            aria-label="启用文本润色"
-                            className="toggle"
-                            type="checkbox"
-                            checked={
-                              voiceInput.polish_text === true || voiceInput.polish_enabled === true
-                            }
-                            onChange={(event) =>
-                              updateVoice({
-                                polish_text: event.target.checked,
-                                polish_enabled: event.target.checked,
-                              })
-                            }
-                          />
-                        </label>
-                        <label className="section-header">
-                          <span className="section-title">服务提供商</span>
-                          <select
-                            aria-label="文本润色服务提供商"
-                            value={voiceInput.polish_provider ?? "siliconflow"}
-                            onChange={(event) =>
-                              updateVoice(polishProviderUpdate(event.target.value, voiceInput))
-                            }
-                          >
-                            <option value="siliconflow">SiliconFlow</option>
-                            <option value="openai">OpenAI</option>
-                            <option value="deepseek">DeepSeek</option>
-                            <option value="groq">Groq</option>
-                          </select>
-                        </label>
-                        {providerPresetControls(
+                      <VoicePolishSection
+                        enabled={
+                          voiceInput.polish_text === true || voiceInput.polish_enabled === true
+                        }
+                        provider={voiceInput.polish_provider ?? "siliconflow"}
+                        model={voiceInput.polish_model ?? ""}
+                        providerPreset={providerPresetControls(
                           "文本润色",
                           POLISH_PROVIDER_DEFAULTS[voiceInput.polish_provider ?? "siliconflow"],
                           voiceInput.polish_model ?? "",
                           (polish_model) => updateVoice({ polish_model }),
                           "provider-preset-section",
                         )}
-                        <label className="section-header">
-                          <span className="section-title">模型</span>
-                          <input
-                            aria-label="文本润色模型"
-                            value={voiceInput.polish_model ?? ""}
-                            onChange={(event) => updateVoice({ polish_model: event.target.value })}
-                          />
-                        </label>
+                        onEnabledChange={(enabled) =>
+                          updateVoice({ polish_text: enabled, polish_enabled: enabled })
+                        }
+                        onProviderChange={(provider) =>
+                          updateVoice(polishProviderUpdate(provider, voiceInput))
+                        }
+                        onModelChange={(polish_model) => updateVoice({ polish_model })}
+                      >
                         {!linuxPlatform && (
                           <PolishCredentialFieldsSection
                             endpoint={voiceInput.polish_endpoint ?? ""}
@@ -5799,7 +5771,7 @@ export function SettingsPage({
                             },
                             !voiceInput.polish_token?.trim(),
                           )}
-                      </div>
+                      </VoicePolishSection>
                     )}
                     {desktopPanels && (
                       <VoiceHotkeysSection
