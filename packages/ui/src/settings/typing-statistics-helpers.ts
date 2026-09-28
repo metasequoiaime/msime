@@ -42,3 +42,29 @@ export function dayLabel(key: string): string {
   const [, month, day] = key.split("-");
   return `${Number(month)}月${Number(day)}日`;
 }
+
+export type HeatmapDay = { key: string; label: string; count: number; future: boolean };
+
+export function statisticsHeatmapWeeks(
+  days: Record<string, number>,
+  today = new Date(),
+): HeatmapDay[][] {
+  const current = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const thisMonday = new Date(current);
+  thisMonday.setDate(current.getDate() - ((current.getDay() + 6) % 7));
+  const start = new Date(thisMonday);
+  start.setDate(thisMonday.getDate() - 52 * 7);
+  return Array.from({ length: 53 }, (_, week) =>
+    Array.from({ length: 7 }, (_, row) => {
+      const date = new Date(start);
+      date.setDate(start.getDate() + week * 7 + row);
+      const key = dayKey(date);
+      return {
+        key,
+        label: `${date.getMonth() + 1}月${date.getDate()}日`,
+        count: days[key] ?? 0,
+        future: date > current,
+      };
+    }),
+  );
+}

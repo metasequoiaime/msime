@@ -13,6 +13,7 @@ import {
   dayLabel,
   mobileTrendLength,
   recentDays,
+  statisticsHeatmapWeeks,
   sumStatisticValues,
 } from "./typing-statistics-helpers";
 
@@ -471,30 +472,6 @@ function DailyDetails({ rows }: { rows: DailyDetailRow[] }) {
         个有记录的日期，新的在上；「其他」含其他文字、表情、符号与历史未分类。活跃与速度显示「—」的日期早于活跃时长的记录。
       </p>
     </section>
-  );
-}
-
-type HeatmapDay = { key: string; label: string; count: number; future: boolean };
-
-function statisticsHeatmapWeeks(days: Record<string, number>, today = new Date()): HeatmapDay[][] {
-  const current = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  // Weeks start on Monday, as in the Windows source's calendar, so the current week's column begins on this Monday.
-  const thisMonday = new Date(current);
-  thisMonday.setDate(current.getDate() - ((current.getDay() + 6) % 7));
-  const start = new Date(thisMonday);
-  start.setDate(thisMonday.getDate() - 52 * 7);
-  return Array.from({ length: 53 }, (_, week) =>
-    Array.from({ length: 7 }, (_, row) => {
-      const date = new Date(start);
-      date.setDate(start.getDate() + week * 7 + row);
-      const key = dayKey(date);
-      return {
-        key,
-        label: `${date.getMonth() + 1}月${date.getDate()}日`,
-        count: days[key] ?? 0,
-        future: date > current,
-      };
-    }),
   );
 }
 
