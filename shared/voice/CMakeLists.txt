@@ -90,6 +90,9 @@ if(BUILD_TESTING)
     target_compile_options(shared-voice-local-asr PRIVATE -UNDEBUG)
   endif()
   add_test(NAME shared-voice-local-asr COMMAND shared-voice-local-asr)
+  add_test(NAME shared-voice-local-helper-limits
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/local_helper_limits.py"
+      $<TARGET_FILE:msime-voice-local>)
   # With a fetched runtime and an installed model (scripts/fetch_voice_runtime.py, then a model from resources/local-asr-models.json) this also transcribes a real recording through the helper. Both are downloads, so the test is opt-in.
   if(MSIME_LOCAL_ASR_TEST_MODEL AND MSIME_LOCAL_ASR_TEST_RUNTIME)
     add_test(NAME shared-voice-local-helper
