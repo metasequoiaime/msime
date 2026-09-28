@@ -205,6 +205,7 @@ import { ProviderPresetSection, type ProviderPreset } from "./settings/provider-
 import { CredentialStatusMessage } from "./settings/credential-status-message";
 import { AiCredentialSection } from "./settings/ai-credential-section";
 import { AiLinuxProviderSection } from "./settings/ai-linux-provider-section";
+import { AiApiTokenSection } from "./settings/ai-api-token-section";
 import {
   tencentCredentialIssue,
   translationEndpointIssue,
@@ -252,7 +253,6 @@ import { DictionaryManifestCard } from "./settings/dictionary-manifest-card";
 import { PersonalDictionaryImportCard } from "./settings/personal-dictionary-import-card";
 import { validCandidateFonts } from "./candidate/candidate-font-family";
 import type { FontCatalogReader } from "./candidate/font-catalog";
-import { SecretInput } from "./core/secret-input";
 import {
   asrProviderUpdate,
   polishProviderUpdate,
@@ -741,6 +741,7 @@ export {
   type AiCredentialSectionProps,
   type AiCredentialStored,
 } from "./settings/ai-credential-section";
+export { AiApiTokenSection, type AiApiTokenSectionProps } from "./settings/ai-api-token-section";
 export { NiuTransSection, type NiuTransSectionProps } from "./settings/niutrans-section";
 export {
   CustomTranslationSection,
@@ -5810,22 +5811,11 @@ export function SettingsPage({
                         )}
                       </AiLinuxProviderSection>
                     ) : (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">
-                            API Token
-                            <small>
-                              {aiOrigin ? `只用于 ${aiOrigin}` : "请先填写有效的 HTTPS 接口地址"}
-                            </small>
-                          </span>
-                          <SecretInput
-                            label="AI API Token"
-                            disabled={!aiOrigin}
-                            value={aiToken}
-                            onChange={updateAiToken}
-                          />
-                        </label>
-                      </div>
+                      <AiApiTokenSection
+                        origin={aiOrigin}
+                        token={aiToken}
+                        onTokenChange={updateAiToken}
+                      />
                     )}
                     {(windowsPlatform || macosPlatform || iosPlatform) &&
                       credentialTestControl(
