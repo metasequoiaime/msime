@@ -369,6 +369,12 @@ export {
   type WindowResizeBounds,
   type WindowResizePoint,
 } from "./settings/window-resize";
+import { SettingsSidebar } from "./settings/settings-sidebar";
+export {
+  SettingsSidebar,
+  type SettingsSidebarItem,
+  type SettingsSidebarProps,
+} from "./settings/settings-sidebar";
 import * as surface from "./keyboard/panel-surface-style";
 import * as settings from "./settings/settings-style";
 import * as doc from "./settings/document-style";
@@ -3556,36 +3562,7 @@ export function SettingsPage({
             ))}
           </nav>
         )}
-        <nav className={settings.sidebar} aria-label="设置分类">
-          <div className={settings.sidebarHeader}>
-            <img src={logo} alt="" />
-            <span>水杉 IME</span>
-          </div>
-          {sidebarGroups.map((group, index) => (
-            <div
-              key={group[0].id}
-              className={index > 0 ? `${settings.sidebarSection} mt-3.5` : settings.sidebarSection}
-              data-sidebar-section=""
-            >
-              {group.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  className={settings.sidebarItem(page === item.id)}
-                  aria-current={page === item.id ? "page" : undefined}
-                  aria-controls="settings-content"
-                  onClick={() => selectPage(item.id)}
-                >
-                  <span className={settings.sidebarIcon}>
-                    <img src={item.icon} alt="" />
-                  </span>
-                  {item.title}
-                </button>
-              ))}
-            </div>
-          ))}
-          <p className={settings.previewLabel}>客户端预览版</p>
-        </nav>
+        <SettingsSidebar groups={sidebarGroups} selectedPage={page} onSelectPage={selectPage} />
         <main
           ref={settingsContentRef}
           id="settings-content"
