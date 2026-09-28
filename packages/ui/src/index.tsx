@@ -254,6 +254,11 @@ export {
 } from "./settings/credential-utils";
 import { AiTestToolsSection } from "./settings/ai-test-tools-section";
 import { AiSettingsPageSection } from "./settings/ai-settings-page-section";
+import { settingsCapabilities } from "./settings/settings-capabilities";
+export {
+  settingsCapabilities,
+  type SettingsCapabilitiesInput,
+} from "./settings/settings-capabilities";
 import { useAiAssistant } from "./settings/use-ai-assistant";
 export { useAiAssistant, type UseAiAssistantOptions } from "./settings/use-ai-assistant";
 import { NiuTransSection } from "./settings/niutrans-section";
@@ -1665,78 +1670,50 @@ export function SettingsPage({
   // explaining where to change it.
   const windowsPlatform = client.host?.platform === "windows";
   const macosPlatform = client.host?.platform === "macos";
-  // Hosts with a system recogniser of their own. Android's is what it falls back to when nothing
-  // is configured, so `system` is a real choice there rather than a value to report unavailable.
-  const nativeVoicePlatform = macosPlatform || harmonyPlatform || androidPlatform;
-  // Functional controls follow what the host declares it can do. Only the prose
-  // below still varies by platform name. A host that predates the contract keeps
-  // the previous Linux-only behaviour.
   const host = client.host;
-  const showModeScope = host ? host.ime_mode_scope : linuxPlatform;
-  const showModeSwitchShortcuts = host ? host.mode_switch_shortcuts : linuxPlatform;
-  const showPanelShortcuts = host ? host.panel_shortcuts : linuxPlatform;
-  const showNumberRowSelection = host ? host.number_row_selection === true : linuxPlatform;
-  const showRestartInputMethod =
-    (host ? host.restart_input_method : linuxPlatform) && client.restartInputMethod;
-  const showInstallInputSource = macosPlatform && client.installInputSource;
-  const showFloatingToolbar = host ? host.floating_toolbar : true;
-  // An IBus property menu has no scale or icon size to apply, but it can
-  // expose component visibility as individual menu entries.
-  const showToolbarAppearance = host ? host.floating_toolbar_appearance : true;
-  const showToolbarComponents = host ? host.floating_toolbar_components : true;
-  const showCandidateFontControls = host ? host.candidate_font_controls : true;
-  // Linux sets the panel's font from the family and candidate size, but the composition is drawn by
-  // the focused application there, so a preedit size would be a control with nothing to change.
-  const showCandidatePreeditFont =
-    showCandidateFontControls && (host?.candidate_preedit_font ?? true);
-  // Was a list of platform names, which is how HarmonyOS came to consume the preference without
-  // anyone being able to set it. A host that predates the capability keeps the old reading.
-  const showCandidateEnglishFont =
-    host?.candidate_english_font ?? (windowsPlatform || macosPlatform || androidPlatform);
-  // iOS shows its own switch for the same surface, from the native store, so it is not here.
-  const showEnglishSuggestions = host?.english_suggestions ?? androidPlatform;
-  // Which hosts mark a helper code with Shift rather than appending it to a finished spelling.
-  // Was a platform name, which is how HarmonyOS came to run the same ported policy and show the
-  // page without the one sentence that says how to type one.
-  const showHelpcodeShiftEntry = host?.helpcode_shift_entry ?? androidPlatform;
-  // Every host's Engine honours the preference; this is about which of them draw the composition
-  // themselves, and so show the user a difference between the raw keys and the expanded pinyin.
-  const showShuangpinPreedit = host?.shuangpin_preedit ?? macosPlatform;
-  // Was hidden for every touch platform, on the reading that a phone keyboard has no width to switch. It has: every keyboard, iOS included, routes it to the runtime the same way the desktop hosts do, and reaches it from its own surfaces.
-  const showCharacterWidth = host?.character_width ?? !mobilePlatform;
-  // The host's provider holds the AI credential, so the page does not ask for a token and does not
-  // withhold the service controls for want of one. Reaching the service still works - through that
-  // provider - which is why these controls are offered rather than hidden.
-  const aiProviderCredentials = host?.ai_provider_credentials ?? linuxPlatform;
-  // A host with one way to commit a recognized result has nothing to choose between, and a select with one outcome reads as a setting being ignored. The Linux hosts commit only through IBus or Fcitx5, so the fallback for a page without host capabilities withholds it there too.
-  const showVoiceCommitMode = host?.voice_commit_mode ?? (!androidPlatform && !linuxPlatform);
-  // These read `!androidPlatform` because that host once had only the platform recogniser. It runs
-  // the configured provider now, uploads and streaming socket both, so keying on the name would
-  // leave a user unable to configure something the host honours. What it still cannot do is draw
-  // interim text, and that switch stays hidden for exactly that reason.
-  const showVoiceProviderSettings = host?.voice_provider_settings ?? !androidPlatform;
-  const showVoiceStreamPreedit = host?.voice_stream_preedit ?? !androidPlatform;
-  const showCandidateRowColors = host ? host.candidate_row_colors : true;
-  const showCandidateSelectionAppearance = host ? host.candidate_selection_appearance : true;
-  const showCandidateBorderColor = host
-    ? (host.candidate_border_color ?? host.candidate_selection_appearance)
-    : true;
-  const showCandidateFollowCursor = host ? host.candidate_follow_cursor : false;
-  // Was written as "macOS only" when macOS was the only host that drew the badge. A host that
-  // predates the capability keeps that reading rather than losing a control it does honour; one
-  // that declares it decides for itself, which is how HarmonyOS's 2in1 badge reaches the page.
-  const showInputModeHUD = host?.input_mode_hud ?? macosPlatform;
-  const showVoiceCaptureDevices =
-    !androidPlatform &&
-    (host ? host.voice_capture_devices : linuxPlatform) &&
-    client.listVoiceCaptureDevices;
-  // panel_windows is the injected projection of host_surface::is_desktop, so this follows the capability instead of listing the mobile hosts by name and missing the next one.
-  // Either the host draws desktop panels, or it says outright that it routes the chords. The
-  // second half is why this is no longer read off `panel_windows` alone: a keyboard attached to a
-  // phone sends them just as well, and the host that gained them has no desktop panels at all.
-  const showDesktopMaintenanceShortcuts =
-    (host?.maintenance_shortcuts ?? false) || !host || host.panel_windows;
-  const showFullwidthChord = host?.fullwidth_chord ?? macosPlatform;
+  const {
+    nativeVoicePlatform,
+    showModeScope,
+    showModeSwitchShortcuts,
+    showPanelShortcuts,
+    showNumberRowSelection,
+    showRestartInputMethod,
+    showInstallInputSource,
+    showFloatingToolbar,
+    showToolbarAppearance,
+    showToolbarComponents,
+    showCandidateFontControls,
+    showCandidatePreeditFont,
+    showCandidateEnglishFont,
+    showEnglishSuggestions,
+    showHelpcodeShiftEntry,
+    showShuangpinPreedit,
+    showCharacterWidth,
+    aiProviderCredentials,
+    showVoiceCommitMode,
+    showVoiceProviderSettings,
+    showVoiceStreamPreedit,
+    showCandidateRowColors,
+    showCandidateSelectionAppearance,
+    showCandidateBorderColor,
+    showCandidateFollowCursor,
+    showInputModeHUD,
+    showVoiceCaptureDevices,
+    showDesktopMaintenanceShortcuts,
+    showFullwidthChord,
+  } = settingsCapabilities({
+    host,
+    linux: linuxPlatform,
+    android: androidPlatform,
+    ios: iosPlatform,
+    harmony: harmonyPlatform,
+    windows: windowsPlatform,
+    macos: macosPlatform,
+    mobile: mobilePlatform,
+    canRestartInputMethod: Boolean(client.restartInputMethod),
+    canInstallInputSource: Boolean(client.installInputSource),
+    canListVoiceCaptureDevices: Boolean(client.listVoiceCaptureDevices),
+  });
   const fullwidthChord = macosPlatform ? "Option+Shift+H" : "Alt+Shift+H";
   const maintenanceChord = macosPlatform ? "Ctrl+Shift+Option" : "Ctrl+Shift+Alt";
   // Windows is built from this repository now too, so it reads this repository's releases; msime.app/update.json describes the reference Windows product and names its repository, which the validation below rightly refuses.
