@@ -78,6 +78,10 @@ import {
   InputSchemeSelectorSection,
   type InputSchemeSelectorValue,
 } from "./settings/input-scheme-selector-section";
+import {
+  InputSchemeDetailsSection,
+  type ShuangpinProfile,
+} from "./settings/input-scheme-details-section";
 import { InputModeShortcutsSection } from "./settings/input-mode-shortcuts-section";
 import { PanelShortcutsSection } from "./settings/panel-shortcuts-section";
 import { CandidateShortcutsSection } from "./settings/candidate-shortcuts-section";
@@ -447,6 +451,12 @@ export {
   type InputSchemeSelectorSectionProps,
   type InputSchemeSelectorValue,
 } from "./settings/input-scheme-selector-section";
+export {
+  InputSchemeDetailsSection,
+  type InputSchemeDetailsSectionProps,
+  type InputSchemeDetailsScheme,
+  type ShuangpinProfile,
+} from "./settings/input-scheme-details-section";
 export {
   InputModeShortcutsSection,
   type InputModeShortcutPreferences,
@@ -5105,67 +5115,23 @@ export function SettingsPage({
                         }
                       />
                     </div>
-                    <div
-                      className="section"
-                      hidden={client.touchKeyboardSchemes || draft.scheme === "japanese"}
-                    >
-                      <label className="section-header">
-                        <span className="section-title">双拼方案</span>
-                        {/* The source disables this menu unless Shuangpin is the active scheme
-                            (`_shuangpinSchemeButton.enabled = storedScheme == 1`): until then the
-                            choice changes nothing, and a live control that does nothing reads as a
-                            setting being ignored. Other hosts keep it always editable. */}
-                        <select
-                          disabled={macosPlatform && draft.scheme !== "shuangpin"}
-                          value={draft.shuangpin_profile}
-                          onChange={(event) =>
-                            setDraft({
-                              ...draft,
-                              shuangpin_profile: event.target
-                                .value as Preferences["shuangpin_profile"],
-                            })
-                          }
-                        >
-                          <option value="xiaohe">小鹤双拼</option>
-                          <option value="ziranma">自然码双拼</option>
-                          <option value="shoudao">首道双拼</option>
-                          <option value="microsoft">微软双拼</option>
-                        </select>
-                      </label>
-                    </div>
-                    {macosPlatform &&
-                      client.loadMacosShuangpinKeymap &&
-                      macosShuangpinKeymap !== undefined && (
-                        <div
-                          className="section"
-                          hidden={client.touchKeyboardSchemes || draft.scheme !== "shuangpin"}
-                        >
-                          <label className="section-header">
-                            <span className="section-title">
-                              输入时显示双拼键位提示
-                              <small>双拼输入时显示当前方案的键位图，完成上屏后自动隐藏。</small>
-                            </span>
-                            <input
-                              aria-label="输入时显示双拼键位提示"
-                              className="toggle"
-                              type="checkbox"
-                              checked={macosShuangpinKeymap}
-                              onChange={(event) => setMacosShuangpinKeymap(event.target.checked)}
-                            />
-                          </label>
-                        </div>
-                      )}
-                    <div
-                      className="section"
-                      hidden={client.touchKeyboardSchemes || draft.scheme === "japanese"}
-                    >
-                      <label className="section-header">
-                        <span className="section-title">五笔方案</span>
-                        <select value="wubi86" onChange={() => {}}>
-                          <option value="wubi86">86 五笔</option>
-                        </select>
-                      </label>
-                    </div>
+                    <InputSchemeDetailsSection
+                      scheme={draft.scheme}
+                      shuangpinProfile={draft.shuangpin_profile}
+                      macos={macosPlatform}
+                      hasTouchKeyboardSchemes={client.touchKeyboardSchemes ?? false}
+                      macosShuangpinKeymap={
+                        macosPlatform &&
+                        client.loadMacosShuangpinKeymap &&
+                        macosShuangpinKeymap !== undefined
+                          ? macosShuangpinKeymap
+                          : undefined
+                      }
+                      onShuangpinProfileChange={(shuangpin_profile: ShuangpinProfile) =>
+                        setDraft({ ...draft, shuangpin_profile })
+                      }
+                      onMacosShuangpinKeymapChange={setMacosShuangpinKeymap}
+                    />
                     {((client.touchKeyboardSchemes &&
                       touchKeyboardSchemes.enabled.includes("wubi")) ||
                       draft.scheme === "wubi") && (
@@ -5176,25 +5142,6 @@ export function SettingsPage({
                         onAutoCommitUniqueChange={setMacosWubiAutoCommitUnique}
                       />
                     )}
-                    <div
-                      className="section"
-                      role="group"
-                      aria-labelledby="japanese-scheme-title"
-                      hidden={client.touchKeyboardSchemes || draft.scheme !== "japanese"}
-                    >
-                      <div className="section-title" id="japanese-scheme-title">
-                        日语方案
-                      </div>
-                      <div className="input-option-content">
-                        <label className="radio-option">
-                          <input type="radio" name="japanese-scheme" checked readOnly />
-                          <span>罗马音</span>
-                        </label>
-                      </div>
-                      <div className="input-setting-description japanese-scheme-description">
-                        直接输入罗马音，提供平假名、片假名及日语词库候选
-                      </div>
-                    </div>
                     <NavigationSection
                       navigation={draft.navigation ?? defaultNavigation}
                       wordCharacter={wordCharacter}
