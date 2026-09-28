@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useConfirm } from "../core/confirm";
+import { scopedBreakdown } from "./typing-breakdown";
 import {
   charactersPerMinute,
   readableCharacters,
@@ -471,20 +472,6 @@ function DailyDetails({ rows }: { rows: DailyDetailRow[] }) {
       </p>
     </section>
   );
-}
-
-function scopedBreakdown(statistics: TypingStatistics, keys: string[] | null): TypingBreakdown {
-  if (keys === null) return withUnknown(statistics.detail, statistics.total);
-  const result: TypingBreakdown = { characters: {}, sources: {} };
-  for (const key of keys) {
-    const count = statistics.days[key] ?? 0;
-    const detail = withUnknown(statistics.dailyDetails?.[key], count);
-    for (const [id, value] of Object.entries(detail.characters))
-      result.characters[id] = (result.characters[id] ?? 0) + value;
-    for (const [id, value] of Object.entries(detail.sources))
-      result.sources[id] = (result.sources[id] ?? 0) + value;
-  }
-  return result;
 }
 
 type HeatmapDay = { key: string; label: string; count: number; future: boolean };
