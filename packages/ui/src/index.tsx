@@ -88,6 +88,7 @@ import {
   type LocalDictionaryKind,
 } from "./dictionary/dictionary-file";
 import { localDictionaryKinds } from "./dictionary/dictionary-kinds";
+import { dictionaryRequestId } from "./dictionary/dictionary-request-id";
 export type {
   DictionaryEntry,
   LocalDictionaryFormat,
@@ -2478,8 +2479,6 @@ export function SettingsPage({
     }
   }
 
-  const requestId = (prefix: string) =>
-    `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   // One page per request: a real dictionary is far too large to pull into the
   // page before showing anything.
   async function loadPhrases(kind: LocalDictionaryKind = dictionaryKind, offset = 0) {
@@ -2538,7 +2537,7 @@ export function SettingsPage({
     setPhraseError("");
     setPhraseNotice("");
     try {
-      await client.dictionary.edit(entry, null, requestId("ui-remove"));
+      await client.dictionary.edit(entry, null, dictionaryRequestId("ui-remove"));
       // Stay on the page the user was reading; deleting the last row on a page
       // would otherwise leave them looking at an empty one.
       const remaining = phrases.length - 1;
@@ -2582,7 +2581,7 @@ export function SettingsPage({
       await client.dictionary.edit(
         phraseForm.previous,
         replacement,
-        requestId(phraseForm.previous ? "ui-edit" : "ui-add"),
+        dictionaryRequestId(phraseForm.previous ? "ui-edit" : "ui-add"),
       );
       if (!mounted.current) return;
       setPhraseForm(null);
@@ -2615,7 +2614,7 @@ export function SettingsPage({
           dictionaryKind,
           dictionaryFormat,
           text,
-          requestId("ui-import"),
+          dictionaryRequestId("ui-import"),
         );
       } else {
         if (dictionaryFormat === "hans") throw new Error("hans format requires batch import");
@@ -2632,7 +2631,7 @@ export function SettingsPage({
           await client.dictionary.edit(
             null,
             { kind: dictionaryKind, key: key.trim(), value, weight: normalizedWeight },
-            requestId("ui-import"),
+            dictionaryRequestId("ui-import"),
           );
         }
       }
