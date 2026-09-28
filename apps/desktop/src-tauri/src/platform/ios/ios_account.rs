@@ -7,7 +7,8 @@ use crate::platform::mobile::mobile_account_helpers::{
     account_preferences_schema as shared_account_preferences_schema,
     account_profile as shared_account_profile, account_rename as shared_account_rename,
     account_request_code as shared_account_request_code, account_status as shared_account_status,
-    call, clear_snapshot_previews, parse_snapshot_token, PendingSnapshot, SnapshotMetadata,
+    call, clear_snapshot_previews, clear_snapshot_previews_after, parse_snapshot_token,
+    PendingSnapshot, SnapshotMetadata,
 };
 #[cfg(target_os = "ios")]
 use crate::shared::account_dto::{
@@ -279,33 +280,21 @@ pub async fn account_logout(
     all: bool,
 ) -> Result<(), crate::CommandError> {
     let previews = Arc::clone(&state.snapshot_previews);
-    let result = shared_account_logout(state, all).await;
-    if result.is_ok() {
-        clear_snapshot_previews(&previews);
-    }
-    result
+    clear_snapshot_previews_after(&previews, shared_account_logout(state, all).await)
 }
 
 #[cfg(target_os = "ios")]
 #[tauri::command]
 pub async fn account_delete(state: State<'_, AccountState>) -> Result<(), crate::CommandError> {
     let previews = Arc::clone(&state.snapshot_previews);
-    let result = shared_account_delete(state).await;
-    if result.is_ok() {
-        clear_snapshot_previews(&previews);
-    }
-    result
+    clear_snapshot_previews_after(&previews, shared_account_delete(state).await)
 }
 
 #[cfg(target_os = "ios")]
 #[tauri::command]
 pub async fn account_forget(state: State<'_, AccountState>) -> Result<(), crate::CommandError> {
     let previews = Arc::clone(&state.snapshot_previews);
-    let result = shared_account_forget(state).await;
-    if result.is_ok() {
-        clear_snapshot_previews(&previews);
-    }
-    result
+    clear_snapshot_previews_after(&previews, shared_account_forget(state).await)
 }
 
 #[cfg(target_os = "ios")]

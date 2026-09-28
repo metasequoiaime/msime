@@ -6,8 +6,8 @@ use crate::platform::mobile::mobile_account_helpers::{
     account_preferences_schema as shared_account_preferences_schema,
     account_profile as shared_account_profile, account_rename as shared_account_rename,
     account_request_code as shared_account_request_code, account_status as shared_account_status,
-    call, clear_snapshot_previews, dictionary_kind, parse_snapshot_token, snapshot_command_error,
-    snapshot_response_without_account, PendingSnapshot, SnapshotMetadata,
+    call, clear_snapshot_previews_after, dictionary_kind, parse_snapshot_token,
+    snapshot_command_error, snapshot_response_without_account, PendingSnapshot, SnapshotMetadata,
 };
 use crate::platform::mobile::mobile_account_preferences::{
     frequency_account_preferences, insert_bool, insert_string,
@@ -1157,31 +1157,19 @@ pub async fn account_logout(
     all: bool,
 ) -> Result<(), crate::CommandError> {
     let previews = Arc::clone(&state.snapshot_previews);
-    let result = shared_account_logout(state, all).await;
-    if result.is_ok() {
-        clear_snapshot_previews(&previews);
-    }
-    result
+    clear_snapshot_previews_after(&previews, shared_account_logout(state, all).await)
 }
 
 #[tauri::command]
 pub async fn account_delete(state: State<'_, AccountState>) -> Result<(), crate::CommandError> {
     let previews = Arc::clone(&state.snapshot_previews);
-    let result = shared_account_delete(state).await;
-    if result.is_ok() {
-        clear_snapshot_previews(&previews);
-    }
-    result
+    clear_snapshot_previews_after(&previews, shared_account_delete(state).await)
 }
 
 #[tauri::command]
 pub async fn account_forget(state: State<'_, AccountState>) -> Result<(), crate::CommandError> {
     let previews = Arc::clone(&state.snapshot_previews);
-    let result = shared_account_forget(state).await;
-    if result.is_ok() {
-        clear_snapshot_previews(&previews);
-    }
-    result
+    clear_snapshot_previews_after(&previews, shared_account_forget(state).await)
 }
 
 pub async fn cloud_dictionary_request(

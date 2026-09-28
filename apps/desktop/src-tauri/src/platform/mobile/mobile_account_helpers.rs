@@ -45,6 +45,16 @@ pub(crate) fn clear_snapshot_previews(
     }
 }
 
+pub(crate) fn clear_snapshot_previews_after<T>(
+    previews: &std::sync::Arc<std::sync::Mutex<HashMap<String, PendingSnapshot>>>,
+    result: Result<T, crate::CommandError>,
+) -> Result<T, crate::CommandError> {
+    if result.is_ok() {
+        clear_snapshot_previews(previews);
+    }
+    result
+}
+
 pub(crate) fn dictionary_kind(value: &str) -> Result<DictionaryKind, crate::CommandError> {
     match value {
         "pinyin" => Ok(DictionaryKind::Pinyin),
