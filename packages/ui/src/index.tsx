@@ -18,6 +18,7 @@ export {
 } from "./settings/touch-keyboard-scheme-helpers";
 import { platformOsName, schemeTitle } from "./settings/label-helpers";
 import { mobileTabIcon, mobileTabTitle } from "./settings/mobile-tab-helpers";
+import { isLinuxDesktop } from "./settings/platform-helpers";
 import { updateAiProvider } from "./settings/ai-provider-update";
 import { VoiceDevicePicker, type VoiceDeviceReader } from "./voice/voice-device-picker";
 import {
@@ -1002,13 +1003,6 @@ export interface HostCapabilities {
   os_version?: string;
   /** Why the Linux desktop panel drawing the candidate list ignores the candidate font, colours and skin, as the running host reported it. Absent when the panel honours them. */
   candidate_panel_limit?: "gnome_shell" | "fcitx_theme" | "kimpanel";
-}
-
-/** Superseded by the host-provided capabilities; used only when a host predates them. */
-function isLinuxDesktop(): boolean {
-  if (typeof navigator === "undefined") return false;
-  const userAgent = navigator.userAgent;
-  return /\bLinux\b/i.test(userAgent) && !/\bjsdom\b/i.test(userAgent);
 }
 
 export { useCandidatePreviewTheme } from "./candidate/candidate-preview-theme";
