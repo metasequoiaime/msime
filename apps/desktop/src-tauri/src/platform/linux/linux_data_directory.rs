@@ -393,15 +393,6 @@ fn hold_hosts_for_move(
     })
 }
 
-fn find_program(name: &str) -> bool {
-    std::env::var_os("PATH").is_some_and(|path| {
-        std::env::split_paths(&path).any(|directory| {
-            directory.is_absolute()
-                && fs::metadata(directory.join(name)).is_ok_and(|metadata| metadata.is_file())
-        })
-    })
-}
-
 /// Ask the desktop's own dialog tool for a directory: KDE ships `kdialog`, GNOME and most others ship `zenity`. Returns `Ok(None)` when the user cancels.
 fn pick_directory() -> Result<Option<PathBuf>, &'static str> {
     let kde = std::env::var("XDG_CURRENT_DESKTOP")
@@ -421,7 +412,7 @@ fn pick_directory() -> Result<Option<PathBuf>, &'static str> {
     }
     let (program, arguments) = tools
         .into_iter()
-        .find(|(program, _)| find_program(program))
+        .find(|(program, _)| linux_process::program_available(program))
         .ok_or("data_directory_picker_unavailable")?;
     // Both tools exit non-zero on cancel, which the bounded reader reports as no output.
     let Some(output) = linux_process::read_text(program, arguments, 4096, PICKER_TIMEOUT) else {

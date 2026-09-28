@@ -1,10 +1,21 @@
 //! Bounded, silent output capture for Linux session tools.
 use rustix::fs::{fcntl_getfl, fcntl_setfl, OFlags};
 use std::ffi::OsStr;
+use std::fs;
 use std::io::{ErrorKind, Read, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
+
+/// Whether an executable file is available in an absolute directory listed by `PATH`.
+pub fn program_available(name: &str) -> bool {
+    std::env::var_os("PATH").is_some_and(|path| {
+        std::env::split_paths(&path).any(|directory| {
+            directory.is_absolute()
+                && fs::metadata(directory.join(name)).is_ok_and(|metadata| metadata.is_file())
+        })
+    })
+}
 
 /// Run a session command without capturing output, enforcing a hard deadline.
 /// The child is always reaped so a timed-out helper cannot remain attached to
