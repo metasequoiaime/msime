@@ -1,6 +1,7 @@
 #include "ClipboardHistory.h"
 #include <nlohmann/json.hpp>
 #include <algorithm>
+#include <array>
 #include <fstream>
 #ifdef _WIN32
 #include <windows.h>
@@ -8,6 +9,21 @@
 
 namespace msime::windows {
 namespace {
+constexpr size_t max_store_bytes = 1024 * 1024;
+
+bool read_store_payload(std::ifstream &input, std::string &payload) {
+  std::array<char, 8192> buffer{};
+  while (input) {
+    input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+    const auto count = input.gcount();
+    if (count <= 0) continue;
+    const auto bytes = static_cast<size_t>(count);
+    if (payload.size() > max_store_bytes - bytes) return false;
+    payload.append(buffer.data(), bytes);
+  }
+  return input.eof();
+}
+
 class StoreLock final {
 public:
   explicit StoreLock(const std::filesystem::path &store) {
@@ -53,8 +69,10 @@ private:
 #endif
 };
 std::vector<std::string> read_store(const std::filesystem::path &path) {
-  std::ifstream input(path); if (!input) return {};
-  try { const auto value = nlohmann::json::parse(input); if (!value.is_array()) return {}; std::vector<std::string> result; for (const auto &item : value) { if (!item.is_string()) continue; auto text = normalize_clipboard_text(item.get<std::string>()); if (!text.empty() && result.size() < ClipboardHistory::max_items) result.push_back(std::move(text)); } return result; } catch (...) { return {}; }
+  std::ifstream input(path, std::ios::binary); if (!input) return {};
+  std::string payload;
+  if (!read_store_payload(input, payload)) return {};
+  try { const auto value = nlohmann::json::parse(payload); if (!value.is_array()) return {}; std::vector<std::string> result; for (const auto &item : value) { if (!item.is_string()) continue; auto text = normalize_clipboard_text(item.get<std::string>()); if (!text.empty() && result.size() < ClipboardHistory::max_items) result.push_back(std::move(text)); } return result; } catch (...) { return {}; }
 }
 bool write_store(const std::filesystem::path &path, const std::vector<std::string> &items) {
   std::error_code error;
