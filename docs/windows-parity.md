@@ -167,6 +167,14 @@
 
 这些差异都是适配本产品的进程结构与多平台共享层所做的取舍，每条都记着理由与替代物，不是欠账。
 
+### 工具栏可选按钮改为默认关
+
+`floating_toolbar` 的 `emoji`、`handwriting`、`voice`、`screen_keyboard` 在共享层全部默认关，新配置拿到的是五个按钮的精简工具栏：中英切换、标点、全角、简繁、设置。改动落在 `FloatingToolbarPreferences::default()` 与它的 serde 默认、`packages/ui` 的 `defaultFloatingToolbar`、以及 macOS 宿主的同名回退——四处必须一致，否则设置页显示的状态与工具栏画出来的会是两回事。
+
+这推翻了上面《补上 handwriting / voice 开关》里那条决定。当时的理由是「它们从一开始就在工具栏上，开关出现的那一刻不该让两个按钮消失」，而这一次选择了相反的取舍：**从没动过这些开关的配置升级后会少掉这三个按钮**（`emoji`、`handwriting`、`voice`），要自己去设置里打开。接受这个代价是为了让默认工具栏保持精简；`floatingToolbarBoolean:defaultValue:` 与 serde 默认都只在键缺失时生效，所以显式开过的配置不受影响。
+
+`emoji` 是来源自己的 6 个组件之一，这是本节里唯一一处组件默认值与来源不同；id、标签、顺序都没变。Windows 不跟着变：`platforms/windows/installer/config.default.toml` 逐项显式写出每个组件，镜像来源的默认配置，共享默认值在那里轮不到生效。跟着变的是不带出厂配置的宿主，即 macOS 与 HarmonyOS 2in1。
+
 **候选相关的四个表面由原生 Direct2D 绘制。** 候选窗、候选浮出、悬浮工具栏、托盘菜单在来源是 WebView2 文档，在这边是原生窗口。来源把 WebView2 同时当作候选窗的可选渲染后端，这边候选窗只有 Direct2D 一种实现；配置键 `ui_backend` 作为契约保留并登记在字段漂移门禁的 `RUST_ONLY` 里。
 
 **这四个表面走合成交换链，而不是来源的分层窗口。** 来源的输入法窗口用 `WS_EX_LAYERED`（`server/src/window/ime_windows.cpp`），DirectComposition 只出现在它的 WebView2 与设置路径里；这边统一走 `DeviceResources::EnsureForComposition`（`DCompositionCreateDevice` 加 `CreateSwapChainForComposition`）。理由是合成交换链避开 `UpdateLayeredWindow` 每帧的 CPU 拷贝，而这四个表面都是低延迟且不能抢焦点的。失败时也不回退到普通 HWND 交换链：那拿不到逐像素透明，候选卡片的阴影会退化成不透明矩形，静默变丑比明确失败更糟。代价记在这里：无 DirectComposition 的环境（如 Wine）要画出这套，是一次明确的渲染路径工作。
@@ -616,6 +624,8 @@ macOS 缺后半条。`ShouldRoutePhysicalCandidateDigit` 明确把 Unicode 模�
 候选管理菜单不改。来源的桌面右键菜单是 置顶 / 固定排位→第 1–5 位 + 取消固定 / 删除；本仓是 优先显示 / 第 1–5 位 / 取消固定 / 删除词条…，把悬停子菜单摊平（触屏上没有悬停），措辞则与 iOS、Android 一致。`platforms/android/README.md` 写明这套顺序与措辞对齐的是 Apple 来源的长按菜单，三个触屏平台共用。HarmonyOS 是触屏平台，改成 Windows 的说法会破坏三端一致并推翻既有决定。「删除词条…」的省略号也有意义：本仓这一项 `confirmationRequired` 为真，来源那条不是。
 
 悬浮工具栏已齐。来源设置页里的 6 个组件 id 与标签（character_set / emoji / fullwidth / punctuation / screen_keyboard / settings）与本仓 `floatingToolbarComponents` 完全一致，加上「中英文切换」这个始终显示项；本仓多一个 `english_mode` 属扩展。缩放、图标尺寸、组件三节的标题也与来源同名同序。
+
+组件**默认值**有一处刻意不跟：`emoji` 在共享层默认关（与 `handwriting`、`voice`、`screen_keyboard` 一起），来源默认开。id、标签和顺序不变，只是新配置拿到的是精简工具栏。Windows 不受影响——`platforms/windows/installer/config.default.toml` 逐项显式写出每个组件（`floating_toolbar_emoji = true`），镜像来源自己的默认配置，共享默认值轮不到生效；变的是不带出厂配置的宿主（macOS、HarmonyOS）。理由与升级代价见下面《工具栏可选按钮改为默认关》。
 
 工具栏的外框同样对齐来源 `floating_toolbar_presenter.cpp`。左缘的拖动柄对应 `ToolbarDragHandle`：18pt 宽的槽位（来源 `padLeft` 8 加柄宽 10）居中一条 2.5×14、`#8E8CD8` 的圆角竖条，随缩放比例放大；其后隔 2pt 是对应 `ToolbarDivider` 的 1.2pt 分隔线（深色白 0.15、浅色黑 0.12），再隔 8pt 才是第一个按钮，所以默认八个按钮的宽度是 442pt。来源 `WM_NCHITTEST` 把柄所在区域报成 `HTCAPTION`，macOS 侧由拖动柄的 `mouseDownCanMoveWindow` 配合面板的 `movableByWindowBackground` 实现同样的拖动，按钮一律返回 NO，按住按钮不会拖走面板；按钮全部关闭时分隔线隐藏、拖动柄保留，与来源始终保留柄一致。来源柄上的 `IDC_SIZEALL` 光标按平台惯例换成 `NSCursor.openHandCursor`，macOS 没有公开的四向箭头光标。按钮的悬停与按下底色对应 `ToolbarIconButton::Render`：半径 `max(2, 高度×0.25)` 的圆角矩形，深色白 0.10、浅色黑 0.08，取来源 `ApplyTheme` 的原生常量而不是皮肤的候选行 hover 色（默认深色皮肤里那是不透明的 0x414141，会盖住字形）；面板从不成为 key window，所以悬停由 `NSTrackingActiveAlways` 的跟踪区报告，面板隐藏时一并清除悬停态。
 
@@ -1468,7 +1478,7 @@ macOS 对应同一份 `settings_launcher.cpp` 语义，但只对设置窗生效�
 
 来源的悬浮工具栏有六个组件开关（全角、标点、简繁、Emoji、屏幕键盘、设置；中英文切换常显），本仓 macOS 的工具栏在此之上多画了两个按钮：手写识别板与语音输入。多出来本身是有意的（对照表第四十三批记过「目标多出手写识别板」），但这两个按钮**没有任何开关**，用户关不掉——代码里写着「Handwriting and voice are always present」。
 
-补上：共享偏好加 `floating_toolbar.handwriting` 与 `floating_toolbar.voice`，两个都默认开——它们从一开始就在工具栏上，开关出现的那一刻不该让两个按钮消失。设置页按宿主能力显示：新增 `floating_toolbar_handwriting` / `floating_toolbar_voice` 两个能力位，只有 macOS 报 true，别的宿主的工具栏根本没这两个按钮，给它们开关等于关掉不存在的东西。macOS 侧原生偏好与工具栏面板一并消费，并去掉了「这两个按钮永远存在」的计数。
+补上：共享偏好加 `floating_toolbar.handwriting` 与 `floating_toolbar.voice`，当时两个都默认开——它们从一开始就在工具栏上，开关出现的那一刻不该让两个按钮消失。**这条决定后来被推翻，见《工具栏可选按钮改为默认关》：现在两个都默认关。**设置页按宿主能力显示：新增 `floating_toolbar_handwriting` / `floating_toolbar_voice` 两个能力位，只有 macOS 报 true，别的宿主的工具栏根本没这两个按钮，给它们开关等于关掉不存在的东西。macOS 侧原生偏好与工具栏面板一并消费，并去掉了「这两个按钮永远存在」的计数。
 
 顺带修掉 develop 上五个红的设置页用例，都是并行批次留下的：四个是「加加」辅助码进了 UI 但用例的选项清单没跟（第六套方案），一个是词库条目编辑——用例点的是页脚的「保存设置」，而条目编辑器有自己的「保存」，页脚那个只写偏好文档，碰不到词库；看提交记录是页脚按钮改名时被一并替换掉的。
 

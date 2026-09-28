@@ -244,11 +244,15 @@ CGFloat ToolbarPreferredWidth(NSUInteger count, CGFloat fontSize, CGFloat scale)
     return std::ceil((buttons * (fontSize + 18.0) + gaps * kToolbarButtonSpacing + kToolbarTrailingChrome + kToolbarLeadingChrome) * scale);
 }
 
-// Default row: eight buttons (all but the screen keyboard) at 24pt and 100%.
-constexpr CGFloat kToolbarWidth = 480.0;
-static_assert(kToolbarWidth >= 8 * 42.0 + 7 * kToolbarButtonSpacing + kToolbarTrailingChrome + kToolbarLeadingChrome &&
-                  kToolbarWidth < 8 * 42.0 + 7 * kToolbarButtonSpacing + kToolbarTrailingChrome + kToolbarLeadingChrome + 1.0,
-              "kToolbarWidth must be ToolbarPreferredWidth(8, 24, 1)");
+// Default row: the five buttons a profile that has not chosen gets - 中/英, punctuation, full width,
+// simplified/traditional and settings - at 24pt and 100%. Emoji, handwriting, voice and the screen
+// keyboard are opt-in (see FloatingToolbarPreferences::default() in crates/client-core). This is the
+// size the window opens at, before any preferences are applied, so a wider value here would show a
+// toolbar that immediately shrinks.
+constexpr CGFloat kToolbarWidth = 330.0;
+static_assert(kToolbarWidth >= 5 * 42.0 + 4 * kToolbarButtonSpacing + kToolbarTrailingChrome + kToolbarLeadingChrome &&
+                  kToolbarWidth < 5 * 42.0 + 4 * kToolbarButtonSpacing + kToolbarTrailingChrome + kToolbarLeadingChrome + 1.0,
+              "kToolbarWidth must be ToolbarPreferredWidth(5, 24, 1)");
 constexpr CGFloat kToolbarHeight = 44.0;
 NSString *const kToolbarFrameAutosaveName = @"MetasequoiaFloatingToolbarFrame";
 

@@ -73,9 +73,10 @@ int main() {
 
         NSRect visible = NSMakeRect(-1200.0, -800.0, 1920.0, 1080.0);
         NSRect defaultFrame = MSIMEFloatingToolbarFrame(NSMakeRect(0.0, 0.0, 1.0, 1.0), visible, NO);
-        assert(defaultFrame.size.width == 480.0 && defaultFrame.size.height == 44.0);
-        assert(defaultFrame.size.width == ExpectedWidth(8, 24, 1));
-        assert(defaultFrame.origin.x == NSMaxX(visible) - 500.0 && defaultFrame.origin.y == NSMinY(visible) + 20.0);
+        // Five buttons: emoji, handwriting, voice and the screen keyboard are opt-in.
+        assert(defaultFrame.size.width == 330.0 && defaultFrame.size.height == 44.0);
+        assert(defaultFrame.size.width == ExpectedWidth(5, 24, 1));
+        assert(defaultFrame.origin.x == NSMaxX(visible) - 350.0 && defaultFrame.origin.y == NSMinY(visible) + 20.0);
         NSRect restored = MSIMEFloatingToolbarFrame(NSMakeRect(-4000.0, 4000.0, 1.0, 1.0), visible, YES);
         assert(restored.origin.x == NSMinX(visible) + 12.0 && restored.origin.y == NSMaxY(visible) - 56.0);
         assert(MetasequoiaFloatingToolbarShouldShow(YES, YES, NO));
@@ -168,16 +169,19 @@ int main() {
         NSButton *voice = FindButton(panel.contentView, @"MetasequoiaFloatingToolbarVoice");
         NSView *logo = FindView(panel.contentView, @"MetasequoiaFloatingToolbarLogo");
         assert(logo != nil && [logo.accessibilityLabel isEqualToString:@"水杉输入法"]);
+        // The four opt-in buttons, after the empty snapshot above: built, labelled and off the row until
+        // a snapshot turns them on. Their labels and images exist either way, which is what makes turning
+        // one on a visibility change and nothing else.
         assert(keyboard && keyboard.image && keyboard.hidden);
         assert([keyboard.accessibilityLabel isEqualToString:@"打开水杉屏幕键盘"]);
         assert([keyboard.toolTip isEqualToString:keyboard.accessibilityLabel]);
-        assert(emoji && emoji.image && !emoji.hidden);
+        assert(emoji && emoji.image && emoji.hidden);
         assert([emoji.accessibilityLabel isEqualToString:@"打开水杉表情面板"]);
         assert([emoji.toolTip isEqualToString:emoji.accessibilityLabel]);
-        assert(handwriting && handwriting.image && !handwriting.hidden);
+        assert(handwriting && handwriting.image && handwriting.hidden);
         assert([handwriting.accessibilityLabel isEqualToString:@"打开水杉手写识别板"]);
         assert([handwriting.toolTip isEqualToString:handwriting.accessibilityLabel]);
-        assert(voice && voice.image && !voice.hidden);
+        assert(voice && voice.image && voice.hidden);
         assert([voice.accessibilityLabel isEqualToString:@"开始或结束语音输入"]);
         assert([voice.toolTip isEqualToString:voice.accessibilityLabel]);
         assert(inputMode && punctuation && fullWidth && traditional && handwriting && voice && settings);
@@ -228,14 +232,16 @@ int main() {
                 // the frame: setVisible: applies it when the toolbar is placed. Resizing a hidden window
                 // would otherwise persist a frame through its autosave name.
                 const NSSize preferred = [[panel valueForKey:@"preferredSize"] sizeValue];
-                assert(preferred.width == ExpectedWidth(8, size.doubleValue, factor));
+                assert(preferred.width == ExpectedWidth(5, size.doubleValue, factor));
                 assert(preferred.height == std::ceil((size.doubleValue + 20.0) * factor));
                 // Every size here scales to a multiple of half a point, which is a whole pixel on a Retina screen and not on a 1x one - the CI runner's display - where AppKit rounds the first item too.
                 assert(std::abs(inputMode.frame.size.width - (size.doubleValue + 18.0) * factor) <= 1.0 / panel.backingScaleFactor);
                 assert(std::abs(inputMode.frame.size.height - (size.doubleValue + 8.0) * factor) <= 1.0 / panel.backingScaleFactor);
                 assert(std::abs(inputMode.font.pointSize - size.doubleValue * factor * 0.833) < 0.01);
-                // AppKit aligns the later stack items to backing pixels at fractional positions.
-                assert(std::abs(emoji.frame.size.width - (size.doubleValue + 18.0) * factor) <= 1.0 / panel.backingScaleFactor);
+                // AppKit aligns the later stack items to backing pixels at fractional positions. Settings
+                // rather than emoji: emoji is opt-in and off here, and a hidden stack item has no laid-out
+                // frame to measure. Its width constraint below is set either way.
+                assert(std::abs(settings.frame.size.width - (size.doubleValue + 18.0) * factor) <= 1.0 / panel.backingScaleFactor);
                 for (NSLayoutConstraint *constraint in emoji.constraints) {
                     if ([constraint.identifier isEqualToString:@"ToolbarButtonWidth"])
                         assert(constraint.constant == (size.doubleValue + 18.0) * factor);
@@ -253,7 +259,7 @@ int main() {
                 assert(NSEqualSizes(stablePreferred, [[panel valueForKey:@"preferredSize"] sizeValue]));
                 [panel applySizingPreferences:@{@"floating_toolbar": @{@"scale_percent": scale, @"font_size": size, @"screen_keyboard": @YES}}];
                 assert(!keyboard.hidden && keyboard.superview != nil);
-                assert([[panel valueForKey:@"preferredSize"] sizeValue].width == ExpectedWidth(9, size.doubleValue, factor));
+                assert([[panel valueForKey:@"preferredSize"] sizeValue].width == ExpectedWidth(6, size.doubleValue, factor));
                 assert([keyboard.contentTintColor isEqual:settings.contentTintColor]);
                 NSImage *expectedKeyboard = [keyboard.image imageWithSymbolConfiguration:
                     [NSImageSymbolConfiguration configurationWithPointSize:size.doubleValue * factor weight:NSFontWeightRegular]];
@@ -262,7 +268,7 @@ int main() {
             }
         }
         [panel applySizingPreferences:@{@"floating_toolbar": @{@"scale_percent": @999, @"font_size": @(-1)}}];
-        assert(NSEqualSizes([[panel valueForKey:@"preferredSize"] sizeValue], NSMakeSize(480.0, 44.0)));
+        assert(NSEqualSizes([[panel valueForKey:@"preferredSize"] sizeValue], NSMakeSize(330.0, 44.0)));
         [panel applySizingPreferences:@{@"floating_toolbar": @{@"scale_percent": @150, @"font_size": @28}}];
         FloatingToolbarTestDelegate *sizingDelegate = [FloatingToolbarTestDelegate new];
         // Configured while hidden, so it is the preferred size that carries it; showing the toolbar is what
@@ -279,7 +285,9 @@ int main() {
         NSArray<NSString *> *keys = @[@"english_mode", @"punctuation", @"fullwidth", @"character_set", @"emoji", @"screen_keyboard", @"settings"];
         for (NSUInteger mask = 0; mask < 128; ++mask) {
             NSMutableDictionary *components = [@{@"scale_percent": @150, @"font_size": @28, @"english_mode": @NO} mutableCopy];
-            NSUInteger count = 2;
+            // Handwriting and voice are absent from every mask below, and absent now means off, so they
+            // add nothing to the count.
+            NSUInteger count = 0;
             for (NSUInteger index = 0; index < keys.count; ++index) {
                 const BOOL enabled = (mask & (1u << index)) != 0;
                 components[keys[index]] = @(enabled);
@@ -294,7 +302,8 @@ int main() {
             const NSRect logoRect = [logo convertRect:logo.bounds toView:panel.contentView];
             const NSRect gripRect = [grip convertRect:grip.bounds toView:panel.contentView];
             const NSRect dividerRect = [divider convertRect:divider.bounds toView:panel.contentView];
-            assert(!divider.hidden && std::abs(NSMinX(logoRect)) < 0.01 && std::abs(NSWidth(logoRect) - 57.0) <= 1.0 / panel.backingScaleFactor);
+            // mask 0 leaves the row empty, and an empty row drops the divider - the logo and grip stay.
+            assert(divider.hidden == (count == 0) && std::abs(NSMinX(logoRect)) < 0.01 && std::abs(NSWidth(logoRect) - 57.0) <= 1.0 / panel.backingScaleFactor);
             assert(std::abs(NSMinX(gripRect) - NSMaxX(logoRect)) <= 1.0 / panel.backingScaleFactor && std::abs(NSWidth(gripRect) - 27.0) <= 1.0 / panel.backingScaleFactor);
             assert(NSMinX(dividerRect) >= NSMaxX(gripRect) && std::abs(NSWidth(dividerRect) - 1.8) <= 1.0 / panel.backingScaleFactor);
             CGFloat previousRight = NSMaxX(dividerRect);
@@ -313,14 +322,14 @@ int main() {
         [panel applySizingPreferences:@{}];
         assert(!divider.hidden);
         for (NSButton *button in optionalButtons) {
-            assert(button.hidden == (button == keyboard));
+            assert(button.hidden == (button == keyboard || button == emoji));
             if (!button.hidden) assert(button.superview != nil);
         }
-        assert([[panel valueForKey:@"preferredSize"] sizeValue].width == 480.0);
+        assert([[panel valueForKey:@"preferredSize"] sizeValue].width == 330.0);
         [panel applySizingPreferences:@{@"floating_toolbar": @{@"screen_keyboard": @"invalid"}}];
-        assert(keyboard.hidden && [[panel valueForKey:@"preferredSize"] sizeValue].width == 480.0);
+        assert(keyboard.hidden && [[panel valueForKey:@"preferredSize"] sizeValue].width == 330.0);
         [panel applySizingPreferences:@{@"floating_toolbar": @{@"screen_keyboard": @YES}}];
-        assert(!keyboard.hidden && [[panel valueForKey:@"preferredSize"] sizeValue].width == ExpectedWidth(9, 24, 1));
+        assert(!keyboard.hidden && [[panel valueForKey:@"preferredSize"] sizeValue].width == ExpectedWidth(6, 24, 1));
 
         [panel updateEnglishInputMode:YES chinesePunctuationEnabled:NO fullWidthEnabled:YES traditionalChineseOutputEnabled:YES];
         assert([inputMode.title isEqualToString:@"英"] && [punctuation.title isEqualToString:@"."] &&

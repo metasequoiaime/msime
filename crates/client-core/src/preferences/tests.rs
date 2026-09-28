@@ -1880,8 +1880,13 @@ fn floating_toolbar_component_defaults_and_roundtrip() {
     assert!(
         defaults.enabled && defaults.english_mode && defaults.fullwidth && defaults.punctuation
     );
-    assert!(defaults.character_set && defaults.emoji && defaults.settings);
-    assert!(!defaults.screen_keyboard);
+    assert!(defaults.character_set && defaults.settings);
+    // The compact toolbar: these four are opt-in, so a new profile gets five buttons and turns on
+    // the ones it wants. Emoji is one of the reference's own components and still defaults off here;
+    // the Windows installer template keeps it on by setting every component explicitly.
+    assert!(
+        !defaults.emoji && !defaults.handwriting && !defaults.voice && !defaults.screen_keyboard
+    );
     let json = serde_json::to_string(&Preferences::default()).unwrap();
     let restored: Preferences = serde_json::from_str(&json).unwrap();
     assert_eq!(restored.floating_toolbar, defaults);

@@ -4137,12 +4137,12 @@ test("floating toolbar settings use Windows defaults and persist independently",
       fullwidth: false,
       punctuation: true,
       character_set: true,
-      emoji: true,
-      // This host draws no handwriting or voice button on its toolbar, so neither switch is offered
-      // here - the values ride along at their defaults.
-      handwriting: true,
+      // Opt-in components, at their defaults: this host offers no handwriting or voice switch, and
+      // emoji was not touched here. The default toolbar is the compact one.
+      emoji: false,
+      handwriting: false,
       screen_keyboard: true,
-      voice: true,
+      voice: false,
       settings: true,
       scale_percent: 125,
       font_size: 28,
@@ -4152,7 +4152,8 @@ test("floating toolbar settings use Windows defaults and persist independently",
 
 // The handwriting and voice buttons are this client's own additions to the toolbar and only one host
 // draws them. A switch for them anywhere else would turn off something that is not there, and having
-// no switch at all - which is how they shipped - leaves two buttons the user cannot remove.
+// no switch at all - which is how they shipped - leaves two buttons the user cannot remove. Both are
+// opt-in now, so the switch a new profile sees is off and the button is not on its toolbar.
 test("the toolbar's handwriting and voice switches follow the host that draws them", async () => {
   const client: SettingsClient = {
     load: vi.fn().mockResolvedValue(initial),
@@ -4170,10 +4171,10 @@ test("the toolbar's handwriting and voice switches follow the host that draws th
     name: "手写识别板",
   })) as HTMLInputElement;
   const voice = screen.getByRole("checkbox", { name: "语音输入" }) as HTMLInputElement;
-  // Both buttons are on the toolbar today, so both start on: turning the switches on for the first
-  // time must not make two buttons disappear.
-  expect(handwriting.checked).toBe(true);
-  expect(voice.checked).toBe(true);
+  // Both are opt-in, so a profile that has not chosen sees them off, and the toolbar it gets is the
+  // compact one. Turning one on must move only that one.
+  expect(handwriting.checked).toBe(false);
+  expect(voice.checked).toBe(false);
 
   fireEvent.click(handwriting);
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
@@ -4182,8 +4183,8 @@ test("the toolbar's handwriting and voice switches follow the host that draws th
     number,
     { floating_toolbar: FloatingToolbarPreferences },
   ];
-  expect(saved.floating_toolbar.handwriting).toBe(false);
-  expect(saved.floating_toolbar.voice).toBe(true);
+  expect(saved.floating_toolbar.handwriting).toBe(true);
+  expect(saved.floating_toolbar.voice).toBe(false);
 });
 
 test("a host without those toolbar buttons is not offered their switches", async () => {

@@ -1804,9 +1804,14 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 - (void)setFloatingToolbarFullWidth:(BOOL)value { [self setFloatingToolbarBoolean:@"fullwidth" value:value]; }
 - (BOOL)floatingToolbarCharacterSet { return [self floatingToolbarBoolean:@"character_set" defaultValue:YES]; }
 - (void)setFloatingToolbarCharacterSet:(BOOL)value { [self setFloatingToolbarBoolean:@"character_set" value:value]; }
+// Emoji, handwriting, voice and the screen keyboard are opt-in, so the toolbar a profile that has not
+// chosen gets is the compact five-button one. These match FloatingToolbarPreferences::default() in
+// crates/client-core on purpose: this fallback is only reached when neither the shared snapshot nor
+// this host's own dictionary carries the key, and a host that disagreed with the shared default would
+// draw one toolbar while the settings page showed another.
 - (BOOL)floatingToolbarEmoji { return [self floatingToolbarBoolean:@"emoji" defaultValue:NO]; }
 - (void)setFloatingToolbarEmoji:(BOOL)value { [self setFloatingToolbarBoolean:@"emoji" value:value]; }
-// Optional utility buttons are opt-in so the default toolbar stays compact.
+// The handwriting panel and voice buttons, which the reference's toolbar does not have.
 - (BOOL)floatingToolbarHandwriting { return [self floatingToolbarBoolean:@"handwriting" defaultValue:NO]; }
 - (void)setFloatingToolbarHandwriting:(BOOL)value { [self setFloatingToolbarBoolean:@"handwriting" value:value]; }
 - (BOOL)floatingToolbarVoice { return [self floatingToolbarBoolean:@"voice" defaultValue:NO]; }
@@ -1842,9 +1847,9 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     if (!_sharedToolbarOptions) _sharedToolbarOptions = [NSMutableDictionary dictionary];
     for (NSString *key in FloatingToolbarComponentKeys()) {
         id value = toolbar[key];
-        // Shared settings must carry both states. Treating false as "unset"
-        // made an account snapshot silently re-enable optional toolbar items.
-        if (LocalModeBoolean(value) || [value isEqual:@NO]) _sharedToolbarOptions[key] = value;
+        // LocalModeBoolean asks whether this is a boolean at all, so false is already carried through;
+        // a shared snapshot that turns a component off turns it off here.
+        if (LocalModeBoolean(value)) _sharedToolbarOptions[key] = value;
     }
     id scale = toolbar[@"scale_percent"];
     if (ValidToolbarScale(scale)) _sharedToolbarOptions[@"scale_percent"] = scale;

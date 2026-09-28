@@ -853,16 +853,23 @@ pub struct FloatingToolbarPreferences {
     pub punctuation: bool,
     #[serde(default = "enabled_by_default")]
     pub character_set: bool,
-    #[serde(default = "enabled_by_default")]
+    /// Off by default, with `handwriting` and `voice`, so the toolbar a new profile gets is the
+    /// compact one. This is a deliberate reversal: these three defaulted on because they had been on
+    /// the toolbar since it shipped, and the switches appearing was not allowed to remove them. A
+    /// profile that never touched the switches therefore loses these buttons and turns back on the
+    /// ones it wants, which is the cost that was chosen over carrying the wider toolbar forever.
+    /// Windows is unaffected: its installer template sets every component explicitly, mirroring the
+    /// reference's own default config.
+    #[serde(default)]
     pub emoji: bool,
     /// The handwriting panel button. The reference's toolbar has no such button; this client's
-    /// macOS toolbar carries one, and until now it could not be turned off.
-    #[serde(default = "enabled_by_default")]
+    /// macOS toolbar carries one, and it is opt-in for the reason above.
+    #[serde(default)]
     pub handwriting: bool,
     #[serde(default)]
     pub screen_keyboard: bool,
     /// The voice input button, for the same reason as `handwriting`.
-    #[serde(default = "enabled_by_default")]
+    #[serde(default)]
     pub voice: bool,
     #[serde(default = "enabled_by_default")]
     pub settings: bool,
@@ -914,10 +921,10 @@ impl Default for FloatingToolbarPreferences {
             fullwidth: true,
             punctuation: true,
             character_set: true,
-            emoji: true,
-            handwriting: true,
+            emoji: false,
+            handwriting: false,
             screen_keyboard: false,
-            voice: true,
+            voice: false,
             settings: true,
         }
     }
