@@ -142,8 +142,7 @@ impl AiSkinApi for BackendAccountClient {
             || messages.iter().any(|message| {
                 !matches!(message.role, "system" | "user" | "assistant")
                     || message.content.is_empty()
-                    || message.content.len() > 16 * 1024
-                    || message.content.chars().any(char::is_control)
+                    || !crate::text::is_bounded_text(&message.content, 16 * 1024)
             })
         {
             return Err(AccountError::Invalid);
