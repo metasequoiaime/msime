@@ -50,6 +50,11 @@ import {
 import { AI_PROVIDER_OPTIONS } from "./settings/ai-provider-options";
 export { AI_PROVIDER_OPTIONS } from "./settings/ai-provider-options";
 import { defaultVoiceInput } from "./settings/voice-input-defaults";
+import {
+  defaultCustomTranslation,
+  defaultNiuTrans,
+  defaultTencentTranslation,
+} from "./settings/translation-defaults";
 import { aiPolishTestPrompt, defaultAiAssistant } from "./settings/ai-assistant-defaults";
 import {
   mobileTranslationLanguages,
@@ -1211,14 +1216,6 @@ export function aiProviderUpdate(
 ): Partial<AiAssistantPreferences> {
   return updateAiProvider(provider, current, AI_PROVIDER_OPTIONS);
 }
-const defaultCustomTranslation = { enabled: false, endpoint: "", api_key: "" };
-const defaultTencentTranslation = {
-  enabled: true,
-  secret_id: "",
-  secret_key: "",
-  region: "ap-guangzhou",
-};
-const defaultNiuTrans = { enabled: false, app_id: "", apikey: "" };
 export type ExternalSkinCatalog = {
   scanned: boolean;
   directory?: string;
