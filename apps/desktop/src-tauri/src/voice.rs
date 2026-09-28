@@ -102,9 +102,7 @@ pub(crate) fn voice_provider_options(document: &Value) -> Result<Value, HostActi
     if let Some(path) = voice
         .get("asr_model_path")
         .and_then(Value::as_str)
-        .filter(|path| {
-            !path.is_empty() && path.len() <= 4096 && !path.chars().any(char::is_control)
-        })
+        .filter(|path| !path.is_empty() && msime_client_core::is_bounded_text(path, 4096))
     {
         options.insert("asr_model_path".to_owned(), Value::String(path.to_owned()));
     }

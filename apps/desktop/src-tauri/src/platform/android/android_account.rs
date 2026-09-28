@@ -1432,7 +1432,7 @@ fn apply_local_account_preferences(
     }
     if let Some(value) = string_setting(values, "platform.android.candidate_skin")? {
         if supports_schema_field(schema, "platform.android.candidate_skin", "string")? {
-            if value.is_empty() || value.len() > 128 || value.chars().any(char::is_control) {
+            if value.is_empty() || !msime_client_core::is_bounded_text(&value, 128) {
                 return Err(AccountError::Invalid);
             }
             preferences.candidate_skin = value;
