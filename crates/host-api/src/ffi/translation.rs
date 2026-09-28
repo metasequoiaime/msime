@@ -488,9 +488,7 @@ pub unsafe extern "C" fn msime_client_candidate_gloss_request(
                 .map_err(|_| "invalid candidate gloss request")?;
         if request.candidates.len() > 4096
             || request.candidates.iter().any(|candidate| {
-                candidate.text.is_empty()
-                    || candidate.text.len() > 4096
-                    || candidate.text.chars().any(char::is_control)
+                candidate.text.is_empty() || !valid_bounded_text(&candidate.text, 4096)
             })
         {
             return Err("candidate gloss entries exceed limits".into());
