@@ -55,6 +55,7 @@ import { ScreenKeyboardThemeSection } from "./settings/screen-keyboard-theme-sec
 import { ScreenKeyboardSkinsSection } from "./settings/screen-keyboard-skins-section";
 import { TouchKeyboardSchemesSection } from "./settings/touch-keyboard-schemes-section";
 import { VoiceInputIntroSection } from "./settings/voice-input-intro-section";
+import { VoiceInputCoreSection } from "./settings/voice-input-core-section";
 import {
   MobileKeyboardFeedbackSection,
   type MobileKeyboardFeedback,
@@ -396,6 +397,10 @@ export {
   VoiceInputIntroSection,
   type VoiceInputIntroSectionProps,
 } from "./settings/voice-input-intro-section";
+export {
+  VoiceInputCoreSection,
+  type VoiceInputCoreSectionProps,
+} from "./settings/voice-input-core-section";
 export {
   MobileKeyboardFeedbackSection,
   type MobileKeyboardFeedback,
@@ -7315,92 +7320,32 @@ export function SettingsPage({
                         client.openVoice ? () => void openPanel(client.openVoice) : undefined
                       }
                     />
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          语音输入<small>使用语音识别将录音转换为文字</small>
-                        </span>
-                        <input
-                          aria-label="启用语音输入"
-                          className="toggle"
-                          type="checkbox"
-                          checked={voiceInput.enabled}
-                          onChange={(event) => updateVoice({ enabled: event.target.checked })}
-                        />
-                      </label>
-                    </div>
-                    {showVoiceProviderSettings && (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">识别服务</span>
-                          <select
-                            aria-label="识别服务"
-                            value={String(voiceInput.asr_provider)}
-                            onChange={(event) =>
-                              updateVoice({
-                                ...asrProviderUpdate(event.target.value, voiceInput),
-                                ...(event.target.value === "system" &&
-                                voiceInput.language === "auto"
-                                  ? { language: "zh-CN" }
-                                  : {}),
-                                ...(linuxPlatform
-                                  ? { asr_resource_id: "", doubao_boosting_table_id: "" }
-                                  : {}),
-                              })
-                            }
-                          >
-                            <option value="doubao">豆包</option>
-                            <option value="siliconflow">SiliconFlow</option>
-                            <option value="openai">OpenAI</option>
-                            <option value="groq">Groq</option>
-                            <option value="everyapi">EveryAPI</option>
-                            <option value="mistral">Mistral · Voxtral</option>
-                            {macosPlatform && <option value="system">macOS 系统识别</option>}
-                            {localVoiceAvailable && <option value="local">本地模型（离线）</option>}
-                            {!localVoiceAvailable && voiceInput.asr_provider === "local" && (
-                              <option value="local" disabled>
-                                本地模型（当前平台不可用）
-                              </option>
-                            )}
-                            {harmonyPlatform && <option value="system">HarmonyOS 系统识别</option>}
-                            {androidPlatform && <option value="system">Android 系统识别</option>}
-                            {!nativeVoicePlatform && voiceInput.asr_provider === "system" && (
-                              <option value="system" disabled>
-                                系统识别（当前平台不可用）
-                              </option>
-                            )}
-                            {harmonyUnsupportedAsr && (
-                              <option value={String(voiceInput.asr_provider)} disabled>
-                                {String(voiceInput.asr_provider)}（当前 HarmonyOS 版本不可用）
-                              </option>
-                            )}
-                          </select>
-                        </label>
-                      </div>
-                    )}
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          识别语言
-                          {systemVoice && (
-                            <small>选择明确的语言代码，例如 zh-CN、en-US；可用语言由系统决定</small>
-                          )}
-                        </span>
-                        <input
-                          aria-label="识别语言"
-                          maxLength={64}
-                          list="settings-voice-language-options"
-                          value={voiceInput.language}
-                          onChange={(event) => updateVoice({ language: event.target.value })}
-                        />
-                        <datalist id="settings-voice-language-options">
-                          <option value={systemVoice ? "zh-CN" : "zh-cn"}>中文（普通话）</option>
-                          <option value={systemVoice ? "en-US" : "en"}>English</option>
-                          <option value={systemVoice ? "ja-JP" : "ja"}>日本語</option>
-                          {!systemVoice && <option value="auto">自动识别</option>}
-                        </datalist>
-                      </label>
-                    </div>
+                    <VoiceInputCoreSection
+                      enabled={voiceInput.enabled}
+                      provider={String(voiceInput.asr_provider)}
+                      language={voiceInput.language}
+                      showProviderSettings={showVoiceProviderSettings}
+                      systemVoice={systemVoice}
+                      macos={macosPlatform}
+                      harmony={harmonyPlatform}
+                      android={androidPlatform}
+                      localVoiceAvailable={localVoiceAvailable}
+                      nativeVoicePlatform={nativeVoicePlatform}
+                      harmonyUnsupportedAsr={harmonyUnsupportedAsr}
+                      onEnabledChange={(enabled) => updateVoice({ enabled })}
+                      onProviderChange={(provider) =>
+                        updateVoice({
+                          ...asrProviderUpdate(provider, voiceInput),
+                          ...(provider === "system" && voiceInput.language === "auto"
+                            ? { language: "zh-CN" }
+                            : {}),
+                          ...(linuxPlatform
+                            ? { asr_resource_id: "", doubao_boosting_table_id: "" }
+                            : {}),
+                        })
+                      }
+                      onLanguageChange={(language) => updateVoice({ language })}
+                    />
                     {localVoice && client.localVoiceModels && (
                       <LocalModelManager
                         client={client.localVoiceModels}
