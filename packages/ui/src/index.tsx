@@ -151,6 +151,7 @@ import {
   type ShuangpinProfile,
 } from "./settings/input-scheme-details-section";
 import { InputModeShortcutsSection } from "./settings/input-mode-shortcuts-section";
+import { ShortcutsIntroSection } from "./settings/shortcuts-intro-section";
 import { PanelShortcutsSection } from "./settings/panel-shortcuts-section";
 import { CandidateShortcutsSection } from "./settings/candidate-shortcuts-section";
 import { MaintenanceShortcutsSection } from "./settings/maintenance-shortcuts-section";
@@ -577,6 +578,10 @@ export {
   type InputModeShortcutPreferences,
   type InputModeShortcutsSectionProps,
 } from "./settings/input-mode-shortcuts-section";
+export {
+  ShortcutsIntroSection,
+  type ShortcutsIntroSectionProps,
+} from "./settings/shortcuts-intro-section";
 export {
   PanelShortcutsSection,
   type PanelShortcutsSectionProps,
@@ -4894,11 +4899,7 @@ export function SettingsPage({
                     onChange={(patch) => setDraft({ ...draft, ...patch })}
                   />
                   <fieldset disabled={busy} hidden={page !== "shortcuts"} aria-label="快捷键">
-                    <div className={`section ${settings.shortcutIntro}`}>
-                      {mobilePlatform
-                        ? "输入法快捷键仅在对应输入状态或候选栏显示时生效。翻页方式可在“输入”中启用或关闭。"
-                        : "输入法快捷键仅在对应输入状态或候选窗口显示时生效。翻页方式可在“输入”中启用或关闭。"}
-                    </div>
+                    <ShortcutsIntroSection mobile={mobilePlatform} />
                     <InputModeShortcutsSection
                       keybindings={keybindings}
                       onChange={(patch) =>
