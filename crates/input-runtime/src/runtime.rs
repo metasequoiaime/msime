@@ -198,8 +198,7 @@ impl Runtime<Session> {
         // subject to the same bounds as the batch path before handing text to
         // Engine; the Windows source rejects empty callback results as well.
         if candidate.is_empty()
-            || candidate.len() > 4096
-            || candidate.chars().any(char::is_control)
+            || !msime_client_core::cloud::dictionary::valid_bounded_text(candidate, 4096)
             || source > 1
             // Windows only merges a cloud suggestion into an existing
             // candidate page.  A callback arriving after the local page was
