@@ -3682,9 +3682,8 @@ static NSString *const MSIMECloudConsentMessage =
     disable.action = @selector(disable:);
     [alert layout];
     alert.window.level = NSFloatingWindowLevel;
-    [NSApp activateIgnoringOtherApps:YES];
     [alert.window center];
-    [alert.window makeKeyAndOrderFront:nil];
+    MSIMEPresentWindow(alert.window);
 }
 
 - (void)commitPendingEmojiForClient:(id)client {

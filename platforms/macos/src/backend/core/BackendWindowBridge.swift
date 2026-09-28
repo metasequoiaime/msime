@@ -80,8 +80,19 @@ final class BackendWindowBridge: NSObject {
     }
     controller.window?.deminiaturize(nil)
     controller.showWindow(nil)
-    controller.window?.makeKeyAndOrderFront(nil)
-    NSApp.activate(ignoringOtherApps: true)
+    // Emoji and handwriting insert into the editor the user is typing in, which therefore has to stay the active application; they are only lifted above it.
+    presentBackendWindow(controller.window, activating: key != "emoji" && key != "handwriting")
     return controller
   }
+}
+
+// The Swift side of MSIMEPresentWindow (src/core/WindowPresentation.h). The input method is LSBackgroundOnly: a prohibited application cannot become active, so a window it opens lands behind the app the user was typing in. Accessory lets it activate without a Dock icon, and ordering front regardless keeps the window visible when activation is declined, as it may be since macOS 14.
+@MainActor func presentBackendWindow(_ window: NSWindow?, activating: Bool = true) {
+  guard let window else { return }
+  if activating {
+    if NSApp.activationPolicy() == .prohibited { NSApp.setActivationPolicy(.accessory) }
+    NSApp.activate(ignoringOtherApps: true)
+  }
+  window.makeKeyAndOrderFront(nil)
+  window.orderFrontRegardless()
 }

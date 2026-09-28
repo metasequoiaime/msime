@@ -1067,6 +1067,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
         }];
     }
     [_translationWindow showWindow:sender];
+    MSIMEPresentWindow(_translationWindow.window);
 }
 - (void)showAISettings:(id)sender {
     __weak MSIMEAppearancePreferences *weakSelf = self;
@@ -1079,6 +1080,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
         [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEAppearanceDidChangeNotification object:self userInfo:preferences];
     }];
     [_aiWindow showWindow:sender];
+    MSIMEPresentWindow(_aiWindow.window);
 }
 - (NSDictionary<NSString *, id> *)sharedPreferencesByMerging:(NSDictionary<NSString *, id> *)snapshot {
     if (![snapshot isKindOfClass:NSDictionary.class]) return nil;
@@ -4279,6 +4281,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
         [[strongSelf ensureSkinSettingsView] reload];
         [strongSelf showPreferencesPageAtIndex:kSkinPageIndex navigationIndex:kSkinPageIndex];
         [strongSelf showWindow:nil];
+        MSIMEPresentWindow(strongSelf.window);
     });
 }
 - (void)showDictionary:(id)sender {
