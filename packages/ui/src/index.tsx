@@ -33,7 +33,6 @@ export {
 import {
   mobilePrimaryPageIds,
   mobileTabForPage,
-  pages,
   requestedPage,
   splitMobilePages,
   type MobilePrimaryPageId,
@@ -386,6 +385,8 @@ export {
   SettingsStatusMessages,
   type SettingsStatusMessagesProps,
 } from "./settings/settings-status-messages";
+import { availableSettingsPages } from "./settings/available-pages";
+export { availableSettingsPages, type AvailablePageCapabilities } from "./settings/available-pages";
 import * as surface from "./keyboard/panel-surface-style";
 import * as settings from "./settings/settings-style";
 import * as doc from "./settings/document-style";
@@ -3355,17 +3356,16 @@ export function SettingsPage({
         client.host?.platform ?? (linuxPlatform ? "linux" : null),
       )
     : null;
-  const availablePages = pages.filter(
-    (item) =>
-      (item.id !== "home" || Boolean(client.home)) &&
-      (item.id !== "typing-statistics" || Boolean(client.typingStatistics)) &&
-      (item.id !== "vocabulary" || Boolean(client.vocabularyReview)) &&
-      (item.id !== "account" || Boolean(client.account || client.appIcon)) &&
-      (item.id !== "chat" || Boolean(client.chat)) &&
-      (item.id !== "community" || Boolean(client.communitySkins || client.communityResources)) &&
-      (item.id !== "floating-toolbar" || showFloatingToolbar) &&
-      (item.id !== "more" || mobilePlatform),
-  );
+  const availablePages = availableSettingsPages({
+    home: Boolean(client.home),
+    typingStatistics: Boolean(client.typingStatistics),
+    vocabularyReview: Boolean(client.vocabularyReview),
+    account: Boolean(client.account || client.appIcon),
+    chat: Boolean(client.chat),
+    community: Boolean(client.communitySkins || client.communityResources),
+    floatingToolbar: showFloatingToolbar,
+    mobile: mobilePlatform,
+  });
   // Physical-keyboard shortcuts and a desktop floating toolbar have no phone
   // surface. HarmonyOS keeps those controls in the input-method panel on a 2-in-1,
   // but its phone panel is still a touch keyboard, so the settings entry must not
