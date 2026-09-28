@@ -1250,10 +1250,9 @@ fn validate_entry(entry: &Entry) -> Result<(), String> {
     let key_valid = match entry.kind {
         Kind::Pinyin => msime_client_core::dictionary::pinyin_code_is_well_formed(&entry.key, true),
         Kind::Wubi => msime_client_core::dictionary::wubi_code_is_well_formed(&entry.key),
-        Kind::QuickPhrase => entry
-            .key
-            .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()),
+        Kind::QuickPhrase => {
+            msime_client_core::dictionary::quick_phrase_transport_code_is_well_formed(&entry.key)
+        }
         Kind::English => msime_client_core::dictionary::english_code_is_well_formed(&entry.key),
     };
     let value_has_invalid_control = entry.value.chars().any(|character| {

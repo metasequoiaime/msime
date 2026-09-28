@@ -39,6 +39,14 @@ pub fn quick_phrase_code_is_well_formed(code: &str) -> bool {
     !code.is_empty() && code.bytes().all(|byte| byte.is_ascii_lowercase())
 }
 
+/// Whether `code` contains the lowercase letters and digits accepted by the quick phrase transport.
+/// Checks on stored rows stay lenient so an entry saved with a digit still loads, lists, syncs and
+/// can be deleted.
+pub fn quick_phrase_transport_code_is_well_formed(code: &str) -> bool {
+    code.bytes()
+        .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+}
+
 /// Whether `code` contains only the lowercase ASCII letters accepted by Wubi.
 pub fn wubi_code_is_well_formed(code: &str) -> bool {
     code.bytes().all(|byte| byte.is_ascii_lowercase())

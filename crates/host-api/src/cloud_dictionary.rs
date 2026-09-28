@@ -138,9 +138,9 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
             _ => 256,
         };
         let code_alphabet_ok = match kind {
-            "quick" => code
-                .bytes()
-                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()),
+            "quick" => {
+                msime_client_core::dictionary::quick_phrase_transport_code_is_well_formed(code)
+            }
             "wubi" => msime_client_core::dictionary::wubi_code_is_well_formed(code),
             "english" => code.bytes().all(|b| b.is_ascii_alphabetic()),
             _ => msime_client_core::dictionary::pinyin_code_is_well_formed(code, true),

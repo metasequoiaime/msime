@@ -54,9 +54,9 @@ fn dictionary_code_is_well_formed(kind: DictionaryKind, code: &str) -> bool {
     match kind {
         DictionaryKind::Pinyin => crate::dictionary::pinyin_code_is_well_formed(code, true),
         DictionaryKind::Wubi => crate::dictionary::wubi_code_is_well_formed(code),
-        DictionaryKind::Quick => code
-            .bytes()
-            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit()),
+        DictionaryKind::Quick => {
+            crate::dictionary::quick_phrase_transport_code_is_well_formed(code)
+        }
         DictionaryKind::English => crate::dictionary::english_code_is_well_formed(code),
     }
 }

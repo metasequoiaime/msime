@@ -69,10 +69,9 @@ impl PersonalWord {
         let key_valid = match self.kind {
             PersonalWordKind::Pinyin => super::pinyin_code_is_well_formed(&self.key, true),
             PersonalWordKind::Wubi => super::wubi_code_is_well_formed(&self.key),
-            PersonalWordKind::QuickPhrase => self
-                .key
-                .bytes()
-                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit()),
+            PersonalWordKind::QuickPhrase => {
+                super::quick_phrase_transport_code_is_well_formed(&self.key)
+            }
             PersonalWordKind::English => super::english_code_is_well_formed(&self.key),
         };
         let value_has_invalid_control = self.value.chars().any(|character| {
