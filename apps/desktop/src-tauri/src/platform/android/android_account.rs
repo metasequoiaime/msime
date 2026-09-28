@@ -1,9 +1,10 @@
 use crate::platform::mobile::mobile_account_helpers::{
     account_chat as shared_account_chat, account_chat_models as shared_account_chat_models,
-    account_login as shared_account_login, account_profile as shared_account_profile,
-    account_rename as shared_account_rename, account_request_code as shared_account_request_code,
-    account_status as shared_account_status, call, dictionary_kind, snapshot_command_error,
-    snapshot_response_without_account,
+    account_delete as shared_account_delete, account_forget as shared_account_forget,
+    account_login as shared_account_login, account_logout as shared_account_logout,
+    account_profile as shared_account_profile, account_rename as shared_account_rename,
+    account_request_code as shared_account_request_code, account_status as shared_account_status,
+    call, dictionary_kind, snapshot_command_error, snapshot_response_without_account,
 };
 use crate::platform::mobile::mobile_account_preferences::{
     frequency_account_preferences, insert_bool, insert_string,
@@ -1281,7 +1282,7 @@ pub async fn account_logout(
     all: bool,
 ) -> Result<(), crate::CommandError> {
     let previews = Arc::clone(&state.snapshot_previews);
-    let result = call(state, move |session| session.logout(all)).await;
+    let result = shared_account_logout(state, all).await;
     if result.is_ok() {
         clear_snapshot_previews(&previews);
     }
@@ -1291,7 +1292,7 @@ pub async fn account_logout(
 #[tauri::command]
 pub async fn account_delete(state: State<'_, AccountState>) -> Result<(), crate::CommandError> {
     let previews = Arc::clone(&state.snapshot_previews);
-    let result = call(state, |session| session.delete_account()).await;
+    let result = shared_account_delete(state).await;
     if result.is_ok() {
         clear_snapshot_previews(&previews);
     }
@@ -1301,7 +1302,7 @@ pub async fn account_delete(state: State<'_, AccountState>) -> Result<(), crate:
 #[tauri::command]
 pub async fn account_forget(state: State<'_, AccountState>) -> Result<(), crate::CommandError> {
     let previews = Arc::clone(&state.snapshot_previews);
-    let result = call(state, |session| session.forget()).await;
+    let result = shared_account_forget(state).await;
     if result.is_ok() {
         clear_snapshot_previews(&previews);
     }

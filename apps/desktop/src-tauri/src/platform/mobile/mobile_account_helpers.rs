@@ -128,3 +128,22 @@ pub(crate) async fn account_rename(
     })
     .await
 }
+
+pub(crate) async fn account_logout(
+    state: tauri::State<'_, crate::platform::mobile::MobileAccountState>,
+    all: bool,
+) -> Result<(), crate::CommandError> {
+    call(state, move |session| session.logout(all)).await
+}
+
+pub(crate) async fn account_delete(
+    state: tauri::State<'_, crate::platform::mobile::MobileAccountState>,
+) -> Result<(), crate::CommandError> {
+    call(state, |session| session.delete_account()).await
+}
+
+pub(crate) async fn account_forget(
+    state: tauri::State<'_, crate::platform::mobile::MobileAccountState>,
+) -> Result<(), crate::CommandError> {
+    call(state, |session| session.forget()).await
+}
