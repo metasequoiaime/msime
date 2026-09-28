@@ -50,6 +50,7 @@ import {
 import { AI_PROVIDER_OPTIONS } from "./settings/ai-provider-options";
 export { AI_PROVIDER_OPTIONS } from "./settings/ai-provider-options";
 import { defaultVoiceInput } from "./settings/voice-input-defaults";
+import { macosSidebarGroups } from "./settings/macos-sidebar-groups";
 import {
   defaultCustomTranslation,
   defaultNiuTrans,
@@ -906,12 +907,6 @@ import { defaultKeybindings } from "./settings/keybinding-defaults";
  * here may be dropped -- and orders them where the native window puts their contents: helpcode
  * beside 输入, tools before 快捷键 rather than after it, feedback beside help.
  */
-const macosSidebarGroups = [
-  ["input", "helpcode", "tools", "shortcuts", "voice"],
-  ["appearance", "skin", "floating-toolbar"],
-  ["dictionary", "account"],
-  ["help", "feedback", "about"],
-] as const satisfies readonly (readonly SettingsPageId[])[];
 export type HostPlatform = "windows" | "macos" | "linux" | "android" | "ios" | "harmony";
 /** Mirrors `client-core::host_surface::HostCapabilities`. */
 export interface HostCapabilities {
