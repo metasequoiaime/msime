@@ -38,8 +38,10 @@ pub unsafe extern "C" fn msime_client_custom_translation_plan(
             )?
         };
         if request.candidates.len() > 9
-            || !["en", "fr", "ja", "es", "ru", "de", "ko"]
-                .contains(&request.target_language.as_str())
+            || request.target_language == "zh"
+            || !msime_client_core::translation::is_supported_translation_language(
+                &request.target_language,
+            )
         {
             return Err("invalid translation plan parameters".into());
         }
