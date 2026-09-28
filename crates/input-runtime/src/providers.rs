@@ -444,7 +444,8 @@ impl UnixSocketProvider {
         (reply.models.len() <= 128
             && !reply.models.is_empty()
             && reply.models.iter().all(|model| {
-                !model.is_empty() && model.len() <= 256 && !model.chars().any(char::is_control)
+                !model.is_empty()
+                    && msime_client_core::cloud::dictionary::valid_bounded_text(model, 256)
             }))
         .then_some(reply.models)
     }
