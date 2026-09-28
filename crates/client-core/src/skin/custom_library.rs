@@ -243,11 +243,15 @@ fn reject_duplicate_name(
     Ok(())
 }
 
+fn contains_name(items: &[SavedTouchKeyboardSkin], name: &str) -> bool {
+    items.iter().any(|item| item.name == name)
+}
+
 fn unique_import_name(
     items: &[SavedTouchKeyboardSkin],
     name: String,
 ) -> Result<String, CustomSkinLibraryError> {
-    if !items.iter().any(|item| item.name == name) {
+    if !contains_name(items, &name) {
         return Ok(name);
     }
     for index in 2..=MAXIMUM_ITEMS + 1 {
@@ -258,7 +262,7 @@ fn unique_import_name(
             name.graphemes(true).take(prefix_length).collect::<String>(),
             suffix
         );
-        if !items.iter().any(|item| item.name == candidate) {
+        if !contains_name(items, &candidate) {
             return Ok(candidate);
         }
     }
