@@ -204,6 +204,7 @@ import {
 import { ProviderPresetSection, type ProviderPreset } from "./settings/provider-preset-section";
 import { CredentialStatusMessage } from "./settings/credential-status-message";
 import { AiCredentialSection } from "./settings/ai-credential-section";
+import { AiLinuxProviderSection } from "./settings/ai-linux-provider-section";
 import {
   tencentCredentialIssue,
   translationEndpointIssue,
@@ -493,6 +494,10 @@ export {
   type CandidateColorKey,
   type CandidateColorPreferences,
 } from "./settings/candidate-colors-section";
+export {
+  AiLinuxProviderSection,
+  type AiLinuxProviderSectionProps,
+} from "./settings/ai-linux-provider-section";
 export {
   BuiltInSkinsSection,
   type BuiltInSkinsSectionProps,
@@ -5796,21 +5801,14 @@ export function SettingsPage({
                         )}
                       </AiCredentialSection>
                     ) : linuxPlatform ? (
-                      <div className="section">
-                        <div className="section-title">
-                          Linux AI provider<small>AI 请求由用户管理的 provider 服务完成</small>
-                        </div>
-                        <p className="input-setting-description">
-                          凭据不保存在共享设置中；请在用户配置目录的 <code>ai-provider.json</code>{" "}
-                          中配置，并使其中的 provider、接口地址和模型与上方设置一致。
-                        </p>
+                      <AiLinuxProviderSection>
                         {credentialTestControl(
                           "ai.assistant",
                           "测试 AI 辅助配置",
                           { provider: ai.provider, endpoint: ai.endpoint, model: ai.model },
                           !ai.enabled || !aiOrigin || !ai.model.trim(),
                         )}
-                      </div>
+                      </AiLinuxProviderSection>
                     ) : (
                       <div className="section">
                         <label className="section-header">
