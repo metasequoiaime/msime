@@ -1175,17 +1175,6 @@ struct HarmonyLegacyClipboardEntry {
     pinned: bool,
 }
 
-fn valid_uuid_string(value: &str) -> bool {
-    value.len() == 36
-        && value.bytes().enumerate().all(|(index, byte)| {
-            if matches!(index, 8 | 13 | 18 | 23) {
-                byte == b'-'
-            } else {
-                byte.is_ascii_hexdigit()
-            }
-        })
-}
-
 fn apple_date_to_unix_ms(value: f64) -> Option<u64> {
     let milliseconds = (value + APPLE_REFERENCE_DATE_UNIX_SECONDS) * 1000.0;
     (milliseconds.is_finite() && milliseconds >= 0.0 && milliseconds <= u64::MAX as f64)
@@ -1259,7 +1248,7 @@ pub fn migrate_apple_clipboard_history(root: &std::path::Path) -> Result<bool, S
         let Some(timestamp_ms) = apple_date_to_unix_ms(entry.date) else {
             return Err("invalid legacy clipboard history".into());
         };
-        if !valid_uuid_string(&entry.id)
+        if !crate::valid_uuid_string(&entry.id)
             || !ids.insert(entry.id)
             || !texts.insert(entry.text.clone())
             || !msime_client_core::clipboard::mobile_text_is_valid(&entry.text)

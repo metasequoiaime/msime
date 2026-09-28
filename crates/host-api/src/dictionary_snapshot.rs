@@ -738,16 +738,6 @@ fn version(options: &EngineOptions) -> Result<String, &'static str> {
     Ok(lower_hex(&hash.finalize()))
 }
 
-fn valid_activation_id(value: &str) -> bool {
-    let bytes = value.as_bytes();
-    bytes.len() == 36
-        && [8, 13, 18, 23].iter().all(|&index| bytes[index] == b'-')
-        && bytes
-            .iter()
-            .enumerate()
-            .all(|(index, byte)| [8, 13, 18, 23].contains(&index) || byte.is_ascii_hexdigit())
-}
-
 fn activation_receipt(options: &EngineOptions) -> Result<Option<String>, &'static str> {
     let path = Path::new(&options.user_data).join(ACTIVATION_RECEIPT_NAME);
     let file = match std::fs::File::open(path) {
@@ -763,7 +753,7 @@ fn activation_receipt(options: &EngineOptions) -> Result<Option<String>, &'stati
         }
     })?;
     let value = std::str::from_utf8(&value).map_err(|_| "invalid snapshot activation receipt")?;
-    if !valid_activation_id(value) {
+    if !crate::valid_uuid_string(value) {
         return Err("invalid snapshot activation receipt");
     }
     Ok(Some(value.to_owned()))
@@ -800,7 +790,7 @@ fn prepare(
     if request
         .activation_id
         .as_deref()
-        .is_some_and(|value| !valid_activation_id(value))
+        .is_some_and(|value| !crate::valid_uuid_string(value))
     {
         return Err("invalid snapshot activation id");
     }
