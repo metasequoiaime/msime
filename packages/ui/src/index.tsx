@@ -103,13 +103,12 @@ import {
   type LocalDictionaryFormat,
   type LocalDictionaryKind,
 } from "./dictionary/dictionary-file";
-import { localDictionaryKinds } from "./dictionary/dictionary-kinds";
 export type {
   DictionaryEntry,
   LocalDictionaryFormat,
   LocalDictionaryKind,
 } from "./dictionary/dictionary-file";
-import { describeImportResult, dictionaryKindKeyHint } from "./dictionary/dictionary-messages";
+import { describeImportResult } from "./dictionary/dictionary-messages";
 import {
   dictionaryExportName,
   dictionaryExportPayload,
@@ -142,6 +141,7 @@ import { LearningDataSection } from "./settings/learning-data-section";
 import { DictionaryManagerHeader } from "./settings/dictionary-manager-header";
 import { DictionaryFailuresNotice } from "./settings/dictionary-failures-notice";
 import { DictionaryManagerControls } from "./settings/dictionary-manager-controls";
+import { DictionaryEntries, type DictionaryPhraseForm } from "./settings/dictionary-entries";
 import { DictionaryPagination } from "./settings/dictionary-pagination";
 export {
   DictionaryFailuresNotice,
@@ -156,6 +156,11 @@ export {
   DictionaryPagination,
   type DictionaryPaginationProps,
 } from "./settings/dictionary-pagination";
+export {
+  DictionaryEntries,
+  type DictionaryEntriesProps,
+  type DictionaryPhraseForm,
+} from "./settings/dictionary-entries";
 import { SettingsActionsFooter } from "./settings/settings-actions-footer";
 import { AboutHeroSection } from "./settings/about-hero-section";
 import { AboutSettingsSection } from "./settings/about-settings-section";
@@ -1898,12 +1903,7 @@ export function SettingsPage({
   const [dictionarySnapshotError, setDictionarySnapshotError] = useState("");
   const [phraseNotice, setPhraseNotice] = useState("");
   const [phraseSearch, setPhraseSearch] = useState("");
-  const [phraseForm, setPhraseForm] = useState<{
-    key: string;
-    value: string;
-    weight: number;
-    previous: DictionaryEntry | null;
-  } | null>(null);
+  const [phraseForm, setPhraseForm] = useState<DictionaryPhraseForm | null>(null);
   const [dictionaryKind, setDictionaryKind] = useState<LocalDictionaryKind>("quick_phrase");
   const [dictionaryFormat, setDictionaryFormat] = useState<LocalDictionaryFormat>("standard");
   const phraseRequestGeneration = useRef(0);
@@ -3740,115 +3740,25 @@ export function SettingsPage({
                             {phraseNotice}
                           </p>
                         )}
-                        {phraseForm && (
-                          <div className={settings.phraseForm}>
-                            <label>
-                              编码{" "}
-                              <input
-                                value={phraseForm.key}
-                                readOnly={phraseForm.previous?.source === "bundled"}
-                                onChange={(event) =>
-                                  setPhraseForm({ ...phraseForm, key: event.target.value })
-                                }
-                              />
-                              <small className={settings.keyHint}>
-                                {dictionaryKindKeyHint(dictionaryKind)}
-                              </small>
-                            </label>
-                            <label>
-                              {dictionaryKind === "quick_phrase" ? "短语" : "词条"}{" "}
-                              <input
-                                value={phraseForm.value}
-                                readOnly={phraseForm.previous?.source === "bundled"}
-                                onChange={(event) =>
-                                  setPhraseForm({ ...phraseForm, value: event.target.value })
-                                }
-                              />
-                            </label>
-                            <label>
-                              权重{" "}
-                              <input
-                                type="number"
-                                value={phraseForm.weight}
-                                onChange={(event) =>
-                                  setPhraseForm({
-                                    ...phraseForm,
-                                    weight: Number(event.target.value),
-                                  })
-                                }
-                              />
-                            </label>
-                            <button
-                              type="button"
-                              disabled={phraseBusy}
-                              onClick={() => void savePhrase()}
-                            >
-                              保存
-                            </button>
-                            <button
-                              type="button"
-                              className="secondary"
-                              disabled={phraseBusy}
-                              onClick={() => setPhraseForm(null)}
-                            >
-                              取消
-                            </button>
-                          </div>
-                        )}
-                        {phrases.length === 0 ? (
-                          <p className={settings.empty}>
-                            点击查询后查看
-                            {localDictionaryKinds.find(([kind]) => kind === dictionaryKind)?.[1] ??
-                              "词库"}
-                            词条
-                          </p>
-                        ) : (
-                          <ul
-                            ref={phraseListRef}
-                            className={settings.phraseList}
-                            aria-label="词库查询结果"
-                          >
-                            {phrases.map((entry, index) => (
-                              <li key={`${entry.key}-${entry.value}-${index}`}>
-                                <span>
-                                  <code>{entry.key}</code>　{entry.value}　
-                                  <small>{entry.weight}</small>
-                                  {entry.source === "bundled" && (
-                                    <>
-                                      {" "}
-                                      <small className={settings.bundledBadge}>内置</small>
-                                    </>
-                                  )}
-                                </span>
-                                <span>
-                                  <button
-                                    type="button"
-                                    className="secondary"
-                                    disabled={phraseBusy}
-                                    onClick={() =>
-                                      setPhraseForm({
-                                        key: entry.key,
-                                        value: entry.value,
-                                        weight: entry.weight,
-                                        previous: entry,
-                                      })
-                                    }
-                                  >
-                                    {entry.source === "bundled" ? "调权重" : "编辑"}
-                                  </button>{" "}
-                                  <button
-                                    type="button"
-                                    className="secondary"
-                                    disabled={phraseBusy}
-                                    onClick={() => void removePhrase(entry)}
-                                  >
-                                    删除
-                                  </button>
-                                </span>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
+                        <DictionaryEntries
+                          kind={dictionaryKind}
+                          entries={phrases}
+                          form={phraseForm}
+                          busy={phraseBusy}
+                          listRef={phraseListRef}
+                          onFormChange={setPhraseForm}
+                          onSave={() => void savePhrase()}
+                          onCancel={() => setPhraseForm(null)}
+                          onEdit={(entry) =>
+                            setPhraseForm({
+                              key: entry.key,
+                              value: entry.value,
+                              weight: entry.weight,
+                              previous: entry,
+                            })
+                          }
+                          onRemove={(entry) => void removePhrase(entry)}
+                        />
                         <DictionaryPagination
                           busy={phraseBusy}
                           offset={phrasePage.offset}
