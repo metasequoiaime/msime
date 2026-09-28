@@ -5220,6 +5220,90 @@ static void TestOnDeviceGlosses() {
     [[NSUserDefaults new] removePersistentDomainForName:suite];
     [[MSIMETranslationCache sharedCache] clear];
 }
+// An English on-device gloss is saved to the user glossary when it arrives, as Windows saves a fetched English gloss (cloud_translation.cpp PersistGloss), so the next page and the next launch read it from the learned overlay instead of waiting on the model again.
+static void TestOnDeviceGlossPersistence() {
+    [[MSIMETranslationCache sharedCache] clear];
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    // The glossary store writes into an existing preferences directory; it does not create one.
+    assert([NSFileManager.defaultManager createDirectoryAtPath:root withIntermediateDirectories:YES attributes:nil error:nil]);
+    NSString *suite = [@"msime.on-device-gloss-persist." stringByAppendingString:NSUUID.UUID.UUIDString];
+    MSIMEAppearancePreferences *prefs =
+        [[MSIMEAppearancePreferences alloc] initWithDefaults:[[NSUserDefaults alloc] initWithSuiteName:suite]];
+    CustomTranslationSession *session = [CustomTranslationSession new];
+    session.enabled = YES; session.generation = 1;
+    session.targetLanguage = @"en"; session.targetLanguages = @[@"en", @"de"];
+    // 世界 is on the page with a source, so the English gloss request built off the view carries it and would save it, but the shared query does not offer it to the on-device model.
+    session.page = @[@{@"text":@"测试", @"source":@0}, @{@"text":@"再见", @"source":@0}, @{@"text":@"世界", @"source":@0}];
+    session.queryCandidates = @[@{@"text":@"测试", @"online_gloss":@YES}, @{@"text":@"再见", @"online_gloss":@YES},
+                                @{@"text":@"世界", @"online_gloss":@NO}];
+    CustomTranslationController *(^attach)(void) = ^{
+        CustomTranslationController *controller = [CustomTranslationController alloc];
+        controller.batches = [NSMutableArray array];
+        controller.onDeviceFetches = [NSMutableArray array];
+        [controller setValue:session forKey:@"session"];
+        [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+        [controller setValue:prefs forKey:@"appearance"];
+        [controller setValue:root forKey:@"preferencesDirectory"];
+        return controller;
+    };
+    void (^settle)(CustomTranslationController *) = ^(CustomTranslationController *controller) {
+        [controller synchronizeCandidateGloss];
+        [controller synchronizeOnDeviceGloss];
+        [(NSOperationQueue *)[controller valueForKey:@"glossQueue"] waitUntilAllOperationsAreFinished];
+        [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.2]];
+    };
+    void (^reply)(CustomTranslationController *, NSString *, NSDictionary *) =
+        ^(CustomTranslationController *controller, NSString *target, NSDictionary *translations) {
+        [controller onDeviceCandidateTranslationsDidArrive:[NSNotification notificationWithName:@"MSIMEBackendOnDeviceTranslationsDidArrive"
+            object:nil userInfo:@{@"target":target, @"translations":translations}]];
+    };
+    NSDictionary *(^lookup)(void) = ^{
+        __block NSDictionary *found;
+        dispatch_sync([MSIMEInputController learnedTranslationQueue], ^{
+            found = [MSIMEClientSession learnedTranslationRequest:@{@"directory":root, @"action":@"lookup", @"target_language":@"en",
+                @"generation":@1, @"items":@[@{@"text":@"测试", @"direction":@"chinese_to_english"},
+                                               @{@"text":@"再见", @"direction":@"chinese_to_english"},
+                                               @{@"text":@"世界", @"direction":@"chinese_to_english"},
+                                               @{@"text":@"你好", @"direction":@"chinese_to_english"}]} error:nil];
+        });
+        return found;
+    };
+    CustomTranslationController *writer = attach();
+    settle(writer);
+    assert(writer.onDeviceFetches.count == 2);
+    // The user types on before the model answers, as a fast typist always does: the replies below land after the page they were asked for has gone, and are saved all the same, as Windows saves every fetch that completes.
+    NSArray *askedPage = session.page, *askedQuery = session.queryCandidates;
+    session.generation++;
+    session.page = @[@{@"text":@"你好", @"source":@0}];
+    session.queryCandidates = @[@{@"text":@"你好", @"online_gloss":@YES}];
+    settle(writer);
+    // English first, so a German reply that reached the glossary would overwrite it.
+    reply(writer, @"en", @{@"测试":@"test"});
+    reply(writer, @"de", @{@"测试":@"Prüfung"});
+    // An empty answer is not a gloss and stays in the process cache only. The glossary store rejects it too, so this records the outcome rather than isolating the length check in persistOnDeviceGlosses.
+    reply(writer, @"en", @{@"再见":@""});
+    // Every controller hears every reply, so a word the on-device request did not ask about is not saved, even though the English gloss request for this page carries it with a source.
+    reply(writer, @"en", @{@"世界":@"world"});
+    // Nor does the page the user typed on to have to be composing still: a candidate committed before its gloss arrived is the usual case, and its gloss is saved too.
+    [writer cancelCandidateTranslations];
+    reply(writer, @"en", @{@"你好":@"hello"});
+    dispatch_sync([MSIMEInputController learnedTranslationQueue], ^{});
+    // Saved under the Chinese key in the Chinese-to-English direction; the lookup only finds it there.
+    assert(([lookup()[@"translations"] isEqual:@[@{@"text":@"测试", @"translation":@"test"}, @{@"text":@"你好", @"translation":@"hello"}]]));
+    // A fresh controller with an empty process cache, as after a restart, answers the saved word from the glossary and only asks the model about the rest.
+    [writer cancelCandidateTranslations]; [[MSIMETranslationCache sharedCache] clear];
+    session.page = askedPage; session.queryCandidates = askedQuery;
+    session.generation++; session.targetLanguages = @[@"en"]; session.delivered = nil;
+    CustomTranslationController *reader = attach();
+    settle(reader);
+    assert(reader.onDeviceFetches.count == 1 && ([reader.onDeviceFetches[0] isEqual:@[@[@"再见"], @[@"en"]]]));
+    assert(([session.delivered isEqual:@[@{@"text":@"测试", @"translation":@"test"}]]));
+    [reader cancelCandidateTranslations];
+    [[NSUserDefaults new] removePersistentDomainForName:suite];
+    NSError *error = nil;
+    assert([NSFileManager.defaultManager removeItemAtPath:root error:&error] && !error);
+    [[MSIMETranslationCache sharedCache] clear];
+}
 static void TestCustomTranslationController() {
     CustomTranslationController *controller = [CustomTranslationController alloc];
     controller.batches = [NSMutableArray array];
@@ -5696,6 +5780,7 @@ int main(int argc, char **argv) {
             TestAccountGlossCacheIsSharedAcrossControllers();
             TestOfflineTargetGlosses();
             TestOnDeviceGlosses();
+            TestOnDeviceGlossPersistence();
             TestCustomTranslationController();
             TestSecondaryTranslationScheduling();
             TestCustomTranslationCacheDelivery();
@@ -5729,6 +5814,7 @@ int main(int argc, char **argv) {
         TestAccountGlossCacheIsSharedAcrossControllers();
         TestOfflineTargetGlosses();
         TestOnDeviceGlosses();
+        TestOnDeviceGlossPersistence();
         TestCustomTranslationController();
         TestSecondaryTranslationScheduling();
         TestCustomTranslationCacheDelivery();

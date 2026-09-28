@@ -896,6 +896,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSArray<NSDictionary *> *_accountGlossResults;
     uint64_t _accountGlossEpoch;
     NSDictionary *_onDeviceGlossRequest;
+    // Each English word this controller sent to the on-device model, mapped to the English gloss request of the page that sent it: that request carries the Engine source and directory persisting needs, and the reply often lands after the page has moved on.
+    NSMutableDictionary<NSString *, NSDictionary *> *_onDeviceEnglishQueries;
     uint64_t _customEpoch;
     MSIMECustomTranslationBatch *_aiBatch;
     NSTimer *_aiTimer;
@@ -1839,7 +1841,13 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         }
         // The backend takes at most 32 words, more than any page shows.
         if (words.count > 32) [words removeObjectsInRange:NSMakeRange(32, words.count - 32)];
-        if (words.count) [self fetchOnDeviceGlosses:words targets:@[target]];
+        if (!words.count) continue;
+        if ([target isEqualToString:@"en"] && gloss) {
+            // Words a newer page displaced from the backend's queue never reply, so the map is bounded rather than drained.
+            if (!_onDeviceEnglishQueries || _onDeviceEnglishQueries.count > 64) _onDeviceEnglishQueries = [NSMutableDictionary dictionary];
+            for (NSString *word in words) _onDeviceEnglishQueries[word] = gloss;
+        }
+        [self fetchOnDeviceGlosses:words targets:@[target]];
     }
 }
 
@@ -1852,8 +1860,23 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         if ([text isKindOfClass:NSString.class] && [value isKindOfClass:NSString.class])
             [[MSIMETranslationCache sharedCache] rememberTranslation:value identity:MSIMEOnDeviceGlossIdentity(target, text)];
     }
+    // Persisted whether or not the page is still on screen, as Windows persists every fetch that completes: a reply for a page the user typed past would otherwise sit in the process cache, never be asked for again, and never reach the glossary.
+    if ([target isEqualToString:@"en"]) [self persistOnDeviceGlosses:values];
     // Every controller hears the reply; only one still composing the page it asked about merges it.
-    if (_onDeviceGlossRequest && [_onDeviceGlossRequest isEqual:[self currentOnDeviceGlossRequest]]) [self applyCandidateTranslationResults];
+    if (!_onDeviceGlossRequest || ![_onDeviceGlossRequest isEqual:[self currentOnDeviceGlossRequest]]) return;
+    [self applyCandidateTranslationResults];
+}
+
+// Windows saves every English gloss it fetches to the user glossary the moment it arrives (cloud_translation.cpp PersistGloss), so the offline lookup answers that word from then on, across restarts. On-device glosses get the same treatment: the model spends about half a second per word, one at a time, and the process cache it otherwise lives in is gone when the input method restarts. Only English, because the learned glossary is the English one, and only words this controller asked about, since every controller hears every reply; each is written with the gloss request of the page that asked, which carries the source the plan needs.
+- (void)persistOnDeviceGlosses:(NSDictionary *)values {
+    for (NSString *text in values) {
+        NSDictionary *query = [text isKindOfClass:NSString.class] ? _onDeviceEnglishQueries[text] : nil;
+        if (!query) continue;
+        [_onDeviceEnglishQueries removeObjectForKey:text];
+        NSString *value = values[text];
+        if ([value isKindOfClass:NSString.class] && value.length)
+            [self persistFetchedTranslations:@[@{@"text":text, @"translation":value}] forQuery:query];
+    }
 }
 - (MSIMECustomTranslationBatch *)customBatchForItems:(NSArray<NSDictionary *> *)items completion:(void (^)(NSArray<NSDictionary *> *))completion {
     return [[MSIMECustomTranslationBatch alloc] initWithItems:items configuration:NSURLSessionConfiguration.ephemeralSessionConfiguration completion:completion];
