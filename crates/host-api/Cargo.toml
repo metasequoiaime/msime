@@ -14,6 +14,7 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 msime-client-core = { path = "../client-core" }
 msime-engine-bridge = { path = "../engine-bridge" }
 msime-input-runtime = { path = "../input-runtime" }
+hex = "0.4"
 serde.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true

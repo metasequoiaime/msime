@@ -2457,6 +2457,7 @@ dependencies = [
 name = "msime-desktop"
 version = "0.1.0"
 dependencies = [
+ "hex",
  "msime-client-core",
  "msime-host-api",
  "msime-host-macos",
@@ -2485,6 +2486,7 @@ dependencies = [
  "cmake",
  "cxx",
  "cxx-build",
+ "hex",
  "rusqlite",
  "sha2 0.11.0",
  "tempfile",
@@ -2495,6 +2497,7 @@ dependencies = [
 name = "msime-host-api"
 version = "0.1.0"
 dependencies = [
+ "hex",
  "msime-client-core",
  "msime-engine-bridge",
  "msime-input-runtime",

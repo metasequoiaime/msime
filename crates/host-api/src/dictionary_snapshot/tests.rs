@@ -49,7 +49,7 @@ fn inspection_requires_the_complete_counted_snapshot_envelope() {
         r#"{"type":"overlay","deleted":false,"data":{"id":"fixture","kind":"quick","code":"test","word":"合成","weight":1,"revision":1,"updated_at":"2026-09-01T00:00:00Z"}}"#,
     ];
     let body = format!("{}\n", lines.join("\n"));
-    let digest = super::lower_hex(&Sha256::digest(body.as_bytes()));
+    let digest = hex::encode(Sha256::digest(body.as_bytes()));
     let footer = format!(
         r#"{{"type":"footer","records":{},"sha256":"{}"}}"#,
         lines.len(),
@@ -66,7 +66,7 @@ fn inspection_requires_the_complete_counted_snapshot_envelope() {
     assert_eq!(metadata.bytes, complete.len() as u64);
     assert_eq!(
         metadata.file_sha256,
-        super::lower_hex(&Sha256::digest(complete.as_bytes()))
+        hex::encode(Sha256::digest(complete.as_bytes()))
     );
     let staged = super::SnapshotFileRecords::open(&file)
         .unwrap()
@@ -89,7 +89,7 @@ fn inspection_requires_the_complete_counted_snapshot_envelope() {
         lines[2].replace("\"weight\":1", "\"weight\":2"),
     ];
     let malformed_body = format!("{}\n", malformed_lines.join("\n"));
-    let malformed_digest = super::lower_hex(&Sha256::digest(malformed_body.as_bytes()));
+    let malformed_digest = hex::encode(Sha256::digest(malformed_body.as_bytes()));
     let malformed = format!(
         "{malformed_body}{{\"type\":\"footer\",\"records\":3,\"sha256\":\"{malformed_digest}\"}}\n"
     );
@@ -108,11 +108,11 @@ fn restore_reinspects_the_exact_file_before_upload() {
     let header =
         r#"{"type":"header","format":"msime-dictionary-snapshot","version":1,"revision":7}"#;
     let body = format!("{header}\n");
-    let body_sha256 = super::lower_hex(&Sha256::digest(body.as_bytes()));
+    let body_sha256 = hex::encode(Sha256::digest(body.as_bytes()));
     let complete =
         format!("{body}{{\"type\":\"footer\",\"records\":1,\"sha256\":\"{body_sha256}\"}}\n");
     fs::write(&file, &complete).unwrap();
-    let file_sha256 = super::lower_hex(&Sha256::digest(complete.as_bytes()));
+    let file_sha256 = hex::encode(Sha256::digest(complete.as_bytes()));
     let request = super::RestoreRequest {
         revision: 11,
         expected_sha256: file_sha256.clone(),
@@ -163,13 +163,13 @@ fn restore_maps_account_errors_without_exposing_snapshot_data() {
     let header =
         r#"{"type":"header","format":"msime-dictionary-snapshot","version":1,"revision":0}"#;
     let body = format!("{header}\n");
-    let body_sha256 = super::lower_hex(&Sha256::digest(body.as_bytes()));
+    let body_sha256 = hex::encode(Sha256::digest(body.as_bytes()));
     let complete =
         format!("{body}{{\"type\":\"footer\",\"records\":1,\"sha256\":\"{body_sha256}\"}}\n");
     fs::write(&file, &complete).unwrap();
     let request = super::RestoreRequest {
         revision: 4,
-        expected_sha256: super::lower_hex(&Sha256::digest(complete.as_bytes())),
+        expected_sha256: hex::encode(Sha256::digest(complete.as_bytes())),
         access_token: "b".repeat(64),
     };
 
