@@ -8,9 +8,8 @@ import {
 } from "./external-skins";
 import { useSkinImage, type SkinImageReader } from "./skin-image";
 import { SkinCandidatePreview } from "./skin-candidate-preview";
-import { candidateFontSize, candidateFontStyle } from "../candidate/candidate-font-size";
-import { candidateTextStyle } from "../candidate/candidate-text-color";
-import { candidateFamilyStyle } from "../candidate/candidate-font-family";
+import { candidateFontSize } from "../candidate/candidate-font-size";
+import { candidateAppearanceStyle } from "../candidate/candidate-preview-style";
 import * as settings from "../settings/settings-style";
 
 function LoadedPreview({
@@ -38,17 +37,7 @@ function LoadedPreview({
     ? skin.base
     : "fluent";
   const geometry = {
-    ...candidateFontStyle(preferences),
-    ...candidateTextStyle(
-      preferences.candidate_text_color,
-      preferences.candidate_number_color,
-      preferences.candidate_accent_color,
-      preferences.candidate_selected_color,
-      preferences.candidate_hover_color,
-      preferences.candidate_surface_color,
-      preferences.candidate_border_color,
-    ),
-    ...candidateFamilyStyle(preferences),
+    ...candidateAppearanceStyle(preferences),
     "--msime-skin-min-width": `${dimension(skin.minWidthDip, 1000)}px`,
     "--msime-skin-decoration-top": `${decorated ? top : 0}px`,
     "--msime-skin-decoration-width": `${decorated ? width : 0}px`,
