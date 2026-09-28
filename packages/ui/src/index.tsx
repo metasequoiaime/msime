@@ -1,6 +1,7 @@
 import { useConfirm } from "./core/confirm";
 import { errorMessage } from "./core/error-message";
 import { platformOsName, schemeTitle } from "./settings/label-helpers";
+import { updateAiProvider } from "./settings/ai-provider-update";
 import { VoiceDevicePicker, type VoiceDeviceReader } from "./voice/voice-device-picker";
 import {
   LocalModelManager,
@@ -1444,18 +1445,7 @@ export function aiProviderUpdate(
   provider: string,
   current: AiAssistantPreferences,
 ): Partial<AiAssistantPreferences> {
-  const next =
-    AI_PROVIDER_OPTIONS.find((option) => option.id === provider) ??
-    AI_PROVIDER_OPTIONS[AI_PROVIDER_OPTIONS.length - 1];
-  const previous = AI_PROVIDER_OPTIONS.find((option) => option.id === current.provider);
-  return {
-    provider: next.id,
-    endpoint:
-      !current.endpoint.trim() || current.endpoint === previous?.endpoint
-        ? next.endpoint
-        : current.endpoint,
-    model: !current.model.trim() || current.model === previous?.model ? next.model : current.model,
-  };
+  return updateAiProvider(provider, current, AI_PROVIDER_OPTIONS);
 }
 // asr_provider mirrors client-core's default; the two disagreeing meant a host
 // wrote a provider no backend implements.
