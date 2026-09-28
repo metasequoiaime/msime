@@ -671,10 +671,10 @@ impl<R: Runtime> MobilePlatform<R> {
     pub async fn sign_in_with_apple(&self, challenge_id: &str, nonce: &str) -> Result<String, ()> {
         if challenge_id.is_empty()
             || challenge_id.len() > 256
-            || challenge_id.chars().any(char::is_control)
+            || msime_client_core::has_disallowed_control_with_options(challenge_id, false)
             || nonce.is_empty()
             || nonce.len() > 4096
-            || nonce.chars().any(char::is_control)
+            || msime_client_core::has_disallowed_control_with_options(nonce, false)
         {
             return Err(());
         }
@@ -691,7 +691,7 @@ impl<R: Runtime> MobilePlatform<R> {
             .map_err(|_| ())?;
         (!response.credential.is_empty()
             && response.credential.len() <= 16 * 1024
-            && !response.credential.chars().any(char::is_control))
+            && !msime_client_core::has_disallowed_control_with_options(&response.credential, false))
         .then_some(response.credential)
         .ok_or(())
     }
