@@ -48,6 +48,7 @@ import { MaintenanceShortcutsSection } from "./settings/maintenance-shortcuts-se
 import { InputMethodServiceSection } from "./settings/input-method-service-section";
 import { DataDirectorySection } from "./settings/data-directory-section";
 import { LicenseUninstallSection } from "./settings/license-uninstall-section";
+import { DiagnosticLogsSection } from "./settings/diagnostic-logs-section";
 import { PreeditSettingsSection } from "./settings/preedit-settings-section";
 import { validCandidateFonts } from "./candidate/candidate-font-family";
 import type { FontCatalogReader } from "./candidate/font-catalog";
@@ -361,6 +362,11 @@ export {
   LicenseUninstallSection,
   type LicenseUninstallSectionProps,
 } from "./settings/license-uninstall-section";
+export {
+  DiagnosticLogsSection,
+  type DiagnosticLogPreferences,
+  type DiagnosticLogsSectionProps,
+} from "./settings/diagnostic-logs-section";
 export {
   PreeditSettingsSection,
   type CandidatePreeditStyle,
@@ -7174,102 +7180,18 @@ export function SettingsPage({
                         </button>
                       </div>
                     )}
-                    {(!client.host || linuxPlatform || windowsPlatform || macosPlatform) && (
-                      <div className="section" role="group" aria-label="诊断日志">
-                        <label className="section-header">
-                          <span className="section-title">
-                            {linuxPlatform
-                              ? "输入法宿主日志"
-                              : macosPlatform
-                                ? "输入法日志"
-                                : "Server 端日志"}
-                            <small>
-                              {linuxPlatform
-                                ? "排查 IBus 或 Fcitx5 宿主的焦点切换、设置应用和菜单保存问题时开启。记录焦点进出、偏好应用、菜单保存、词库维护时释放会话的结果和操作失败的阶段，限量轮转，不记录按键、输入内容或候选文本。文件是数据目录下的 diagnostic.log，两个宿主写进同一个文件，复现后可直接发送。"
-                                : macosPlatform
-                                  ? "排查按键延迟、候选窗位置、焦点切换和设置加载失败时开启。记录焦点进出，偏好加载、应用、保存的结果，超过 8 毫秒的按键处理耗时，候选窗的显示位置与隐藏原因，以及输入统计写入失败的类别，限量轮转，不记录按键、输入内容或候选文本。文件是应用支持目录下的 diagnostic.log，复现后用「在 Finder 中显示」找到它并发送。"
-                                  : "排查 Server 启动和通信问题时开启。记录 Server 启停原因和各组件是否就绪，限量轮转，不记录按键、输入内容或候选文本。文件是数据目录下的 logs\\server.log，TSF 端日志也写进这个文件，复现后可直接发送。"}
-                            </small>
-                          </span>
-                          <input
-                            aria-label={
-                              linuxPlatform
-                                ? "输入法宿主日志"
-                                : macosPlatform
-                                  ? "输入法日志"
-                                  : "Server 端日志"
-                            }
-                            className="toggle"
-                            type="checkbox"
-                            checked={diagnosticLog.server}
-                            onChange={(event) =>
-                              setDraft({
-                                ...draft,
-                                diagnostic_log: { ...diagnosticLog, server: event.target.checked },
-                              })
-                            }
-                          />
-                        </label>
-                        {client.openDiagnosticLogDirectory && (
-                          <>
-                            <div className="input-option-divider" />
-                            <div className="section-header">
-                              <span className="section-title">
-                                日志文件
-                                <small>
-                                  {macosPlatform
-                                    ? "在 Finder 中选中 diagnostic.log；还没有写入时打开它所在的目录。"
-                                    : "打开日志文件所在的目录。"}
-                                </small>
-                              </span>
-                              <button
-                                type="button"
-                                className="secondary"
-                                onClick={() => {
-                                  const reveal = client.openDiagnosticLogDirectory;
-                                  if (!reveal) return;
-                                  setError("");
-                                  void reveal().catch(() =>
-                                    setError(
-                                      macosPlatform
-                                        ? "无法在 Finder 中显示诊断日志，请稍后重试。"
-                                        : "无法打开日志目录，可能是文件管理器不可用。",
-                                    ),
-                                  );
-                                }}
-                              >
-                                {macosPlatform ? "在 Finder 中显示" : "打开日志目录"}
-                              </button>
-                            </div>
-                          </>
-                        )}
-                        {(!client.host || windowsPlatform) && (
-                          <>
-                            <div className="input-option-divider" />
-                            <label className="section-header">
-                              <span className="section-title">
-                                TSF 端日志
-                                <small>
-                                  排查应用内预编辑和输入延迟时开启。日志在内存中限量缓冲，并通过独立管道批量汇总，不记录按键、输入内容或候选文本。
-                                </small>
-                              </span>
-                              <input
-                                aria-label="TSF 端日志"
-                                className="toggle"
-                                type="checkbox"
-                                checked={diagnosticLog.tsf}
-                                onChange={(event) =>
-                                  setDraft({
-                                    ...draft,
-                                    diagnostic_log: { ...diagnosticLog, tsf: event.target.checked },
-                                  })
-                                }
-                              />
-                            </label>
-                          </>
-                        )}
-                      </div>
-                    )}
+                    <DiagnosticLogsSection
+                      visible={!client.host || linuxPlatform || windowsPlatform || macosPlatform}
+                      linux={linuxPlatform}
+                      macos={macosPlatform}
+                      windows={windowsPlatform || !client.host}
+                      values={diagnosticLog}
+                      openDirectory={client.openDiagnosticLogDirectory}
+                      onChange={(patch) =>
+                        setDraft({ ...draft, diagnostic_log: { ...diagnosticLog, ...patch } })
+                      }
+                      onError={setError}
+                    />
                     {/* Only the Windows Server reads this switch; the other hosts report on their own terms, described in PRIVACY.md, so offering it there would be a switch that changes nothing. */}
                     {windowsPlatform && (
                       <TelemetrySection
