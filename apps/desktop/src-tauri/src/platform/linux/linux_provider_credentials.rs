@@ -6,6 +6,7 @@
 //!
 //! The React surface only learns which providers have a credential and the endpoint and model each one is bound to. Secrets travel from the webview into this process and never back.
 
+use super::config_home;
 use reqwest::Url;
 use serde::Serialize;
 use serde_json::{Map, Value};
@@ -177,19 +178,16 @@ pub(crate) struct VoiceCredential<'a> {
 
 /// `$XDG_CONFIG_HOME/msime-client`, resolved the way `msime-linux-provider-session` resolves it: a relative `XDG_CONFIG_HOME` is an error, not a fallback.
 fn config_directory() -> Result<PathBuf, CredentialError> {
-    let base = match std::env::var_os("XDG_CONFIG_HOME").filter(|value| !value.is_empty()) {
-        Some(value) => PathBuf::from(value),
-        None => PathBuf::from(
-            std::env::var_os("HOME")
-                .filter(|value| !value.is_empty())
-                .ok_or(CredentialError::Location)?,
-        )
-        .join(".config"),
-    };
-    if !base.is_absolute() {
+    let xdg = std::env::var_os("XDG_CONFIG_HOME").filter(|value| !value.is_empty());
+    if xdg
+        .as_deref()
+        .is_some_and(|value| !Path::new(value).is_absolute())
+    {
         return Err(CredentialError::Location);
     }
-    Ok(base.join("msime-client"))
+    config_home(xdg.as_deref(), std::env::var_os("HOME").as_deref())
+        .map(|base| base.join("msime-client"))
+        .ok_or(CredentialError::Location)
 }
 
 /// The document at `path`, `None` when there is none. A file the provider's reader would refuse is an error rather than something to overwrite: the user may have put it there by hand.
