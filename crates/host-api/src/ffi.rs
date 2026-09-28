@@ -28,6 +28,13 @@ pub(crate) fn absolute_path(value: &str) -> bool {
     Path::new(value).is_absolute()
 }
 
+pub(crate) fn parse_absolute_socket_path(bytes: &[u8]) -> Result<&str, String> {
+    let path = std::str::from_utf8(bytes).map_err(|_| "socket path is not UTF-8".to_owned())?;
+    absolute_path(path)
+        .then_some(path)
+        .ok_or_else(|| "socket path must be absolute".to_owned())
+}
+
 // Shared by the session and host modules below, so it lives in the parent.
 /// The file name the reranking model is published under inside the resource set.
 pub(crate) const SENTENCE_MODEL_FILE: &str = "sentence-model.safetensors";

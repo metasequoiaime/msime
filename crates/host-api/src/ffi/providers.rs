@@ -329,12 +329,9 @@ pub unsafe extern "C" fn msime_client_online_provider_request(
             std::slice::from_raw_parts(query, query_length)
         })
         .map_err(|_| "invalid online query document")?;
-        let path =
-            std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
-                .map_err(|_| "socket path is not UTF-8")?;
-        if !super::absolute_path(path) {
-            return Err("socket path must be absolute".into());
-        }
+        let path = super::parse_absolute_socket_path(unsafe {
+            std::slice::from_raw_parts(socket_path, socket_length)
+        })?;
         Ok(UnixSocketProvider::new(path)
             .query_candidates(query)
             .map(|candidates| {
@@ -378,12 +375,9 @@ pub unsafe extern "C" fn msime_client_cloud_dictionary_provider_request(
             serde_json::from_slice::<cloud_dictionary::CloudDictionaryRequest>(request_bytes)
                 .map_err(|_| "invalid cloud dictionary request")?;
         cloud_dictionary::validate_cloud_request(&parsed).map_err(|error| error.to_owned())?;
-        let path =
-            std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
-                .map_err(|_| "socket path is not UTF-8")?;
-        if !super::absolute_path(path) {
-            return Err("socket path must be absolute".into());
-        }
+        let path = super::parse_absolute_socket_path(unsafe {
+            std::slice::from_raw_parts(socket_path, socket_length)
+        })?;
         let request = serde_json::from_slice::<serde_json::Value>(request_bytes)
             .map_err(|_| "invalid cloud dictionary request")?;
         msime_input_runtime::UnixSocketProvider::new(path)
@@ -418,12 +412,9 @@ pub unsafe extern "C" fn msime_client_cloud_clipboard_provider_request(
         let request = serde_json::from_slice::<serde_json::Value>(request_bytes)
             .map_err(|_| "invalid cloud clipboard request")?;
         cloud_clipboard::validate_request(&request).map_err(|error| error.to_owned())?;
-        let path =
-            std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
-                .map_err(|_| "socket path is not UTF-8")?;
-        if !super::absolute_path(path) {
-            return Err("socket path must be absolute".into());
-        }
+        let path = super::parse_absolute_socket_path(unsafe {
+            std::slice::from_raw_parts(socket_path, socket_length)
+        })?;
         msime_input_runtime::UnixSocketProvider::new(path)
             .cloud_clipboard(request)
             .ok_or_else(|| "cloud clipboard provider unavailable".to_owned())
@@ -452,12 +443,9 @@ pub unsafe extern "C" fn msime_client_translation_provider_request(
             std::slice::from_raw_parts(query, query_length)
         })
         .map_err(|_| "invalid translation query document")?;
-        let path =
-            std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
-                .map_err(|_| "socket path is not UTF-8")?;
-        if !super::absolute_path(path) {
-            return Err("socket path must be absolute".into());
-        }
+        let path = super::parse_absolute_socket_path(unsafe {
+            std::slice::from_raw_parts(socket_path, socket_length)
+        })?;
         Ok(UnixSocketProvider::new(path)
             .translate(query)
             .map(|items| json!({"translations": items}))
@@ -492,12 +480,9 @@ pub unsafe extern "C" fn msime_client_handwriting_provider_request(
             std::slice::from_raw_parts(query, query_length)
         })
         .map_err(|_| "invalid handwriting query document")?;
-        let path =
-            std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
-                .map_err(|_| "socket path is not UTF-8")?;
-        if !super::absolute_path(path) {
-            return Err("socket path must be absolute".into());
-        }
+        let path = super::parse_absolute_socket_path(unsafe {
+            std::slice::from_raw_parts(socket_path, socket_length)
+        })?;
         Ok(UnixSocketProvider::new(path)
             .handwriting(query)
             .map(|candidates| json!({"candidates": candidates}))
@@ -563,12 +548,9 @@ pub unsafe extern "C" fn msime_client_emoji_provider_request(
             std::slice::from_raw_parts(query, query_length)
         })
         .map_err(|_| "invalid emoji query document")?;
-        let path =
-            std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
-                .map_err(|_| "socket path is not UTF-8")?;
-        if !super::absolute_path(path) {
-            return Err("socket path must be absolute".into());
-        }
+        let path = super::parse_absolute_socket_path(unsafe {
+            std::slice::from_raw_parts(socket_path, socket_length)
+        })?;
         Ok(UnixSocketProvider::new(path)
             .emoji(query)
             .map(|items| json!({"items": items}))

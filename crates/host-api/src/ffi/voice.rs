@@ -158,12 +158,9 @@ pub unsafe extern "C" fn msime_client_voice_provider_request(
             std::slice::from_raw_parts(query, query_length)
         })
         .map_err(|_| "invalid voice query document")?;
-        let path =
-            std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
-                .map_err(|_| "socket path is not UTF-8")?;
-        if !super::absolute_path(path) {
-            return Err("socket path must be absolute".into());
-        }
+        let path = super::parse_absolute_socket_path(unsafe {
+            std::slice::from_raw_parts(socket_path, socket_length)
+        })?;
         Ok(UnixSocketProvider::new(path)
             .voice_with_options(&query.language, query.generation, &query.options)
             .map(|text| json!({"text": text}))
@@ -261,12 +258,9 @@ pub unsafe extern "C" fn msime_client_voice_provider_stream_feedback(
             std::slice::from_raw_parts(query, query_length)
         })
         .map_err(|_| "invalid voice query document")?;
-        let path =
-            std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
-                .map_err(|_| "socket path is not UTF-8")?;
-        if !super::absolute_path(path) {
-            return Err("socket path must be absolute".into());
-        }
+        let path = super::parse_absolute_socket_path(unsafe {
+            std::slice::from_raw_parts(socket_path, socket_length)
+        })?;
         let mut update = |text: &str, final_result: bool| {
             if let Some(callback) = callback {
                 unsafe {
@@ -335,12 +329,9 @@ pub unsafe extern "C" fn msime_client_voice_provider_cancel(
         if socket_path.is_null() || socket_length > 4096 {
             return Err("invalid voice provider socket buffer".into());
         }
-        let path =
-            std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
-                .map_err(|_| "socket path is not UTF-8")?;
-        if !super::absolute_path(path) {
-            return Err("socket path must be absolute".into());
-        }
+        let path = super::parse_absolute_socket_path(unsafe {
+            std::slice::from_raw_parts(socket_path, socket_length)
+        })?;
         Ok(json!(UnixSocketProvider::new(path).voice_cancel(generation)))
     })
 }
@@ -361,12 +352,9 @@ pub unsafe extern "C" fn msime_client_voice_provider_stop(
         if socket_path.is_null() || socket_length > 4096 {
             return Err("invalid voice provider socket buffer".into());
         }
-        let path =
-            std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
-                .map_err(|_| "socket path is not UTF-8")?;
-        if !super::absolute_path(path) {
-            return Err("socket path must be absolute".into());
-        }
+        let path = super::parse_absolute_socket_path(unsafe {
+            std::slice::from_raw_parts(socket_path, socket_length)
+        })?;
         Ok(json!(UnixSocketProvider::new(path).voice_stop(generation)))
     })
 }
