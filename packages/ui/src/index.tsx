@@ -1861,6 +1861,15 @@ export interface SettingsClient {
     /** Opens the System Settings page where input sources are added and enabled. */
     openSettings(): Promise<void>;
   };
+  /**
+   * macOS translates the Chinese candidates no offline dictionary answers, whole sentences included, with Apple's on-device models, but only for a language pair already downloaded in System Settings.
+   */
+  onDeviceTranslation?: {
+    /** Target language codes the input method last found downloadable but not yet downloaded. */
+    downloadableLanguages(): Promise<string[]>;
+    /** Opens 语言与地区, where 翻译语言 are downloaded. */
+    openSettings(): Promise<void>;
+  };
   /** macOS moves the installed input source to Trash; data removal is explicit. */
   uninstallInputSource?: (removeUserData: boolean) => Promise<void>;
   /** macOS keeps small fixed locators while the state root itself may move to another volume. */
@@ -2535,6 +2544,7 @@ export function SettingsPage({
   const [inputSourceStartup, setInputSourceStartup] = useState<InputSourceStartupStatus | null>(
     null,
   );
+  const [onDeviceDownloadable, setOnDeviceDownloadable] = useState<string[]>([]);
   const restoredMobilePage =
     mobilePlatform &&
     typeof window !== "undefined" &&
@@ -2876,6 +2886,31 @@ export function SettingsPage({
       });
     return () => {
       active = false;
+    };
+  }, [client, macosPlatform]);
+
+  // The input method records the missing pairs when it next translates, so read again whenever the window comes back - typically from System Settings after a download.
+  useEffect(() => {
+    const onDeviceTranslation = client.onDeviceTranslation;
+    if (!macosPlatform || !onDeviceTranslation || typeof window === "undefined") {
+      setOnDeviceDownloadable([]);
+      return;
+    }
+    let active = true;
+    const refresh = () =>
+      void onDeviceTranslation
+        .downloadableLanguages()
+        .then((codes) => {
+          if (active) setOnDeviceDownloadable(codes);
+        })
+        .catch(() => {
+          if (active) setOnDeviceDownloadable([]);
+        });
+    refresh();
+    window.addEventListener("focus", refresh);
+    return () => {
+      active = false;
+      window.removeEventListener("focus", refresh);
     };
   }, [client, macosPlatform]);
 
@@ -3978,6 +4013,20 @@ export function SettingsPage({
         : (macosPlatform || linuxPlatform) && draft?.translation_account
           ? "account"
           : "none";
+  // The macOS input method falls back to Apple's on-device translation when no service will answer: none chosen, or Tencent (on by default) still without its secrets. The pairs among the chosen targets that it found downloadable but not downloaded are why a sentence candidate shows no translation.
+  const onDeviceTranslationInUse =
+    macosPlatform &&
+    candidateTranslations &&
+    (translationProvider === "none" ||
+      (translationProvider === "tencent" &&
+        !(tencentTranslation.secret_id.trim() && tencentTranslation.secret_key.trim())));
+  const onDeviceMissingLanguages = onDeviceTranslationInUse
+    ? translationLanguages.filter(
+        ([code]) =>
+          (code === translationTargetLanguage || code === translationSecondaryLanguage) &&
+          onDeviceDownloadable.includes(code),
+      )
+    : [];
   // One service at a time: the MSIME account is only ever used when chosen here, and any other choice clears it. A cleared choice is left undefined rather than false, because the saved document omits the key while it is false and an undone edit must compare equal to it again.
   const setTranslationProvider = (
     provider: "none" | "custom" | "tencent" | "niutrans" | "account",
@@ -6821,6 +6870,34 @@ export function SettingsPage({
                         </>
                       )}
                     </div>
+                    {onDeviceMissingLanguages.length > 0 && (
+                      <div role="status" className="notice" aria-label="系统翻译语言未下载">
+                        <p>
+                          整句候选暂时没有翻译：macOS 还没有下载「中文（简体）→{" "}
+                          {onDeviceMissingLanguages.map(([, label]) => label).join("、")}
+                          」翻译语言。离线词库只收词语，「现在几点了」这样的整句要靠系统在本机翻译，不联网。
+                        </p>
+                        <p>
+                          请在 系统设置 &gt; 通用 &gt; 语言与地区 &gt; 翻译语言
+                          中下载，然后回到输入框继续输入即可生效。也可以在下方选择一个在线翻译服务。
+                          <button
+                            type="button"
+                            className="secondary"
+                            onClick={() =>
+                              void client.onDeviceTranslation
+                                ?.openSettings()
+                                .catch(() =>
+                                  setError(
+                                    "无法打开系统设置，请手动前往 系统设置 > 通用 > 语言与地区 > 翻译语言。",
+                                  ),
+                                )
+                            }
+                          >
+                            打开语言与地区
+                          </button>
+                        </p>
+                      </div>
+                    )}
                     {!androidPlatform && (
                       <>
                         <div className="section" role="group" aria-label="候选词翻译服务">

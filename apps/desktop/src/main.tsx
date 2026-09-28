@@ -232,6 +232,10 @@ const client: SettingsClient = {
     status: () => invoke("input_source_startup_status"),
     openSettings: () => invoke("open_input_source_settings"),
   },
+  onDeviceTranslation: {
+    downloadableLanguages: () => invoke<string[]>("on_device_translation_downloadable_languages"),
+    openSettings: () => invoke("open_translation_language_settings"),
+  },
   uninstallInputSource: (removeUserData) => invoke("uninstall_input_source", { removeUserData }),
   dataDirectory: {
     status: () => invoke("data_directory_status"),

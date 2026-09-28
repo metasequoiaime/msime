@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import {
   SettingsPage,
   translationEndpointIssue,
@@ -241,5 +241,61 @@ describe("the MSIME account translation is an explicit choice", () => {
       (screen.getByRole("checkbox", { name: "使用水杉账号翻译候选词" }) as HTMLInputElement)
         .disabled,
     ).toBe(true);
+  });
+});
+
+describe("macOS points at undownloaded Apple translation languages", () => {
+  const noService = {
+    custom_translation: { enabled: false, endpoint: "", api_key: "" },
+    // Tencent is on by default; without secrets it answers nothing and on-device translation fills in.
+    tencent_tmt: { enabled: true, secret_id: "", secret_key: "", region: "ap-guangzhou" },
+  };
+  async function mountOnMacos(preferences: Partial<Preferences>, downloadable: string[]) {
+    const snapshot: Snapshot = { ...base, preferences: { ...base.preferences, ...preferences } };
+    const openSettings = vi.fn(async () => {});
+    const downloadableLanguages = vi.fn(async () => downloadable);
+    render(
+      <SettingsPage
+        initialPage="input"
+        client={{
+          load: async () => snapshot,
+          save: vi.fn(),
+          host: { platform: "macos" } as HostCapabilities,
+          onDeviceTranslation: { downloadableLanguages, openSettings },
+        }}
+      />,
+    );
+    await screen.findByRole("button", { name: "保存设置" });
+    // Let the host's answer land, so a hidden hint means hidden and not merely not yet shown.
+    await waitFor(() => expect(downloadableLanguages).toHaveBeenCalled());
+    await act(async () => {});
+    return openSettings;
+  }
+  const hint = () => screen.queryByRole("status", { name: "系统翻译语言未下载" });
+
+  test("names only the chosen targets and opens System Settings", async () => {
+    const openSettings = await mountOnMacos(
+      { ...noService, translation_target_language: "en", translation_secondary_language: "ja" },
+      ["en", "fr", "ja"],
+    );
+    expect(hint()).not.toBeNull();
+    expect(hint()!.textContent).toContain("英语、日语");
+    expect(hint()!.textContent).not.toContain("法语");
+    fireEvent.click(screen.getByRole("button", { name: "打开语言与地区" }));
+    expect(openSettings).toHaveBeenCalledTimes(1);
+  });
+
+  test("stays hidden while a service of the user's own answers", async () => {
+    // base selects the custom DeepLX service, which translates every candidate itself.
+    await mountOnMacos({}, ["en"]);
+    expect(hint()).toBeNull();
+  });
+
+  test("stays hidden when candidate translation is off or nothing is missing", async () => {
+    await mountOnMacos({ ...noService, candidate_translations: false }, ["en"]);
+    expect(hint()).toBeNull();
+    cleanup();
+    await mountOnMacos(noService, []);
+    expect(hint()).toBeNull();
   });
 });

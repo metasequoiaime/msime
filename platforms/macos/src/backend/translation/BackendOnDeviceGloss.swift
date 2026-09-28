@@ -55,7 +55,10 @@ private enum BackendOnDeviceGloss {
     if let session = sessions[code] { return session }
     if let checked = missing[code], ContinuousClock.now - checked < recheck { return nil }
     let target = Locale.Language(identifier: code)
-    guard await LanguageAvailability().status(from: source, to: target) == .installed else {
+    let status = await LanguageAvailability().status(from: source, to: target)
+    // Only a pair the user can still download is worth pointing at; an unsupported one has nothing to offer.
+    recordDownloadable(code, status == .supported)
+    guard status == .installed else {
       missing[code] = .now
       return nil
     }
@@ -63,6 +66,21 @@ private enum BackendOnDeviceGloss {
     let session = TranslationSession(installedSource: source, target: target)
     sessions[code] = session
     return session
+  }
+
+  // The settings app runs in another process and cannot ask the translation service on this one's behalf, so the pairs found downloadable but not downloaded are left in this input method's defaults domain for it to read with `defaults read`. A comma-separated string rather than an array, so that reader prints the value verbatim.
+  static let downloadableDefaultsKey = "MSIMEOnDeviceTranslationDownloadableLanguages"
+
+  private static func recordDownloadable(_ code: String, _ downloadable: Bool) {
+    let defaults = UserDefaults.standard
+    var codes = Set((defaults.string(forKey: downloadableDefaultsKey) ?? "").split(separator: ",").map(String.init))
+    let changed = downloadable ? codes.insert(code).inserted : codes.remove(code) != nil
+    guard changed else { return }
+    if codes.isEmpty {
+      defaults.removeObject(forKey: downloadableDefaultsKey)
+    } else {
+      defaults.set(codes.sorted().joined(separator: ","), forKey: downloadableDefaultsKey)
+    }
   }
 }
 

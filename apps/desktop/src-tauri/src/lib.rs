@@ -2685,6 +2685,68 @@ async fn save_macos_wubi_auto_commit_unique(enabled: bool) -> Result<(), HostAct
     })?
 }
 
+// The input method's Swift backend records here the Apple translation pairs (Simplified Chinese to each code) that it found downloadable but not yet downloaded, so its on-device glosses stay empty until the user downloads them in System Settings.
+#[cfg(target_os = "macos")]
+const MACOS_ON_DEVICE_TRANSLATION_DOWNLOADABLE_DEFAULTS_KEY: &str =
+    "MSIMEOnDeviceTranslationDownloadableLanguages";
+
+// Only the target languages the settings page can choose; anything else in the value is not ours to report.
+#[cfg(any(target_os = "macos", test))]
+fn parse_on_device_translation_downloadable(value: &str) -> Vec<String> {
+    let mut codes = Vec::new();
+    for code in value.trim().split(',').map(str::trim) {
+        if ["en", "fr", "ja", "es", "ru", "de", "ko"].contains(&code)
+            && !codes.iter().any(|known| known == code)
+        {
+            codes.push(code.to_owned());
+        }
+    }
+    codes
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+async fn on_device_translation_downloadable_languages() -> Result<Vec<String>, HostActionError> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let output = std::process::Command::new("defaults")
+            .args([
+                "read",
+                MACOS_INPUT_METHOD_DEFAULTS_DOMAIN,
+                MACOS_ON_DEVICE_TRANSLATION_DOWNLOADABLE_DEFAULTS_KEY,
+            ])
+            .output()
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?;
+        // The key is removed once every pair it listed is downloaded, and never written before the input method first asks.
+        if !output.status.success() {
+            return Ok(Vec::new());
+        }
+        Ok(parse_on_device_translation_downloadable(
+            &String::from_utf8_lossy(&output.stdout),
+        ))
+    })
+    .await
+    .map_err(|_| HostActionError {
+        code: "unavailable",
+    })?
+}
+
+// Translation languages are downloaded under 语言与地区; System Settings has no URL for the sheet itself.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+fn open_translation_language_settings() -> Result<(), HostActionError> {
+    let status = std::process::Command::new("open")
+        .arg("x-apple.systempreferences:com.apple.Localization-Settings.extension")
+        .status()
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?;
+    status.success().then_some(()).ok_or(HostActionError {
+        code: "unavailable",
+    })
+}
+
 #[cfg(target_os = "macos")]
 #[tauri::command]
 async fn pick_voice_model_path(app: tauri::AppHandle) -> Result<Option<String>, HostActionError> {
@@ -4604,6 +4666,10 @@ pub fn run() {
             load_macos_wubi_auto_commit_unique,
             #[cfg(target_os = "macos")]
             save_macos_wubi_auto_commit_unique,
+            #[cfg(target_os = "macos")]
+            on_device_translation_downloadable_languages,
+            #[cfg(target_os = "macos")]
+            open_translation_language_settings,
             #[cfg(target_os = "macos")]
             uninstall_input_source,
             #[cfg(target_os = "macos")]

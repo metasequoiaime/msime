@@ -689,6 +689,20 @@ fn macos_restart_targets_the_input_method_bundle() {
 }
 
 #[test]
+fn on_device_translation_downloadable_keeps_only_choosable_targets() {
+    // `defaults read` prints a string value followed by a newline.
+    assert_eq!(
+        super::parse_on_device_translation_downloadable("en,ja\n"),
+        ["en", "ja"]
+    );
+    assert_eq!(
+        super::parse_on_device_translation_downloadable(" en , en ,zh-Hant,,xx\n"),
+        ["en"]
+    );
+    assert!(super::parse_on_device_translation_downloadable("").is_empty());
+}
+
+#[test]
 fn settings_routes_select_a_page_the_shared_ui_accepts() {
     use msime_client_core::host_surface::{SettingsCategory, SurfaceRoute};
     // The route wins over the compatibility variable, and every category the
