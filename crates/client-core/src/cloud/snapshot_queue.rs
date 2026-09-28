@@ -94,7 +94,7 @@ impl SnapshotQueueState {
     }
 }
 
-pub fn valid_local_version(value: &str) -> bool {
+fn valid_local_version(value: &str) -> bool {
     let mut fields = value.split(':');
     if fields.next() != Some("local-v1") {
         return false;
