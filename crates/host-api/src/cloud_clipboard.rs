@@ -33,12 +33,7 @@ pub fn validate_request(request: &Value) -> Result<(), &'static str> {
                 .get("id")
                 .and_then(Value::as_str)
                 .ok_or("invalid cloud clipboard request")?;
-            if id.is_empty()
-                || id.len() > 256
-                || !id
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || b"-_".contains(&byte))
-            {
+            if id.is_empty() || id.len() > 256 || !msime_client_core::is_ascii_identifier(id) {
                 return Err("invalid cloud clipboard request");
             }
         }
