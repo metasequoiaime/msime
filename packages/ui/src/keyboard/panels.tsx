@@ -28,6 +28,7 @@ import * as surface from "./panel-surface-style";
 import { normalizeHandwritingCandidates } from "./handwriting";
 import { validVoiceLanguage } from "./voice-panel";
 import { isImeCommitKey, keyboardKeyWeight, modifierPrefix, type Modifier } from "./keyboard-input";
+import { keyboardRgba, mixKeyboardColor, readableKeyboardText } from "./keyboard-colors";
 import {
   skinColor,
   skinLuminance,
@@ -404,28 +405,6 @@ const nineKeyRows: KeyboardKey[][] = [
   [key("Backspace", 0x08), key("0", 0x30), key("Enter", 0x0d)],
   [key("Space", 0x20, " ")],
 ];
-
-function mixKeyboardColor(first: string, second: string, amount: number) {
-  const parse = (value: string) => Number.parseInt(value.replace(/^#/, ""), 16);
-  const a = parse(first),
-    b = parse(second);
-  if (!Number.isFinite(a) || !Number.isFinite(b)) return first;
-  const channel = (shift: number) =>
-    Math.round(((a >> shift) & 0xff) * (1 - amount) + ((b >> shift) & 0xff) * amount);
-  return `#${((channel(16) << 16) | (channel(8) << 8) | channel(0)).toString(16).padStart(6, "0")}`;
-}
-
-function readableKeyboardText(value: string) {
-  const parsed = Number.parseInt(value.replace(/^#/, ""), 16);
-  return Number.isFinite(parsed) && skinLuminance(parsed) > 0.179 ? "#000000" : "#ffffff";
-}
-
-function keyboardRgba(value: string, opacity: number) {
-  const parsed = Number.parseInt(value.replace(/^#/, ""), 16);
-  if (!Number.isFinite(parsed)) return value;
-  const channel = (shift: number) => (parsed >> shift) & 0xff;
-  return `rgba(${channel(16)}, ${channel(8)}, ${channel(0)}, ${Math.max(0, Math.min(1, opacity))})`;
-}
 
 function keyboardBackgroundStyle(
   skin: TouchKeyboardSkin,
