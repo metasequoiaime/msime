@@ -52,11 +52,12 @@ static inline BOOL MSIMEAdoptReportedInputMode(MSIMESystemInputModeState &state,
 // Whether the system offers a mode for selection. A mode the user removed in System Settings, or one an install from before the English or Japanese mode existed has not registered yet, cannot be selected, and asking for it would leave `current` naming a mode the menu bar does not show - the next report of the real one would then flip the controller's state back.
 using MSIMEInputModeAvailability = BOOL (*)(NSString *identifier);
 
-// Asks the client to show `mode`, unless it already does or the system does not offer it. Returns whether a switch was requested. The japanese scheme falls back to 中 when the Japanese mode is not offered: the controller is still composing through the Engine, and 中 is closer to that than an 英 left over from before.
+// Asks the client to show `mode`, unless it already does or the system does not offer it. Returns whether a switch was requested. The japanese scheme falls back to 中 when the Japanese mode is not offered: the controller is still composing through the Engine, and 中 is closer to that than an 英 left over from before. A Japanese mode the system has just reported as shown is offered by definition, so it is kept rather than second-guessed.
 static inline BOOL MSIMESelectSystemInputMode(MSIMESystemInputModeState &state, NSString *mode, id client,
                                               MSIMEInputModeAvailability available) {
     if (!available) return NO;
-    if ([mode isEqualToString:MSIMEJapaneseInputModeID] && !available(mode)) mode = MSIMEChineseInputModeID;
+    if ([mode isEqualToString:MSIMEJapaneseInputModeID] && ![mode isEqualToString:state.current] && !available(mode))
+        mode = MSIMEChineseInputModeID;
     if (state.selecting || [mode isEqualToString:state.current] || ![client respondsToSelector:@selector(selectInputMode:)] ||
         !available(mode))
         return NO;

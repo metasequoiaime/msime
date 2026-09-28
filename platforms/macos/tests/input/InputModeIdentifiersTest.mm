@@ -130,6 +130,9 @@ int main() {
                 "An unavailable Japanese mode did not fall back to the Chinese mode.");
         require(!MSIMESelectSystemInputMode(state, MSIMEJapaneseInputModeID, client, Available) && client.selected.count == 4,
                 "The Chinese fallback for an unavailable Japanese mode asked the client again.");
+        require(MSIMEAdoptReportedInputMode(state, MSIMEJapaneseInputModeID) &&
+                    !MSIMESelectSystemInputMode(state, MSIMEJapaneseInputModeID, client, Available) && client.selected.count == 4,
+                "A Japanese mode the system reported as shown was replaced by the Chinese fallback.");
         gJapaneseModeEnabled = YES;
         MSIMEAdoptReportedInputMode(state, MSIMEChineseInputModeID);
 
