@@ -59,6 +59,7 @@ import { VoiceInputCoreSection } from "./settings/voice-input-core-section";
 import { VoiceModelPathSection } from "./settings/voice-model-path-section";
 import { VoiceModelSection } from "./settings/voice-model-section";
 import { DoubaoAuthModeSection, type DoubaoAuthMode } from "./settings/doubao-auth-mode-section";
+import { DoubaoStreamEndpointSection } from "./settings/doubao-stream-endpoint-section";
 import { VoiceModelMirrorSection } from "./settings/voice-model-mirror-section";
 import {
   MobileKeyboardFeedbackSection,
@@ -415,6 +416,10 @@ export {
   type DoubaoAuthMode,
   type DoubaoAuthModeSectionProps,
 } from "./settings/doubao-auth-mode-section";
+export {
+  DoubaoStreamEndpointSection,
+  type DoubaoStreamEndpointSectionProps,
+} from "./settings/doubao-stream-endpoint-section";
 export {
   VoiceModelMirrorSection,
   type VoiceModelMirrorSectionProps,
@@ -7404,40 +7409,10 @@ export function SettingsPage({
                     {showVoiceProviderSettings && !linuxPlatform && serviceVoice && (
                       <>
                         {voiceInput.asr_provider === "doubao" && (
-                          <div className="section">
-                            <label className="section-header">
-                              <span className="section-title">
-                                流式接口
-                                <small>
-                                  整句流式边录边传、说完返回整句，服务方称准确率更高并推荐用于输入法；双向流式返回增量结果，流式预编辑刷新更频繁。选择后写入下方接口地址。
-                                </small>
-                              </span>
-                              <select
-                                aria-label="流式接口"
-                                value={
-                                  DOUBAO_STREAM_ENDPOINTS.find(
-                                    (option) => option.endpoint === (voiceInput.asr_endpoint ?? ""),
-                                  )?.id ?? "custom"
-                                }
-                                onChange={(event) => {
-                                  const chosen = DOUBAO_STREAM_ENDPOINTS.find(
-                                    (option) => option.id === event.target.value,
-                                  );
-                                  if (chosen) updateVoice({ asr_endpoint: chosen.endpoint });
-                                }}
-                              >
-                                {DOUBAO_STREAM_ENDPOINTS.map((option) => (
-                                  <option key={option.id} value={option.id}>
-                                    {option.title}
-                                  </option>
-                                ))}
-                                {/* Whatever is in the field now, when it is neither
-                                    preset. Selecting it does nothing: the address
-                                    below stays the place to type one. */}
-                                <option value="custom">自定义地址</option>
-                              </select>
-                            </label>
-                          </div>
+                          <DoubaoStreamEndpointSection
+                            endpoint={voiceInput.asr_endpoint ?? ""}
+                            onChange={(asr_endpoint) => updateVoice({ asr_endpoint })}
+                          />
                         )}
                         <div className="section">
                           <label className="section-header">
