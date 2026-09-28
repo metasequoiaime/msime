@@ -52,9 +52,7 @@ pub(super) fn validate_clipboard_page(value: &AccountClipboardPage) -> Result<()
 
 fn dictionary_code_is_well_formed(kind: DictionaryKind, code: &str) -> bool {
     match kind {
-        DictionaryKind::Pinyin => code
-            .bytes()
-            .all(|byte| byte.is_ascii_lowercase() || matches!(byte, b'\'' | b' ')),
+        DictionaryKind::Pinyin => crate::dictionary::pinyin_code_is_well_formed(code, true),
         DictionaryKind::Wubi => crate::dictionary::wubi_code_is_well_formed(code),
         DictionaryKind::Quick => code
             .bytes()

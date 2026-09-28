@@ -67,10 +67,7 @@ impl PersonalWord {
             PersonalWordKind::English => 64,
         };
         let key_valid = match self.kind {
-            PersonalWordKind::Pinyin => self
-                .key
-                .bytes()
-                .all(|byte| byte.is_ascii_lowercase() || byte == b'\'' || byte == b' '),
+            PersonalWordKind::Pinyin => super::pinyin_code_is_well_formed(&self.key, true),
             PersonalWordKind::Wubi => super::wubi_code_is_well_formed(&self.key),
             PersonalWordKind::QuickPhrase => self
                 .key

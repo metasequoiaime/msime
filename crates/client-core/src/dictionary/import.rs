@@ -51,11 +51,9 @@ impl ImportKind {
 
     fn key_is_well_formed(self, key: &str, format: ImportFormat) -> bool {
         match self {
-            ImportKind::Pinyin => key.bytes().all(|byte| {
-                byte.is_ascii_lowercase()
-                    || byte == b'\''
-                    || (format == ImportFormat::Rime && byte == b' ')
-            }),
+            ImportKind::Pinyin => {
+                super::pinyin_code_is_well_formed(key, format == ImportFormat::Rime)
+            }
             ImportKind::Wubi => super::wubi_code_is_well_formed(key),
             ImportKind::QuickPhrase => super::quick_phrase_code_is_well_formed(key),
             ImportKind::English => super::english_code_is_well_formed(key),

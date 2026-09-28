@@ -43,3 +43,10 @@ pub fn quick_phrase_code_is_well_formed(code: &str) -> bool {
 pub fn wubi_code_is_well_formed(code: &str) -> bool {
     code.bytes().all(|byte| byte.is_ascii_lowercase())
 }
+
+/// Whether `code` contains the lowercase letters and apostrophes accepted by pinyin input.
+/// Rime's word-first import format also permits spaces between syllables.
+pub fn pinyin_code_is_well_formed(code: &str, allow_spaces: bool) -> bool {
+    code.bytes()
+        .all(|byte| byte.is_ascii_lowercase() || byte == b'\'' || (allow_spaces && byte == b' '))
+}

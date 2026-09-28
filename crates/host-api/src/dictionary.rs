@@ -1250,10 +1250,7 @@ fn validate_entry(entry: &Entry) -> Result<(), String> {
         Kind::English => 64,
     };
     let key_valid = match entry.kind {
-        Kind::Pinyin => entry
-            .key
-            .bytes()
-            .all(|b| b.is_ascii_lowercase() || b == b'\'' || b == b' '),
+        Kind::Pinyin => msime_client_core::dictionary::pinyin_code_is_well_formed(&entry.key, true),
         Kind::Wubi | Kind::QuickPhrase => entry.key.bytes().all(|b| {
             b.is_ascii_lowercase()
                 || (matches!(entry.kind, Kind::QuickPhrase) && b.is_ascii_digit())
