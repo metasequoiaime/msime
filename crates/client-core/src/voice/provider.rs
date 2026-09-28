@@ -59,6 +59,12 @@ struct ResolvedVoiceFields {
     token: String,
 }
 
+fn bounded_voice_fields(fields: &ResolvedVoiceFields) -> bool {
+    crate::text::is_bounded_text(&fields.endpoint, 2_048)
+        && crate::text::is_bounded_text(&fields.model, 512)
+        && crate::text::is_bounded_text(&fields.token, 16 * 1024)
+}
+
 fn resolve_voice_fields(
     provider: &str,
     endpoint: &str,
@@ -128,11 +134,9 @@ pub fn mobile_voice_polish_configuration(
         (default_endpoint, default_model),
     );
     if !fields.endpoint.starts_with("https://")
-        || !crate::text::is_bounded_text(&fields.endpoint, 2_048)
+        || !bounded_voice_fields(&fields)
         || fields.model.is_empty()
-        || !crate::text::is_bounded_text(&fields.model, 512)
         || fields.token.is_empty()
-        || !crate::text::is_bounded_text(&fields.token, 16 * 1024)
     {
         return None;
     }
@@ -193,11 +197,7 @@ pub fn mobile_voice_provider_configuration(
         (default_endpoint, default_model),
     );
     let boosting_table_id = voice.doubao_boosting_table_id.trim();
-    if !crate::text::is_bounded_text(&fields.endpoint, 2_048)
-        || !crate::text::is_bounded_text(&fields.model, 512)
-        || !crate::text::is_bounded_text(&fields.token, 16 * 1024)
-        || !crate::text::is_bounded_text(boosting_table_id, 4_096)
-    {
+    if !bounded_voice_fields(&fields) || !crate::text::is_bounded_text(boosting_table_id, 4_096) {
         return None;
     }
     let headers = if voice.asr_provider == "doubao" {
