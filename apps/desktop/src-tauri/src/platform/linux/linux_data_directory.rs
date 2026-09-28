@@ -129,26 +129,6 @@ fn copy_entry(source: &Path, destination: &Path) -> Result<(), MoveError> {
         .map_err(|_| MoveError::Copy)
 }
 
-fn remove_entry(path: &Path) -> io::Result<()> {
-    let metadata = fs::symlink_metadata(path)?;
-    if metadata.is_dir() && !metadata.file_type().is_symlink() {
-        fs::remove_dir_all(path)
-    } else {
-        fs::remove_file(path)
-    }
-}
-
-fn validate_directory(path: &Path, error: MoveError) -> Result<PathBuf, MoveError> {
-    if !path.is_absolute() {
-        return Err(error);
-    }
-    let metadata = fs::symlink_metadata(path).map_err(|_| error)?;
-    if !metadata.is_dir() || metadata.file_type().is_symlink() {
-        return Err(error);
-    }
-    fs::canonicalize(path).map_err(|_| error)
-}
-
 /// A staging directory of an earlier move, or the trash of a cleanup that could not finish. It is never state to carry along, nor user content that makes a directory non-empty.
 fn is_staging(name: &std::ffi::OsStr) -> bool {
     name.to_str()
@@ -249,7 +229,7 @@ fn rollback(target: &Path, placed: &[OsString], wrote_marker: bool, backups: &[L
         let _ = atomic_write(&backup.path, &backup.contents);
     }
     for name in placed {
-        let _ = remove_entry(&target.join(name));
+        let _ = crate::platform::desktop::desktop_data_directory::remove_entry(&target.join(name));
     }
     if wrote_marker {
         let _ = fs::remove_file(target.join(DATA_DIRECTORY_MARKER));
@@ -308,8 +288,14 @@ pub(crate) fn plan_move(
     default_root: &Path,
     locators: &[PathBuf],
 ) -> Result<Option<MovePlan>, MoveError> {
-    let source = validate_directory(source, MoveError::InvalidSource)?;
-    let target = validate_directory(target, MoveError::InvalidTarget)?;
+    let source = crate::platform::desktop::desktop_data_directory::validate_directory(
+        source,
+        MoveError::InvalidSource,
+    )?;
+    let target = crate::platform::desktop::desktop_data_directory::validate_directory(
+        target,
+        MoveError::InvalidTarget,
+    )?;
     let default_root = fs::canonicalize(default_root).map_err(|_| MoveError::InvalidSource)?;
     if source == target {
         return Ok(None);
