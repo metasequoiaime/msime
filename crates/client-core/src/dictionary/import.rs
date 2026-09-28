@@ -328,7 +328,7 @@ fn parse_row(
     if key.len() > kind.key_limit() {
         return Err(ImportIssue::KeyTooLong);
     }
-    if !kind.key_is_well_formed(&key, format) || key.chars().any(char::is_control) {
+    if !kind.key_is_well_formed(&key, format) {
         return Err(ImportIssue::KeyAlphabet);
     }
     if word.is_empty() {
