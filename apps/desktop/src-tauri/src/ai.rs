@@ -21,15 +21,14 @@ pub(crate) enum AiResponseBodyError {
 /// Read at most one byte past the response limit so streams without a reliable
 /// Content-Length cannot grow the settings process without bound.
 pub(crate) fn read_ai_response_body(reader: impl Read) -> Result<Vec<u8>, AiResponseBodyError> {
-    let mut bytes = Vec::new();
-    reader
-        .take((MAX_RESPONSE_BYTES + 1) as u64)
-        .read_to_end(&mut bytes)
-        .map_err(|_| AiResponseBodyError::Read)?;
-    if bytes.len() > MAX_RESPONSE_BYTES {
-        return Err(AiResponseBodyError::TooLarge);
-    }
-    Ok(bytes)
+    crate::shared::bounded_body::read_bounded(reader, MAX_RESPONSE_BYTES).map_err(|error| {
+        match error {
+            crate::shared::bounded_body::BoundedReadError::TooLarge => {
+                AiResponseBodyError::TooLarge
+            }
+            crate::shared::bounded_body::BoundedReadError::Read(_) => AiResponseBodyError::Read,
+        }
+    })
 }
 
 pub(crate) fn validate_ai_endpoint(value: &str) -> Result<Url, CommandError> {

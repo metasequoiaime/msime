@@ -11,7 +11,6 @@ use msime_client_core::{
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::BTreeSet;
-use std::io::Read;
 use std::time::Duration;
 
 const MAX_ENDPOINT_LENGTH: usize = 2_048;
@@ -79,15 +78,12 @@ fn models_url(endpoint: &str) -> Result<reqwest::Url, Error> {
 }
 
 fn bounded_response(response: reqwest::blocking::Response) -> Result<Vec<u8>, Error> {
-    let mut limited = response.take((MAX_RESPONSE_BYTES + 1) as u64);
-    let mut bytes = Vec::new();
-    limited
-        .read_to_end(&mut bytes)
-        .map_err(|_| Error::Unavailable)?;
-    if bytes.len() > MAX_RESPONSE_BYTES {
-        return Err(Error::Invalid);
-    }
-    Ok(bytes)
+    crate::shared::bounded_body::read_bounded(response, MAX_RESPONSE_BYTES).map_err(|error| {
+        match error {
+            crate::shared::bounded_body::BoundedReadError::TooLarge => Error::Invalid,
+            crate::shared::bounded_body::BoundedReadError::Read(_) => Error::Unavailable,
+        }
+    })
 }
 
 fn parse_models(page: ModelPage, models: &mut BTreeSet<String>) -> Result<(), Error> {
