@@ -1,3 +1,5 @@
+import { SettingToggle } from "./setting-toggle";
+
 export interface PunctuationPreferences {
   chinese_punctuation: boolean;
   character_width?: "halfwidth" | "fullwidth";
@@ -84,20 +86,13 @@ export function PunctuationSection({
         </div>
       )}
       {switches.map(([key, label, description]) => (
-        <div className="section" key={key}>
-          <label className="section-header">
-            <span className="section-title">
-              {label}
-              <small>{description}</small>
-            </span>
-            <input
-              className="toggle"
-              type="checkbox"
-              checked={preferences[key] ?? key === "paired_punctuation"}
-              onChange={(event) => onChange({ [key]: event.target.checked })}
-            />
-          </label>
-        </div>
+        <SettingToggle
+          key={key}
+          label={label}
+          description={description}
+          checked={preferences[key] ?? key === "paired_punctuation"}
+          onChange={(checked) => onChange({ [key]: checked })}
+        />
       ))}
       <div className="section">
         <label className="section-header">
