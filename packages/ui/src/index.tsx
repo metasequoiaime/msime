@@ -66,6 +66,7 @@ import { ProviderPresetSection, type ProviderPreset } from "./settings/provider-
 import { CredentialStatusMessage } from "./settings/credential-status-message";
 import { AiCredentialSection } from "./settings/ai-credential-section";
 import { NiuTransSection } from "./settings/niutrans-section";
+import { CustomTranslationSection } from "./settings/custom-translation-section";
 import {
   VoiceCredentialSection,
   type VoiceCredentialSaveInput,
@@ -465,6 +466,10 @@ export {
   type AiCredentialStored,
 } from "./settings/ai-credential-section";
 export { NiuTransSection, type NiuTransSectionProps } from "./settings/niutrans-section";
+export {
+  CustomTranslationSection,
+  type CustomTranslationSectionProps,
+} from "./settings/custom-translation-section";
 export {
   DictionaryManifestCard,
   type DictionaryManifestCardProps,
@@ -6062,90 +6067,44 @@ export function SettingsPage({
                             </button>
                           </div>
                         )}
-                        <div className="section" role="group" aria-label="自定义翻译服务">
-                          <label className="section-header">
-                            <span className="section-title">
-                              自定义翻译服务
-                              <small>
-                                改用自建的兼容 DeepLX 的 HTTPS
-                                服务；关闭后候选词翻译使用上面选择的在线服务
-                              </small>
-                            </span>
-                            <input
-                              aria-label="自定义翻译服务"
-                              className="toggle"
-                              type="checkbox"
-                              disabled={!candidateTranslations}
-                              checked={customTranslation.enabled}
-                              onChange={(event) =>
-                                setDraft({
-                                  ...draft,
-                                  custom_translation: {
-                                    ...customTranslation,
-                                    enabled: event.target.checked,
-                                  },
-                                  // Same rule as the Tencent switch: a service of the user's own ends the account choice.
-                                  ...(event.target.checked
-                                    ? { translation_account: undefined }
-                                    : {}),
-                                })
-                              }
-                            />
-                          </label>
-                          <div className="input-option-divider" />
-                          <label className="section-header">
-                            <span className="section-title">翻译 Endpoint</span>
-                            <input
-                              aria-label="自定义翻译 Endpoint"
-                              type="url"
-                              value={customTranslation.endpoint}
-                              disabled={!candidateTranslations || !customTranslation.enabled}
-                              onChange={(event) =>
-                                setDraft({
-                                  ...draft,
-                                  custom_translation: {
-                                    ...customTranslation,
-                                    endpoint: event.target.value,
-                                  },
-                                })
-                              }
-                              placeholder="https://example.com/translate"
-                            />
-                          </label>
-                          {candidateTranslations &&
-                            customTranslation.enabled &&
-                            translationEndpointIssue(customTranslation.endpoint) && (
-                              <p className={settings.settingsWarning} role="status">
-                                {translationEndpointIssue(customTranslation.endpoint)}
-                              </p>
-                            )}
-                          <div className="input-option-divider" />
-                          <label className="section-header">
-                            <span className="section-title">API Key</span>
-                            <SecretInput
-                              label="自定义翻译 API Key"
-                              value={customTranslation.api_key}
-                              disabled={!candidateTranslations || !customTranslation.enabled}
-                              onChange={(value) =>
-                                setDraft({
-                                  ...draft,
-                                  custom_translation: { ...customTranslation, api_key: value },
-                                })
-                              }
-                            />
-                          </label>
-                          {customTranslation.enabled &&
-                            credentialTestControl(
-                              "translation.custom",
-                              "测试自定义翻译配置",
-                              {
-                                endpoint: customTranslation.endpoint,
-                                api_key: customTranslation.api_key,
-                              },
-                              !candidateTranslations ||
-                                Boolean(translationEndpointIssue(customTranslation.endpoint)),
-                            )}
-                        </div>
+                        <CustomTranslationSection
+                          enabled={customTranslation.enabled}
+                          available={candidateTranslations}
+                          endpoint={customTranslation.endpoint}
+                          apiKey={customTranslation.api_key}
+                          endpointIssue={translationEndpointIssue(customTranslation.endpoint)}
+                          onToggle={(enabled) =>
+                            setDraft({
+                              ...draft,
+                              custom_translation: { ...customTranslation, enabled },
+                              // Same rule as the Tencent switch: a service of the user's own ends the account choice.
+                              ...(enabled ? { translation_account: undefined } : {}),
+                            })
+                          }
+                          onEndpointChange={(endpoint) =>
+                            setDraft({
+                              ...draft,
+                              custom_translation: { ...customTranslation, endpoint },
+                            })
+                          }
+                          onApiKeyChange={(api_key) =>
+                            setDraft({
+                              ...draft,
+                              custom_translation: { ...customTranslation, api_key },
+                            })
+                          }
+                        >
+                          {credentialTestControl(
+                            "translation.custom",
+                            "测试自定义翻译配置",
+                            {
+                              endpoint: customTranslation.endpoint,
+                              api_key: customTranslation.api_key,
+                            },
+                            !candidateTranslations ||
+                              Boolean(translationEndpointIssue(customTranslation.endpoint)),
+                          )}
+                        </CustomTranslationSection>
                       </>
                     )}
                     <WordCharacterSection
