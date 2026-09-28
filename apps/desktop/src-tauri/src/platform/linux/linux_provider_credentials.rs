@@ -7,6 +7,7 @@
 //! The React surface only learns which providers have a credential and the endpoint and model each one is bound to. Secrets travel from the webview into this process and never back.
 
 use super::config_home;
+use msime_client_core::is_ascii_graphic;
 use reqwest::Url;
 use serde::Serialize;
 use serde_json::{Map, Value};
@@ -281,7 +282,7 @@ fn has_control(value: &str) -> bool {
 /// A secret as the provider accepts it: printable ASCII, and not an obvious placeholder.
 fn valid_secret(value: &str) -> bool {
     !value.is_empty()
-        && value.bytes().all(|byte| (33..=126).contains(&byte))
+        && is_ascii_graphic(value)
         && !value.starts_with('<')
         && !value.starts_with("FAKESECRET_")
 }
@@ -528,7 +529,7 @@ fn doubao_auth_mode(entry: &Map<String, Value>) -> &'static str {
 }
 
 fn doubao_field_ok(value: &str) -> bool {
-    value.len() <= MAX_DOUBAO_FIELD && value.bytes().all(|byte| (33..=126).contains(&byte))
+    value.len() <= MAX_DOUBAO_FIELD && is_ascii_graphic(value)
 }
 
 /// Whether `entry` is the provider's on-device recognition entry, which `load_config` accepts without a credential.

@@ -60,6 +60,11 @@ pub fn is_ascii_alphabetic(value: &str) -> bool {
     value.bytes().all(|byte| byte.is_ascii_alphabetic())
 }
 
+/// Whether a value contains only visible ASCII characters (U+0021 through U+007E).
+pub fn is_ascii_graphic(value: &str) -> bool {
+    value.bytes().all(|byte| (33..=126).contains(&byte))
+}
+
 /// Whether a value contains only lowercase ASCII letters.
 pub fn is_ascii_lowercase(value: &str) -> bool {
     value.bytes().all(|byte| byte.is_ascii_lowercase())
