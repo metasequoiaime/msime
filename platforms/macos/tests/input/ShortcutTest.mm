@@ -1832,9 +1832,16 @@ static void TestFloatingToolbarMenuToggle(MSIMEAppearancePreferences *appearance
 }
 @end
 
+@interface ServiceCountingController : ModeController
+@property(nonatomic) NSUInteger serviceSyncs;
+@end
+@implementation ServiceCountingController
+- (void)synchronizeCandidateServices { ++self.serviceSyncs; [super synchronizeCandidateServices]; }
+@end
+
 // A gloss changes what the card shows, never the composition. Its arrival must not write the marked text again: IMK services the next key inside that synchronous call, which is how a keystroke, reranking and all, came to run nested in every gloss arrival.
 static void TestGlossArrivalRedrawsOnlyTheCard(MSIMEAppearancePreferences *appearance) {
-    ModeController *controller = [ModeController alloc];
+    ServiceCountingController *controller = [ServiceCountingController alloc];
     GlossArrivalSession *session = [GlossArrivalSession new];
     NestingClient *client = [NestingClient new];
     HiddenCandidatePanel *panel = [[HiddenCandidatePanel alloc] init];
@@ -1847,9 +1854,20 @@ static void TestGlossArrivalRedrawsOnlyTheCard(MSIMEAppearancePreferences *appea
     assert(session.applications == 1 && client.markedWrites == 0);
     NSDictionary *view = [controller valueForKey:@"view"];
     assert([view[@"candidates"][0][@"translation"] isEqual:@"you"]);
-    // The same gloss arriving again leaves everything as it is.
+    // The same gloss arriving again leaves the card as it is, but what depends on the answer still follows it: an offline lookup that found nothing for this page is what lets the online fallback start.
+    const NSUInteger syncs = controller.serviceSyncs;
     [controller applyCandidateTranslationResults];
     assert(session.applications == 2 && client.markedWrites == 0 && [controller valueForKey:@"view"] == view);
+    assert(controller.serviceSyncs == syncs + 1);
+
+    // A gloss merged while an apply: is writing the marked text belongs to the same page; the transition finishing afterwards carries the page from before it and must not take the gloss away.
+    session.translated = NO;
+    NSDictionary *untranslated = [session viewWithError:nil];
+    [controller setValue:untranslated forKey:@"view"];
+    __weak ServiceCountingController *weakController = controller;
+    client.onMarkedText = ^{ [weakController applyCandidateTranslationResults]; };
+    [controller apply:@{@"view":untranslated}];
+    assert([[controller valueForKey:@"view"][@"candidates"][0][@"translation"] isEqual:@"you"]);
 }
 
 // An apply: that writes marked text can have a newer key handled inside that call; the older transition finishing afterwards must not put its view back over the newer one.

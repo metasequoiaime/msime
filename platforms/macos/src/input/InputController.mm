@@ -791,6 +791,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSDictionary *_view;
     // Bumped by every apply:. Writing marked text is a synchronous call into the client, and IMK services the next key inside it, so an apply: can finish after a newer one that ran nested in it.
     uint64_t _applySequence;
+    // Bumped when a gloss arrival replaces the view, which can also happen inside an apply:'s marked-text write.
+    uint64_t _glossViewSequence;
     NSObject *_candidateMenuToken;
     NSPanel *_panel;
     NSRect _candidateAnchorCaret;
@@ -1671,11 +1673,14 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (![applied[@"applied"] boolValue]) return;
     // A gloss changes what the card shows, never the composition, so only the card is redrawn. Going through apply: re-sent the marked text on every arrival, and IMK services the next key inside that synchronous setMarkedText: call - the whole keystroke, reranking included, ran nested in it, after which the outer apply: wrote the older view back over the newer one.
     NSDictionary *next = applied[@"view"];
-    if (![next isKindOfClass:NSDictionary.class] || [next isEqual:_view]) return;
-    [self discardGlossSensePage];
-    _view = next;
-    [self renderCandidates];
-    // What one source answered decides what the next asks for: the online fallback, for one, waits for the offline lookup.
+    if (![next isKindOfClass:NSDictionary.class]) return;
+    if (![next isEqual:_view]) {
+        [self discardGlossSensePage];
+        _view = next;
+        ++_glossViewSequence;
+        [self renderCandidates];
+    }
+    // What one source answered decides what the next asks for, even when it answered nothing for this page: the online fallback waits for the offline lookup.
     [self synchronizeCandidateServices];
 }
 
@@ -5004,6 +5009,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         displayTransition = converted;
     }
     const uint64_t applySequence = ++_applySequence;
+    const uint64_t glossViewSequence = _glossViewSequence;
     NSString *pendingClosing = _pendingPairedClosing;
     MSIMEApplyTransitionWithPendingClosing(displayTransition, (id<MSIMETextClient>)_activeClient,
                                            _appearance.inlinePreeditStyle, pendingClosing);
@@ -5033,7 +5039,10 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     }
     // A key handled while this transition's text was being written has already put the newer view on screen; this one is older and must not replace it.
     if (applySequence != _applySequence) return;
-    _view = transition[@"view"];
+    // A gloss that arrived during the write was merged into this same page, and the transition's copy of the page predates it.
+    if (glossViewSequence == _glossViewSequence || ![_view[@"session"] isEqual:transition[@"view"][@"session"]] ||
+        ![_view[@"generation"] isEqual:transition[@"view"][@"generation"]])
+        _view = transition[@"view"];
     if (![_view[@"candidates"] isKindOfClass:NSArray.class] || ![_view[@"candidates"] count])
         _armedGlossColumn = 0;
     [self refreshFloatingToolbarState];

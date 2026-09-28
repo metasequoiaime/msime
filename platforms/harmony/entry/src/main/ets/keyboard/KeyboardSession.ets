@@ -4156,16 +4156,16 @@ export class KeyboardSession implements HardwareKeyTarget {
         KeyboardLog.error(`preferences refused: ${applied.error}`);
         return false;
       }
-      const saved: PrepareResponse =
+      const saved: SnapshotResponse =
         JSON.parse(client.savePreferences(this.stateDirectory, expected, document)) as
-          PrepareResponse;
+          SnapshotResponse;
       if (!saved.ok) {
         // The session already has them; only the write failed. Say so rather than pretending the
         // change did not happen, because on screen it plainly did.
         KeyboardLog.error(`preferences not persisted: ${saved.error}`);
       } else {
-        // Our own write, already applied; the next focus must not rebuild the session for it.
-        this.preferencesRevision = expected + 1;
+        // Our own write, already applied; the next focus must not rebuild the session for it. The revision is the store's answer rather than expected + 1: a save that changes nothing keeps the stored revision, and assuming the next one would make the next real change made elsewhere look like this one.
+        this.preferencesRevision = saved.value.revision;
       }
       this.clipboardHistoryEnabled = nextClipboardHistory;
       if (changes.has('voice_input')) {
