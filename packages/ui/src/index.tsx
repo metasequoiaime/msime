@@ -80,6 +80,10 @@ import {
 import { ProviderPresetSection, type ProviderPreset } from "./settings/provider-preset-section";
 import { CredentialStatusMessage } from "./settings/credential-status-message";
 import { AiCredentialSection } from "./settings/ai-credential-section";
+import {
+  AiBasicSettingsSection,
+  type AiProviderOption,
+} from "./settings/ai-basic-settings-section";
 import { NiuTransSection } from "./settings/niutrans-section";
 import { CustomTranslationSection } from "./settings/custom-translation-section";
 import { CustomTranslationsSection } from "./settings/custom-translations-section";
@@ -7120,70 +7124,30 @@ export function SettingsPage({
                     )}
                   </fieldset>
                   <fieldset disabled={busy} hidden={page !== "ai"} aria-label="AI 辅助">
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          启用 AI 辅助
-                          <small>
-                            {iosPlatform
-                              ? "为键盘 AI 联想、回复与润色提供共享配置"
-                              : androidPlatform
-                                ? "为拼音联想和 Android 选中文字润色提供共享配置"
-                                : "为拼音联想提供共享配置"}
-                          </small>
-                        </span>
-                        <input
-                          aria-label="启用 AI 辅助"
-                          className="toggle"
-                          type="checkbox"
-                          checked={ai.enabled}
-                          onChange={(event) => updateAi({ enabled: event.target.checked })}
-                        />
-                      </label>
-                    </div>
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">服务提供商</span>
-                        <select
-                          aria-label="AI 服务提供商"
-                          value={ai.provider}
-                          onChange={(event) => updateAi(aiProviderUpdate(event.target.value, ai))}
-                        >
-                          {AI_PROVIDER_OPTIONS.map((option) => (
-                            <option key={option.id} value={option.id}>
-                              {option.title}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    </div>
-                    {providerPresetControls(
-                      "AI ",
-                      AI_PROVIDER_OPTIONS.find((option) => option.id === ai.provider),
-                      ai.model,
-                      (model) => updateAi({ model }),
-                    )}
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">模型</span>
-                        <input
-                          aria-label="AI 模型"
-                          value={ai.model}
-                          onChange={(event) => updateAi({ model: event.target.value })}
-                        />
-                      </label>
-                    </div>
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">接口地址</span>
-                        <input
-                          aria-label="AI 接口地址"
-                          type="url"
-                          value={ai.endpoint}
-                          onChange={(event) => updateAi({ endpoint: event.target.value })}
-                        />
-                      </label>
-                    </div>
+                    <AiBasicSettingsSection
+                      enabled={ai.enabled}
+                      enabledDescription={
+                        iosPlatform
+                          ? "为键盘 AI 联想、回复与润色提供共享配置"
+                          : androidPlatform
+                            ? "为拼音联想和 Android 选中文字润色提供共享配置"
+                            : "为拼音联想提供共享配置"
+                      }
+                      provider={ai.provider}
+                      providerOptions={AI_PROVIDER_OPTIONS as readonly AiProviderOption[]}
+                      model={ai.model}
+                      endpoint={ai.endpoint}
+                      providerPreset={providerPresetControls(
+                        "AI ",
+                        AI_PROVIDER_OPTIONS.find((option) => option.id === ai.provider),
+                        ai.model,
+                        (model) => updateAi({ model }),
+                      )}
+                      onEnabledChange={(enabled) => updateAi({ enabled })}
+                      onProviderChange={(provider) => updateAi(aiProviderUpdate(provider, ai))}
+                      onModelChange={(model) => updateAi({ model })}
+                      onEndpointChange={(endpoint) => updateAi({ endpoint })}
+                    />
                     {linuxPlatform && client.providerCredentials ? (
                       <AiCredentialSection
                         endpoint={ai.endpoint}
