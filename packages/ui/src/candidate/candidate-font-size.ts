@@ -2,15 +2,16 @@ import type { CSSProperties } from "react";
 
 // Shared preferences and pinned Windows appearance controls both use 12–32.
 export const candidateFontSizes = Array.from({ length: 21 }, (_, index) => index + 12);
-export function candidateFontSize(value: unknown): number {
+function candidateFontSizeValue(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isInteger(value) && value >= 12 && value <= 32
     ? value
-    : 18;
+    : fallback;
+}
+export function candidateFontSize(value: unknown): number {
+  return candidateFontSizeValue(value, 18);
 }
 export function candidatePreeditFontSize(value: unknown): number {
-  return typeof value === "number" && Number.isInteger(value) && value >= 12 && value <= 32
-    ? value
-    : 15;
+  return candidateFontSizeValue(value, 15);
 }
 export function candidateFontStyle(preferences: {
   candidate_font_size?: number;
