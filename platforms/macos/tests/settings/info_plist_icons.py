@@ -5,7 +5,7 @@
 
 另一半是文件缺失：plist 里这些键是字符串，资源改名之后不会报错，菜单直接回落到一个通用图标。
 
-输入源列表里每一条显示的都是同一个标志：每个输入模式的菜单图标和面板图标都指向 bundle 自己的菜单图标，中文、英文和日语三条不会各自漂成不同的图标。
+每个输入模式的菜单图标和面板图标是同一张，而且各模式之间互不相同：三条都用 bundle 自己的标志时，菜单栏和系统的 Ctrl+空格 切换条上三个模式一模一样，分不清当前是哪个。模式图标由 scripts/render_menu_icon.swift 在标志上加 中 / 日 / 英 角标生成。
 """
 
 import plistlib
@@ -101,16 +101,18 @@ def main() -> int:
         if palette != menu:
             failures.append(f"input mode {mode} names {menu} for the menu but {palette} for the palette")
         mode_icons[mode] = menu
-    logos = named.get("tsInputMethodIconFileKey", set())
+    shared: dict[str, list[str]] = {}
     for mode, icon in sorted(mode_icons.items()):
-        if icon not in logos:
-            failures.append(f"input mode {mode} names {icon} rather than the bundle's logo; the input-source list would mix icons")
+        shared.setdefault(icon, []).append(mode)
+    for icon, owners in sorted(shared.items()):
+        if len(owners) > 1:
+            failures.append(f"input modes {', '.join(owners)} all name {icon}; the menu bar and the switcher could not tell them apart")
 
     if failures:
         for failure in failures:
             print(failure, file=sys.stderr)
         return 1
-    print(f"{sum(len(v) for v in named.values())} icon references resolve; the menu icons carry both pages and all {len(mode_icons)} input modes show the bundle's logo.")
+    print(f"{sum(len(v) for v in named.values())} icon references resolve; the menu icons carry both pages and each of the {len(mode_icons)} input modes has its own.")
     return 0
 
 

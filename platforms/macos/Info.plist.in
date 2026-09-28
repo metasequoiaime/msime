@@ -24,9 +24,9 @@
 <key>InputMethodServerControllerClass</key><string>MSIMEInputController</string>
 <key>InputMethodServerDelegateClass</key><string>MSIMEInputController</string>
 <key>InputMethodServerPreferencesWindowControllerClass</key><string>MSIMEPreferencesWindowController</string>
-<!-- 输入菜单经 HIToolbox 绘制图标，它读的是文件里的页，而不是某一页的 DPI。把 256 点的应用图标放进这个槽位，会被当作图片缩进 16 点的菜单槽而不是模板，于是没法跟随深色模式或高亮菜单行着色。这里的标志同时被下面三个输入模式复用，输入源列表里每一条显示的都是同一个图标；它带 16x16 @72dpi 和 32x32 @144dpi 两页，这是苹果自家输入法的配法，图形是纯黑、形状完全由 alpha 通道承载。改过旁边的 SVG 之后用 scripts/render_menu_icon.swift 重新生成；页数由 info-plist-icons 检查。CFBundleIconFile 仍然是 .icns：那是设置窗口的 Dock 图标，要的是全彩图。 -->
+<!-- 输入菜单经 HIToolbox 绘制图标，它读的是文件里的页，而不是某一页的 DPI。把 256 点的应用图标放进这个槽位，会被当作图片缩进 16 点的菜单槽而不是模板，于是没法跟随深色模式或高亮菜单行着色。下面三个输入模式各用一张带角标的标志（中、日、英），菜单栏和系统的 Ctrl+空格 切换条才分得清是哪个模式——三条都用同一个标志时它们一模一样。每张都带 16x16 @72dpi 和 32x32 @144dpi 两页，这是苹果自家输入法的配法，图形是纯黑、形状完全由 alpha 通道承载。改过旁边的 SVG 之后用 scripts/render_menu_icon.swift 把这四张一起重新生成；页数由 info-plist-icons 检查。CFBundleIconFile 仍然是 .icns：那是设置窗口的 Dock 图标，要的是全彩图。 -->
 <key>tsInputMethodIconFileKey</key><string>MSIMEClientInputMethodMenuIcon.tiff</string>
-<!-- macOS 通过输入法的可见输入模式来提供它，本 bundle 声明了三个：中文模式、英文模式与日语模式。三个模式都用产品标志，所以菜单栏图标不随模式变化，当前是哪个模式由切换 HUD 提示。控制器与系统的模式报告双向保持一致：英文模式跟随中英文切换，日语模式跟随输入方案 japanese。在这些模式之外再留一个顶层 TISInputSourceID，会多出一条本地化名称相同的菜单项，所以 bundle 那一级的输入源刻意交给系统处理；每个模式在 InfoPlist.strings 里带各自的本地化名称——水杉输入法 · 中、· 日、· 英——几条读起来才不一样，可见顺序按中、日、英排列。模式标识符在 src/input/InputModeIdentifiers.h 里有一份对应。 -->
+<!-- macOS 通过输入法的可见输入模式来提供它，本 bundle 声明了三个：中文模式、英文模式与日语模式。三个模式的图标都是产品标志，右下角的角标写着模式的字，所以菜单栏图标随模式变化。控制器与系统的模式报告双向保持一致：英文模式跟随中英文切换，日语模式跟随输入方案 japanese。在这些模式之外再留一个顶层 TISInputSourceID，会多出一条本地化名称相同的菜单项，所以 bundle 那一级的输入源刻意交给系统处理；每个模式在 InfoPlist.strings 里带各自的本地化名称——水杉输入法 · 中、· 日、· 英——几条读起来才不一样，可见顺序按中、日、英排列。模式标识符在 src/input/InputModeIdentifiers.h 里有一份对应。 -->
 <key>ComponentInputModeDict</key>
 <dict>
   <key>tsInputModeListKey</key>
@@ -38,8 +38,8 @@
       <key>tsInputModeCharacterRepertoireKey</key><array><string>Hans</string></array>
       <key>tsInputModeDefaultStateKey</key><true/>
       <key>tsInputModeIsVisibleKey</key><true/>
-      <key>tsInputModeMenuIconFileKey</key><string>MSIMEClientInputMethodMenuIcon.tiff</string>
-      <key>tsInputModePaletteIconFileKey</key><string>MSIMEClientInputMethodMenuIcon.tiff</string>
+      <key>tsInputModeMenuIconFileKey</key><string>MSIMEClientInputMethodMenuIconChinese.tiff</string>
+      <key>tsInputModePaletteIconFileKey</key><string>MSIMEClientInputMethodMenuIconChinese.tiff</string>
       <key>tsInputModePrimaryInScriptKey</key><true/>
       <key>tsInputModeScriptKey</key><string>smSimpChinese</string>
     </dict>
@@ -50,8 +50,8 @@
       <key>tsInputModeCharacterRepertoireKey</key><array><string>Latn</string></array>
       <key>tsInputModeDefaultStateKey</key><true/>
       <key>tsInputModeIsVisibleKey</key><true/>
-      <key>tsInputModeMenuIconFileKey</key><string>MSIMEClientInputMethodMenuIcon.tiff</string>
-      <key>tsInputModePaletteIconFileKey</key><string>MSIMEClientInputMethodMenuIcon.tiff</string>
+      <key>tsInputModeMenuIconFileKey</key><string>MSIMEClientInputMethodMenuIconEnglish.tiff</string>
+      <key>tsInputModePaletteIconFileKey</key><string>MSIMEClientInputMethodMenuIconEnglish.tiff</string>
       <key>tsInputModePrimaryInScriptKey</key><false/>
       <key>tsInputModeScriptKey</key><string>smRoman</string>
     </dict>
@@ -62,8 +62,8 @@
       <key>tsInputModeCharacterRepertoireKey</key><array><string>Hira</string><string>Kana</string><string>Hani</string></array>
       <key>tsInputModeDefaultStateKey</key><true/>
       <key>tsInputModeIsVisibleKey</key><true/>
-      <key>tsInputModeMenuIconFileKey</key><string>MSIMEClientInputMethodMenuIcon.tiff</string>
-      <key>tsInputModePaletteIconFileKey</key><string>MSIMEClientInputMethodMenuIcon.tiff</string>
+      <key>tsInputModeMenuIconFileKey</key><string>MSIMEClientInputMethodMenuIconJapanese.tiff</string>
+      <key>tsInputModePaletteIconFileKey</key><string>MSIMEClientInputMethodMenuIconJapanese.tiff</string>
       <key>tsInputModePrimaryInScriptKey</key><true/>
       <key>tsInputModeScriptKey</key><string>smJapanese</string>
     </dict>

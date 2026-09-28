@@ -185,6 +185,10 @@ else
   rm -f "$keyboard_settings_cache"/com.apple.IntlDataCache.le*
 fi
 
+# The Ctrl+Space switcher beside the caret (CursorUIViewService) and the held-shortcut switcher (TextInputSwitcher) read the input-source list and its icons once and keep them for the life of the process, so after an install they go on showing the modes and icons of the build before it - a mode added since is missing and a changed icon is the old one. Both ignore SIGTERM, and launchd starts each again the next time it is needed.
+pkill -KILL -x CursorUIViewService || true
+pkill -KILL -x TextInputSwitcher || true
+
 # Three outcomes, and the note at the bottom is only right for one of them. Printing it for all three is
 # what this used to do: an input method that registers, enables its Chinese mode and types perfectly well
 # would be reported as absent from the session, with instructions to log out that cannot change anything,
