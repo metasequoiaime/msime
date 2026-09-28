@@ -1,4 +1,5 @@
 //! Pure descriptors and response parsing for the host-owned NiuTrans v2 API.
+use msime_client_core::cloud::dictionary::{percent_encode, valid_bounded_text};
 use msime_client_core::translation;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -23,24 +24,8 @@ struct Request {
     timestamp: String,
 }
 
-fn encode(value: &str) -> String {
-    let mut output = String::with_capacity(value.len());
-    for byte in value.bytes() {
-        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
-            output.push(byte as char);
-        } else {
-            output.push('%');
-            output.push(char::from(b"0123456789ABCDEF"[(byte >> 4) as usize]));
-            output.push(char::from(b"0123456789ABCDEF"[(byte & 0x0f) as usize]));
-        }
-    }
-    output
-}
-
 fn valid_credential(value: &str) -> bool {
-    translation::usable_niutrans_credential(value)
-        && value.len() <= 4096
-        && !value.chars().any(char::is_control)
+    translation::usable_niutrans_credential(value) && valid_bounded_text(value, 4096)
 }
 
 pub fn descriptor(bytes: &[u8]) -> Result<Value, &'static str> {
@@ -75,11 +60,11 @@ pub fn descriptor(bytes: &[u8]) -> Result<Value, &'static str> {
     );
     let body = format!(
         "from={}&to={}&appId={}&timestamp={}&srcText={}&authStr={auth}",
-        encode(source),
-        encode(target),
-        encode(app_id),
-        encode(&request.timestamp),
-        encode(&request.text),
+        percent_encode(source),
+        percent_encode(target),
+        percent_encode(app_id),
+        percent_encode(&request.timestamp),
+        percent_encode(&request.text),
     );
     Ok(json!({
         "url": URL,

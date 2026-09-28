@@ -19,7 +19,8 @@ int main() {
         assert([merged[@"floating_toolbar"][@"punctuation"] boolValue]);
         assert([merged[@"floating_toolbar"][@"fullwidth"] boolValue]);
         assert([merged[@"floating_toolbar"][@"character_set"] boolValue]);
-        assert([merged[@"floating_toolbar"][@"emoji"] boolValue]);
+        // Emoji is opt-in with the screen keyboard, so the merge publishes the compact toolbar.
+        assert(![merged[@"floating_toolbar"][@"emoji"] boolValue]);
         assert(![merged[@"floating_toolbar"][@"screen_keyboard"] boolValue]);
         assert([merged[@"floating_toolbar"][@"settings"] boolValue]);
         assert([merged[@"floating_toolbar"][@"scale_percent"] integerValue] == 100);

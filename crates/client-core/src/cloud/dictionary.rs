@@ -56,11 +56,7 @@ pub fn validate_change_page(
 pub const MAX_IMPORT_BYTES: usize = 64 * 1024;
 
 pub fn dictionary_path(kind: DictionaryKind, offset: usize, search: &str) -> Option<String> {
-    if offset > 1_000_000
-        || search.len() > 1024
-        || search.contains('\0')
-        || search.chars().any(char::is_control)
-    {
+    if offset > 1_000_000 || !valid_bounded_text(search, 1024) {
         return None;
     }
     let kind = match kind {
@@ -71,7 +67,7 @@ pub fn dictionary_path(kind: DictionaryKind, offset: usize, search: &str) -> Opt
     };
     Some(format!(
         "/v1/users/me/dictionaries/{kind}?q={}&offset={offset}&limit=100",
-        encode(search)
+        percent_encode(search)
     ))
 }
 
@@ -118,7 +114,7 @@ pub fn changes_path(after: i64, limit: usize) -> Option<String> {
     ))
 }
 
-fn encode(value: &str) -> String {
+pub fn percent_encode(value: &str) -> String {
     value
         .bytes()
         .map(|b| {
@@ -133,14 +129,9 @@ fn encode(value: &str) -> String {
 
 pub fn validate_value(value: &DictionaryValue) -> Result<(), &'static str> {
     if value.code.is_empty()
-        || value.code.len() > 256
         || value.word.is_empty()
-        || value.word.len() > 1024
-    {
-        return Err("invalid dictionary value");
-    }
-    if !crate::text::is_bounded_text(&value.code, 256)
-        || !crate::text::is_bounded_text(&value.word, 1024)
+        || !valid_bounded_text(&value.code, 256)
+        || !valid_bounded_text(&value.word, 1024)
     {
         return Err("invalid dictionary value");
     }

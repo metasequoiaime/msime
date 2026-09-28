@@ -37,15 +37,8 @@ pub(super) fn validate_clipboard_text(value: &str) -> Result<(), AccountError> {
     }
 }
 
-fn valid_lower_hex(value: &str, length: usize) -> bool {
-    value.len() == length
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-}
-
 pub(super) fn validate_clipboard_id(value: &str) -> Result<(), AccountError> {
-    if !valid_lower_hex(value, 64) {
+    if !crate::text::is_lower_hex(value, 64) {
         Err(AccountError::Invalid)
     } else {
         Ok(())
@@ -55,10 +48,7 @@ pub(super) fn validate_clipboard_id(value: &str) -> Result<(), AccountError> {
 pub(super) fn validate_clipboard_item(value: &AccountClipboardItem) -> Result<(), AccountError> {
     validate_clipboard_id(&value.id)?;
     validate_clipboard_text(&value.text)?;
-    if value.updated_at.is_empty()
-        || value.updated_at.len() > 128
-        || value.updated_at.chars().any(char::is_control)
-    {
+    if value.updated_at.is_empty() || !crate::text::is_bounded_text(&value.updated_at, 128) {
         return Err(AccountError::Unavailable);
     }
     Ok(())
@@ -80,6 +70,19 @@ pub(super) fn dictionary_kind_path(kind: DictionaryKind) -> &'static str {
         DictionaryKind::Wubi => "wubi",
         DictionaryKind::Quick => "quick",
         DictionaryKind::English => "english",
+    }
+}
+
+fn dictionary_code_is_well_formed(kind: DictionaryKind, code: &str) -> bool {
+    match kind {
+        DictionaryKind::Pinyin => code
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || matches!(byte, b'\'' | b' ')),
+        DictionaryKind::Wubi => code.bytes().all(|byte| byte.is_ascii_lowercase()),
+        DictionaryKind::Quick => code
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit()),
+        DictionaryKind::English => crate::dictionary::english_code_is_well_formed(code),
     }
 }
 
@@ -139,17 +142,7 @@ pub(super) fn validate_dictionary_catalog_identity(
     code: &str,
     word: &str,
 ) -> Result<(), AccountError> {
-    let code_ok = match kind {
-        DictionaryKind::Pinyin => code
-            .bytes()
-            .all(|byte| byte.is_ascii_lowercase() || matches!(byte, b'\'' | b' ')),
-        DictionaryKind::Wubi => code.bytes().all(|byte| byte.is_ascii_lowercase()),
-        DictionaryKind::Quick => code
-            .bytes()
-            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit()),
-        DictionaryKind::English => crate::dictionary::english_code_is_well_formed(code),
-    };
-    if !code_ok
+    if !dictionary_code_is_well_formed(kind, code)
         || code.is_empty()
         || !crate::text::is_bounded_text(code, 256)
         || word.is_empty()
@@ -179,8 +172,7 @@ pub(super) fn validate_dictionary_catalog_page(
     if page.entries.len() > MAX_DICTIONARY_PAGE_ENTRIES
         || page.offset > 1_000_000
         || page.revision < 0
-        || page.normalized.len() > 256
-        || page.normalized.chars().any(char::is_control)
+        || !crate::text::is_bounded_text(&page.normalized, 256)
     {
         return Err(AccountError::Unavailable);
     }
@@ -263,13 +255,10 @@ pub(super) fn validate_ranking_arguments(
 pub(super) fn validate_personal_candidates(
     result: &AccountPersonalCandidates,
 ) -> Result<(), AccountError> {
-    if result.candidates.len() > 100
-        || result.revision < 0
-        || result.context.len() > 1024
-        || result.context.chars().any(char::is_control)
-    {
+    if result.candidates.len() > 100 || result.revision < 0 {
         return Err(AccountError::Unavailable);
     }
+    validate_bounded_text(&result.context, 1024).map_err(|_| AccountError::Unavailable)?;
     for candidate in &result.candidates {
         validate_bounded_text(&candidate.code, 256).map_err(|_| AccountError::Unavailable)?;
         validate_bounded_text(&candidate.word, 1024).map_err(|_| AccountError::Unavailable)?;
@@ -317,7 +306,7 @@ pub(super) fn mutation_path(kind: DictionaryKind, operation: &str) -> Option<Str
 }
 
 pub(super) fn validate_dictionary_id(value: &str) -> Result<(), AccountError> {
-    if valid_lower_hex(value, 64) {
+    if crate::text::is_lower_hex(value, 64) {
         Ok(())
     } else {
         Err(AccountError::Invalid)
@@ -339,28 +328,17 @@ pub(super) fn validate_dictionary_value(
         weight,
     })
     .map_err(|_| AccountError::Invalid)?;
-    let (code_ok, code_limit) = match kind {
-        DictionaryKind::Pinyin => (
-            code.bytes()
-                .all(|byte| byte.is_ascii_lowercase() || matches!(byte, b'\'' | b' ')),
-            256,
-        ),
-        DictionaryKind::Wubi => (code.bytes().all(|byte| byte.is_ascii_lowercase()), 4),
-        DictionaryKind::Quick => (
-            code.bytes()
-                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit()),
-            32,
-        ),
-        DictionaryKind::English => (crate::dictionary::english_code_is_well_formed(code), 64),
+    let code_limit = match kind {
+        DictionaryKind::Pinyin => 256,
+        DictionaryKind::Wubi => 4,
+        DictionaryKind::Quick => 32,
+        DictionaryKind::English => 64,
     };
-    if !code_ok
+    if !dictionary_code_is_well_formed(kind, code)
         || code.is_empty()
         || code.len() > code_limit
         || word.is_empty()
-        || word.len() > 1024
         || weight < 0
-        || code.chars().any(char::is_control)
-        || word.chars().any(char::is_control)
         || (kind == DictionaryKind::Quick
             && word.encode_utf16().count() > crate::dictionary::import::MAX_QUICK_PHRASE_UTF16)
     {
@@ -481,8 +459,7 @@ pub fn validate_account_preferences(value: &AccountPreferences) -> Result<(), Ac
                 return Err(AccountError::Unavailable);
             }
             AccountPreferenceValue::String(string)
-                if string.len() > MAX_ACCOUNT_PREFERENCE_STRING_BYTES
-                    || string.chars().any(char::is_control) =>
+                if !crate::text::is_bounded_text(string, MAX_ACCOUNT_PREFERENCE_STRING_BYTES) =>
             {
                 return Err(AccountError::Unavailable);
             }
@@ -671,7 +648,7 @@ pub(super) fn validate_tokens(tokens: &AccountTokens) -> Result<(), AccountError
 }
 
 pub(super) fn valid_token(value: &str) -> bool {
-    valid_lower_hex(value, 64)
+    crate::text::is_lower_hex(value, 64)
 }
 
 pub(super) fn validate_user(user: &AccountUser) -> Result<(), AccountError> {

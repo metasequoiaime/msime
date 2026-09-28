@@ -1,16 +1,11 @@
 #!/usr/bin/env python3
-"""Every icon the Info.plist names has to exist, and the menu icon has to be shaped for the menu.
+"""Info.plist 里写到的每个图标都必须存在，而菜单图标还得是菜单能用的形状。
 
-The input menu draws its icon through HIToolbox, which reads the file's pages rather than the DPI of a
-single one. A file with only a 2x page is taken for a 32-point image and cropped to its middle by the
-16-point menu slot, which for a stroke arrives as a filled square - a bug that looks like a design choice
-and is invisible until someone opens the input menu on a real install. Apple's own input methods ship
-16x16 at 72 dpi and 32x32 at 144 dpi in one file.
+输入菜单经 HIToolbox 绘制图标，它读的是文件里的页，而不是某一页的 DPI。只有一个 2x 页的文件会被当成 32 点图，再被 16 点的菜单槽裁去四周——对一条笔画来说，交到菜单上的就是一个实心方块。这个毛病看起来像是设计如此，而且只有在真机上打开输入菜单才看得见。苹果自家的输入法都是一个文件里放 16x16 @72dpi 与 32x32 @144dpi 两页。
 
-A missing file is the other half: the plist keys are strings, so a renamed resource fails silently and the
-menu falls back to a generic icon.
+另一半是文件缺失：plist 里这些键是字符串，资源改名之后不会报错，菜单直接回落到一个通用图标。
 
-Every entry of the input-source list shows the same logo: each input mode names the bundle's own menu icon for both the menu and the palette, so the Chinese, English and Japanese entries cannot drift apart into different icons.
+输入源列表里每一条显示的都是同一个标志：每个输入模式的菜单图标和面板图标都指向 bundle 自己的菜单图标，中文、英文和日语三条不会各自漂成不同的图标。
 """
 
 import plistlib

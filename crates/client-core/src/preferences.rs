@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 const MAX_DOCUMENT_BYTES: u64 = 1024 * 1024;
 
 pub fn valid_font_family(value: &str) -> bool {
-    !value.is_empty() && value.len() <= 128 && !value.chars().any(char::is_control)
+    !value.is_empty() && crate::text::is_bounded_text(value, 128)
 }
 
 fn valid_hex_color(value: &str) -> bool {
@@ -863,16 +863,23 @@ pub struct FloatingToolbarPreferences {
     pub punctuation: bool,
     #[serde(default = "enabled_by_default")]
     pub character_set: bool,
-    #[serde(default = "enabled_by_default")]
+    /// Off by default, with `handwriting` and `voice`, so the toolbar a new profile gets is the
+    /// compact one. This is a deliberate reversal: these three defaulted on because they had been on
+    /// the toolbar since it shipped, and the switches appearing was not allowed to remove them. A
+    /// profile that never touched the switches therefore loses these buttons and turns back on the
+    /// ones it wants, which is the cost that was chosen over carrying the wider toolbar forever.
+    /// Windows is unaffected: its installer template sets every component explicitly, mirroring the
+    /// reference's own default config.
+    #[serde(default)]
     pub emoji: bool,
     /// The handwriting panel button. The reference's toolbar has no such button; this client's
-    /// macOS toolbar carries one, and until now it could not be turned off.
-    #[serde(default = "enabled_by_default")]
+    /// macOS toolbar carries one, and it is opt-in for the reason above.
+    #[serde(default)]
     pub handwriting: bool,
     #[serde(default)]
     pub screen_keyboard: bool,
     /// The voice input button, for the same reason as `handwriting`.
-    #[serde(default = "enabled_by_default")]
+    #[serde(default)]
     pub voice: bool,
     #[serde(default = "enabled_by_default")]
     pub settings: bool,
@@ -924,10 +931,10 @@ impl Default for FloatingToolbarPreferences {
             fullwidth: true,
             punctuation: true,
             character_set: true,
-            emoji: true,
-            handwriting: true,
+            emoji: false,
+            handwriting: false,
             screen_keyboard: false,
-            voice: true,
+            voice: false,
             settings: true,
         }
     }
@@ -1659,8 +1666,7 @@ impl Preferences {
     pub fn validate(&self) -> Result<(), PreferencesError> {
         let tencent = &self.tencent_tmt;
         if tencent.secret_id.len() > 4096
-            || tencent.secret_key.len() > 4096
-            || tencent.secret_key.chars().any(char::is_control)
+            || !crate::text::is_bounded_text(&tencent.secret_key, 4096)
             || !tencent
                 .secret_id
                 .bytes()
@@ -1674,10 +1680,8 @@ impl Preferences {
             return Err(PreferencesError::InvalidTencentTmt);
         }
         let niutrans = &self.niutrans;
-        if niutrans.app_id.len() > 4096
-            || niutrans.apikey.len() > 4096
-            || niutrans.app_id.chars().any(char::is_control)
-            || niutrans.apikey.chars().any(char::is_control)
+        if !crate::text::is_bounded_text(&niutrans.app_id, 4096)
+            || !crate::text::is_bounded_text(&niutrans.apikey, 4096)
             || (!niutrans.app_id.is_empty()
                 && !crate::translation::usable_niutrans_credential(&niutrans.app_id))
             || (!niutrans.apikey.is_empty()
@@ -1686,8 +1690,7 @@ impl Preferences {
             return Err(PreferencesError::InvalidNiuTrans);
         }
         let translation = &self.custom_translation;
-        if translation.api_key.len() > 4096
-            || translation.api_key.chars().any(char::is_control)
+        if !crate::text::is_bounded_text(&translation.api_key, 4096)
             || (!translation.endpoint.is_empty()
                 && !crate::translation::is_supported_endpoint(&translation.endpoint))
         {
@@ -1701,8 +1704,7 @@ impl Preferences {
         let model_path = &self.voice_input.asr_model_path;
         if !ASR_PROVIDERS.contains(&self.voice_input.asr_provider.as_str())
             || !POLISH_PROVIDERS.contains(&self.voice_input.polish_provider.as_str())
-            || model_path.len() > 4096
-            || model_path.chars().any(char::is_control)
+            || !crate::text::is_bounded_text(model_path, 4096)
             || (!model_path.is_empty() && !is_absolute_model_path(model_path))
             || !valid_model_mirror(&self.voice_input.asr_model_mirror)
         {

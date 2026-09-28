@@ -72,6 +72,68 @@
 }
 @end
 
+// The compact water-fir mark keeps the toolbar identifiable when it is detached
+// from the settings window. It mirrors the shared MSIME app mark without loading
+// an image resource, so it remains crisp at every toolbar scale.
+@interface MetasequoiaFloatingToolbarLogoView : NSView
+@property(nonatomic) CGFloat scale;
+@end
+@implementation MetasequoiaFloatingToolbarLogoView
+{
+    NSImage *_image;
+}
+- (instancetype)initWithFrame:(NSRect)frameRect
+{
+    self = [super initWithFrame:frameRect];
+    if (self != nil)
+    {
+        _scale = 1.0;
+        NSString *path = [[NSBundle bundleForClass:self.class] pathForResource:@"MSIMEClientInputMethod" ofType:@"icns"];
+        _image = path == nil ? nil : [[NSImage alloc] initWithContentsOfFile:path];
+        self.accessibilityIdentifier = @"MetasequoiaFloatingToolbarLogo";
+        self.accessibilityLabel = @"水杉输入法";
+    }
+    return self;
+}
+- (void)setScale:(CGFloat)scale
+{
+    _scale = scale;
+    self.needsDisplay = YES;
+}
+- (void)drawRect:(NSRect)dirtyRect
+{
+    (void)dirtyRect;
+    const CGFloat side = std::min(NSWidth(self.bounds), NSHeight(self.bounds)) - 4.0 * _scale;
+    const NSRect mark = NSMakeRect(NSMidX(self.bounds) - side * 0.5, NSMidY(self.bounds) - side * 0.5, side, side);
+    if (_image != nil)
+    {
+        [_image drawInRect:mark fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1.0 respectFlipped:YES hints:nil];
+        return;
+    }
+    const CGFloat radius = 4.0 * _scale;
+    NSBezierPath *background = [NSBezierPath bezierPathWithRoundedRect:mark xRadius:radius yRadius:radius];
+    [[NSColor colorWithSRGBRed:0x25 / 255.0 green:0x25 / 255.0 blue:0x25 / 255.0 alpha:1.0] setFill];
+    [background fill];
+    [[NSColor colorWithSRGBRed:0xA8 / 255.0 green:0xDF / 255.0 blue:0x8E / 255.0 alpha:1.0] setStroke];
+    background.lineWidth = 2.0 * _scale;
+    [background stroke];
+
+    NSBezierPath *stroke = [NSBezierPath bezierPath];
+    [stroke moveToPoint:NSMakePoint(NSMinX(mark) + side * 0.68, NSMinY(mark) + side * 0.88)];
+    [stroke lineToPoint:NSMakePoint(NSMinX(mark) + side * 0.28, NSMinY(mark) + side * 0.73)];
+    [stroke lineToPoint:NSMakePoint(NSMinX(mark) + side * 0.68, NSMinY(mark) + side * 0.62)];
+    [stroke lineToPoint:NSMakePoint(NSMinX(mark) + side * 0.28, NSMinY(mark) + side * 0.44)];
+    [stroke curveToPoint:NSMakePoint(NSMinX(mark) + side * 0.25, NSMinY(mark) + side * 0.16)
+           controlPoint1:NSMakePoint(NSMinX(mark) + side * 0.68, NSMinY(mark) + side * 0.38)
+           controlPoint2:NSMakePoint(NSMinX(mark) + side * 0.42, NSMinY(mark) + side * 0.25)];
+    stroke.lineWidth = 2.5 * _scale;
+    stroke.lineCapStyle = NSLineCapStyleRound;
+    stroke.lineJoinStyle = NSLineJoinStyleRound;
+    [[NSColor whiteColor] setStroke];
+    [stroke stroke];
+}
+@end
+
 // Hairline between the grip and the buttons, the counterpart of the reference's ToolbarDivider.
 @interface MetasequoiaFloatingToolbarDivider : NSView
 @property(nonatomic, copy) NSColor *fillColor;
@@ -162,12 +224,14 @@
 
 namespace
 {
-// Unscaled leading run: the 18pt grip slot, the reference's 2pt gap, the 1.2pt divider, then the 8pt gap before the first button. It replaces the plain 10pt leading inset.
+// Unscaled leading run: the 32pt logo, 6pt gap, 18pt grip slot, the reference's 2pt gap, the 1.2pt divider, then the 8pt gap before the first button. It replaces the plain 10pt leading inset.
 constexpr CGFloat kToolbarGripWidth = 18.0;
+constexpr CGFloat kToolbarLogoWidth = 32.0;
+constexpr CGFloat kToolbarLogoGap = 6.0;
 constexpr CGFloat kToolbarGripDividerGap = 2.0;
 constexpr CGFloat kToolbarDividerWidth = 1.2;
 constexpr CGFloat kToolbarDividerButtonGap = 8.0;
-constexpr CGFloat kToolbarLeadingChrome = kToolbarGripWidth + kToolbarGripDividerGap + kToolbarDividerWidth + kToolbarDividerButtonGap;
+constexpr CGFloat kToolbarLeadingChrome = kToolbarLogoWidth + kToolbarLogoGap + kToolbarGripWidth + kToolbarGripDividerGap + kToolbarDividerWidth + kToolbarDividerButtonGap;
 // Unscaled trailing run: the 10pt trailing inset plus 10pt the equal-spacing stack spreads across its gaps.
 constexpr CGFloat kToolbarTrailingChrome = 20.0;
 constexpr CGFloat kToolbarButtonSpacing = 8.0;
@@ -180,11 +244,15 @@ CGFloat ToolbarPreferredWidth(NSUInteger count, CGFloat fontSize, CGFloat scale)
     return std::ceil((buttons * (fontSize + 18.0) + gaps * kToolbarButtonSpacing + kToolbarTrailingChrome + kToolbarLeadingChrome) * scale);
 }
 
-// Default row: eight buttons (all but the screen keyboard) at 24pt and 100%.
-constexpr CGFloat kToolbarWidth = 442.0;
-static_assert(kToolbarWidth >= 8 * 42.0 + 7 * kToolbarButtonSpacing + kToolbarTrailingChrome + kToolbarLeadingChrome &&
-                  kToolbarWidth < 8 * 42.0 + 7 * kToolbarButtonSpacing + kToolbarTrailingChrome + kToolbarLeadingChrome + 1.0,
-              "kToolbarWidth must be ToolbarPreferredWidth(8, 24, 1)");
+// Default row: the five buttons a profile that has not chosen gets - 中/英, punctuation, full width,
+// simplified/traditional and settings - at 24pt and 100%. Emoji, handwriting, voice and the screen
+// keyboard are opt-in (see FloatingToolbarPreferences::default() in crates/client-core). This is the
+// size the window opens at, before any preferences are applied, so a wider value here would show a
+// toolbar that immediately shrinks.
+constexpr CGFloat kToolbarWidth = 330.0;
+static_assert(kToolbarWidth >= 5 * 42.0 + 4 * kToolbarButtonSpacing + kToolbarTrailingChrome + kToolbarLeadingChrome &&
+                  kToolbarWidth < 5 * 42.0 + 4 * kToolbarButtonSpacing + kToolbarTrailingChrome + kToolbarLeadingChrome + 1.0,
+              "kToolbarWidth must be ToolbarPreferredWidth(5, 24, 1)");
 constexpr CGFloat kToolbarHeight = 44.0;
 NSString *const kToolbarFrameAutosaveName = @"MetasequoiaFloatingToolbarFrame";
 
@@ -421,8 +489,10 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     NSButton *_settingsButton;
     NSStackView *_actions;
     MetasequoiaFloatingToolbarGripView *_grip;
+    MetasequoiaFloatingToolbarLogoView *_logo;
     MetasequoiaFloatingToolbarDivider *_divider;
     NSLayoutConstraint *_gripWidth;
+    NSLayoutConstraint *_logoWidth;
     NSLayoutConstraint *_gripDividerGap;
     NSLayoutConstraint *_dividerWidth;
     NSLayoutConstraint *_dividerHeight;
@@ -532,11 +602,15 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     _grip = [[MetasequoiaFloatingToolbarGripView alloc] initWithFrame:NSZeroRect];
     _grip.translatesAutoresizingMaskIntoConstraints = NO;
     [_chrome addSubview:_grip];
+    _logo = [[MetasequoiaFloatingToolbarLogoView alloc] initWithFrame:NSZeroRect];
+    _logo.translatesAutoresizingMaskIntoConstraints = NO;
+    [_chrome addSubview:_logo];
     _divider = [[MetasequoiaFloatingToolbarDivider alloc] initWithFrame:NSZeroRect];
     _divider.translatesAutoresizingMaskIntoConstraints = NO;
     _divider.accessibilityIdentifier = @"MetasequoiaFloatingToolbarDivider";
     [_chrome addSubview:_divider];
 
+    _logoWidth = [_logo.widthAnchor constraintEqualToConstant:kToolbarLogoWidth + kToolbarLogoGap];
     _gripWidth = [_grip.widthAnchor constraintEqualToConstant:kToolbarGripWidth];
     _gripDividerGap = [_divider.leadingAnchor constraintEqualToAnchor:_grip.trailingAnchor constant:kToolbarGripDividerGap];
     _dividerWidth = [_divider.widthAnchor constraintEqualToConstant:kToolbarDividerWidth];
@@ -544,7 +618,11 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     _dividerButtonGap = [actions.leadingAnchor constraintEqualToAnchor:_divider.trailingAnchor constant:kToolbarDividerButtonGap];
     _trailingInset = [actions.trailingAnchor constraintEqualToAnchor:_chrome.trailingAnchor constant:-10.0];
     [NSLayoutConstraint activateConstraints:@[
-        [_grip.leadingAnchor constraintEqualToAnchor:_chrome.leadingAnchor],
+        [_logo.leadingAnchor constraintEqualToAnchor:_chrome.leadingAnchor],
+        [_logo.topAnchor constraintEqualToAnchor:_chrome.topAnchor],
+        [_logo.bottomAnchor constraintEqualToAnchor:_chrome.bottomAnchor],
+        _logoWidth,
+        [_grip.leadingAnchor constraintEqualToAnchor:_logo.trailingAnchor],
         [_grip.topAnchor constraintEqualToAnchor:_chrome.topAnchor],
         [_grip.bottomAnchor constraintEqualToAnchor:_chrome.bottomAnchor],
         _gripWidth,
@@ -627,8 +705,9 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     NSUInteger count = 0;
     for (NSUInteger index = 0; index < keys.count; ++index) {
         id value = toolbar[keys[index]];
-        // Only the screen keyboard is off until asked for, as it is on the reference's toolbar.
-        const BOOL defaultEnabled = ![keys[index] isEqualToString:@"screen_keyboard"];
+        // Keep optional utility buttons off when an older or partial settings
+        // snapshot omits their keys. They can still be enabled explicitly.
+        const BOOL defaultEnabled = ![@[@"emoji", @"handwriting", @"voice", @"screen_keyboard"] containsObject:keys[index]];
         const BOOL enabled = [value isKindOfClass:NSNumber.class] ? [value boolValue] : defaultEnabled;
         if (enabled) { mask |= 1u << index; ++count; }
     }
@@ -652,6 +731,8 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     _keyboardButton.symbolConfiguration = _settingsButton.symbolConfiguration;
     _voiceButton.symbolConfiguration = _settingsButton.symbolConfiguration;
     _actions.spacing = kToolbarButtonSpacing * scale;
+    _logo.scale = scale;
+    _logoWidth.constant = (kToolbarLogoWidth + kToolbarLogoGap) * scale;
     _grip.scale = scale;
     _gripWidth.constant = kToolbarGripWidth * scale;
     _gripDividerGap.constant = kToolbarGripDividerGap * scale;

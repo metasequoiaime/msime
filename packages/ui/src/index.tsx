@@ -1647,16 +1647,20 @@ export type FloatingToolbarPreferences = {
   scale_percent: 75 | 100 | 125 | 150;
   font_size: 16 | 18 | 20 | 22 | 24 | 26 | 28;
 };
+// Mirrors FloatingToolbarPreferences::default() in crates/client-core: emoji, handwriting, voice and
+// the screen keyboard are opt-in, so a new profile gets the compact five-button toolbar and turns on
+// what it wants. Drifting from the Rust defaults here would show a switch in one state and save the
+// other.
 const defaultFloatingToolbar: FloatingToolbarPreferences = {
   enabled: true,
   english_mode: true,
   fullwidth: true,
   punctuation: true,
   character_set: true,
-  emoji: true,
-  handwriting: true,
+  emoji: false,
+  handwriting: false,
   screen_keyboard: false,
-  voice: true,
+  voice: false,
   settings: true,
   scale_percent: 100,
   font_size: 24,

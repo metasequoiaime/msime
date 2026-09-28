@@ -3,6 +3,7 @@
 //! Part of the C ABI; see the parent module for what these shims guarantee.
 
 use crate::*;
+use msime_client_core::cloud::dictionary::valid_bounded_text;
 
 #[no_mangle]
 pub extern "C" fn msime_client_view(handle: u64) -> *mut c_char {
@@ -97,7 +98,7 @@ pub unsafe extern "C" fn msime_client_set_ai_credential(
             let text =
                 std::str::from_utf8(unsafe { std::slice::from_raw_parts(token, token_length) })
                     .map_err(|_| "invalid AI credential")?;
-            if text.chars().any(char::is_control) {
+            if !valid_bounded_text(text, 4096) {
                 return Err("invalid AI credential".into());
             }
             Some(text.to_owned())

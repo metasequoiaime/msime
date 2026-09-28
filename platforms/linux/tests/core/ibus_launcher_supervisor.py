@@ -18,7 +18,7 @@ STOP_STATUS = 77
 UPGRADED_STATUS = 78
 
 STUB = r'''#!{python}
-import json, os, signal, sys, time
+import ctypes, json, os, signal, sys, time
 from pathlib import Path
 scratch = Path({scratch!r})
 log = scratch / "runs.log"
@@ -32,6 +32,9 @@ def terminated(signum, frame):
         output.write(f"{{signum}}\n")
     sys.exit(143)
 signal.signal(signal.SIGTERM, terminated)
+# A SIGSEGV would otherwise dump core, and on CI runners core_pattern pipes to a host handler (apport, systemd-coredump) that the kernel waits for before the process is reaped, adding seconds to the measured backoff. A non-dumpable process skips the dump entirely; RLIMIT_CORE=0 would not, because piped core_pattern ignores it. PR_SET_DUMPABLE is 4.
+if ctypes.CDLL(None, use_errno=True).prctl(4, 0, 0, 0, 0) != 0:
+    raise OSError(ctypes.get_errno(), "prctl(PR_SET_DUMPABLE, 0) failed")
 if action == "segv":
     os.kill(os.getpid(), signal.SIGSEGV)
 elif action == "kill":

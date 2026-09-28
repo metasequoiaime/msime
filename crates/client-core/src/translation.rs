@@ -156,11 +156,9 @@ pub fn tencent_tmt_payload(source: &str, target: &str, texts: &[String]) -> Opti
         || target.is_empty()
         || texts.is_empty()
         || texts.len() > 50
-        || texts.iter().any(|text| {
-            text.is_empty()
-                || text.chars().count() > MAX_SOURCE_CHARS
-                || text.chars().any(char::is_control)
-        })
+        || texts
+            .iter()
+            .any(|text| text.is_empty() || !crate::text::is_bounded_chars(text, MAX_SOURCE_CHARS))
     {
         return None;
     }
@@ -325,10 +323,7 @@ pub fn translate_batch_cached(
     let scope = format!("{}\0{}\0", source, target);
     let mut pending = Vec::new();
     for (index, text) in texts.iter().enumerate() {
-        if text.is_empty()
-            || text.chars().count() > MAX_SOURCE_CHARS
-            || text.chars().any(char::is_control)
-        {
+        if text.is_empty() || !crate::text::is_bounded_chars(text, MAX_SOURCE_CHARS) {
             continue;
         }
         let cache_key = format!("{scope}{text}");
@@ -380,8 +375,7 @@ fn read_translation_response(reader: impl Read) -> Option<String> {
 
 pub fn is_supported_endpoint(endpoint: &str) -> bool {
     !endpoint.is_empty()
-        && endpoint.len() <= 2048
-        && !endpoint.chars().any(char::is_control)
+        && crate::text::is_bounded_text(endpoint, 2048)
         && (endpoint.starts_with("https://") || endpoint.starts_with("http://"))
 }
 

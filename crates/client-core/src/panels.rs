@@ -259,10 +259,7 @@ pub trait HandwritingPlatform {
 }
 
 pub fn validate_candidate(candidate: &str) -> Result<(), PanelContractError> {
-    if candidate.is_empty()
-        || candidate.len() > MAX_CANDIDATE_BYTES
-        || candidate.chars().any(char::is_control)
-    {
+    if candidate.is_empty() || !crate::text::is_bounded_text(candidate, MAX_CANDIDATE_BYTES) {
         Err(PanelContractError::InvalidCandidate)
     } else {
         Ok(())

@@ -199,8 +199,7 @@ pub fn parse_chat_completion_response(body: &[u8], limit: u8) -> Option<AiSugges
             continue;
         };
         if text.trim().is_empty()
-            || text.len() > 4096
-            || text.chars().any(char::is_control)
+            || !crate::text::is_bounded_text(text, 4096)
             || candidates.iter().any(|candidate| candidate.text == text)
         {
             continue;

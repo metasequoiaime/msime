@@ -1,21 +1,22 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  The input menu's icon: the 水杉 mark as a single stroke, drawn as a template so the menu bar can tint
-  it for light, dark and the highlighted menu.
+  输入菜单的图标：水杉的标志，做成模板图，好让菜单栏在浅色、深色与高亮菜单行下各自着色。
 
-  The square viewBox is the stroke's own bounds grown by a thirty-second of a side on each edge, and is
-  computed by platforms/macos/scripts/render_menu_icon.swift. The menu gets a square tile; a taller one is
-  read as a 32-point image and cropped to its middle, which arrives as a solid block. Edit the path here,
-  then rerun that script to rewrite MSIMEClientInputMethodMenuIcon.tiff.
+  这条路径逐点取自产品图稿 apps/desktop/app-icon.svg 里那条 stroke="white"，连坐标系（110 单位、y 向下）、
+  线宽 8 和 round 端帽都一样——菜单栏上的记号必须和应用图标、安卓图标是同一个。此前这里是照着图稿描出来
+  的近似折线，最后一笔的收尾方向都是反的。
+
+  方形 viewBox 是描边后路径的外接正方形，四边各留边长的 1/32，由 platforms/macos/scripts/render_menu_icon.swift
+  按同一条路径算出。菜单拿到的是一块方形瓷砖；比例不对的图会被当成 32 点图裁掉四周，只剩中间一坨。
+  改了这里的路径，就要同步改那个脚本里的 metasequoiaStroke()，再跑一次它重写 MSIMEClientInputMethodMenuIcon.tiff。
 -->
-<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0.496 2.968 31.199 31.199">
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="5.988 6.474 96.010 96.010">
   <title>水杉输入法 input menu icon</title>
   <path
-    d="M25 6.5 7.5 14 24.5 18.25 7.5 25.75c4.5 3.5 10.5 5.25 17.5 2.75"
+    d="M74.7234 14L35.1501 29.1727L74.7234 40.5522L35.1501 59.518C72.562 65.84 107.728 71.024 33 95"
     fill="none"
     stroke="#000"
     stroke-linecap="round"
-    stroke-linejoin="round"
-    stroke-width="4.5"
+    stroke-width="8"
   />
 </svg>

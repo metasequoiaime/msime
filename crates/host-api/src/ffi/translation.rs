@@ -3,6 +3,7 @@
 //! Part of the C ABI; see the parent module for what these shims guarantee.
 
 use crate::*;
+use msime_client_core::cloud::dictionary::valid_bounded_text;
 
 /// Plan eligible visible candidates using shared script filters. No I/O.
 /// # Safety
@@ -13,9 +14,6 @@ pub unsafe extern "C" fn msime_client_custom_translation_plan(
     length: usize,
 ) -> *mut c_char {
     response(|| {
-        if request.is_null() || length > 65536 {
-            return Err("invalid translation plan buffer".into());
-        }
         #[derive(Deserialize)]
         #[serde(deny_unknown_fields)]
         struct Candidate {
@@ -28,9 +26,17 @@ pub unsafe extern "C" fn msime_client_custom_translation_plan(
             target_language: String,
             candidates: Vec<Candidate>,
         }
-        let request: Request =
-            serde_json::from_slice(unsafe { std::slice::from_raw_parts(request, length) })
-                .map_err(|_| "invalid translation plan")?;
+        let request: Request = unsafe {
+            with_bounded_bytes(
+                request,
+                length,
+                65536,
+                "invalid translation plan buffer",
+                |bytes| {
+                    serde_json::from_slice(bytes).map_err(|_| "invalid translation plan".into())
+                },
+            )?
+        };
         if request.candidates.len() > 9
             || !["en", "fr", "ja", "es", "ru", "de", "ko"]
                 .contains(&request.target_language.as_str())
@@ -75,18 +81,23 @@ pub unsafe extern "C" fn msime_client_ai_http_request(
     length: usize,
 ) -> *mut c_char {
     response(|| {
-        if request.is_null() || length > 65536 {
-            return Err("invalid AI request buffer".into());
-        }
         #[derive(Deserialize)]
         #[serde(deny_unknown_fields)]
         struct Request {
             config: msime_client_core::preferences::AiAssistantPreferences,
             input: msime_client_core::ai::AiSuggestionRequest,
         }
-        let request: Request =
-            serde_json::from_slice(unsafe { std::slice::from_raw_parts(request, length) })
-                .map_err(|_| "invalid AI request document")?;
+        let request: Request = unsafe {
+            with_bounded_bytes(
+                request,
+                length,
+                65536,
+                "invalid AI request buffer",
+                |bytes| {
+                    serde_json::from_slice(bytes).map_err(|_| "invalid AI request document".into())
+                },
+            )?
+        };
         msime_client_core::ai::chat_completion_http_request(&request.config, &request.input)
             .map(|value| value.unwrap_or(Value::Null))
             .map_err(|e| e.to_string())
@@ -128,12 +139,14 @@ pub unsafe extern "C" fn msime_client_learned_translation_request(
     request: *const u8,
     length: usize,
 ) -> *mut c_char {
-    response(|| {
-        if request.is_null() || length > 65536 {
-            return Err("invalid learned translation buffer".into());
-        }
-        learned_translation::execute(unsafe { std::slice::from_raw_parts(request, length) })
-            .map_err(str::to_owned)
+    response(|| unsafe {
+        with_bounded_bytes(
+            request,
+            length,
+            65536,
+            "invalid learned translation buffer",
+            |bytes| learned_translation::execute(bytes).map_err(str::to_owned),
+        )
     })
 }
 
@@ -145,12 +158,14 @@ pub unsafe extern "C" fn msime_client_tencent_translation_http_request(
     request: *const u8,
     length: usize,
 ) -> *mut c_char {
-    response(|| {
-        if request.is_null() || length > 65536 {
-            return Err("invalid Tencent request buffer".into());
-        }
-        tencent_translation::descriptor(unsafe { std::slice::from_raw_parts(request, length) })
-            .map_err(String::from)
+    response(|| unsafe {
+        with_bounded_bytes(
+            request,
+            length,
+            65536,
+            "invalid Tencent request buffer",
+            |bytes| tencent_translation::descriptor(bytes).map_err(String::from),
+        )
     })
 }
 
@@ -162,12 +177,14 @@ pub unsafe extern "C" fn msime_client_niutrans_translation_http_request(
     request: *const u8,
     length: usize,
 ) -> *mut c_char {
-    response(|| {
-        if request.is_null() || length > 65536 {
-            return Err("invalid NiuTrans request buffer".into());
-        }
-        niutrans_translation::descriptor(unsafe { std::slice::from_raw_parts(request, length) })
-            .map_err(String::from)
+    response(|| unsafe {
+        with_bounded_bytes(
+            request,
+            length,
+            65536,
+            "invalid NiuTrans request buffer",
+            |bytes| niutrans_translation::descriptor(bytes).map_err(String::from),
+        )
     })
 }
 
@@ -253,11 +270,10 @@ pub unsafe extern "C" fn msime_client_custom_translation_http_request(
                     .all(|byte| byte.is_ascii_alphabetic() || byte == b'-')
         };
         if !msime_client_core::translation::is_supported_endpoint(&config.endpoint)
-            || config.api_key.len() > 4096
-            || config.api_key.chars().any(char::is_control)
+            || !valid_bounded_text(&config.api_key, 4096)
             || text.is_empty()
+            || !valid_bounded_text(&text, 160)
             || text.chars().count() > 40
-            || text.chars().any(char::is_control)
             || !valid_language(&source_language)
             || !valid_language(&target_language)
         {
@@ -329,10 +345,8 @@ pub unsafe extern "C" fn msime_client_apply_translations(
             serde_json::from_slice(bytes).map_err(|_| "translations must be a UTF-8 JSON array")?;
         if values.len() > 4096
             || values.iter().any(|item| {
-                item.text.len() > 4096
-                    || item.translation.len() > 4096
-                    || item.text.chars().any(char::is_control)
-                    || item.translation.chars().any(char::is_control)
+                !valid_bounded_text(&item.text, 4096)
+                    || !valid_bounded_text(&item.translation, 4096)
             })
         {
             return Err("translation entries exceed limits".into());
@@ -383,11 +397,10 @@ pub unsafe extern "C" fn msime_client_translation_gloss_save(
             return Err("user data requires an existing absolute directory".into());
         }
         if request.translations.len() > 9
-            || request.translations.iter().any(|item| {
-                item.text.len() > 4096
-                    || item.translation.len() > 4096
-                    || item.text.chars().any(char::is_control)
-            })
+            || request
+                .translations
+                .iter()
+                .any(|item| !valid_bounded_text(&item.text, 4096) || item.translation.len() > 4096)
         {
             return Err("translation persistence entries exceed limits".into());
         }
@@ -474,9 +487,7 @@ pub unsafe extern "C" fn msime_client_candidate_gloss_request(
                 .map_err(|_| "invalid candidate gloss request")?;
         if request.candidates.len() > 4096
             || request.candidates.iter().any(|candidate| {
-                candidate.text.is_empty()
-                    || candidate.text.len() > 4096
-                    || candidate.text.chars().any(char::is_control)
+                candidate.text.is_empty() || !valid_bounded_text(&candidate.text, 4096)
             })
         {
             return Err("candidate gloss entries exceed limits".into());

@@ -16,9 +16,7 @@ pub(crate) const MAXIMUM_OFFSET: usize = 1_000_000;
 pub(crate) const MAXIMUM_SEARCH_CHARACTERS: usize = 128;
 
 pub(crate) fn valid_query(offset: usize, search: &str) -> bool {
-    offset <= MAXIMUM_OFFSET
-        && search.chars().count() <= MAXIMUM_SEARCH_CHARACTERS
-        && !search.chars().any(char::is_control)
+    offset <= MAXIMUM_OFFSET && crate::text::is_bounded_chars(search, MAXIMUM_SEARCH_CHARACTERS)
 }
 
 pub(crate) fn encode_query(value: &str) -> String {

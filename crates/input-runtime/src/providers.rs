@@ -266,9 +266,8 @@ impl UnixSocketProvider {
         let mut candidates = Vec::new();
         for reply in replies {
             if reply.text.is_empty()
-                || reply.text.len() > 4096
+                || !msime_client_core::cloud::dictionary::valid_bounded_text(&reply.text, 4096)
                 || reply.source > 1
-                || reply.text.chars().any(char::is_control)
             {
                 return None;
             }
@@ -300,9 +299,8 @@ impl UnixSocketProvider {
             || query.candidates.len() > candidate_limit
             || query.candidates.iter().any(|text| {
                 text.is_empty()
-                    || text.len() > 4096
+                    || !msime_client_core::cloud::dictionary::valid_bounded_text(text, 4096)
                     || (query.sentence && text.chars().count() > MAX_SENTENCE_CHARS)
-                    || text.chars().any(char::is_control)
             })
         {
             return None;
@@ -355,11 +353,12 @@ impl UnixSocketProvider {
         let reply: Reply = serde_json::from_str(&line).ok()?;
         if reply.translations.len() > candidate_limit
             || reply.translations.iter().any(|item| {
-                item.text.len() > 4096
+                !msime_client_core::cloud::dictionary::valid_bounded_text(&item.text, 4096)
                     || item.translation.is_empty()
-                    || item.translation.len() > 4096
-                    || item.text.chars().any(char::is_control)
-                    || item.translation.chars().any(char::is_control)
+                    || !msime_client_core::cloud::dictionary::valid_bounded_text(
+                        &item.translation,
+                        4096,
+                    )
                     || !query.candidates.contains(&item.text)
             })
         {
@@ -416,11 +415,9 @@ impl UnixSocketProvider {
     /// provider refuses unless its private configuration names the same two.
     pub fn ai_models(&self, provider: &str, endpoint: &str) -> Option<Vec<String>> {
         if provider.is_empty()
-            || provider.len() > 64
+            || !msime_client_core::cloud::dictionary::valid_bounded_text(provider, 64)
             || endpoint.is_empty()
-            || endpoint.len() > 2048
-            || provider.chars().any(char::is_control)
-            || endpoint.chars().any(char::is_control)
+            || !msime_client_core::cloud::dictionary::valid_bounded_text(endpoint, 2048)
         {
             return None;
         }
@@ -445,7 +442,8 @@ impl UnixSocketProvider {
         (reply.models.len() <= 128
             && !reply.models.is_empty()
             && reply.models.iter().all(|model| {
-                !model.is_empty() && model.len() <= 256 && !model.chars().any(char::is_control)
+                !model.is_empty()
+                    && msime_client_core::cloud::dictionary::valid_bounded_text(model, 256)
             }))
         .then_some(reply.models)
     }
@@ -465,17 +463,14 @@ impl UnixSocketProvider {
         text: &str,
     ) -> Option<String> {
         if provider.is_empty()
-            || provider.len() > 64
+            || !msime_client_core::cloud::dictionary::valid_bounded_text(provider, 64)
             || endpoint.is_empty()
-            || endpoint.len() > 2048
+            || !msime_client_core::cloud::dictionary::valid_bounded_text(endpoint, 2048)
             || model.is_empty()
-            || model.len() > 256
+            || !msime_client_core::cloud::dictionary::valid_bounded_text(model, 256)
             || text.trim().is_empty()
             || text.len() > 8192
             || prompt.len() > 8192
-            || [provider, endpoint, model]
-                .iter()
-                .any(|value| value.chars().any(char::is_control))
         {
             return None;
         }
@@ -548,8 +543,7 @@ impl UnixSocketProvider {
         if reply.candidates.len() > 12
             || reply.candidates.iter().any(|candidate| {
                 candidate.is_empty()
-                    || candidate.len() > 4096
-                    || candidate.chars().any(char::is_control)
+                    || !msime_client_core::cloud::dictionary::valid_bounded_text(candidate, 4096)
             })
         {
             return None;

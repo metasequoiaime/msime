@@ -95,10 +95,7 @@ impl SnapshotQueueState {
 }
 
 pub fn valid_digest(value: &str) -> bool {
-    value.len() == 64
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    crate::text::is_lower_hex(value, 64)
 }
 
 pub fn valid_local_version(value: &str) -> bool {
