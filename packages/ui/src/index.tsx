@@ -56,6 +56,7 @@ import { ScreenKeyboardSkinsSection } from "./settings/screen-keyboard-skins-sec
 import { TouchKeyboardSchemesSection } from "./settings/touch-keyboard-schemes-section";
 import { VoiceInputIntroSection } from "./settings/voice-input-intro-section";
 import { VoiceInputCoreSection } from "./settings/voice-input-core-section";
+import { VoiceModelPathSection } from "./settings/voice-model-path-section";
 import {
   MobileKeyboardFeedbackSection,
   type MobileKeyboardFeedback,
@@ -401,6 +402,10 @@ export {
   VoiceInputCoreSection,
   type VoiceInputCoreSectionProps,
 } from "./settings/voice-input-core-section";
+export {
+  VoiceModelPathSection,
+  type VoiceModelPathSectionProps,
+} from "./settings/voice-model-path-section";
 export {
   MobileKeyboardFeedbackSection,
   type MobileKeyboardFeedback,
@@ -3899,39 +3904,6 @@ export function SettingsPage({
   const localVoiceAvailable = macosPlatform || client.localVoiceModels !== undefined;
   const localVoice = localVoiceAvailable && voiceInput.asr_provider === "local";
   // A Whisper file picked by hand: the whole setting on a host without a model store, and an advanced option under the model manager otherwise.
-  const manualVoiceModelPath = () => (
-    <div className="section">
-      <label className="section-header">
-        <span className="section-title">
-          Whisper 模型文件
-          <small>ggml 模型的绝对路径，例如 /Users/you/models/ggml-large-v3-turbo.bin</small>
-        </span>
-        <span className="flex items-center gap-2 [&>input]:min-w-0 [&>input]:flex-1">
-          <input
-            aria-label="Whisper 模型文件"
-            value={voiceInput.asr_model_path ?? ""}
-            placeholder="/path/to/ggml-model.bin"
-            onChange={(event) => updateVoice({ asr_model_path: event.target.value })}
-          />
-          {client.pickVoiceModelPath && (
-            <button
-              type="button"
-              className="secondary"
-              onClick={() => {
-                void (async () => {
-                  // Cancelling resolves to null and must leave the field as it was, rather than clearing a path that already worked.
-                  const chosen = await client.pickVoiceModelPath?.();
-                  if (chosen) updateVoice({ asr_model_path: chosen });
-                })();
-              }}
-            >
-              选择…
-            </button>
-          )}
-        </span>
-      </label>
-    </div>
-  );
   const serviceVoice = !systemVoice && !localVoice;
   const harmonyUnsupportedAsr =
     harmonyPlatform &&
@@ -7402,10 +7374,18 @@ export function SettingsPage({
                       (client.localVoiceModels ? (
                         <details className="section">
                           <summary>高级：手动指定 Whisper 模型文件</summary>
-                          {manualVoiceModelPath()}
+                          <VoiceModelPathSection
+                            path={voiceInput.asr_model_path ?? ""}
+                            pickPath={client.pickVoiceModelPath}
+                            onChange={(asr_model_path) => updateVoice({ asr_model_path })}
+                          />
                         </details>
                       ) : (
-                        manualVoiceModelPath()
+                        <VoiceModelPathSection
+                          path={voiceInput.asr_model_path ?? ""}
+                          pickPath={client.pickVoiceModelPath}
+                          onChange={(asr_model_path) => updateVoice({ asr_model_path })}
+                        />
                       ))}
                     {showVoiceProviderSettings &&
                       serviceVoice &&
