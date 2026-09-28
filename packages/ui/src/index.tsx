@@ -80,6 +80,7 @@ import {
 import { ProviderPresetSection, type ProviderPreset } from "./settings/provider-preset-section";
 import { CredentialStatusMessage } from "./settings/credential-status-message";
 import { AiCredentialSection } from "./settings/ai-credential-section";
+import { AiPromptSettingsSection } from "./settings/ai-prompt-settings-section";
 import { AiModelCatalogSection } from "./settings/ai-model-catalog-section";
 import {
   AiBasicSettingsSection,
@@ -7216,62 +7217,19 @@ export function SettingsPage({
                         />
                       </label>
                     </div>
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          AI 联想提示词方案
-                          <small>使用选中的独立槽位；槽位留空时使用兼容提示词</small>
-                        </span>
-                        <select
-                          aria-label="AI 联想提示词方案"
-                          value={
-                            ai.prompt_id === "custom" ? "custom_1" : ai.prompt_id || "custom_1"
-                          }
-                          onChange={(event) => updateAi({ prompt_id: event.target.value })}
-                        >
-                          <option value="custom_1">自定义一</option>
-                          <option value="custom_2">自定义二</option>
-                          <option value="custom_3">自定义三</option>
-                        </select>
-                      </label>
-                    </div>
-                    <div className="section">
-                      <label className="section-title">
-                        兼容提示词<small>旧版提示词，所选自定义槽位留空时使用</small>
-                      </label>
-                      <textarea
-                        aria-label="AI 润色提示词"
-                        placeholder="留空时使用内置的联想提示词"
-                        value={ai.prompt ?? defaultAiAssistant.prompt}
-                        onChange={(event) => updateAi({ prompt: event.target.value })}
-                      />
-                    </div>
-                    <div className="section">
-                      <label className="section-title">
-                        自定义提示词一<small>发送给 AI 联想服务的额外提示词</small>
-                      </label>
-                      <textarea
-                        aria-label="自定义提示词一"
-                        value={ai.prompt_custom_1}
-                        onChange={(event) => updateAi({ prompt_custom_1: event.target.value })}
-                      />
-                    </div>
-                    <div className="section">
-                      <label className="section-title">自定义提示词二</label>
-                      <textarea
-                        aria-label="自定义提示词二"
-                        value={ai.prompt_custom_2}
-                        onChange={(event) => updateAi({ prompt_custom_2: event.target.value })}
-                      />
-                    </div>
-                    <div className="section">
-                      <label className="section-title">自定义提示词三</label>
-                      <textarea
-                        aria-label="自定义提示词三"
-                        value={ai.prompt_custom_3}
-                        onChange={(event) => updateAi({ prompt_custom_3: event.target.value })}
-                      />
-                    </div>
+                    <AiPromptSettingsSection
+                      promptId={ai.prompt_id}
+                      prompt={ai.prompt}
+                      promptCustom1={ai.prompt_custom_1 ?? ""}
+                      promptCustom2={ai.prompt_custom_2 ?? ""}
+                      promptCustom3={ai.prompt_custom_3 ?? ""}
+                      fallbackPrompt={defaultAiAssistant.prompt ?? ""}
+                      onPromptIdChange={(prompt_id) => updateAi({ prompt_id })}
+                      onPromptChange={(prompt) => updateAi({ prompt })}
+                      onPromptCustom1Change={(prompt_custom_1) => updateAi({ prompt_custom_1 })}
+                      onPromptCustom2Change={(prompt_custom_2) => updateAi({ prompt_custom_2 })}
+                      onPromptCustom3Change={(prompt_custom_3) => updateAi({ prompt_custom_3 })}
+                    />
                     {client.aiAssistant && (
                       <div className="section ai-test-tools">
                         <div className="section-title">
