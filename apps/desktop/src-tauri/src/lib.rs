@@ -2714,7 +2714,8 @@ const MACOS_ON_DEVICE_TRANSLATION_DOWNLOADABLE_DEFAULTS_KEY: &str =
 fn parse_on_device_translation_downloadable(value: &str) -> Vec<String> {
     let mut codes = Vec::new();
     for code in value.trim().split(',').map(str::trim) {
-        if ["en", "fr", "ja", "es", "ru", "de", "ko"].contains(&code)
+        if code != "zh"
+            && msime_client_core::translation::is_supported_translation_language(code)
             && !codes.iter().any(|known| known == code)
         {
             codes.push(code.to_owned());

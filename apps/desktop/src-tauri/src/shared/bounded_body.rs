@@ -24,7 +24,7 @@ pub(crate) fn read_bounded(reader: impl Read, maximum: usize) -> Result<Vec<u8>,
 
 #[cfg(test)]
 mod tests {
-    use super::{BoundedReadError, read_bounded};
+    use super::{read_bounded, BoundedReadError};
     use std::io;
 
     const MAX_BODY_BYTES: usize = 64 * 1024;
