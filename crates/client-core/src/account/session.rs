@@ -256,14 +256,7 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
     }
 
     pub fn profile(&self) -> Result<AccountProfile, AccountError> {
-        let (user_id, token) = self.credentials(None, None)?;
-        let profile = match self.api.profile(&token) {
-            Err(AccountError::Unauthorized) => {
-                let (_, replacement) = self.credentials(Some(&token), Some(&user_id))?;
-                self.api.profile(&replacement)?
-            }
-            result => result?,
-        };
+        let (user_id, profile) = self.authenticated_with_user(|api, token| api.profile(token))?;
         validate_profile(&profile)?;
         if profile.user.id != user_id {
             return Err(AccountError::Cancelled);
@@ -274,14 +267,7 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
 
     pub fn rename(&self, display_name: &str) -> Result<AccountProfile, AccountError> {
         validate_display_name(display_name)?;
-        let (user_id, token) = self.credentials(None, None)?;
-        if let Err(error) = self.api.rename(display_name, &token) {
-            if error != AccountError::Unauthorized {
-                return Err(error);
-            }
-            let (_, replacement) = self.credentials(Some(&token), Some(&user_id))?;
-            self.api.rename(display_name, &replacement)?;
-        }
+        self.authenticated(|api, token| api.rename(display_name, token))?;
         self.profile()
     }
 
@@ -298,15 +284,7 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
     }
 
     pub fn delete_account(&self) -> Result<(), AccountError> {
-        let (user_id, token) = self.credentials(None, None)?;
-        let result = match self.api.delete_account(&token) {
-            Err(AccountError::Unauthorized) => {
-                let (_, replacement) = self.credentials(Some(&token), Some(&user_id))?;
-                self.api.delete_account(&replacement)
-            }
-            result => result,
-        };
-        result?;
+        self.authenticated(|api, token| api.delete_account(token))?;
         self.forget()
     }
 
@@ -326,14 +304,23 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
     where
         F: Fn(&A, &str) -> Result<T, AccountError>,
     {
+        self.authenticated_with_user(operation)
+            .map(|(_, result)| result)
+    }
+
+    fn authenticated_with_user<T, F>(&self, operation: F) -> Result<(String, T), AccountError>
+    where
+        F: Fn(&A, &str) -> Result<T, AccountError>,
+    {
         let (user_id, token) = self.credentials(None, None)?;
-        match operation(&self.api, &token) {
+        let result = match operation(&self.api, &token) {
             Err(AccountError::Unauthorized) => {
                 let (_, replacement) = self.credentials(Some(&token), Some(&user_id))?;
                 operation(&self.api, &replacement)
             }
             result => result,
-        }
+        }?;
+        Ok((user_id, result))
     }
 
     pub fn preference_schema(&self) -> Result<AccountPreferenceSchema, AccountError> {
