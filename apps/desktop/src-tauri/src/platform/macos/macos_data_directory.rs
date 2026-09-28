@@ -7,7 +7,7 @@
 use serde_json::Value;
 use std::collections::BTreeSet;
 use std::fs::{self, File};
-use std::io::{self, Read};
+use std::io;
 use std::path::{Path, PathBuf};
 
 pub(crate) const DATA_DIRECTORY_MARKER: &str = ".metasequoiaime-data";
@@ -43,16 +43,10 @@ fn locator_backups(locators: &[PathBuf]) -> Result<Vec<LocatorBackup>, MoveError
             continue;
         }
         let contents = match File::open(path) {
-            Ok(file) => {
-                let mut contents = Vec::new();
-                file.take(MAX_LOCATOR_BYTES + 1)
-                    .read_to_end(&mut contents)
-                    .map_err(|_| MoveError::Publish)?;
-                if contents.len() as u64 > MAX_LOCATOR_BYTES {
-                    return Err(MoveError::Publish);
-                }
-                Some(contents)
-            }
+            Ok(file) => Some(
+                crate::shared::bounded_body::read_bounded(file, MAX_LOCATOR_BYTES as usize)
+                    .map_err(|_| MoveError::Publish)?,
+            ),
             Err(error) if error.kind() == io::ErrorKind::NotFound => None,
             Err(_) => return Err(MoveError::Publish),
         };
