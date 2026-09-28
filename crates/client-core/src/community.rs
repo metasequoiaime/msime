@@ -6,10 +6,9 @@
 
 pub(crate) fn valid_text(value: &str, minimum: usize, maximum: usize, multiline: bool) -> bool {
     let count = value.chars().count();
+    let allowed_controls: &[char] = if multiline { &['\n', '\t'] } else { &[] };
     (minimum..=maximum).contains(&count)
-        && value.chars().all(|character| {
-            !character.is_control() || (multiline && matches!(character, '\n' | '\t'))
-        })
+        && !crate::has_disallowed_control_with_allowed(value, allowed_controls)
 }
 
 pub(crate) const MAXIMUM_OFFSET: usize = 1_000_000;

@@ -74,10 +74,13 @@ impl PersonalWord {
             }
             PersonalWordKind::English => super::english_code_is_well_formed(&self.key),
         };
-        let value_has_invalid_control = self.value.chars().any(|character| {
-            character.is_control()
-                && !(self.kind == PersonalWordKind::QuickPhrase && matches!(character, '\n' | '\t'))
-        });
+        let allowed_controls: &[char] = if self.kind == PersonalWordKind::QuickPhrase {
+            &['\n', '\t']
+        } else {
+            &[]
+        };
+        let value_has_invalid_control =
+            crate::has_disallowed_control_with_allowed(&self.value, allowed_controls);
         if self.key.is_empty()
             || self.key.len() > key_limit
             || !key_valid

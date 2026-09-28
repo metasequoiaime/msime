@@ -8,16 +8,24 @@ pub(crate) fn has_disallowed_control(value: &str) -> bool {
 
 /// Whether `value` contains a disallowed control character with an explicit line-whitespace policy.
 pub fn has_disallowed_control_with_options(value: &str, allow_whitespace: bool) -> bool {
-    value.chars().any(|character| {
-        character.is_control() && !(allow_whitespace && matches!(character, '\n' | '\r' | '\t'))
-    })
+    let allowed = if allow_whitespace {
+        &['\n', '\r', '\t'][..]
+    } else {
+        &[]
+    };
+    has_disallowed_control_with_allowed(value, allowed)
+}
+
+/// Whether `value` contains a control character outside the supplied allowed set.
+pub fn has_disallowed_control_with_allowed(value: &str, allowed: &[char]) -> bool {
+    value
+        .chars()
+        .any(|character| character.is_control() && !allowed.contains(&character))
 }
 
 /// Whether `value` contains a control character other than line-feed or carriage-return.
 pub fn has_disallowed_control_with_line_breaks(value: &str) -> bool {
-    value
-        .chars()
-        .any(|character| character.is_control() && !matches!(character, '\n' | '\r'))
+    has_disallowed_control_with_allowed(value, &['\n', '\r'])
 }
 
 /// Whether a single-line field fits its byte bound and contains no controls.

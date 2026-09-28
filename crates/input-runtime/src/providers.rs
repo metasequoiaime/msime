@@ -501,9 +501,7 @@ impl UnixSocketProvider {
         let polished = reply.text.trim();
         (!polished.is_empty()
             && polished.len() <= 16_384
-            && !polished
-                .chars()
-                .any(|character| character.is_control() && character != '\n'))
+            && !msime_client_core::has_disallowed_control_with_allowed(polished, &['\n']))
         .then(|| polished.to_owned())
     }
 
