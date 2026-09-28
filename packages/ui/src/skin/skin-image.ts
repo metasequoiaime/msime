@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { validSkinAssetBytes } from "./skin-asset";
 
 export type SkinImage = { contentType: string; bytes: number[] };
 export type SkinImageReader = (id: string, relative: string) => Promise<SkinImage>;
@@ -16,12 +17,7 @@ const imageTypes = new Set([
 // Use an image-only data URL, already permitted by the desktop img-src CSP.
 // SVG remains an image, never HTML markup or an executable document.
 export function skinImageUrl(image: SkinImage): string {
-  if (
-    !imageTypes.has(image.contentType) ||
-    !Array.isArray(image.bytes) ||
-    image.bytes.length > 8 * 1024 * 1024 ||
-    !image.bytes.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 255)
-  )
+  if (!imageTypes.has(image.contentType) || !validSkinAssetBytes(image.bytes))
     throw new Error("invalid image");
   let binary = "";
   for (let offset = 0; offset < image.bytes.length; offset += 32768) {
