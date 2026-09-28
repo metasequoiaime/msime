@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { errorCode } from "../core/error-code";
-import { boundedGraphemes } from "../core/text";
 import { randomRequestId } from "../core/random-id";
 import { ScreenKeyboardPreview } from "./screen-keyboard-preview";
 import {
   defaultTouchKeyboardSkinDesign,
+  boundedSkinName,
   hasReadableSkinText,
   normalizeTouchKeyboardSkinDesign,
   readableSkinText,
   skinColor,
+  skinColorNumber,
   skinContrast,
   touchKeyboardBackgroundPresets,
   touchKeyboardSkinTemplates,
@@ -29,14 +30,6 @@ import * as community from "../community/community-style";
 type Category = "背景" | "按键" | "文本" | "设计" | "我的";
 type NameEditor = { operation: "create" } | { operation: "rename"; id: string };
 type Confirmation = { operation: "update" | "delete"; item: SavedTouchKeyboardSkin };
-
-function colorNumber(value: string): number {
-  return Number.parseInt(value.slice(1), 16);
-}
-
-function boundedSkinName(value: string): string {
-  return boundedGraphemes(value, 32);
-}
 
 async function boundedPhoto(file: File): Promise<string> {
   if (!file.type.startsWith("image/") || file.size > 20_000_000) throw new Error("invalid image");
@@ -784,7 +777,7 @@ export function TouchKeyboardSkinEditor({
                   aria-label="背景起始色"
                   type="color"
                   value={skinColor(design.background)}
-                  onChange={(event) => patch({ background: colorNumber(event.target.value) })}
+                  onChange={(event) => patch({ background: skinColorNumber(event.target.value) })}
                 />
               </label>
               <label className={skin.checkLabel}>
@@ -807,7 +800,9 @@ export function TouchKeyboardSkinEditor({
                       aria-label="渐变结束色"
                       type="color"
                       value={skinColor(design.gradientEnd)}
-                      onChange={(event) => patch({ gradientEnd: colorNumber(event.target.value) })}
+                      onChange={(event) =>
+                        patch({ gradientEnd: skinColorNumber(event.target.value) })
+                      }
                     />
                   </label>
                   <label className={skin.checkLabel}>
@@ -928,7 +923,9 @@ export function TouchKeyboardSkinEditor({
                   aria-label="键帽颜色"
                   type="color"
                   value={skinColor(design.keyBackground)}
-                  onChange={(event) => patch({ keyBackground: colorNumber(event.target.value) })}
+                  onChange={(event) =>
+                    patch({ keyBackground: skinColorNumber(event.target.value) })
+                  }
                 />
               </label>
               <label>
@@ -938,7 +935,9 @@ export function TouchKeyboardSkinEditor({
                   aria-label="功能键颜色"
                   type="color"
                   value={skinColor(design.actionBackground)}
-                  onChange={(event) => patch({ actionBackground: colorNumber(event.target.value) })}
+                  onChange={(event) =>
+                    patch({ actionBackground: skinColorNumber(event.target.value) })
+                  }
                 />
               </label>
             </div>
@@ -1027,7 +1026,7 @@ export function TouchKeyboardSkinEditor({
                   type="color"
                   value={skinColor(design.customBorderColor ?? design.accent)}
                   onChange={(event) =>
-                    patch({ customBorderColor: colorNumber(event.target.value) })
+                    patch({ customBorderColor: skinColorNumber(event.target.value) })
                   }
                 />
               </label>
@@ -1053,7 +1052,7 @@ export function TouchKeyboardSkinEditor({
                 aria-label="按键文字"
                 type="color"
                 value={skinColor(design.keyForeground)}
-                onChange={(event) => patch({ keyForeground: colorNumber(event.target.value) })}
+                onChange={(event) => patch({ keyForeground: skinColorNumber(event.target.value) })}
               />
             </label>
             <label>
@@ -1063,7 +1062,7 @@ export function TouchKeyboardSkinEditor({
                 aria-label="提示与工具栏"
                 type="color"
                 value={skinColor(design.accent)}
-                onChange={(event) => patch({ accent: colorNumber(event.target.value) })}
+                onChange={(event) => patch({ accent: skinColorNumber(event.target.value) })}
               />
             </label>
             {!hasReadableSkinText(design) && (
