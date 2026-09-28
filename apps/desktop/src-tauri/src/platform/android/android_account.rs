@@ -174,10 +174,6 @@ pub fn init() -> TauriPlugin<Wry> {
         .build()
 }
 
-fn parse_snapshot_object(bytes: &[u8]) -> Result<serde_json::Map<String, Value>, AccountError> {
-    parse_strict_object(bytes).map_err(|_| AccountError::Invalid)
-}
-
 fn inspect_snapshot_record(
     map: &serde_json::Map<String, Value>,
     revision: i64,
@@ -386,7 +382,7 @@ fn inspect_snapshot(path: &std::path::Path) -> Result<SnapshotMetadata, AccountE
         if total_bytes > MAX_BYTES || line.is_empty() {
             return Err(AccountError::Invalid);
         }
-        let map = parse_snapshot_object(&line)?;
+        let map = parse_strict_object(&line).map_err(|_| AccountError::Invalid)?;
         let kind = map
             .get("type")
             .and_then(Value::as_str)

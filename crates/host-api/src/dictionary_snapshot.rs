@@ -8,7 +8,7 @@ use msime_client_core::cloud::snapshot_queue::{
     local_version, local_version_digest, DictionarySnapshotQueue, SnapshotQueueError,
 };
 use msime_client_core::cloud::snapshot_validation::{
-    has_keys as snapshot_has_keys, required_integer as snapshot_integer,
+    has_keys as snapshot_has_keys, parse_strict_object, required_integer as snapshot_integer,
     required_text as snapshot_text, valid_timestamp as snapshot_timestamp,
 };
 use msime_client_core::resources::{ResourceSet, ResourceStore};
@@ -114,11 +114,6 @@ struct SnapshotMetadata {
     positions: usize,
     selections: usize,
     engine_records: usize,
-}
-
-fn parse_snapshot_object(bytes: &[u8]) -> Result<serde_json::Map<String, Value>, &'static str> {
-    msime_client_core::cloud::snapshot_validation::parse_strict_object(bytes)
-        .map_err(|_| "invalid snapshot document")
 }
 
 #[derive(Default)]
@@ -340,7 +335,7 @@ fn inspect_snapshot(path: &Path) -> Result<SnapshotMetadata, &'static str> {
         if total_bytes > MAX_SNAPSHOT_BYTES || line.is_empty() {
             return Err("invalid snapshot document");
         }
-        let map = parse_snapshot_object(&line)?;
+        let map = parse_strict_object(&line).map_err(|_| "invalid snapshot document")?;
         let kind = map
             .get("type")
             .and_then(Value::as_str)
@@ -920,7 +915,7 @@ impl Iterator for SnapshotFileRecords {
                 }
                 Ok(true) => {}
             }
-            let kind = match parse_snapshot_object(&self.line)
+            let kind = match parse_strict_object(&self.line)
                 .ok()
                 .and_then(|map| map.get("type").and_then(Value::as_str).map(str::to_owned))
             {
