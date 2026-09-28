@@ -76,6 +76,14 @@ fn ai_credentials_and_text_reject_empty_or_unsafe_values() {
     assert!(!crate::ai::ai_text_is_valid("fixture\0text", false));
 }
 
+#[cfg(not(target_os = "android"))]
+#[test]
+fn ai_response_body_limit_rejects_oversized_streams() {
+    let body = vec![b'x'; crate::ai::MAX_RESPONSE_BYTES + 1];
+    let error = crate::ai::read_ai_response_body(std::io::Cursor::new(body)).unwrap_err();
+    assert_eq!(error, crate::ai::AiResponseBodyError::TooLarge);
+}
+
 #[test]
 fn clipboard_text_validation_enforces_nonempty_nul_free_byte_limit() {
     assert!(!crate::clipboard_history::clipboard_text_is_valid(""));

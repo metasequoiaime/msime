@@ -8,6 +8,29 @@
 use crate::CommandError;
 use reqwest::Url;
 use serde_json::Value;
+use std::io::Read;
+
+pub(crate) const MAX_RESPONSE_BYTES: usize = 1_024 * 1_024;
+
+#[derive(Debug, Eq, PartialEq)]
+pub(crate) enum AiResponseBodyError {
+    TooLarge,
+    Read,
+}
+
+/// Read at most one byte past the response limit so streams without a reliable
+/// Content-Length cannot grow the settings process without bound.
+pub(crate) fn read_ai_response_body(reader: impl Read) -> Result<Vec<u8>, AiResponseBodyError> {
+    let mut bytes = Vec::new();
+    reader
+        .take((MAX_RESPONSE_BYTES + 1) as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|_| AiResponseBodyError::Read)?;
+    if bytes.len() > MAX_RESPONSE_BYTES {
+        return Err(AiResponseBodyError::TooLarge);
+    }
+    Ok(bytes)
+}
 
 pub(crate) fn validate_ai_endpoint(value: &str) -> Result<Url, CommandError> {
     if value.len() > 2048 || value.chars().any(char::is_control) {
@@ -86,7 +109,15 @@ pub(crate) fn ai_models_request(endpoint: &str, token: &str) -> Result<Vec<Strin
         .map_err(|_| CommandError {
             code: "ai_models_unavailable",
         })?;
-    let document: Value = response.json().map_err(|_| CommandError {
+    let body = read_ai_response_body(response).map_err(|error| match error {
+        AiResponseBodyError::TooLarge => CommandError {
+            code: "ai_models_invalid",
+        },
+        AiResponseBodyError::Read => CommandError {
+            code: "ai_models_unavailable",
+        },
+    })?;
+    let document: Value = serde_json::from_slice(&body).map_err(|_| CommandError {
         code: "ai_models_invalid",
     })?;
     let models = document
@@ -157,7 +188,15 @@ pub(crate) fn ai_test_request(
         .map_err(|_| CommandError {
             code: "ai_test_unavailable",
         })?;
-    let document: Value = response.json().map_err(|_| CommandError {
+    let body = read_ai_response_body(response).map_err(|error| match error {
+        AiResponseBodyError::TooLarge => CommandError {
+            code: "ai_test_invalid",
+        },
+        AiResponseBodyError::Read => CommandError {
+            code: "ai_test_unavailable",
+        },
+    })?;
+    let document: Value = serde_json::from_slice(&body).map_err(|_| CommandError {
         code: "ai_test_invalid",
     })?;
     let output = document
