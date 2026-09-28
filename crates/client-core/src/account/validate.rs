@@ -179,8 +179,7 @@ pub(super) fn validate_dictionary_catalog_page(
     if page.entries.len() > MAX_DICTIONARY_PAGE_ENTRIES
         || page.offset > 1_000_000
         || page.revision < 0
-        || page.normalized.len() > 256
-        || page.normalized.chars().any(char::is_control)
+        || !crate::text::is_bounded_text(&page.normalized, 256)
     {
         return Err(AccountError::Unavailable);
     }
