@@ -1,4 +1,5 @@
 import { useConfirm } from "./core/confirm";
+import { errorMessage } from "./core/error-message";
 import { VoiceDevicePicker, type VoiceDeviceReader } from "./voice/voice-device-picker";
 import {
   LocalModelManager,
@@ -1812,27 +1813,6 @@ export interface PreferencesRecovery {
 /** What a load or save that failed on an unreadable document says; the repair button sits beside exactly this message. */
 const unreadablePreferencesMessage = "配置文件无法读取或版本较新，原文件已保留。";
 
-function message(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  if (typeof error === "object" && error !== null && "code" in error) {
-    switch (error.code) {
-      case "conflict":
-        return "设置已在其他窗口修改。请重新读取后再保存。";
-      case "invalid":
-        return "候选数量必须为 1 到 9。";
-      case "frequency_invalid":
-        return "调频触发频次和步长必须为 1 到 10。";
-      case "mixed_input_invalid":
-        return "中英混输触发字符数必须为 1 到 8。";
-      case "key_conflict":
-        return "以词定字和翻页不能使用同一组快捷键。";
-      case "format":
-        return unreadablePreferencesMessage;
-    }
-  }
-  return "无法访问设置，请重试。原有设置不会被自动重置。";
-}
-
 /**
  * The 键盘 tab draws a keyboard, not the app.
  *
@@ -2416,7 +2396,7 @@ export function SettingsPage({
         `已保存 ${customTranslationsReport.entries.length} 条释义，重新启动输入法后生效。`,
       );
     } catch (error) {
-      setCustomTranslationsNotice(message(error));
+      setCustomTranslationsNotice(errorMessage(error));
     } finally {
       setCustomTranslationsBusy(false);
     }
@@ -2602,7 +2582,7 @@ export function SettingsPage({
         if (active) adoptSnapshot(value);
       })
       .catch((reason) => {
-        if (active) setError(message(reason));
+        if (active) setError(errorMessage(reason));
       })
       .finally(() => {
         if (active) setBusy(false);
@@ -2623,7 +2603,7 @@ export function SettingsPage({
       if (!mounted.current) return;
       adoptSnapshot(value);
     } catch (reason) {
-      if (mounted.current) setError(message(reason));
+      if (mounted.current) setError(errorMessage(reason));
     } finally {
       if (mounted.current) setBusy(false);
     }
@@ -2678,7 +2658,7 @@ export function SettingsPage({
       adoptSnapshot(value);
       setNotice("设置已保存。");
     } catch (reason) {
-      if (mounted.current) setError(message(reason));
+      if (mounted.current) setError(errorMessage(reason));
     } finally {
       if (mounted.current) setBusy(false);
       savingRef.current = false;
@@ -3276,7 +3256,7 @@ export function SettingsPage({
         }${dirty ? "未保存的修改仍保留，请点击保存设置。" : ""}`,
       );
     } catch (reason) {
-      setError(message(reason));
+      setError(errorMessage(reason));
     } finally {
       setBusy(false);
     }
