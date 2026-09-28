@@ -50,6 +50,7 @@ import { AI_PROVIDER_OPTIONS } from "./settings/ai-provider-options";
 export { AI_PROVIDER_OPTIONS } from "./settings/ai-provider-options";
 import { defaultVoiceInput } from "./settings/voice-input-defaults";
 import { macosSidebarGroups } from "./settings/macos-sidebar-groups";
+import { groupSidebarPages } from "./settings/sidebar-groups";
 import { unreadablePreferencesMessage } from "./settings/preferences-recovery-message";
 import {
   defaultCustomTranslation,
@@ -3350,23 +3351,7 @@ export function SettingsPage({
   const sidebarPages = availablePages.filter(
     (item) => item.id !== "more" && !(mobilePlatform && mobileHiddenPageIds.includes(item.id)),
   );
-  const sidebarGroups = ((): (typeof availablePages)[] => {
-    if (!macosPlatform) return [sidebarPages];
-    const remaining = new Map(sidebarPages.map((item) => [item.id, item]));
-    const groups = macosSidebarGroups
-      .map((ids) =>
-        ids.flatMap((id) => {
-          const item = remaining.get(id);
-          if (!item) return [];
-          remaining.delete(id);
-          return [item];
-        }),
-      )
-      .filter((group) => group.length > 0);
-    const extra = [...remaining.values()];
-    if (extra.length > 0) groups.splice(Math.max(groups.length - 1, 0), 0, extra);
-    return groups;
-  })();
+  const sidebarGroups = groupSidebarPages(sidebarPages, macosPlatform, macosSidebarGroups);
   // Walked in tab order rather than filtered out of `availablePages`, which is in the order the
   // pages happen to be declared in — that put 我的 second, and the bar read 键盘 / 我的 / 社区 / 统计
   // against the source's 键盘 / 社区 / 统计 / 我的.
