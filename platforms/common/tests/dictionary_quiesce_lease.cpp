@@ -72,6 +72,12 @@ int main() {
   }
   lower_dictionary_quiesce_lease(root.string(), second);
   assert(dictionary_quiesced(root.string(), 1000000));
+  {
+    std::ofstream oversized(root / ".msime-dictionary-quiesce", std::ios::trunc);
+    oversized << std::string(msime::dictionary_lease::kDictionaryQuiesceLeaseMaxBytes + 1, 'x');
+  }
+  lower_dictionary_quiesce_lease(root.string(), second);
+  assert(std::filesystem::exists(root / ".msime-dictionary-quiesce"));
   std::filesystem::remove(root / ".msime-dictionary-quiesce");
   assert(!raise_dictionary_quiesce_lease("relative", written, 1000000));
   assert(!raise_dictionary_quiesce_lease((root / "missing").string(), written, 1000000));

@@ -1,9 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useConfirm } from "../core/confirm";
-import { charactersPerMinute, readableCharacters, type TypingBreakdown } from "./typing-speed";
-export type { TypingBreakdown } from "./typing-speed";
+import {
+  charactersPerMinute,
+  readableCharacters,
+  withUnknown,
+  type TypingBreakdown,
+} from "./typing-speed";
 import {
   dayKey,
+  dayLabel,
   mobileTrendLength,
   recentDays,
   sumStatisticValues,
@@ -344,23 +349,6 @@ export function formatActiveTime(milliseconds: number): string {
 }
 
 /** `9月21日` from a `YYYY-MM-DD` key, matching the labels the trend axis uses. */
-function dayLabel(key: string): string {
-  const [, month, day] = key.split("-");
-  return `${Number(month)}月${Number(day)}日`;
-}
-
-function withUnknown(value: Partial<TypingBreakdown> | undefined, total: number): TypingBreakdown {
-  const characters = { ...value?.characters };
-  const sourceCounts = { ...value?.sources };
-  characters.unknown =
-    (characters.unknown ?? 0) +
-    Math.max(0, total - Object.values(characters).reduce((a, b) => a + b, 0));
-  sourceCounts.unknown =
-    (sourceCounts.unknown ?? 0) +
-    Math.max(0, total - Object.values(sourceCounts).reduce((a, b) => a + b, 0));
-  return { characters, sources: sourceCounts };
-}
-
 /** How many recorded days the per-day detail table lists, as in the Windows source's `DETAIL_DAYS`. */
 export const DETAIL_DAYS = 30;
 

@@ -37,3 +37,8 @@ export function sumStatisticValues(
 ): number {
   return keys.reduce((total, key) => total + (values[key] ?? 0), 0);
 }
+
+export function dayLabel(key: string): string {
+  const [, month, day] = key.split("-");
+  return `${Number(month)}月${Number(day)}日`;
+}

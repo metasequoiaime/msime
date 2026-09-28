@@ -3,6 +3,21 @@ export type TypingBreakdown = {
   sources: Record<string, number>;
 };
 
+export function withUnknown(
+  value: Partial<TypingBreakdown> | undefined,
+  total: number,
+): TypingBreakdown {
+  const characters = { ...value?.characters };
+  const sourceCounts = { ...value?.sources };
+  characters.unknown =
+    (characters.unknown ?? 0) +
+    Math.max(0, total - Object.values(characters).reduce((a, b) => a + b, 0));
+  sourceCounts.unknown =
+    (sourceCounts.unknown ?? 0) +
+    Math.max(0, total - Object.values(sourceCounts).reduce((a, b) => a + b, 0));
+  return { characters, sources: sourceCounts };
+}
+
 /**
  * Speed counts prose characters. Digits, punctuation, emoji, and symbols are excluded so short
  * bursts such as phone numbers do not appear as typing speed. `otherLetter` includes kana, hangul,
