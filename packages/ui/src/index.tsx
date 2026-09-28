@@ -59,6 +59,7 @@ import { VoiceInputIntroSection } from "./settings/voice-input-intro-section";
 import { VoiceInputCoreSection } from "./settings/voice-input-core-section";
 import { VoiceModelPathSection } from "./settings/voice-model-path-section";
 import { VoiceModelSection } from "./settings/voice-model-section";
+import { VoiceEndpointSection } from "./settings/voice-endpoint-section";
 import { DoubaoAuthModeSection } from "./settings/doubao-auth-mode-section";
 import { DoubaoStreamEndpointSection } from "./settings/doubao-stream-endpoint-section";
 import { DoubaoOptionsSection } from "./settings/doubao-options-section";
@@ -435,6 +436,10 @@ export {
   type VoiceModelPathSectionProps,
 } from "./settings/voice-model-path-section";
 export { VoiceModelSection, type VoiceModelSectionProps } from "./settings/voice-model-section";
+export {
+  VoiceEndpointSection,
+  type VoiceEndpointSectionProps,
+} from "./settings/voice-endpoint-section";
 export {
   DoubaoAuthModeSection,
   type DoubaoAuthMode,
@@ -6714,21 +6719,10 @@ export function SettingsPage({
                             onChange={(asr_endpoint) => updateVoice({ asr_endpoint })}
                           />
                         )}
-                        <div className="section">
-                          <label className="section-header">
-                            <span className="section-title">
-                              识别接口地址<small>留空使用当前 provider 默认地址</small>
-                            </span>
-                            <input
-                              aria-label="识别接口地址"
-                              type="url"
-                              value={voiceInput.asr_endpoint ?? ""}
-                              onChange={(event) =>
-                                updateVoice({ asr_endpoint: event.target.value })
-                              }
-                            />
-                          </label>
-                        </div>
+                        <VoiceEndpointSection
+                          value={voiceInput.asr_endpoint ?? ""}
+                          onChange={(asr_endpoint) => updateVoice({ asr_endpoint })}
+                        />
                         {voiceInput.asr_provider === "doubao" && doubaoAuthMode === "legacy" && (
                           <div className="section">
                             <label className="section-header">
