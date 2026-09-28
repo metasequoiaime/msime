@@ -1,5 +1,6 @@
 import type { ConfirmRequest } from "../core/confirm";
 import { SettingToggle } from "./setting-toggle";
+import { SettingCheck } from "./setting-check";
 
 export type FuzzyPinyinPreferences = { enabled: boolean; rules: string[]; seeded?: boolean };
 
@@ -76,21 +77,18 @@ export function FuzzyPinyinSection({ preferences, onChange, confirm }: FuzzyPiny
             {rules.map(([id, label], index) => (
               <div className="input-option-item" key={id}>
                 {index > 0 && <div className="input-option-divider" />}
-                <label className="check-option">
-                  <input
-                    aria-label={`模糊音规则 ${id}`}
-                    type="checkbox"
-                    disabled={!preferences.enabled}
-                    checked={preferences.rules.includes(id)}
-                    onChange={(event) => {
-                      const selected = new Set(preferences.rules);
-                      if (event.target.checked) selected.add(id);
-                      else selected.delete(id);
-                      onChange({ ...preferences, rules: [...selected].sort() });
-                    }}
-                  />
-                  <span>{label}</span>
-                </label>
+                <SettingCheck
+                  label={label}
+                  ariaLabel={`模糊音规则 ${id}`}
+                  disabled={!preferences.enabled}
+                  checked={preferences.rules.includes(id)}
+                  onChange={(checked) => {
+                    const selected = new Set(preferences.rules);
+                    if (checked) selected.add(id);
+                    else selected.delete(id);
+                    onChange({ ...preferences, rules: [...selected].sort() });
+                  }}
+                />
               </div>
             ))}
           </div>
