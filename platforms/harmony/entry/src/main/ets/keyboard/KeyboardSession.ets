@@ -1277,9 +1277,9 @@ export class KeyboardSession implements HardwareKeyTarget {
         // The shared store validates these to 12..32 and strips control
         // characters from family names. Clamp again at the host boundary so
         // an older staged document cannot produce an unusable panel.
-        candidateFontSize: Math.max(12, Math.min(32, preferences.candidate_font_size)),
+        candidateFontSize: KeyboardGeometry.bounded(preferences.candidate_font_size, 12, 32),
         candidatePreeditFontSize:
-          Math.max(12, Math.min(32, preferences.candidate_preedit_font_size)),
+          KeyboardGeometry.bounded(preferences.candidate_preedit_font_size, 12, 32),
         candidateFontFamily: preferences.candidate_font_family.trim().length > 0
           ? preferences.candidate_font_family : 'Noto Sans SC',
         candidateEnglishFont: preferences.candidate_english_font ?? null,
