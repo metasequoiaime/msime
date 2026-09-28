@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useConfirm } from "../core/confirm";
+import { errorCode } from "../core/error-code";
 import * as chat from "./chat-style";
 
 export type ChatMessage = {
@@ -22,17 +23,15 @@ export interface ChatClient {
 type DisplayMessage = ChatMessage & { id: number };
 
 function chatError(error: unknown): string {
-  if (typeof error === "object" && error !== null && "code" in error) {
-    switch (error.code) {
-      case "account_unauthorized":
-        return "登录后即可与 AI 对话。";
-      case "account_invalid":
-        return "消息或模型无效，请检查后重试。";
-      case "account_rate_limited":
-        return "操作过于频繁，请稍后再试。";
-      case "account_unavailable":
-        return "聊天服务暂不可用，请稍后重试。";
-    }
+  switch (errorCode(error)) {
+    case "account_unauthorized":
+      return "登录后即可与 AI 对话。";
+    case "account_invalid":
+      return "消息或模型无效，请检查后重试。";
+    case "account_rate_limited":
+      return "操作过于频繁，请稍后再试。";
+    case "account_unavailable":
+      return "聊天服务暂不可用，请稍后重试。";
   }
   return "连接失败，请检查网络后重试。";
 }
@@ -97,11 +96,7 @@ export function ChatPage({
       );
     } catch (cause) {
       if (!mounted.current || modelGeneration.current !== current) return;
-      const unauthorized =
-        typeof cause === "object" &&
-        cause !== null &&
-        "code" in cause &&
-        cause.code === "account_unauthorized";
+      const unauthorized = errorCode(cause) === "account_unauthorized";
       setLoginNeeded(unauthorized);
       setError(chatError(cause));
     } finally {
@@ -139,11 +134,7 @@ export function ChatPage({
       ]);
     } catch (cause) {
       if (generation.current !== version) return;
-      const unauthorized =
-        typeof cause === "object" &&
-        cause !== null &&
-        "code" in cause &&
-        cause.code === "account_unauthorized";
+      const unauthorized = errorCode(cause) === "account_unauthorized";
       setLoginNeeded(unauthorized);
       setError(chatError(cause));
     } finally {

@@ -1,6 +1,7 @@
 // Source: MSIME-Apple@9ca823ab40018ced3cb71812503dbc3b94615ac0
 // (`SkinCommunityView.swift`, `CommunityGalleryStyle.swift`).
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { errorCode } from "../core/error-code";
 import { ScreenKeyboardPreview } from "../keyboard/screen-keyboard-preview";
 import * as style from "./community-style";
 import type {
@@ -49,33 +50,31 @@ export interface CommunitySkinClient {
 }
 
 function communityMessage(error: unknown): string {
-  if (typeof error === "object" && error !== null && "code" in error) {
-    switch (error.code) {
-      case "community_invalid":
-        return "搜索内容无效，请修改后重试。";
-      case "community_unauthorized":
-        return "登录已失效；仍可退出后匿名浏览。";
-      case "community_forbidden":
-        return "没有权限执行此操作；自己的作品不能评分或下架。";
-      case "community_conflict":
-        return "作品状态已变化或已达到发布上限，请刷新后重试。";
-      case "community_not_found":
-        return "作品不存在或已下架。";
-      case "community_rate_limited":
-        return "请求过于频繁，请稍后再试。";
-      case "community_cancelled":
-        return "账号状态已变化，请重新加载。";
-      case "community_storage":
-        return "无法安全读取登录状态，请检查设备安全设置。";
-      case "community_skin_library_full":
-        return "最多保存 12 套皮肤，请先删除不需要的设计。";
-      case "community_skin_invalid_name":
-        return "无法保存这款皮肤：名称无效。";
-      case "community_skin_duplicate_name":
-        return "无法保存这款皮肤：名称重复。";
-      case "community_trial_format":
-        return "无法安全保存试用状态，请稍后重试。";
-    }
+  switch (errorCode(error)) {
+    case "community_invalid":
+      return "搜索内容无效，请修改后重试。";
+    case "community_unauthorized":
+      return "登录已失效；仍可退出后匿名浏览。";
+    case "community_forbidden":
+      return "没有权限执行此操作；自己的作品不能评分或下架。";
+    case "community_conflict":
+      return "作品状态已变化或已达到发布上限，请刷新后重试。";
+    case "community_not_found":
+      return "作品不存在或已下架。";
+    case "community_rate_limited":
+      return "请求过于频繁，请稍后再试。";
+    case "community_cancelled":
+      return "账号状态已变化，请重新加载。";
+    case "community_storage":
+      return "无法安全读取登录状态，请检查设备安全设置。";
+    case "community_skin_library_full":
+      return "最多保存 12 套皮肤，请先删除不需要的设计。";
+    case "community_skin_invalid_name":
+      return "无法保存这款皮肤：名称无效。";
+    case "community_skin_duplicate_name":
+      return "无法保存这款皮肤：名称重复。";
+    case "community_trial_format":
+      return "无法安全保存试用状态，请稍后重试。";
   }
   return "社区暂时不可用，请稍后重试。";
 }
@@ -121,35 +120,28 @@ function randomPublicationId(): string {
 }
 
 function publishMessage(error: unknown): string {
-  if (typeof error === "object" && error !== null && "code" in error) {
-    switch (error.code) {
-      case "community_unauthorized":
-        return "请先登录后再发布皮肤。";
-      case "community_forbidden":
-        return "当前账号没有权限执行发布操作。";
-      case "community_conflict":
-        return "作品状态已变化或已达到发布上限，请刷新后重试。";
-      case "community_invalid":
-        return "名称、说明或皮肤设计不符合发布要求。";
-      case "community_rate_limited":
-        return "发布操作过于频繁，请稍后再试。";
-      case "community_not_found":
-        return "账号或作品不存在，请重新加载。";
-      case "community_cancelled":
-        return "账号状态已变化，请重新登录后重试。";
-    }
+  switch (errorCode(error)) {
+    case "community_unauthorized":
+      return "请先登录后再发布皮肤。";
+    case "community_forbidden":
+      return "当前账号没有权限执行发布操作。";
+    case "community_conflict":
+      return "作品状态已变化或已达到发布上限，请刷新后重试。";
+    case "community_invalid":
+      return "名称、说明或皮肤设计不符合发布要求。";
+    case "community_rate_limited":
+      return "发布操作过于频繁，请稍后再试。";
+    case "community_not_found":
+      return "账号或作品不存在，请重新加载。";
+    case "community_cancelled":
+      return "账号状态已变化，请重新登录后重试。";
   }
   return "暂时无法发布皮肤，请稍后重试。";
 }
 
 /** Whether a failure is the one the user can act on from here by signing in. */
 function needsSignIn(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    error.code === "community_unauthorized"
-  );
+  return errorCode(error) === "community_unauthorized";
 }
 
 function CommunitySkinPublishDialog({

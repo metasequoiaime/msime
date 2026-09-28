@@ -1,9 +1,7 @@
+import { errorCode } from "../core/error-code";
+
 export function providerCredentialErrorMessage(error: unknown): string {
-  const code =
-    typeof error === "object" && error !== null && "code" in error
-      ? String((error as { code: unknown }).code)
-      : "";
-  switch (code) {
+  switch (errorCode(error)) {
     case "provider_credentials_invalid_endpoint":
       return "接口地址必须是完整的 HTTPS 地址，且不能包含用户名、密码或 # 片段。";
     case "provider_credentials_invalid_model":

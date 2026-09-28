@@ -1,4 +1,5 @@
 import { useConfirm } from "./core/confirm";
+import { errorCode } from "./core/error-code";
 import { errorMessage } from "./core/error-message";
 import {
   inferredTouchKeyboardScheme,
@@ -2594,10 +2595,7 @@ export function SettingsPage({
           : `数据已移动。${restartNote}设置窗口即将关闭，请重新打开后继续使用。`,
       );
     } catch (reason) {
-      const code =
-        typeof reason === "object" && reason !== null && "code" in reason
-          ? String(reason.code)
-          : "";
+      const code = errorCode(reason);
       setDataDirectoryResult(
         code === "data_directory_picker_unavailable"
           ? "未找到目录选择工具，请安装 zenity 或 kdialog 后重试。"

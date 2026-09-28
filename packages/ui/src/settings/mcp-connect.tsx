@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useConfirm } from "../core/confirm";
+import { errorCode } from "../core/error-code";
 import * as settings from "./settings-style";
 
 /** The assistants the host can write the entry for. */
@@ -34,12 +35,6 @@ const clientNames: Record<McpClientId, string> = {
 
 const code =
   "m-0 overflow-x-auto rounded-lg border border-edge bg-raised p-3 text-xs leading-relaxed";
-
-function errorCode(error: unknown): string | undefined {
-  return typeof error === "object" && error !== null && "code" in error
-    ? String(error.code)
-    : undefined;
-}
 
 function failure(error: unknown, name: string): string {
   switch (errorCode(error)) {

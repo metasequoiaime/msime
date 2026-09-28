@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { errorCode } from "../core/error-code";
 import { ScreenKeyboardPreview } from "./screen-keyboard-preview";
 import {
   defaultTouchKeyboardSkinDesign,
@@ -118,8 +119,7 @@ function aiSkinPrompt(): string {
 }
 
 function aiSkinMessage(error: unknown): string {
-  const code = typeof error === "object" && error !== null && "code" in error ? error.code : "";
-  switch (code) {
+  switch (errorCode(error)) {
     case "ai_skin_invalid":
       return "AI 返回的皮肤设计或插画格式无效，请重新抽取。";
     case "ai_skin_cancelled":
@@ -226,12 +226,7 @@ function AiSkinGeneration({
       if (!mounted.current) return;
       setProposals(prepared);
     } catch (error) {
-      if (
-        typeof error !== "object" ||
-        error === null ||
-        !("code" in error) ||
-        error.code !== "ai_skin_cancelled"
-      )
+      if (errorCode(error) !== "ai_skin_cancelled")
         if (mounted.current) setMessage(aiSkinMessage(error));
     } finally {
       if (mounted.current) setBusy(false);
@@ -281,12 +276,9 @@ function AiSkinGeneration({
       setPublishAgreed(false);
       setMessage("已发布到社区。");
     } catch (error) {
+      const code = errorCode(error);
       if (mounted.current)
-        setMessage(
-          typeof error === "object" && error !== null && "code" in error
-            ? `发布失败：${String(error.code)}`
-            : "暂时无法发布皮肤，请稍后重试。",
-        );
+        setMessage(code ? `发布失败：${code}` : "暂时无法发布皮肤，请稍后重试。");
     } finally {
       if (mounted.current) setPublishBusy(false);
     }
@@ -456,8 +448,7 @@ function AiSkinGeneration({
 }
 
 function libraryError(error: unknown): string {
-  const code = typeof error === "object" && error !== null && "code" in error ? error.code : "";
-  switch (code) {
+  switch (errorCode(error)) {
     case "custom_skin_full":
       return "最多保存 12 套皮肤，请先删除不需要的设计。";
     case "custom_skin_invalid_name":

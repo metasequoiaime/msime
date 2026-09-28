@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { errorCode } from "../core/error-code";
 import * as account from "./account-style";
 
 export type AccountUser = {
@@ -81,13 +82,7 @@ type Channel = "email" | "phone";
 type Confirmation = "logout-all" | "delete" | null;
 
 function isAccountCancellation(error: unknown): boolean {
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    error.code === "account_cancelled"
-  )
-    return true;
+  if (errorCode(error) === "account_cancelled") return true;
   if (
     typeof DOMException !== "undefined" &&
     error instanceof DOMException &&
@@ -104,21 +99,19 @@ function isAccountCancellation(error: unknown): boolean {
 }
 
 function accountMessage(error: unknown): string {
-  if (typeof error === "object" && error !== null && "code" in error) {
-    switch (error.code) {
-      case "account_invalid":
-        return "填写的内容无效，请检查后重试。";
-      case "account_unauthorized":
-        return "登录已失效，请重新登录。";
-      case "account_conflict":
-        return "云端设置已被其他设备更新，请刷新后重新确认。";
-      case "account_rate_limited":
-        return "操作过于频繁，请稍后再试。";
-      case "account_storage":
-        return "无法安全读取登录状态，请检查设备安全设置。";
-      case "account_cancelled":
-        return "操作已取消，请重试。";
-    }
+  switch (errorCode(error)) {
+    case "account_invalid":
+      return "填写的内容无效，请检查后重试。";
+    case "account_unauthorized":
+      return "登录已失效，请重新登录。";
+    case "account_conflict":
+      return "云端设置已被其他设备更新，请刷新后重新确认。";
+    case "account_rate_limited":
+      return "操作过于频繁，请稍后再试。";
+    case "account_storage":
+      return "无法安全读取登录状态，请检查设备安全设置。";
+    case "account_cancelled":
+      return "操作已取消，请重试。";
   }
   return "账号服务暂不可用，请稍后再试。";
 }

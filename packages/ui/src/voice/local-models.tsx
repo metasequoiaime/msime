@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { errorCode } from "../core/error-code";
 
 /** One catalog model as the host reports it, the shape of `LocalModelStatus` in `msime_client_core::voice::local_models`. */
 export type LocalVoiceModel = {
@@ -103,11 +104,7 @@ export function localModelStageLabel(stage: string): string {
 
 /** The message for a failed list, install or removal; `null` for a cancel the user asked for. */
 export function localModelErrorMessage(error: unknown): string | null {
-  const code =
-    typeof error === "object" && error !== null && "code" in error
-      ? String((error as { code: unknown }).code)
-      : "";
-  switch (code) {
+  switch (errorCode(error)) {
     case "local_model_cancelled":
       return null;
     case "local_model_network":
