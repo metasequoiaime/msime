@@ -65,6 +65,7 @@ import { PolishCredentialFieldsSection } from "./settings/polish-credential-fiel
 import { VoiceStreamPreeditSection } from "./settings/voice-stream-preedit-section";
 import { VoiceCommitModeSection, type VoiceCommitMode } from "./settings/voice-commit-mode-section";
 import { VoiceCaptureDevicesSection } from "./settings/voice-capture-devices-section";
+import { VoiceHotkeysSection } from "./settings/voice-hotkeys-section";
 import { DoubaoAuthModeSection } from "./settings/doubao-auth-mode-section";
 import { DoubaoStreamEndpointSection } from "./settings/doubao-stream-endpoint-section";
 import { DoubaoOptionsSection } from "./settings/doubao-options-section";
@@ -478,6 +479,12 @@ export {
   type VoiceCaptureBackendOption,
   type VoiceCaptureBackend,
 } from "./settings/voice-capture-devices-section";
+export {
+  VoiceHotkeysSection,
+  type VoiceHotkeysSectionProps,
+  type VoiceHotkeyKey,
+  type VoiceHotkeyPlatform,
+} from "./settings/voice-hotkeys-section";
 export {
   DoubaoAuthModeSection,
   type DoubaoAuthMode,
@@ -7005,77 +7012,29 @@ export function SettingsPage({
                       </div>
                     )}
                     {desktopPanels && (
-                      <div className="section">
-                        <div className="section-title">
-                          语音快捷键
-                          <small>
-                            {linuxPlatform
-                              ? "在当前输入上下文中生效。长按快捷键录音，松开结束；按住期间按空格锁定录音，Escape 取消。Ctrl+F9 按一次开始、再按一次结束，也能结束锁定的录音。没有 provider 时快捷键不会拦截编辑器输入"
-                              : macosPlatform
-                                ? "输入法启用时按住修饰键快捷键录音，松开结束；组合键先按 Control。按住期间按空格锁定，Escape 取消。修饰键快捷键由输入法自身接收，不需要额外授权；Ctrl+F9 在输入法会话之外接收，需要在「系统设置 › 隐私与安全性 › 输入监控」中允许本输入法，否则按下没有任何反应。首次授权后请重新按键。"
-                                : windowsPlatform
-                                  ? "输入法运行时全局生效。长按快捷键录音，松开结束；按住期间按空格锁定录音，锁定后再按一次快捷键或点 ✓ 结束，Escape 或 ✗ 取消。Ctrl+F9 按一次开始、再按一次结束。"
-                                  : "输入法运行时全局生效，用于开始和结束语音录音"}
-                          </small>
-                        </div>
-                        {/* Both Linux hosts record while a modifier shortcut is held and lock on Space, as Windows does, so they share its labels; only Ctrl+F9 toggles. Only IBus requires the right Ctrl in the two-key chord: Fcitx5 starts on a Right Ctrl or Right Alt press while any Ctrl or Alt is down (so left Ctrl+Right Alt also records) and stops only when Right Alt or Right Ctrl is released. The label still holds because the right-Ctrl chord works on both hosts. */}
-                        {(
-                          [
-                            ["hotkey_ctrl_f9", "Ctrl+F9 切换语音"],
-                            [
-                              "hotkey_ralt",
-                              macosPlatform
-                                ? "按住右 Option 录音"
-                                : windowsPlatform || linuxPlatform
-                                  ? "长按右 Alt 录音"
-                                  : "右 Alt 切换语音",
-                            ],
-                            [
-                              "hotkey_rctrl_ralt",
-                              macosPlatform
-                                ? "按住右 Control+右 Option 录音"
-                                : windowsPlatform || linuxPlatform
-                                  ? "长按右 Ctrl+右 Alt 录音"
-                                  : "Ctrl+右 Alt 切换语音",
-                            ],
-                            [
-                              "hotkey_ctrl_win",
-                              macosPlatform
-                                ? "按住 Control+Command 录音"
-                                : windowsPlatform || linuxPlatform
-                                  ? "长按 Ctrl+Win 录音"
-                                  : "Ctrl+Win 切换语音",
-                            ],
-                            [
-                              "hotkey_hold_space_lock",
-                              windowsPlatform || linuxPlatform
-                                ? "长按录音时按空格锁定"
-                                : "空格锁定语音",
-                            ],
-                          ] as const
-                        ).map(([key, label]) => (
-                          <label className="section-header" key={key}>
-                            <span className="section-title">{label}</span>
-                            <input
-                              aria-label={label}
-                              className="toggle"
-                              type="checkbox"
-                              checked={draft.voice_input?.[key] !== false}
-                              onChange={(event) =>
-                                setDraft({
-                                  ...draft,
-                                  voice_input: {
-                                    ...draft.voice_input,
-                                    enabled: draft.voice_input?.enabled ?? true,
-                                    language: draft.voice_input?.language ?? "zh-CN",
-                                    [key]: event.target.checked,
-                                  },
-                                })
-                              }
-                            />
-                          </label>
-                        ))}
-                      </div>
+                      <VoiceHotkeysSection
+                        platform={
+                          macosPlatform
+                            ? "macos"
+                            : windowsPlatform
+                              ? "windows"
+                              : linuxPlatform
+                                ? "linux"
+                                : "other"
+                        }
+                        values={draft.voice_input ?? {}}
+                        onChange={(key, enabled) =>
+                          setDraft({
+                            ...draft,
+                            voice_input: {
+                              ...draft.voice_input,
+                              enabled: draft.voice_input?.enabled ?? true,
+                              language: draft.voice_input?.language ?? "zh-CN",
+                              [key]: enabled,
+                            },
+                          })
+                        }
+                      />
                     )}
                   </fieldset>
                   <fieldset disabled={busy} hidden={page !== "ai"} aria-label="AI 辅助">
