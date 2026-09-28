@@ -606,12 +606,11 @@ pub unsafe extern "C" fn msime_client_emoji_catalog_request(
             std::slice::from_raw_parts(query, query_length)
         })
         .map_err(|_| "invalid emoji query document")?;
-        let resources =
-            std::str::from_utf8(unsafe { std::slice::from_raw_parts(resources, resources_length) })
-                .map_err(|_| "resources path is not UTF-8")?;
-        if !std::path::Path::new(resources).is_absolute() {
-            return Err("resources path must be absolute".into());
-        }
+        let resources = super::parse_absolute_path(
+            unsafe { std::slice::from_raw_parts(resources, resources_length) },
+            "resources path is not UTF-8",
+            "resources path must be absolute",
+        )?;
         if query.offset > i64::MAX as usize || query.panel.limit == 0 {
             return Err("invalid emoji page".into());
         }

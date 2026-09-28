@@ -29,10 +29,22 @@ pub(crate) fn absolute_path(value: &str) -> bool {
 }
 
 pub(crate) fn parse_absolute_socket_path(bytes: &[u8]) -> Result<&str, String> {
-    let path = std::str::from_utf8(bytes).map_err(|_| "socket path is not UTF-8".to_owned())?;
+    parse_absolute_path(
+        bytes,
+        "socket path is not UTF-8",
+        "socket path must be absolute",
+    )
+}
+
+pub(crate) fn parse_absolute_path<'a>(
+    bytes: &'a [u8],
+    invalid_utf8: &'static str,
+    non_absolute: &'static str,
+) -> Result<&'a str, String> {
+    let path = std::str::from_utf8(bytes).map_err(|_| invalid_utf8.to_owned())?;
     absolute_path(path)
         .then_some(path)
-        .ok_or_else(|| "socket path must be absolute".to_owned())
+        .ok_or_else(|| non_absolute.to_owned())
 }
 
 // Shared by the session and host modules below, so it lives in the parent.

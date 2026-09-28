@@ -491,12 +491,11 @@ pub unsafe extern "C" fn msime_client_candidate_gloss_request(
         {
             return Err("candidate gloss entries exceed limits".into());
         }
-        let resources =
-            std::str::from_utf8(unsafe { std::slice::from_raw_parts(resources, resources_length) })
-                .map_err(|_| "resources path is not UTF-8")?;
-        if !std::path::Path::new(resources).is_absolute() {
-            return Err("resources path must be absolute".into());
-        }
+        let resources = super::parse_absolute_path(
+            unsafe { std::slice::from_raw_parts(resources, resources_length) },
+            "resources path is not UTF-8",
+            "resources path must be absolute",
+        )?;
         let candidates = request
             .candidates
             .iter()
