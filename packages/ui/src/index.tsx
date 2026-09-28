@@ -192,6 +192,7 @@ import { NiuTransSection } from "./settings/niutrans-section";
 import { CustomTranslationSection } from "./settings/custom-translation-section";
 import { CustomTranslationsSection } from "./settings/custom-translations-section";
 import { TencentTranslationSection } from "./settings/tencent-translation-section";
+import { TranslationServiceSelectorSection } from "./settings/translation-service-selector-section";
 import {
   VoiceCredentialSection,
   type VoiceCredentialSaveInput,
@@ -693,6 +694,11 @@ export {
   TencentTranslationSection,
   type TencentTranslationSectionProps,
 } from "./settings/tencent-translation-section";
+export {
+  TranslationServiceSelectorSection,
+  type TranslationProvider,
+  type TranslationServiceSelectorSectionProps,
+} from "./settings/translation-service-selector-section";
 export {
   DictionaryManifestCard,
   type DictionaryManifestCardProps,
@@ -4907,36 +4913,12 @@ export function SettingsPage({
                     )}
                     {!androidPlatform && (
                       <>
-                        <div className="section" role="group" aria-label="候选词翻译服务">
-                          <label className="section-header">
-                            <span className="section-title">翻译服务</span>
-                            <select
-                              aria-label="候选词翻译服务"
-                              disabled={!candidateTranslations}
-                              value={translationProvider}
-                              onChange={(event) =>
-                                setTranslationProvider(
-                                  event.target.value as
-                                    | "none"
-                                    | "custom"
-                                    | "tencent"
-                                    | "niutrans"
-                                    | "account",
-                                )
-                              }
-                            >
-                              <option value="none">关闭</option>
-                              <option value="tencent">腾讯云机器翻译</option>
-                              <option value="niutrans">小牛翻译（NiuTrans）</option>
-                              <option value="custom">自定义 DeepLX 兼容服务</option>
-                              {(macosPlatform || linuxPlatform) && (
-                                <option value="account">
-                                  水杉账号（候选词发送到 api.msime.app）
-                                </option>
-                              )}
-                            </select>
-                          </label>
-                        </div>
+                        <TranslationServiceSelectorSection
+                          available={candidateTranslations}
+                          provider={translationProvider}
+                          showAccountProvider={macosPlatform || linuxPlatform}
+                          onChange={setTranslationProvider}
+                        />
                         <NiuTransSection
                           enabled={niutrans.enabled}
                           available={candidateTranslations}
