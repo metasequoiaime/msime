@@ -13,7 +13,7 @@ use super::wordbook::{self, Wordbook};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 /// The largest progress document that will be read.
@@ -166,11 +166,7 @@ impl VocabularyProgress {
                 return Err(VocabularyProgressError::InvalidDocument);
             }
             for (word, state) in words {
-                if word.is_empty()
-                    || word.chars().count() > wordbook::MAX_WORD_CHARS
-                    || word.chars().any(char::is_control)
-                    || !state.is_valid()
-                {
+                if !wordbook::word_is_valid(word) || !state.is_valid() {
                     return Err(VocabularyProgressError::InvalidDocument);
                 }
             }
@@ -459,15 +455,9 @@ impl VocabularyProgressStore {
 }
 
 fn read_bounded_document(file: File) -> Result<Vec<u8>, VocabularyProgressError> {
-    if file.metadata()?.len() > MAX_DOCUMENT_BYTES {
-        return Err(VocabularyProgressError::InvalidDocument);
-    }
-    let mut bytes = Vec::new();
-    file.take(MAX_DOCUMENT_BYTES + 1).read_to_end(&mut bytes)?;
-    if bytes.len() as u64 > MAX_DOCUMENT_BYTES {
-        return Err(VocabularyProgressError::InvalidDocument);
-    }
-    Ok(bytes)
+    crate::bounded_io::read_bounded_file(file, MAX_DOCUMENT_BYTES, || {
+        VocabularyProgressError::InvalidDocument
+    })
 }
 
 #[cfg(test)]

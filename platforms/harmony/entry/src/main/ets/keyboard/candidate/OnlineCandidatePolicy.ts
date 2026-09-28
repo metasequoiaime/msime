@@ -1,4 +1,5 @@
 import { utf8Length } from '../Utf8';
+import { TextPolicy } from '../TextPolicy';
 
 export interface OnlineAssistantConfig {
   enabled: boolean;
@@ -75,7 +76,7 @@ export class OnlineCandidatePolicy {
       for (const candidate of document.candidates) {
         const text: string | undefined = candidate.text;
         if (text === undefined || text.trim().length === 0 || utf8Length(text) > 4096
-          || OnlineCandidatePolicy.hasControl(text)) {
+          || TextPolicy.hasControl(text)) {
           continue;
         }
         if (!result.includes(text)) result.push(text);
@@ -85,13 +86,5 @@ export class OnlineCandidatePolicy {
     } catch {
       return null;
     }
-  }
-
-  private static hasControl(value: string): boolean {
-    for (const character of value) {
-      const code: number = character.codePointAt(0) ?? 0;
-      if (code <= 0x1f || (code >= 0x7f && code <= 0x9f)) return true;
-    }
-    return false;
   }
 }

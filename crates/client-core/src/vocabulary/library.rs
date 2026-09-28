@@ -13,7 +13,7 @@
 use super::wordbook::{self, Wordbook, WordbookEntry};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 /// The most books one library may hold.
@@ -241,15 +241,7 @@ impl WordbookLibrary {
 }
 
 fn read_bounded_document(file: File, maximum: u64) -> Result<Vec<u8>, WordbookLibraryError> {
-    if file.metadata()?.len() > maximum {
-        return Err(WordbookLibraryError::InvalidWordbook);
-    }
-    let mut bytes = Vec::new();
-    file.take(maximum + 1).read_to_end(&mut bytes)?;
-    if bytes.len() as u64 > maximum {
-        return Err(WordbookLibraryError::InvalidWordbook);
-    }
-    Ok(bytes)
+    crate::bounded_io::read_bounded_file(file, maximum, || WordbookLibraryError::InvalidWordbook)
 }
 
 #[cfg(test)]

@@ -36,7 +36,7 @@ public final class LocalAsrPolicy {
     public static boolean usable(String provider, String modelPath) {
         if (!PROVIDER.equals(provider) || modelPath == null) return false;
         if (modelPath.isEmpty() || modelPath.length() > MAX_PATH_LENGTH) return false;
-        if (modelPath.chars().anyMatch(Character::isISOControl)) return false;
+        if (TextPolicy.hasControl(modelPath)) return false;
         return modelPath.startsWith("/");
     }
 
@@ -63,8 +63,7 @@ public final class LocalAsrPolicy {
         String trimmed = text.trim();
         if (trimmed.isEmpty() || text.length() > MAX_HOTWORD_TEXT_LENGTH) return false;
         if (pinyin.length() > MAX_HOTWORD_PINYIN_LENGTH) return false;
-        return text.chars().noneMatch(Character::isISOControl)
-            && pinyin.chars().noneMatch(Character::isISOControl);
+        return !TextPolicy.hasControl(text) && !TextPolicy.hasControl(pinyin);
     }
 
     /**
@@ -80,7 +79,7 @@ public final class LocalAsrPolicy {
             if (kept == HOTWORD_LIMIT) break;
             if (word == null) continue;
             String trimmed = word.trim();
-            if (trimmed.isEmpty() || trimmed.chars().anyMatch(Character::isISOControl)) continue;
+            if (trimmed.isEmpty() || TextPolicy.hasControl(trimmed)) continue;
             if (kept > 0) out.append('\n');
             out.append(trimmed);
             kept++;

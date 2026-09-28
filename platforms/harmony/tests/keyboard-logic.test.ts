@@ -47,6 +47,7 @@ import {
 import { ReplyKeyboardPolicy } from "../entry/src/main/ets/keyboard/ReplyKeyboardPolicy";
 import { ReplyContextPolicy } from "../entry/src/main/ets/keyboard/ReplyContextPolicy";
 import { CommunityReplyLibraryPolicy } from "../entry/src/main/ets/keyboard/CommunityReplyLibraryPolicy";
+import { TextPolicy } from "../entry/src/main/ets/keyboard/TextPolicy";
 import { NineKeyLayout, NineKey } from "../entry/src/main/ets/keyboard/input/NineKeyLayout";
 import {
   JapaneseNineKeyLayout,
@@ -8600,6 +8601,11 @@ group("rewriting a reply touches only the refusals", () => {
 });
 
 group("AI model catalogs keep each provider's protocol and path", () => {
+  check(TextPolicy.hasAuthority("https://example.test/path", "https://"), "accepts a populated HTTPS authority");
+  check(!TextPolicy.hasAuthority("https:///path", "https://"), "rejects an empty HTTPS authority");
+  check(TextPolicy.hasAuthority("wss://speech.example.test/live", "wss://"), "shares authority parsing for WSS");
+  check(TextPolicy.validMultiline("line\nfeed", 32, true), "allows prompt line breaks");
+  check(!TextPolicy.validMultiline("bad\u0001", 32, true), "rejects other control characters");
   check(
     AiModelCatalogPolicy.modelsUrl("https://api.everyapi.ai/v1/chat/completions") ===
       "https://api.everyapi.ai/v1/models",

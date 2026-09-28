@@ -1,4 +1,5 @@
 import { utf8Length } from "./Utf8";
+import { TextPolicy } from "./TextPolicy";
 
 export interface ReplyStyle {
   readonly id: string;
@@ -30,7 +31,7 @@ export class ReplyKeyboardPolicy {
     if (
       trimmed.length === 0 ||
       utf8Length(trimmed) > ReplyKeyboardPolicy.MAX_SOURCE_UTF8 ||
-      ReplyKeyboardPolicy.hasControl(trimmed)
+      TextPolicy.hasControl(trimmed)
     )
       return null;
     return trimmed;
@@ -43,12 +44,12 @@ export class ReplyKeyboardPolicy {
   ): ReplyRequest | null {
     const normalized: string | null = ReplyKeyboardPolicy.source(source);
     const selected: string = style.trim();
-    if (normalized === null || selected.length === 0 || ReplyKeyboardPolicy.hasControl(selected))
+    if (normalized === null || selected.length === 0 || TextPolicy.hasControl(selected))
       return null;
     const prompt: string = extraPrompt.trim();
     if (
       prompt.length > 0 &&
-      (utf8Length(prompt) > 64 * 1024 || ReplyKeyboardPolicy.hasControl(prompt))
+      (utf8Length(prompt) > 64 * 1024 || TextPolicy.hasControl(prompt))
     )
       return null;
     const instruction: string = polish
@@ -68,19 +69,12 @@ export class ReplyKeyboardPolicy {
         typeof value !== "string" ||
         value.trim().length === 0 ||
         utf8Length(value) > ReplyKeyboardPolicy.MAX_RESULT_UTF8 ||
-        ReplyKeyboardPolicy.hasControl(value)
+        TextPolicy.hasControl(value)
       )
         continue;
       if (!result.includes(value)) result.push(value);
       if (result.length === ReplyKeyboardPolicy.MAX_RESULTS) break;
     }
     return result;
-  }
-  private static hasControl(value: string): boolean {
-    for (const character of value) {
-      const code: number = character.codePointAt(0) ?? 0;
-      if (code <= 0x1f || (code >= 0x7f && code <= 0x9f)) return true;
-    }
-    return false;
   }
 }

@@ -1,5 +1,6 @@
 import http from '@ohos.net.http';
 import { KeyboardLog, describeError } from '../KeyboardLog';
+import { TextPolicy } from '../TextPolicy';
 import { utf8Length } from '../Utf8';
 import { VoiceRecognitionPolicy } from './VoiceRecognitionPolicy';
 import { VoiceInputConfiguration, VoicePolishTokens } from './VoiceInputConfiguration';
@@ -92,9 +93,9 @@ export class HarmonyVoicePolisher {
     const prompt: string = this.prompt(config);
     if (!this.validEndpoint(endpoint) || defaultEndpoint.length === 0
       || model.length === 0 || utf8Length(model) > MAX_MODEL_BYTES
-      || this.hasControl(model) || token.length === 0 || utf8Length(token) > MAX_TOKEN_BYTES
-      || this.hasControl(token) || !this.validText(prompt, MAX_PROMPT_BYTES, true)
-      || !this.validText(text, MAX_REQUEST_TEXT_BYTES, true)) return null;
+      || TextPolicy.hasControl(model) || token.length === 0 || utf8Length(token) > MAX_TOKEN_BYTES
+      || TextPolicy.hasControl(token) || !TextPolicy.validMultiline(prompt, MAX_PROMPT_BYTES, true)
+      || !TextPolicy.validMultiline(text, MAX_REQUEST_TEXT_BYTES, true)) return null;
 
     const body: PolishRequestBody = {
       model: model,
@@ -125,7 +126,8 @@ export class HarmonyVoicePolisher {
       }
       const document: CompletionDocument = JSON.parse(response.result) as CompletionDocument;
       const content: string | undefined = document.choices?.[0]?.message?.content;
-      if (content === undefined || !this.validText(content, MAX_REQUEST_TEXT_BYTES, true)) return null;
+      if (content === undefined
+        || !TextPolicy.validMultiline(content, MAX_REQUEST_TEXT_BYTES, true)) return null;
       const result: string = VoiceRecognitionPolicy.result(content);
       return result.length > 0 ? result : null;
     } catch (error) {
@@ -178,20 +180,6 @@ export class HarmonyVoicePolisher {
   }
 
   private validEndpoint(value: string): boolean {
-    return value.length > 0 && utf8Length(value) <= MAX_ENDPOINT_BYTES && !this.hasControl(value)
-      && value.startsWith('https://') && !value.includes('@') && !value.includes('#')
-      && value.substring(8).split('/')[0].split('?')[0].length > 0;
-  }
-
-  private validText(value: string, maxBytes: number, requireNonEmpty: boolean): boolean {
-    return (!requireNonEmpty || value.trim().length > 0) && utf8Length(value) <= maxBytes
-      && !this.hasControl(value, true);
-  }
-
-  private hasControl(value: string, allowWhitespace: boolean = false): boolean {
-    return Array.from(value).some((character: string): boolean => {
-      const code: number = character.codePointAt(0) ?? 0;
-      return code < 0x20 && !(allowWhitespace && (code === 0x09 || code === 0x0a || code === 0x0d));
-    });
+    return TextPolicy.validAuthority(value, ['https://'], MAX_ENDPOINT_BYTES);
   }
 }

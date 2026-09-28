@@ -8,15 +8,31 @@ macOS 平台源码统一放在 `src/` 下按 `backend/`、`voice/`、`candidate/
 
 ## 安装与输入源注册
 
-`scripts/install.sh` 会停掉正在运行的实例、在暂存目录用本机 Developer ID 连同 `resources/VoiceInput.entitlements` 重签名（`--deep`，因为 Sparkle 自带其发布方的签名，hardened runtime 下 Team ID 不一致会导致进程加载失败）、原子替换并保留旧 bundle，任一步失败自动回滚，最后调用 `--register-input-source` 并用 `scripts/check_input_source.swift` 查注册表，而不是只看退出码。LaunchServices 会把每个 worktree `target/` 下的构建产物都按同一个发布 identifier 登记，`install.sh` 因此在注册前只保留已安装的那一条。bundle 本身是否装配正确由 `bundle-contents` 这项 CTest 检查（图标是否真的暂存进去、用途字符串是否每种语言都有、语音提示音 `audios/start.mp3` / `end.mp3` 是否随包、可执行文件是否链接了本地识别器）。
+**`install.sh` 装的是 bundle，不准备词库，装完直接打字是打不出中文的。** 输入会话由 `InputController.mm` 的 `prepareSession` 用 `MSIMELoadRuntimeOptions()` 建起来，而 `RuntimeOptions.h` 的查找顺序是 bundle 内的 `Resources/runtime-options.json`、再退到 `~/Library/Application Support/app.msime.client/runtime-options.json`。开发构建两处都没有——发布包里这一步由设置应用在首次启动时完成（内嵌 `EngineResources`，见《发布包》一节），构建产物里没有任何等价物。没有配置就没有会话，而没有会话的控制器把每个按键原样交给应用，看起来与用户自己切到英文一模一样。开发机上补齐这一步：
 
-bundle 使用系统已登记的 `app.msime.inputmethod.MetasequoiaIME`，已在列表中的 identifier 原地更新正常：`install.sh` 安装之后，`check_input_source.swift` 稳定报 `app.msime.inputmethod.MetasequoiaIME`、`.Hans` 与 `.Roman` 三条 enabled。
+```sh
+cargo run --quiet -p msime-client-core --example install_resources --locked -- target/resources   # 拉取并逐个校验固定词库发布，打印目录
+ditto target/resources/<上一步的目录> "$HOME/Library/Application Support/app.msime.client/EngineResources"
+cargo run --quiet -p msime-host-api --example prepare_host --locked -- "$HOME/Library/Application Support/app.msime.client/EngineResources" "$HOME/Library/Application Support/app.msime.client"
+```
+
+第二条不是多余的。`prepare_host` 只是把传进去的目录记到 `runtime-options.json` 里，指向 `target/resources` 的安装会在这个被忽略的产物目录被清掉时（AGENTS.md 里那条磁盘写满的记录说明它随时会）安静地失效，表现又是打不出中文。词库不合适时输入法只写一行 `MSIME has no input session (…)` 到统一日志，`log show --predicate 'process == "水杉输入法"'` 能看到，原因分「no usable runtime options」（没准备）和「session refused the runtime options」（准备过但 Engine 不接受）两种。
+
+`scripts/install.sh` 会停掉正在运行的实例、在暂存目录用本机 Developer ID 连同 `resources/VoiceInput.entitlements` 重签名（`--deep`，因为 Sparkle 自带其发布方的签名，hardened runtime 下 Team ID 不一致会导致进程加载失败）、原子替换并保留旧 bundle，任一步失败自动回滚，最后调用 `--register-input-source` 并用 `scripts/check_input_source.swift` 查注册表，而不是只看退出码。
+
+签名身份按证书的 SHA-1 取，不按名字。钥匙串里同时存在两张有效的同名 Developer ID Application 证书是常态（续期的那张和它替换的那张并存），而 `codesign` 遇到同时匹配两张的名字不会自己挑一张，直接报 `ambiguous (matches … and …)` 拒签——那时运行中的输入法已经被停掉了。哈希不会有歧义；本机安装用哪张都可以，所以脚本取第一张并把找到几张打出来，要指定就把 `MSIME_SIGNING_IDENTITY` 设成 `security find-identity -v -p codesigning` 里的 SHA-1。
+
+`check_input_source.swift` 的退出码分三种，`install.sh` 按它选提示：0 是每条注册的源都 enabled；2 是能从输入菜单选中（至少一条 select-capable 的源是 enabled）但还有别的源没启用；1 才是不可用——不在注册表里，或在注册表里却没有任何可选中的源是 enabled 的。带模式的输入法在注册表里是多条：一条不可选中的总源，加上每个模式一条，所以判断是否可用要看可选中的那些，不是看是不是全部 enabled。以前任何一条 disabled 都退 1，于是一个中文模式正常、能打字的安装会被报成「本次登录会话看不到它」，并让人去注销重新登录，而那改变不了任何事情。LaunchServices 会把每个 worktree `target/` 下的构建产物都按同一个发布 identifier 登记，`install.sh` 因此在注册前只保留已安装的那一条。bundle 本身是否装配正确由 `bundle-contents` 这项 CTest 检查（图标是否真的暂存进去、用途字符串是否每种语言都有、语音提示音 `audios/start.mp3` / `end.mp3` 是否随包、可执行文件是否链接了本地识别器）。
+
+bundle 使用系统已登记的 `app.msime.inputmethod.MetasequoiaIME`，已在列表中的 identifier 原地更新正常：`install.sh` 安装之后，`check_input_source.swift` 稳定报出 `app.msime.inputmethod.MetasequoiaIME`、`.Hans` 与 `.Roman` 三条。
+
+其中每个模式是否 enabled 不在本项目的控制范围内。macOS 27.0（26A428）上，类型为键盘输入模式（`TISTypeKeyboardInputMode`）的输入源无法由进程启用：`TISEnableInputSource` 返回 noErr，模式仍是 disabled。这不是签名、bundle 内容或 plist 的问题，也不是那个登录会话限制：拿苹果自己的 `com.apple.inputmethod.SCIM.Shuangpin`（父输入法已启用、同胞模式 `ITABC` 正在用）做对照，行为完全一样；而同一个会话里对键盘布局 `com.apple.keylayout.US` 调同一个函数，启用和还原都正常。所以被拒的是输入源的类型，不是这个 API、也不是这个 bundle。一台机器上某个模式已经是 disabled 时（比如用户在系统设置里移过它），`--register-input-source` 和 `install.sh` 都加不回来，只能由用户在 系统设置 > 键盘 > 文字输入 > 输入源 里手动添加；英文模式缺失时的行为见《输入源菜单与输入模式》一节——控制器不请求这个不可选的模式，菜单栏保持「中」，中英切换照常工作。
 
 注册结果在刚替换 bundle、刚调用 `--register-input-source` 之后有一段分钟级的不稳定窗口：`TISCreateInputSourceList` 按 bundle id 查不到东西，过一会儿不做任何操作自己会回来，所以同一条 `check_input_source.swift` 隔几秒跑，会先报 not in the registry，再报 enabled。`install.sh` 只查一次就下结论，两个方向的误判都可能出现——判断安装结果时多查几次再看。
 
 换一个新的 bundle identifier 时要知道 macOS 本身的一条限制：一个在本次登录会话开始时不在输入源列表里的 identifier，无论 bundle 内容如何都进不去列表——`TISRegisterInputSource` 返回 noErr 而 `TISCreateInputSourceList` 查不到，重启 `imklaunchagent`/`TextInputMenuAgent`/`TextInputSwitcher`/`keyboardservicesd`、`lsregister -f` 重新登记、`lsregister -r -domain user` 重扫用户域都改变不了。这与签名方式、名字是否 ASCII、plist 是否正确无关：把同机注册正常的输入法整体复制一份、只改 identifier 并用同一张 Developer ID 证书重签，失败方式完全一样。重新登录一次即可，之后同一 identifier 的更新都不再需要。`install.sh` 因此把安装与注册分开——bundle 就位并签名成功即视为安装成功，只报告需要重新登录。
 
-应用支持显式 `--register-input-source` 启动参数：调用 Carbon TIS 注册当前 bundle，按 bundle identifier 找到可启用的输入源并启用自身、停用其他匹配列表中的输入源。`install.sh` 在替换 bundle 后直接调用它，注册和启用两条路径另有注入函数指针的原生测试覆盖。
+应用支持显式 `--register-input-source` 启动参数：调用 Carbon TIS 注册当前 bundle，按 bundle identifier 找到可启用的输入源并启用自身、停用其他匹配列表中的输入源。`install.sh` 在替换 bundle 后直接调用它，注册和启用两条路径另有注入函数指针的原生测试覆盖。启用模式那一半在 macOS 27.0 上是空操作，且系统不报错（上面那条限制），所以这个参数退 0 不等于每个模式都启用了——判据只能是 `check_input_source.swift` 读出来的注册表。
 
 ## 发布包
 
@@ -186,6 +202,8 @@ AI 候选与候选释义相互独立：与来源的 `ai_eligible` / `UpdateAiInp
 候选定位与焦点约束对照同一 Apple 提交的 `CandidatePanel.mm`：无效光标隐藏窗口、以光标垂直中点选屏、与光标相隔 4 点、底部不足时向上放置，超大窗口至少锚定可见屏幕原点。候选窗口不能成为 key/main window，按钮不接受键盘焦点但支持首次鼠标点击。宽度随候选文字变化，以屏幕可见区域的一半封顶，且至少是候选字号的 7 倍（与来源皮肤的 `.container { min-width: 7em }` 和 Windows `CandidateCardSize.h` 同一规则），皮肤包的 `min_width_dip` 与装饰宽度只能抬高这个下限，7em 下限本身不超过上述屏宽封顶；竖排行铺满卡片，横排列保持自然宽度靠左排列、余量留在右侧；超出列宽的文字在列内折行而不截断，tooltip 仍给出完整文本；候选行按 Windows 四套内置皮肤使用各自的圆角，并区分普通行和选中行的 hover 颜色。
 
 ## 构建与本地测试
+
+`src/` 下有两个文件不参与任何 target 的构建：`src/input/MetasequoiaInputController.mm` 与 `src/dictionary/DictionaryRuntime.mm`，它们是固定 Apple 快照里的一对适配器，留作参照；产品用的是 `src/input/InputController.mm` 与 `src/core/ClientDictionaryRuntime.mm`。改前者不会影响产品——#912 就是把一个输入会话的修复提交进 `DictionaryRuntime.mm`，通过评审、合并，而产品一行没变。两个文件各自在开头写明了这一点，`scripts/test-macos-orphan-sources.py` 负责让这句话不会烂掉：它列出 `src/` 下不被 CMake 编译的源文件，新出现的一个会直接失败，登记为保留的必须在开头带上那句说明。
 
 并行开发时使用独立产物目录，避免其他平台构建覆盖最低系统版本设置：
 

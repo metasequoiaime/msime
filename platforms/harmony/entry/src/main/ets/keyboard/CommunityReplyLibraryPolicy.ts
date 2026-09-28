@@ -1,4 +1,5 @@
 import { utf8Length } from './Utf8';
+import { TextPolicy } from './TextPolicy';
 
 export interface CommunityReplyTemplate {
   readonly id: string;
@@ -40,20 +41,12 @@ export class CommunityReplyLibraryPolicy {
         || utf8Length(id) > CommunityReplyLibraryPolicy.MAX_FIELD_BYTES
         || utf8Length(name) > CommunityReplyLibraryPolicy.MAX_FIELD_BYTES
         || utf8Length(prompt) > CommunityReplyLibraryPolicy.MAX_FIELD_BYTES
-        || CommunityReplyLibraryPolicy.hasControl(id)
-        || CommunityReplyLibraryPolicy.hasControl(name)
-        || CommunityReplyLibraryPolicy.hasControl(prompt)) return [];
+        || TextPolicy.hasControl(id)
+        || TextPolicy.hasControl(name)
+        || TextPolicy.hasControl(prompt)) return [];
       ids.push(id);
       result.push({ id: id, name: name, prompt: prompt });
     }
     return result;
-  }
-
-  private static hasControl(value: string): boolean {
-    for (const character of value) {
-      const code: number = character.codePointAt(0) ?? 0;
-      if (code <= 0x1f || (code >= 0x7f && code <= 0x9f)) return true;
-    }
-    return false;
   }
 }

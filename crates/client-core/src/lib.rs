@@ -17,6 +17,7 @@ pub use uuid;
 
 pub mod account;
 pub mod ai;
+mod bounded_io;
 mod calendar;
 pub mod candidate_document;
 pub mod chinese_conversion;
@@ -32,6 +33,7 @@ pub mod preferences;
 pub mod punctuation;
 pub mod resources;
 pub mod skin;
+mod text;
 pub mod translation;
 pub mod typing_statistics;
 pub mod vocabulary;

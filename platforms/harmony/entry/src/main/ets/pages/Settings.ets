@@ -17,6 +17,7 @@ import { StagedResources } from '../keyboard/StagedResources';
 import { HarmonyAccountCloudBridge } from '../account/HarmonyAccountCloudBridge';
 import { HarmonyAiSkins } from '../account/HarmonyAiSkins';
 import { utf8Length } from '../keyboard/Utf8';
+import { TextPolicy } from '../keyboard/TextPolicy';
 import { niutransAuth, tencentAuthorization } from '../keyboard/CredentialCrypto';
 import { HarmonyVoiceCaptureDevices } from '../keyboard/input/HarmonyVoiceCaptureDevices';
 import { KeyboardFeedbackBridge, MobileKeyboardFeedback } from '../keyboard/KeyboardFeedbackBridge';
@@ -1311,7 +1312,7 @@ class SettingsBridge {
     const endpoint: string | null = AiModelCatalogPolicy.modelsUrl(request.endpoint);
     const token: string = request.token.trim();
     if (endpoint === null || token.length === 0 || utf8Length(token) > 16 * 1024
-      || this.hasControl(token)) {
+      || TextPolicy.hasControl(token)) {
       return JSON.stringify({ ok: false, error: 'ai_invalid' });
     }
     const anthropic: boolean = AiModelCatalogPolicy.isAnthropic(request.provider, endpoint);
@@ -1377,9 +1378,9 @@ class SettingsBridge {
     const token: string = request.token.trim();
     const model: string = request.model.trim();
     if (endpoint === null || token.length === 0 || utf8Length(token) > 16 * 1024
-      || this.hasControl(token) || model.length === 0 || utf8Length(model) > 256
-      || this.hasControl(model) || !this.validAiText(request.prompt, true)
-      || !this.validAiText(request.text, false)) {
+      || TextPolicy.hasControl(token) || model.length === 0 || utf8Length(model) > 256
+      || TextPolicy.hasControl(model) || !TextPolicy.validMultiline(request.prompt, 16 * 1024, true)
+      || !TextPolicy.validMultiline(request.text, 16 * 1024, false)) {
       return JSON.stringify({ ok: false, error: 'ai_invalid' });
     }
     const body: AiTestBody = {
@@ -1407,7 +1408,7 @@ class SettingsBridge {
       }
       const document: AiCompletionDocument = JSON.parse(response.result) as AiCompletionDocument;
       const content: string | undefined = document.choices?.[0]?.message?.content;
-      if (content === undefined || !this.validAiText(content, false)) {
+      if (content === undefined || !TextPolicy.validMultiline(content, 16 * 1024, false)) {
         return JSON.stringify({ ok: false, error: 'ai_test_invalid' });
       }
       return JSON.stringify({ ok: true, value: content.trim() });
@@ -1606,7 +1607,7 @@ class SettingsBridge {
     const model: string = (config.model ?? '').trim();
     const provider: string = (config.provider ?? '').trim();
     if (endpoint === null || !this.validCredentialSecret(token, 8192) || model.length === 0
-      || utf8Length(model) > 256 || this.hasControl(model)
+      || utf8Length(model) > 256 || TextPolicy.hasControl(model)
       || !['openai', 'siliconflow', 'deepseek', 'groq'].includes(provider)) {
       return this.credentialReply(false, '请填写有效的 HTTPS 接口地址、API Key 和模型名。');
     }
@@ -1653,7 +1654,7 @@ class SettingsBridge {
     const model: string = (config.model ?? '').trim();
     if (!['openai', 'siliconflow', 'groq', 'everyapi', 'mistral'].includes(provider) || endpoint === null
       || !this.validCredentialSecret(token, 8192) || model.length === 0
-      || utf8Length(model) > 256 || this.hasControl(model)) {
+      || utf8Length(model) > 256 || TextPolicy.hasControl(model)) {
       return this.credentialReply(false, '请填写有效的 HTTPS 转写接口地址、API Key 和模型名。');
     }
     const boundary: string = '----MSIMEHarmonyCredentialProbe';
@@ -1697,7 +1698,7 @@ class SettingsBridge {
       || !this.validCredentialSecret(token, 8192)
       || (authMode === 'legacy' && !this.validCredentialSecret(appId, 8192))
       || !this.validCredentialSecret(resourceId, 256)
-      || utf8Length(boostingTableId) > 256 || this.hasControl(boostingTableId)) {
+      || utf8Length(boostingTableId) > 256 || TextPolicy.hasControl(boostingTableId)) {
       return this.credentialReply(false, '请填写有效的 WSS 接口、资源 ID 及对应鉴权方式的凭据。');
     }
     const requestId: string = util.generateRandomUUID(false);
@@ -1865,53 +1866,29 @@ class SettingsBridge {
 
   private validCredentialEndpoint(value: string, allowHttp: boolean): string | null {
     const endpoint: string = value.trim();
-    if (endpoint.length === 0 || utf8Length(endpoint) > 2048 || this.hasControl(endpoint)
-      || (!endpoint.startsWith('https://') && !(allowHttp && endpoint.startsWith('http://')))
-      || endpoint.includes('@') || endpoint.includes('#')) return null;
-    const authority: string = endpoint.substring(endpoint.indexOf('://') + 3).split('/')[0]
-      .split('?')[0];
-    return authority.length === 0 ? null : endpoint;
+    const schemes: string[] = allowHttp ? ['https://', 'http://'] : ['https://'];
+    if (!TextPolicy.validAuthority(endpoint, schemes)) return null;
+    return endpoint;
   }
 
   private validDoubaoEndpoint(value: string): string | null {
     const endpoint: string = value.trim();
-    if (endpoint.length === 0 || utf8Length(endpoint) > 2048 || this.hasControl(endpoint)
-      || !endpoint.startsWith('wss://') || endpoint.includes('@') || endpoint.includes('#')) {
+    if (!TextPolicy.validAuthority(endpoint, ['wss://'])) {
       return null;
     }
-    const authority: string = endpoint.substring(6).split('/')[0].split('?')[0];
-    return authority.length === 0 ? null : endpoint;
+    return endpoint;
   }
 
   private validCredentialSecret(value: string, maxBytes: number): boolean {
-    return value.length > 0 && utf8Length(value) <= maxBytes && !this.hasControl(value)
+    return value.length > 0 && utf8Length(value) <= maxBytes && !TextPolicy.hasControl(value)
       && !value.startsWith('<') && !value.startsWith('FAKESECRET_')
       && !Array.from(value).every((character: string): boolean => character === '*');
   }
 
   private validAiEndpoint(value: string): string | null {
     const endpoint: string = value.trim();
-    if (endpoint.length === 0 || utf8Length(endpoint) > 2048 || this.hasControl(endpoint)
-      || (!endpoint.startsWith('http://') && !endpoint.startsWith('https://'))
-      || endpoint.includes('@') || endpoint.includes('#')) return null;
-    const authority: string = endpoint.substring(endpoint.indexOf('://') + 3).split('/')[0]
-      .split('?')[0];
-    return authority.length === 0 ? null : endpoint;
-  }
-
-  private validAiText(value: string, allowEmpty: boolean): boolean {
-    return (allowEmpty || value.trim().length > 0) && utf8Length(value) <= 16 * 1024
-      && !value.includes('\u0000') && !Array.from(value).some((character: string): boolean => {
-        const code: number = character.codePointAt(0) ?? 0;
-        return code < 0x20 && code !== 0x09 && code !== 0x0a && code !== 0x0d;
-      });
-  }
-
-  private hasControl(value: string): boolean {
-    return Array.from(value).some((character: string): boolean => {
-      const code: number = character.codePointAt(0) ?? 0;
-      return code <= 0x1f || (code >= 0x7f && code <= 0x9f);
-    });
+    if (!TextPolicy.validAuthority(endpoint, ['http://', 'https://'])) return null;
+    return endpoint;
   }
 
   appVersion(): string {

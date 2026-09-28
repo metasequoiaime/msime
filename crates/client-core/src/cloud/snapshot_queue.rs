@@ -215,15 +215,12 @@ impl DictionarySnapshotQueue {
         {
             return Err(SnapshotQueueError::Invalid);
         }
-        let mut bytes = Vec::new();
-        File::open(path)
-            .map_err(|_| SnapshotQueueError::Unavailable)?
-            .take(MAXIMUM_STATE_BYTES + 1)
-            .read_to_end(&mut bytes)
-            .map_err(|_| SnapshotQueueError::Unavailable)?;
-        if bytes.len() as u64 > MAXIMUM_STATE_BYTES {
-            return Err(SnapshotQueueError::Invalid);
-        }
+        let bytes = crate::bounded_io::read_bounded_file_with(
+            File::open(path).map_err(|_| SnapshotQueueError::Unavailable)?,
+            MAXIMUM_STATE_BYTES,
+            || SnapshotQueueError::Invalid,
+            |_| SnapshotQueueError::Unavailable,
+        )?;
         let state: SnapshotQueueState =
             serde_json::from_slice(&bytes).map_err(|_| SnapshotQueueError::Invalid)?;
         state.validate()?;

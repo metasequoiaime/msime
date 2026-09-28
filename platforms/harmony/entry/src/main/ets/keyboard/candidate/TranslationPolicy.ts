@@ -1,4 +1,5 @@
 import { utf8Length } from "../Utf8";
+import { TextPolicy } from "../TextPolicy";
 
 export interface TranslationCandidate {
   text: string;
@@ -163,17 +164,9 @@ export class TranslationPolicy {
     if (
       trimmed.length === 0 ||
       utf8Length(trimmed) > TranslationPolicy.MAX_TRANSLATION_BYTES ||
-      TranslationPolicy.hasControl(trimmed)
+      TextPolicy.hasControl(trimmed)
     )
       return "";
     return trimmed;
-  }
-
-  private static hasControl(value: string): boolean {
-    for (const character of value) {
-      const code: number = character.codePointAt(0) ?? 0;
-      if (code <= 0x1f || (code >= 0x7f && code <= 0x9f)) return true;
-    }
-    return false;
   }
 }

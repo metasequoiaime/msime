@@ -8,10 +8,11 @@
 #
 # The first --register-input-source after replacing a bundle can return 0 on a stale LaunchServices entry
 # from the previous one. That is why this script checks the registry afterwards rather than trusting the
-# exit code, and why a failure here is a failure of the install rather than a warning.
+# exit code, and why an input method the registry cannot offer is a failed install rather than a warning.
+# Not every disabled source is that, though - see the three outcomes at the bottom.
 #
 # Usage: platforms/macos/scripts/install.sh [path/to/bundle.app]
-#   MSIME_SIGNING_IDENTITY       signing identity; defaults to the first Developer ID Application found
+#   MSIME_SIGNING_IDENTITY       signing identity, a name or a SHA-1; defaults to the first Developer ID Application certificate in the keychain, by SHA-1
 #   MSIME_INPUT_METHODS_DIR      destination; defaults to ~/Library/Input Methods
 #   MSIME_VOICE_ENTITLEMENTS     entitlements to sign with; defaults to resources/VoiceInput.entitlements
 set -euo pipefail
@@ -82,9 +83,26 @@ ditto "$source_bundle" "$staging/$name"
 
 # Sign the staged copy, not the destination: a half-signed bundle must never be the installed one.
 identity="${MSIME_SIGNING_IDENTITY:-}"
+label="$identity"
 if [ -z "$identity" ]; then
-  identity="$(security find-identity -v -p codesigning 2>/dev/null |
-    sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -1)"
+  # Resolve to the certificate's SHA-1, not its name. Two valid Developer ID Application certificates for
+  # the same team is an ordinary state - a renewed one next to the one it replaces - and codesign refuses a
+  # name that matches both rather than picking one:
+  #
+  #   Developer ID Application: Name (TEAMID): ambiguous (matches "Developer ID Application: Name (TEAMID)"
+  #   and "Developer ID Application: Name (TEAMID)" in /Users/…/login.keychain-db)
+  #
+  # which failed the install after the running input method had already been stopped. A hash is never
+  # ambiguous. Any of them works for a local install, so take the first and say that there were others.
+  candidates="$(security find-identity -v -p codesigning 2>/dev/null |
+    sed -n 's/^ *[0-9]*) *\([0-9A-F]\{40\}\) *"\(Developer ID Application: [^"]*\)".*/\1 \2/p')"
+  identity="$(printf '%s\n' "$candidates" | head -1 | cut -d' ' -f1)"
+  label="$(printf '%s\n' "$candidates" | head -1 | cut -d' ' -f2-)"
+  found="$(printf '%s\n' "$candidates" | grep -c . || true)"
+  if [ "${found:-0}" -gt 1 ]; then
+    echo "$found Developer ID Application identities in the keychain; signing with $label ($identity)" >&2
+    echo "set MSIME_SIGNING_IDENTITY to a SHA-1 from 'security find-identity -v -p codesigning' for another" >&2
+  fi
 fi
 if [ -z "$identity" ]; then
   echo "no Developer ID Application identity found; set MSIME_SIGNING_IDENTITY" >&2
@@ -108,7 +126,7 @@ codesign --force --deep --options runtime --timestamp --entitlements "$entitleme
   "$staging/$name" 2>/dev/null ||
   codesign --force --deep --options runtime --entitlements "$entitlements" --sign "$identity" "$staging/$name"
 codesign --verify --strict "$staging/$name"
-echo "signed with $identity"
+if [ "$label" = "$identity" ]; then echo "signed with $identity"; else echo "signed with $label ($identity)"; fi
 
 if [ -d "$destination" ]; then
   backup="$(mktemp -d "$destination_root/.msime-backup.XXXXXX")"
@@ -155,9 +173,25 @@ if [ -x "$lsregister" ]; then
   "$lsregister" -f "$destination" >/dev/null 2>&1 || true
 fi
 
-if "$destination/Contents/MacOS/$executable" --register-input-source &&
-  "$root/platforms/macos/scripts/check_input_source.swift" "$identifier" "$destination"; then
+if ! "$destination/Contents/MacOS/$executable" --register-input-source; then
+  echo "--register-input-source exited non-zero; what the registry says below is what decides" >&2
+fi
+
+# Three outcomes, and the note at the bottom is only right for one of them. Printing it for all three is
+# what this used to do: an input method that registers, enables its Chinese mode and types perfectly well
+# would be reported as absent from the session, with instructions to log out that cannot change anything,
+# because one of the bundle's other modes was left disabled. check_input_source.swift tells them apart and
+# its header carries what each one means.
+checked=0
+"$root/platforms/macos/scripts/check_input_source.swift" "$identifier" "$destination" || checked=$?
+if [ "$checked" -eq 0 ]; then
   echo "select 水杉输入法 from the input menu to start typing"
+  exit 0
+fi
+if [ "$checked" -eq 2 ]; then
+  echo "installed, and selectable from the input menu; add the source listed above as not enabled in"
+  echo "System Settings > Keyboard > Text Input > Input Sources - a keyboard input mode cannot be enabled"
+  echo "from a process on this macOS version, so no amount of re-registering or re-login will add it."
   exit 0
 fi
 # The registry is scoped to the login session, which is measured rather than assumed: copy the input method

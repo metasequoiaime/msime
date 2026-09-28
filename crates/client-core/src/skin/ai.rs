@@ -99,24 +99,12 @@ impl AiSkinApi for BackendAccountClient {
             128 * 1024,
             Duration::from_secs(30),
         )?;
-        if catalog.data.is_empty()
-            || catalog.data.len() > 33
-            || catalog.default_model.is_empty()
-            || catalog.default_model.len() > 200
-            || !catalog
-                .data
-                .iter()
-                .any(|model| model.id == catalog.default_model)
-            || catalog.data.iter().any(|model| {
-                model.id.is_empty()
-                    || model.id.len() > 200
-                    || model.id.chars().any(char::is_control)
-            })
-        {
-            return Err(AccountError::Unavailable);
-        }
-        let ids: BTreeSet<&str> = catalog.data.iter().map(|model| model.id.as_str()).collect();
-        if ids.len() != catalog.data.len() {
+        if !crate::account::valid_model_catalog(
+            catalog.data.iter().map(|model| model.id.as_str()),
+            &catalog.default_model,
+            33,
+            200,
+        ) {
             return Err(AccountError::Unavailable);
         }
         Ok(catalog)

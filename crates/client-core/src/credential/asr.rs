@@ -66,29 +66,13 @@ pub fn test(config: &Value, transport: &impl Transport) -> ProbeResult {
         };
     }
     let (token, endpoint, model) = (get("token"), get("endpoint"), get("model"));
-    if token.is_empty()
-        || token.len() > 8192
-        || token.chars().any(char::is_control)
-        || token.starts_with('<')
-        || token.chars().all(|c| c == '*')
-    {
+    if !crate::credential::usable_token(token) {
         return ProbeResult {
             ok: false,
             message: "请先填写有效的 API Key。".into(),
         };
     }
-    if endpoint.len() > 2048
-        || model.is_empty()
-        || model.len() > 256
-        || model.chars().any(char::is_control)
-        || !reqwest::Url::parse(endpoint).ok().is_some_and(|url| {
-            url.scheme() == "https"
-                && url.host_str().is_some()
-                && url.username().is_empty()
-                && url.password().is_none()
-                && url.fragment().is_none()
-        })
-    {
+    if !crate::credential::valid_https_endpoint_and_model(endpoint, model) {
         return ProbeResult {
             ok: false,
             message: "请填写有效的 HTTPS 转写接口地址和模型名。".into(),

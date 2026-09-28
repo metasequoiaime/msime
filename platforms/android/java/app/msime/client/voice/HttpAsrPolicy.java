@@ -43,11 +43,11 @@ public final class HttpAsrPolicy {
     public static boolean usable(String provider, String endpoint, String model, String token) {
         return supported(provider)
             && endpoint != null && endpoint.startsWith("https://") && endpoint.length() <= 2048
-            && !hasControl(endpoint)
+            && !TextPolicy.hasControl(endpoint)
             && model != null && !model.trim().isEmpty() && model.length() <= 512
-            && !hasControl(model)
+            && !TextPolicy.hasControl(model)
             && token != null && !token.trim().isEmpty() && token.length() <= 16 * 1024
-            && !hasControl(token);
+            && !TextPolicy.hasControl(token);
     }
 
     /** A boundary that cannot occur in the parts, derived from the request rather than random. */
@@ -107,11 +107,4 @@ public final class HttpAsrPolicy {
             .append(value).append("\r\n");
     }
 
-    private static boolean hasControl(String value) {
-        for (int index = 0; index < value.length(); index++) {
-            char character = value.charAt(index);
-            if (character < 0x20 || character >= 0x7f && character <= 0x9f) return true;
-        }
-        return false;
-    }
 }
