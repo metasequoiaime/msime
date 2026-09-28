@@ -564,17 +564,6 @@ pub fn emoji_catalog_filtered_page(
     group: &str,
     offset: usize,
     limit: u16,
-) -> Result<Vec<EmojiCatalogItem>, cxx::Exception> {
-    ffi::emoji_catalog_filtered_page(resources, search, category, group, offset, limit, "")
-}
-
-pub fn emoji_catalog_parent_page(
-    resources: &str,
-    search: &str,
-    category: &str,
-    group: &str,
-    offset: usize,
-    limit: u16,
     parent: &str,
 ) -> Result<Vec<EmojiCatalogItem>, cxx::Exception> {
     ffi::emoji_catalog_filtered_page(resources, search, category, group, offset, limit, parent)

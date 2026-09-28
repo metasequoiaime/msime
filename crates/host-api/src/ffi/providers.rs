@@ -672,7 +672,7 @@ pub unsafe extern "C" fn msime_client_emoji_catalog_request(
                 "complete": slice.complete,
             }));
         }
-        let items = msime_engine_bridge::emoji_catalog_parent_page(
+        let items = msime_engine_bridge::emoji_catalog_filtered_page(
             resources,
             &query.panel.search,
             &query.panel.category,
