@@ -7,7 +7,7 @@
 //! working input source.
 
 use std::fs;
-use std::io::{self, Read};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -90,15 +90,11 @@ fn validate_bundle(source: &Path) -> Result<(), InstallError> {
     {
         return Err(InstallError::InvalidBundle);
     }
-    let mut plist = Vec::new();
-    fs::File::open(info)
-        .map_err(|_| InstallError::InvalidBundle)?
-        .take(MAX_INFO_PLIST_BYTES + 1)
-        .read_to_end(&mut plist)
-        .map_err(|_| InstallError::InvalidBundle)?;
-    if plist.len() as u64 > MAX_INFO_PLIST_BYTES {
-        return Err(InstallError::InvalidBundle);
-    }
+    let plist = crate::shared::bounded_body::read_bounded(
+        fs::File::open(info).map_err(|_| InstallError::InvalidBundle)?,
+        MAX_INFO_PLIST_BYTES as usize,
+    )
+    .map_err(|_| InstallError::InvalidBundle)?;
     if !String::from_utf8_lossy(&plist).contains(INPUT_SOURCE_BUNDLE_ID) {
         return Err(InstallError::InvalidBundle);
     }
