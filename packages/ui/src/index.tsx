@@ -60,6 +60,7 @@ import { VoiceInputCoreSection } from "./settings/voice-input-core-section";
 import { VoiceModelPathSection } from "./settings/voice-model-path-section";
 import { VoiceModelSection } from "./settings/voice-model-section";
 import { VoiceEndpointSection } from "./settings/voice-endpoint-section";
+import { VoiceCredentialFieldsSection } from "./settings/voice-credential-fields-section";
 import { DoubaoAuthModeSection } from "./settings/doubao-auth-mode-section";
 import { DoubaoStreamEndpointSection } from "./settings/doubao-stream-endpoint-section";
 import { DoubaoOptionsSection } from "./settings/doubao-options-section";
@@ -440,6 +441,10 @@ export {
   VoiceEndpointSection,
   type VoiceEndpointSectionProps,
 } from "./settings/voice-endpoint-section";
+export {
+  VoiceCredentialFieldsSection,
+  type VoiceCredentialFieldsSectionProps,
+} from "./settings/voice-credential-fields-section";
 export {
   DoubaoAuthModeSection,
   type DoubaoAuthMode,
@@ -6723,39 +6728,20 @@ export function SettingsPage({
                           value={voiceInput.asr_endpoint ?? ""}
                           onChange={(asr_endpoint) => updateVoice({ asr_endpoint })}
                         />
-                        {voiceInput.asr_provider === "doubao" && doubaoAuthMode === "legacy" && (
-                          <div className="section">
-                            <label className="section-header">
-                              <span className="section-title">
-                                Doubao App Key<small>旧版控制台鉴权使用</small>
-                              </span>
-                              <SecretInput
-                                label="Doubao App Key"
-                                value={voiceInput.asr_app_key ?? ""}
-                                onChange={(value) => updateVoice({ asr_app_key: value })}
-                              />
-                            </label>
-                          </div>
-                        )}
-                        <div className="section">
-                          <label className="section-header">
-                            <span className="section-title">
-                              {voiceInput.asr_provider === "doubao" && doubaoAuthMode !== "legacy"
-                                ? "Doubao API Key"
-                                : "识别 API Token"}
-                              <small>仅保存在本机设置中</small>
-                            </span>
-                            <SecretInput
-                              label={
-                                voiceInput.asr_provider === "doubao" && doubaoAuthMode !== "legacy"
-                                  ? "Doubao API Key"
-                                  : "识别 API Token"
-                              }
-                              value={voiceInput.asr_token ?? ""}
-                              onChange={(value) => updateVoice({ asr_token: value })}
-                            />
-                          </label>
-                        </div>
+                        <VoiceCredentialFieldsSection
+                          showAppKey={
+                            voiceInput.asr_provider === "doubao" && doubaoAuthMode === "legacy"
+                          }
+                          appKey={voiceInput.asr_app_key ?? ""}
+                          tokenLabel={
+                            voiceInput.asr_provider === "doubao" && doubaoAuthMode !== "legacy"
+                              ? "Doubao API Key"
+                              : "识别 API Token"
+                          }
+                          token={voiceInput.asr_token ?? ""}
+                          onAppKeyChange={(asr_app_key) => updateVoice({ asr_app_key })}
+                          onTokenChange={(asr_token) => updateVoice({ asr_token })}
+                        />
                       </>
                     )}
                     {showVoiceProviderSettings && serviceVoice && (
