@@ -195,7 +195,7 @@ impl AiSkinApi for BackendAccountClient {
     }
 
     fn get_skin_artwork(&self, id: &str, token: &str) -> Result<AiSkinJob, AccountError> {
-        if !valid_job_id(id) {
+        if !crate::text::is_lower_hex(id, 48) {
             return Err(AccountError::Invalid);
         }
         let path = format!("/v1/skins/jobs/{id}");
@@ -214,7 +214,7 @@ impl AiSkinApi for BackendAccountClient {
     }
 
     fn delete_skin_artwork(&self, id: &str, token: &str) -> Result<(), AccountError> {
-        if !valid_job_id(id) {
+        if !crate::text::is_lower_hex(id, 48) {
             return Err(AccountError::Invalid);
         }
         let path = format!("/v1/skins/jobs/{id}");
@@ -239,7 +239,9 @@ struct RawSkinJob {
 }
 
 fn validate_job(job: RawSkinJob) -> Result<AiSkinJob, AccountError> {
-    if !valid_job_id(&job.id) || !matches!(job.state.as_str(), "running" | "succeeded" | "failed") {
+    if !crate::text::is_lower_hex(&job.id, 48)
+        || !matches!(job.state.as_str(), "running" | "succeeded" | "failed")
+    {
         return Err(AccountError::Unavailable);
     }
     if let Some(artwork) = &job.artwork {
@@ -250,10 +252,6 @@ fn validate_job(job: RawSkinJob) -> Result<AiSkinJob, AccountError> {
         state: job.state,
         artwork: job.artwork,
     })
-}
-
-fn valid_job_id(id: &str) -> bool {
-    crate::text::is_lower_hex(id, 48)
 }
 
 fn validate_artwork(artwork: &AiSkinArtwork) -> Result<Vec<u8>, AiSkinError> {
