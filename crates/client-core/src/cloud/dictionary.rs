@@ -79,12 +79,15 @@ pub fn percent_encode(value: &str) -> String {
         .collect()
 }
 
+fn valid_dictionary_fields(code: &str, word: &str) -> bool {
+    !code.is_empty()
+        && !word.is_empty()
+        && crate::is_bounded_text(code, 256)
+        && crate::is_bounded_text(word, 1024)
+}
+
 pub fn validate_value(value: &DictionaryValue) -> Result<(), &'static str> {
-    if value.code.is_empty()
-        || value.word.is_empty()
-        || !crate::is_bounded_text(&value.code, 256)
-        || !crate::is_bounded_text(&value.word, 1024)
-    {
+    if !valid_dictionary_fields(&value.code, &value.word) {
         return Err("invalid dictionary value");
     }
     if value.weight < 0 {
@@ -120,10 +123,7 @@ pub fn valid_candidate_query(
 }
 
 pub fn valid_candidate_value(code: &str, word: &str) -> bool {
-    !code.is_empty()
-        && !word.is_empty()
-        && crate::is_bounded_text(code, 256)
-        && crate::is_bounded_text(word, 1024)
+    valid_dictionary_fields(code, word)
 }
 
 #[cfg(test)]
