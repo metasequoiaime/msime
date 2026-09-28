@@ -6,6 +6,7 @@ export interface SettingToggleProps {
   checked: boolean;
   ariaLabel?: string;
   disabled?: boolean;
+  rowClassName?: string;
   /** Render only the labeled row when the toggle is embedded in another section. */
   compact?: boolean;
   onChange: (checked: boolean) => void;
@@ -18,11 +19,12 @@ export function SettingToggle({
   checked,
   ariaLabel,
   disabled,
+  rowClassName,
   compact = false,
   onChange,
 }: SettingToggleProps) {
   const row = (
-    <label className="section-header">
+    <label className={`section-header${rowClassName ? ` ${rowClassName}` : ""}`}>
       <span className="section-title">
         {label}
         {description !== undefined && <small>{description}</small>}
