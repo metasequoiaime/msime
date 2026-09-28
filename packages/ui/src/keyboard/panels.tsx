@@ -18,7 +18,11 @@ import {
   type EmojiCatalogGroup,
   type EmojiCatalogItem,
 } from "../emoji/emoji-catalog";
-import { touchKeyboardSkinOptions, type TouchKeyboardSkin } from "./screen-keyboard-preview";
+import {
+  touchKeyboardSkinOption,
+  touchKeyboardSkinPalette,
+  type TouchKeyboardSkin,
+} from "./screen-keyboard-preview";
 import * as cloud from "./cloud-panel-style";
 import * as surface from "./panel-surface-style";
 import {
@@ -463,9 +467,7 @@ function keyboardBackgroundStyle(
   palette: { background: string; accent: string },
 ): CSSProperties {
   const custom = skin === "custom" && customDesign ? customDesign : undefined;
-  const option =
-    touchKeyboardSkinOptions.find((item) => item.id === (skin === "custom" ? "forest" : skin)) ??
-    touchKeyboardSkinOptions[0];
+  const option = touchKeyboardSkinOption(skin);
   const pattern = custom?.pattern ?? option.pattern;
   const patternOpacity = custom?.patternOpacity ?? 0.15;
   const images: string[] = [];
@@ -524,18 +526,8 @@ function keyboardSkinStyles(
   customDesign?: TouchKeyboardSkinDesign,
 ): CSSProperties {
   const custom = skin === "custom" && customDesign ? customDesign : undefined;
-  const option =
-    touchKeyboardSkinOptions.find((item) => item.id === (skin === "custom" ? "forest" : skin)) ??
-    touchKeyboardSkinOptions[0];
-  const palette = custom
-    ? {
-        background: skinColor(custom.background),
-        key: skinColor(custom.keyBackground),
-        foreground: skinColor(custom.keyForeground),
-        accent: skinColor(custom.accent),
-        action: skinColor(custom.actionBackground),
-      }
-    : option[theme];
+  const option = touchKeyboardSkinOption(skin);
+  const palette = touchKeyboardSkinPalette(theme, skin, customDesign);
   const radius = custom?.cornerRadius ?? option.cornerRadius;
   const borderWidth = custom?.borderWidth ?? option.borderWidth;
   const shadowOpacity = custom?.shadow ?? option.shadowOpacity;

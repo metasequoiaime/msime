@@ -18,7 +18,7 @@ export type TouchKeyboardSkin =
   | "blueprint"
   | "custom";
 
-type Palette = {
+export type TouchKeyboardSkinPalette = {
   background: string;
   key: string;
   foreground: string;
@@ -29,8 +29,8 @@ export type TouchKeyboardSkinOption = {
   id: TouchKeyboardSkin;
   title: string;
   description: string;
-  light: Palette;
-  dark: Palette;
+  light: TouchKeyboardSkinPalette;
+  dark: TouchKeyboardSkinPalette;
   cornerRadius: number;
   borderWidth: number;
   shadowOpacity: number;
@@ -283,8 +283,25 @@ const touchRows = [
 ];
 const actionLabels = new Set(["Backspace", "Enter", "Shift", "Del", "⇧", "⌫", "↵"]);
 
-function optionFor(id: Exclude<TouchKeyboardSkin, "custom">): TouchKeyboardSkinOption {
+export function touchKeyboardSkinOption(skin: TouchKeyboardSkin): TouchKeyboardSkinOption {
+  const id = skin === "custom" ? "forest" : skin;
   return touchKeyboardSkinOptions.find((option) => option.id === id) ?? touchKeyboardSkinOptions[0];
+}
+
+export function touchKeyboardSkinPalette(
+  theme: "dark" | "light",
+  skin: TouchKeyboardSkin,
+  customDesign?: TouchKeyboardSkinDesign,
+): TouchKeyboardSkinPalette {
+  const custom = skin === "custom" && customDesign ? customDesign : undefined;
+  if (!custom) return touchKeyboardSkinOption(skin)[theme];
+  return {
+    background: skinColor(custom.background),
+    key: skinColor(custom.keyBackground),
+    foreground: skinColor(custom.keyForeground),
+    accent: skinColor(custom.accent),
+    action: skinColor(custom.actionBackground),
+  };
 }
 
 function Pattern({
@@ -370,16 +387,8 @@ export function ScreenKeyboardPreview({
   const touch = layout === "touch";
   const layoutRows = touch ? touchRows : rows;
   const custom = skin === "custom" && customDesign ? customDesign : undefined;
-  const option = optionFor(skin === "custom" ? "forest" : skin);
-  const palette = custom
-    ? {
-        background: skinColor(custom.background),
-        key: skinColor(custom.keyBackground),
-        foreground: skinColor(custom.keyForeground),
-        accent: skinColor(custom.accent),
-        action: skinColor(custom.actionBackground),
-      }
-    : option[theme];
+  const option = touchKeyboardSkinOption(skin);
+  const palette = touchKeyboardSkinPalette(theme, skin, customDesign);
   const cornerRadius = custom?.cornerRadius ?? option.cornerRadius;
   const borderWidth = custom?.borderWidth ?? option.borderWidth;
   const shadowOpacity = custom?.shadow ?? option.shadowOpacity;
