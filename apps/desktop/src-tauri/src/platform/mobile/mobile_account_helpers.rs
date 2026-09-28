@@ -1,17 +1,16 @@
-use crate::platform::account_helpers::call_session;
+pub(crate) use crate::platform::account_helpers::{account_command_error, call_session};
 use crate::shared::account_dto::{
     ChallengeResponse, ChatModelsResponse, ChatResponse, PreferenceSchemaResponse, ProfileResponse,
     StatusResponse,
 };
-use msime_client_core::account::AccountChatMessage;
 use msime_client_core::account::AccountError;
 use msime_client_core::account::AccountPreferences;
+use msime_client_core::account::{AccountCandidateQuery, AccountChatMessage};
 use msime_client_core::cloud::dictionary::DictionaryKind;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -70,6 +69,246 @@ pub(crate) fn parse_cloud_dictionary_request(
     Ok(request)
 }
 
+pub(crate) async fn cloud_dictionary_account_request(
+    state: tauri::State<'_, crate::platform::mobile::MobileAccountState>,
+    request: msime_host_api::cloud_dictionary::CloudDictionaryRequest,
+) -> Result<Value, crate::CommandError> {
+    use msime_host_api::cloud_dictionary::CloudDictionaryRequest;
+
+    match request {
+        CloudDictionaryRequest::List {
+            kind,
+            offset,
+            search,
+        } => {
+            let kind = dictionary_kind(&kind)?;
+            call(state, move |session| {
+                session.dictionary(kind, &search, offset).and_then(|page| {
+                    serde_json::to_value(page).map_err(|_| AccountError::Unavailable)
+                })
+            })
+            .await
+        }
+        CloudDictionaryRequest::Catalog {
+            kind,
+            code,
+            offset,
+            scheme,
+            profile,
+        } => {
+            let kind = dictionary_kind(&kind)?;
+            call(state, move |session| {
+                session
+                    .dictionary_catalog(kind, &code, offset, &scheme, &profile)
+                    .and_then(|page| {
+                        serde_json::to_value(serde_json::json!({
+                "catalog_entries": page.entries, "has_more": page.has_more, "offset": page.offset,
+                "revision": page.revision, "normalized": page.normalized,
+            })).map_err(|_| AccountError::Unavailable)
+                    })
+            })
+            .await
+        }
+        CloudDictionaryRequest::Changes { after, limit } => {
+            call(state, move |session| {
+                session.dictionary_changes(after, limit).and_then(|page| {
+                    serde_json::to_value(page).map_err(|_| AccountError::Unavailable)
+                })
+            })
+            .await
+        }
+        CloudDictionaryRequest::Add {
+            kind,
+            code,
+            word,
+            weight,
+        } => {
+            let kind = dictionary_kind(&kind)?;
+            call(state, move |session| {
+                session
+                    .add_dictionary(kind, &code, &word, weight)
+                    .and_then(|change| {
+                        serde_json::to_value(change).map_err(|_| AccountError::Unavailable)
+                    })
+            })
+            .await
+        }
+        CloudDictionaryRequest::Update {
+            kind,
+            id,
+            code,
+            word,
+            weight,
+            revision,
+        } => {
+            let kind = dictionary_kind(&kind)?;
+            call(state, move |session| {
+                session
+                    .update_dictionary(kind, &id, &code, &word, weight, revision)
+                    .and_then(|change| {
+                        serde_json::to_value(change).map_err(|_| AccountError::Unavailable)
+                    })
+            })
+            .await
+        }
+        CloudDictionaryRequest::EditCatalog {
+            kind,
+            code,
+            word,
+            revision,
+            replacement,
+        } => {
+            let kind = dictionary_kind(&kind)?;
+            let replacement = replacement.map(|value| (value.code, value.word, value.weight));
+            call(state, move |session| {
+                let replacement = replacement
+                    .as_ref()
+                    .map(|(code, word, weight)| (code.as_str(), word.as_str(), *weight));
+                session
+                    .edit_dictionary_catalog(kind, &code, &word, revision, replacement)
+                    .and_then(|change| {
+                        serde_json::to_value(change).map_err(|_| AccountError::Unavailable)
+                    })
+            })
+            .await
+        }
+        CloudDictionaryRequest::Candidates {
+            text,
+            kind,
+            scheme,
+            profile,
+            limit,
+        } => {
+            let query = AccountCandidateQuery {
+                text,
+                kind,
+                scheme,
+                profile,
+                limit,
+            };
+            call(state, move |session| {
+                session.personal_candidates(&query).and_then(|result| {
+                    serde_json::to_value(result).map_err(|_| AccountError::Unavailable)
+                })
+            })
+            .await
+        }
+        CloudDictionaryRequest::Rank {
+            text,
+            kind,
+            scheme,
+            profile,
+            limit,
+            code,
+            word,
+            revision,
+            mode,
+            linear_step,
+            trigger_count,
+            force_top,
+        } => {
+            let query = AccountCandidateQuery {
+                text,
+                kind,
+                scheme,
+                profile,
+                limit,
+            };
+            call(state, move |session| session.rank_candidate(&query, &code, &word, revision, &mode, linear_step, trigger_count, force_top).map(|result| serde_json::json!({
+                "revision": result.revision, "changed": result.changed, "selection_count": result.selection.count,
+            }))).await
+        }
+        CloudDictionaryRequest::RemoveCandidate {
+            text,
+            kind,
+            scheme,
+            profile,
+            limit,
+            code,
+            word,
+            revision,
+        } => {
+            let query = AccountCandidateQuery {
+                text,
+                kind,
+                scheme,
+                profile,
+                limit,
+            };
+            call(state, move |session| {
+                session
+                    .remove_candidate(&query, &code, &word, revision)
+                    .and_then(|result| {
+                        serde_json::to_value(result).map_err(|_| AccountError::Unavailable)
+                    })
+            })
+            .await
+        }
+        CloudDictionaryRequest::FixedPositions { context, offset } => {
+            call(state, move |session| {
+                session
+                    .fixed_positions(&context, offset)
+                    .and_then(|result| {
+                        serde_json::to_value(result).map_err(|_| AccountError::Unavailable)
+                    })
+            })
+            .await
+        }
+        CloudDictionaryRequest::SetFixedPosition {
+            context,
+            code,
+            word,
+            position,
+            revision,
+        } => {
+            call(state, move |session| {
+                session
+                    .set_fixed_position(&context, &code, &word, position, revision)
+                    .and_then(|result| {
+                        serde_json::to_value(result).map_err(|_| AccountError::Unavailable)
+                    })
+            })
+            .await
+        }
+        CloudDictionaryRequest::Delete { kind, id, revision } => {
+            let kind = dictionary_kind(&kind)?;
+            call(state, move |session| {
+                session
+                    .delete_dictionary(kind, &id, revision)
+                    .and_then(|change| {
+                        serde_json::to_value(change).map_err(|_| AccountError::Unavailable)
+                    })
+            })
+            .await
+        }
+        CloudDictionaryRequest::Import { kind, format, text } => {
+            let kind = dictionary_kind(&kind)?;
+            call(state, move |session| {
+                session
+                    .import_dictionary(kind, &format, &text)
+                    .and_then(|result| {
+                        serde_json::to_value(result).map_err(|_| AccountError::Unavailable)
+                    })
+            })
+            .await
+        }
+        CloudDictionaryRequest::Export { kind, format } => {
+            let kind = dictionary_kind(&kind)?;
+            call(state, move |session| session.export_dictionary(kind, &format).map(|result| serde_json::json!({ "text": result.text, "filename": result.filename }))).await
+        }
+        CloudDictionaryRequest::SnapshotPreview
+        | CloudDictionaryRequest::SnapshotExport
+        | CloudDictionaryRequest::SnapshotRestorePreview { .. }
+        | CloudDictionaryRequest::SnapshotRestore { .. }
+        | CloudDictionaryRequest::SnapshotRestoreNative { .. }
+        | CloudDictionaryRequest::SnapshotRestoreCancel
+        | CloudDictionaryRequest::SnapshotEnqueue { .. }
+        | CloudDictionaryRequest::SnapshotStatus
+        | CloudDictionaryRequest::SnapshotCancel => Err(crate::CommandError {
+            code: "snapshot_unavailable",
+        }),
+    }
+}
 pub(crate) fn dictionary_kind(value: &str) -> Result<DictionaryKind, crate::CommandError> {
     match value {
         "pinyin" => Ok(DictionaryKind::Pinyin),
