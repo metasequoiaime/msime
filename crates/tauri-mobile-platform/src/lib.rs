@@ -91,6 +91,12 @@ fn valid_android_voice_request(request_id: &str, language: &str) -> bool {
         && is_bounded_text(language, 64)
 }
 
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn valid_mobile_voice_text(text: &str) -> bool {
+    !text.trim().is_empty()
+        && msime_client_core::is_bounded_chars_without_nul(text, MAX_MOBILE_VOICE_TEXT_CHARS)
+}
+
 #[cfg(target_os = "android")]
 impl<R: Runtime> AndroidVoicePlatform<R> {
     /// `provider` is passed on only when it validates; an invalid one falls back to the platform
@@ -149,8 +155,7 @@ impl<R: Runtime> AndroidVoicePlatform<R> {
     }
 
     pub fn save_voice_text(&self, text: &str) -> Result<(), ()> {
-        if text.trim().is_empty() || !msime_client_core::is_bounded_chars_without_nul(text, 10_000)
-        {
+        if !valid_mobile_voice_text(text) {
             return Err(());
         }
         self.0
@@ -172,7 +177,7 @@ const MAX_IOS_CLIPBOARD_TEXT_UTF16_UNITS: usize = 4_000;
 const MAX_MOBILE_VOICE_ENDPOINT_BYTES: usize = 2_048;
 const MAX_MOBILE_VOICE_MODEL_BYTES: usize = 512;
 const MAX_MOBILE_VOICE_TOKEN_BYTES: usize = 16 * 1024;
-#[cfg(any(target_os = "ios", test))]
+#[cfg(any(target_os = "android", target_os = "ios", test))]
 const MAX_MOBILE_VOICE_TEXT_CHARS: usize = 10_000;
 const MAX_MOBILE_VOICE_HEADER_BYTES: usize = 8_192;
 const MAX_MOBILE_VOICE_BOOSTING_TABLE_BYTES: usize = 4_096;
@@ -731,8 +736,7 @@ impl<R: Runtime> MobilePlatform<R> {
     }
 
     pub fn save_voice_text(&self, text: &str) -> Result<(), ()> {
-        if text.trim().is_empty() || !msime_client_core::is_bounded_chars_without_nul(text, 10_000)
-        {
+        if !valid_mobile_voice_text(text) {
             return Err(());
         }
         self.0
