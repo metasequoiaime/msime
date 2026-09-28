@@ -4,6 +4,7 @@ import {
   skinColor,
   type TouchKeyboardSkinDesign,
 } from "./touch-keyboard-skin-design";
+import { actionKeyboardLabels, desktopKeyboardRows, touchKeyboardRows } from "./keyboard-layouts";
 
 // Built-in visual source: MSIME-Apple@11c950a63ec57656cd78b3f75aa621c293bfe453,
 // platforms/ios/SharedUI/KeyboardSkinPreference.swift and KeyboardSkinBackgroundView.swift.
@@ -253,35 +254,10 @@ export const touchKeyboardSkinOptions: TouchKeyboardSkinOption[] = [
 
 // Layout source: MSIME-Windows@04a8df56f86312474a069f4335a1b58da7afaa9e,
 // server/src/keyboard-panel/KeyboardPanel.cpp (GPL-3.0). This preview has no input actions.
-const key = (label: string, weight = 1) => ({ label, weight });
-const letters = (text: string) => [...text].map((label) => key(label));
-const rows = [
-  [...letters("`1234567890-="), key("Backspace", 1.9)],
-  [key("Tab", 1.5), ...letters("qwertyuiop[]"), key("\\", 1.4)],
-  [key("Caps Lock", 1.85), ...letters("asdfghjkl;'"), key("Enter", 2)],
-  [key("Shift", 2.35), ...letters("zxcvbnm,./"), key("Shift", 2.15)],
-  [
-    key("Ctrl", 1.25),
-    key("Win", 1.25),
-    key("Alt", 1.25),
-    key("Space", 6.7),
-    key("Alt", 1.25),
-    key("Win", 1.25),
-    key("Del", 1.25),
-    key("Ctrl", 1.25),
-  ],
-];
 // The touch hosts put three letter rows above a control strip, so the desktop artwork above is the
 // wrong picture of them: it promises a number row, Tab, Caps Lock and Win keys that a phone keyboard
 // simply does not have. Mirrors KeyboardLayout.LETTER_ROWS plus the leading controls that
 // MSIMEInputService builds beneath them.
-const touchRows = [
-  letters("qwertyuiop"),
-  [key("", 0.5), ...letters("asdfghjkl"), key("", 0.5)],
-  [key("⇧", 1.5), ...letters("zxcvbnm"), key("⌫", 1.5)],
-  [key("符号", 1.5), key("中/英", 1.5), key("空格", 4.5), key("，"), key("↵", 1.5)],
-];
-const actionLabels = new Set(["Backspace", "Enter", "Shift", "Del", "⇧", "⌫", "↵"]);
 
 export function touchKeyboardSkinOption(skin: TouchKeyboardSkin): TouchKeyboardSkinOption {
   const id = skin === "custom" ? "forest" : skin;
@@ -385,7 +361,7 @@ export function ScreenKeyboardPreview({
   layout?: "desktop" | "touch";
 }) {
   const touch = layout === "touch";
-  const layoutRows = touch ? touchRows : rows;
+  const layoutRows = touch ? touchKeyboardRows : desktopKeyboardRows;
   const custom = skin === "custom" && customDesign ? customDesign : undefined;
   const option = touchKeyboardSkinOption(skin);
   const palette = touchKeyboardSkinPalette(theme, skin, customDesign);
@@ -534,7 +510,7 @@ export function ScreenKeyboardPreview({
               // An unlabelled entry is the half-key inset that centres the home row, not a key the
               // user can press: it takes up its width and draws nothing.
               if (!item.label) return null;
-              const action = actionLabels.has(item.label);
+              const action = actionKeyboardLabels.has(item.label);
               const path = keyPath(
                 left,
                 y,
