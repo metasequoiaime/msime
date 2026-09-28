@@ -565,7 +565,7 @@ add_executable(cloud-clipboard-selection-test tests/clipboard/CloudClipboardSele
 target_compile_options(cloud-clipboard-selection-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(cloud-clipboard-selection-test PRIVATE "-framework AppKit")
 add_test(NAME cloud-clipboard-selection COMMAND cloud-clipboard-selection-test)
-add_executable(cloud-clipboard-deletion-test tests/clipboard/CloudClipboardDeletionTest.mm src/cloud/CloudClipboardClient.mm)
+add_executable(cloud-clipboard-deletion-test tests/clipboard/CloudClipboardDeletionTest.mm src/cloud/CloudClipboardClient.mm src/cloud/CloudURLSession.mm)
 target_compile_options(cloud-clipboard-deletion-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(cloud-clipboard-deletion-test PRIVATE "-framework Foundation")
 add_test(NAME cloud-clipboard-deletion COMMAND cloud-clipboard-deletion-test)
