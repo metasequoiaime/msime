@@ -1,3 +1,5 @@
+import { KeyboardGeometry } from './KeyboardGeometry';
+
 /**
  * The touch keyboard's measurements, taken from the iOS extension in
  * platforms/ios/KeyboardExtension/Sources/KeyboardViewController.swift so the two keyboards are laid
@@ -96,7 +98,7 @@ export class KeyboardMetrics {
   }
 
   static visibleCandidateRows(candidateCount: number): number {
-    return Math.max(1, Math.min(9, candidateCount));
+    return KeyboardGeometry.bounded(candidateCount, 1, 9);
   }
 
   /**
