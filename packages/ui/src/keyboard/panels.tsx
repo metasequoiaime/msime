@@ -581,27 +581,6 @@ function keyboardSkinStyles(
   } as CSSProperties;
 }
 
-// Orphaned: d203862fc removed its only reader while resolving a merge conflict,
-// and that reader was itself already unused, so nothing observable changed. It
-// stays because roughly twenty branches in flight still carry the reader, and
-// deleting it here would conflict with every one of them. Remove it once they
-// have landed.
-// oxlint-disable-next-line no-unused-vars
-const keyboardActionLabels = new Set([
-  "Backspace",
-  "Enter",
-  "Shift",
-  "Tab",
-  "Esc",
-  "Caps Lock",
-  "Ctrl",
-  "Alt",
-  "Win",
-  "Del",
-  "Menu",
-  "Num Lock",
-]);
-
 export function KeyboardPanel({
   client,
   platform,
