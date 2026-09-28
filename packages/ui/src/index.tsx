@@ -17,6 +17,7 @@ export {
   allTouchKeyboardSchemes,
 } from "./settings/touch-keyboard-scheme-helpers";
 import { platformOsName, schemeTitle } from "./settings/label-helpers";
+import { mobileTabIcon, mobileTabTitle } from "./settings/mobile-tab-helpers";
 import { updateAiProvider } from "./settings/ai-provider-update";
 import { VoiceDevicePicker, type VoiceDeviceReader } from "./voice/voice-device-picker";
 import {
@@ -1736,32 +1737,6 @@ export interface PreferencesRecovery {
 
 /** What a load or save that failed on an unreadable document says; the repair button sits beside exactly this message. */
 const unreadablePreferencesMessage = "配置文件无法读取或版本较新，原文件已保留。";
-
-/**
- * The 键盘 tab draws a keyboard, not the app.
- *
- * Its page icon is the app logo, which the source does not put in the bar either — its first tab is
- * `systemImage: "keyboard"`. Three of the four tabs would otherwise be a subject and the fourth a
- * brand.
- */
-const keyboardTabIcon = new URL("./assets/screen-keyboard.svg", import.meta.url).href;
-
-function mobileTabIcon(id: string, icon: string): string {
-  return id === "home" ? keyboardTabIcon : icon;
-}
-
-/**
- * What a tab is called, which is not always what its page is called.
- *
- * The source names these four 键盘 / 社区 / 统计 / 我的 and nothing else appears in the bar. The page
- * titles are longer because they also head the page they open.
- */
-function mobileTabTitle(id: string, title: string): string {
-  if (id === "home") return "键盘";
-  if (id === "typing-statistics") return "统计";
-  if (id === "account") return "我的";
-  return title;
-}
 
 type SettingsPageId = (typeof pages)[number]["id"];
 type MobilePrimaryPageId = Extract<
