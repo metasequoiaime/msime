@@ -1506,6 +1506,31 @@ int main(int argc, char **argv) {
       }
     }
     {
+      const auto oversized_history_path = root / "clipboard-oversized-history.json";
+      std::ofstream(oversized_history_path)
+          << nlohmann::json::array({"synthetic-old", std::string(1024 * 1024, 'x')}).dump();
+      auto oversized_clipboard = options;
+      oversized_clipboard["clipboard_history_path"] = oversized_history_path.string();
+      oversized_clipboard["preferences"]["clipboard_history"] = true;
+      msime_ibus_configure(oversized_clipboard.dump());
+      engine = create_engine();
+      seen = Observation{};
+      invoke("FocusIn");
+      const auto oversized_deadline = g_get_monotonic_time() + 3000000;
+      while (seen.clipboard_clear_name.empty() &&
+             g_get_monotonic_time() < oversized_deadline) {
+        while (g_main_context_iteration(nullptr, FALSE)) {
+        }
+        g_usleep(1000);
+      }
+      require(!seen.clipboard_clear_name.empty(),
+              "Oversized clipboard history did not finish loading");
+      require(!seen.clipboard_clear_sensitive,
+              "Oversized clipboard history exposed entries to the menu");
+      ibus_object_destroy(IBUS_OBJECT(engine));
+      g_object_unref(engine);
+    }
+    {
       const auto history_path = root / "clipboard-generation-history.json";
       std::ofstream(history_path)
           << nlohmann::json::array({"synthetic-old"}).dump();
