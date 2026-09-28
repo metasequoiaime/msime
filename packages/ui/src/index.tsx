@@ -42,6 +42,7 @@ import { CloudCandidatesSection } from "./settings/cloud-candidates-section";
 import { TelemetrySection } from "./settings/telemetry-section";
 import { WubiSection } from "./settings/wubi-section";
 import { InputModeSection } from "./settings/input-mode-section";
+import { InputModeShortcutsSection } from "./settings/input-mode-shortcuts-section";
 import { PreeditSettingsSection } from "./settings/preedit-settings-section";
 import { validCandidateFonts } from "./candidate/candidate-font-family";
 import type { FontCatalogReader } from "./candidate/font-catalog";
@@ -325,6 +326,11 @@ export {
   type InputModeScheme,
   type InputModeSectionProps,
 } from "./settings/input-mode-section";
+export {
+  InputModeShortcutsSection,
+  type InputModeShortcutPreferences,
+  type InputModeShortcutsSectionProps,
+} from "./settings/input-mode-shortcuts-section";
 export {
   PreeditSettingsSection,
   type CandidatePreeditStyle,
@@ -2329,19 +2335,6 @@ export function SettingsPage({
   const host = client.host;
   const showModeScope = host ? host.ime_mode_scope : linuxPlatform;
   const showModeSwitchShortcuts = host ? host.mode_switch_shortcuts : linuxPlatform;
-  // Named for the keys the user is actually looking at: macOS calls them Control and Option.
-  const modeSwitchShortcutRows: [keyof KeybindingPreferences, string][] = [
-    ["switch_language_shift", "Shift 切换中英文"],
-    ["switch_language_ctrl", macosPlatform ? "单击 Control 切换中英文" : "单击 Ctrl 切换中英文"],
-    [
-      "switch_language_ctrl_alt_space",
-      macosPlatform ? "Control+Option+Space 切换中英文" : "Ctrl+Alt+Space 切换中英文",
-    ],
-    [
-      "toggle_character_set_ctrl_shift_f",
-      macosPlatform ? "Control+Shift+F 切换简繁" : "Ctrl+Shift+F 切换简繁",
-    ],
-  ];
   const showPanelShortcuts = host ? host.panel_shortcuts : linuxPlatform;
   const showNumberRowSelection = host ? host.number_row_selection === true : linuxPlatform;
   const showRestartInputMethod =
@@ -6841,85 +6834,22 @@ export function SettingsPage({
                         ? "输入法快捷键仅在对应输入状态或候选栏显示时生效。翻页方式可在“输入”中启用或关闭。"
                         : "输入法快捷键仅在对应输入状态或候选窗口显示时生效。翻页方式可在“输入”中启用或关闭。"}
                     </div>
-                    {showModeSwitchShortcuts && (
-                      <div className="section" role="group" aria-label="输入模式切换快捷键">
-                        <div className="section-title">输入模式切换</div>
-                        <small>
-                          在当前输入上下文中切换中英文模式；关闭后快捷键会交给应用处理。
-                        </small>
-                        {modeSwitchShortcutRows.map(([key, label]) => (
-                          <label className="section-header" key={key}>
-                            <span className="section-title">{label}</span>
-                            <input
-                              aria-label={label}
-                              className="toggle"
-                              type="checkbox"
-                              checked={keybindings[key]}
-                              onChange={(event) =>
-                                setDraft({
-                                  ...draft,
-                                  keybindings: { ...keybindings, [key]: event.target.checked },
-                                })
-                              }
-                            />
-                          </label>
-                        ))}
-                        {macosPlatform && showInputModeHUD && (
-                          <InputModeHudSection
-                            shortcut
-                            value={draft.input_mode_hud}
-                            onChange={(input_mode_hud) => setDraft({ ...draft, input_mode_hud })}
-                          />
-                        )}
-                        {showFullwidthChord && (
-                          <label className="section-header">
-                            <span className="section-title">
-                              {fullwidthChord} 切换全半角
-                              <small>
-                                关掉后这个组合键交给应用处理；工具栏的全半角开关不受影响。
-                              </small>
-                            </span>
-                            <input
-                              aria-label={`${fullwidthChord} 切换全半角`}
-                              className="toggle"
-                              type="checkbox"
-                              checked={keybindings.toggle_fullwidth_option_shift_h}
-                              onChange={(event) =>
-                                setDraft({
-                                  ...draft,
-                                  keybindings: {
-                                    ...keybindings,
-                                    toggle_fullwidth_option_shift_h: event.target.checked,
-                                  },
-                                })
-                              }
-                            />
-                          </label>
-                        )}
-                        {windowsPlatform && (
-                          <div className={settings.shortcutIntro}>
-                            <div className="section-title">修改或关闭 Ctrl+Space（系统）</div>
-                            <small>
-                              Ctrl+Space 由 Windows 管理，此处不控制。请前往系统设置修改“输入法 /
-                              非输入法切换”的按键顺序：
-                            </small>
-                            <ol>
-                              <li>打开“设置”，进入“时间和语言” → “输入”。</li>
-                              <li>选择“高级键盘设置” → “输入语言热键”。</li>
-                              <li>
-                                选中“中文（简体）输入法 - 输入法 /
-                                非输入法切换”，点击“更改按键顺序”。
-                              </li>
-                              <li>关闭该按键顺序，或将 Ctrl+Space 改为其他不常用组合。</li>
-                            </ol>
-                            <small>
-                              不同 Windows
-                              版本的选项名称可能略有差异；修改后如未立即生效，请重新登录或重启电脑。
-                            </small>
-                          </div>
-                        )}
-                      </div>
-                    )}
+                    <InputModeShortcutsSection
+                      keybindings={keybindings}
+                      onChange={(patch) =>
+                        setDraft({ ...draft, keybindings: { ...keybindings, ...patch } })
+                      }
+                      onInputModeHUDChange={(input_mode_hud) =>
+                        setDraft({ ...draft, input_mode_hud })
+                      }
+                      showModeSwitchShortcuts={showModeSwitchShortcuts}
+                      macos={macosPlatform}
+                      showInputModeHUD={showInputModeHUD}
+                      inputModeHUD={inputModeHUD}
+                      showFullwidthChord={showFullwidthChord}
+                      fullwidthChord={fullwidthChord}
+                      windows={windowsPlatform}
+                    />
                     {showPanelShortcuts && (
                       <div className="section" role="group" aria-label="面板快捷键">
                         <div className="section-title">面板快捷键</div>
