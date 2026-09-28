@@ -102,6 +102,23 @@ export const mobilePrimaryPageIds: readonly MobilePrimaryPageId[] = [
   "account",
 ];
 
+export function splitMobilePages<T extends { id: string }>(
+  availablePages: readonly T[],
+  hiddenPageIds: readonly string[],
+): { primary: T[]; secondary: T[] } {
+  const primary = mobilePrimaryPageIds.flatMap((id) => {
+    const item = availablePages.find((page) => page.id === id);
+    return item ? [item] : [];
+  });
+  const secondary = availablePages.filter(
+    (item) =>
+      item.id !== "more" &&
+      !mobilePrimaryPageIds.includes(item.id as MobilePrimaryPageId) &&
+      !hiddenPageIds.includes(item.id),
+  );
+  return { primary, secondary };
+}
+
 export function mobileTabForPage(page: SettingsPageId): MobilePrimaryPageId {
   return mobilePrimaryPageIds.includes(page as MobilePrimaryPageId)
     ? (page as MobilePrimaryPageId)

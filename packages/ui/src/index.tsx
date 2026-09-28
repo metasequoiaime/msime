@@ -25,6 +25,7 @@ import {
   mobileTabForPage,
   pages,
   requestedPage,
+  splitMobilePages,
   type MobilePrimaryPageId,
   type SettingsPageId,
 } from "./settings/mobile-navigation";
@@ -3360,15 +3361,9 @@ export function SettingsPage({
   // lit, and no way to read where in the app you were.
   const mobileActiveTab: MobilePrimaryPageId = mobileTabForPage(page);
   const untitledOnPhone: readonly SettingsPageId[] = ["home", "typing-statistics", "account"];
-  const mobilePrimaryPages = mobilePrimaryPageIds.flatMap((id) => {
-    const item = availablePages.find((page) => page.id === id);
-    return item ? [item] : [];
-  });
-  const mobileSecondaryPages = availablePages.filter(
-    (item) =>
-      item.id !== "more" &&
-      !mobilePrimaryPageIds.includes(item.id as MobilePrimaryPageId) &&
-      !mobileHiddenPageIds.includes(item.id),
+  const { primary: mobilePrimaryPages, secondary: mobileSecondaryPages } = splitMobilePages(
+    availablePages,
+    mobileHiddenPageIds,
   );
   const selectPage = (next: SettingsPageId) => {
     if (mobilePlatform && mobileHiddenPageIds.includes(next)) return;
