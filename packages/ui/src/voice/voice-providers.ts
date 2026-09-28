@@ -200,7 +200,9 @@ export function polishProviderUpdate(
  * which is what the service documents as the more accurate option and
  * recommends for input methods; bidirectional streaming answers incrementally,
  * so an inline preedit updates far more often. */
-export const DOUBAO_STREAM_ENDPOINTS: readonly { id: string; endpoint: string; title: string }[] = [
+export type DoubaoStreamEndpoint = { id: string; endpoint: string; title: string };
+
+export const DOUBAO_STREAM_ENDPOINTS: readonly DoubaoStreamEndpoint[] = [
   {
     id: "nostream",
     endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream",
@@ -212,3 +214,11 @@ export const DOUBAO_STREAM_ENDPOINTS: readonly { id: string; endpoint: string; t
     title: "双向流式（增量结果）",
   },
 ];
+
+export function findDoubaoStreamEndpoint(id: string): DoubaoStreamEndpoint | undefined {
+  return DOUBAO_STREAM_ENDPOINTS.find((option) => option.id === id);
+}
+
+export function doubaoStreamEndpointId(endpoint: string): string {
+  return DOUBAO_STREAM_ENDPOINTS.find((option) => option.endpoint === endpoint)?.id ?? "custom";
+}

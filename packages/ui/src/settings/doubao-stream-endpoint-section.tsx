@@ -1,4 +1,8 @@
-import { DOUBAO_STREAM_ENDPOINTS } from "../voice/voice-providers";
+import {
+  DOUBAO_STREAM_ENDPOINTS,
+  doubaoStreamEndpointId,
+  findDoubaoStreamEndpoint,
+} from "../voice/voice-providers";
 
 export interface DoubaoStreamEndpointSectionProps {
   endpoint: string;
@@ -10,8 +14,7 @@ export function DoubaoStreamEndpointSection({
   endpoint,
   onChange,
 }: DoubaoStreamEndpointSectionProps) {
-  const selected =
-    DOUBAO_STREAM_ENDPOINTS.find((option) => option.endpoint === endpoint)?.id ?? "custom";
+  const selected = doubaoStreamEndpointId(endpoint);
   return (
     <div className="section">
       <label className="section-header">
@@ -25,9 +28,7 @@ export function DoubaoStreamEndpointSection({
           aria-label="流式接口"
           value={selected}
           onChange={(event) => {
-            const chosen = DOUBAO_STREAM_ENDPOINTS.find(
-              (option) => option.id === event.target.value,
-            );
+            const chosen = findDoubaoStreamEndpoint(event.target.value);
             if (chosen) onChange(chosen.endpoint);
           }}
         >

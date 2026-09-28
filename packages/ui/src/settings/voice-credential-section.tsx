@@ -1,4 +1,8 @@
-import { DOUBAO_STREAM_ENDPOINTS } from "../voice/voice-providers";
+import {
+  DOUBAO_STREAM_ENDPOINTS,
+  doubaoStreamEndpointId,
+  findDoubaoStreamEndpoint,
+} from "../voice/voice-providers";
 import * as settings from "./settings-style";
 
 export type VoiceCredentialSectionKind = "asr" | "polish";
@@ -83,12 +87,8 @@ export function VoiceCredentialSection({
       (doubao &&
         ((resourceId?.trim() && stored.resourceId !== resourceId.trim()) ||
           stored.authMode !== authMode)));
-  const streamEndpoint =
-    endpoint.trim() ||
-    DOUBAO_STREAM_ENDPOINTS.find((option) => option.id === "async")?.endpoint ||
-    "";
-  const streamEndpointId =
-    DOUBAO_STREAM_ENDPOINTS.find((option) => option.endpoint === streamEndpoint)?.id ?? "custom";
+  const streamEndpoint = endpoint.trim() || findDoubaoStreamEndpoint("async")?.endpoint || "";
+  const streamEndpointId = doubaoStreamEndpointId(streamEndpoint);
 
   return (
     <div className="section" role="group" aria-label={`语音${name}凭据`}>
@@ -117,9 +117,7 @@ export function VoiceCredentialSection({
             aria-label="流式接口"
             value={streamEndpointId}
             onChange={(event) => {
-              const chosen = DOUBAO_STREAM_ENDPOINTS.find(
-                (option) => option.id === event.target.value,
-              );
+              const chosen = findDoubaoStreamEndpoint(event.target.value);
               if (chosen) onChange({ endpoint: chosen.endpoint });
             }}
           >
