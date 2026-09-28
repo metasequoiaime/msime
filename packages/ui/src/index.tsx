@@ -138,14 +138,12 @@ import { CandidateFollowCursorSection } from "./settings/candidate-follow-cursor
 import { CandidatePanelLimitSection } from "./settings/candidate-panel-limit-section";
 import { CandidateFontUnsupportedNotice } from "./settings/candidate-font-unsupported-notice";
 import { CandidateEnglishGlossSection } from "./settings/candidate-english-gloss-section";
-import { BuiltInSkinsSection } from "./settings/built-in-skins-section";
 import { EnglishSuggestionsSection } from "./settings/english-suggestions-section";
 import { LearningSection } from "./settings/learning-section";
 import { LearningDataSection } from "./settings/learning-data-section";
 import { DictionaryManagerHeader } from "./settings/dictionary-manager-header";
 import { SettingsActionsFooter } from "./settings/settings-actions-footer";
 import { AboutHeroSection } from "./settings/about-hero-section";
-import { SkinPlatformNotice } from "./settings/skin-platform-notice";
 import { DefaultImeModeSection, type DefaultImeMode } from "./settings/default-ime-mode-section";
 import { InputModeHudSection } from "./settings/input-mode-hud-section";
 import { ImeModeScopeSection } from "./settings/ime-mode-scope-section";
@@ -177,7 +175,6 @@ import { ScreenKeyboardThemeSection } from "./settings/screen-keyboard-theme-sec
 import { ScreenKeyboardSkinsSection } from "./settings/screen-keyboard-skins-section";
 import { ScreenKeyboardCommunitySection } from "./settings/screen-keyboard-community-section";
 import { ScreenKeyboardLaunchSection } from "./settings/screen-keyboard-launch-section";
-import { CandidatePaletteSection } from "./settings/candidate-palette-section";
 import { CandidatePaletteFallbackNotice } from "./settings/candidate-palette-fallback-notice";
 import { TouchKeyboardSchemesSection } from "./settings/touch-keyboard-schemes-section";
 import {
@@ -296,7 +293,7 @@ export type {
   SavedTouchKeyboardSkin,
   TouchKeyboardSkinDesign,
 } from "./keyboard/touch-keyboard-skin-design";
-import { ExternalSkins, type SkinCatalog } from "./skin/external-skins";
+import type { SkinCatalog } from "./skin/external-skins";
 import { TypingStatisticsPage, type TypingStatisticsClient } from "./settings/typing-statistics";
 import { VocabularyReviewPage, type VocabularyReviewClient } from "./settings/vocabulary-review";
 import {
@@ -399,6 +396,11 @@ export {
   FloatingToolbarSettingsSection,
   type FloatingToolbarSettingsSectionProps,
 } from "./settings/floating-toolbar-settings-section";
+import { SkinSettingsSection } from "./settings/skin-settings-section";
+export {
+  SkinSettingsSection,
+  type SkinSettingsSectionProps,
+} from "./settings/skin-settings-section";
 import { availableSettingsPages } from "./settings/available-pages";
 export { availableSettingsPages, type AvailablePageCapabilities } from "./settings/available-pages";
 import * as surface from "./keyboard/panel-surface-style";
@@ -4115,63 +4117,43 @@ export function SettingsPage({
                       />
                     )}
                   </fieldset>
-                  <fieldset disabled={busy} hidden={page !== "skin"} aria-label="皮肤">
-                    <SkinPlatformNotice mobile={mobilePlatform} linux={linuxPlatform} />
-                    {host?.candidate_panel_limit && (
-                      <CandidatePanelLimitSection limit={host.candidate_panel_limit} />
-                    )}
-                    {mobileKeyboardFeedback?.candidatePaletteFollowsDesktop !== undefined && (
-                      <CandidatePaletteSection
-                        value={mobileKeyboardFeedback.candidatePaletteFollowsDesktop}
-                        busy={mobileKeyboardFeedbackBusy}
-                        onChange={(candidatePaletteFollowsDesktop) =>
-                          void saveMobileKeyboardFeedback({
-                            ...mobileKeyboardFeedback,
-                            candidatePaletteFollowsDesktop,
-                          })
-                        }
-                      />
-                    )}
-                    {snapshot?.candidate_skin_catalog && (
-                      <div className={settings.externalMeta} role="status">
-                        外部皮肤目录：
-                        {snapshot.candidate_skin_catalog.scanned
-                          ? `已扫描（${snapshot.candidate_skin_catalog.packages.length} 个）`
-                          : "尚未扫描"}
-                        {snapshot.candidate_skin_catalog.issues?.length
-                          ? `，${snapshot.candidate_skin_catalog.issues.length} 个问题`
-                          : ""}
-                      </div>
-                    )}
-                    <BuiltInSkinsSection
-                      selected={draft.candidate_skin ?? "willow_green"}
-                      previewThemes={skinPreviewThemes}
-                      defaultTheme={candidatePreviewTheme}
-                      linux={linuxPlatform}
-                      onSelect={(id) => setDraft({ ...draft, candidate_skin: id })}
-                      onTogglePreview={(id) =>
-                        setSkinPreviewThemes((current) => ({
-                          ...current,
-                          [id]:
-                            (current[id] ?? candidatePreviewTheme) === "dark" ? "light" : "dark",
-                        }))
-                      }
-                    />
-                    <ExternalSkins
-                      activeTheme={candidatePreviewTheme}
-                      scan={client.scanSkinCatalog}
-                      openDirectory={client.openSkinDirectory}
-                      importsSkin={host?.skin_directory_import === true}
-                      readImage={client.readSkinImage}
-                      readFont={client.readSkinFont}
-                      readToolbarCss={client.readSkinToolbarCss}
-                      selected={draft.candidate_skin ?? "willow_green"}
-                      // A host that draws one layout judges a skin by that layout, not by a setting it ignores.
-                      layout={host?.fixed_candidate_layout ?? draft.candidate_layout ?? "vertical"}
-                      onSelect={(id) => setDraft({ ...draft, candidate_skin: id })}
-                      toolbarPreview={!linuxPlatform}
-                    />
-                  </fieldset>
+                  <SkinSettingsSection
+                    disabled={busy}
+                    hidden={page !== "skin"}
+                    mobile={mobilePlatform}
+                    linux={linuxPlatform}
+                    candidatePanelLimit={host?.candidate_panel_limit}
+                    mobileKeyboardFeedback={mobileKeyboardFeedback}
+                    mobileKeyboardFeedbackBusy={mobileKeyboardFeedbackBusy}
+                    onCandidatePaletteChange={(candidatePaletteFollowsDesktop) =>
+                      mobileKeyboardFeedback &&
+                      void saveMobileKeyboardFeedback({
+                        ...mobileKeyboardFeedback,
+                        candidatePaletteFollowsDesktop,
+                      })
+                    }
+                    candidateSkinCatalog={snapshot?.candidate_skin_catalog}
+                    selected={draft.candidate_skin ?? "willow_green"}
+                    previewThemes={skinPreviewThemes}
+                    defaultTheme={candidatePreviewTheme}
+                    onSelect={(id) => setDraft({ ...draft, candidate_skin: id })}
+                    onTogglePreview={(id) =>
+                      setSkinPreviewThemes((current) => ({
+                        ...current,
+                        [id]: (current[id] ?? candidatePreviewTheme) === "dark" ? "light" : "dark",
+                      }))
+                    }
+                    activeTheme={candidatePreviewTheme}
+                    scan={client.scanSkinCatalog}
+                    openDirectory={client.openSkinDirectory}
+                    importsSkin={host?.skin_directory_import === true}
+                    readImage={client.readSkinImage}
+                    readFont={client.readSkinFont}
+                    readToolbarCss={client.readSkinToolbarCss}
+                    // A host that draws one layout judges a skin by that layout, not by a setting it ignores.
+                    layout={host?.fixed_candidate_layout ?? draft.candidate_layout ?? "vertical"}
+                    toolbarPreview={!linuxPlatform}
+                  />
                   <FloatingToolbarSettingsSection
                     disabled={busy}
                     hidden={page !== "floating-toolbar"}
