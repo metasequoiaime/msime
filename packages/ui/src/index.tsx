@@ -93,6 +93,11 @@ import {
   type FuzzyPinyinPreferences,
 } from "./settings/fuzzy-pinyin-section";
 import {
+  WordCharacterSection,
+  type NavigationPreferences,
+  type WordCharacterPreferences,
+} from "./settings/word-character-section";
+import {
   ClipboardHistorySection,
   type ClipboardHistoryClient,
 } from "./settings/clipboard-history-section";
@@ -200,6 +205,11 @@ export {
   type ClipboardHistoryEntry,
 } from "./settings/clipboard-history-section";
 export { FuzzyPinyinSection, type FuzzyPinyinPreferences } from "./settings/fuzzy-pinyin-section";
+export {
+  WordCharacterSection,
+  type NavigationPreferences,
+  type WordCharacterPreferences,
+} from "./settings/word-character-section";
 export {
   CommunitySkinsPage,
   type CommunitySkin,
@@ -1534,15 +1544,6 @@ const defaultFrequency: FrequencyPreferences = {
   trigger_count: 1,
   linear_step: 1,
 };
-export type NavigationPreferences = {
-  minus_equal: boolean;
-  comma_period: boolean;
-  brackets: boolean;
-  tab: boolean;
-  page_up_down: boolean;
-  mouse_wheel?: boolean;
-  arrows: boolean;
-};
 const defaultNavigation: NavigationPreferences = {
   minus_equal: true,
   comma_period: true,
@@ -1565,7 +1566,7 @@ const translationSecondaryLanguages: [
   string,
 ][] = [["", "不显示第二种语言"], ...translationLanguages];
 const mobileTranslationLanguages = translationLanguages.filter(([value]) => value !== "ru");
-const defaultWordCharacter = { enabled: true, keys: "brackets" as const };
+const defaultWordCharacter: WordCharacterPreferences = { enabled: true, keys: "brackets" };
 const navigationOptions: [keyof NavigationPreferences, string][] = [
   ["minus_equal", "- / ="],
   ["comma_period", ", / ."],
@@ -7303,76 +7304,18 @@ export function SettingsPage({
                         </div>
                       </>
                     )}
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          以词定字
-                          <small>
-                            {iosPlatform
-                              ? "开启后，长按两个字以上的候选，可以只上屏它的首字或末字"
-                              : "开启后，按所选键组的左键上屏高亮候选的首个汉字，右键上屏末个汉字"}
-                          </small>
-                        </span>
-                        <input
-                          className="toggle"
-                          type="checkbox"
-                          checked={wordCharacter.enabled}
-                          onChange={(event) =>
-                            setDraft({
-                              ...draft,
-                              word_character: { ...wordCharacter, enabled: event.target.checked },
-                              ...(event.target.checked
-                                ? {
-                                    navigation: {
-                                      ...(draft.navigation ?? defaultNavigation),
-                                      [wordCharacter.keys]: false,
-                                    },
-                                  }
-                                : {}),
-                            })
-                          }
-                        />
-                      </label>
-                      {/* An iOS keyboard extension never receives hardware keys; its candidates offer the first and last character on a long press instead. */}
-                      {!iosPlatform && (
-                        <div className="word-to-character-keys-row">
-                          <div className="section-title" id="word-character-title">
-                            以词定字快捷键
-                          </div>
-                          <div
-                            className="input-option-content"
-                            role="radiogroup"
-                            aria-labelledby="word-character-title"
-                          >
-                            {(
-                              [
-                                ["brackets", "[ / ]"],
-                                ["minus_equal", "- / ="],
-                              ] as const
-                            ).map(([keys, label], index) => (
-                              <div className="input-option-item" key={keys}>
-                                {index > 0 && <div className="input-option-divider" />}
-                                <label className="radio-option">
-                                  <input
-                                    type="radio"
-                                    name="word-character-keys"
-                                    checked={wordCharacter.keys === keys}
-                                    disabled={(draft.navigation ?? defaultNavigation)[keys]}
-                                    onChange={() =>
-                                      setDraft({
-                                        ...draft,
-                                        word_character: { ...wordCharacter, keys },
-                                      })
-                                    }
-                                  />
-                                  <span>{label}</span>
-                                </label>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
+                    <WordCharacterSection
+                      preferences={wordCharacter}
+                      navigation={draft.navigation ?? defaultNavigation}
+                      ios={iosPlatform}
+                      onChange={({ wordCharacter: nextWordCharacter, navigation }) =>
+                        setDraft({
+                          ...draft,
+                          word_character: nextWordCharacter,
+                          navigation,
+                        })
+                      }
+                    />
                     {client.fuzzyPinyin && (
                       <FuzzyPinyinSection
                         preferences={fuzzyPinyin}
