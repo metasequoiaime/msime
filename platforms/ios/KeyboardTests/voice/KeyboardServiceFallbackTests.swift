@@ -24,7 +24,7 @@ private final class KeyboardFallbackFixture: URLProtocol, @unchecked Sendable {
       return
     }
     let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
-                                   headerFields: ["Content-Type": "application/json"]!)!
+                                   headerFields: ["Content-Type": "application/json"])!
     client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
     client?.urlProtocol(self, didLoad: Self.response)
     client?.urlProtocolDidFinishLoading(self)
