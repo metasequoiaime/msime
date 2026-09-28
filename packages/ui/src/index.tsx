@@ -50,6 +50,11 @@ import { DataDirectorySection } from "./settings/data-directory-section";
 import { LicenseUninstallSection } from "./settings/license-uninstall-section";
 import { DiagnosticLogsSection } from "./settings/diagnostic-logs-section";
 import { HelpFeedbackSection } from "./settings/help-feedback-section";
+import {
+  MobileKeyboardFeedbackSection,
+  type MobileKeyboardFeedback,
+  type MobileKeyboardFeedbackClient,
+} from "./settings/mobile-keyboard-feedback-section";
 import { PreeditSettingsSection } from "./settings/preedit-settings-section";
 import { validCandidateFonts } from "./candidate/candidate-font-family";
 import type { FontCatalogReader } from "./candidate/font-catalog";
@@ -372,6 +377,12 @@ export {
   HelpFeedbackSection,
   type HelpFeedbackSectionProps,
 } from "./settings/help-feedback-section";
+export {
+  MobileKeyboardFeedbackSection,
+  type MobileKeyboardFeedback,
+  type MobileKeyboardFeedbackClient,
+  type MobileKeyboardFeedbackSectionProps,
+} from "./settings/mobile-keyboard-feedback-section";
 export {
   PreeditSettingsSection,
   type CandidatePreeditStyle,
@@ -1756,26 +1767,6 @@ const floatingToolbarScales: FloatingToolbarPreferences["scale_percent"][] = [75
 const floatingToolbarFontSizes: FloatingToolbarPreferences["font_size"][] = [
   16, 18, 20, 22, 24, 26, 28,
 ];
-export type MobileKeyboardFeedback = {
-  soundEnabled: boolean;
-  hapticsEnabled: boolean;
-  hapticStrength: "light" | "medium" | "strong";
-  /** iOS keeps this Apple keyboard preference in the native App Group store. */
-  englishSuggestions?: boolean;
-  /** iOS draws the candidate strip in the keyboard skin unless this App Group switch hands it to the shared candidate skin and colours. */
-  candidatePaletteFollowsDesktop?: boolean;
-  /** iOS writes the composition into the text field as marked text only when this App Group switch is on; it has no raw/pinyin/empty choice because the strip already carries that one. */
-  inlinePreedit?: boolean;
-  /** False where the device cannot vibrate for key presses (iPad has no Taptic Engine): the vibration controls are hidden and the stored choice is left for the user's other devices. */
-  hapticsAvailable?: boolean;
-  /** iPad only: the digit row and Tab key of the full-width keyboard, kept in the App Group. Absent on a phone, where the keyboard has no room for either. */
-  tabletFullKeys?: boolean;
-};
-export type MobileKeyboardFeedbackClient = {
-  load(): Promise<MobileKeyboardFeedback>;
-  save(settings: MobileKeyboardFeedback): Promise<MobileKeyboardFeedback>;
-  preview?(strength: MobileKeyboardFeedback["hapticStrength"]): Promise<void>;
-};
 /** What the macOS settings app did with the input method it carries when it started. */
 export type InputSourceStartupStatus = {
   /** `login_required`: the input method is installed, but this login session's input source list only picks it up after the user logs in again. */
@@ -6754,111 +6745,14 @@ export function SettingsPage({
                       onChange={(frequency) => setDraft({ ...draft, frequency })}
                     />
                     {mobilePlatform && client.mobileKeyboardFeedback && mobileKeyboardFeedback && (
-                      <div className="section" role="group" aria-label="按键反馈">
-                        <div className="section-title">按键反馈</div>
-                        <label className="section-header">
-                          <span className="section-title">
-                            按键音<small>按键音受系统静音设置控制</small>
-                          </span>
-                          <input
-                            aria-label="按键音"
-                            className="toggle"
-                            type="checkbox"
-                            disabled={mobileKeyboardFeedbackBusy}
-                            checked={mobileKeyboardFeedback.soundEnabled}
-                            onChange={(event) =>
-                              void saveMobileKeyboardFeedback({
-                                ...mobileKeyboardFeedback,
-                                soundEnabled: event.target.checked,
-                              })
-                            }
-                          />
-                        </label>
-                        {mobileKeyboardFeedback.hapticsAvailable !== false && (
-                          <>
-                            <div className="input-option-divider" />
-                            <label className="section-header">
-                              <span className="section-title">
-                                按键振动<small>振动效果取决于设备与系统支持</small>
-                              </span>
-                              <input
-                                aria-label="按键振动"
-                                className="toggle"
-                                type="checkbox"
-                                disabled={mobileKeyboardFeedbackBusy}
-                                checked={mobileKeyboardFeedback.hapticsEnabled}
-                                onChange={(event) =>
-                                  void saveMobileKeyboardFeedback({
-                                    ...mobileKeyboardFeedback,
-                                    hapticsEnabled: event.target.checked,
-                                  })
-                                }
-                              />
-                            </label>
-                            {mobileKeyboardFeedback.hapticsEnabled && (
-                              <>
-                                <div className="input-option-divider" />
-                                <label className="section-header">
-                                  <span className="section-title">振动强度</span>
-                                  <select
-                                    aria-label="振动强度"
-                                    disabled={mobileKeyboardFeedbackBusy}
-                                    value={mobileKeyboardFeedback.hapticStrength}
-                                    onChange={(event) =>
-                                      void saveMobileKeyboardFeedback({
-                                        ...mobileKeyboardFeedback,
-                                        hapticStrength: event.target
-                                          .value as MobileKeyboardFeedback["hapticStrength"],
-                                      })
-                                    }
-                                  >
-                                    <option value="light">轻</option>
-                                    <option value="medium">中</option>
-                                    <option value="strong">强</option>
-                                  </select>
-                                </label>
-                                {client.mobileKeyboardFeedback?.preview && (
-                                  <button
-                                    type="button"
-                                    className="secondary"
-                                    disabled={mobileKeyboardFeedbackBusy}
-                                    onClick={() => void previewMobileKeyboardHaptics()}
-                                  >
-                                    试一下振动
-                                  </button>
-                                )}
-                              </>
-                            )}
-                          </>
-                        )}
-                        {iosPlatform && (
-                          <>
-                            <div className="input-option-divider" />
-                            <label className="section-header">
-                              <span className="section-title">
-                                英文建议
-                                <small>
-                                  英文 26
-                                  键直接输入时，在候选栏显示当前单词的补全建议；关闭后仍可正常输入英文。
-                                </small>
-                              </span>
-                              <input
-                                aria-label="英文建议"
-                                className="toggle"
-                                type="checkbox"
-                                disabled={mobileKeyboardFeedbackBusy}
-                                checked={mobileKeyboardFeedback.englishSuggestions !== false}
-                                onChange={(event) =>
-                                  void saveMobileKeyboardFeedback({
-                                    ...mobileKeyboardFeedback,
-                                    englishSuggestions: event.target.checked,
-                                  })
-                                }
-                              />
-                            </label>
-                          </>
-                        )}
-                      </div>
+                      <MobileKeyboardFeedbackSection
+                        value={mobileKeyboardFeedback}
+                        busy={mobileKeyboardFeedbackBusy}
+                        ios={iosPlatform}
+                        canPreview={Boolean(client.mobileKeyboardFeedback.preview)}
+                        onChange={(next) => void saveMobileKeyboardFeedback(next)}
+                        onPreview={() => void previewMobileKeyboardHaptics()}
+                      />
                     )}
                   </fieldset>
                   <HelpcodeSettingsPage
