@@ -38,6 +38,7 @@
 #include "../settings/PreferenceLoadState.h"
 #include "../settings/PreferenceSnapshotMerge.h"
 #import "../candidate/CandidateChrome.h"
+#import "../core/WindowPresentation.h"
 #import "../candidate/CandidateTypography.h"
 #import "../candidate/CandidateTextMetrics.h"
 #include "../candidate/CandidateSkin.h"
@@ -3485,7 +3486,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
         [[MSIMEPreferencesWindowController sharedController] showAndActivateWithPageIdentifier:@"appearance"];
     });
 }
-- (void)showDictionary:(id)sender { (void)sender; MSIMEOpenDesktopRoute(@"settings:dictionary", NSWorkspace.sharedWorkspace, ^{ if (!self->_session) [self prepareSession]; if (!self->_session) return; self->_dictionaryWindow = [[MSIMEDictionaryWindowController alloc] initWithOptions:self->_session.hostOptions]; [self->_dictionaryWindow showWindow:nil]; [NSApp activateIgnoringOtherApps:YES]; }); }
+- (void)showDictionary:(id)sender { (void)sender; MSIMEOpenDesktopRoute(@"settings:dictionary", NSWorkspace.sharedWorkspace, ^{ if (!self->_session) [self prepareSession]; if (!self->_session) return; self->_dictionaryWindow = [[MSIMEDictionaryWindowController alloc] initWithOptions:self->_session.hostOptions]; [self->_dictionaryWindow showWindow:nil]; MSIMEPresentWindow(self->_dictionaryWindow.window); }); }
 - (void)prepareDictionary:(id)sender {
     (void)sender;
     if (_session && _activeClient) {

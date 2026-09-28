@@ -1,4 +1,5 @@
 #import "SupportWindowController.h"
+#import "WindowPresentation.h"
 
 namespace {
 
@@ -171,8 +172,7 @@ void OpenPreferences(void) {
     self.window.contentView = content;
     [self.window center];
     [self showWindow:nil];
-    [self.window makeKeyAndOrderFront:nil];
-    [NSApp activateIgnoringOtherApps:YES];
+    MSIMEPresentWindow(self.window);
 }
 
 - (void)checkForUpdates:(id)sender { (void)sender; InvokeUpdateController(); }

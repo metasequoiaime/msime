@@ -19,6 +19,7 @@ extern "C" bool msime_macos_uninstall_input_source(const char *bundle_path,
 #import "../core/UpdateController.h"
 #import "../core/SupportWindowController.h"
 #import "../voice/VoiceSettingsEntry.h"
+#import "../core/WindowPresentation.h"
 #include "ShuangpinProfileNames.h"
 #include "../candidate/CandidatePageSize.h"
 
@@ -4297,7 +4298,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
         }
         strongSelf->_dictionaryWindow = [[MSIMEDictionaryWindowController alloc] initWithOptions:options];
         [strongSelf->_dictionaryWindow showWindow:nil];
-        [NSApp activateIgnoringOtherApps:YES];
+        MSIMEPresentWindow(strongSelf->_dictionaryWindow.window);
     });
 }
 - (void)togglePreviewTheme:(id)sender { (void)sender; [_preview toggleForcedTheme]; }

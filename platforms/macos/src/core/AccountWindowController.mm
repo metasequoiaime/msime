@@ -3,6 +3,7 @@
 #import "AccountSessionManager.h"
 #import "AccountKeychain.h"
 #import "../settings/PreferencesWindowController.h"
+#import "WindowPresentation.h"
 
 @implementation MSIMEAccountWindowController {
     NSString *_accountID;
@@ -37,7 +38,7 @@
         button.title = surfaces[index]; button.bezelStyle = NSBezelStyleRounded; button.target = self; button.action = @selector(showSurface:); button.tag = (NSInteger)index + 1; [buttons addObject:button];
     }
     NSView *view = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 420, 280)]; [view addSubview:label]; [view addSubview:login]; [view addSubview:settings]; for (NSButton *button in buttons) [view addSubview:button]; self.window.contentView = view;
-    [self.window center]; [self showWindow:nil]; [NSApp activateIgnoringOtherApps:YES];
+    [self.window center]; [self showWindow:nil]; MSIMEPresentWindow(self.window);
 }
 
 - (void)showSettings:(id)sender {

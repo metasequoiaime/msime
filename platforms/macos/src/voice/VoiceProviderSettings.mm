@@ -5,6 +5,7 @@
 #import "../settings/SettingsLayout.h"
 NSNotificationName const MSIMEVoiceProviderSettingsDidChangeNotification = @"MSIMEClientVoiceProviderSettingsDidChange";
 #import <Security/Security.h>
+#import "../core/WindowPresentation.h"
 
 namespace
 {
@@ -819,6 +820,6 @@ static void ShowNotice(NSTextField *label, NSString *message, NSColor *color)
 {
     [_form reloadSettings];
     [self showWindow:nil];
-    [NSApp activateIgnoringOtherApps:YES];
+    MSIMEPresentWindow(self.window);
 }
 @end

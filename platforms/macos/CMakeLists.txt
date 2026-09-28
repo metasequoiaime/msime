@@ -890,6 +890,10 @@ target_include_directories(floating-toolbar-panel-test PRIVATE ../../vendor/MSIM
 target_compile_options(floating-toolbar-panel-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(floating-toolbar-panel-test PRIVATE "-framework AppKit")
 add_test(NAME floating-toolbar-panel COMMAND floating-toolbar-panel-test)
+add_executable(window-presentation-test tests/core/WindowPresentationTest.mm)
+target_compile_options(window-presentation-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(window-presentation-test PRIVATE "-framework AppKit")
+add_test(NAME window-presentation COMMAND window-presentation-test)
 # The Sparkle driver is compiled in, but the test binary is not an application bundle, so the shared
 # controller must decline to start it - which is the thing worth testing.
 add_executable(update-controller-test tests/core/UpdateControllerTest.mm src/core/UpdateController.mm)
