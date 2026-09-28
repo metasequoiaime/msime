@@ -53,7 +53,7 @@ enum TranslationProviderPreference {
   static let accountKey = "translation_account"
   static let defaultTencentRegion = "ap-guangzhou"
 
-  /// The same check as client-core's `usable_tencent_secret` / `usable_niutrans_credential`: empty strings, `<placeholders>` and `FAKESECRET_` samples are not credentials.
+  /// The same check as client-core's `usable_credential`: empty strings, `<placeholders>` and `FAKESECRET_` samples are not credentials.
   static func usable(_ value: String) -> Bool {
     let trimmed = trimmed(value)
     return !trimmed.isEmpty && !(trimmed.hasPrefix("<") && trimmed.hasSuffix(">")) && !trimmed.hasPrefix("FAKESECRET_")

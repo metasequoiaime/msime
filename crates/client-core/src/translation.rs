@@ -214,7 +214,7 @@ pub fn should_persist_translation(key: &str, gloss: &str) -> bool {
         && !gloss.eq_ignore_ascii_case(key)
 }
 
-pub fn usable_tencent_secret(value: &str) -> bool {
+pub fn usable_credential(value: &str) -> bool {
     let trimmed = value.trim_matches([' ', '\t', '\r', '\n']);
     !trimmed.is_empty()
         && !(trimmed.starts_with('<') && trimmed.ends_with('>'))
@@ -237,13 +237,6 @@ pub fn niutrans_auth_string(
     );
     let digest = Md5::digest(canonical.as_bytes());
     hex::encode(digest)
-}
-
-pub fn usable_niutrans_credential(value: &str) -> bool {
-    let trimmed = value.trim_matches([' ', '\t', '\r', '\n']);
-    !trimmed.is_empty()
-        && !(trimmed.starts_with('<') && trimmed.ends_with('>'))
-        && !trimmed.starts_with("FAKESECRET_")
 }
 
 pub fn is_cloud_translatable_english(text: &str) -> bool {
@@ -751,10 +744,10 @@ Signature=fdaffffbe1460ecd8cbc30e296ff6f49cc3b4af10b11e099462cca023fdb2c6c"
             niutrans_auth_string("app-id", "api-key", "en", "zh", "1704067200000", "hello"),
             "6da3515e010ef871b66e4e31ff5ba580"
         );
-        assert!(usable_niutrans_credential("real-value"));
-        assert!(!usable_niutrans_credential("<YOUR_NIUTRANS_APP_ID>"));
-        assert!(!usable_niutrans_credential("FAKESECRET_test"));
-        assert!(!usable_niutrans_credential(" \n\t"));
+        assert!(usable_credential("real-value"));
+        assert!(!usable_credential("<YOUR_NIUTRANS_APP_ID>"));
+        assert!(!usable_credential("FAKESECRET_test"));
+        assert!(!usable_credential(" \n\t"));
     }
 
     #[test]
@@ -766,10 +759,10 @@ Signature=fdaffffbe1460ecd8cbc30e296ff6f49cc3b4af10b11e099462cca023fdb2c6c"
 
     #[test]
     fn rejects_placeholder_tencent_secrets() {
-        assert!(usable_tencent_secret(" real-secret "));
-        assert!(!usable_tencent_secret("<YOUR_TENCENT_SECRET_ID>"));
-        assert!(!usable_tencent_secret("FAKESECRET_test"));
-        assert!(!usable_tencent_secret(" \n\t"));
+        assert!(usable_credential(" real-secret "));
+        assert!(!usable_credential("<YOUR_TENCENT_SECRET_ID>"));
+        assert!(!usable_credential("FAKESECRET_test"));
+        assert!(!usable_credential(" \n\t"));
     }
 
     #[test]

@@ -210,8 +210,8 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
                 && !preferences.niutrans.enabled
                 && !custom_translation.enabled
                 && !(tencent.enabled
-                    && msime_client_core::translation::usable_tencent_secret(&tencent.secret_id)
-                    && msime_client_core::translation::usable_tencent_secret(&tencent.secret_key));
+                    && msime_client_core::translation::usable_credential(&tencent.secret_id)
+                    && msime_client_core::translation::usable_credential(&tencent.secret_key));
             // The selected service, derived from the enable flags alone so an incomplete NiuTrans or custom configuration stays selected instead of reading as Tencent. A host whose Tencent secret lives outside preferences (Linux keeps it in the provider's own file) relies on this to honour 关闭.
             let provider = if translation_account {
                 TranslationService::Account
@@ -228,8 +228,8 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
             let tencent_tmt = (!custom_translation.enabled
                 && !preferences.niutrans.enabled
                 && tencent.enabled
-                && msime_client_core::translation::usable_tencent_secret(&tencent.secret_id)
-                && msime_client_core::translation::usable_tencent_secret(&tencent.secret_key))
+                && msime_client_core::translation::usable_credential(&tencent.secret_id)
+                && msime_client_core::translation::usable_credential(&tencent.secret_key))
             .then(|| serde_json::to_value(tencent))
             .transpose()
             .map_err(|_| "invalid Tencent translation configuration")?;
@@ -244,10 +244,10 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
                 })
             });
             let niutrans = (preferences.niutrans.enabled
-                && msime_client_core::translation::usable_niutrans_credential(
+                && msime_client_core::translation::usable_credential(
                     &preferences.niutrans.app_id,
                 )
-                && msime_client_core::translation::usable_niutrans_credential(
+                && msime_client_core::translation::usable_credential(
                     &preferences.niutrans.apikey,
                 ))
             .then(|| serde_json::to_value(&preferences.niutrans))

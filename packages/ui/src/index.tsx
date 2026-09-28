@@ -2188,7 +2188,7 @@ function PersonalDictionaryImportCard({
 }
 
 /** Mirrors `client-core::translation::is_supported_endpoint`. */
-/** Mirrors `usable_tencent_secret` in client-core: a placeholder is not a key. */
+/** Mirrors `usable_credential` in client-core: a placeholder is not a key. */
 export function tencentSecretConfigured(value: string): boolean {
   const trimmed = value.trim();
   if (!trimmed) return false;

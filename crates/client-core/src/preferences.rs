@@ -1683,9 +1683,9 @@ impl Preferences {
         if !crate::text::is_bounded_text(&niutrans.app_id, 4096)
             || !crate::text::is_bounded_text(&niutrans.apikey, 4096)
             || (!niutrans.app_id.is_empty()
-                && !crate::translation::usable_niutrans_credential(&niutrans.app_id))
+                && !crate::translation::usable_credential(&niutrans.app_id))
             || (!niutrans.apikey.is_empty()
-                && !crate::translation::usable_niutrans_credential(&niutrans.apikey))
+                && !crate::translation::usable_credential(&niutrans.apikey))
         {
             return Err(PreferencesError::InvalidNiuTrans);
         }
