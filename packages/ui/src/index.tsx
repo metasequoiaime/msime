@@ -30,6 +30,7 @@ import { CandidateFontControls } from "./candidate/candidate-font-controls";
 import { CandidateSizingSection } from "./settings/candidate-sizing-section";
 import { CandidatePageSizeSection } from "./settings/candidate-page-size-section";
 import { CandidateLayoutSection } from "./settings/candidate-layout-section";
+import { CandidateFollowCursorSection } from "./settings/candidate-follow-cursor-section";
 import { PreeditSettingsSection } from "./settings/preedit-settings-section";
 import { validCandidateFonts } from "./candidate/candidate-font-family";
 import type { FontCatalogReader } from "./candidate/font-catalog";
@@ -271,6 +272,10 @@ export {
 } from "./settings/candidate-sizing-section";
 export { CandidatePageSizeSection } from "./settings/candidate-page-size-section";
 export { CandidateLayoutSection, type CandidateLayout } from "./settings/candidate-layout-section";
+export {
+  CandidateFollowCursorSection,
+  type CandidateFollowCursorSectionProps,
+} from "./settings/candidate-follow-cursor-section";
 export {
   PreeditSettingsSection,
   type CandidatePreeditStyle,
@@ -5006,23 +5011,12 @@ export function SettingsPage({
                       </div>
                     )}
                     {showCandidateFollowCursor && (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">
-                            候选窗口跟随光标
-                            <small>关闭后保持首次出现的位置，直到候选窗口消失。</small>
-                          </span>
-                          <input
-                            aria-label="候选窗口跟随光标"
-                            className="toggle"
-                            type="checkbox"
-                            checked={draft.candidate_follow_cursor ?? true}
-                            onChange={(event) =>
-                              setDraft({ ...draft, candidate_follow_cursor: event.target.checked })
-                            }
-                          />
-                        </label>
-                      </div>
+                      <CandidateFollowCursorSection
+                        value={draft.candidate_follow_cursor}
+                        onChange={(candidate_follow_cursor) =>
+                          setDraft({ ...draft, candidate_follow_cursor })
+                        }
+                      />
                     )}
                     {showCandidateFontControls ? (
                       <CandidateFontControls
