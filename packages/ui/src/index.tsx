@@ -87,6 +87,10 @@ import {
   type HelpcodePreferences,
   type HelpcodeSchema,
 } from "./settings/pages/helpcode-page";
+import {
+  ClipboardHistorySection,
+  type ClipboardHistoryClient,
+} from "./settings/clipboard-history-section";
 import * as surface from "./keyboard/panel-surface-style";
 import * as settings from "./settings/settings-style";
 import * as doc from "./settings/document-style";
@@ -185,6 +189,11 @@ export {
   type HelpcodeSchema,
   type HelpcodeSettings,
 } from "./settings/pages/helpcode-page";
+export {
+  ClipboardHistorySection,
+  type ClipboardHistoryClient,
+  type ClipboardHistoryEntry,
+} from "./settings/clipboard-history-section";
 export {
   CommunitySkinsPage,
   type CommunitySkin,
@@ -1718,7 +1727,6 @@ const floatingToolbarScales: FloatingToolbarPreferences["scale_percent"][] = [75
 const floatingToolbarFontSizes: FloatingToolbarPreferences["font_size"][] = [
   16, 18, 20, 22, 24, 26, 28,
 ];
-export type ClipboardHistoryEntry = { text: string; timestampMs: number; pinned: boolean };
 export type MobileKeyboardFeedback = {
   soundEnabled: boolean;
   hapticsEnabled: boolean;
@@ -1885,14 +1893,7 @@ export interface SettingsClient {
     listener: (maximized: boolean) => void,
     onError?: () => void,
   ) => Promise<() => void>;
-  clipboard?: {
-    clear(): Promise<void>;
-    list?(): Promise<ClipboardHistoryEntry[]>;
-    sync?(): Promise<ClipboardHistoryEntry[]>;
-    copy?(text: string): Promise<void>;
-    remove?(text: string): Promise<void>;
-    setPinned?(text: string, pinned: boolean): Promise<void>;
-  };
+  clipboard?: ClipboardHistoryClient;
   typingStatistics?: TypingStatisticsClient;
   /** Absent on a host that has not wired the shared vocabulary entry point. */
   vocabularyReview?: VocabularyReviewClient;
@@ -3886,8 +3887,6 @@ export function SettingsPage({
     // still changes independently when no clear hook is available.
     if (!enabled && clipboardHistory && client.clipboard?.clear) {
       void client.clipboard.clear().catch(() => setError("无法清空剪贴板历史，请稍后重试。"));
-      setClipboardEntries([]);
-      setClipboardClearArmed(false);
     }
   }
   const diagnosticLog = {
@@ -4411,8 +4410,6 @@ export function SettingsPage({
         client.host?.platform ?? (linuxPlatform ? "linux" : null),
       )
     : null;
-  const [clipboardEntries, setClipboardEntries] = useState<ClipboardHistoryEntry[]>([]);
-  const [clipboardClearArmed, setClipboardClearArmed] = useState(false);
   const availablePages = pages.filter(
     (item) =>
       (item.id !== "home" || Boolean(client.home)) &&
@@ -4567,35 +4564,6 @@ export function SettingsPage({
     media.addListener(listener);
     return () => media.removeListener(listener);
   }, [settingsTheme, themeMode]);
-  useEffect(() => {
-    let active = true;
-    if (!iosPlatform && !snapshot?.preferences.clipboard_history) {
-      setClipboardEntries([]);
-      return;
-    }
-    if (!client.clipboard?.list) return;
-    void client.clipboard
-      .list()
-      .then((entries) => {
-        if (active) {
-          setClipboardEntries(entries);
-          setClipboardClearArmed(false);
-        }
-      })
-      .catch(() => undefined);
-    return () => {
-      active = false;
-    };
-  }, [client, iosPlatform, page, snapshot?.revision]);
-  const mutateClipboardHistory = async (action: () => Promise<void>, failure: string) => {
-    try {
-      await action();
-      setClipboardClearArmed(false);
-      if (client.clipboard?.list) setClipboardEntries(await client.clipboard.list());
-    } catch {
-      setError(failure);
-    }
-  };
   const openLocalDesigns = () => {
     selectPage("appearance");
     setShowTouchSkinEditor(true);
@@ -8408,131 +8376,16 @@ export function SettingsPage({
                     )}
                   </fieldset>
                   <fieldset disabled={busy} hidden={page !== "tools"} aria-label="实用功能">
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          剪贴板管理
-                          <small>
-                            {iosPlatform
-                              ? "由键盘的“允许完全访问”权限控制；记录仅保存在本机。"
-                              : "开启后记录复制的文本；保存关闭设置后清空已保存记录，且只记录文本类型。"}
-                          </small>
-                        </span>
-                        {!iosPlatform && (
-                          <input
-                            aria-label="剪贴板管理"
-                            className="toggle"
-                            type="checkbox"
-                            checked={clipboardHistory}
-                            onChange={(event) => toggleClipboardHistory(event.target.checked)}
-                          />
-                        )}
-                      </label>
-                      <div className={settings.clipboardToolbar}>
-                        {!iosPlatform && client.clipboard?.sync && (
-                          <button
-                            type="button"
-                            className="secondary"
-                            disabled={!clipboardHistory || !snapshot?.preferences.clipboard_history}
-                            onClick={() =>
-                              void client.clipboard!.sync!()
-                                .then((entries) => {
-                                  setClipboardEntries(entries);
-                                  setClipboardClearArmed(false);
-                                })
-                                .catch(() => setError("无法同步剪贴板历史"))
-                            }
-                          >
-                            从系统剪贴板同步
-                          </button>
-                        )}
-                        {client.clipboard?.clear && clipboardEntries.length > 0 && (
-                          <button
-                            type="button"
-                            className="secondary"
-                            disabled={!clipboardHistory}
-                            onClick={() => {
-                              if (!clipboardClearArmed) {
-                                setClipboardClearArmed(true);
-                                return;
-                              }
-                              void mutateClipboardHistory(
-                                () => client.clipboard!.clear(),
-                                "无法清空剪贴板历史，请稍后重试。",
-                              );
-                            }}
-                          >
-                            {clipboardClearArmed ? "确认清空" : "清空历史"}
-                          </button>
-                        )}
-                      </div>
-                      {clipboardHistory && client.clipboard?.list && (
-                        <div className={settings.clipboardList} aria-label="剪贴板历史">
-                          {clipboardEntries.length === 0 ? (
-                            <small>暂无历史记录</small>
-                          ) : (
-                            clipboardEntries.map((entry) => (
-                              <div
-                                className={settings.clipboardRow}
-                                data-clipboard-entry-row=""
-                                key={entry.text}
-                              >
-                                <span className={settings.clipboardEntry}>
-                                  <span title={entry.text}>{entry.text}</span>
-                                  <small>
-                                    {entry.pinned ? "已固定 · " : ""}
-                                    {entry.timestampMs > 1_000_000_000_000
-                                      ? new Date(entry.timestampMs).toLocaleString()
-                                      : "旧记录"}
-                                  </small>
-                                </span>
-                                <span className={settings.clipboardActions}>
-                                  {client.clipboard?.copy && (
-                                    <button
-                                      type="button"
-                                      className="secondary"
-                                      onClick={() => void client.clipboard!.copy!(entry.text)}
-                                    >
-                                      重新复制
-                                    </button>
-                                  )}
-                                  {client.clipboard?.setPinned && (
-                                    <button
-                                      type="button"
-                                      className="secondary"
-                                      aria-label={`${entry.pinned ? "取消固定" : "固定"}剪贴板记录`}
-                                      onClick={() =>
-                                        void mutateClipboardHistory(
-                                          () =>
-                                            client.clipboard!.setPinned!(entry.text, !entry.pinned),
-                                          "无法更新剪贴板固定状态",
-                                        )
-                                      }
-                                    >
-                                      {entry.pinned ? "取消固定" : "固定"}
-                                    </button>
-                                  )}
-                                  {client.clipboard?.remove && (
-                                    <button
-                                      type="button"
-                                      className="secondary"
-                                      aria-label="删除剪贴板记录"
-                                      onClick={() =>
-                                        void mutateClipboardHistory(
-                                          () => client.clipboard!.remove!(entry.text),
-                                          "无法删除剪贴板记录",
-                                        )
-                                      }
-                                    >
-                                      删除
-                                    </button>
-                                  )}
-                                </span>
-                              </div>
-                            ))
-                          )}
-                        </div>
-                      )}
+                    <ClipboardHistorySection
+                      client={client.clipboard}
+                      historyEnabled={clipboardHistory}
+                      persistedHistoryEnabled={snapshot?.preferences.clipboard_history ?? false}
+                      revision={snapshot?.revision}
+                      page={page}
+                      ios={iosPlatform}
+                      onToggle={toggleClipboardHistory}
+                      onError={setError}
+                    >
                       {macosPlatform ? (
                         <p className={settings.panelPreviewLabel}>
                           云剪贴板和云词典需要当前输入法进程提供输入会话；请从输入法悬浮工具栏或输入法菜单打开对应面板。
@@ -8559,7 +8412,7 @@ export function SettingsPage({
                           )}
                         </>
                       )}
-                    </div>
+                    </ClipboardHistorySection>
                     {visibleLocalModeRows.map(([key, label, description]) => (
                       <div className="section" key={key}>
                         <label className="section-header">
