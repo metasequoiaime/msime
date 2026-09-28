@@ -38,6 +38,7 @@ import { DefaultImeModeSection, type DefaultImeMode } from "./settings/default-i
 import { InputModeHudSection } from "./settings/input-mode-hud-section";
 import { ImeModeScopeSection } from "./settings/ime-mode-scope-section";
 import { TraditionalChineseOutputSection } from "./settings/traditional-chinese-output-section";
+import { CloudCandidatesSection } from "./settings/cloud-candidates-section";
 import { PreeditSettingsSection } from "./settings/preedit-settings-section";
 import { validCandidateFonts } from "./candidate/candidate-font-family";
 import type { FontCatalogReader } from "./candidate/font-catalog";
@@ -310,6 +311,10 @@ export {
   TraditionalChineseOutputSection,
   type TraditionalChineseOutputSectionProps,
 } from "./settings/traditional-chinese-output-section";
+export {
+  CloudCandidatesSection,
+  type CloudCandidatesSectionProps,
+} from "./settings/cloud-candidates-section";
 export {
   PreeditSettingsSection,
   type CandidatePreeditStyle,
@@ -3855,7 +3860,6 @@ export function SettingsPage({
     server: draft?.diagnostic_log?.server ?? false,
     tsf: draft?.diagnostic_log?.tsf ?? false,
   };
-  const cloudCandidates = draft?.cloud_candidates ?? true;
   const candidateTranslations = draft?.candidate_translations ?? true;
   // Offline glosses are opt-in in client-core and in every native host. Keep
   // the settings view aligned when older snapshots omit the optional field.
@@ -6784,21 +6788,10 @@ export function SettingsPage({
                         setDraft({ ...draft, traditional_chinese_output })
                       }
                     />
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          云候选<small>向在线服务请求额外候选</small>
-                        </span>
-                        <input
-                          className="toggle"
-                          type="checkbox"
-                          checked={cloudCandidates}
-                          onChange={(event) =>
-                            setDraft({ ...draft, cloud_candidates: event.target.checked })
-                          }
-                        />
-                      </label>
-                    </div>
+                    <CloudCandidatesSection
+                      value={draft.cloud_candidates}
+                      onChange={(cloud_candidates) => setDraft({ ...draft, cloud_candidates })}
+                    />
                     <FrequencySection
                       preferences={frequency}
                       onChange={(frequency) => setDraft({ ...draft, frequency })}
