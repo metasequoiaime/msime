@@ -71,11 +71,13 @@ def reference_labels() -> tuple[dict[str, str], str, str] | None:
 
 
 def shared_ui() -> dict[str, str]:
-    source = (ROOT / "packages/ui/src/index.tsx").read_text(encoding="utf-8")
-    block = re.search(
-        r"const helpcodeSchemas: \[HelpcodeSchema, string\]\[\] = \[(.*?)\];", source, re.S
+    source = (ROOT / "packages/ui/src/settings/pages/helpcode-page.tsx").read_text(
+        encoding="utf-8"
     )
-    assert block, "the shared settings page no longer declares helpcodeSchemas"
+    block = re.search(
+        r"const helpcodeSchemas:.*?= \[(.*?)\];", source, re.S
+    )
+    assert block, "the shared helper-code settings page no longer declares helpcodeSchemas"
     return dict(re.findall(r'\["([^"]+)",\s*"([^"]+)"\]', block.group(1)))
 
 
