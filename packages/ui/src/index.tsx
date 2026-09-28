@@ -135,6 +135,7 @@ import { BuiltInSkinsSection } from "./settings/built-in-skins-section";
 import { EnglishSuggestionsSection } from "./settings/english-suggestions-section";
 import { LearningSection } from "./settings/learning-section";
 import { LearningDataSection } from "./settings/learning-data-section";
+import { SkinPlatformNotice } from "./settings/skin-platform-notice";
 import { DefaultImeModeSection, type DefaultImeMode } from "./settings/default-ime-mode-section";
 import { InputModeHudSection } from "./settings/input-mode-hud-section";
 import { ImeModeScopeSection } from "./settings/ime-mode-scope-section";
@@ -541,6 +542,7 @@ export {
   LearningDataSection,
   type LearningDataSectionProps,
 } from "./settings/learning-data-section";
+export { SkinPlatformNotice, type SkinPlatformNoticeProps } from "./settings/skin-platform-notice";
 export {
   DefaultImeModeSection,
   type DefaultImeMode,
@@ -4364,16 +4366,7 @@ export function SettingsPage({
                     )}
                   </fieldset>
                   <fieldset disabled={busy} hidden={page !== "skin"} aria-label="皮肤">
-                    <div className={settings.skinIntro}>
-                      {/* A touch host draws a candidate row inside the keyboard and has no floating
-                          toolbar at all, so naming either here describes a window the reader cannot
-                          see. Same switch the helper-code labels already make. */}
-                      {mobilePlatform
-                        ? "选择候选栏使用的主题；明暗预览仅影响当前卡片，不修改设置。"
-                        : linuxPlatform
-                          ? "选择候选窗使用的主题；明暗预览仅影响当前卡片，不修改设置。"
-                          : "选择候选窗和悬浮工具栏使用的主题；明暗预览仅影响当前卡片，不修改设置。"}
-                    </div>
+                    <SkinPlatformNotice mobile={mobilePlatform} linux={linuxPlatform} />
                     {host?.candidate_panel_limit && (
                       <CandidatePanelLimitSection limit={host.candidate_panel_limit} />
                     )}
