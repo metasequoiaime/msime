@@ -27,13 +27,12 @@ use msime_client_core::account::{
 };
 use msime_client_core::cloud::dictionary::DictionaryKind;
 use msime_client_core::cloud::snapshot_validation::{
-    has_keys as snapshot_has_keys, valid_timestamp as snapshot_timestamp,
+    has_keys as snapshot_has_keys, parse_strict_object, valid_timestamp as snapshot_timestamp,
 };
 use msime_client_core::preferences::{
     FrequencyMode, InputScheme, Preferences, PreferencesSnapshot, PreferencesStore,
     ShuangpinProfile, ThemeMode, TouchKeyboardLayout, TouchKeyboardSkin,
 };
-use serde::de::{DeserializeSeed, MapAccess, Visitor};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -174,102 +173,8 @@ pub fn init() -> TauriPlugin<Wry> {
         .build()
 }
 
-struct StrictSnapshotValue {
-    depth: usize,
-}
-
-impl<'de> DeserializeSeed<'de> for StrictSnapshotValue {
-    type Value = Value;
-
-    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        struct SnapshotValueVisitor {
-            depth: usize,
-        }
-
-        impl<'de> Visitor<'de> for SnapshotValueVisitor {
-            type Value = Value;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("a strict JSON object value")
-            }
-
-            fn visit_bool<E>(self, value: bool) -> Result<Self::Value, E> {
-                Ok(Value::Bool(value))
-            }
-
-            fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E> {
-                Ok(Value::Number(value.into()))
-            }
-
-            fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E> {
-                Ok(Value::Number(value.into()))
-            }
-
-            fn visit_f64<E>(self, _value: f64) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                Err(E::custom("floating point values are not allowed"))
-            }
-
-            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E> {
-                Ok(Value::String(value.to_owned()))
-            }
-
-            fn visit_string<E>(self, value: String) -> Result<Self::Value, E> {
-                Ok(Value::String(value))
-            }
-
-            fn visit_none<E>(self) -> Result<Self::Value, E> {
-                Ok(Value::Null)
-            }
-
-            fn visit_unit<E>(self) -> Result<Self::Value, E> {
-                Ok(Value::Null)
-            }
-
-            fn visit_seq<A>(self, _sequence: A) -> Result<Self::Value, A::Error>
-            where
-                A: serde::de::SeqAccess<'de>,
-            {
-                Err(serde::de::Error::custom("arrays are not allowed"))
-            }
-
-            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
-            where
-                A: MapAccess<'de>,
-            {
-                if self.depth > 1 {
-                    return Err(serde::de::Error::custom("nested objects are not allowed"));
-                }
-                let mut object = serde_json::Map::new();
-                while let Some(key) = map.next_key::<String>()? {
-                    if object.contains_key(&key) {
-                        return Err(serde::de::Error::custom("duplicate JSON key"));
-                    }
-                    let value = map.next_value_seed(StrictSnapshotValue {
-                        depth: self.depth + 1,
-                    })?;
-                    object.insert(key, value);
-                }
-                Ok(Value::Object(object))
-            }
-        }
-
-        deserializer.deserialize_any(SnapshotValueVisitor { depth: self.depth })
-    }
-}
-
 fn parse_snapshot_object(bytes: &[u8]) -> Result<serde_json::Map<String, Value>, AccountError> {
-    let mut deserializer = serde_json::Deserializer::from_slice(bytes);
-    let value = StrictSnapshotValue { depth: 0 }
-        .deserialize(&mut deserializer)
-        .map_err(|_| AccountError::Invalid)?;
-    deserializer.end().map_err(|_| AccountError::Invalid)?;
-    value.as_object().cloned().ok_or(AccountError::Invalid)
+    parse_strict_object(bytes).map_err(|_| AccountError::Invalid)
 }
 
 fn snapshot_text<'a>(

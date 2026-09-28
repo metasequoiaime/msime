@@ -1,6 +1,108 @@
 //! Validation primitives shared by native and mobile dictionary snapshot readers.
 
+use serde::de::{DeserializeSeed, MapAccess, Visitor};
 use serde_json::{Map, Value};
+
+/// Parse one snapshot record while rejecting JSON constructs the snapshot
+/// format does not permit: arrays, floating point values, duplicate keys and
+/// objects nested more than one level deep.
+pub fn parse_strict_object(bytes: &[u8]) -> Result<Map<String, Value>, ()> {
+    struct StrictValue {
+        depth: usize,
+    }
+
+    impl<'de> DeserializeSeed<'de> for StrictValue {
+        type Value = Value;
+
+        fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            struct ValueVisitor {
+                depth: usize,
+            }
+
+            impl<'de> Visitor<'de> for ValueVisitor {
+                type Value = Value;
+
+                fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    formatter.write_str("a strict JSON object value")
+                }
+
+                fn visit_bool<E>(self, value: bool) -> Result<Self::Value, E> {
+                    Ok(Value::Bool(value))
+                }
+
+                fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E> {
+                    Ok(Value::Number(value.into()))
+                }
+
+                fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E> {
+                    Ok(Value::Number(value.into()))
+                }
+
+                fn visit_f64<E>(self, _value: f64) -> Result<Self::Value, E>
+                where
+                    E: serde::de::Error,
+                {
+                    Err(E::custom("floating point values are not allowed"))
+                }
+
+                fn visit_str<E>(self, value: &str) -> Result<Self::Value, E> {
+                    Ok(Value::String(value.to_owned()))
+                }
+
+                fn visit_string<E>(self, value: String) -> Result<Self::Value, E> {
+                    Ok(Value::String(value))
+                }
+
+                fn visit_none<E>(self) -> Result<Self::Value, E> {
+                    Ok(Value::Null)
+                }
+
+                fn visit_unit<E>(self) -> Result<Self::Value, E> {
+                    Ok(Value::Null)
+                }
+
+                fn visit_seq<A>(self, _sequence: A) -> Result<Self::Value, A::Error>
+                where
+                    A: serde::de::SeqAccess<'de>,
+                {
+                    Err(serde::de::Error::custom("arrays are not allowed"))
+                }
+
+                fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+                where
+                    A: MapAccess<'de>,
+                {
+                    if self.depth > 1 {
+                        return Err(serde::de::Error::custom("nested objects are not allowed"));
+                    }
+                    let mut object = Map::new();
+                    while let Some(key) = map.next_key::<String>()? {
+                        if object.contains_key(&key) {
+                            return Err(serde::de::Error::custom("duplicate JSON key"));
+                        }
+                        let value = map.next_value_seed(StrictValue {
+                            depth: self.depth + 1,
+                        })?;
+                        object.insert(key, value);
+                    }
+                    Ok(Value::Object(object))
+                }
+            }
+
+            deserializer.deserialize_any(ValueVisitor { depth: self.depth })
+        }
+    }
+
+    let mut deserializer = serde_json::Deserializer::from_slice(bytes);
+    let value = StrictValue { depth: 0 }
+        .deserialize(&mut deserializer)
+        .map_err(|_| ())?;
+    deserializer.end().map_err(|_| ())?;
+    value.as_object().cloned().ok_or(())
+}
 
 pub fn has_keys(map: &Map<String, Value>, keys: &[&str]) -> bool {
     map.len() == keys.len() && keys.iter().all(|key| map.contains_key(*key))
@@ -104,7 +206,16 @@ pub fn valid_timestamp(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::valid_timestamp;
+    use super::{parse_strict_object, valid_timestamp};
+
+    #[test]
+    fn strict_snapshot_objects_reject_ambiguous_json() {
+        assert!(parse_strict_object(br#"{"type":"header"}"#).is_ok());
+        assert!(parse_strict_object(br#"{"type":1.5}"#).is_err());
+        assert!(parse_strict_object(br#"{"type":[]}"#).is_err());
+        assert!(parse_strict_object(br#"{"type":1,"type":2}"#).is_err());
+        assert!(parse_strict_object(br#"{"data":{"nested":{"too_deep":true}}}"#).is_err());
+    }
 
     #[test]
     fn accepts_bounded_iso_timestamps() {
