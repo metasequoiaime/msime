@@ -277,6 +277,15 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
         self.assertIn("connection = opened;", recognizer)
         self.assertIn("if (connection == opened) connection = null;", recognizer)
 
+    def test_upload_does_not_forward_bearer_tokens_across_redirects(self):
+        recognizer = (
+            ROOT / "platforms/android/java/app/msime/client/voice/HttpAsrRecognizer.java"
+        ).read_text()
+        # HttpURLConnection follows redirects by default. The upload carries a bearer token, so
+        # following one could replay that credential to an endpoint outside the user's configured
+        # origin before the response is parsed.
+        self.assertIn("opened.setInstanceFollowRedirects(false);", recognizer)
+
     def test_stopping_the_voice_activity_cancels_active_capture(self):
         activity = (
             ROOT / "platforms/android/java/app/msime/client/voice/VoiceRecognitionActivity.java"
