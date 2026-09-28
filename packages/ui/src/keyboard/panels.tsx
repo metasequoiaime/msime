@@ -35,6 +35,8 @@ import {
   cloudClipboardItems,
   cloudDictionaryCatalogEntries,
   cloudDictionaryEntries,
+  cloudResponseRequest,
+  cloudResponseText,
 } from "./cloud-response";
 import {
   skinColor,
@@ -2328,7 +2330,7 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
       throw error;
     }
     if (revision !== refreshRevision.current) return;
-    setEntries(cloudDictionaryEntries(result));
+    setEntries(cloudDictionaryEntries<CloudDictionaryEntry>(result));
     setOffset(typeof result.offset === "number" ? result.offset : nextOffset);
     setHasMore(result.has_more === true);
   }
@@ -2792,7 +2794,7 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
         setNotice(result.saved === true ? "云词库已导出" : "已取消导出");
         return;
       }
-      const text = typeof result.text === "string" ? result.text : result.content;
+      const text = cloudResponseText(result);
       if (typeof text !== "string") throw new Error("provider returned no file");
       const anchor = document.createElement("a");
       const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
@@ -2820,7 +2822,7 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
         setNotice(result.saved ? "完整云词库快照已导出" : "已取消导出");
         return;
       }
-      const text = typeof result.text === "string" ? result.text : result.content;
+      const text = cloudResponseText(result);
       if (typeof text !== "string" || !text) throw new Error("provider returned no snapshot");
       const anchor = document.createElement("a");
       const url = URL.createObjectURL(
@@ -3163,9 +3165,7 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
       const result = await client.request({ operation: "snapshot_status" });
       if (lifecycle !== lifecycleRevision.current || revision !== statusRevision.current) return;
       setLocalVersion(typeof result.localVersion === "string" ? result.localVersion : null);
-      setRequest(
-        result.request && typeof result.request.status === "string" ? result.request : null,
-      );
+      setRequest(cloudResponseRequest<CloudDictionarySnapshotRequest>(result));
     } catch {
       if (lifecycle === lifecycleRevision.current && revision === statusRevision.current)
         setNotice("无法读取本机词库状态，请确认键盘已启用");
@@ -3227,9 +3227,7 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
         return;
       setPreview(null);
       setPreviewToken(null);
-      setRequest(
-        result.request && typeof result.request.status === "string" ? result.request : null,
-      );
+      setRequest(cloudResponseRequest<CloudDictionarySnapshotRequest>(result));
       setNotice("快照已入列，将在输入法空闲时应用");
     }, "快照入列失败，本机词库未改变");
   }
@@ -3248,9 +3246,7 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
       const result = await client.request({ operation: "snapshot_cancel" });
       if (currentLifecycle !== lifecycleRevision.current || revision !== statusRevision.current)
         return;
-      setRequest(
-        result.request && typeof result.request.status === "string" ? result.request : null,
-      );
+      setRequest(cloudResponseRequest<CloudDictionarySnapshotRequest>(result));
       setNotice("已取消待应用快照");
     }, "取消快照失败");
   }
@@ -3467,7 +3463,7 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
       throw error;
     }
     if (current !== requestRevision.current) return;
-    setEntries(cloudDictionaryCatalogEntries(result));
+    setEntries(cloudDictionaryCatalogEntries<CloudDictionaryCatalogEntry>(result));
     setOffset(typeof result.offset === "number" ? result.offset : nextOffset);
     setHasMore(result.has_more === true);
     setRevision(typeof result.revision === "number" ? result.revision : 0);
