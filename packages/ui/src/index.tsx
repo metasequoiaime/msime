@@ -87,6 +87,10 @@ import {
   AiBasicSettingsSection,
   type AiProviderOption,
 } from "./settings/ai-basic-settings-section";
+import {
+  AiCandidateLimitSection,
+  type AiCandidateLimitSectionProps,
+} from "./settings/ai-candidate-limit-section";
 import { NiuTransSection } from "./settings/niutrans-section";
 import { CustomTranslationSection } from "./settings/custom-translation-section";
 import { CustomTranslationsSection } from "./settings/custom-translations-section";
@@ -532,6 +536,10 @@ export {
   type AiCredentialSectionProps,
   type AiCredentialStored,
 } from "./settings/ai-credential-section";
+export {
+  AiCandidateLimitSection,
+  type AiCandidateLimitSectionProps,
+} from "./settings/ai-candidate-limit-section";
 export { NiuTransSection, type NiuTransSectionProps } from "./settings/niutrans-section";
 export {
   CustomTranslationSection,
@@ -7198,26 +7206,10 @@ export function SettingsPage({
                         onSelect={(model) => updateAi({ model })}
                       />
                     )}
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">候选数量</span>
-                        <input
-                          aria-label="AI 候选数量"
-                          type="number"
-                          min="1"
-                          max="10"
-                          value={ai.candidate_limit}
-                          onChange={(event) =>
-                            updateAi({
-                              candidate_limit: Math.max(
-                                1,
-                                Math.min(10, Number(event.target.value) || 3),
-                              ),
-                            })
-                          }
-                        />
-                      </label>
-                    </div>
+                    <AiCandidateLimitSection
+                      value={ai.candidate_limit}
+                      onChange={(candidate_limit) => updateAi({ candidate_limit })}
+                    />
                     <AiPromptSettingsSection
                       promptId={ai.prompt_id}
                       prompt={ai.prompt}
