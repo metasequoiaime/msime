@@ -30,7 +30,6 @@ import {
   candidateFontSizes,
   candidatePreeditFontSize,
 } from "./candidate/candidate-font-size";
-import { candidateTextColor } from "./candidate/candidate-text-color";
 import { useCandidatePreviewTheme } from "./candidate/candidate-preview-theme";
 import { CandidateFontControls } from "./candidate/candidate-font-controls";
 import { validCandidateFonts } from "./candidate/candidate-font-family";
@@ -114,6 +113,11 @@ import {
   defaultLocalModes,
   type LocalModePreferences,
 } from "./settings/local-modes-section";
+import {
+  CandidateColorsSection,
+  type CandidateColorKey,
+  type CandidateColorPreferences,
+} from "./settings/candidate-colors-section";
 import {
   ClipboardHistorySection,
   type ClipboardHistoryClient,
@@ -245,6 +249,11 @@ export {
   type LocalModeKey,
   type LocalModePreferences,
 } from "./settings/local-modes-section";
+export {
+  CandidateColorsSection,
+  type CandidateColorKey,
+  type CandidateColorPreferences,
+} from "./settings/candidate-colors-section";
 export {
   CommunitySkinsPage,
   type CommunitySkin,
@@ -1508,9 +1517,6 @@ const translationSecondaryLanguages: [
 ][] = [["", "不显示第二种语言"], ...translationLanguages];
 const mobileTranslationLanguages = translationLanguages.filter(([value]) => value !== "ru");
 const defaultWordCharacter: WordCharacterPreferences = { enabled: true, keys: "brackets" };
-// The Fcitx5 classic UI theme format has no label or accent colour (platforms/linux/src/candidates/CandidateFcitxTheme.h), so on Linux the number and accent pickers reach only the IBus panel.
-const linuxFcitxClassicColorNote =
-  "Fcitx5 经典界面中编号跟随正文颜色、固定候选不单独着色，此项仅对 IBus 生效";
 // The Linux hosts do not draw the candidate list themselves; when the desktop panel that does ignores these settings, the host says why (HostCapabilities.candidate_panel_limit) and the appearance and skin pages say so once.
 const candidatePanelLimitNotes: Record<
   NonNullable<HostCapabilities["candidate_panel_limit"]>,
@@ -5072,231 +5078,15 @@ export function SettingsPage({
                         </small>
                       </div>
                     )}
-                    <div className="section">
-                      <div className="section-header">
-                        <span className="section-title">候选文字颜色</span>
-                        <div className="candidate-color-control">
-                          <input
-                            aria-label="候选文字颜色"
-                            type="color"
-                            value={
-                              candidateTextColor(draft.candidate_text_color) ??
-                              (candidatePreviewTheme === "light" ? "#1a1a1a" : "#e9e8e8")
-                            }
-                            onChange={(event) =>
-                              setDraft({ ...draft, candidate_text_color: event.target.value })
-                            }
-                          />
-                          <button
-                            type="button"
-                            className={`candidate-color-reset${candidateTextColor(draft.candidate_text_color) ? "" : " is-active"}`}
-                            aria-pressed={!candidateTextColor(draft.candidate_text_color)}
-                            onClick={() => {
-                              if (candidateTextColor(draft.candidate_text_color))
-                                setDraft({ ...draft, candidate_text_color: null });
-                            }}
-                          >
-                            跟随主题
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                    {!showCandidateRowColors && (
-                      <div className="section">
-                        <small>当前宿主的候选面板不支持强调或选中行颜色。</small>
-                      </div>
-                    )}
-                    {!showCandidateSelectionAppearance && (
-                      <div className="section">
-                        <small>
-                          {linuxPlatform
-                            ? "悬停颜色不支持；边框仅在 Fcitx5 经典界面绘制，IBus 候选窗无边框。"
-                            : "当前宿主的候选面板不支持悬停或边框颜色。"}
-                        </small>
-                      </div>
-                    )}
-                    {showCandidateRowColors && (
-                      <div className="section">
-                        <div className="section-header">
-                          <span className="section-title">候选强调色</span>
-                          <div className="candidate-color-control">
-                            <input
-                              aria-label="候选强调色"
-                              type="color"
-                              value={
-                                candidateTextColor(draft.candidate_accent_color) ??
-                                (candidatePreviewTheme === "light" ? "#1a73e8" : "#8ab4f8")
-                              }
-                              onChange={(event) =>
-                                setDraft({ ...draft, candidate_accent_color: event.target.value })
-                              }
-                            />
-                            <button
-                              type="button"
-                              aria-label="候选强调色跟随主题"
-                              className={`candidate-color-reset${candidateTextColor(draft.candidate_accent_color) ? "" : " is-active"}`}
-                              aria-pressed={!candidateTextColor(draft.candidate_accent_color)}
-                              onClick={() => {
-                                if (candidateTextColor(draft.candidate_accent_color))
-                                  setDraft({ ...draft, candidate_accent_color: null });
-                              }}
-                            >
-                              跟随主题
-                            </button>
-                          </div>
-                        </div>
-                        {linuxPlatform && <small>{linuxFcitxClassicColorNote}</small>}
-                      </div>
-                    )}
-                    {showCandidateRowColors && (
-                      <div className="section">
-                        <div className="section-header">
-                          <span className="section-title">候选选中色</span>
-                          <div className="candidate-color-control">
-                            <input
-                              aria-label="候选选中色"
-                              type="color"
-                              value={
-                                candidateTextColor(draft.candidate_selected_color) ??
-                                (candidatePreviewTheme === "light" ? "#e8e8e8" : "#3e3e3e")
-                              }
-                              onChange={(event) =>
-                                setDraft({ ...draft, candidate_selected_color: event.target.value })
-                              }
-                            />
-                            <button
-                              type="button"
-                              aria-label="候选选中色跟随主题"
-                              className={`candidate-color-reset${candidateTextColor(draft.candidate_selected_color) ? "" : " is-active"}`}
-                              aria-pressed={!candidateTextColor(draft.candidate_selected_color)}
-                              onClick={() => {
-                                if (candidateTextColor(draft.candidate_selected_color))
-                                  setDraft({ ...draft, candidate_selected_color: null });
-                              }}
-                            >
-                              跟随主题
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                    {showCandidateSelectionAppearance && (
-                      <div className="section">
-                        <div className="section-header">
-                          <span className="section-title">候选悬停色</span>
-                          <div className="candidate-color-control">
-                            <input
-                              aria-label="候选悬停色"
-                              type="color"
-                              value={
-                                candidateTextColor(draft.candidate_hover_color) ??
-                                (candidatePreviewTheme === "light" ? "#ececec" : "#414141")
-                              }
-                              onChange={(event) =>
-                                setDraft({ ...draft, candidate_hover_color: event.target.value })
-                              }
-                            />
-                            <button
-                              type="button"
-                              aria-label="候选悬停色跟随主题"
-                              className={`candidate-color-reset${candidateTextColor(draft.candidate_hover_color) ? "" : " is-active"}`}
-                              aria-pressed={!candidateTextColor(draft.candidate_hover_color)}
-                              onClick={() => {
-                                if (candidateTextColor(draft.candidate_hover_color))
-                                  setDraft({ ...draft, candidate_hover_color: null });
-                              }}
-                            >
-                              跟随主题
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                    <div className="section">
-                      <div className="section-header">
-                        <span className="section-title">候选表面色</span>
-                        <div className="candidate-color-control">
-                          <input
-                            aria-label="候选表面色"
-                            type="color"
-                            value={
-                              candidateTextColor(draft.candidate_surface_color) ??
-                              (candidatePreviewTheme === "light" ? "#ffffff" : "#202020")
-                            }
-                            onChange={(event) =>
-                              setDraft({ ...draft, candidate_surface_color: event.target.value })
-                            }
-                          />
-                          <button
-                            type="button"
-                            aria-label="候选表面色跟随主题"
-                            className={`candidate-color-reset${candidateTextColor(draft.candidate_surface_color) ? "" : " is-active"}`}
-                            onClick={() => setDraft({ ...draft, candidate_surface_color: null })}
-                          >
-                            跟随主题
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                    {showCandidateBorderColor && (
-                      <div className="section">
-                        <div className="section-header">
-                          <span className="section-title">候选边框色</span>
-                          <div className="candidate-color-control">
-                            <input
-                              aria-label="候选边框色"
-                              type="color"
-                              value={
-                                candidateTextColor(draft.candidate_border_color) ??
-                                (candidatePreviewTheme === "light" ? "#dedede" : "#303030")
-                              }
-                              onChange={(event) =>
-                                setDraft({ ...draft, candidate_border_color: event.target.value })
-                              }
-                            />
-                            <button
-                              type="button"
-                              aria-label="候选边框色跟随主题"
-                              className={`candidate-color-reset${candidateTextColor(draft.candidate_border_color) ? "" : " is-active"}`}
-                              onClick={() => setDraft({ ...draft, candidate_border_color: null })}
-                            >
-                              跟随主题
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                    <div className="section">
-                      <div className="section-header">
-                        <span className="section-title">候选编号颜色</span>
-                        <div className="candidate-color-control">
-                          <input
-                            aria-label="候选编号颜色"
-                            type="color"
-                            value={
-                              candidateTextColor(draft.candidate_number_color) ??
-                              (candidatePreviewTheme === "light" ? "#5f6368" : "#bdc1c6")
-                            }
-                            onChange={(event) =>
-                              setDraft({ ...draft, candidate_number_color: event.target.value })
-                            }
-                          />
-                          <button
-                            type="button"
-                            aria-label="候选编号颜色跟随主题"
-                            className={`candidate-color-reset${candidateTextColor(draft.candidate_number_color) ? "" : " is-active"}`}
-                            aria-pressed={!candidateTextColor(draft.candidate_number_color)}
-                            onClick={() => {
-                              if (candidateTextColor(draft.candidate_number_color))
-                                setDraft({ ...draft, candidate_number_color: null });
-                            }}
-                          >
-                            跟随主题
-                          </button>
-                        </div>
-                      </div>
-                      {linuxPlatform && <small>{linuxFcitxClassicColorNote}</small>}
-                    </div>
+                    <CandidateColorsSection
+                      preferences={draft}
+                      previewTheme={candidatePreviewTheme}
+                      showRowColors={showCandidateRowColors}
+                      showSelectionAppearance={showCandidateSelectionAppearance}
+                      showBorderColor={showCandidateBorderColor}
+                      linux={linuxPlatform}
+                      onChange={(key, value) => setDraft({ ...draft, [key]: value })}
+                    />
                     {/* The iOS strip pages in nines whatever this says, so a selector there would change nothing. */}
                     {host?.fixed_candidate_page_size === undefined && (
                       <div className="section">
