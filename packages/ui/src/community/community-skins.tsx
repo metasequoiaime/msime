@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { errorCode } from "../core/error-code";
 import { randomUuid } from "../core/random-id";
 import { ScreenKeyboardPreview } from "../keyboard/screen-keyboard-preview";
+import { appendUniqueById, communityRating } from "./community-helpers";
 import * as style from "./community-style";
 import type {
   CustomSkinLibraryClient,
@@ -78,21 +79,6 @@ function communityMessage(error: unknown): string {
       return "无法安全保存试用状态，请稍后重试。";
   }
   return "社区暂时不可用，请稍后重试。";
-}
-
-function mergeUnique(current: CommunitySkin[], incoming: CommunitySkin[]): CommunitySkin[] {
-  const ids = new Set(current.map((skin) => skin.id));
-  const additions: CommunitySkin[] = [];
-  for (const skin of incoming) {
-    if (ids.has(skin.id)) continue;
-    ids.add(skin.id);
-    additions.push(skin);
-  }
-  return [...current, ...additions];
-}
-
-function rating(skin: CommunitySkin): string {
-  return skin.rating_count === 0 ? "暂无评分" : `${skin.rating_average.toFixed(1)} 分`;
 }
 
 function boundedGraphemes(value: string, maximum: number): string {
@@ -367,7 +353,7 @@ function CommunitySkinCard({
       <span className={style.cardAuthor}>{skin.owned ? "我的作品" : skin.author}</span>
       <span className={style.cardMetrics}>
         <span>↓ {skin.downloads.toLocaleString("zh-CN")}</span>
-        <span>☆ {rating(skin)}</span>
+        <span>☆ {communityRating(skin.rating_count, skin.rating_average)}</span>
       </span>
     </button>
   );
@@ -433,9 +419,7 @@ export function CommunitySkinsPage({
     try {
       const page = await client.list(offset, query);
       if (generation !== listGeneration.current) return;
-      setSkins((current) =>
-        append ? mergeUnique(current, page.skins) : mergeUnique([], page.skins),
-      );
+      setSkins((current) => (append ? appendUniqueById(current, page.skins) : page.skins));
       nextOffset.current = offset + page.skins.length;
       if (!append) activeSearch.current = query;
       setHasMore(page.has_more);
@@ -656,7 +640,8 @@ export function CommunitySkinsPage({
           </div>
           {selected.description && <p className={style.description}>{selected.description}</p>}
           <p className={style.metrics}>
-            {selected.downloads.toLocaleString("zh-CN")} 人下载 · {rating(selected)} ·{" "}
+            {selected.downloads.toLocaleString("zh-CN")} 人下载 ·{" "}
+            {communityRating(selected.rating_count, selected.rating_average)} ·{" "}
             {selected.rating_count.toLocaleString("zh-CN")} 人评分
           </p>
           {selected.my_rating > 0 && (

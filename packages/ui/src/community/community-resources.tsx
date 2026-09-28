@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { errorCode } from "../core/error-code";
 import { randomUuid } from "../core/random-id";
 import { CommunitySkinsPage, type CommunitySkinClient } from "./community-skins";
+import { appendUniqueById, communityRating } from "./community-helpers";
 import type { CustomSkinLibraryClient } from "../keyboard/touch-keyboard-skin-design";
 import * as style from "./community-style";
 
@@ -92,21 +93,12 @@ function resourceMessage(error: unknown): string {
   return "社区暂时不可用，请稍后重试。";
 }
 
-function unique(current: CommunityResource[], incoming: CommunityResource[]): CommunityResource[] {
-  const ids = new Set(current.map((item) => item.id));
-  return [...current, ...incoming.filter((item) => !ids.has(item.id) && ids.add(item.id))];
-}
-
 function kindTitle(kind: CommunityResourceKind): string {
   return kind === "dictionary" ? "词库" : "回复";
 }
 function scopeTitle(scope: CommunityResourceScope): string {
   return scope === "mine" ? "我的作品" : scope === "saved" ? "收藏" : "全部";
 }
-function rating(item: CommunityResource): string {
-  return item.rating_count === 0 ? "暂无评分" : `${item.rating_average.toFixed(1)} 分`;
-}
-
 function ResourceCard({ item, open }: { item: CommunityResource; open: () => void }) {
   return (
     <button
@@ -124,7 +116,8 @@ function ResourceCard({ item, open }: { item: CommunityResource; open: () => voi
         {item.description || (item.kind === "dictionary" ? "共享词条" : "回复语气模板")}
       </span>
       <span className={style.cardMetrics}>
-        ☆ {rating(item)} · {item.saves.toLocaleString("zh-CN")} 人收藏
+        ☆ {communityRating(item.rating_count, item.rating_average)} ·{" "}
+        {item.saves.toLocaleString("zh-CN")} 人收藏
       </span>
     </button>
   );
@@ -532,7 +525,8 @@ function ResourceDetail({
         </div>
         {item.description && <p className={style.description}>{item.description}</p>}
         <p className={style.metrics}>
-          {item.saves.toLocaleString("zh-CN")} 人收藏 · {rating(item)} ·{" "}
+          {item.saves.toLocaleString("zh-CN")} 人收藏 ·{" "}
+          {communityRating(item.rating_count, item.rating_average)} ·{" "}
           {item.rating_count.toLocaleString("zh-CN")} 人评分
         </p>
         {item.kind === "dictionary" ? (
@@ -715,7 +709,7 @@ export function CommunityResourcesPage({
     try {
       const page = await client.list(kind, scope, search, offset);
       if (current !== generation.current) return;
-      setItems((value) => (append ? unique(value, page.items) : page.items));
+      setItems((value) => (append ? appendUniqueById(value, page.items) : page.items));
       setMore(page.has_more);
     } catch (loadError) {
       if (current === generation.current) setError(resourceMessage(loadError));
