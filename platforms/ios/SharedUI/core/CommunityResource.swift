@@ -55,7 +55,13 @@ enum CommunityLibrary {
     guard let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= 4_000_000 else {
       throw PersonalDictionaryStore.StoreError.invalidState
     }
-    return try JSONDecoder().decode([CommunityResource].self, from: Data(contentsOf: file))
+    let data: Data
+    do {
+      data = try BoundedFileReader.read(from: file, maximumBytes: 4_000_000)
+    } catch {
+      throw PersonalDictionaryStore.StoreError.invalidState
+    }
+    return try JSONDecoder().decode([CommunityResource].self, from: data)
   }
   static func save(_ item: CommunityResource, in directory: URL? = nil) throws {
     var items = try read(in: directory)

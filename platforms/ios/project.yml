@@ -146,6 +146,7 @@ targets:
       - path: KeyboardExtension/Sources
         excludes:
           - keyboard/KeyboardServiceFallback.swift
+      - path: App/Services/BoundedFileReader.swift
       - path: SharedUI
       - path: ../../shared/backend/account/BackendAccountClient.swift
       - path: ../../shared/backend/clients/BackendChatClient.swift
