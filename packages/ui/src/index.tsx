@@ -37,6 +37,7 @@ import { LearningSection } from "./settings/learning-section";
 import { DefaultImeModeSection, type DefaultImeMode } from "./settings/default-ime-mode-section";
 import { InputModeHudSection } from "./settings/input-mode-hud-section";
 import { ImeModeScopeSection } from "./settings/ime-mode-scope-section";
+import { TraditionalChineseOutputSection } from "./settings/traditional-chinese-output-section";
 import { PreeditSettingsSection } from "./settings/preedit-settings-section";
 import { validCandidateFonts } from "./candidate/candidate-font-family";
 import type { FontCatalogReader } from "./candidate/font-catalog";
@@ -305,6 +306,10 @@ export {
   type ImeModeScope,
   type ImeModeScopeSectionProps,
 } from "./settings/ime-mode-scope-section";
+export {
+  TraditionalChineseOutputSection,
+  type TraditionalChineseOutputSectionProps,
+} from "./settings/traditional-chinese-output-section";
 export {
   PreeditSettingsSection,
   type CandidatePreeditStyle,
@@ -6773,22 +6778,12 @@ export function SettingsPage({
                         onChange={(ime_mode_scope) => setDraft({ ...draft, ime_mode_scope })}
                       />
                     )}
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          简繁输入<small>将提交的简体中文转换为繁体中文</small>
-                        </span>
-                        <input
-                          aria-label="简繁输入"
-                          className="toggle"
-                          type="checkbox"
-                          checked={draft.traditional_chinese_output ?? false}
-                          onChange={(event) =>
-                            setDraft({ ...draft, traditional_chinese_output: event.target.checked })
-                          }
-                        />
-                      </label>
-                    </div>
+                    <TraditionalChineseOutputSection
+                      value={draft.traditional_chinese_output}
+                      onChange={(traditional_chinese_output) =>
+                        setDraft({ ...draft, traditional_chinese_output })
+                      }
+                    />
                     <div className="section">
                       <label className="section-header">
                         <span className="section-title">
