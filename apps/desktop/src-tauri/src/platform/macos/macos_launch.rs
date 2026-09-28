@@ -65,13 +65,7 @@ pub(crate) fn resolve_with_resources(
     }
     let file =
         std::fs::File::open(&options_path).map_err(|_| "Cannot read prepared HostOptions JSON")?;
-    let mut bytes = Vec::new();
-    file.take(MAX_OPTIONS_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|_| "Cannot read prepared HostOptions JSON")?;
-    if bytes.len() as u64 > MAX_OPTIONS_BYTES {
-        return Err("Prepared HostOptions JSON exceeds size limit");
-    }
+    let bytes = read_options_bytes(file)?;
     let document: Value =
         serde_json::from_slice(&bytes).map_err(|_| "Cannot parse prepared HostOptions JSON")?;
     if !document.is_object() {
@@ -130,16 +124,22 @@ fn read_options(path: &Path) -> Option<Value> {
         return None;
     }
     let file = fs::File::open(path).ok()?;
-    let mut bytes = Vec::new();
-    file.take(MAX_OPTIONS_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .ok()?;
-    if bytes.len() as u64 > MAX_OPTIONS_BYTES {
-        return None;
-    }
+    let bytes = read_options_bytes(file).ok()?;
     serde_json::from_slice::<Value>(&bytes)
         .ok()
         .filter(Value::is_object)
+}
+
+fn read_options_bytes(file: impl Read) -> Result<Vec<u8>, &'static str> {
+    match crate::shared::bounded_body::read_bounded(file, MAX_OPTIONS_BYTES as usize) {
+        Ok(bytes) => Ok(bytes),
+        Err(crate::shared::bounded_body::BoundedReadError::TooLarge) => {
+            Err("Prepared HostOptions JSON exceeds size limit")
+        }
+        Err(crate::shared::bounded_body::BoundedReadError::Read(_)) => {
+            Err("Cannot read prepared HostOptions JSON")
+        }
+    }
 }
 
 fn copy_legacy_entry(source: &Path, destination: &Path) -> Result<(), &'static str> {
@@ -273,15 +273,9 @@ pub(crate) fn recover_default_options(application_directory: &Path, native_optio
     let Ok(file) = std::fs::File::open(native_options) else {
         return false;
     };
-    let mut bytes = Vec::new();
-    if file
-        .take(MAX_OPTIONS_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .is_err()
-        || bytes.len() as u64 > MAX_OPTIONS_BYTES
-    {
+    let Ok(bytes) = read_options_bytes(file) else {
         return false;
-    }
+    };
     let Ok(document) = serde_json::from_slice::<Value>(&bytes) else {
         return false;
     };
