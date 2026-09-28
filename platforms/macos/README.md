@@ -34,6 +34,16 @@ bundle 使用系统已登记的 `app.msime.inputmethod.MetasequoiaIME`，已在�
 
 应用支持显式 `--register-input-source` 启动参数：调用 Carbon TIS 注册当前 bundle，按 bundle identifier 找到可启用的输入源并启用自身、停用其他匹配列表中的输入源。`install.sh` 在替换 bundle 后直接调用它，注册和启用两条路径另有注入函数指针的原生测试覆盖。启用模式那一半在 macOS 27.0 上是空操作，且系统不报错（上面那条限制），所以这个参数退 0 不等于每个模式都启用了——判据只能是 `check_input_source.swift` 读出来的注册表。
 
+## 窗口打开日志
+
+输入法是 `LSBackgroundOnly` 进程，它替用户打开的窗口（设置、帮助、账号、词库、翻译与 AI 设置、云剪贴板与云词典、表情、手写、屏幕键盘）一旦被压在正在打字的应用下面，屏幕上看起来和「点了没反应」完全一样。这条链路上的每一步都写进统一日志的 `app.msime.inputmethod.MetasequoiaIME` 子系统、`ui` 分类，不依赖诊断日志开关，复现之后直接读：
+
+```sh
+log show --last 5m --style compact --info --predicate 'subsystem == "app.msime.inputmethod.MetasequoiaIME" && category == "ui"'
+```
+
+按顺序能看到：悬浮工具栏哪个按钮被按下、背后有没有控制器（`toolbar_action ... delegate=`）；要打开的设置页、是否找到并启动了设置应用，没有的话为什么退回进程内窗口（`desktop_route_*`，`reason=` 为 `settings_app_not_found`、`launch_failed`、`no_provider` 等）；进程内设置窗口构建和切页各用了多久（`settings_window_shown`、`settings_page_shown`）；以及每个窗口呈现前后、0.5 秒和 2 秒后的状态（`present_*`）。判断「被压在后面」看 `front_index`：它是窗口在同层屏幕窗口里的位置，0 即最前，`visible` 为真不代表没被遮住。激活、成为或失去 key、关闭窗口的事件也一并记录。日志只含窗口编号、类名、标题、激活策略、标志位、耗时和错误码，不含输入内容、候选或路径。
+
 ## 发布包
 
 `.github/workflows/release-macos.yml` 手动触发，在 macos-15（Apple silicon）上运行 `package-release.sh`，产出 `msime-macos-<版本>-arm64.dmg` 与 `SHA256SUMS`，作为 workflow artifact 上传；`publish` 输入打开时才以 `macos-v<版本>` 发布这两个文件。同一个脚本可在本机跑出同样的包：

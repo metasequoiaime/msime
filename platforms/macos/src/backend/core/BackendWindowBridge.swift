@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import os
 
 /// Objective-C entry points for native macOS controllers that need to present
 /// the shared SwiftUI backend surfaces. Each window owns its hosting controller
@@ -56,6 +57,8 @@ final class BackendWindowBridge: NSObject {
   @objc func showCommunityResources(forAccountID accountID: String) { show("resources", accountID: accountID, title: "词包与回复模板", size: NSSize(width: 650, height: 650)) { BackendCommunityResourcesView(accountID: accountID) } }
 
   @discardableResult private func show<Content: View>(_ key: String, accountID: String, title: String, size: NSSize, @ViewBuilder content: () -> Content) -> NSWindowController {
+    // The key only; the account identifier is not logged.
+    backendUILog.log("backend_window_requested key=\(key, privacy: .public)")
     let controller = windows.window(for: key, accountID: accountID,
       reusable: { $0.window?.isVisible == true || $0.window?.isMiniaturized == true },
       close: { controller in
@@ -88,6 +91,7 @@ final class BackendWindowBridge: NSObject {
 
 // The Swift side of MSIMEPresentWindow (src/core/WindowPresentation.h). The input method is LSBackgroundOnly: a prohibited application cannot become active, so a window it opens lands behind the app the user was typing in. Accessory lets it activate without a Dock icon, and ordering front regardless keeps the window visible when activation is declined, as it may be since macOS 14.
 @MainActor func presentBackendWindow(_ window: NSWindow?, activating: Bool = true) {
+  logBackendWindowState("present_begin activating=\(activating)", window)
   guard let window else { return }
   if activating {
     if NSApp.activationPolicy() == .prohibited { NSApp.setActivationPolicy(.accessory) }
@@ -95,4 +99,42 @@ final class BackendWindowBridge: NSObject {
   }
   window.makeKeyAndOrderFront(nil)
   window.orderFrontRegardless()
+  logBackendWindowState("present_end", window)
+  // The state a moment later says what the window server and the other applications made of the request.
+  for delay in [0.5, 2.0] {
+    DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak window] in
+      guard let window else { return }
+      MainActor.assumeIsolated { logBackendWindowState("present_after_\(Int(delay * 1000))ms", window) }
+    }
+  }
+}
+
+// Same subsystem, category and fields as WindowPresentationLog.h, so one `log show --predicate 'subsystem == "app.msime.inputmethod.MetasequoiaIME" && category == "ui"'` reads both sides. State only: numbers, classes, titles, flags.
+private let backendUILog = Logger(subsystem: "app.msime.inputmethod.MetasequoiaIME", category: "ui")
+
+// The window's place among on-screen windows of its own level, 0 being frontmost; -1 when it is not on screen.
+@MainActor private func backendWindowFrontIndex(_ window: NSWindow) -> Int {
+  guard window.windowNumber > 0,
+        let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]],
+        let layer = list.first(where: { ($0[kCGWindowNumber as String] as? Int) == window.windowNumber })?[kCGWindowLayer as String] as? Int
+  else { return -1 }
+  let sameLayer = list.filter { ($0[kCGWindowLayer as String] as? Int) == layer }
+  return sameLayer.firstIndex(where: { ($0[kCGWindowNumber as String] as? Int) == window.windowNumber }) ?? -1
+}
+
+@MainActor private func logBackendWindowState(_ stage: String, _ window: NSWindow?) {
+  let policy: String
+  switch NSApp.activationPolicy() {
+  case .regular: policy = "regular"
+  case .accessory: policy = "accessory"
+  case .prohibited: policy = "prohibited"
+  @unknown default: policy = "unknown"
+  }
+  let frontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "-"
+  guard let window else {
+    backendUILog.log("\(stage, privacy: .public) window=nil app_active=\(NSApp.isActive) policy=\(policy, privacy: .public) frontmost=\(frontmost, privacy: .public)")
+    return
+  }
+  let occluded = !window.occlusionState.contains(.visible)
+  backendUILog.log("\(stage, privacy: .public) window=\(window.windowNumber) class=\(String(describing: type(of: window)), privacy: .public) title=\(window.title, privacy: .public) visible=\(window.isVisible) key=\(window.isKeyWindow) occluded=\(occluded) level=\(window.level.rawValue) front_index=\(backendWindowFrontIndex(window)) app_active=\(NSApp.isActive) policy=\(policy, privacy: .public) frontmost=\(frontmost, privacy: .public)")
 }

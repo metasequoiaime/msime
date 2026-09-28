@@ -27,8 +27,13 @@ NSNotificationName const MSIMEStandalonePreferencesDidCloseNotification =
     return controller;
 }
 - (void)presentAndActivate {
+    // The first presentation builds every settings page, which is long enough to read as a click that did nothing.
+    const uint64_t started = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+    const BOOL built = [MSIMEAppearancePreferences sharedPreferences].isWindowLoaded;
     [[MSIMEAppearancePreferences sharedPreferences] showWindow:nil];
     NSWindow *window = [MSIMEAppearancePreferences sharedPreferences].window;
+    os_log(MSIMEUILog(), "settings_window_shown standalone=%d already_built=%d elapsed_ms=%llu", _standaloneLaunch, built,
+           (unsigned long long)((clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - started) / 1000000));
     // This controller is the one that presents the settings window and the one that decides what
     // closing it means, so it is the one that has to hold it: -window answered nil until now, and
     // every caller reaching through it — starting with the standalone launch that has to know which
@@ -47,7 +52,10 @@ NSNotificationName const MSIMEStandalonePreferencesDidCloseNotification =
 }
 - (void)showAndActivateWithPageIdentifier:(NSString *)identifier {
     [self showAndActivate];
+    const uint64_t started = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
     [[MSIMEAppearancePreferences sharedPreferences] showSettingsPageWithIdentifier:identifier];
+    os_log(MSIMEUILog(), "settings_page_shown page=%{public}@ elapsed_ms=%llu", identifier,
+           (unsigned long long)((clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - started) / 1000000));
 }
 - (void)showAndActivateForStandaloneLaunch {
     _standaloneLaunch = YES;

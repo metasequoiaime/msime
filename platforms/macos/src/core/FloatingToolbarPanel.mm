@@ -2,6 +2,7 @@
 #import "../candidate/CandidateSkinAppearance.h"
 #import "SupportWindowController.h"
 #import "DesktopSettingsLauncher.h"
+#import "WindowPresentationLog.h"
 #import <CoreGraphics/CoreGraphics.h>
 
 #include <algorithm>
@@ -443,6 +444,13 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
 }
 @end
 
+// Every toolbar action, and whether anything was behind it: a nil delegate sends the message nowhere, which is indistinguishable on screen from a window that opened behind the editor.
+static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sender)
+{
+    os_log(MSIMEUILog(), "toolbar_action action=%{public}s delegate=%d from=%{public}s", action, hasDelegate,
+           [sender isKindOfClass:NSMenuItem.class] ? "menu" : "button");
+}
+
 @implementation MetasequoiaFloatingToolbarPanel
 {
     MetasequoiaFloatingToolbarChromeView *_chrome;
@@ -627,6 +635,7 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     // The toolbar stays resident across client focus-outs, so its weak owner can be freed while it is on screen (the client app quit). Every application activation re-runs this check, which hides the toolbar instead of leaving buttons with nobody behind them.
     if (self.toolbarDelegate == nil)
     {
+        if (self.isVisible) os_log(MSIMEUILog(), "toolbar_hidden reason=owner_released");
         [self orderOut:nil];
         return;
     }
@@ -899,78 +908,91 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
 - (void)toggleInputMode:(id)sender
 {
     (void)sender;
+    MSIMELogToolbarAction("toggleInputMode", self.toolbarDelegate != nil, sender);
     [self.toolbarDelegate floatingToolbarDidRequestToggleInputMode:self];
 }
 
 - (void)togglePunctuation:(id)sender
 {
     (void)sender;
+    MSIMELogToolbarAction("togglePunctuation", self.toolbarDelegate != nil, sender);
     [self.toolbarDelegate floatingToolbarDidRequestTogglePunctuation:self];
 }
 
 - (void)toggleFullWidth:(id)sender
 {
     (void)sender;
+    MSIMELogToolbarAction("toggleFullWidth", self.toolbarDelegate != nil, sender);
     [self.toolbarDelegate floatingToolbarDidRequestToggleFullWidth:self];
 }
 
 - (void)toggleTraditionalOutput:(id)sender
 {
     (void)sender;
+    MSIMELogToolbarAction("toggleTraditionalOutput", self.toolbarDelegate != nil, sender);
     [self.toolbarDelegate floatingToolbarDidRequestToggleTraditionalOutput:self];
 }
 
 - (void)openSettings:(id)sender
 {
     (void)sender;
+    MSIMELogToolbarAction("openSettings", self.toolbarDelegate != nil, sender);
     [self.toolbarDelegate floatingToolbarDidRequestOpenSettings:self];
 }
 
 - (void)openEmoji:(id)sender
 {
     (void)sender;
+    MSIMELogToolbarAction("openEmoji", self.toolbarDelegate != nil, sender);
     [self.toolbarDelegate floatingToolbarDidRequestOpenEmoji:self];
 }
 
 - (void)openHandwriting:(id)sender
 {
     (void)sender;
+    MSIMELogToolbarAction("openHandwriting", self.toolbarDelegate != nil, sender);
     [self.toolbarDelegate floatingToolbarDidRequestOpenHandwriting:self];
 }
 
 - (void)openScreenKeyboard:(id)sender
 {
     (void)sender;
+    MSIMELogToolbarAction("openScreenKeyboard", self.toolbarDelegate != nil, sender);
     [self.toolbarDelegate floatingToolbarDidRequestOpenScreenKeyboard:self];
 }
 
 - (void)toggleVoice:(id)sender
 {
     (void)sender;
+    MSIMELogToolbarAction("toggleVoice", self.toolbarDelegate != nil, sender);
     [self.toolbarDelegate floatingToolbarDidRequestToggleVoice:self];
 }
 
 - (void)openCharacterPalette:(id)sender
 {
     (void)sender;
+    MSIMELogToolbarAction("openCharacterPalette", self.toolbarDelegate != nil, sender);
     [self.toolbarDelegate floatingToolbarDidRequestOpenCharacterPalette:self];
 }
 
 - (void)checkForUpdates:(id)sender
 {
     (void)sender;
+    MSIMELogToolbarAction("checkForUpdates", self.toolbarDelegate != nil, sender);
     [self.toolbarDelegate floatingToolbarDidRequestCheckForUpdates:self];
 }
 
 - (void)openWebsite:(id)sender
 {
     (void)sender;
+    MSIMELogToolbarAction("openWebsite", self.toolbarDelegate != nil, sender);
     [self.toolbarDelegate floatingToolbarDidRequestOpenWebsite:self];
 }
 
 - (void)openHelp:(id)sender
 {
     (void)sender;
+    MSIMELogToolbarAction("openHelp", self.toolbarDelegate != nil, sender);
     MSIMEOpenDesktopRoute(@"settings:help", NSWorkspace.sharedWorkspace, ^{
         [[MSIMESupportWindowController sharedController] showPage:MSIMESupportPageHelp];
     });
@@ -979,6 +1001,7 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
 - (void)openAbout:(id)sender
 {
     (void)sender;
+    MSIMELogToolbarAction("openAbout", self.toolbarDelegate != nil, sender);
     MSIMEOpenDesktopRoute(@"settings:about", NSWorkspace.sharedWorkspace, ^{
         [[MSIMESupportWindowController sharedController] showPage:MSIMESupportPageAbout];
     });
@@ -987,6 +1010,7 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
 - (void)openFeedback:(id)sender
 {
     (void)sender;
+    MSIMELogToolbarAction("openFeedback", self.toolbarDelegate != nil, sender);
     MSIMEOpenDesktopRoute(@"settings:feedback", NSWorkspace.sharedWorkspace, ^{
         [[MSIMESupportWindowController sharedController] showPage:MSIMESupportPageFeedback];
     });
@@ -995,6 +1019,7 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
 - (void)dismissFloatingToolbar:(id)sender
 {
     (void)sender;
+    MSIMELogToolbarAction("dismissFloatingToolbar", self.toolbarDelegate != nil, sender);
     [self.toolbarDelegate floatingToolbarDidRequestHide:self];
 }
 @end

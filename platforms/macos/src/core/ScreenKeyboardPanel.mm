@@ -1,4 +1,5 @@
 #import "ScreenKeyboardPanel.h"
+#import "WindowPresentationLog.h"
 #import <Carbon/Carbon.h>
 #import <CoreGraphics/CoreGraphics.h>
 #include <algorithm>
@@ -305,5 +306,8 @@ BOOL PostKey(unsigned short code, NSEventModifierFlags flags, pid_t targetPID) {
         }
     }
     [self orderFrontRegardless];
+    // The pid decides where the keys go, so whether one was captured is the first thing to know when they go nowhere.
+    os_log(MSIMEUILog(), "screen_keyboard_shown target_captured=%d", _inputTargetPID != 0);
+    MSIMELogWindowState("screen_keyboard_present", self);
 }
 @end
