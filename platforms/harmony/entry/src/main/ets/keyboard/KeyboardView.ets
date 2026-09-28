@@ -1813,7 +1813,7 @@ struct KeyboardView {
       // One row per candidate here and exactly one there. The two used to share a ternary applied to
       // the if/else as a whole, which ArkUI cannot do: modifiers belong to a component, and a branch
       // is not one. Each branch states its own height, and the condition already decided which.
-      .height(this.candidateRowHeight() * KeyboardGeometry.bounded(this.candidates.length, 1, 9))
+      .height(this.candidateRowHeight() * KeyboardMetrics.visibleCandidateRows(this.candidates.length))
       .onAxisEvent((event?: AxisEvent): void => {
         if (!this.settings.navigation.mouseWheel || event === undefined) {
           return;
