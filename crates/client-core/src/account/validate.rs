@@ -50,10 +50,6 @@ pub(super) fn validate_clipboard_page(value: &AccountClipboardPage) -> Result<()
     Ok(())
 }
 
-pub(super) fn dictionary_kind_path(kind: DictionaryKind) -> &'static str {
-    crate::cloud::dictionary::kind_path(kind)
-}
-
 fn dictionary_code_is_well_formed(kind: DictionaryKind, code: &str) -> bool {
     match kind {
         DictionaryKind::Pinyin => code
@@ -104,7 +100,7 @@ pub(super) fn dictionary_catalog_path(
     validate_dictionary_catalog_query(code, offset, scheme, profile)?;
     Ok(format!(
         "/v1/users/me/dictionaries/{}/catalog?q={}&offset={offset}&limit=100&scheme={}&profile={}",
-        dictionary_kind_path(kind),
+        crate::cloud::dictionary::kind_path(kind),
         crate::cloud::dictionary::percent_encode(code),
         crate::cloud::dictionary::percent_encode(scheme),
         crate::cloud::dictionary::percent_encode(profile)

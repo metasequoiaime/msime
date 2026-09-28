@@ -562,7 +562,7 @@ impl BackendAccountClient {
             Method::POST,
             &format!(
                 "/v1/users/me/dictionaries/{}/edit",
-                dictionary_kind_path(kind)
+                crate::cloud::dictionary::kind_path(kind)
             ),
             Some(access_token),
             Some(&Body {
@@ -794,7 +794,7 @@ impl BackendAccountClient {
         }
         let path = format!(
             "/v1/users/me/dictionaries/{}/{}",
-            dictionary_kind_path(kind),
+            crate::cloud::dictionary::kind_path(kind),
             id
         );
         let change = self.json(
@@ -829,7 +829,7 @@ impl BackendAccountClient {
         }
         let path = format!(
             "/v1/users/me/dictionaries/{}/{}",
-            dictionary_kind_path(kind),
+            crate::cloud::dictionary::kind_path(kind),
             id
         );
         let change = self.json(
@@ -877,7 +877,7 @@ impl BackendAccountClient {
         }
         let path = format!(
             "/v1/users/me/dictionaries/{}/export?format={format}",
-            dictionary_kind_path(kind)
+            crate::cloud::dictionary::kind_path(kind)
         );
         let bytes = self.request_with_limit_timeout_accept(
             Method::GET,
@@ -894,7 +894,10 @@ impl BackendAccountClient {
         }
         Ok(AccountDictionaryExport {
             text,
-            filename: format!("dictionary-{}.tsv", dictionary_kind_path(kind)),
+            filename: format!(
+                "dictionary-{}.tsv",
+                crate::cloud::dictionary::kind_path(kind)
+            ),
         })
     }
 }
