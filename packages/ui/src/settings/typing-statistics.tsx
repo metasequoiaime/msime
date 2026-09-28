@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useConfirm } from "../core/confirm";
+import { charactersPerMinute, readableCharacters, type TypingBreakdown } from "./typing-speed";
 import {
   dayKey,
   mobileTrendLength,
@@ -61,11 +62,6 @@ const axis = "mt-[7px] flex justify-between text-xs text-muted";
 // columns after a fifth tab was added -- the extra one wrapped onto a second row at a quarter width.
 const segmented = (columns: number) =>
   `grid gap-[3px] rounded-[9px] bg-subtle p-[3px] ${columns === 5 ? "grid-cols-5" : "grid-cols-3"} [&>button]:min-h-[34px] [&>button]:rounded-[7px] [&>button]:border-0 [&>button]:bg-transparent [&>button]:text-secondary [&>button[aria-selected=true]]:bg-raised [&>button[aria-selected=true]]:text-body [&>button[aria-selected=true]]:shadow-card [&>button[aria-pressed=true]]:bg-raised [&>button[aria-pressed=true]]:text-body [&>button[aria-pressed=true]]:shadow-card`;
-
-export type TypingBreakdown = {
-  characters: Record<string, number>;
-  sources: Record<string, number>;
-};
 
 export type SelectionCounts = {
   /** Commits from positions 1..9, index 0 being the first candidate. */
@@ -200,13 +196,6 @@ export const HOURS = 24;
  * into `other`, so Japanese input measures as zero speed. This product has a full Japanese mode,
  * so `otherLetter` (kana, hangul, and every other script that is not Han or Latin) counts too.
  */
-const speedCharacterKinds = ["han", "latin", "otherLetter"] as const;
-
-/** A day's characters that count toward speed; zero for days with no recorded breakdown. */
-function readableCharacters(detail: Partial<TypingBreakdown> | undefined): number {
-  return speedCharacterKinds.reduce((total, kind) => total + (detail?.characters?.[kind] ?? 0), 0);
-}
-
 /**
  * Offsets a `YYYY-MM-DD` key by whole days.
  *
@@ -221,12 +210,6 @@ export function addDays(key: string, days: number): string {
   const month = String(shifted.getUTCMonth() + 1).padStart(2, "0");
   const day = String(shifted.getUTCDate()).padStart(2, "0");
   return `${shifted.getUTCFullYear()}-${month}-${day}`;
-}
-
-/** Characters per active minute; zero when either side is missing. */
-function charactersPerMinute(characters: number, activeMs: number): number {
-  if (characters <= 0 || activeMs <= 0) return 0;
-  return characters / (activeMs / 60_000);
 }
 
 /**
