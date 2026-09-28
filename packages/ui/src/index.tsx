@@ -87,7 +87,7 @@ import {
   validModelMirror,
   type LocalVoiceModelClient,
 } from "./voice/local-models";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type {
   DictionaryEntry,
   LocalDictionaryFormat,
@@ -224,6 +224,7 @@ import { VoiceModelMirrorSection } from "./settings/voice-model-mirror-section";
 import { useProviderCredentials } from "./settings/use-provider-credentials";
 import { useFeedbackReport } from "./settings/use-feedback-report";
 import { useDataDirectory } from "./settings/use-data-directory";
+import { useCustomTranslations } from "./settings/use-custom-translations";
 export {
   useProviderCredentials,
   type ProviderCredentialBusy,
@@ -239,6 +240,11 @@ export {
   type DataDirectoryConfirmOptions,
   type UseDataDirectoryOptions,
 } from "./settings/use-data-directory";
+export {
+  useCustomTranslations,
+  type CustomTranslationsClient,
+  type UseCustomTranslationsOptions,
+} from "./settings/use-custom-translations";
 import { ProviderPresetSection, type ProviderPreset } from "./settings/provider-preset-section";
 import { AiCredentialSection } from "./settings/ai-credential-section";
 import { AiLinuxProviderSection } from "./settings/ai-linux-provider-section";
@@ -1858,17 +1864,15 @@ export function SettingsPage({
     client: client.mobileKeyboardFeedback,
     onError: setError,
   });
-  const [customTranslationsText, setCustomTranslationsText] = useState("");
-  const [customTranslationsNotice, setCustomTranslationsNotice] = useState("");
-  const [customTranslationsBusy, setCustomTranslationsBusy] = useState(false);
-  const customTranslationsReport = useMemo(
-    () => parseCustomTranslations(customTranslationsText),
-    [customTranslationsText],
-  );
-  const customTranslationsSummary = customTranslationsText.trim()
-    ? `${customTranslationsReport.entries.length} 条释义` +
-      (customTranslationsReport.skipped ? `，${customTranslationsReport.skipped} 行无法识别` : "")
-    : "还没有自定义释义。";
+  const {
+    text: customTranslationsText,
+    setText: setCustomTranslationsText,
+    notice: customTranslationsNotice,
+    summary: customTranslationsSummary,
+    busy: customTranslationsBusy,
+    placeholder: customTranslationsPlaceholder,
+    save: saveCustomTranslations,
+  } = useCustomTranslations({ client: client.customTranslations });
   const [macosShuangpinKeymap, setMacosShuangpinKeymap] = useState<boolean>();
   const [macosWubiAutoCommitUnique, setMacosWubiAutoCommitUnique] = useState<boolean>();
   const [savedMacosWubiAutoCommitUnique, setSavedMacosWubiAutoCommitUnique] = useState<boolean>();
@@ -2023,44 +2027,6 @@ export function SettingsPage({
       active = false;
     };
   }, [client]);
-
-  useEffect(() => {
-    const custom = client.customTranslations;
-    if (!custom) return;
-    let active = true;
-    void custom
-      .load()
-      .then((text) => {
-        if (active) setCustomTranslationsText(text);
-      })
-      .catch(() => {
-        // An unreadable overlay is not an error worth a dialog: the field stays empty and saving
-        // it would simply write a new one.
-      });
-    return () => {
-      active = false;
-    };
-  }, [client.customTranslations]);
-
-  async function saveCustomTranslations() {
-    const custom = client.customTranslations;
-    if (!custom || customTranslationsBusy) return;
-    if (!customTranslationsWithinBounds(customTranslationsText)) {
-      setCustomTranslationsNotice("自定义释义过大，请精简后再保存。");
-      return;
-    }
-    setCustomTranslationsBusy(true);
-    try {
-      await custom.save(customTranslationsText);
-      setCustomTranslationsNotice(
-        `已保存 ${customTranslationsReport.entries.length} 条释义，重新启动输入法后生效。`,
-      );
-    } catch (error) {
-      setCustomTranslationsNotice(errorMessage(error));
-    } finally {
-      setCustomTranslationsBusy(false);
-    }
-  }
 
   // The Windows installer registers the input method on every install and upgrade; on macOS the settings app does it when it starts, and this tells the user what happened and whether the source still has to be enabled in System Settings.
   useEffect(() => {
@@ -3472,13 +3438,12 @@ export function SettingsPage({
                           <CustomTranslationsSection
                             mobile={mobilePlatform}
                             value={customTranslationsText}
-                            placeholder={customTranslationsExample}
+                            placeholder={customTranslationsPlaceholder}
                             notice={customTranslationsNotice}
                             summary={customTranslationsSummary}
                             busy={customTranslationsBusy}
                             onChange={(value) => {
                               setCustomTranslationsText(value);
-                              setCustomTranslationsNotice("");
                             }}
                             onSave={() => void saveCustomTranslations()}
                           />
