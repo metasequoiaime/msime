@@ -223,6 +223,7 @@ import {
 } from "./settings/input-source-startup-notice";
 import { VoiceModelMirrorSection } from "./settings/voice-model-mirror-section";
 import { useProviderCredentials } from "./settings/use-provider-credentials";
+import { useFeedbackReport } from "./settings/use-feedback-report";
 export {
   useProviderCredentials,
   type ProviderCredentialBusy,
@@ -231,6 +232,7 @@ export {
   type ProviderCredentialsHost,
   type UseProviderCredentialsOptions,
 } from "./settings/use-provider-credentials";
+export { useFeedbackReport, type UseFeedbackReportOptions } from "./settings/use-feedback-report";
 import { ProviderPresetSection, type ProviderPreset } from "./settings/provider-preset-section";
 import { AiCredentialSection } from "./settings/ai-credential-section";
 import { AiLinuxProviderSection } from "./settings/ai-linux-provider-section";
@@ -1843,10 +1845,6 @@ export function SettingsPage({
   const [updateBusy, setUpdateBusy] = useState(false);
   const [availableUpdate, setAvailableUpdate] = useState<ValidatedUpdate | null>(null);
   const [currentAppVersion, setCurrentAppVersion] = useState(fallbackAppVersion);
-  const [feedbackCopied, setFeedbackCopied] = useState(false);
-  const [feedbackKind, setFeedbackKind] = useState("功能异常");
-  const [feedbackDetail, setFeedbackDetail] = useState("");
-  const [feedbackReportCopied, setFeedbackReportCopied] = useState(false);
   const {
     value: mobileKeyboardFeedback,
     busy: mobileKeyboardFeedbackBusy,
@@ -1948,13 +1946,23 @@ export function SettingsPage({
   ]
     .filter(Boolean)
     .join("\n");
-  const feedbackReport = `### 类型\n${feedbackKind}\n\n### 描述\n${feedbackDetail}\n\n### 环境\n${supportDiagnostics}\n`;
-  const submitFeedback = () => {
-    if (!client.openExternalUrl) return;
-    const body = feedbackReport.slice(0, 4000);
-    const query = new URLSearchParams({ title: feedbackKind, body });
-    void client.openExternalUrl(`${platformIssuesUrl}/new?${query.toString()}`);
-  };
+  const {
+    kind: feedbackKind,
+    setKind: setFeedbackKind,
+    detail: feedbackDetail,
+    setDetail: setFeedbackDetail,
+    report: feedbackReport,
+    reportCopied: feedbackReportCopied,
+    feedbackCopied,
+    copyReport,
+    submit: submitFeedback,
+    copyGroup,
+  } = useFeedbackReport({
+    supportDiagnostics,
+    issuesUrl: platformIssuesUrl,
+    copyText: client.copyText,
+    openExternalUrl: client.openExternalUrl,
+  });
   useEffect(() => {
     if (!(macosPlatform || linuxPlatform) || !client.dataDirectory) return;
     let active = true;
@@ -4502,22 +4510,10 @@ export function SettingsPage({
                     openExternalUrl={client.openExternalUrl}
                     onKindChange={setFeedbackKind}
                     onDetailChange={setFeedbackDetail}
-                    onCopyReport={() => {
-                      if (!client.copyText) return;
-                      void client.copyText(feedbackReport).then(() => {
-                        setFeedbackReportCopied(true);
-                        window.setTimeout(() => setFeedbackReportCopied(false), 1600);
-                      });
-                    }}
+                    onCopyReport={copyReport}
                     onSubmitFeedback={submitFeedback}
                     onOpenIssues={() => void openExternalUrl(platformIssuesUrl)}
-                    onCopyGroup={() => {
-                      if (!client.copyText) return;
-                      void client.copyText("829919142").then(() => {
-                        setFeedbackCopied(true);
-                        window.setTimeout(() => setFeedbackCopied(false), 1600);
-                      });
-                    }}
+                    onCopyGroup={copyGroup}
                     onOpenTelegram={() => void openExternalUrl("https://t.me/msimegroup")}
                   />
                   {!validCandidateFonts(draft) && (
