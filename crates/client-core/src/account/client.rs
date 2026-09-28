@@ -217,7 +217,7 @@ impl BackendAccountClient {
         access_token: &str,
     ) -> Result<AccountClipboardPage, AccountError> {
         validate_clipboard_search(search)?;
-        let encoded = percent_encode_query(search);
+        let encoded = crate::cloud::dictionary::percent_encode(search);
         let page = self.json::<AccountClipboardPage, ()>(
             Method::GET,
             &format!("/v1/users/me/clipboard?q={encoded}"),
@@ -690,7 +690,7 @@ impl BackendAccountClient {
         }
         let path = format!(
             "/v1/users/me/dictionary/positions?context={}&offset={offset}&limit=100",
-            percent_encode_query(context)
+            crate::cloud::dictionary::percent_encode(context)
         );
         let result =
             self.json::<AccountFixedPositions, ()>(Method::GET, &path, Some(access_token), None)?;

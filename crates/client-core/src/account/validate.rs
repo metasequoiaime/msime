@@ -11,10 +11,6 @@ pub(super) fn validate_clipboard_search(value: &str) -> Result<(), AccountError>
     }
 }
 
-pub(super) fn percent_encode_query(value: &str) -> String {
-    crate::cloud::dictionary::percent_encode(value)
-}
-
 pub(super) fn validate_clipboard_text(value: &str) -> Result<(), AccountError> {
     if value.trim().is_empty()
         || value.encode_utf16().count() > 4000
@@ -87,7 +83,7 @@ pub(super) fn dictionary_path(
     Ok(format!(
         "/v1/users/me/dictionaries/{}?q={}&offset={offset}&limit=100",
         dictionary_kind_path(kind),
-        percent_encode_query(search)
+        crate::cloud::dictionary::percent_encode(search)
     ))
 }
 
@@ -121,9 +117,9 @@ pub(super) fn dictionary_catalog_path(
     Ok(format!(
         "/v1/users/me/dictionaries/{}/catalog?q={}&offset={offset}&limit=100&scheme={}&profile={}",
         dictionary_kind_path(kind),
-        percent_encode_query(code),
-        percent_encode_query(scheme),
-        percent_encode_query(profile)
+        crate::cloud::dictionary::percent_encode(code),
+        crate::cloud::dictionary::percent_encode(scheme),
+        crate::cloud::dictionary::percent_encode(profile)
     ))
 }
 
