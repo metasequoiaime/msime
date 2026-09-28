@@ -1,4 +1,5 @@
 import * as settings from "./settings-style";
+import { SettingToggle } from "./setting-toggle";
 
 export interface DiagnosticLogPreferences {
   server: boolean;
@@ -52,19 +53,14 @@ export function DiagnosticLogsSection({
 
   return (
     <div className="section" role="group" aria-label="诊断日志">
-      <label className="section-header">
-        <span className="section-title">
-          {title}
-          <small>{description}</small>
-        </span>
-        <input
-          aria-label={title}
-          className="toggle"
-          type="checkbox"
-          checked={values.server}
-          onChange={(event) => onChange({ server: event.target.checked })}
-        />
-      </label>
+      <SettingToggle
+        label={title}
+        description={description}
+        ariaLabel={title}
+        checked={values.server}
+        compact
+        onChange={(enabled) => onChange({ server: enabled })}
+      />
       {openDirectory && (
         <>
           <div className="input-option-divider" />
@@ -86,21 +82,14 @@ export function DiagnosticLogsSection({
       {!linux && windows && (
         <>
           <div className="input-option-divider" />
-          <label className="section-header">
-            <span className="section-title">
-              TSF 端日志
-              <small>
-                排查应用内预编辑和输入延迟时开启。日志在内存中限量缓冲，并通过独立管道批量汇总，不记录按键、输入内容或候选文本。
-              </small>
-            </span>
-            <input
-              aria-label="TSF 端日志"
-              className="toggle"
-              type="checkbox"
-              checked={values.tsf}
-              onChange={(event) => onChange({ tsf: event.target.checked })}
-            />
-          </label>
+          <SettingToggle
+            label="TSF 端日志"
+            description="排查应用内预编辑和输入延迟时开启。日志在内存中限量缓冲，并通过独立管道批量汇总，不记录按键、输入内容或候选文本。"
+            ariaLabel="TSF 端日志"
+            checked={values.tsf}
+            compact
+            onChange={(enabled) => onChange({ tsf: enabled })}
+          />
         </>
       )}
     </div>

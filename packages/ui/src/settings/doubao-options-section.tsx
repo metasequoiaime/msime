@@ -28,36 +28,27 @@ export function DoubaoOptionsSection({
         豆包识别选项
         <small>{linux ? "由 provider 服务应用" : "随识别请求发送给豆包"}</small>
       </div>
-      <label className="section-header">
-        <span className="section-title">数字格式化</span>
-        <input
-          aria-label="数字格式化"
-          className="toggle"
-          type="checkbox"
-          checked={enableItn}
-          onChange={(event) => onEnableItnChange(event.target.checked)}
-        />
-      </label>
-      <label className="section-header">
-        <span className="section-title">标点预测</span>
-        <input
-          aria-label="标点预测"
-          className="toggle"
-          type="checkbox"
-          checked={enablePunc}
-          onChange={(event) => onEnablePuncChange(event.target.checked)}
-        />
-      </label>
-      <label className="section-header">
-        <span className="section-title">语义顺滑</span>
-        <input
-          aria-label="语义顺滑"
-          className="toggle"
-          type="checkbox"
-          checked={enableDdc}
-          onChange={(event) => onEnableDdcChange(event.target.checked)}
-        />
-      </label>
+      <SettingToggle
+        label="数字格式化"
+        ariaLabel="数字格式化"
+        checked={enableItn}
+        compact
+        onChange={onEnableItnChange}
+      />
+      <SettingToggle
+        label="标点预测"
+        ariaLabel="标点预测"
+        checked={enablePunc}
+        compact
+        onChange={onEnablePuncChange}
+      />
+      <SettingToggle
+        label="语义顺滑"
+        ariaLabel="语义顺滑"
+        checked={enableDdc}
+        compact
+        onChange={onEnableDdcChange}
+      />
       <label className="section-header">
         <span className="section-title">热词表 ID</span>
         <input
@@ -69,3 +60,4 @@ export function DoubaoOptionsSection({
     </div>
   );
 }
+import { SettingToggle } from "./setting-toggle";
