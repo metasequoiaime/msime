@@ -29,6 +29,7 @@ import { CandidateSizingSection } from "./settings/candidate-sizing-section";
 import { CandidatePageSizeSection } from "./settings/candidate-page-size-section";
 import { CandidateLayoutSection } from "./settings/candidate-layout-section";
 import { CandidateFollowCursorSection } from "./settings/candidate-follow-cursor-section";
+import { CandidatePanelLimitSection } from "./settings/candidate-panel-limit-section";
 import { CandidateEnglishGlossSection } from "./settings/candidate-english-gloss-section";
 import { EnglishSuggestionsSection } from "./settings/english-suggestions-section";
 import { LearningSection } from "./settings/learning-section";
@@ -353,6 +354,11 @@ export {
   CandidateFollowCursorSection,
   type CandidateFollowCursorSectionProps,
 } from "./settings/candidate-follow-cursor-section";
+export {
+  CandidatePanelLimitSection,
+  type CandidatePanelLimit,
+  type CandidatePanelLimitSectionProps,
+} from "./settings/candidate-panel-limit-section";
 export {
   CandidateEnglishGlossSection,
   type CandidateEnglishGlossSectionProps,
@@ -1723,18 +1729,6 @@ const translationSecondaryLanguages: [
 ][] = [["", "不显示第二种语言"], ...translationLanguages];
 const mobileTranslationLanguages = translationLanguages.filter(([value]) => value !== "ru");
 const defaultWordCharacter: WordCharacterPreferences = { enabled: true, keys: "brackets" };
-// The Linux hosts do not draw the candidate list themselves; when the desktop panel that does ignores these settings, the host says why (HostCapabilities.candidate_panel_limit) and the appearance and skin pages say so once.
-const candidatePanelLimitNotes: Record<
-  NonNullable<HostCapabilities["candidate_panel_limit"]>,
-  string
-> = {
-  gnome_shell:
-    "GNOME Shell 自己绘制 IBus 候选窗并跟随 Shell 主题，这里的候选字体、颜色和皮肤在当前桌面不会生效。",
-  fcitx_theme:
-    "Fcitx5 正在使用你在 Fcitx5 配置中选择的经典界面主题，这里的候选颜色和皮肤不会覆盖它；字体仍然生效。改回 Fcitx5 默认主题后即可使用这里的设置。",
-  kimpanel:
-    "Fcitx5 的候选窗由桌面的 Kimpanel 绘制，使用桌面自己的字体和主题，这里的候选字体、颜色和皮肤不会生效。",
-};
 // The last column is the description on a host whose skin reaches only the candidate window (Linux presents the toolbar as an input method menu).
 const skinOptions: [NonNullable<Preferences["candidate_skin"]>, string, string, string][] = [
   ["fluent", "Fluent", "简洁、紧凑的默认候选窗", "简洁、紧凑的默认候选窗"],
@@ -4555,9 +4549,7 @@ export function SettingsPage({
                       mobile={mobilePlatform}
                     />
                     {host?.candidate_panel_limit && (
-                      <div className="section">
-                        <small>{candidatePanelLimitNotes[host.candidate_panel_limit]}</small>
-                      </div>
+                      <CandidatePanelLimitSection limit={host.candidate_panel_limit} />
                     )}
                     {showCandidateFollowCursor && (
                       <CandidateFollowCursorSection
@@ -5002,9 +4994,7 @@ export function SettingsPage({
                           : "选择候选窗和悬浮工具栏使用的主题；明暗预览仅影响当前卡片，不修改设置。"}
                     </div>
                     {host?.candidate_panel_limit && (
-                      <div className="section">
-                        <small>{candidatePanelLimitNotes[host.candidate_panel_limit]}</small>
-                      </div>
+                      <CandidatePanelLimitSection limit={host.candidate_panel_limit} />
                     )}
                     {mobileKeyboardFeedback?.candidatePaletteFollowsDesktop !== undefined && (
                       <div className="section">
