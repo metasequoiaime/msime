@@ -57,6 +57,7 @@ import { TouchKeyboardSchemesSection } from "./settings/touch-keyboard-schemes-s
 import { VoiceInputIntroSection } from "./settings/voice-input-intro-section";
 import { VoiceInputCoreSection } from "./settings/voice-input-core-section";
 import { VoiceModelPathSection } from "./settings/voice-model-path-section";
+import { VoiceModelMirrorSection } from "./settings/voice-model-mirror-section";
 import {
   MobileKeyboardFeedbackSection,
   type MobileKeyboardFeedback,
@@ -406,6 +407,10 @@ export {
   VoiceModelPathSection,
   type VoiceModelPathSectionProps,
 } from "./settings/voice-model-path-section";
+export {
+  VoiceModelMirrorSection,
+  type VoiceModelMirrorSectionProps,
+} from "./settings/voice-model-mirror-section";
 export {
   MobileKeyboardFeedbackSection,
   type MobileKeyboardFeedback,
@@ -7345,30 +7350,10 @@ export function SettingsPage({
                       />
                     )}
                     {localVoice && client.localVoiceModels && (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">
-                            模型下载镜像
-                            <small>
-                              可选。以 https://
-                              开头的加速前缀，下载地址为“镜像/原始地址”；留空直接从 GitHub
-                              下载。保存设置后生效
-                            </small>
-                          </span>
-                          <input
-                            aria-label="模型下载镜像"
-                            maxLength={2048}
-                            value={voiceInput.asr_model_mirror ?? ""}
-                            placeholder="https://mirror.example.com"
-                            aria-invalid={
-                              !validModelMirror((voiceInput.asr_model_mirror ?? "").trim())
-                            }
-                            onChange={(event) =>
-                              updateVoice({ asr_model_mirror: event.target.value })
-                            }
-                          />
-                        </label>
-                      </div>
+                      <VoiceModelMirrorSection
+                        value={voiceInput.asr_model_mirror ?? ""}
+                        onChange={(asr_model_mirror) => updateVoice({ asr_model_mirror })}
+                      />
                     )}
                     {localVoice &&
                       (client.localVoiceModels ? (
