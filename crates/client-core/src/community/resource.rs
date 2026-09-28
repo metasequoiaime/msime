@@ -2,7 +2,8 @@
 //! Network, credentials, and UI state stay outside client-core.
 
 use crate::account::{
-    AccountApi, AccountError, AccountSessionStorage, BackendAccountClient, BackendAccountSession,
+    request_with_account_session, AccountApi, AccountError, AccountSessionStorage,
+    BackendAccountClient, BackendAccountSession,
 };
 use crate::cloud::dictionary::{percent_encode, DictionaryKind};
 use crate::community::{valid_query, valid_text};
@@ -393,16 +394,21 @@ where
         search: &str,
         offset: usize,
     ) -> Result<CommunityResourcePage, AccountError> {
-        self.request(scope != CommunityResourceScope::All, |api, token| {
-            api.community_resources(kind, scope, search, offset, token)
-        })
+        request_with_account_session(
+            &self.api,
+            &self.session,
+            scope != CommunityResourceScope::All,
+            |api, token| api.community_resources(kind, scope, search, offset, token),
+        )
     }
 
     pub fn detail(&self, id: Uuid) -> Result<CommunityResource, AccountError> {
         if id.is_nil() {
             return Err(AccountError::Invalid);
         }
-        self.request(false, |api, token| api.community_resource(id, token))
+        request_with_account_session(&self.api, &self.session, false, |api, token| {
+            api.community_resource(id, token)
+        })
     }
 
     pub fn publish(
@@ -422,7 +428,7 @@ where
             content,
             revision,
         };
-        self.request(true, |api, token| {
+        request_with_account_session(&self.api, &self.session, true, |api, token| {
             api.publish_community_resource(&request, token.ok_or(AccountError::Unauthorized)?)
         })
     }
@@ -432,7 +438,7 @@ where
         id: Uuid,
         resource_revision: u32,
     ) -> Result<CommunityResourceApplication, AccountError> {
-        self.request(true, |api, token| {
+        request_with_account_session(&self.api, &self.session, true, |api, token| {
             let token = token.ok_or(AccountError::Unauthorized)?;
             let dictionary_revision = api.dictionary_revision(token)?;
             api.apply_community_resource(id, resource_revision, dictionary_revision, token)
@@ -443,13 +449,13 @@ where
         if id.is_nil() {
             return Err(AccountError::Invalid);
         }
-        self.request(true, |api, token| {
+        request_with_account_session(&self.api, &self.session, true, |api, token| {
             api.save_community_resource(id, saved, token.ok_or(AccountError::Unauthorized)?)
         })
     }
 
     pub fn rate(&self, id: Uuid, stars: u8) -> Result<(), AccountError> {
-        self.request(true, |api, token| {
+        request_with_account_session(&self.api, &self.session, true, |api, token| {
             api.rate_community_resource(id, stars, token.ok_or(AccountError::Unauthorized)?)
         })
     }
@@ -458,42 +464,9 @@ where
         if id.is_nil() {
             return Err(AccountError::Invalid);
         }
-        self.request(true, |api, token| {
+        request_with_account_session(&self.api, &self.session, true, |api, token| {
             api.delete_community_resource(id, token.ok_or(AccountError::Unauthorized)?)
         })
-    }
-
-    fn request<T>(
-        &self,
-        authenticated: bool,
-        operation: impl Fn(&A, Option<&str>) -> Result<T, AccountError>,
-    ) -> Result<T, AccountError> {
-        let identity = if self.session.status()?.is_some() {
-            Some(self.session.credentials(None, None)?)
-        } else {
-            None
-        };
-        if authenticated && identity.is_none() {
-            return Err(AccountError::Unauthorized);
-        }
-        let mut active_token = identity.as_ref().map(|value| value.1.clone());
-        let result = match operation(&self.api, active_token.as_deref()) {
-            Err(AccountError::Unauthorized) if identity.is_some() => {
-                let expected = identity.as_ref().map(|value| value.0.as_str());
-                let (_, replacement) = self
-                    .session
-                    .credentials(active_token.as_deref(), expected)?;
-                active_token = Some(replacement);
-                operation(&self.api, active_token.as_deref())
-            }
-            result => result,
-        }?;
-        let expected = identity.as_ref().map(|value| value.0.as_str());
-        let current = self.session.status()?.map(|user| user.id);
-        if current.as_deref() != expected {
-            return Err(AccountError::Cancelled);
-        }
-        Ok(result)
     }
 }
 

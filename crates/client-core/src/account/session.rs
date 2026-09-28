@@ -573,6 +573,42 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
     }
 }
 
+pub(crate) fn request_with_account_session<A, S, T>(
+    api: &A,
+    session: &BackendAccountSession<A, S>,
+    authenticated: bool,
+    operation: impl Fn(&A, Option<&str>) -> Result<T, AccountError>,
+) -> Result<T, AccountError>
+where
+    A: AccountApi,
+    S: AccountSessionStorage,
+{
+    let identity = if session.status()?.is_some() {
+        Some(session.credentials(None, None)?)
+    } else {
+        None
+    };
+    if authenticated && identity.is_none() {
+        return Err(AccountError::Unauthorized);
+    }
+    let mut active_token = identity.as_ref().map(|value| value.1.clone());
+    let result = match operation(api, active_token.as_deref()) {
+        Err(AccountError::Unauthorized) if identity.is_some() => {
+            let expected = identity.as_ref().map(|value| value.0.as_str());
+            let (_, replacement) = session.credentials(active_token.as_deref(), expected)?;
+            active_token = Some(replacement);
+            operation(api, active_token.as_deref())
+        }
+        result => result,
+    }?;
+    let expected = identity.as_ref().map(|value| value.0.as_str());
+    let current = session.status()?.map(|user| user.id);
+    if current.as_deref() != expected {
+        return Err(AccountError::Cancelled);
+    }
+    Ok(result)
+}
+
 fn saved_session(tokens: AccountTokens) -> Result<SavedAccountSession, AccountError> {
     let now = unix_ms()?;
     let duration = tokens
