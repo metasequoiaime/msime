@@ -202,13 +202,9 @@ const CANDIDATE_PANEL_STATUS_READ_LIMIT: u64 = 4096;
 #[cfg(any(target_os = "linux", test))]
 fn read_candidate_panel_status(path: &Path) -> Option<String> {
     let file = fs::File::open(path).ok()?;
-    let mut bytes = Vec::new();
-    file.take(CANDIDATE_PANEL_STATUS_READ_LIMIT + 1)
-        .read_to_end(&mut bytes)
-        .ok()?;
-    if bytes.len() as u64 > CANDIDATE_PANEL_STATUS_READ_LIMIT {
-        return None;
-    }
+    let bytes =
+        crate::shared::bounded_body::read_bounded(file, CANDIDATE_PANEL_STATUS_READ_LIMIT as usize)
+            .ok()?;
     String::from_utf8(bytes).ok()
 }
 
