@@ -3,10 +3,16 @@
 use serde::de::{DeserializeSeed, MapAccess, Visitor};
 use serde_json::{Map, Value};
 
+#[derive(Debug, thiserror::Error)]
+pub enum SnapshotValidationError {
+    #[error("invalid snapshot object")]
+    Invalid,
+}
+
 /// Parse one snapshot record while rejecting JSON constructs the snapshot
 /// format does not permit: arrays, floating point values, duplicate keys and
 /// objects nested more than one level deep.
-pub fn parse_strict_object(bytes: &[u8]) -> Result<Map<String, Value>, ()> {
+pub fn parse_strict_object(bytes: &[u8]) -> Result<Map<String, Value>, SnapshotValidationError> {
     struct StrictValue {
         depth: usize,
     }
@@ -99,9 +105,14 @@ pub fn parse_strict_object(bytes: &[u8]) -> Result<Map<String, Value>, ()> {
     let mut deserializer = serde_json::Deserializer::from_slice(bytes);
     let value = StrictValue { depth: 0 }
         .deserialize(&mut deserializer)
-        .map_err(|_| ())?;
-    deserializer.end().map_err(|_| ())?;
-    value.as_object().cloned().ok_or(())
+        .map_err(|_| SnapshotValidationError::Invalid)?;
+    deserializer
+        .end()
+        .map_err(|_| SnapshotValidationError::Invalid)?;
+    value
+        .as_object()
+        .cloned()
+        .ok_or(SnapshotValidationError::Invalid)
 }
 
 pub fn has_keys(map: &Map<String, Value>, keys: &[&str]) -> bool {
