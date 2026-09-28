@@ -221,9 +221,9 @@ pub fn parse(
     if text.len() > max_bytes {
         return Err(ImportError::TooLarge);
     }
-    // A NUL or stray control byte means the file is not the text format claimed;
-    // examining rows from it would be guesswork.
-    if text.contains('\0') || crate::text::has_disallowed_control(text) {
+    // A disallowed control byte means the file is not the text format claimed; examining rows
+    // from it would be guesswork.
+    if crate::text::has_disallowed_control(text) {
         return Err(ImportError::ControlCharacters);
     }
 
