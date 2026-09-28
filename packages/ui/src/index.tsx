@@ -28,6 +28,12 @@ import {
   loadAllPersonalDictionaryEntries,
   dictionaryKindLabel,
 } from "./dictionary/dictionary-export";
+import {
+  dictionaryErrorMessage,
+  dictionaryKeyMatches,
+  importFailureMessage,
+} from "./dictionary/dictionary-errors";
+export { dictionaryErrorMessage } from "./dictionary/dictionary-errors";
 export {
   dictionaryExportName,
   dictionaryExportPayload,
@@ -1553,86 +1559,6 @@ const localDictionaryKinds: [LocalDictionaryKind, string][] = [
  * them as codes. Printing one fixed "请稍后重试" for all of them told a user
  * whose IME was simply locked by another process to retry forever.
  */
-export function dictionaryErrorMessage(
-  error: unknown,
-  fallback: string,
-  kind?: LocalDictionaryKind,
-): string {
-  const code =
-    typeof error === "object" && error !== null && "code" in error
-      ? String((error as { code: unknown }).code)
-      : "";
-  switch (code) {
-    case "dictionary_busy":
-      return "词库正在被输入法占用，请关闭正在使用输入法的程序后重试。";
-    case "dictionary_import_rejected":
-      return "词库拒绝了这次写入，请检查编码与词是否匹配。";
-    case "dictionary_too_large":
-      // A file over the bridge's bound, or one line too long to fit any request to the host.
-      return "词库文件过大：文件不能超过 32 MB，单行不能超过 60 KB，请拆分后再导入。";
-    case "dictionary_read_rejected":
-      return "词库拒绝了这次读取，请稍后重试。";
-    case "dictionary_bundled_readonly":
-      return "内置词条只能调整权重或删除，不能修改编码和词。";
-    case "dictionary_pinyin_unavailable":
-      return "拼音表不可用，无法校验这条词的读音。";
-    case "dictionary_reset_rejected":
-      return "清除学习数据失败，请关闭正在使用输入法的程序后重试。";
-    case "dictionary_unavailable":
-      return "无法打开用户词库，请检查输入法是否正在运行。";
-    case "dictionary_invalid_entry":
-      // The entry itself was refused, so retrying cannot help; say what the code has to look like.
-      return invalidDictionaryEntryMessage(kind);
-    case "dictionary_invalid_word":
-      // The code was fine; the word or weight broke a rule, so point at those fields instead.
-      return "词条内容为空、过长或含控制字符，或权重超出 1 到 100000000 的范围。";
-    default:
-      return fallback;
-  }
-}
-
-function invalidDictionaryEntryMessage(kind: LocalDictionaryKind | undefined): string {
-  switch (kind) {
-    case "pinyin":
-      return "拼音必须由完整音节组成，音节数需与汉字数一致，例如“你好”填 nihao 或 ni'hao。";
-    case "wubi":
-      return "五笔编码须为 1 到 4 个字母。";
-    case "quick_phrase":
-      return "快捷短语编码只能包含英文字母，长度 1 到 32。";
-    case "english":
-      return "英文编码只能包含字母、连字符和撇号。";
-    default:
-      return "词条不符合词库规则，请检查编码与词条后再保存。";
-  }
-}
-
-/**
- * Does a listed entry match the code prefix the page was queried with?
- *
- * The shared host's rule (`dictionary_row_matches`): from the start of the code, ASCII case-insensitive, and for pinyin with syllable separators ignored on both sides, so `nihao` and `nih` find `ni'hao`. A host that honours the query has already returned only matches, so this removes nothing there; it keeps the prefix working on a host that lists its page whole, as the mobile personal dictionary does. The case-sensitive `startsWith` this replaces dropped every pinyin result the host had matched without separators.
- */
-function dictionaryKeyMatches(kind: LocalDictionaryKind, key: string, query: string): boolean {
-  if (!query) return true;
-  const fold = (text: string) => text.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
-  const code = (text: string) => (kind === "pinyin" ? fold(text).replace(/[' ]/g, "") : fold(text));
-  return code(kind === "pinyin" ? key : key.trim()).startsWith(code(query));
-}
-
-function importFailureMessage(kind: string, error: unknown): string {
-  const reason =
-    error instanceof Error
-      ? error.message
-      : typeof error === "string"
-        ? error
-        : typeof error === "object" && error !== null && "error" in error
-          ? String((error as { error: unknown }).error)
-          : "";
-  // A host code is more specific than a free-text reason, so try it first.
-  const coded = dictionaryErrorMessage(error, "");
-  if (coded) return `${kind}导入失败：${coded}`;
-  return reason ? `${kind}导入失败：${reason}` : `${kind}导入失败，请检查文本格式。`;
-}
-
 const defaultNavigation: NavigationPreferences = {
   minus_equal: true,
   comma_period: true,
