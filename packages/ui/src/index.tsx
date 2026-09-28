@@ -162,6 +162,7 @@ import { HelpFeedbackSection } from "./settings/help-feedback-section";
 import { HelpSettingsPage } from "./settings/help-settings-page";
 import { ScreenKeyboardThemeSection } from "./settings/screen-keyboard-theme-section";
 import { ScreenKeyboardSkinsSection } from "./settings/screen-keyboard-skins-section";
+import { ScreenKeyboardLaunchSection } from "./settings/screen-keyboard-launch-section";
 import { TouchKeyboardSchemesSection } from "./settings/touch-keyboard-schemes-section";
 import {
   TouchKeyboardGeometrySection,
@@ -257,7 +258,6 @@ import {
 } from "./voice/voice-providers";
 import { PolishPromptSection } from "./settings/polish-prompt-section";
 import { SkinToolbarPreview } from "./skin/skin-toolbar-preview";
-import { ScreenKeyboardPreview } from "./keyboard/screen-keyboard-preview";
 import type { TouchKeyboardSkin } from "./keyboard/screen-keyboard-preview";
 import { TouchKeyboardSkinEditor } from "./keyboard/touch-keyboard-skin-editor";
 import * as skin from "./keyboard/touch-skin-style";
@@ -849,6 +849,10 @@ export {
 } from "./keyboard/window-host";
 export { emojiDisplayName } from "./keyboard/panels";
 export type { TouchKeyboardSkin } from "./keyboard/screen-keyboard-preview";
+export {
+  ScreenKeyboardLaunchSection,
+  type ScreenKeyboardLaunchSectionProps,
+} from "./settings/screen-keyboard-launch-section";
 export {
   CloudCandidatesPanel,
   CloudClipboardPanel,
@@ -5325,41 +5329,23 @@ export function SettingsPage({
                       }}
                       onReset={() => void resetTouchKeyboardSettings()}
                     />
-                    <div className={`section ${settings.launchCard}`}>
-                      <div className={`section-header ${settings.launchRow}`}>
-                        <span className="section-title">
-                          打开屏幕键盘<small>使用鼠标或触控方式输入文字与快捷按键</small>
-                        </span>
-                        <button
-                          type="button"
-                          className={`secondary ${settings.openButton}`}
-                          disabled={!client.openScreenKeyboard}
-                          onClick={() => void openPanel(client.openScreenKeyboard)}
-                        >
-                          打开
-                        </button>
-                      </div>
-                      <div className={settings.panelPreview} aria-label="屏幕键盘预览">
-                        <div className={settings.panelPreviewLabel}>预览</div>
-                        <div
-                          aria-label="拖动预览调整键盘间距"
-                          onPointerDown={beginTouchGeometryDrag}
-                          onPointerMove={updateTouchGeometryDrag}
-                          onPointerUp={endTouchGeometryDrag}
-                          onPointerCancel={endTouchGeometryDrag}
-                          style={{ touchAction: "none" }}
-                        >
-                          <ScreenKeyboardPreview
-                            theme={keyboardPreviewTheme}
-                            skin={touchKeyboardSkin}
-                            customDesign={customTouchKeyboardSkin}
-                            keySpacingTenths={touchKeySpacingTenths}
-                            rowSpacingTenths={touchRowSpacingTenths}
-                            heightAdjustment={touchKeyboardHeightAdjustment}
-                          />
-                        </div>
-                      </div>
-                    </div>
+                    <ScreenKeyboardLaunchSection
+                      openScreenKeyboard={
+                        client.openScreenKeyboard
+                          ? () => void openPanel(client.openScreenKeyboard)
+                          : undefined
+                      }
+                      theme={keyboardPreviewTheme}
+                      skin={touchKeyboardSkin}
+                      customDesign={customTouchKeyboardSkin}
+                      keySpacingTenths={touchKeySpacingTenths}
+                      rowSpacingTenths={touchRowSpacingTenths}
+                      heightAdjustment={touchKeyboardHeightAdjustment}
+                      onPointerDown={beginTouchGeometryDrag}
+                      onPointerMove={updateTouchGeometryDrag}
+                      onPointerUp={endTouchGeometryDrag}
+                      onPointerCancel={endTouchGeometryDrag}
+                    />
                   </fieldset>
                   <fieldset disabled={busy} hidden={page !== "handwriting"} aria-label="手写识别板">
                     <HandwritingSettingsSection
