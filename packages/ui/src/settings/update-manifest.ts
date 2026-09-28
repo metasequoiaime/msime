@@ -104,14 +104,13 @@ export function validateGitHubRelease(
   };
 }
 
-/**
- * The Linux package a release offers and the digest GitHub computed for it.
- *
- * The .deb is preferred and the .tar.gz is the fallback. Only a single match of a kind is taken: the release workflow uploads one architecture today, and if it ever uploads several, picking one here would show an amd64 digest to an arm64 user, so the name and digest are left out and the notice points at SHA256SUMS instead. A missing or malformed digest keeps the name and drops the digest; it is never an error.
- */
-function selectLinuxPackage(assets: unknown): { name: string; sha256: string | null } | null {
+/** Select one release asset from preferred patterns and retain its optional GitHub digest. */
+function selectUniqueReleaseAsset(
+  assets: unknown,
+  patterns: readonly RegExp[],
+): { name: string; sha256: string | null } | null {
   if (!Array.isArray(assets)) return null;
-  for (const pattern of linuxPackagePatterns) {
+  for (const pattern of patterns) {
     const matches = assets.filter(
       (asset: GitHubReleaseAsset | null): asset is GitHubReleaseAsset & { name: string } =>
         !!asset &&
@@ -126,26 +125,6 @@ function selectLinuxPackage(assets: unknown): { name: string; sha256: string | n
     return { name: asset.name, sha256: digest?.[1] ?? null };
   }
   return null;
-}
-
-/**
- * The Windows installer a release offers and the digest GitHub computed for it.
- *
- * The release workflow uploads exactly one `MetasequoiaIME_Setup_v<version>.exe` beside its `.sha256` file (.github/workflows/release-windows.yml). More than one match is ambiguous, so neither is offered; a missing or malformed digest keeps the name and drops the digest.
- */
-function selectWindowsInstaller(assets: unknown): { name: string; sha256: string | null } | null {
-  if (!Array.isArray(assets)) return null;
-  const matches = assets.filter(
-    (asset: GitHubReleaseAsset | null): asset is GitHubReleaseAsset & { name: string } =>
-      !!asset &&
-      typeof asset === "object" &&
-      typeof asset.name === "string" &&
-      installerNamePattern.test(asset.name),
-  );
-  if (matches.length !== 1) return null;
-  const [asset] = matches;
-  const digest = typeof asset.digest === "string" ? githubDigestPattern.exec(asset.digest) : null;
-  return { name: asset.name, sha256: digest?.[1] ?? null };
 }
 
 /**
@@ -170,14 +149,14 @@ export function selectPlatformRelease(
     );
     if (update && platform === "linux") {
       // No Linux artifact is signed (neither the .deb nor a detached GPG signature), so the notice says so and offers the digest in its place.
-      const linuxPackage = selectLinuxPackage(release.assets);
+      const linuxPackage = selectUniqueReleaseAsset(release.assets, linuxPackagePatterns);
       update.installerName = linuxPackage?.name ?? null;
       update.installerSha256 = linuxPackage?.sha256 ?? null;
       update.signed = false;
     }
     if (update && platform === "windows") {
       // The release workflow publishes the installer unsigned (signing is a local, manual step), so the notice warns, as the shipped settings page does, and shows the digest GitHub computed.
-      const installer = selectWindowsInstaller(release.assets);
+      const installer = selectUniqueReleaseAsset(release.assets, [installerNamePattern]);
       update.installerName = installer?.name ?? null;
       update.installerSha256 = installer?.sha256 ?? null;
       update.signed = false;
