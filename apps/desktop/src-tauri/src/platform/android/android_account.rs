@@ -1065,10 +1065,7 @@ pub async fn app_icon_set(
     state: State<'_, AccountState>,
     style: String,
 ) -> Result<AppIconResponse, crate::CommandError> {
-    if !matches!(
-        style.as_str(),
-        "classic" | "forest" | "sky" | "dusk" | "vermilion"
-    ) {
+    if !msime_tauri_mobile_platform::is_supported_app_icon_style(&style) {
         return Err(crate::CommandError {
             code: "invalid_app_icon",
         });
