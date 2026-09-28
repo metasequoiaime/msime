@@ -1306,24 +1306,7 @@ export type FloatingToolbarPreferences = {
   scale_percent: 75 | 100 | 125 | 150;
   font_size: 16 | 18 | 20 | 22 | 24 | 26 | 28;
 };
-// Mirrors FloatingToolbarPreferences::default() in crates/client-core: emoji, handwriting, voice and
-// the screen keyboard are opt-in, so a new profile gets the compact five-button toolbar and turns on
-// what it wants. Drifting from the Rust defaults here would show a switch in one state and save the
-// other.
-const defaultFloatingToolbar: FloatingToolbarPreferences = {
-  enabled: true,
-  english_mode: true,
-  fullwidth: true,
-  punctuation: true,
-  character_set: true,
-  emoji: false,
-  handwriting: false,
-  screen_keyboard: false,
-  voice: false,
-  settings: true,
-  scale_percent: 100,
-  font_size: 24,
-};
+import { defaultFloatingToolbar } from "./settings/floating-toolbar-defaults";
 /** What the macOS settings app did with the input method it carries when it started. */
 export type InputSourceStartupStatus = {
   /** `login_required`: the input method is installed, but this login session's input source list only picks it up after the user logs in again. */
