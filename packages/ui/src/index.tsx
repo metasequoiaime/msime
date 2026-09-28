@@ -29,6 +29,7 @@ import { useCandidatePreviewTheme } from "./candidate/candidate-preview-theme";
 import { CandidateFontControls } from "./candidate/candidate-font-controls";
 import { CandidateSizingSection } from "./settings/candidate-sizing-section";
 import { CandidatePageSizeSection } from "./settings/candidate-page-size-section";
+import { CandidateLayoutSection } from "./settings/candidate-layout-section";
 import { validCandidateFonts } from "./candidate/candidate-font-family";
 import type { FontCatalogReader } from "./candidate/font-catalog";
 import { SecretInput } from "./core/secret-input";
@@ -268,6 +269,7 @@ export {
   type CandidateSizingPreferences,
 } from "./settings/candidate-sizing-section";
 export { CandidatePageSizeSection } from "./settings/candidate-page-size-section";
+export { CandidateLayoutSection, type CandidateLayout } from "./settings/candidate-layout-section";
 export {
   CommunitySkinsPage,
   type CommunitySkin,
@@ -5067,27 +5069,11 @@ export function SettingsPage({
                       desktopPanels={desktopPanels}
                       onChange={(key, value) => setDraft({ ...draft, [key]: value })}
                     />
-                    {host?.fixed_candidate_layout === undefined && (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">候选项排列方式</span>
-                          <select
-                            aria-label="候选项排列方式"
-                            value={draft.candidate_layout ?? "vertical"}
-                            onChange={(event) =>
-                              setDraft({
-                                ...draft,
-                                candidate_layout: event.target
-                                  .value as Preferences["candidate_layout"],
-                              })
-                            }
-                          >
-                            <option value="horizontal">横向</option>
-                            <option value="vertical">纵向</option>
-                          </select>
-                        </label>
-                      </div>
-                    )}
+                    <CandidateLayoutSection
+                      value={draft.candidate_layout}
+                      fixed={host?.fixed_candidate_layout !== undefined}
+                      onChange={(candidate_layout) => setDraft({ ...draft, candidate_layout })}
+                    />
                     {showShuangpinPreedit && (
                       <div className="section">
                         <label className="section-header">
