@@ -6,22 +6,8 @@ use msime_client_core::account::AccountError;
 use serde_json::Value;
 use std::sync::Arc;
 
+use super::mobile_account_helpers::call_session;
 use super::MobileSession;
-
-/// Runs a blocking session operation off the async runtime, with the same error mapping as each target's account `call`.
-async fn call<T, F>(session: &Arc<MobileSession>, operation: F) -> Result<T, crate::CommandError>
-where
-    T: Send + 'static,
-    F: FnOnce(&MobileSession) -> Result<T, AccountError> + Send + 'static,
-{
-    let session = Arc::clone(session);
-    tauri::async_runtime::spawn_blocking(move || operation(&session))
-        .await
-        .map_err(|_| crate::CommandError {
-            code: "account_unavailable",
-        })?
-        .map_err(|error| crate::CommandError { code: error.code() })
-}
 
 pub(crate) async fn cloud_clipboard_request(
     session: &Arc<MobileSession>,
@@ -40,7 +26,7 @@ pub(crate) async fn cloud_clipboard_request(
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_owned();
-            call(session, move |session| {
+            call_session(session, move |session| {
                 session.clipboard(&search).and_then(|page| {
                     serde_json::to_value(page).map_err(|_| AccountError::Unavailable)
                 })
@@ -55,7 +41,7 @@ pub(crate) async fn cloud_clipboard_request(
                     .ok_or(crate::CommandError {
                         code: "invalid_cloud_clipboard",
                     })?;
-            call(session, move |session| {
+            call_session(session, move |session| {
                 session
                     .set_clipboard_enabled(enabled)
                     .map(|()| serde_json::json!({ "enabled": enabled }))
@@ -70,7 +56,7 @@ pub(crate) async fn cloud_clipboard_request(
                     code: "invalid_cloud_clipboard",
                 })?
                 .to_owned();
-            call(session, move |session| {
+            call_session(session, move |session| {
                 session.add_clipboard(&text).and_then(|item| {
                     serde_json::to_value(item).map_err(|_| AccountError::Unavailable)
                 })
@@ -85,7 +71,7 @@ pub(crate) async fn cloud_clipboard_request(
                     code: "invalid_cloud_clipboard",
                 })?
                 .to_owned();
-            call(session, move |session| {
+            call_session(session, move |session| {
                 session
                     .delete_clipboard(Some(&id))
                     .map(|()| serde_json::json!({}))
