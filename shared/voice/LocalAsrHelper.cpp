@@ -46,6 +46,7 @@ using msime::voice::LocalAsrOptions;
 using msime::voice::LocalAsrSession;
 
 constexpr std::size_t kMaxWavBytes = 44 + msime::voice::local_asr_sample_limit * 2;
+constexpr std::size_t kMaxRequestLineBytes = 1024 * 1024;
 
 std::mutex output_mutex;
 
@@ -171,6 +172,7 @@ private:
 #if !defined(_WIN32)
     std::string pending;
     std::array<char, 8192> buffer{};
+    bool discarding_line = false;
     for (;;) {
       pollfd descriptors[] = {{stop_pipe_[0], POLLIN, 0}, {STDIN_FILENO, POLLIN, 0}};
       const int ready = ::poll(descriptors, 2, -1);
@@ -189,16 +191,46 @@ private:
       pending.append(buffer.data(), static_cast<size_t>(count));
       for (;;) {
         const auto newline = pending.find('\n');
-        if (newline == std::string::npos) break;
+        if (newline == std::string::npos) {
+          if (!discarding_line && pending.size() > kMaxRequestLineBytes) {
+            emit({{"type", "error"}, {"message", "request too large"}});
+            pending.clear();
+            discarding_line = true;
+          }
+          break;
+        }
         auto line = pending.substr(0, newline);
         pending.erase(0, newline + 1);
+        if (discarding_line) {
+          discarding_line = false;
+          continue;
+        }
         handle_line(std::move(line));
       }
     }
 #else
     std::string line;
-    while (std::getline(std::cin, line)) {
-      handle_line(std::move(line));
+    line.reserve(kMaxRequestLineBytes);
+    bool discarding_line = false;
+    char character = '\0';
+    while (std::cin.get(character)) {
+      if (character == '\n') {
+        if (discarding_line) {
+          emit({{"type", "error"}, {"message", "request too large"}});
+          discarding_line = false;
+          line.clear();
+        } else {
+          handle_line(std::move(line));
+          line.clear();
+        }
+      } else if (!discarding_line) {
+        if (line.size() == kMaxRequestLineBytes) {
+          discarding_line = true;
+          line.clear();
+        } else {
+          line.push_back(character);
+        }
+      }
     }
 #endif
     std::lock_guard<std::mutex> lock(mutex_);
@@ -208,6 +240,10 @@ private:
 
   void handle_line(std::string line) {
     if (line.empty()) return;
+    if (line.size() > kMaxRequestLineBytes) {
+      emit({{"type", "error"}, {"message", "request too large"}});
+      return;
+    }
     nlohmann::json message;
     try {
       message = nlohmann::json::parse(line);
