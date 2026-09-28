@@ -74,15 +74,10 @@ fn is_pinned(name: &std::ffi::OsStr) -> bool {
 
 /// `$XDG_CONFIG_HOME/msime-client`, or `~/.config/msime-client`. A relative `XDG_CONFIG_HOME` is invalid per the base directory specification and is ignored the same way the setup script ignores it.
 pub(crate) fn default_root() -> Option<PathBuf> {
-    let base = std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .filter(|path| path.is_absolute())
-        .or_else(|| {
-            std::env::var_os("HOME")
-                .map(PathBuf::from)
-                .filter(|path| path.is_absolute())
-                .map(|home| home.join(".config"))
-        })?;
+    let base = super::config_home(
+        std::env::var_os("XDG_CONFIG_HOME").as_deref(),
+        std::env::var_os("HOME").as_deref(),
+    )?;
     Some(base.join("msime-client"))
 }
 

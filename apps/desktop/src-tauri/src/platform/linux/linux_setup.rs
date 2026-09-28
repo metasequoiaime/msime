@@ -53,21 +53,11 @@ pub struct LinuxSetupState(Arc<AtomicBool>);
 
 /// The fixed locator every Linux frontend reads: `$XDG_CONFIG_HOME/msime-client/runtime-options.json`. A relative XDG value is ignored, as the specification requires.
 pub fn user_runtime_options() -> Option<PathBuf> {
-    config_home(
+    super::config_home(
         std::env::var_os("XDG_CONFIG_HOME").as_deref(),
         std::env::var_os("HOME").as_deref(),
     )
     .map(|directory| directory.join("msime-client/runtime-options.json"))
-}
-
-fn config_home(xdg: Option<&OsStr>, home: Option<&OsStr>) -> Option<PathBuf> {
-    xdg.map(PathBuf::from)
-        .filter(|path| path.is_absolute())
-        .or_else(|| {
-            home.map(PathBuf::from)
-                .filter(|path| path.is_absolute())
-                .map(|path| path.join(".config"))
-        })
 }
 
 fn find_program(executable_dir: Option<&Path>, search_path: Option<&OsStr>) -> Option<PathBuf> {
@@ -321,14 +311,17 @@ mod tests {
         let xdg = OsStr::new("/xdg");
         let home = OsStr::new("/home/user");
         assert_eq!(
-            config_home(Some(xdg), Some(home)),
+            super::super::config_home(Some(xdg), Some(home)),
             Some(PathBuf::from("/xdg"))
         );
         assert_eq!(
-            config_home(Some(OsStr::new("relative")), Some(home)),
+            super::super::config_home(Some(OsStr::new("relative")), Some(home)),
             Some(PathBuf::from("/home/user/.config"))
         );
-        assert_eq!(config_home(None, Some(OsStr::new("relative"))), None);
+        assert_eq!(
+            super::super::config_home(None, Some(OsStr::new("relative"))),
+            None
+        );
     }
 
     #[test]
