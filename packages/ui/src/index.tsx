@@ -64,6 +64,7 @@ import {
 } from "./settings/credential-test-section";
 import { ProviderPresetSection, type ProviderPreset } from "./settings/provider-preset-section";
 import { CredentialStatusMessage } from "./settings/credential-status-message";
+import { AiCredentialSection } from "./settings/ai-credential-section";
 import {
   VoiceCredentialSection,
   type VoiceCredentialSaveInput,
@@ -457,6 +458,11 @@ export {
   type CredentialStatusMessageProps,
   type CredentialStatusMessageValue,
 } from "./settings/credential-status-message";
+export {
+  AiCredentialSection,
+  type AiCredentialSectionProps,
+  type AiCredentialStored,
+} from "./settings/ai-credential-section";
 export {
   DictionaryManifestCard,
   type DictionaryManifestCardProps,
@@ -7715,83 +7721,44 @@ export function SettingsPage({
                       </label>
                     </div>
                     {linuxPlatform && client.providerCredentials ? (
-                      <div className="section" role="group" aria-label="AI 凭据">
-                        <label className="section-header">
-                          <span className="section-title">
-                            API Token
-                            <small>
-                              {providerCredentials?.aiInvalid
-                                ? "现有 ai-provider.json 无效，provider 服务不会发出任何 AI 请求；请修复或删除该文件"
-                                : !storedAiCredential
-                                  ? "尚未保存；保存后只写入用户配置目录的 ai-provider.json，由 provider 服务读取"
-                                  : storedAiCredential.endpoint === ai.endpoint &&
-                                      storedAiCredential.model === ai.model
-                                    ? "已保存，留空则保留原凭据"
-                                    : `已保存的凭据绑定 ${storedAiCredential.endpoint}（${storedAiCredential.model}），与上方设置不一致；保存后改为绑定当前接口和模型`}
-                            </small>
-                          </span>
-                          <SecretInput
-                            label="AI API Token"
-                            disabled={!aiOrigin}
-                            value={aiCredentialInput}
-                            onChange={setAiCredentialInput}
-                          />
-                        </label>
-                        <div className={settings.serviceRow}>
-                          <div>
-                            <button
-                              type="button"
-                              className="secondary"
-                              disabled={
-                                providerCredentialBusy === "ai" ||
-                                !aiOrigin ||
-                                !ai.model.trim() ||
-                                (!aiCredentialInput.trim() && !storedAiCredential)
-                              }
-                              onClick={() =>
-                                void runProviderCredential(
-                                  "ai",
-                                  (credentials) =>
-                                    credentials.saveAi({
-                                      provider: ai.provider,
-                                      endpoint: ai.endpoint,
-                                      model: ai.model,
-                                      ...(aiCredentialInput.trim()
-                                        ? { token: aiCredentialInput }
-                                        : {}),
-                                    }),
-                                  "凭据已保存，provider 服务下次请求时生效。",
-                                )
-                              }
-                            >
-                              保存凭据
-                            </button>
-                            {storedAiCredential && (
-                              <button
-                                type="button"
-                                className="secondary"
-                                disabled={providerCredentialBusy === "ai"}
-                                onClick={() =>
-                                  void runProviderCredential(
-                                    "ai",
-                                    (credentials) => credentials.clearAi(ai.provider),
-                                    "凭据已清除。",
-                                  )
-                                }
-                              >
-                                清除凭据
-                              </button>
-                            )}
-                            <CredentialStatusMessage message={providerCredentialMessages.ai} />
-                          </div>
-                        </div>
+                      <AiCredentialSection
+                        endpoint={ai.endpoint}
+                        model={ai.model}
+                        origin={aiOrigin}
+                        token={aiCredentialInput}
+                        stored={storedAiCredential}
+                        invalid={providerCredentials?.aiInvalid === true}
+                        busy={providerCredentialBusy === "ai"}
+                        message={providerCredentialMessages.ai}
+                        onTokenChange={setAiCredentialInput}
+                        onSave={() =>
+                          void runProviderCredential(
+                            "ai",
+                            (credentials) =>
+                              credentials.saveAi({
+                                provider: ai.provider,
+                                endpoint: ai.endpoint,
+                                model: ai.model,
+                                ...(aiCredentialInput.trim() ? { token: aiCredentialInput } : {}),
+                              }),
+                            "凭据已保存，provider 服务下次请求时生效。",
+                          )
+                        }
+                        onClear={() =>
+                          void runProviderCredential(
+                            "ai",
+                            (credentials) => credentials.clearAi(ai.provider),
+                            "凭据已清除。",
+                          )
+                        }
+                      >
                         {credentialTestControl(
                           "ai.assistant",
                           "测试 AI 辅助配置",
                           { provider: ai.provider, endpoint: ai.endpoint, model: ai.model },
                           !ai.enabled || !aiOrigin || !ai.model.trim(),
                         )}
-                      </div>
+                      </AiCredentialSection>
                     ) : linuxPlatform ? (
                       <div className="section">
                         <div className="section-title">

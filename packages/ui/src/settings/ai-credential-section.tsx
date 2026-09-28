@@ -1,0 +1,88 @@
+import type { ReactNode } from "react";
+import { SecretInput } from "../core/secret-input";
+import {
+  CredentialStatusMessage,
+  type CredentialStatusMessageValue,
+} from "./credential-status-message";
+import * as settings from "./settings-style";
+
+export interface AiCredentialStored {
+  endpoint: string;
+  model: string;
+}
+
+export interface AiCredentialSectionProps {
+  endpoint: string;
+  model: string;
+  origin: string | null;
+  token: string;
+  stored?: AiCredentialStored;
+  invalid: boolean;
+  busy: boolean;
+  message?: CredentialStatusMessageValue;
+  onTokenChange: (token: string) => void;
+  onSave: () => void;
+  onClear: () => void;
+  children?: ReactNode;
+}
+
+/** Linux provider credentials for the shared AI assistant settings. */
+export function AiCredentialSection({
+  endpoint,
+  model,
+  origin,
+  token,
+  stored,
+  invalid,
+  busy,
+  message,
+  onTokenChange,
+  onSave,
+  onClear,
+  children,
+}: AiCredentialSectionProps) {
+  const matchesStored = stored?.endpoint === endpoint && stored.model === model;
+  return (
+    <div className="section" role="group" aria-label="AI 凭据">
+      <label className="section-header">
+        <span className="section-title">
+          API Token
+          <small>
+            {invalid
+              ? "现有 ai-provider.json 无效，provider 服务不会发出任何 AI 请求；请修复或删除该文件"
+              : !stored
+                ? "尚未保存；保存后只写入用户配置目录的 ai-provider.json，由 provider 服务读取"
+                : matchesStored
+                  ? "已保存，留空则保留原凭据"
+                  : `已保存的凭据绑定 ${stored.endpoint}（${stored.model}），与上方设置不一致；保存后改为绑定当前接口和模型`}
+          </small>
+        </span>
+        <SecretInput
+          label="AI API Token"
+          disabled={!origin}
+          value={token}
+          onChange={onTokenChange}
+        />
+      </label>
+      <div className={settings.serviceRow}>
+        <div>
+          <button
+            type="button"
+            className="secondary"
+            disabled={busy || !origin || !model.trim() || (!token.trim() && !stored)}
+            onClick={onSave}
+          >
+            保存凭据
+          </button>
+          {stored && (
+            <button type="button" className="secondary" disabled={busy} onClick={onClear}>
+              清除凭据
+            </button>
+          )}
+          <CredentialStatusMessage message={message} />
+        </div>
+      </div>
+      {children}
+    </div>
+  );
+}
