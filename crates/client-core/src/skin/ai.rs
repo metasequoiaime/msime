@@ -305,10 +305,7 @@ where
         cancelled: &AtomicBool,
         progress: impl Fn(usize) + Send + Sync,
     ) -> Result<Vec<AiSkinProposal>, AiSkinError> {
-        if prompt.is_empty()
-            || prompt.chars().count() > MAX_PROMPT_CHARACTERS
-            || prompt.chars().any(char::is_control)
-        {
+        if prompt.is_empty() || !crate::text::is_bounded_chars(prompt, MAX_PROMPT_CHARACTERS) {
             return Err(AiSkinError::InvalidResponse);
         }
         check_cancelled(cancelled)?;
