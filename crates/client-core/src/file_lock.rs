@@ -7,6 +7,16 @@
 //! `onCreateInputView` throw and the input method die before it could draw a single key.
 use std::fs::File;
 use std::io;
+use std::path::Path;
+
+pub(crate) fn open_lock_file(path: impl AsRef<Path>) -> io::Result<File> {
+    File::options()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(path)
+}
 
 pub(crate) fn try_shared(file: &File) -> io::Result<bool> {
     #[cfg(not(target_os = "android"))]

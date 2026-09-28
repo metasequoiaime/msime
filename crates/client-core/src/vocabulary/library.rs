@@ -12,7 +12,7 @@
 
 use super::wordbook::{self, Wordbook, WordbookEntry};
 use serde::{Deserialize, Serialize};
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -86,12 +86,7 @@ impl WordbookLibrary {
 
     fn lock(&self) -> Result<File, WordbookLibraryError> {
         fs::create_dir_all(&self.directory)?;
-        let lock = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(self.directory.join("wordbooks.lock"))?;
+        let lock = crate::file_lock::open_lock_file(self.directory.join("wordbooks.lock"))?;
         crate::file_lock::exclusive(&lock)?;
         Ok(lock)
     }

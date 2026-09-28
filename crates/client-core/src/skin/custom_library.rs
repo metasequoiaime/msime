@@ -4,7 +4,7 @@ use crate::file_lock;
 use crate::preferences::TouchKeyboardSkinDesign;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -170,12 +170,7 @@ impl CustomSkinLibraryStore {
         if !fs::symlink_metadata(&self.directory)?.file_type().is_dir() {
             return Err(CustomSkinLibraryError::Invalid);
         }
-        let lock = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .open(self.directory.join("library.lock"))?;
+        let lock = file_lock::open_lock_file(self.directory.join("library.lock"))?;
         file_lock::exclusive(&lock)?;
         Ok(lock)
     }

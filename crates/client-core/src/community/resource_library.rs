@@ -3,7 +3,7 @@
 use crate::community::resource::{CommunityResource, CommunityResourceKind};
 use crate::file_lock;
 use serde_json::from_slice;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -76,12 +76,7 @@ impl CommunityResourceLibraryStore {
             return Err(CommunityResourceLibraryError::Invalid);
         }
         let lock_path = self.file.with_extension("json.lock");
-        let lock = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .open(lock_path)?;
+        let lock = file_lock::open_lock_file(lock_path)?;
         file_lock::exclusive(&lock)?;
         Ok(lock)
     }

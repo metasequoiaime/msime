@@ -8,7 +8,7 @@ use crate::preferences::{
     TouchKeyboardSkinDesign,
 };
 use serde::{Deserialize, Serialize};
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -156,12 +156,7 @@ impl KeyboardSkinTrialStore {
         if !fs::symlink_metadata(&self.directory)?.file_type().is_dir() {
             return Err(KeyboardSkinTrialError::Invalid);
         }
-        let lock = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .open(self.directory.join("KeyboardSkinTrial.lock"))?;
+        let lock = file_lock::open_lock_file(self.directory.join("KeyboardSkinTrial.lock"))?;
         file_lock::exclusive(&lock)?;
         Ok(lock)
     }
