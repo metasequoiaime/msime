@@ -1255,10 +1255,13 @@ fn validate_entry(entry: &Entry) -> Result<(), String> {
         }
         Kind::English => msime_client_core::dictionary::english_code_is_well_formed(&entry.key),
     };
-    let value_has_invalid_control = entry.value.chars().any(|character| {
-        character.is_control()
-            && !(matches!(entry.kind, Kind::QuickPhrase) && matches!(character, '\n' | '\t'))
-    });
+    let allowed_controls: &[char] = if matches!(entry.kind, Kind::QuickPhrase) {
+        &['\n', '\t']
+    } else {
+        &[]
+    };
+    let value_has_invalid_control =
+        msime_client_core::has_disallowed_control_with_allowed(&entry.value, allowed_controls);
     let reason = if entry.key.is_empty() || entry.key.len() > key_limit {
         "code is empty or too long"
     } else if !key_valid {
