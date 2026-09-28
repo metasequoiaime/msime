@@ -90,13 +90,14 @@ where
     call_session(state.session(), operation).await
 }
 
-pub(crate) async fn call_session<T, F>(
-    session: &Arc<crate::platform::mobile::MobileSession>,
+pub(crate) async fn call_session<S, T, F>(
+    session: &Arc<S>,
     operation: F,
 ) -> Result<T, crate::CommandError>
 where
+    S: Send + Sync + 'static,
     T: Send + 'static,
-    F: FnOnce(&crate::platform::mobile::MobileSession) -> Result<T, AccountError> + Send + 'static,
+    F: FnOnce(&S) -> Result<T, AccountError> + Send + 'static,
 {
     let session = Arc::clone(session);
     tauri::async_runtime::spawn_blocking(move || operation(&session))
