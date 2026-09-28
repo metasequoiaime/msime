@@ -200,7 +200,23 @@ fn host_capabilities() -> HostCapabilities {
 fn linux_candidate_panel_limit() -> Option<msime_client_core::host_surface::CandidatePanelLimit> {
     use msime_client_core::host_surface::CandidatePanelLimit;
     let file = CandidatePanelLimit::status_file(std::env::var_os("XDG_RUNTIME_DIR").as_deref())?;
-    CandidatePanelLimit::from_host_status(&fs::read_to_string(file).ok()?)
+    CandidatePanelLimit::from_host_status(&read_candidate_panel_status(&file)?)
+}
+
+#[cfg(any(target_os = "linux", test))]
+const CANDIDATE_PANEL_STATUS_READ_LIMIT: u64 = 4096;
+
+#[cfg(any(target_os = "linux", test))]
+fn read_candidate_panel_status(path: &Path) -> Option<String> {
+    let file = fs::File::open(path).ok()?;
+    let mut bytes = Vec::new();
+    file.take(CANDIDATE_PANEL_STATUS_READ_LIMIT + 1)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    if bytes.len() as u64 > CANDIDATE_PANEL_STATUS_READ_LIMIT {
+        return None;
+    }
+    String::from_utf8(bytes).ok()
 }
 
 #[cfg(not(target_os = "linux"))]
