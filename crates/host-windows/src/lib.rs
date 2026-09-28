@@ -16,7 +16,7 @@
 #![allow(unsafe_code)]
 #![cfg(windows)]
 
-use msime_client_core::is_bounded_text;
+use msime_client_core::{is_bounded_text, is_bounded_utf16};
 
 pub mod ink;
 pub mod voice_controller;
@@ -363,7 +363,7 @@ pub fn read_clipboard_text() -> Result<String, ()> {
 /// makes SetClipboardData fail after EmptyClipboard) and retries a clipboard
 /// another process is briefly holding.
 pub fn write_clipboard_text(text: &str) -> bool {
-    if text.contains('\0') || text.encode_utf16().count() >= MAX_CLIPBOARD_UNITS {
+    if text.contains('\0') || !is_bounded_utf16(text, MAX_CLIPBOARD_UNITS - 1) {
         return false;
     }
     voice_output::write_unicode_clipboard(text).is_some()

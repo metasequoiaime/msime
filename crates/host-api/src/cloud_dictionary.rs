@@ -1,4 +1,4 @@
-use msime_client_core::{has_disallowed_control_with_options, is_bounded_text};
+use msime_client_core::{has_disallowed_control_with_options, is_bounded_text, is_bounded_utf16};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -152,8 +152,10 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
             && is_bounded_text(word, 1024)
             && weight >= 0
             && (kind != "quick"
-                || word.encode_utf16().count()
-                    <= msime_client_core::dictionary::import::MAX_QUICK_PHRASE_UTF16)
+                || is_bounded_utf16(
+                    word,
+                    msime_client_core::dictionary::import::MAX_QUICK_PHRASE_UTF16,
+                ))
     };
     let valid_format = |kind: &str, format: &str| {
         matches!(format, "standard" | "windows") || (kind == "pinyin" && format == "hans")
