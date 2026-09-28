@@ -45,6 +45,8 @@ export {
 import { isLinuxDesktop } from "./settings/platform-helpers";
 import { useSettingsTheme } from "./settings/use-settings-theme";
 export { useSettingsTheme } from "./settings/use-settings-theme";
+import { useTouchKeyboardGeometryDrag } from "./settings/use-touch-keyboard-geometry-drag";
+export { useTouchKeyboardGeometryDrag } from "./settings/use-touch-keyboard-geometry-drag";
 import {
   UPDATE_CHECK_TIMEOUT_MS,
   androidPrivacyUrl,
@@ -87,14 +89,7 @@ import {
   validModelMirror,
   type LocalVoiceModelClient,
 } from "./voice/local-models";
-import {
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type PointerEvent as ReactPointerEvent,
-} from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   DICTIONARY_PAGE_SIZE,
   dictionaryPageStatus,
@@ -1897,14 +1892,12 @@ export function SettingsPage({
     Partial<Record<NonNullable<Preferences["candidate_skin"]>, "light" | "dark">>
   >({});
   const [showTouchSkinEditor, setShowTouchSkinEditor] = useState(false);
-  const touchGeometryDrag = useRef<{
-    pointerId: number;
-    x: number;
-    y: number;
-    key: number;
-    row: number;
-    axis: "key" | "row" | null;
-  } | null>(null);
+  const {
+    onPointerDown: beginTouchGeometryDrag,
+    onPointerMove: updateTouchGeometryDrag,
+    onPointerUp: endTouchGeometryDrag,
+    onPointerCancel: cancelTouchGeometryDrag,
+  } = useTouchKeyboardGeometryDrag(draft, setDraft);
   const [aiModels, setAiModels] = useState<string[] | null>(null);
   const [aiModelsStatus, setAiModelsStatus] = useState("");
   const [aiModelsBusy, setAiModelsBusy] = useState(false);
@@ -2450,48 +2443,6 @@ export function SettingsPage({
     setDraft(next);
     setError("");
     setNotice("屏幕键盘设置已恢复默认，请点击保存设置。");
-  }
-
-  function beginTouchGeometryDrag(event: ReactPointerEvent<HTMLDivElement>) {
-    if (!draft || (event.pointerType === "mouse" && event.button !== 0)) return;
-    touchGeometryDrag.current = {
-      pointerId: event.pointerId,
-      x: event.clientX,
-      y: event.clientY,
-      key: draft.touch_key_spacing_tenths ?? 60,
-      row: draft.touch_row_spacing_tenths ?? 70,
-      axis: null,
-    };
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-  }
-
-  function updateTouchGeometryDrag(event: ReactPointerEvent<HTMLDivElement>) {
-    const drag = touchGeometryDrag.current;
-    if (!drag || drag.pointerId !== event.pointerId || !draft) return;
-    const dx = event.clientX - drag.x;
-    const dy = event.clientY - drag.y;
-    if (!drag.axis && Math.abs(dx) + Math.abs(dy) < 4) return;
-    drag.axis ??= Math.abs(dy) >= Math.abs(dx) ? "row" : "key";
-    const delta = drag.axis === "row" ? dy : dx;
-    const value = Math.round((drag.axis === "row" ? drag.row : drag.key) + (delta * 10) / 18);
-    setDraft((current) =>
-      current
-        ? {
-            ...current,
-            ...(drag.axis === "row"
-              ? { touch_row_spacing_tenths: clamp(value, 40, 100) }
-              : { touch_key_spacing_tenths: clamp(value, 30, 60) }),
-          }
-        : current,
-    );
-  }
-
-  function endTouchGeometryDrag(event: ReactPointerEvent<HTMLDivElement>) {
-    const drag = touchGeometryDrag.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    touchGeometryDrag.current = null;
-    if (event.currentTarget.hasPointerCapture?.(event.pointerId))
-      event.currentTarget.releasePointerCapture(event.pointerId);
   }
 
   async function openExternalUrl(url: string) {
@@ -4705,7 +4656,7 @@ export function SettingsPage({
                     onPointerDown={beginTouchGeometryDrag}
                     onPointerMove={updateTouchGeometryDrag}
                     onPointerUp={endTouchGeometryDrag}
-                    onPointerCancel={endTouchGeometryDrag}
+                    onPointerCancel={cancelTouchGeometryDrag}
                   />
                   <fieldset disabled={busy} hidden={page !== "handwriting"} aria-label="手写识别板">
                     <HandwritingSettingsSection
