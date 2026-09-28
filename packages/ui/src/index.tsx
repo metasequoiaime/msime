@@ -52,6 +52,7 @@ import { DiagnosticLogsSection } from "./settings/diagnostic-logs-section";
 import { HelpFeedbackSection } from "./settings/help-feedback-section";
 import { HelpSettingsPage } from "./settings/help-settings-page";
 import { ScreenKeyboardThemeSection } from "./settings/screen-keyboard-theme-section";
+import { ScreenKeyboardSkinsSection } from "./settings/screen-keyboard-skins-section";
 import {
   MobileKeyboardFeedbackSection,
   type MobileKeyboardFeedback,
@@ -76,10 +77,7 @@ import {
   polishPresetPrompt,
 } from "./voice/polish-presets";
 import { SkinToolbarPreview } from "./skin/skin-toolbar-preview";
-import {
-  ScreenKeyboardPreview,
-  touchKeyboardSkinOptions,
-} from "./keyboard/screen-keyboard-preview";
+import { ScreenKeyboardPreview } from "./keyboard/screen-keyboard-preview";
 import type { TouchKeyboardSkin } from "./keyboard/screen-keyboard-preview";
 import { TouchKeyboardSkinEditor } from "./keyboard/touch-keyboard-skin-editor";
 import * as skin from "./keyboard/touch-skin-style";
@@ -384,6 +382,10 @@ export {
   ScreenKeyboardThemeSection,
   type ScreenKeyboardThemeSectionProps,
 } from "./settings/screen-keyboard-theme-section";
+export {
+  ScreenKeyboardSkinsSection,
+  type ScreenKeyboardSkinsSectionProps,
+} from "./settings/screen-keyboard-skins-section";
 export {
   MobileKeyboardFeedbackSection,
   type MobileKeyboardFeedback,
@@ -6971,85 +6973,18 @@ export function SettingsPage({
                         setDraft({ ...draft, screen_keyboard_theme })
                       }
                     />
-                    <div
-                      className="section"
-                      role="group"
-                      aria-labelledby="touch-keyboard-skin-title"
-                    >
-                      <div className="section-title" id="touch-keyboard-skin-title">
-                        键盘皮肤
-                        <small>
-                          与 Apple 内置皮肤一致；独立于{mobilePlatform ? "候选栏" : "桌面候选窗"}
-                          皮肤
-                        </small>
-                      </div>
-                      <div className={skin.skinGrid}>
-                        {touchKeyboardSkinOptions.map((option) => (
-                          <article
-                            className={skin.skinCard(touchKeyboardSkin === option.id)}
-                            key={option.id}
-                          >
-                            <button
-                              type="button"
-                              className={skin.skinCardButton}
-                              role="switch"
-                              aria-label={`屏幕键盘皮肤 ${option.title}`}
-                              aria-checked={touchKeyboardSkin === option.id}
-                              onClick={() => setDraft({ ...draft, touch_keyboard_skin: option.id })}
-                            >
-                              <ScreenKeyboardPreview
-                                theme={keyboardPreviewTheme}
-                                skin={option.id}
-                                compact
-                              />
-                              <span className={skin.skinCardCopy}>
-                                <strong>{option.title}</strong>
-                                <small>{option.description}</small>
-                              </span>
-                              <span className={skin.skinCardCheck} aria-hidden="true">
-                                {touchKeyboardSkin === option.id ? "✓" : ""}
-                              </span>
-                            </button>
-                          </article>
-                        ))}
-                        {client.customTouchKeyboardSkins && (
-                          <article className={skin.skinCard(touchKeyboardSkin === "custom")}>
-                            <button
-                              type="button"
-                              className={skin.skinCardButton}
-                              role="switch"
-                              aria-label="屏幕键盘皮肤 我的皮肤"
-                              aria-checked={touchKeyboardSkin === "custom"}
-                              onClick={() => setDraft({ ...draft, touch_keyboard_skin: "custom" })}
-                            >
-                              <ScreenKeyboardPreview
-                                theme={keyboardPreviewTheme}
-                                skin="custom"
-                                customDesign={customTouchKeyboardSkin}
-                                compact
-                              />
-                              <span className={skin.skinCardCopy}>
-                                <strong>我的皮肤</strong>
-                                <small>自由配色 · 自定义键帽</small>
-                              </span>
-                              <span className={skin.skinCardCheck} aria-hidden="true">
-                                {touchKeyboardSkin === "custom" ? "✓" : ""}
-                              </span>
-                            </button>
-                          </article>
-                        )}
-                      </div>
-                      {client.customTouchKeyboardSkins && (
-                        <button
-                          type="button"
-                          className={`secondary ${skin.editorOpen}`}
-                          aria-expanded={showTouchSkinEditor}
-                          onClick={() => setShowTouchSkinEditor((value) => !value)}
-                        >
-                          {showTouchSkinEditor ? "收起自定义编辑器" : "设计我的皮肤"}
-                        </button>
-                      )}
-                    </div>
+                    <ScreenKeyboardSkinsSection
+                      mobile={mobilePlatform}
+                      theme={keyboardPreviewTheme}
+                      selected={touchKeyboardSkin}
+                      customDesign={customTouchKeyboardSkin}
+                      customAvailable={Boolean(client.customTouchKeyboardSkins)}
+                      editorOpen={showTouchSkinEditor}
+                      onSelect={(touch_keyboard_skin) =>
+                        setDraft({ ...draft, touch_keyboard_skin })
+                      }
+                      onToggleEditor={() => setShowTouchSkinEditor((value) => !value)}
+                    />
                     {mobilePlatform && client.communitySkins && (
                       <div className="section">
                         <div className="section-header">
