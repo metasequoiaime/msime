@@ -1,4 +1,4 @@
-use msime_client_core::is_bounded_text;
+use msime_client_core::{has_disallowed_control_with_options, is_bounded_text};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -422,10 +422,7 @@ fn valid_snapshot_text(value: &str) -> bool {
     const MAX_SNAPSHOT_BYTES: usize = 512 * 1024 * 1024;
     !value.is_empty()
         && value.len() <= MAX_SNAPSHOT_BYTES
-        && !value.contains('\0')
-        && value
-            .chars()
-            .all(|character| !character.is_control() || matches!(character, '\n' | '\r' | '\t'))
+        && !has_disallowed_control_with_options(value, true)
 }
 
 #[cfg(test)]
