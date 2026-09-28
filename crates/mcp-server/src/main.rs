@@ -2,6 +2,7 @@
 //!
 //! stdout carries the protocol and nothing else; anything for a person goes to stderr.
 
+mod bounded;
 mod config;
 mod diagnostics;
 mod preferences;
