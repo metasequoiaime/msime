@@ -222,7 +222,7 @@ fn normalized_name(name: &str) -> Result<String, KeyboardSkinTrialError> {
     let name = name.trim();
     if name.is_empty()
         || name.graphemes(true).count() > MAXIMUM_NAME_GRAPHEMES
-        || name.chars().any(char::is_control)
+        || crate::has_disallowed_control_with_options(name, false)
     {
         return Err(KeyboardSkinTrialError::Invalid);
     }
