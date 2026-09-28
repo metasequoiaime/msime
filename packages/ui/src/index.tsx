@@ -51,6 +51,7 @@ import { AI_PROVIDER_OPTIONS } from "./settings/ai-provider-options";
 export { AI_PROVIDER_OPTIONS } from "./settings/ai-provider-options";
 import { defaultVoiceInput } from "./settings/voice-input-defaults";
 import { macosSidebarGroups } from "./settings/macos-sidebar-groups";
+import { unreadablePreferencesMessage } from "./settings/preferences-recovery-message";
 import {
   defaultCustomTranslation,
   defaultNiuTrans,
@@ -1480,9 +1481,6 @@ export interface PreferencesRecovery {
   backupPath?: string | null;
   salvaged: boolean;
 }
-
-/** What a load or save that failed on an unreadable document says; the repair button sits beside exactly this message. */
-const unreadablePreferencesMessage = "配置文件无法读取或版本较新，原文件已保留。";
 
 /** What the platform calls itself, for text a person reads rather than a switch the code takes. */
 /**
