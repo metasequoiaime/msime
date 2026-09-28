@@ -1,5 +1,6 @@
 import * as settings from "./settings-style";
 import { InputModeHudSection } from "./input-mode-hud-section";
+import { SettingToggle } from "./setting-toggle";
 
 export interface InputModeShortcutPreferences {
   switch_language_shift: boolean;
@@ -56,16 +57,14 @@ export function InputModeShortcutsSection({
       <div className="section-title">输入模式切换</div>
       <small>在当前输入上下文中切换中英文模式；关闭后快捷键会交给应用处理。</small>
       {modeSwitchShortcutRows.map(([key, label]) => (
-        <label className="section-header" key={key}>
-          <span className="section-title">{label}</span>
-          <input
-            aria-label={label}
-            className="toggle"
-            type="checkbox"
-            checked={keybindings[key]}
-            onChange={(event) => onChange({ [key]: event.target.checked })}
-          />
-        </label>
+        <SettingToggle
+          key={key}
+          label={label}
+          ariaLabel={label}
+          checked={keybindings[key]}
+          compact
+          onChange={(enabled) => onChange({ [key]: enabled })}
+        />
       ))}
       {macos && showInputModeHUD && (
         <InputModeHudSection

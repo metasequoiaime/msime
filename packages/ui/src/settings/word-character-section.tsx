@@ -37,29 +37,23 @@ export function WordCharacterSection({
 
   return (
     <div className="section">
-      <label className="section-header">
-        <span className="section-title">
-          以词定字
-          <small>
-            {ios
-              ? "开启后，长按两个字以上的候选，可以只上屏它的首字或末字"
-              : "开启后，按所选键组的左键上屏高亮候选的首个汉字，右键上屏末个汉字"}
-          </small>
-        </span>
-        <input
-          aria-label="以词定字"
-          className="toggle"
-          type="checkbox"
-          checked={preferences.enabled}
-          onChange={(event) => {
-            const enabled = event.target.checked;
-            onChange({
-              wordCharacter: { ...preferences, enabled },
-              navigation: enabled ? { ...navigation, [preferences.keys]: false } : navigation,
-            });
-          }}
-        />
-      </label>
+      <SettingToggle
+        label="以词定字"
+        description={
+          ios
+            ? "开启后，长按两个字以上的候选，可以只上屏它的首字或末字"
+            : "开启后，按所选键组的左键上屏高亮候选的首个汉字，右键上屏末个汉字"
+        }
+        ariaLabel="以词定字"
+        checked={preferences.enabled}
+        compact
+        onChange={(enabled) =>
+          onChange({
+            wordCharacter: { ...preferences, enabled },
+            navigation: enabled ? { ...navigation, [preferences.keys]: false } : navigation,
+          })
+        }
+      />
       {!ios && (
         <div className="word-to-character-keys-row">
           <div className="section-title" id="word-character-title">
@@ -96,3 +90,4 @@ export function WordCharacterSection({
     </div>
   );
 }
+import { SettingToggle } from "./setting-toggle";

@@ -1,4 +1,5 @@
 import * as settings from "./settings-style";
+import { SettingToggle } from "./setting-toggle";
 import type { NavigationPreferences } from "./word-character-section";
 
 export interface CandidateShortcutsSectionProps {
@@ -22,18 +23,14 @@ export function CandidateShortcutsSection({
       <div className="section-title">候选操作</div>
       <small>输入和选取候选词时使用</small>
       {showNumberRowSelection && (
-        <label className="section-header">
-          <span className="section-title">
-            数字键选词<small>关闭后，候选窗口显示时数字键仍交给当前应用。</small>
-          </span>
-          <input
-            aria-label="数字键选词"
-            className="toggle"
-            type="checkbox"
-            checked={numberRowSelection}
-            onChange={(event) => onNumberRowSelectionChange(event.target.checked)}
-          />
-        </label>
+        <SettingToggle
+          label="数字键选词"
+          description="关闭后，候选窗口显示时数字键仍交给当前应用。"
+          ariaLabel="数字键选词"
+          checked={numberRowSelection}
+          compact
+          onChange={onNumberRowSelectionChange}
+        />
       )}
       <div className={settings.shortcutList}>
         <div className={settings.shortcutRow}>
