@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useConfirm } from "../core/confirm";
+import { errorCode } from "../core/error-code";
 import * as chat from "./chat-style";
 import { boundedHistory, chatMessageByteLength, MAX_MESSAGE_BYTES } from "./chat-history";
 import { chatError } from "./chat-errors";

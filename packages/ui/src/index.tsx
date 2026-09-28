@@ -121,8 +121,6 @@ export {
   dictionaryKindLabel,
 } from "./dictionary/dictionary-export";
 export { describeImportResult, dictionaryKindKeyHint } from "./dictionary/dictionary-messages";
-import { SkinCandidatePreview } from "./skin/skin-candidate-preview";
-import { skinOptions } from "./skin/skin-options";
 import { AppearanceCandidatePreview } from "./candidate/appearance-candidate-preview";
 import { useCandidatePreviewTheme } from "./candidate/candidate-preview-theme";
 import { CandidateFontControls } from "./candidate/candidate-font-controls";
@@ -132,6 +130,7 @@ import { CandidateLayoutSection } from "./settings/candidate-layout-section";
 import { CandidateFollowCursorSection } from "./settings/candidate-follow-cursor-section";
 import { CandidatePanelLimitSection } from "./settings/candidate-panel-limit-section";
 import { CandidateEnglishGlossSection } from "./settings/candidate-english-gloss-section";
+import { BuiltInSkinsSection } from "./settings/built-in-skins-section";
 import { EnglishSuggestionsSection } from "./settings/english-suggestions-section";
 import { LearningSection } from "./settings/learning-section";
 import { DefaultImeModeSection, type DefaultImeMode } from "./settings/default-ime-mode-section";
@@ -260,7 +259,6 @@ import {
   POLISH_PROVIDER_DEFAULTS,
 } from "./voice/voice-providers";
 import { PolishPromptSection } from "./settings/polish-prompt-section";
-import { SkinToolbarPreview } from "./skin/skin-toolbar-preview";
 import type { TouchKeyboardSkin } from "./keyboard/screen-keyboard-preview";
 import { TouchKeyboardSkinEditor } from "./keyboard/touch-keyboard-skin-editor";
 import * as skin from "./keyboard/touch-skin-style";
@@ -352,7 +350,6 @@ import {
 import { ChatPage, type ChatClient } from "./chat/chat-page";
 import { HomePage, MoreSettingsPage, type HomePageActions } from "./keyboard/home-page";
 import { CommunitySkinsPage, type CommunitySkinClient } from "./community/community-skins";
-import { candidateSkinPalette } from "./skin/skin-preview-palette";
 import {
   CommunityHomePage,
   CommunityResourcesPage,
@@ -496,6 +493,10 @@ export {
   type CandidateColorKey,
   type CandidateColorPreferences,
 } from "./settings/candidate-colors-section";
+export {
+  BuiltInSkinsSection,
+  type BuiltInSkinsSectionProps,
+} from "./settings/built-in-skins-section";
 export {
   CandidateSizingSection,
   type CandidateSizingPreferences,
@@ -4388,89 +4389,20 @@ export function SettingsPage({
                           : ""}
                       </div>
                     )}
-                    <div className={settings.skinGrid}>
-                      {skinOptions.map(([id, title, description, candidateOnlyDescription]) => (
-                        <article
-                          aria-label={title}
-                          className={settings.skinCard(
-                            (draft.candidate_skin ?? "willow_green") === id,
-                          )}
-                          key={id}
-                        >
-                          <div className={settings.skinCardHeader} data-skin-card-header="">
-                            <div className={settings.skinCardBody}>
-                              <span className={settings.skinCardTitle}>
-                                {title} (
-                                {(skinPreviewThemes[id] ?? candidatePreviewTheme) === "dark"
-                                  ? "Dark"
-                                  : "Light"}
-                                )
-                              </span>
-                              <span className={settings.skinCardDescription}>
-                                {linuxPlatform ? candidateOnlyDescription : description}
-                              </span>
-                            </div>
-                            <div className={settings.skinCardActions}>
-                              <button
-                                type="button"
-                                role="switch"
-                                aria-label={title}
-                                aria-checked={(draft.candidate_skin ?? "willow_green") === id}
-                                className={settings.skinSwitch(
-                                  (draft.candidate_skin ?? "willow_green") === id,
-                                )}
-                                onClick={() => setDraft({ ...draft, candidate_skin: id })}
-                              >
-                                <span
-                                  className={settings.skinSwitchKnob(
-                                    (draft.candidate_skin ?? "willow_green") === id,
-                                  )}
-                                />
-                              </button>
-                              <button
-                                type="button"
-                                className={settings.skinPreviewSwitch}
-                                onClick={() =>
-                                  setSkinPreviewThemes((current) => ({
-                                    ...current,
-                                    [id]:
-                                      (current[id] ?? candidatePreviewTheme) === "dark"
-                                        ? "light"
-                                        : "dark",
-                                  }))
-                                }
-                              >
-                                {(skinPreviewThemes[id] ?? candidatePreviewTheme) === "dark"
-                                  ? "预览浅色"
-                                  : "预览深色"}
-                              </button>
-                            </div>
-                          </div>
-                          <div
-                            className={`${settings.skinCardPreview} skin-${id}`}
-                            data-skin-preview=""
-                            data-preview-theme={skinPreviewThemes[id] ?? candidatePreviewTheme}
-                            style={candidateSkinPalette(
-                              id,
-                              skinPreviewThemes[id] ?? candidatePreviewTheme,
-                            )}
-                            aria-hidden="true"
-                          >
-                            <div className={settings.skinPreviewStage} data-skin-stage="">
-                              <SkinCandidatePreview orientation="horizontal" />
-                            </div>
-                            <div className={settings.skinPreviewStage} data-skin-stage="">
-                              <SkinCandidatePreview orientation="vertical" />
-                            </div>
-                            {!linuxPlatform && (
-                              <div className={settings.skinPreviewStage} data-skin-stage="">
-                                <SkinToolbarPreview />
-                              </div>
-                            )}
-                          </div>
-                        </article>
-                      ))}
-                    </div>
+                    <BuiltInSkinsSection
+                      selected={draft.candidate_skin ?? "willow_green"}
+                      previewThemes={skinPreviewThemes}
+                      defaultTheme={candidatePreviewTheme}
+                      linux={linuxPlatform}
+                      onSelect={(id) => setDraft({ ...draft, candidate_skin: id })}
+                      onTogglePreview={(id) =>
+                        setSkinPreviewThemes((current) => ({
+                          ...current,
+                          [id]:
+                            (current[id] ?? candidatePreviewTheme) === "dark" ? "light" : "dark",
+                        }))
+                      }
+                    />
                     <ExternalSkins
                       activeTheme={candidatePreviewTheme}
                       scan={client.scanSkinCatalog}
