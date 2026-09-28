@@ -51,6 +51,7 @@ export { AI_PROVIDER_OPTIONS } from "./settings/ai-provider-options";
 import { defaultVoiceInput } from "./settings/voice-input-defaults";
 import { macosSidebarGroups } from "./settings/macos-sidebar-groups";
 import { groupSidebarPages } from "./settings/sidebar-groups";
+import { mobileHiddenPageIds as getMobileHiddenPageIds } from "./settings/mobile-hidden-pages";
 import { unreadablePreferencesMessage } from "./settings/preferences-recovery-message";
 import {
   defaultCustomTranslation,
@@ -3338,15 +3339,14 @@ export function SettingsPage({
   // not route any of them rather than where the platform happens to be a phone. Any of these
   // devices can have a keyboard attached, and its owner has to be able to reach the switches the
   // host already reads; hiding the page by platform name left them unreachable on Android.
-  const mobileHiddenPageIds: readonly SettingsPageId[] = [
-    ...(showModeSwitchShortcuts || showPanelShortcuts || showDesktopMaintenanceShortcuts
-      ? []
-      : (["shortcuts"] as const)),
-    "floating-toolbar",
-    ...(showHelpcodeShiftEntry || androidPlatform || harmonyPlatform
-      ? []
-      : (["helpcode"] as const)),
-  ];
+  const mobileHiddenPageIds: readonly SettingsPageId[] = getMobileHiddenPageIds({
+    modeSwitchShortcuts: showModeSwitchShortcuts,
+    panelShortcuts: showPanelShortcuts,
+    desktopMaintenanceShortcuts: showDesktopMaintenanceShortcuts,
+    helpcodeShiftEntry: showHelpcodeShiftEntry,
+    android: androidPlatform,
+    harmony: harmonyPlatform,
+  });
   // The sidebar is the list this page duplicates, so it does not list it. A mobile host above phone width still shows the sidebar, and `selectPage` refuses the pages hidden above, so listing them there left buttons that did nothing when tapped.
   const sidebarPages = availablePages.filter(
     (item) => item.id !== "more" && !(mobilePlatform && mobileHiddenPageIds.includes(item.id)),
