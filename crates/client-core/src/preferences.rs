@@ -1939,12 +1939,7 @@ impl PreferencesStore {
 
     fn open_lock(&self) -> Result<File, PreferencesError> {
         fs::create_dir_all(&self.directory)?;
-        let lock = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(self.directory.join("preferences.lock"))?;
+        let lock = crate::file_lock::open_lock_file(self.directory.join("preferences.lock"))?;
         Ok(lock)
     }
 
