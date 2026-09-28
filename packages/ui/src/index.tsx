@@ -82,6 +82,7 @@ import { CredentialStatusMessage } from "./settings/credential-status-message";
 import { AiCredentialSection } from "./settings/ai-credential-section";
 import { AiPromptSettingsSection } from "./settings/ai-prompt-settings-section";
 import { AiTestToolsSection } from "./settings/ai-test-tools-section";
+import { AiCandidateLimitSection } from "./settings/ai-candidate-limit-section";
 import { AiModelCatalogSection } from "./settings/ai-model-catalog-section";
 import {
   AiBasicSettingsSection,
@@ -7198,26 +7199,10 @@ export function SettingsPage({
                         onSelect={(model) => updateAi({ model })}
                       />
                     )}
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">候选数量</span>
-                        <input
-                          aria-label="AI 候选数量"
-                          type="number"
-                          min="1"
-                          max="10"
-                          value={ai.candidate_limit}
-                          onChange={(event) =>
-                            updateAi({
-                              candidate_limit: Math.max(
-                                1,
-                                Math.min(10, Number(event.target.value) || 3),
-                              ),
-                            })
-                          }
-                        />
-                      </label>
-                    </div>
+                    <AiCandidateLimitSection
+                      value={ai.candidate_limit}
+                      onChange={(candidate_limit) => updateAi({ candidate_limit })}
+                    />
                     <AiPromptSettingsSection
                       promptId={ai.prompt_id}
                       prompt={ai.prompt}
