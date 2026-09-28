@@ -46,6 +46,20 @@ pub(crate) fn clear_snapshot_previews(
     }
 }
 
+pub(crate) fn replace_pending_snapshot(
+    previews: &std::sync::Arc<std::sync::Mutex<HashMap<String, PendingSnapshot>>>,
+    token: String,
+    snapshot: PendingSnapshot,
+) -> Result<Vec<PathBuf>, crate::CommandError> {
+    let mut pending = previews.lock().map_err(|_| snapshot_command_error())?;
+    let old = pending
+        .drain()
+        .map(|(_, item)| item.path)
+        .collect::<Vec<_>>();
+    pending.insert(token, snapshot);
+    Ok(old)
+}
+
 pub(crate) fn clear_snapshot_previews_after<T>(
     previews: &std::sync::Arc<std::sync::Mutex<HashMap<String, PendingSnapshot>>>,
     result: Result<T, crate::CommandError>,
