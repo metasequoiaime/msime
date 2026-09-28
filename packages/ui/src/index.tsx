@@ -181,6 +181,7 @@ import {
 import { VoiceInputIntroSection } from "./settings/voice-input-intro-section";
 import { VoiceInputCoreSection } from "./settings/voice-input-core-section";
 import { VoiceModelPathSection } from "./settings/voice-model-path-section";
+import { VoiceModelPathDisclosure } from "./settings/voice-model-path-disclosure";
 import { VoiceModelSection } from "./settings/voice-model-section";
 import { VoiceEndpointSection } from "./settings/voice-endpoint-section";
 import { VoiceCredentialFieldsSection } from "./settings/voice-credential-fields-section";
@@ -672,6 +673,10 @@ export {
   VoiceModelPathSection,
   type VoiceModelPathSectionProps,
 } from "./settings/voice-model-path-section";
+export {
+  VoiceModelPathDisclosure,
+  type VoiceModelPathDisclosureProps,
+} from "./settings/voice-model-path-disclosure";
 export { VoiceModelSection, type VoiceModelSectionProps } from "./settings/voice-model-section";
 export {
   VoiceEndpointSection,
@@ -5265,23 +5270,14 @@ export function SettingsPage({
                         onChange={(asr_model_mirror) => updateVoice({ asr_model_mirror })}
                       />
                     )}
-                    {localVoice &&
-                      (client.localVoiceModels ? (
-                        <details className="section">
-                          <summary>高级：手动指定 Whisper 模型文件</summary>
-                          <VoiceModelPathSection
-                            path={voiceInput.asr_model_path ?? ""}
-                            pickPath={client.pickVoiceModelPath}
-                            onChange={(asr_model_path) => updateVoice({ asr_model_path })}
-                          />
-                        </details>
-                      ) : (
-                        <VoiceModelPathSection
-                          path={voiceInput.asr_model_path ?? ""}
-                          pickPath={client.pickVoiceModelPath}
-                          onChange={(asr_model_path) => updateVoice({ asr_model_path })}
-                        />
-                      ))}
+                    {localVoice && (
+                      <VoiceModelPathDisclosure
+                        disclosure={Boolean(client.localVoiceModels)}
+                        path={voiceInput.asr_model_path ?? ""}
+                        pickPath={client.pickVoiceModelPath}
+                        onChange={(asr_model_path) => updateVoice({ asr_model_path })}
+                      />
+                    )}
                     {showVoiceProviderSettings &&
                       serviceVoice &&
                       providerPresetControls(
