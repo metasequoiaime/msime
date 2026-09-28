@@ -320,6 +320,14 @@ if rg -n 'Files\.readAllBytes' \
   echo "Android community reply library must use a bounded streaming read" >&2
   exit 1
 fi
+for source in \
+    "$repo_root/platforms/android/java/app/msime/client/core/MSIMEInputService.java" \
+    "$repo_root/platforms/android/java/app/msime/client/voice/VoiceRecognitionActivity.java"; do
+  if rg -n 'readAllBytes.*runtime-options|runtime-options.*readAllBytes' "$source"; then
+    echo "Android runtime-options readers must use HostOptionsPolicy" >&2
+    exit 1
+  fi
+done
 #
 # Match the launcher activities by their path *inside the repository*. The absolute pattern this
 # started as, `*/home/*`, also matches every source on a GitHub runner, where the checkout itself
