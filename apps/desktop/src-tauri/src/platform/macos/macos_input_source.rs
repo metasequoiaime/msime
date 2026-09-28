@@ -7,13 +7,14 @@
 //! working input source.
 
 use std::fs;
-use std::io;
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
 // The identifier the input method bundle carries, which is MetasequoiaIME's rather than a new one of this client's: the client supersedes that input source in place instead of standing beside it. `validate_bundle` looks for it in the packaged Info.plist, so a value that has drifted from platforms/macos/Info.plist.in rejects the correct bundle rather than accepting a wrong one.
 pub(crate) const INPUT_SOURCE_BUNDLE_ID: &str = "app.msime.inputmethod.MetasequoiaIME";
 pub(crate) const INPUT_SOURCE_BUNDLE_NAME: &str = "水杉输入法.app";
 const INPUT_SOURCE_EXECUTABLE: &str = "水杉输入法";
+const MAX_INFO_PLIST_BYTES: u64 = 1024 * 1024;
 /// Bundles under a name this no longer installs, still sitting in `~/Library/Input Methods`.
 ///
 /// The directory name is not something a user ever reads - the input menu and System Settings show
@@ -64,7 +65,15 @@ fn validate_bundle(source: &Path) -> Result<(), InstallError> {
     {
         return Err(InstallError::InvalidBundle);
     }
-    let plist = fs::read(info).map_err(|_| InstallError::InvalidBundle)?;
+    let mut plist = Vec::new();
+    fs::File::open(info)
+        .map_err(|_| InstallError::InvalidBundle)?
+        .take(MAX_INFO_PLIST_BYTES + 1)
+        .read_to_end(&mut plist)
+        .map_err(|_| InstallError::InvalidBundle)?;
+    if plist.len() as u64 > MAX_INFO_PLIST_BYTES {
+        return Err(InstallError::InvalidBundle);
+    }
     if !String::from_utf8_lossy(&plist).contains(INPUT_SOURCE_BUNDLE_ID) {
         return Err(InstallError::InvalidBundle);
     }
@@ -616,6 +625,20 @@ mod tests {
 
     fn version(short: &str, build: &str) -> BundleVersion {
         BundleVersion::parse(short, build).unwrap()
+    }
+
+    #[test]
+    fn rejects_oversized_info_plist() {
+        let root = tempdir().unwrap();
+        let bundle = fixture(root.path(), INPUT_SOURCE_BUNDLE_ID, b"synthetic");
+        let mut plist = vec![b'x'; 1024 * 1024 + 1];
+        plist.extend_from_slice(INPUT_SOURCE_BUNDLE_ID.as_bytes());
+        fs::write(bundle.join("Contents/Info.plist"), plist).unwrap();
+
+        assert!(matches!(
+            validate_bundle(&bundle),
+            Err(InstallError::InvalidBundle)
+        ));
     }
 
     #[test]
