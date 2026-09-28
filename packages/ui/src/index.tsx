@@ -30,7 +30,6 @@ export {
   type PlatformCopyContext,
   type PlatformCopy,
 } from "./settings/platform-copy";
-import { mobileTabIcon, mobileTabTitle } from "./settings/mobile-tab-helpers";
 import {
   mobilePrimaryPageIds,
   mobileTabForPage,
@@ -375,6 +374,12 @@ export {
   type SettingsSidebarItem,
   type SettingsSidebarProps,
 } from "./settings/settings-sidebar";
+import { MobileSettingsTabs } from "./settings/mobile-settings-tabs";
+export {
+  MobileSettingsTabs,
+  type MobileSettingsTab,
+  type MobileSettingsTabsProps,
+} from "./settings/mobile-settings-tabs";
 import * as surface from "./keyboard/panel-surface-style";
 import * as settings from "./settings/settings-style";
 import * as doc from "./settings/document-style";
@@ -3535,32 +3540,11 @@ export function SettingsPage({
             assistive technology and keyboard focus still reach the navigation first, and the bottom
             padding clears the gesture inset. Hidden above phone width, where the sidebar serves. */}
         {mobilePlatform && (
-          <nav
-            className="hidden max-phone:order-2 max-phone:mx-3 max-phone:mb-[calc(0.5rem+env(safe-area-inset-bottom,0px))] max-phone:grid max-phone:grid-cols-4 max-phone:gap-1 max-phone:rounded-[26px] max-phone:border max-phone:border-edge max-phone:bg-card max-phone:p-1.5 max-phone:shadow-card"
-            aria-label="主要功能"
-          >
-            {mobilePrimaryPages.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                className={`flex min-h-[46px] min-w-0 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-[20px] border-0 px-1 py-1 text-[11px] ${
-                  mobileActiveTab === item.id
-                    ? "bg-accent-soft font-semibold text-accent"
-                    : "bg-transparent text-muted"
-                }`}
-                aria-current={mobileActiveTab === item.id ? "page" : undefined}
-                onClick={() => selectMobileTab(item.id)}
-              >
-                <img
-                  src={mobileTabIcon(item.id, item.icon)}
-                  alt=""
-                  aria-hidden="true"
-                  className={`size-[22px] ${mobileActiveTab === item.id ? "opacity-100" : "opacity-60"}`}
-                />
-                {mobileTabTitle(item.id, item.title)}
-              </button>
-            ))}
-          </nav>
+          <MobileSettingsTabs
+            tabs={mobilePrimaryPages}
+            activeTab={mobileActiveTab}
+            onSelect={selectMobileTab}
+          />
         )}
         <SettingsSidebar groups={sidebarGroups} selectedPage={page} onSelectPage={selectPage} />
         <main
