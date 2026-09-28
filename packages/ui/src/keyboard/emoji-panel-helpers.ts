@@ -18,3 +18,11 @@ export function clipboardTooltip(text: string): string {
 export function flattenGroups(groups: EmojiCatalogGroup[]): EmojiCatalogItem[] {
   return groups.flatMap((group) => group.items);
 }
+
+/** Prefers the first CJK keyword for a compact tooltip label, then the first token. */
+export function emojiDisplayName(keywords: string | undefined, fallback = ""): string {
+  const tokens = (keywords ?? "").split(/\s+/).filter(Boolean);
+  if (!tokens.length) return fallback;
+  const cjk = tokens.find((token) => /[\u3400-\u9fff\uf900-\ufaff]/.test(token));
+  return cjk ?? tokens[0];
+}

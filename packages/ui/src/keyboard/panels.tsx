@@ -29,7 +29,12 @@ import { normalizeHandwritingCandidates } from "./handwriting";
 import { validVoiceLanguage } from "./voice-panel";
 import { isImeCommitKey, keyboardKeyWeight, modifierPrefix, type Modifier } from "./keyboard-input";
 import { keyboardRgba, mixKeyboardColor, readableKeyboardText } from "./keyboard-colors";
-import { clipboardTooltip, flattenGroups, matchesEmojiItem } from "./emoji-panel-helpers";
+import {
+  clipboardTooltip,
+  emojiDisplayName,
+  flattenGroups,
+  matchesEmojiItem,
+} from "./emoji-panel-helpers";
 import {
   appendPointerSamples,
   MAX_HANDWRITING_STROKES,
@@ -4265,21 +4270,6 @@ const emojiPages: { id: EmojiPage; label: string; icon: string }[] = [
   { id: "symbols", label: "符号", icon: "★" },
   { id: "clipboard", label: "剪贴板", icon: "▣" },
 ];
-
-/**
- * A short label for an item's hover tooltip.
- *
- * Keywords are a space-separated blob ("grinning face smile happy 笑 高兴 开心"),
- * which is noisy as a tooltip and, for symbols whose keywords default to the
- * category name, not a name at all. Mirrors the shipped DisplayNameForItem:
- * prefer the first token containing CJK, else the first token.
- */
-export function emojiDisplayName(keywords: string | undefined, fallback = ""): string {
-  const tokens = (keywords ?? "").split(/\s+/).filter(Boolean);
-  if (!tokens.length) return fallback;
-  const cjk = tokens.find((token) => /[\u3400-\u9fff\uf900-\ufaff]/.test(token));
-  return cjk ?? tokens[0];
-}
 
 /*
  * The emoji panel is its own window with its own palette, switched by `data-panel-theme` on the root
