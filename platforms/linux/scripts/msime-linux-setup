@@ -38,6 +38,8 @@ from pathlib import Path
 CHUNK = 1024 * 1024
 # IBus, Fcitx5 and the host refresh path all reject runtime-options.json above this size.
 RUNTIME_OPTIONS_LIMIT = 16 * 1024
+# The hosts cap the shared panel restore record before parsing it.
+PANEL_RESTORE_LIMIT = 64 * 1024
 # Each registration step is a local D-Bus or dconf round trip; a wedged daemon must not hold up the end of setup.
 COMMAND_TIMEOUT = 10
 DOWNLOAD_TIMEOUT = 60
@@ -895,6 +897,14 @@ def panel_restore_lock(record_file: Path):
         os.close(descriptor)
 
 
+def read_bounded_text(path: Path, limit: int) -> str:
+    with path.open("rb") as source:
+        raw = source.read(limit + 1)
+    if len(raw) > limit:
+        raise ValueError(f"文件超过 {limit} 字节限制")
+    return raw.decode()
+
+
 def restore_panel_settings() -> None:
     """Undo what the hosts changed in the desktop's candidate panel settings, which every input method shares, and remove the theme MSIME generated for Fcitx5. The record is removed once every host's settings were dealt with; a failure keeps it, so a later --unregister can still restore them.
 
@@ -902,7 +912,7 @@ def restore_panel_settings() -> None:
     record_file = xdg_base("XDG_STATE_HOME", ".local/state") / PANEL_RESTORE_FILE
     text = None
     try:
-        text = record_file.read_text()
+        text = read_bounded_text(record_file, PANEL_RESTORE_LIMIT)
         record = json.loads(text)
     except FileNotFoundError:
         record = {}
@@ -933,7 +943,7 @@ def restore_panel_settings() -> None:
     if complete:
         try:
             with panel_restore_lock(record_file):
-                if record_file.read_text() == text:
+                if read_bounded_text(record_file, PANEL_RESTORE_LIMIT) == text:
                     record_file.unlink()
                     return
         except FileNotFoundError:

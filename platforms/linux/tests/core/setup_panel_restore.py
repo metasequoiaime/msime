@@ -297,6 +297,14 @@ def main() -> int:
         assert harness.record.exists() and not harness.theme.exists()
         assert harness.classicui.read_text() == restored_file(Theme="default", DarkTheme="default-dark", Font='"Sans 10"')
 
+        # The hosts cap the restore record at 64 KiB. An oversized record is kept for a later
+        # repair instead of being loaded without a bound or treated as a valid restore document.
+        huge = {"fcitx5": {"Font": {"prior": "x" * (64 * 1024), "written": "msime"}}}
+        harness.world(record=huge)
+        result = harness.unregister()
+        assert "无法读取候选面板设置的恢复记录" in result.stderr, result.stderr
+        assert harness.record.exists() and not harness.theme.exists()
+
         # XDG_STATE_HOME, XDG_CONFIG_HOME and XDG_DATA_HOME are honoured when absolute, as the hosts resolve them.
         harness.world()
         state, config, data = (Path(name) / part for part in ("xdg-state", "xdg-config", "xdg-data"))
