@@ -105,13 +105,7 @@ import {
   ASR_PROVIDER_DEFAULTS,
   POLISH_PROVIDER_DEFAULTS,
 } from "./voice/voice-providers";
-import {
-  POLISH_PRESET_IDS,
-  POLISH_PRESET_NAMES,
-  isPolishCustomSlot,
-  normalizePolishSlot,
-  polishPresetPrompt,
-} from "./voice/polish-presets";
+import { PolishPromptSection } from "./settings/polish-prompt-section";
 import { SkinToolbarPreview } from "./skin/skin-toolbar-preview";
 import { ScreenKeyboardPreview } from "./keyboard/screen-keyboard-preview";
 import type { TouchKeyboardSkin } from "./keyboard/screen-keyboard-preview";
@@ -456,6 +450,11 @@ export {
   PolishCredentialFieldsSection,
   type PolishCredentialFieldsSectionProps,
 } from "./settings/polish-credential-fields-section";
+export {
+  PolishPromptSection,
+  type PolishCustomPromptValues,
+  type PolishPromptSectionProps,
+} from "./settings/polish-prompt-section";
 export {
   VoiceStreamPreeditSection,
   type VoiceStreamPreeditSectionProps,
@@ -3962,18 +3961,6 @@ export function SettingsPage({
       />
     );
   };
-  // Which prompt slot the 润色方案 select is on, and the text that slot means.
-  // A preset resolves to its shipped prompt; a custom slot to whatever the user
-  // stored in it. Selecting a preset used to change an id with nothing behind
-  // it, leaving the textarea showing something unrelated.
-  const polishSlot = normalizePolishSlot(voiceInput.polish_prompt_id);
-  const polishSlotField = (slot: string): string | undefined =>
-    isPolishCustomSlot(slot) ? `polish_prompt_${normalizePolishSlot(slot)}` : undefined;
-  const polishPromptFor = (slot: string, current: VoiceInputPreferences): string => {
-    const field = polishSlotField(slot);
-    if (!field) return polishPresetPrompt(slot);
-    return ((current as Record<string, unknown>)[field] as string) ?? "";
-  };
   const inputModeHUD = draft?.input_mode_hud ?? true;
   const floatingToolbar = { ...defaultFloatingToolbar, ...draft?.floating_toolbar };
   const themeMode = draft?.theme ?? "system";
@@ -6916,63 +6903,27 @@ export function SettingsPage({
                             onTokenChange={(polish_token) => updateVoice({ polish_token })}
                           />
                         )}
-                        <label className="section-header">
-                          <span className="section-title">润色方案</span>
-                          <select
-                            aria-label="润色方案"
-                            value={polishSlot}
-                            onChange={(event) =>
-                              updateVoice({
-                                polish_prompt_id: event.target.value,
-                                polish_prompt: polishPromptFor(event.target.value, voiceInput),
-                              })
-                            }
-                          >
-                            {POLISH_PRESET_IDS.map((id) => (
-                              <option key={id} value={id}>
-                                {POLISH_PRESET_NAMES[id]}
-                              </option>
-                            ))}
-                            <option value="custom_1">自定义一</option>
-                            <option value="custom_2">自定义二</option>
-                            <option value="custom_3">自定义三</option>
-                          </select>
-                        </label>
-                        <label className="section-header polish-prompt-row">
-                          <span className="section-title">
-                            润色提示词
-                            <small>
-                              {isPolishCustomSlot(polishSlot)
-                                ? "这一段会保存到所选的自定义方案"
-                                : "内置方案的完整提示词，可以就地修改"}
-                            </small>
-                          </span>
-                          <textarea
-                            aria-label="润色提示词"
-                            value={voiceInput.polish_prompt ?? ""}
-                            onChange={(event) =>
-                              updateVoice({
-                                polish_prompt: event.target.value,
-                                ...(polishSlotField(polishSlot)
-                                  ? { [polishSlotField(polishSlot) as string]: event.target.value }
-                                  : {}),
-                              })
-                            }
-                          />
-                        </label>
-                        <button
-                          type="button"
-                          className="secondary"
-                          disabled={
-                            (voiceInput.polish_prompt ?? "") ===
-                            polishPromptFor(polishSlot, voiceInput)
+                        <PolishPromptSection
+                          promptId={voiceInput.polish_prompt_id}
+                          prompt={voiceInput.polish_prompt ?? ""}
+                          customPrompts={{
+                            custom_1: voiceInput.polish_prompt_custom_1,
+                            custom_2: voiceInput.polish_prompt_custom_2,
+                            custom_3: voiceInput.polish_prompt_custom_3,
+                          }}
+                          onSelectPrompt={(polish_prompt_id, polish_prompt) =>
+                            updateVoice({ polish_prompt_id, polish_prompt })
                           }
-                          onClick={() =>
-                            updateVoice({ polish_prompt: polishPromptFor(polishSlot, voiceInput) })
+                          onPromptChange={(polish_prompt, customSlot) =>
+                            updateVoice({
+                              polish_prompt,
+                              ...(customSlot
+                                ? { [`polish_prompt_${customSlot}`]: polish_prompt }
+                                : {}),
+                            })
                           }
-                        >
-                          恢复默认
-                        </button>
+                          onRestore={(polish_prompt) => updateVoice({ polish_prompt })}
+                        />
                         {linuxPlatform &&
                           client.providerCredentials &&
                           (() => {
