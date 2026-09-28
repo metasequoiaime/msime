@@ -136,6 +136,7 @@ import { BuiltInSkinsSection } from "./settings/built-in-skins-section";
 import { EnglishSuggestionsSection } from "./settings/english-suggestions-section";
 import { LearningSection } from "./settings/learning-section";
 import { LearningDataSection } from "./settings/learning-data-section";
+import { AboutHeroSection } from "./settings/about-hero-section";
 import { SkinPlatformNotice } from "./settings/skin-platform-notice";
 import { DefaultImeModeSection, type DefaultImeMode } from "./settings/default-ime-mode-section";
 import { InputModeHudSection } from "./settings/input-mode-hud-section";
@@ -542,6 +543,7 @@ export {
   LearningDataSection,
   type LearningDataSectionProps,
 } from "./settings/learning-data-section";
+export { AboutHeroSection, type AboutHeroSectionProps } from "./settings/about-hero-section";
 export { SkinPlatformNotice, type SkinPlatformNoticeProps } from "./settings/skin-platform-notice";
 export {
   DefaultImeModeSection,
@@ -5000,16 +5002,7 @@ export function SettingsPage({
                     }
                   />
                   <fieldset disabled={busy} hidden={page !== "about"} aria-label="关于">
-                    <div className={`section ${doc.hero}`}>
-                      <div className={doc.mark}>
-                        <img src={logo} alt="水杉 IME" />
-                      </div>
-                      <div>
-                        <div className={doc.eyebrow}>Metasequoia IME</div>
-                        <div className={doc.heroTitle}>水杉 IME</div>
-                        <p>{platformAboutDescription}</p>
-                      </div>
-                    </div>
+                    <AboutHeroSection logo={logo} description={platformAboutDescription} />
                     <div className={`section ${doc.linkList}`}>
                       <div className={`${doc.linkRow} ${doc.versionRow}`}>
                         <div>
