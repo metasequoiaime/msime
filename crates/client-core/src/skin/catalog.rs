@@ -161,9 +161,7 @@ fn required_string(
         .get(key)
         .and_then(Value::as_str)
         .ok_or_else(|| format!("{key} must be a string"))?;
-    if value.is_empty() || value.len() > max {
-        return Err(format!("{key} has invalid length"));
-    }
+    validate_string(value, key, max)?;
     Ok(value.to_owned())
 }
 
@@ -178,10 +176,15 @@ fn optional_string(
     let value = value
         .as_str()
         .ok_or_else(|| format!("{key} must be a string"))?;
+    validate_string(value, key, max)?;
+    Ok(Some(value.to_owned()))
+}
+
+fn validate_string(value: &str, key: &str, max: usize) -> Result<(), String> {
     if value.is_empty() || value.len() > max {
         return Err(format!("{key} has invalid length"));
     }
-    Ok(Some(value.to_owned()))
+    Ok(())
 }
 
 fn safe_resource(value: &str, max: usize) -> bool {
