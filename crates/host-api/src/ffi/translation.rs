@@ -335,10 +335,8 @@ pub unsafe extern "C" fn msime_client_apply_translations(
             serde_json::from_slice(bytes).map_err(|_| "translations must be a UTF-8 JSON array")?;
         if values.len() > 4096
             || values.iter().any(|item| {
-                item.text.len() > 4096
-                    || item.translation.len() > 4096
-                    || item.text.chars().any(char::is_control)
-                    || item.translation.chars().any(char::is_control)
+                !valid_bounded_text(&item.text, 4096)
+                    || !valid_bounded_text(&item.translation, 4096)
             })
         {
             return Err("translation entries exceed limits".into());
