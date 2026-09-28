@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 const MAX_DOCUMENT_BYTES: u64 = 1024 * 1024;
 
 pub fn valid_font_family(value: &str) -> bool {
-    !value.is_empty() && value.len() <= 128 && !value.chars().any(char::is_control)
+    !value.is_empty() && crate::text::is_bounded_text(value, 128)
 }
 
 fn valid_hex_color(value: &str) -> bool {
