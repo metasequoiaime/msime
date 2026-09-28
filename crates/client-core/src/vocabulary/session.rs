@@ -96,7 +96,7 @@ pub fn apply(
     day: &str,
     action: ReviewAction,
 ) -> Result<ReviewStatus, ReviewSessionError> {
-    if !super::day_is_well_formed(day) {
+    if !crate::calendar::is_valid_day(day) {
         return Err(ReviewSessionError::InvalidDay);
     }
     let library = WordbookLibrary::new(directory);
@@ -196,7 +196,7 @@ pub fn status(
     resources: &Path,
     day: &str,
 ) -> Result<ReviewStatus, ReviewSessionError> {
-    if !super::day_is_well_formed(day) {
+    if !crate::calendar::is_valid_day(day) {
         return Err(ReviewSessionError::InvalidDay);
     }
     let library = WordbookLibrary::new(directory);

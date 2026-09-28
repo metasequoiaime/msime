@@ -126,7 +126,7 @@ mod tests {
     fn a_resolved_day_is_the_shape_the_shared_layer_accepts() {
         let day = today();
         assert!(
-            msime_client_core::vocabulary::day_is_well_formed(&day),
+            msime_client_core::calendar::is_valid_day(&day),
             "the shared layer would refuse {day}"
         );
     }

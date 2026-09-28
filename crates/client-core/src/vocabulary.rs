@@ -27,13 +27,3 @@ pub mod progress;
 pub mod schedule;
 pub mod session;
 pub mod wordbook;
-
-/// Whether `day` is a local day this module can store and compare.
-///
-/// One predicate because three layers ask it: the host boundary rejecting a request before it
-/// touches anything, the scheduler refusing to date a card, and the progress store validating a
-/// document it read. A day accepted by one and refused by another is a request that writes a book
-/// to disk and then reports failure — which is the bug this function was extracted for.
-pub fn day_is_well_formed(day: &str) -> bool {
-    crate::calendar::is_valid_day(day)
-}

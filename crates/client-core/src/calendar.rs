@@ -14,7 +14,7 @@
 /// The date is not checked against the month's real length. A document is rejected for being
 /// unparseable, not for naming 31 February, and the shift below is total over anything this
 /// accepts.
-pub(crate) fn is_valid_day(day: &str) -> bool {
+pub fn is_valid_day(day: &str) -> bool {
     let bytes = day.as_bytes();
     bytes.len() == 10
         && bytes[4] == b'-'
