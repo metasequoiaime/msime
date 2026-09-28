@@ -47,6 +47,11 @@ import { useSettingsTheme } from "./settings/use-settings-theme";
 export { useSettingsTheme } from "./settings/use-settings-theme";
 import { useTouchKeyboardGeometryDrag } from "./settings/use-touch-keyboard-geometry-drag";
 export { useTouchKeyboardGeometryDrag } from "./settings/use-touch-keyboard-geometry-drag";
+import { useMobileKeyboardFeedback } from "./settings/use-mobile-keyboard-feedback";
+export {
+  useMobileKeyboardFeedback,
+  type UseMobileKeyboardFeedbackOptions,
+} from "./settings/use-mobile-keyboard-feedback";
 import {
   UPDATE_CHECK_TIMEOUT_MS,
   androidPrivacyUrl,
@@ -1844,8 +1849,16 @@ export function SettingsPage({
   const [feedbackKind, setFeedbackKind] = useState("功能异常");
   const [feedbackDetail, setFeedbackDetail] = useState("");
   const [feedbackReportCopied, setFeedbackReportCopied] = useState(false);
-  const [mobileKeyboardFeedback, setMobileKeyboardFeedback] = useState<MobileKeyboardFeedback>();
-  const [mobileKeyboardFeedbackBusy, setMobileKeyboardFeedbackBusy] = useState(false);
+  const {
+    value: mobileKeyboardFeedback,
+    busy: mobileKeyboardFeedbackBusy,
+    save: saveMobileKeyboardFeedback,
+    preview: previewMobileKeyboardHaptics,
+  } = useMobileKeyboardFeedback({
+    mobile: mobilePlatform,
+    client: client.mobileKeyboardFeedback,
+    onError: setError,
+  });
   const [customTranslationsText, setCustomTranslationsText] = useState("");
   const [customTranslationsNotice, setCustomTranslationsNotice] = useState("");
   const [customTranslationsBusy, setCustomTranslationsBusy] = useState(false);
@@ -2072,25 +2085,6 @@ export function SettingsPage({
       setCustomTranslationsBusy(false);
     }
   }
-
-  useEffect(() => {
-    if (!mobilePlatform || !client.mobileKeyboardFeedback) {
-      setMobileKeyboardFeedback(undefined);
-      return;
-    }
-    let active = true;
-    void client.mobileKeyboardFeedback
-      .load()
-      .then((value) => {
-        if (active) setMobileKeyboardFeedback(value);
-      })
-      .catch(() => {
-        if (active) setError("无法读取按键反馈设置，请重试。");
-      });
-    return () => {
-      active = false;
-    };
-  }, [client, mobilePlatform]);
 
   // The Windows installer registers the input method on every install and upgrade; on macOS the settings app does it when it starts, and this tells the user what happened and whether the source still has to be enabled in System Settings.
   useEffect(() => {
@@ -2339,23 +2333,6 @@ export function SettingsPage({
     }
   }
 
-  async function saveMobileKeyboardFeedback(next: MobileKeyboardFeedback) {
-    const feedback = client.mobileKeyboardFeedback;
-    if (!feedback) return;
-    const previous = mobileKeyboardFeedback;
-    setMobileKeyboardFeedback(next);
-    setMobileKeyboardFeedbackBusy(true);
-    setError("");
-    try {
-      setMobileKeyboardFeedback(await feedback.save(next));
-    } catch {
-      if (previous) setMobileKeyboardFeedback(previous);
-      setError("无法保存按键反馈设置，请重试。");
-    } finally {
-      setMobileKeyboardFeedbackBusy(false);
-    }
-  }
-
   async function uninstallInputSource() {
     if (!client.uninstallInputSource || uninstallBusy) return;
     setUninstallBusy(true);
@@ -2410,17 +2387,6 @@ export function SettingsPage({
       );
     } finally {
       setDataDirectoryBusy(false);
-    }
-  }
-
-  async function previewMobileKeyboardHaptics() {
-    const feedback = client.mobileKeyboardFeedback;
-    if (!feedback?.preview || !mobileKeyboardFeedback?.hapticsEnabled) return;
-    setError("");
-    try {
-      await feedback.preview(mobileKeyboardFeedback.hapticStrength);
-    } catch {
-      setError("无法预览按键振动，请重试。");
     }
   }
 
