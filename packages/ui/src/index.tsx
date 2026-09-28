@@ -2,7 +2,6 @@ import { useConfirm } from "./core/confirm";
 import { errorCode } from "./core/error-code";
 import { errorMessage } from "./core/error-message";
 import { clamp } from "./core/number";
-import { randomRequestId } from "./core/random-id";
 import {
   inferredTouchKeyboardScheme,
   selectTouchKeyboardScheme,
@@ -95,14 +94,12 @@ import {
   type LocalVoiceModelClient,
 } from "./voice/local-models";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import {
-  DICTIONARY_PAGE_SIZE,
-  dictionaryPageStatus,
-  readDictionaryFile,
-  type DictionaryEntry,
-  type LocalDictionaryFormat,
-  type LocalDictionaryKind,
+import type {
+  DictionaryEntry,
+  LocalDictionaryFormat,
+  LocalDictionaryKind,
 } from "./dictionary/dictionary-file";
+import { DICTIONARY_PAGE_SIZE } from "./dictionary/dictionary-file";
 export type {
   DictionaryEntry,
   LocalDictionaryFormat,
@@ -117,11 +114,7 @@ import {
   loadAllPersonalDictionaryEntries,
   dictionaryKindLabel,
 } from "./dictionary/dictionary-export";
-import {
-  dictionaryErrorMessage,
-  dictionaryKeyMatches,
-  importFailureMessage,
-} from "./dictionary/dictionary-errors";
+import { dictionaryErrorMessage } from "./dictionary/dictionary-errors";
 export { dictionaryErrorMessage } from "./dictionary/dictionary-errors";
 export {
   dictionaryExportName,
@@ -141,8 +134,15 @@ import { LearningDataSection } from "./settings/learning-data-section";
 import { DictionaryManagerHeader } from "./settings/dictionary-manager-header";
 import { DictionaryFailuresNotice } from "./settings/dictionary-failures-notice";
 import { DictionaryManagerControls } from "./settings/dictionary-manager-controls";
-import { DictionaryEntries, type DictionaryPhraseForm } from "./settings/dictionary-entries";
+import { DictionaryEntries } from "./settings/dictionary-entries";
 import { DictionaryPagination } from "./settings/dictionary-pagination";
+import { useDictionaryManager } from "./settings/use-dictionary-manager";
+export {
+  useDictionaryManager,
+  type DictionaryManagerClient,
+  type DictionaryConfirmOptions,
+  type UseDictionaryManagerOptions,
+} from "./settings/use-dictionary-manager";
 export {
   DictionaryFailuresNotice,
   type DictionaryFailuresNoticeProps,
@@ -1888,26 +1888,41 @@ export function SettingsPage({
   const [macosShuangpinKeymap, setMacosShuangpinKeymap] = useState<boolean>();
   const [macosWubiAutoCommitUnique, setMacosWubiAutoCommitUnique] = useState<boolean>();
   const [savedMacosWubiAutoCommitUnique, setSavedMacosWubiAutoCommitUnique] = useState<boolean>();
-  const [phrases, setPhrases] = useState<DictionaryEntry[]>([]);
-  const [phrasePage, setPhrasePage] = useState({ offset: 0, hasMore: false, status: "" });
-  const [phraseBusy, setPhraseBusy] = useState(false);
-  const [phraseError, setPhraseError] = useState("");
-  const [dictionaryPendingCount, setDictionaryPendingCount] = useState(0);
-  const [dictionaryFailures, setDictionaryFailures] = useState<DictionaryFailure[]>([]);
-  const [dictionarySnapshotError, setDictionarySnapshotError] = useState("");
-  const [phraseNotice, setPhraseNotice] = useState("");
-  const [phraseSearch, setPhraseSearch] = useState("");
-  const [phraseForm, setPhraseForm] = useState<DictionaryPhraseForm | null>(null);
-  const [dictionaryKind, setDictionaryKind] = useState<LocalDictionaryKind>("quick_phrase");
-  const [dictionaryFormat, setDictionaryFormat] = useState<LocalDictionaryFormat>("standard");
-  const phraseRequestGeneration = useRef(0);
-  const phraseListRef = useRef<HTMLUListElement>(null);
+  const {
+    phrases,
+    setPhrases,
+    phrasePage,
+    phraseBusy,
+    phraseError,
+    dictionaryPendingCount,
+    dictionaryFailures,
+    dictionarySnapshotError,
+    phraseNotice,
+    phraseSearch,
+    setPhraseSearch,
+    phraseForm,
+    setPhraseForm,
+    dictionaryKind,
+    setDictionaryKind,
+    dictionaryFormat,
+    setDictionaryFormat,
+    phraseListRef,
+    loadPhrases,
+    turnPhrasePage,
+    removePhrase,
+    savePhrase,
+    importPhrases,
+    retryDictionaryFailure,
+    dismissDictionaryFailure,
+    exportPhrases,
+    exportAllPhrases,
+    resetLearnedData,
+  } = useDictionaryManager({ client, confirm });
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
-      phraseRequestGeneration.current += 1;
     };
   }, []);
   const [windowMaximized, setWindowMaximized] = useState(false);
@@ -2489,309 +2504,6 @@ export function SettingsPage({
     }
   }
 
-  // One page per request: a real dictionary is far too large to pull into the
-  // page before showing anything.
-  async function loadPhrases(kind: LocalDictionaryKind = dictionaryKind, offset = 0) {
-    if (!client.dictionary || !mounted.current) return;
-    const generation = ++phraseRequestGeneration.current;
-    setPhraseBusy(true);
-    setPhraseError("");
-    setPhraseNotice("");
-    setPhrasePage((current) => ({ ...current, status: "查询中…" }));
-    try {
-      // Ask the host for this kind and code prefix. Filtering a page the host
-      // had already chosen meant a user with more than a page of pinyin words
-      // saw an empty list when they picked another dictionary, and the status
-      // line counted the filtered rows against the unfiltered page.
-      const query = phraseSearch.trim();
-      const page = await client.dictionary.list(offset, DICTIONARY_PAGE_SIZE, kind, query);
-      if (!mounted.current || generation !== phraseRequestGeneration.current) return;
-      // Older hosts and the mobile personal dictionary ignore the extra arguments, so keep filtering defensively - with the host's own rule, so nothing it matched is dropped here.
-      const entries = page.entries.filter(
-        (entry) => entry.kind === kind && dictionaryKeyMatches(kind, entry.key, query),
-      );
-      setPhrases(entries);
-      setDictionaryPendingCount(page.pending_count ?? 0);
-      setDictionaryFailures(page.failed_requests ?? []);
-      setDictionarySnapshotError(page.snapshot_error ?? "");
-      setPhrasePage({
-        offset,
-        hasMore: page.has_more && page.entries.length > 0,
-        status: dictionaryPageStatus(offset, entries.length, page.has_more),
-      });
-    } catch {
-      if (!mounted.current || generation !== phraseRequestGeneration.current) return;
-      setPhraseError("无法读取词库。");
-      setPhrasePage((current) => ({ ...current, status: "查询失败，请重试" }));
-    } finally {
-      if (mounted.current && generation === phraseRequestGeneration.current) setPhraseBusy(false);
-    }
-  }
-  function turnPhrasePage(offset: number) {
-    // The list is its own scrolling surface. A page turn must reveal the new
-    // page's first entry instead of preserving the previous page's bottom.
-    if (phraseListRef.current) phraseListRef.current.scrollTop = 0;
-    void loadPhrases(dictionaryKind, offset);
-  }
-  async function removePhrase(entry: DictionaryEntry) {
-    if (!client.dictionary || !mounted.current) return;
-    // Deletion is not undoable and the row is one click away from 编辑.
-    const confirmed = await confirm({
-      title: "删除词条",
-      message: `“${entry.value}”（${entry.key}）将被删除，此操作无法撤销。`,
-      confirmLabel: "删除",
-      danger: true,
-    });
-    if (!confirmed || !client.dictionary || !mounted.current) return;
-    setPhraseBusy(true);
-    setPhraseError("");
-    setPhraseNotice("");
-    try {
-      await client.dictionary.edit(entry, null, randomRequestId("ui-remove"));
-      // Stay on the page the user was reading; deleting the last row on a page
-      // would otherwise leave them looking at an empty one.
-      const remaining = phrases.length - 1;
-      const offset =
-        remaining === 0 && phrasePage.offset > 0
-          ? Math.max(0, phrasePage.offset - DICTIONARY_PAGE_SIZE)
-          : phrasePage.offset;
-      await loadPhrases(dictionaryKind, offset);
-    } catch (error) {
-      if (mounted.current)
-        setPhraseError(
-          dictionaryErrorMessage(
-            error,
-            `${dictionaryKindLabel(dictionaryKind)}删除失败，请稍后重试。`,
-          ),
-        );
-    } finally {
-      if (mounted.current) setPhraseBusy(false);
-    }
-  }
-  async function savePhrase() {
-    if (!client.dictionary || !phraseForm || !mounted.current) return;
-    const bundled = phraseForm.previous?.source === "bundled" ? phraseForm.previous : null;
-    // A bundled row keeps its code and word; only the weight is the user's to change.
-    const replacement: DictionaryEntry = bundled
-      ? { ...bundled, weight: phraseForm.weight }
-      : {
-          kind: dictionaryKind,
-          key: phraseForm.key.trim(),
-          value: phraseForm.value,
-          weight: phraseForm.weight,
-        };
-    if (!replacement.key || !replacement.value) {
-      setPhraseError("编码和短语不能为空。");
-      return;
-    }
-    setPhraseBusy(true);
-    setPhraseError("");
-    setPhraseNotice("");
-    try {
-      await client.dictionary.edit(
-        phraseForm.previous,
-        replacement,
-        randomRequestId(phraseForm.previous ? "ui-edit" : "ui-add"),
-      );
-      if (!mounted.current) return;
-      setPhraseForm(null);
-      // An edit keeps the reader where they were; only a new entry returns to
-      // the first page, where the shared runtime lists it.
-      await loadPhrases(dictionaryKind, phraseForm.previous ? phrasePage.offset : 0);
-    } catch (error) {
-      if (mounted.current)
-        setPhraseError(
-          dictionaryErrorMessage(
-            error,
-            `${dictionaryKindLabel(dictionaryKind)}保存失败，请稍后重试。`,
-            dictionaryKind,
-          ),
-        );
-    } finally {
-      if (mounted.current) setPhraseBusy(false);
-    }
-  }
-  async function importPhrases(file: File) {
-    if (!client.dictionary || !mounted.current) return;
-    setPhraseBusy(true);
-    setPhraseError("");
-    setPhraseNotice("");
-    try {
-      const text = await readDictionaryFile(file, client.dictionary.maxImportFileBytes);
-      let imported: DictionaryImportResult | null = null;
-      if (client.dictionary.import) {
-        imported = await client.dictionary.import(
-          dictionaryKind,
-          dictionaryFormat,
-          text,
-          randomRequestId("ui-import"),
-        );
-      } else {
-        if (dictionaryFormat === "hans") throw new Error("hans format requires batch import");
-        const lines = text.split(/\r?\n/).filter(Boolean);
-        for (const line of lines) {
-          const [first, second, weight = "10000"] = line.split("\t");
-          if (!first || !second) continue;
-          const [value, key] = dictionaryFormat === "windows" ? [second, first] : [first, second];
-          const parsedWeight = Number(weight);
-          const normalizedWeight =
-            weight.trim() !== "" && Number.isSafeInteger(parsedWeight) && parsedWeight >= 0
-              ? parsedWeight
-              : 10000;
-          await client.dictionary.edit(
-            null,
-            { kind: dictionaryKind, key: key.trim(), value, weight: normalizedWeight },
-            randomRequestId("ui-import"),
-          );
-        }
-      }
-      await loadPhrases(dictionaryKind);
-      if (!mounted.current) return;
-      // The host reports what it skipped; saying nothing reads as a clean import.
-      if (imported)
-        setPhraseNotice(describeImportResult(dictionaryKindLabel(dictionaryKind), imported));
-    } catch (error) {
-      if (mounted.current)
-        setPhraseError(importFailureMessage(dictionaryKindLabel(dictionaryKind), error));
-    } finally {
-      if (mounted.current) setPhraseBusy(false);
-    }
-  }
-  async function retryDictionaryFailure(requestId: string) {
-    if (!client.dictionary?.retry || !mounted.current) return;
-    setPhraseBusy(true);
-    setPhraseError("");
-    try {
-      await client.dictionary.retry(requestId);
-      await loadPhrases(dictionaryKind, phrasePage.offset);
-    } catch {
-      if (mounted.current) setPhraseError("词条重试失败，请稍后重试。");
-    } finally {
-      if (mounted.current) setPhraseBusy(false);
-    }
-  }
-  async function dismissDictionaryFailure(requestId: string) {
-    if (!client.dictionary?.dismissFailure || !mounted.current) return;
-    setPhraseBusy(true);
-    setPhraseError("");
-    try {
-      await client.dictionary.dismissFailure(requestId);
-      await loadPhrases(dictionaryKind, phrasePage.offset);
-    } catch {
-      if (mounted.current) setPhraseError("移除失败记录失败，请稍后重试。");
-    } finally {
-      if (mounted.current) setPhraseBusy(false);
-    }
-  }
-  /**
-   * Hand an exported dictionary to the user as a file.
-   *
-   * Resolves to the path when the host wrote the file, to null when a download link was used instead (the host reports nothing back, so there is no path to show), and to undefined when the host refused the write, in which case the error has already been shown and no success may be reported.
-   */
-  async function deliverDictionaryExport(
-    name: string,
-    body: string,
-  ): Promise<string | null | undefined> {
-    if (client.saveExport) {
-      try {
-        return await client.saveExport(name, body);
-      } catch {
-        setPhraseNotice("");
-        setPhraseError("无法写入“下载”文件夹，词库未导出。");
-        return undefined;
-      }
-    }
-    const url = URL.createObjectURL(new Blob([body], { type: "text/plain;charset=utf-8" }));
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = name;
-    anchor.click();
-    URL.revokeObjectURL(url);
-    return null;
-  }
-  async function exportPhrases() {
-    if (!client.dictionary) return;
-    if (dictionaryFormat === "hans") {
-      setPhraseError("汉字自动注音格式仅支持导入。");
-      return;
-    }
-    setPhraseBusy(true);
-    setPhraseError("");
-    setPhraseNotice("");
-    try {
-      let text = "";
-      if (client.dictionary.export) {
-        let offset = 0;
-        let hasMore = true;
-        while (hasMore && offset <= 1000000) {
-          const page = await client.dictionary.export(
-            dictionaryKind,
-            dictionaryFormat === "rime" ? "standard" : dictionaryFormat,
-            offset,
-            1000,
-          );
-          text += page.text;
-          const count = page.text ? page.text.trimEnd().split("\n").length : 0;
-          offset += count;
-          hasMore = page.has_more && count > 0;
-        }
-      } else {
-        text = phrases
-          .map((entry) =>
-            dictionaryFormat === "windows"
-              ? `${entry.key}\t${entry.value}\t${entry.weight}`
-              : `${entry.value}\t${entry.key}\t${entry.weight}`,
-          )
-          .join("\n");
-      }
-      const payload = dictionaryExportPayload(dictionaryKind, dictionaryFormat, text);
-      if (!payload.rows) {
-        setPhraseError("当前没有可导出的用户新增词条。");
-        return;
-      }
-      const path = await deliverDictionaryExport(
-        dictionaryExportName(dictionaryKind),
-        payload.body,
-      );
-      if (path === undefined) return;
-      setPhraseNotice(
-        path === null
-          ? `已导出 ${payload.rows} 条用户词条。`
-          : `已导出 ${payload.rows} 条用户词条到 ${path}。`,
-      );
-    } catch (error) {
-      setPhraseError(dictionaryErrorMessage(error, "词库导出失败，请稍后重试。"));
-    } finally {
-      setPhraseBusy(false);
-    }
-  }
-  async function exportAllPhrases() {
-    if (!client.dictionary) return;
-    setPhraseBusy(true);
-    setPhraseError("");
-    setPhraseNotice("正在读取全部用户词库…");
-    try {
-      const payload = personalDictionaryExportPayload(
-        await loadAllPersonalDictionaryEntries(client.dictionary),
-      );
-      if (!payload.rows) {
-        setPhraseNotice("当前没有可导出的用户词条。");
-        return;
-      }
-      const path = await deliverDictionaryExport(personalDictionaryExportName(), payload.body);
-      if (path === undefined) return;
-      setPhraseNotice(
-        path === null
-          ? `已导出全部 ${payload.rows} 条用户词条。`
-          : `已导出全部 ${payload.rows} 条用户词条到 ${path}。`,
-      );
-    } catch (error) {
-      setPhraseError(dictionaryErrorMessage(error, "全部词库导出失败，请稍后重试。"));
-    } finally {
-      setPhraseBusy(false);
-    }
-  }
-
   /**
    * Put every setting back to its default, as a draft.
    *
@@ -2859,36 +2571,6 @@ export function SettingsPage({
       setError(errorMessage(reason));
     } finally {
       setBusy(false);
-    }
-  }
-
-  async function resetLearnedData() {
-    if (!client.resetLearnedData || phraseBusy) return;
-    const confirmed = await confirm({
-      title: "清除学习数据",
-      message:
-        "候选词频、用户词典和拼音学习记录将永久删除，此操作无法撤销。输入方案等设置不会改变。",
-      confirmLabel: "清除",
-      danger: true,
-    });
-    if (!confirmed || !client.resetLearnedData || phraseBusy) return;
-    setPhraseBusy(true);
-    setPhraseError("");
-    setPhraseNotice("");
-    try {
-      await client.resetLearnedData();
-      setPhrases([]);
-      setPhrasePage({ offset: 0, hasMore: false, status: "已清除学习数据" });
-      setDictionaryPendingCount(0);
-      setDictionaryFailures([]);
-      setDictionarySnapshotError("");
-      setPhraseNotice("已清除所有学习数据；输入方案和设置保持不变。");
-    } catch (error) {
-      setPhraseError(
-        dictionaryErrorMessage(error, "清除学习数据失败，请关闭正在使用输入法的程序后重试。"),
-      );
-    } finally {
-      setPhraseBusy(false);
     }
   }
 
