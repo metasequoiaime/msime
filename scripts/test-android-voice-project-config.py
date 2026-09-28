@@ -136,6 +136,15 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
         # the stream's close contract on every Android URLConnection implementation.
         self.assertIn("try (InputStream input = connection.getInputStream())", polisher)
 
+    def test_polishing_does_not_forward_bearer_tokens_across_redirects(self):
+        polisher = (
+            ROOT / "platforms/android/java/app/msime/client/voice/VoicePolisher.java"
+        ).read_text()
+        # HttpURLConnection follows redirects by default. The polish request carries a bearer
+        # token, so following one could replay that credential to an endpoint outside the user's
+        # configured origin before the response is parsed.
+        self.assertIn("connection.setInstanceFollowRedirects(false);", polisher)
+
     def test_on_device_recognition_keeps_the_audio_on_the_device(self):
         """A user who chose provider `local` must get the installed model or an error, never the platform recognizer, and the model must run through the shared runtime rather than a copy."""
         plugin = (

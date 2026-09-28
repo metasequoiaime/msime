@@ -52,6 +52,9 @@ public final class VoicePolisher {
             connection.setReadTimeout(READ_TIMEOUT_MILLIS);
             connection.setRequestMethod("POST");
             connection.setDoOutput(true);
+            // The bearer token belongs to this configured origin. Never let HttpURLConnection
+            // replay it after a redirect to another host or protocol.
+            connection.setInstanceFollowRedirects(false);
             connection.setFixedLengthStreamingMode(body.length);
             connection.setRequestProperty("Authorization", "Bearer " + token);
             connection.setRequestProperty("Content-Type", "application/json");
