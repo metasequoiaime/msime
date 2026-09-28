@@ -2,8 +2,10 @@
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>
 #include <filesystem>
+#include <array>
 #include <fstream>
 #include <mutex>
+#include <optional>
 #include <random>
 #include <sstream>
 #include <cstdlib>
@@ -14,6 +16,7 @@
 
 namespace msime::telemetry {
 namespace {
+constexpr size_t max_queue_bytes = 1u << 20;
 std::mutex lock;
 std::filesystem::path file() {
 #ifdef _WIN32
@@ -36,9 +39,22 @@ std::string id() {
 bool queued(const nlohmann::json &event) {
   return event.is_object() && event.contains("id") && event["id"].is_string();
 }
+std::optional<std::string> read_queue(std::ifstream &input) {
+  std::array<char, 8192> buffer{};
+  std::string payload;
+  while (input) {
+    input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+    const auto count = input.gcount();
+    if (count <= 0) continue;
+    const auto bytes = static_cast<size_t>(count);
+    if (payload.size() > max_queue_bytes - bytes) return std::nullopt;
+    payload.append(buffer.data(), bytes);
+  }
+  return input.eof() ? std::optional<std::string>(std::move(payload)) : std::nullopt;
+}
 void append(nlohmann::json event) {
   std::lock_guard guard(lock); auto path = file(); std::error_code error; std::filesystem::create_directories(path.parent_path(), error);
-  nlohmann::json all = nlohmann::json::array(); std::ifstream in(path); if (in) { try { in >> all; } catch (...) {} }
+  nlohmann::json all = nlohmann::json::array(); std::ifstream in(path); if (in) { try { if (const auto payload = read_queue(in)) all = nlohmann::json::parse(*payload); } catch (...) {} }
   if (!all.is_array())
     all = nlohmann::json::array();
   nlohmann::json kept = nlohmann::json::array();
@@ -63,7 +79,7 @@ bool send(const nlohmann::json &event) {
   curl_slist_free_all(headers); curl_easy_cleanup(handle); return status >= 200 && status < 300;
 }
 void remove(const std::string &eventID) {
-  std::lock_guard guard(lock); auto path = file(); nlohmann::json all = nlohmann::json::array(); std::ifstream in(path); if (in) { try { in >> all; } catch (...) { return; } }
+  std::lock_guard guard(lock); auto path = file(); nlohmann::json all = nlohmann::json::array(); std::ifstream in(path); if (in) { try { const auto payload = read_queue(in); if (!payload) return; all = nlohmann::json::parse(*payload); } catch (...) { return; } }
   if (!all.is_array()) return;
   nlohmann::json kept = nlohmann::json::array(); for (const auto &event : all) if (queued(event) && event["id"].get<std::string>() != eventID) kept.push_back(event);
   std::ofstream out(path); if (out) out << kept.dump();
