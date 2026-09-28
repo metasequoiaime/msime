@@ -94,30 +94,14 @@ fn restore_locators(backups: &[LocatorBackup]) {
 fn copy_tree_contents(source: &Path, destination: &Path) -> Result<(), MoveError> {
     for entry in fs::read_dir(source).map_err(|_| MoveError::Copy)? {
         let entry = entry.map_err(|_| MoveError::Copy)?;
-        copy_entry(&entry.path(), &destination.join(entry.file_name()))?;
+        crate::platform::desktop::desktop_data_directory::copy_entry(
+            &entry.path(),
+            &destination.join(entry.file_name()),
+            &|_| false,
+        )
+        .map_err(|_| MoveError::Copy)?;
     }
     Ok(())
-}
-
-fn copy_entry(source: &Path, destination: &Path) -> Result<(), MoveError> {
-    let metadata = fs::symlink_metadata(source).map_err(|_| MoveError::Copy)?;
-    if metadata.file_type().is_symlink() {
-        return Err(MoveError::Copy);
-    }
-    if metadata.is_dir() {
-        fs::create_dir(destination).map_err(|_| MoveError::Copy)?;
-        copy_tree_contents(source, destination)?;
-        fs::set_permissions(destination, metadata.permissions()).map_err(|_| MoveError::Copy)?;
-        return Ok(());
-    }
-    if !metadata.is_file() {
-        return Err(MoveError::Copy);
-    }
-    fs::copy(source, destination).map_err(|_| MoveError::Copy)?;
-    fs::set_permissions(destination, metadata.permissions()).map_err(|_| MoveError::Copy)?;
-    fs::File::open(destination)
-        .and_then(|file| file.sync_all())
-        .map_err(|_| MoveError::Copy)
 }
 
 fn target_entries_are_replaceable(target: &Path, default_root: &Path) -> Result<bool, MoveError> {

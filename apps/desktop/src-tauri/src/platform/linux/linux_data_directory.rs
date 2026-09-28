@@ -101,34 +101,6 @@ fn atomic_write(path: &Path, contents: &[u8]) -> io::Result<()> {
         .map_err(|error| error.error)
 }
 
-fn copy_entry(source: &Path, destination: &Path) -> Result<(), MoveError> {
-    let metadata = fs::symlink_metadata(source).map_err(|_| MoveError::Copy)?;
-    if metadata.file_type().is_symlink() {
-        return Err(MoveError::Copy);
-    }
-    if metadata.is_dir() {
-        fs::create_dir(destination).map_err(|_| MoveError::Copy)?;
-        for entry in fs::read_dir(source).map_err(|_| MoveError::Copy)? {
-            let entry = entry.map_err(|_| MoveError::Copy)?;
-            // The lease this move holds sits in the user directory; the copy must not carry it to where the hosts will look next.
-            if linux_dictionary_quiesce::is_lease_file(&entry.file_name()) {
-                continue;
-            }
-            copy_entry(&entry.path(), &destination.join(entry.file_name()))?;
-        }
-        fs::set_permissions(destination, metadata.permissions()).map_err(|_| MoveError::Copy)?;
-        return Ok(());
-    }
-    if !metadata.is_file() {
-        return Err(MoveError::Copy);
-    }
-    fs::copy(source, destination).map_err(|_| MoveError::Copy)?;
-    fs::set_permissions(destination, metadata.permissions()).map_err(|_| MoveError::Copy)?;
-    fs::File::open(destination)
-        .and_then(|file| file.sync_all())
-        .map_err(|_| MoveError::Copy)
-}
-
 /// A staging directory of an earlier move, or the trash of a cleanup that could not finish. It is never state to carry along, nor user content that makes a directory non-empty.
 fn is_staging(name: &std::ffi::OsStr) -> bool {
     name.to_str()
@@ -343,7 +315,12 @@ impl MovePlan {
             .tempdir_in(&target)
             .map_err(|_| MoveError::Copy)?;
         for name in &entries {
-            copy_entry(&source.join(name), &staging.path().join(name))?;
+            crate::platform::desktop::desktop_data_directory::copy_entry(
+                &source.join(name),
+                &staging.path().join(name),
+                &linux_dictionary_quiesce::is_lease_file,
+            )
+            .map_err(|_| MoveError::Copy)?;
         }
         let wrote_marker = target != default_root && !has_ownership_marker(&target);
         if wrote_marker
