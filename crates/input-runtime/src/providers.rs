@@ -266,9 +266,8 @@ impl UnixSocketProvider {
         let mut candidates = Vec::new();
         for reply in replies {
             if reply.text.is_empty()
-                || reply.text.len() > 4096
+                || !msime_client_core::cloud::dictionary::valid_bounded_text(&reply.text, 4096)
                 || reply.source > 1
-                || reply.text.chars().any(char::is_control)
             {
                 return None;
             }
@@ -548,8 +547,7 @@ impl UnixSocketProvider {
         if reply.candidates.len() > 12
             || reply.candidates.iter().any(|candidate| {
                 candidate.is_empty()
-                    || candidate.len() > 4096
-                    || candidate.chars().any(char::is_control)
+                    || !msime_client_core::cloud::dictionary::valid_bounded_text(candidate, 4096)
             })
         {
             return None;
