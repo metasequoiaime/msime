@@ -4,6 +4,7 @@ import {
   type VoiceHotkeyKey,
   type VoiceHotkeyPlatform,
 } from "./voice-hotkeys";
+import { SettingToggle } from "./setting-toggle";
 
 export type { VoiceHotkeyKey, VoiceHotkeyPlatform } from "./voice-hotkeys";
 
@@ -23,16 +24,14 @@ export function VoiceHotkeysSection({ platform, values, onChange }: VoiceHotkeys
       </div>
       {/* Linux hosts share the desktop labels; only their native key event handling differs. */}
       {hotkeyOptions(platform).map(([key, label]) => (
-        <label className="section-header" key={key}>
-          <span className="section-title">{label}</span>
-          <input
-            aria-label={label}
-            className="toggle"
-            type="checkbox"
-            checked={values[key] !== false}
-            onChange={(event) => onChange(key, event.target.checked)}
-          />
-        </label>
+        <SettingToggle
+          key={key}
+          label={label}
+          ariaLabel={label}
+          checked={values[key] !== false}
+          compact
+          onChange={(enabled) => onChange(key, enabled)}
+        />
       ))}
     </div>
   );

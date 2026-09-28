@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 export interface SettingToggleProps {
   label: ReactNode;
-  description: ReactNode;
+  description?: ReactNode;
   checked: boolean;
   ariaLabel?: string;
   disabled?: boolean;
@@ -25,7 +25,7 @@ export function SettingToggle({
     <label className="section-header">
       <span className="section-title">
         {label}
-        <small>{description}</small>
+        {description !== undefined && <small>{description}</small>}
       </span>
       <input
         className="toggle"
