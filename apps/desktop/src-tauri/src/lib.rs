@@ -94,13 +94,31 @@ use msime_input_runtime::UnixSocketProvider;
 use msime_input_runtime::{HandwritingPoint, HandwritingQuery};
 use serde_json::Value;
 use std::collections::HashMap;
-#[cfg(not(target_os = "macos"))]
+#[cfg(any(
+    target_os = "linux",
+    target_os = "windows",
+    target_os = "android",
+    test
+))]
 use std::fs;
+#[cfg(any(
+    target_os = "linux",
+    target_os = "windows",
+    target_os = "android",
+    test
+))]
+use std::io::Read;
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "android"))]
 use std::io::Write;
 #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
 use std::os::unix::fs::FileTypeExt;
-#[cfg(any(target_os = "linux", target_os = "android", target_os = "ios"))]
+#[cfg(any(
+    target_os = "linux",
+    target_os = "windows",
+    target_os = "android",
+    target_os = "ios",
+    test
+))]
 use std::path::Path;
 use std::path::PathBuf;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
@@ -955,9 +973,37 @@ impl RuntimeOptionsState {
     }
 }
 
+#[cfg(any(
+    target_os = "linux",
+    target_os = "windows",
+    target_os = "android",
+    test
+))]
+const RUNTIME_OPTIONS_READ_LIMIT: u64 = 2 << 20;
+
+#[cfg(any(
+    target_os = "linux",
+    target_os = "windows",
+    target_os = "android",
+    test
+))]
+fn read_runtime_options_bytes(path: &Path) -> Result<Vec<u8>, std::io::Error> {
+    let file = fs::File::open(path)?;
+    let mut bytes = Vec::new();
+    file.take(RUNTIME_OPTIONS_READ_LIMIT + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > RUNTIME_OPTIONS_READ_LIMIT {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "runtime options exceed size limit",
+        ));
+    }
+    Ok(bytes)
+}
+
 #[cfg(any(target_os = "linux", target_os = "android"))]
 fn read_runtime_options(path: &Path) -> Result<Value, std::io::Error> {
-    let document: Value = serde_json::from_slice(&fs::read(path)?)
+    let document: Value = serde_json::from_slice(&read_runtime_options_bytes(path)?)
         .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
     if !document.is_object() {
         return Err(std::io::Error::new(
@@ -3872,9 +3918,9 @@ fn windows_server_state_directory() -> Option<PathBuf> {
 #[cfg(target_os = "windows")]
 fn windows_server_preferences_directory() -> Option<PathBuf> {
     let directory = windows_server_state_directory()?;
-    let configured = fs::read_to_string(directory.join("runtime-options.json"))
+    let configured = read_runtime_options_bytes(&directory.join("runtime-options.json"))
         .ok()
-        .and_then(|options| serde_json::from_str::<Value>(&options).ok())
+        .and_then(|options| serde_json::from_slice::<Value>(&options).ok())
         .and_then(|options| {
             options
                 .get("preferences_directory")
@@ -3896,9 +3942,9 @@ fn linux_runtime_state_directory() -> Result<Option<PathBuf>, String> {
     if !options_path.is_absolute() {
         return Err("Runtime options path must be absolute".into());
     }
-    let options = fs::read_to_string(options_path)
+    let options = read_runtime_options_bytes(&options_path)
         .map_err(|_| "Cannot read runtime options for shared state".to_owned())?;
-    let options: Value = serde_json::from_str(&options)
+    let options: Value = serde_json::from_slice(&options)
         .map_err(|_| "Cannot parse runtime options for shared state".to_owned())?;
     match options.get("preferences_directory") {
         None | Some(Value::Null) => Ok(None),
