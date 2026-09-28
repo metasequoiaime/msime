@@ -1,8 +1,9 @@
 use crate::platform::mobile::mobile_community::MobileCommunityState;
+use crate::shared::account_dto::{ChallengeResponse, StatusResponse, UserResponse};
 use msime_client_core::account::{
     merge_account_preferences, validate_account_preferences, AccountCandidateQuery,
-    AccountChallenge, AccountChatMessage, AccountChatModels, AccountError, AccountPreferenceSchema,
-    AccountPreferenceValue, AccountPreferences, AccountProfile, AccountSessionStorage, AccountUser,
+    AccountChatMessage, AccountChatModels, AccountError, AccountPreferenceSchema,
+    AccountPreferenceValue, AccountPreferences, AccountProfile, AccountSessionStorage,
     BackendAccountClient, BackendAccountSession, SavedAccountSession,
 };
 use msime_client_core::cloud::dictionary::DictionaryKind;
@@ -1032,49 +1033,9 @@ async fn dictionary_snapshot_cancel(
 }
 
 #[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct StatusResponse {
-    user: Option<UserResponse>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct UserResponse {
-    id: String,
-    display_name: String,
-    created_at: String,
-}
-
-impl From<AccountUser> for UserResponse {
-    fn from(user: AccountUser) -> Self {
-        Self {
-            id: user.id,
-            display_name: user.display_name,
-            created_at: user.created_at,
-        }
-    }
-}
-
-#[derive(Serialize)]
 pub struct ProvidersResponse {
     email: bool,
     phone: bool,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChallengeResponse {
-    challenge_id: String,
-    expires_in: u64,
-}
-
-impl From<AccountChallenge> for ChallengeResponse {
-    fn from(challenge: AccountChallenge) -> Self {
-        Self {
-            challenge_id: challenge.challenge_id,
-            expires_in: challenge.expires_in,
-        }
-    }
 }
 
 #[derive(Serialize)]
