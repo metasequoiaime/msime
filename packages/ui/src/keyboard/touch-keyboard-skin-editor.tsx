@@ -4,7 +4,7 @@ import { aiSkinMessage, libraryError } from "./touch-keyboard-skin-errors";
 import { createAiSkinPrompt } from "./touch-keyboard-skin-ai";
 import { randomRequestId } from "../core/random-id";
 import { ScreenKeyboardPreview } from "./screen-keyboard-preview";
-import { compressTouchSkinImage, TOUCH_SKIN_IMAGE_MAX_BYTES } from "./touch-skin-images";
+import { boundTouchSkinArtwork, readAndCompressTouchSkinPhoto } from "./touch-skin-images";
 import {
   defaultTouchKeyboardSkinDesign,
   boundedSkinName,
@@ -33,32 +33,6 @@ import * as community from "../community/community-style";
 type Category = "背景" | "按键" | "文本" | "设计" | "我的";
 type NameEditor = { operation: "create" } | { operation: "rename"; id: string };
 type Confirmation = { operation: "update" | "delete"; item: SavedTouchKeyboardSkin };
-
-async function boundedPhoto(file: File): Promise<string> {
-  if (!file.type.startsWith("image/") || file.size > 20_000_000) throw new Error("invalid image");
-  // A data: URL, not a blob: one: the settings CSP is `img-src 'self' data:`, which WebKitGTK
-  // enforces, so a blob: source never loads there and every photo read as undecodable.
-  const url = await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(new Error("image read failed"));
-    reader.readAsDataURL(file);
-  });
-  return compressTouchSkinImage(url, "image decode failed", "image too large");
-}
-
-async function boundedArtwork(artwork: AiSkinProposal["artwork"]): Promise<string> {
-  const source = artwork.b64_json;
-  const bytes = Uint8Array.from(atob(source), (character) => character.charCodeAt(0));
-  if (bytes.length > TOUCH_SKIN_IMAGE_MAX_BYTES) {
-    return compressTouchSkinImage(
-      `data:${artwork.mime_type};base64,${source}`,
-      "artwork decode failed",
-      "artwork too large",
-    );
-  }
-  return source;
-}
 
 function AiSkinGeneration({
   client,
@@ -134,7 +108,7 @@ function AiSkinGeneration({
           ...proposal,
           design: {
             ...proposal.design,
-            photo: await boundedArtwork(proposal.artwork),
+            photo: await boundTouchSkinArtwork(proposal.artwork),
             photoShade: 0.08,
             photoPosition: 0.5,
             keyOpacity: 0.92,
@@ -746,7 +720,7 @@ export function TouchKeyboardSkinEditor({
                     event.target.value = "";
                     if (!file) return;
                     setPhotoError("");
-                    void boundedPhoto(file)
+                    void readAndCompressTouchSkinPhoto(file)
                       .then((photo) => patch({ photo }))
                       .catch(() => setPhotoError("无法读取或压缩这张照片，请换一张再试。"));
                   }}

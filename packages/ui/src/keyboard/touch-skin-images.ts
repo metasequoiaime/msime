@@ -1,5 +1,32 @@
 export const TOUCH_SKIN_IMAGE_MAX_BYTES = 512_000;
 
+export async function readAndCompressTouchSkinPhoto(file: File): Promise<string> {
+  if (!file.type.startsWith("image/") || file.size > 20_000_000) throw new Error("invalid image");
+  const url = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("image read failed"));
+    reader.readAsDataURL(file);
+  });
+  return compressTouchSkinImage(url, "image decode failed", "image too large");
+}
+
+export async function boundTouchSkinArtwork(artwork: {
+  b64_json: string;
+  mime_type: string;
+}): Promise<string> {
+  const source = artwork.b64_json;
+  const bytes = Uint8Array.from(atob(source), (character) => character.charCodeAt(0));
+  if (bytes.length > TOUCH_SKIN_IMAGE_MAX_BYTES) {
+    return compressTouchSkinImage(
+      `data:${artwork.mime_type};base64,${source}`,
+      "artwork decode failed",
+      "artwork too large",
+    );
+  }
+  return source;
+}
+
 export async function compressTouchSkinImage(
   url: string,
   decodeError: string,
