@@ -227,6 +227,24 @@ const SherpaApi &require_runtime() {
 
 enum class ModelKind { OnlineTransducer, OfflineSenseVoice, OfflineFunAsrNano };
 
+bool model_path_inside(const fs::path &directory, const fs::path &candidate) {
+  std::error_code error;
+  const auto root = fs::canonical(directory, error);
+  if (error)
+    return false;
+  const auto resolved = fs::canonical(candidate, error);
+  if (error)
+    return false;
+  const auto relative = resolved.lexically_relative(root);
+  if (relative.empty() || relative == ".")
+    return false;
+  for (const auto &part : relative) {
+    if (part == ".." || part == ".")
+      return false;
+  }
+  return true;
+}
+
 struct ModelDescription {
   ModelKind kind{};
   fs::path directory;
@@ -240,9 +258,9 @@ struct ModelDescription {
       throw VoiceError("Local model manifest names no " + key + " file");
     const auto path = directory / fs::u8path(found->second);
     std::error_code error;
-    if (!fs::exists(path, error))
+    if (!fs::exists(path, error) || !model_path_inside(directory, path))
       throw VoiceError("Local model is missing " + found->second);
-    return path.u8string();
+    return fs::canonical(path, error).u8string();
   }
   std::string optional_file(const std::string &key) const {
     return files.count(key) ? file(key) : std::string();

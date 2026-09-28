@@ -83,6 +83,24 @@ final class LocalSpeechModelTests: XCTestCase {
     XCTAssertThrowsError(try LocalSpeechModelManifest(directory: model))
   }
 
+  func testManifestRejectsFilesOutsideModelDirectory() throws {
+    let model = try makeModel(id: "escape", manifest: [
+      "kind": "offline_sense_voice",
+      "files": ["model": "../secret.txt"],
+    ], files: [])
+    let secret = model.deletingLastPathComponent().appendingPathComponent("secret.txt")
+    try Data([0]).write(to: secret)
+    XCTAssertThrowsError(try LocalSpeechModelManifest(directory: model).file("model"))
+
+    let symlinkModel = try makeModel(id: "symlink", manifest: [
+      "kind": "offline_sense_voice",
+      "files": ["model": "linked.txt"],
+    ], files: [])
+    try FileManager.default.createSymbolicLink(
+      at: symlinkModel.appendingPathComponent("linked.txt"), withDestinationURL: secret)
+    XCTAssertThrowsError(try LocalSpeechModelManifest(directory: symlinkModel).file("model"))
+  }
+
   func testStoredPathFollowsTheModelIntoAMovedContainer() throws {
     let root = scratch.appendingPathComponent("voice-models", isDirectory: true)
     let model = try makeModel(id: "zipformer", manifest: ["kind": "online_transducer", "files": [:]], files: [], root: root)
@@ -96,6 +114,12 @@ final class LocalSpeechModelTests: XCTestCase {
     XCTAssertTrue(LocalSpeechModelLocation.names(old, model: "zipformer"))
     XCTAssertFalse(LocalSpeechModelLocation.names(old, model: "sense-voice"))
     XCTAssertFalse(LocalSpeechModelLocation.names(" ", model: "zipformer"))
+  }
+
+  func testStoredPathCannotSelectAModelOutsideTheManagedRoot() throws {
+    let root = scratch.appendingPathComponent("voice-models", isDirectory: true)
+    let outside = try makeModel(id: "outside", manifest: ["kind": "online_transducer", "files": [:]], files: [])
+    XCTAssertNil(LocalSpeechModelLocation.resolve(storedPath: outside.path, root: root))
   }
 
   func testCatalogEntriesDecodeWithDefaultsForMissingFields() throws {

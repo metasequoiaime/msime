@@ -51,11 +51,10 @@ struct LocalSpeechModelManifest: Equatable {
   /// The absolute path of a file the manifest names, which must exist.
   func file(_ role: String) throws -> String {
     guard let name = files[role] else { throw ServiceFailure(message: "本地语音模型缺少 \(role) 文件，请删除后重新下载。") }
-    let path = directory.appendingPathComponent(name).path
-    guard FileManager.default.fileExists(atPath: path) else {
+    guard let path = Self.containedPath(name, in: directory), FileManager.default.fileExists(atPath: path.path) else {
       throw ServiceFailure(message: "本地语音模型缺少 \(name)，请删除后重新下载。")
     }
-    return path
+    return path.path
   }
 
   func optionalFile(_ role: String) throws -> String? { files[role] == nil ? nil : try file(role) }
@@ -64,6 +63,17 @@ struct LocalSpeechModelManifest: Equatable {
     var directory: ObjCBool = false
     return FileManager.default.fileExists(atPath: url.path, isDirectory: &directory) && directory.boolValue
       && FileManager.default.isReadableFile(atPath: url.appendingPathComponent(fileName).path)
+  }
+
+  /// Resolve a manifest member and keep symlinks and traversal from escaping the installed model.
+  private static func containedPath(_ name: String, in directory: URL) -> URL? {
+    let member = URL(fileURLWithPath: name)
+    guard member.pathComponents.first != "/", !member.pathComponents.contains("..") else { return nil }
+    let root = directory.resolvingSymlinksInPath().standardizedFileURL
+    let candidate = directory.appendingPathComponent(name).resolvingSymlinksInPath().standardizedFileURL
+    let rootPath = root.path.hasSuffix("/") ? root.path : root.path + "/"
+    guard candidate.path != root.path, candidate.path.hasPrefix(rootPath) else { return nil }
+    return candidate
   }
 }
 
@@ -258,15 +268,24 @@ enum LocalSpeechModelLocation {
     let trimmed = storedPath.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return nil }
     let stored = URL(fileURLWithPath: trimmed, isDirectory: true)
-    if LocalSpeechModelManifest.isModelDirectory(stored) { return stored }
     guard let root else { return nil }
+    let managedRoot = root.resolvingSymlinksInPath().standardizedFileURL
+    let resolvedStored = stored.resolvingSymlinksInPath().standardizedFileURL
+    if isWithin(resolvedStored, root: managedRoot), LocalSpeechModelManifest.isModelDirectory(resolvedStored) {
+      return resolvedStored
+    }
     let moved = root.appendingPathComponent(stored.lastPathComponent, isDirectory: true)
-    return LocalSpeechModelManifest.isModelDirectory(moved) ? moved : nil
+    return LocalSpeechModelManifest.isModelDirectory(moved) ? moved.resolvingSymlinksInPath().standardizedFileURL : nil
   }
 
   /// Whether `storedPath` points at the model `id`, wherever the container was when it was written.
   static func names(_ storedPath: String, model id: String) -> Bool {
     let trimmed = storedPath.trimmingCharacters(in: .whitespacesAndNewlines)
     return !trimmed.isEmpty && URL(fileURLWithPath: trimmed).lastPathComponent == id
+  }
+
+  private static func isWithin(_ child: URL, root: URL) -> Bool {
+    let rootPath = root.path.hasSuffix("/") ? root.path : root.path + "/"
+    return child.path != root.path && child.path.hasPrefix(rootPath)
   }
 }
