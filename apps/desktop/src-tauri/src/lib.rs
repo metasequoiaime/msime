@@ -536,6 +536,10 @@ async fn open_typing_statistics_directory(
     state: tauri::State<'_, TypingStatisticsState>,
 ) -> Result<(), CommandError> {
     let root = state.0.directory().to_path_buf();
+    open_directory(root).await
+}
+
+async fn open_directory(root: PathBuf) -> Result<(), CommandError> {
     tauri::async_runtime::spawn_blocking(move || skin_directory::open(&root))
         .await
         .map_err(|_| CommandError { code: "storage" })?
@@ -855,10 +859,7 @@ async fn open_skin_directory(
     #[cfg(target_os = "ios")]
     return import_picked_skin(&app, root).await;
     #[cfg(not(target_os = "ios"))]
-    tauri::async_runtime::spawn_blocking(move || skin_directory::open(&root))
-        .await
-        .map_err(|_| CommandError { code: "storage" })?
-        .map_err(|code| CommandError { code })
+    open_directory(root).await
 }
 
 #[cfg(target_os = "ios")]
@@ -1134,10 +1135,7 @@ async fn open_preferences_directory(
     store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
 ) -> Result<(), CommandError> {
     let root = store.directory().to_path_buf();
-    tauri::async_runtime::spawn_blocking(move || skin_directory::open(&root))
-        .await
-        .map_err(|_| CommandError { code: "storage" })?
-        .map_err(|code| CommandError { code })
+    open_directory(root).await
 }
 
 #[tauri::command]
