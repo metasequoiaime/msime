@@ -18,6 +18,7 @@
     "scripts/apply_engine_manual_segmentation_cloud.py",
     "scripts/apply_engine_wubi_prefix_learning.py",
     "scripts/apply_engine_shuangpin_yo.py",
+    "scripts/apply_engine_xuan_single_character.py",
     "scripts/apply_engine_punctuation_alternation.py",
     "scripts/apply_engine_bundled_dictionary_entries.py",
     "scripts/apply_engine_paired_punctuation_ipc.py",
