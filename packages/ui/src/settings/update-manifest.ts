@@ -30,6 +30,7 @@ export type ValidatedUpdate = {
   installerSha256: string | null;
   signed: boolean | null;
 };
+import { selectUniqueReleaseAsset } from "./release-assets";
 
 export function parseVersion(value: string): Version | null {
   const match = value.trim().match(/^v?(\d+(?:\.\d+)*)(?:[-+].*)?$/i);
@@ -51,7 +52,6 @@ const sha256Pattern = /^[0-9a-f]{64}$/i;
 
 // The asset name is shown inside a shell command the user may copy, so it is limited to characters that need no quoting and cannot start with an option dash. CPack names the Linux packages `msime-linux_VERSION_ARCH.deb` and `msime-linux-VERSION-linux-ARCH.tar.gz` (platforms/linux/cmake/packaging.cmake).
 const linuxPackagePatterns = [/^[a-z0-9][\w.+~-]*\.deb$/i, /^[a-z0-9][\w.+~-]*\.tar\.gz$/i];
-const githubDigestPattern = /^sha256:([0-9a-f]{64})$/;
 
 function isHttpsUrl(value: string): boolean {
   return value.startsWith("https://") && !/[\s"'`<>\\|&]/.test(value);
@@ -102,29 +102,6 @@ export function validateGitHubRelease(
     installerSha256: null,
     signed: null,
   };
-}
-
-/** Select one release asset from preferred patterns and retain its optional GitHub digest. */
-function selectUniqueReleaseAsset(
-  assets: unknown,
-  patterns: readonly RegExp[],
-): { name: string; sha256: string | null } | null {
-  if (!Array.isArray(assets)) return null;
-  for (const pattern of patterns) {
-    const matches = assets.filter(
-      (asset: GitHubReleaseAsset | null): asset is GitHubReleaseAsset & { name: string } =>
-        !!asset &&
-        typeof asset === "object" &&
-        typeof asset.name === "string" &&
-        pattern.test(asset.name),
-    );
-    if (matches.length === 0) continue;
-    if (matches.length > 1) return null;
-    const [asset] = matches;
-    const digest = typeof asset.digest === "string" ? githubDigestPattern.exec(asset.digest) : null;
-    return { name: asset.name, sha256: digest?.[1] ?? null };
-  }
-  return null;
 }
 
 /**
