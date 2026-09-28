@@ -77,34 +77,6 @@ pub fn restore_launch_target(target: LaunchTarget) -> bool {
     unsafe { msime_macos_restore_launch_target(target.pid, target.launched) }
 }
 
-/// Post a keyboard stroke to the application captured before a non-activating
-/// panel was shown. The launch time is checked again in native code so a
-/// recycled PID can never receive input intended for the old application.
-#[cfg(target_os = "macos")]
-pub fn send_keyboard_key_to_target(request: &KeyboardInputRequest, target: &LaunchTarget) -> bool {
-    let Some(stroke) = keyboard_stroke(request) else {
-        return false;
-    };
-    unsafe extern "C" {
-        fn msime_macos_send_keyboard_key_to_target(
-            pid: i32,
-            launched: f64,
-            code: u16,
-            flags: u64,
-        ) -> bool;
-    }
-    // SAFETY: scalar ABI; native code validates the target identity, main
-    // thread, Accessibility permission and event allocation before posting.
-    unsafe {
-        msime_macos_send_keyboard_key_to_target(
-            target.pid,
-            target.launched,
-            stroke.code,
-            stroke.flags,
-        )
-    }
-}
-
 /// Enumerate input-capable CoreAudio devices using their stable UIDs. The
 /// callback runs synchronously on the caller's thread and never opens a
 /// device, so this is safe to use from a Tauri blocking task.
