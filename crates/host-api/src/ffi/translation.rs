@@ -3,6 +3,7 @@
 //! Part of the C ABI; see the parent module for what these shims guarantee.
 
 use crate::*;
+use msime_client_core::cloud::dictionary::valid_bounded_text;
 
 /// Plan eligible visible candidates using shared script filters. No I/O.
 /// # Safety
@@ -259,8 +260,7 @@ pub unsafe extern "C" fn msime_client_custom_translation_http_request(
                     .all(|byte| byte.is_ascii_alphabetic() || byte == b'-')
         };
         if !msime_client_core::translation::is_supported_endpoint(&config.endpoint)
-            || config.api_key.len() > 4096
-            || config.api_key.chars().any(char::is_control)
+            || !valid_bounded_text(&config.api_key, 4096)
             || text.is_empty()
             || text.chars().count() > 40
             || text.chars().any(char::is_control)
