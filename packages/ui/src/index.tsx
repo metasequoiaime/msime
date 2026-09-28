@@ -3706,7 +3706,6 @@ export function SettingsPage({
   // Offline glosses are opt-in in client-core and in every native host. Keep
   // the settings view aligned when older snapshots omit the optional field.
   const candidateEnglishGloss = draft?.candidate_english_gloss ?? false;
-  const englishSuggestions = draft?.english_suggestions ?? true;
   const candidateGlossLanguagesEnabled =
     candidateTranslations || Boolean(client.candidateEnglishGloss && candidateEnglishGloss);
   const translationTargetLanguage = draft?.translation_target_language ?? "en";
