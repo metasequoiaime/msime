@@ -1,3 +1,4 @@
+use crate::platform::account_helpers::call_session;
 use crate::shared::account_dto::{
     ChallengeResponse, ChatModelsResponse, ChatResponse, PreferenceSchemaResponse, ProfileResponse,
     StatusResponse,
@@ -88,10 +89,6 @@ pub(crate) fn snapshot_command_error() -> crate::CommandError {
     }
 }
 
-pub(crate) fn account_command_error(error: AccountError) -> crate::CommandError {
-    crate::CommandError { code: error.code() }
-}
-
 pub(crate) fn parse_snapshot_token(value: &str) -> Result<uuid::Uuid, crate::CommandError> {
     uuid::Uuid::parse_str(value).map_err(|_| crate::CommandError {
         code: "snapshot_invalid",
@@ -117,24 +114,6 @@ where
     F: FnOnce(&crate::platform::mobile::MobileSession) -> Result<T, AccountError> + Send + 'static,
 {
     call_session(state.session(), operation).await
-}
-
-pub(crate) async fn call_session<S, T, F>(
-    session: &Arc<S>,
-    operation: F,
-) -> Result<T, crate::CommandError>
-where
-    S: Send + Sync + 'static,
-    T: Send + 'static,
-    F: FnOnce(&S) -> Result<T, AccountError> + Send + 'static,
-{
-    let session = Arc::clone(session);
-    tauri::async_runtime::spawn_blocking(move || operation(&session))
-        .await
-        .map_err(|_| crate::CommandError {
-            code: "account_unavailable",
-        })?
-        .map_err(account_command_error)
 }
 
 pub(crate) async fn account_status(

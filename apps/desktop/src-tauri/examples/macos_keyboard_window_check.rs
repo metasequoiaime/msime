@@ -6,6 +6,28 @@
 mod macos_keyboard;
 
 #[cfg(all(target_os = "macos", not(test)))]
+fn startup_panel_for_route(
+    route: Option<msime_client_core::host_surface::SurfaceRoute>,
+    expected: msime_client_core::host_surface::SurfaceRoute,
+) -> Option<msime_client_core::host_surface::PanelSurface> {
+    route.filter(|route| *route == expected)?.panel()
+}
+
+#[cfg(all(target_os = "macos", not(test)))]
+fn prepare_windows_for_route(
+    windows: &mut [tauri::utils::config::WindowConfig],
+    route: Option<msime_client_core::host_surface::SurfaceRoute>,
+    expected: msime_client_core::host_surface::SurfaceRoute,
+) {
+    if startup_panel_for_route(route, expected).is_some() {
+        for window in windows.iter_mut().filter(|window| window.label == "main") {
+            window.visible = false;
+            window.focus = false;
+        }
+    }
+}
+
+#[cfg(all(target_os = "macos", not(test)))]
 fn check_window(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     use tauri_nspanel::ManagerExt;
     let window = tauri::WebviewWindowBuilder::new(
