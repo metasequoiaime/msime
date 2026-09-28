@@ -758,7 +758,8 @@ impl BackendAccountClient {
             word: &'a str,
             weight: i64,
         }
-        let path = mutation_path(kind, "add").ok_or(AccountError::Invalid)?;
+        let path =
+            crate::cloud::dictionary::mutation_path(kind, "add").ok_or(AccountError::Invalid)?;
         let change = self.json(
             Method::POST,
             &path,
@@ -852,12 +853,14 @@ impl BackendAccountClient {
         validate_dictionary_import(kind, format, text)?;
         let (path, body) = if format == "hans" {
             (
-                mutation_path(kind, "import-hans").ok_or(AccountError::Invalid)?,
+                crate::cloud::dictionary::mutation_path(kind, "import-hans")
+                    .ok_or(AccountError::Invalid)?,
                 serde_json::json!({ "text": text, "weight": 100000_i64 }),
             )
         } else {
             (
-                mutation_path(kind, "import").ok_or(AccountError::Invalid)?,
+                crate::cloud::dictionary::mutation_path(kind, "import")
+                    .ok_or(AccountError::Invalid)?,
                 serde_json::json!({ "text": text, "format": format }),
             )
         };

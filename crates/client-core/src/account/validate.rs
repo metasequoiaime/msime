@@ -265,10 +265,6 @@ pub(super) fn validate_fixed_positions(result: &AccountFixedPositions) -> Result
     Ok(())
 }
 
-pub(super) fn mutation_path(kind: DictionaryKind, operation: &str) -> Option<String> {
-    crate::cloud::dictionary::mutation_path(kind, operation)
-}
-
 pub(super) fn validate_dictionary_id(value: &str) -> Result<(), AccountError> {
     if crate::text::is_lower_hex(value, 64) {
         Ok(())
