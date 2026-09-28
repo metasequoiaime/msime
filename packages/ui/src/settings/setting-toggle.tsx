@@ -4,6 +4,7 @@ export interface SettingToggleProps {
   label: ReactNode;
   description: ReactNode;
   checked: boolean;
+  ariaLabel?: string;
   disabled?: boolean;
   onChange: (checked: boolean) => void;
 }
@@ -13,6 +14,7 @@ export function SettingToggle({
   label,
   description,
   checked,
+  ariaLabel,
   disabled,
   onChange,
 }: SettingToggleProps) {
@@ -26,6 +28,7 @@ export function SettingToggle({
         <input
           className="toggle"
           type="checkbox"
+          aria-label={ariaLabel}
           checked={checked}
           disabled={disabled}
           onChange={(event) => onChange(event.target.checked)}
