@@ -48,6 +48,10 @@ use uuid::Uuid;
 
 const MAX_SECURE_SESSION_BYTES: usize = 16 * 1024;
 
+fn valid_secure_session(value: &str) -> bool {
+    !value.is_empty() && value.len() <= MAX_SECURE_SESSION_BYTES
+}
+
 #[derive(Deserialize)]
 struct LoadResponse {
     value: Option<String>,
@@ -104,7 +108,7 @@ impl<R: Runtime> AccountSessionStorage for AndroidAccountStorage<R> {
         response
             .value
             .map(|value| {
-                if value.is_empty() || value.len() > MAX_SECURE_SESSION_BYTES {
+                if !valid_secure_session(&value) {
                     return Err(AccountError::Storage);
                 }
                 serde_json::from_str(&value).map_err(|_| AccountError::Storage)
@@ -114,7 +118,7 @@ impl<R: Runtime> AccountSessionStorage for AndroidAccountStorage<R> {
 
     fn save(&self, session: &SavedAccountSession) -> Result<(), AccountError> {
         let value = serde_json::to_string(session).map_err(|_| AccountError::Storage)?;
-        if value.is_empty() || value.len() > MAX_SECURE_SESSION_BYTES {
+        if !valid_secure_session(&value) {
             return Err(AccountError::Storage);
         }
         self.0
