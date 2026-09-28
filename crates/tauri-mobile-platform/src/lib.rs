@@ -1,13 +1,10 @@
+use msime_client_core::is_bounded_text;
 use serde::{Deserialize, Serialize};
 #[cfg(any(target_os = "ios", test))]
 use serde_json::json;
 use serde_json::Value;
 use tauri::plugin::{Builder, TauriPlugin};
 use tauri::Runtime;
-
-fn valid_control_free(value: &str, maximum_bytes: usize) -> bool {
-    value.len() <= maximum_bytes && !value.chars().any(char::is_control)
-}
 
 #[cfg(any(target_os = "ios", target_os = "android"))]
 use tauri::plugin::PluginHandle;
@@ -62,12 +59,12 @@ pub struct AndroidVoicePolishRequest {
 impl AndroidVoicePolishRequest {
     pub fn is_valid(&self) -> bool {
         self.endpoint.starts_with("https://")
-            && valid_control_free(&self.endpoint, 2048)
+            && is_bounded_text(&self.endpoint, 2048)
             && !self.model.trim().is_empty()
-            && valid_control_free(&self.model, 512)
+            && is_bounded_text(&self.model, 512)
             && !self.token.trim().is_empty()
-            && valid_control_free(&self.token, 16 * 1024)
-            && valid_control_free(&self.prompt_id, 64)
+            && is_bounded_text(&self.token, 16 * 1024)
+            && is_bounded_text(&self.prompt_id, 64)
             && [
                 &self.prompt_legacy,
                 &self.prompt_custom_1,
@@ -75,7 +72,7 @@ impl AndroidVoicePolishRequest {
                 &self.prompt_custom_3,
             ]
             .iter()
-            .all(|slot| valid_control_free(slot, 8192))
+            .all(|slot| is_bounded_text(slot, 8192))
     }
 }
 
@@ -93,7 +90,7 @@ fn valid_android_voice_request(request_id: &str, language: &str) -> bool {
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
         && !language.is_empty()
-        && valid_control_free(language, 64)
+        && is_bounded_text(language, 64)
 }
 
 #[cfg(target_os = "android")]
@@ -233,11 +230,11 @@ pub struct IosKeyboardAiPreferences {
 
 impl IosKeyboardAiPreferences {
     pub fn is_valid(&self) -> bool {
-        valid_control_free(&self.provider, 64)
-            && valid_control_free(&self.endpoint, 2_048)
-            && valid_control_free(&self.model, 512)
-            && valid_control_free(&self.prompt, 16 * 1_024)
-            && valid_control_free(&self.token, 16 * 1_024)
+        is_bounded_text(&self.provider, 64)
+            && is_bounded_text(&self.endpoint, 2_048)
+            && is_bounded_text(&self.model, 512)
+            && is_bounded_text(&self.prompt, 16 * 1_024)
+            && is_bounded_text(&self.token, 16 * 1_024)
             && (!self.enabled
                 || (!self.provider.is_empty()
                     && !self.endpoint.trim().is_empty()
@@ -288,8 +285,8 @@ fn valid_mobile_voice_hotwords(hotwords: &[MobileVoiceHotword]) -> bool {
     hotwords.len() <= MAX_MOBILE_VOICE_HOTWORDS
         && hotwords.iter().all(|hotword| {
             !hotword.text.trim().is_empty()
-                && valid_control_free(&hotword.text, MAX_MOBILE_VOICE_HOTWORD_TEXT_BYTES)
-                && valid_control_free(&hotword.pinyin, MAX_MOBILE_VOICE_HOTWORD_PINYIN_BYTES)
+                && is_bounded_text(&hotword.text, MAX_MOBILE_VOICE_HOTWORD_TEXT_BYTES)
+                && is_bounded_text(&hotword.pinyin, MAX_MOBILE_VOICE_HOTWORD_PINYIN_BYTES)
         })
 }
 
@@ -301,14 +298,14 @@ impl MobileVoiceTranscriptionRequest {
                 .request_id
                 .bytes()
                 .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
-            && valid_control_free(&self.endpoint, MAX_MOBILE_VOICE_ENDPOINT_BYTES)
-            && valid_control_free(&self.model, MAX_MOBILE_VOICE_MODEL_BYTES)
-            && valid_control_free(&self.token, MAX_MOBILE_VOICE_TOKEN_BYTES)
-            && valid_control_free(
+            && is_bounded_text(&self.endpoint, MAX_MOBILE_VOICE_ENDPOINT_BYTES)
+            && is_bounded_text(&self.model, MAX_MOBILE_VOICE_MODEL_BYTES)
+            && is_bounded_text(&self.token, MAX_MOBILE_VOICE_TOKEN_BYTES)
+            && is_bounded_text(
                 &self.boosting_table_id,
                 MAX_MOBILE_VOICE_BOOSTING_TABLE_BYTES,
             )
-            && valid_control_free(&self.model_path, MAX_MOBILE_VOICE_MODEL_PATH_BYTES)
+            && is_bounded_text(&self.model_path, MAX_MOBILE_VOICE_MODEL_PATH_BYTES)
             && valid_mobile_voice_hotwords(&self.hotwords);
         if !common {
             return false;
@@ -355,7 +352,7 @@ fn valid_doubao_headers(headers: &[MobileVoiceRequestHeader]) -> bool {
                     | "x-api-resource-id"
                     | "x-api-request-id"
             ) || header.value.is_empty()
-                || !valid_control_free(&header.value, MAX_MOBILE_VOICE_HEADER_BYTES)
+                || !is_bounded_text(&header.value, MAX_MOBILE_VOICE_HEADER_BYTES)
         })
     {
         return false;
@@ -427,7 +424,7 @@ fn installed_font_families(families: Vec<String>) -> Option<Vec<String>> {
     if families.len() > MAX_FAMILIES
         || families
             .iter()
-            .any(|family| family.trim().is_empty() || !valid_control_free(family, MAX_FAMILY_BYTES))
+            .any(|family| family.trim().is_empty() || !is_bounded_text(family, MAX_FAMILY_BYTES))
     {
         return None;
     }

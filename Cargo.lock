@@ -2570,6 +2570,7 @@ dependencies = [
 name = "msime-tauri-mobile-platform"
 version = "0.1.0"
 dependencies = [
+ "msime-client-core",
  "serde",
  "serde_json",
  "tauri",
