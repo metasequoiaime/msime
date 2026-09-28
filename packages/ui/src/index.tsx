@@ -63,7 +63,6 @@ import { defaultVoiceInput } from "./settings/voice-input-defaults";
 import { macosSidebarGroups } from "./settings/macos-sidebar-groups";
 import { groupSidebarPages } from "./settings/sidebar-groups";
 import { mobileHiddenPageIds as getMobileHiddenPageIds } from "./settings/mobile-hidden-pages";
-import { unreadablePreferencesMessage } from "./settings/preferences-recovery-message";
 import {
   defaultCustomTranslation,
   defaultNiuTrans,
@@ -382,6 +381,11 @@ export {
 } from "./settings/mobile-settings-tabs";
 import { SettingsPageHeader } from "./settings/settings-page-header";
 export { SettingsPageHeader, type SettingsPageHeaderProps } from "./settings/settings-page-header";
+import { SettingsStatusMessages } from "./settings/settings-status-messages";
+export {
+  SettingsStatusMessages,
+  type SettingsStatusMessagesProps,
+} from "./settings/settings-status-messages";
 import * as surface from "./keyboard/panel-surface-style";
 import * as settings from "./settings/settings-style";
 import * as doc from "./settings/document-style";
@@ -3563,45 +3567,17 @@ export function SettingsPage({
               title={availablePages.find((item) => item.id === page)?.title ?? "外观"}
               hiddenOnPhone={mobilePlatform && untitledOnPhone.includes(page)}
             />
-            {error && (
-              <p role="alert" className="error">
-                {error}
-                {error === unreadablePreferencesMessage && client.recoverPreferences && (
-                  <>
-                    {" "}
-                    <button
-                      type="button"
-                      className="secondary"
-                      disabled={busy}
-                      onClick={() => void recoverPreferences()}
-                    >
-                      修复配置文件…
-                    </button>
-                  </>
-                )}
-              </p>
-            )}
-            {notice && (
-              <p role="status" className="notice">
-                {notice}
-                {recoveredBackup && client.openPreferencesDirectory && (
-                  <>
-                    {" "}
-                    <button
-                      type="button"
-                      className="secondary"
-                      onClick={() =>
-                        void client
-                          .openPreferencesDirectory?.()
-                          .catch(() => setError("无法打开配置文件所在的文件夹。"))
-                      }
-                    >
-                      {macosPlatform ? "在 Finder 中显示" : "打开所在文件夹"}
-                    </button>
-                  </>
-                )}
-              </p>
-            )}
+            <SettingsStatusMessages
+              error={error}
+              notice={notice}
+              busy={busy}
+              recoveredBackup={recoveredBackup}
+              canRecover={Boolean(client.recoverPreferences)}
+              onRecover={() => void recoverPreferences()}
+              openPreferencesDirectory={client.openPreferencesDirectory}
+              macos={macosPlatform}
+              onError={setError}
+            />
             {inputSourceStartup &&
               (inputSourceStartup.action !== "up_to_date" ||
                 inputSourceStartup.enabled === false) && (
