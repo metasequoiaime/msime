@@ -609,7 +609,10 @@ fn host_palette(palette: &CandidatePalette) -> serde_json::Map<String, serde_jso
         ("selected", &palette.selected),
         ("surface", &palette.surface),
     ] {
-        if let Some(value) = value.as_deref().filter(|value| hex_color(value, &[6])) {
+        if let Some(value) = value
+            .as_deref()
+            .filter(|value| crate::is_hex_color(value, &[6]))
+        {
             colors.insert(key.to_owned(), value.into());
         }
     }
@@ -617,17 +620,11 @@ fn host_palette(palette: &CandidatePalette) -> serde_json::Map<String, serde_jso
     if let Some(value) = palette
         .border
         .as_deref()
-        .filter(|value| *value == "transparent" || hex_color(value, &[6, 8]))
+        .filter(|value| *value == "transparent" || crate::is_hex_color(value, &[6, 8]))
     {
         colors.insert("border".to_owned(), value.into());
     }
     colors
-}
-
-fn hex_color(value: &str, digits: &[usize]) -> bool {
-    value.strip_prefix('#').is_some_and(|hex| {
-        digits.contains(&hex.len()) && hex.bytes().all(|byte| byte.is_ascii_hexdigit())
-    })
 }
 
 #[cfg(test)]

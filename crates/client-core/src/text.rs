@@ -23,6 +23,13 @@ pub fn is_ascii_hex(value: &str, length: usize) -> bool {
     value.len() == length && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
+/// Validate a CSS-style hexadecimal color with one of the accepted digit lengths.
+pub fn is_hex_color(value: &str, digits: &[usize]) -> bool {
+    value.strip_prefix('#').is_some_and(|hex| {
+        digits.contains(&hex.len()) && hex.bytes().all(|b| b.is_ascii_hexdigit())
+    })
+}
+
 pub fn is_lower_hex(value: &str, length: usize) -> bool {
     value.len() == length
         && value
