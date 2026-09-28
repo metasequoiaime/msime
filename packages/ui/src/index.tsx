@@ -16,8 +16,28 @@ import {
 } from "react";
 import {
   DICTIONARY_PAGE_SIZE,
+  dictionaryExportName,
+  dictionaryExportPayload,
+  dictionaryKindKeyHint,
   dictionaryPageStatus,
+  personalDictionaryExportName,
+  personalDictionaryExportPayload,
   readDictionaryFile,
+  type DictionaryEntry,
+  type LocalDictionaryFormat,
+  type LocalDictionaryKind,
+} from "./dictionary/dictionary-file";
+export {
+  dictionaryExportName,
+  dictionaryExportPayload,
+  dictionaryKindKeyHint,
+  personalDictionaryExportName,
+  personalDictionaryExportPayload,
+} from "./dictionary/dictionary-file";
+export type {
+  DictionaryEntry,
+  LocalDictionaryFormat,
+  LocalDictionaryKind,
 } from "./dictionary/dictionary-file";
 import { SkinCandidatePreview } from "./skin/skin-candidate-preview";
 import { AppearanceCandidatePreview } from "./candidate/appearance-candidate-preview";
@@ -1432,16 +1452,6 @@ export type Snapshot = {
   preferences: Preferences;
   candidate_skin_catalog?: ExternalSkinCatalog;
 };
-export type LocalDictionaryKind = "pinyin" | "wubi" | "quick_phrase" | "english";
-export type LocalDictionaryFormat = "standard" | "windows" | "rime" | "hans";
-export type DictionaryEntry = {
-  kind: LocalDictionaryKind;
-  key: string;
-  value: string;
-  weight: number;
-  /** Set by hosts that also list the packaged dictionary: a bundled row can only be re-weighted or deleted. */
-  source?: "user" | "bundled";
-};
 export type DictionaryFailure = { request_id: string; label: string; error: string };
 /** Mirrors the import response from `client-core::dictionary_import`. */
 export interface DictionaryImportResult {
@@ -1522,53 +1532,12 @@ export interface DictionaryClient {
   retry?(request_id: string): Promise<void>;
   dismissFailure?(request_id: string): Promise<void>;
 }
-const personalDictionaryExportKinds: [LocalDictionaryKind, string][] = [
-  ["pinyin", "拼音"],
-  ["wubi", "五笔"],
-  ["quick_phrase", "快捷短语"],
-  ["english", "英文"],
-];
-
-/** The encoding rules shown beside the Apple personal-dictionary editor. */
-export function dictionaryKindKeyHint(kind: LocalDictionaryKind): string {
-  switch (kind) {
-    case "wubi":
-      return "1–4 个字母";
-    case "quick_phrase":
-      return "1–32 个字母";
-    case "english":
-      return "1–64 个字母";
-    case "pinyin":
-      return "完整音节，用 ' 分隔，如 ni'hao";
-  }
-}
-
-/** The single-file name and layout used by the macOS personal dictionary. */
-export function personalDictionaryExportName(): string {
-  return "水杉用户词库.txt";
-}
-
-export function personalDictionaryExportPayload(entries: DictionaryEntry[]): {
-  body: string;
-  rows: number;
-} {
-  const rows = personalDictionaryExportKinds.flatMap(([kind, label]) =>
-    entries
-      .filter((entry) => entry.kind === kind)
-      .map((entry) => `${label}\t${entry.key}\t${entry.value}\t${entry.weight}`),
-  );
-  return {
-    body: `# 类别\t编码\t词条\t权重\n${rows.length ? `${rows.join("\n")}\n` : ""}`,
-    rows: rows.length,
-  };
-}
-
 /** Read every user-owned dictionary entry of every kind in bounded pages, preserving host ordering. */
 export async function loadAllPersonalDictionaryEntries(
   dictionary: Pick<DictionaryClient, "list">,
 ): Promise<DictionaryEntry[]> {
   const entries: DictionaryEntry[] = [];
-  for (const [kind] of personalDictionaryExportKinds) {
+  for (const kind of ["pinyin", "wubi", "quick_phrase", "english"] as const) {
     let offset = 0;
     let hasMore = true;
     while (hasMore && offset <= 1_000_000) {
@@ -1684,45 +1653,6 @@ function importFailureMessage(kind: string, error: unknown): string {
   const coded = dictionaryErrorMessage(error, "");
   if (coded) return `${kind}导入失败：${coded}`;
   return reason ? `${kind}导入失败：${reason}` : `${kind}导入失败，请检查文本格式。`;
-}
-
-/** The shipped export filenames, one per dictionary kind. */
-export function dictionaryExportName(kind: LocalDictionaryKind): string {
-  const names: Record<LocalDictionaryKind, string> = {
-    pinyin: "水杉IME-拼音用户词库.txt",
-    wubi: "水杉IME-五笔用户词库.txt",
-    english: "水杉IME-英文用户词库.txt",
-    quick_phrase: "水杉IME-快捷短语用户词库.txt",
-  };
-  return names[kind];
-}
-/**
- * Prepare the export payload.
- *
- * Two things the plain Blob did not do. A UTF-8 BOM, because Notepad and Excel
- * on a GBK-default Windows render the Chinese as mojibake without one. And for
- * the pinyin book, single-character rows are dropped: those are learning
- * artefacts the engine accumulated, not words the user added, so exporting
- * them buries the real entries.
- */
-export function dictionaryExportPayload(
-  kind: LocalDictionaryKind,
-  format: LocalDictionaryFormat,
-  text: string,
-): { body: string; rows: number } {
-  const lines = text.split("\n").filter((line) => line.trim().length > 0);
-  // Windows exports put the code first; every other format puts the word first.
-  const wordColumn = format === "windows" ? 1 : 0;
-  const kept =
-    kind === "pinyin"
-      ? lines.filter((line) => {
-          const columns = line.split("\t");
-          const word = columns[wordColumn]?.trim() ?? "";
-          return Array.from(word).length > 1;
-        })
-      : lines;
-  if (!kept.length) return { body: "", rows: 0 };
-  return { body: "\ufeff" + kept.join("\n") + "\n", rows: kept.length };
 }
 
 function dictionaryKindLabel(kind: LocalDictionaryKind): string {

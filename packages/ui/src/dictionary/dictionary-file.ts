@@ -168,6 +168,84 @@ export const personalDictionaryExample = JSON.stringify(
 
 export const DICTIONARY_PAGE_SIZE = 100;
 
+export type LocalDictionaryKind = "pinyin" | "wubi" | "quick_phrase" | "english";
+export type LocalDictionaryFormat = "standard" | "windows" | "rime" | "hans";
+export type DictionaryEntry = {
+  kind: LocalDictionaryKind;
+  key: string;
+  value: string;
+  weight: number;
+  source?: "user" | "bundled";
+};
+
+const personalDictionaryExportKinds: [LocalDictionaryKind, string][] = [
+  ["pinyin", "拼音"],
+  ["wubi", "五笔"],
+  ["quick_phrase", "快捷短语"],
+  ["english", "英文"],
+];
+
+export function dictionaryKindKeyHint(kind: LocalDictionaryKind): string {
+  switch (kind) {
+    case "wubi":
+      return "1–4 个字母";
+    case "quick_phrase":
+      return "1–32 个字母";
+    case "english":
+      return "1–64 个字母";
+    case "pinyin":
+      return "完整音节，用 ' 分隔，如 ni'hao";
+  }
+}
+
+export function personalDictionaryExportName(): string {
+  return "水杉用户词库.txt";
+}
+
+export function personalDictionaryExportPayload(entries: DictionaryEntry[]): {
+  body: string;
+  rows: number;
+} {
+  const rows = personalDictionaryExportKinds.flatMap(([kind, label]) =>
+    entries
+      .filter((entry) => entry.kind === kind)
+      .map((entry) => `${label}\t${entry.key}\t${entry.value}\t${entry.weight}`),
+  );
+  return {
+    body: `# 类别\t编码\t词条\t权重\n${rows.length ? `${rows.join("\n")}\n` : ""}`,
+    rows: rows.length,
+  };
+}
+
+export function dictionaryExportName(kind: LocalDictionaryKind): string {
+  const names: Record<LocalDictionaryKind, string> = {
+    pinyin: "水杉IME-拼音用户词库.txt",
+    wubi: "水杉IME-五笔用户词库.txt",
+    english: "水杉IME-英文用户词库.txt",
+    quick_phrase: "水杉IME-快捷短语用户词库.txt",
+  };
+  return names[kind];
+}
+
+export function dictionaryExportPayload(
+  kind: LocalDictionaryKind,
+  format: LocalDictionaryFormat,
+  text: string,
+): { body: string; rows: number } {
+  const lines = text.split("\n").filter((line) => line.trim().length > 0);
+  const wordColumn = format === "windows" ? 1 : 0;
+  const kept =
+    kind === "pinyin"
+      ? lines.filter((line) => {
+          const columns = line.split("\t");
+          const word = columns[wordColumn]?.trim() ?? "";
+          return Array.from(word).length > 1;
+        })
+      : lines;
+  if (!kept.length) return { body: "", rows: 0 };
+  return { body: "\ufeff" + kept.join("\n") + "\n", rows: kept.length };
+}
+
 /// Status line for one page of results, matching the shipped pager.
 export function dictionaryPageStatus(offset: number, count: number, hasMore: boolean): string {
   if (!count) return "没有更多结果";
