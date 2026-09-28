@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The menu bar icon of the Japanese input mode: the glyph 日, drawn as a template so the menu bar can tint it for light, dark and the highlighted menu.
+
+  The glyph is set in PingFang SC Semibold and fitted into a square tile with a thirty-second of a side clear on each edge, the same geometry platforms/macos/scripts/render_menu_icon.swift uses for every menu icon. Change the character or face here and in that script together, then rerun it to rewrite MSIMEClientInputMethodMenuIconJapanese.tiff.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <title>水杉输入法 Japanese input mode icon</title>
+  <text
+    x="16"
+    y="16"
+    fill="#000"
+    font-family="PingFang SC"
+    font-weight="600"
+    font-size="30"
+    text-anchor="middle"
+    dominant-baseline="central"
+  >日</text>
+</svg>

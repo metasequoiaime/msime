@@ -2419,6 +2419,8 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     [self refreshFloatingToolbarState];
     if (_activeClient) [self renderCandidates];
     if (_activeClient) [_toolbar setVisible:_appearance.floatingToolbarEnabled forDelegate:self];
+    // The settings window can move the scheme in or out of japanese, which moves the menu bar between 中 and 日.
+    if (_activeClient) [self syncSystemInputModeForClient:_activeClient];
     [self persistAppearancePreferences];
 }
 - (void)persistAppearancePreferences {
@@ -2810,11 +2812,12 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
         [[MSIMEInputModeHUDPanel sharedPanel] showEnglishInputMode:enabled nearCaretRect:caret];
     }
 }
-// The menu bar shows the selected input mode's icon, 中 or 英, as the Windows tray's language-bar icon does. A switch the system reported is already recorded as shown, so this does not echo it back.
+// The menu bar shows the selected input mode's icon, 中, 英 or 日, as the Windows tray's language-bar icon does. A switch the system reported is already recorded as shown, so this does not echo it back.
 - (void)syncSystemInputModeForClient:(id)client {
-    MSIMESelectSystemInputMode(MSIMESharedSystemInputModeState(), _appearance.englishMode, client, MSIMEInputSourceIsEnabled);
+    NSString *mode = MSIMEInputModeIDFor(_appearance.englishMode, [_appearance.inputScheme isEqualToString:@"japanese"]);
+    MSIMESelectSystemInputMode(MSIMESharedSystemInputModeState(), mode, client, MSIMEInputSourceIsEnabled);
 }
-// The system reports the mode the user picked from the input menu or reached with Ctrl+Space; the controller's Chinese/English state follows it. A report that only repeats the mode already shown, or one delivered from inside this controller's own selectInputMode:, leaves the state alone.
+// The system reports the mode the user picked from the input menu or reached with Ctrl+Space; the controller's Chinese/English state and, for 中 and 日, its scheme follow it. A report that only repeats the mode already shown, or one delivered from inside this controller's own selectInputMode:, leaves the state alone.
 - (void)setValue:(id)value forTag:(long)tag client:(id)sender {
     if (tag == kTextServiceInputModePropertyTag) [self systemDidReportInputMode:value client:sender];
     [super setValue:value forTag:tag client:sender];
@@ -2824,7 +2827,15 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     [self ensureAppearance];
     // The report can arrive before activateServer: or handleEvent: has named the client, and the mode is remembered per application.
     [_appearance activateInputModeForApplication:[sender respondsToSelector:@selector(bundleIdentifier)] ? [sender bundleIdentifier] : nil];
+    // Moving from 英 to 日 changes two things, and each change syncs the menu bar on its own: between them it would select 中 or 英 again and the system would report that back as a new choice. Holding `selecting` keeps both quiet, and the sync below selects the one mode they add up to. 英 leaves the scheme alone, so returning to 中 or 日 afterwards finds it where it was.
+    MSIMESystemInputModeState &state = MSIMESharedSystemInputModeState();
+    state.selecting = true;
+    NSString *scheme = _appearance.inputScheme;
+    if (MSIMEJapaneseForInputModeID(value) && ![scheme isEqualToString:@"japanese"]) _appearance.inputScheme = @"japanese";
+    else if ([value isEqualToString:MSIMEChineseInputModeID] && [scheme isEqualToString:@"japanese"])
+        _appearance.inputScheme = _appearance.lastChineseScheme;
     [self setEnglishInputMode:MSIMEEnglishForInputModeID(value)];
+    state.selecting = false;
     // setEnglishInputMode: can refuse the switch (an Engine cancel failure while composing) after the report was already recorded as shown; select the mode the controller actually has so the menu bar does not keep the refused one. A switch that went through makes this a no-op.
     [self syncSystemInputModeForClient:sender];
 }
@@ -3900,6 +3911,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
                                                  _appearance.inlinePreeditStyle);
         }
         [self refreshFloatingToolbarState];
+        // Another surface - the shared settings page, an account push - can have changed the scheme.
+        [self syncSystemInputModeForClient:_activeClient];
         [self renderCandidates];
         [self synchronizeCloudCandidates];
     [self scheduleSettledRerank];

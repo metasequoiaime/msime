@@ -1730,7 +1730,7 @@ static void TestKeypadDecimal(MSIMEAppearancePreferences *appearance) {
 }
 @end
 
-// The menu bar's 中/英 icon is the selected input mode. A mode the system reports - picked from the input menu or reached with Ctrl+Space - sets the Chinese/English state, and is not selected back.
+// The menu bar's 中/英/日 icon is the selected input mode. A mode the system reports - picked from the input menu or reached with Ctrl+Space - sets the Chinese/English state and, for 中 and 日, the scheme, and is not selected back.
 static void TestSystemInputModeReport(MSIMEAppearancePreferences *appearance) {
     ModeController *controller = [ModeController alloc];
     ModeSelectingClient *client = [ModeSelectingClient new];
@@ -1754,6 +1754,20 @@ static void TestSystemInputModeReport(MSIMEAppearancePreferences *appearance) {
 
     [controller systemDidReportInputMode:MSIMEChineseInputModeID client:client];
     assert(!appearance.englishMode && client.selectedModes.count == 0);
+
+    // 日 moves the scheme to japanese, 英 over it leaves the scheme alone, and 中 goes back to the Chinese scheme japanese was entered from.
+    NSString *scheme = appearance.inputScheme;
+    appearance.inputScheme = @"shuangpin";
+    [controller systemDidReportInputMode:MSIMEJapaneseInputModeID client:client];
+    assert([appearance.inputScheme isEqual:@"japanese"] && [appearance.lastChineseScheme isEqual:@"shuangpin"] &&
+           !appearance.englishMode && client.selectedModes.count == 0);
+    [controller systemDidReportInputMode:MSIMEEnglishInputModeID client:client];
+    assert([appearance.inputScheme isEqual:@"japanese"] && appearance.englishMode && client.selectedModes.count == 0);
+    [controller systemDidReportInputMode:MSIMEJapaneseInputModeID client:client];
+    assert([appearance.inputScheme isEqual:@"japanese"] && !appearance.englishMode && client.selectedModes.count == 0);
+    [controller systemDidReportInputMode:MSIMEChineseInputModeID client:client];
+    assert([appearance.inputScheme isEqual:@"shuangpin"] && !appearance.englishMode && client.selectedModes.count == 0);
+    appearance.inputScheme = scheme;
     appearance.englishMode = english;
 }
 

@@ -10,7 +10,7 @@ and is invisible until someone opens the input menu on a real install. Apple's o
 A missing file is the other half: the plist keys are strings, so a renamed resource fails silently and the
 menu falls back to a generic icon.
 
-The menu bar icon is also the mode indicator: the Chinese and English input modes each name their own icon, 中 and 英, and the menu bar shows the active one. Two modes sharing a file, or a mode naming a different file for the menu and the palette, would leave the menu bar unable to tell the modes apart.
+The menu bar icon is also the mode indicator: the Chinese, English and Japanese input modes each name their own icon, 中, 英 and 日, and the menu bar shows the active one. Two modes sharing a file, or a mode naming a different file for the menu and the palette, would leave the menu bar unable to tell the modes apart.
 """
 
 import plistlib

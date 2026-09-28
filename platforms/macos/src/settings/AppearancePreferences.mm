@@ -928,6 +928,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSPopUpButton *_wordCharacterKeys;
     NSMutableArray<NSButton *> *_navigationButtons;
     NSString *_sharedInputScheme;
+    NSString *_lastChineseScheme;
     NSString *_sharedShuangpinProfile;
     NSNumber *_sharedShuangpinPreeditUsesRaw;
     NSNumber *_sharedWubiMixedPinyin;
@@ -1130,12 +1131,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     merged[@"candidate_follow_cursor"] = @(self.candidateFollowCursor);
     merged[@"input_mode_hud"] = @(self.inputModeHUD);
     merged[@"scheme"] = self.inputScheme;
-    // Leaving for Japanese has to leave a way back. `last_chinese_scheme` is what every other host
-    // writes when the scheme changes - Fcitx5, IBus, iOS and HarmonyOS all do - and what the shared
-    // settings page reads to put the user back on 五笔 rather than 全拼. This window sets the scheme
-    // itself, Japanese included, so without this the field keeps whatever a different surface wrote
-    // and the way back points at the wrong scheme.
-    if (![self.inputScheme isEqual:@"japanese"]) merged[@"last_chinese_scheme"] = self.inputScheme;
+    // Leaving for Japanese has to leave a way back. `last_chinese_scheme` is what every other host writes when the scheme changes - Fcitx5, IBus, iOS and HarmonyOS all do - and what the shared settings page reads to put the user back on 五笔 rather than 全拼. This window sets the scheme itself, Japanese included, so without this the field keeps whatever a different surface wrote and the way back points at the wrong scheme. While japanese is active the scheme it was entered from is written too, once one is known, since the input menu's 中 entry leaves japanese the same way.
+    if (![self.inputScheme isEqual:@"japanese"] || _lastChineseScheme) merged[@"last_chinese_scheme"] = self.lastChineseScheme;
     merged[@"shuangpin_profile"] = self.shuangpinProfile;
     merged[@"shuangpin_preedit_uses_raw"] = @(self.shuangpinPreeditUsesRaw);
     merged[@"wubi_mixed_pinyin"] = @(self.wubiMixedPinyinEnabled);
@@ -1575,7 +1572,12 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     [self setHelpcodeOption:@"show_in_candidate_window" value:@(sender.state == NSControlStateValueOn) scheme:sender.identifier];
 }
 - (NSString *)inputScheme { NSString *value = _sharedInputScheme ?: [_defaults stringForKey:SchemeKey]; return [@[@"quanpin", @"shuangpin", @"wubi", @"japanese"] containsObject:value] ? value : @"quanpin"; }
-- (void)setInputScheme:(NSString *)value { if (![@[@"quanpin", @"shuangpin", @"wubi", @"japanese"] containsObject:value]) value = @"quanpin"; _sharedInputScheme = nil; [_defaults setObject:value forKey:SchemeKey]; [self preferencesChanged]; }
+- (void)setInputScheme:(NSString *)value { if (![@[@"quanpin", @"shuangpin", @"wubi", @"japanese"] containsObject:value]) value = @"quanpin"; if (![self.inputScheme isEqual:@"japanese"]) _lastChineseScheme = self.inputScheme; _sharedInputScheme = nil; [_defaults setObject:value forKey:SchemeKey]; [self preferencesChanged]; }
+- (NSString *)lastChineseScheme {
+    NSString *scheme = self.inputScheme;
+    if (![scheme isEqual:@"japanese"]) return scheme;
+    return _lastChineseScheme ?: @"quanpin";
+}
 - (NSString *)shuangpinProfile { NSString *value = _sharedShuangpinProfile ?: [_defaults stringForKey:ShuangpinProfileKey]; return [@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"] containsObject:value] ? value : @"xiaohe"; }
 - (void)setShuangpinProfile:(NSString *)value { if (![@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"] containsObject:value]) value = @"xiaohe"; _sharedShuangpinProfile = nil; [_defaults setObject:value forKey:ShuangpinProfileKey]; [self preferencesChanged]; }
 - (BOOL)shuangpinPreeditUsesRaw { if (_sharedShuangpinPreeditUsesRaw) return _sharedShuangpinPreeditUsesRaw.boolValue; return [_defaults objectForKey:ShuangpinPreeditKey] == nil ? YES : [_defaults boolForKey:ShuangpinPreeditKey]; }
@@ -1654,6 +1656,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     id raw = preferences[@"shuangpin_preedit_uses_raw"];
     id wubiMixedPinyin = preferences[@"wubi_mixed_pinyin"];
     if ([@[@"quanpin", @"shuangpin", @"wubi", @"japanese"] containsObject:scheme]) _sharedInputScheme = [scheme copy];
+    id lastChinese = preferences[@"last_chinese_scheme"];
+    if ([@[@"quanpin", @"shuangpin", @"wubi"] containsObject:lastChinese]) _lastChineseScheme = [lastChinese copy];
     if ([@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"] containsObject:profile]) _sharedShuangpinProfile = [profile copy];
     if (LocalModeBoolean(raw)) _sharedShuangpinPreeditUsesRaw = raw;
     if (LocalModeBoolean(wubiMixedPinyin)) _sharedWubiMixedPinyin = wubiMixedPinyin;

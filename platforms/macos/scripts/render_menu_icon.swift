@@ -1,6 +1,6 @@
 #!/usr/bin/env xcrun swift
 
-// Renders the input menu's template TIFFs: MSIMEClientInputMethodMenuIcon.tiff from the stroke in MSIMEClientInputMethodMenuIcon.svg, and the two input-mode icons MSIMEClientInputMethodMenuIconChinese.tiff (中) and MSIMEClientInputMethodMenuIconEnglish.tiff (英) from the glyphs their SVGs name.
+// Renders the input menu's template TIFFs: MSIMEClientInputMethodMenuIcon.tiff from the stroke in MSIMEClientInputMethodMenuIcon.svg, and the three input-mode icons MSIMEClientInputMethodMenuIconChinese.tiff (中), MSIMEClientInputMethodMenuIconEnglish.tiff (英) and MSIMEClientInputMethodMenuIconJapanese.tiff (日) from the glyphs their SVGs name.
 //
 // The input menu draws this through HIToolbox rather than through NSImage, and that path reads the TIFF's
 // pages, not the DPI metadata of a single one: a lone 2x page is taken for a 32-point image, which the
@@ -124,3 +124,4 @@ func writeIcon(_ shape: CGPath, named name: String) throws {
 try writeIcon(metasequoiaStroke(), named: "MSIMEClientInputMethodMenuIcon")
 try writeIcon(try glyphOutline("中"), named: "MSIMEClientInputMethodMenuIconChinese")
 try writeIcon(try glyphOutline("英"), named: "MSIMEClientInputMethodMenuIconEnglish")
+try writeIcon(try glyphOutline("日"), named: "MSIMEClientInputMethodMenuIconJapanese")

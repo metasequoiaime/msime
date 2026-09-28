@@ -29,6 +29,8 @@ FOUNDATION_EXPORT NSNotificationName const MSIMETranslationPreferencesDidSaveNot
 /// Show the short non-activating Chinese/English mode badge near the caret.
 @property(nonatomic) BOOL inputModeHUD;
 @property(nonatomic, copy) NSString *inputScheme;
+/// The Chinese scheme to go back to when leaving japanese: the current scheme while it is Chinese, otherwise the one left for japanese here or the shared `last_chinese_scheme`, 全拼 when neither is known.
+@property(nonatomic, readonly) NSString *lastChineseScheme;
 @property(nonatomic, copy) NSString *shuangpinProfile;
 @property(nonatomic) BOOL shuangpinPreeditUsesRaw;
 /// Allow Pinyin fallback when a Wubi code has no Wubi candidates.

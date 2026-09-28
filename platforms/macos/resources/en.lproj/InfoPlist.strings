@@ -3,5 +3,6 @@
 "app.msime.inputmethod.MetasequoiaIME" = "水杉输入法";
 "app.msime.inputmethod.MetasequoiaIME.Hans" = "水杉输入法";
 "app.msime.inputmethod.MetasequoiaIME.Roman" = "Metasequoia · EN";
+"app.msime.inputmethod.MetasequoiaIME.Japanese" = "Metasequoia · JA";
 "NSMicrophoneUsageDescription" = "Record speech only when voice input is started, to transcribe and insert your words.";
 "NSSpeechRecognitionUsageDescription" = "Send the recording to macOS speech recognition when the system recogniser is selected, to transcribe your words.";
