@@ -6,6 +6,7 @@
 //! because the bound it implements is the one an updater will need.
 
 pub(crate) mod account_dto;
+pub(crate) mod ai_url;
 pub(crate) mod atomic_file;
 pub(crate) mod export_file;
 pub(crate) mod mobile_ai;

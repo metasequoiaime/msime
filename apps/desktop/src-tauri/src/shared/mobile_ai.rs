@@ -76,20 +76,10 @@ fn valid_token(token: &str) -> Result<String, Error> {
 
 // Keep in step with the desktop `ai::ai_models_url`.
 fn models_url(endpoint: &str) -> Result<reqwest::Url, Error> {
-    let mut url = valid_endpoint(endpoint)?;
-    let mut path = url.path().trim_end_matches('/').to_owned();
-    for suffix in ["/chat/completions", "/audio/transcriptions"] {
-        if let Some(prefix) = path.strip_suffix(suffix) {
-            path = prefix.to_owned();
-            break;
-        }
-    }
-    if !path.ends_with('/') {
-        path.push('/');
-    }
-    path.push_str("models");
-    url.set_path(&path);
-    Ok(url)
+    Ok(crate::shared::ai_url::models_url(
+        valid_endpoint(endpoint)?,
+        false,
+    ))
 }
 
 fn bounded_response(response: reqwest::blocking::Response) -> Result<Vec<u8>, Error> {

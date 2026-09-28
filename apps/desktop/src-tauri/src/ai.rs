@@ -68,21 +68,7 @@ pub(crate) fn ai_text_is_valid(value: &str, allow_empty: bool) -> bool {
 /// (`/v1`, `/v1beta/openai`, `/api/paas/v4`). Keep in step with
 /// `mobile_ai::models_url`.
 pub(crate) fn ai_models_url(endpoint: &Url) -> Url {
-    let mut url = endpoint.clone();
-    let mut path = endpoint.path().trim_end_matches('/').to_owned();
-    for suffix in ["/chat/completions", "/audio/transcriptions"] {
-        if let Some(prefix) = path.strip_suffix(suffix) {
-            path = prefix.to_owned();
-            break;
-        }
-    }
-    if !path.ends_with('/') {
-        path.push('/');
-    }
-    path.push_str("models");
-    url.set_path(&path);
-    url.set_query(None);
-    url
+    crate::shared::ai_url::models_url(endpoint.clone(), true)
 }
 
 pub(crate) fn ai_models_request(endpoint: &str, token: &str) -> Result<Vec<String>, CommandError> {
