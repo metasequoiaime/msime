@@ -2,9 +2,11 @@
 //!
 //! These are the JSON shapes `packages/ui/src/account/account-page.tsx` declares as `AccountUser`, `AccountProviders`, `AccountChallenge` and `AccountProfile`, plus the `{ user }` status wrapper. Tokens, nonces and authorization URLs never reach them. Android keeps its own provider and profile wrappers because its providers response has no `apple` field, while reusing the common user, status and challenge DTOs.
 
-use msime_client_core::account::{AccountChallenge, AccountProfile, AccountUser};
+use msime_client_core::account::{
+    AccountChallenge, AccountChatModels, AccountPreferenceSchema, AccountProfile, AccountUser,
+};
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -79,6 +81,58 @@ impl From<AccountProfile> for ProfileResponse {
         Self {
             user: profile.user.into(),
             providers,
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatModelResponse {
+    id: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatModelsResponse {
+    data: Vec<ChatModelResponse>,
+    default_model: String,
+}
+
+impl From<AccountChatModels> for ChatModelsResponse {
+    fn from(models: AccountChatModels) -> Self {
+        Self {
+            data: models
+                .data
+                .into_iter()
+                .map(|model| ChatModelResponse { id: model.id })
+                .collect(),
+            default_model: models.default_model,
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatResponse {
+    pub(crate) content: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreferenceSchemaResponse {
+    fields: BTreeMap<String, msime_client_core::account::AccountPreferenceField>,
+    maximum_bytes: usize,
+    update_mode: String,
+    revision_required: bool,
+}
+
+impl From<AccountPreferenceSchema> for PreferenceSchemaResponse {
+    fn from(schema: AccountPreferenceSchema) -> Self {
+        Self {
+            fields: schema.fields,
+            maximum_bytes: schema.maximum_bytes,
+            update_mode: schema.update_mode,
+            revision_required: schema.revision_required,
         }
     }
 }

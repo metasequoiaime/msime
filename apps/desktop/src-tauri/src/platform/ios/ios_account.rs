@@ -1,8 +1,8 @@
+use crate::shared::account_dto::{ChatModelsResponse, ChatResponse, PreferenceSchemaResponse};
 #[cfg(target_os = "ios")]
 use crate::shared::account_dto::{
     providers_response, ChallengeResponse, ProfileResponse, ProvidersResponse, StatusResponse,
 };
-use msime_client_core::account::{AccountChatModels, AccountPreferenceSchema};
 use serde::Serialize;
 use std::collections::BTreeMap;
 #[cfg(target_os = "ios")]
@@ -33,58 +33,6 @@ use std::sync::Arc;
 use std::{fs, path::PathBuf, sync::Mutex};
 #[cfg(target_os = "ios")]
 use tauri::{AppHandle, Manager, Runtime, State, Wry};
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatModelResponse {
-    id: String,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatModelsResponse {
-    data: Vec<ChatModelResponse>,
-    default_model: String,
-}
-
-impl From<AccountChatModels> for ChatModelsResponse {
-    fn from(models: AccountChatModels) -> Self {
-        Self {
-            data: models
-                .data
-                .into_iter()
-                .map(|model| ChatModelResponse { id: model.id })
-                .collect(),
-            default_model: models.default_model,
-        }
-    }
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatResponse {
-    content: String,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PreferenceSchemaResponse {
-    fields: BTreeMap<String, msime_client_core::account::AccountPreferenceField>,
-    maximum_bytes: usize,
-    update_mode: String,
-    revision_required: bool,
-}
-
-impl From<AccountPreferenceSchema> for PreferenceSchemaResponse {
-    fn from(schema: AccountPreferenceSchema) -> Self {
-        Self {
-            fields: schema.fields,
-            maximum_bytes: schema.maximum_bytes,
-            update_mode: schema.update_mode,
-            revision_required: schema.revision_required,
-        }
-    }
-}
 
 #[cfg(target_os = "ios")]
 #[derive(Clone)]

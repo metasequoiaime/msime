@@ -1,8 +1,11 @@
 use crate::platform::mobile::mobile_community::MobileCommunityState;
-use crate::shared::account_dto::{ChallengeResponse, StatusResponse, UserResponse};
+use crate::shared::account_dto::{
+    ChallengeResponse, ChatModelsResponse, ChatResponse, PreferenceSchemaResponse, StatusResponse,
+    UserResponse,
+};
 use msime_client_core::account::{
     merge_account_preferences, validate_account_preferences, AccountCandidateQuery,
-    AccountChatMessage, AccountChatModels, AccountError, AccountPreferenceSchema,
+    AccountChatMessage, AccountError, AccountPreferenceSchema,
     AccountPreferenceValue, AccountPreferences, AccountProfile, AccountSessionStorage,
     BackendAccountClient, BackendAccountSession, SavedAccountSession,
 };
@@ -1045,38 +1048,6 @@ pub struct ProfileResponse {
     providers: Vec<String>,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatModelResponse {
-    id: String,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatModelsResponse {
-    data: Vec<ChatModelResponse>,
-    default_model: String,
-}
-
-impl From<AccountChatModels> for ChatModelsResponse {
-    fn from(models: AccountChatModels) -> Self {
-        Self {
-            data: models
-                .data
-                .into_iter()
-                .map(|model| ChatModelResponse { id: model.id })
-                .collect(),
-            default_model: models.default_model,
-        }
-    }
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatResponse {
-    content: String,
-}
-
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppIconResponse {
@@ -1087,26 +1058,6 @@ pub struct AppIconResponse {
 #[derive(Serialize)]
 struct AppIconRequest<'a> {
     style: &'a str,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PreferenceSchemaResponse {
-    fields: BTreeMap<String, msime_client_core::account::AccountPreferenceField>,
-    maximum_bytes: usize,
-    update_mode: String,
-    revision_required: bool,
-}
-
-impl From<AccountPreferenceSchema> for PreferenceSchemaResponse {
-    fn from(schema: AccountPreferenceSchema) -> Self {
-        Self {
-            fields: schema.fields,
-            maximum_bytes: schema.maximum_bytes,
-            update_mode: schema.update_mode,
-            revision_required: schema.revision_required,
-        }
-    }
 }
 
 impl From<AccountProfile> for ProfileResponse {
