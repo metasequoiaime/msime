@@ -142,6 +142,7 @@ import { LearningDataSection } from "./settings/learning-data-section";
 import { DictionaryManagerHeader } from "./settings/dictionary-manager-header";
 import { DictionaryFailuresNotice } from "./settings/dictionary-failures-notice";
 import { DictionaryManagerControls } from "./settings/dictionary-manager-controls";
+import { DictionaryPagination } from "./settings/dictionary-pagination";
 export {
   DictionaryFailuresNotice,
   type DictionaryFailuresNoticeProps,
@@ -151,6 +152,10 @@ export {
   DictionaryManagerControls,
   type DictionaryManagerControlsProps,
 } from "./settings/dictionary-manager-controls";
+export {
+  DictionaryPagination,
+  type DictionaryPaginationProps,
+} from "./settings/dictionary-pagination";
 import { SettingsActionsFooter } from "./settings/settings-actions-footer";
 import { AboutHeroSection } from "./settings/about-hero-section";
 import { AboutSettingsSection } from "./settings/about-settings-section";
@@ -3844,27 +3849,14 @@ export function SettingsPage({
                             ))}
                           </ul>
                         )}
-                        <div className="flex items-center justify-center gap-4 text-xs text-secondary">
-                          <button
-                            type="button"
-                            className="secondary"
-                            disabled={phraseBusy || phrasePage.offset === 0}
-                            onClick={() =>
-                              turnPhrasePage(Math.max(0, phrasePage.offset - DICTIONARY_PAGE_SIZE))
-                            }
-                          >
-                            上一页
-                          </button>
-                          <span aria-live="polite">{phrasePage.status}</span>
-                          <button
-                            type="button"
-                            className="secondary"
-                            disabled={phraseBusy || !phrasePage.hasMore}
-                            onClick={() => turnPhrasePage(phrasePage.offset + DICTIONARY_PAGE_SIZE)}
-                          >
-                            下一页
-                          </button>
-                        </div>
+                        <DictionaryPagination
+                          busy={phraseBusy}
+                          offset={phrasePage.offset}
+                          hasMore={phrasePage.hasMore}
+                          status={phrasePage.status}
+                          pageSize={DICTIONARY_PAGE_SIZE}
+                          onPageChange={turnPhrasePage}
+                        />
                       </>
                     )}
                     {macosPlatform && client.resetLearnedData && (
