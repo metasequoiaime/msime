@@ -73,6 +73,19 @@ pub(super) fn dictionary_kind_path(kind: DictionaryKind) -> &'static str {
     }
 }
 
+fn dictionary_code_is_well_formed(kind: DictionaryKind, code: &str) -> bool {
+    match kind {
+        DictionaryKind::Pinyin => code
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || matches!(byte, b'\'' | b' ')),
+        DictionaryKind::Wubi => code.bytes().all(|byte| byte.is_ascii_lowercase()),
+        DictionaryKind::Quick => code
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit()),
+        DictionaryKind::English => crate::dictionary::english_code_is_well_formed(code),
+    }
+}
+
 pub(super) fn dictionary_path(
     kind: DictionaryKind,
     offset: usize,
@@ -129,17 +142,7 @@ pub(super) fn validate_dictionary_catalog_identity(
     code: &str,
     word: &str,
 ) -> Result<(), AccountError> {
-    let code_ok = match kind {
-        DictionaryKind::Pinyin => code
-            .bytes()
-            .all(|byte| byte.is_ascii_lowercase() || matches!(byte, b'\'' | b' ')),
-        DictionaryKind::Wubi => code.bytes().all(|byte| byte.is_ascii_lowercase()),
-        DictionaryKind::Quick => code
-            .bytes()
-            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit()),
-        DictionaryKind::English => crate::dictionary::english_code_is_well_formed(code),
-    };
-    if !code_ok
+    if !dictionary_code_is_well_formed(kind, code)
         || code.is_empty()
         || !crate::text::is_bounded_text(code, 256)
         || word.is_empty()
@@ -325,21 +328,13 @@ pub(super) fn validate_dictionary_value(
         weight,
     })
     .map_err(|_| AccountError::Invalid)?;
-    let (code_ok, code_limit) = match kind {
-        DictionaryKind::Pinyin => (
-            code.bytes()
-                .all(|byte| byte.is_ascii_lowercase() || matches!(byte, b'\'' | b' ')),
-            256,
-        ),
-        DictionaryKind::Wubi => (code.bytes().all(|byte| byte.is_ascii_lowercase()), 4),
-        DictionaryKind::Quick => (
-            code.bytes()
-                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit()),
-            32,
-        ),
-        DictionaryKind::English => (crate::dictionary::english_code_is_well_formed(code), 64),
+    let code_limit = match kind {
+        DictionaryKind::Pinyin => 256,
+        DictionaryKind::Wubi => 4,
+        DictionaryKind::Quick => 32,
+        DictionaryKind::English => 64,
     };
-    if !code_ok
+    if !dictionary_code_is_well_formed(kind, code)
         || code.is_empty()
         || code.len() > code_limit
         || word.is_empty()
