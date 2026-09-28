@@ -59,11 +59,13 @@ pub struct AndroidVoicePolishRequest {
 impl AndroidVoicePolishRequest {
     pub fn is_valid(&self) -> bool {
         self.endpoint.starts_with("https://")
-            && is_bounded_text(&self.endpoint, 2048)
+            && msime_client_core::voice::provider::bounded_voice_fields(
+                &self.endpoint,
+                &self.model,
+                &self.token,
+            )
             && !self.model.trim().is_empty()
-            && is_bounded_text(&self.model, 512)
             && !self.token.trim().is_empty()
-            && is_bounded_text(&self.token, 16 * 1024)
             && is_bounded_text(&self.prompt_id, 64)
             && [
                 &self.prompt_legacy,
@@ -174,9 +176,6 @@ pub struct AppIconInfo {
 const MAX_IOS_CUSTOM_KEYBOARD_SKIN_BYTES: usize = 800_000;
 #[cfg(any(target_os = "ios", test))]
 const MAX_IOS_CLIPBOARD_TEXT_UTF16_UNITS: usize = 4_000;
-const MAX_MOBILE_VOICE_ENDPOINT_BYTES: usize = 2_048;
-const MAX_MOBILE_VOICE_MODEL_BYTES: usize = 512;
-const MAX_MOBILE_VOICE_TOKEN_BYTES: usize = 16 * 1024;
 #[cfg(any(target_os = "android", target_os = "ios", test))]
 const MAX_MOBILE_VOICE_TEXT_CHARS: usize = 10_000;
 const MAX_MOBILE_VOICE_HEADER_BYTES: usize = 8_192;
@@ -299,9 +298,11 @@ impl MobileVoiceTranscriptionRequest {
         let common = !self.request_id.is_empty()
             && self.request_id.len() <= 64
             && msime_client_core::is_ascii_alphanumeric_dash(&self.request_id)
-            && is_bounded_text(&self.endpoint, MAX_MOBILE_VOICE_ENDPOINT_BYTES)
-            && is_bounded_text(&self.model, MAX_MOBILE_VOICE_MODEL_BYTES)
-            && is_bounded_text(&self.token, MAX_MOBILE_VOICE_TOKEN_BYTES)
+            && msime_client_core::voice::provider::bounded_voice_fields(
+                &self.endpoint,
+                &self.model,
+                &self.token,
+            )
             && is_bounded_text(
                 &self.boosting_table_id,
                 MAX_MOBILE_VOICE_BOOSTING_TABLE_BYTES,
