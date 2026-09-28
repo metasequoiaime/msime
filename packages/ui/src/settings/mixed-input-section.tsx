@@ -37,17 +37,14 @@ export function MixedInputSection({ preferences, onChange }: MixedInputSectionPr
   return (
     <>
       <div className="section" role="group" aria-label="中英混输">
-        <label className="section-header">
-          <span className="section-title">
-            中英混输<small>中文输入时在候选项中补充英文单词</small>
-          </span>
-          <input
-            className="toggle"
-            type="checkbox"
-            checked={preferences.english}
-            onChange={(event) => onChange({ ...preferences, english: event.target.checked })}
-          />
-        </label>
+        <SettingToggle
+          label="中英混输"
+          description="中文输入时在候选项中补充英文单词"
+          ariaLabel="中英混输"
+          checked={preferences.english}
+          compact
+          onChange={(english) => onChange({ ...preferences, english })}
+        />
         <div className="input-option-divider" />
         <label className="section-header frequency-option-row">
           <span className="section-title">
