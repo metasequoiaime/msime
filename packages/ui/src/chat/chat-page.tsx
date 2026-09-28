@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useConfirm } from "../core/confirm";
-import { errorCode } from "../core/error-code";
 import * as chat from "./chat-style";
 import { boundedHistory, chatMessageByteLength, MAX_MESSAGE_BYTES } from "./chat-history";
+import { chatError } from "./chat-errors";
 
 export type ChatMessage = {
   role: "user" | "assistant" | "system";
@@ -22,20 +22,6 @@ export interface ChatClient {
 }
 
 type DisplayMessage = ChatMessage & { id: number };
-
-function chatError(error: unknown): string {
-  switch (errorCode(error)) {
-    case "account_unauthorized":
-      return "登录后即可与 AI 对话。";
-    case "account_invalid":
-      return "消息或模型无效，请检查后重试。";
-    case "account_rate_limited":
-      return "操作过于频繁，请稍后再试。";
-    case "account_unavailable":
-      return "聊天服务暂不可用，请稍后重试。";
-  }
-  return "连接失败，请检查网络后重试。";
-}
 
 // Mirrors the client-core byte and message limits used by the chat service.
 
