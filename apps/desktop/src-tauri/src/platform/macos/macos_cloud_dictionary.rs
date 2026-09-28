@@ -5,13 +5,11 @@ use serde_json::Value;
 pub(crate) struct DictionaryState(Option<CloudClipboardSession>);
 impl DictionaryState {
     pub(crate) fn from_environment() -> Result<Self, &'static str> {
-        match std::env::var("MSIME_CLIENT_CLOUD_DICTIONARY_SESSION") {
-            Ok(value) => CloudClipboardSession::parse(&value)
-                .map(|session| Self(Some(session)))
-                .map_err(|_| "Invalid native dictionary session"),
-            Err(std::env::VarError::NotPresent) => Ok(Self(None)),
-            Err(_) => Err("Invalid native dictionary session"),
-        }
+        super::native_cloud_session_from_environment(
+            "MSIME_CLIENT_CLOUD_DICTIONARY_SESSION",
+            "Invalid native dictionary session",
+        )
+        .map(Self)
     }
     pub(crate) fn request(
         &self,
@@ -49,15 +47,13 @@ impl DictionaryState {
     }
 }
 pub(crate) fn startup_panel(route: Option<SurfaceRoute>) -> Option<PanelSurface> {
-    route
-        .filter(|route| *route == SurfaceRoute::CloudDictionary)?
-        .panel()
+    super::startup_panel_for_route(route, SurfaceRoute::CloudDictionary)
 }
 pub(crate) fn prepare_windows(
     windows: &mut [tauri::utils::config::WindowConfig],
     route: Option<SurfaceRoute>,
 ) {
-    super::prepare_windows_for_panel(windows, startup_panel(route));
+    super::prepare_windows_for_route(windows, route, SurfaceRoute::CloudDictionary);
 }
 
 #[cfg(test)]
