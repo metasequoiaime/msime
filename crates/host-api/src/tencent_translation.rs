@@ -35,14 +35,13 @@ pub fn descriptor(bytes: &[u8]) -> Result<Value, &'static str> {
     let valid_token = |value: &str| {
         !value.is_empty() && is_bounded_text(value, 4096) && translation::usable_credential(value)
     };
-    let languages = ["zh", "en", "fr", "ja", "es", "ru", "de", "ko"];
     if !valid_token(&id)
         || !valid_token(&key)
         || !msime_client_core::is_ascii_identifier(&id)
         || region.len() > 64
         || !msime_client_core::is_ascii_alphanumeric_dash(&region)
-        || !languages.contains(&request.source_language.as_str())
-        || !languages.contains(&request.target_language.as_str())
+        || !translation::is_supported_translation_language(&request.source_language)
+        || !translation::is_supported_translation_language(&request.target_language)
         || request.texts.is_empty()
         || request.texts.len() > 9
         || request

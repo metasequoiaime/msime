@@ -44,8 +44,8 @@ pub fn descriptor(bytes: &[u8]) -> Result<Value, &'static str> {
         || request.timestamp.is_empty()
         || request.timestamp.len() > 20
         || !msime_client_core::is_ascii_digits(&request.timestamp)
-        || !["zh", "en", "fr", "ja", "es", "ru", "de", "ko"].contains(&source)
-        || !["zh", "en", "fr", "ja", "es", "ru", "de", "ko"].contains(&target)
+        || !translation::is_supported_translation_language(source)
+        || !translation::is_supported_translation_language(target)
     {
         return Err("invalid NiuTrans parameters");
     }

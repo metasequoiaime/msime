@@ -5,7 +5,7 @@ use msime_client_core::translation::store::{
 };
 use msime_client_core::translation::{
     format_translation_gloss, is_cloud_translatable_chinese, is_cloud_translatable_english,
-    is_valid_source_text, should_persist_translation,
+    is_supported_translation_language, is_valid_source_text, should_persist_translation,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -43,7 +43,8 @@ pub fn execute(bytes: &[u8]) -> Result<Value, &'static str> {
     if !is_bounded_text(&request.directory, 4096)
         || !directory.is_absolute()
         || directory.parent().is_none()
-        || !["en", "fr", "ja", "es", "ru", "de", "ko"].contains(&request.target_language.as_str())
+        || request.target_language == "zh"
+        || !is_supported_translation_language(&request.target_language)
         || request.items.len() > 9
         || request.items.iter().any(|item| {
             !is_valid_source_text(&item.text)
