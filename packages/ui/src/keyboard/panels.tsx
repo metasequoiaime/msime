@@ -22,6 +22,7 @@ import { touchKeyboardSkinOptions, type TouchKeyboardSkin } from "./screen-keybo
 import * as cloud from "./cloud-panel-style";
 import * as surface from "./panel-surface-style";
 import { normalizeHandwritingCandidates } from "./handwriting";
+import { validVoiceLanguage } from "./voice-panel";
 import {
   skinColor,
   skinLuminance,
@@ -84,17 +85,6 @@ export interface VoicePanelClient extends PanelClient {
   stopVoice?(): Promise<void>;
   sendVoiceText?(text: string): Promise<void>;
   copyText?(text: string): Promise<void>;
-}
-
-function validVoiceLanguage(value: string) {
-  return (
-    value.length > 0 &&
-    value.length <= 64 &&
-    !Array.from(value).some((character) => {
-      const code = character.codePointAt(0) ?? 0;
-      return code <= 0x1f || code === 0x7f;
-    })
-  );
 }
 
 export type CloudClipboardAction =
