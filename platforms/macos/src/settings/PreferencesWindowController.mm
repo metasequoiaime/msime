@@ -38,8 +38,13 @@ NSNotificationName const MSIMEStandalonePreferencesDidCloseNotification =
     // saved frame pointless: the window came back the size it was left at, in the middle of the
     // screen, on every single presentation.
     if (!MSIMESettingsWindowHasSavedFrame()) [window center];
-    [window makeKeyAndOrderFront:nil];
+    // The input method is LSBackgroundOnly, and a prohibited application cannot become active, so the window opened behind whatever app the user was typing in and the settings button looked dead. Accessory, as the update window does, lets it activate without a Dock icon; the standalone launch has already chosen Regular and keeps it.
+    if (NSApp.activationPolicy == NSApplicationActivationPolicyProhibited)
+        [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
     [NSApp activateIgnoringOtherApps:YES];
+    [window makeKeyAndOrderFront:nil];
+    // Activation is only a request since macOS 14 and may be declined; the window still has to be seen.
+    [window orderFrontRegardless];
 }
 - (void)showAndActivate {
     _standaloneLaunch = NO;

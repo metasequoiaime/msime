@@ -29,7 +29,10 @@ int main() {
                 (void)note;
                 ++closes;
             }];
+        // The input method runs LSBackgroundOnly; a prohibited process cannot bring its window in front of the app being typed in.
+        [NSApp setActivationPolicy:NSApplicationActivationPolicyProhibited];
         [controller showAndActivate];
+        assert(NSApp.activationPolicy == NSApplicationActivationPolicyAccessory);
         assert(controller.window == MSIMEAppearancePreferences.sharedPreferences.window);
         assert(controller.window.delegate == controller);
         NSControl *uninstall = MSIMEFindPreferenceControl(controller.window.contentView, @selector(uninstallInputSource:));
@@ -47,8 +50,10 @@ int main() {
         DrainMainQueue();
         assert(closes == 1);
 
+        [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
         [controller showAndActivateForStandaloneLaunch];
         [controller showAndActivate];
+        assert(NSApp.activationPolicy == NSApplicationActivationPolicyRegular); // The standalone launch keeps its Dock icon.
         [NSNotificationCenter.defaultCenter postNotificationName:NSWindowWillCloseNotification object:controller.window];
         DrainMainQueue();
         assert(closes == 1); // Ordinary presentation clears standalone state.
