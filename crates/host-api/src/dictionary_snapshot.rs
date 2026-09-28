@@ -8,7 +8,8 @@ use msime_client_core::cloud::snapshot_queue::{
     local_version, local_version_digest, DictionarySnapshotQueue, SnapshotQueueError,
 };
 use msime_client_core::cloud::snapshot_validation::{
-    has_keys as snapshot_has_keys, valid_timestamp as snapshot_timestamp,
+    has_keys as snapshot_has_keys, required_integer as snapshot_integer,
+    required_text as snapshot_text, valid_timestamp as snapshot_timestamp,
 };
 use msime_client_core::resources::{ResourceSet, ResourceStore};
 use msime_engine_bridge::{
@@ -120,29 +121,6 @@ fn parse_snapshot_object(bytes: &[u8]) -> Result<serde_json::Map<String, Value>,
         .map_err(|_| "invalid snapshot document")
 }
 
-fn snapshot_text<'a>(
-    data: &'a serde_json::Map<String, Value>,
-    key: &str,
-    maximum: usize,
-) -> Result<&'a str, &'static str> {
-    data.get(key)
-        .and_then(Value::as_str)
-        .filter(|value| {
-            !value.is_empty()
-                && value.len() <= maximum
-                && !value
-                    .bytes()
-                    .any(|byte| matches!(byte, 0 | b'\t' | b'\n' | b'\r'))
-        })
-        .ok_or("invalid snapshot document")
-}
-
-fn snapshot_integer(data: &serde_json::Map<String, Value>, key: &str) -> Result<i64, &'static str> {
-    data.get(key)
-        .and_then(Value::as_i64)
-        .ok_or("invalid snapshot document")
-}
-
 #[derive(Default)]
 struct SnapshotIdentities {
     entry_keys: HashMap<(String, String, String), i64>,
@@ -166,8 +144,8 @@ fn inspect_snapshot_record(
         .get("data")
         .and_then(Value::as_object)
         .ok_or("invalid snapshot document")?;
-    let code = snapshot_text(data, "code", 512)?.to_owned();
-    let word = snapshot_text(data, "word", 2048)?.to_owned();
+    let code = snapshot_text(data, "code", 512, "invalid snapshot document")?.to_owned();
+    let word = snapshot_text(data, "word", 2048, "invalid snapshot document")?.to_owned();
     match kind {
         "entry" | "overlay" => {
             let outer_keys_valid = if kind == "overlay" {
@@ -229,8 +207,8 @@ fn inspect_snapshot_record(
             {
                 return Err("invalid snapshot document");
             }
-            let weight = snapshot_integer(data, "weight")?;
-            let record_revision = snapshot_integer(data, "revision")?;
+            let weight = snapshot_integer(data, "weight", "invalid snapshot document")?;
+            let record_revision = snapshot_integer(data, "revision", "invalid snapshot document")?;
             if !(0..=100_000_000).contains(&weight)
                 || (weight == 0 && !deleted)
                 || !(1..=revision).contains(&record_revision)
@@ -276,13 +254,14 @@ fn inspect_snapshot_record(
             if !snapshot_has_keys(data, &["context", "code", "word", value_key]) {
                 return Err("invalid snapshot document");
             }
-            let context = snapshot_text(data, "context", 512)?.to_owned();
+            let context =
+                snapshot_text(data, "context", 512, "invalid snapshot document")?.to_owned();
             if context.len() + code.len() + word.len() > 2048 {
                 return Err("invalid snapshot document");
             }
             let identity = (context.clone(), code, word);
             if kind == "position" {
-                let position = snapshot_integer(data, "position")?;
+                let position = snapshot_integer(data, "position", "invalid snapshot document")?;
                 if !(1..=5).contains(&position)
                     || !identities.positions.insert(identity)
                     || !identities.position_slots.insert((context, position))
@@ -291,7 +270,7 @@ fn inspect_snapshot_record(
                 }
                 Ok(3)
             } else {
-                let count = snapshot_integer(data, "count")?;
+                let count = snapshot_integer(data, "count", "invalid snapshot document")?;
                 if !(0..=10).contains(&count) || !identities.selections.insert(identity) {
                     return Err("invalid snapshot document");
                 }

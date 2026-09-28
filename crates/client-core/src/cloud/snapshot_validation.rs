@@ -108,6 +108,28 @@ pub fn has_keys(map: &Map<String, Value>, keys: &[&str]) -> bool {
     map.len() == keys.len() && keys.iter().all(|key| map.contains_key(*key))
 }
 
+pub fn required_text<'a, E>(
+    map: &'a Map<String, Value>,
+    key: &str,
+    maximum_bytes: usize,
+    error: E,
+) -> Result<&'a str, E> {
+    map.get(key)
+        .and_then(Value::as_str)
+        .filter(|value| {
+            !value.is_empty()
+                && value.len() <= maximum_bytes
+                && !value
+                    .bytes()
+                    .any(|byte| matches!(byte, 0 | b'\t' | b'\n' | b'\r'))
+        })
+        .ok_or(error)
+}
+
+pub fn required_integer<E>(map: &Map<String, Value>, key: &str, error: E) -> Result<i64, E> {
+    map.get(key).and_then(Value::as_i64).ok_or(error)
+}
+
 pub fn valid_timestamp(value: &str) -> bool {
     fn digits(bytes: &[u8], start: usize, end: usize) -> Option<u32> {
         (end <= bytes.len() && bytes[start..end].iter().all(u8::is_ascii_digit)).then(|| {
