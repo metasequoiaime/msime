@@ -3,6 +3,7 @@ import { errorCode } from "../core/error-code";
 import { aiSkinMessage, libraryError } from "./touch-keyboard-skin-errors";
 import { randomRequestId } from "../core/random-id";
 import { ScreenKeyboardPreview } from "./screen-keyboard-preview";
+import { compressTouchSkinImage, TOUCH_SKIN_IMAGE_MAX_BYTES } from "./touch-skin-images";
 import {
   defaultTouchKeyboardSkinDesign,
   boundedSkinName,
@@ -42,49 +43,18 @@ async function boundedPhoto(file: File): Promise<string> {
     reader.onerror = () => reject(new Error("image read failed"));
     reader.readAsDataURL(file);
   });
-  const image = new Image();
-  image.src = url;
-  await new Promise<void>((resolve, reject) => {
-    image.onload = () => resolve();
-    image.onerror = () => reject(new Error("image decode failed"));
-  });
-  if (!image.naturalWidth || !image.naturalHeight) throw new Error("empty image");
-  const scale = Math.min(1, 1024 / Math.max(image.naturalWidth, image.naturalHeight));
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
-  canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
-  const context = canvas.getContext("2d");
-  if (!context) throw new Error("canvas unavailable");
-  context.drawImage(image, 0, 0, canvas.width, canvas.height);
-  for (const quality of [0.8, 0.6, 0.4, 0.2]) {
-    const data = canvas.toDataURL("image/jpeg", quality).split(",")[1] ?? "";
-    if (Math.floor(data.length * 0.75) <= 512_000) return data;
-  }
-  throw new Error("image too large");
+  return compressTouchSkinImage(url, "image decode failed", "image too large");
 }
 
 async function boundedArtwork(artwork: AiSkinProposal["artwork"]): Promise<string> {
   const source = artwork.b64_json;
   const bytes = Uint8Array.from(atob(source), (character) => character.charCodeAt(0));
-  if (bytes.length > 512_000) {
-    const image = new Image();
-    image.src = `data:${artwork.mime_type};base64,${source}`;
-    await new Promise<void>((resolve, reject) => {
-      image.onload = () => resolve();
-      image.onerror = () => reject(new Error("artwork decode failed"));
-    });
-    const scale = Math.min(1, 1024 / Math.max(image.naturalWidth, image.naturalHeight));
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
-    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("canvas unavailable");
-    context.drawImage(image, 0, 0, canvas.width, canvas.height);
-    for (const quality of [0.8, 0.6, 0.4, 0.2]) {
-      const result = canvas.toDataURL("image/jpeg", quality).split(",")[1] ?? "";
-      if (Math.floor(result.length * 0.75) <= 512_000) return result;
-    }
-    throw new Error("artwork too large");
+  if (bytes.length > TOUCH_SKIN_IMAGE_MAX_BYTES) {
+    return compressTouchSkinImage(
+      `data:${artwork.mime_type};base64,${source}`,
+      "artwork decode failed",
+      "artwork too large",
+    );
   }
   return source;
 }
