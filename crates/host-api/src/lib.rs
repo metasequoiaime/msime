@@ -105,15 +105,6 @@ pub use dictionary_snapshot::{
     msime_client_snapshot_queue, msime_client_snapshot_restore, msime_client_snapshot_version,
 };
 
-/// Names of the audio capture devices the Engine can record from.
-///
-/// The desktop shell depends on this crate, not on the Engine bridge, so the
-/// bridge is reached through here the same way the handwriting recognizer is.
-/// Names are display strings from the audio backend and carry no user data.
-pub fn voice_capture_device_names() -> Vec<String> {
-    msime_engine_bridge::capture_device_names()
-}
-
 /// Capture endpoint identities paired with labels. Neither belongs in logs.
 pub fn voice_capture_devices() -> Vec<(String, String)> {
     msime_engine_bridge::capture_devices()
