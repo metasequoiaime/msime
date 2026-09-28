@@ -1,5 +1,4 @@
 import { useConfirm } from "./core/confirm";
-import { errorCode } from "./core/error-code";
 import { errorMessage } from "./core/error-message";
 import { clamp } from "./core/number";
 import {
@@ -224,6 +223,7 @@ import {
 import { VoiceModelMirrorSection } from "./settings/voice-model-mirror-section";
 import { useProviderCredentials } from "./settings/use-provider-credentials";
 import { useFeedbackReport } from "./settings/use-feedback-report";
+import { useDataDirectory } from "./settings/use-data-directory";
 export {
   useProviderCredentials,
   type ProviderCredentialBusy,
@@ -233,6 +233,12 @@ export {
   type UseProviderCredentialsOptions,
 } from "./settings/use-provider-credentials";
 export { useFeedbackReport, type UseFeedbackReportOptions } from "./settings/use-feedback-report";
+export {
+  useDataDirectory,
+  type DataDirectoryClient,
+  type DataDirectoryConfirmOptions,
+  type UseDataDirectoryOptions,
+} from "./settings/use-data-directory";
 import { ProviderPresetSection, type ProviderPreset } from "./settings/provider-preset-section";
 import { AiCredentialSection } from "./settings/ai-credential-section";
 import { AiLinuxProviderSection } from "./settings/ai-linux-provider-section";
@@ -1780,9 +1786,6 @@ export function SettingsPage({
   const [uninstallConfirmation, setUninstallConfirmation] = useState(false);
   const [uninstallBusy, setUninstallBusy] = useState(false);
   const [uninstallResult, setUninstallResult] = useState<"success" | "error" | null>(null);
-  const [dataDirectory, setDataDirectory] = useState<{ path: string; isDefault: boolean }>();
-  const [dataDirectoryBusy, setDataDirectoryBusy] = useState(false);
-  const [dataDirectoryResult, setDataDirectoryResult] = useState("");
   const [inputSourceStartup, setInputSourceStartup] = useState<InputSourceStartupStatus | null>(
     null,
   );
@@ -1963,21 +1966,16 @@ export function SettingsPage({
     copyText: client.copyText,
     openExternalUrl: client.openExternalUrl,
   });
-  useEffect(() => {
-    if (!(macosPlatform || linuxPlatform) || !client.dataDirectory) return;
-    let active = true;
-    client.dataDirectory
-      .status()
-      .then((value) => {
-        if (active) setDataDirectory(value);
-      })
-      .catch(() => {
-        if (active) setDataDirectoryResult("无法读取当前数据目录。");
-      });
-    return () => {
-      active = false;
-    };
-  }, [client, macosPlatform, linuxPlatform]);
+  const {
+    dataDirectory,
+    busy: dataDirectoryBusy,
+    result: dataDirectoryResult,
+    choose: chooseDataDirectory,
+  } = useDataDirectory({
+    client: client.dataDirectory,
+    enabled: macosPlatform || linuxPlatform,
+    confirm,
+  });
   useEffect(() => {
     let active = true;
     let unsubscribe: (() => void) | undefined;
@@ -2323,48 +2321,6 @@ export function SettingsPage({
       setUninstallResult("error");
     } finally {
       setUninstallBusy(false);
-    }
-  }
-
-  async function chooseDataDirectory() {
-    if (!client.dataDirectory || dataDirectoryBusy) return;
-    setDataDirectoryBusy(true);
-    setDataDirectoryResult("");
-    try {
-      const target = await client.dataDirectory.pick();
-      if (!target) return;
-      const confirmed = await confirm({
-        title: "移动输入法数据？",
-        message: `词库、学习记录、皮肤、剪贴板历史和设置将移动到“${target}”。移动期间输入法会短暂退出；完成后设置窗口会关闭。`,
-        confirmLabel: "移动",
-      });
-      if (!confirmed) return;
-      const result = await client.dataDirectory.move();
-      setDataDirectory({ path: result.path, isDefault: result.isDefault });
-      const restartNote =
-        result.inputMethodRestarted === false
-          ? "输入法未能自动重启，请手动重启输入法后再继续输入。"
-          : "";
-      setDataDirectoryResult(
-        result.retainedOldData
-          ? `数据已切换到新目录；旧目录不属于水杉输入法，已为安全起见保留。${restartNote}设置窗口即将关闭。`
-          : `数据已移动。${restartNote}设置窗口即将关闭，请重新打开后继续使用。`,
-      );
-    } catch (reason) {
-      const code = errorCode(reason);
-      setDataDirectoryResult(
-        code === "data_directory_picker_unavailable"
-          ? "未找到目录选择工具，请安装 zenity 或 kdialog 后重试。"
-          : code === "data_directory_not_empty"
-            ? "请选择空文件夹；现有文件不会被覆盖。"
-            : code === "data_directory_invalid"
-              ? "该位置不能作为数据目录，请选择其他空文件夹。"
-              : code === "data_directory_busy"
-                ? "输入法仍在使用数据目录，请稍后重试。"
-                : "移动失败，仍在使用原目录，原有数据未被删除。",
-      );
-    } finally {
-      setDataDirectoryBusy(false);
     }
   }
 
