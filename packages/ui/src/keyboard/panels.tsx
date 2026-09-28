@@ -29,6 +29,7 @@ import { normalizeHandwritingCandidates } from "./handwriting";
 import { validVoiceLanguage } from "./voice-panel";
 import { isImeCommitKey, keyboardKeyWeight, modifierPrefix, type Modifier } from "./keyboard-input";
 import { keyboardRgba, mixKeyboardColor, readableKeyboardText } from "./keyboard-colors";
+import { cloudClipboardItems, cloudDictionaryEntries } from "./cloud-response";
 import {
   skinColor,
   skinLuminance,
@@ -1969,14 +1970,6 @@ export function VoicePanel({
   );
 }
 
-function cloudClipboardItems(value: { items?: CloudClipboardItem[] }) {
-  return Array.isArray(value.items)
-    ? value.items.filter(
-        (item) => item && typeof item.id === "string" && typeof item.text === "string",
-      )
-    : [];
-}
-
 export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelClient }) {
   const [inputAvailable, setInputAvailable] = useState(
     Boolean(client.sendText && !client.canSendText),
@@ -2261,18 +2254,6 @@ const cloudDictionaryKinds: [CloudDictionaryKind, string][] = [
   ["quick", "快捷短语"],
   ["english", "英文"],
 ];
-
-function cloudDictionaryEntries(value: CloudDictionaryResponse) {
-  return Array.isArray(value.entries)
-    ? value.entries.filter(
-        (entry) =>
-          entry &&
-          typeof entry.id === "string" &&
-          typeof entry.code === "string" &&
-          typeof entry.word === "string",
-      )
-    : [];
-}
 
 export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelClient }) {
   const { confirm, confirmation } = useConfirm();
