@@ -88,69 +88,6 @@ pub fn tencent_tmt_headers(
     ]
 }
 
-/// One signed Tencent TMT call: the credentials, the region they are scoped to
-/// and the moment the signature covers.
-pub struct TencentTmtRequest<'a> {
-    pub secret_id: &'a str,
-    pub secret_key: &'a str,
-    pub region: &'a str,
-    pub timestamp: i64,
-    pub date: &'a str,
-    pub source: &'a str,
-    pub target: &'a str,
-}
-
-pub fn translate_tencent_batch(
-    request_info: &TencentTmtRequest<'_>,
-    texts: &[String],
-) -> Vec<Option<String>> {
-    let TencentTmtRequest {
-        secret_id,
-        secret_key,
-        region,
-        timestamp,
-        date,
-        source,
-        target,
-    } = *request_info;
-    let results = vec![None; texts.len()];
-    let Some(payload) = tencent_tmt_payload(source, target, texts) else {
-        return results;
-    };
-    let authorization =
-        tencent_tc3_authorization(secret_id, secret_key, timestamp, date, payload.as_bytes());
-    if authorization.is_empty() {
-        return results;
-    }
-    let client = match reqwest::blocking::Client::builder()
-        .connect_timeout(REQUEST_TIMEOUT)
-        .timeout(REQUEST_TIMEOUT)
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-    {
-        Ok(client) => client,
-        Err(_) => return results,
-    };
-    let mut request = client.post("https://tmt.tencentcloudapi.com").body(payload);
-    for (name, value) in tencent_tmt_headers(region, timestamp, &authorization) {
-        request = request.header(name, value);
-    }
-    let mut response = match request.send() {
-        Ok(response) if response.status().is_success() => response,
-        _ => return results,
-    };
-    let body = match read_bounded_body(&mut response).and_then(|body| String::from_utf8(body).ok())
-    {
-        Some(body) => body,
-        None => return results,
-    };
-    parse_tencent_tmt_response(&body, texts.len())
-        .into_iter()
-        .flatten()
-        .map(Some)
-        .collect()
-}
-
 pub fn tencent_tmt_payload(source: &str, target: &str, texts: &[String]) -> Option<String> {
     if source.is_empty()
         || target.is_empty()
