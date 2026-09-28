@@ -9,8 +9,8 @@ use crate::platform::mobile::mobile_account_helpers::{
     account_profile as shared_account_profile, account_rename as shared_account_rename,
     account_request_code as shared_account_request_code, account_status as shared_account_status,
     call, clear_snapshot_previews, clear_snapshot_previews_after, cloud_dictionary_account_request,
-    parse_snapshot_token, replace_pending_snapshot, snapshot_command_error,
-    snapshot_response_without_account, valid_mobile_haptic_strength, validate_pending_snapshot,
+    replace_pending_snapshot, snapshot_command_error, snapshot_response_without_account,
+    take_pending_snapshot, valid_mobile_haptic_strength, validate_pending_snapshot,
     PendingSnapshot, SnapshotMetadata,
 };
 #[cfg(target_os = "ios")]
@@ -392,18 +392,7 @@ async fn dictionary_snapshot_enqueue(
     state: State<'_, AccountState>,
     token: String,
 ) -> Result<Value, crate::CommandError> {
-    let parsed = parse_snapshot_token(&token)?;
-    let pending = {
-        let mut previews = state
-            .snapshot_previews
-            .lock()
-            .map_err(|_| snapshot_command_error())?;
-        previews
-            .remove(&parsed.to_string())
-            .ok_or(crate::CommandError {
-                code: "snapshot_invalid",
-            })?
-    };
+    let pending = take_pending_snapshot(&state.snapshot_previews, &token)?;
     let session = Arc::clone(&state.session);
     let path = pending.path.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {

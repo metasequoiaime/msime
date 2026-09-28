@@ -74,6 +74,19 @@ pub(crate) fn validate_pending_snapshot(
     Ok(())
 }
 
+pub(crate) fn take_pending_snapshot(
+    previews: &std::sync::Arc<std::sync::Mutex<HashMap<String, PendingSnapshot>>>,
+    token: &str,
+) -> Result<PendingSnapshot, crate::CommandError> {
+    let token = parse_snapshot_token(token)?;
+    let mut pending = previews.lock().map_err(|_| snapshot_command_error())?;
+    pending
+        .remove(&token.to_string())
+        .ok_or(crate::CommandError {
+            code: "snapshot_invalid",
+        })
+}
+
 pub(crate) fn clear_snapshot_previews_after<T>(
     previews: &std::sync::Arc<std::sync::Mutex<HashMap<String, PendingSnapshot>>>,
     result: Result<T, crate::CommandError>,
