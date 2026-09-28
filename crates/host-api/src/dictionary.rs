@@ -5,6 +5,7 @@ use super::{
     DICTIONARY_REQUEST_LIMIT,
 };
 use msime_client_core::dictionary::import::{dictionary_row_matches, PageSelector};
+use msime_client_core::dictionary::is_han_character;
 use msime_client_core::dictionary::personal::{
     PersonalDictionaryError, PersonalDictionaryStore, PersonalWord, PersonalWordKind,
     PersonalWordRequestStatus,
@@ -2043,16 +2044,6 @@ pub fn lookup_candidates(
             })
         })
         .collect()
-}
-
-fn is_han_character(character: char) -> bool {
-    matches!(
-        character as u32,
-        0x3400..=0x4dbf
-            | 0x4e00..=0x9fff
-            | 0xf900..=0xfaff
-            | 0x20000..=0x2fa1f
-    )
 }
 
 #[cfg(test)]
