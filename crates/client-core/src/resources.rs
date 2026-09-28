@@ -75,10 +75,7 @@ impl ResourceSet {
                 || artifact.name.len() > 128
                 || artifact.name.starts_with('.')
                 || artifact.name.ends_with('.')
-                || !artifact
-                    .name
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+                || !crate::is_ascii_identifier_with_dots(&artifact.name)
                 || reserved
                 || !names.insert(artifact.name.to_ascii_lowercase())
                 || !hex(&artifact.sha256, 64)
@@ -109,10 +106,7 @@ impl ResourceSet {
 fn portable_relative_path(path: &str) -> bool {
     path.is_empty()
         || path.split('/').all(|segment| {
-            !matches!(segment, "" | "." | "..")
-                && segment
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+            !matches!(segment, "" | "." | "..") && crate::is_ascii_identifier_with_dots(segment)
         })
 }
 

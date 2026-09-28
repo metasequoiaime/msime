@@ -197,9 +197,7 @@ fn safe_resource(value: &str, max: usize) -> bool {
             !part.is_empty()
                 && part != "."
                 && part != ".."
-                && part
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+                && crate::is_ascii_identifier_with_dots(part)
         })
 }
 

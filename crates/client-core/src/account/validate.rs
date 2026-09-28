@@ -478,9 +478,7 @@ pub fn merge_account_preferences(
 pub(super) fn valid_preference_key(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= MAX_ACCOUNT_PREFERENCE_KEY_BYTES
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+        && crate::is_ascii_identifier_with_dots(value)
 }
 
 pub(super) fn validate_provider_target(provider: &str, target: &str) -> Result<(), AccountError> {
