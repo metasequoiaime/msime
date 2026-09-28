@@ -49,6 +49,7 @@ import {
 } from "./settings/app-resources";
 import { AI_PROVIDER_OPTIONS } from "./settings/ai-provider-options";
 export { AI_PROVIDER_OPTIONS } from "./settings/ai-provider-options";
+import { defaultVoiceInput } from "./settings/voice-input-defaults";
 import { aiPolishTestPrompt, defaultAiAssistant } from "./settings/ai-assistant-defaults";
 import {
   mobileTranslationLanguages,
@@ -1210,16 +1211,6 @@ export function aiProviderUpdate(
 ): Partial<AiAssistantPreferences> {
   return updateAiProvider(provider, current, AI_PROVIDER_OPTIONS);
 }
-// asr_provider mirrors client-core's default; the two disagreeing meant a host
-// wrote a provider no backend implements.
-const defaultVoiceInput: VoiceInputPreferences = {
-  enabled: true,
-  language: "zh-CN",
-  asr_provider: "doubao",
-  doubao_auth_mode: "api_key",
-  asr_resource_id: "volc.seedasr.sauc.duration",
-};
-
 const defaultCustomTranslation = { enabled: false, endpoint: "", api_key: "" };
 const defaultTencentTranslation = {
   enabled: true,
