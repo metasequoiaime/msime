@@ -259,7 +259,8 @@ impl Runtime<Session> {
         if candidates.is_empty()
             || candidates.len() > limit
             || candidates.iter().any(|text| {
-                text.is_empty() || text.len() > 4096 || text.chars().any(char::is_control)
+                text.is_empty()
+                    || !msime_client_core::cloud::dictionary::valid_bounded_text(text, 4096)
             })
             || source > 1
             || (source == 0 && self.cached.candidates.is_empty())
