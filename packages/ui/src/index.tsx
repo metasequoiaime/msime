@@ -53,6 +53,7 @@ import { HelpFeedbackSection } from "./settings/help-feedback-section";
 import { HelpSettingsPage } from "./settings/help-settings-page";
 import { ScreenKeyboardThemeSection } from "./settings/screen-keyboard-theme-section";
 import { ScreenKeyboardSkinsSection } from "./settings/screen-keyboard-skins-section";
+import { TouchKeyboardSchemesSection } from "./settings/touch-keyboard-schemes-section";
 import {
   MobileKeyboardFeedbackSection,
   type MobileKeyboardFeedback,
@@ -386,6 +387,10 @@ export {
   ScreenKeyboardSkinsSection,
   type ScreenKeyboardSkinsSectionProps,
 } from "./settings/screen-keyboard-skins-section";
+export {
+  TouchKeyboardSchemesSection,
+  type TouchKeyboardSchemesSectionProps,
+} from "./settings/touch-keyboard-schemes-section";
 export {
   MobileKeyboardFeedbackSection,
   type MobileKeyboardFeedback,
@@ -5827,54 +5832,17 @@ export function SettingsPage({
                       />
                     )}
                     {client.touchKeyboardSchemes && (
-                      <div
-                        className="section"
-                        role="group"
-                        aria-labelledby="touch-keyboard-schemes-title"
-                      >
-                        <div className="section-title" id="touch-keyboard-schemes-title">
-                          输入方案
-                        </div>
-                        <div className="input-setting-description">
-                          开启的方案会显示在键盘快捷切换中，至少保留一种。点击名称设为当前方案。
-                        </div>
-                        <div className="input-option-content">
-                          {touchKeyboardSchemeOptions.map(([scheme, label], index) => {
-                            const enabled = touchKeyboardSchemes.enabled.includes(scheme);
-                            const selected = selectedTouchKeyboardScheme === scheme;
-                            return (
-                              <div className="input-option-item" key={scheme}>
-                                {index > 0 && <div className="input-option-divider" />}
-                                <div className={skin.schemeRow}>
-                                  <button
-                                    type="button"
-                                    className={skin.schemeSelect(selected)}
-                                    aria-label={`设为当前输入方案 ${label}`}
-                                    aria-pressed={selected}
-                                    disabled={!enabled}
-                                    onClick={() =>
-                                      setDraft(selectTouchKeyboardScheme(draft, scheme))
-                                    }
-                                  >
-                                    <span>{label}</span>
-                                    {selected && <span aria-hidden="true">✓</span>}
-                                  </button>
-                                  <input
-                                    className="toggle"
-                                    type="checkbox"
-                                    aria-label={`显示输入方案 ${label}`}
-                                    checked={enabled}
-                                    disabled={enabled && touchKeyboardSchemes.enabled.length === 1}
-                                    onChange={(event) =>
-                                      setTouchKeyboardSchemeEnabled(scheme, event.target.checked)
-                                    }
-                                  />
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
+                      <TouchKeyboardSchemesSection
+                        options={touchKeyboardSchemeOptions}
+                        enabled={touchKeyboardSchemes.enabled}
+                        selected={selectedTouchKeyboardScheme}
+                        onSelect={(scheme) =>
+                          setDraft(selectTouchKeyboardScheme(draft, scheme as TouchKeyboardScheme))
+                        }
+                        onToggle={(scheme, enabled) =>
+                          setTouchKeyboardSchemeEnabled(scheme as TouchKeyboardScheme, enabled)
+                        }
+                      />
                     )}
                     <div
                       className="section"
