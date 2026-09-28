@@ -595,10 +595,7 @@ pub unsafe extern "C" fn msime_client_english_completions_request(
         if !(1..=32).contains(&request.limit)
             || request.prefix.is_empty()
             || request.prefix.len() > 128
-            || !request
-                .prefix
-                .bytes()
-                .all(|byte| byte.is_ascii_alphabetic())
+            || !msime_client_core::is_ascii_alphabetic(&request.prefix)
         {
             return Err("invalid English completion prefix".into());
         }

@@ -1561,10 +1561,7 @@ pub(crate) fn wubi_four_code_is_complete(snapshot: &EngineSnapshot) -> bool {
         && !snapshot.nine_key
         && !snapshot.answered_by_pinyin_fallback
         && snapshot.editing_text.len() == WUBI_COMPLETE_CODE_LENGTH
-        && snapshot
-            .editing_text
-            .bytes()
-            .all(|byte| byte.is_ascii_alphabetic())
+        && msime_client_core::is_ascii_alphabetic(&snapshot.editing_text)
         && snapshot.caret_position == WUBI_COMPLETE_CODE_LENGTH
         && !snapshot.candidates.is_empty()
 }

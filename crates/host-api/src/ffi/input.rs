@@ -602,7 +602,7 @@ pub unsafe extern "C" fn msime_client_english_completions(
         }
         let bytes = unsafe { std::slice::from_raw_parts(prefix, prefix_length) };
         let prefix = std::str::from_utf8(bytes).map_err(|_| "invalid English completion prefix")?;
-        if !prefix.bytes().all(|value| value.is_ascii_alphabetic()) {
+        if !msime_client_core::is_ascii_alphabetic(prefix) {
             return Err("invalid English completion prefix".into());
         }
         with_session(handle, |session| {
