@@ -1944,10 +1944,6 @@ pub struct PreferencesStore {
     directory: PathBuf,
 }
 
-fn read_bounded_document(file: File, maximum: u64) -> Result<Vec<u8>, PreferencesError> {
-    crate::bounded_io::read_bounded_file(file, maximum, || PreferencesError::DocumentTooLarge)
-}
-
 impl PreferencesStore {
     pub fn new(directory: impl Into<PathBuf>) -> Self {
         Self {
@@ -1984,7 +1980,9 @@ impl PreferencesStore {
     fn read_locked(&self) -> Result<PreferencesSnapshot, PreferencesError> {
         let path = self.path();
         let bytes = match File::open(&path) {
-            Ok(file) => read_bounded_document(file, MAX_DOCUMENT_BYTES)?,
+            Ok(file) => crate::bounded_io::read_bounded_file(file, MAX_DOCUMENT_BYTES, || {
+                PreferencesError::DocumentTooLarge
+            })?,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 return Ok(PreferencesSnapshot::default())
             }
@@ -2125,7 +2123,11 @@ impl PreferencesStore {
             Err(PreferencesError::Io(error)) => return Err(PreferencesError::Io(error)),
             Err(failure) => failure,
         };
-        let bytes = read_bounded_document(File::open(self.path())?, MAX_DOCUMENT_BYTES)?;
+        let bytes = crate::bounded_io::read_bounded_file(
+            File::open(self.path())?,
+            MAX_DOCUMENT_BYTES,
+            || PreferencesError::DocumentTooLarge,
+        )?;
         let document = serde_json::from_slice::<serde_json::Value>(&bytes).ok();
         if scope == RecoveryScope::Malformed && document.is_some() {
             return Err(failure);
