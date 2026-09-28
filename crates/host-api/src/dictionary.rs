@@ -1367,9 +1367,7 @@ fn parse_hans_import(
         || text.is_empty()
         || text.len() > msime_client_core::cloud::dictionary::MAX_IMPORT_BYTES
         || text.contains('\0')
-        || text
-            .chars()
-            .any(|character| character.is_control() && !matches!(character, '\n' | '\r'))
+        || msime_client_core::has_disallowed_control_with_line_breaks(text)
     {
         return Err("invalid dictionary import".into());
     }

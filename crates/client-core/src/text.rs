@@ -13,6 +13,13 @@ pub fn has_disallowed_control_with_options(value: &str, allow_whitespace: bool) 
     })
 }
 
+/// Whether `value` contains a control character other than line-feed or carriage-return.
+pub fn has_disallowed_control_with_line_breaks(value: &str) -> bool {
+    value
+        .chars()
+        .any(|character| character.is_control() && !matches!(character, '\n' | '\r'))
+}
+
 /// Whether a single-line field fits its byte bound and contains no controls.
 pub fn is_bounded_text(value: &str, maximum_bytes: usize) -> bool {
     value.len() <= maximum_bytes && !value.chars().any(char::is_control)
