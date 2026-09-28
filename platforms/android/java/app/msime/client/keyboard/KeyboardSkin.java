@@ -183,7 +183,7 @@ public final class KeyboardSkin {
     }
 
     private static int channel(double value) {
-        return (int) Math.round(Math.max(0, Math.min(1, value)) * 255);
+        return (int) Math.round(KeyboardGeometry.bounded(value, 0, 1) * 255);
     }
 
     private static String alpha(String rgb, double value) {

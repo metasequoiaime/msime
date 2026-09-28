@@ -43,7 +43,7 @@ public final class CustomKeyboardSkin {
         value.cornerRadius = bounded(object.optDouble("cornerRadius", value.cornerRadius), 0, 20, 8);
         value.borderWidth = bounded(object.optDouble("borderWidth", 0), 0, 2, 0);
         value.shadow = bounded(object.optDouble("shadow", 0), 0, .4, 0);
-        value.pattern = Math.max(0, Math.min(3, object.optInt("pattern", 0)));
+        value.pattern = KeyboardGeometry.bounded(object.optInt("pattern", 0), 0, 3);
         value.monospaced = object.optBoolean("monospaced", false);
         value.keyShape = oneOf(object.optString("keyShape", "rounded"),
             "rounded", "capsule", "ticket", "pebble");
@@ -77,7 +77,7 @@ public final class CustomKeyboardSkin {
         value.cornerRadius = bounded(cornerRadius, 0, 20, 8);
         value.borderWidth = bounded(borderWidth, 0, 2, 0);
         value.shadow = bounded(shadow, 0, .4, 0);
-        value.pattern = Math.max(0, Math.min(3, pattern));
+        value.pattern = KeyboardGeometry.bounded(pattern, 0, 3);
         value.monospaced = monospaced;
         value.keyShape = oneOf(keyShape, "rounded", "capsule", "ticket", "pebble");
         value.keyMaterial = oneOf(keyMaterial, "flat", "raised", "glass", "paper");
@@ -98,7 +98,7 @@ public final class CustomKeyboardSkin {
     }
 
     private static double bounded(double value, double minimum, double maximum, double fallback) {
-        return Double.isFinite(value) ? Math.max(minimum, Math.min(maximum, value)) : fallback;
+        return Double.isFinite(value) ? KeyboardGeometry.bounded(value, minimum, maximum) : fallback;
     }
 
     private static String oneOf(String value, String first, String second, String third, String fourth) {
