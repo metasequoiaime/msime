@@ -19,6 +19,7 @@ export {
 import { platformOsName, schemeTitle } from "./settings/label-helpers";
 import { mobileTabIcon, mobileTabTitle } from "./settings/mobile-tab-helpers";
 import { isLinuxDesktop } from "./settings/platform-helpers";
+import { resolveSettingsTheme } from "./settings/theme-helpers";
 import { updateAiProvider } from "./settings/ai-provider-update";
 import { VoiceDevicePicker, type VoiceDeviceReader } from "./voice/voice-device-picker";
 import {
@@ -1006,16 +1007,6 @@ export interface HostCapabilities {
 }
 
 export { useCandidatePreviewTheme } from "./candidate/candidate-preview-theme";
-
-function resolveSettingsTheme(theme: ThemeMode, surface: SurfaceTheme): "dark" | "light" {
-  if (surface !== "follow") return surface;
-  if (theme !== "system") return theme;
-  return typeof window !== "undefined" &&
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(prefers-color-scheme: light)").matches
-    ? "light"
-    : "dark";
-}
 
 export type Preferences = {
   theme?: ThemeMode;
