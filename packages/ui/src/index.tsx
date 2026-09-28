@@ -47,6 +47,7 @@ import { CandidateShortcutsSection } from "./settings/candidate-shortcuts-sectio
 import { MaintenanceShortcutsSection } from "./settings/maintenance-shortcuts-section";
 import { InputMethodServiceSection } from "./settings/input-method-service-section";
 import { DataDirectorySection } from "./settings/data-directory-section";
+import { LicenseUninstallSection } from "./settings/license-uninstall-section";
 import { PreeditSettingsSection } from "./settings/preedit-settings-section";
 import { validCandidateFonts } from "./candidate/candidate-font-family";
 import type { FontCatalogReader } from "./candidate/font-catalog";
@@ -356,6 +357,10 @@ export {
   type DataDirectoryInfo,
   type DataDirectorySectionProps,
 } from "./settings/data-directory-section";
+export {
+  LicenseUninstallSection,
+  type LicenseUninstallSectionProps,
+} from "./settings/license-uninstall-section";
 export {
   PreeditSettingsSection,
   type CandidatePreeditStyle,
@@ -7133,101 +7138,21 @@ export function SettingsPage({
                       onChoose={() => void chooseDataDirectory()}
                     />
                     {macosPlatform && (
-                      <div className="section" role="group" aria-label="许可与卸载">
-                        <div className="section-header">
-                          <span className="section-title">
-                            许可与版权
-                            <small>水杉 IME 以 GPL-3.0 发布；第三方组件许可随应用资源提供。</small>
-                          </span>
-                          <span className={doc.version} aria-label="版权">
-                            © 2026 Metasequoia IME
-                          </span>
-                        </div>
-                        {client.openThirdPartyLicenses && (
-                          <button
-                            type="button"
-                            className="secondary"
-                            onClick={() => void client.openThirdPartyLicenses!()}
-                          >
-                            查看许可全文
-                          </button>
-                        )}
-                        {client.uninstallInputSource && (
-                          <div className={`${settings.serviceRow} ${settings.serviceRowDanger}`}>
-                            <span>
-                              卸载水杉输入法
-                              <small>
-                                输入源会移到废纸篓；默认保留词库、学习记录和偏好，重新安装后可继续使用。
-                              </small>
-                              <label>
-                                <input
-                                  type="checkbox"
-                                  checked={removeUserDataOnUninstall}
-                                  onChange={(event) =>
-                                    setRemoveUserDataOnUninstall(event.target.checked)
-                                  }
-                                />{" "}
-                                同时删除词库、偏好与语音密钥
-                              </label>
-                            </span>
-                            <div>
-                              <button
-                                type="button"
-                                className="secondary"
-                                disabled={uninstallBusy}
-                                aria-label="卸载…"
-                                aria-busy={uninstallBusy}
-                                onClick={() => {
-                                  setUninstallResult(null);
-                                  setUninstallConfirmation(true);
-                                }}
-                              >
-                                {uninstallBusy ? "处理中…" : "卸载…"}
-                              </button>
-                              {uninstallResult === "success" && (
-                                <span role="status">输入法已移到废纸篓。</span>
-                              )}
-                              {uninstallResult === "error" && (
-                                <span role="alert">卸载未能完成，请稍后重试。</span>
-                              )}
-                            </div>
-                            {uninstallConfirmation && (
-                              <div
-                                className={settings.serviceConfirmation}
-                                role="alertdialog"
-                                aria-modal="true"
-                                aria-label="确认卸载水杉输入法"
-                              >
-                                <p>
-                                  输入法会被移到废纸篓，放错了可以从那里放回原处。
-                                  {removeUserDataOnUninstall
-                                    ? "已选择同时删除词库、偏好与语音密钥。"
-                                    : "词库、学习记录和偏好会保留，重新安装后可以继续使用。"}{" "}
-                                  卸载后请重新登录系统，让它从输入源列表中消失。
-                                </p>
-                                <div>
-                                  <button
-                                    type="button"
-                                    className="danger"
-                                    disabled={uninstallBusy}
-                                    onClick={() => void uninstallInputSource()}
-                                  >
-                                    确认卸载
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="secondary"
-                                    disabled={uninstallBusy}
-                                    onClick={() => setUninstallConfirmation(false)}
-                                  >
-                                    取消
-                                  </button>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
+                      <LicenseUninstallSection
+                        openThirdPartyLicenses={client.openThirdPartyLicenses}
+                        uninstallInputSource={client.uninstallInputSource}
+                        removeUserData={removeUserDataOnUninstall}
+                        uninstallBusy={uninstallBusy}
+                        uninstallConfirmation={uninstallConfirmation}
+                        uninstallResult={uninstallResult}
+                        onRemoveUserDataChange={setRemoveUserDataOnUninstall}
+                        onRequestUninstall={() => {
+                          setUninstallResult(null);
+                          setUninstallConfirmation(true);
+                        }}
+                        onConfirmUninstall={() => void uninstallInputSource()}
+                        onCancelUninstall={() => setUninstallConfirmation(false)}
+                      />
                     )}
                     {mobilePlatform && (
                       <div className={`section ${doc.linkList}`} aria-label="帮助与反馈">
