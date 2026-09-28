@@ -389,6 +389,11 @@ export {
   UtilitiesSettingsSection,
   type UtilitiesSettingsSectionProps,
 } from "./settings/utilities-settings-section";
+import { ShortcutsSettingsSection } from "./settings/shortcuts-settings-section";
+export {
+  ShortcutsSettingsSection,
+  type ShortcutsSettingsSectionProps,
+} from "./settings/shortcuts-settings-section";
 import { availableSettingsPages } from "./settings/available-pages";
 export { availableSettingsPages, type AvailablePageCapabilities } from "./settings/available-pages";
 import * as surface from "./keyboard/panel-surface-style";
@@ -4626,54 +4631,41 @@ export function SettingsPage({
                     hidden={page !== "helpcode"}
                     onChange={(patch) => setDraft({ ...draft, ...patch })}
                   />
-                  <fieldset disabled={busy} hidden={page !== "shortcuts"} aria-label="快捷键">
-                    <ShortcutsIntroSection mobile={mobilePlatform} />
-                    <InputModeShortcutsSection
-                      keybindings={keybindings}
-                      onChange={(patch) =>
-                        setDraft({ ...draft, keybindings: { ...keybindings, ...patch } })
-                      }
-                      onInputModeHUDChange={(input_mode_hud) =>
-                        setDraft({ ...draft, input_mode_hud })
-                      }
-                      showModeSwitchShortcuts={showModeSwitchShortcuts}
-                      macos={macosPlatform}
-                      showInputModeHUD={showInputModeHUD}
-                      inputModeHUD={inputModeHUD}
-                      showFullwidthChord={showFullwidthChord}
-                      fullwidthChord={fullwidthChord}
-                      windows={windowsPlatform}
-                    />
-                    <PanelShortcutsSection
-                      visible={showPanelShortcuts}
-                      macos={macosPlatform}
-                      harmony={harmonyPlatform}
-                    />
-                    <CandidateShortcutsSection
-                      navigation={draft.navigation ?? defaultNavigation}
-                      numberRowSelection={draft.number_row_selection ?? true}
-                      showNumberRowSelection={showNumberRowSelection}
-                      mobile={mobilePlatform}
-                      onNumberRowSelectionChange={(number_row_selection) =>
-                        setDraft({ ...draft, number_row_selection })
-                      }
-                    />
-                    <MaintenanceShortcutsSection
-                      visible={showDesktopMaintenanceShortcuts}
-                      macos={macosPlatform}
-                      linux={linuxPlatform}
-                      maintenanceChord={maintenanceChord}
-                    />
-                    <InputMethodServiceSection
-                      visible={Boolean(showRestartInputMethod)}
-                      macos={macosPlatform}
-                      linux={linuxPlatform}
-                      restartInputMethod={client.restartInputMethod}
-                      installInputSource={
-                        showInstallInputSource ? client.installInputSource : undefined
-                      }
-                    />
-                  </fieldset>
+                  <ShortcutsSettingsSection
+                    disabled={busy}
+                    hidden={page !== "shortcuts"}
+                    mobile={mobilePlatform}
+                    keybindings={keybindings}
+                    onKeybindingsChange={(patch) =>
+                      setDraft({ ...draft, keybindings: { ...keybindings, ...patch } })
+                    }
+                    onInputModeHUDChange={(input_mode_hud) =>
+                      setDraft({ ...draft, input_mode_hud })
+                    }
+                    showModeSwitchShortcuts={showModeSwitchShortcuts}
+                    macos={macosPlatform}
+                    showInputModeHUD={showInputModeHUD}
+                    inputModeHUD={inputModeHUD}
+                    showFullwidthChord={showFullwidthChord}
+                    fullwidthChord={fullwidthChord}
+                    windows={windowsPlatform}
+                    navigation={draft.navigation ?? defaultNavigation}
+                    numberRowSelection={draft.number_row_selection ?? true}
+                    showNumberRowSelection={showNumberRowSelection}
+                    onNumberRowSelectionChange={(number_row_selection) =>
+                      setDraft({ ...draft, number_row_selection })
+                    }
+                    showPanelShortcuts={showPanelShortcuts}
+                    harmony={harmonyPlatform}
+                    showDesktopMaintenanceShortcuts={showDesktopMaintenanceShortcuts}
+                    linux={linuxPlatform}
+                    maintenanceChord={maintenanceChord}
+                    showRestartInputMethod={Boolean(showRestartInputMethod)}
+                    restartInputMethod={client.restartInputMethod}
+                    installInputSource={
+                      showInstallInputSource ? client.installInputSource : undefined
+                    }
+                  />
                   <UtilitiesSettingsSection
                     disabled={busy}
                     hidden={page !== "tools"}
