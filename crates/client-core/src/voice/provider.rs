@@ -10,6 +10,7 @@
 //! second copy in Java.
 
 use crate::preferences::Preferences;
+use std::collections::BTreeMap;
 
 /// One HTTP or WebSocket header the provider requires, already filled in.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -52,6 +53,39 @@ pub struct MobileVoicePolishConfiguration {
     pub prompt_custom_3: String,
 }
 
+struct ResolvedVoiceFields {
+    endpoint: String,
+    model: String,
+    token: String,
+}
+
+fn resolve_voice_fields(
+    provider: &str,
+    endpoint: &str,
+    model: &str,
+    token: &str,
+    tokens: &BTreeMap<String, String>,
+    defaults: (&str, &str),
+) -> ResolvedVoiceFields {
+    let endpoint = match endpoint.trim() {
+        "" => defaults.0,
+        value => value,
+    };
+    let model = match model.trim() {
+        "" => defaults.1,
+        value => value,
+    };
+    let token = match token.trim() {
+        "" => tokens.get(provider).map(String::as_str).unwrap_or(""),
+        value => value,
+    };
+    ResolvedVoiceFields {
+        endpoint: endpoint.to_owned(),
+        model: model.to_owned(),
+        token: token.trim().to_owned(),
+    }
+}
+
 pub fn mobile_voice_polish_configuration(
     preferences: &Preferences,
 ) -> Option<MobileVoicePolishConfiguration> {
@@ -85,36 +119,27 @@ pub fn mobile_voice_polish_configuration(
         ),
         _ => return None,
     };
-    let endpoint = match voice.polish_endpoint.trim() {
-        "" => default_endpoint,
-        value => value,
-    };
-    let model = match voice.polish_model.trim() {
-        "" => default_model,
-        value => value,
-    };
-    let token = match voice.polish_token.trim() {
-        "" => voice
-            .polish_tokens
-            .get(&voice.polish_provider)
-            .map(String::as_str)
-            .unwrap_or("")
-            .trim(),
-        value => value,
-    };
-    if !endpoint.starts_with("https://")
-        || !crate::text::is_bounded_text(endpoint, 2_048)
-        || model.is_empty()
-        || !crate::text::is_bounded_text(model, 512)
-        || token.is_empty()
-        || !crate::text::is_bounded_text(token, 16 * 1024)
+    let fields = resolve_voice_fields(
+        &voice.polish_provider,
+        &voice.polish_endpoint,
+        &voice.polish_model,
+        &voice.polish_token,
+        &voice.polish_tokens,
+        (default_endpoint, default_model),
+    );
+    if !fields.endpoint.starts_with("https://")
+        || !crate::text::is_bounded_text(&fields.endpoint, 2_048)
+        || fields.model.is_empty()
+        || !crate::text::is_bounded_text(&fields.model, 512)
+        || fields.token.is_empty()
+        || !crate::text::is_bounded_text(&fields.token, 16 * 1024)
     {
         return None;
     }
     Some(MobileVoicePolishConfiguration {
-        endpoint: endpoint.to_owned(),
-        model: model.to_owned(),
-        token: token.to_owned(),
+        endpoint: fields.endpoint,
+        model: fields.model,
+        token: fields.token,
         prompt_id: voice.polish_prompt_id.clone(),
         prompt_legacy: voice.polish_prompt.clone(),
         prompt_custom_1: voice.polish_prompt_custom_1.clone(),
@@ -159,27 +184,18 @@ pub fn mobile_voice_provider_configuration(
             return None;
         }
     };
-    let endpoint = match voice.asr_endpoint.trim() {
-        "" => default_endpoint,
-        value => value,
-    };
-    let model = match voice.asr_model.trim() {
-        "" => default_model,
-        value => value,
-    };
-    let token = match voice.asr_token.trim() {
-        "" => voice
-            .asr_tokens
-            .get(&voice.asr_provider)
-            .map(String::as_str)
-            .unwrap_or("")
-            .trim(),
-        value => value,
-    };
+    let fields = resolve_voice_fields(
+        &voice.asr_provider,
+        &voice.asr_endpoint,
+        &voice.asr_model,
+        &voice.asr_token,
+        &voice.asr_tokens,
+        (default_endpoint, default_model),
+    );
     let boosting_table_id = voice.doubao_boosting_table_id.trim();
-    if !crate::text::is_bounded_text(endpoint, 2_048)
-        || !crate::text::is_bounded_text(model, 512)
-        || !crate::text::is_bounded_text(token, 16 * 1024)
+    if !crate::text::is_bounded_text(&fields.endpoint, 2_048)
+        || !crate::text::is_bounded_text(&fields.model, 512)
+        || !crate::text::is_bounded_text(&fields.token, 16 * 1024)
         || !crate::text::is_bounded_text(boosting_table_id, 4_096)
     {
         return None;
@@ -192,7 +208,7 @@ pub fn mobile_voice_provider_configuration(
         crate::credential::doubao_auth::headers(
             &voice.doubao_auth_mode,
             &voice.asr_app_key,
-            token,
+            &fields.token,
             resource_id,
         )?
         .into_iter()
@@ -206,12 +222,12 @@ pub fn mobile_voice_provider_configuration(
     };
     Some(MobileVoiceProviderConfiguration {
         provider: voice.asr_provider.clone(),
-        endpoint: endpoint.to_owned(),
-        model: model.to_owned(),
+        endpoint: fields.endpoint,
+        model: fields.model,
         token: if voice.asr_provider == "doubao" {
             String::new()
         } else {
-            token.to_owned()
+            fields.token
         },
         headers,
         enable_itn: voice.doubao_enable_itn,
