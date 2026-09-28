@@ -85,17 +85,13 @@ impl SnapshotQueueState {
                     || request.account_id.len() > 128
                     || request.cloud_revision < 0
                     || !valid_local_version(&request.expected_local_version)
-                    || !valid_digest(&request.file_sha256)
+                    || !crate::is_lower_hex(&request.file_sha256, 64)
             })
         {
             return Err(SnapshotQueueError::Invalid);
         }
         Ok(())
     }
-}
-
-pub fn valid_digest(value: &str) -> bool {
-    crate::text::is_lower_hex(value, 64)
 }
 
 pub fn valid_local_version(value: &str) -> bool {
@@ -109,7 +105,7 @@ pub fn valid_local_version(value: &str) -> bool {
     let Some(digest) = fields.next() else {
         return false;
     };
-    if fields.next().is_some() || !valid_digest(digest) {
+    if fields.next().is_some() || !crate::is_lower_hex(digest, 64) {
         return false;
     }
     owner == "legacy" || Uuid::parse_str(owner).is_ok_and(|id| id.to_string() == owner)
@@ -333,7 +329,7 @@ impl DictionarySnapshotQueue {
             || account_id.len() > 128
             || cloud_revision < 0
             || !valid_local_version(expected_local_version)
-            || !valid_digest(file_sha256)
+            || !crate::is_lower_hex(file_sha256, 64)
         {
             return Err(SnapshotQueueError::Invalid);
         }

@@ -13,7 +13,7 @@ pub(crate) fn is_bounded_text(value: &str, maximum_bytes: usize) -> bool {
     value.len() <= maximum_bytes && !value.chars().any(char::is_control)
 }
 
-pub(crate) fn is_lower_hex(value: &str, length: usize) -> bool {
+pub fn is_lower_hex(value: &str, length: usize) -> bool {
     value.len() == length
         && value
             .bytes()

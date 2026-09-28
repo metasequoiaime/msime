@@ -34,6 +34,9 @@ pub mod punctuation;
 pub mod resources;
 pub mod skin;
 mod text;
+
+/// Validate a lower-case hexadecimal value with an exact byte length.
+pub use text::is_lower_hex;
 pub mod translation;
 pub mod typing_statistics;
 pub mod vocabulary;

@@ -261,7 +261,7 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
             revision,
         } => {
             if valid_kind(kind)
-                && msime_client_core::cloud::snapshot_queue::valid_digest(id)
+                && msime_client_core::is_lower_hex(id, 64)
                 && valid_value(kind, code, word, *weight)
                 && *revision > 0
             {
@@ -271,10 +271,7 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
             }
         }
         CloudDictionaryRequest::Delete { kind, id, revision } => {
-            if valid_kind(kind)
-                && msime_client_core::cloud::snapshot_queue::valid_digest(id)
-                && *revision > 0
-            {
+            if valid_kind(kind) && msime_client_core::is_lower_hex(id, 64) && *revision > 0 {
                 Ok(())
             } else {
                 Err("invalid cloud dictionary request")
