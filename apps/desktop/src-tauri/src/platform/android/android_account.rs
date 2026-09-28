@@ -1,7 +1,8 @@
 use crate::platform::mobile::mobile_account_helpers::{
     account_chat as shared_account_chat, account_chat_models as shared_account_chat_models,
-    account_delete as shared_account_delete, account_forget as shared_account_forget,
-    account_login as shared_account_login, account_logout as shared_account_logout,
+    account_command_error, account_delete as shared_account_delete,
+    account_forget as shared_account_forget, account_login as shared_account_login,
+    account_logout as shared_account_logout,
     account_preferences_load as shared_account_preferences_load,
     account_preferences_schema as shared_account_preferences_schema,
     account_profile as shared_account_profile, account_rename as shared_account_rename,
@@ -678,7 +679,7 @@ async fn dictionary_snapshot_preview(
     })
     .await
     .map_err(|_| snapshot_command_error())?
-    .map_err(|error| crate::CommandError { code: error.code() })?;
+    .map_err(account_command_error)?;
     let old = {
         let mut pending = previews.lock().map_err(|_| snapshot_command_error())?;
         let old = pending
@@ -757,7 +758,7 @@ async fn dictionary_snapshot_enqueue(
     })
     .await
     .map_err(|_| snapshot_command_error())?
-    .map_err(|error| crate::CommandError { code: error.code() })?;
+    .map_err(account_command_error)?;
     snapshot_response_without_account(result)
 }
 
@@ -786,7 +787,7 @@ async fn dictionary_snapshot_export(
     })
     .await
     .map_err(|_| snapshot_command_error())?
-    .map_err(|error| crate::CommandError { code: error.code() })
+    .map_err(account_command_error)
 }
 
 async fn dictionary_snapshot_restore_preview(
@@ -817,7 +818,7 @@ async fn dictionary_snapshot_restore_preview(
     })
     .await
     .map_err(|_| snapshot_command_error())?
-    .map_err(|error| crate::CommandError { code: error.code() })
+    .map_err(account_command_error)
 }
 
 async fn dictionary_snapshot_restore(
@@ -853,7 +854,7 @@ async fn dictionary_snapshot_restore(
     })
     .await
     .map_err(|_| snapshot_command_error())?
-    .map_err(|error| crate::CommandError { code: error.code() })
+    .map_err(account_command_error)
 }
 
 async fn dictionary_snapshot_status(
@@ -881,7 +882,7 @@ async fn dictionary_snapshot_cancel(
     })
     .await
     .map_err(|_| snapshot_command_error())?
-    .map_err(|error| crate::CommandError { code: error.code() })?;
+    .map_err(account_command_error)?;
     let old = {
         let mut pending = previews.lock().map_err(|_| snapshot_command_error())?;
         pending
@@ -1988,7 +1989,7 @@ pub async fn account_preferences_upload(
     .map_err(|_| crate::CommandError {
         code: "account_unavailable",
     })?
-    .map_err(|error| crate::CommandError { code: error.code() })
+    .map_err(account_command_error)
 }
 
 #[tauri::command]
@@ -2015,7 +2016,7 @@ pub async fn account_preferences_apply(
     .map_err(|_| crate::CommandError {
         code: "account_unavailable",
     })?
-    .map_err(|error| crate::CommandError { code: error.code() })
+    .map_err(account_command_error)
 }
 
 #[tauri::command]

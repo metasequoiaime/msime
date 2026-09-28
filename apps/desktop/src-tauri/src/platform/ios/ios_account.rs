@@ -1,8 +1,9 @@
 #[cfg(target_os = "ios")]
 use crate::platform::mobile::mobile_account_helpers::{
     account_chat as shared_account_chat, account_chat_models as shared_account_chat_models,
-    account_delete as shared_account_delete, account_forget as shared_account_forget,
-    account_login as shared_account_login, account_logout as shared_account_logout,
+    account_command_error, account_delete as shared_account_delete,
+    account_forget as shared_account_forget, account_login as shared_account_login,
+    account_logout as shared_account_logout,
     account_preferences_load as shared_account_preferences_load,
     account_preferences_schema as shared_account_preferences_schema,
     account_profile as shared_account_profile, account_rename as shared_account_rename,
@@ -217,7 +218,7 @@ pub async fn account_apple_login(
         .map_err(|_| crate::CommandError {
             code: "account_unavailable",
         })?
-        .map_err(|error| crate::CommandError { code: error.code() })?;
+        .map_err(account_command_error)?;
     let nonce = challenge.nonce.ok_or(crate::CommandError {
         code: "apple_sign_in",
     })?;
@@ -346,9 +347,7 @@ async fn dictionary_snapshot_preview(
     let file_token = token.clone();
     let (account_id, path, metadata) = tauri::async_runtime::spawn_blocking(move || {
         fs::create_dir_all(&directory).map_err(|_| snapshot_command_error())?;
-        let profile = session
-            .profile()
-            .map_err(|error| crate::CommandError { code: error.code() })?;
+        let profile = session.profile().map_err(account_command_error)?;
         let path = directory.join(format!("download-{file_token}.ndjson"));
         if let Err(error) = session.dictionary_snapshot_to_file(&path) {
             let _ = fs::remove_file(&path);
@@ -415,9 +414,7 @@ async fn dictionary_snapshot_enqueue(
     let path = pending.path.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
         let result = (|| {
-            let profile = session
-                .profile()
-                .map_err(|error| crate::CommandError { code: error.code() })?;
+            let profile = session.profile().map_err(account_command_error)?;
             if profile.user.id != pending.account_id {
                 return Err(crate::CommandError {
                     code: "snapshot_conflict",
@@ -425,7 +422,7 @@ async fn dictionary_snapshot_enqueue(
             }
             let changes = session
                 .dictionary_changes(pending.metadata.cloud_revision, 1)
-                .map_err(|error| crate::CommandError { code: error.code() })?;
+                .map_err(account_command_error)?;
             if !changes.changes.is_empty() {
                 return Err(crate::CommandError {
                     code: "snapshot_conflict",
@@ -469,7 +466,7 @@ async fn dictionary_snapshot_export(
         let result = (|| {
             session
                 .dictionary_snapshot_to_file(&path)
-                .map_err(|error| crate::CommandError { code: error.code() })?;
+                .map_err(account_command_error)?;
             let metadata = snapshot_metadata(snapshot_bridge(serde_json::json!({
                 "operation": "inspect",
                 "path": path.to_string_lossy(),
@@ -507,7 +504,7 @@ async fn dictionary_snapshot_restore_preview(
             }))?)?;
             let page = session
                 .dictionary_catalog(DictionaryKind::Quick, "", 0, "pinyin", "xiaohe")
-                .map_err(|error| crate::CommandError { code: error.code() })?;
+                .map_err(account_command_error)?;
             Ok(serde_json::json!({
                 "snapshot": metadata,
                 "expectedRevision": page.revision,
@@ -546,7 +543,7 @@ async fn dictionary_snapshot_restore(
             }
             let result = session
                 .restore_dictionary_snapshot(text.as_bytes(), revision)
-                .map_err(|error| crate::CommandError { code: error.code() })?;
+                .map_err(account_command_error)?;
             Ok(serde_json::json!({
                 "revision": result.revision,
                 "reset": result.reset,
@@ -578,7 +575,7 @@ async fn dictionary_snapshot_cancel(
         session
             .profile()
             .map(|profile| profile.user.id)
-            .map_err(|error| crate::CommandError { code: error.code() })
+            .map_err(account_command_error)
     })
     .await
     .map_err(|_| snapshot_command_error())??;
@@ -894,7 +891,7 @@ pub async fn account_preferences_upload(
     .map_err(|_| crate::CommandError {
         code: "account_unavailable",
     })?
-    .map_err(|error| crate::CommandError { code: error.code() })
+    .map_err(account_command_error)
 }
 
 #[cfg(target_os = "ios")]
@@ -934,7 +931,7 @@ pub async fn account_preferences_apply(
     .map_err(|_| crate::CommandError {
         code: "account_unavailable",
     })?
-    .map_err(|error| crate::CommandError { code: error.code() })
+    .map_err(account_command_error)
 }
 
 #[cfg(target_os = "ios")]

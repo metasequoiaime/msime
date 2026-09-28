@@ -88,6 +88,10 @@ pub(crate) fn snapshot_command_error() -> crate::CommandError {
     }
 }
 
+pub(crate) fn account_command_error(error: AccountError) -> crate::CommandError {
+    crate::CommandError { code: error.code() }
+}
+
 pub(crate) fn parse_snapshot_token(value: &str) -> Result<uuid::Uuid, crate::CommandError> {
     uuid::Uuid::parse_str(value).map_err(|_| crate::CommandError {
         code: "snapshot_invalid",
@@ -130,7 +134,7 @@ where
         .map_err(|_| crate::CommandError {
             code: "account_unavailable",
         })?
-        .map_err(|error| crate::CommandError { code: error.code() })
+        .map_err(account_command_error)
 }
 
 pub(crate) async fn account_status(
