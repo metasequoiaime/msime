@@ -1,5 +1,5 @@
 use crate::platform::mobile::mobile_account_helpers::{
-    dictionary_kind, snapshot_command_error, snapshot_response_without_account,
+    call, dictionary_kind, snapshot_command_error, snapshot_response_without_account,
 };
 use crate::platform::mobile::mobile_account_preferences::{
     frequency_account_preferences, insert_bool, insert_string,
@@ -1038,20 +1038,6 @@ pub struct AppIconResponse {
 #[derive(Serialize)]
 struct AppIconRequest<'a> {
     style: &'a str,
-}
-
-async fn call<T, F>(state: State<'_, AccountState>, operation: F) -> Result<T, crate::CommandError>
-where
-    T: Send + 'static,
-    F: FnOnce(&Session) -> Result<T, AccountError> + Send + 'static,
-{
-    let session = Arc::clone(&state.session);
-    tauri::async_runtime::spawn_blocking(move || operation(&session))
-        .await
-        .map_err(|_| crate::CommandError {
-            code: "account_unavailable",
-        })?
-        .map_err(|error| crate::CommandError { code: error.code() })
 }
 
 #[tauri::command]

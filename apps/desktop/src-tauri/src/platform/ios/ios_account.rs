@@ -1,5 +1,7 @@
 use crate::shared::account_dto::{ChatModelsResponse, ChatResponse, PreferenceSchemaResponse};
 #[cfg(target_os = "ios")]
+use crate::platform::mobile::mobile_account_helpers::call;
+#[cfg(target_os = "ios")]
 use crate::shared::account_dto::{
     providers_response, ChallengeResponse, ProfileResponse, ProvidersResponse, StatusResponse,
 };
@@ -180,21 +182,6 @@ pub async fn ai_test(
     .map_err(|_| crate::CommandError {
         code: "ai_test_unavailable",
     })?
-}
-
-#[cfg(target_os = "ios")]
-async fn call<T, F>(state: State<'_, AccountState>, operation: F) -> Result<T, crate::CommandError>
-where
-    T: Send + 'static,
-    F: FnOnce(&Session) -> Result<T, AccountError> + Send + 'static,
-{
-    let session = Arc::clone(&state.session);
-    tauri::async_runtime::spawn_blocking(move || operation(&session))
-        .await
-        .map_err(|_| crate::CommandError {
-            code: "account_unavailable",
-        })?
-        .map_err(|error| crate::CommandError { code: error.code() })
 }
 
 #[cfg(target_os = "ios")]

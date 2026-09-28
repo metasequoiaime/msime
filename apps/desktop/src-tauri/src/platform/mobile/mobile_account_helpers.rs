@@ -1,5 +1,7 @@
+use msime_client_core::account::AccountError;
 use msime_client_core::cloud::dictionary::DictionaryKind;
 use serde_json::Value;
+use std::sync::Arc;
 
 pub(crate) fn dictionary_kind(value: &str) -> Result<DictionaryKind, crate::CommandError> {
     match value {
@@ -27,4 +29,21 @@ pub(crate) fn snapshot_response_without_account(
         request.remove("accountId");
     }
     Ok(value)
+}
+
+pub(crate) async fn call<T, F>(
+    state: tauri::State<'_, crate::platform::mobile::MobileAccountState>,
+    operation: F,
+) -> Result<T, crate::CommandError>
+where
+    T: Send + 'static,
+    F: FnOnce(&crate::platform::mobile::MobileSession) -> Result<T, AccountError> + Send + 'static,
+{
+    let session = Arc::clone(state.session());
+    tauri::async_runtime::spawn_blocking(move || operation(&session))
+        .await
+        .map_err(|_| crate::CommandError {
+            code: "account_unavailable",
+        })?
+        .map_err(|error| crate::CommandError { code: error.code() })
 }
