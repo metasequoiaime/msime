@@ -24,9 +24,9 @@
 <key>InputMethodServerControllerClass</key><string>MSIMEInputController</string>
 <key>InputMethodServerDelegateClass</key><string>MSIMEInputController</string>
 <key>InputMethodServerPreferencesWindowControllerClass</key><string>MSIMEPreferencesWindowController</string>
-<!-- The input menu draws its icons through HIToolbox, which reads the file's pages rather than one page's DPI. A 256-point application icon in this slot is scaled into a 16-point menu slot as artwork rather than as a template, so it cannot tint for dark mode or for the highlighted menu row. Each menu TIFF - the bundle's logo here and the 中/英/日 icons of the three input modes below - carries 16x16 at 72 dpi and 32x32 at 144 dpi, which is the pairing Apple's own input methods ship, and is a black shape carried entirely by its alpha channel. Regenerate them with scripts/render_menu_icon.swift after editing the SVGs beside them; info-plist-icons checks the pages. CFBundleIconFile stays the .icns: that one is the Dock icon for the preferences window and wants the full-colour artwork. -->
+<!-- The input menu draws its icons through HIToolbox, which reads the file's pages rather than one page's DPI. A 256-point application icon in this slot is scaled into a 16-point menu slot as artwork rather than as a template, so it cannot tint for dark mode or for the highlighted menu row. The bundle's logo here, which the three input modes below reuse so every entry of the input-source list shows the same icon, carries 16x16 at 72 dpi and 32x32 at 144 dpi, which is the pairing Apple's own input methods ship, and is a black shape carried entirely by its alpha channel. Regenerate it with scripts/render_menu_icon.swift after editing the SVG beside it; info-plist-icons checks the pages. CFBundleIconFile stays the .icns: that one is the Dock icon for the preferences window and wants the full-colour artwork. -->
 <key>tsInputMethodIconFileKey</key><string>MSIMEClientInputMethodMenuIcon.tiff</string>
-<!-- macOS offers an input method through its visible input modes, and the bundle declares three: a Chinese mode, an English mode and a Japanese mode. The menu bar shows the active mode's icon, 中, 英 or 日, so it plays the part of the Windows tray's language-bar icon, and the input controller keeps the selected mode in step with its own state in both directions: the English mode follows the Chinese/English switch, the Japanese mode follows the japanese input scheme. Keeping a separate top-level TISInputSourceID beside these modes creates another menu entry with the same localized name, so the bundle-level source is intentionally left to the system; each mode carries its own localized name in InfoPlist.strings so the entries read differently. The mode identifiers are mirrored in src/input/InputModeIdentifiers.h. -->
+<!-- macOS offers an input method through its visible input modes, and the bundle declares three: a Chinese mode, an English mode and a Japanese mode. All three show the bundle's logo, so the menu bar icon does not change with the mode; the switch HUD shows which mode is active. The input controller keeps the selected mode in step with its own state in both directions: the English mode follows the Chinese/English switch, the Japanese mode follows the japanese input scheme. Keeping a separate top-level TISInputSourceID beside these modes creates another menu entry with the same localized name, so the bundle-level source is intentionally left to the system; each mode carries its own localized name in InfoPlist.strings so the entries read differently. The mode identifiers are mirrored in src/input/InputModeIdentifiers.h. -->
 <key>ComponentInputModeDict</key>
 <dict>
   <key>tsInputModeListKey</key>
@@ -38,8 +38,8 @@
       <key>tsInputModeCharacterRepertoireKey</key><array><string>Hans</string></array>
       <key>tsInputModeDefaultStateKey</key><true/>
       <key>tsInputModeIsVisibleKey</key><true/>
-      <key>tsInputModeMenuIconFileKey</key><string>MSIMEClientInputMethodMenuIconChinese.tiff</string>
-      <key>tsInputModePaletteIconFileKey</key><string>MSIMEClientInputMethodMenuIconChinese.tiff</string>
+      <key>tsInputModeMenuIconFileKey</key><string>MSIMEClientInputMethodMenuIcon.tiff</string>
+      <key>tsInputModePaletteIconFileKey</key><string>MSIMEClientInputMethodMenuIcon.tiff</string>
       <key>tsInputModePrimaryInScriptKey</key><true/>
       <key>tsInputModeScriptKey</key><string>smSimpChinese</string>
     </dict>
@@ -50,8 +50,8 @@
       <key>tsInputModeCharacterRepertoireKey</key><array><string>Latn</string></array>
       <key>tsInputModeDefaultStateKey</key><true/>
       <key>tsInputModeIsVisibleKey</key><true/>
-      <key>tsInputModeMenuIconFileKey</key><string>MSIMEClientInputMethodMenuIconEnglish.tiff</string>
-      <key>tsInputModePaletteIconFileKey</key><string>MSIMEClientInputMethodMenuIconEnglish.tiff</string>
+      <key>tsInputModeMenuIconFileKey</key><string>MSIMEClientInputMethodMenuIcon.tiff</string>
+      <key>tsInputModePaletteIconFileKey</key><string>MSIMEClientInputMethodMenuIcon.tiff</string>
       <key>tsInputModePrimaryInScriptKey</key><false/>
       <key>tsInputModeScriptKey</key><string>smRoman</string>
     </dict>
@@ -62,8 +62,8 @@
       <key>tsInputModeCharacterRepertoireKey</key><array><string>Hira</string><string>Kana</string><string>Hani</string></array>
       <key>tsInputModeDefaultStateKey</key><true/>
       <key>tsInputModeIsVisibleKey</key><true/>
-      <key>tsInputModeMenuIconFileKey</key><string>MSIMEClientInputMethodMenuIconJapanese.tiff</string>
-      <key>tsInputModePaletteIconFileKey</key><string>MSIMEClientInputMethodMenuIconJapanese.tiff</string>
+      <key>tsInputModeMenuIconFileKey</key><string>MSIMEClientInputMethodMenuIcon.tiff</string>
+      <key>tsInputModePaletteIconFileKey</key><string>MSIMEClientInputMethodMenuIcon.tiff</string>
       <key>tsInputModePrimaryInScriptKey</key><true/>
       <key>tsInputModeScriptKey</key><string>smJapanese</string>
     </dict>

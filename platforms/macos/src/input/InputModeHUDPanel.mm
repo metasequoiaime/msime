@@ -93,7 +93,7 @@ NSRect MSIMEInputModeHUDFrame(NSRect caretRect, NSSize panelSize, NSRect visible
     background.layer.cornerRadius = kCornerRadius;
     background.layer.masksToBounds = YES;
     background.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-    NSImage *logo = [[NSBundle bundleForClass:self.class] imageForResource:@"MetasequoiaIMEMenuIcon"];
+    NSImage *logo = [[NSBundle bundleForClass:self.class] imageForResource:@"MSIMEClientInputMethodMenuIcon"];
     [logo setTemplate:YES];
     _logoView = [NSImageView imageViewWithImage:logo ?: [[NSImage alloc] initWithSize:NSZeroSize]];
     _logoView.hidden = logo == nil;

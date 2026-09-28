@@ -1,7 +1,7 @@
 #pragma once
 #import <Foundation/Foundation.h>
 
-// The three input modes Info.plist.in declares. The menu bar shows the active mode's icon, 中, 英 or 日, which is how macOS carries the persistent input-mode indicator the Windows tray's language-bar icon provides. info-plist-names checks these literals against the plist.
+// The three input modes Info.plist.in declares. All three show the bundle's logo; the selected one is checked in the input menu and named in the input-source list. info-plist-names checks these literals against the plist.
 static NSString *const MSIMEChineseInputModeID = @"app.msime.inputmethod.MetasequoiaIME.Hans";
 static NSString *const MSIMEEnglishInputModeID = @"app.msime.inputmethod.MetasequoiaIME.Roman";
 static NSString *const MSIMEJapaneseInputModeID = @"app.msime.inputmethod.MetasequoiaIME.Japanese";

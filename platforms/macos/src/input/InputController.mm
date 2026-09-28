@@ -2812,7 +2812,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
         [[MSIMEInputModeHUDPanel sharedPanel] showEnglishInputMode:enabled nearCaretRect:caret];
     }
 }
-// The menu bar shows the selected input mode's icon, 中, 英 or 日, as the Windows tray's language-bar icon does. A switch the system reported is already recorded as shown, so this does not echo it back.
+// Keeps the selected input mode - 中, 英 or 日 in the input menu - in step with the Chinese/English state and the scheme. A switch the system reported is already recorded as shown, so this does not echo it back.
 - (void)syncSystemInputModeForClient:(id)client {
     NSString *mode = MSIMEInputModeIDFor(_appearance.englishMode, [_appearance.inputScheme isEqualToString:@"japanese"]);
     MSIMESelectSystemInputMode(MSIMESharedSystemInputModeState(), mode, client, MSIMEInputSourceIsEnabled);

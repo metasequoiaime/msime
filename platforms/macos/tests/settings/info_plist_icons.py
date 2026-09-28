@@ -10,7 +10,7 @@ and is invisible until someone opens the input menu on a real install. Apple's o
 A missing file is the other half: the plist keys are strings, so a renamed resource fails silently and the
 menu falls back to a generic icon.
 
-The menu bar icon is also the mode indicator: the Chinese, English and Japanese input modes each name their own icon, 中, 英 and 日, and the menu bar shows the active one. Two modes sharing a file, or a mode naming a different file for the menu and the palette, would leave the menu bar unable to tell the modes apart.
+Every entry of the input-source list shows the same logo: each input mode names the bundle's own menu icon for both the menu and the palette, so the Chinese, English and Japanese entries cannot drift apart into different icons.
 """
 
 import plistlib
@@ -101,23 +101,21 @@ def main() -> int:
     for mode, body in sorted(modes.items()):
         menu, palette = body.get("tsInputModeMenuIconFileKey"), body.get("tsInputModePaletteIconFileKey")
         if not menu:
-            failures.append(f"input mode {mode} names no menu icon; the menu bar cannot show which mode is active")
+            failures.append(f"input mode {mode} names no menu icon; its entry would fall back to a generic icon")
             continue
         if palette != menu:
             failures.append(f"input mode {mode} names {menu} for the menu but {palette} for the palette")
         mode_icons[mode] = menu
-    for icon in sorted(set(mode_icons.values())):
-        sharing = sorted(mode for mode, value in mode_icons.items() if value == icon)
-        if len(sharing) > 1:
-            failures.append(f"{', '.join(sharing)} share {icon}; the menu bar icon would not change with the mode")
-    if len(modes) < 2:
-        failures.append("the bundle declares fewer than two input modes; the menu bar icon cannot show 中 and 英")
+    logos = named.get("tsInputMethodIconFileKey", set())
+    for mode, icon in sorted(mode_icons.items()):
+        if icon not in logos:
+            failures.append(f"input mode {mode} names {icon} rather than the bundle's logo; the input-source list would mix icons")
 
     if failures:
         for failure in failures:
             print(failure, file=sys.stderr)
         return 1
-    print(f"{sum(len(v) for v in named.values())} icon references resolve; the menu icons carry both pages and each of the {len(mode_icons)} input modes has its own.")
+    print(f"{sum(len(v) for v in named.values())} icon references resolve; the menu icons carry both pages and all {len(mode_icons)} input modes show the bundle's logo.")
     return 0
 
 
