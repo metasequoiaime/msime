@@ -37,7 +37,7 @@ fn usable(value: &str) -> bool {
         && crate::text::is_bounded_text(value, 4096)
         && !value.starts_with('<')
         && !value.starts_with("FAKESECRET_")
-        && !value.chars().all(|c| c == '*')
+        && !crate::credential::is_all_asterisks(value)
 }
 
 fn request(service: &str, config: &Value, milliseconds: u64) -> Option<Request> {

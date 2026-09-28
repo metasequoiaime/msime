@@ -8,11 +8,15 @@ pub mod doubao_auth;
 pub mod probe;
 pub mod translation;
 
+pub(crate) fn is_all_asterisks(value: &str) -> bool {
+    value.chars().all(|character| character == '*')
+}
+
 pub(crate) fn usable_token(value: &str) -> bool {
     !value.is_empty()
         && crate::text::is_bounded_text(value, 8192)
         && !value.starts_with('<')
-        && !value.chars().all(|character| character == '*')
+        && !is_all_asterisks(value)
 }
 
 pub(crate) fn valid_https_endpoint_and_model(endpoint: &str, model: &str) -> bool {
