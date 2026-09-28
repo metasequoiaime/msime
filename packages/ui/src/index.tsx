@@ -81,6 +81,7 @@ import { ProviderPresetSection, type ProviderPreset } from "./settings/provider-
 import { CredentialStatusMessage } from "./settings/credential-status-message";
 import { AiCredentialSection } from "./settings/ai-credential-section";
 import { AiPromptSettingsSection } from "./settings/ai-prompt-settings-section";
+import { AiTestToolsSection } from "./settings/ai-test-tools-section";
 import { AiModelCatalogSection } from "./settings/ai-model-catalog-section";
 import {
   AiBasicSettingsSection,
@@ -7231,41 +7232,17 @@ export function SettingsPage({
                       onPromptCustom3Change={(prompt_custom_3) => updateAi({ prompt_custom_3 })}
                     />
                     {client.aiAssistant && (
-                      <div className="section ai-test-tools">
-                        <div className="section-title">
-                          AI 润色测试
-                          <small>仅在点击发送时请求当前配置；测试文字不会写入日志。</small>
-                        </div>
-                        <textarea
-                          aria-label="AI 测试输入"
-                          placeholder="输入一段待润色文字"
-                          value={aiTestInput}
-                          onChange={(event) => setAiTestInput(event.target.value)}
-                        />
-                        <button
-                          type="button"
-                          className="secondary"
-                          disabled={aiTestBusy || !aiTestInput.trim()}
-                          onClick={() => void testAi()}
-                        >
-                          {aiTestBusy ? "发送中…" : "发送并润色"}
-                        </button>
-                        {aiTestStatus && <p role="status">{aiTestStatus}</p>}
-                        {aiTestOutput && (
-                          <div className="ai-test-result">
-                            <div>{aiTestOutput}</div>
-                            {client.copyText && (
-                              <button
-                                type="button"
-                                className="secondary"
-                                onClick={() => void client.copyText!(aiTestOutput)}
-                              >
-                                复制结果
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
+                      <AiTestToolsSection
+                        input={aiTestInput}
+                        busy={aiTestBusy}
+                        status={aiTestStatus}
+                        output={aiTestOutput}
+                        onInputChange={setAiTestInput}
+                        onTest={() => void testAi()}
+                        onCopyOutput={
+                          client.copyText ? () => void client.copyText!(aiTestOutput) : undefined
+                        }
+                      />
                     )}
                     {client.mcpServerStatus && (
                       <McpConnectSection
