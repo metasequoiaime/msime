@@ -764,7 +764,7 @@ function HandwritingCandidateButton({
   }, []);
   // Use Unicode code points so supplementary Han does not count as two glyphs.
   const length = Math.max(1, Array.from(candidate).length);
-  const fontSize = Math.max(13, Math.min(34, width * 0.52, (width - 12) / length));
+  const fontSize = clamp(Math.min(width * 0.52, (width - 12) / length), 13, 34);
   function copyShortcut(event: import("react").KeyboardEvent<HTMLButtonElement>) {
     if (
       !onCopy ||
@@ -1118,7 +1118,7 @@ export function HandwritingPanel({
                   ? -4
                   : 4);
     event.preventDefault();
-    const target = buttons[Math.max(0, Math.min(buttons.length - 1, next))];
+    const target = buttons[clamp(next, 0, buttons.length - 1)];
     target.focus({ preventScroll: true });
     target.scrollIntoView({ block: "nearest", inline: "nearest" });
   }
