@@ -10,6 +10,11 @@ pub mod hotwords;
 pub mod local_models;
 pub mod provider;
 
+/// Whether a host supplied voice operation identifier fits the shared wire contract.
+pub fn is_valid_request_id(value: &str) -> bool {
+    !value.is_empty() && value.len() <= 64 && crate::is_ascii_alphanumeric_dash(value)
+}
+
 /// Platform-injected streaming voice transport.
 pub trait VoiceTransport {
     type Error;
@@ -62,6 +67,15 @@ impl VoiceSessionState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn request_ids_are_non_empty_ascii_alphanumeric_dashes() {
+        assert!(is_valid_request_id("fixture-request-1"));
+        assert!(!is_valid_request_id(""));
+        assert!(!is_valid_request_id("fixture_request"));
+        assert!(!is_valid_request_id(&"x".repeat(65)));
+    }
+
     #[test]
     fn stale_voice_results_are_rejected() {
         let mut state = VoiceSessionState::default();

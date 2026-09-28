@@ -207,9 +207,7 @@ pub(crate) async fn recognize_voice(
     let _ = (&runtime, &store);
     #[cfg(not(any(unix, windows)))]
     let _ = (&app, &runtime, &store, &dictionary);
-    if request.request_id.is_empty()
-        || request.request_id.len() > 64
-        || !msime_client_core::is_ascii_alphanumeric_dash(&request.request_id)
+    if !msime_client_core::voice::is_valid_request_id(&request.request_id)
         || request.language.is_empty()
         || request.language.len() > 64
         || msime_client_core::has_disallowed_control_with_options(&request.language, false)

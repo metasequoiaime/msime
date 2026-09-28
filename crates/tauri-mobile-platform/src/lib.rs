@@ -86,9 +86,7 @@ struct AndroidVoiceResponse {
 
 #[cfg(any(target_os = "android", test))]
 fn valid_android_voice_request(request_id: &str, language: &str) -> bool {
-    !request_id.is_empty()
-        && request_id.len() <= 64
-        && msime_client_core::is_ascii_alphanumeric_dash(request_id)
+    msime_client_core::voice::is_valid_request_id(request_id)
         && !language.is_empty()
         && is_bounded_text(language, 64)
 }
@@ -295,9 +293,7 @@ fn valid_mobile_voice_hotwords(hotwords: &[MobileVoiceHotword]) -> bool {
 
 impl MobileVoiceTranscriptionRequest {
     pub fn is_valid(&self) -> bool {
-        let common = !self.request_id.is_empty()
-            && self.request_id.len() <= 64
-            && msime_client_core::is_ascii_alphanumeric_dash(&self.request_id)
+        let common = msime_client_core::voice::is_valid_request_id(&self.request_id)
             && msime_client_core::voice::provider::bounded_voice_fields(
                 &self.endpoint,
                 &self.model,
@@ -761,7 +757,7 @@ impl<R: Runtime> MobilePlatform<R> {
     }
 
     pub fn stop_voice(&self, request_id: &str) -> Result<(), ()> {
-        if request_id.is_empty() || request_id.len() > 64 {
+        if !msime_client_core::voice::is_valid_request_id(request_id) {
             return Err(());
         }
         self.0
@@ -775,7 +771,7 @@ impl<R: Runtime> MobilePlatform<R> {
     }
 
     pub fn cancel_voice(&self, request_id: Option<&str>) -> Result<(), ()> {
-        if request_id.is_some_and(|value| value.is_empty() || value.len() > 64) {
+        if request_id.is_some_and(|value| !msime_client_core::voice::is_valid_request_id(value)) {
             return Err(());
         }
         self.0
