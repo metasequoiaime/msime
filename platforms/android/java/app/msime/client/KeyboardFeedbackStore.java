@@ -49,7 +49,7 @@ public final class KeyboardFeedbackStore {
                 long bytes = Files.size(file);
                 if (bytes > 0 && bytes <= MAX_BYTES) {
                     // Files.readString/writeString need API 34; this host starts at 28.
-                    return decode(new String(Files.readAllBytes(file), StandardCharsets.UTF_8));
+                    return decode(new String(KeyboardFeedbackFileReader.read(file), StandardCharsets.UTF_8));
                 }
                 return legacy;
             }

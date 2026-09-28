@@ -320,6 +320,11 @@ if rg -n 'Files\.readAllBytes' \
   echo "Android community reply library must use a bounded streaming read" >&2
   exit 1
 fi
+if rg -n 'Files\.readAllBytes' \
+    "$repo_root/platforms/android/java/app/msime/client/KeyboardFeedbackStore.java"; then
+  echo "Android keyboard feedback store must use a bounded streaming read" >&2
+  exit 1
+fi
 for source in \
     "$repo_root/platforms/android/java/app/msime/client/core/MSIMEInputService.java" \
     "$repo_root/platforms/android/java/app/msime/client/voice/VoiceRecognitionActivity.java"; do
