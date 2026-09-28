@@ -28,6 +28,7 @@ import { AppearanceCandidatePreview } from "./candidate/appearance-candidate-pre
 import { useCandidatePreviewTheme } from "./candidate/candidate-preview-theme";
 import { CandidateFontControls } from "./candidate/candidate-font-controls";
 import { CandidateSizingSection } from "./settings/candidate-sizing-section";
+import { CandidatePageSizeSection } from "./settings/candidate-page-size-section";
 import { validCandidateFonts } from "./candidate/candidate-font-family";
 import type { FontCatalogReader } from "./candidate/font-catalog";
 import { SecretInput } from "./core/secret-input";
@@ -266,6 +267,7 @@ export {
   CandidateSizingSection,
   type CandidateSizingPreferences,
 } from "./settings/candidate-sizing-section";
+export { CandidatePageSizeSection } from "./settings/candidate-page-size-section";
 export {
   CommunitySkinsPage,
   type CommunitySkin,
@@ -2258,11 +2260,6 @@ export function SettingsPage({
   // Hosts with a system recogniser of their own. Android's is what it falls back to when nothing
   // is configured, so `system` is a real choice there rather than a value to report unavailable.
   const nativeVoicePlatform = macosPlatform || harmonyPlatform || androidPlatform;
-  // One list for every host, and it is the reference window's three through nine. Keep an older
-  // saved value visible while the user chooses a supported size.
-  const candidatePageSizes = Array.from({ length: 7 }, (_, index) => index + 3);
-  const offeredCandidatePageSizes = (current: number) =>
-    candidatePageSizes.includes(current) ? candidatePageSizes : [current, ...candidatePageSizes];
   // Functional controls follow what the host declares it can do. Only the prose
   // below still varies by platform name. A host that predates the contract keeps
   // the previous Linux-only behaviour.
@@ -5055,30 +5052,13 @@ export function SettingsPage({
                       linux={linuxPlatform}
                       onChange={(key, value) => setDraft({ ...draft, [key]: value })}
                     />
-                    {/* The iOS strip pages in nines whatever this says, so a selector there would change nothing. */}
-                    {host?.fixed_candidate_page_size === undefined && (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">每页候选项数量</span>
-                          <select
-                            aria-label="每页候选项数量"
-                            value={draft.candidate_page_size}
-                            onChange={(event) =>
-                              setDraft({
-                                ...draft,
-                                candidate_page_size: Number(event.target.value),
-                              })
-                            }
-                          >
-                            {offeredCandidatePageSizes(draft.candidate_page_size).map((size) => (
-                              <option key={size} value={size}>
-                                {size}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                      </div>
-                    )}
+                    <CandidatePageSizeSection
+                      value={draft.candidate_page_size}
+                      fixed={host?.fixed_candidate_page_size !== undefined}
+                      onChange={(candidate_page_size) =>
+                        setDraft({ ...draft, candidate_page_size })
+                      }
+                    />
                     <ThemeSettingsSection
                       preferences={draft}
                       mobile={mobilePlatform}
