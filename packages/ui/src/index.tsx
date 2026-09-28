@@ -57,7 +57,6 @@ import {
   privacyUrl,
   releasesPageUrl,
   updateManifestUrl,
-  windowIcons,
 } from "./settings/app-resources";
 import { AI_PROVIDER_OPTIONS } from "./settings/ai-provider-options";
 export { AI_PROVIDER_OPTIONS } from "./settings/ai-provider-options";
@@ -362,6 +361,8 @@ import {
   type ClipboardHistoryClient,
 } from "./settings/clipboard-history-section";
 import { CloudPanelSessionNotice } from "./settings/cloud-panel-session-notice";
+import { WindowTitlebar } from "./settings/window-titlebar";
+export { WindowTitlebar, type WindowTitlebarProps } from "./settings/window-titlebar";
 import * as surface from "./keyboard/panel-surface-style";
 import * as settings from "./settings/settings-style";
 import * as doc from "./settings/document-style";
@@ -1922,18 +1923,6 @@ export function SettingsPage({
     const query = new URLSearchParams({ title: feedbackKind, body });
     void client.openExternalUrl(`${platformIssuesUrl}/new?${query.toString()}`);
   };
-  const pendingTitlebarDrag = useRef<{ x: number; y: number; pointerId: number } | null>(null);
-  useEffect(() => {
-    const clear = () => {
-      pendingTitlebarDrag.current = null;
-    };
-    window.addEventListener("blur", clear);
-    return () => {
-      clear();
-      window.removeEventListener("blur", clear);
-    };
-  }, [client]);
-
   useEffect(() => {
     if (!(macosPlatform || linuxPlatform) || !client.dataDirectory) return;
     let active = true;
@@ -3503,7 +3492,6 @@ export function SettingsPage({
       // comes from. The inherited one is the Windows settings accent.
       data-mobile={mobilePlatform ? "" : undefined}
       onPointerDownCapture={(event) => {
-        pendingTitlebarDrag.current = null;
         if (!client.resizeWindow || event.button !== 0 || windowMaximized) return;
         const rect = event.currentTarget.getBoundingClientRect();
         const edge = 8;
@@ -3540,114 +3528,14 @@ export function SettingsPage({
       {/* A phone has no window to minimise, maximise, close or drag: the OS owns the frame. The host
           still exposes the window commands on mobile because the same Tauri app binary backs both, so
           the presence of a command is not the question -- the platform is. */}
-      {!mobilePlatform && (client.windowControl || client.beginWindowDrag) && (
-        <header
-          className={settings.titlebar}
-          aria-label="窗口控制"
-          onDoubleClick={(event) => {
-            pendingTitlebarDrag.current = null;
-            if (event.button !== 0 || !client.windowControl) return;
-            const rect = event.currentTarget.parentElement!.getBoundingClientRect();
-            if (
-              !windowMaximized &&
-              client.resizeWindow &&
-              (event.clientX - rect.left < 8 ||
-                rect.right - event.clientX < 8 ||
-                event.clientY - rect.top < 8 ||
-                rect.bottom - event.clientY < 8)
-            )
-              return;
-            void client.windowControl(windowMaximized ? "restore" : "maximize");
-          }}
-          onPointerDown={(event) => {
-            if (event.button === 0 && event.detail < 2 && client.beginWindowDrag)
-              pendingTitlebarDrag.current = {
-                x: event.clientX,
-                y: event.clientY,
-                pointerId: event.pointerId,
-              };
-          }}
-          onPointerMove={(event) => {
-            const pending = pendingTitlebarDrag.current;
-            if (!pending || pending.pointerId !== event.pointerId) return;
-            if (event.buttons !== 1) {
-              pendingTitlebarDrag.current = null;
-              return;
-            }
-            if (Math.abs(event.clientX - pending.x) + Math.abs(event.clientY - pending.y) < 2)
-              return;
-            pendingTitlebarDrag.current = null;
-            // Invoke during the gesture; catch synchronous and asynchronous host failures.
-            void (async () => {
-              try {
-                await client.beginWindowDrag?.();
-              } catch {
-                setError("无法移动窗口，请重试。");
-              }
-            })();
-          }}
-          onPointerUp={() => {
-            pendingTitlebarDrag.current = null;
-          }}
-          onPointerCancel={() => {
-            pendingTitlebarDrag.current = null;
-          }}
-          onPointerLeave={() => {
-            pendingTitlebarDrag.current = null;
-          }}
-        >
-          <span className={settings.title} data-window-title="">
-            水杉 IME
-          </span>
-          {client.windowControl && (
-            <span
-              className={settings.windowControls}
-              onPointerDown={(event) => event.stopPropagation()}
-              onDoubleClick={(event) => event.stopPropagation()}
-            >
-              <button
-                type="button"
-                aria-label="最小化"
-                disabled={!client.windowControl}
-                onClick={() => void client.windowControl!("minimize")}
-              >
-                <img
-                  className={settings.windowIcon}
-                  src={windowIcons.minimize}
-                  alt=""
-                  draggable={false}
-                />
-              </button>
-              <button
-                type="button"
-                aria-label={windowMaximized ? "还原" : "最大化"}
-                disabled={!client.windowControl}
-                onClick={() => void client.windowControl!(windowMaximized ? "restore" : "maximize")}
-              >
-                <img
-                  className={settings.windowIcon}
-                  src={windowMaximized ? windowIcons.restore : windowIcons.maximize}
-                  alt=""
-                  draggable={false}
-                />
-              </button>
-              <button
-                type="button"
-                className={settings.windowClose}
-                aria-label="关闭"
-                disabled={!client.windowControl}
-                onClick={() => void client.windowControl!("close")}
-              >
-                <img
-                  className={settings.windowIcon}
-                  src={windowIcons.close}
-                  alt=""
-                  draggable={false}
-                />
-              </button>
-            </span>
-          )}
-        </header>
+      {!mobilePlatform && (
+        <WindowTitlebar
+          maximized={windowMaximized}
+          windowControl={client.windowControl}
+          beginWindowDrag={client.beginWindowDrag}
+          resizeWindow={client.resizeWindow}
+          onError={setError}
+        />
       )}
       <div
         className="flex min-h-0 min-w-0 flex-1 overflow-hidden max-phone:flex-col"
