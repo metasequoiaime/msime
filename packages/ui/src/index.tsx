@@ -32,6 +32,7 @@ import { CandidatePageSizeSection } from "./settings/candidate-page-size-section
 import { CandidateLayoutSection } from "./settings/candidate-layout-section";
 import { CandidateFollowCursorSection } from "./settings/candidate-follow-cursor-section";
 import { CandidateEnglishGlossSection } from "./settings/candidate-english-gloss-section";
+import { EnglishSuggestionsSection } from "./settings/english-suggestions-section";
 import { PreeditSettingsSection } from "./settings/preedit-settings-section";
 import { validCandidateFonts } from "./candidate/candidate-font-family";
 import type { FontCatalogReader } from "./candidate/font-catalog";
@@ -281,6 +282,10 @@ export {
   CandidateEnglishGlossSection,
   type CandidateEnglishGlossSectionProps,
 } from "./settings/candidate-english-gloss-section";
+export {
+  EnglishSuggestionsSection,
+  type EnglishSuggestionsSectionProps,
+} from "./settings/english-suggestions-section";
 export {
   PreeditSettingsSection,
   type CandidatePreeditStyle,
@@ -6758,26 +6763,12 @@ export function SettingsPage({
                       />
                     )}
                     {showEnglishSuggestions && (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">
-                            英文建议
-                            <small>
-                              英文 26
-                              键直接输入时，在候选栏显示当前单词的补全建议；关闭后仍可正常输入英文。
-                            </small>
-                          </span>
-                          <input
-                            aria-label="英文建议"
-                            className="toggle"
-                            type="checkbox"
-                            checked={englishSuggestions}
-                            onChange={(event) =>
-                              setDraft({ ...draft, english_suggestions: event.target.checked })
-                            }
-                          />
-                        </label>
-                      </div>
+                      <EnglishSuggestionsSection
+                        value={draft.english_suggestions}
+                        onChange={(english_suggestions) =>
+                          setDraft({ ...draft, english_suggestions })
+                        }
+                      />
                     )}
                     <div className="section">
                       <label className="section-header">
