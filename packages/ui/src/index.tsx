@@ -78,6 +78,7 @@ import {
   type LocalDictionaryFormat,
   type LocalDictionaryKind,
 } from "./dictionary/dictionary-file";
+import { localDictionaryKinds } from "./dictionary/dictionary-kinds";
 export type {
   DictionaryEntry,
   LocalDictionaryFormat,
@@ -1312,13 +1313,6 @@ export interface DictionaryClient {
   retry?(request_id: string): Promise<void>;
   dismissFailure?(request_id: string): Promise<void>;
 }
-const localDictionaryKinds: [LocalDictionaryKind, string][] = [
-  ["pinyin", "全拼"],
-  ["wubi", "五笔"],
-  ["english", "英文"],
-  ["quick_phrase", "快捷短语"],
-];
-
 /** The user-facing name of a local dictionary, for messages about it. */
 /** Prefer the host's reason; fall back to the generic format hint. */
 /**
