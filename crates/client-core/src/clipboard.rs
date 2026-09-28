@@ -170,7 +170,7 @@ impl ClipboardHistoryStore {
     /// Mobile hosts preserve the original text and match Apple's Character and
     /// UTF-8 limits. Desktop capture continues to use `push` and its Windows limit.
     pub fn push_mobile(&mut self, text: String) -> std::io::Result<bool> {
-        if !valid_mobile(&text) {
+        if !mobile_text_is_valid(&text) {
             return Ok(false);
         }
         self.push_validated(text)
@@ -317,10 +317,6 @@ fn next_timestamp(entries: &[ClipboardHistoryEntry]) -> u64 {
 
 fn valid(text: &str) -> bool {
     !text.is_empty() && text.len() <= MAX_TEXT_BYTES && valid_characters(text)
-}
-
-fn valid_mobile(text: &str) -> bool {
-    mobile_text_is_valid(text)
 }
 
 /// Mobile hosts and their migration bridges share the exact persisted-text
