@@ -37,3 +37,15 @@ export function dictionaryKindKeyHint(kind: string): string {
       return "";
   }
 }
+
+export function personalDictionaryKindTitle(
+  kind: "pinyin" | "wubi" | "quickPhrase" | "english",
+): string {
+  return kind === "pinyin"
+    ? "拼音"
+    : kind === "wubi"
+      ? "五笔"
+      : kind === "quickPhrase"
+        ? "快捷短语"
+        : "英文";
+}
