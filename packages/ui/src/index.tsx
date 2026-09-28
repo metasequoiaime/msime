@@ -163,6 +163,7 @@ import { HelpSettingsPage } from "./settings/help-settings-page";
 import { ScreenKeyboardThemeSection } from "./settings/screen-keyboard-theme-section";
 import { ScreenKeyboardSkinsSection } from "./settings/screen-keyboard-skins-section";
 import { ScreenKeyboardLaunchSection } from "./settings/screen-keyboard-launch-section";
+import { CandidatePaletteSection } from "./settings/candidate-palette-section";
 import { TouchKeyboardSchemesSection } from "./settings/touch-keyboard-schemes-section";
 import {
   TouchKeyboardGeometrySection,
@@ -853,6 +854,10 @@ export {
   ScreenKeyboardLaunchSection,
   type ScreenKeyboardLaunchSectionProps,
 } from "./settings/screen-keyboard-launch-section";
+export {
+  CandidatePaletteSection,
+  type CandidatePaletteSectionProps,
+} from "./settings/candidate-palette-section";
 export {
   CloudCandidatesPanel,
   CloudClipboardPanel,
@@ -4354,29 +4359,16 @@ export function SettingsPage({
                       <CandidatePanelLimitSection limit={host.candidate_panel_limit} />
                     )}
                     {mobileKeyboardFeedback?.candidatePaletteFollowsDesktop !== undefined && (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">
-                            使用桌面候选皮肤
-                            <small>
-                              关闭时候选栏和按键一起使用键盘皮肤的颜色；打开后使用这里的候选皮肤和「外观」里的候选颜色。
-                            </small>
-                          </span>
-                          <input
-                            aria-label="使用桌面候选皮肤"
-                            className="toggle"
-                            type="checkbox"
-                            disabled={mobileKeyboardFeedbackBusy}
-                            checked={mobileKeyboardFeedback.candidatePaletteFollowsDesktop}
-                            onChange={(event) =>
-                              void saveMobileKeyboardFeedback({
-                                ...mobileKeyboardFeedback,
-                                candidatePaletteFollowsDesktop: event.target.checked,
-                              })
-                            }
-                          />
-                        </label>
-                      </div>
+                      <CandidatePaletteSection
+                        value={mobileKeyboardFeedback.candidatePaletteFollowsDesktop}
+                        busy={mobileKeyboardFeedbackBusy}
+                        onChange={(candidatePaletteFollowsDesktop) =>
+                          void saveMobileKeyboardFeedback({
+                            ...mobileKeyboardFeedback,
+                            candidatePaletteFollowsDesktop,
+                          })
+                        }
+                      />
                     )}
                     {snapshot?.candidate_skin_catalog && (
                       <div className={settings.externalMeta} role="status">
