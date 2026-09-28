@@ -281,19 +281,6 @@ mod ffi {
             candidates: &[String],
             source: u8,
         ) -> Result<bool>;
-        fn emoji_catalog(
-            resources: &str,
-            search: &str,
-            category: &str,
-            limit: u8,
-        ) -> Result<Vec<EmojiCatalogItem>>;
-        fn emoji_catalog_page(
-            resources: &str,
-            search: &str,
-            category: &str,
-            offset: usize,
-            limit: u16,
-        ) -> Result<Vec<EmojiCatalogItem>>;
         fn emoji_catalog_filtered_page(
             resources: &str,
             search: &str,
@@ -530,25 +517,6 @@ pub fn replay_user_dictionary(
 ) -> (i32, i32, i32, String) {
     let result = ffi::replay_user_dictionary(user_db_path, main_db_path, english_db_path);
     (result.applied, result.skipped, result.failed, result.error)
-}
-
-pub fn emoji_catalog(
-    resources: &str,
-    search: &str,
-    category: &str,
-    limit: u8,
-) -> Result<Vec<EmojiCatalogItem>, cxx::Exception> {
-    ffi::emoji_catalog(resources, search, category, limit)
-}
-
-pub fn emoji_catalog_page(
-    resources: &str,
-    search: &str,
-    category: &str,
-    offset: usize,
-    limit: u16,
-) -> Result<Vec<EmojiCatalogItem>, cxx::Exception> {
-    ffi::emoji_catalog_page(resources, search, category, offset, limit)
 }
 
 pub fn emoji_catalog_filtered_page(
