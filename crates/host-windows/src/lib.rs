@@ -16,6 +16,8 @@
 #![allow(unsafe_code)]
 #![cfg(windows)]
 
+use msime_client_core::is_bounded_text;
+
 pub mod ink;
 pub mod voice_controller;
 
@@ -504,7 +506,7 @@ pub fn send_key(virtual_key: u16, modifiers: Modifiers) -> bool {
 /// Type text the panel already holds. Surrogate pairs are delivered as the two
 /// code units the receiving control expects.
 pub fn valid_text(text: &str) -> bool {
-    !text.is_empty() && text.len() <= MAX_TEXT_BYTES && !text.chars().any(char::is_control)
+    !text.is_empty() && is_bounded_text(text, MAX_TEXT_BYTES)
 }
 
 pub fn send_text(text: &str) -> bool {
