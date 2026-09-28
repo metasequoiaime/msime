@@ -256,11 +256,7 @@ impl UnixSocketProvider {
         if replies.len() > 11 {
             return None;
         }
-        let ai_limit = query
-            .ai_assistant
-            .as_ref()
-            .filter(|ai| ai.enabled)
-            .map_or(0, |ai| usize::from(ai.candidate_limit.clamp(1, 10)));
+        let ai_limit = query.ai_candidate_limit();
         let limits = [1, ai_limit];
         let mut source_counts = [0; 2];
         let mut candidates = Vec::new();

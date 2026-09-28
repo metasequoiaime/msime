@@ -263,11 +263,7 @@ impl Runtime<Session> {
         let limit = if source == 0 {
             1
         } else {
-            query
-                .ai_assistant
-                .as_ref()
-                .filter(|ai| ai.enabled)
-                .map_or(0, |ai| usize::from(ai.candidate_limit.clamp(1, 10)))
+            query.ai_candidate_limit()
         };
         if candidates.is_empty()
             || candidates.len() > limit
