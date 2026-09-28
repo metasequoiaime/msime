@@ -1071,12 +1071,7 @@ pub unsafe extern "C" fn msime_client_dictionary_manifest(
             serde_json::from_str(&text).map_err(|_| "dictionary_manifest_unavailable")?;
         if manifest.profile.is_empty()
             || !is_bounded_text(&manifest.profile, 64)
-            || !manifest
-                .source
-                .commit
-                .bytes()
-                .all(|byte| byte.is_ascii_hexdigit())
-            || manifest.source.commit.len() != 40
+            || !msime_client_core::is_ascii_hex(&manifest.source.commit, 40)
         {
             return Err("dictionary_manifest_unavailable".into());
         }

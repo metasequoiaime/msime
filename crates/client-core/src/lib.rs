@@ -35,8 +35,8 @@ pub mod resources;
 pub mod skin;
 mod text;
 
-/// Validate a lower-case hexadecimal value with an exact byte length.
-pub use text::{has_disallowed_control_with_options, is_bounded_text, is_lower_hex};
+/// Shared text and hexadecimal validation predicates used by host boundaries.
+pub use text::{has_disallowed_control_with_options, is_ascii_hex, is_bounded_text, is_lower_hex};
 pub mod translation;
 pub mod typing_statistics;
 pub mod vocabulary;

@@ -67,7 +67,7 @@ pub(crate) const HOST_OPTIONS_DOCUMENT_LIMIT: usize = PREFERENCES_DOCUMENT_LIMIT
 pub(crate) const DICTIONARY_REQUEST_LIMIT: usize = HOST_OPTIONS_DOCUMENT_LIMIT + 1_200_000;
 
 pub(crate) fn valid_sha256(value: &str) -> bool {
-    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+    msime_client_core::is_ascii_hex(value, 64)
 }
 
 pub(crate) fn valid_uuid_string(value: &str) -> bool {

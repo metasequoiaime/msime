@@ -18,6 +18,11 @@ pub fn is_bounded_text(value: &str, maximum_bytes: usize) -> bool {
     value.len() <= maximum_bytes && !value.chars().any(char::is_control)
 }
 
+/// Validate an ASCII hexadecimal value with an exact byte length.
+pub fn is_ascii_hex(value: &str, length: usize) -> bool {
+    value.len() == length && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
 pub fn is_lower_hex(value: &str, length: usize) -> bool {
     value.len() == length
         && value

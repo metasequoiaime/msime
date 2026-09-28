@@ -455,9 +455,7 @@ fn inspect_snapshot(path: &std::path::Path) -> Result<SnapshotMetadata, AccountE
                 let expected_sha = map
                     .get("sha256")
                     .and_then(Value::as_str)
-                    .filter(|value| {
-                        value.len() == 64 && value.bytes().all(|b| b.is_ascii_hexdigit())
-                    })
+                    .filter(|value| msime_client_core::is_ascii_hex(value, 64))
                     .ok_or(AccountError::Invalid)?;
                 // Cloned, not consumed: the loop keeps reading after the footer
                 // so that trailing data is rejected, and those iterations still
