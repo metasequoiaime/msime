@@ -65,6 +65,7 @@ import {
 import { ProviderPresetSection, type ProviderPreset } from "./settings/provider-preset-section";
 import { CredentialStatusMessage } from "./settings/credential-status-message";
 import { AiCredentialSection } from "./settings/ai-credential-section";
+import { NiuTransSection } from "./settings/niutrans-section";
 import {
   VoiceCredentialSection,
   type VoiceCredentialSaveInput,
@@ -463,6 +464,7 @@ export {
   type AiCredentialSectionProps,
   type AiCredentialStored,
 } from "./settings/ai-credential-section";
+export { NiuTransSection, type NiuTransSectionProps } from "./settings/niutrans-section";
 export {
   DictionaryManifestCard,
   type DictionaryManifestCardProps,
@@ -5726,60 +5728,30 @@ export function SettingsPage({
                             </select>
                           </label>
                         </div>
-                        <div className="section" role="group" aria-label="小牛翻译（NiuTrans）">
-                          <label className="section-header">
-                            <span className="section-title">
-                              小牛翻译（NiuTrans）
-                              <small>使用 App ID 和 API Key 为候选词提供逐条翻译</small>
-                            </span>
-                            <input
-                              aria-label="小牛翻译（NiuTrans）"
-                              className="toggle"
-                              type="checkbox"
-                              disabled={!candidateTranslations}
-                              checked={niutrans.enabled}
-                              onChange={(event) =>
-                                setTranslationProvider(event.target.checked ? "niutrans" : "none")
-                              }
-                            />
-                          </label>
-                          <div className="input-option-divider" />
-                          <label className="section-header">
-                            <span className="section-title">App ID</span>
-                            <input
-                              aria-label="NiuTrans App ID"
-                              value={niutrans.app_id}
-                              disabled={!candidateTranslations || !niutrans.enabled}
-                              onChange={(event) =>
-                                setDraft({
-                                  ...draft,
-                                  niutrans: { ...niutrans, app_id: event.target.value },
-                                })
-                              }
-                            />
-                          </label>
-                          <div className="input-option-divider" />
-                          <label className="section-header">
-                            <span className="section-title">API Key</span>
-                            <SecretInput
-                              label="NiuTrans API Key"
-                              value={niutrans.apikey}
-                              disabled={!candidateTranslations || !niutrans.enabled}
-                              onChange={(value) =>
-                                setDraft({ ...draft, niutrans: { ...niutrans, apikey: value } })
-                              }
-                            />
-                          </label>
-                          {niutrans.enabled &&
-                            credentialTestControl(
-                              "translation.niutrans",
-                              "测试 NiuTrans 配置",
-                              { app_id: niutrans.app_id, apikey: niutrans.apikey },
-                              !candidateTranslations ||
-                                !niutrans.app_id.trim() ||
-                                !niutrans.apikey.trim(),
-                            )}
-                        </div>
+                        <NiuTransSection
+                          enabled={niutrans.enabled}
+                          available={candidateTranslations}
+                          appId={niutrans.app_id}
+                          apiKey={niutrans.apikey}
+                          onToggle={(enabled) =>
+                            setTranslationProvider(enabled ? "niutrans" : "none")
+                          }
+                          onAppIdChange={(app_id) =>
+                            setDraft({ ...draft, niutrans: { ...niutrans, app_id } })
+                          }
+                          onApiKeyChange={(apikey) =>
+                            setDraft({ ...draft, niutrans: { ...niutrans, apikey } })
+                          }
+                        >
+                          {credentialTestControl(
+                            "translation.niutrans",
+                            "测试 NiuTrans 配置",
+                            { app_id: niutrans.app_id, apikey: niutrans.apikey },
+                            !candidateTranslations ||
+                              !niutrans.app_id.trim() ||
+                              !niutrans.apikey.trim(),
+                          )}
+                        </NiuTransSection>
                         <div className="section" role="group" aria-label="在线翻译服务">
                           {linuxPlatform ? (
                             <>
