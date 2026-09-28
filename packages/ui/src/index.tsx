@@ -214,6 +214,7 @@ import { NiuTransSection } from "./settings/niutrans-section";
 import { CustomTranslationSection } from "./settings/custom-translation-section";
 import { CustomTranslationsSection } from "./settings/custom-translations-section";
 import { TencentTranslationSection } from "./settings/tencent-translation-section";
+import { LinuxTencentCredentialsSection } from "./settings/linux-tencent-credentials-section";
 import { TranslationServiceSelectorSection } from "./settings/translation-service-selector-section";
 import { OnDeviceTranslationNotice } from "./settings/on-device-translation-notice";
 import {
@@ -718,6 +719,12 @@ export {
   TencentTranslationSection,
   type TencentTranslationSectionProps,
 } from "./settings/tencent-translation-section";
+export {
+  LinuxTencentCredentialsSection,
+  type LinuxTencentCredentialsSectionProps,
+  type LinuxTencentCredentialInput,
+  type LinuxTencentCredentialStatus,
+} from "./settings/linux-tencent-credentials-section";
 export {
   TranslationServiceSelectorSection,
   type TranslationProvider,
@@ -4862,129 +4869,37 @@ export function SettingsPage({
                           )}
                         </NiuTransSection>
                         {linuxPlatform ? (
-                          <div className="section" role="group" aria-label="在线翻译服务">
-                            <div className="section-title">
-                              在线翻译服务
-                              <small>由用户管理的 Linux provider 服务负责网络请求和凭据</small>
-                            </div>
-                            {client.providerCredentials ? (
-                              <>
-                                <p className="input-setting-description">
-                                  {providerCredentials?.tencentInvalid
-                                    ? "现有 tencent-provider.json 无效，provider 服务不会发出翻译请求；请修复或删除该文件。"
-                                    : providerCredentials?.tencent
-                                      ? "腾讯云凭据已保存；SecretId 和 SecretKey 留空则保留原值。"
-                                      : "凭据只写入用户配置目录的 tencent-provider.json，由 provider 服务读取，不进入共享设置。"}
-                                </p>
-                                <label className="section-header">
-                                  <span className="section-title">SecretId</span>
-                                  <input
-                                    aria-label="腾讯云 SecretId"
-                                    type="password"
-                                    autoComplete="off"
-                                    value={tencentCredentialInput.secretId}
-                                    onChange={(event) =>
-                                      setTencentCredentialInput({
-                                        ...tencentCredentialInput,
-                                        secretId: event.target.value,
-                                      })
-                                    }
-                                  />
-                                </label>
-                                <label className="section-header">
-                                  <span className="section-title">SecretKey</span>
-                                  <input
-                                    aria-label="腾讯云 SecretKey"
-                                    type="password"
-                                    autoComplete="off"
-                                    value={tencentCredentialInput.secretKey}
-                                    onChange={(event) =>
-                                      setTencentCredentialInput({
-                                        ...tencentCredentialInput,
-                                        secretKey: event.target.value,
-                                      })
-                                    }
-                                  />
-                                </label>
-                                <label className="section-header">
-                                  <span className="section-title">地域</span>
-                                  <input
-                                    aria-label="腾讯云地域"
-                                    value={
-                                      tencentCredentialInput.region ??
-                                      providerCredentials?.tencent?.region ??
-                                      "ap-guangzhou"
-                                    }
-                                    onChange={(event) =>
-                                      setTencentCredentialInput({
-                                        ...tencentCredentialInput,
-                                        region: event.target.value,
-                                      })
-                                    }
-                                  />
-                                </label>
-                                <div className={settings.serviceRow}>
-                                  <div>
-                                    <button
-                                      type="button"
-                                      className="secondary"
-                                      disabled={
-                                        providerCredentialBusy === "tencent" ||
-                                        (!providerCredentials?.tencent &&
-                                          (!tencentCredentialInput.secretId.trim() ||
-                                            !tencentCredentialInput.secretKey.trim()))
-                                      }
-                                      onClick={() =>
-                                        void runProviderCredential(
-                                          "tencent",
-                                          (credentials) =>
-                                            credentials.saveTencent({
-                                              ...(tencentCredentialInput.secretId.trim()
-                                                ? { secretId: tencentCredentialInput.secretId }
-                                                : {}),
-                                              ...(tencentCredentialInput.secretKey.trim()
-                                                ? { secretKey: tencentCredentialInput.secretKey }
-                                                : {}),
-                                              region:
-                                                tencentCredentialInput.region ??
-                                                providerCredentials?.tencent?.region ??
-                                                "ap-guangzhou",
-                                            }),
-                                          "凭据已保存，provider 服务下次请求时生效。",
-                                        )
-                                      }
-                                    >
-                                      保存凭据
-                                    </button>
-                                    {providerCredentials?.tencent && (
-                                      <button
-                                        type="button"
-                                        className="secondary"
-                                        disabled={providerCredentialBusy === "tencent"}
-                                        onClick={() =>
-                                          void runProviderCredential(
-                                            "tencent",
-                                            (credentials) => credentials.clearTencent(),
-                                            "凭据已清除。",
-                                          )
-                                        }
-                                      >
-                                        清除凭据
-                                      </button>
-                                    )}
-                                    <CredentialStatusMessage
-                                      message={providerCredentialMessages.tencent}
-                                    />
-                                  </div>
-                                </div>
-                              </>
-                            ) : (
-                              <p className="input-setting-description">
-                                候选词翻译开启后，provider 从用户配置目录的{" "}
-                                <code>tencent-provider.json</code>{" "}
-                                读取腾讯云凭据；设置页不保存不会生效的 SecretId 或 SecretKey。
-                              </p>
-                            )}
+                          <LinuxTencentCredentialsSection
+                            available={Boolean(client.providerCredentials)}
+                            status={
+                              providerCredentials
+                                ? {
+                                    tencent: providerCredentials.tencent,
+                                    tencentInvalid: providerCredentials.tencentInvalid,
+                                  }
+                                : undefined
+                            }
+                            input={tencentCredentialInput}
+                            busy={providerCredentialBusy === "tencent"}
+                            message={providerCredentialMessages.tencent}
+                            onInputChange={(patch) =>
+                              setTencentCredentialInput({ ...tencentCredentialInput, ...patch })
+                            }
+                            onSave={(credential) =>
+                              void runProviderCredential(
+                                "tencent",
+                                (credentials) => credentials.saveTencent(credential),
+                                "凭据已保存，provider 服务下次请求时生效。",
+                              )
+                            }
+                            onClear={() =>
+                              void runProviderCredential(
+                                "tencent",
+                                (credentials) => credentials.clearTencent(),
+                                "凭据已清除。",
+                              )
+                            }
+                          >
                             {translationProvider === "tencent" &&
                               credentialTestControl(
                                 "translation.tencent",
@@ -4992,7 +4907,7 @@ export function SettingsPage({
                                 {},
                                 !candidateTranslations,
                               )}
-                          </div>
+                          </LinuxTencentCredentialsSection>
                         ) : (
                           <TencentTranslationSection
                             enabled={tencentTranslation.enabled}
