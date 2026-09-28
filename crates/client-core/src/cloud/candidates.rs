@@ -139,7 +139,7 @@ fn urlencoding(input: &str) -> String {
     const HEX: &[u8; 16] = b"0123456789ABCDEF";
     let mut out = String::with_capacity(input.len());
     for byte in input.bytes() {
-        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+        if crate::text::is_ascii_uri_unreserved(byte) {
             out.push(byte as char);
         } else {
             out.push('%');

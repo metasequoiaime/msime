@@ -67,3 +67,8 @@ pub fn is_lower_hex(value: &str, length: usize) -> bool {
 pub(crate) fn is_bounded_chars(value: &str, maximum_characters: usize) -> bool {
     value.chars().count() <= maximum_characters && !value.chars().any(char::is_control)
 }
+
+/// Whether an ASCII byte is an RFC 3986 URI unreserved character.
+pub(crate) fn is_ascii_uri_unreserved(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~')
+}
