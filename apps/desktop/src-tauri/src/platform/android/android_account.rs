@@ -1,13 +1,13 @@
 use crate::platform::mobile::mobile_community::MobileCommunityState;
 use crate::shared::account_dto::{
-    ChallengeResponse, ChatModelsResponse, ChatResponse, PreferenceSchemaResponse, StatusResponse,
-    UserResponse,
+    ChallengeResponse, ChatModelsResponse, ChatResponse, PreferenceSchemaResponse, ProfileResponse,
+    StatusResponse, UserResponse,
 };
 use msime_client_core::account::{
     merge_account_preferences, validate_account_preferences, AccountCandidateQuery,
-    AccountChatMessage, AccountError, AccountPreferenceSchema,
-    AccountPreferenceValue, AccountPreferences, AccountProfile, AccountSessionStorage,
-    BackendAccountClient, BackendAccountSession, SavedAccountSession,
+    AccountChatMessage, AccountError, AccountPreferenceSchema, AccountPreferenceValue,
+    AccountPreferences, AccountSessionStorage, BackendAccountClient, BackendAccountSession,
+    SavedAccountSession,
 };
 use msime_client_core::cloud::dictionary::DictionaryKind;
 use msime_client_core::preferences::{
@@ -1041,13 +1041,6 @@ pub struct ProvidersResponse {
     phone: bool,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProfileResponse {
-    user: UserResponse,
-    providers: Vec<String>,
-}
-
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppIconResponse {
@@ -1058,21 +1051,6 @@ pub struct AppIconResponse {
 #[derive(Serialize)]
 struct AppIconRequest<'a> {
     style: &'a str,
-}
-
-impl From<AccountProfile> for ProfileResponse {
-    fn from(profile: AccountProfile) -> Self {
-        let mut providers = Vec::new();
-        for identity in profile.identities {
-            if !providers.contains(&identity.provider) {
-                providers.push(identity.provider);
-            }
-        }
-        Self {
-            user: profile.user.into(),
-            providers,
-        }
-    }
 }
 
 async fn call<T, F>(state: State<'_, AccountState>, operation: F) -> Result<T, crate::CommandError>

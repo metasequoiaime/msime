@@ -1,6 +1,6 @@
 //! Redacted account responses the webview reads, shared by the iOS host and the three desktop hosts.
 //!
-//! These are the JSON shapes `packages/ui/src/account/account-page.tsx` declares as `AccountUser`, `AccountProviders`, `AccountChallenge` and `AccountProfile`, plus the `{ user }` status wrapper. Tokens, nonces and authorization URLs never reach them. Android keeps its own provider and profile wrappers because its providers response has no `apple` field, while reusing the common user, status and challenge DTOs.
+//! These are the JSON shapes `packages/ui/src/account/account-page.tsx` declares as `AccountUser`, `AccountProviders`, `AccountChallenge` and `AccountProfile`, plus the `{ user }` status wrapper. Tokens, nonces and authorization URLs never reach them. Android keeps its own provider wrapper because its providers response has no `apple` field, while reusing the common user, status, challenge and profile DTOs.
 
 use msime_client_core::account::{
     AccountChallenge, AccountChatModels, AccountPreferenceSchema, AccountProfile, AccountUser,
