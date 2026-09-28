@@ -16,29 +16,35 @@ import {
 } from "react";
 import {
   DICTIONARY_PAGE_SIZE,
-  dictionaryExportName,
-  dictionaryExportPayload,
-  dictionaryKindKeyHint,
   dictionaryPageStatus,
-  personalDictionaryExportName,
-  personalDictionaryExportPayload,
   readDictionaryFile,
   type DictionaryEntry,
   type LocalDictionaryFormat,
   type LocalDictionaryKind,
-} from "./dictionary/dictionary-file";
-export {
-  dictionaryExportName,
-  dictionaryExportPayload,
-  dictionaryKindKeyHint,
-  personalDictionaryExportName,
-  personalDictionaryExportPayload,
 } from "./dictionary/dictionary-file";
 export type {
   DictionaryEntry,
   LocalDictionaryFormat,
   LocalDictionaryKind,
 } from "./dictionary/dictionary-file";
+import { describeImportResult, dictionaryKindKeyHint } from "./dictionary/dictionary-messages";
+import {
+  dictionaryExportName,
+  dictionaryExportPayload,
+  personalDictionaryExportName,
+  personalDictionaryExportPayload,
+  loadAllPersonalDictionaryEntries,
+  dictionaryKindLabel,
+} from "./dictionary/dictionary-export";
+export {
+  dictionaryExportName,
+  dictionaryExportPayload,
+  personalDictionaryExportName,
+  personalDictionaryExportPayload,
+  loadAllPersonalDictionaryEntries,
+  dictionaryKindLabel,
+} from "./dictionary/dictionary-export";
+export { describeImportResult, dictionaryKindKeyHint } from "./dictionary/dictionary-messages";
 import { SkinCandidatePreview } from "./skin/skin-candidate-preview";
 import { AppearanceCandidatePreview } from "./candidate/appearance-candidate-preview";
 import { useCandidatePreviewTheme } from "./candidate/candidate-preview-theme";
@@ -47,6 +53,7 @@ import { CandidateSizingSection } from "./settings/candidate-sizing-section";
 import { CandidatePageSizeSection } from "./settings/candidate-page-size-section";
 import { CandidateLayoutSection } from "./settings/candidate-layout-section";
 import { CandidateFollowCursorSection } from "./settings/candidate-follow-cursor-section";
+import { CandidatePanelLimitSection } from "./settings/candidate-panel-limit-section";
 import { CandidateEnglishGlossSection } from "./settings/candidate-english-gloss-section";
 import { EnglishSuggestionsSection } from "./settings/english-suggestions-section";
 import { LearningSection } from "./settings/learning-section";
@@ -87,6 +94,7 @@ import { VoiceCommitModeSection, type VoiceCommitMode } from "./settings/voice-c
 import { VoiceCaptureDevicesSection } from "./settings/voice-capture-devices-section";
 import { VoiceHotkeysSection } from "./settings/voice-hotkeys-section";
 import { FloatingToolbarAppearanceSection } from "./settings/floating-toolbar-appearance-section";
+import { FloatingToolbarComponentsSection } from "./settings/floating-toolbar-components-section";
 import { DoubaoAuthModeSection } from "./settings/doubao-auth-mode-section";
 import { DoubaoStreamEndpointSection } from "./settings/doubao-stream-endpoint-section";
 import { DoubaoOptionsSection } from "./settings/doubao-options-section";
@@ -371,6 +379,11 @@ export {
   type CandidateFollowCursorSectionProps,
 } from "./settings/candidate-follow-cursor-section";
 export {
+  CandidatePanelLimitSection,
+  type CandidatePanelLimit,
+  type CandidatePanelLimitSectionProps,
+} from "./settings/candidate-panel-limit-section";
+export {
   CandidateEnglishGlossSection,
   type CandidateEnglishGlossSectionProps,
 } from "./settings/candidate-english-gloss-section";
@@ -522,6 +535,12 @@ export {
   type FloatingToolbarFontSize,
   type FloatingToolbarScale,
 } from "./settings/floating-toolbar-appearance-section";
+export {
+  FloatingToolbarComponentsSection,
+  type FloatingToolbarCapability,
+  type FloatingToolbarComponentKey,
+  type FloatingToolbarComponentsSectionProps,
+} from "./settings/floating-toolbar-components-section";
 export {
   DoubaoAuthModeSection,
   type DoubaoAuthMode,
@@ -1464,30 +1483,6 @@ export interface DictionaryImportResult {
   swapped?: boolean;
   first_failures?: { line: number; issue: string }[];
 }
-
-/** A short account of an import the user can act on. */
-export function describeImportResult(kind: string, result: DictionaryImportResult): string {
-  const parts = [`${kind}导入完成，共 ${result.applied} 条。`];
-  if (result.failed) {
-    const failures = result.first_failures ?? [];
-    const lines = failures.map((failure) => failure.line).join("、");
-    parts.push(
-      lines ? `跳过 ${result.failed} 行，首先出现在第 ${lines} 行。` : `跳过 ${result.failed} 行。`,
-    );
-    // "rejected" means the row parsed but the engine refused it, which is a
-    // different thing for the user to fix than a malformed line.
-    if (failures.some((failure) => failure.issue === "rejected")) {
-      parts.push("其中部分行的编码与词不匹配，例如简拼、或音节数与汉字数不一致。");
-    }
-  }
-  if (result.truncated) parts.push("文件过长，仅导入了前一部分。");
-  // Said rather than done quietly: which column holds the code is the one thing about the file the
-  // reader may want to check, and the same settings page in the Windows version exports the two
-  // orders for different dictionaries.
-  if (result.swapped) parts.push("该文件的两列与所选格式相反，已按文件本身的顺序读取。");
-  return parts.join("");
-}
-
 /** What the packaged dictionary is: the specification it was built to, and where it came from. */
 export type DictionaryManifest = { profile: string; sourceCommit: string };
 
@@ -1517,7 +1512,7 @@ export interface DictionaryClient {
     text: string,
     request_id: string,
   ): Promise<DictionaryImportResult>;
-  /** The largest file, in bytes, the page reads for `import`. Absent means the desktop bridge's batched bound, `MAX_DICTIONARY_FILE_BYTES`; a host that sends the file in one request declares its own. */
+  /** The largest file, in bytes, the page reads for `import`. */
   maxImportFileBytes?: number;
   importPersonal?(
     text: string,
@@ -1531,33 +1526,6 @@ export interface DictionaryClient {
   ): Promise<{ text: string; has_more: boolean }>;
   retry?(request_id: string): Promise<void>;
   dismissFailure?(request_id: string): Promise<void>;
-}
-/** Read every user-owned dictionary entry of every kind in bounded pages, preserving host ordering. */
-export async function loadAllPersonalDictionaryEntries(
-  dictionary: Pick<DictionaryClient, "list">,
-): Promise<DictionaryEntry[]> {
-  const entries: DictionaryEntry[] = [];
-  for (const kind of ["pinyin", "wubi", "quick_phrase", "english"] as const) {
-    let offset = 0;
-    let hasMore = true;
-    while (hasMore && offset <= 1_000_000) {
-      const page = await dictionary.list(offset, DICTIONARY_PAGE_SIZE, kind, "");
-      // Hosts that list the packaged dictionary return bundled rows too; the export holds the user's own words only. Paging still advances by the unfiltered page length.
-      const pageEntries = page.entries.filter(
-        (entry) => entry.kind === kind && entry.source !== "bundled",
-      );
-      entries.push(...pageEntries);
-      // An empty page ends the kind whatever has_more says, so a kind the user never added words to is not mistaken for a truncated export.
-      if (!page.entries.length) {
-        hasMore = false;
-        break;
-      }
-      offset += page.entries.length;
-      hasMore = page.has_more;
-    }
-    if (hasMore) throw new Error("dictionary_export_limit");
-  }
-  return entries;
 }
 const localDictionaryKinds: [LocalDictionaryKind, string][] = [
   ["pinyin", "全拼"],
@@ -1655,10 +1623,6 @@ function importFailureMessage(kind: string, error: unknown): string {
   return reason ? `${kind}导入失败：${reason}` : `${kind}导入失败，请检查文本格式。`;
 }
 
-function dictionaryKindLabel(kind: LocalDictionaryKind): string {
-  return localDictionaryKinds.find(([value]) => value === kind)?.[1] ?? "词库";
-}
-
 const defaultNavigation: NavigationPreferences = {
   minus_equal: true,
   comma_period: true,
@@ -1682,18 +1646,6 @@ const translationSecondaryLanguages: [
 ][] = [["", "不显示第二种语言"], ...translationLanguages];
 const mobileTranslationLanguages = translationLanguages.filter(([value]) => value !== "ru");
 const defaultWordCharacter: WordCharacterPreferences = { enabled: true, keys: "brackets" };
-// The Linux hosts do not draw the candidate list themselves; when the desktop panel that does ignores these settings, the host says why (HostCapabilities.candidate_panel_limit) and the appearance and skin pages say so once.
-const candidatePanelLimitNotes: Record<
-  NonNullable<HostCapabilities["candidate_panel_limit"]>,
-  string
-> = {
-  gnome_shell:
-    "GNOME Shell 自己绘制 IBus 候选窗并跟随 Shell 主题，这里的候选字体、颜色和皮肤在当前桌面不会生效。",
-  fcitx_theme:
-    "Fcitx5 正在使用你在 Fcitx5 配置中选择的经典界面主题，这里的候选颜色和皮肤不会覆盖它；字体仍然生效。改回 Fcitx5 默认主题后即可使用这里的设置。",
-  kimpanel:
-    "Fcitx5 的候选窗由桌面的 Kimpanel 绘制，使用桌面自己的字体和主题，这里的候选字体、颜色和皮肤不会生效。",
-};
 // The last column is the description on a host whose skin reaches only the candidate window (Linux presents the toolbar as an input method menu).
 const skinOptions: [NonNullable<Preferences["candidate_skin"]>, string, string, string][] = [
   ["fluent", "Fluent", "简洁、紧凑的默认候选窗", "简洁、紧凑的默认候选窗"],
@@ -1733,37 +1685,6 @@ const defaultFloatingToolbar: FloatingToolbarPreferences = {
   scale_percent: 100,
   font_size: 24,
 };
-type FloatingToolbarOptionKey = keyof Pick<
-  FloatingToolbarPreferences,
-  | "english_mode"
-  | "fullwidth"
-  | "punctuation"
-  | "character_set"
-  | "emoji"
-  | "handwriting"
-  | "screen_keyboard"
-  | "voice"
-  | "settings"
->;
-/// In the order the buttons sit on the toolbar. The third entry names the capability a host must
-/// report for the switch to be offered at all: the handwriting and voice buttons are this client's
-/// own additions and only one host draws them, so a switch for them elsewhere would turn off
-/// something that is not there.
-const floatingToolbarOptions: [
-  FloatingToolbarOptionKey,
-  string,
-  keyof Pick<HostCapabilities, "floating_toolbar_handwriting" | "floating_toolbar_voice"> | null,
-][] = [
-  ["english_mode", "英文输入模式", null],
-  ["fullwidth", "全角 / 半角", null],
-  ["punctuation", "中英文标点", null],
-  ["character_set", "简繁切换", null],
-  ["emoji", "表情与符号", null],
-  ["handwriting", "手写识别板", "floating_toolbar_handwriting"],
-  ["screen_keyboard", "屏幕键盘", null],
-  ["voice", "语音输入", "floating_toolbar_voice"],
-  ["settings", "设置", null],
-];
 /** What the macOS settings app did with the input method it carries when it started. */
 export type InputSourceStartupStatus = {
   /** `login_required`: the input method is installed, but this login session's input source list only picks it up after the user logs in again. */
@@ -4545,9 +4466,7 @@ export function SettingsPage({
                       mobile={mobilePlatform}
                     />
                     {host?.candidate_panel_limit && (
-                      <div className="section">
-                        <small>{candidatePanelLimitNotes[host.candidate_panel_limit]}</small>
-                      </div>
+                      <CandidatePanelLimitSection limit={host.candidate_panel_limit} />
                     )}
                     {showCandidateFollowCursor && (
                       <CandidateFollowCursorSection
@@ -4992,9 +4911,7 @@ export function SettingsPage({
                           : "选择候选窗和悬浮工具栏使用的主题；明暗预览仅影响当前卡片，不修改设置。"}
                     </div>
                     {host?.candidate_panel_limit && (
-                      <div className="section">
-                        <small>{candidatePanelLimitNotes[host.candidate_panel_limit]}</small>
-                      </div>
+                      <CandidatePanelLimitSection limit={host.candidate_panel_limit} />
                     )}
                     {mobileKeyboardFeedback?.candidatePaletteFollowsDesktop !== undefined && (
                       <div className="section">
@@ -5198,41 +5115,23 @@ export function SettingsPage({
                       />
                     )}
                     {showToolbarComponents && (
-                      <div className={`section ${settings.toolbarComponents}`}>
-                        <div className="section-title">
-                          工具栏组件<small>勾选要显示在悬浮工具栏中的功能</small>
-                        </div>
-                        <div className={settings.toolbarComponentList}>
-                          <label className={`check-option ${settings.toolbarRequiredOption}`}>
-                            <input type="checkbox" checked disabled />
-                            <span>中英文切换</span>
-                            <span className={settings.toolbarRequiredLabel}>始终显示</span>
-                          </label>
-                          {floatingToolbarOptions
-                            .filter(([, , capability]) => !capability || !host || host[capability])
-                            .map(([key, label]) => (
-                              <div key={key}>
-                                <div className="input-option-divider" />
-                                <label className="check-option">
-                                  <input
-                                    type="checkbox"
-                                    checked={floatingToolbar[key]}
-                                    onChange={(event) =>
-                                      setDraft({
-                                        ...draft,
-                                        floating_toolbar: {
-                                          ...floatingToolbar,
-                                          [key]: event.target.checked,
-                                        },
-                                      })
-                                    }
-                                  />
-                                  <span>{label}</span>
-                                </label>
-                              </div>
-                            ))}
-                        </div>
-                      </div>
+                      <FloatingToolbarComponentsSection
+                        values={floatingToolbar}
+                        capabilities={
+                          host
+                            ? {
+                                floating_toolbar_handwriting: host.floating_toolbar_handwriting,
+                                floating_toolbar_voice: host.floating_toolbar_voice,
+                              }
+                            : undefined
+                        }
+                        onChange={(key, enabled) =>
+                          setDraft({
+                            ...draft,
+                            floating_toolbar: { ...floatingToolbar, [key]: enabled },
+                          })
+                        }
+                      />
                     )}
                   </fieldset>
                   <fieldset disabled={busy} hidden={page !== "input"} aria-label="输入">

@@ -17,8 +17,8 @@ use crate::platform::mobile::mobile_account_preferences::{
 };
 use crate::platform::mobile::mobile_community::MobileCommunityState;
 use crate::shared::account_dto::{
-    provider_flags, ChallengeResponse, ChatModelsResponse, ChatResponse, PreferenceSchemaResponse,
-    ProfileResponse, StatusResponse, UserResponse,
+    providers_response_without_apple, ChallengeResponse, ChatModelsResponse, ChatResponse,
+    PreferenceSchemaResponse, ProfileResponse, ProvidersResponse, StatusResponse, UserResponse,
 };
 use msime_client_core::account::{
     merge_account_preferences, validate_account_preferences, AccountChatMessage, AccountError,
@@ -775,12 +775,6 @@ async fn dictionary_snapshot_cancel(
     snapshot_response_without_account(result)
 }
 
-#[derive(Serialize)]
-pub struct ProvidersResponse {
-    email: bool,
-    phone: bool,
-}
-
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppIconResponse {
@@ -967,10 +961,7 @@ pub async fn account_providers(
     state: State<'_, AccountState>,
 ) -> Result<ProvidersResponse, crate::CommandError> {
     call(state, |session| {
-        session.providers().map(|providers| {
-            let (email, phone) = provider_flags(&providers);
-            ProvidersResponse { email, phone }
-        })
+        session.providers().map(providers_response_without_apple)
     })
     .await
 }
