@@ -68,7 +68,6 @@ private:
 };
 std::unique_ptr<EngineSession> create_session(const EngineOptions& options);
 rust::Vec<float> capture_audio(std::uint32_t milliseconds);
-rust::Vec<rust::String> capture_device_names();
 struct CaptureDevice;
 rust::Vec<CaptureDevice> capture_devices();
 EngineOptions prepare_options(rust::Str resources, rust::Str user_data, rust::Str cache, rust::Str content_id);

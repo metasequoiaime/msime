@@ -79,27 +79,6 @@ rust::Vec<float> capture_audio(std::uint32_t milliseconds) {
 #endif
 }
 
-rust::Vec<rust::String> capture_device_names() {
-    rust::Vec<rust::String> names;
-#if !MSIME_ENGINE_BRIDGE_AUDIO_CAPTURE
-    return names;
-#else
-    ma_context context{};
-    if (ma_context_init(nullptr, 0, nullptr, &context) != MA_SUCCESS) return names;
-    ma_device_info *playback = nullptr;
-    ma_device_info *capture = nullptr;
-    ma_uint32 playback_count = 0;
-    ma_uint32 capture_count = 0;
-    if (ma_context_get_devices(&context, &playback, &playback_count,
-                               &capture, &capture_count) == MA_SUCCESS) {
-        for (ma_uint32 index = 0; index < capture_count; ++index) {
-            if (capture[index].name[0] != '\0') names.push_back(capture[index].name);
-        }
-    }
-    ma_context_uninit(&context);
-    return names;
-#endif
-}
 rust::Vec<CaptureDevice> capture_devices() {
     rust::Vec<CaptureDevice> devices;
 #if MSIME_ENGINE_BRIDGE_AUDIO_CAPTURE
