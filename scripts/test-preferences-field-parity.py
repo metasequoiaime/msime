@@ -161,8 +161,20 @@ def ts_types(source: str) -> dict[str, set[str]]:
 
 def rust_structs(source: str) -> dict[str, set[str]]:
     out: dict[str, set[str]] = {}
-    for name, body in re.findall(r"pub struct (\w+)\s*\{(.*?)\n\}\n", source, re.S):
-        out[name] = set(re.findall(r"^\s*pub (\w+):", body, re.M))
+    pattern = r"((?:#\[[^\n]*\]\s*\n)*)pub struct (\w+)\s*\{(.*?)\n\}\n"
+    for attributes, name, body in re.findall(pattern, source, re.S):
+        rename_all = 'rename_all = "camelCase"' in attributes
+        fields: set[str] = set()
+        field_pattern = r"((?:#\[[^\n]*\]\s*\n)*)\s*pub (\w+):"
+        for field_attributes, field in re.findall(field_pattern, body):
+            explicit = re.search(r'rename\s*=\s*"([^"]+)"', field_attributes)
+            if explicit:
+                fields.add(explicit.group(1))
+            elif rename_all:
+                fields.add(camel(field))
+            else:
+                fields.add(field)
+        out[name] = fields
     return out
 
 
@@ -236,7 +248,11 @@ def page_object_bodies() -> dict[str, str]:
 
 
 def main() -> int:
-    ts = ts_types(UI.read_text(encoding="utf-8"))
+    page_bodies = page_object_bodies()
+    # Preferences imports several object types from sibling files under
+    # packages/ui/src. Build the same type index used for reachable pairs so
+    # those imported declarations are available for the top-level comparison.
+    ts = {name: set(ts_members(body)) for name, body in page_bodies.items()}
     rust_source = RUST.read_text(encoding="utf-8")
     rust = rust_structs(rust_source)
     if "Preferences" not in ts or "Preferences" not in rust:
@@ -269,7 +285,7 @@ def main() -> int:
 
     # Structs reached through a Preferences field, paired with what the page declares for that field. Same-named pairs were compared above.
     typed = rust_field_types(rust_source)
-    pairs, missing = reachable_pairs(typed, page_object_bodies())
+    pairs, missing = reachable_pairs(typed, page_bodies)
     for name, label, body in pairs:
         if (name, label) in compared:
             continue
