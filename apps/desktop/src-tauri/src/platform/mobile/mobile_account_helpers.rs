@@ -12,6 +12,10 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+pub(crate) fn account_value<T: Serialize>(value: T) -> Result<Value, AccountError> {
+    serde_json::to_value(value).map_err(|_| AccountError::Unavailable)
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SnapshotMetadata {
@@ -153,9 +157,9 @@ pub(crate) async fn cloud_dictionary_account_request(
                     let search = search.clone();
                     let offset = *offset;
                     move |session| {
-                        session.dictionary(kind, &search, offset).and_then(|page| {
-                            serde_json::to_value(page).map_err(|_| AccountError::Unavailable)
-                        })
+                        session
+                            .dictionary(kind, &search, offset)
+                            .and_then(|page| account_value(page))
                     }
                 })
                 .await,
@@ -181,14 +185,13 @@ pub(crate) async fn cloud_dictionary_account_request(
                     session
                         .dictionary_catalog(kind, &code, offset, &scheme, &profile)
                         .and_then(|page| {
-                            serde_json::to_value(serde_json::json!({
+                            account_value(serde_json::json!({
                                 "catalog_entries": page.entries,
                                 "has_more": page.has_more,
                                 "offset": page.offset,
                                 "revision": page.revision,
                                 "normalized": page.normalized,
                             }))
-                            .map_err(|_| AccountError::Unavailable)
                         })
                 })
                 .await,
@@ -199,9 +202,9 @@ pub(crate) async fn cloud_dictionary_account_request(
             let limit = *limit;
             Some(
                 call_ref(state, move |session| {
-                    session.dictionary_changes(after, limit).and_then(|page| {
-                        serde_json::to_value(page).map_err(|_| AccountError::Unavailable)
-                    })
+                    session
+                        .dictionary_changes(after, limit)
+                        .and_then(|page| account_value(page))
                 })
                 .await,
             )
@@ -223,9 +226,7 @@ pub(crate) async fn cloud_dictionary_account_request(
                 call_ref(state, move |session| {
                     session
                         .add_dictionary(kind, &code, &word, weight)
-                        .and_then(|change| {
-                            serde_json::to_value(change).map_err(|_| AccountError::Unavailable)
-                        })
+                        .and_then(|change| account_value(change))
                 })
                 .await,
             )
@@ -251,9 +252,7 @@ pub(crate) async fn cloud_dictionary_account_request(
                 call_ref(state, move |session| {
                     session
                         .update_dictionary(kind, &id, &code, &word, weight, revision)
-                        .and_then(|change| {
-                            serde_json::to_value(change).map_err(|_| AccountError::Unavailable)
-                        })
+                        .and_then(|change| account_value(change))
                 })
                 .await,
             )
@@ -282,9 +281,7 @@ pub(crate) async fn cloud_dictionary_account_request(
                         .map(|(code, word, weight)| (code.as_str(), word.as_str(), *weight));
                     session
                         .edit_dictionary_catalog(kind, &code, &word, revision, replacement)
-                        .and_then(|change| {
-                            serde_json::to_value(change).map_err(|_| AccountError::Unavailable)
-                        })
+                        .and_then(|change| account_value(change))
                 })
                 .await,
             )
@@ -305,9 +302,9 @@ pub(crate) async fn cloud_dictionary_account_request(
             };
             Some(
                 call_ref(state, move |session| {
-                    session.personal_candidates(&query).and_then(|result| {
-                        serde_json::to_value(result).map_err(|_| AccountError::Unavailable)
-                    })
+                    session
+                        .personal_candidates(&query)
+                        .and_then(|result| account_value(result))
                 })
                 .await,
             )
@@ -388,9 +385,7 @@ pub(crate) async fn cloud_dictionary_account_request(
                 call_ref(state, move |session| {
                     session
                         .remove_candidate(&query, &code, &word, revision)
-                        .and_then(|result| {
-                            serde_json::to_value(result).map_err(|_| AccountError::Unavailable)
-                        })
+                        .and_then(|result| account_value(result))
                 })
                 .await,
             )
@@ -402,9 +397,7 @@ pub(crate) async fn cloud_dictionary_account_request(
                 call_ref(state, move |session| {
                     session
                         .fixed_positions(&context, offset)
-                        .and_then(|result| {
-                            serde_json::to_value(result).map_err(|_| AccountError::Unavailable)
-                        })
+                        .and_then(|result| account_value(result))
                 })
                 .await,
             )
@@ -425,9 +418,7 @@ pub(crate) async fn cloud_dictionary_account_request(
                 call_ref(state, move |session| {
                     session
                         .set_fixed_position(&context, &code, &word, position, revision)
-                        .and_then(|result| {
-                            serde_json::to_value(result).map_err(|_| AccountError::Unavailable)
-                        })
+                        .and_then(|result| account_value(result))
                 })
                 .await,
             )
@@ -443,9 +434,7 @@ pub(crate) async fn cloud_dictionary_account_request(
                 call_ref(state, move |session| {
                     session
                         .delete_dictionary(kind, &id, revision)
-                        .and_then(|change| {
-                            serde_json::to_value(change).map_err(|_| AccountError::Unavailable)
-                        })
+                        .and_then(|change| account_value(change))
                 })
                 .await,
             )
@@ -461,9 +450,7 @@ pub(crate) async fn cloud_dictionary_account_request(
                 call_ref(state, move |session| {
                     session
                         .import_dictionary(kind, &format, &text)
-                        .and_then(|result| {
-                            serde_json::to_value(result).map_err(|_| AccountError::Unavailable)
-                        })
+                        .and_then(|result| account_value(result))
                 })
                 .await,
             )
