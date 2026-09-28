@@ -1,10 +1,7 @@
-import {
-  DOUBAO_STREAM_ENDPOINTS,
-  doubaoStreamEndpointId,
-  findDoubaoStreamEndpoint,
-} from "../voice/voice-providers";
+import { findDoubaoStreamEndpoint } from "../voice/voice-providers";
 import { CredentialActions } from "./credential-actions";
 import { type CredentialStatusMessageValue } from "./credential-status-message";
+import { DoubaoStreamEndpointSelect } from "./doubao-stream-endpoint-section";
 
 export type VoiceCredentialSectionKind = "asr" | "polish";
 
@@ -86,7 +83,6 @@ export function VoiceCredentialSection({
         ((resourceId?.trim() && stored.resourceId !== resourceId.trim()) ||
           stored.authMode !== authMode)));
   const streamEndpoint = endpoint.trim() || findDoubaoStreamEndpoint("async")?.endpoint || "";
-  const streamEndpointId = doubaoStreamEndpointId(streamEndpoint);
 
   return (
     <div className="section" role="group" aria-label={`语音${name}凭据`}>
@@ -111,21 +107,10 @@ export function VoiceCredentialSection({
               provider 使用双向流式。
             </small>
           </span>
-          <select
-            aria-label="流式接口"
-            value={streamEndpointId}
-            onChange={(event) => {
-              const chosen = findDoubaoStreamEndpoint(event.target.value);
-              if (chosen) onChange({ endpoint: chosen.endpoint });
-            }}
-          >
-            {DOUBAO_STREAM_ENDPOINTS.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.title}
-              </option>
-            ))}
-            <option value="custom">自定义地址</option>
-          </select>
+          <DoubaoStreamEndpointSelect
+            endpoint={streamEndpoint}
+            onChange={(value) => onChange({ endpoint: value })}
+          />
         </label>
       )}
       <label className="section-header">

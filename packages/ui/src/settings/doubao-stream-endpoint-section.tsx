@@ -9,12 +9,41 @@ export interface DoubaoStreamEndpointSectionProps {
   onChange: (endpoint: string) => void;
 }
 
+export interface DoubaoStreamEndpointSelectProps {
+  endpoint: string;
+  onChange: (endpoint: string) => void;
+}
+
+/** Shared preset select used by the standalone and credential settings sections. */
+export function DoubaoStreamEndpointSelect({
+  endpoint,
+  onChange,
+}: DoubaoStreamEndpointSelectProps) {
+  const selected = doubaoStreamEndpointId(endpoint);
+  return (
+    <select
+      aria-label="流式接口"
+      value={selected}
+      onChange={(event) => {
+        const chosen = findDoubaoStreamEndpoint(event.target.value);
+        if (chosen) onChange(chosen.endpoint);
+      }}
+    >
+      {DOUBAO_STREAM_ENDPOINTS.map((option) => (
+        <option key={option.id} value={option.id}>
+          {option.title}
+        </option>
+      ))}
+      <option value="custom">自定义地址</option>
+    </select>
+  );
+}
+
 /** Doubao streaming endpoint preset selector. */
 export function DoubaoStreamEndpointSection({
   endpoint,
   onChange,
 }: DoubaoStreamEndpointSectionProps) {
-  const selected = doubaoStreamEndpointId(endpoint);
   return (
     <div className="section">
       <label className="section-header">
@@ -24,21 +53,7 @@ export function DoubaoStreamEndpointSection({
             整句流式边录边传、说完返回整句，服务方称准确率更高并推荐用于输入法；双向流式返回增量结果，流式预编辑刷新更频繁。选择后写入下方接口地址。
           </small>
         </span>
-        <select
-          aria-label="流式接口"
-          value={selected}
-          onChange={(event) => {
-            const chosen = findDoubaoStreamEndpoint(event.target.value);
-            if (chosen) onChange(chosen.endpoint);
-          }}
-        >
-          {DOUBAO_STREAM_ENDPOINTS.map((option) => (
-            <option key={option.id} value={option.id}>
-              {option.title}
-            </option>
-          ))}
-          <option value="custom">自定义地址</option>
-        </select>
+        <DoubaoStreamEndpointSelect endpoint={endpoint} onChange={onChange} />
       </label>
     </div>
   );
