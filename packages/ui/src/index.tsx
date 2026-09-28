@@ -80,6 +80,7 @@ import {
 import { ProviderPresetSection, type ProviderPreset } from "./settings/provider-preset-section";
 import { CredentialStatusMessage } from "./settings/credential-status-message";
 import { AiCredentialSection } from "./settings/ai-credential-section";
+import { AiModelCatalogSection } from "./settings/ai-model-catalog-section";
 import {
   AiBasicSettingsSection,
   type AiProviderOption,
@@ -7185,44 +7186,15 @@ export function SettingsPage({
                         !ai.enabled || !aiOrigin || !ai.model.trim() || !aiToken.trim(),
                       )}
                     {client.aiAssistant && (
-                      <div className="section">
-                        <div className="section-header">
-                          <span className="section-title">
-                            服务模型
-                            <small>
-                              从当前服务的模型目录读取；服务不支持时可继续手动填写模型。
-                            </small>
-                          </span>
-                          <button
-                            type="button"
-                            className="secondary"
-                            disabled={aiModelsBusy || !aiOrigin}
-                            onClick={() => void fetchAiModels()}
-                          >
-                            {aiModelsBusy ? "获取中…" : "获取模型列表"}
-                          </button>
-                        </div>
-                        {aiModels && aiModels.length > 0 && (
-                          <label className="section-header">
-                            <span className="section-title">已获取模型</span>
-                            <select
-                              aria-label="已获取的 AI 模型"
-                              value={aiModels.includes(ai.model) ? ai.model : ""}
-                              onChange={(event) => {
-                                if (event.target.value) updateAi({ model: event.target.value });
-                              }}
-                            >
-                              <option value="">选择模型…</option>
-                              {aiModels.map((model) => (
-                                <option key={model} value={model}>
-                                  {model}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                        )}
-                        {aiModelsStatus && <p role="status">{aiModelsStatus}</p>}
-                      </div>
+                      <AiModelCatalogSection
+                        busy={aiModelsBusy}
+                        origin={aiOrigin ?? ""}
+                        models={aiModels ?? undefined}
+                        selectedModel={ai.model}
+                        status={aiModelsStatus}
+                        onFetch={() => void fetchAiModels()}
+                        onSelect={(model) => updateAi({ model })}
+                      />
                     )}
                     <div className="section">
                       <label className="section-header">
