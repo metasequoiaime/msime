@@ -34,6 +34,7 @@ import { CandidateFollowCursorSection } from "./settings/candidate-follow-cursor
 import { CandidateEnglishGlossSection } from "./settings/candidate-english-gloss-section";
 import { EnglishSuggestionsSection } from "./settings/english-suggestions-section";
 import { LearningSection } from "./settings/learning-section";
+import { DefaultImeModeSection, type DefaultImeMode } from "./settings/default-ime-mode-section";
 import { PreeditSettingsSection } from "./settings/preedit-settings-section";
 import { validCandidateFonts } from "./candidate/candidate-font-family";
 import type { FontCatalogReader } from "./candidate/font-catalog";
@@ -288,6 +289,11 @@ export {
   type EnglishSuggestionsSectionProps,
 } from "./settings/english-suggestions-section";
 export { LearningSection, type LearningSectionProps } from "./settings/learning-section";
+export {
+  DefaultImeModeSection,
+  type DefaultImeMode,
+  type DefaultImeModeSectionProps,
+} from "./settings/default-ime-mode-section";
 export {
   PreeditSettingsSection,
   type CandidatePreeditStyle,
@@ -6761,27 +6767,10 @@ export function SettingsPage({
                         }
                       />
                     )}
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          默认中英文<small>新焦点会话开始时使用的中文或英文状态</small>
-                        </span>
-                        <select
-                          aria-label="默认中英文"
-                          value={draft.default_ime_mode ?? "chinese"}
-                          onChange={(event) =>
-                            setDraft({
-                              ...draft,
-                              default_ime_mode: event.target
-                                .value as Preferences["default_ime_mode"],
-                            })
-                          }
-                        >
-                          <option value="chinese">中文</option>
-                          <option value="english">英文</option>
-                        </select>
-                      </label>
-                    </div>
+                    <DefaultImeModeSection
+                      value={draft.default_ime_mode}
+                      onChange={(default_ime_mode) => setDraft({ ...draft, default_ime_mode })}
+                    />
                     {showModeScope && (
                       <div className="section">
                         <label className="section-header">
