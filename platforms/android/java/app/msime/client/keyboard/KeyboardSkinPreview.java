@@ -48,7 +48,7 @@ public final class KeyboardSkinPreview extends View {
         Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
         text.setTextAlign(Paint.Align.CENTER);
         text.setTypeface(skin.monospaced() ? Typeface.MONOSPACE : Typeface.DEFAULT);
-        text.setTextSize(Math.max(7, Math.min(14 * density, rowHeight * .42f)));
+        text.setTextSize(KeyboardGeometry.bounded(rowHeight * .42f, 7f, 14f * density));
         for (int rowIndex = 0; rowIndex < rows.length; rowIndex++) {
             String[] row = rows[rowIndex];
             float rowInset = rowIndex == 1 ? bounds.width() * .04f : 0;
