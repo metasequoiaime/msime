@@ -31,6 +31,11 @@ import { isLinuxDesktop } from "./settings/platform-helpers";
 import { resolveSettingsTheme } from "./settings/theme-helpers";
 import { AI_PROVIDER_OPTIONS } from "./settings/ai-provider-options";
 export { AI_PROVIDER_OPTIONS } from "./settings/ai-provider-options";
+import {
+  mobileTranslationLanguages,
+  translationLanguages,
+  translationSecondaryLanguages,
+} from "./settings/translation-language-helpers";
 import { updateAiProvider } from "./settings/ai-provider-update";
 import { VoiceDevicePicker, type VoiceDeviceReader } from "./voice/voice-device-picker";
 import {
@@ -1330,20 +1335,6 @@ const defaultNavigation: NavigationPreferences = {
   page_up_down: true,
   arrows: true,
 };
-const translationLanguages: [NonNullable<Preferences["translation_target_language"]>, string][] = [
-  ["en", "英语"],
-  ["fr", "法语"],
-  ["ja", "日语"],
-  ["es", "西班牙语"],
-  ["ru", "俄语"],
-  ["de", "德语"],
-  ["ko", "韩语"],
-];
-const translationSecondaryLanguages: [
-  "" | NonNullable<Preferences["translation_target_language"]>,
-  string,
-][] = [["", "不显示第二种语言"], ...translationLanguages];
-const mobileTranslationLanguages = translationLanguages.filter(([value]) => value !== "ru");
 const defaultWordCharacter: WordCharacterPreferences = { enabled: true, keys: "brackets" };
 // The last column is the description on a host whose skin reaches only the candidate window (Linux presents the toolbar as an input method menu).
 const skinOptions: [NonNullable<Preferences["candidate_skin"]>, string, string, string][] = [
