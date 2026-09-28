@@ -5,6 +5,7 @@
 //! boundaries as the Android native implementation without exposing secrets to
 //! JavaScript logs or browser extensions.
 
+use msime_client_core::has_disallowed_control_with_options as has_disallowed_control;
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::BTreeSet;
@@ -40,12 +41,6 @@ struct ModelEntry {
     supported_endpoint_types: Option<Vec<String>>,
     chat_completions_bridge: Option<bool>,
     active: Option<bool>,
-}
-
-fn has_disallowed_control(value: &str, allow_whitespace: bool) -> bool {
-    value.chars().any(|character| {
-        character.is_control() && !(allow_whitespace && matches!(character, '\n' | '\r' | '\t'))
-    })
 }
 
 fn valid_endpoint(endpoint: &str) -> Result<reqwest::Url, Error> {

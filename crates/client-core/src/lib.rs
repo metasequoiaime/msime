@@ -36,7 +36,7 @@ pub mod skin;
 mod text;
 
 /// Validate a lower-case hexadecimal value with an exact byte length.
-pub use text::{is_bounded_text, is_lower_hex};
+pub use text::{has_disallowed_control_with_options, is_bounded_text, is_lower_hex};
 pub mod translation;
 pub mod typing_statistics;
 pub mod vocabulary;

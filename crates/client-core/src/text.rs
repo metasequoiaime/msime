@@ -3,9 +3,14 @@
 /// Whether `value` contains a control character other than the line-oriented controls accepted
 /// by multi-line text fields.
 pub(crate) fn has_disallowed_control(value: &str) -> bool {
-    value
-        .chars()
-        .any(|character| character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
+    has_disallowed_control_with_options(value, true)
+}
+
+/// Whether `value` contains a disallowed control character with an explicit line-whitespace policy.
+pub fn has_disallowed_control_with_options(value: &str, allow_whitespace: bool) -> bool {
+    value.chars().any(|character| {
+        character.is_control() && !(allow_whitespace && matches!(character, '\n' | '\r' | '\t'))
+    })
 }
 
 /// Whether a single-line field fits its byte bound and contains no controls.
