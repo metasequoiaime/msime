@@ -182,6 +182,7 @@ import { PolishCredentialFieldsSection } from "./settings/polish-credential-fiel
 import { VoiceStreamPreeditSection } from "./settings/voice-stream-preedit-section";
 import { VoiceCommitModeSection, type VoiceCommitMode } from "./settings/voice-commit-mode-section";
 import { VoiceCaptureDevicesSection } from "./settings/voice-capture-devices-section";
+import { VoiceSyntheticSilenceNotice } from "./settings/voice-synthetic-silence-notice";
 import { VoiceHotkeysSection } from "./settings/voice-hotkeys-section";
 import { VoicePolishSection } from "./settings/voice-polish-section";
 import { FloatingToolbarAppearanceSection } from "./settings/floating-toolbar-appearance-section";
@@ -685,6 +686,7 @@ export {
   type VoiceCaptureBackendOption,
   type VoiceCaptureBackend,
 } from "./settings/voice-capture-devices-section";
+export { VoiceSyntheticSilenceNotice } from "./settings/voice-synthetic-silence-notice";
 export {
   VoiceHotkeysSection,
   type VoiceHotkeysSectionProps,
@@ -5465,9 +5467,7 @@ export function SettingsPage({
                         voiceInput.asr_provider ?? "",
                       ) && (
                         <>
-                          <p className={settings.panelPreviewLabel}>
-                            测试会向当前服务发送一秒合成静音，不使用麦克风；服务可能计入 API 用量。
-                          </p>
+                          <VoiceSyntheticSilenceNotice />
                           {credentialTestControl(
                             "voice.asr",
                             voiceInput.asr_provider === "doubao"
