@@ -96,6 +96,10 @@ import {
   CompositionBoundary, CompositionBoundaryAction, CompositionBoundaryPolicy
 } from './input/CompositionBoundaryPolicy';
 
+function boundedHttpTimeout(value: number, maximum: number): number {
+  return Math.min(maximum, Math.max(1000, value));
+}
+
 // Shapes of the JSON the shared C ABI answers with. Only the fields this minimal surface reads are
 // declared; the responses carry considerably more.
 interface Candidate {
@@ -3268,8 +3272,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       const response: http.HttpResponse = await request.request(descriptor.url, {
         method: http.RequestMethod.POST,
         header: descriptor.headers,
-        connectTimeout: Math.min(8000, Math.max(1000, descriptor.connect_timeout_ms)),
-        readTimeout: Math.min(10000, Math.max(1000, descriptor.timeout_ms)),
+        connectTimeout: boundedHttpTimeout(descriptor.connect_timeout_ms, 8000),
+        readTimeout: boundedHttpTimeout(descriptor.timeout_ms, 10000),
         extraData: JSON.stringify(descriptor.body)
       });
       if (epoch !== this.onlineEpoch || handle !== this.handle || response.responseCode < 200
@@ -3604,8 +3608,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       const response: http.HttpResponse = await request.request(descriptor.url, {
         method: http.RequestMethod.POST,
         header: descriptor.headers,
-        connectTimeout: Math.min(3000, Math.max(1000, descriptor.timeout_ms)),
-        readTimeout: Math.min(8000, Math.max(1000, descriptor.timeout_ms)),
+        connectTimeout: boundedHttpTimeout(descriptor.timeout_ms, 3000),
+        readTimeout: boundedHttpTimeout(descriptor.timeout_ms, 8000),
         extraData: descriptor.body_utf8 !== undefined
           ? descriptor.body_utf8 : JSON.stringify(descriptor.body ?? {})
       });
@@ -3997,8 +4001,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     try {
       const response: http.HttpResponse = await requestHttp.request(descriptor.url, {
         method: http.RequestMethod.POST, header: descriptor.headers,
-        connectTimeout: Math.min(8000, Math.max(1000, descriptor.connect_timeout_ms)),
-        readTimeout: Math.min(10000, Math.max(1000, descriptor.timeout_ms)),
+        connectTimeout: boundedHttpTimeout(descriptor.connect_timeout_ms, 8000),
+        readTimeout: boundedHttpTimeout(descriptor.timeout_ms, 10000),
         extraData: JSON.stringify(descriptor.body)
       });
       if (!ReplyContextPolicy.matches(editorGeneration, this.editorGeneration,
