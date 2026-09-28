@@ -27,14 +27,8 @@ pub const MAX_NAME_CHARS: usize = 64;
 /// is a guard against a malformed file rather than a ceiling a real book runs into.
 pub const MAX_ENTRIES: usize = 20_000;
 
-fn text_is_valid(value: &str, maximum: usize, required: bool) -> bool {
-    (!required || !value.is_empty())
-        && value.chars().count() <= maximum
-        && !value.chars().any(char::is_control)
-}
-
 pub(crate) fn word_is_valid(value: &str) -> bool {
-    text_is_valid(value, MAX_WORD_CHARS, true)
+    !value.is_empty() && crate::text::is_bounded_chars(value, MAX_WORD_CHARS)
 }
 
 /// One word as a wordbook stores it.
@@ -60,8 +54,9 @@ impl WordbookEntry {
         word_is_valid(&self.word)
             // A control character in a headword would be invisible on every host's card, and it
             // would let two words that look identical compare as different store keys.
-            && text_is_valid(&self.phonetic, MAX_PHONETIC_CHARS, false)
-            && text_is_valid(&self.meaning, MAX_MEANING_CHARS, true)
+            && crate::text::is_bounded_chars(&self.phonetic, MAX_PHONETIC_CHARS)
+            && !self.meaning.is_empty()
+            && crate::text::is_bounded_chars(&self.meaning, MAX_MEANING_CHARS)
     }
 }
 
@@ -97,7 +92,8 @@ impl Wordbook {
     /// whichever came last would make the book's own contents depend on row order.
     pub fn is_valid(&self) -> bool {
         if !id_is_well_formed(&self.id)
-            || !text_is_valid(&self.name, MAX_NAME_CHARS, true)
+            || self.name.is_empty()
+            || !crate::text::is_bounded_chars(&self.name, MAX_NAME_CHARS)
             || self.entries.is_empty()
             || self.entries.len() > MAX_ENTRIES
             || !self.entries.iter().all(WordbookEntry::is_valid)
