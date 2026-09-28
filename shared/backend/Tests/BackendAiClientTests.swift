@@ -15,6 +15,28 @@ private final class AiProtocol: URLProtocol {
   override func stopLoading() {}
 }
 
+private final class OversizedAiProtocol: URLProtocol {
+  static let stopped = DispatchSemaphore(value: 0)
+  static let release = DispatchSemaphore(value: 0)
+
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    let body = Data(repeating: 0x41, count: 1_048_577)
+    let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: body)
+    DispatchQueue.global().async {
+      Self.release.wait()
+      self.client?.urlProtocolDidFinishLoading(self)
+    }
+  }
+  override func stopLoading() {
+    Self.stopped.signal()
+    Self.release.signal()
+  }
+}
+
 final class BackendAiClientTests: XCTestCase {
   private func client() -> BackendAiClient {
     let configuration = URLSessionConfiguration.ephemeral
@@ -48,5 +70,19 @@ final class BackendAiClientTests: XCTestCase {
       expectation.fulfill()
     }
     wait(for: [expectation], timeout: 1)
+  }
+
+  func testOversizedResponseCancelsStreamingRequest() async {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [OversizedAiProtocol.self]
+    let client = BackendAiClient(configuration: configuration)
+    let request = Task {
+      try? await client.suggest(endpoint: URL(string: "https://ai.invalid/v1/chat/completions")!, model: "model",
+                                token: "session", segmentedPinyin: ["ni"], context: "", candidateLimit: 1)
+    }
+
+    XCTAssertEqual(OversizedAiProtocol.stopped.wait(timeout: .now() + 2), .success)
+    OversizedAiProtocol.release.signal()
+    _ = await request.value
   }
 }
