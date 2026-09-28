@@ -51,7 +51,7 @@ export function NavigationSection({
             {index > 0 && <div className="input-option-divider" />}
             <SettingCheck
               label={label}
-              checked={navigation[key]}
+              checked={navigation[key] ?? false}
               onChange={(enabled) => {
                 onChange({
                   navigation: { ...navigation, [key]: enabled },

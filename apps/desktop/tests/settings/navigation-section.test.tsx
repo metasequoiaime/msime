@@ -53,3 +53,19 @@ test("navigation section shows Linux paging guidance", () => {
 
   expect(screen.getByText(/IBus 候选窗口/)).toBeTruthy();
 });
+
+test("missing optional mouse wheel preference renders unchecked", () => {
+  render(
+    <NavigationSection
+      navigation={navigation}
+      wordCharacter={{ enabled: false, keys: "brackets" }}
+      linux={false}
+      onChange={vi.fn()}
+    />,
+  );
+
+  expect(screen.getByRole("checkbox", { name: "鼠标滚轮（候选面板支持时翻页）" })).toHaveProperty(
+    "checked",
+    false,
+  );
+});
