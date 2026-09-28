@@ -56,10 +56,10 @@ static NSView *FindView(NSView *view, NSString *identifier) {
     return nil;
 }
 
-// Mirrors the panel's width: buttons and their gaps, the 20pt trailing run, and the 67.2pt leading run of logo (32), gap (6), grip (18), gap (2), divider (1.2) and gap (8).
+// Mirrors the panel's width: buttons and their gaps, the 20pt trailing run, and the 51.2pt leading run of logo (32), gap (6), gap (4), divider (1.2) and gap (8).
 static double ExpectedWidth(double count, double fontSize, double factor) {
     const double gaps = count > 0 ? count - 1 : 0;
-    return std::ceil((count * (fontSize + 18.0) + gaps * 8.0 + 20.0 + (32.0 + 6.0 + 18.0 + 2.0 + 1.2 + 8.0)) * factor);
+    return std::ceil((count * (fontSize + 18.0) + gaps * 8.0 + 20.0 + (32.0 + 6.0 + 4.0 + 1.2 + 8.0)) * factor);
 }
 
 static void SendButton(NSButton *button) {
@@ -74,9 +74,9 @@ int main() {
         NSRect visible = NSMakeRect(-1200.0, -800.0, 1920.0, 1080.0);
         NSRect defaultFrame = MSIMEFloatingToolbarFrame(NSMakeRect(0.0, 0.0, 1.0, 1.0), visible, NO);
         // Five buttons: emoji, handwriting, voice and the screen keyboard are opt-in.
-        assert(defaultFrame.size.width == 330.0 && defaultFrame.size.height == 44.0);
+        assert(defaultFrame.size.width == 314.0 && defaultFrame.size.height == 44.0);
         assert(defaultFrame.size.width == ExpectedWidth(5, 24, 1));
-        assert(defaultFrame.origin.x == NSMaxX(visible) - 350.0 && defaultFrame.origin.y == NSMinY(visible) + 20.0);
+        assert(defaultFrame.origin.x == NSMaxX(visible) - 334.0 && defaultFrame.origin.y == NSMinY(visible) + 20.0);
         NSRect restored = MSIMEFloatingToolbarFrame(NSMakeRect(-4000.0, 4000.0, 1.0, 1.0), visible, YES);
         assert(restored.origin.x == NSMinX(visible) + 12.0 && restored.origin.y == NSMaxY(visible) - 56.0);
         assert(MetasequoiaFloatingToolbarShouldShow(YES, YES, NO));
@@ -186,16 +186,17 @@ int main() {
         assert([voice.toolTip isEqualToString:voice.accessibilityLabel]);
         assert(inputMode && punctuation && fullWidth && traditional && handwriting && voice && settings);
 
-        // The reference's ToolbarDragHandle and ToolbarDivider lead the row. Dragging the grip moves the panel; pressing a button never does.
-        NSView *grip = FindView(panel.contentView, @"MetasequoiaFloatingToolbarGrip");
+        // The logo, standing in for the reference's ToolbarDragHandle, and the ToolbarDivider lead the row. Dragging the logo moves the panel; pressing a button never does. The reference's separate handle bar is gone.
+        NSView *handle = FindView(panel.contentView, @"MetasequoiaFloatingToolbarLogo");
         NSView *divider = FindView(panel.contentView, @"MetasequoiaFloatingToolbarDivider");
-        assert(grip != nil && divider != nil && grip.mouseDownCanMoveWindow && panel.movableByWindowBackground);
+        assert(handle != nil && divider != nil && handle.mouseDownCanMoveWindow && panel.movableByWindowBackground);
+        assert(FindView(panel.contentView, @"MetasequoiaFloatingToolbarGrip") == nil);
         [panel.contentView layoutSubtreeIfNeeded];
         {
-            const NSRect gripRect = [grip convertRect:grip.bounds toView:panel.contentView];
+            const NSRect handleRect = [handle convertRect:handle.bounds toView:panel.contentView];
             const NSRect dividerRect = [divider convertRect:divider.bounds toView:panel.contentView];
             const NSRect firstRect = [inputMode convertRect:inputMode.bounds toView:panel.contentView];
-            assert(NSMaxX(gripRect) <= NSMinX(dividerRect) && NSMaxX(dividerRect) <= NSMinX(firstRect));
+            assert(NSMaxX(handleRect) <= NSMinX(dividerRect) && NSMaxX(dividerRect) <= NSMinX(firstRect));
         }
         for (NSButton *button in @[inputMode, punctuation, fullWidth, traditional, emoji, handwriting, keyboard, voice, settings]) {
             assert(!button.mouseDownCanMoveWindow);
@@ -268,7 +269,7 @@ int main() {
             }
         }
         [panel applySizingPreferences:@{@"floating_toolbar": @{@"scale_percent": @999, @"font_size": @(-1)}}];
-        assert(NSEqualSizes([[panel valueForKey:@"preferredSize"] sizeValue], NSMakeSize(330.0, 44.0)));
+        assert(NSEqualSizes([[panel valueForKey:@"preferredSize"] sizeValue], NSMakeSize(314.0, 44.0)));
         [panel applySizingPreferences:@{@"floating_toolbar": @{@"scale_percent": @150, @"font_size": @28}}];
         FloatingToolbarTestDelegate *sizingDelegate = [FloatingToolbarTestDelegate new];
         // Configured while hidden, so it is the preferred size that carries it; showing the toolbar is what
@@ -298,14 +299,12 @@ int main() {
                 assert(optionalButtons[index].hidden == ((mask & (1u << index)) == 0));
             assert([[panel valueForKey:@"preferredSize"] sizeValue].width == ExpectedWidth(count, 28, 1.5));
             assert(inputMode.superview != nil);
-            // The logo, grip and divider lead the row; every visible button sits right of them.
+            // The logo and divider lead the row; every visible button sits right of them.
             const NSRect logoRect = [logo convertRect:logo.bounds toView:panel.contentView];
-            const NSRect gripRect = [grip convertRect:grip.bounds toView:panel.contentView];
             const NSRect dividerRect = [divider convertRect:divider.bounds toView:panel.contentView];
-            // mask 0 leaves the row empty, and an empty row drops the divider - the logo and grip stay.
+            // mask 0 leaves the row empty, and an empty row drops the divider - the logo stays, so the panel can still be dragged.
             assert(divider.hidden == (count == 0) && std::abs(NSMinX(logoRect)) < 0.01 && std::abs(NSWidth(logoRect) - 57.0) <= 1.0 / panel.backingScaleFactor);
-            assert(std::abs(NSMinX(gripRect) - NSMaxX(logoRect)) <= 1.0 / panel.backingScaleFactor && std::abs(NSWidth(gripRect) - 27.0) <= 1.0 / panel.backingScaleFactor);
-            assert(NSMinX(dividerRect) >= NSMaxX(gripRect) && std::abs(NSWidth(dividerRect) - 1.8) <= 1.0 / panel.backingScaleFactor);
+            assert(std::abs(NSMinX(dividerRect) - NSMaxX(logoRect) - 6.0) <= 1.0 / panel.backingScaleFactor && std::abs(NSWidth(dividerRect) - 1.8) <= 1.0 / panel.backingScaleFactor);
             CGFloat previousRight = NSMaxX(dividerRect);
             for (NSButton *button in @[inputMode, punctuation, fullWidth, traditional, emoji, handwriting, keyboard, voice, settings]) {
                 if (button.hidden) continue;
@@ -315,9 +314,9 @@ int main() {
                 previousRight = NSMaxX(rect);
             }
         }
-        // With every button off the divider goes, but the grip stays so the panel can still be dragged.
+        // With every button off the divider goes, but the logo stays so the panel can still be dragged.
         [panel applySizingPreferences:@{@"floating_toolbar": @{@"english_mode": @NO, @"punctuation": @NO, @"fullwidth": @NO, @"character_set": @NO, @"emoji": @NO, @"handwriting": @NO, @"screen_keyboard": @NO, @"voice": @NO, @"settings": @NO}}];
-        assert(FindView(panel.contentView, @"MetasequoiaFloatingToolbarGrip") == grip && !grip.hidden && divider.hidden);
+        assert(FindView(panel.contentView, @"MetasequoiaFloatingToolbarLogo") == handle && !handle.hidden && divider.hidden);
         assert([[panel valueForKey:@"preferredSize"] sizeValue].width == ExpectedWidth(0, 24, 1));
         [panel applySizingPreferences:@{}];
         assert(!divider.hidden);
@@ -325,9 +324,9 @@ int main() {
             assert(button.hidden == (button == keyboard || button == emoji));
             if (!button.hidden) assert(button.superview != nil);
         }
-        assert([[panel valueForKey:@"preferredSize"] sizeValue].width == 330.0);
+        assert([[panel valueForKey:@"preferredSize"] sizeValue].width == 314.0);
         [panel applySizingPreferences:@{@"floating_toolbar": @{@"screen_keyboard": @"invalid"}}];
-        assert(keyboard.hidden && [[panel valueForKey:@"preferredSize"] sizeValue].width == 330.0);
+        assert(keyboard.hidden && [[panel valueForKey:@"preferredSize"] sizeValue].width == 314.0);
         [panel applySizingPreferences:@{@"floating_toolbar": @{@"screen_keyboard": @YES}}];
         assert(!keyboard.hidden && [[panel valueForKey:@"preferredSize"] sizeValue].width == ExpectedWidth(6, 24, 1));
 

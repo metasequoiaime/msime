@@ -7,12 +7,15 @@
 #include <algorithm>
 #include <cmath>
 
-// Left-edge drag grip, the counterpart of the reference's ToolbarDragHandle: a 2.5 x 14 rounded #8E8CD8 bar centred in an 18pt slot (the reference's 8pt left padding plus its 10pt handle). Dragging it moves the panel through movableByWindowBackground; the reference's IDC_SIZEALL cursor maps to the open-hand cursor, the macOS cue for a movable surface.
-@interface MetasequoiaFloatingToolbarGripView : NSView
+// The compact water-fir mark keeps the toolbar identifiable when it is detached from the settings window. It mirrors the shared MSIME app mark without loading an image resource, so it remains crisp at every toolbar scale.
+//
+// It is also the drag handle, the counterpart of the reference's ToolbarDragHandle: pressing it moves the panel through movableByWindowBackground, and the reference's IDC_SIZEALL cursor maps to the open-hand cursor, the macOS cue for a movable surface. The toolbar used to carry the reference's own handle, a #8E8CD8 bar, beside the logo; with the logo already leading the row that bar was a second mark saying the same thing, so the logo took over its job.
+@interface MetasequoiaFloatingToolbarLogoView : NSView
 @property(nonatomic) CGFloat scale;
 @end
-@implementation MetasequoiaFloatingToolbarGripView
+@implementation MetasequoiaFloatingToolbarLogoView
 {
+    NSImage *_image;
     NSTrackingArea *_trackingArea;
 }
 - (instancetype)initWithFrame:(NSRect)frameRect
@@ -21,7 +24,10 @@
     if (self != nil)
     {
         _scale = 1.0;
-        self.accessibilityIdentifier = @"MetasequoiaFloatingToolbarGrip";
+        NSString *path = [[NSBundle bundleForClass:self.class] pathForResource:@"MSIMEClientInputMethod" ofType:@"icns"];
+        _image = path == nil ? nil : [[NSImage alloc] initWithContentsOfFile:path];
+        self.accessibilityIdentifier = @"MetasequoiaFloatingToolbarLogo";
+        self.accessibilityLabel = @"水杉输入法";
     }
     return self;
 }
@@ -63,46 +69,6 @@
 - (void)drawRect:(NSRect)dirtyRect
 {
     (void)dirtyRect;
-    const CGFloat barWidth = 2.5 * _scale;
-    const CGFloat barHeight = 14.0 * _scale;
-    const NSRect bar = NSMakeRect(NSMidX(self.bounds) - barWidth * 0.5, NSMidY(self.bounds) - barHeight * 0.5, barWidth, barHeight);
-    const CGFloat radius = std::max<CGFloat>(1.0, barWidth * 0.8);
-    [[NSColor colorWithSRGBRed:0x8E / 255.0 green:0x8C / 255.0 blue:0xD8 / 255.0 alpha:1.0] setFill];
-    [[NSBezierPath bezierPathWithRoundedRect:bar xRadius:radius yRadius:radius] fill];
-}
-@end
-
-// The compact water-fir mark keeps the toolbar identifiable when it is detached
-// from the settings window. It mirrors the shared MSIME app mark without loading
-// an image resource, so it remains crisp at every toolbar scale.
-@interface MetasequoiaFloatingToolbarLogoView : NSView
-@property(nonatomic) CGFloat scale;
-@end
-@implementation MetasequoiaFloatingToolbarLogoView
-{
-    NSImage *_image;
-}
-- (instancetype)initWithFrame:(NSRect)frameRect
-{
-    self = [super initWithFrame:frameRect];
-    if (self != nil)
-    {
-        _scale = 1.0;
-        NSString *path = [[NSBundle bundleForClass:self.class] pathForResource:@"MSIMEClientInputMethod" ofType:@"icns"];
-        _image = path == nil ? nil : [[NSImage alloc] initWithContentsOfFile:path];
-        self.accessibilityIdentifier = @"MetasequoiaFloatingToolbarLogo";
-        self.accessibilityLabel = @"水杉输入法";
-    }
-    return self;
-}
-- (void)setScale:(CGFloat)scale
-{
-    _scale = scale;
-    self.needsDisplay = YES;
-}
-- (void)drawRect:(NSRect)dirtyRect
-{
-    (void)dirtyRect;
     const CGFloat side = std::min(NSWidth(self.bounds), NSHeight(self.bounds)) - 4.0 * _scale;
     const NSRect mark = NSMakeRect(NSMidX(self.bounds) - side * 0.5, NSMidY(self.bounds) - side * 0.5, side, side);
     if (_image != nil)
@@ -134,7 +100,7 @@
 }
 @end
 
-// Hairline between the grip and the buttons, the counterpart of the reference's ToolbarDivider.
+// Hairline between the logo and the buttons, the counterpart of the reference's ToolbarDivider.
 @interface MetasequoiaFloatingToolbarDivider : NSView
 @property(nonatomic, copy) NSColor *fillColor;
 @end
@@ -224,14 +190,13 @@
 
 namespace
 {
-// Unscaled leading run: the 32pt logo, 6pt gap, 18pt grip slot, the reference's 2pt gap, the 1.2pt divider, then the 8pt gap before the first button. It replaces the plain 10pt leading inset.
-constexpr CGFloat kToolbarGripWidth = 18.0;
+// Unscaled leading run: the 32pt logo and its 6pt gap, which together are the drag handle, a further 4pt, the 1.2pt divider, then the 8pt gap before the first button. It replaces the plain 10pt leading inset.
 constexpr CGFloat kToolbarLogoWidth = 32.0;
 constexpr CGFloat kToolbarLogoGap = 6.0;
-constexpr CGFloat kToolbarGripDividerGap = 2.0;
+constexpr CGFloat kToolbarLogoDividerGap = 4.0;
 constexpr CGFloat kToolbarDividerWidth = 1.2;
 constexpr CGFloat kToolbarDividerButtonGap = 8.0;
-constexpr CGFloat kToolbarLeadingChrome = kToolbarLogoWidth + kToolbarLogoGap + kToolbarGripWidth + kToolbarGripDividerGap + kToolbarDividerWidth + kToolbarDividerButtonGap;
+constexpr CGFloat kToolbarLeadingChrome = kToolbarLogoWidth + kToolbarLogoGap + kToolbarLogoDividerGap + kToolbarDividerWidth + kToolbarDividerButtonGap;
 // Unscaled trailing run: the 10pt trailing inset plus 10pt the equal-spacing stack spreads across its gaps.
 constexpr CGFloat kToolbarTrailingChrome = 20.0;
 constexpr CGFloat kToolbarButtonSpacing = 8.0;
@@ -249,7 +214,7 @@ CGFloat ToolbarPreferredWidth(NSUInteger count, CGFloat fontSize, CGFloat scale)
 // keyboard are opt-in (see FloatingToolbarPreferences::default() in crates/client-core). This is the
 // size the window opens at, before any preferences are applied, so a wider value here would show a
 // toolbar that immediately shrinks.
-constexpr CGFloat kToolbarWidth = 330.0;
+constexpr CGFloat kToolbarWidth = 314.0;
 static_assert(kToolbarWidth >= 5 * 42.0 + 4 * kToolbarButtonSpacing + kToolbarTrailingChrome + kToolbarLeadingChrome &&
                   kToolbarWidth < 5 * 42.0 + 4 * kToolbarButtonSpacing + kToolbarTrailingChrome + kToolbarLeadingChrome + 1.0,
               "kToolbarWidth must be ToolbarPreferredWidth(5, 24, 1)");
@@ -488,12 +453,10 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     NSButton *_voiceButton;
     NSButton *_settingsButton;
     NSStackView *_actions;
-    MetasequoiaFloatingToolbarGripView *_grip;
     MetasequoiaFloatingToolbarLogoView *_logo;
     MetasequoiaFloatingToolbarDivider *_divider;
-    NSLayoutConstraint *_gripWidth;
     NSLayoutConstraint *_logoWidth;
-    NSLayoutConstraint *_gripDividerGap;
+    NSLayoutConstraint *_logoDividerGap;
     NSLayoutConstraint *_dividerWidth;
     NSLayoutConstraint *_dividerHeight;
     NSLayoutConstraint *_dividerButtonGap;
@@ -598,10 +561,7 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     _actions = actions;
     [_chrome addSubview:actions];
 
-    // The reference lays out handle, divider, then icons from the left edge, and its hit test makes the handle the caption drag region.
-    _grip = [[MetasequoiaFloatingToolbarGripView alloc] initWithFrame:NSZeroRect];
-    _grip.translatesAutoresizingMaskIntoConstraints = NO;
-    [_chrome addSubview:_grip];
+    // The reference lays out handle, divider, then icons from the left edge, and its hit test makes the handle the caption drag region; here the logo is the handle.
     _logo = [[MetasequoiaFloatingToolbarLogoView alloc] initWithFrame:NSZeroRect];
     _logo.translatesAutoresizingMaskIntoConstraints = NO;
     [_chrome addSubview:_logo];
@@ -611,8 +571,7 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     [_chrome addSubview:_divider];
 
     _logoWidth = [_logo.widthAnchor constraintEqualToConstant:kToolbarLogoWidth + kToolbarLogoGap];
-    _gripWidth = [_grip.widthAnchor constraintEqualToConstant:kToolbarGripWidth];
-    _gripDividerGap = [_divider.leadingAnchor constraintEqualToAnchor:_grip.trailingAnchor constant:kToolbarGripDividerGap];
+    _logoDividerGap = [_divider.leadingAnchor constraintEqualToAnchor:_logo.trailingAnchor constant:kToolbarLogoDividerGap];
     _dividerWidth = [_divider.widthAnchor constraintEqualToConstant:kToolbarDividerWidth];
     _dividerHeight = [_divider.heightAnchor constraintEqualToConstant:32.0];
     _dividerButtonGap = [actions.leadingAnchor constraintEqualToAnchor:_divider.trailingAnchor constant:kToolbarDividerButtonGap];
@@ -622,11 +581,7 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
         [_logo.topAnchor constraintEqualToAnchor:_chrome.topAnchor],
         [_logo.bottomAnchor constraintEqualToAnchor:_chrome.bottomAnchor],
         _logoWidth,
-        [_grip.leadingAnchor constraintEqualToAnchor:_logo.trailingAnchor],
-        [_grip.topAnchor constraintEqualToAnchor:_chrome.topAnchor],
-        [_grip.bottomAnchor constraintEqualToAnchor:_chrome.bottomAnchor],
-        _gripWidth,
-        _gripDividerGap,
+        _logoDividerGap,
         _dividerWidth,
         _dividerHeight,
         [_divider.centerYAnchor constraintEqualToAnchor:_chrome.centerYAnchor],
@@ -733,13 +688,11 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     _actions.spacing = kToolbarButtonSpacing * scale;
     _logo.scale = scale;
     _logoWidth.constant = (kToolbarLogoWidth + kToolbarLogoGap) * scale;
-    _grip.scale = scale;
-    _gripWidth.constant = kToolbarGripWidth * scale;
-    _gripDividerGap.constant = kToolbarGripDividerGap * scale;
+    _logoDividerGap.constant = kToolbarLogoDividerGap * scale;
     _dividerWidth.constant = kToolbarDividerWidth * scale;
     _dividerHeight.constant = (fontSize + 8.0) * scale;
     _dividerButtonGap.constant = kToolbarDividerButtonGap * scale;
-    // The grip stays even with every button off, as the reference always keeps its handle, so the panel can still be dragged.
+    // The logo stays even with every button off, as the reference always keeps its handle, so the panel can still be dragged.
     _divider.hidden = count == 0;
     _trailingInset.constant = -10.0 * scale;
     _chrome.layer.cornerRadius = 10.0 * scale;

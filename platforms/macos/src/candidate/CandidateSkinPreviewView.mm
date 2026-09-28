@@ -94,7 +94,7 @@ NSSize ToolbarPreviewSize(NSUInteger components, CGFloat scalePercent, CGFloat f
     CGFloat count = 0.0;
     for (NSUInteger index = 0; index < 9; ++index) count += (components & (1u << index)) != 0 ? 1.0 : 0.0;
     const CGFloat gaps = count > 0.0 ? count - 1.0 : 0.0;
-    return NSMakeSize(ceil((count * (fontSize + 18.0) + gaps * 8.0 + 20.0 + 29.2) * scale),
+    return NSMakeSize(ceil((count * (fontSize + 18.0) + gaps * 8.0 + 20.0 + 51.2) * scale),
                       ceil((fontSize + 20.0) * scale));
 }
 
@@ -341,7 +341,7 @@ NSArray<NSArray<NSString *> *> *ToolbarPreviewGlyphs()
               @[@"", @"hand.draw"], @[@"", @"keyboard"], @[@"", @"mic.fill"], @[@"", @"gearshape"] ];
 }
 
-// The toolbar as the panel would build it for these settings, drawn into `slot` at the panel's own metrics: the grip, the divider, and one button per ticked component, sized (font + 18) x (font + 8) and spaced 8pt before everything is multiplied by the scale. A toolbar wider than the column is drawn down to fit rather than clipped — losing the trailing buttons would hide exactly the thing 工具栏缩放 changes — and the factor comes back so the caller can say so. It is never drawn up: 75% has to look smaller than 100%.
+// The toolbar as the panel would build it for these settings, drawn into `slot` at the panel's own metrics: the logo, the divider, and one button per ticked component, sized (font + 18) x (font + 8) and spaced 8pt before everything is multiplied by the scale. A toolbar wider than the column is drawn down to fit rather than clipped — losing the trailing buttons would hide exactly the thing 工具栏缩放 changes — and the factor comes back so the caller can say so. It is never drawn up: 75% has to look smaller than 100%.
 CGFloat DrawPreviewToolbar(NSRect slot, const msime::mac::SkinTokens &tokens, NSUInteger components,
                            CGFloat scalePercent, CGFloat fontSize)
 {
@@ -367,14 +367,21 @@ CGFloat DrawPreviewToolbar(NSRect slot, const msime::mac::SkinTokens &tokens, NS
         chrome.lineWidth = 1.0;
         [chrome stroke];
     }
-    // The drag grip, a 2.5 x 14 bar centred in an 18pt slot, in the same fixed colour the panel paints it.
-    const CGFloat gripWidth = 2.5 * scale;
-    const CGFloat gripHeight = 14.0 * scale;
-    NSRect grip = NSMakeRect((18.0 * scale - gripWidth) / 2.0, (natural.height - gripHeight) / 2.0, gripWidth, gripHeight);
-    [[NSColor colorWithSRGBRed:0x8E / 255.0 green:0x8C / 255.0 blue:0xD8 / 255.0 alpha:1.0] setFill];
-    [[NSBezierPath bezierPathWithRoundedRect:grip
-                                     xRadius:MAX(1.0, gripWidth * 0.8)
-                                     yRadius:MAX(1.0, gripWidth * 0.8)] fill];
+    // The logo, which is also the panel's drag handle: the application icon centred in the 38pt slot of the 32pt mark and its 6pt gap, inset 2pt as the panel draws it. The panel's vector fallback for a missing icon is not repeated here; without the icon the slot stays empty.
+    static NSImage *logo;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSString *path = [[NSBundle bundleForClass:MSIMEToolbarPreviewView.class] pathForResource:@"MSIMEClientInputMethod" ofType:@"icns"];
+        logo = path == nil ? nil : [[NSImage alloc] initWithContentsOfFile:path];
+    });
+    const CGFloat logoSlot = 38.0 * scale;
+    const CGFloat logoSide = MIN(logoSlot, natural.height) - 4.0 * scale;
+    [logo drawInRect:NSMakeRect((logoSlot - logoSide) / 2.0, (natural.height - logoSide) / 2.0, logoSide, logoSide)
+            fromRect:NSZeroRect
+           operation:NSCompositingOperationSourceOver
+            fraction:1.0
+      respectFlipped:YES
+               hints:nil];
     // The panel picks the divider and hover colours off the effective appearance rather than the skin, because the skin's own hover token is an opaque candidate-row fill. The skin surface is what decides here: a light skin under a dark system appearance draws a light toolbar, and the hairline has to be visible on the surface it is actually drawn on.
     const msime::mac::Rgba surface = tokens.surface;
     const BOOL dark = 0.299 * surface.r + 0.587 * surface.g + 0.114 * surface.b < 0.5;
@@ -382,7 +389,7 @@ CGFloat DrawPreviewToolbar(NSRect slot, const msime::mac::SkinTokens &tokens, NS
     {
         [(dark ? [NSColor colorWithSRGBRed:1.0 green:1.0 blue:1.0 alpha:0.15]
                : [NSColor colorWithSRGBRed:0.0 green:0.0 blue:0.0 alpha:0.12]) setFill];
-        NSRectFillUsingOperation(NSMakeRect(20.0 * scale, buttonTop, 1.2 * scale, buttonHeight),
+        NSRectFillUsingOperation(NSMakeRect(42.0 * scale, buttonTop, 1.2 * scale, buttonHeight),
                                  NSCompositingOperationSourceOver);
     }
     NSDictionary *attributes = @{
@@ -393,7 +400,7 @@ CGFloat DrawPreviewToolbar(NSRect slot, const msime::mac::SkinTokens &tokens, NS
                                                                                           weight:NSFontWeightRegular]
         configurationByApplyingConfiguration:[NSImageSymbolConfiguration configurationWithPaletteColors:@[PreviewColor(tokens.text)]]];
     NSArray<NSArray<NSString *> *> *glyphs = ToolbarPreviewGlyphs();
-    CGFloat x = 29.2 * scale;
+    CGFloat x = 51.2 * scale;
     for (NSUInteger index = 0; index < glyphs.count; ++index)
     {
         if ((components & (1u << index)) == 0) continue;
