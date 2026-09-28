@@ -133,7 +133,7 @@ fn validates_chat_catalog_and_request_boundaries() {
 fn validates_dictionary_boundaries() {
     let valid_id = "0123456789abcdef".repeat(4);
     assert_eq!(
-        dictionary_path(DictionaryKind::Pinyin, 2, "ni hao").unwrap(),
+        crate::cloud::dictionary::dictionary_path(DictionaryKind::Pinyin, 2, "ni hao").unwrap(),
         "/v1/users/me/dictionaries/pinyin?q=ni%20hao&offset=2&limit=100"
     );
     assert_eq!(
@@ -141,7 +141,9 @@ fn validates_dictionary_boundaries() {
             .unwrap(),
         "/v1/users/me/dictionaries/pinyin/catalog?q=nihc&offset=0&limit=100&scheme=shuangpin&profile=xiaohe"
     );
-    assert!(dictionary_path(DictionaryKind::Wubi, 1_000_001, "").is_err());
+    assert!(
+        crate::cloud::dictionary::dictionary_path(DictionaryKind::Wubi, 1_000_001, "").is_none()
+    );
     assert!(dictionary_catalog_path(DictionaryKind::Pinyin, "", 1_000_001, "pinyin", "x").is_err());
     assert!(validate_dictionary_catalog_query("", 0, "", "x").is_err());
     assert!(validate_dictionary_id(&valid_id).is_ok());

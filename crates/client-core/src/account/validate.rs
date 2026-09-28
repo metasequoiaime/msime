@@ -63,14 +63,6 @@ fn dictionary_code_is_well_formed(kind: DictionaryKind, code: &str) -> bool {
     }
 }
 
-pub(super) fn dictionary_path(
-    kind: DictionaryKind,
-    offset: usize,
-    search: &str,
-) -> Result<String, AccountError> {
-    crate::cloud::dictionary::dictionary_path(kind, offset, search).ok_or(AccountError::Invalid)
-}
-
 pub(super) fn validate_dictionary_catalog_query(
     code: &str,
     offset: usize,

@@ -286,7 +286,8 @@ impl BackendAccountClient {
         offset: usize,
         access_token: &str,
     ) -> Result<AccountDictionaryPage, AccountError> {
-        let path = dictionary_path(kind, offset, search)?;
+        let path = crate::cloud::dictionary::dictionary_path(kind, offset, search)
+            .ok_or(AccountError::Invalid)?;
         let page =
             self.json::<AccountDictionaryPage, ()>(Method::GET, &path, Some(access_token), None)?;
         validate_dictionary_page(&page, kind)?;
