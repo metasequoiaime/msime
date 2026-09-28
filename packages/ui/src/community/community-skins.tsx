@@ -697,7 +697,7 @@ export function CommunitySkinsPage({
           aria-label="搜索皮肤设计"
           placeholder="搜索皮肤设计"
           value={search}
-          onChange={(event) => setSearch([...event.target.value].slice(0, 128).join(""))}
+          onChange={(event) => setSearch(boundedGraphemes(event.target.value, 128))}
         />
         <button type="submit" className={style.searchSubmit}>
           搜索
