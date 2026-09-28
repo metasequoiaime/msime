@@ -17,6 +17,32 @@ export type TouchKeyboardSchemePreferences = {
   selected?: TouchKeyboardScheme;
 };
 
+export function touchKeyboardSchemeTitle(preferences: Preferences): string {
+  const selected = preferences.touch_keyboard_schemes?.selected;
+  if (selected) {
+    return {
+      quanpin: "全拼 26 键",
+      nine_key: "全拼 9 键",
+      xiaohe: "小鹤双拼",
+      ziranma: "自然码双拼",
+      microsoft: "微软双拼",
+      shoudao: "首道双拼",
+      wubi: "86 五笔",
+      japanese_nine_key: "日语 9 键",
+      japanese: "日语 26 键",
+      handwriting: "手写",
+      thoughtful_reply: "高情商回复",
+    }[selected];
+  }
+  if (preferences.touch_keyboard_layout === "handwriting") return "手写";
+  if (preferences.touch_keyboard_layout === "nine_key")
+    return preferences.scheme === "japanese" ? "日语 9 键" : "全拼 9 键";
+  if (preferences.scheme === "japanese") return "日语 26 键";
+  if (preferences.scheme === "wubi") return "86 五笔";
+  if (preferences.scheme === "shuangpin") return `${preferences.shuangpin_profile} 双拼`;
+  return "全拼 26 键";
+}
+
 export const touchKeyboardSchemeOptions: [TouchKeyboardScheme, string][] = [
   ["quanpin", "全拼 26 键"],
   ["nine_key", "全拼 9 键"],
