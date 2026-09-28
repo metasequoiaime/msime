@@ -136,6 +136,7 @@ import { BuiltInSkinsSection } from "./settings/built-in-skins-section";
 import { EnglishSuggestionsSection } from "./settings/english-suggestions-section";
 import { LearningSection } from "./settings/learning-section";
 import { LearningDataSection } from "./settings/learning-data-section";
+import { DictionaryManagerHeader } from "./settings/dictionary-manager-header";
 import { SettingsActionsFooter } from "./settings/settings-actions-footer";
 import { AboutHeroSection } from "./settings/about-hero-section";
 import { SkinPlatformNotice } from "./settings/skin-platform-notice";
@@ -544,6 +545,10 @@ export {
   LearningDataSection,
   type LearningDataSectionProps,
 } from "./settings/learning-data-section";
+export {
+  DictionaryManagerHeader,
+  type DictionaryManagerHeaderProps,
+} from "./settings/dictionary-manager-header";
 export {
   SettingsActionsFooter,
   type SettingsActionsFooterProps,
@@ -4049,81 +4054,24 @@ export function SettingsPage({
                       />
                     )}
                     {client.dictionary && (
-                      <div
-                        className={`section ${settings.managerHeader}`}
-                        role="region"
-                        aria-label="快捷短语管理"
-                      >
-                        <div className="section-header">
-                          <span className="section-title">
-                            本地词库管理
-                            <small>
-                              查询、新增、编辑、导入、导出和删除 Engine
-                              用户词库。导入支持标准、Windows TSV、Rime
-                              和纯汉字自动注音。标有「内置」的是随输入法附带的词条，只能调整权重或删除。
-                            </small>
-                          </span>
-                          <span>
-                            <button
-                              type="button"
-                              className="secondary"
-                              disabled={phraseBusy}
-                              onClick={() => void loadPhrases(dictionaryKind, 0)}
-                            >
-                              查询
-                            </button>{" "}
-                            <button
-                              type="button"
-                              className="secondary"
-                              disabled={phraseBusy}
-                              onClick={() =>
-                                setPhraseForm({
-                                  key: "",
-                                  value: "",
-                                  weight: 10,
-                                  previous: null,
-                                })
-                              }
-                            >
-                              新增词条
-                            </button>{" "}
-                            <button
-                              type="button"
-                              className="secondary"
-                              disabled={phraseBusy || dictionaryFormat === "hans"}
-                              onClick={() => void exportPhrases()}
-                            >
-                              导出当前类型
-                            </button>{" "}
-                            <button
-                              type="button"
-                              className="secondary"
-                              disabled={phraseBusy}
-                              onClick={() => void exportAllPhrases()}
-                            >
-                              导出全部
-                            </button>
-                            <label className="secondary">
-                              导入
-                              <input
-                                hidden
-                                type="file"
-                                accept=".txt,.tsv,.yaml,.yml,text/plain"
-                                disabled={phraseBusy}
-                                onChange={(event) => {
-                                  const file = event.target.files?.[0];
-                                  if (file) {
-                                    const name = file.name.toLowerCase();
-                                    if (name.endsWith(".yaml") || name.endsWith(".yml"))
-                                      setDictionaryFormat("rime");
-                                    void importPhrases(file);
-                                  }
-                                  event.currentTarget.value = "";
-                                }}
-                              />
-                            </label>
-                          </span>
-                        </div>
+                      <>
+                        <DictionaryManagerHeader
+                          disabled={phraseBusy}
+                          dictionaryFormat={dictionaryFormat}
+                          onQuery={() => void loadPhrases(dictionaryKind, 0)}
+                          onAdd={() =>
+                            setPhraseForm({
+                              key: "",
+                              value: "",
+                              weight: 10,
+                              previous: null,
+                            })
+                          }
+                          onExportCurrent={() => void exportPhrases()}
+                          onExportAll={() => void exportAllPhrases()}
+                          onImport={(file) => void importPhrases(file)}
+                          onFormatChange={setDictionaryFormat}
+                        />
                         {dictionaryPendingCount > 0 && (
                           <p className="input-setting-description" role="status">
                             {dictionaryPendingCount}{" "}
@@ -4365,7 +4313,7 @@ export function SettingsPage({
                             下一页
                           </button>
                         </div>
-                      </div>
+                      </>
                     )}
                     {macosPlatform && client.resetLearnedData && (
                       <LearningDataSection
