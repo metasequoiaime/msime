@@ -1,5 +1,6 @@
 import { useConfirm } from "./core/confirm";
 import { errorMessage } from "./core/error-message";
+import { platformOsName, schemeTitle } from "./settings/label-helpers";
 import { VoiceDevicePicker, type VoiceDeviceReader } from "./voice/voice-device-picker";
 import {
   LocalModelManager,
@@ -1863,30 +1864,6 @@ function requestedPage(value: string | undefined): SettingsPageId {
 }
 
 /** What the platform calls itself, for text a person reads rather than a switch the code takes. */
-function platformOsName(platform: HostPlatform): string {
-  return platform === "macos"
-    ? "macOS"
-    : platform === "windows"
-      ? "Windows"
-      : platform === "harmony"
-        ? "HarmonyOS"
-        : platform === "ios"
-          ? "iOS"
-          : platform === "android"
-            ? "Android"
-            : "Linux";
-}
-
-function schemeTitle(scheme: Preferences["scheme"]): string {
-  return scheme === "quanpin"
-    ? "全拼"
-    : scheme === "shuangpin"
-      ? "双拼"
-      : scheme === "wubi"
-        ? "五笔"
-        : "日语";
-}
-
 /**
  * Mirrors the SecretId/Region rules in `Preferences::validate`. Saving a value
  * outside them is rejected wholesale, so the user is told here instead of
