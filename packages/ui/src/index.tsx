@@ -69,6 +69,7 @@ import { VoiceCommitModeSection, type VoiceCommitMode } from "./settings/voice-c
 import { VoiceCaptureDevicesSection } from "./settings/voice-capture-devices-section";
 import { VoiceHotkeysSection } from "./settings/voice-hotkeys-section";
 import { FloatingToolbarAppearanceSection } from "./settings/floating-toolbar-appearance-section";
+import { FloatingToolbarComponentsSection } from "./settings/floating-toolbar-components-section";
 import { DoubaoAuthModeSection } from "./settings/doubao-auth-mode-section";
 import { DoubaoStreamEndpointSection } from "./settings/doubao-stream-endpoint-section";
 import { DoubaoOptionsSection } from "./settings/doubao-options-section";
@@ -504,6 +505,12 @@ export {
   type FloatingToolbarFontSize,
   type FloatingToolbarScale,
 } from "./settings/floating-toolbar-appearance-section";
+export {
+  FloatingToolbarComponentsSection,
+  type FloatingToolbarCapability,
+  type FloatingToolbarComponentKey,
+  type FloatingToolbarComponentsSectionProps,
+} from "./settings/floating-toolbar-components-section";
 export {
   DoubaoAuthModeSection,
   type DoubaoAuthMode,
@@ -1767,37 +1774,6 @@ const defaultFloatingToolbar: FloatingToolbarPreferences = {
   scale_percent: 100,
   font_size: 24,
 };
-type FloatingToolbarOptionKey = keyof Pick<
-  FloatingToolbarPreferences,
-  | "english_mode"
-  | "fullwidth"
-  | "punctuation"
-  | "character_set"
-  | "emoji"
-  | "handwriting"
-  | "screen_keyboard"
-  | "voice"
-  | "settings"
->;
-/// In the order the buttons sit on the toolbar. The third entry names the capability a host must
-/// report for the switch to be offered at all: the handwriting and voice buttons are this client's
-/// own additions and only one host draws them, so a switch for them elsewhere would turn off
-/// something that is not there.
-const floatingToolbarOptions: [
-  FloatingToolbarOptionKey,
-  string,
-  keyof Pick<HostCapabilities, "floating_toolbar_handwriting" | "floating_toolbar_voice"> | null,
-][] = [
-  ["english_mode", "英文输入模式", null],
-  ["fullwidth", "全角 / 半角", null],
-  ["punctuation", "中英文标点", null],
-  ["character_set", "简繁切换", null],
-  ["emoji", "表情与符号", null],
-  ["handwriting", "手写识别板", "floating_toolbar_handwriting"],
-  ["screen_keyboard", "屏幕键盘", null],
-  ["voice", "语音输入", "floating_toolbar_voice"],
-  ["settings", "设置", null],
-];
 /** What the macOS settings app did with the input method it carries when it started. */
 export type InputSourceStartupStatus = {
   /** `login_required`: the input method is installed, but this login session's input source list only picks it up after the user logs in again. */
@@ -5232,41 +5208,23 @@ export function SettingsPage({
                       />
                     )}
                     {showToolbarComponents && (
-                      <div className={`section ${settings.toolbarComponents}`}>
-                        <div className="section-title">
-                          工具栏组件<small>勾选要显示在悬浮工具栏中的功能</small>
-                        </div>
-                        <div className={settings.toolbarComponentList}>
-                          <label className={`check-option ${settings.toolbarRequiredOption}`}>
-                            <input type="checkbox" checked disabled />
-                            <span>中英文切换</span>
-                            <span className={settings.toolbarRequiredLabel}>始终显示</span>
-                          </label>
-                          {floatingToolbarOptions
-                            .filter(([, , capability]) => !capability || !host || host[capability])
-                            .map(([key, label]) => (
-                              <div key={key}>
-                                <div className="input-option-divider" />
-                                <label className="check-option">
-                                  <input
-                                    type="checkbox"
-                                    checked={floatingToolbar[key]}
-                                    onChange={(event) =>
-                                      setDraft({
-                                        ...draft,
-                                        floating_toolbar: {
-                                          ...floatingToolbar,
-                                          [key]: event.target.checked,
-                                        },
-                                      })
-                                    }
-                                  />
-                                  <span>{label}</span>
-                                </label>
-                              </div>
-                            ))}
-                        </div>
-                      </div>
+                      <FloatingToolbarComponentsSection
+                        values={floatingToolbar}
+                        capabilities={
+                          host
+                            ? {
+                                floating_toolbar_handwriting: host.floating_toolbar_handwriting,
+                                floating_toolbar_voice: host.floating_toolbar_voice,
+                              }
+                            : undefined
+                        }
+                        onChange={(key, enabled) =>
+                          setDraft({
+                            ...draft,
+                            floating_toolbar: { ...floatingToolbar, [key]: enabled },
+                          })
+                        }
+                      />
                     )}
                   </fieldset>
                   <fieldset disabled={busy} hidden={page !== "input"} aria-label="输入">
