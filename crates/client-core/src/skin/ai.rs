@@ -253,10 +253,7 @@ fn validate_job(job: RawSkinJob) -> Result<AiSkinJob, AccountError> {
 }
 
 fn valid_job_id(id: &str) -> bool {
-    id.len() == 48
-        && id
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    crate::text::is_lower_hex(id, 48)
 }
 
 fn validate_artwork(artwork: &AiSkinArtwork) -> Result<Vec<u8>, AiSkinError> {
