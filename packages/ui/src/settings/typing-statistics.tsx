@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useConfirm } from "../core/confirm";
 import { scopedBreakdown } from "./typing-breakdown";
+import { chartGradient } from "./typing-chart";
 import {
   charactersPerMinute,
   readableCharacters,
@@ -616,18 +617,6 @@ function StatisticsTrendLine({
 }
 
 type DistributionVariant = "bar" | "pie" | "donut" | "rank";
-
-function chartGradient(slices: Slice[], total: number): string {
-  let cursor = 0;
-  const segments = slices
-    .filter((slice) => slice.count > 0)
-    .map((slice) => {
-      const start = (cursor / total) * 360;
-      cursor += slice.count;
-      return `${slice.color} ${start}deg ${(cursor / total) * 360}deg`;
-    });
-  return segments.length ? `conic-gradient(${segments.join(", ")})` : "var(--surface-subtle)";
-}
 
 function ShapeChart({
   slices,
