@@ -1,6 +1,7 @@
 import { useConfirm } from "./core/confirm";
 import { errorCode } from "./core/error-code";
 import { errorMessage } from "./core/error-message";
+import { randomRequestId } from "./core/random-id";
 import {
   inferredTouchKeyboardScheme,
   selectTouchKeyboardScheme,
@@ -90,7 +91,6 @@ import {
   type LocalDictionaryKind,
 } from "./dictionary/dictionary-file";
 import { localDictionaryKinds } from "./dictionary/dictionary-kinds";
-import { dictionaryRequestId } from "./dictionary/dictionary-request-id";
 export type {
   DictionaryEntry,
   LocalDictionaryFormat,
@@ -2544,7 +2544,7 @@ export function SettingsPage({
     setPhraseError("");
     setPhraseNotice("");
     try {
-      await client.dictionary.edit(entry, null, dictionaryRequestId("ui-remove"));
+      await client.dictionary.edit(entry, null, randomRequestId("ui-remove"));
       // Stay on the page the user was reading; deleting the last row on a page
       // would otherwise leave them looking at an empty one.
       const remaining = phrases.length - 1;
@@ -2588,7 +2588,7 @@ export function SettingsPage({
       await client.dictionary.edit(
         phraseForm.previous,
         replacement,
-        dictionaryRequestId(phraseForm.previous ? "ui-edit" : "ui-add"),
+        randomRequestId(phraseForm.previous ? "ui-edit" : "ui-add"),
       );
       if (!mounted.current) return;
       setPhraseForm(null);
@@ -2621,7 +2621,7 @@ export function SettingsPage({
           dictionaryKind,
           dictionaryFormat,
           text,
-          dictionaryRequestId("ui-import"),
+          randomRequestId("ui-import"),
         );
       } else {
         if (dictionaryFormat === "hans") throw new Error("hans format requires batch import");
@@ -2638,7 +2638,7 @@ export function SettingsPage({
           await client.dictionary.edit(
             null,
             { kind: dictionaryKind, key: key.trim(), value, weight: normalizedWeight },
-            dictionaryRequestId("ui-import"),
+            randomRequestId("ui-import"),
           );
         }
       }
