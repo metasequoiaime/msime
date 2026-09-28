@@ -24,9 +24,9 @@
 <key>InputMethodServerControllerClass</key><string>MSIMEInputController</string>
 <key>InputMethodServerDelegateClass</key><string>MSIMEInputController</string>
 <key>InputMethodServerPreferencesWindowControllerClass</key><string>MSIMEPreferencesWindowController</string>
-<!-- The input menu draws its icons through HIToolbox, which reads the file's pages rather than one page's DPI. A 256-point application icon in this slot is scaled into a 16-point menu slot as artwork rather than as a template, so it cannot tint for dark mode or for the highlighted menu row. Each menu TIFF - the bundle's logo here and the 中/英 icons of the two input modes below - carries 16x16 at 72 dpi and 32x32 at 144 dpi, which is the pairing Apple's own input methods ship, and is a black shape carried entirely by its alpha channel. Regenerate them with scripts/render_menu_icon.swift after editing the SVGs beside them; info-plist-icons checks the pages. CFBundleIconFile stays the .icns: that one is the Dock icon for the preferences window and wants the full-colour artwork. -->
+<!-- 输入菜单经 HIToolbox 绘制图标，它读的是文件里的页，而不是某一页的 DPI。把 256 点的应用图标放进这个槽位，会被当作图片缩进 16 点的菜单槽而不是模板，于是没法跟随深色模式或高亮菜单行着色。每个菜单 TIFF——这里的标志（下面的中文模式也用它）与英文模式的「英」——都带 16x16 @72dpi 和 32x32 @144dpi 两页，这是苹果自家输入法的配法，图形是纯黑、形状完全由 alpha 通道承载。改过旁边的 SVG 之后用 scripts/render_menu_icon.swift 重新生成；页数由 info-plist-icons 检查。CFBundleIconFile 仍然是 .icns：那是设置窗口的 Dock 图标，要的是全彩图。 -->
 <key>tsInputMethodIconFileKey</key><string>MSIMEClientInputMethodMenuIcon.tiff</string>
-<!-- macOS offers an input method through its visible input modes, and the bundle declares two: a Chinese mode and an English mode. The menu bar shows the active mode's icon, 中 or 英, so it plays the part of the Windows tray's language-bar icon, and the input controller keeps the selected mode in step with its own Chinese/English state in both directions. Keeping a separate top-level TISInputSourceID beside these modes creates another menu entry with the same localized name, so the bundle-level source is intentionally left to the system; each mode carries its own localized name in InfoPlist.strings so the two entries read differently. The mode identifiers are mirrored in src/input/InputModeIdentifiers.h. -->
+<!-- macOS 通过输入法的可见输入模式来提供它，本 bundle 声明了两个：中文模式与英文模式。菜单栏显示的是当前模式的图标：中文模式用产品标志，英文模式用「英」。带输入模式的输入法永远不会显示 bundle 那一级的图标（tsInputMethodIconFileKey），所以模式图标是标志进入菜单栏的唯一通路——别的输入法在那个位置摆的都是自家标志，而一个光秃秃的「中」是把模式指示放在了产品身份的位置上。英文模式保留字形，因为那才是值得提示的状态，也对应 Windows 托盘语言栏的做法；控制器用 selectInputMode: 与系统的模式报告双向保持中英文状态一致。在这两个模式之外再留一个顶层 TISInputSourceID，会多出一条本地化名称相同的菜单项，所以 bundle 那一级的输入源刻意交给系统处理；每个模式在 InfoPlist.strings 里带各自的本地化名称，两条读起来才不一样。模式标识符在 src/input/InputModeIdentifiers.h 里有一份对应。 -->
 <key>ComponentInputModeDict</key>
 <dict>
   <key>tsInputModeListKey</key>
@@ -38,8 +38,8 @@
       <key>tsInputModeCharacterRepertoireKey</key><array><string>Hans</string></array>
       <key>tsInputModeDefaultStateKey</key><true/>
       <key>tsInputModeIsVisibleKey</key><true/>
-      <key>tsInputModeMenuIconFileKey</key><string>MSIMEClientInputMethodMenuIconChinese.tiff</string>
-      <key>tsInputModePaletteIconFileKey</key><string>MSIMEClientInputMethodMenuIconChinese.tiff</string>
+      <key>tsInputModeMenuIconFileKey</key><string>MSIMEClientInputMethodMenuIcon.tiff</string>
+      <key>tsInputModePaletteIconFileKey</key><string>MSIMEClientInputMethodMenuIcon.tiff</string>
       <key>tsInputModePrimaryInScriptKey</key><true/>
       <key>tsInputModeScriptKey</key><string>smSimpChinese</string>
     </dict>

@@ -1,16 +1,11 @@
 #!/usr/bin/env python3
-"""Every icon the Info.plist names has to exist, and the menu icon has to be shaped for the menu.
+"""Info.plist 里写到的每个图标都必须存在，而菜单图标还得是菜单能用的形状。
 
-The input menu draws its icon through HIToolbox, which reads the file's pages rather than the DPI of a
-single one. A file with only a 2x page is taken for a 32-point image and cropped to its middle by the
-16-point menu slot, which for a stroke arrives as a filled square - a bug that looks like a design choice
-and is invisible until someone opens the input menu on a real install. Apple's own input methods ship
-16x16 at 72 dpi and 32x32 at 144 dpi in one file.
+输入菜单经 HIToolbox 绘制图标，它读的是文件里的页，而不是某一页的 DPI。只有一个 2x 页的文件会被当成 32 点图，再被 16 点的菜单槽裁去四周——对一条笔画来说，交到菜单上的就是一个实心方块。这个毛病看起来像是设计如此，而且只有在真机上打开输入菜单才看得见。苹果自家的输入法都是一个文件里放 16x16 @72dpi 与 32x32 @144dpi 两页。
 
-A missing file is the other half: the plist keys are strings, so a renamed resource fails silently and the
-menu falls back to a generic icon.
+另一半是文件缺失：plist 里这些键是字符串，资源改名之后不会报错，菜单直接回落到一个通用图标。
 
-The menu bar icon is also the mode indicator: the Chinese and English input modes each name their own icon, 中 and 英, and the menu bar shows the active one. Two modes sharing a file, or a mode naming a different file for the menu and the palette, would leave the menu bar unable to tell the modes apart.
+菜单栏的图标取自当前输入模式，永远不取 bundle 那一级，所以模式图标是产品标志进入菜单栏的唯一通路：中文模式用标志，英文模式用「英」。两个模式共用同一个文件、或者同一个模式给菜单和面板写了不同文件，都会让菜单栏分不出模式——这也是标志不能干脆两个模式都用的原因。
 """
 
 import plistlib
@@ -111,7 +106,7 @@ def main() -> int:
         if len(sharing) > 1:
             failures.append(f"{', '.join(sharing)} share {icon}; the menu bar icon would not change with the mode")
     if len(modes) < 2:
-        failures.append("the bundle declares fewer than two input modes; the menu bar icon cannot show 中 and 英")
+        failures.append("bundle 声明的输入模式少于两个，菜单栏图标就无法在标志与「英」之间切换")
 
     if failures:
         for failure in failures:
