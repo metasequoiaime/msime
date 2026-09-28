@@ -519,7 +519,7 @@ pub(super) fn validate_login(challenge: &str, credential: &str) -> Result<(), Ac
     if challenge.is_empty()
         || !crate::text::is_bounded_text(challenge, 256)
         || credential.len() != 6
-        || !credential.bytes().all(|byte| byte.is_ascii_digit())
+        || !crate::is_ascii_digits(credential)
     {
         return Err(AccountError::Invalid);
     }

@@ -30,6 +30,11 @@ pub fn is_hex_color(value: &str, digits: &[usize]) -> bool {
     })
 }
 
+/// Validate a non-empty ASCII digit string.
+pub fn is_ascii_digits(value: &str) -> bool {
+    !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit())
+}
+
 pub fn is_lower_hex(value: &str, length: usize) -> bool {
     value.len() == length
         && value

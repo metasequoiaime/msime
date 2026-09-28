@@ -45,7 +45,7 @@ pub fn descriptor(bytes: &[u8]) -> Result<Value, &'static str> {
         || msime_client_core::has_disallowed_control_with_options(&request.text, false)
         || request.timestamp.is_empty()
         || request.timestamp.len() > 20
-        || !request.timestamp.bytes().all(|byte| byte.is_ascii_digit())
+        || !msime_client_core::is_ascii_digits(&request.timestamp)
         || !["zh", "en", "fr", "ja", "es", "ru", "de", "ko"].contains(&source)
         || !["zh", "en", "fr", "ja", "es", "ru", "de", "ko"].contains(&target)
     {
