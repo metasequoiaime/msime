@@ -1796,6 +1796,27 @@ static void TestFloatingToolbarMenuToggle(MSIMEAppearancePreferences *appearance
     assert(appearance.floatingToolbarEnabled);
 }
 
+// IMK gives each text input client its own controller and candidate window. A controller whose client went away without a matching deactivateServer: must not leave its last frame on screen once another controller shows candidates or takes focus.
+static void TestCandidatePanelSingleOwner() {
+    ModeController *stale = [ModeController alloc];
+    ModeController *current = [ModeController alloc];
+    HiddenCandidatePanel *stalePanel = [[HiddenCandidatePanel alloc] init];
+    HiddenCandidatePanel *currentPanel = [[HiddenCandidatePanel alloc] init];
+    [stale setValue:stalePanel forKey:@"panel"];
+    [current setValue:currentPanel forKey:@"panel"];
+    [stale claimCandidatePanel];
+    [stalePanel orderFrontRegardless];
+    // Re-claiming by the owner itself leaves its window alone.
+    [stale claimCandidatePanel];
+    assert(stalePanel.isVisible);
+    [current claimCandidatePanel];
+    [currentPanel orderFrontRegardless];
+    assert(!stalePanel.isVisible && currentPanel.isVisible);
+    // Focus moving back hands the window over the other way.
+    [stale claimCandidatePanel];
+    assert(!currentPanel.isVisible);
+}
+
 static void TestJapaneseConversionKeys(MSIMEAppearancePreferences *appearance) {
     ModeController *controller = [ModeController alloc];
     ShortcutSession *session = [ShortcutSession new];
@@ -6806,6 +6827,7 @@ int main(int argc, char **argv) {
         TestSessionOptions();
         TestKeypadDecimal(appearance);
         TestFloatingToolbarMenuToggle(appearance);
+        TestCandidatePanelSingleOwner();
         TestJapaneseConversionKeys(appearance);
         TestGlossSensePage(appearance);
         TestGlossSenseTraditionalOutput(appearance);

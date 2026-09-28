@@ -2906,8 +2906,9 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     if (_globalVoiceHotkeyMonitor) [NSEvent removeMonitor:_globalVoiceHotkeyMonitor];
     [_desktopInputSession stop]; [_httpVoiceRequest cancel]; [_doubaoVoiceRequest cancel];
     [_doubaoPolishRequest cancel]; [_livePolishRequest cancel];
-    // A client that dies without deactivateServer: leaves the repeating timer on the run loop.
+    // A client that dies without deactivateServer: leaves the repeating timer on the run loop, and its candidate window on screen.
     [_preferencesTimer invalidate];
+    [_panel orderOut:nil];
 }
 - (MSIMEHTTPVoiceRequest *)makeDoubaoPolishRequest:(NSDictionary *)options {
     if (!([options[@"polish_enabled"] boolValue] || [options[@"polish_text"] boolValue]) || ![options[@"polish_token"] length]) return nil;
@@ -3586,6 +3587,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     [self cancelCandidateTranslations];
     [self cancelCloudCandidates];
     [self resetCandidateAnchor];
+    [self claimCandidatePanel];
     _modifierTap.reset();
     [super activateServer:sender];
     [self ensureAppearance];
@@ -5144,6 +5146,14 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     [_keymapPanel showNearCaretRect:cursor candidateClearance:clearance];
 }
 
+// IMK keeps a controller per text input client and each owns its own candidate window, so a controller that loses its client without a matching deactivateServer: (a mismatched sender, or a client that goes away) would leave its last frame on screen after the next controller commits. Only one composition is ever on screen, so whichever controller shows its window or takes focus hides the previous owner's.
+static __weak MSIMEInputController *MSIMECandidatePanelOwner;
+- (void)claimCandidatePanel {
+    MSIMEInputController *previous = MSIMECandidatePanelOwner;
+    if (previous && previous != self) [previous hideCandidatePanel:"superseded"];
+    MSIMECandidatePanelOwner = self;
+}
+
 // Every hide of the candidate window goes through here so the diagnostic log can say why it went away, like the source's candidate hide lines. Only a window that was on screen is logged.
 - (void)hideCandidatePanel:(const char *)reason {
     if (msime_macos_diagnostic_enabled() && _panel.isVisible) msime_macos_diagnostic_writef("candidate hide reason=%s", reason);
@@ -5317,6 +5327,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     _tallestVerticalCandidateHeight = MSIMETallestCandidateHeight(_tallestVerticalCandidateHeight, panelSize.height, vertical, _panel.isVisible);
     const NSPoint origin = MSIMECandidateOrigin(cursor, panelSize, visible, vertical ? _tallestVerticalCandidateHeight : 0);
     [_panel setFrameOrigin:origin];
+    [self claimCandidatePanel];
     [_panel orderFrontRegardless];
     // Geometry and counts only, the macOS form of the source's candidate-frame/candidate-position audit: flipped=1 means the window went above the caret for lack of room below.
     if (timed)
