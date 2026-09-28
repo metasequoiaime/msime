@@ -38,7 +38,7 @@ pub extern "C" fn msime_client_set_chinese_punctuation(handle: u64, enabled: boo
                 .set_chinese_punctuation_enabled(engine_chinese_punctuation(enabled, lock))
                 .map_err(|e| e.to_string())?;
             session.punctuation_override = Some(enabled);
-            serde_json::to_value(session.runtime.view()).map_err(|e| e.to_string())
+            serialized_runtime_view(session)
         })
     })
 }
@@ -52,7 +52,7 @@ pub extern "C" fn msime_client_set_paired_punctuation(handle: u64, enabled: bool
                 .set_paired_punctuation_enabled(enabled)
                 .map_err(|e| e.to_string())?;
             session.paired_punctuation_override = Some(enabled);
-            serde_json::to_value(session.runtime.view()).map_err(|e| e.to_string())
+            serialized_runtime_view(session)
         })
     })
 }
@@ -71,7 +71,7 @@ pub extern "C" fn msime_client_set_punctuation_lock(handle: u64, lock: u8) -> *m
                 .runtime
                 .set_chinese_punctuation_enabled(engine_enabled)
                 .map_err(|e| e.to_string())?;
-            serde_json::to_value(session.runtime.view()).map_err(|e| e.to_string())
+            serialized_runtime_view(session)
         })
     })
 }
@@ -85,7 +85,7 @@ pub extern "C" fn msime_client_set_english_mode(handle: u64, enabled: bool) -> *
                 .set_dedicated_english(enabled)
                 .map_err(|e| e.to_string())?;
             session.english_mode = enabled;
-            serde_json::to_value(session.runtime.view()).map_err(|e| e.to_string())
+            serialized_runtime_view(session)
         })
     })
 }
@@ -100,7 +100,7 @@ pub extern "C" fn msime_client_set_nine_key_mode(handle: u64, enabled: bool) -> 
                 .set_nine_key_enabled(enabled)
                 .map_err(|e| e.to_string())?;
             session.nine_key_override = Some(enabled);
-            serde_json::to_value(session.runtime.view()).map_err(|e| e.to_string())
+            serialized_runtime_view(session)
         })
     })
 }
@@ -114,7 +114,7 @@ pub extern "C" fn msime_client_set_character_width(handle: u64, fullwidth: bool)
             } else {
                 CharacterWidth::Halfwidth
             });
-            serde_json::to_value(session.runtime.view()).map_err(|e| e.to_string())
+            serialized_runtime_view(session)
         })
     })
 }
@@ -422,7 +422,7 @@ pub extern "C" fn msime_client_balance_paired_punctuation_after_auto_close(
                 .runtime
                 .balance_paired_punctuation_after_auto_close(opening)
                 .map_err(|e| e.to_string())?;
-            serde_json::to_value(session.runtime.view()).map_err(|e| e.to_string())
+            serialized_runtime_view(session)
         })
     })
 }

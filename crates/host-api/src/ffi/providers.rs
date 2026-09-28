@@ -7,11 +7,7 @@ use msime_client_core::is_bounded_text;
 
 #[no_mangle]
 pub extern "C" fn msime_client_view(handle: u64) -> *mut c_char {
-    response(|| {
-        with_session(handle, |session| {
-            serde_json::to_value(session.runtime.view()).map_err(|e| e.to_string())
-        })
-    })
+    response(|| with_session(handle, |session| serialized_runtime_view(session)))
 }
 
 #[no_mangle]

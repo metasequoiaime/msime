@@ -11,6 +11,10 @@
 
 use crate::*;
 
+pub(crate) fn serialized_runtime_view(session: &HostSession) -> Result<Value, String> {
+    serde_json::to_value(session.runtime.view()).map_err(|error| error.to_string())
+}
+
 pub(crate) unsafe fn with_bounded_bytes<T>(
     pointer: *const u8,
     length: usize,
