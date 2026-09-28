@@ -118,3 +118,34 @@ export function selectTouchKeyboardScheme(
     touch_keyboard_schemes,
   };
 }
+
+/** Toggle a touch scheme while keeping one visible and a valid selected scheme. */
+export function updateTouchKeyboardSchemeEnabled(
+  preferences: Preferences,
+  scheme: TouchKeyboardScheme,
+  enabled: boolean,
+  selectedTouchKeyboardScheme = inferredTouchKeyboardScheme(preferences),
+): Preferences | null {
+  const visible = new Set(preferences.touch_keyboard_schemes?.enabled ?? allTouchKeyboardSchemes);
+  if (enabled) visible.add(scheme);
+  else visible.delete(scheme);
+  if (visible.size === 0) return null;
+  const ordered = allTouchKeyboardSchemes.filter((value) => visible.has(value));
+  const selected = visible.has(selectedTouchKeyboardScheme)
+    ? selectedTouchKeyboardScheme
+    : ordered[0];
+  const next = selectTouchKeyboardScheme(preferences, selected);
+  return { ...next, touch_keyboard_schemes: { enabled: ordered, selected } };
+}
+
+/** Select a scheme from the touch keyboard home page, enabling it if necessary. */
+export function selectHomeTouchKeyboardScheme(
+  preferences: Preferences,
+  scheme: TouchKeyboardScheme,
+): Preferences {
+  const visible = new Set(preferences.touch_keyboard_schemes?.enabled ?? allTouchKeyboardSchemes);
+  visible.add(scheme);
+  const enabled = allTouchKeyboardSchemes.filter((value) => visible.has(value));
+  const next = selectTouchKeyboardScheme(preferences, scheme);
+  return { ...next, touch_keyboard_schemes: { enabled, selected: scheme } };
+}

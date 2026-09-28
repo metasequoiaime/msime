@@ -6,6 +6,8 @@ import { randomRequestId } from "./core/random-id";
 import {
   inferredTouchKeyboardScheme,
   selectTouchKeyboardScheme,
+  selectHomeTouchKeyboardScheme,
+  updateTouchKeyboardSchemeEnabled,
   touchKeyboardSchemeOptions,
   allTouchKeyboardSchemes,
   type TouchKeyboardScheme,
@@ -16,6 +18,8 @@ export {
   type TouchKeyboardSchemePreferences,
   inferredTouchKeyboardScheme,
   selectTouchKeyboardScheme,
+  selectHomeTouchKeyboardScheme,
+  updateTouchKeyboardSchemeEnabled,
   touchKeyboardSchemeOptions,
   allTouchKeyboardSchemes,
 } from "./settings/touch-keyboard-scheme-helpers";
@@ -3079,24 +3083,17 @@ export function SettingsPage({
   const selectedTouchKeyboardScheme = draft ? inferredTouchKeyboardScheme(draft) : "quanpin";
   const setTouchKeyboardSchemeEnabled = (scheme: TouchKeyboardScheme, enabled: boolean) => {
     if (!draft) return;
-    const visible = new Set(touchKeyboardSchemes.enabled);
-    if (enabled) visible.add(scheme);
-    else visible.delete(scheme);
-    if (visible.size === 0) return;
-    const ordered = allTouchKeyboardSchemes.filter((value) => visible.has(value));
-    const selected = visible.has(selectedTouchKeyboardScheme)
-      ? selectedTouchKeyboardScheme
-      : ordered[0];
-    const next = selectTouchKeyboardScheme(draft, selected);
-    setDraft({ ...next, touch_keyboard_schemes: { enabled: ordered, selected } });
+    const next = updateTouchKeyboardSchemeEnabled(
+      draft,
+      scheme,
+      enabled,
+      selectedTouchKeyboardScheme,
+    );
+    if (next) setDraft(next);
   };
   const selectHomeScheme = (scheme: TouchKeyboardScheme) => {
     if (!draft) return;
-    const visible = new Set(touchKeyboardSchemes.enabled);
-    visible.add(scheme);
-    const enabled = allTouchKeyboardSchemes.filter((value) => visible.has(value));
-    const next = selectTouchKeyboardScheme(draft, scheme);
-    setDraft({ ...next, touch_keyboard_schemes: { enabled, selected: scheme } });
+    setDraft(selectHomeTouchKeyboardScheme(draft, scheme));
   };
   const localModes = draft?.local_modes ?? defaultLocalModes;
   // Every platform sees every mode. macOS used to hide emoji, kaomoji and temporary Japanese on the
