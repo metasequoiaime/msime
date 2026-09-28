@@ -41,6 +41,7 @@ import { TraditionalChineseOutputSection } from "./settings/traditional-chinese-
 import { CloudCandidatesSection } from "./settings/cloud-candidates-section";
 import { TelemetrySection } from "./settings/telemetry-section";
 import { WubiSection } from "./settings/wubi-section";
+import { InputModeSection } from "./settings/input-mode-section";
 import { PreeditSettingsSection } from "./settings/preedit-settings-section";
 import { validCandidateFonts } from "./candidate/candidate-font-family";
 import type { FontCatalogReader } from "./candidate/font-catalog";
@@ -319,6 +320,11 @@ export {
 } from "./settings/cloud-candidates-section";
 export { TelemetrySection, type TelemetrySectionProps } from "./settings/telemetry-section";
 export { WubiSection, type WubiPreferences, type WubiSectionProps } from "./settings/wubi-section";
+export {
+  InputModeSection,
+  type InputModeScheme,
+  type InputModeSectionProps,
+} from "./settings/input-mode-section";
 export {
   PreeditSettingsSection,
   type CandidatePreeditStyle,
@@ -5838,53 +5844,13 @@ export function SettingsPage({
                         </button>
                       </div>
                     )}
-                    <div
-                      className="section"
-                      role="group"
-                      aria-labelledby="input-mode-title"
-                      hidden={client.touchKeyboardSchemes}
-                    >
-                      <div className="section-title" id="input-mode-title">
-                        输入模式
-                      </div>
-                      <div className="input-setting-description">
-                        切换中文或日文输入，并保留各模式上次选择的方案
-                      </div>
-                      <div className="input-option-content input-mode-options">
-                        <label className="radio-option">
-                          <input
-                            type="radio"
-                            name="input-mode"
-                            value="chinese"
-                            checked={draft.scheme !== "japanese"}
-                            onChange={() =>
-                              setDraft({ ...draft, scheme: draft.last_chinese_scheme ?? "quanpin" })
-                            }
-                          />
-                          <span>中文</span>
-                        </label>
-                        <div className="input-option-divider" />
-                        <label className="radio-option">
-                          <input
-                            type="radio"
-                            name="input-mode"
-                            value="japanese"
-                            checked={draft.scheme === "japanese"}
-                            onChange={() =>
-                              setDraft({
-                                ...draft,
-                                last_chinese_scheme:
-                                  draft.scheme === "japanese"
-                                    ? draft.last_chinese_scheme
-                                    : draft.scheme,
-                                scheme: "japanese",
-                              })
-                            }
-                          />
-                          <span>日文</span>
-                        </label>
-                      </div>
-                    </div>
+                    {!client.touchKeyboardSchemes && (
+                      <InputModeSection
+                        scheme={draft.scheme}
+                        lastChineseScheme={draft.last_chinese_scheme}
+                        onChange={(patch) => setDraft({ ...draft, ...patch })}
+                      />
+                    )}
                     {client.touchKeyboardSchemes && (
                       <div
                         className="section"
