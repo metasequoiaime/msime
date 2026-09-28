@@ -3065,7 +3065,7 @@ public final class MSIMEInputService extends InputMethodService {
     /** One of the skin's colours at a fraction of its opacity. */
     private static int fade(String color, double opacity) {
         int value = Color.parseColor(color);
-        return Color.argb((int) Math.round(255 * Math.max(0, Math.min(1, opacity))),
+        return Color.argb((int) Math.round(255 * KeyboardGeometry.bounded(opacity, 0, 1)),
             Color.red(value), Color.green(value), Color.blue(value));
     }
 
@@ -6790,7 +6790,7 @@ public final class MSIMEInputService extends InputMethodService {
 
         void show(Button anchor, JapaneseNineKeyLayout.Key key, int direction, FrameLayout root) {
             labels = key.kana().toArray(String[]::new);
-            selectedDirection = Math.max(0, Math.min(direction, labels.length - 1));
+            selectedDirection = KeyboardGeometry.bounded(direction, 0, labels.length - 1);
             int[] rootLocation = new int[2];
             int[] anchorLocation = new int[2];
             root.getLocationOnScreen(rootLocation);
