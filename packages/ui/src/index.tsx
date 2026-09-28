@@ -49,6 +49,7 @@ import { InputMethodServiceSection } from "./settings/input-method-service-secti
 import { DataDirectorySection } from "./settings/data-directory-section";
 import { LicenseUninstallSection } from "./settings/license-uninstall-section";
 import { DiagnosticLogsSection } from "./settings/diagnostic-logs-section";
+import { HelpFeedbackSection } from "./settings/help-feedback-section";
 import { PreeditSettingsSection } from "./settings/preedit-settings-section";
 import { validCandidateFonts } from "./candidate/candidate-font-family";
 import type { FontCatalogReader } from "./candidate/font-catalog";
@@ -367,6 +368,10 @@ export {
   type DiagnosticLogPreferences,
   type DiagnosticLogsSectionProps,
 } from "./settings/diagnostic-logs-section";
+export {
+  HelpFeedbackSection,
+  type HelpFeedbackSectionProps,
+} from "./settings/help-feedback-section";
 export {
   PreeditSettingsSection,
   type CandidatePreeditStyle,
@@ -7160,26 +7165,11 @@ export function SettingsPage({
                         onCancelUninstall={() => setUninstallConfirmation(false)}
                       />
                     )}
-                    {mobilePlatform && (
-                      <div className={`section ${doc.linkList}`} aria-label="帮助与反馈">
-                        <button
-                          type="button"
-                          className={doc.linkRow}
-                          onClick={() => selectPage("help")}
-                        >
-                          <span className={doc.linkTitle}>使用帮助</span>
-                          <span aria-hidden="true">›</span>
-                        </button>
-                        <button
-                          type="button"
-                          className={doc.linkRow}
-                          onClick={() => selectPage("feedback")}
-                        >
-                          <span className={doc.linkTitle}>反馈问题与建议</span>
-                          <span aria-hidden="true">›</span>
-                        </button>
-                      </div>
-                    )}
+                    <HelpFeedbackSection
+                      visible={mobilePlatform}
+                      onHelp={() => selectPage("help")}
+                      onFeedback={() => selectPage("feedback")}
+                    />
                     <DiagnosticLogsSection
                       visible={!client.host || linuxPlatform || windowsPlatform || macosPlatform}
                       linux={linuxPlatform}
