@@ -100,6 +100,11 @@ import {
 import { NavigationSection } from "./settings/navigation-section";
 import { PunctuationSection } from "./settings/punctuation-section";
 import {
+  MixedInputSection,
+  defaultMixedInput,
+  type MixedInputPreferences,
+} from "./settings/mixed-input-section";
+import {
   ClipboardHistorySection,
   type ClipboardHistoryClient,
 } from "./settings/clipboard-history-section";
@@ -214,6 +219,11 @@ export {
 } from "./settings/word-character-section";
 export { NavigationSection } from "./settings/navigation-section";
 export { PunctuationSection, type PunctuationPreferences } from "./settings/punctuation-section";
+export {
+  MixedInputSection,
+  defaultMixedInput,
+  type MixedInputPreferences,
+} from "./settings/mixed-input-section";
 export {
   CommunitySkinsPage,
   type CommunitySkin,
@@ -1526,18 +1536,6 @@ function dictionaryKindLabel(kind: LocalDictionaryKind): string {
   return localDictionaryKinds.find(([value]) => value === kind)?.[1] ?? "词库";
 }
 
-export type MixedInputPreferences = {
-  english: boolean;
-  minimum_prefix: number;
-  emoji: boolean;
-  kaomoji: boolean;
-};
-const defaultMixedInput: MixedInputPreferences = {
-  english: true,
-  minimum_prefix: 5,
-  emoji: false,
-  kaomoji: false,
-};
 export type FrequencyPreferences = {
   mode: "disabled" | "pin" | "halve" | "linear" | "promote";
   trigger_count: number;
@@ -7304,84 +7302,10 @@ export function SettingsPage({
                       showCharacterWidth={showCharacterWidth}
                       onChange={(patch) => setDraft({ ...draft, ...patch })}
                     />
-                    <div className="section" role="group" aria-label="中英混输">
-                      <label className="section-header">
-                        <span className="section-title">
-                          中英混输<small>中文输入时在候选项中补充英文单词</small>
-                        </span>
-                        <input
-                          className="toggle"
-                          type="checkbox"
-                          checked={mixedInput.english}
-                          onChange={(event) =>
-                            setDraft({
-                              ...draft,
-                              mixed_input: { ...mixedInput, english: event.target.checked },
-                            })
-                          }
-                        />
-                      </label>
-                      <div className="input-option-divider" />
-                      <label className="section-header frequency-option-row">
-                        <span className="section-title">
-                          触发字符数<small>预编辑字母达到该长度后才出现英文候选项</small>
-                        </span>
-                        <select
-                          aria-label="触发字符数"
-                          disabled={!mixedInput.english}
-                          value={mixedInput.minimum_prefix}
-                          onChange={(event) =>
-                            setDraft({
-                              ...draft,
-                              mixed_input: {
-                                ...mixedInput,
-                                minimum_prefix: Number(event.target.value),
-                              },
-                            })
-                          }
-                        >
-                          {[1, 2, 3, 4, 5, 6, 7, 8].map((value) => (
-                            <option key={value} value={value}>
-                              {value}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    </div>
-                    {(
-                      [
-                        [
-                          "emoji",
-                          "emoji 混输",
-                          "中文输入时在候选项中加入匹配的 emoji（位于英文候选之后；云候选与 AI 联想会使其相应顺移）",
-                        ],
-                        [
-                          "kaomoji",
-                          "颜文字混输",
-                          "中文输入时在候选项中加入匹配的颜文字（排在 emoji 之后；云候选与 AI 联想会使其相应顺移）",
-                        ],
-                      ] as const
-                    ).map(([key, label, description]) => (
-                      <div className="section" key={key}>
-                        <label className="section-header">
-                          <span className="section-title">
-                            {label}
-                            <small>{description}</small>
-                          </span>
-                          <input
-                            className="toggle"
-                            type="checkbox"
-                            checked={mixedInput[key]}
-                            onChange={(event) =>
-                              setDraft({
-                                ...draft,
-                                mixed_input: { ...mixedInput, [key]: event.target.checked },
-                              })
-                            }
-                          />
-                        </label>
-                      </div>
-                    ))}
+                    <MixedInputSection
+                      preferences={mixedInput}
+                      onChange={(mixed_input) => setDraft({ ...draft, mixed_input })}
+                    />
                     {/* macOS keeps this with the chords that trigger it, on the shortcut page. */}
                     {showInputModeHUD && !macosPlatform && (
                       <div className="section">
