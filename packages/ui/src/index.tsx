@@ -344,6 +344,7 @@ import {
   ClipboardHistorySection,
   type ClipboardHistoryClient,
 } from "./settings/clipboard-history-section";
+import { CloudPanelSessionNotice } from "./settings/cloud-panel-session-notice";
 import * as surface from "./keyboard/panel-surface-style";
 import * as settings from "./settings/settings-style";
 import * as doc from "./settings/document-style";
@@ -446,6 +447,7 @@ export {
   type ClipboardHistoryClient,
   type ClipboardHistoryEntry,
 } from "./settings/clipboard-history-section";
+export { CloudPanelSessionNotice } from "./settings/cloud-panel-session-notice";
 export { FuzzyPinyinSection, type FuzzyPinyinPreferences } from "./settings/fuzzy-pinyin-section";
 export {
   WordCharacterSection,
@@ -4958,9 +4960,7 @@ export function SettingsPage({
                       onError={setError}
                     >
                       {macosPlatform ? (
-                        <p className={settings.panelPreviewLabel}>
-                          云剪贴板和云词典需要当前输入法进程提供输入会话；请从输入法悬浮工具栏或输入法菜单打开对应面板。
-                        </p>
+                        <CloudPanelSessionNotice />
                       ) : (
                         <>
                           {client.openCloudClipboard && (
