@@ -39,7 +39,8 @@ mod text;
 pub use text::{
     has_disallowed_control_with_options, is_ascii_alphabetic, is_ascii_alphanumeric_dash,
     is_ascii_digits, is_ascii_hex, is_ascii_identifier, is_ascii_identifier_with_dots,
-    is_ascii_lowercase_identifier_with_dots, is_bounded_text, is_hex_color, is_lower_hex,
+    is_ascii_lowercase, is_ascii_lowercase_identifier_with_dots, is_bounded_text, is_hex_color,
+    is_lower_hex,
 };
 pub mod translation;
 pub mod typing_statistics;

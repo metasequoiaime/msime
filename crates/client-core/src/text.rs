@@ -40,6 +40,11 @@ pub fn is_ascii_alphabetic(value: &str) -> bool {
     value.bytes().all(|byte| byte.is_ascii_alphabetic())
 }
 
+/// Whether a value contains only lowercase ASCII letters.
+pub fn is_ascii_lowercase(value: &str) -> bool {
+    value.bytes().all(|byte| byte.is_ascii_lowercase())
+}
+
 /// Whether a value contains only ASCII letters, digits, and dashes.
 pub fn is_ascii_alphanumeric_dash(value: &str) -> bool {
     value
