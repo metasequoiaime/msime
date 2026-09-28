@@ -74,21 +74,14 @@ export function InputModeShortcutsSection({
         />
       )}
       {showFullwidthChord && (
-        <label className="section-header">
-          <span className="section-title">
-            {fullwidthChord} 切换全半角
-            <small>关掉后这个组合键交给应用处理；工具栏的全半角开关不受影响。</small>
-          </span>
-          <input
-            aria-label={`${fullwidthChord} 切换全半角`}
-            className="toggle"
-            type="checkbox"
-            checked={keybindings.toggle_fullwidth_option_shift_h}
-            onChange={(event) =>
-              onChange({ toggle_fullwidth_option_shift_h: event.target.checked })
-            }
-          />
-        </label>
+        <SettingToggle
+          label={`${fullwidthChord} 切换全半角`}
+          description="关掉后这个组合键交给应用处理；工具栏的全半角开关不受影响。"
+          ariaLabel={`${fullwidthChord} 切换全半角`}
+          checked={keybindings.toggle_fullwidth_option_shift_h}
+          compact
+          onChange={(enabled) => onChange({ toggle_fullwidth_option_shift_h: enabled })}
+        />
       )}
       {windows && (
         <div className={settings.shortcutIntro}>

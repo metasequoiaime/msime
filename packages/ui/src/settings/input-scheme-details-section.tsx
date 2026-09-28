@@ -47,19 +47,14 @@ export function InputSchemeDetailsSection({
       </div>
       {macosShuangpinKeymap !== undefined && (
         <div className="section" hidden={hasTouchKeyboardSchemes || scheme !== "shuangpin"}>
-          <label className="section-header">
-            <span className="section-title">
-              输入时显示双拼键位提示
-              <small>双拼输入时显示当前方案的键位图，完成上屏后自动隐藏。</small>
-            </span>
-            <input
-              aria-label="输入时显示双拼键位提示"
-              className="toggle"
-              type="checkbox"
-              checked={macosShuangpinKeymap}
-              onChange={(event) => onMacosShuangpinKeymapChange?.(event.target.checked)}
-            />
-          </label>
+          <SettingToggle
+            label="输入时显示双拼键位提示"
+            description="双拼输入时显示当前方案的键位图，完成上屏后自动隐藏。"
+            ariaLabel="输入时显示双拼键位提示"
+            checked={macosShuangpinKeymap}
+            compact
+            onChange={(enabled) => onMacosShuangpinKeymapChange?.(enabled)}
+          />
         </div>
       )}
       <div className="section" hidden={hideChineseSchemeOptions}>
@@ -92,3 +87,4 @@ export function InputSchemeDetailsSection({
     </>
   );
 }
+import { SettingToggle } from "./setting-toggle";
