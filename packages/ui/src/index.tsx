@@ -192,6 +192,7 @@ import { DoubaoOptionsSection } from "./settings/doubao-options-section";
 import { DoubaoResourceIdSection } from "./settings/doubao-resource-id-section";
 import { VoiceRecordingBehaviorSection } from "./settings/voice-recording-behavior-section";
 import { FeedbackSettingsSection } from "./settings/feedback-settings-section";
+import { FeedbackPageSection } from "./settings/feedback-page-section";
 import { HandwritingSettingsSection } from "./settings/handwriting-settings-section";
 import { HandwritingPlatformNotice } from "./settings/handwriting-platform-notice";
 import { MobileInputAiNotice } from "./settings/mobile-input-ai-notice";
@@ -678,6 +679,10 @@ export {
   HelpFeedbackSection,
   type HelpFeedbackSectionProps,
 } from "./settings/help-feedback-section";
+export {
+  FeedbackPageSection,
+  type FeedbackPageSectionProps,
+} from "./settings/feedback-page-section";
 export { HelpSettingsPage, type HelpSettingsPageProps } from "./settings/help-settings-page";
 export {
   ScreenKeyboardThemeSection,
@@ -5364,47 +5369,47 @@ export function SettingsPage({
                       />
                     )}
                   </fieldset>
-                  <fieldset disabled={busy} hidden={page !== "feedback"} aria-label="反馈">
-                    <FeedbackSettingsSection
-                      hero={doc.hero}
-                      eyebrow={doc.eyebrow}
-                      heroTitle={doc.heroTitle}
-                      note={doc.note}
-                      feedbackList={doc.feedbackList}
-                      feedbackCard={doc.feedbackCard}
-                      feedbackIcon={doc.feedbackIcon}
-                      feedbackBody={doc.feedbackBody}
-                      feedbackTitle={doc.feedbackTitle}
-                      serviceRow={settings.serviceRow}
-                      kind={feedbackKind}
-                      detail={feedbackDetail}
-                      reportCopied={feedbackReportCopied}
-                      feedbackCopied={feedbackCopied}
-                      supportDiagnostics={supportDiagnostics}
-                      issuesUrl={platformIssuesUrl}
-                      copyText={client.copyText}
-                      openExternalUrl={client.openExternalUrl}
-                      onKindChange={setFeedbackKind}
-                      onDetailChange={setFeedbackDetail}
-                      onCopyReport={() => {
-                        if (!client.copyText) return;
-                        void client.copyText(feedbackReport).then(() => {
-                          setFeedbackReportCopied(true);
-                          window.setTimeout(() => setFeedbackReportCopied(false), 1600);
-                        });
-                      }}
-                      onSubmitFeedback={submitFeedback}
-                      onOpenIssues={() => void openExternalUrl(platformIssuesUrl)}
-                      onCopyGroup={() => {
-                        if (!client.copyText) return;
-                        void client.copyText("829919142").then(() => {
-                          setFeedbackCopied(true);
-                          window.setTimeout(() => setFeedbackCopied(false), 1600);
-                        });
-                      }}
-                      onOpenTelegram={() => void openExternalUrl("https://t.me/msimegroup")}
-                    />
-                  </fieldset>
+                  <FeedbackPageSection
+                    disabled={busy}
+                    hidden={page !== "feedback"}
+                    hero={doc.hero}
+                    eyebrow={doc.eyebrow}
+                    heroTitle={doc.heroTitle}
+                    note={doc.note}
+                    feedbackList={doc.feedbackList}
+                    feedbackCard={doc.feedbackCard}
+                    feedbackIcon={doc.feedbackIcon}
+                    feedbackBody={doc.feedbackBody}
+                    feedbackTitle={doc.feedbackTitle}
+                    serviceRow={settings.serviceRow}
+                    kind={feedbackKind}
+                    detail={feedbackDetail}
+                    reportCopied={feedbackReportCopied}
+                    feedbackCopied={feedbackCopied}
+                    supportDiagnostics={supportDiagnostics}
+                    issuesUrl={platformIssuesUrl}
+                    copyText={client.copyText}
+                    openExternalUrl={client.openExternalUrl}
+                    onKindChange={setFeedbackKind}
+                    onDetailChange={setFeedbackDetail}
+                    onCopyReport={() => {
+                      if (!client.copyText) return;
+                      void client.copyText(feedbackReport).then(() => {
+                        setFeedbackReportCopied(true);
+                        window.setTimeout(() => setFeedbackReportCopied(false), 1600);
+                      });
+                    }}
+                    onSubmitFeedback={submitFeedback}
+                    onOpenIssues={() => void openExternalUrl(platformIssuesUrl)}
+                    onCopyGroup={() => {
+                      if (!client.copyText) return;
+                      void client.copyText("829919142").then(() => {
+                        setFeedbackCopied(true);
+                        window.setTimeout(() => setFeedbackCopied(false), 1600);
+                      });
+                    }}
+                    onOpenTelegram={() => void openExternalUrl("https://t.me/msimegroup")}
+                  />
                   {!validCandidateFonts(draft) && (
                     <p role="alert">
                       请在外观页修正字体：名称不能为空、不能含控制字符或超过 128 个 UTF-8
