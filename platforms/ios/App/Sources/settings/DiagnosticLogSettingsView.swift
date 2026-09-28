@@ -83,9 +83,9 @@ struct DiagnosticLogSettingsView: View {
 
   private func reload() {
     enabled = DiagnosticLog.isEnabled(in: MetasequoiaInputSessionBridge.loadSharedPreferences())
-    guard let file, let data = try? Data(contentsOf: file) else { text = ""; size = 0; return }
-    size = data.count
+    guard let file, let result = try? DiagnosticLog.readTail(from: file, maximumBytes: 32 * 1024) else { text = ""; size = 0; return }
+    size = result.size
     // The end of the log is what a report needs; drawing a whole megabyte in one Text would stall the page.
-    text = String(decoding: data.suffix(32 * 1024), as: UTF8.self)
+    text = String(decoding: result.data, as: UTF8.self)
   }
 }

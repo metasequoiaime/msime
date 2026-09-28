@@ -4,10 +4,35 @@ import Foundation
 ///
 /// Callers pass only fixed event labels, never key values, input text, candidates, paths or provider responses. Every record is cut to 192 bytes of printable ASCII anyway, so a mistake at a call site cannot leak text into the file. The log sits next to the shared preference document in the App Group, where the App can read, share and clear it; past 1 MiB it keeps one `.1` copy, like the desktop hosts. Writing is best-effort: a keyboard without full access cannot write to the App Group, and a failed write never reaches the input path.
 final class DiagnosticLog: @unchecked Sendable {
+  struct TailRead {
+    let size: Int
+    let data: Data
+  }
+
+  enum TailReadFailure: Error {
+    case invalidLimit
+    case tooLarge
+  }
+
   static let shared = DiagnosticLog()
   static let fileName = "diagnostic.log"
   static let maxBytes = 1024 * 1024
   static let maxEventBytes = 192
+
+  /// Reads at most `maximumBytes` from the end while retaining the file's full size for display.
+  static func readTail(from url: URL, maximumBytes: Int) throws -> TailRead {
+    guard maximumBytes > 0 else { throw TailReadFailure.invalidLimit }
+    let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+    let fileSize = (attributes[.size] as? NSNumber)?.int64Value ?? 0
+    guard fileSize >= 0, fileSize <= Int64(Int.max) else { throw TailReadFailure.tooLarge }
+
+    let handle = try FileHandle(forReadingFrom: url)
+    defer { try? handle.close() }
+    let offset = max(Int64(0), fileSize - Int64(maximumBytes))
+    try handle.seek(toOffset: UInt64(offset))
+    let data = try handle.read(upToCount: maximumBytes) ?? Data()
+    return TailRead(size: Int(fileSize), data: data)
+  }
 
   private let lock = NSLock()
   private var file: URL?
