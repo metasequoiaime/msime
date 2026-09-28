@@ -190,23 +190,26 @@
 
 namespace
 {
-// Unscaled leading run: the 32pt logo and its 6pt gap, which together are the drag handle, a further 4pt, the 1.2pt divider, then the 8pt gap before the first button. It replaces the plain 10pt leading inset.
-constexpr CGFloat kToolbarLogoWidth = 32.0;
-constexpr CGFloat kToolbarLogoGap = 6.0;
-constexpr CGFloat kToolbarLogoDividerGap = 4.0;
+// Unscaled leading run: the 34pt logo and its 4pt gap, which together are the drag handle, a further 3pt, the 1.2pt divider, then the 4pt gap before the first button. It replaces the plain 10pt leading inset.
+constexpr CGFloat kToolbarLogoWidth = 34.0;
+constexpr CGFloat kToolbarLogoGap = 4.0;
+constexpr CGFloat kToolbarLogoDividerGap = 3.0;
 constexpr CGFloat kToolbarDividerWidth = 1.2;
-constexpr CGFloat kToolbarDividerButtonGap = 8.0;
+constexpr CGFloat kToolbarDividerButtonGap = 4.0;
 constexpr CGFloat kToolbarLeadingChrome = kToolbarLogoWidth + kToolbarLogoGap + kToolbarLogoDividerGap + kToolbarDividerWidth + kToolbarDividerButtonGap;
-// Unscaled trailing run: the 10pt trailing inset plus 10pt the equal-spacing stack spreads across its gaps.
-constexpr CGFloat kToolbarTrailingChrome = 20.0;
-constexpr CGFloat kToolbarButtonSpacing = 8.0;
+// Unscaled trailing run: the 6pt trailing inset. The stack gets no slack to spread, so its gaps stay at kToolbarButtonSpacing.
+constexpr CGFloat kToolbarTrailingChrome = 6.0;
+constexpr CGFloat kToolbarButtonSpacing = 2.0;
+// A button is its glyph plus 4pt a side, and the glyph is 0.95 of the chosen font size, in the regular weight that the SF Symbol buttons beside it use. Wider buttons and 8pt gaps left the characters so far apart that the toolbar covered more of the text it sits over than its five buttons needed.
+constexpr CGFloat kToolbarButtonPadding = 8.0;
+constexpr CGFloat kToolbarGlyphScale = 0.95;
 
 CGFloat ToolbarPreferredWidth(NSUInteger count, CGFloat fontSize, CGFloat scale)
 {
     const CGFloat buttons = static_cast<CGFloat>(count);
     const CGFloat gaps = count > 0 ? static_cast<CGFloat>(count - 1) : 0.0;
     // NSWindow rounds fractional point sizes; round outward so controls are never clipped.
-    return std::ceil((buttons * (fontSize + 18.0) + gaps * kToolbarButtonSpacing + kToolbarTrailingChrome + kToolbarLeadingChrome) * scale);
+    return std::ceil((buttons * (fontSize + kToolbarButtonPadding) + gaps * kToolbarButtonSpacing + kToolbarTrailingChrome + kToolbarLeadingChrome) * scale);
 }
 
 // Default row: the five buttons a profile that has not chosen gets - 中/英, punctuation, full width,
@@ -214,9 +217,9 @@ CGFloat ToolbarPreferredWidth(NSUInteger count, CGFloat fontSize, CGFloat scale)
 // keyboard are opt-in (see FloatingToolbarPreferences::default() in crates/client-core). This is the
 // size the window opens at, before any preferences are applied, so a wider value here would show a
 // toolbar that immediately shrinks.
-constexpr CGFloat kToolbarWidth = 314.0;
-static_assert(kToolbarWidth >= 5 * 42.0 + 4 * kToolbarButtonSpacing + kToolbarTrailingChrome + kToolbarLeadingChrome &&
-                  kToolbarWidth < 5 * 42.0 + 4 * kToolbarButtonSpacing + kToolbarTrailingChrome + kToolbarLeadingChrome + 1.0,
+constexpr CGFloat kToolbarWidth = 221.0;
+static_assert(kToolbarWidth >= 5 * (24.0 + kToolbarButtonPadding) + 4 * kToolbarButtonSpacing + kToolbarTrailingChrome + kToolbarLeadingChrome &&
+                  kToolbarWidth < 5 * (24.0 + kToolbarButtonPadding) + 4 * kToolbarButtonSpacing + kToolbarTrailingChrome + kToolbarLeadingChrome + 1.0,
               "kToolbarWidth must be ToolbarPreferredWidth(5, 24, 1)");
 constexpr CGFloat kToolbarHeight = 44.0;
 NSString *const kToolbarFrameAutosaveName = @"MetasequoiaFloatingToolbarFrame";
@@ -226,9 +229,9 @@ NSButton *ToolbarButton(NSString *title, NSString *identifier, id target, SEL ac
     MetasequoiaFloatingToolbarButton *button = [MetasequoiaFloatingToolbarButton buttonWithTitle:title target:target action:action];
     button.translatesAutoresizingMaskIntoConstraints = NO;
     button.bordered = NO;
-    button.font = [NSFont systemFontOfSize:15.0 weight:NSFontWeightMedium];
+    button.font = [NSFont systemFontOfSize:15.0 weight:NSFontWeightRegular];
     button.accessibilityIdentifier = identifier;
-    NSLayoutConstraint *width = [button.widthAnchor constraintEqualToConstant:42.0];
+    NSLayoutConstraint *width = [button.widthAnchor constraintEqualToConstant:24.0 + kToolbarButtonPadding];
     width.identifier = @"ToolbarButtonWidth";
     width.active = YES;
     NSLayoutConstraint *height = [button.heightAnchor constraintEqualToConstant:32.0];
@@ -559,7 +562,7 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     actions.orientation = NSUserInterfaceLayoutOrientationHorizontal;
     actions.alignment = NSLayoutAttributeCenterY;
     actions.distribution = NSStackViewDistributionEqualSpacing;
-    actions.spacing = 8.0;
+    actions.spacing = kToolbarButtonSpacing;
     _actions = actions;
     [_chrome addSubview:actions];
 
@@ -577,7 +580,7 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     _dividerWidth = [_divider.widthAnchor constraintEqualToConstant:kToolbarDividerWidth];
     _dividerHeight = [_divider.heightAnchor constraintEqualToConstant:32.0];
     _dividerButtonGap = [actions.leadingAnchor constraintEqualToAnchor:_divider.trailingAnchor constant:kToolbarDividerButtonGap];
-    _trailingInset = [actions.trailingAnchor constraintEqualToAnchor:_chrome.trailingAnchor constant:-10.0];
+    _trailingInset = [actions.trailingAnchor constraintEqualToAnchor:_chrome.trailingAnchor constant:-kToolbarTrailingChrome];
     [NSLayoutConstraint activateConstraints:@[
         [_logo.leadingAnchor constraintEqualToAnchor:_chrome.leadingAnchor],
         [_logo.topAnchor constraintEqualToAnchor:_chrome.topAnchor],
@@ -677,10 +680,10 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     for (NSButton *button in @[_inputModeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _emojiButton, _handwritingButton, _keyboardButton, _voiceButton, _settingsButton]) {
         for (NSLayoutConstraint *constraint in button.constraints) {
             if (constraint.firstItem != button || constraint.secondItem != nil) continue;
-            if ([constraint.identifier isEqualToString:@"ToolbarButtonWidth"]) constraint.constant = (fontSize + 18.0) * scale;
+            if ([constraint.identifier isEqualToString:@"ToolbarButtonWidth"]) constraint.constant = (fontSize + kToolbarButtonPadding) * scale;
             if ([constraint.identifier isEqualToString:@"ToolbarButtonHeight"]) constraint.constant = (fontSize + 8.0) * scale;
         }
-        button.font = [NSFont systemFontOfSize:fontSize * scale * 0.833 weight:NSFontWeightMedium];
+        button.font = [NSFont systemFontOfSize:fontSize * scale * kToolbarGlyphScale weight:NSFontWeightRegular];
     }
     _settingsButton.symbolConfiguration = [NSImageSymbolConfiguration configurationWithPointSize:fontSize * scale weight:NSFontWeightRegular];
     _emojiButton.symbolConfiguration = _settingsButton.symbolConfiguration;
@@ -696,7 +699,7 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     _dividerButtonGap.constant = kToolbarDividerButtonGap * scale;
     // The logo stays even with every button off, as the reference always keeps its handle, so the panel can still be dragged.
     _divider.hidden = count == 0;
-    _trailingInset.constant = -10.0 * scale;
+    _trailingInset.constant = -kToolbarTrailingChrome * scale;
     _chrome.layer.cornerRadius = 10.0 * scale;
     // NSWindow rounds fractional point sizes; round outward so controls are never clipped.
     _preferredSize = NSMakeSize(ToolbarPreferredWidth(count, fontSize, scale), std::ceil((fontSize + 20.0) * scale));

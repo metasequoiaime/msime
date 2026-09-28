@@ -56,10 +56,10 @@ static NSView *FindView(NSView *view, NSString *identifier) {
     return nil;
 }
 
-// Mirrors the panel's width: buttons and their gaps, the 20pt trailing run, and the 51.2pt leading run of logo (32), gap (6), gap (4), divider (1.2) and gap (8).
+// Mirrors the panel's width: buttons and their gaps, the 6pt trailing run, and the 46.2pt leading run of logo (34), gap (4), gap (3), divider (1.2) and gap (4).
 static double ExpectedWidth(double count, double fontSize, double factor) {
     const double gaps = count > 0 ? count - 1 : 0;
-    return std::ceil((count * (fontSize + 18.0) + gaps * 8.0 + 20.0 + (32.0 + 6.0 + 4.0 + 1.2 + 8.0)) * factor);
+    return std::ceil((count * (fontSize + 8.0) + gaps * 2.0 + 6.0 + (34.0 + 4.0 + 3.0 + 1.2 + 4.0)) * factor);
 }
 
 static void SendButton(NSButton *button) {
@@ -74,9 +74,9 @@ int main() {
         NSRect visible = NSMakeRect(-1200.0, -800.0, 1920.0, 1080.0);
         NSRect defaultFrame = MSIMEFloatingToolbarFrame(NSMakeRect(0.0, 0.0, 1.0, 1.0), visible, NO);
         // Five buttons: emoji, handwriting, voice and the screen keyboard are opt-in.
-        assert(defaultFrame.size.width == 314.0 && defaultFrame.size.height == 44.0);
+        assert(defaultFrame.size.width == 221.0 && defaultFrame.size.height == 44.0);
         assert(defaultFrame.size.width == ExpectedWidth(5, 24, 1));
-        assert(defaultFrame.origin.x == NSMaxX(visible) - 334.0 && defaultFrame.origin.y == NSMinY(visible) + 20.0);
+        assert(defaultFrame.origin.x == NSMaxX(visible) - 241.0 && defaultFrame.origin.y == NSMinY(visible) + 20.0);
         NSRect restored = MSIMEFloatingToolbarFrame(NSMakeRect(-4000.0, 4000.0, 1.0, 1.0), visible, YES);
         assert(restored.origin.x == NSMinX(visible) + 12.0 && restored.origin.y == NSMaxY(visible) - 56.0);
         assert(MetasequoiaFloatingToolbarShouldShow(YES, YES, NO));
@@ -236,16 +236,16 @@ int main() {
                 assert(preferred.width == ExpectedWidth(5, size.doubleValue, factor));
                 assert(preferred.height == std::ceil((size.doubleValue + 20.0) * factor));
                 // Every size here scales to a multiple of half a point, which is a whole pixel on a Retina screen and not on a 1x one - the CI runner's display - where AppKit rounds the first item too.
-                assert(std::abs(inputMode.frame.size.width - (size.doubleValue + 18.0) * factor) <= 1.0 / panel.backingScaleFactor);
+                assert(std::abs(inputMode.frame.size.width - (size.doubleValue + 8.0) * factor) <= 1.0 / panel.backingScaleFactor);
                 assert(std::abs(inputMode.frame.size.height - (size.doubleValue + 8.0) * factor) <= 1.0 / panel.backingScaleFactor);
-                assert(std::abs(inputMode.font.pointSize - size.doubleValue * factor * 0.833) < 0.01);
+                assert(std::abs(inputMode.font.pointSize - size.doubleValue * factor * 0.95) < 0.01);
                 // AppKit aligns the later stack items to backing pixels at fractional positions. Settings
                 // rather than emoji: emoji is opt-in and off here, and a hidden stack item has no laid-out
                 // frame to measure. Its width constraint below is set either way.
-                assert(std::abs(settings.frame.size.width - (size.doubleValue + 18.0) * factor) <= 1.0 / panel.backingScaleFactor);
+                assert(std::abs(settings.frame.size.width - (size.doubleValue + 8.0) * factor) <= 1.0 / panel.backingScaleFactor);
                 for (NSLayoutConstraint *constraint in emoji.constraints) {
                     if ([constraint.identifier isEqualToString:@"ToolbarButtonWidth"])
-                        assert(constraint.constant == (size.doubleValue + 18.0) * factor);
+                        assert(constraint.constant == (size.doubleValue + 8.0) * factor);
                 }
                 assert([emoji.contentTintColor isEqual:settings.contentTintColor]);
                 assert(emoji.symbolConfiguration != nil);
@@ -269,7 +269,7 @@ int main() {
             }
         }
         [panel applySizingPreferences:@{@"floating_toolbar": @{@"scale_percent": @999, @"font_size": @(-1)}}];
-        assert(NSEqualSizes([[panel valueForKey:@"preferredSize"] sizeValue], NSMakeSize(314.0, 44.0)));
+        assert(NSEqualSizes([[panel valueForKey:@"preferredSize"] sizeValue], NSMakeSize(221.0, 44.0)));
         [panel applySizingPreferences:@{@"floating_toolbar": @{@"scale_percent": @150, @"font_size": @28}}];
         FloatingToolbarTestDelegate *sizingDelegate = [FloatingToolbarTestDelegate new];
         // Configured while hidden, so it is the preferred size that carries it; showing the toolbar is what
@@ -304,7 +304,7 @@ int main() {
             const NSRect dividerRect = [divider convertRect:divider.bounds toView:panel.contentView];
             // mask 0 leaves the row empty, and an empty row drops the divider - the logo stays, so the panel can still be dragged.
             assert(divider.hidden == (count == 0) && std::abs(NSMinX(logoRect)) < 0.01 && std::abs(NSWidth(logoRect) - 57.0) <= 1.0 / panel.backingScaleFactor);
-            assert(std::abs(NSMinX(dividerRect) - NSMaxX(logoRect) - 6.0) <= 1.0 / panel.backingScaleFactor && std::abs(NSWidth(dividerRect) - 1.8) <= 1.0 / panel.backingScaleFactor);
+            assert(std::abs(NSMinX(dividerRect) - NSMaxX(logoRect) - 4.5) <= 1.0 / panel.backingScaleFactor && std::abs(NSWidth(dividerRect) - 1.8) <= 1.0 / panel.backingScaleFactor);
             CGFloat previousRight = NSMaxX(dividerRect);
             for (NSButton *button in @[inputMode, punctuation, fullWidth, traditional, emoji, handwriting, keyboard, voice, settings]) {
                 if (button.hidden) continue;
@@ -324,9 +324,9 @@ int main() {
             assert(button.hidden == (button == keyboard || button == emoji));
             if (!button.hidden) assert(button.superview != nil);
         }
-        assert([[panel valueForKey:@"preferredSize"] sizeValue].width == 314.0);
+        assert([[panel valueForKey:@"preferredSize"] sizeValue].width == 221.0);
         [panel applySizingPreferences:@{@"floating_toolbar": @{@"screen_keyboard": @"invalid"}}];
-        assert(keyboard.hidden && [[panel valueForKey:@"preferredSize"] sizeValue].width == 314.0);
+        assert(keyboard.hidden && [[panel valueForKey:@"preferredSize"] sizeValue].width == 221.0);
         [panel applySizingPreferences:@{@"floating_toolbar": @{@"screen_keyboard": @YES}}];
         assert(!keyboard.hidden && [[panel valueForKey:@"preferredSize"] sizeValue].width == ExpectedWidth(6, 24, 1));
 

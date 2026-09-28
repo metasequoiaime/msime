@@ -94,7 +94,7 @@ NSSize ToolbarPreviewSize(NSUInteger components, CGFloat scalePercent, CGFloat f
     CGFloat count = 0.0;
     for (NSUInteger index = 0; index < 9; ++index) count += (components & (1u << index)) != 0 ? 1.0 : 0.0;
     const CGFloat gaps = count > 0.0 ? count - 1.0 : 0.0;
-    return NSMakeSize(ceil((count * (fontSize + 18.0) + gaps * 8.0 + 20.0 + 51.2) * scale),
+    return NSMakeSize(ceil((count * (fontSize + 8.0) + gaps * 2.0 + 6.0 + 46.2) * scale),
                       ceil((fontSize + 20.0) * scale));
 }
 
@@ -341,7 +341,7 @@ NSArray<NSArray<NSString *> *> *ToolbarPreviewGlyphs()
               @[@"", @"hand.draw"], @[@"", @"keyboard"], @[@"", @"mic.fill"], @[@"", @"gearshape"] ];
 }
 
-// The toolbar as the panel would build it for these settings, drawn into `slot` at the panel's own metrics: the logo, the divider, and one button per ticked component, sized (font + 18) x (font + 8) and spaced 8pt before everything is multiplied by the scale. A toolbar wider than the column is drawn down to fit rather than clipped — losing the trailing buttons would hide exactly the thing 工具栏缩放 changes — and the factor comes back so the caller can say so. It is never drawn up: 75% has to look smaller than 100%.
+// The toolbar as the panel would build it for these settings, drawn into `slot` at the panel's own metrics: the logo, the divider, and one button per ticked component, sized (font + 8) x (font + 8) and spaced 2pt before everything is multiplied by the scale. A toolbar wider than the column is drawn down to fit rather than clipped — losing the trailing buttons would hide exactly the thing 工具栏缩放 changes — and the factor comes back so the caller can say so. It is never drawn up: 75% has to look smaller than 100%.
 CGFloat DrawPreviewToolbar(NSRect slot, const msime::mac::SkinTokens &tokens, NSUInteger components,
                            CGFloat scalePercent, CGFloat fontSize)
 {
@@ -349,7 +349,7 @@ CGFloat DrawPreviewToolbar(NSRect slot, const msime::mac::SkinTokens &tokens, NS
     const CGFloat fit = NSWidth(slot) > 0.0 ? MIN(1.0, NSWidth(slot) / natural.width) : 1.0;
     const CGFloat scale = scalePercent / 100.0;
     const CGFloat buttonHeight = (fontSize + 8.0) * scale;
-    const CGFloat buttonWidth = (fontSize + 18.0) * scale;
+    const CGFloat buttonWidth = (fontSize + 8.0) * scale;
     const CGFloat buttonTop = (natural.height - buttonHeight) / 2.0;
     [NSGraphicsContext saveGraphicsState];
     NSAffineTransform *transform = [NSAffineTransform transform];
@@ -367,7 +367,7 @@ CGFloat DrawPreviewToolbar(NSRect slot, const msime::mac::SkinTokens &tokens, NS
         chrome.lineWidth = 1.0;
         [chrome stroke];
     }
-    // The logo, which is also the panel's drag handle: the application icon centred in the 38pt slot of the 32pt mark and its 6pt gap, inset 2pt as the panel draws it. The panel's vector fallback for a missing icon is not repeated here; without the icon the slot stays empty.
+    // The logo, which is also the panel's drag handle: the application icon centred in the 38pt slot of the 34pt mark and its 4pt gap, inset 2pt as the panel draws it. The panel's vector fallback for a missing icon is not repeated here; without the icon the slot stays empty.
     static NSImage *logo;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
@@ -389,18 +389,18 @@ CGFloat DrawPreviewToolbar(NSRect slot, const msime::mac::SkinTokens &tokens, NS
     {
         [(dark ? [NSColor colorWithSRGBRed:1.0 green:1.0 blue:1.0 alpha:0.15]
                : [NSColor colorWithSRGBRed:0.0 green:0.0 blue:0.0 alpha:0.12]) setFill];
-        NSRectFillUsingOperation(NSMakeRect(42.0 * scale, buttonTop, 1.2 * scale, buttonHeight),
+        NSRectFillUsingOperation(NSMakeRect(41.0 * scale, buttonTop, 1.2 * scale, buttonHeight),
                                  NSCompositingOperationSourceOver);
     }
     NSDictionary *attributes = @{
-        NSFontAttributeName : [NSFont systemFontOfSize:fontSize * scale * 0.833 weight:NSFontWeightMedium],
+        NSFontAttributeName : [NSFont systemFontOfSize:fontSize * scale * 0.95 weight:NSFontWeightRegular],
         NSForegroundColorAttributeName : PreviewColor(tokens.text),
     };
     NSImageSymbolConfiguration *symbols = [[NSImageSymbolConfiguration configurationWithPointSize:fontSize * scale
                                                                                           weight:NSFontWeightRegular]
         configurationByApplyingConfiguration:[NSImageSymbolConfiguration configurationWithPaletteColors:@[PreviewColor(tokens.text)]]];
     NSArray<NSArray<NSString *> *> *glyphs = ToolbarPreviewGlyphs();
-    CGFloat x = 51.2 * scale;
+    CGFloat x = 46.2 * scale;
     for (NSUInteger index = 0; index < glyphs.count; ++index)
     {
         if ((components & (1u << index)) == 0) continue;
@@ -427,7 +427,7 @@ CGFloat DrawPreviewToolbar(NSRect slot, const msime::mac::SkinTokens &tokens, NS
                    respectFlipped:YES
                             hints:nil];
         }
-        x += buttonWidth + 8.0 * scale;
+        x += buttonWidth + 2.0 * scale;
     }
     [NSGraphicsContext restoreGraphicsState];
     return fit;
