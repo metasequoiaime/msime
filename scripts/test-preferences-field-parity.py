@@ -81,8 +81,41 @@ def ts_members(body: str) -> dict[str, str]:
     return members
 
 
+def ts_union_members(source: str) -> dict[str, list[str]]:
+    """`export type Name = "a" | "b";` -> its string-literal members."""
+    out: dict[str, list[str]] = {}
+    for name, body in re.findall(r"export type (\w+) =([^;{]*);", source):
+        literals = re.findall(r'"([^"]+)"', body)
+        if literals:
+            out[name] = literals
+    return out
+
+
+def ts_record_bodies(source: str) -> dict[str, str]:
+    """`export type Name = Record<Union, V>` -> an object body over that union.
+
+    The mapped spelling has no braces to match, so it has to be written out as the
+    object it stands for: each string member of the union becomes a key. Without
+    this, a field the page declares that way (`local_modes?: LocalModePreferences`
+    is one) reads as a type this check cannot see, and a reachable struct goes
+    uncompared.
+    """
+    unions = ts_union_members(source)
+    out: dict[str, str] = {}
+    for match in re.finditer(r"export type (\w+) = Record<\s*(\w+)\s*,\s*([^>;]+?)\s*>", source):
+        members = unions.get(match.group(2))
+        if members:
+            value = match.group(3)
+            out[match.group(1)] = "\n".join(f"  {member}: {value};" for member in members)
+    return out
+
+
 def ts_object_bodies(source: str) -> dict[str, str]:
-    """`export type Name = { ... }` -> the text between its braces."""
+    """`export type Name = { ... }` -> the text between its braces.
+
+    Both spellings of an object type count, the braces and the `Record` that stands
+    for the same object.
+    """
     out: dict[str, str] = {}
     for match in re.finditer(r"export type (\w+) = \{", source):
         start = match.end() - 1
@@ -95,6 +128,7 @@ def ts_object_bodies(source: str) -> dict[str, str]:
                 if depth == 0:
                     out[match.group(1)] = source[start + 1 : index]
                     break
+    out.update(ts_record_bodies(source))
     return out
 
 
@@ -103,22 +137,11 @@ def ts_types(source: str) -> dict[str, set[str]]:
 
     Brace matching rather than a line-anchored pattern: these declarations come
     both as one line and as many, and a regex that assumes the multi-line shape
-    runs past the closing brace and collects whatever follows.
+    runs past the closing brace and collects whatever follows. The bodies come from
+    `ts_object_bodies`, so the mapped spelling is read here too.
     """
     out: dict[str, set[str]] = {}
-    for match in re.finditer(r"export type (\w+) = \{", source):
-        start = match.end() - 1
-        depth = 0
-        end = start
-        for index in range(start, len(source)):
-            if source[index] == "{":
-                depth += 1
-            elif source[index] == "}":
-                depth -= 1
-                if depth == 0:
-                    end = index
-                    break
-        body = source[start + 1 : end]
+    for name, body in ts_object_bodies(source).items():
         # Only this type's own keys; a nested inline object is reached through
         # whichever named type owns it, not counted twice here.
         keys: set[str] = set()
@@ -132,7 +155,7 @@ def ts_types(source: str) -> dict[str, set[str]]:
                 continue
             if depth == 0:
                 keys.update(re.findall(r"(?:^|[;\n])\s*(\w+)\??:", piece))
-        out[match.group(1)] = keys
+        out[name] = keys
     return out
 
 

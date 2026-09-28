@@ -67,4 +67,13 @@ final class BackendLocalStoreTests: XCTestCase {
     XCTAssertTrue(value == first || value == second)
     XCTAssertFalse(store.writeIfAbsent(Data("synthetic-third".utf8)))
   }
+
+  func testLoadRejectsAnOversizedSessionDocument() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("msime-store-limit-test-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    try Data(repeating: 0x41, count: BackendLocalStore.maximumSessionBytes + 1)
+      .write(to: directory.appendingPathComponent("session.json"))
+    XCTAssertThrowsError(try BackendLocalStore(fileName: "session.json", directory: directory).load())
+  }
 }

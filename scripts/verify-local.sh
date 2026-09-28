@@ -290,7 +290,19 @@ fi
 # libraries and the staged engine resources, both of which are build products, and the DevEco
 # command line tools. Seven seconds once they are.
 note "harmony arkts compile"
-harmony_hvigor=${MSIME_HVIGOR:-$HOME/command-line-tools/bin/hvigorw}
+if [ -n "${MSIME_HVIGOR:-}" ]; then
+  harmony_hvigor="$MSIME_HVIGOR"
+else
+  harmony_hvigor=""
+  for candidate in \
+    "$HOME/command-line-tools/bin/hvigorw" \
+    "/Applications/DevEco-Studio.app/Contents/tools/hvigor/bin/hvigorw"; do
+    if [ -x "$candidate" ]; then
+      harmony_hvigor="$candidate"
+      break
+    fi
+  done
+fi
 if [ -x "$harmony_hvigor" ] && [ -d "$root/platforms/harmony/entry/libs" ] \
   && [ -d "$root/platforms/harmony/entry/src/main/resources/resfile/engine" ] \
   && [ -d "$root/platforms/harmony/oh_modules" ]; then

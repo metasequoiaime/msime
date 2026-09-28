@@ -320,6 +320,16 @@ if rg -n 'Files\.readAllBytes' \
   echo "Android community reply library must use a bounded streaming read" >&2
   exit 1
 fi
+if rg -n 'Files\.readAllBytes' \
+    "$repo_root/platforms/android/java/app/msime/client/KeyboardFeedbackStore.java"; then
+  echo "Android keyboard feedback store must use a bounded streaming read" >&2
+  exit 1
+fi
+if rg -n 'Files\.readAllBytes' \
+    "$repo_root/platforms/android/java/app/msime/client/core/Bootstrap.java"; then
+  echo "Android bootstrap marker must use a bounded streaming read" >&2
+  exit 1
+fi
 for source in \
     "$repo_root/platforms/android/java/app/msime/client/core/MSIMEInputService.java" \
     "$repo_root/platforms/android/java/app/msime/client/voice/VoiceRecognitionActivity.java"; do
@@ -351,6 +361,7 @@ fi
 javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "${client_sources[@]}" \
   "$repo_root/platforms/android/tests/core/EditorSmoke.java" \
+  "$repo_root/platforms/android/tests/core/BootstrapMarkerSmoke.java" \
   "$repo_root/platforms/android/tests/core/PhrasePreeditSmoke.java" \
   "$repo_root/platforms/android/tests/core/InputViewRefreshPolicySmoke.java" \
   "$repo_root/platforms/android/tests/core/EditorContextSnapshotSmoke.java" \
@@ -431,6 +442,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/candidate/CandidatePreeditStylePolicySmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/SymbolPanelModelSmoke.java"
 java -cp "$output_dir" EditorSmoke
+java -cp "$output_dir" app.msime.client.BootstrapMarkerSmoke
 java -cp "$output_dir" PhrasePreeditSmoke
 java -cp "$output_dir" InputViewRefreshPolicySmoke
 java -cp "$output_dir" EditorContextSnapshotSmoke
@@ -538,4 +550,8 @@ fi
 # The JVM smokes cannot load org.json, so nothing else here can reach the one place where the
 # shared runtime's JSON nulls meet this host's reads of them.
 python3 "$repo_root/scripts/test-android-json-null-reads.py" || exit 1
+# Every other contract check that needs ripgrep is discovered by scripts/run-checks.sh, whose
+# contracts job deliberately installs nothing and therefore skips this one; this job already
+# installs rg, so it is the only place where the reader search actually runs.
+python3 "$repo_root/scripts/test-android-preference-keys.py" || exit 1
 echo "Android service Java/API and manifest/resource checks passed; no installable/native APK produced"

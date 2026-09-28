@@ -63,6 +63,12 @@ pub(crate) fn snapshot_command_error() -> crate::CommandError {
     }
 }
 
+pub(crate) fn parse_snapshot_token(value: &str) -> Result<uuid::Uuid, crate::CommandError> {
+    uuid::Uuid::parse_str(value).map_err(|_| crate::CommandError {
+        code: "snapshot_invalid",
+    })
+}
+
 pub(crate) fn snapshot_response_without_account(
     mut value: Value,
 ) -> Result<Value, crate::CommandError> {
@@ -81,7 +87,18 @@ where
     T: Send + 'static,
     F: FnOnce(&crate::platform::mobile::MobileSession) -> Result<T, AccountError> + Send + 'static,
 {
-    let session = Arc::clone(state.session());
+    call_session(state.session(), operation).await
+}
+
+pub(crate) async fn call_session<T, F>(
+    session: &Arc<crate::platform::mobile::MobileSession>,
+    operation: F,
+) -> Result<T, crate::CommandError>
+where
+    T: Send + 'static,
+    F: FnOnce(&crate::platform::mobile::MobileSession) -> Result<T, AccountError> + Send + 'static,
+{
+    let session = Arc::clone(session);
     tauri::async_runtime::spawn_blocking(move || operation(&session))
         .await
         .map_err(|_| crate::CommandError {

@@ -7,4 +7,5 @@
 pub mod candidates;
 pub mod dictionary;
 pub mod snapshot_queue;
+pub mod snapshot_validation;
 pub mod transport;

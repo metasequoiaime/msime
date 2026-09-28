@@ -54,7 +54,13 @@ struct KeyboardSkinTrialStore {
     guard let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= 2_000_000 else {
       throw PersonalDictionaryStore.StoreError.invalidState
     }
-    return try JSONDecoder().decode(KeyboardSkinTrial.self, from: Data(contentsOf: file))
+    let data: Data
+    do {
+      data = try BoundedFileReader.read(from: file, maximumBytes: 2_000_000)
+    } catch {
+      throw PersonalDictionaryStore.StoreError.invalidState
+    }
+    return try JSONDecoder().decode(KeyboardSkinTrial.self, from: data)
   }
   private func restore(_ trial: KeyboardSkinTrial) {
     // Do not undo a different skin explicitly selected while the trial was open.

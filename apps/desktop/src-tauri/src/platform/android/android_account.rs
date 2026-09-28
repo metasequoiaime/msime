@@ -6,7 +6,7 @@ use crate::platform::mobile::mobile_account_helpers::{
     account_preferences_schema as shared_account_preferences_schema,
     account_profile as shared_account_profile, account_rename as shared_account_rename,
     account_request_code as shared_account_request_code, account_status as shared_account_status,
-    call, clear_snapshot_previews, dictionary_kind, snapshot_command_error,
+    call, clear_snapshot_previews, dictionary_kind, parse_snapshot_token, snapshot_command_error,
     snapshot_response_without_account, PendingSnapshot, SnapshotMetadata,
 };
 use crate::platform::mobile::mobile_account_preferences::{
@@ -24,6 +24,9 @@ use msime_client_core::account::{
     SavedAccountSession,
 };
 use msime_client_core::cloud::dictionary::DictionaryKind;
+use msime_client_core::cloud::snapshot_validation::{
+    has_keys as snapshot_has_keys, valid_timestamp as snapshot_timestamp,
+};
 use msime_client_core::preferences::{
     FrequencyMode, InputScheme, Preferences, PreferencesSnapshot, PreferencesStore,
     ShuangpinProfile, ThemeMode, TouchKeyboardLayout, TouchKeyboardSkin,
@@ -267,10 +270,6 @@ fn parse_snapshot_object(bytes: &[u8]) -> Result<serde_json::Map<String, Value>,
     value.as_object().cloned().ok_or(AccountError::Invalid)
 }
 
-fn snapshot_has_keys(map: &serde_json::Map<String, Value>, keys: &[&str]) -> bool {
-    map.len() == keys.len() && keys.iter().all(|key| map.contains_key(*key))
-}
-
 fn snapshot_text<'a>(
     data: &'a serde_json::Map<String, Value>,
     key: &str,
@@ -294,101 +293,6 @@ fn snapshot_integer(data: &serde_json::Map<String, Value>, key: &str) -> Result<
     data.get(key)
         .and_then(Value::as_i64)
         .ok_or(AccountError::Invalid)
-}
-
-fn snapshot_timestamp(value: &str) -> bool {
-    fn digits(bytes: &[u8], start: usize, end: usize) -> Option<u32> {
-        (end <= bytes.len() && bytes[start..end].iter().all(u8::is_ascii_digit)).then(|| {
-            bytes[start..end]
-                .iter()
-                .fold(0, |value, byte| value * 10 + u32::from(byte - b'0'))
-        })
-    }
-    let bytes = value.as_bytes();
-    if bytes.len() < 20
-        || digits(bytes, 0, 4).is_none()
-        || bytes.get(4) != Some(&b'-')
-        || bytes.get(7) != Some(&b'-')
-        || bytes.get(10) != Some(&b'T')
-        || bytes.get(13) != Some(&b':')
-        || bytes.get(16) != Some(&b':')
-    {
-        return false;
-    }
-    let year = digits(bytes, 0, 4).unwrap();
-    let month = match digits(bytes, 5, 7) {
-        Some(value) => value,
-        None => return false,
-    };
-    let day = match digits(bytes, 8, 10) {
-        Some(value) => value,
-        None => return false,
-    };
-    let hour = match digits(bytes, 11, 13) {
-        Some(value) => value,
-        None => return false,
-    };
-    let minute = match digits(bytes, 14, 16) {
-        Some(value) => value,
-        None => return false,
-    };
-    let second = match digits(bytes, 17, 19) {
-        Some(value) => value,
-        None => return false,
-    };
-    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
-    let days = [
-        31,
-        if leap { 29 } else { 28 },
-        31,
-        30,
-        31,
-        30,
-        31,
-        31,
-        30,
-        31,
-        30,
-        31,
-    ];
-    if year == 0
-        || !(1..=12).contains(&month)
-        || day == 0
-        || day > days[month as usize - 1]
-        || hour >= 24
-        || minute >= 60
-        || second >= 60
-    {
-        return false;
-    }
-    let mut offset = 19;
-    if matches!(bytes.get(offset), Some(b'.' | b',')) {
-        offset += 1;
-        let start = offset;
-        while bytes.get(offset).is_some_and(u8::is_ascii_digit) {
-            offset += 1;
-        }
-        if offset == start {
-            return false;
-        }
-    }
-    let zone = &bytes[offset..];
-    if zone == b"Z" {
-        return true;
-    }
-    if zone.len() != 6
-        || !matches!(zone[0], b'+' | b'-')
-        || !zone[1].is_ascii_digit()
-        || !zone[2].is_ascii_digit()
-        || zone[3] != b':'
-        || !zone[4].is_ascii_digit()
-        || !zone[5].is_ascii_digit()
-    {
-        return false;
-    }
-    let zone_hour = u32::from(zone[1] - b'0') * 10 + u32::from(zone[2] - b'0');
-    let zone_minute = u32::from(zone[4] - b'0') * 10 + u32::from(zone[5] - b'0');
-    zone_hour < 24 && zone_minute < 60
 }
 
 fn inspect_snapshot_record(
@@ -804,9 +708,7 @@ async fn dictionary_snapshot_enqueue(
     state: State<'_, AccountState>,
     token: String,
 ) -> Result<Value, crate::CommandError> {
-    let parsed = Uuid::parse_str(&token).map_err(|_| crate::CommandError {
-        code: "snapshot_invalid",
-    })?;
+    let parsed = parse_snapshot_token(&token)?;
     let pending = {
         let mut previews = state
             .snapshot_previews

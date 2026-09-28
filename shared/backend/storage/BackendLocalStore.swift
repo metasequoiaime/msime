@@ -5,6 +5,7 @@ import Darwin
 
 /// App-Group file storage for the anonymous account shared by the app and keyboard extension.
 struct BackendLocalStore: BackendSessionStorage {
+  static let maximumSessionBytes = 64 * 1024
   private let fileName: String
   private let baseDirectory: URL?
   init(fileName: String = "backend-session.json", directory: URL? = nil) {
@@ -34,7 +35,10 @@ struct BackendLocalStore: BackendSessionStorage {
   func load() throws -> BackendSavedSession? {
     guard baseDirectory != nil else { return nil }
     return try withLock { () throws -> BackendSavedSession? in
-      guard let url, let data = try? Data(contentsOf: url) else { return nil }
+      guard let url, FileManager.default.fileExists(atPath: url.path) else { return nil }
+      let data: Data
+      do { data = try Self.readBounded(url, maximumBytes: Self.maximumSessionBytes) }
+      catch { throw BackendAccountClient.Failure(status: 0) }
       do { return try JSONDecoder().decode(BackendSavedSession.self, from: data) }
       catch { throw BackendAccountClient.Failure(status: 0) }
     }
@@ -54,7 +58,23 @@ struct BackendLocalStore: BackendSessionStorage {
   static func read(_ fileName: String) -> Data? {
     guard let directory else { return nil }
     let url = directory.appendingPathComponent(fileName, isDirectory: false)
-    return try? BackendLocalStore(fileName: fileName, directory: directory).withLock { try? Data(contentsOf: url) }
+    return try? BackendLocalStore(fileName: fileName, directory: directory).withLock {
+      try readBounded(url, maximumBytes: maximumSessionBytes)
+    }
+  }
+
+  private static func readBounded(_ url: URL, maximumBytes: Int) throws -> Data {
+    let handle = try FileHandle(forReadingFrom: url)
+    defer { try? handle.close() }
+    var data = Data()
+    data.reserveCapacity(min(maximumBytes, 64 * 1024))
+    while true {
+      let remaining = maximumBytes - data.count
+      let chunk = try handle.read(upToCount: min(64 * 1024, remaining + 1)) ?? Data()
+      if chunk.isEmpty { return data }
+      guard chunk.count <= remaining else { throw BackendAccountClient.Failure(status: 0) }
+      data.append(chunk)
+    }
   }
   @discardableResult static func write(_ data: Data, to fileName: String) -> Bool {
     guard let directory else { return false }

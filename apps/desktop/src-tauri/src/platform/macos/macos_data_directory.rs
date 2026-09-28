@@ -94,30 +94,14 @@ fn restore_locators(backups: &[LocatorBackup]) {
 fn copy_tree_contents(source: &Path, destination: &Path) -> Result<(), MoveError> {
     for entry in fs::read_dir(source).map_err(|_| MoveError::Copy)? {
         let entry = entry.map_err(|_| MoveError::Copy)?;
-        copy_entry(&entry.path(), &destination.join(entry.file_name()))?;
+        crate::platform::desktop::desktop_data_directory::copy_entry(
+            &entry.path(),
+            &destination.join(entry.file_name()),
+            &|_| false,
+        )
+        .map_err(|_| MoveError::Copy)?;
     }
     Ok(())
-}
-
-fn copy_entry(source: &Path, destination: &Path) -> Result<(), MoveError> {
-    let metadata = fs::symlink_metadata(source).map_err(|_| MoveError::Copy)?;
-    if metadata.file_type().is_symlink() {
-        return Err(MoveError::Copy);
-    }
-    if metadata.is_dir() {
-        fs::create_dir(destination).map_err(|_| MoveError::Copy)?;
-        copy_tree_contents(source, destination)?;
-        fs::set_permissions(destination, metadata.permissions()).map_err(|_| MoveError::Copy)?;
-        return Ok(());
-    }
-    if !metadata.is_file() {
-        return Err(MoveError::Copy);
-    }
-    fs::copy(source, destination).map_err(|_| MoveError::Copy)?;
-    fs::set_permissions(destination, metadata.permissions()).map_err(|_| MoveError::Copy)?;
-    fs::File::open(destination)
-        .and_then(|file| file.sync_all())
-        .map_err(|_| MoveError::Copy)
 }
 
 fn target_entries_are_replaceable(target: &Path, default_root: &Path) -> Result<bool, MoveError> {
@@ -146,12 +130,6 @@ fn overlaps(first: &Path, second: &Path) -> bool {
     first.starts_with(second) || second.starts_with(first)
 }
 
-fn has_ownership_marker(directory: &Path) -> bool {
-    fs::symlink_metadata(directory.join(DATA_DIRECTORY_MARKER))
-        .map(|metadata| metadata.is_file() && !metadata.file_type().is_symlink())
-        .unwrap_or(false)
-}
-
 fn restore_target(target: &Path, had_marker: bool, backups: &[LocatorBackup]) {
     if target.exists() {
         let _ = crate::platform::desktop::desktop_data_directory::remove_entry(target);
@@ -167,7 +145,12 @@ fn restore_target(target: &Path, had_marker: bool, backups: &[LocatorBackup]) {
 }
 
 fn cleanup_source(source: &Path, default_root: &Path, locators: &[PathBuf]) -> bool {
-    if source != default_root && !has_ownership_marker(source) {
+    if source != default_root
+        && !crate::platform::desktop::desktop_data_directory::has_ownership_marker(
+            source,
+            DATA_DIRECTORY_MARKER,
+        )
+    {
         return false;
     }
     let preserved: BTreeSet<std::ffi::OsString> = locators
@@ -243,7 +226,10 @@ where
     }
 
     let backups = locator_backups(locators)?;
-    let had_marker = has_ownership_marker(&target);
+    let had_marker = crate::platform::desktop::desktop_data_directory::has_ownership_marker(
+        &target,
+        DATA_DIRECTORY_MARKER,
+    );
     let parent = target.parent().ok_or(MoveError::InvalidTarget)?;
     let staging = tempfile::Builder::new()
         .prefix(".msime-data-migration-")

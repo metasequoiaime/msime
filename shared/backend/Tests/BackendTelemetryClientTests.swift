@@ -86,6 +86,15 @@ final class BackendTelemetryClientTests: XCTestCase {
     XCTAssertEqual(kept.dropLast().last?.message, "old 9")
   }
 
+  func testQueueReaderRejectsAFileThatGrowsPastTheLimit() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("msime-telemetry-limit-\(UUID().uuidString)")
+    let queue = directory.appendingPathComponent("events.json")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    try Data(repeating: 0x41, count: BackendTelemetryClient.maxQueueFileBytes + 1).write(to: queue)
+    XCTAssertNil(BackendTelemetryClient.readQueueBytes(queue))
+  }
+
   func testCrashPersistedDuringFlushSurvivesSuccessfulUpload() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("msime-telemetry-test-\(UUID().uuidString)")
     let queue = directory.appendingPathComponent("events.json")

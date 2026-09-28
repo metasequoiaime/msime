@@ -102,6 +102,12 @@ fn valid_ai_skin_request_id(value: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
 }
 
+fn community_id(value: &str) -> Result<uuid::Uuid, crate::CommandError> {
+    uuid::Uuid::parse_str(value).map_err(|_| crate::CommandError {
+        code: "community_invalid",
+    })
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct AiSkinProgress {
@@ -185,15 +191,12 @@ pub async fn ai_skin_cancel(
     Ok(())
 }
 
-async fn community_call<T, F>(
-    state: State<'_, MobileCommunityState>,
-    operation: F,
-) -> Result<T, crate::CommandError>
+async fn service_call<T, S, F>(service: Arc<S>, operation: F) -> Result<T, crate::CommandError>
 where
     T: Send + 'static,
-    F: FnOnce(&CommunityService) -> Result<T, AccountError> + Send + 'static,
+    S: Send + Sync + 'static,
+    F: FnOnce(&S) -> Result<T, AccountError> + Send + 'static,
 {
-    let service = Arc::clone(&state.community);
     tauri::async_runtime::spawn_blocking(move || operation(&service))
         .await
         .map_err(|_| crate::CommandError {
@@ -254,7 +257,10 @@ pub async fn community_skin_list(
     offset: usize,
     search: String,
 ) -> Result<CommunitySkinPage, crate::CommandError> {
-    community_call(state, move |service| service.list(offset, &search)).await
+    service_call(Arc::clone(&state.community), move |service| {
+        service.list(offset, &search)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -262,10 +268,11 @@ pub async fn community_skin_detail(
     state: State<'_, MobileCommunityState>,
     id: String,
 ) -> Result<CommunitySkin, crate::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| crate::CommandError {
-        code: "community_invalid",
-    })?;
-    community_call(state, move |service| service.detail(id)).await
+    let id = community_id(&id)?;
+    service_call(Arc::clone(&state.community), move |service| {
+        service.detail(id)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -276,9 +283,7 @@ pub async fn community_skin_download(
     id: String,
     name: String,
 ) -> Result<CommunitySkinDownloadResponse, crate::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| crate::CommandError {
-        code: "community_invalid",
-    })?;
+    let id = community_id(&id)?;
     let service = Arc::clone(&state.community);
     let library = library.inner().clone();
     let trials = trials.inner().clone();
@@ -306,10 +311,11 @@ pub async fn community_skin_rate(
     id: String,
     stars: u8,
 ) -> Result<(), crate::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| crate::CommandError {
-        code: "community_invalid",
-    })?;
-    community_call(state, move |service| service.rate(id, stars)).await
+    let id = community_id(&id)?;
+    service_call(Arc::clone(&state.community), move |service| {
+        service.rate(id, stars)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -320,10 +326,8 @@ pub async fn community_skin_publish(
     description: String,
     design: TouchKeyboardSkinDesign,
 ) -> Result<(), crate::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| crate::CommandError {
-        code: "community_invalid",
-    })?;
-    community_call(state, move |service| {
+    let id = community_id(&id)?;
+    service_call(Arc::clone(&state.community), move |service| {
         service.publish(id, &name, &description, &design)
     })
     .await
@@ -334,10 +338,11 @@ pub async fn community_skin_unpublish(
     state: State<'_, MobileCommunityState>,
     id: String,
 ) -> Result<(), crate::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| crate::CommandError {
-        code: "community_invalid",
-    })?;
-    community_call(state, move |service| service.unpublish(id)).await
+    let id = community_id(&id)?;
+    service_call(Arc::clone(&state.community), move |service| {
+        service.unpublish(id)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -346,9 +351,7 @@ pub async fn community_skin_finish_trial(
     id: String,
     keep: bool,
 ) -> Result<(), crate::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| crate::CommandError {
-        code: "community_invalid",
-    })?;
+    let id = community_id(&id)?;
     let trials = trials.inner().clone();
     tauri::async_runtime::spawn_blocking(move || trials.finish(id, keep).map(|_| ()))
         .await
@@ -369,23 +372,6 @@ fn resource_scope(value: &str) -> Result<CommunityResourceScope, crate::CommandE
     }
 }
 
-async fn resource_call<T, F>(
-    state: State<'_, MobileCommunityState>,
-    operation: F,
-) -> Result<T, crate::CommandError>
-where
-    T: Send + 'static,
-    F: FnOnce(&CommunityResourceService) -> Result<T, AccountError> + Send + 'static,
-{
-    let service = Arc::clone(&state.resources);
-    tauri::async_runtime::spawn_blocking(move || operation(&service))
-        .await
-        .map_err(|_| crate::CommandError {
-            code: "community_unavailable",
-        })?
-        .map_err(community_error)
-}
-
 #[tauri::command]
 pub async fn community_resource_list(
     state: State<'_, MobileCommunityState>,
@@ -395,7 +381,7 @@ pub async fn community_resource_list(
     offset: usize,
 ) -> Result<CommunityResourcePage, crate::CommandError> {
     let scope = resource_scope(&scope)?;
-    resource_call(state, move |service| {
+    service_call(Arc::clone(&state.resources), move |service| {
         service.list(kind, scope, &search, offset)
     })
     .await
@@ -406,10 +392,11 @@ pub async fn community_resource_detail(
     state: State<'_, MobileCommunityState>,
     id: String,
 ) -> Result<CommunityResource, crate::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| crate::CommandError {
-        code: "community_invalid",
-    })?;
-    resource_call(state, move |service| service.detail(id)).await
+    let id = community_id(&id)?;
+    service_call(Arc::clone(&state.resources), move |service| {
+        service.detail(id)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -422,10 +409,8 @@ pub async fn community_resource_publish(
     content: CommunityResourceContent,
     revision: u32,
 ) -> Result<CommunityResourcePublication, crate::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| crate::CommandError {
-        code: "community_invalid",
-    })?;
-    resource_call(state, move |service| {
+    let id = community_id(&id)?;
+    service_call(Arc::clone(&state.resources), move |service| {
         service.publish(id, kind, &name, &description, &content, revision)
     })
     .await
@@ -437,10 +422,11 @@ pub async fn community_resource_apply(
     id: String,
     resource_revision: u32,
 ) -> Result<CommunityResourceApplication, crate::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| crate::CommandError {
-        code: "community_invalid",
-    })?;
-    resource_call(state, move |service| service.apply(id, resource_revision)).await
+    let id = community_id(&id)?;
+    service_call(Arc::clone(&state.resources), move |service| {
+        service.apply(id, resource_revision)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -449,10 +435,11 @@ pub async fn community_resource_save(
     id: String,
     saved: bool,
 ) -> Result<(), crate::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| crate::CommandError {
-        code: "community_invalid",
-    })?;
-    resource_call(state, move |service| service.save(id, saved)).await
+    let id = community_id(&id)?;
+    service_call(Arc::clone(&state.resources), move |service| {
+        service.save(id, saved)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -461,10 +448,11 @@ pub async fn community_resource_rate(
     id: String,
     stars: u8,
 ) -> Result<(), crate::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| crate::CommandError {
-        code: "community_invalid",
-    })?;
-    resource_call(state, move |service| service.rate(id, stars)).await
+    let id = community_id(&id)?;
+    service_call(Arc::clone(&state.resources), move |service| {
+        service.rate(id, stars)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -472,10 +460,11 @@ pub async fn community_resource_unpublish(
     state: State<'_, MobileCommunityState>,
     id: String,
 ) -> Result<(), crate::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| crate::CommandError {
-        code: "community_invalid",
-    })?;
-    resource_call(state, move |service| service.delete(id)).await
+    let id = community_id(&id)?;
+    service_call(Arc::clone(&state.resources), move |service| {
+        service.delete(id)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -497,9 +486,7 @@ pub async fn community_resource_remove_reply(
     library: State<'_, CommunityResourceLibraryStore>,
     id: String,
 ) -> Result<(), crate::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| crate::CommandError {
-        code: "community_invalid",
-    })?;
+    let id = community_id(&id)?;
     let library = library.inner().clone();
     tauri::async_runtime::spawn_blocking(move || library.remove(id))
         .await
