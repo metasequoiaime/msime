@@ -40,3 +40,10 @@ export function aiCredentialOrigin(endpoint: string): string | null {
     return null;
   }
 }
+
+export function tencentSecretConfigured(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  if (trimmed.startsWith("<") && trimmed.endsWith(">")) return false;
+  return !trimmed.startsWith("FAKESECRET_");
+}

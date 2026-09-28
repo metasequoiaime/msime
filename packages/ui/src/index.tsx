@@ -110,8 +110,16 @@ export {
   tencentCredentialIssue,
   translationEndpointIssue,
 } from "./settings/translation-validation";
-import { aiCredentialOrigin, providerCredentialErrorMessage } from "./settings/credential-utils";
-export { aiCredentialOrigin, providerCredentialErrorMessage } from "./settings/credential-utils";
+import {
+  aiCredentialOrigin,
+  providerCredentialErrorMessage,
+  tencentSecretConfigured,
+} from "./settings/credential-utils";
+export {
+  aiCredentialOrigin,
+  providerCredentialErrorMessage,
+  tencentSecretConfigured,
+} from "./settings/credential-utils";
 import { AiPromptSettingsSection } from "./settings/ai-prompt-settings-section";
 import { AiTestToolsSection } from "./settings/ai-test-tools-section";
 import { AiCandidateLimitSection } from "./settings/ai-candidate-limit-section";
@@ -1964,14 +1972,6 @@ function schemeTitle(scheme: Preferences["scheme"]): string {
         : "日语";
 }
 
-/** Mirrors `client-core::translation::is_supported_endpoint`. */
-/** Mirrors `usable_credential` in client-core: a placeholder is not a key. */
-export function tencentSecretConfigured(value: string): boolean {
-  const trimmed = value.trim();
-  if (!trimmed) return false;
-  if (trimmed.startsWith("<") && trimmed.endsWith(">")) return false;
-  return !trimmed.startsWith("FAKESECRET_");
-}
 /**
  * Mirrors the SecretId/Region rules in `Preferences::validate`. Saving a value
  * outside them is rejected wholesale, so the user is told here instead of
