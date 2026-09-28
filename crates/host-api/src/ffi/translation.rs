@@ -13,9 +13,6 @@ pub unsafe extern "C" fn msime_client_custom_translation_plan(
     length: usize,
 ) -> *mut c_char {
     response(|| {
-        if request.is_null() || length > 65536 {
-            return Err("invalid translation plan buffer".into());
-        }
         #[derive(Deserialize)]
         #[serde(deny_unknown_fields)]
         struct Candidate {
@@ -28,9 +25,17 @@ pub unsafe extern "C" fn msime_client_custom_translation_plan(
             target_language: String,
             candidates: Vec<Candidate>,
         }
-        let request: Request =
-            serde_json::from_slice(unsafe { std::slice::from_raw_parts(request, length) })
-                .map_err(|_| "invalid translation plan")?;
+        let request: Request = unsafe {
+            with_bounded_bytes(
+                request,
+                length,
+                65536,
+                "invalid translation plan buffer",
+                |bytes| {
+                    serde_json::from_slice(bytes).map_err(|_| "invalid translation plan".into())
+                },
+            )?
+        };
         if request.candidates.len() > 9
             || !["en", "fr", "ja", "es", "ru", "de", "ko"]
                 .contains(&request.target_language.as_str())
@@ -75,18 +80,23 @@ pub unsafe extern "C" fn msime_client_ai_http_request(
     length: usize,
 ) -> *mut c_char {
     response(|| {
-        if request.is_null() || length > 65536 {
-            return Err("invalid AI request buffer".into());
-        }
         #[derive(Deserialize)]
         #[serde(deny_unknown_fields)]
         struct Request {
             config: msime_client_core::preferences::AiAssistantPreferences,
             input: msime_client_core::ai::AiSuggestionRequest,
         }
-        let request: Request =
-            serde_json::from_slice(unsafe { std::slice::from_raw_parts(request, length) })
-                .map_err(|_| "invalid AI request document")?;
+        let request: Request = unsafe {
+            with_bounded_bytes(
+                request,
+                length,
+                65536,
+                "invalid AI request buffer",
+                |bytes| {
+                    serde_json::from_slice(bytes).map_err(|_| "invalid AI request document".into())
+                },
+            )?
+        };
         msime_client_core::ai::chat_completion_http_request(&request.config, &request.input)
             .map(|value| value.unwrap_or(Value::Null))
             .map_err(|e| e.to_string())
