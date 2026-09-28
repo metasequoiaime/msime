@@ -415,11 +415,9 @@ impl UnixSocketProvider {
     /// provider refuses unless its private configuration names the same two.
     pub fn ai_models(&self, provider: &str, endpoint: &str) -> Option<Vec<String>> {
         if provider.is_empty()
-            || provider.len() > 64
+            || !msime_client_core::cloud::dictionary::valid_bounded_text(provider, 64)
             || endpoint.is_empty()
-            || endpoint.len() > 2048
-            || provider.chars().any(char::is_control)
-            || endpoint.chars().any(char::is_control)
+            || !msime_client_core::cloud::dictionary::valid_bounded_text(endpoint, 2048)
         {
             return None;
         }
@@ -465,17 +463,14 @@ impl UnixSocketProvider {
         text: &str,
     ) -> Option<String> {
         if provider.is_empty()
-            || provider.len() > 64
+            || !msime_client_core::cloud::dictionary::valid_bounded_text(provider, 64)
             || endpoint.is_empty()
-            || endpoint.len() > 2048
+            || !msime_client_core::cloud::dictionary::valid_bounded_text(endpoint, 2048)
             || model.is_empty()
-            || model.len() > 256
+            || !msime_client_core::cloud::dictionary::valid_bounded_text(model, 256)
             || text.trim().is_empty()
             || text.len() > 8192
             || prompt.len() > 8192
-            || [provider, endpoint, model]
-                .iter()
-                .any(|value| value.chars().any(char::is_control))
         {
             return None;
         }
