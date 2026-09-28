@@ -380,6 +380,8 @@ export {
   type MobileSettingsTab,
   type MobileSettingsTabsProps,
 } from "./settings/mobile-settings-tabs";
+import { SettingsPageHeader } from "./settings/settings-page-header";
+export { SettingsPageHeader, type SettingsPageHeaderProps } from "./settings/settings-page-header";
 import * as surface from "./keyboard/panel-surface-style";
 import * as settings from "./settings/settings-style";
 import * as doc from "./settings/document-style";
@@ -3557,15 +3559,10 @@ export function SettingsPage({
             {/* Three of the four tabs open on something that already names them — a headline, a
                 profile card, a row of figures — and the source prints no page title over any of
                 them. 社区 is the one that does. Hidden rather than dropped: it labels `main`. */}
-            <header
-              className={`mb-2 flex items-center gap-2.5 pt-0 pr-6 pb-3 pl-[0.5em] ${
-                mobilePlatform && untitledOnPhone.includes(page) ? "max-phone:sr-only" : ""
-              }`}
-            >
-              <h1 className="m-0 text-lg font-medium" id="page-title">
-                {availablePages.find((item) => item.id === page)?.title ?? "外观"}
-              </h1>
-            </header>
+            <SettingsPageHeader
+              title={availablePages.find((item) => item.id === page)?.title ?? "外观"}
+              hiddenOnPhone={mobilePlatform && untitledOnPhone.includes(page)}
+            />
             {error && (
               <p role="alert" className="error">
                 {error}
