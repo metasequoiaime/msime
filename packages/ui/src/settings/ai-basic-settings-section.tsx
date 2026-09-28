@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { SettingToggle } from "./setting-toggle";
 
 export type AiProviderOption = { id: string; title: string };
 
@@ -29,21 +30,13 @@ export function AiBasicSettingsSection({
 }) {
   return (
     <>
-      <div className="section">
-        <label className="section-header">
-          <span className="section-title">
-            启用 AI 辅助
-            <small>{enabledDescription}</small>
-          </span>
-          <input
-            aria-label="启用 AI 辅助"
-            className="toggle"
-            type="checkbox"
-            checked={enabled}
-            onChange={(event) => onEnabledChange(event.target.checked)}
-          />
-        </label>
-      </div>
+      <SettingToggle
+        label="启用 AI 辅助"
+        description={enabledDescription}
+        ariaLabel="启用 AI 辅助"
+        checked={enabled}
+        onChange={onEnabledChange}
+      />
       <div className="section">
         <label className="section-header">
           <span className="section-title">服务提供商</span>
