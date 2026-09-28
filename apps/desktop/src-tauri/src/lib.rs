@@ -730,19 +730,23 @@ fn custom_translations_path(user: &std::path::Path) -> PathBuf {
 }
 
 fn read_custom_translations_at(user: PathBuf) -> Result<String, CommandError> {
-    match std::fs::read(custom_translations_path(&user)) {
-        Ok(bytes) => {
-            if bytes.len() > CUSTOM_TRANSLATIONS_MAX_BYTES {
-                return Err(CommandError { code: "storage" });
-            }
-            // A UTF-8 BOM is an encoding marker the reference accepts, not part of the first source word.
-            let text = String::from_utf8(bytes).map_err(|_| CommandError { code: "storage" })?;
-            Ok(text.strip_prefix('\u{feff}').unwrap_or(&text).to_owned())
-        }
+    let path = custom_translations_path(&user);
+    let file = match std::fs::File::open(path) {
+        Ok(file) => file,
         // No overlay yet is the ordinary state, not a failure: the page opens on an empty document.
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
-        Err(_) => Err(CommandError { code: "storage" }),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(String::new()),
+        Err(_) => return Err(CommandError { code: "storage" }),
+    };
+    let mut bytes = Vec::new();
+    file.take((CUSTOM_TRANSLATIONS_MAX_BYTES + 1) as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|_| CommandError { code: "storage" })?;
+    if bytes.len() > CUSTOM_TRANSLATIONS_MAX_BYTES {
+        return Err(CommandError { code: "storage" });
     }
+    // A UTF-8 BOM is an encoding marker the reference accepts, not part of the first source word.
+    let text = String::from_utf8(bytes).map_err(|_| CommandError { code: "storage" })?;
+    Ok(text.strip_prefix('\u{feff}').unwrap_or(&text).to_owned())
 }
 
 fn write_custom_translations_at(user: PathBuf, text: &str) -> Result<(), CommandError> {

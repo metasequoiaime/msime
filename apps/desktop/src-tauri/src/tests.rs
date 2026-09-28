@@ -867,6 +867,16 @@ fn custom_translations_refuse_documents_the_engine_could_not_read() {
         super::read_custom_translations_at(user.clone()).unwrap(),
         "你好\thello\n"
     );
+
+    std::fs::write(
+        user.join("custom_translations.txt"),
+        vec![b'a'; super::CUSTOM_TRANSLATIONS_MAX_BYTES + 1],
+    )
+    .unwrap();
+    assert_eq!(
+        super::read_custom_translations_at(user).unwrap_err().code,
+        "storage"
+    );
 }
 
 #[test]
