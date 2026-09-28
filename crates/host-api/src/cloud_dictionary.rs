@@ -160,12 +160,6 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
                 || word.encode_utf16().count()
                     <= msime_client_core::dictionary::import::MAX_QUICK_PHRASE_UTF16)
     };
-    let valid_id = |id: &str| {
-        id.len() == 64
-            && id
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-    };
     let valid_format = |kind: &str, format: &str| {
         matches!(format, "standard" | "windows") || (kind == "pinyin" && format == "hans")
     };
@@ -267,7 +261,7 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
             revision,
         } => {
             if valid_kind(kind)
-                && valid_id(id)
+                && msime_client_core::cloud::snapshot_queue::valid_digest(id)
                 && valid_value(kind, code, word, *weight)
                 && *revision > 0
             {
@@ -277,7 +271,10 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
             }
         }
         CloudDictionaryRequest::Delete { kind, id, revision } => {
-            if valid_kind(kind) && valid_id(id) && *revision > 0 {
+            if valid_kind(kind)
+                && msime_client_core::cloud::snapshot_queue::valid_digest(id)
+                && *revision > 0
+            {
                 Ok(())
             } else {
                 Err("invalid cloud dictionary request")
