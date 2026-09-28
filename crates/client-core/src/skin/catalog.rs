@@ -140,9 +140,7 @@ fn safe_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 64
         && id.as_bytes()[0].is_ascii_alphanumeric()
-        && id.bytes().all(|b| {
-            b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'.' | b'_' | b'-')
-        })
+        && crate::is_ascii_lowercase_identifier_with_dots(id)
 }
 
 fn contained(root: &Path, child: &Path) -> bool {

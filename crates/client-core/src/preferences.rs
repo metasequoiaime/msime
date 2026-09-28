@@ -1792,15 +1792,8 @@ impl Preferences {
         }
         if self.candidate_skin.is_empty()
             || self.candidate_skin.len() > 64
-            || !self.candidate_skin.is_ascii()
             || !self.candidate_skin.as_bytes()[0].is_ascii_alphanumeric()
-            || !self.candidate_skin.bytes().all(|byte| {
-                byte.is_ascii_lowercase()
-                    || byte.is_ascii_digit()
-                    || byte == b'.'
-                    || byte == b'_'
-                    || byte == b'-'
-            })
+            || !crate::is_ascii_lowercase_identifier_with_dots(&self.candidate_skin)
         {
             return Err(PreferencesError::InvalidCandidateSkin);
         }
