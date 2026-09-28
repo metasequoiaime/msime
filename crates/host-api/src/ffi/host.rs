@@ -313,11 +313,11 @@ pub unsafe extern "C" fn msime_client_load_preferences(
         }
         // SAFETY: guaranteed by the documented caller contract.
         let bytes = unsafe { std::slice::from_raw_parts(directory, length) };
-        let directory =
-            std::str::from_utf8(bytes).map_err(|_| "invalid preferences directory encoding")?;
-        if !std::path::Path::new(directory).is_absolute() {
-            return Err("preferences directory must be absolute".into());
-        }
+        let directory = super::parse_absolute_path(
+            bytes,
+            "invalid preferences directory encoding",
+            "preferences directory must be absolute",
+        )?;
         let snapshot = PreferencesStore::new(directory)
             .load()
             .map_err(|e| e.to_string())?;
@@ -1558,11 +1558,11 @@ pub unsafe extern "C" fn msime_client_try_load_preferences(
         }
         // SAFETY: guaranteed by the documented caller contract.
         let bytes = unsafe { std::slice::from_raw_parts(directory, length) };
-        let directory =
-            std::str::from_utf8(bytes).map_err(|_| "invalid preferences directory encoding")?;
-        if !std::path::Path::new(directory).is_absolute() {
-            return Err("preferences directory must be absolute".into());
-        }
+        let directory = super::parse_absolute_path(
+            bytes,
+            "invalid preferences directory encoding",
+            "preferences directory must be absolute",
+        )?;
         let snapshot = PreferencesStore::new(directory)
             .try_load()
             .map_err(|e| e.to_string())?;
@@ -1585,11 +1585,11 @@ pub unsafe extern "C" fn msime_client_recover_preferences(
         }
         // SAFETY: guaranteed by the documented caller contract.
         let bytes = unsafe { std::slice::from_raw_parts(directory, length) };
-        let directory =
-            std::str::from_utf8(bytes).map_err(|_| "invalid preferences directory encoding")?;
-        if !std::path::Path::new(directory).is_absolute() {
-            return Err("preferences directory must be absolute".into());
-        }
+        let directory = super::parse_absolute_path(
+            bytes,
+            "invalid preferences directory encoding",
+            "preferences directory must be absolute",
+        )?;
         let outcome = PreferencesStore::new(directory)
             .recover_malformed()
             .map_err(|e| e.to_string())?;
@@ -1640,11 +1640,11 @@ pub unsafe extern "C" fn msime_client_save_preferences(
             return Err("invalid preferences save buffer".into());
         }
         let directory_bytes = unsafe { std::slice::from_raw_parts(directory, directory_length) };
-        let directory = std::str::from_utf8(directory_bytes)
-            .map_err(|_| "invalid preferences directory encoding")?;
-        if !std::path::Path::new(directory).is_absolute() {
-            return Err("preferences directory must be absolute".into());
-        }
+        let directory = super::parse_absolute_path(
+            directory_bytes,
+            "invalid preferences directory encoding",
+            "preferences directory must be absolute",
+        )?;
         let snapshot_bytes = unsafe { std::slice::from_raw_parts(snapshot, snapshot_length) };
         let snapshot: PreferencesSnapshot =
             serde_json::from_slice(snapshot_bytes).map_err(|_| "invalid preferences snapshot")?;
