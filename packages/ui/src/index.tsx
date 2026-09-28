@@ -66,6 +66,7 @@ import {
   type CredentialTestState,
 } from "./settings/credential-test-section";
 import { ProviderPresetSection, type ProviderPreset } from "./settings/provider-preset-section";
+import { CredentialStatusMessage } from "./settings/credential-status-message";
 import {
   VoiceCredentialSection,
   type VoiceCredentialSaveInput,
@@ -452,6 +453,11 @@ export {
   type ProviderPreset,
   type ProviderPresetSectionProps,
 } from "./settings/provider-preset-section";
+export {
+  CredentialStatusMessage,
+  type CredentialStatusMessageProps,
+  type CredentialStatusMessageValue,
+} from "./settings/credential-status-message";
 export {
   MobileKeyboardFeedbackSection,
   type MobileKeyboardFeedback,
@@ -4099,10 +4105,6 @@ export function SettingsPage({
       setProviderCredentialBusy(undefined);
     }
   };
-  const providerCredentialMessage = (kind: "ai" | "tencent" | VoiceCredentialKind) => {
-    const message = providerCredentialMessages[kind];
-    return message ? <span role={message.ok ? "status" : "alert"}>{message.text}</span> : null;
-  };
   const credentialTestControl = (
     service: ApiCredentialTestService,
     label: string,
@@ -6122,7 +6124,9 @@ export function SettingsPage({
                                           清除凭据
                                         </button>
                                       )}
-                                      {providerCredentialMessage("tencent")}
+                                      <CredentialStatusMessage
+                                        message={providerCredentialMessages.tencent}
+                                      />
                                     </div>
                                   </div>
                                 </>
@@ -8016,7 +8020,7 @@ export function SettingsPage({
                                 清除凭据
                               </button>
                             )}
-                            {providerCredentialMessage("ai")}
+                            <CredentialStatusMessage message={providerCredentialMessages.ai} />
                           </div>
                         </div>
                         {credentialTestControl(
