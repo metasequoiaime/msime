@@ -51,6 +51,7 @@ import { LicenseUninstallSection } from "./settings/license-uninstall-section";
 import { DiagnosticLogsSection } from "./settings/diagnostic-logs-section";
 import { HelpFeedbackSection } from "./settings/help-feedback-section";
 import { HelpSettingsPage } from "./settings/help-settings-page";
+import { ScreenKeyboardThemeSection } from "./settings/screen-keyboard-theme-section";
 import {
   MobileKeyboardFeedbackSection,
   type MobileKeyboardFeedback,
@@ -379,6 +380,10 @@ export {
   type HelpFeedbackSectionProps,
 } from "./settings/help-feedback-section";
 export { HelpSettingsPage, type HelpSettingsPageProps } from "./settings/help-settings-page";
+export {
+  ScreenKeyboardThemeSection,
+  type ScreenKeyboardThemeSectionProps,
+} from "./settings/screen-keyboard-theme-section";
 export {
   MobileKeyboardFeedbackSection,
   type MobileKeyboardFeedback,
@@ -6959,32 +6964,13 @@ export function SettingsPage({
                     hidden={page !== "screen-keyboard"}
                     aria-label="屏幕键盘"
                   >
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          屏幕键盘主题
-                          <small>
-                            {mobilePlatform
-                              ? "覆盖主题模式；当前屏幕键盘支持此设置"
-                              : "覆盖主题模式；桌面屏幕键盘支持此设置"}
-                          </small>
-                        </span>
-                        <select
-                          aria-label="屏幕键盘主题"
-                          value={draft.screen_keyboard_theme ?? "follow"}
-                          onChange={(event) =>
-                            setDraft({
-                              ...draft,
-                              screen_keyboard_theme: event.target.value as SurfaceTheme,
-                            })
-                          }
-                        >
-                          <option value="follow">跟随全局</option>
-                          <option value="dark">深色</option>
-                          <option value="light">浅色</option>
-                        </select>
-                      </label>
-                    </div>
+                    <ScreenKeyboardThemeSection
+                      mobile={mobilePlatform}
+                      value={draft.screen_keyboard_theme ?? "follow"}
+                      onChange={(screen_keyboard_theme) =>
+                        setDraft({ ...draft, screen_keyboard_theme })
+                      }
+                    />
                     <div
                       className="section"
                       role="group"
