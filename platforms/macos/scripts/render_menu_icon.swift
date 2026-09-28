@@ -15,18 +15,22 @@ import AppKit
 import CoreText
 import Foundation
 
-// The path from the SVG, in that file's user units, y pointing down. Keep the two in step: the SVG is what
-// a designer edits, this is what ships, and the viewBox there is the square this computes.
+// 标志本身，逐点取自产品图稿 apps/desktop/app-icon.svg 里那条 stroke="white" 的路径：110 单位画布、
+// stroke-width 8、round cap、默认的 miter 接角。坐标 y 向下，与 SVG 一致。
+//
+// 这里原本是一条照着图稿描出来的近似折线（等宽 4.5、round 接角），形状对不上：最后一笔在图稿里是从右上
+// 长扫到左下收尾，描出来那条却收在右下。菜单栏上的记号必须和应用图标是同一个，所以直接用图稿的路径，
+// 旁边的 SVG 与它保持一致，改动其一就要同步另一个。
 func metasequoiaStroke() -> CGPath {
     let path = CGMutablePath()
-    path.move(to: CGPoint(x: 25, y: 6.5))
-    path.addLine(to: CGPoint(x: 7.5, y: 14))
-    path.addLine(to: CGPoint(x: 24.5, y: 18.25))
-    path.addLine(to: CGPoint(x: 7.5, y: 25.75))
-    path.addCurve(to: CGPoint(x: 25, y: 28.5),
-                  control1: CGPoint(x: 12, y: 29.25),
-                  control2: CGPoint(x: 18, y: 31))
-    return path.copy(strokingWithWidth: 4.5, lineCap: .round, lineJoin: .round, miterLimit: 10)
+    path.move(to: CGPoint(x: 74.7234, y: 14))
+    path.addLine(to: CGPoint(x: 35.1501, y: 29.1727))
+    path.addLine(to: CGPoint(x: 74.7234, y: 40.5522))
+    path.addLine(to: CGPoint(x: 35.1501, y: 59.518))
+    path.addCurve(to: CGPoint(x: 33, y: 95),
+                  control1: CGPoint(x: 72.562, y: 65.84),
+                  control2: CGPoint(x: 107.728, y: 71.024))
+    return path.copy(strokingWithWidth: 8, lineCap: .round, lineJoin: .miter, miterLimit: 4)
 }
 
 // The input-mode icons are one glyph each, taken from the same face their SVGs name so the SVG preview and the shipped TIFF agree. PingFang SC ships with every macOS the bundle supports; a missing face fails the script rather than rendering a substitute.
