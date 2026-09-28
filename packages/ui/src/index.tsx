@@ -31,6 +31,7 @@ import { CandidateSizingSection } from "./settings/candidate-sizing-section";
 import { CandidatePageSizeSection } from "./settings/candidate-page-size-section";
 import { CandidateLayoutSection } from "./settings/candidate-layout-section";
 import { CandidateFollowCursorSection } from "./settings/candidate-follow-cursor-section";
+import { CandidateEnglishGlossSection } from "./settings/candidate-english-gloss-section";
 import { PreeditSettingsSection } from "./settings/preedit-settings-section";
 import { validCandidateFonts } from "./candidate/candidate-font-family";
 import type { FontCatalogReader } from "./candidate/font-catalog";
@@ -276,6 +277,10 @@ export {
   CandidateFollowCursorSection,
   type CandidateFollowCursorSectionProps,
 } from "./settings/candidate-follow-cursor-section";
+export {
+  CandidateEnglishGlossSection,
+  type CandidateEnglishGlossSectionProps,
+} from "./settings/candidate-english-gloss-section";
 export {
   PreeditSettingsSection,
   type CandidatePreeditStyle,
@@ -6745,25 +6750,12 @@ export function SettingsPage({
                       </div>
                     )}
                     {client.candidateEnglishGloss && (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">
-                            显示英文释义
-                            <small>
-                              在候选词后面标出它的英文意思，中文候选给英文、英文候选给中文。释义来自随键盘打包的离线词库，不联网。
-                            </small>
-                          </span>
-                          <input
-                            aria-label="显示英文释义"
-                            className="toggle"
-                            type="checkbox"
-                            checked={candidateEnglishGloss}
-                            onChange={(event) =>
-                              setDraft({ ...draft, candidate_english_gloss: event.target.checked })
-                            }
-                          />
-                        </label>
-                      </div>
+                      <CandidateEnglishGlossSection
+                        value={draft.candidate_english_gloss}
+                        onChange={(candidate_english_gloss) =>
+                          setDraft({ ...draft, candidate_english_gloss })
+                        }
+                      />
                     )}
                     {showEnglishSuggestions && (
                       <div className="section">
