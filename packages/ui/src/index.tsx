@@ -62,6 +62,7 @@ import { VoiceModelSection } from "./settings/voice-model-section";
 import { DoubaoAuthModeSection } from "./settings/doubao-auth-mode-section";
 import { DoubaoStreamEndpointSection } from "./settings/doubao-stream-endpoint-section";
 import { DoubaoOptionsSection } from "./settings/doubao-options-section";
+import { VoiceRecordingBehaviorSection } from "./settings/voice-recording-behavior-section";
 import { VoiceModelMirrorSection } from "./settings/voice-model-mirror-section";
 import {
   CredentialTestSection,
@@ -447,6 +448,10 @@ export {
   DoubaoOptionsSection,
   type DoubaoOptionsSectionProps,
 } from "./settings/doubao-options-section";
+export {
+  VoiceRecordingBehaviorSection,
+  type VoiceRecordingBehaviorSectionProps,
+} from "./settings/voice-recording-behavior-section";
 export {
   VoiceModelMirrorSection,
   type VoiceModelMirrorSectionProps,
@@ -6999,39 +7004,19 @@ export function SettingsPage({
                         system audio while it records. Four switches with nothing behind them is
                         what this page keeps being audited for. */}
                     {!androidPlatform && (
-                      <div className="section">
-                        <div className="section-title">
-                          {linuxPlatform ? "Linux provider 行为" : "录音行为"}
-                          <small>
-                            {linuxPlatform
-                              ? "这些选项会随请求传给用户管理的语音服务，不包含凭据"
-                              : "录音期间的提示音与静音由输入法在本机处理"}
-                          </small>
-                        </div>
-                        {(
-                          [
-                            ["sound_enabled", "语音提示音", true],
-                            ["start_sound", "开始录音提示音", true],
-                            ["end_sound", "结束录音提示音", true],
-                            ["mute_system_audio", "录音时静音其他声音", false],
-                          ] as const
-                        ).map(([key, label, enabledByDefault]) => (
-                          <label className="section-header" key={key}>
-                            <span className="section-title">{label}</span>
-                            <input
-                              aria-label={label}
-                              className="toggle"
-                              type="checkbox"
-                              checked={
-                                enabledByDefault
-                                  ? voiceInput[key] !== false
-                                  : voiceInput[key] === true
-                              }
-                              onChange={(event) => updateVoice({ [key]: event.target.checked })}
-                            />
-                          </label>
-                        ))}
-                      </div>
+                      <VoiceRecordingBehaviorSection
+                        linux={linuxPlatform}
+                        soundEnabled={voiceInput.sound_enabled !== false}
+                        startSound={voiceInput.start_sound !== false}
+                        endSound={voiceInput.end_sound !== false}
+                        muteSystemAudio={voiceInput.mute_system_audio === true}
+                        onSoundEnabledChange={(sound_enabled) => updateVoice({ sound_enabled })}
+                        onStartSoundChange={(start_sound) => updateVoice({ start_sound })}
+                        onEndSoundChange={(end_sound) => updateVoice({ end_sound })}
+                        onMuteSystemAudioChange={(mute_system_audio) =>
+                          updateVoice({ mute_system_audio })
+                        }
+                      />
                     )}
                     {showVoiceProviderSettings && voiceInput.asr_provider === "doubao" && (
                       <DoubaoOptionsSection
