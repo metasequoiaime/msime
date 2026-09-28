@@ -299,9 +299,8 @@ impl UnixSocketProvider {
             || query.candidates.len() > candidate_limit
             || query.candidates.iter().any(|text| {
                 text.is_empty()
-                    || text.len() > 4096
+                    || !msime_client_core::cloud::dictionary::valid_bounded_text(text, 4096)
                     || (query.sentence && text.chars().count() > MAX_SENTENCE_CHARS)
-                    || text.chars().any(char::is_control)
             })
         {
             return None;
@@ -354,11 +353,12 @@ impl UnixSocketProvider {
         let reply: Reply = serde_json::from_str(&line).ok()?;
         if reply.translations.len() > candidate_limit
             || reply.translations.iter().any(|item| {
-                item.text.len() > 4096
+                !msime_client_core::cloud::dictionary::valid_bounded_text(&item.text, 4096)
                     || item.translation.is_empty()
-                    || item.translation.len() > 4096
-                    || item.text.chars().any(char::is_control)
-                    || item.translation.chars().any(char::is_control)
+                    || !msime_client_core::cloud::dictionary::valid_bounded_text(
+                        &item.translation,
+                        4096,
+                    )
                     || !query.candidates.contains(&item.text)
             })
         {
