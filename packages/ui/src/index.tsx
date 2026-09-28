@@ -357,7 +357,6 @@ import {
   ClipboardHistorySection,
   type ClipboardHistoryClient,
 } from "./settings/clipboard-history-section";
-import { CloudPanelSessionNotice } from "./settings/cloud-panel-session-notice";
 import { WindowTitlebar } from "./settings/window-titlebar";
 export { WindowTitlebar, type WindowTitlebarProps } from "./settings/window-titlebar";
 import { windowResizeEdge } from "./settings/window-resize";
@@ -385,6 +384,11 @@ export {
   SettingsStatusMessages,
   type SettingsStatusMessagesProps,
 } from "./settings/settings-status-messages";
+import { UtilitiesSettingsSection } from "./settings/utilities-settings-section";
+export {
+  UtilitiesSettingsSection,
+  type UtilitiesSettingsSectionProps,
+} from "./settings/utilities-settings-section";
 import { availableSettingsPages } from "./settings/available-pages";
 export { availableSettingsPages, type AvailablePageCapabilities } from "./settings/available-pages";
 import * as surface from "./keyboard/panel-surface-style";
@@ -4670,48 +4674,24 @@ export function SettingsPage({
                       }
                     />
                   </fieldset>
-                  <fieldset disabled={busy} hidden={page !== "tools"} aria-label="实用功能">
-                    <ClipboardHistorySection
-                      client={client.clipboard}
-                      historyEnabled={clipboardHistory}
-                      persistedHistoryEnabled={snapshot?.preferences.clipboard_history ?? false}
-                      revision={snapshot?.revision}
-                      page={page}
-                      ios={iosPlatform}
-                      onToggle={toggleClipboardHistory}
-                      onError={setError}
-                    >
-                      {macosPlatform ? (
-                        <CloudPanelSessionNotice />
-                      ) : (
-                        <>
-                          {client.openCloudClipboard && (
-                            <button
-                              type="button"
-                              className="secondary"
-                              onClick={() => void openPanel(client.openCloudClipboard)}
-                            >
-                              打开云剪贴板
-                            </button>
-                          )}
-                          {client.openCloudDictionary && (
-                            <button
-                              type="button"
-                              className="secondary"
-                              onClick={() => void openPanel(client.openCloudDictionary)}
-                            >
-                              打开云词典
-                            </button>
-                          )}
-                        </>
-                      )}
-                    </ClipboardHistorySection>
-                    <LocalModesSection
-                      preferences={localModes}
-                      ios={iosPlatform}
-                      onChange={(local_modes) => setDraft({ ...draft, local_modes })}
-                    />
-                  </fieldset>
+                  <UtilitiesSettingsSection
+                    disabled={busy}
+                    hidden={page !== "tools"}
+                    clipboard={client.clipboard}
+                    historyEnabled={clipboardHistory}
+                    persistedHistoryEnabled={snapshot?.preferences.clipboard_history ?? false}
+                    revision={snapshot?.revision}
+                    page={page}
+                    ios={iosPlatform}
+                    macos={macosPlatform}
+                    onToggleClipboard={toggleClipboardHistory}
+                    onError={setError}
+                    openCloudClipboard={client.openCloudClipboard}
+                    openCloudDictionary={client.openCloudDictionary}
+                    onOpenPanel={openPanel}
+                    localModes={localModes}
+                    onLocalModesChange={(local_modes) => setDraft({ ...draft, local_modes })}
+                  />
                   <HelpSettingsPage
                     busy={busy}
                     hidden={page !== "help"}
