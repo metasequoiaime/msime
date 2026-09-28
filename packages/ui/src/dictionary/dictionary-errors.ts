@@ -1,9 +1,7 @@
+import { errorCode } from "../core/error-code";
+
 export function dictionaryErrorMessage(error: unknown, fallback: string, kind?: string): string {
-  const code =
-    typeof error === "object" && error !== null && "code" in error
-      ? String((error as { code: unknown }).code)
-      : "";
-  switch (code) {
+  switch (errorCode(error)) {
     case "dictionary_busy":
       return "词库正在被输入法占用，请关闭正在使用输入法的程序后重试。";
     case "dictionary_import_rejected":
