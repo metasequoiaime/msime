@@ -91,11 +91,7 @@ fn app_model_root<R: tauri::Runtime>(
 }
 
 fn valid_model_id(id: &str) -> Result<(), HostActionError> {
-    if id.is_empty()
-        || id.len() > MAX_MODEL_ID_BYTES
-        || !id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+    if id.is_empty() || id.len() > MAX_MODEL_ID_BYTES || !msime_client_core::is_ascii_identifier(id)
     {
         return Err(HostActionError {
             code: "local_model_unknown",

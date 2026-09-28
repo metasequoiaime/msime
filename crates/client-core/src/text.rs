@@ -42,6 +42,13 @@ pub fn is_ascii_alphanumeric_dash(value: &str) -> bool {
         .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
 }
 
+/// Whether a value contains only ASCII letters, digits, dashes, and underscores.
+pub fn is_ascii_identifier(value: &str) -> bool {
+    value
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+}
+
 pub fn is_lower_hex(value: &str, length: usize) -> bool {
     value.len() == length
         && value

@@ -527,12 +527,7 @@ fn prune_history(state: &mut PersonalDictionaryState) {
 }
 
 fn validate_request_id(id: &str) -> Result<(), PersonalDictionaryError> {
-    if id.is_empty()
-        || id.len() > 120
-        || !id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
-    {
+    if id.is_empty() || id.len() > 120 || !crate::is_ascii_identifier(id) {
         return Err(PersonalDictionaryError::InvalidRequest);
     }
     Ok(())
