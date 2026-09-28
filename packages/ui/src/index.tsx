@@ -61,6 +61,7 @@ import { VoiceModelPathSection } from "./settings/voice-model-path-section";
 import { VoiceModelSection } from "./settings/voice-model-section";
 import { DoubaoAuthModeSection } from "./settings/doubao-auth-mode-section";
 import { DoubaoStreamEndpointSection } from "./settings/doubao-stream-endpoint-section";
+import { DoubaoOptionsSection } from "./settings/doubao-options-section";
 import { VoiceModelMirrorSection } from "./settings/voice-model-mirror-section";
 import {
   CredentialTestSection,
@@ -442,6 +443,10 @@ export {
   DoubaoStreamEndpointSection,
   type DoubaoStreamEndpointSectionProps,
 } from "./settings/doubao-stream-endpoint-section";
+export {
+  DoubaoOptionsSection,
+  type DoubaoOptionsSectionProps,
+} from "./settings/doubao-options-section";
 export {
   VoiceModelMirrorSection,
   type VoiceModelMirrorSectionProps,
@@ -7029,46 +7034,25 @@ export function SettingsPage({
                       </div>
                     )}
                     {showVoiceProviderSettings && voiceInput.asr_provider === "doubao" && (
-                      <div className="section">
-                        <div className="section-title">
-                          豆包识别选项
-                          <small>
-                            {linuxPlatform ? "由 provider 服务应用" : "随识别请求发送给豆包"}
-                          </small>
-                        </div>
-                        {(
-                          [
-                            ["doubao_enable_itn", "数字格式化", true],
-                            ["doubao_enable_punc", "标点预测", true],
-                            ["doubao_enable_ddc", "语义顺滑", false],
-                          ] as const
-                        ).map(([key, label, enabledByDefault]) => (
-                          <label className="section-header" key={key}>
-                            <span className="section-title">{label}</span>
-                            <input
-                              aria-label={label}
-                              className="toggle"
-                              type="checkbox"
-                              checked={
-                                enabledByDefault
-                                  ? voiceInput[key] !== false
-                                  : voiceInput[key] === true
-                              }
-                              onChange={(event) => updateVoice({ [key]: event.target.checked })}
-                            />
-                          </label>
-                        ))}
-                        <label className="section-header">
-                          <span className="section-title">热词表 ID</span>
-                          <input
-                            aria-label="热词表 ID"
-                            value={voiceInput.doubao_boosting_table_id ?? ""}
-                            onChange={(event) =>
-                              updateVoice({ doubao_boosting_table_id: event.target.value })
-                            }
-                          />
-                        </label>
-                      </div>
+                      <DoubaoOptionsSection
+                        linux={linuxPlatform}
+                        enableItn={voiceInput.doubao_enable_itn !== false}
+                        enablePunc={voiceInput.doubao_enable_punc !== false}
+                        enableDdc={voiceInput.doubao_enable_ddc === true}
+                        boostingTableId={voiceInput.doubao_boosting_table_id ?? ""}
+                        onEnableItnChange={(doubao_enable_itn) =>
+                          updateVoice({ doubao_enable_itn })
+                        }
+                        onEnablePuncChange={(doubao_enable_punc) =>
+                          updateVoice({ doubao_enable_punc })
+                        }
+                        onEnableDdcChange={(doubao_enable_ddc) =>
+                          updateVoice({ doubao_enable_ddc })
+                        }
+                        onBoostingTableIdChange={(doubao_boosting_table_id) =>
+                          updateVoice({ doubao_boosting_table_id })
+                        }
+                      />
                     )}
                     {showVoiceProviderSettings && (
                       <div className="section">
