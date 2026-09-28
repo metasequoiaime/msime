@@ -57,6 +57,10 @@ import { CloudCandidatesSection } from "./settings/cloud-candidates-section";
 import { TelemetrySection } from "./settings/telemetry-section";
 import { WubiSection } from "./settings/wubi-section";
 import { InputModeSection } from "./settings/input-mode-section";
+import {
+  InputSchemeSelectorSection,
+  type InputSchemeSelectorValue,
+} from "./settings/input-scheme-selector-section";
 import { InputModeShortcutsSection } from "./settings/input-mode-shortcuts-section";
 import { PanelShortcutsSection } from "./settings/panel-shortcuts-section";
 import { CandidateShortcutsSection } from "./settings/candidate-shortcuts-section";
@@ -421,6 +425,11 @@ export {
   type InputModeScheme,
   type InputModeSectionProps,
 } from "./settings/input-mode-section";
+export {
+  InputSchemeSelectorSection,
+  type InputSchemeSelectorSectionProps,
+  type InputSchemeSelectorValue,
+} from "./settings/input-scheme-selector-section";
 export {
   InputModeShortcutsSection,
   type InputModeShortcutPreferences,
@@ -5217,40 +5226,13 @@ export function SettingsPage({
                         }
                       />
                     )}
-                    <div
-                      className="section"
-                      role="group"
-                      aria-labelledby="input-scheme-title"
-                      hidden={client.touchKeyboardSchemes || draft.scheme === "japanese"}
-                    >
-                      <div className="section-title" id="input-scheme-title">
-                        输入方案
-                      </div>
-                      <div className="input-option-content">
-                        {(
-                          [
-                            ["quanpin", "全拼"],
-                            ["shuangpin", "双拼"],
-                            ["wubi", "五笔"],
-                          ] as const
-                        ).map(([scheme, label], index) => (
-                          <div className="input-option-item" key={scheme}>
-                            {index > 0 && <div className="input-option-divider" />}
-                            <label className="radio-option">
-                              <input
-                                type="radio"
-                                name="input-scheme"
-                                value={scheme}
-                                checked={draft.scheme === scheme}
-                                onChange={() =>
-                                  setDraft({ ...draft, scheme, last_chinese_scheme: scheme })
-                                }
-                              />
-                              <span>{label}</span>
-                            </label>
-                          </div>
-                        ))}
-                      </div>
+                    <div hidden={client.touchKeyboardSchemes || draft.scheme === "japanese"}>
+                      <InputSchemeSelectorSection
+                        value={draft.scheme === "japanese" ? "quanpin" : draft.scheme}
+                        onChange={(scheme: InputSchemeSelectorValue) =>
+                          setDraft({ ...draft, scheme, last_chinese_scheme: scheme })
+                        }
+                      />
                     </div>
                     <div
                       className="section"
