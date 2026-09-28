@@ -244,6 +244,11 @@ import {
   type WordCharacterPreferences,
 } from "./settings/word-character-section";
 import { NavigationSection } from "./settings/navigation-section";
+import {
+  CandidateTranslationOptionsSection,
+  type TranslationLanguage,
+  type TranslationSecondaryLanguage,
+} from "./settings/candidate-translation-options-section";
 import { PunctuationSection } from "./settings/punctuation-section";
 import {
   MixedInputSection,
@@ -384,6 +389,14 @@ export {
   type WordCharacterPreferences,
 } from "./settings/word-character-section";
 export { NavigationSection } from "./settings/navigation-section";
+export {
+  CandidateTranslationOptionsSection,
+  type CandidateTranslationOptionsSectionProps,
+  type TranslationLanguage,
+  type TranslationLanguageOption,
+  type TranslationSecondaryLanguage,
+  type TranslationSecondaryLanguageOption,
+} from "./settings/candidate-translation-options-section";
 export { PunctuationSection, type PunctuationPreferences } from "./settings/punctuation-section";
 export {
   MixedInputSection,
@@ -5037,100 +5050,36 @@ export function SettingsPage({
                         })
                       }
                     />
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          候选词翻译<small>为当前候选请求翻译结果并显示在候选行</small>
-                        </span>
-                        <input
-                          className="toggle"
-                          type="checkbox"
-                          checked={candidateTranslations}
-                          onChange={(event) =>
-                            setDraft({ ...draft, candidate_translations: event.target.checked })
-                          }
-                        />
-                      </label>
-                      <div className="input-option-divider" />
-                      <label className="section-header">
-                        <span className="section-title">目标语言</span>
-                        <select
-                          aria-label="候选词翻译目标语言"
-                          disabled={!candidateGlossLanguagesEnabled}
-                          value={translationTargetLanguage}
-                          onChange={(event) =>
-                            setDraft({
-                              ...draft,
-                              translation_target_language: event.target
-                                .value as Preferences["translation_target_language"],
-                            })
-                          }
-                        >
-                          {visibleTranslationLanguages.map(([value, label]) => (
-                            <option key={value} value={value}>
-                              {label}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      {(androidPlatform || iosPlatform || macosPlatform || harmonyPlatform) && (
-                        <>
-                          <div className="input-option-divider" />
-                          <label className="section-header">
-                            <span className="section-title">
-                              第二种语言<small>候选词下方可同时显示第二种释义</small>
-                            </span>
-                            <select
-                              aria-label="候选词翻译第二种语言"
-                              disabled={!candidateGlossLanguagesEnabled}
-                              value={translationSecondaryLanguage}
-                              onChange={(event) =>
-                                setDraft({
-                                  ...draft,
-                                  translation_secondary_language:
-                                    event.target.value === ""
-                                      ? null
-                                      : (event.target
-                                          .value as Preferences["translation_target_language"]),
-                                })
-                              }
-                            >
-                              {visibleSecondaryLanguages.map(([value, label]) => (
-                                <option key={value || "none"} value={value}>
-                                  {label}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                        </>
-                      )}
-                      {androidPlatform && (
-                        <>
-                          <div className="input-option-divider" />
-                          <label className="section-header">
-                            <span className="section-title">
-                              使用水杉账号翻译候选词
-                              <small>
-                                当前页的中文候选词会发送到 api.msime.app；匿名账号在 Linux
-                                安装后的用户初始化中自动注册；不开启则不联网翻译
-                              </small>
-                            </span>
-                            <input
-                              aria-label="使用水杉账号翻译候选词"
-                              className="toggle"
-                              type="checkbox"
-                              disabled={!candidateTranslations}
-                              checked={draft.translation_account ?? false}
-                              onChange={(event) =>
-                                event.target.checked
-                                  ? setTranslationProvider("account")
-                                  : setDraft({ ...draft, translation_account: undefined })
-                              }
-                            />
-                          </label>
-                        </>
-                      )}
-                    </div>
+                    <CandidateTranslationOptionsSection
+                      enabled={candidateTranslations}
+                      targetLanguage={translationTargetLanguage}
+                      secondaryLanguage={translationSecondaryLanguage ?? ""}
+                      candidateGlossLanguagesEnabled={candidateGlossLanguagesEnabled}
+                      visibleLanguages={visibleTranslationLanguages}
+                      visibleSecondaryLanguages={visibleSecondaryLanguages}
+                      showSecondaryLanguage={
+                        androidPlatform || iosPlatform || macosPlatform || harmonyPlatform
+                      }
+                      showAccountTranslation={androidPlatform}
+                      accountTranslation={draft.translation_account ?? false}
+                      onEnabledChange={(candidate_translations) =>
+                        setDraft({ ...draft, candidate_translations })
+                      }
+                      onTargetLanguageChange={(translation_target_language: TranslationLanguage) =>
+                        setDraft({ ...draft, translation_target_language })
+                      }
+                      onSecondaryLanguageChange={(value: TranslationSecondaryLanguage) =>
+                        setDraft({
+                          ...draft,
+                          translation_secondary_language: value === "" ? null : value,
+                        })
+                      }
+                      onAccountTranslationChange={(enabled) =>
+                        enabled
+                          ? setTranslationProvider("account")
+                          : setDraft({ ...draft, translation_account: undefined })
+                      }
+                    />
                     {onDeviceMissingLanguages.length > 0 && (
                       <div role="status" className="notice" aria-label="系统翻译语言未下载">
                         <p>
