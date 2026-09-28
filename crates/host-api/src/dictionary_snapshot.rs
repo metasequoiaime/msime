@@ -449,13 +449,7 @@ fn restore_snapshot_with(
     path: &Path,
     upload: impl FnOnce(&Path, i64, &str) -> Result<AccountDictionarySnapshotRestore, AccountError>,
 ) -> Result<Value, String> {
-    if request.revision < 0
-        || request.expected_sha256.len() != 64
-        || !request
-            .expected_sha256
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-    {
+    if request.revision < 0 || !msime_client_core::is_lower_hex(&request.expected_sha256, 64) {
         return Err("account_invalid".to_owned());
     }
     let metadata = inspect_snapshot(path).map_err(|_| "account_invalid".to_owned())?;

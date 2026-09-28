@@ -49,6 +49,13 @@ pub fn is_ascii_identifier(value: &str) -> bool {
         .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
 }
 
+/// Whether a value contains only ASCII letters, digits, dots, dashes, and underscores.
+pub fn is_ascii_identifier_with_dots(value: &str) -> bool {
+    value
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
+}
+
 pub fn is_lower_hex(value: &str, length: usize) -> bool {
     value.len() == length
         && value
@@ -59,4 +66,9 @@ pub fn is_lower_hex(value: &str, length: usize) -> bool {
 /// Whether a single-line field fits its character bound and contains no controls.
 pub(crate) fn is_bounded_chars(value: &str, maximum_characters: usize) -> bool {
     value.chars().count() <= maximum_characters && !value.chars().any(char::is_control)
+}
+
+/// Whether an ASCII byte is an RFC 3986 URI unreserved character.
+pub(crate) fn is_ascii_uri_unreserved(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~')
 }

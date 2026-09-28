@@ -70,7 +70,7 @@ pub fn percent_encode(value: &str) -> String {
     value
         .bytes()
         .map(|b| {
-            if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
+            if crate::text::is_ascii_uri_unreserved(b) {
                 format!("{}", b as char)
             } else {
                 format!("%{:02X}", b)
