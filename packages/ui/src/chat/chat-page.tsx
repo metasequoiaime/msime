@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useConfirm } from "../core/confirm";
 import { errorCode } from "../core/error-code";
-import { utf8ByteLength } from "../core/text";
 import * as chat from "./chat-style";
+import { boundedHistory, chatMessageByteLength, MAX_MESSAGE_BYTES } from "./chat-history";
 
 export type ChatMessage = {
   role: "user" | "assistant" | "system";
@@ -37,21 +37,7 @@ function chatError(error: unknown): string {
   return "连接失败，请检查网络后重试。";
 }
 
-// Mirrors MAX_CHAT_MESSAGE_BYTES in client-core, which counts UTF-8 bytes. The composer's
-// maxLength counts UTF-16 units, so a long CJK message passes it at a third of that size and
-// would only come back as the generic 消息或模型无效.
-const MAX_MESSAGE_BYTES = 16 * 1024;
-function boundedHistory(messages: DisplayMessage[]): ChatMessage[] {
-  const result: ChatMessage[] = [];
-  let bytes = 0;
-  for (const message of [...messages].reverse()) {
-    const nextBytes = bytes + utf8ByteLength(message.content);
-    if (result.length >= 14 || nextBytes >= 48_000) break;
-    result.unshift({ role: message.role, content: message.content });
-    bytes = nextBytes;
-  }
-  return result;
-}
+// Mirrors the client-core byte and message limits used by the chat service.
 
 export function ChatPage({
   client,
@@ -150,7 +136,7 @@ export function ChatPage({
     }
     if (!selectedModel) return;
     // Refused before it joins the conversation; otherwise every retry would resend it and fail.
-    if (utf8ByteLength(content) > MAX_MESSAGE_BYTES) {
+    if (chatMessageByteLength(content) > MAX_MESSAGE_BYTES) {
       setError("消息过长，请精简后再发送。");
       return;
     }
