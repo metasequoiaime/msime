@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useConfirm } from "../core/confirm";
-import { errorCode } from "../core/error-code";
 import * as settings from "./settings-style";
+import { mcpFailureMessage } from "./mcp-errors";
 
 /** The assistants the host can write the entry for. */
 export type McpClientId = "claude_desktop" | "cursor";
@@ -35,20 +35,6 @@ const clientNames: Record<McpClientId, string> = {
 
 const code =
   "m-0 overflow-x-auto rounded-lg border border-edge bg-raised p-3 text-xs leading-relaxed";
-
-function failure(error: unknown, name: string): string {
-  switch (errorCode(error)) {
-    case "mcp_client_missing":
-      return `没有找到 ${name} 的配置目录。请先安装并打开一次 ${name}。`;
-    case "mcp_config_invalid":
-      return `${name} 的配置文件不是有效的 JSON，已保持原样。请先修正该文件。`;
-    case "mcp_server_missing":
-      return "没有找到 msime-mcp，请重新安装输入法。";
-    case "mcp_options_missing":
-      return "输入法尚未完成初始化，请先完成设置向导。";
-  }
-  return `无法写入 ${name} 的配置文件。`;
-}
 
 /**
  * 「连接 AI 助手」: the `msime-mcp` entry an assistant runs, to copy or to write into Claude Desktop's or Cursor's configuration.
@@ -136,7 +122,7 @@ export function McpConnectSection({
       await refresh();
     } catch (error) {
       if (mounted.current && generation === clientGeneration.current)
-        setResult(failure(error, name));
+        setResult(mcpFailureMessage(error, name));
     } finally {
       if (mounted.current && generation === clientGeneration.current) setBusy(undefined);
     }
