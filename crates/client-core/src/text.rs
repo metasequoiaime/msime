@@ -105,6 +105,11 @@ pub(crate) fn is_bounded_chars(value: &str, maximum_characters: usize) -> bool {
     value.chars().count() <= maximum_characters && !value.chars().any(char::is_control)
 }
 
+/// Whether `value` fits a character bound and contains no NUL character.
+pub fn is_bounded_chars_without_nul(value: &str, maximum_characters: usize) -> bool {
+    value.chars().count() <= maximum_characters && !value.contains('\0')
+}
+
 /// Whether an ASCII byte is an RFC 3986 URI unreserved character.
 pub(crate) fn is_ascii_uri_unreserved(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~')

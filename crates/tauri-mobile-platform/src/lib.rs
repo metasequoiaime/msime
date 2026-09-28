@@ -121,7 +121,7 @@ impl<R: Runtime> AndroidVoicePlatform<R> {
             )
             .await
             .map_err(|_| ())?;
-        if response.text.chars().count() > 10_000 || response.text.contains('\0') {
+        if !msime_client_core::is_bounded_chars_without_nul(&response.text, 10_000) {
             return Err(());
         }
         Ok(response.text)
@@ -149,7 +149,8 @@ impl<R: Runtime> AndroidVoicePlatform<R> {
     }
 
     pub fn save_voice_text(&self, text: &str) -> Result<(), ()> {
-        if text.trim().is_empty() || text.chars().count() > 10_000 || text.contains('\0') {
+        if text.trim().is_empty() || !msime_client_core::is_bounded_chars_without_nul(text, 10_000)
+        {
             return Err(());
         }
         self.0
@@ -371,7 +372,7 @@ pub struct MobileVoiceTranscriptionResponse {
 #[cfg(any(target_os = "ios", test))]
 impl MobileVoiceTranscriptionResponse {
     fn is_valid(&self) -> bool {
-        self.text.chars().count() <= MAX_MOBILE_VOICE_TEXT_CHARS && !self.text.contains('\0')
+        msime_client_core::is_bounded_chars_without_nul(&self.text, MAX_MOBILE_VOICE_TEXT_CHARS)
     }
 }
 
@@ -730,7 +731,8 @@ impl<R: Runtime> MobilePlatform<R> {
     }
 
     pub fn save_voice_text(&self, text: &str) -> Result<(), ()> {
-        if text.trim().is_empty() || text.chars().count() > 10_000 || text.contains('\0') {
+        if text.trim().is_empty() || !msime_client_core::is_bounded_chars_without_nul(text, 10_000)
+        {
             return Err(());
         }
         self.0
