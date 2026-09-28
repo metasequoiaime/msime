@@ -57,6 +57,7 @@ import { TouchKeyboardSchemesSection } from "./settings/touch-keyboard-schemes-s
 import { VoiceInputIntroSection } from "./settings/voice-input-intro-section";
 import { VoiceInputCoreSection } from "./settings/voice-input-core-section";
 import { VoiceModelPathSection } from "./settings/voice-model-path-section";
+import { VoiceModelSection } from "./settings/voice-model-section";
 import { VoiceModelMirrorSection } from "./settings/voice-model-mirror-section";
 import {
   MobileKeyboardFeedbackSection,
@@ -407,6 +408,7 @@ export {
   VoiceModelPathSection,
   type VoiceModelPathSectionProps,
 } from "./settings/voice-model-path-section";
+export { VoiceModelSection, type VoiceModelSectionProps } from "./settings/voice-model-section";
 export {
   VoiceModelMirrorSection,
   type VoiceModelMirrorSectionProps,
@@ -7381,18 +7383,10 @@ export function SettingsPage({
                         (asr_model) => updateVoice({ asr_model }),
                       )}
                     {showVoiceProviderSettings && serviceVoice && (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">
-                            识别模型<small>由 provider 服务选择对应模型</small>
-                          </span>
-                          <input
-                            aria-label="识别模型"
-                            value={voiceInput.asr_model ?? ""}
-                            onChange={(event) => updateVoice({ asr_model: event.target.value })}
-                          />
-                        </label>
-                      </div>
+                      <VoiceModelSection
+                        value={voiceInput.asr_model ?? ""}
+                        onChange={(asr_model) => updateVoice({ asr_model })}
+                      />
                     )}
                     {showVoiceProviderSettings && voiceInput.asr_provider === "doubao" && (
                       <div className="section">
