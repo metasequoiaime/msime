@@ -1,3 +1,6 @@
+import { SettingCheck } from "./setting-check";
+import { SettingToggle } from "./setting-toggle";
+
 export type TouchToolbarPreferences = {
   layout: boolean;
   emoji: boolean;
@@ -143,17 +146,13 @@ export function TouchKeyboardGeometrySection({
             <small>勾选要显示在键盘顶部工具栏的功能；未勾选的仍在「更多」里</small>
           </div>
           {touchToolbarOptions.map(([key, label]) => (
-            <label key={key} className="check-option">
-              <input
-                type="checkbox"
-                aria-label={`工具栏：${label}`}
-                checked={toolbarValues[key]}
-                onChange={(event) =>
-                  onToolbarChange({ ...toolbarValues, [key]: event.target.checked })
-                }
-              />
-              <span>{label}</span>
-            </label>
+            <SettingCheck
+              key={key}
+              label={label}
+              ariaLabel={`工具栏：${label}`}
+              checked={toolbarValues[key]}
+              onChange={(enabled) => onToolbarChange({ ...toolbarValues, [key]: enabled })}
+            />
           ))}
         </>
       )}
@@ -182,4 +181,3 @@ export function TouchKeyboardGeometrySection({
     </div>
   );
 }
-import { SettingToggle } from "./setting-toggle";

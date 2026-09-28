@@ -1,3 +1,4 @@
+import { SettingCheck } from "./setting-check";
 import * as settings from "./settings-style";
 
 export type FloatingToolbarComponentKey =
@@ -53,14 +54,11 @@ export function FloatingToolbarComponentsSection({
         {visibleOptions.map(([key, label]) => (
           <div key={key}>
             <div className="input-option-divider" />
-            <label className="check-option">
-              <input
-                type="checkbox"
-                checked={values[key]}
-                onChange={(event) => onChange(key, event.target.checked)}
-              />
-              <span>{label}</span>
-            </label>
+            <SettingCheck
+              label={label}
+              checked={values[key]}
+              onChange={(enabled) => onChange(key, enabled)}
+            />
           </div>
         ))}
       </div>
