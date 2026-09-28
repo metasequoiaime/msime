@@ -128,15 +128,8 @@ export {
   dictionaryKindLabel,
 } from "./dictionary/dictionary-export";
 export { describeImportResult, dictionaryKindKeyHint } from "./dictionary/dictionary-messages";
-import { AppearanceCandidatePreview } from "./candidate/appearance-candidate-preview";
+import { AppearanceSettingsSection } from "./settings/appearance-settings-section";
 import { useCandidatePreviewTheme } from "./candidate/candidate-preview-theme";
-import { CandidateFontControls } from "./candidate/candidate-font-controls";
-import { CandidateSizingSection } from "./settings/candidate-sizing-section";
-import { CandidatePageSizeSection } from "./settings/candidate-page-size-section";
-import { CandidateLayoutSection } from "./settings/candidate-layout-section";
-import { CandidateFollowCursorSection } from "./settings/candidate-follow-cursor-section";
-import { CandidatePanelLimitSection } from "./settings/candidate-panel-limit-section";
-import { CandidateFontUnsupportedNotice } from "./settings/candidate-font-unsupported-notice";
 import { CandidateEnglishGlossSection } from "./settings/candidate-english-gloss-section";
 import { EnglishSuggestionsSection } from "./settings/english-suggestions-section";
 import { LearningSection } from "./settings/learning-section";
@@ -173,7 +166,6 @@ import { DiagnosticLogsSection } from "./settings/diagnostic-logs-section";
 import { HelpFeedbackSection } from "./settings/help-feedback-section";
 import { HelpSettingsPage } from "./settings/help-settings-page";
 import { ScreenKeyboardSettingsSection } from "./settings/screen-keyboard-settings-section";
-import { CandidatePaletteFallbackNotice } from "./settings/candidate-palette-fallback-notice";
 import { TouchKeyboardSchemesSection } from "./settings/touch-keyboard-schemes-section";
 import type { TouchToolbarPreferences } from "./settings/touch-keyboard-geometry-section";
 import { VoiceInputIntroSection } from "./settings/voice-input-intro-section";
@@ -258,7 +250,6 @@ import {
   type MobileKeyboardFeedback,
   type MobileKeyboardFeedbackClient,
 } from "./settings/mobile-keyboard-feedback-section";
-import { PreeditSettingsSection } from "./settings/preedit-settings-section";
 import { DictionaryManifestCard } from "./settings/dictionary-manifest-card";
 import { PersonalDictionaryImportCard } from "./settings/personal-dictionary-import-card";
 import { validCandidateFonts } from "./candidate/candidate-font-family";
@@ -334,13 +325,8 @@ import {
   defaultLocalModes,
   type LocalModePreferences,
 } from "./settings/local-modes-section";
+import { type SurfaceTheme, type ThemeMode } from "./settings/theme-settings-section";
 import {
-  ThemeSettingsSection,
-  type SurfaceTheme,
-  type ThemeMode,
-} from "./settings/theme-settings-section";
-import {
-  CandidateColorsSection,
   type CandidateColorKey,
   type CandidateColorPreferences,
 } from "./settings/candidate-colors-section";
@@ -553,6 +539,10 @@ export {
   type CandidateColorKey,
   type CandidateColorPreferences,
 } from "./settings/candidate-colors-section";
+export {
+  AppearanceSettingsSection,
+  type AppearanceSettingsSectionProps,
+} from "./settings/appearance-settings-section";
 export { CandidatePaletteFallbackNotice } from "./settings/candidate-palette-fallback-notice";
 export {
   AiLinuxProviderSection,
@@ -3746,100 +3736,52 @@ export function SettingsPage({
                     void save();
                   }}
                 >
-                  <fieldset disabled={busy} hidden={page !== "appearance"} aria-label="外观">
-                    <AppearanceCandidatePreview
-                      preferences={{
-                        ...draft,
-                        candidate_english_font:
-                          host?.platform === "windows"
-                            ? (draft.candidate_english_font ?? "Segoe UI")
-                            : draft.candidate_english_font,
-                      }}
-                      scan={client.scanSkinCatalog}
-                      readImage={client.readSkinImage}
-                      resolveFonts={client.resolveFontFamilies}
-                      active={page === "appearance"}
-                      revision={snapshot?.revision ?? 0}
-                      mobile={mobilePlatform}
-                    />
-                    {host?.candidate_panel_limit && (
-                      <CandidatePanelLimitSection limit={host.candidate_panel_limit} />
-                    )}
-                    {showCandidateFollowCursor && (
-                      <CandidateFollowCursorSection
-                        value={draft.candidate_follow_cursor}
-                        onChange={(candidate_follow_cursor) =>
-                          setDraft({ ...draft, candidate_follow_cursor })
-                        }
-                      />
-                    )}
-                    {showCandidateFontControls ? (
-                      <CandidateFontControls
-                        value={draft}
-                        onChange={(patch) => setDraft({ ...draft, ...patch })}
-                        readFonts={client.listFontFamilies}
-                        windows={host?.platform === "windows"}
-                        englishFont={showCandidateEnglishFont}
-                        mobile={mobilePlatform}
-                      />
-                    ) : (
-                      <CandidateFontUnsupportedNotice />
-                    )}
-                    <CandidateSizingSection
-                      preferences={draft}
-                      mobile={mobilePlatform}
-                      showFontControls={showCandidateFontControls}
-                      showPreeditFont={showCandidatePreeditFont}
-                      onChange={(patch) => setDraft({ ...draft, ...patch })}
-                    />
-                    {mobileKeyboardFeedback?.candidatePaletteFollowsDesktop === false && (
-                      <CandidatePaletteFallbackNotice />
-                    )}
-                    <CandidateColorsSection
-                      preferences={draft}
-                      previewTheme={candidatePreviewTheme}
-                      showRowColors={showCandidateRowColors}
-                      showSelectionAppearance={showCandidateSelectionAppearance}
-                      showBorderColor={showCandidateBorderColor}
-                      linux={linuxPlatform}
-                      onChange={(key, value) => setDraft({ ...draft, [key]: value })}
-                    />
-                    <CandidatePageSizeSection
-                      value={draft.candidate_page_size}
-                      fixed={host?.fixed_candidate_page_size !== undefined}
-                      onChange={(candidate_page_size) =>
-                        setDraft({ ...draft, candidate_page_size })
-                      }
-                    />
-                    <ThemeSettingsSection
-                      preferences={draft}
-                      mobile={mobilePlatform}
-                      linux={linuxPlatform}
-                      floatingToolbar={showFloatingToolbar}
-                      desktopPanels={desktopPanels}
-                      onChange={(key, value) => setDraft({ ...draft, [key]: value })}
-                    />
-                    <CandidateLayoutSection
-                      value={draft.candidate_layout}
-                      fixed={host?.fixed_candidate_layout !== undefined}
-                      onChange={(candidate_layout) => setDraft({ ...draft, candidate_layout })}
-                    />
-                    <PreeditSettingsSection
-                      preferences={draft}
-                      mobile={mobilePlatform}
-                      showShuangpinPreedit={showShuangpinPreedit}
-                      inlinePreedit={mobileKeyboardFeedback?.inlinePreedit}
-                      inlinePreeditBusy={mobileKeyboardFeedbackBusy}
-                      onChange={(patch) => setDraft({ ...draft, ...patch })}
-                      onInlinePreeditChange={(inlinePreedit) =>
-                        mobileKeyboardFeedback &&
-                        void saveMobileKeyboardFeedback({
-                          ...mobileKeyboardFeedback,
-                          inlinePreedit,
-                        })
-                      }
-                    />
-                  </fieldset>
+                  <AppearanceSettingsSection
+                    disabled={busy}
+                    hidden={page !== "appearance"}
+                    preferences={{
+                      ...draft,
+                      candidate_english_font:
+                        host?.platform === "windows"
+                          ? (draft.candidate_english_font ?? "Segoe UI")
+                          : draft.candidate_english_font,
+                    }}
+                    revision={snapshot?.revision ?? 0}
+                    mobile={mobilePlatform}
+                    linux={linuxPlatform}
+                    windows={host?.platform === "windows"}
+                    candidatePreviewTheme={candidatePreviewTheme}
+                    candidatePanelLimit={host?.candidate_panel_limit}
+                    showCandidateFollowCursor={showCandidateFollowCursor}
+                    showCandidateFontControls={showCandidateFontControls}
+                    showCandidateEnglishFont={showCandidateEnglishFont}
+                    showCandidatePreeditFont={showCandidatePreeditFont}
+                    showCandidateRowColors={showCandidateRowColors}
+                    showCandidateSelectionAppearance={showCandidateSelectionAppearance}
+                    showCandidateBorderColor={showCandidateBorderColor}
+                    showShuangpinPreedit={showShuangpinPreedit}
+                    fixedCandidatePageSize={host?.fixed_candidate_page_size !== undefined}
+                    fixedCandidateLayout={host?.fixed_candidate_layout !== undefined}
+                    floatingToolbar={showFloatingToolbar}
+                    desktopPanels={desktopPanels}
+                    candidatePaletteFollowsDesktop={
+                      mobileKeyboardFeedback?.candidatePaletteFollowsDesktop
+                    }
+                    inlinePreedit={mobileKeyboardFeedback?.inlinePreedit}
+                    inlinePreeditBusy={mobileKeyboardFeedbackBusy}
+                    scan={client.scanSkinCatalog}
+                    readImage={client.readSkinImage}
+                    resolveFonts={client.resolveFontFamilies}
+                    listFontFamilies={client.listFontFamilies}
+                    onPreferencesChange={(patch) => setDraft({ ...draft, ...patch })}
+                    onInlinePreeditChange={(inlinePreedit) =>
+                      mobileKeyboardFeedback &&
+                      void saveMobileKeyboardFeedback({
+                        ...mobileKeyboardFeedback,
+                        inlinePreedit,
+                      })
+                    }
+                  />
                   <fieldset disabled={busy} hidden={page !== "dictionary"} aria-label="词库">
                     {client.dictionaryManifest && (
                       <DictionaryManifestCard read={client.dictionaryManifest} />
