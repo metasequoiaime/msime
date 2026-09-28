@@ -128,12 +128,14 @@ pub unsafe extern "C" fn msime_client_learned_translation_request(
     request: *const u8,
     length: usize,
 ) -> *mut c_char {
-    response(|| {
-        if request.is_null() || length > 65536 {
-            return Err("invalid learned translation buffer".into());
-        }
-        learned_translation::execute(unsafe { std::slice::from_raw_parts(request, length) })
-            .map_err(str::to_owned)
+    response(|| unsafe {
+        with_bounded_bytes(
+            request,
+            length,
+            65536,
+            "invalid learned translation buffer",
+            |bytes| learned_translation::execute(bytes).map_err(str::to_owned),
+        )
     })
 }
 
@@ -145,12 +147,14 @@ pub unsafe extern "C" fn msime_client_tencent_translation_http_request(
     request: *const u8,
     length: usize,
 ) -> *mut c_char {
-    response(|| {
-        if request.is_null() || length > 65536 {
-            return Err("invalid Tencent request buffer".into());
-        }
-        tencent_translation::descriptor(unsafe { std::slice::from_raw_parts(request, length) })
-            .map_err(String::from)
+    response(|| unsafe {
+        with_bounded_bytes(
+            request,
+            length,
+            65536,
+            "invalid Tencent request buffer",
+            |bytes| tencent_translation::descriptor(bytes).map_err(String::from),
+        )
     })
 }
 
@@ -162,12 +166,14 @@ pub unsafe extern "C" fn msime_client_niutrans_translation_http_request(
     request: *const u8,
     length: usize,
 ) -> *mut c_char {
-    response(|| {
-        if request.is_null() || length > 65536 {
-            return Err("invalid NiuTrans request buffer".into());
-        }
-        niutrans_translation::descriptor(unsafe { std::slice::from_raw_parts(request, length) })
-            .map_err(String::from)
+    response(|| unsafe {
+        with_bounded_bytes(
+            request,
+            length,
+            65536,
+            "invalid NiuTrans request buffer",
+            |bytes| niutrans_translation::descriptor(bytes).map_err(String::from),
+        )
     })
 }
 

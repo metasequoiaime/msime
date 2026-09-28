@@ -11,6 +11,19 @@
 
 use crate::*;
 
+pub(crate) unsafe fn with_bounded_bytes<T>(
+    pointer: *const u8,
+    length: usize,
+    maximum: usize,
+    invalid: &'static str,
+    operation: impl FnOnce(&[u8]) -> Result<T, String>,
+) -> Result<T, String> {
+    if pointer.is_null() || length > maximum {
+        return Err(invalid.into());
+    }
+    operation(unsafe { std::slice::from_raw_parts(pointer, length) })
+}
+
 // Shared by the session and host modules below, so it lives in the parent.
 /// The file name the reranking model is published under inside the resource set.
 pub(crate) const SENTENCE_MODEL_FILE: &str = "sentence-model.safetensors";
