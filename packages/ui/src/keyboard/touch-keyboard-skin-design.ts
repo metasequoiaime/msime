@@ -366,7 +366,7 @@ export function normalizeTouchKeyboardSkinDesign(
 ): TouchKeyboardSkinDesign {
   const color = (entry: number) => Math.round(entry) & 0xffffff;
   const clamp = (entry: number, min: number, max: number, fallback: number) =>
-    Number.isFinite(entry) ? Math.min(max, Math.max(min, entry)) : fallback;
+    Number.isFinite(entry) ? clampNumber(entry, min, max) : fallback;
   return {
     ...value,
     background: color(value.background),
