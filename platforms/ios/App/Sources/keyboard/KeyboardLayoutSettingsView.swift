@@ -54,7 +54,7 @@ struct KeyboardLayoutSettingsView: View {
       .accessibilityLabel("键盘高度")
       .accessibilityValue(format(height))
       .accessibilityAdjustableAction { direction in
-        height = clamp(height + (direction == .increment ? 2 : -2), -12, 48)
+        height = KeyboardGeometry.clamped(height + (direction == .increment ? 2 : -2), -12, 48)
         save()
       }
   }
@@ -72,7 +72,7 @@ struct KeyboardLayoutSettingsView: View {
       .onChanged { value in
         let base = dragBase ?? snapshot()
         if dragBase == nil { dragBase = base }
-        height = clamp(base.height - Double(value.translation.height), -12, 48)
+        height = KeyboardGeometry.clamped(base.height - Double(value.translation.height), -12, 48)
       }
       .onEnded { _ in
         dragBase = nil
@@ -90,9 +90,9 @@ struct KeyboardLayoutSettingsView: View {
         dragAxis = axis
         switch axis {
         case .vertical:
-          rowSpacing = clamp(base.rowSpacing + Double(value.translation.height) / Self.spacingDragScale, 4, 10)
+          rowSpacing = KeyboardGeometry.clamped(base.rowSpacing + Double(value.translation.height) / Self.spacingDragScale, 4, 10)
         case .horizontal:
-          keySpacing = clamp(base.keySpacing + Double(value.translation.width) / Self.spacingDragScale, 3, 6)
+          keySpacing = KeyboardGeometry.clamped(base.keySpacing + Double(value.translation.width) / Self.spacingDragScale, 3, 6)
         }
       }
       .onEnded { _ in
@@ -104,10 +104,6 @@ struct KeyboardLayoutSettingsView: View {
 
   private func snapshot() -> (height: Double, keySpacing: Double, rowSpacing: Double) {
     (height, keySpacing, rowSpacing)
-  }
-
-  private func clamp(_ value: Double, _ lower: Double, _ upper: Double) -> Double {
-    min(upper, max(lower, value))
   }
 
   private func format(_ value: Double) -> String {
@@ -221,14 +217,14 @@ struct KeyboardLayoutSettingsView: View {
     toolbar = TouchToolbarPreference(in: preferences)
     tabOpensCandidates = KeyboardLayoutPreference.tabShowsMoreCandidates(preferences)
     if let tenths = (preferences["touch_key_spacing_tenths"] as? NSNumber)?.doubleValue {
-      keySpacing = clamp(tenths / 10, 3, 6)
+      keySpacing = KeyboardGeometry.clamped(tenths / 10, 3, 6)
     }
     if let tenths = (preferences["touch_row_spacing_tenths"] as? NSNumber)?.doubleValue {
-      rowSpacing = clamp(tenths / 10, 4, 10)
+      rowSpacing = KeyboardGeometry.clamped(tenths / 10, 4, 10)
     }
     if let adjustment = (preferences["touch_keyboard_height_adjustment"] as? NSNumber)?.doubleValue,
        adjustment.isFinite {
-      height = clamp(adjustment, -12, 48)
+      height = KeyboardGeometry.clamped(adjustment, -12, 48)
     }
     voice = preferences["touch_voice_shortcut"] as? Bool ?? voice
   }

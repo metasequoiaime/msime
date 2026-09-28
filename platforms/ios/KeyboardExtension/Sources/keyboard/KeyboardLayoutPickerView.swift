@@ -164,7 +164,7 @@ final class KeyboardLayoutPickerView: UIView {
   override func accessibilityDecrement() { adjustHeight(by: -2) }
 
   private func adjustHeight(by delta: Double) {
-    height = Self.clamp(height + delta, Self.heightRange.lower, Self.heightRange.upper)
+    height = KeyboardGeometry.clamped(height + delta, Self.heightRange.lower, Self.heightRange.upper)
     onHeight(height)
     onCommit()
     updateHeightValue()
@@ -185,8 +185,8 @@ final class KeyboardLayoutPickerView: UIView {
     case .began:
       base = (keySpacing, rowSpacing, height)
     case .changed:
-      height = Self.clamp(base.height - Double(gesture.translation(in: self).y),
-                          Self.heightRange.lower, Self.heightRange.upper)
+      height = KeyboardGeometry.clamped(base.height - Double(gesture.translation(in: self).y),
+                                        Self.heightRange.lower, Self.heightRange.upper)
       onHeight(height)
       updateHeightValue()
     default:
@@ -207,11 +207,11 @@ final class KeyboardLayoutPickerView: UIView {
       axis = direction
       switch direction {
       case .vertical:
-        rowSpacing = Self.clamp(base.row + Double(translation.y) / Self.spacingDragScale, 4, 10)
+        rowSpacing = KeyboardGeometry.clamped(base.row + Double(translation.y) / Self.spacingDragScale, 4, 10)
         onRowSpacing(rowSpacing)
         updateHint(String(format: "行间距 %.1f", rowSpacing))
       case .horizontal:
-        keySpacing = Self.clamp(base.key + Double(translation.x) / Self.spacingDragScale, 3, 6)
+        keySpacing = KeyboardGeometry.clamped(base.key + Double(translation.x) / Self.spacingDragScale, 3, 6)
         onKeySpacing(keySpacing)
         updateHint(String(format: "按键间距 %.1f", keySpacing))
       }
@@ -227,9 +227,6 @@ final class KeyboardLayoutPickerView: UIView {
                                 keySpacing, rowSpacing)
   }
 
-  private static func clamp(_ value: Double, _ lower: Double, _ upper: Double) -> Double {
-    min(upper, max(lower, value))
-  }
 }
 
 /// 浮层要的是一圈内边距,而 UILabel 只会把文字贴着自己的边。
