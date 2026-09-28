@@ -1,6 +1,7 @@
 export type CloudClipboardItemShape = { id: string; text: string };
 export type CloudDictionaryEntryShape = { id: string; code: string; word: string };
 export type CloudDictionaryCatalogEntryShape = { kind: string; code: string; word: string };
+export type CloudCandidateShape = { code: string; canonical_pinyin?: string | null };
 
 export function cloudClipboardItems(value: { items?: unknown }): CloudClipboardItemShape[] {
   return Array.isArray(value.items)
@@ -40,4 +41,10 @@ export function cloudDictionaryCatalogEntries(value: {
           typeof (entry as CloudDictionaryCatalogEntryShape).word === "string",
       )
     : [];
+}
+
+export function candidateMutationCode(candidate: CloudCandidateShape): string {
+  return candidate.canonical_pinyin && candidate.canonical_pinyin.length > 0
+    ? candidate.canonical_pinyin
+    : candidate.code;
 }

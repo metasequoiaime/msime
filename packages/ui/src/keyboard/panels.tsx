@@ -31,6 +31,7 @@ import { isImeCommitKey, keyboardKeyWeight, modifierPrefix, type Modifier } from
 import { keyboardRgba, mixKeyboardColor, readableKeyboardText } from "./keyboard-colors";
 import { clipboardTooltip, flattenGroups, matchesEmojiItem } from "./emoji-panel-helpers";
 import {
+  candidateMutationCode,
   cloudClipboardItems,
   cloudDictionaryCatalogEntries,
   cloudDictionaryEntries,
@@ -3800,12 +3801,6 @@ const cloudRankingModes: [CloudRankingMode, string][] = [
   ["linear", "线性调频"],
   ["promote", "一次置前"],
 ];
-
-function candidateMutationCode(candidate: CloudCandidate) {
-  return candidate.canonical_pinyin && candidate.canonical_pinyin.length > 0
-    ? candidate.canonical_pinyin
-    : candidate.code;
-}
 
 export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelClient }) {
   const { confirm, confirmation } = useConfirm();
