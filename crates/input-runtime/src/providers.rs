@@ -398,7 +398,7 @@ impl UnixSocketProvider {
         let result = serde_json::from_str::<CredentialTestResult>(&line).ok()?;
         (!result.message.is_empty()
             && result.message.len() <= 1024
-            && !result.message.chars().any(char::is_control))
+            && !msime_client_core::has_disallowed_control_with_options(&result.message, false))
         .then_some(result)
     }
 

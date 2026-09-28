@@ -980,7 +980,7 @@ pub unsafe extern "C" fn msime_client_ai_skin_plan(
                 // refuses is one the service would refuse after four requests.
                 if prompt.is_empty()
                     || prompt.chars().count() > 500
-                    || prompt.chars().any(char::is_control)
+                    || msime_client_core::has_disallowed_control_with_options(&prompt, false)
                     || model.is_empty()
                     || !is_bounded_text(&model, 200)
                 {
