@@ -270,13 +270,7 @@ pub(super) fn validate_fixed_positions(result: &AccountFixedPositions) -> Result
 }
 
 pub(super) fn mutation_path(kind: DictionaryKind, operation: &str) -> Option<String> {
-    matches!(operation, "add" | "import" | "import-hans" | "export").then(|| {
-        format!(
-            "/v1/users/me/dictionaries/{}/{}",
-            dictionary_kind_path(kind),
-            operation
-        )
-    })
+    crate::cloud::dictionary::mutation_path(kind, operation)
 }
 
 pub(super) fn validate_dictionary_id(value: &str) -> Result<(), AccountError> {
