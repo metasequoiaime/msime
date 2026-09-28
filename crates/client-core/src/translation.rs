@@ -380,8 +380,7 @@ fn read_translation_response(reader: impl Read) -> Option<String> {
 
 pub fn is_supported_endpoint(endpoint: &str) -> bool {
     !endpoint.is_empty()
-        && endpoint.len() <= 2048
-        && !endpoint.chars().any(char::is_control)
+        && crate::text::is_bounded_text(endpoint, 2048)
         && (endpoint.starts_with("https://") || endpoint.starts_with("http://"))
 }
 
