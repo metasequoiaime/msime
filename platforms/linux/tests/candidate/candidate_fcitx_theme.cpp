@@ -192,6 +192,12 @@ int main() {
   assert(host::write_fcitx_theme(file, graphite));
   assert(read(file) == graphite);
   assert(!std::filesystem::exists(file.string() + ".new"));
+  {
+    std::ofstream oversized(file, std::ios::binary | std::ios::trunc);
+    oversized << std::string(8 * 1024 * 1024, 'x');
+  }
+  assert(host::write_fcitx_theme(file, theme));
+  assert(read(file) == theme);
 
   // A plain skin's theme has no overlay and keeps its content margin; one with a decoration names the image, pins it top right inside the outline, and reserves the band above the candidates.
   assert(!contains(theme, "Overlay"));
