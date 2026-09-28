@@ -1,3 +1,6 @@
+import { AI_PROVIDER_OPTIONS } from "./ai-provider-options";
+import type { AiAssistantPreferences } from "../index";
+
 export type AiProviderPreset = { id: string; endpoint: string; model: string };
 export type AiProviderPreferences = { provider: string; endpoint: string; model: string };
 
@@ -16,4 +19,12 @@ export function updateAiProvider<T extends AiProviderPreferences>(
         : current.endpoint,
     model: !current.model.trim() || current.model === previous?.model ? next.model : current.model,
   } as Partial<T>;
+}
+
+/** Apply a catalog preset while preserving a deliberately custom endpoint or model. */
+export function aiProviderUpdate(
+  provider: string,
+  current: AiAssistantPreferences,
+): Partial<AiAssistantPreferences> {
+  return updateAiProvider(provider, current, AI_PROVIDER_OPTIONS);
 }

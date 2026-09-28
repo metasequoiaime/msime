@@ -62,7 +62,8 @@ import {
   translationLanguages,
   translationSecondaryLanguages,
 } from "./settings/translation-language-helpers";
-import { updateAiProvider } from "./settings/ai-provider-update";
+import { aiProviderUpdate } from "./settings/ai-provider-update";
+export { aiProviderUpdate } from "./settings/ai-provider-update";
 import { VoiceDevicePicker, type VoiceDeviceReader } from "./voice/voice-device-picker";
 import {
   LocalModelManager,
@@ -1216,14 +1217,6 @@ export type VoiceInputPreferences = {
   doubao_boosting_table_id?: string;
   [key: string]: unknown;
 };
-/** Switch providers like the Apple settings page: preset values follow the
- * provider, while a deliberately edited custom endpoint/model are preserved. */
-export function aiProviderUpdate(
-  provider: string,
-  current: AiAssistantPreferences,
-): Partial<AiAssistantPreferences> {
-  return updateAiProvider(provider, current, AI_PROVIDER_OPTIONS);
-}
 export type ExternalSkinCatalog = {
   scanned: boolean;
   directory?: string;
