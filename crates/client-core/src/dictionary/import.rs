@@ -56,7 +56,7 @@ impl ImportKind {
                     || byte == b'\''
                     || (format == ImportFormat::Rime && byte == b' ')
             }),
-            ImportKind::Wubi => key.bytes().all(|byte| byte.is_ascii_lowercase()),
+            ImportKind::Wubi => super::wubi_code_is_well_formed(key),
             ImportKind::QuickPhrase => super::quick_phrase_code_is_well_formed(key),
             ImportKind::English => super::english_code_is_well_formed(key),
         }

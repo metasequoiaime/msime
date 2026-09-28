@@ -29,3 +29,8 @@ pub fn english_code_is_well_formed(code: &str) -> bool {
 pub fn quick_phrase_code_is_well_formed(code: &str) -> bool {
     !code.is_empty() && code.bytes().all(|byte| byte.is_ascii_lowercase())
 }
+
+/// Whether `code` contains only the lowercase ASCII letters accepted by Wubi.
+pub fn wubi_code_is_well_formed(code: &str) -> bool {
+    code.bytes().all(|byte| byte.is_ascii_lowercase())
+}

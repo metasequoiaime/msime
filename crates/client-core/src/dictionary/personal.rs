@@ -71,12 +71,11 @@ impl PersonalWord {
                 .key
                 .bytes()
                 .all(|byte| byte.is_ascii_lowercase() || byte == b'\'' || byte == b' '),
-            PersonalWordKind::Wubi | PersonalWordKind::QuickPhrase => {
-                self.key.bytes().all(|byte| {
-                    byte.is_ascii_lowercase()
-                        || (self.kind == PersonalWordKind::QuickPhrase && byte.is_ascii_digit())
-                })
-            }
+            PersonalWordKind::Wubi => super::wubi_code_is_well_formed(&self.key),
+            PersonalWordKind::QuickPhrase => self
+                .key
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit()),
             PersonalWordKind::English => super::english_code_is_well_formed(&self.key),
         };
         let value_has_invalid_control = self.value.chars().any(|character| {

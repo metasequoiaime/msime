@@ -55,7 +55,7 @@ fn dictionary_code_is_well_formed(kind: DictionaryKind, code: &str) -> bool {
         DictionaryKind::Pinyin => code
             .bytes()
             .all(|byte| byte.is_ascii_lowercase() || matches!(byte, b'\'' | b' ')),
-        DictionaryKind::Wubi => code.bytes().all(|byte| byte.is_ascii_lowercase()),
+        DictionaryKind::Wubi => crate::dictionary::wubi_code_is_well_formed(code),
         DictionaryKind::Quick => code
             .bytes()
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit()),
