@@ -46,6 +46,7 @@ import { PanelShortcutsSection } from "./settings/panel-shortcuts-section";
 import { CandidateShortcutsSection } from "./settings/candidate-shortcuts-section";
 import { MaintenanceShortcutsSection } from "./settings/maintenance-shortcuts-section";
 import { InputMethodServiceSection } from "./settings/input-method-service-section";
+import { DataDirectorySection } from "./settings/data-directory-section";
 import { PreeditSettingsSection } from "./settings/preedit-settings-section";
 import { validCandidateFonts } from "./candidate/candidate-font-family";
 import type { FontCatalogReader } from "./candidate/font-catalog";
@@ -350,6 +351,11 @@ export {
   InputMethodServiceSection,
   type InputMethodServiceSectionProps,
 } from "./settings/input-method-service-section";
+export {
+  DataDirectorySection,
+  type DataDirectoryInfo,
+  type DataDirectorySectionProps,
+} from "./settings/data-directory-section";
 export {
   PreeditSettingsSection,
   type CandidatePreeditStyle,
@@ -7118,41 +7124,14 @@ export function SettingsPage({
                         <span aria-hidden="true">↗</span>
                       </button>
                     </div>
-                    {(macosPlatform || linuxPlatform) && client.dataDirectory && (
-                      <div className="section" role="group" aria-label="数据目录">
-                        <div className="section-header">
-                          <span className="section-title">
-                            数据目录
-                            <small>
-                              词库、学习记录、皮肤、剪贴板历史和设置共用此位置。可移动到其他磁盘。
-                              {linuxPlatform &&
-                                "输入法入口配置和在线服务、语音服务的凭据固定保存在 ~/.config/msime-client，不随数据移动。"}
-                            </small>
-                          </span>
-                        </div>
-                        <div className={settings.serviceRow}>
-                          <span>
-                            当前目录
-                            <small>
-                              <code>{dataDirectory?.path ?? "正在读取…"}</code>
-                              {dataDirectory?.isDefault ? "（默认）" : ""}
-                            </small>
-                          </span>
-                          <div>
-                            <button
-                              type="button"
-                              className="secondary"
-                              disabled={dataDirectoryBusy || !dataDirectory}
-                              aria-busy={dataDirectoryBusy}
-                              onClick={() => void chooseDataDirectory()}
-                            >
-                              {dataDirectoryBusy ? "正在移动…" : "选择位置…"}
-                            </button>
-                          </div>
-                        </div>
-                        {dataDirectoryResult && <p role="status">{dataDirectoryResult}</p>}
-                      </div>
-                    )}
+                    <DataDirectorySection
+                      visible={Boolean((macosPlatform || linuxPlatform) && client.dataDirectory)}
+                      linux={linuxPlatform}
+                      dataDirectory={dataDirectory}
+                      busy={dataDirectoryBusy}
+                      result={dataDirectoryResult}
+                      onChoose={() => void chooseDataDirectory()}
+                    />
                     {macosPlatform && (
                       <div className="section" role="group" aria-label="许可与卸载">
                         <div className="section-header">
