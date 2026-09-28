@@ -59,6 +59,21 @@ pub(crate) fn replace_pending_snapshot(
     Ok(old)
 }
 
+pub(crate) fn validate_pending_snapshot(
+    session: &crate::platform::mobile::MobileSession,
+    pending: &PendingSnapshot,
+) -> Result<(), AccountError> {
+    let profile = session.profile()?;
+    if profile.user.id != pending.account_id {
+        return Err(AccountError::Conflict);
+    }
+    let changes = session.dictionary_changes(pending.metadata.cloud_revision, 1)?;
+    if !changes.changes.is_empty() {
+        return Err(AccountError::Conflict);
+    }
+    Ok(())
+}
+
 pub(crate) fn clear_snapshot_previews_after<T>(
     previews: &std::sync::Arc<std::sync::Mutex<HashMap<String, PendingSnapshot>>>,
     result: Result<T, crate::CommandError>,

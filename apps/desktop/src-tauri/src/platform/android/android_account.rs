@@ -9,8 +9,8 @@ use crate::platform::mobile::mobile_account_helpers::{
     account_request_code as shared_account_request_code, account_status as shared_account_status,
     call, clear_snapshot_previews, clear_snapshot_previews_after, cloud_dictionary_account_request,
     parse_snapshot_token, replace_pending_snapshot, snapshot_command_error,
-    snapshot_response_without_account, valid_mobile_haptic_strength, PendingSnapshot,
-    SnapshotMetadata,
+    snapshot_response_without_account, valid_mobile_haptic_strength, validate_pending_snapshot,
+    PendingSnapshot, SnapshotMetadata,
 };
 use crate::platform::mobile::mobile_account_preferences::{
     frequency_account_preferences, insert_bool, insert_integer, insert_string,
@@ -720,14 +720,7 @@ async fn dictionary_snapshot_enqueue(
     let result = tauri::async_runtime::spawn_blocking(move || {
         let path = pending.path.clone();
         let result = (|| {
-            let profile = session.profile()?;
-            if profile.user.id != pending.account_id {
-                return Err(AccountError::Conflict);
-            }
-            let changes = session.dictionary_changes(pending.metadata.cloud_revision, 1)?;
-            if !changes.changes.is_empty() {
-                return Err(AccountError::Conflict);
-            }
+            validate_pending_snapshot(&session, &pending)?;
             let state = platform
                 .run_mobile_plugin::<Value>("snapshotState", ())
                 .map_err(|_| AccountError::Unavailable)?;
