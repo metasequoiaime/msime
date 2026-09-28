@@ -73,17 +73,12 @@ import { defaultVoiceInput } from "./settings/voice-input-defaults";
 import { macosSidebarGroups } from "./settings/macos-sidebar-groups";
 import { groupSidebarPages } from "./settings/sidebar-groups";
 import { mobileHiddenPageIds as getMobileHiddenPageIds } from "./settings/mobile-hidden-pages";
-import {
-  defaultCustomTranslation,
-  defaultNiuTrans,
-  defaultTencentTranslation,
-} from "./settings/translation-defaults";
 import { defaultAiAssistant } from "./settings/ai-assistant-defaults";
-import {
-  mobileTranslationLanguages,
-  translationLanguages,
-  translationSecondaryLanguages,
-} from "./settings/translation-language-helpers";
+import { useTranslationSettings } from "./settings/use-translation-settings";
+export {
+  useTranslationSettings,
+  type UseTranslationSettingsOptions,
+} from "./settings/use-translation-settings";
 import { aiProviderUpdate } from "./settings/ai-provider-update";
 export { aiProviderUpdate } from "./settings/ai-provider-update";
 import { VoiceDevicePicker, type VoiceDeviceReader } from "./voice/voice-device-picker";
@@ -2632,33 +2627,28 @@ export function SettingsPage({
     server: draft?.diagnostic_log?.server ?? false,
     tsf: draft?.diagnostic_log?.tsf ?? false,
   };
-  const candidateTranslations = draft?.candidate_translations ?? true;
-  // Offline glosses are opt-in in client-core and in every native host. Keep
-  // the settings view aligned when older snapshots omit the optional field.
-  const candidateEnglishGloss = draft?.candidate_english_gloss ?? false;
-  const candidateGlossLanguagesEnabled =
-    candidateTranslations || Boolean(client.candidateEnglishGloss && candidateEnglishGloss);
-  const translationTargetLanguage = draft?.translation_target_language ?? "en";
-  const translationSecondaryLanguage = draft?.translation_secondary_language ?? "";
-  const visibleTranslationLanguages = mobilePlatform
-    ? [...mobileTranslationLanguages]
-    : translationLanguages;
-  const visibleSecondaryLanguages = mobilePlatform
-    ? [
-        ["", "不显示第二种语言"] as ["", string],
-        ...mobileTranslationLanguages,
-        ...(translationSecondaryLanguage === "ru"
-          ? [["ru", "俄语（已保存）"] as ["ru", string]]
-          : []),
-      ]
-    : translationSecondaryLanguages;
-  if (
-    mobilePlatform &&
-    translationTargetLanguage === "ru" &&
-    !visibleTranslationLanguages.some(([value]) => value === "ru")
-  ) {
-    visibleTranslationLanguages.push(["ru", "俄语（已保存）"]);
-  }
+  const {
+    candidateTranslations,
+    candidateGlossLanguagesEnabled,
+    translationTargetLanguage,
+    translationSecondaryLanguage,
+    visibleTranslationLanguages,
+    visibleSecondaryLanguages,
+    customTranslation,
+    tencentTranslation,
+    niutrans,
+    translationProvider,
+    onDeviceMissingLanguages,
+    setTranslationProvider,
+  } = useTranslationSettings({
+    preferences: draft,
+    mobile: mobilePlatform,
+    macos: macosPlatform,
+    linux: linuxPlatform,
+    candidateEnglishGlossAvailable: Boolean(client.candidateEnglishGloss),
+    onDeviceDownloadable,
+    onChange: (next) => setDraft(next),
+  });
   const {
     voiceInput,
     systemVoice,
@@ -2686,45 +2676,6 @@ export function SettingsPage({
           : current,
       ),
   });
-  const customTranslation = draft?.custom_translation ?? defaultCustomTranslation;
-  const tencentTranslation = draft?.tencent_tmt ?? defaultTencentTranslation;
-  const niutrans = draft?.niutrans ?? defaultNiuTrans;
-  const translationProvider = niutrans.enabled
-    ? "niutrans"
-    : customTranslation.enabled
-      ? "custom"
-      : tencentTranslation.enabled
-        ? "tencent"
-        : (macosPlatform || linuxPlatform) && draft?.translation_account
-          ? "account"
-          : "none";
-  // The macOS input method falls back to Apple's on-device translation when no service will answer: none chosen, or Tencent (on by default) still without its secrets. The pairs among the chosen targets that it found downloadable but not downloaded are why a sentence candidate shows no translation.
-  const onDeviceTranslationInUse =
-    macosPlatform &&
-    candidateTranslations &&
-    (translationProvider === "none" ||
-      (translationProvider === "tencent" &&
-        !(tencentTranslation.secret_id.trim() && tencentTranslation.secret_key.trim())));
-  const onDeviceMissingLanguages = onDeviceTranslationInUse
-    ? translationLanguages.filter(
-        ([code]) =>
-          (code === translationTargetLanguage || code === translationSecondaryLanguage) &&
-          onDeviceDownloadable.includes(code),
-      )
-    : [];
-  // One service at a time: the MSIME account is only ever used when chosen here, and any other choice clears it. A cleared choice is left undefined rather than false, because the saved document omits the key while it is false and an undone edit must compare equal to it again.
-  const setTranslationProvider = (
-    provider: "none" | "custom" | "tencent" | "niutrans" | "account",
-  ) => {
-    if (!draft) return;
-    setDraft({
-      ...draft,
-      custom_translation: { ...customTranslation, enabled: provider === "custom" },
-      tencent_tmt: { ...tencentTranslation, enabled: provider === "tencent" },
-      niutrans: { ...niutrans, enabled: provider === "niutrans" },
-      translation_account: provider === "account" ? true : undefined,
-    });
-  };
   /**
    * The provider's known models and its own integration page.
    *
