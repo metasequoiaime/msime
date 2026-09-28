@@ -29,6 +29,7 @@ import { normalizeHandwritingCandidates } from "./handwriting";
 import { validVoiceLanguage } from "./voice-panel";
 import { isImeCommitKey, keyboardKeyWeight, modifierPrefix, type Modifier } from "./keyboard-input";
 import { keyboardRgba, mixKeyboardColor, readableKeyboardText } from "./keyboard-colors";
+import { clipboardTooltip, flattenGroups, matchesEmojiItem } from "./emoji-panel-helpers";
 import {
   cloudClipboardItems,
   cloudDictionaryCatalogEntries,
@@ -4332,21 +4333,6 @@ const emojiPages: { id: EmojiPage; label: string; icon: string }[] = [
   { id: "clipboard", label: "剪贴板", icon: "▣" },
 ];
 
-function matchesEmojiItem(item: EmojiCatalogItem, query: string) {
-  const normalizedQuery = query.toLocaleLowerCase();
-  return (
-    !query ||
-    item.text.includes(query) ||
-    item.keywords.toLocaleLowerCase().includes(normalizedQuery)
-  );
-}
-
-function clipboardTooltip(text: string) {
-  const preview = text.replace(/[\r\t]/g, " ").replace(/\n+$/, "");
-  const characters = Array.from(preview);
-  return characters.length > 200 ? `${characters.slice(0, 200).join("")}…` : preview;
-}
-
 /**
  * A short label for an item's hover tooltip.
  *
@@ -4360,10 +4346,6 @@ export function emojiDisplayName(keywords: string | undefined, fallback = ""): s
   if (!tokens.length) return fallback;
   const cjk = tokens.find((token) => /[\u3400-\u9fff\uf900-\ufaff]/.test(token));
   return cjk ?? tokens[0];
-}
-
-function flattenGroups(groups: EmojiCatalogGroup[]) {
-  return groups.flatMap((group) => group.items);
 }
 
 /*
