@@ -134,6 +134,9 @@ if [ -d "$destination" ]; then
 fi
 mv "$staging/$name" "$destination"
 
+# The text input system relaunches a stopped input method as soon as a client asks for it, and signing takes long enough for that to happen: the process it starts runs the previous bundle, now under the backup directory, and keeps serving the old code with nothing on screen to say so. Anything running at this point started before the new bundle arrived, so stop it once more and let the next launch come from the new one.
+pkill -f "$destination/Contents/MacOS/$executable" || true
+
 echo "installed $destination"
 
 # Installing and registering are different operations with different failure meanings, so the rollback
