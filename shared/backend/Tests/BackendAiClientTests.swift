@@ -37,4 +37,16 @@ final class BackendAiClientTests: XCTestCase {
       XCTFail("invalid limit")
     } catch { }
   }
+
+  func testRefusesToFollowAResponseRedirect() {
+    let delegate = BackendAiClient.Redirects()
+    let expectation = expectation(description: "redirect completion")
+    delegate.urlSession(URLSession.shared, task: URLSession.shared.dataTask(with: URL(string: "https://ai.invalid")!),
+                        willPerformHTTPRedirection: HTTPURLResponse(url: URL(string: "https://ai.invalid")!, statusCode: 307, httpVersion: nil, headerFields: nil)!,
+                        newRequest: URLRequest(url: URL(string: "https://redirect.invalid")!)) { request in
+      XCTAssertNil(request)
+      expectation.fulfill()
+    }
+    wait(for: [expectation], timeout: 1)
+  }
 }

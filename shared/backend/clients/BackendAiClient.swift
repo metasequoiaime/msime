@@ -7,11 +7,20 @@ struct BackendAiClient: Sendable {
   struct Result: Sendable { let candidates: [Candidate] }
   private let session: URLSession
 
+  final class Redirects: NSObject, URLSessionTaskDelegate, Sendable {
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest,
+                    completionHandler: @escaping (URLRequest?) -> Void) {
+      completionHandler(nil)
+    }
+  }
+
   init(configuration: URLSessionConfiguration = .ephemeral) {
     let configuration = configuration.copy() as! URLSessionConfiguration
     configuration.httpCookieStorage = nil
     configuration.urlCache = nil
-    session = URLSession(configuration: configuration)
+    session = URLSession(configuration: configuration, delegate: Redirects(), delegateQueue: nil)
   }
 
   func suggest(endpoint: URL, model: String, token: String,
