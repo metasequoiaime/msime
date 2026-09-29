@@ -436,8 +436,8 @@ import { VoiceCredentialControl } from "./settings/voice-credential-control";
 import type { MobileKeyboardFeedbackClient } from "./settings/mobile-keyboard-feedback-section";
 import { HandwritingSettingsPage } from "./settings/pages/handwriting-page";
 import { FeedbackSettingsPage } from "./settings/pages/feedback-page";
+import { allTouchKeyboardSchemes } from "./settings/touch-keyboard-scheme-helpers";
 import {
-  allTouchKeyboardSchemes,
   logo,
   defaultAiAssistant,
   defaultVoiceInput,

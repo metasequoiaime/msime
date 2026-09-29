@@ -1,8 +1,8 @@
 import {
   touchKeyboardSchemeOptions,
   selectTouchKeyboardScheme,
-  defaultNavigation,
-} from "../settings-options";
+} from "../touch-keyboard-scheme-helpers";
+import { defaultNavigation } from "../settings-options";
 import type { Preferences, TouchKeyboardScheme } from "../../index";
 import { useSettingsForm } from "../settings-form-context";
 import * as settings from "../settings-style";
