@@ -8,7 +8,6 @@ import {
   inferredTouchKeyboardScheme,
   selectHomeTouchKeyboardScheme,
   updateTouchKeyboardSchemeEnabled,
-  allTouchKeyboardSchemes,
   type TouchKeyboardSchemePreferences,
 } from "./settings/touch-keyboard-scheme-helpers";
 export {
@@ -26,6 +25,12 @@ export {
   type PlatformCopyContext,
   type PlatformCopy,
 } from "./settings/platform-copy";
+import { settingsVisualPreferences } from "./settings/settings-visual-preferences";
+export {
+  settingsVisualPreferences,
+  type SettingsVisualPreferences,
+  type SettingsVisualPreferencesSource,
+} from "./settings/settings-visual-preferences";
 import { platformResourceUrls } from "./settings/platform-resource-urls";
 import {
   initialMobileTabPages,
@@ -323,11 +328,10 @@ export {
 } from "./settings/use-voice-input-settings";
 import type { TouchKeyboardSkin } from "./keyboard/screen-keyboard-preview";
 import * as skin from "./keyboard/touch-skin-style";
-import {
-  defaultTouchKeyboardSkinDesign,
-  type AiSkinClient,
-  type CustomSkinLibraryClient,
-  type TouchKeyboardSkinDesign,
+import type {
+  AiSkinClient,
+  CustomSkinLibraryClient,
+  TouchKeyboardSkinDesign,
 } from "./keyboard/touch-keyboard-skin-design";
 export type {
   AiSkinClient,
@@ -1491,7 +1495,6 @@ export type FloatingToolbarPreferences = {
   scale_percent: 75 | 100 | 125 | 150;
   font_size: 16 | 18 | 20 | 22 | 24 | 26 | 28;
 };
-import { defaultFloatingToolbar } from "./settings/floating-toolbar-defaults";
 /** What the macOS settings app did with the input method it carries when it started. */
 export {
   InputSourceStartupNotice,
@@ -2039,9 +2042,6 @@ export function SettingsPage({
   const frequency = draft?.frequency ?? defaultFrequency;
   const mixedInput = draft?.mixed_input ?? defaultMixedInput;
   const fuzzyPinyin = draft?.fuzzy_pinyin ?? defaultFuzzyPinyin;
-  const touchKeyboardSchemes = draft?.touch_keyboard_schemes ?? {
-    enabled: allTouchKeyboardSchemes,
-  };
   const {
     selected: selectedTouchKeyboardScheme,
     selectHome: selectHomeScheme,
@@ -2116,21 +2116,23 @@ export function SettingsPage({
       ),
   });
   const providerPresetControls = createProviderPresetControl(client.openExternalUrl);
-  const inputModeHUD = draft?.input_mode_hud ?? true;
-  const floatingToolbar = { ...defaultFloatingToolbar, ...draft?.floating_toolbar };
-  const themeMode = draft?.theme ?? "system";
-  const settingsTheme = draft?.settings_theme ?? "follow";
+  const {
+    inputModeHUD,
+    floatingToolbar,
+    themeMode,
+    settingsTheme,
+    touchKeyboardSchemes,
+    touchKeyboardSkin,
+    customTouchKeyboardSkin,
+    touchKeySpacingTenths,
+    touchRowSpacingTenths,
+    touchKeyboardHeightAdjustment,
+  } = settingsVisualPreferences(draft);
   useSettingsTheme(themeMode, settingsTheme);
   const candidatePreviewTheme = useCandidatePreviewTheme(themeMode, draft?.candidate_theme);
   const toolbarPreviewTheme = useCandidatePreviewTheme(themeMode, draft?.toolbar_theme);
   const keyboardPreviewTheme = useCandidatePreviewTheme(themeMode, draft?.screen_keyboard_theme);
-  const touchKeyboardSkin = draft?.touch_keyboard_skin ?? "forest";
-  const customTouchKeyboardSkin =
-    draft?.custom_touch_keyboard_skin ?? defaultTouchKeyboardSkinDesign;
   useEffect(() => setSkinPreviewThemes({}), [candidatePreviewTheme]);
-  const touchKeySpacingTenths = draft?.touch_key_spacing_tenths ?? 60;
-  const touchRowSpacingTenths = draft?.touch_row_spacing_tenths ?? 70;
-  const touchKeyboardHeightAdjustment = draft?.touch_keyboard_height_adjustment ?? 0;
   const installerTrust = availableUpdate
     ? describeInstallerTrust(
         availableUpdate,
