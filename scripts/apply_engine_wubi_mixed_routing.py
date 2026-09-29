@@ -101,7 +101,65 @@ bool InputSession::candidates_follow_pinyin() const
     cpp = root / "core/input_session.cpp"
     replace_once(cpp, "advance_composition_after_selection(selected->pinyin, selected->word, selected->canonical_pinyin)", "advance_composition_after_selection(selected->pinyin, selected->word, selected->canonical_pinyin, selected->scheme)")
     replace_once(cpp, "engine_.update_weight_by_pinyin_and_word(pinyin, selected.word)", "engine_.update_weight_by_pinyin_and_word(selected.scheme, pinyin, selected.word)")
+    # A mixed list may contain native Wubi rows and quanpin rows together.  The selected
+    # row, rather than the list as a whole, determines the dictionary and ranking universe.
+    # This also keeps a pinyin sentence learnable when a native Wubi row is present beside it.
+    replace_once(
+        cpp,
+        "!dedicated_english_mode_ && candidates_follow_pinyin())",
+        "!dedicated_english_mode_ && (candidates_follow_pinyin() || selected->scheme == SchemeType::Quanpin))",
+    )
+    replace_once(
+        cpp,
+        "const bool wubi = wubi_candidates_are_native();\n    const bool pinyin_fallback = is_wubi() && !wubi;",
+        "const bool wubi = is_wubi_native_candidate(selected);\n    const bool pinyin_fallback = is_wubi() && !wubi;",
+    )
+    replace_once(
+        cpp,
+        """    const bool adjusted = user_dictionary::adjust_candidate_ranking(
+        path_to_utf8(paths_.dictionary(assets::main_dictionary)), path_to_utf8(paths_.user(assets::user_journal)),
+        context_key, candidates(), entry_key, selected.word, frequency_mode_name(options.mode), options.linear_step,
+        options.trigger_count, force_top, &ranking_changed,
+        (wubi && !super_jianpin) ? user_dictionary::DictionaryKind::Wubi : user_dictionary::DictionaryKind::Pinyin);""",
+        """    std::vector<WordItem> ranked_candidates;
+    ranked_candidates.reserve(candidates().size());
+    for (const auto &candidate : candidates())
+    {
+        if (is_wubi() && candidate.scheme != selected.scheme)
+            continue;
+        ranked_candidates.push_back(candidate);
+    }
+    const bool adjusted = user_dictionary::adjust_candidate_ranking(
+        path_to_utf8(paths_.dictionary(assets::main_dictionary)), path_to_utf8(paths_.user(assets::user_journal)),
+        context_key, ranked_candidates, entry_key, selected.word, frequency_mode_name(options.mode), options.linear_step,
+        options.trigger_count, force_top, &ranking_changed,
+        (wubi && !super_jianpin) ? user_dictionary::DictionaryKind::Wubi : user_dictionary::DictionaryKind::Pinyin);""",
+    )
     replace_once(cpp, "    const bool wubi = wubi_candidates_are_native();", "    const bool wubi = selected.scheme == SchemeType::Wubi;")
+
+    composition = root / "core/input_session_composition.cpp"
+    replace_once(
+        composition,
+        "!candidates_follow_pinyin())\n    {\n        return std::nullopt;\n    }",
+        "is_wubi_native_candidate(selected))\n    {\n        return std::nullopt;\n    }",
+    )
+
+    ime = root / "core/ime_session.cpp"
+    replace_once(
+        ime,
+        """void ImeSession::reset_cache()
+{
+    provider_registry_.reset_cache(candidate_scheme());
+    refresh_candidates();
+}""",
+        """void ImeSession::reset_cache()
+{
+    provider_registry_.reset_cache(current_scheme_type());
+    if (wubi_scheme_ != nullptr && wubi_options_.mixed_pinyin)
+        provider_registry_.reset_cache(SchemeType::Quanpin);
+    refresh_candidates();
+}""",
+    )
 
     candidates = root / "core/input_session_candidates.cpp"
     replace_once(candidates, "std::string InputSession::position_context(bool english) const", "std::string InputSession::position_context(bool english, bool wubi) const")
