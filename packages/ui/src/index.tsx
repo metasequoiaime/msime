@@ -173,6 +173,11 @@ export {
 } from "./settings/settings-page-dictionary-model";
 import { SettingsInputPage } from "./settings/settings-input-page";
 export { SettingsInputPage, type SettingsInputPageProps } from "./settings/settings-input-page";
+import { settingsPageInputModel } from "./settings/settings-page-input-model";
+export {
+  settingsPageInputModel,
+  type SettingsPageInputModelOptions,
+} from "./settings/settings-page-input-model";
 import { SettingsFormPages } from "./settings/settings-form-pages";
 import { SettingsPageLayout } from "./settings/settings-page-layout";
 export { SettingsPageLayout, type SettingsPageLayoutProps } from "./settings/settings-page-layout";
@@ -2519,9 +2524,9 @@ export function SettingsPage({
             onTurnPage: turnPhrasePage,
             phrasePage,
           }),
-          input: {
-            disabled: busy,
-            hidden: page !== "input",
+          input: settingsPageInputModel({
+            page,
+            busy,
             client,
             draft,
             setDraft,
@@ -2581,7 +2586,7 @@ export function SettingsPage({
             mobileKeyboardFeedbackBusy,
             saveMobileKeyboardFeedback,
             previewMobileKeyboardHaptics,
-          },
+          }),
           utility: {
             helpcode: {
               value: draft,
