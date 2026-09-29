@@ -368,7 +368,7 @@ pub unsafe extern "C" fn msime_client_niutrans_translation_reply_failed(
     body: *const u8,
     length: usize,
 ) -> bool {
-    if body.is_null() {
+    if body.is_null() || length > 1_048_576 {
         return true;
     }
     niutrans_translation::failed(unsafe { std::slice::from_raw_parts(body, length) })
