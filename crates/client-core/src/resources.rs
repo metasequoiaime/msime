@@ -144,7 +144,7 @@ impl ResourceStore {
         mut fetch: impl FnMut(&Artifact) -> Result<Box<dyn Read>, std::io::Error>,
     ) -> Result<PathBuf, ResourceError> {
         let generation = specification.generation()?;
-        fs::create_dir_all(&self.root)?;
+        crate::storage::create_directory_and_check(&self.root)?;
         let lock = crate::file_lock::open_lock_file(self.root.join("resources.lock"))?;
         crate::file_lock::exclusive(&lock)?;
         sweep_abandoned_stages(&self.root);
@@ -486,6 +486,22 @@ mod tests {
             assert!(!root.path().join(spec.generation().unwrap()).exists());
             assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn install_rejects_a_symlinked_root() {
+        let parent = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let root = parent.path().join("resources");
+        std::os::unix::fs::symlink(outside.path(), &root).unwrap();
+        let store = ResourceStore::new(&root);
+
+        assert!(store
+            .install(&specification(), |_| Ok(source(b"fixture")))
+            .is_err());
+        assert!(!outside.path().join("resources.lock").exists());
+        assert!(outside.path().read_dir().unwrap().next().is_none());
     }
     #[test]
     fn stages_an_interrupted_install_left_are_swept() {
