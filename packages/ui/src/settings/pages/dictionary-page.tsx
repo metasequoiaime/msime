@@ -7,20 +7,9 @@ import { SubPageEntries } from "./sub-page-entries";
 import { GroupList, Row, Select } from "../../core/platform-controls";
 import { DictionaryManifestCard } from "../dictionary-manifest-card";
 import { PersonalDictionaryImportCard } from "../personal-dictionary-import-card";
+import { DictionaryEntries } from "../dictionary-entries";
 
-/** The encoding rules shown beside the Apple personal-dictionary editor. */
-export function dictionaryKindKeyHint(kind: LocalDictionaryKind): string {
-  switch (kind) {
-    case "wubi":
-      return "1–4 个字母";
-    case "quick_phrase":
-      return "1–32 个字母";
-    case "english":
-      return "1–64 个字母";
-    case "pinyin":
-      return "完整音节，用 ' 分隔，如 ni'hao";
-  }
-}
+export { dictionaryKindKeyHint } from "../../dictionary/dictionary-messages";
 
 /** The 词库 page of the settings form. */
 export function DictionarySettingsPage() {
@@ -241,105 +230,25 @@ export function DictionarySettingsPage() {
                   {phraseNotice}
                 </p>
               )}
-              {phraseForm && (
-                <div className={settings.phraseForm}>
-                  <label>
-                    编码{" "}
-                    <input
-                      value={phraseForm.key}
-                      readOnly={phraseForm.previous?.source === "bundled"}
-                      onChange={(event) =>
-                        setPhraseForm({ ...phraseForm, key: event.target.value })
-                      }
-                    />
-                    <small className={settings.keyHint}>
-                      {dictionaryKindKeyHint(dictionaryKind)}
-                    </small>
-                  </label>
-                  <label>
-                    {dictionaryKind === "quick_phrase" ? "短语" : "词条"}{" "}
-                    <input
-                      value={phraseForm.value}
-                      readOnly={phraseForm.previous?.source === "bundled"}
-                      onChange={(event) =>
-                        setPhraseForm({ ...phraseForm, value: event.target.value })
-                      }
-                    />
-                  </label>
-                  <label>
-                    权重{" "}
-                    <input
-                      type="number"
-                      value={phraseForm.weight}
-                      onChange={(event) =>
-                        setPhraseForm({
-                          ...phraseForm,
-                          weight: Number(event.target.value),
-                        })
-                      }
-                    />
-                  </label>
-                  <button type="button" disabled={phraseBusy} onClick={() => void savePhrase()}>
-                    保存
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary"
-                    disabled={phraseBusy}
-                    onClick={() => setPhraseForm(null)}
-                  >
-                    取消
-                  </button>
-                </div>
-              )}
-              {phrases.length === 0 ? (
-                <p className={settings.empty}>
-                  点击查询后查看
-                  {localDictionaryKinds.find(([kind]) => kind === dictionaryKind)?.[1] ?? "词库"}
-                  词条
-                </p>
-              ) : (
-                <ul ref={phraseListRef} className={settings.phraseList} aria-label="词库查询结果">
-                  {phrases.map((entry, index) => (
-                    <li key={`${entry.key}-${entry.value}-${index}`}>
-                      <span>
-                        <code>{entry.key}</code>　{entry.value}　<small>{entry.weight}</small>
-                        {entry.source === "bundled" && (
-                          <>
-                            {" "}
-                            <small className={settings.bundledBadge}>内置</small>
-                          </>
-                        )}
-                      </span>
-                      <span>
-                        <button
-                          type="button"
-                          className="secondary"
-                          disabled={phraseBusy}
-                          onClick={() =>
-                            setPhraseForm({
-                              key: entry.key,
-                              value: entry.value,
-                              weight: entry.weight,
-                              previous: entry,
-                            })
-                          }
-                        >
-                          {entry.source === "bundled" ? "调权重" : "编辑"}
-                        </button>{" "}
-                        <button
-                          type="button"
-                          className="secondary"
-                          disabled={phraseBusy}
-                          onClick={() => void removePhrase(entry)}
-                        >
-                          删除
-                        </button>
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
+              <DictionaryEntries
+                kind={dictionaryKind}
+                entries={phrases}
+                form={phraseForm}
+                busy={phraseBusy}
+                listRef={phraseListRef}
+                onFormChange={setPhraseForm}
+                onSave={() => void savePhrase()}
+                onCancel={() => setPhraseForm(null)}
+                onEdit={(entry) =>
+                  setPhraseForm({
+                    key: entry.key,
+                    value: entry.value,
+                    weight: entry.weight,
+                    previous: entry,
+                  })
+                }
+                onRemove={(entry) => void removePhrase(entry)}
+              />
               <div className="flex items-center justify-center gap-4 text-xs text-secondary">
                 <button
                   type="button"
