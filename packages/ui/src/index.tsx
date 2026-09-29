@@ -249,6 +249,7 @@ import { createShortcutsSettingsActions } from "./settings/shortcuts-settings-ac
 import { createHelpcodeSettingsActions } from "./settings/helpcode-settings-actions";
 import { createUtilitiesSettingsActions } from "./settings/utilities-settings-actions";
 import { createSettingsNavigationActions } from "./settings/settings-navigation-actions";
+import { createSettingsReloadAction } from "./settings/settings-reload-action";
 import { useAppVersion } from "./settings/use-app-version";
 import { supportDiagnostics } from "./settings/support-diagnostics";
 import { useMountedRef } from "./settings/use-mounted-ref";
@@ -450,6 +451,10 @@ export {
   createSettingsNavigationActions,
   type CreateSettingsNavigationActionsOptions,
 } from "./settings/settings-navigation-actions";
+export {
+  createSettingsReloadAction,
+  type CreateSettingsReloadActionOptions,
+} from "./settings/settings-reload-action";
 import { SettingsSidebar } from "./settings/settings-sidebar";
 export {
   SettingsSidebar,
@@ -2395,6 +2400,7 @@ export function SettingsPage({
     openHandwriting: client.openHandwriting,
     restoreDefaults,
   });
+  const reloadSettings = createSettingsReloadAction({ dirty, reload, confirm });
   const communityView = communityDestinationView(communityDestination);
   return (
     <div
@@ -3010,24 +3016,7 @@ export function SettingsPage({
               page !== "account" &&
               page !== "chat" &&
               page !== "community" && (
-                <button
-                  className="secondary"
-                  disabled={busy}
-                  onClick={() => {
-                    if (!dirty) {
-                      void reload();
-                      return;
-                    }
-                    void confirm({
-                      title: "重新读取",
-                      message: "尚未保存的修改会被放弃。",
-                      confirmLabel: "放弃并重新读取",
-                      danger: true,
-                    }).then((confirmed) => {
-                      if (confirmed) void reload();
-                    });
-                  }}
-                >
+                <button className="secondary" disabled={busy} onClick={() => void reloadSettings()}>
                   重新读取
                 </button>
               )}
