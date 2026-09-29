@@ -21,6 +21,7 @@ import { ScreenKeyboardSkinsSection } from "../screen-keyboard-skins-section";
 import { useSettingsForm } from "../settings-form-context";
 import { CandidatePanelLimitSection } from "../candidate-panel-limit-section";
 import { CandidatePaletteFallbackNotice } from "../candidate-palette-fallback-notice";
+import { SkinPlatformNotice } from "../skin-platform-notice";
 
 const themeModeOptions = [
   { value: "system", label: "跟随系统" },
@@ -65,16 +66,7 @@ export function SkinSettingsPage() {
   } = useSettingsForm();
   return (
     <fieldset disabled={busy} hidden={page !== "skin"} aria-label="主题">
-      <div className={settings.skinIntro}>
-        {/* A touch host draws a candidate row inside the keyboard and has no floating
-                          toolbar at all, so naming either here describes a window the reader cannot
-                          see. Same switch the helper-code labels already make. */}
-        {mobilePlatform
-          ? "选择候选栏和键盘使用的主题；明暗预览仅影响当前卡片，不修改设置。"
-          : linuxPlatform
-            ? "选择候选窗使用的主题；明暗预览仅影响当前卡片，不修改设置。"
-            : "选择候选窗和悬浮工具栏使用的主题；明暗预览仅影响当前卡片，不修改设置。"}
-      </div>
+      <SkinPlatformNotice mobile={mobilePlatform} linux={linuxPlatform} />
       {host?.candidate_panel_limit && (
         <CandidatePanelLimitSection limit={host.candidate_panel_limit} />
       )}
