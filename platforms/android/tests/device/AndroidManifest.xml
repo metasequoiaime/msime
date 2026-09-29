@@ -14,6 +14,7 @@
     <instrumentation android:name="app.msime.client.test.SettingsLifecycleSmoke" android:targetPackage="app.msime.client.test" />
     <instrumentation android:name="app.msime.client.test.TypingStatisticsDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.client.test.AccountStorageDeviceSmoke" android:targetPackage="app.msime.client.test" />
+    <instrumentation android:name="app.msime.client.BackendAccountRefreshDeviceSmoke" android:targetPackage="app.msime.client.test" />
     <application android:label="MSIME Editor Fixture" android:allowBackup="false">
         <activity android:name="app.msime.client.test.EditorActivity" android:exported="true" android:windowSoftInputMode="adjustResize" />
     </application>
