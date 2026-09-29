@@ -1,6 +1,6 @@
 import type { AiAssistantPreferences, ProviderCredentialStatus, SettingsClient } from "../index";
 import type { useProviderCredentials } from "./use-provider-credentials";
-import { AI_PROVIDER_OPTIONS } from "./ai-provider-options";
+import { AI_PROVIDER_OPTIONS, aiProviderOption } from "./ai-provider-options";
 import { aiProviderUpdate } from "./ai-provider-update";
 import {
   aiCredentialTestDisabled,
@@ -108,7 +108,7 @@ export function AiSettingsPanel({
       endpoint={ai.endpoint}
       providerPreset={providerPresetControls(
         "AI ",
-        AI_PROVIDER_OPTIONS.find((option) => option.id === ai.provider),
+        aiProviderOption(ai.provider),
         ai.model,
         (model) => updateAi({ model }),
       )}

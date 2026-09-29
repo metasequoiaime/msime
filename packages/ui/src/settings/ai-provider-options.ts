@@ -101,3 +101,7 @@ export const AI_PROVIDER_OPTIONS: readonly {
   },
   { id: "custom", title: "自定义", endpoint: "", model: "" },
 ];
+
+export function aiProviderOption(provider: string) {
+  return AI_PROVIDER_OPTIONS.find((option) => option.id === provider);
+}
