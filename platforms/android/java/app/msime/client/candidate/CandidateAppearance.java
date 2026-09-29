@@ -2,7 +2,6 @@ package app.msime.client;
 
 import org.json.JSONObject;
 import org.json.JSONArray;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -165,7 +164,7 @@ public final class CandidateAppearance {
 
     private static boolean validFont(String value) {
         if (value == null || value.isEmpty()
-                || value.getBytes(StandardCharsets.UTF_8).length > 128) return false;
+                || TextPolicy.utf8Length(value) > 128) return false;
         return !TextPolicy.hasControl(value);
     }
 

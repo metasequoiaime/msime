@@ -1,6 +1,5 @@
 package app.msime.client;
 
-import java.nio.charset.StandardCharsets;
 
 /**
  * Whether a transcript should be polished, and the exact request that does it.
@@ -43,13 +42,13 @@ public final class VoicePolishPolicy {
             && token != null && !token.trim().isEmpty() && token.length() <= 16 * 1024
             && !TextPolicy.hasControl(token)
             && prompt != null && !prompt.trim().isEmpty()
-            && prompt.getBytes(StandardCharsets.UTF_8).length <= MAX_PROMPT_BYTES;
+            && TextPolicy.utf8Length(prompt) <= MAX_PROMPT_BYTES;
     }
 
     /** Whether a transcript is worth sending: empty or absurdly long is not. */
     public static boolean sendable(String text) {
         return text != null && !text.trim().isEmpty()
-            && text.getBytes(StandardCharsets.UTF_8).length <= MAX_TEXT_BYTES;
+            && TextPolicy.utf8Length(text) <= MAX_TEXT_BYTES;
     }
 
     /**

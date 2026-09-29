@@ -138,7 +138,7 @@ public final class BackendAccount {
             if (message == null || !("user".equals(message.role()) || "assistant".equals(message.role())))
                 throw new IllegalStateException("invalid chat request");
             String content = message.content() == null ? "" : message.content();
-            if (content.isEmpty() || content.length() > 10_000 || (bytes += content.getBytes(StandardCharsets.UTF_8).length) > 48_000)
+            if (content.isEmpty() || content.length() > 10_000 || (bytes += TextPolicy.utf8Length(content)) > 48_000)
                 throw new IllegalStateException("invalid chat request");
             payloadMessages.put(new JSONObject().put("role", message.role()).put("content", content));
         }

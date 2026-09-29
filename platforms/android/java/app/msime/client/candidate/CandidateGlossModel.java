@@ -1,6 +1,5 @@
 package app.msime.client;
 
-import java.nio.charset.StandardCharsets;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -48,7 +47,7 @@ public final class CandidateGlossModel {
             .put("candidates", copied);
         if (targetLanguage != null) envelope.put("target_language", targetLanguage);
         String request = envelope.toString();
-        if (request.getBytes(StandardCharsets.UTF_8).length > MAX_REQUEST_BYTES)
+        if (TextPolicy.utf8Length(request) > MAX_REQUEST_BYTES)
             throw new IllegalArgumentException("Candidate gloss request is too large");
         return request;
     }
@@ -56,7 +55,7 @@ public final class CandidateGlossModel {
     /** Validate the native envelope before returning an apply_translations payload. */
     public static Result decode(String response) throws JSONException {
         if (response == null
-                || response.getBytes(StandardCharsets.UTF_8).length > MAX_RESPONSE_BYTES)
+                || TextPolicy.utf8Length(response) > MAX_RESPONSE_BYTES)
             throw new IllegalArgumentException("Candidate gloss response is too large");
         JSONObject envelope = new JSONObject(response);
         if (!envelope.optBoolean("ok", false)) throw new JSONException("Candidate gloss failed");
@@ -77,7 +76,7 @@ public final class CandidateGlossModel {
             copied.put(new JSONObject().put("text", text).put("translation", translation));
         }
         String payload = copied.toString();
-        if (payload.getBytes(StandardCharsets.UTF_8).length > MAX_RESPONSE_BYTES)
+        if (TextPolicy.utf8Length(payload) > MAX_RESPONSE_BYTES)
             throw new IllegalArgumentException("Candidate gloss payload is too large");
         return new Result(generation, payload);
     }

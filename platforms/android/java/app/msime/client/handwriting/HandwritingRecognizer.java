@@ -1,6 +1,5 @@
 package app.msime.client;
 
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -58,7 +57,7 @@ public interface HandwritingRecognizer extends AutoCloseable {
             if (value == null) continue;
             String candidate = value.strip();
             if (candidate.isEmpty()
-                    || candidate.getBytes(StandardCharsets.UTF_8).length > MAX_CANDIDATE_BYTES
+                    || TextPolicy.utf8Length(candidate) > MAX_CANDIDATE_BYTES
                     || TextPolicy.hasControl(candidate)) continue;
             accepted.add(candidate);
             if (accepted.size() == MAX_CANDIDATES) break;
