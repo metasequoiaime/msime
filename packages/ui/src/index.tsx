@@ -17,11 +17,11 @@ import {
 } from "./settings/settings-navigation-helpers";
 import {
   pages,
-  settingsNavGroups,
   settingsPageAliases,
   subPageParents,
   type SettingsPageId,
 } from "./settings/settings-page-registry";
+import { settingsPageProjections } from "./settings/settings-page-projections";
 import type { VoiceDeviceReader } from "./voice/voice-device-picker";
 import type { LocalVoiceModelClient } from "./voice/local-models";
 import {
@@ -2236,23 +2236,6 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     linuxPlatform ||
     windowsPlatform ||
     macosPlatform;
-  const availablePages = pages
-    .filter(
-      (item) =>
-        (item.id !== "home" || Boolean(client.home)) &&
-        (item.id !== "typing-statistics" || Boolean(client.typingStatistics)) &&
-        (item.id !== "vocabulary" || Boolean(client.vocabularyReview)) &&
-        (item.id !== "account" || Boolean(client.account || client.appIcon)) &&
-        (item.id !== "chat" || Boolean(client.chat)) &&
-        (item.id !== "community" || Boolean(client.communitySkins || client.communityResources)) &&
-        (item.id !== "floating-toolbar" || showFloatingToolbar) &&
-        (item.id !== "download" || !mobilePlatform) &&
-        (item.id !== "developer" || showDeveloperPage) &&
-        (item.id !== "more" || mobilePlatform),
-    )
-    .map((item) =>
-      mobilePlatform ? { ...item, title: mobilePageTitle(item.id, item.title) } : item,
-    );
   // Physical-keyboard shortcuts and a desktop floating toolbar have no phone surface. HarmonyOS keeps those controls in the input-method panel on a 2-in-1, but its phone panel is still a touch keyboard, so the settings entry must not leak the PC key descriptions into the phone's "全部设置" list.
   //
   // The shortcuts page carries the hardware-keyboard chords, so it is hidden where the host does not route any of them rather than where the platform happens to be a phone. Any of these devices can have a keyboard attached, and its owner has to be able to reach the switches the host already reads; hiding the page by platform name left them unreachable on Android.
@@ -2262,31 +2245,20 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
       : (["shortcuts"] as const)),
     "floating-toolbar",
   ];
-  // The design moves the account group into the tabs and 我的, and 帮助与反馈 and 关于 into 我的 as well; 云剪贴板 stays because 我的 only opens the cloud panel, not the clipboard history kept on the device. A host without a 我的 page keeps 反馈 and 关于 in the list, since nothing else would reach them.
-  const supportInAccount = availablePages.some((item) => item.id === "account");
-  const mobileListedPage = (id: SettingsPageId): boolean =>
-    ((id !== "about" && id !== "feedback") || !supportInAccount) &&
-    !mobilePrimaryPageIds.includes(id as MobilePrimaryPageId) &&
-    !mobileHiddenPageIds.includes(id);
-  // The sidebar is the list this page duplicates, so it does not list it. A mobile host above phone width still shows the sidebar, and `selectPage` refuses the pages hidden above, so listing them there left buttons that did nothing when tapped.
-  const sidebarPages = availablePages.filter(
-    (item) => item.id !== "more" && !(mobilePlatform && mobileHiddenPageIds.includes(item.id)),
-  );
-  // The design's five groups, on every platform. The home page, which only a touch host has, leads as a group of its own; the sub-pages are not listed. A touch host wide enough for the sidebar (an iPad, a 2-in-1) lists what its 全部设置 list does, because the pages with a tab of their own are one tap away in the bar below and listing them twice gave two buttons of the same name.
-  const sidebarGroups = ((): (typeof availablePages)[] => {
-    const byId = new Map(sidebarPages.map((item) => [item.id, item]));
-    const home = byId.get("home");
-    const groups = settingsNavGroups
-      .map((ids) =>
-        ids.flatMap((id) => {
-          if (mobilePlatform && !mobileListedPage(id)) return [];
-          const item = byId.get(id);
-          return item ? [item] : [];
-        }),
-      )
-      .filter((group) => group.length > 0);
-    return home ? [[home], ...groups] : groups;
-  })();
+  const { availablePages, sidebarGroups, mobilePrimaryPages, mobileSecondaryGroups } =
+    settingsPageProjections({
+      mobilePlatform,
+      hasHomePage: Boolean(client.home),
+      hasTypingStatistics: Boolean(client.typingStatistics),
+      hasVocabularyReview: Boolean(client.vocabularyReview),
+      hasAccount: Boolean(client.account || client.appIcon),
+      hasChat: Boolean(client.chat),
+      hasCommunity: Boolean(client.communitySkins || client.communityResources),
+      showFloatingToolbar,
+      showDeveloperPage,
+      mobileHiddenPageIds,
+      mobilePageTitle,
+    });
   // A sub-page lights its parent in the navigation and offers the way back to it.
   const navigationPage: SettingsPageId = subPageParents[page] ?? page;
   // Walked in tab order rather than filtered out of `availablePages`, which is in the order the
@@ -2297,20 +2269,6 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   // lit, and no way to read where in the app you were.
   const mobileActiveTab: MobilePrimaryPageId = mobileTabForPage(page);
   const untitledOnPhone: readonly SettingsPageId[] = ["home", "typing-statistics", "account"];
-  const mobilePrimaryPages = mobilePrimaryPageIds.flatMap((id) => {
-    const item = availablePages.find((page) => page.id === id);
-    return item ? [item] : [];
-  });
-  // The 全部设置 list, in the design's groups; see `mobileListedPage` for what it leaves out.
-  const mobileSecondaryGroups = settingsNavGroups
-    .map((ids) =>
-      ids.flatMap((id) => {
-        if (!mobileListedPage(id)) return [];
-        const item = availablePages.find((page) => page.id === id);
-        return item ? [item] : [];
-      }),
-    )
-    .filter((group) => group.length > 0);
   const selectPage = (next: SettingsPageId) => {
     if (mobilePlatform && mobileHiddenPageIds.includes(next)) return;
     if (next === page) return;
