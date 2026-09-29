@@ -1972,7 +1972,17 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
           : current,
       ),
   });
-  const { wordCharacter, keybindings, frequency, mixedInput, fuzzyPinyin, localModes } =
+  const {
+    wordCharacter,
+    keybindings,
+    frequency,
+    mixedInput,
+    fuzzyPinyin,
+    localModes,
+    candidateEnglishGloss,
+    englishSuggestions,
+    inputModeHUD,
+  } =
     settingsInputPreferences(draft);
   const touchKeyboardSchemes = draft?.touch_keyboard_schemes ?? {
     enabled: allTouchKeyboardSchemes,
@@ -2052,10 +2062,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
           : current,
       ),
   });
-  const candidateEnglishGloss = draft?.candidate_english_gloss ?? false;
-  const englishSuggestions = draft?.english_suggestions ?? true;
   const providerPresetControls = createProviderPresetControl(client.openExternalUrl);
-  const inputModeHUD = draft?.input_mode_hud ?? true;
   const floatingToolbar = { ...defaultFloatingToolbar, ...draft?.floating_toolbar };
   const themeMode = draft?.theme ?? "system";
   const settingsTheme = draft?.settings_theme ?? "follow";

@@ -17,6 +17,9 @@ export type SettingsInputPreferencesSource = Pick<
   | "local_modes"
   | "navigation"
   | "number_row_selection"
+  | "candidate_english_gloss"
+  | "english_suggestions"
+  | "input_mode_hud"
 >;
 
 export interface SettingsInputPreferences {
@@ -28,6 +31,9 @@ export interface SettingsInputPreferences {
   localModes: NonNullable<Preferences["local_modes"]>;
   navigation: NonNullable<Preferences["navigation"]>;
   numberRowSelection: boolean;
+  candidateEnglishGloss: boolean;
+  englishSuggestions: boolean;
+  inputModeHUD: boolean;
 }
 
 /** Resolves input, shortcut, and local-mode preferences for the settings panels. */
@@ -43,5 +49,8 @@ export function settingsInputPreferences(
     localModes: draft?.local_modes ?? defaultLocalModes,
     navigation: draft?.navigation ?? defaultNavigation,
     numberRowSelection: draft?.number_row_selection ?? true,
+    candidateEnglishGloss: draft?.candidate_english_gloss ?? false,
+    englishSuggestions: draft?.english_suggestions ?? true,
+    inputModeHUD: draft?.input_mode_hud ?? true,
   };
 }

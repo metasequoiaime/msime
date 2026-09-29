@@ -12,6 +12,9 @@ test("fills absent input preferences with the shared defaults", () => {
   expect(values.localModes.temporary_japanese).toBe(true);
   expect(values.navigation.page_up_down).toBe(true);
   expect(values.numberRowSelection).toBe(true);
+  expect(values.candidateEnglishGloss).toBe(false);
+  expect(values.englishSuggestions).toBe(true);
+  expect(values.inputModeHUD).toBe(true);
 });
 
 test("keeps explicit input choices, including disabled switches", () => {
@@ -25,4 +28,16 @@ test("keeps explicit input choices, including disabled switches", () => {
   expect(values.fuzzyPinyin).toEqual({ enabled: true, rules: ["z-zh"] });
   expect(values.numberRowSelection).toBe(false);
   expect(values.frequency.mode).toBe("promote");
+});
+
+test("keeps explicit candidate and input mode switches", () => {
+  const values = settingsInputPreferences({
+    candidate_english_gloss: true,
+    english_suggestions: false,
+    input_mode_hud: false,
+  });
+
+  expect(values.candidateEnglishGloss).toBe(true);
+  expect(values.englishSuggestions).toBe(false);
+  expect(values.inputModeHUD).toBe(false);
 });
