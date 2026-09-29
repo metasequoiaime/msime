@@ -51,9 +51,7 @@ export {
   type UseMobileKeyboardFeedbackOptions,
 } from "./settings/use-mobile-keyboard-feedback";
 import {
-  UPDATE_CHECK_TIMEOUT_MS,
   androidPrivacyUrl,
-  clientReleasesUrl,
   desktopDownloadUrl,
   fallbackAppVersion,
   licenseUrl,
@@ -64,7 +62,6 @@ import {
   logo,
   privacyUrl,
   releasesPageUrl,
-  updateManifestUrl,
 } from "./settings/app-resources";
 import { AI_PROVIDER_OPTIONS } from "./settings/ai-provider-options";
 export { AI_PROVIDER_OPTIONS } from "./settings/ai-provider-options";
@@ -230,6 +227,7 @@ import { useSettingsPersistence } from "./settings/use-settings-persistence";
 import { useInputSourceUninstall } from "./settings/use-input-source-uninstall";
 import { useTouchKeyboardSettingsReset } from "./settings/use-touch-keyboard-settings-reset";
 import { useExternalUrl } from "./settings/use-external-url";
+import { useUpdateCheck } from "./settings/use-update-check";
 export {
   useProviderCredentials,
   type ProviderCredentialBusy,
@@ -269,6 +267,7 @@ export {
   type UseTouchKeyboardSettingsResetOptions,
 } from "./settings/use-touch-keyboard-settings-reset";
 export { useExternalUrl, type UseExternalUrlOptions } from "./settings/use-external-url";
+export { useUpdateCheck, type UseUpdateCheckOptions } from "./settings/use-update-check";
 import { ProviderPresetSection, type ProviderPreset } from "./settings/provider-preset-section";
 import { AiCredentialSection } from "./settings/ai-credential-section";
 import { AiLinuxProviderSection } from "./settings/ai-linux-provider-section";
@@ -1000,16 +999,7 @@ export {
   type CandidateOrientation,
   type CandidateTheme,
 } from "./candidate/candidate-themes";
-import {
-  compareVersions,
-  describeInstallerTrust,
-  parseVersion,
-  selectPlatformRelease,
-  validateManifest,
-  type GitHubRelease,
-  type UpdateManifest,
-  type ValidatedUpdate,
-} from "./settings/update-manifest";
+import { describeInstallerTrust, parseVersion } from "./settings/update-manifest";
 export {
   serializeWindowHostMessage,
   type WindowControl,
@@ -1880,9 +1870,6 @@ export function SettingsPage({
   const [communityDestination, setCommunityDestination] = useState<
     AccountCommunityDestination | "all"
   >("all");
-  const [updateStatus, setUpdateStatus] = useState("");
-  const [updateBusy, setUpdateBusy] = useState(false);
-  const [availableUpdate, setAvailableUpdate] = useState<ValidatedUpdate | null>(null);
   const [currentAppVersion, setCurrentAppVersion] = useState(fallbackAppVersion);
   const {
     value: mobileKeyboardFeedback,
@@ -2187,49 +2174,17 @@ export function SettingsPage({
     openExternalUrl: client.openExternalUrl,
     setError,
   });
-
-  async function checkForUpdate() {
-    setUpdateBusy(true);
-    setUpdateStatus("");
-    setAvailableUpdate(null);
-    // A stalled connection would otherwise leave the button busy indefinitely; the shipped settings page gives up after ten seconds.
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), UPDATE_CHECK_TIMEOUT_MS);
-    try {
-      const releasePlatform = client.host?.platform ?? (linuxPlatform ? "linux" : null);
-      const endpoint =
-        clientHostedPlatform && releasePlatform
-          ? `${clientReleasesUrl}?per_page=100&t=${Date.now()}`
-          : `${updateManifestUrl}?t=${Date.now()}`;
-      const response = await fetch(endpoint, { cache: "no-store", signal: controller.signal });
-      if (!response.ok) throw new Error(`update manifest returned ${response.status}`);
-      const manifest = (await response.json()) as UpdateManifest | GitHubRelease[];
-      let update: ValidatedUpdate | null;
-      if (clientHostedPlatform && releasePlatform) {
-        if (!Array.isArray(manifest)) throw new Error("invalid release list");
-        update = selectPlatformRelease(manifest, releasePlatform, platformReleasesPageUrl);
-        if (!update) {
-          setUpdateStatus("暂无可用发行版");
-          return;
-        }
-      } else {
-        update = validateManifest(manifest as UpdateManifest, platformReleasesPageUrl);
-      }
-      const current = parseVersion(currentAppVersion);
-      if (!update || !current) throw new Error("invalid update manifest");
-      if (compareVersions(update.version, current) > 0) {
-        setAvailableUpdate(update);
-        setUpdateStatus(`发现新版本 v${update.version.display}`);
-      } else {
-        setUpdateStatus("已是最新版本");
-      }
-    } catch {
-      setUpdateStatus("检查失败，请稍后重试");
-    } finally {
-      window.clearTimeout(timeout);
-      setUpdateBusy(false);
-    }
-  }
+  const {
+    available: availableUpdate,
+    busy: updateBusy,
+    checkForUpdate,
+    status: updateStatus,
+  } = useUpdateCheck({
+    clientHostedPlatform,
+    releasePlatform: client.host?.platform ?? (linuxPlatform ? "linux" : null),
+    releasePageUrl: platformReleasesPageUrl,
+    currentAppVersion,
+  });
 
   async function openPanel(action: (() => Promise<void>) | undefined) {
     if (!action) {
