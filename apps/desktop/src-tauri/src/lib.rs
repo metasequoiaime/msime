@@ -1299,11 +1299,19 @@ fn ios_keyboard_ai_preferences(
         _ => "custom",
     }
     .to_owned();
-    let token = reqwest::Url::parse(preferences.endpoint.trim())
+    let endpoint = preferences.endpoint.trim();
+    let token = reqwest::Url::parse(endpoint)
         .ok()
         .and_then(|url| {
+            let explicit_authority = endpoint.split_once("://").is_some_and(|(_, authority)| {
+                authority
+                    .as_bytes()
+                    .first()
+                    .is_some_and(|byte| *byte != b'/')
+            });
             if url.scheme() != "https"
-                || url.host_str().is_none()
+                || !explicit_authority
+                || url.host_str().is_none_or(str::is_empty)
                 || !url.username().is_empty()
                 || url.password().is_some()
                 || url.fragment().is_some()

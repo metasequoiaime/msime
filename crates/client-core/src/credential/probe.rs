@@ -130,6 +130,7 @@ mod tests {
             ("token", "***"),
             ("endpoint", "http://fixture.invalid/chat"),
             ("endpoint", "https://user:pass@fixture.invalid/chat"),
+            ("endpoint", "https:///chat"),
             ("endpoint", "https://fixture.invalid/chat#fragment"),
             ("model", ""),
         ] {

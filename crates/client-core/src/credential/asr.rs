@@ -153,6 +153,7 @@ mod tests {
             ("endpoint", "http://fixture.invalid/asr"),
             ("endpoint", "wss://fixture.invalid/asr"),
             ("endpoint", "https://user:pass@fixture.invalid/asr"),
+            ("endpoint", "https:///asr"),
         ] {
             let mut config = config("openai");
             config[field] = json!(value);

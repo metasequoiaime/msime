@@ -227,7 +227,14 @@ pub fn is_secure_endpoint(endpoint: &str) -> bool {
         return false;
     }
     match url.scheme() {
-        "https" => url.host_str().is_some(),
+        "https" => {
+            endpoint.split_once("://").is_some_and(|(_, authority)| {
+                authority
+                    .as_bytes()
+                    .first()
+                    .is_some_and(|byte| *byte != b'/')
+            }) && url.host_str().is_some_and(|host| !host.is_empty())
+        }
         "http" => matches!(
             url.host_str(),
             Some("localhost" | "127.0.0.1" | "[::1]" | "::1")
@@ -297,6 +304,7 @@ mod tests {
         assert!(!is_supported_endpoint("http://localhost/api#fragment"));
         assert!(!is_supported_endpoint("ftp://translate.example"));
         assert!(!is_supported_endpoint("https://bad\n.example"));
+        assert!(!is_supported_endpoint("https:///api"));
     }
 
     #[test]

@@ -17,6 +17,7 @@ fn ai_endpoint_validation_accepts_http_api_urls_and_rejects_unsafe_urls() {
     }
     for endpoint in [
         "file:///tmp/models",
+        "https:///v1/chat/completions",
         "https://user:password@example.test/v1/chat/completions",
         "https://example.test/v1/chat/completions#fragment",
         "https://example.test/v1/chat/\ncompletions",
