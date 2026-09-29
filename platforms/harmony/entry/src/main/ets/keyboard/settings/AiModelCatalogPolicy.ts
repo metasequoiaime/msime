@@ -41,9 +41,27 @@ export class AiModelCatalogPolicy {
 
   static pageUrl(modelsUrl: string, anthropic: boolean, cursor: string): string {
     if (!anthropic) return modelsUrl;
-    const separator: string = modelsUrl.includes("?") ? "&" : "?";
+    const queryIndex: number = modelsUrl.indexOf("?");
+    const path: string = queryIndex >= 0 ? modelsUrl.substring(0, queryIndex) : modelsUrl;
+    const rawQuery: string = queryIndex >= 0 ? modelsUrl.substring(queryIndex + 1) : "";
+    const preserved: string[] = [];
+    for (const part of rawQuery.split("&")) {
+      if (part.length === 0) continue;
+      const equals: number = part.indexOf("=");
+      const rawName: string = equals >= 0 ? part.substring(0, equals) : part;
+      let name: string = rawName;
+      try {
+        name = decodeURIComponent(rawName.replace(/\+/g, " "));
+      } catch (_) {
+        // Keep malformed provider query names unchanged; endpoint validation has already
+        // rejected controls, and dropping an unrelated name would change its meaning.
+      }
+      if (name !== "limit" && name !== "after_id") preserved.push(part);
+    }
+    const base: string = path + (preserved.length > 0 ? `?${preserved.join("&")}` : "");
+    const separator: string = base.includes("?") ? "&" : "?";
     const after: string = cursor.length > 0 ? `&after_id=${encodeURIComponent(cursor)}` : "";
-    return `${modelsUrl}${separator}limit=1000${after}`;
+    return `${base}${separator}limit=1000${after}`;
   }
 
   static accepts(model: AiCatalogModel): boolean {

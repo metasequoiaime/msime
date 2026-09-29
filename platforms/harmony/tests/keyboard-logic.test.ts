@@ -8728,6 +8728,14 @@ group("AI model catalogs keep each provider's protocol and path", () => {
       "https://api.anthropic.com/v1/models?limit=1000&after_id=claude%2Ffirst",
     "the next Anthropic cursor is encoded",
   );
+  check(
+    AiModelCatalogPolicy.pageUrl(
+      "https://api.anthropic.com/v1/models?tenant=synthetic&limit=1&after_id=stale",
+      true,
+      "claude/first",
+    ) === "https://api.anthropic.com/v1/models?tenant=synthetic&limit=1000&after_id=claude%2Ffirst",
+    "Anthropic pagination replaces stale limit and cursor parameters",
+  );
 });
 
 group("AI model catalogs filter capabilities and paginate safely", () => {
