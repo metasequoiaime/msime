@@ -365,8 +365,12 @@
         const CGFloat decorationWidth =
             _skin.decorationWidthDip > 0.0 ? _skin.decorationWidthDip : MIN(size.width, _decorationImage.size.width);
         _decorationView.image = _decorationImage;
+        _decorationView.imageAlignment = _skin.decorationAlign == msime::mac::DecorationAlign::left     ? NSImageAlignTopLeft
+                                         : _skin.decorationAlign == msime::mac::DecorationAlign::center ? NSImageAlignTop
+                                                                                                        : NSImageAlignTopRight;
         _decorationView.frame =
-            NSMakeRect(size.width - decorationWidth, size.height - decorationHeight, decorationWidth, decorationHeight);
+            NSMakeRect(msime::mac::DecorationLeft(_skin.decorationAlign, size.width, decorationWidth),
+                       size.height - decorationHeight, decorationWidth, decorationHeight);
         [_chrome addSubview:_decorationView];
     }
     CGFloat x = inset;

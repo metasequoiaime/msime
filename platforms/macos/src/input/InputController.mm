@@ -5810,10 +5810,14 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
         [content addSubview:label];
     }
     if (decorationHeight > 0 && _appearance.decorationImage) {
-        NSImageView *decoration = [[NSImageView alloc] initWithFrame:NSMakeRect(width - skin.decorationWidthDip, height - decorationHeight, skin.decorationWidthDip, decorationHeight)];
+        // Flush with the edge the manifest aligns it to (right unless it says otherwise), and pinned to the same edge inside its frame.
+        const CGFloat decorationLeft = msime::mac::DecorationLeft(skin.decorationAlign, width, skin.decorationWidthDip);
+        NSImageView *decoration = [[NSImageView alloc] initWithFrame:NSMakeRect(decorationLeft, height - decorationHeight, skin.decorationWidthDip, decorationHeight)];
         decoration.image = _appearance.decorationImage;
         decoration.imageScaling = NSImageScaleProportionallyUpOrDown;
-        decoration.imageAlignment = NSImageAlignTopRight;
+        decoration.imageAlignment = skin.decorationAlign == msime::mac::DecorationAlign::left     ? NSImageAlignTopLeft
+                                    : skin.decorationAlign == msime::mac::DecorationAlign::center ? NSImageAlignTop
+                                                                                                  : NSImageAlignTopRight;
         decoration.wantsLayer = YES;
         [content addSubview:decoration];
     }
@@ -5841,12 +5845,18 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     if (![_panel.contentView isKindOfClass:MSIMECandidateChromeView.class]) return;
     MSIMECandidateChromeView *content = (id)_panel.contentView;
     NSString *match = [content.effectiveAppearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
-    const auto tokens = [_appearance resolvedSkinForDark:[match isEqual:NSAppearanceNameDarkAqua]].tokens;
+    const auto skin = [_appearance resolvedSkinForDark:[match isEqual:NSAppearanceNameDarkAqua]];
+    const auto &tokens = skin.tokens;
     if (tokens.showSelectedBar != _skinShowsSelectedBar) { [self renderCandidates]; return; }
     content.fillColor = SkinColor(tokens.surface);
     content.strokeColor = SkinColor(tokens.border);
+    // tokens.radius is the package's card radius when it sets one.
     content.cornerRadius = tokens.radius;
     content.lineWidth = tokens.borderWidth;
+    // Only in a mode whose resolution draws the package: one that supports a single mode draws no background in the other.
+    content.backgroundImage = skin.backgroundPath.empty() ? nil : _appearance.backgroundImage;
+    content.backgroundFit = skin.backgroundFit;
+    content.backgroundOpacity = skin.backgroundOpacity;
     NSArray<MSIMECandidateButton *> *candidateButtons = [content.subviews filteredArrayUsingPredicate:
         [NSPredicate predicateWithBlock:^BOOL(NSView *view, NSDictionary *_) {
             return ([view isKindOfClass:MSIMECandidateButton.class] ||
@@ -5877,7 +5887,9 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
         // Windows fixed-position span overrides candidate text, not its number.
         if (button.candidateFixed) button.titleColor = [NSColor colorWithSRGBRed:55.0/255 green:154.0/255 blue:211.0/255 alpha:1];
         // The translation is the theme's secondary colour, which always equals the number colour: the design draws a plain row's gloss in cSub (dc.html L2150, L2183), the theme's kb.sub or the platform's sub, and on the selected fill in candSelTr (dc.html L1533), the selected number's colour. A fixed-position row keeps the Windows renderer's rule instead, where the translation is a child of the candidate text and takes its fixed-position colour at reduced opacity.
-        if (button.candidateFixed) button.translationColor = [button.titleColor colorWithAlphaComponent:MSIMECandidateTranslationOpacity];
+        // A package's own translation colour is its secondary colour, drawn on every row as Windows does.
+        if (tokens.translation) button.translationColor = SkinColor(*tokens.translation);
+        else if (button.candidateFixed) button.translationColor = [button.titleColor colorWithAlphaComponent:MSIMECandidateTranslationOpacity];
         else button.translationColor = button.candidateHighlighted ? SkinColor(tokens.selectedNumber) : SkinColor(tokens.number);
         button.numberColor = button.candidateHighlighted ? SkinColor(tokens.selectedNumber) : SkinColor(tokens.number);
         button.barColor = SkinColor(tokens.accent);

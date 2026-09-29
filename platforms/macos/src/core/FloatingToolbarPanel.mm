@@ -714,7 +714,6 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     // The logo stays even with every button off, as the reference always keeps its handle, so the panel can still be dragged.
     _divider.hidden = count == 0;
     _trailingInset.constant = -kToolbarTrailingChrome * scale;
-    _chrome.layer.cornerRadius = 10.0 * scale;
     // NSWindow rounds fractional point sizes; round outward so controls are never clipped.
     _preferredSize = NSMakeSize(ToolbarPreferredWidth(count, fontSize, scale), std::ceil((fontSize + 20.0) * scale));
     // Only touch the frame once the toolbar is actually on screen. This runs on every shared preference
@@ -771,14 +770,18 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
         return;
     }
     const BOOL dark = MetasequoiaAppearanceIsDark(_chrome.effectiveAppearance);
-    const auto tokens = _hasHostToolbarSkin ? (dark ? _darkToolbarSkin : _lightToolbarSkin)
+    auto tokens = _hasHostToolbarSkin ? (dark ? _darkToolbarSkin : _lightToolbarSkin)
         : (_hasHostSkin ? (dark ? _darkSkin : _lightSkin) : MetasequoiaResolveStoredTheme(dark, NO).tokens);
+    // Candidate tokens carry a package's card radius, which is not the toolbar's; only a toolbar palette (ToolbarSkinTokens: the package's toolbar radius, then its stylesheet) sets the toolbar radius.
+    if (!_hasHostToolbarSkin) tokens.radius = msime::mac::NativeCandidateTokens(dark).radius;
+    _chrome.layer.cornerRadius = tokens.radius * (_appliedScale > 0.0 ? _appliedScale : 1.0);
     _chrome.fillColor = MetasequoiaColorFromRgba(tokens.surface);
     _chrome.strokeColor = MetasequoiaColorFromRgba(tokens.border);
     NSColor *text = MetasequoiaColorFromRgba(tokens.text);
     // The toolbar derives from the candidate palette (THEME_CONTRACT §3): hover from the row hover and the divider from the outline. The logo is the brand mark and keeps its own colours. The hover fill is drawn under the glyph, and every theme's hover is a translucent wash of its text colour.
     NSColor *hoverFill = MetasequoiaColorFromRgba(tokens.hover);
-    _divider.fillColor = MetasequoiaColorFromRgba(tokens.border);
+    // A package's `[toolbar]` divider colour when it has one. Its `handle` colour has no target here: the logo is the drag handle and keeps the brand mark's colours.
+    _divider.fillColor = MetasequoiaColorFromRgba(tokens.divider.value_or(tokens.border));
     for (MetasequoiaFloatingToolbarButton *button in
          @[ _inputModeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _emojiButton, _handwritingButton, _keyboardButton, _voiceButton, _settingsButton ])
     {

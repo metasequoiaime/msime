@@ -1,5 +1,6 @@
 #include "../../src/candidate/CandidateSkin.h"
 
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <stdexcept>
@@ -286,6 +287,156 @@ show_selected_bar = false
             "An oversized toolbar stylesheet was not ignored.");
     Require(msime::mac::ListSkins(root).size() == 4, "The settings list lost the full TOML manifest.");
     std::filesystem::remove_all(root / "full-toml");
+
+    // The msime-skins keys: decoration.image over the preview, its alignment, the card radius, a background, a translation colour, and the toolbar's own radius and colours under its stylesheet.
+    WriteFile(root / "styled" / "skin.toml", R"toml(
+schema_version = 1
+id = "styled"
+name = "Styled"
+version = "1.0"
+base = "system"
+preview = "assets/preview.png"
+toolbar_stylesheet = "toolbar.css"
+
+[supports]
+layouts = ["horizontal", "vertical"]
+themes = ["dark", "light"]
+
+[candidate_window]
+min_width_dip = 176
+corner_radius_dip = 20
+
+[candidate_window.decoration]
+image = "assets/character.png"
+top_inset_dip = 104
+width_dip = 96
+align = "left"
+
+[candidate_window.background]
+image = "assets/background.png"
+fit = "contain"
+opacity = 0.35
+
+[candidate.dark]
+number = "#E0C07A"
+translation = "#9FB4E0"
+
+[toolbar.dark]
+background = "#141B33"
+border = "#5B9BFF"
+handle = "#5B9BFF"
+divider = "#224466"
+icon = "#E3EAFF"
+hover = "#303030"
+
+[toolbar.light]
+background = "#F4F8FF"
+
+[license]
+code = "MIT"
+assets = "CC-BY-4.0"
+source = "synthetic"
+)toml");
+    WriteFile(root / "styled" / "assets" / "preview.png", "png");
+    WriteFile(root / "styled" / "assets" / "character.png", "png");
+    WriteFile(root / "styled" / "assets" / "background.png", "png");
+    WriteFile(root / "styled" / "toolbar.css", "html[data-theme=\"light\"] { --toolbar-bg: #102030; }\n");
+    auto styled = msime::mac::LoadSkinPackage(root, "styled", &error);
+    Require(styled.has_value() && styled->cornerRadiusDip == 20.0 && styled->decorationImage == "assets/character.png" &&
+                styled->decorationAlign == msime::mac::DecorationAlign::left && styled->background &&
+                styled->background->image == "assets/background.png" &&
+                styled->background->fit == msime::mac::BackgroundFit::contain && styled->background->opacity == 0.35 &&
+                !styled->toolbar.cornerRadiusDip && styled->toolbar.dark.background == "#141B33" &&
+                styled->toolbar.dark.handle == "#5B9BFF" && styled->dark.translation == "#9FB4E0" && styled->license &&
+                styled->license->code == "MIT" && styled->license->source == "synthetic",
+            "The msime-skins manifest keys were not read.");
+    const auto styledDark = msime::mac::ResolveSkin("custom", withSkin("styled"), true, "horizontal", root);
+    Require(styledDark.candidateSkin == "styled" && styledDark.tokens.radius == 20.0f &&
+                styledDark.decorationPath.find("character.png") != std::string::npos &&
+                styledDark.decorationAlign == msime::mac::DecorationAlign::left &&
+                styledDark.backgroundPath.find("background.png") != std::string::npos &&
+                styledDark.backgroundFit == msime::mac::BackgroundFit::contain && styledDark.backgroundOpacity == 0.35,
+            "The decoration image, alignment, card radius or background was not resolved.");
+    Require(styledDark.tokens.translation && std::abs(styledDark.tokens.translation->r - 0x9F / 255.0f) < 0.002f &&
+                std::abs(styledDark.tokens.translation->b - 0xE0 / 255.0f) < 0.002f,
+            "The package translation colour was not resolved.");
+    const auto styledLight = msime::mac::ResolveSkin("custom", withSkin("styled"), false, "horizontal", root);
+    Require(!styledLight.tokens.translation, "A translation colour appeared where secondary equals number.");
+    // The card radius stays out of the toolbar; the manifest's toolbar colours apply in their own mode.
+    const auto styledToolbarDark = msime::mac::ToolbarSkinTokens(styledDark, root);
+    Require(styledToolbarDark.radius == msime::mac::NativeCandidateTokens(true).radius &&
+                std::abs(styledToolbarDark.surface.r - 0x14 / 255.0f) < 0.002f &&
+                std::abs(styledToolbarDark.border.b - 1.0f) < 0.002f && std::abs(styledToolbarDark.text.r - 0xE3 / 255.0f) < 0.002f &&
+                std::abs(styledToolbarDark.hover.r - 0x30 / 255.0f) < 0.002f && styledToolbarDark.divider &&
+                std::abs(styledToolbarDark.divider->b - 0x66 / 255.0f) < 0.002f && !styledToolbarDark.translation,
+            "The manifest toolbar palette was not applied, or the card radius leaked into the toolbar.");
+    // The stylesheet still wins over the manifest's toolbar colours.
+    const auto styledToolbarLight = msime::mac::ToolbarSkinTokens(styledLight, root);
+    Require(std::abs(styledToolbarLight.surface.r - 0x10 / 255.0f) < 0.002f && std::abs(styledToolbarLight.surface.b - 0x30 / 255.0f) < 0.002f &&
+                !styledToolbarLight.divider,
+            "The toolbar stylesheet did not win over the manifest toolbar colours.");
+    // A toolbar radius comes from [toolbar], and the stylesheet's radius still wins over it; center alignment and a preview fallback decoration.
+    WriteFile(root / "styled" / "skin.toml", R"toml(
+schema_version = 1
+id = "styled"
+name = "Styled"
+version = "1.0"
+base = "system"
+preview = "assets/preview.png"
+toolbar_stylesheet = "toolbar.css"
+
+[supports]
+layouts = ["horizontal", "vertical"]
+themes = ["dark", "light"]
+
+[candidate_window.decoration]
+top_inset_dip = 40
+width_dip = 60
+align = "center"
+
+[toolbar]
+corner_radius_dip = 4
+)toml");
+    WriteFile(root / "styled" / "toolbar.css", "html[data-theme=\"light\"] { --toolbar-radius: 14px; }\n");
+    const auto centered = msime::mac::ResolveSkin("custom", withSkin("styled"), true, "horizontal", root);
+    Require(centered.decorationAlign == msime::mac::DecorationAlign::center &&
+                centered.decorationPath.find("preview.png") != std::string::npos && centered.backgroundPath.empty() &&
+                centered.tokens.radius == msime::mac::NativeCandidateTokens(true).radius,
+            "A preview decoration, center alignment or the host radius was not kept.");
+    Require(msime::mac::ToolbarSkinTokens(centered, root).radius == 4.0f &&
+                msime::mac::ToolbarSkinTokens(msime::mac::ResolveSkin("custom", withSkin("styled"), false, "horizontal", root), root).radius == 14.0f,
+            "The toolbar radius did not layer manifest under stylesheet.");
+    Require(msime::mac::DecorationLeft(msime::mac::DecorationAlign::left, 200, 60) == 0.0 &&
+                msime::mac::DecorationLeft(msime::mac::DecorationAlign::center, 200, 60) == 70.0 &&
+                msime::mac::DecorationLeft(msime::mac::DecorationAlign::right, 200, 60) == 140.0 &&
+                msime::mac::DecorationLeft(msime::mac::DecorationAlign::right, 40, 60) == 0.0,
+            "Decoration alignment placed the image wrongly.");
+    const auto cover = msime::mac::BackgroundRects(msime::mac::BackgroundFit::cover, {0, 0, 200, 100}, 100, 100);
+    const auto contain = msime::mac::BackgroundRects(msime::mac::BackgroundFit::contain, {10, 0, 200, 100}, 100, 100);
+    const auto stretch = msime::mac::BackgroundRects(msime::mac::BackgroundFit::stretch, {0, 0, 200, 100}, 100, 100);
+    Require(cover && cover->destination.width == 200 && cover->source.x == 0 && cover->source.y == 25 &&
+                cover->source.width == 100 && cover->source.height == 50 && contain &&
+                contain->destination.x == 60 && contain->destination.width == 100 && contain->destination.height == 100 &&
+                stretch && stretch->destination.width == 200 && stretch->source.width == 100 &&
+                !msime::mac::BackgroundRects(msime::mac::BackgroundFit::cover, {0, 0, 0, 100}, 100, 100),
+            "Background fit placed the image wrongly.");
+    WriteFile(root / "styled" / "skin.toml", R"toml(
+schema_version = 1
+id = "styled"
+name = "Styled"
+version = "1.0"
+base = "system"
+
+[supports]
+layouts = ["horizontal"]
+themes = ["dark"]
+
+[candidate_window]
+corner_radius_dip = 40
+)toml");
+    Require(!msime::mac::LoadSkinPackage(root, "styled", &error) && error.find("corner_radius_dip") != std::string::npos,
+            "An out-of-range corner radius was accepted or its reason lost.");
+    std::filesystem::remove_all(root / "styled");
 
     // Manifest/resource paths cannot escape through a package or resource symlink.
     const auto outside = MakeTempRoot();

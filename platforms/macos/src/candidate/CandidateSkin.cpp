@@ -445,13 +445,31 @@ void ApplyToolbarStylesheet(const std::filesystem::path &skinsRoot, const SkinPa
 
 SkinTokens ToolbarSkinTokens(const ResolvedSkin &skin, const std::filesystem::path &skinsRoot)
 {
-    // The toolbar and the menus derive from the candidate palette (THEME_CONTRACT §3). A drawn package may still restyle its toolbar through the primitive properties understood above; CSS layout, scripts, images and effects never enter the AppKit view.
+    // The toolbar and the menus derive from the candidate palette (THEME_CONTRACT §3). A drawn package may still restyle its toolbar through its manifest `[toolbar]` table and the primitive stylesheet properties understood above; CSS layout, scripts, images and effects never enter the AppKit view.
     SkinTokens tokens = skin.tokens;
+    // A package's card radius is in skin.tokens.radius; the toolbar starts from the native radius instead and takes only the package's toolbar radius.
+    tokens.radius = NativeCandidateTokens(skin.dark).radius;
+    tokens.translation.reset();
+    tokens.divider.reset();
     if (!skin.candidateSkin.empty())
     {
         std::string error;
         if (const auto package = LoadSkinPackage(skinsRoot, skin.candidateSkin, &error))
+        {
+            // The manifest's `[toolbar]` first, so the stylesheet below still wins over it.
+            const SkinToolbarColors &colors = skin.dark ? package->toolbar.dark : package->toolbar.light;
+            const auto apply = [](const std::string &value, Rgba &slot) {
+                if (const auto color = ParseCssColor(value)) slot = *color;
+            };
+            apply(colors.background, tokens.surface);
+            apply(colors.border, tokens.border);
+            apply(colors.icon, tokens.text);
+            apply(colors.hover, tokens.hover);
+            if (const auto divider = ParseCssColor(colors.divider)) tokens.divider = *divider;
+            // colors.handle has no target: the macOS toolbar's drag handle is the logo, which keeps the brand mark's colours.
+            if (package->toolbar.cornerRadiusDip) tokens.radius = static_cast<float>(*package->toolbar.cornerRadiusDip);
             ApplyToolbarStylesheet(skinsRoot, *package, skin.dark, tokens);
+        }
     }
     return tokens;
 }

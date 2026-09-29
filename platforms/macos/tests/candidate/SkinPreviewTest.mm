@@ -629,6 +629,81 @@ surface = "#123456"
         // not byte identity between an image profile and the window's backing color space.
         assert(red.alphaComponent > .99 && red.redComponent > .8 &&
                red.redComponent - red.greenComponent > .5 && red.redComponent - red.blueComponent > .5);
+        {
+            // The msime-skins keys: decoration.image over the preview, left alignment, the card radius, and a background drawn under the rows and clipped to the card; the toolbar keeps its own radius and colours.
+            std::ofstream manifest(root / "synthetic" / "skin.toml");
+            manifest << R"toml(schema_version = 1
+id = "synthetic"
+name = "Synthetic"
+version = "1"
+base = "system"
+preview = "image.png"
+[supports]
+layouts = ["horizontal", "vertical"]
+themes = ["dark", "light"]
+[candidate_window]
+min_width_dip = 200
+corner_radius_dip = 24
+[candidate_window.decoration]
+image = "mascot.png"
+top_inset_dip = 180
+width_dip = 120
+align = "left"
+[candidate_window.background]
+image = "background.png"
+fit = "cover"
+[candidate.light]
+surface = "#fff7fa"
+[candidate.dark]
+surface = "#123456"
+[toolbar]
+corner_radius_dip = 6
+[toolbar.light]
+background = "#FF00FF"
+[toolbar.dark]
+background = "#FF00FF"
+)toml";
+            assert(manifest.good());
+        }
+        for (const auto &[file, rgb] : {std::pair<const char *, unsigned>{"mascot.png", 0x00FF00}, {"background.png", 0x0000FF}}) {
+            NSBitmapImageRep *fixture = [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:nullptr pixelsWide:4 pixelsHigh:4 bitsPerSample:8 samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSCalibratedRGBColorSpace bytesPerRow:0 bitsPerPixel:0];
+            for (NSInteger y = 0; y < 4; ++y) for (NSInteger x = 0; x < 4; ++x) {
+                unsigned char *pixel = fixture.bitmapData + y * fixture.bytesPerRow + x * 4;
+                pixel[0] = (rgb >> 16) & 255; pixel[1] = (rgb >> 8) & 255; pixel[2] = rgb & 255; pixel[3] = 255;
+            }
+            fixture = [fixture bitmapImageRepByRetaggingWithColorSpace:NSColorSpace.sRGBColorSpace];
+            assert([[fixture representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:@((root / "synthetic" / file).c_str()) atomically:YES]);
+        }
+        [preferences reloadSkins];
+        const auto styledSkin = preview.previewSkin;
+        assert(styledSkin.candidateSkin == "synthetic" && styledSkin.tokens.radius == 24.0f &&
+               styledSkin.decorationPath.find("mascot.png") != std::string::npos &&
+               styledSkin.decorationAlign == msime::mac::DecorationAlign::left && !styledSkin.backgroundPath.empty());
+        NSBitmapImageRep *styledBitmap = Draw(preview);
+        const CGFloat styledScale = styledBitmap.pixelsWide / preview.bounds.size.width;
+        // The 横排候选 panel starts 30pt down at the 14pt inset: the decoration band, then the card.
+        NSColor *mascot = [[styledBitmap colorAtX:(14 + 60) * styledScale y:80 * styledScale] colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+        // Visible green, allowing for the ColorSync conversion noted above (a pure green fixture lands near 0.5, 0.97, 0.37 on a wide-gamut display).
+        assert(mascot.greenComponent > .8 && mascot.greenComponent - mascot.redComponent > .3 && mascot.greenComponent - mascot.blueComponent > .3);
+        NSColor *rightOfBand = [[styledBitmap colorAtX:(preview.bounds.size.width - 60) * styledScale y:80 * styledScale] colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+        assert(!(rightOfBand.greenComponent - rightOfBand.redComponent > .3));
+        const CGFloat cardTop = 30 + 180;
+        NSColor *background = [[styledBitmap colorAtX:(preview.bounds.size.width / 2) * styledScale y:(cardTop + 3) * styledScale] colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+        assert(background.blueComponent > .8 && background.blueComponent - background.redComponent > .5);
+        // Clipped to the 24pt corner: the card's own top-left pixel is the canvas, not the image.
+        NSColor *clipped = [[styledBitmap colorAtX:(14 + 1) * styledScale y:(cardTop + 1) * styledScale] colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+        assert(!(clipped.blueComponent - clipped.redComponent > .5));
+        const auto previewToolbar = [preferences toolbarSkinForDark:preview.previewUsesDark];
+        assert(previewToolbar.radius == 6.0f && std::abs(previewToolbar.surface.r - 1.0f) < .002f && std::abs(previewToolbar.surface.g) < .002f);
+        MSIMEToolbarPreviewView *styledToolbar = [[MSIMEToolbarPreviewView alloc] initWithFrame:NSMakeRect(0, 0, 580, 100)];
+        styledToolbar.preferences = preferences;
+        styledToolbar.frame = NSMakeRect(0, 0, 580, styledToolbar.fittingSize.height);
+        NSBitmapImageRep *toolbarBitmap = [styledToolbar bitmapImageRepForCachingDisplayInRect:styledToolbar.bounds];
+        [styledToolbar cacheDisplayInRect:styledToolbar.bounds toBitmapImageRep:toolbarBitmap];
+        const CGFloat toolbarPixels = toolbarBitmap.pixelsWide / NSWidth(styledToolbar.bounds);
+        const CGFloat toolbarScale = preferences.floatingToolbarScalePercent / 100.0;
+        NSColor *toolbarSurface = [[toolbarBitmap colorAtX:(NSInteger)((14.0 + 39.5 * toolbarScale) * toolbarPixels) y:(NSInteger)((34.0 + NSHeight(styledToolbar.bounds) - 14.0) / 2.0 * toolbarPixels)] colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+        assert(toolbarSurface.redComponent > .8 && toolbarSurface.blueComponent > .8 && toolbarSurface.greenComponent < .3);
         [window.contentView layoutSubtreeIfNeeded];
         // Showcase mode grows the preview; reaching its bottom scrolls the appearance page that
         // now carries it, rather than a scroll view wrapped around the preview alone.

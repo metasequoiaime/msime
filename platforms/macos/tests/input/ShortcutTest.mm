@@ -3954,6 +3954,125 @@ show_selected_bar = true
     std::filesystem::remove_all(root);
 }
 
+static void WriteSolidPNG(const std::filesystem::path &path, unsigned char red, unsigned char green, unsigned char blue) {
+    NSBitmapImageRep *image = [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:nullptr pixelsWide:4 pixelsHigh:4 bitsPerSample:8 samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSDeviceRGBColorSpace bytesPerRow:0 bitsPerPixel:0];
+    for (NSInteger y = 0; y < 4; ++y) for (NSInteger x = 0; x < 4; ++x) {
+        unsigned char *pixel = image.bitmapData + y * image.bytesPerRow + x * 4;
+        pixel[0] = red; pixel[1] = green; pixel[2] = blue; pixel[3] = 255;
+    }
+    image = [image bitmapImageRepByRetaggingWithColorSpace:NSColorSpace.sRGBColorSpace];
+    assert(image);
+    assert([[image representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:@(path.c_str()) atomically:YES]);
+}
+
+// The msime-skins keys on the live panel: decoration.image over the preview and its alignment, the package card radius, the background drawn under the rows and clipped to the card, the translation colour, and the toolbar's own radius and colours.
+static void TestStyledExternalSkin(MSIMEInputController *controller, HiddenCandidatePanel *panel, NSUserDefaults *defaults) {
+    char temporary[] = "/tmp/msime-native-styled-skin-XXXXXX";
+    assert(mkdtemp(temporary));
+    const std::filesystem::path root(temporary);
+    std::filesystem::create_directories(root / "styled" / "assets");
+    auto writeManifest = [&](const char *align) {
+        std::ofstream manifest(root / "styled" / "skin.toml");
+        manifest << R"toml(schema_version = 1
+id = "styled"
+name = "Styled Skin"
+version = "1.0"
+base = "system"
+preview = "assets/preview.png"
+[supports]
+layouts = ["horizontal", "vertical"]
+themes = ["dark", "light"]
+[candidate_window]
+min_width_dip = 240
+corner_radius_dip = 30
+[candidate_window.decoration]
+image = "assets/character.png"
+top_inset_dip = 48
+width_dip = 60
+align = ")toml" << align << R"toml("
+[candidate_window.background]
+image = "assets/background.png"
+fit = "stretch"
+[candidate.dark]
+surface = "#121314"
+translation = "#9FB4E0"
+[candidate.light]
+surface = "#FFF7FA"
+[toolbar]
+corner_radius_dip = 5
+[toolbar.dark]
+background = "#141B33"
+divider = "#224466"
+[toolbar.light]
+background = "#F4F8FF"
+)toml";
+        assert(manifest.good());
+    };
+    writeManifest("left");
+    WriteSolidPNG(root / "styled" / "assets" / "character.png", 255, 0, 0);
+    WriteSolidPNG(root / "styled" / "assets" / "preview.png", 0, 255, 0);
+    WriteSolidPNG(root / "styled" / "assets" / "background.png", 0, 0, 255);
+    MSIMEAppearancePreferences *styled = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:[NSURL fileURLWithPath:@(root.c_str()) isDirectory:YES]];
+    [styled selectExternalSkin:@"styled" base:@"system"];
+    assert([styled resolvedSkinForDark:NO].candidateSkin == "styled" && styled.decorationImage && styled.backgroundImage);
+    assert([styled resolvedSkinForDark:YES].decorationPath.find("character.png") != std::string::npos);
+    NSDictionary *before = [[controller valueForKey:@"view"] copy];
+    [controller setValue:styled forKey:@"appearance"];
+    MSIMEFloatingToolbarPanel *toolbar = [MSIMEFloatingToolbarPanel new];
+    [toolbar setFrameAutosaveName:@""];
+    [controller setValue:toolbar forKey:@"toolbar"];
+    styled.vertical = NO;
+    for (NSString *theme in @[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]) {
+        const BOOL dark = [theme isEqual:NSAppearanceNameDarkAqua];
+        panel.appearance = [NSAppearance appearanceNamed:theme];
+        [controller appearanceChanged:nil];
+        const auto skin = [styled resolvedSkinForDark:dark];
+        MSIMECandidateChromeView *chrome = (id)panel.contentView;
+        assert(chrome.cornerRadius == 30.0 && skin.tokens.radius == 30.0f);
+        assert(chrome.backgroundImage == styled.backgroundImage && chrome.backgroundFit == msime::mac::BackgroundFit::stretch && chrome.backgroundOpacity == 1.0);
+        NSImageView *decoration = (id)chrome.subviews.lastObject;
+        assert([decoration isKindOfClass:NSImageView.class] && decoration.image == styled.decorationImage);
+        assert(NSMinX(decoration.frame) == 0.0 && decoration.frame.size.width == 60 && decoration.imageAlignment == NSImageAlignTopLeft);
+        // The translation colour is the package's on every row in the mode that declares one; elsewhere the rows keep the number colour.
+        for (NSView *view in chrome.subviews) {
+            if (![view isKindOfClass:MSIMECandidateButton.class] || view.tag < 0) continue;
+            MSIMECandidateButton *button = (id)view;
+            if (dark) assert(skin.tokens.translation && [button.translationColor isEqual:SkinColor(*skin.tokens.translation)]);
+            else if (!button.candidateFixed)
+                assert(!skin.tokens.translation && [button.translationColor isEqual:SkinColor(button.candidateHighlighted ? skin.tokens.selectedNumber : skin.tokens.number)]);
+        }
+        // The background shows through the empty inset under the rows and is clipped off the rounded corner (the bottom one: the left-aligned decoration covers the top left).
+        NSBitmapImageRep *bitmap = [chrome bitmapImageRepForCachingDisplayInRect:chrome.bounds];
+        [chrome cacheDisplayInRect:chrome.bounds toBitmapImageRep:bitmap];
+        const CGFloat scale = bitmap.pixelsWide / NSWidth(chrome.bounds);
+        NSColor *inside = [[bitmap colorAtX:(NSInteger)(NSWidth(chrome.bounds) / 2 * scale) y:(NSInteger)((NSHeight(chrome.bounds) - 3) * scale)] colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+        assert(inside.blueComponent > .8 && inside.blueComponent - inside.redComponent > .5 && inside.blueComponent - inside.greenComponent > .5);
+        NSColor *corner = [[bitmap colorAtX:0 y:bitmap.pixelsHigh - 1] colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+        assert(corner.alphaComponent < .5);
+        // The toolbar takes the package's toolbar radius and colours, never its card radius.
+        [toolbar applyThemePreferences:@{@"theme": dark ? @"dark" : @"light"}];
+        NSView *toolbarChrome = [toolbar valueForKey:@"chrome"];
+        const auto toolbarTokens = [styled toolbarSkinForDark:dark];
+        assert(toolbarTokens.radius == 5.0f && toolbarChrome.layer.cornerRadius == 5.0);
+        assert([[toolbarChrome valueForKey:@"fillColor"] isEqual:SkinColor(toolbarTokens.surface)]);
+        NSColor *expectedFill = dark ? [NSColor colorWithSRGBRed:0x14 / 255.0 green:0x1B / 255.0 blue:0x33 / 255.0 alpha:1]
+                                     : [NSColor colorWithSRGBRed:0xF4 / 255.0 green:0xF8 / 255.0 blue:0xFF / 255.0 alpha:1];
+        assert([SkinColor(toolbarTokens.surface) isEqual:expectedFill]);
+        assert(dark ? toolbarTokens.divider.has_value() : !toolbarTokens.divider.has_value());
+        assert([[controller valueForKey:@"view"] isEqual:before]);
+    }
+    // Center alignment after an explicit reload.
+    writeManifest("center");
+    [styled reloadSkins];
+    [controller appearanceChanged:nil];
+    MSIMECandidateChromeView *chrome = (id)panel.contentView;
+    NSImageView *decoration = (id)chrome.subviews.lastObject;
+    assert([decoration isKindOfClass:NSImageView.class] && decoration.imageAlignment == NSImageAlignTop);
+    assert(std::abs(NSMidX(decoration.frame) - NSWidth(chrome.bounds) / 2) < 0.01);
+    panel.appearance = nil;
+    std::filesystem::remove_all(root);
+}
+
 @interface CloudShortcutSession : ShortcutSession
 @property(nonatomic, copy) NSDictionary *query;
 @property(nonatomic) NSUInteger cloudApplications;
@@ -7261,6 +7380,7 @@ int main(int argc, char **argv) {
             }
         }
         TestExternalSkin(controller, layoutPanel, defaults);
+        TestStyledExternalSkin(controller, layoutPanel, defaults);
         [controller setValue:appearance forKey:@"appearance"];
         appearance.vertical = NO;
         appearance.globalTheme = @"system";

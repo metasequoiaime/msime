@@ -969,6 +969,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSPopUpButton *_pageSizeButton;
     NSURL *_skinsRoot;
     NSImage *_decorationImage;
+    NSImage *_backgroundImage;
     msime::mac::ResolvedSkin _lightSkin;
     msime::mac::ResolvedSkin _darkSkin;
     msime::mac::SkinTokens _lightToolbarSkin;
@@ -1309,6 +1310,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     [self setLocalMode:sender.identifier enabled:sender.state == NSControlStateValueOn];
 }
 - (NSImage *)decorationImage { return _decorationImage; }
+- (NSImage *)backgroundImage { return _backgroundImage; }
 - (msime::mac::ResolvedSkin)resolvedSkinForDark:(BOOL)dark { return dark ? _darkSkin : _lightSkin; }
 - (msime::mac::SkinTokens)toolbarSkinForDark:(BOOL)dark { return dark ? _darkToolbarSkin : _lightToolbarSkin; }
 - (void)reloadSkins {
@@ -1428,6 +1430,9 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     if (!_decorationImage && _darkSkin.decorationTopDip > 0 && !_darkSkin.decorationPath.empty()) {
         _decorationImage = [[NSImage alloc] initWithContentsOfFile:@(_darkSkin.decorationPath.c_str())];
     }
+    // Both modes draw the same package, so one image serves whichever of them draws a background.
+    const std::string &backgroundPath = !_lightSkin.backgroundPath.empty() ? _lightSkin.backgroundPath : _darkSkin.backgroundPath;
+    _backgroundImage = backgroundPath.empty() ? nil : [[NSImage alloc] initWithContentsOfFile:@(backgroundPath.c_str())];
 }
 - (BOOL)vertical { return _sharedVertical ? _sharedVertical.boolValue : [_defaults integerForKey:LayoutKey] == 1; }
 - (BOOL)candidateFollowCursor {

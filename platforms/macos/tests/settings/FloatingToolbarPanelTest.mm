@@ -226,6 +226,35 @@ int main() {
         [panel applyThemePreferences:@{@"toolbar_theme": @"light"}];
         assert([[inputMode valueForKey:@"hoverFillColor"] isEqual:MetasequoiaColorFromRgba(toolbarLight.hover)]);
         assert([[divider valueForKey:@"fillColor"] isEqual:MetasequoiaColorFromRgba(toolbarLight.border)]);
+        // The toolbar palette's radius drives the chrome at the current scale, and a package divider colour replaces the outline on the divider only.
+        assert([[panel valueForKey:@"chrome"] layer].cornerRadius == 10.0);
+        {
+            msime::mac::SkinTokens roundedLight = toolbarLight;
+            msime::mac::SkinTokens roundedDark = toolbarDark;
+            roundedLight.radius = 4.0f;
+            roundedDark.radius = 16.0f;
+            roundedDark.divider = msime::mac::Rgba{0.9f, 0.1f, 0.1f, 1.0f};
+            [panel applyLightToolbarSkin:roundedLight darkSkin:roundedDark];
+            [panel applyThemePreferences:@{@"toolbar_theme": @"dark"}];
+            assert([[panel valueForKey:@"chrome"] layer].cornerRadius == 16.0);
+            assert([[divider valueForKey:@"fillColor"] isEqual:MetasequoiaColorFromRgba(*roundedDark.divider)]);
+            assert([[[panel valueForKey:@"chrome"] valueForKey:@"strokeColor"] isEqual:MetasequoiaColorFromRgba(roundedDark.border)]);
+            [panel applyThemePreferences:@{@"toolbar_theme": @"light"}];
+            assert([[panel valueForKey:@"chrome"] layer].cornerRadius == 4.0);
+            assert([[divider valueForKey:@"fillColor"] isEqual:MetasequoiaColorFromRgba(roundedLight.border)]);
+            [panel applySizingPreferences:@{@"floating_toolbar": @{@"scale_percent": @150, @"font_size": @24}}];
+            assert([[panel valueForKey:@"chrome"] layer].cornerRadius == 6.0);
+            [panel applySizingPreferences:@{@"floating_toolbar": @{@"scale_percent": @100, @"font_size": @24}}];
+            [panel applyLightToolbarSkin:toolbarLight darkSkin:toolbarDark];
+            // Candidate tokens alone never set the toolbar radius: a card radius stays on the card.
+            MSIMEFloatingToolbarPanel *candidateOnly = [[MSIMEFloatingToolbarPanel alloc] init];
+            [candidateOnly setFrameAutosaveName:@""];
+            msime::mac::SkinTokens card = light;
+            card.radius = 28.0f;
+            [candidateOnly applyLightSkin:card darkSkin:card];
+            [candidateOnly applyThemePreferences:@{@"toolbar_theme": @"light"}];
+            assert([[candidateOnly valueForKey:@"chrome"] layer].cornerRadius == 10.0);
+        }
         for (NSNumber *scale in @[@75, @100, @125, @150]) {
             for (NSNumber *size in @[@16, @18, @20, @22, @24, @26, @28]) {
                 NSDictionary *preferences = @{@"floating_toolbar": @{@"scale_percent": scale, @"font_size": size}};

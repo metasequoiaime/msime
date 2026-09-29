@@ -148,5 +148,15 @@ int main() {
         assert(SameTokens(ToolbarSkinTokens(system, {}), system.tokens));
         assert(SameTokens(ToolbarSkinTokens(shuishan, {}), shuishan.tokens));
         assert(SameTokens(ToolbarSkinTokens(overNight, {}), overNight.tokens));
+        // Without a package no theme has a translation colour of its own (secondary follows number) and the toolbar has no divider colour of its own.
+        for (const auto *resolved : {&system, &shuishan, &paper, &custom, &overNight, &ink})
+        {
+            assert(!resolved->tokens.translation && !ToolbarSkinTokens(*resolved, {}).divider);
+            assert(resolved->backgroundPath.empty() && resolved->decorationAlign == msime::mac::DecorationAlign::right);
+        }
+        // A card radius, however it got there, never reaches the toolbar.
+        auto rounded = system;
+        rounded.tokens.radius = 24.0f;
+        assert(ToolbarSkinTokens(rounded, {}).radius == NativeCandidateTokens(rounded.dark).radius);
     }
 }

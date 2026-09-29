@@ -3,6 +3,7 @@
 #import "CandidateTypography.h"
 #import "CandidateTextMetrics.h"
 #include "CandidateItemLayout.h"
+#include "CandidateSkin.h"
 // Drawing adapted from MSIME-Apple b637828e15eafcb5e459edd270a962dd14517285.
 static const CGFloat MSIMECandidateTranslationOpacity = 0.62;
 // The translation under or beside a candidate is a fixed 12pt run at every candidate size (design-input-surfaces §2.1), so a large candidate font does not grow a gloss the eye only glances at.
@@ -294,6 +295,10 @@ static inline msime::mac::CandidateRunMeasure MSIMECandidateRunMeasure(NSString 
 @property(nonatomic, copy) NSColor *strokeColor;
 @property(nonatomic) CGFloat cornerRadius;
 @property(nonatomic) CGFloat lineWidth;
+// A package's background image, drawn over the fill and under the stroke and the candidates, clipped to the rounded outline. Nil draws none.
+@property(nonatomic, strong) NSImage *backgroundImage;
+@property(nonatomic) msime::mac::BackgroundFit backgroundFit;
+@property(nonatomic) CGFloat backgroundOpacity;
 @end
 @implementation MSIMECandidateChromeView
 - (BOOL)isOpaque { return NO; }
@@ -322,6 +327,24 @@ static inline msime::mac::CandidateRunMeasure MSIMECandidateRunMeasure(NSString 
                                                          yRadius:self.cornerRadius];
     [(self.fillColor != nil ? self.fillColor : NSColor.windowBackgroundColor) setFill];
     [path fill];
+    NSImage *background = self.backgroundImage;
+    const NSRect bounds = self.bounds;
+    const auto rects = background != nil && self.backgroundOpacity > 0.0
+        ? msime::mac::BackgroundRects(self.backgroundFit, {NSMinX(bounds), NSMinY(bounds), NSWidth(bounds), NSHeight(bounds)},
+                                      background.size.width, background.size.height)
+        : std::nullopt;
+    if (rects)
+    {
+        [NSGraphicsContext saveGraphicsState];
+        [path addClip];
+        [background drawInRect:NSMakeRect(rects->destination.x, rects->destination.y, rects->destination.width, rects->destination.height)
+                      fromRect:NSMakeRect(rects->source.x, rects->source.y, rects->source.width, rects->source.height)
+                     operation:NSCompositingOperationSourceOver
+                      fraction:MIN(1.0, self.backgroundOpacity)
+                respectFlipped:YES
+                         hints:nil];
+        [NSGraphicsContext restoreGraphicsState];
+    }
     if (self.lineWidth > 0.0 && self.strokeColor.alphaComponent > 0.01)
     {
         path.lineWidth = self.lineWidth;

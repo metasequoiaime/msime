@@ -80,6 +80,14 @@ double NumberField(NSDictionary *object, NSString *key)
     return [value isKindOfClass:NSNumber.class] ? value.doubleValue : 0.0;
 }
 
+// A number the loader may publish as null, where null means "keep the host's own" and 0 is a real value.
+std::optional<double> OptionalNumberField(NSDictionary *object, NSString *key)
+{
+    NSNumber *value = object[key];
+    if (![value isKindOfClass:NSNumber.class]) return std::nullopt;
+    return value.doubleValue;
+}
+
 std::vector<std::string> StringArrayField(NSDictionary *object, NSString *key)
 {
     std::vector<std::string> values;
@@ -113,11 +121,28 @@ SkinColors ColorsFromJSON(NSDictionary *palette)
     colors.border = StringField(palette, @"border");
     colors.text = StringField(palette, @"text");
     colors.number = StringField(palette, @"number");
+    colors.translation = StringField(palette, @"translation");
     NSNumber *bar = palette[@"showSelectedBar"];
     if ([bar isKindOfClass:NSNumber.class])
     {
         colors.showSelectedBar = bar.boolValue;
     }
+    return colors;
+}
+
+SkinToolbarColors ToolbarColorsFromJSON(NSDictionary *palette)
+{
+    SkinToolbarColors colors;
+    if (![palette isKindOfClass:NSDictionary.class])
+    {
+        return colors;
+    }
+    colors.background = StringField(palette, @"background");
+    colors.border = StringField(palette, @"border");
+    colors.handle = StringField(palette, @"handle");
+    colors.divider = StringField(palette, @"divider");
+    colors.icon = StringField(palette, @"icon");
+    colors.hover = StringField(palette, @"hover");
     return colors;
 }
 
@@ -142,6 +167,34 @@ std::optional<SkinPackage> PackageFromJSON(id value)
     package.minWidthDip = NumberField(object, @"minWidthDip");
     package.decorationTopDip = NumberField(object, @"decorationTopDip");
     package.decorationWidthDip = NumberField(object, @"decorationWidthDip");
+    package.cornerRadiusDip = OptionalNumberField(object, @"cornerRadiusDip");
+    package.decorationImage = StringField(object, @"decorationImage");
+    const std::string align = StringField(object, @"decorationAlign");
+    package.decorationAlign = align == "left"     ? DecorationAlign::left
+                              : align == "center" ? DecorationAlign::center
+                                                  : DecorationAlign::right;
+    NSDictionary *background = object[@"background"];
+    if ([background isKindOfClass:NSDictionary.class] && !StringField(background, @"image").empty())
+    {
+        SkinBackground parsed;
+        parsed.image = StringField(background, @"image");
+        const std::string fit = StringField(background, @"fit");
+        parsed.fit = fit == "contain" ? BackgroundFit::contain : fit == "stretch" ? BackgroundFit::stretch : BackgroundFit::cover;
+        parsed.opacity = OptionalNumberField(background, @"opacity").value_or(1.0);
+        package.background = std::move(parsed);
+    }
+    NSDictionary *toolbar = object[@"toolbar"];
+    if ([toolbar isKindOfClass:NSDictionary.class])
+    {
+        package.toolbar.cornerRadiusDip = OptionalNumberField(toolbar, @"cornerRadiusDip");
+        package.toolbar.dark = ToolbarColorsFromJSON(toolbar[@"dark"]);
+        package.toolbar.light = ToolbarColorsFromJSON(toolbar[@"light"]);
+    }
+    NSDictionary *license = object[@"license"];
+    if ([license isKindOfClass:NSDictionary.class])
+    {
+        package.license = SkinLicense{StringField(license, @"code"), StringField(license, @"assets"), StringField(license, @"source")};
+    }
     NSDictionary *candidate = object[@"candidate"];
     if ([candidate isKindOfClass:NSDictionary.class])
     {
@@ -230,7 +283,37 @@ std::string LocalizedReason(const std::string &reason)
     }
     if (reason == "invalid decoration")
     {
-        return "decoration 尺寸无效";
+        return "decoration 尺寸、图片或对齐方式无效";
+    }
+    for (std::string_view key : {"image ", "align "})
+    {
+        if (StartsWith(reason, key))
+        {
+            return "decoration 尺寸、图片或对齐方式无效";
+        }
+    }
+    if (reason == "invalid corner_radius_dip")
+    {
+        return "candidate_window.corner_radius_dip 超出范围（0–32）";
+    }
+    if (reason == "invalid background")
+    {
+        return "candidate_window.background 无效：image 须为皮肤目录内的图片，fit 为 cover、contain 或 stretch，opacity 在 0–1 之间";
+    }
+    if (reason == "invalid toolbar" || reason == "toolbar color exceeds 80 bytes")
+    {
+        return "toolbar 的圆角或配色无效";
+    }
+    if (reason == "invalid license")
+    {
+        return "license 必须是表";
+    }
+    for (std::string_view key : {"code ", "assets ", "source "})
+    {
+        if (StartsWith(reason, key))
+        {
+            return "license 的 code、assets 或 source 无效";
+        }
     }
     if (reason == "invalid candidate colors" || reason == "candidate color exceeds 80 bytes")
     {
@@ -497,6 +580,12 @@ ResolvedSkin ResolveSkin(std::string_view globalTheme, const CustomTheme &custom
             ApplyThemeColor(palette, @"border", tokens.border);
             ApplyThemeColor(palette, @"text", tokens.text);
             ApplyThemeColor(palette, @"number", tokens.number);
+            // `secondary` follows `number` unless a package gives a translation colour; only then is the translation drawn in a colour of its own.
+            const std::string secondary = StringField(palette, @"secondary");
+            if (!secondary.empty() && secondary != StringField(palette, @"number"))
+            {
+                tokens.translation = ParseCssColor(secondary);
+            }
             ApplyThemeColor(palette, @"accent", tokens.accent);
             // The native selection is a solid fill of the accent, so a null `selected` follows whatever accent was drawn (a picked one included) rather than the native green.
             tokens.selected = tokens.accent;
@@ -517,16 +606,28 @@ ResolvedSkin ResolveSkin(std::string_view globalTheme, const CustomTheme &custom
         if ([drawn isKindOfClass:NSString.class] && drawn.length > 0)
         {
             resolved.candidateSkin = drawn.UTF8String ?: "";
-            // The decoration and the minimum width still come from the package itself; the theme only says whether it is drawn.
+            // The decoration, background, card radius and minimum width still come from the package itself; the theme only says whether it is drawn.
             if (const auto package = LoadSkinPackage(skinsRoot, resolved.candidateSkin))
             {
                 resolved.name = package->name;
                 resolved.decorationTopDip = package->decorationTopDip;
                 resolved.decorationWidthDip = package->decorationWidthDip;
+                resolved.decorationAlign = package->decorationAlign;
                 resolved.minWidthDip = package->minWidthDip;
-                if (!package->preview.empty())
+                if (package->cornerRadiusDip)
                 {
-                    resolved.decorationPath = (skinsRoot / package->id / package->preview).string();
+                    resolved.tokens.radius = static_cast<float>(*package->cornerRadiusDip);
+                }
+                // decorationImage is the manifest's decoration.image, or else an image preview, and is set only for a decorated package.
+                if (!package->decorationImage.empty())
+                {
+                    resolved.decorationPath = (skinsRoot / package->id / package->decorationImage).string();
+                }
+                if (package->background && package->background->opacity > 0.0)
+                {
+                    resolved.backgroundPath = (skinsRoot / package->id / package->background->image).string();
+                    resolved.backgroundFit = package->background->fit;
+                    resolved.backgroundOpacity = package->background->opacity;
                 }
             }
         }

@@ -98,11 +98,32 @@ NSSize ToolbarPreviewSize(NSUInteger components, CGFloat scalePercent, CGFloat f
                       ceil((fontSize + 20.0) * scale));
 }
 
-void DrawSkinChrome(NSRect rect, const msime::mac::SkinTokens &tokens)
+// The card, as MSIMECandidateChromeView draws it: the surface, the package background clipped to the rounded outline, then the border.
+void DrawSkinChrome(NSRect rect, const msime::mac::ResolvedSkin &skin)
 {
+    const msime::mac::SkinTokens &tokens = skin.tokens;
     NSBezierPath *path = [NSBezierPath bezierPathWithRoundedRect:rect xRadius:tokens.radius yRadius:tokens.radius];
     [PreviewColor(tokens.surface) setFill];
     [path fill];
+    NSImage *background = skin.backgroundPath.empty() || !(skin.backgroundOpacity > 0.0)
+        ? nil
+        : [[NSImage alloc] initWithContentsOfFile:@(skin.backgroundPath.c_str())];
+    const auto rects = background != nil
+        ? msime::mac::BackgroundRects(skin.backgroundFit, {NSMinX(rect), NSMinY(rect), NSWidth(rect), NSHeight(rect)},
+                                      background.size.width, background.size.height)
+        : std::nullopt;
+    if (rects)
+    {
+        [NSGraphicsContext saveGraphicsState];
+        [path addClip];
+        [background drawInRect:NSMakeRect(rects->destination.x, rects->destination.y, rects->destination.width, rects->destination.height)
+                      fromRect:NSMakeRect(rects->source.x, rects->source.y, rects->source.width, rects->source.height)
+                     operation:NSCompositingOperationSourceOver
+                      fraction:MIN(1.0, skin.backgroundOpacity)
+                respectFlipped:YES
+                         hints:nil];
+        [NSGraphicsContext restoreGraphicsState];
+    }
     if (tokens.borderWidth > 0.0 && tokens.border.a > 0.01f)
     {
         [PreviewColor(tokens.border) setStroke];
@@ -217,7 +238,8 @@ void DrawDecoration(NSRect rect, const msime::mac::ResolvedSkin &skin)
     }
     const CGFloat width =
         skin.decorationWidthDip > 0.0 ? skin.decorationWidthDip : MIN(NSWidth(rect), image.size.width);
-    NSRect imageRect = NSMakeRect(NSMaxX(rect) - width, NSMinY(rect), width, skin.decorationTopDip);
+    NSRect imageRect = NSMakeRect(NSMinX(rect) + msime::mac::DecorationLeft(skin.decorationAlign, NSWidth(rect), width),
+                                  NSMinY(rect), width, skin.decorationTopDip);
     [image drawInRect:imageRect
               fromRect:NSZeroRect
              operation:NSCompositingOperationSourceOver
@@ -235,7 +257,7 @@ void DrawPreviewCandidates(NSRect rect, const msime::mac::ResolvedSkin &skin, BO
     DrawDecoration(rect, skin);
     NSRect chrome =
         NSMakeRect(NSMinX(rect), NSMinY(rect) + decorationTop, NSWidth(rect), NSHeight(rect) - decorationTop);
-    DrawSkinChrome(chrome, tokens);
+    DrawSkinChrome(chrome, skin);
     NSBezierPath *clip = [NSBezierPath bezierPathWithRoundedRect:NSInsetRect(chrome, 1.0, 1.0)
                                                          xRadius:MAX(1.0, tokens.radius - 1.0)
                                                          yRadius:MAX(1.0, tokens.radius - 1.0)];
@@ -357,8 +379,8 @@ CGFloat DrawPreviewToolbar(NSRect slot, const msime::mac::SkinTokens &tokens, NS
     [transform scaleBy:fit];
     [transform concat];
     NSBezierPath *chrome = [NSBezierPath bezierPathWithRoundedRect:NSMakeRect(0.5, 0.5, natural.width - 1.0, natural.height - 1.0)
-                                                          xRadius:10.0 * scale
-                                                          yRadius:10.0 * scale];
+                                                          xRadius:tokens.radius * scale
+                                                          yRadius:tokens.radius * scale];
     [PreviewColor(tokens.surface) setFill];
     [chrome fill];
     if (tokens.border.a > 0.01f)
@@ -382,10 +404,10 @@ CGFloat DrawPreviewToolbar(NSRect slot, const msime::mac::SkinTokens &tokens, NS
             fraction:1.0
       respectFlipped:YES
                hints:nil];
-    // The divider takes the candidate outline, as the panel's does (THEME_CONTRACT §3).
+    // The divider takes the candidate outline, as the panel's does (THEME_CONTRACT §3), or a package's own toolbar divider colour.
     if (components != 0)
     {
-        [PreviewColor(tokens.border) setFill];
+        [PreviewColor(tokens.divider.value_or(tokens.border)) setFill];
         NSRectFillUsingOperation(NSMakeRect(41.0 * scale, buttonTop, 1.2 * scale, buttonHeight),
                                  NSCompositingOperationSourceOver);
     }
@@ -467,6 +489,9 @@ NSDictionary<NSAttributedStringKey, id> *PreviewCaptionAttributes()
     NSLayoutConstraint *_heightConstraint;
     msime::mac::ResolvedSkin _lightSkin;
     msime::mac::ResolvedSkin _darkSkin;
+    // The showcase's 悬浮状态栏 draws the toolbar palette, not the candidate one, so a package's card radius does not reach it.
+    msime::mac::SkinTokens _lightToolbar;
+    msime::mac::SkinTokens _darkToolbar;
 }
 
 - (instancetype)initWithFrame:(NSRect)frameRect
@@ -503,6 +528,8 @@ NSDictionary<NSAttributedStringKey, id> *PreviewCaptionAttributes()
     if (_preferences && _previewSkinId == nil) {
         _lightSkin = [_preferences resolvedSkinForDark:NO];
         _darkSkin = [_preferences resolvedSkinForDark:YES];
+        _lightToolbar = [_preferences toolbarSkinForDark:NO];
+        _darkToolbar = [_preferences toolbarSkinForDark:YES];
     } else {
         // A card previews one choice as it would look once chosen: a global theme id as that theme (the custom theme with what the user has made of it), and an external package id as the custom theme drawing that package over its manifest base.
         const std::filesystem::path root = _preferences.skinsRoot.fileSystemRepresentation ?: "";
@@ -519,6 +546,8 @@ NSDictionary<NSAttributedStringKey, id> *PreviewCaptionAttributes()
         }
         _lightSkin = msime::mac::ResolveSkin(theme, custom, false, layout, root);
         _darkSkin = msime::mac::ResolveSkin(theme, custom, true, layout, root);
+        _lightToolbar = msime::mac::ToolbarSkinTokens(_lightSkin, root);
+        _darkToolbar = msime::mac::ToolbarSkinTokens(_darkSkin, root);
     }
     self.themeButton.title = [self forcedThemeButtonTitle];
     // A theme with a fixed mode looks the same in both, so there is nothing to preview in the other.
@@ -703,7 +732,8 @@ NSDictionary<NSAttributedStringKey, id> *PreviewCaptionAttributes()
         [@"悬浮状态栏" drawAtPoint:NSMakePoint(14.0, y) withAttributes:captionAttributes];
         y += metrics.captionHeight + metrics.captionGap;
         const ToolbarPreviewInputs toolbar = ToolbarInputs(self.preferences);
-        DrawPreviewToolbar(NSMakeRect(14.0, y, NSWidth(self.bounds) - 28.0, metrics.toolbarHeight), skin.tokens,
+        DrawPreviewToolbar(NSMakeRect(14.0, y, NSWidth(self.bounds) - 28.0, metrics.toolbarHeight),
+                           [self previewUsesDark] ? _darkToolbar : _lightToolbar,
                            toolbar.components, toolbar.scalePercent, toolbar.fontSize);
         [NSGraphicsContext restoreGraphicsState];
         return;

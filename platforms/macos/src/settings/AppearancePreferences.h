@@ -27,6 +27,8 @@ FOUNDATION_EXPORT NSString *const MSIMEAppearanceInputModeOnlyKey;
 /// The floating toolbar's palette for one mode: the resolved candidate palette (surface, text, hover, border, selected), with the applied package's toolbar stylesheet over it.
 - (msime::mac::SkinTokens)toolbarSkinForDark:(BOOL)dark;
 @property(nonatomic, readonly) NSImage *decorationImage;
+/// The drawn package's background image, read with the decoration when the theme is resolved; the candidate window draws it only in a mode whose resolved skin has a backgroundPath.
+@property(nonatomic, readonly) NSImage *backgroundImage;
 @property(nonatomic, readonly) NSURL *skinsRoot;
 @property(nonatomic) BOOL vertical;
 @property(nonatomic) BOOL candidateFollowCursor;
