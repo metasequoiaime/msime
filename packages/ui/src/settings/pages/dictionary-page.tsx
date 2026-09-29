@@ -9,6 +9,7 @@ import { DictionaryManifestCard } from "../dictionary-manifest-card";
 import { PersonalDictionaryImportCard } from "../personal-dictionary-import-card";
 import { DictionaryEntries } from "../dictionary-entries";
 import { DictionaryFailuresNotice } from "../dictionary-failures-notice";
+import { DictionaryPagination } from "../dictionary-pagination";
 
 export { dictionaryKindKeyHint } from "../../dictionary/dictionary-messages";
 
@@ -225,27 +226,14 @@ export function DictionarySettingsPage() {
                 }
                 onRemove={(entry) => void removePhrase(entry)}
               />
-              <div className="flex items-center justify-center gap-4 text-xs text-secondary">
-                <button
-                  type="button"
-                  className="secondary"
-                  disabled={phraseBusy || phrasePage.offset === 0}
-                  onClick={() =>
-                    turnPhrasePage(Math.max(0, phrasePage.offset - DICTIONARY_PAGE_SIZE))
-                  }
-                >
-                  上一页
-                </button>
-                <span aria-live="polite">{phrasePage.status}</span>
-                <button
-                  type="button"
-                  className="secondary"
-                  disabled={phraseBusy || !phrasePage.hasMore}
-                  onClick={() => turnPhrasePage(phrasePage.offset + DICTIONARY_PAGE_SIZE)}
-                >
-                  下一页
-                </button>
-              </div>
+              <DictionaryPagination
+                busy={phraseBusy}
+                offset={phrasePage.offset}
+                hasMore={phrasePage.hasMore}
+                status={phrasePage.status}
+                pageSize={DICTIONARY_PAGE_SIZE}
+                onPageChange={turnPhrasePage}
+              />
             </div>
           </GroupList>
         )}
