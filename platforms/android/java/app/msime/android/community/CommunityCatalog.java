@@ -24,6 +24,7 @@ import org.json.JSONObject;
 public final class CommunityCatalog {
     private static final String ORIGIN = "https://api.msime.app";
     private static final int MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
+    private static final int MAX_RESOURCE_RESPONSE_BYTES = 48 * 1024 * 1024;
     private static final int TIMEOUT_MILLIS = 30_000;
 
     /** One catalogue entry, flattened to what a list row shows. */
@@ -72,7 +73,7 @@ public final class CommunityCatalog {
             }
             try (InputStream input = connection.getInputStream()) {
                 return parse(kind, new JSONObject(
-                    new String(readBounded(input), StandardCharsets.UTF_8)));
+                    new String(readBounded(input, maximumResponseBytes(kind)), StandardCharsets.UTF_8)));
             }
         } catch (Exception | LinkageError error) {
             // 说出是哪一步断的。界面上仍然只有那一句，但把原因扔掉，下一次就还得从头猜。
@@ -118,7 +119,7 @@ public final class CommunityCatalog {
         if (errors == null) return "";
         try (InputStream input = errors) {
             JSONObject root = new JSONObject(
-                new String(readBounded(input), StandardCharsets.UTF_8));
+                new String(readBounded(input, MAX_RESPONSE_BYTES), StandardCharsets.UTF_8));
             JSONObject error = root.optJSONObject("error");
             return error == null ? "" : error.optString("code", "");
         } catch (Exception error) {
@@ -126,12 +127,16 @@ public final class CommunityCatalog {
         }
     }
 
-    private static byte[] readBounded(InputStream input) throws Exception {
+    static int maximumResponseBytes(CommunityRequest.Kind kind) {
+        return kind == CommunityRequest.Kind.SKIN ? MAX_RESPONSE_BYTES : MAX_RESOURCE_RESPONSE_BYTES;
+    }
+
+    private static byte[] readBounded(InputStream input, int maximumBytes) throws Exception {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         byte[] buffer = new byte[8192];
         int count;
         while ((count = input.read(buffer)) != -1) {
-            if (output.size() + count > MAX_RESPONSE_BYTES)
+            if (output.size() + count > maximumBytes)
                 throw new IllegalStateException("community response too large");
             output.write(buffer, 0, count);
         }

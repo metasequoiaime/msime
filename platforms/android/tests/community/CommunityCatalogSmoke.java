@@ -11,6 +11,15 @@ public final class CommunityCatalogSmoke {
         check((boolean) invalid.invoke(null, CommunityRequest.PAGE_SIZE + 1, false), "a page larger than the shared limit must be rejected");
         check((boolean) invalid.invoke(null, 0, true), "an empty page with more results must be rejected");
         check(!(boolean) invalid.invoke(null, 0, false), "an empty final page must be accepted");
+        Method responseLimit = CommunityCatalog.class.getDeclaredMethod(
+            "maximumResponseBytes", CommunityRequest.Kind.class);
+        responseLimit.setAccessible(true);
+        check((int) responseLimit.invoke(null, CommunityRequest.Kind.SKIN) == 4 * 1024 * 1024,
+            "skin pages keep the ordinary response bound");
+        check((int) responseLimit.invoke(null, CommunityRequest.Kind.DICTIONARY) == 48 * 1024 * 1024,
+            "dictionary pages allow the shared resource response bound");
+        check((int) responseLimit.invoke(null, CommunityRequest.Kind.REPLY) == 48 * 1024 * 1024,
+            "reply pages allow the shared resource response bound");
         System.out.println("Android community catalogue bounds passed");
     }
 
