@@ -36,6 +36,7 @@ public:
     void set_caret(std::uint64_t caret);
     std::size_t prefix_end() const;
     rust::String pending_suffix() const;
+    void reset_context();
     bool apply_online_candidate(const OnlineQuerySnapshot& query, rust::Str candidate,
                                 std::uint8_t source);
     bool apply_online_candidates(const OnlineQuerySnapshot& query, rust::Slice<const rust::String> candidates,

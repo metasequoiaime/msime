@@ -1,4 +1,5 @@
 #include "TranslationWorker.h"
+#include "CandidateHttpPolicy.h"
 
 #include <chrono>
 #include <condition_variable>

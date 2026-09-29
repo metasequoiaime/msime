@@ -282,6 +282,7 @@ mod ffi {
         fn set_caret(self: Pin<&mut EngineSession>, caret: u64);
         fn prefix_end(self: &EngineSession) -> usize;
         fn pending_suffix(self: &EngineSession) -> String;
+        fn reset_context(self: Pin<&mut EngineSession>);
         fn apply_online_candidate(
             self: Pin<&mut EngineSession>,
             query: &OnlineQuerySnapshot,
@@ -709,6 +710,12 @@ impl Session {
     }
     pub fn pending_suffix(&self) -> String {
         self.inner.pending_suffix()
+    }
+    /// Forgets the committed words the Engine's personal context learning follows, and the recent commits learning
+    /// undo tracks. Called when the text the next word lands in is no longer the text the last one went to.
+    pub fn reset_context(&mut self) {
+        self.inner.pin_mut().reset_context()
+    }
     }
     pub fn apply_online_candidate(
         &mut self,

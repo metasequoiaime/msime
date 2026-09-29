@@ -117,11 +117,11 @@ fn helpcode_catalog_reads_only_the_host_resource_directory() {
     let options = {
         let path = directory.path().join("runtime-options.json");
         std::fs::write(&path, serde_json::to_vec(&document).unwrap()).unwrap();
-        DictionaryHostOptions { path }
+        super::DictionaryHostOptions { path }
     };
     #[cfg(not(any(target_os = "linux", target_os = "android")))]
-    let options = DictionaryHostOptions {
-        document: Arc::new(document),
+    let options = super::DictionaryHostOptions {
+        document: std::sync::Arc::new(document),
     };
 
     let schemas = super::list_helpcode_schemas_at(&options).unwrap();

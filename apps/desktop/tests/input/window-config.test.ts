@@ -9,6 +9,10 @@ test("shared settings uses the canonical client identifier", () => {
   expect(base.identifier).toBe("app.msime.client");
 });
 
+test("macOS settings uses its own identifier, which the input method launches and shares state under", () => {
+  expect(macos.identifier).toBe("app.msime.macos");
+});
+
 test("Windows custom titlebar disables native decorations without losing window constraints", () => {
   // Platform config replaces the windows array rather than merging its items.
   expect(windows.app.windows).toEqual(

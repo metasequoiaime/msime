@@ -21,7 +21,7 @@ from pathlib import Path
 CONSUMER_ROOTS = ("crates", "apps/desktop/src-tauri/src", "platforms/macos/src", "platforms/macos/tests")
 CONSUMER_SUFFIXES = {".rs", ".m", ".mm", ".h", ".cpp", ".swift"}
 # Identifier-shaped literals belonging to this input method. Narrow enough to leave test defaults
-# domains alone; the settings bundle and its runtime state now share app.msime.client.
+# domains alone; the settings bundle and its runtime state now share app.msime.macos.
 IDENTIFIER = re.compile(r"app\.msime\.[A-Za-z0-9._-]*inputmethod[A-Za-z0-9._-]*")
 
 

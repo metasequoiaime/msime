@@ -3706,8 +3706,7 @@ static __weak MSIMEInputController *MSIMEQueuedPreferenceSaver;
     panel.canChooseFiles = NO; panel.canChooseDirectories = YES; panel.allowsMultipleSelection = NO;
     [panel beginWithCompletionHandler:^(NSModalResponse response) {
         if (response != NSModalResponseOK || !panel.URL) return;
-        NSURL *support = [[NSFileManager defaultManager] URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask].firstObject;
-        NSURL *state = [support URLByAppendingPathComponent:@"app.msime.client" isDirectory:YES];
+        NSURL *state = MSIMEDefaultClientStateDirectory(NSFileManager.defaultManager);
         [MSIMEDictionaryRuntime prepareResourcesDirectory:panel.URL.path stateRoot:state.path completion:^(NSDictionary *options, NSError *error) {
             if (!options) { NSAlert *alert = [NSAlert new]; alert.messageText = @"词库准备失败"; alert.informativeText = error.localizedDescription ?: @"无法准备词库"; [alert runModal]; return; }
             NSData *data = [NSJSONSerialization dataWithJSONObject:options options:0 error:nil];

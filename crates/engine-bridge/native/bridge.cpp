@@ -953,6 +953,9 @@ std::size_t EngineSession::prefix_end() const {
 rust::String EngineSession::pending_suffix() const {
     return rust::String(session_.pending_suffix());
 }
+void EngineSession::reset_context() {
+    session_.reset_context();
+}
 OnlineQuerySnapshot EngineSession::online_query() const {
     OnlineQuerySnapshot output;
     const auto query = session_.online_query();

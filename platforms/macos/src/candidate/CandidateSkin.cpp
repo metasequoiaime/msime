@@ -491,7 +491,15 @@ std::filesystem::path DefaultSkinsRoot()
     {
         return {};
     }
-    return std::filesystem::path(home) / "Library" / "Application Support" / "app.msime.client" / "skins";
+    // The same choice as MSIMEDefaultClientStateDirectory in RuntimeOptions.h: skins stay in app.msime.client until the settings app has migrated default state to app.msime.macos.
+    const std::filesystem::path support = std::filesystem::path(home) / "Library" / "Application Support";
+    std::error_code error;
+    if (!std::filesystem::exists(support / "app.msime.macos" / "runtime-options.json", error) &&
+        std::filesystem::exists(support / "app.msime.client" / "runtime-options.json", error))
+    {
+        return support / "app.msime.client" / "skins";
+    }
+    return support / "app.msime.macos" / "skins";
 }
 
 void SetDefaultSkinsRoot(std::filesystem::path root)

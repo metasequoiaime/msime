@@ -24,6 +24,8 @@ pub enum RuntimeError {
 }
 
 pub trait InputEngine {
+    /// Ends the committed-word context the Engine learns and ranks against. Engines without one ignore it.
+    fn reset_context(&mut self) {}
     fn reset_cache(&mut self) -> Result<(), RuntimeError> {
         Err(RuntimeError::Engine(
             "Engine cache reset is unsupported".into(),
@@ -144,6 +146,9 @@ pub enum SegmentCommand {
 }
 
 impl InputEngine for Session {
+    fn reset_context(&mut self) {
+        Session::reset_context(self);
+    }
     fn reset_cache(&mut self) -> Result<(), RuntimeError> {
         Session::reset_cache(self);
         Ok(())

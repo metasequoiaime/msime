@@ -1,11 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
+  "identifier": "app.msime.macos",
   "app": {
     "windows": [
       {
         "label": "main",
         "title": "水杉输入法 · 设置",
-        "width": 800,
+        "width": 1000,
         "height": 780,
         "minWidth": 360,
         "minHeight": 540,
