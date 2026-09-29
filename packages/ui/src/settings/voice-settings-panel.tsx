@@ -7,7 +7,7 @@ import type {
   VoiceInputPreferences,
   VoiceCredentialKind,
 } from "../index";
-import { defaultVoiceInput } from "./voice-input-defaults";
+import { defaultVoiceInput, isVoicePolishEnabled } from "./voice-input-defaults";
 import { LocalModelManager, localModelInUse } from "../voice/local-models";
 import {
   asrProviderUpdate,
@@ -379,7 +379,7 @@ export function VoiceSettingsPanel({
       )}
       {showVoiceProviderSettings && (
         <VoicePolishSection
-          enabled={voiceInput.polish_text === true || voiceInput.polish_enabled === true}
+          enabled={isVoicePolishEnabled(voiceInput)}
           provider={voiceInput.polish_provider ?? "siliconflow"}
           model={voiceInput.polish_model ?? ""}
           providerPreset={providerPresetControls(
@@ -427,7 +427,7 @@ export function VoiceSettingsPanel({
               "voice.polish",
               "测试语音润色配置",
               polishProviderCredentialTestConfig(voiceInput),
-              !(voiceInput.polish_text === true || voiceInput.polish_enabled === true),
+              !isVoicePolishEnabled(voiceInput),
             )}
           {(windowsPlatform || macosPlatform || iosPlatform || harmonyPlatform) &&
             credentialTestControl(
