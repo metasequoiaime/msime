@@ -151,12 +151,13 @@ bool InputSession::candidates_follow_pinyin() const
     else if (local_input_mode_ == LocalInputMode::SuperJianpin)
 """
     replace_once(candidates, old_positions, new_positions)
-    replace_once(candidates, "const auto context = position_context(english);
-    const bool wubi = wubi_candidates_are_native() && local_input_mode_ != LocalInputMode::SuperJianpin;", "const bool wubi = selected.scheme == SchemeType::Wubi && local_input_mode_ != LocalInputMode::SuperJianpin;
-    const auto context = position_context(english, wubi);")
-    replace_once(candidates, "const bool wubi = wubi_candidates_are_native() && local_input_mode_ != LocalInputMode::SuperJianpin;
-    const auto kind =", "const bool wubi = selected.scheme == SchemeType::Wubi && local_input_mode_ != LocalInputMode::SuperJianpin;
-    const auto kind =")
+    replace_once(candidates, """const auto context = position_context(english);
+    const bool wubi = wubi_candidates_are_native() && local_input_mode_ != LocalInputMode::SuperJianpin;""", """const bool wubi = selected.scheme == SchemeType::Wubi && local_input_mode_ != LocalInputMode::SuperJianpin;
+    const auto context = position_context(english, wubi);""")
+    replace_once(candidates, """const bool wubi = wubi_candidates_are_native() && local_input_mode_ != LocalInputMode::SuperJianpin;
+    const auto kind =""", """const bool wubi = selected.scheme == SchemeType::Wubi && local_input_mode_ != LocalInputMode::SuperJianpin;
+    const auto kind =""")
+
 
     session = root / "core/session.cpp"
     replace_once(session, "session.selection_completes_composition(candidate.pinyin, candidate.word)", "session.selection_completes_composition(candidate.pinyin, candidate.word, candidate.scheme)")
