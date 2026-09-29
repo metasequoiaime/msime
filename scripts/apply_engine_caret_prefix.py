@@ -152,6 +152,7 @@ int ImeSession::cache_dynamic_candidate_for_current_request(const std::string &w
         (quanpin_autocorrect_types_ & quanpin::kAutocorrectTransposition) != 0;
     state_.request.enable_quanpin_autocorrect_neighbor =
         (quanpin_autocorrect_types_ & quanpin::kAutocorrectNeighbor) != 0;
+    apply_autocorrect_suppression(state_.request);
     state_.request.fuzzy_pinyin = fuzzy_pinyin_;
 """
     replace_once(ime, old_options, "    apply_request_options(state_.request);\n", "apply_request_options(state_.request)")
@@ -161,6 +162,7 @@ int ImeSession::cache_dynamic_candidate_for_current_request(const std::string &w
             (quanpin_autocorrect_types_ & quanpin::kAutocorrectTransposition) != 0;
         fallback.enable_quanpin_autocorrect_neighbor =
             (quanpin_autocorrect_types_ & quanpin::kAutocorrectNeighbor) != 0;
+        apply_autocorrect_suppression(fallback);
         fallback.fuzzy_pinyin = fuzzy_pinyin_;
 """
     text = ime.read_text(encoding="utf-8")
@@ -182,6 +184,7 @@ int ImeSession::cache_dynamic_candidate_for_current_request(const std::string &w
         (quanpin_autocorrect_types_ & quanpin::kAutocorrectTransposition) != 0;
     request.enable_quanpin_autocorrect_neighbor =
         (quanpin_autocorrect_types_ & quanpin::kAutocorrectNeighbor) != 0;
+    apply_autocorrect_suppression(request);
     request.fuzzy_pinyin = fuzzy_pinyin_;
 }
 
@@ -212,7 +215,7 @@ int ImeSession::cache_dynamic_candidate_for_current_request(const std::string &w
 
     session = root / "core/input_session.cpp"
     replace_once(session,
-        """    if (fixed_positions_enabled_ ||
+        """    if (personal_reranked_ || fixed_positions_enabled_ ||
         ((english_input_options_.mixed_candidates || mixed_expressive_options_.emoji_candidates ||
           mixed_expressive_options_.kaomoji_candidates) &&
          (scheme() == SchemeType::Quanpin || scheme() == SchemeType::Shuangpin)))
@@ -224,7 +227,7 @@ int ImeSession::cache_dynamic_candidate_for_current_request(const std::string &w
     {
         return prefix_candidates_;
     }
-    if (fixed_positions_enabled_ ||
+    if (personal_reranked_ || fixed_positions_enabled_ ||
         ((english_input_options_.mixed_candidates || mixed_expressive_options_.emoji_candidates ||
           mixed_expressive_options_.kaomoji_candidates) &&
          (scheme() == SchemeType::Quanpin || scheme() == SchemeType::Shuangpin)))
@@ -235,21 +238,58 @@ int ImeSession::cache_dynamic_candidate_for_current_request(const std::string &w
         "if (prefix_candidates_active_)")
     old_mixed = """void InputSession::update_mixed_candidates()
 {
-    mixed_candidates_ = candidate_queries_.mixed(engine_.get_candidates(), engine_.get_request().raw_input, scheme(),
-                                                 english_input_options_, mixed_expressive_options_,
-                                                 dedicated_english_mode_, local_input_mode_);
-    apply_candidate_positions(mixed_candidates_);
+    const auto &decoded = engine_.get_candidates();
+    personal_reranked_ = false;
+    ranking_candidates_built_ = false;
+    ranking_candidates_.clear();
+    std::optional<std::vector<WordItem>> reordered;
+    // At the chain start the preference is context-free, which is the frequency setting's business, not this one's.
+    if (commit_chain_.previous && personal_context_applies())
+    {
+        const auto personal = personal_context_->read();
+        reordered =
+            personal_context_order(decoded, personal.model(), commit_chain_.earlier ? &*commit_chain_.earlier : nullptr,
+                                   *commit_chain_.previous);
+    }
+    mixed_candidates_ = mixed_from(reordered ? *reordered : decoded);
+    personal_reranked_ = reordered.has_value();
+}
+
+std::vector<WordItem> InputSession::mixed_from(const std::vector<WordItem> &decoded)
+{
+    auto mixed = candidate_queries_.mixed(decoded, engine_.get_request().raw_input, scheme(), english_input_options_,
+                                          mixed_expressive_options_, dedicated_english_mode_, local_input_mode_);
+    apply_candidate_positions(mixed);
+    return mixed;
 }
 """
     new_mixed = """void InputSession::update_mixed_candidates()
 {
     refresh_prefix_candidates();
     const auto &decoded = prefix_candidates_active_ ? prefix_candidates_ : engine_.get_candidates();
+    personal_reranked_ = false;
+    ranking_candidates_built_ = false;
+    ranking_candidates_.clear();
+    std::optional<std::vector<WordItem>> reordered;
+    if (commit_chain_.previous && personal_context_applies())
+    {
+        const auto personal = personal_context_->read();
+        reordered =
+            personal_context_order(decoded, personal.model(), commit_chain_.earlier ? &*commit_chain_.earlier : nullptr,
+                                   *commit_chain_.previous);
+    }
+    mixed_candidates_ = mixed_from(reordered ? *reordered : decoded);
+    personal_reranked_ = reordered.has_value();
+}
+
+std::vector<WordItem> InputSession::mixed_from(const std::vector<WordItem> &decoded)
+{
     const std::string association_input =
         prefix_candidates_active_ ? prefix_query_input_ : engine_.get_request().raw_input;
-    mixed_candidates_ = candidate_queries_.mixed(decoded, association_input, scheme(), english_input_options_,
-                                                 mixed_expressive_options_, dedicated_english_mode_, local_input_mode_);
-    apply_candidate_positions(mixed_candidates_);
+    auto mixed = candidate_queries_.mixed(decoded, association_input, scheme(), english_input_options_,
+                                          mixed_expressive_options_, dedicated_english_mode_, local_input_mode_);
+    apply_candidate_positions(mixed);
+    return mixed;
 }
 
 void InputSession::set_caret(std::optional<std::size_t> caret)
