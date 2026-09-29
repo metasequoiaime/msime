@@ -338,11 +338,24 @@ public final class DictionarySnapshotQueue {
 
     private Path root() throws Failure {
         try {
+            rejectSymlinkBoundary(directory);
             Files.createDirectories(directory);
+            rejectSymlinkBoundary(directory);
             if (!Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS)) throw new Failure(Reason.UNAVAILABLE);
             return directory;
         } catch (Failure error) { throw error; }
         catch (IOException | SecurityException error) { throw new Failure(Reason.UNAVAILABLE, error); }
+    }
+
+    private static void rejectSymlinkBoundary(Path path) throws IOException {
+        if (Files.isSymbolicLink(path))
+            throw new IOException("snapshot queue directory is a symbolic link");
+        Path parent = path.getParent();
+        if (parent != null && Files.isSymbolicLink(parent))
+            throw new IOException("snapshot queue parent is a symbolic link");
+        if (Files.exists(path, LinkOption.NOFOLLOW_LINKS)
+                && !Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS))
+            throw new IOException("snapshot queue directory is not a directory");
     }
 
     private <T> T locked(LockedAction<T> action) throws Failure {

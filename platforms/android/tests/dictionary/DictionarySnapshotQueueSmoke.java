@@ -22,6 +22,14 @@ public final class DictionarySnapshotQueueSmoke {
     public static void main(String[] args) throws Exception {
         Path root = Files.createTempDirectory("msime-snapshot-queue-");
         try {
+            Path outside = Files.createDirectory(root.resolve("outside"));
+            Path linkedParent = root.resolve("linked-parent");
+            Files.createSymbolicLink(linkedParent, outside);
+            DictionarySnapshotQueue linkedQueue = new DictionarySnapshotQueue(
+                linkedParent.resolve("queue"));
+            fails(DictionarySnapshotQueue.Reason.UNAVAILABLE, linkedQueue::read);
+            check(!Files.exists(outside.resolve("queue")));
+            Files.delete(linkedParent);
             DictionarySnapshotQueue queue = new DictionarySnapshotQueue(root.resolve("queue"));
             String version = "local-v1:legacy:" + "a".repeat(64);
             check(DictionarySnapshotQueue.validVersion(version));
