@@ -397,6 +397,12 @@ metasequoia::SessionOptions options_for(const EngineOptions& value) {
                            value.local_kaomoji, value.local_super_jianpin, value.local_temporary_english,
                            value.local_temporary_japanese};
     options.sentence_alternatives = value.sentence_alternatives;
+    options.sentence_association = {value.sentence_association.word_lattice,
+                                    value.sentence_association.google,
+                                    value.sentence_association.neural_desktop,
+                                    value.sentence_association.neural_keyboard,
+                                    value.sentence_association.show_next_on_duplicate};
+    options.rescoring_context = std::string(value.rescoring_context);
     return options;
 }
 EngineResult result_for(const metasequoia::KeyResult& value) {

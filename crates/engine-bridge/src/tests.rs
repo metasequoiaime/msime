@@ -308,6 +308,14 @@ pub(super) fn options(root: &std::path::Path) -> EngineOptions {
         local_super_jianpin: true,
         local_temporary_english: true,
         local_temporary_japanese: true,
+        sentence_association: msime_engine_bridge::SentenceAssociationOptions {
+            word_lattice: true,
+            google: true,
+            neural_desktop: false,
+            neural_keyboard: false,
+            show_next_on_duplicate: false,
+        },
+        rescoring_context: String::new(),
         sentence_alternatives: true,
     }
 }

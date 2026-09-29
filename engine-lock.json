@@ -24,12 +24,18 @@
     "scripts/apply_engine_paired_punctuation_ipc.py",
     "scripts/apply_engine_local_mode_fallback.py",
     "scripts/apply_engine_custom_helpcode.py",
-    "scripts/apply_engine_personal_learning.py"
+    "scripts/apply_engine_custom_helpcode.py",
+    "scripts/apply_engine_personal_learning.py",
+    "scripts/apply_engine_online_candidate_dedup.py",
+    "scripts/apply_engine_wubi_mixed_candidates.py",
+    "scripts/apply_engine_wubi_mixed_routing.py",
+    "scripts/apply_engine_neural_association.py" (feat(engine): add neural sentence association bridge)
   ],
   "overlay_assets": [
     "scripts/engine-overlays/generate_quanpin_autocorrect.py",
     "scripts/engine-overlays/quanpin-autocorrect-parity.patch",
-    "scripts/engine-overlays/personal-learning.patch"
+    "scripts/engine-overlays/personal-learning.patch",
+    "scripts/engine-overlays/neural-association.patch" (feat(engine): add neural sentence association bridge)
   ],
   "dependencies": [
     {

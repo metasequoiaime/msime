@@ -69,6 +69,14 @@ mod ffi {
         entries: Vec<DictionaryTableEntry>,
         has_more: bool,
     }
+    #[derive(Clone, Copy)]
+    pub struct SentenceAssociationOptions {
+        pub word_lattice: bool,
+        pub google: bool,
+        pub neural_desktop: bool,
+        pub neural_keyboard: bool,
+        pub show_next_on_duplicate: bool,
+    }
     #[derive(Clone)]
     pub struct EngineOptions {
         pub resources: String,
@@ -104,6 +112,8 @@ mod ffi {
         pub local_super_jianpin: bool,
         pub local_temporary_english: bool,
         pub local_temporary_japanese: bool,
+        pub sentence_association: SentenceAssociationOptions,
+        pub rescoring_context: String,
         /// Ask the decoder for every whole-sentence reading it found rather than only its best.
         /// The runtime reorders them and crops the list, so a host that sets this must also be the
         /// one deciding what reaches the candidate page.
@@ -378,6 +388,7 @@ mod ffi {
 pub use ffi::{
     CaptureDevice, DictionaryEntry, DictionaryKind, DictionaryPage, DictionaryTableEntry,
     DictionaryTablePage, EmojiCatalogItem, EngineOptions, EngineResult, EngineSnapshot,
+    SentenceAssociationOptions,
     HandwritingPoint, OnlineQuerySnapshot,
 };
 
