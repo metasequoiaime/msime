@@ -870,11 +870,15 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
 
 - (void)activateForDelegate:(id<MetasequoiaFloatingToolbarDelegate>)delegate visible:(BOOL)visible
 {
+    const BOOL newlyActive = !_imeActive;
+    const BOOL ownerChanged = self.toolbarDelegate != delegate;
     self.toolbarDelegate = delegate;
     _imeActive = YES;
     _requestedVisible = visible;
-    if (visible) { _idleHidden = NO; _recentInput = YES; }
-    if (visible) [self noteInputForDelegate:delegate];
+    // Focus activation is also used when the current owner moves between
+    // documents. Preserve an idle timeout across that routine callback; only
+    // a genuinely new activation or owner is allowed to wake the toolbar.
+    if ((newlyActive || ownerChanged) && visible) [self noteInputForDelegate:delegate];
     [self refreshVisibility];
 }
 

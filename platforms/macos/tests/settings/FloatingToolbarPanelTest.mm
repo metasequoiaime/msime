@@ -444,7 +444,8 @@ int main() {
         assert(!panel.visible && [[panel valueForKey:@"idleHidden"] boolValue]);
         [panel setVisible:YES forDelegate:residentOwner];
         [panel activateForDelegate:residentOwner visible:YES];
-        assert([panel valueForKey:@"idleTimer"] != nil);
+        assert([panel valueForKey:@"idleTimer"] == nil);
+        assert([[panel valueForKey:@"idleHidden"] boolValue]);
         [panel noteInputForDelegate:[FloatingToolbarTestDelegate new]];
         assert(panel.toolbarDelegate == residentOwner);
         [panel noteInputForDelegate:residentOwner];
