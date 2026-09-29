@@ -67,7 +67,9 @@ bool safe_storage_path(const std::filesystem::path &path) {
     if (!error) {
       if (std::filesystem::is_symlink(status)) {
         const bool target = index + 1 == component_count;
-        if (target || saw_real_component || saw_prefix_alias) return false;
+        const bool system_alias = path.is_absolute() && !saw_real_component && !saw_prefix_alias &&
+                                  (component == "tmp" || component == "var");
+        if (target || saw_real_component || saw_prefix_alias || !system_alias) return false;
         saw_prefix_alias = true;
       } else {
         saw_real_component = true;

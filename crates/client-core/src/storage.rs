@@ -17,7 +17,15 @@ pub(crate) fn reject_symlink(path: &Path) -> io::Result<()> {
                 current.push(component);
                 match fs::symlink_metadata(&current) {
                     Ok(metadata) if metadata.file_type().is_symlink() => {
-                        if index + 1 == components.len() || saw_real_component || saw_prefix_alias {
+                        let system_alias = path.is_absolute()
+                            && !saw_real_component
+                            && !saw_prefix_alias
+                            && matches!(component, Component::Normal(name) if *name == std::ffi::OsStr::new("tmp") || *name == std::ffi::OsStr::new("var"));
+                        if index + 1 == components.len()
+                            || saw_real_component
+                            || saw_prefix_alias
+                            || !system_alias
+                        {
                             return Err(io::Error::new(
                                 io::ErrorKind::InvalidInput,
                                 "storage path is a symbolic link",
