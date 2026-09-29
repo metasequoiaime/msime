@@ -1,4 +1,5 @@
 import app.msime.client.DictionarySnapshotQueue;
+import app.msime.client.DictionarySnapshotWorker;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
@@ -30,6 +31,22 @@ public final class DictionarySnapshotQueueSmoke {
             fails(DictionarySnapshotQueue.Reason.UNAVAILABLE, linkedQueue::read);
             check(!Files.exists(outside.resolve("queue")));
             Files.delete(linkedParent);
+            Path stagingOutside = Files.createDirectory(root.resolve("staging-outside"));
+            Path stagingLink = root.resolve("staging-link");
+            Files.createSymbolicLink(stagingLink, stagingOutside);
+            boolean stagingRejected = false;
+            try {
+                java.lang.reflect.Method ensure = DictionarySnapshotWorker.class
+                    .getDeclaredMethod("ensureSafeDirectory", Path.class);
+                ensure.setAccessible(true);
+                ensure.invoke(null, stagingLink);
+            } catch (java.lang.reflect.InvocationTargetException expected) {
+                check(expected.getCause() instanceof java.io.IOException);
+                stagingRejected = true;
+            }
+            check(stagingRejected);
+            check(!Files.exists(stagingOutside.resolve("nested")));
+            Files.delete(stagingLink);
             DictionarySnapshotQueue queue = new DictionarySnapshotQueue(root.resolve("queue"));
             String version = "local-v1:legacy:" + "a".repeat(64);
             check(DictionarySnapshotQueue.validVersion(version));
