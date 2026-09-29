@@ -9,6 +9,12 @@ import {
 } from "./settings/app-resources";
 import { platformResourceUrls } from "./settings/platform-resource-urls";
 import { unreadablePreferencesMessage } from "./settings/preferences-recovery-message";
+import {
+  mobilePrimaryPageIds,
+  mobileTabForPage,
+  requestedPage,
+  type MobilePrimaryPageId,
+} from "./settings/settings-navigation-helpers";
 import type { VoiceDeviceReader } from "./voice/voice-device-picker";
 import type { LocalVoiceModelClient } from "./voice/local-models";
 import {
@@ -1681,29 +1687,6 @@ export interface PreferencesRecovery {
  * Its page icon is the app logo, which the design does not put in the bar either — its first tab is the `settings` glyph. Three of the four tabs would otherwise be a subject and the fourth a brand.
  */
 type SettingsPageId = (typeof pages)[number]["id"];
-type MobilePrimaryPageId = Extract<
-  SettingsPageId,
-  "home" | "community" | "typing-statistics" | "account"
->;
-
-const mobilePrimaryPageIds: readonly MobilePrimaryPageId[] = [
-  "home",
-  "community",
-  "typing-statistics",
-  "account",
-];
-
-const mobileTabForPage = (page: SettingsPageId): MobilePrimaryPageId =>
-  mobilePrimaryPageIds.includes(page as MobilePrimaryPageId)
-    ? (page as MobilePrimaryPageId)
-    : "home";
-// A host can ask for the section its menu entry names; a former id opens the page its contents moved to. An unknown id keeps the default page rather than opening an empty one.
-function requestedPage(value: string | undefined): SettingsPageId {
-  if (value !== undefined && Object.hasOwn(settingsPageAliases, value))
-    return settingsPageAliases[value];
-  return pages.some((page) => page.id === value) ? (value as SettingsPageId) : "appearance";
-}
-
 export {
   tencentCredentialIssue,
   translationEndpointIssue,
@@ -1860,7 +1843,12 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
       ? window.history.state.page
       : undefined;
   const [page, setPage] = useState<SettingsPageId>(() =>
-    requestedPage(initialPage ?? restoredMobilePage ?? (client.home ? "home" : undefined)),
+    requestedPage(
+      initialPage ?? restoredMobilePage ?? (client.home ? "home" : undefined),
+      pages,
+      settingsPageAliases,
+      "appearance",
+    ),
   );
   const [accountLoginReturnPage, setAccountLoginReturnPage] = useState<SettingsPageId | null>(null);
   // Each bottom tab owns a navigation stack in the source app. This shared page has a flat route,
@@ -1895,7 +1883,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     const onPopState = (event: PopStateEvent) => {
       const state = event.state;
       if (state?.msimeSettings === true && typeof state.page === "string") {
-        const restored = requestedPage(state.page);
+        const restored = requestedPage(state.page, pages, settingsPageAliases, "appearance");
         mobileLastPageByTab.current[mobileTabForPage(restored)] = restored;
         setPage(restored);
       }
@@ -2444,7 +2432,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   useEffect(() => {
     if (!route || route.nonce === handledRoute.current) return;
     handledRoute.current = route.nonce;
-    selectPage(requestedPage(route.page));
+    selectPage(requestedPage(route.page, pages, settingsPageAliases, "appearance"));
   }, [route?.nonce]);
   const selectMobileTab = (tab: SettingsPageId) => {
     if (!mobilePrimaryPageIds.includes(tab as MobilePrimaryPageId)) return;
