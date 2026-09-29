@@ -7,19 +7,14 @@ import type {
   VoiceInputPreferences,
   VoiceCredentialKind,
 } from "../index";
-import {
-  defaultVoiceInput,
-  isVoicePolishEnabled,
-} from "./voice-input-defaults";
-import { LocalModelManager, localModelInUse } from "../voice/local-models";
+import { isVoicePolishEnabled } from "./voice-input-defaults";
 import {
   asrProviderUpdate,
   isAsrServiceProvider,
 } from "../voice/voice-providers";
 import { VoiceInputIntroSection } from "./voice-input-intro-section";
 import { VoiceInputCoreSection } from "./voice-input-core-section";
-import { VoiceModelMirrorSection } from "./voice-model-mirror-section";
-import { VoiceModelPathDisclosure } from "./voice-model-path-disclosure";
+import { VoiceLocalModelSettingsSection } from "./voice-local-model-settings-section";
 import { VoiceAsrProviderSettingsSection } from "./voice-asr-provider-settings-section";
 import { VoiceStreamPreeditSection } from "./voice-stream-preedit-section";
 import { VoiceCommitModeSection } from "./voice-commit-mode-section";
@@ -178,45 +173,16 @@ export function VoiceSettingsPanel({
         }
         onLanguageChange={(language) => updateVoice({ language })}
       />
-      {localVoice && client.localVoiceModels && (
-        <LocalModelManager
-          client={client.localVoiceModels}
-          mobile={mobilePlatform}
-          modelPath={voiceInput.asr_model_path ?? ""}
-          onUse={(asr_model_path) => updateVoice({ asr_model_path })}
-          onRemoved={(model) =>
-            // Checked against the draft as it is once the removal lands.
-            setDraft((current) =>
-              current && localModelInUse(model, current.voice_input?.asr_model_path ?? "")
-                ? {
-                    ...current,
-                    voice_input: {
-                      ...defaultVoiceInput,
-                      ...current.voice_input,
-                      asr_model_path: "",
-                    },
-                  }
-                : current,
-            )
-          }
-          confirm={confirm}
-          openExternalUrl={client.openExternalUrl ? openExternalUrl : undefined}
-        />
-      )}
-      {localVoice && client.localVoiceModels && (
-        <VoiceModelMirrorSection
-          value={voiceInput.asr_model_mirror ?? ""}
-          onChange={(asr_model_mirror) => updateVoice({ asr_model_mirror })}
-        />
-      )}
-      {localVoice && (
-        <VoiceModelPathDisclosure
-          disclosure={Boolean(client.localVoiceModels)}
-          path={voiceInput.asr_model_path ?? ""}
-          pickPath={client.pickVoiceModelPath}
-          onChange={(asr_model_path) => updateVoice({ asr_model_path })}
-        />
-      )}
+      <VoiceLocalModelSettingsSection
+        client={client}
+        localVoice={localVoice}
+        mobile={mobilePlatform}
+        voiceInput={voiceInput}
+        setDraft={setDraft}
+        confirm={confirm}
+        openExternalUrl={openExternalUrl}
+        updateVoice={updateVoice}
+      />
       <VoiceAsrProviderSettingsSection
         voiceInput={voiceInput}
         showProviderSettings={showVoiceProviderSettings}

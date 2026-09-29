@@ -759,6 +759,10 @@ export {
   type VoiceAsrProviderSettingsSectionProps,
 } from "./settings/voice-asr-provider-settings-section";
 export {
+  VoiceLocalModelSettingsSection,
+  type VoiceLocalModelSettingsSectionProps,
+} from "./settings/voice-local-model-settings-section";
+export {
   VoiceCredentialControl,
   type VoiceCredentialControlProps,
 } from "./settings/voice-credential-control";
