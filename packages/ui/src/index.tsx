@@ -139,6 +139,8 @@ export {
   SettingsDictionaryPage,
   type SettingsDictionaryPageProps,
 } from "./settings/settings-dictionary-page";
+import { SettingsInputPage } from "./settings/settings-input-page";
+export { SettingsInputPage, type SettingsInputPageProps } from "./settings/settings-input-page";
 import { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
 export { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
 import { useTranslationSettings } from "./settings/use-translation-settings";
@@ -2655,7 +2657,7 @@ export function SettingsPage({
                     onTurnPage={turnPhrasePage}
                     phrasePage={phrasePage}
                   />
-                  <InputSettingsPanel
+                  <SettingsInputPage
                     disabled={busy}
                     hidden={page !== "input"}
                     client={client}
