@@ -1,3 +1,4 @@
+import { AiSettingsPanel } from "./settings/ai-settings-panel";
 import { InputSettingsPanel } from "./settings/input-settings-panel";
 import { VoiceSettingsPanel } from "./settings/voice-settings-panel";
 import { useConfirm } from "./core/confirm";
@@ -60,7 +61,6 @@ import {
   privacyUrl,
   releasesPageUrl,
 } from "./settings/app-resources";
-import { AI_PROVIDER_OPTIONS } from "./settings/ai-provider-options";
 export { AI_PROVIDER_OPTIONS } from "./settings/ai-provider-options";
 import { defaultVoiceInput } from "./settings/voice-input-defaults";
 import { macosSidebarGroups } from "./settings/macos-sidebar-groups";
@@ -72,7 +72,6 @@ export {
   useTranslationSettings,
   type UseTranslationSettingsOptions,
 } from "./settings/use-translation-settings";
-import { aiProviderUpdate } from "./settings/ai-provider-update";
 export { aiProviderUpdate } from "./settings/ai-provider-update";
 import type { VoiceDeviceReader } from "./voice/voice-device-picker";
 import {
@@ -275,9 +274,6 @@ export {
 } from "./settings/support-diagnostics";
 export { useMountedRef } from "./settings/use-mounted-ref";
 import { createProviderPresetControl } from "./settings/provider-preset-control";
-import { AiCredentialSection } from "./settings/ai-credential-section";
-import { AiLinuxProviderSection } from "./settings/ai-linux-provider-section";
-import { AiApiTokenSection } from "./settings/ai-api-token-section";
 export {
   tencentCredentialIssue,
   translationEndpointIssue,
@@ -287,8 +283,6 @@ export {
   providerCredentialErrorMessage,
   tencentSecretConfigured,
 } from "./settings/credential-utils";
-import { AiTestToolsSection } from "./settings/ai-test-tools-section";
-import { AiSettingsPageSection } from "./settings/ai-settings-page-section";
 import { settingsCapabilities } from "./settings/settings-capabilities";
 export {
   settingsCapabilities,
@@ -338,12 +332,7 @@ export type {
 import type { SkinCatalog } from "./skin/external-skins";
 import { TypingStatisticsPage, type TypingStatisticsClient } from "./settings/typing-statistics";
 import { VocabularyReviewPage, type VocabularyReviewClient } from "./settings/vocabulary-review";
-import {
-  McpConnectSection,
-  type McpClientId,
-  type McpInstallOutcome,
-  type McpServerStatus,
-} from "./settings/mcp-connect";
+import type { McpClientId, McpInstallOutcome, McpServerStatus } from "./settings/mcp-connect";
 import {
   HelpcodeSettingsPage,
   type HelpcodePreferences,
@@ -874,6 +863,7 @@ export {
   type AiCredentialSectionProps,
   type AiCredentialStored,
 } from "./settings/ai-credential-section";
+export { AiSettingsPanel, type AiSettingsPanelProps } from "./settings/ai-settings-panel";
 export { AiApiTokenSection, type AiApiTokenSectionProps } from "./settings/ai-api-token-section";
 export { NiuTransSection, type NiuTransSectionProps } from "./settings/niutrans-section";
 export {
@@ -2952,152 +2942,39 @@ export function SettingsPage({
                     showVoiceCaptureDevices={showVoiceCaptureDevices}
                     captureBackendOptions={captureBackendOptions}
                   />
-                  <AiSettingsPageSection
+                  <AiSettingsPanel
                     disabled={busy}
                     hidden={page !== "ai"}
-                    enabled={ai.enabled}
-                    enabledDescription={
-                      iosPlatform
-                        ? "为键盘 AI 联想、回复与润色提供共享配置"
-                        : androidPlatform
-                          ? "为拼音联想和 Android 选中文字润色提供共享配置"
-                          : "为拼音联想提供共享配置"
-                    }
-                    provider={ai.provider}
-                    providerOptions={AI_PROVIDER_OPTIONS}
-                    model={ai.model}
-                    endpoint={ai.endpoint}
-                    providerPreset={providerPresetControls(
-                      "AI ",
-                      AI_PROVIDER_OPTIONS.find((option) => option.id === ai.provider),
-                      ai.model,
-                      (model) => updateAi({ model }),
-                    )}
-                    onEnabledChange={(enabled) => updateAi({ enabled })}
-                    onProviderChange={(provider) => updateAi(aiProviderUpdate(provider, ai))}
-                    onModelChange={(model) => updateAi({ model })}
-                    onEndpointChange={(endpoint) => updateAi({ endpoint })}
-                    credentialSection={
-                      linuxPlatform && client.providerCredentials ? (
-                        <AiCredentialSection
-                          endpoint={ai.endpoint}
-                          model={ai.model}
-                          origin={aiOrigin}
-                          token={aiCredentialInput}
-                          stored={storedAiCredential}
-                          invalid={providerCredentials?.aiInvalid === true}
-                          busy={providerCredentialBusy === "ai"}
-                          message={providerCredentialMessages.ai}
-                          onTokenChange={setAiCredentialInput}
-                          onSave={() =>
-                            void runProviderCredential(
-                              "ai",
-                              (credentials) =>
-                                credentials.saveAi({
-                                  provider: ai.provider,
-                                  endpoint: ai.endpoint,
-                                  model: ai.model,
-                                  ...(aiCredentialInput.trim() ? { token: aiCredentialInput } : {}),
-                                }),
-                              "凭据已保存，provider 服务下次请求时生效。",
-                            )
-                          }
-                          onClear={() =>
-                            void runProviderCredential(
-                              "ai",
-                              (credentials) => credentials.clearAi(ai.provider),
-                              "凭据已清除。",
-                            )
-                          }
-                        >
-                          {credentialTestControl(
-                            "ai.assistant",
-                            "测试 AI 辅助配置",
-                            { provider: ai.provider, endpoint: ai.endpoint, model: ai.model },
-                            !ai.enabled || !aiOrigin || !ai.model.trim(),
-                          )}
-                        </AiCredentialSection>
-                      ) : linuxPlatform ? (
-                        <AiLinuxProviderSection>
-                          {credentialTestControl(
-                            "ai.assistant",
-                            "测试 AI 辅助配置",
-                            { provider: ai.provider, endpoint: ai.endpoint, model: ai.model },
-                            !ai.enabled || !aiOrigin || !ai.model.trim(),
-                          )}
-                        </AiLinuxProviderSection>
-                      ) : (
-                        <AiApiTokenSection
-                          origin={aiOrigin}
-                          token={aiToken}
-                          onTokenChange={updateAiToken}
-                        />
-                      )
-                    }
-                    desktopCredentialTest={
-                      windowsPlatform || macosPlatform || iosPlatform
-                        ? credentialTestControl(
-                            "ai.assistant",
-                            "测试 AI 辅助配置",
-                            {
-                              provider: ai.provider,
-                              endpoint: ai.endpoint,
-                              model: ai.model,
-                              token: aiToken,
-                            },
-                            !ai.enabled || !aiOrigin || !ai.model.trim() || !aiToken.trim(),
-                          )
-                        : null
-                    }
-                    modelCatalog={
-                      client.aiAssistant
-                        ? {
-                            busy: aiModelsBusy,
-                            origin: aiOrigin ?? "",
-                            models: aiModels ?? undefined,
-                            status: aiModelsStatus,
-                            onFetch: () => void fetchAiModels(),
-                            onSelect: (model) => updateAi({ model }),
-                          }
-                        : null
-                    }
-                    candidateLimit={ai.candidate_limit}
-                    onCandidateLimitChange={(candidate_limit) => updateAi({ candidate_limit })}
-                    promptId={ai.prompt_id}
-                    prompt={ai.prompt}
-                    promptCustom1={ai.prompt_custom_1 ?? ""}
-                    promptCustom2={ai.prompt_custom_2 ?? ""}
-                    promptCustom3={ai.prompt_custom_3 ?? ""}
-                    fallbackPrompt={defaultAiAssistant.prompt ?? ""}
-                    onPromptIdChange={(prompt_id) => updateAi({ prompt_id })}
-                    onPromptChange={(prompt) => updateAi({ prompt })}
-                    onPromptCustom1Change={(prompt_custom_1) => updateAi({ prompt_custom_1 })}
-                    onPromptCustom2Change={(prompt_custom_2) => updateAi({ prompt_custom_2 })}
-                    onPromptCustom3Change={(prompt_custom_3) => updateAi({ prompt_custom_3 })}
-                    testTools={
-                      client.aiAssistant ? (
-                        <AiTestToolsSection
-                          input={aiTestInput}
-                          busy={aiTestBusy}
-                          status={aiTestStatus}
-                          output={aiTestOutput}
-                          onInputChange={setAiTestInput}
-                          onTest={() => void testAi()}
-                          onCopyOutput={
-                            client.copyText ? () => void client.copyText!(aiTestOutput) : undefined
-                          }
-                        />
-                      ) : null
-                    }
-                    mcpConnect={
-                      client.mcpServerStatus ? (
-                        <McpConnectSection
-                          status={client.mcpServerStatus}
-                          install={client.installMcpClient}
-                          copyText={client.copyText}
-                        />
-                      ) : null
-                    }
+                    client={client}
+                    ai={ai}
+                    updateAi={updateAi}
+                    aiOrigin={aiOrigin}
+                    aiToken={aiToken}
+                    updateAiToken={updateAiToken}
+                    aiModels={aiModels}
+                    aiModelsStatus={aiModelsStatus}
+                    aiModelsBusy={aiModelsBusy}
+                    fetchAiModels={fetchAiModels}
+                    aiTestInput={aiTestInput}
+                    setAiTestInput={setAiTestInput}
+                    aiTestOutput={aiTestOutput}
+                    aiTestStatus={aiTestStatus}
+                    aiTestBusy={aiTestBusy}
+                    testAi={testAi}
+                    providerPresetControls={providerPresetControls}
+                    linuxPlatform={linuxPlatform}
+                    windowsPlatform={windowsPlatform}
+                    macosPlatform={macosPlatform}
+                    iosPlatform={iosPlatform}
+                    androidPlatform={androidPlatform}
+                    providerCredentials={providerCredentials}
+                    storedAiCredential={storedAiCredential}
+                    aiCredentialInput={aiCredentialInput}
+                    setAiCredentialInput={setAiCredentialInput}
+                    providerCredentialBusy={providerCredentialBusy}
+                    providerCredentialMessages={providerCredentialMessages}
+                    runProviderCredential={runProviderCredential}
+                    credentialTestControl={credentialTestControl}
                   />
                   <FeedbackPageSection
                     disabled={busy}
