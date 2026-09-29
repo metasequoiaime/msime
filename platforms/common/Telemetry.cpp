@@ -52,9 +52,54 @@ std::optional<std::string> read_queue(std::ifstream &input) {
   }
   return input.eof() ? std::optional<std::string>(std::move(payload)) : std::nullopt;
 }
+
+bool safe_storage_path(const std::filesystem::path &path) {
+  std::error_code error;
+  auto current = path;
+  while (true) {
+    const auto status = std::filesystem::symlink_status(current, error);
+    if (!error) return !std::filesystem::is_symlink(status);
+    if (error != std::errc::no_such_file_or_directory) return false;
+    error.clear();
+    const auto parent = current.parent_path();
+    if (parent == current) return true;
+    current = parent;
+  }
+}
+
+bool write_queue(const std::filesystem::path &path, const nlohmann::json &value) {
+  if (!safe_storage_path(path)) return false;
+  std::error_code error;
+  std::filesystem::create_directories(path.parent_path(), error);
+  if (error || !safe_storage_path(path.parent_path())) return false;
+  const auto temporary = path.parent_path() /
+                         (".telemetry-" + id());
+  if (!safe_storage_path(temporary)) return false;
+  {
+    std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
+    if (!out) return false;
+    out << value.dump();
+    out.flush();
+    if (!out) {
+      std::filesystem::remove(temporary, error);
+      return false;
+    }
+  }
+  std::filesystem::rename(temporary, path, error);
+  if (error) {
+    std::filesystem::remove(temporary, error);
+    return false;
+  }
+  return true;
+}
+
 void append(nlohmann::json event) {
-  std::lock_guard guard(lock); auto path = file(); std::error_code error; std::filesystem::create_directories(path.parent_path(), error);
-  nlohmann::json all = nlohmann::json::array(); std::ifstream in(path); if (in) { try { if (const auto payload = read_queue(in)) all = nlohmann::json::parse(*payload); } catch (...) {} }
+  std::lock_guard guard(lock); auto path = file();
+  nlohmann::json all = nlohmann::json::array();
+  if (safe_storage_path(path)) {
+    std::ifstream in(path);
+    if (in) { try { if (const auto payload = read_queue(in)) all = nlohmann::json::parse(*payload); } catch (...) {} }
+  }
   if (!all.is_array())
     all = nlohmann::json::array();
   nlohmann::json kept = nlohmann::json::array();
@@ -65,9 +110,7 @@ void append(nlohmann::json event) {
   all.push_back(std::move(event));
   while (all.size() > 64)
     all.erase(all.begin());
-  std::ofstream out(path);
-  if (out)
-    out << all.dump();
+  write_queue(path, all);
 }
 bool send(const nlohmann::json &event) {
   CURL *handle = curl_easy_init(); if (!handle) return false; std::string body = event.dump();
@@ -79,10 +122,12 @@ bool send(const nlohmann::json &event) {
   curl_slist_free_all(headers); curl_easy_cleanup(handle); return status >= 200 && status < 300;
 }
 void remove(const std::string &eventID) {
-  std::lock_guard guard(lock); auto path = file(); nlohmann::json all = nlohmann::json::array(); std::ifstream in(path); if (in) { try { const auto payload = read_queue(in); if (!payload) return; all = nlohmann::json::parse(*payload); } catch (...) { return; } }
+  std::lock_guard guard(lock); auto path = file(); nlohmann::json all = nlohmann::json::array();
+  if (!safe_storage_path(path)) return;
+  std::ifstream in(path); if (in) { try { const auto payload = read_queue(in); if (!payload) return; all = nlohmann::json::parse(*payload); } catch (...) { return; } }
   if (!all.is_array()) return;
   nlohmann::json kept = nlohmann::json::array(); for (const auto &event : all) if (queued(event) && event["id"].get<std::string>() != eventID) kept.push_back(event);
-  std::ofstream out(path); if (out) out << kept.dump();
+  write_queue(path, kept);
 }
 }
 // Telemetry must never take the host down: crash() runs inside the terminate handler.
