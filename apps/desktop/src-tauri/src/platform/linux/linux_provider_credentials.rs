@@ -13,7 +13,7 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 use std::io::Write;
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -193,6 +193,9 @@ fn config_directory() -> Result<PathBuf, CredentialError> {
 
 /// The document at `path`, `None` when there is none. A file the provider's reader would refuse is an error rather than something to overwrite: the user may have put it there by hand.
 fn read_private(path: &Path) -> Result<Option<Map<String, Value>>, CredentialError> {
+    if let Some(parent) = path.parent() {
+        super::reject_symlink_ancestors(parent).map_err(|_| CredentialError::Storage)?;
+    }
     let metadata = match std::fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -221,6 +224,8 @@ fn read_private(path: &Path) -> Result<Option<Map<String, Value>>, CredentialErr
 
 /// Publish `document` at `path` owner-only, or remove the file when there is nothing left to store.
 fn write_private(path: &Path, document: Option<&Value>) -> Result<(), CredentialError> {
+    let parent = path.parent().ok_or(CredentialError::Storage)?;
+    super::reject_symlink_ancestors(parent).map_err(|_| CredentialError::Storage)?;
     let Some(document) = document else {
         return match std::fs::remove_file(path) {
             Ok(()) => Ok(()),
@@ -233,12 +238,9 @@ fn write_private(path: &Path, document: Option<&Value>) -> Result<(), Credential
     if value.len() > MAX_PROVIDER_CONFIG_BYTES {
         return Err(CredentialError::TooManyProfiles);
     }
-    let directory = path.parent().ok_or(CredentialError::Storage)?;
-    std::fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(directory)
-        .map_err(|_| CredentialError::Storage)?;
+    if !super::create_directory_and_check(parent).map_err(|_| CredentialError::Storage)? {
+        return Err(CredentialError::Storage);
+    }
     // Created 0600 from the start: between a create and a chmod the secret would be readable.
     let temporary = path.with_extension("json.new");
     let _ = std::fs::remove_file(&temporary);
@@ -1191,6 +1193,28 @@ mod tests {
         assert!(status_in(root).unwrap().tencent_invalid);
         assert_eq!(clear_tencent_in(root), Err(CredentialError::Existing));
         assert!(link.exists());
+    }
+
+    #[test]
+    fn rejects_a_symlinked_storage_ancestor_before_saving() {
+        let outside = tempfile::tempdir().unwrap();
+        let parent = tempfile::tempdir().unwrap();
+        let real = parent.path().join("real");
+        std::fs::create_dir(&real).unwrap();
+        let linked = real.join("linked");
+        std::os::unix::fs::symlink(outside.path(), &linked).unwrap();
+
+        assert_eq!(
+            save_ai_in(
+                &linked.join("state"),
+                "openai",
+                "https://a.example/v1",
+                "model",
+                Some("synthetic-token"),
+            ),
+            Err(CredentialError::Storage)
+        );
+        assert!(!outside.path().join("state").exists());
     }
 
     #[test]
