@@ -228,6 +228,7 @@ import { useCustomTranslations } from "./settings/use-custom-translations";
 import { usePreferenceRecovery } from "./settings/use-preference-recovery";
 import { useSettingsPersistence } from "./settings/use-settings-persistence";
 import { useInputSourceUninstall } from "./settings/use-input-source-uninstall";
+import { useTouchKeyboardSettingsReset } from "./settings/use-touch-keyboard-settings-reset";
 export {
   useProviderCredentials,
   type ProviderCredentialBusy,
@@ -261,6 +262,11 @@ export {
   useInputSourceUninstall,
   type UseInputSourceUninstallOptions,
 } from "./settings/use-input-source-uninstall";
+export {
+  useTouchKeyboardSettingsReset,
+  type TouchKeyboardSettingsResetConfirmOptions,
+  type UseTouchKeyboardSettingsResetOptions,
+} from "./settings/use-touch-keyboard-settings-reset";
 import { ProviderPresetSection, type ProviderPreset } from "./settings/provider-preset-section";
 import { AiCredentialSection } from "./settings/ai-credential-section";
 import { AiLinuxProviderSection } from "./settings/ai-linux-provider-section";
@@ -2168,26 +2174,13 @@ export function SettingsPage({
     confirm,
   });
 
-  async function resetTouchKeyboardSettings() {
-    if (!draft) return;
-    const confirmed = await confirm({
-      title: "恢复屏幕键盘默认值",
-      message: "高度、间距、顶部语音入口和工具栏按钮都会回到默认。",
-      confirmLabel: "恢复",
-    });
-    if (!confirmed || !draft) return;
-    const next = { ...draft };
-    // Delete the optional fields instead of storing the current defaults. This keeps reset
-    // forward-compatible when a host changes its fallback values.
-    delete next.touch_key_spacing_tenths;
-    delete next.touch_row_spacing_tenths;
-    delete next.touch_keyboard_height_adjustment;
-    delete next.touch_voice_shortcut;
-    delete next.touch_toolbar;
-    setDraft(next);
-    setError("");
-    setNotice("屏幕键盘设置已恢复默认，请点击保存设置。");
-  }
+  const resetTouchKeyboardSettings = useTouchKeyboardSettingsReset({
+    draft,
+    setDraft,
+    setError,
+    setNotice,
+    confirm,
+  });
 
   async function openExternalUrl(url: string) {
     try {
