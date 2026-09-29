@@ -763,6 +763,10 @@ export {
   type VoiceLocalModelSettingsSectionProps,
 } from "./settings/voice-local-model-settings-section";
 export {
+  VoiceInputBasicsSection,
+  type VoiceInputBasicsSectionProps,
+} from "./settings/voice-input-basics-section";
+export {
   VoiceCredentialControl,
   type VoiceCredentialControlProps,
 } from "./settings/voice-credential-control";

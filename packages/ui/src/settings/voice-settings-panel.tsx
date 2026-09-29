@@ -8,12 +8,8 @@ import type {
   VoiceCredentialKind,
 } from "../index";
 import { isVoicePolishEnabled } from "./voice-input-defaults";
-import {
-  asrProviderUpdate,
-  isAsrServiceProvider,
-} from "../voice/voice-providers";
-import { VoiceInputIntroSection } from "./voice-input-intro-section";
-import { VoiceInputCoreSection } from "./voice-input-core-section";
+import { isAsrServiceProvider } from "../voice/voice-providers";
+import { VoiceInputBasicsSection } from "./voice-input-basics-section";
 import { VoiceLocalModelSettingsSection } from "./voice-local-model-settings-section";
 import { VoiceAsrProviderSettingsSection } from "./voice-asr-provider-settings-section";
 import { VoiceStreamPreeditSection } from "./voice-stream-preedit-section";
@@ -136,7 +132,7 @@ export function VoiceSettingsPanel({
 }: VoiceSettingsPanelProps) {
   return (
     <fieldset disabled={disabled} hidden={hidden} aria-label="语音输入">
-      <VoiceInputIntroSection
+      <VoiceInputBasicsSection
         localVoice={localVoice}
         localVoiceModelsAvailable={Boolean(client.localVoiceModels)}
         systemVoice={systemVoice}
@@ -147,31 +143,12 @@ export function VoiceSettingsPanel({
         harmony={harmonyPlatform}
         linux={linuxPlatform}
         showVoiceProviderSettings={showVoiceProviderSettings}
-        onOpenVoice={client.openVoice ? () => void openPanel(client.openVoice) : undefined}
-      />
-      <VoiceInputCoreSection
-        enabled={voiceInput.enabled}
-        provider={String(voiceInput.asr_provider)}
-        language={voiceInput.language}
-        showProviderSettings={showVoiceProviderSettings}
-        systemVoice={systemVoice}
-        macos={macosPlatform}
-        harmony={harmonyPlatform}
-        android={androidPlatform}
         localVoiceAvailable={localVoiceAvailable}
         nativeVoicePlatform={nativeVoicePlatform}
         harmonyUnsupportedAsr={harmonyUnsupportedAsr}
-        onEnabledChange={(enabled) => updateVoice({ enabled })}
-        onProviderChange={(provider) =>
-          updateVoice({
-            ...asrProviderUpdate(provider, voiceInput),
-            ...(provider === "system" && voiceInput.language === "auto"
-              ? { language: "zh-CN" }
-              : {}),
-            ...(linuxPlatform ? { asr_resource_id: "", doubao_boosting_table_id: "" } : {}),
-          })
-        }
-        onLanguageChange={(language) => updateVoice({ language })}
+        voiceInput={voiceInput}
+        updateVoice={updateVoice}
+        onOpenVoice={client.openVoice ? () => void openPanel(client.openVoice) : undefined}
       />
       <VoiceLocalModelSettingsSection
         client={client}
