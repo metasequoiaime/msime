@@ -11,6 +11,9 @@ import {
   POLISH_PRESET_IDS,
   POLISH_PRESET_NAMES,
   isPolishCustomSlot,
+  normalizePolishSlot,
+  polishPromptFor,
+  polishSlotField,
 } from "../../voice/polish-presets";
 import { useSettingsForm } from "../settings-form-context";
 import { GroupList, Row, Select, Switch } from "../../core/platform-controls";
@@ -68,10 +71,8 @@ export function VoiceSettingsPage() {
     voiceCredentialControls,
     credentialTestControl,
     providerPresetControls,
-    polishSlot,
-    polishSlotField,
-    polishPromptFor,
   } = useSettingsForm();
+  const polishSlot = normalizePolishSlot(voiceInput.polish_prompt_id);
   const asrTokenLabel =
     voiceInput.asr_provider === "doubao" && doubaoAuthMode !== "legacy"
       ? "Doubao API Key"

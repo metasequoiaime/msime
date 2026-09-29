@@ -69,3 +69,15 @@ export function normalizePolishSlot(id: string | undefined): string {
   if (!id) return "cleanup";
   return id === "custom" ? "custom_1" : id;
 }
+
+/** Returns the preferences field used to store a custom prompt slot. */
+export function polishSlotField(slot: string): string | undefined {
+  return isPolishCustomSlot(slot) ? `polish_prompt_${normalizePolishSlot(slot)}` : undefined;
+}
+
+/** Resolves the prompt text shown for a preset or a stored custom slot. */
+export function polishPromptFor<T extends object>(slot: string, current: T): string {
+  const field = polishSlotField(slot);
+  if (!field) return polishPresetPrompt(slot);
+  return ((current as Record<string, unknown>)[field] as string) ?? "";
+}

@@ -324,7 +324,9 @@ import type { FontCatalogReader } from "./candidate/font-catalog";
 import {
   isPolishCustomSlot,
   normalizePolishSlot,
+  polishPromptFor,
   polishPresetPrompt,
+  polishSlotField,
 } from "./voice/polish-presets";
 import {
   customThemeBase,
@@ -940,7 +942,9 @@ export {
   POLISH_PRESET_NAMES,
   isPolishCustomSlot,
   normalizePolishSlot,
+  polishPromptFor,
   polishPresetPrompt,
+  polishSlotField,
   type PolishPresetId,
 } from "./voice/polish-presets";
 export {
@@ -2079,18 +2083,6 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     );
   };
   const providerPresetControls = createProviderPresetControl(client.openExternalUrl);
-  // Which prompt slot the 润色方案 select is on, and the text that slot means.
-  // A preset resolves to its shipped prompt; a custom slot to whatever the user
-  // stored in it. Selecting a preset used to change an id with nothing behind
-  // it, leaving the textarea showing something unrelated.
-  const polishSlot = normalizePolishSlot(voiceInput.polish_prompt_id);
-  const polishSlotField = (slot: string): string | undefined =>
-    isPolishCustomSlot(slot) ? `polish_prompt_${normalizePolishSlot(slot)}` : undefined;
-  const polishPromptFor = (slot: string, current: VoiceInputPreferences): string => {
-    const field = polishSlotField(slot);
-    if (!field) return polishPresetPrompt(slot);
-    return ((current as Record<string, unknown>)[field] as string) ?? "";
-  };
   const inputModeHUD = draft?.input_mode_hud ?? true;
   const floatingToolbar = { ...defaultFloatingToolbar, ...draft?.floating_toolbar };
   const themeMode = draft?.theme ?? "system";
@@ -2409,9 +2401,6 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     providerCredentialMessages,
     credentialTestControl,
     providerPresetControls,
-    polishSlot,
-    polishSlotField,
-    polishPromptFor,
     inputModeHUD,
     floatingToolbar,
     themeMode,
