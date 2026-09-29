@@ -462,6 +462,28 @@ fn helpcode_settings_reach_the_real_engine() {
     assert!(Session::new(&value).is_err());
 }
 
+#[test]
+fn custom_helpcode_table_is_loaded_by_the_engine_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut value = options(dir.path());
+    let custom = std::path::Path::new(&value.resources)
+        .join("helpcodes")
+        .join("custom");
+    std::fs::create_dir_all(&custom).unwrap();
+    std::fs::write(
+        custom.join("synthetic.txt"),
+        "\u{feff}# name: Synthetic\r\n# name_en: Synthetic\r\n你=ab\r\n",
+    )
+    .unwrap();
+    value.helpcode = true;
+    value.helpcode_schema = "custom/synthetic".into();
+
+    let mut session = Session::new(&value).unwrap();
+    session.character(b'n', false).unwrap();
+    session.character(b'i', false).unwrap();
+    assert!(session.character(b'A', true).unwrap().handled);
+}
+
 /// The jiajia table this repository carries is in the shape the Engine parses.
 ///
 /// Five helpcode tables arrive inside the locked Engine archive and cannot rot independently of

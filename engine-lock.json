@@ -21,7 +21,8 @@
     "scripts/apply_engine_punctuation_alternation.py",
     "scripts/apply_engine_bundled_dictionary_entries.py",
     "scripts/apply_engine_paired_punctuation_ipc.py",
-    "scripts/apply_engine_local_mode_fallback.py"
+    "scripts/apply_engine_local_mode_fallback.py",
+    "scripts/apply_engine_custom_helpcode.py"
   ],
   "overlay_assets": [
     "scripts/engine-overlays/generate_quanpin_autocorrect.py",
