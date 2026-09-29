@@ -96,6 +96,13 @@ import { SettingsPageStatus } from "./settings/settings-page-status";
 export { SettingsPageStatus, type SettingsPageStatusProps } from "./settings/settings-page-status";
 import { SettingsFormFooter } from "./settings/settings-form-footer";
 export { SettingsFormFooter, type SettingsFormFooterProps } from "./settings/settings-form-footer";
+import { settingsPageLinks, settingsPageTitle } from "./settings/settings-page-view-model";
+export {
+  settingsPageLinks,
+  settingsPageTitle,
+  type SettingsPageLinkItem,
+  type SettingsPageTitleItem,
+} from "./settings/settings-page-view-model";
 import { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
 export { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
 import { useTranslationSettings } from "./settings/use-translation-settings";
@@ -2472,7 +2479,7 @@ export function SettingsPage({
                 profile card, a row of figures — and the source prints no page title over any of
                 them. 社区 is the one that does. Hidden rather than dropped: it labels `main`. */}
             <SettingsPageHeader
-              title={availablePages.find((item) => item.id === page)?.title ?? "外观"}
+              title={settingsPageTitle(availablePages, page)}
               hiddenOnPhone={mobilePlatform && mobileHeaderlessPageIds.includes(page)}
             />
             <SettingsPageStatus
@@ -2499,11 +2506,7 @@ export function SettingsPage({
               keyboardPreviewTheme={keyboardPreviewTheme}
               communityView={communityView}
               communityKey={communityDestination}
-              mobileSecondaryPages={mobileSecondaryPages.map((item) => ({
-                id: item.id,
-                title: item.title,
-                icon: item.icon,
-              }))}
+              mobileSecondaryPages={settingsPageLinks(mobileSecondaryPages)}
               settingsPageSelection={settingsPageSelection}
               selectHomeScheme={selectHomeScheme}
               onOpenChat={settingsNavigationActions.onOpenChat}
