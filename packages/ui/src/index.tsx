@@ -228,6 +228,7 @@ import { useInputSourceUninstall } from "./settings/use-input-source-uninstall";
 import { useTouchKeyboardSettingsReset } from "./settings/use-touch-keyboard-settings-reset";
 import { useExternalUrl } from "./settings/use-external-url";
 import { useUpdateCheck } from "./settings/use-update-check";
+import { useOpenPanel } from "./settings/use-open-panel";
 export {
   useProviderCredentials,
   type ProviderCredentialBusy,
@@ -268,6 +269,7 @@ export {
 } from "./settings/use-touch-keyboard-settings-reset";
 export { useExternalUrl, type UseExternalUrlOptions } from "./settings/use-external-url";
 export { useUpdateCheck, type UseUpdateCheckOptions } from "./settings/use-update-check";
+export { useOpenPanel, type UseOpenPanelOptions } from "./settings/use-open-panel";
 import { ProviderPresetSection, type ProviderPreset } from "./settings/provider-preset-section";
 import { AiCredentialSection } from "./settings/ai-credential-section";
 import { AiLinuxProviderSection } from "./settings/ai-linux-provider-section";
@@ -2186,17 +2188,7 @@ export function SettingsPage({
     currentAppVersion,
   });
 
-  async function openPanel(action: (() => Promise<void>) | undefined) {
-    if (!action) {
-      setError("当前宿主未接入该原生面板。");
-      return;
-    }
-    try {
-      await action();
-    } catch {
-      setError("无法打开原生面板，请稍后重试。");
-    }
-  }
+  const openPanel = useOpenPanel({ setError });
 
   const dirty =
     (!!draft && !!snapshot && JSON.stringify(draft) !== JSON.stringify(snapshot.preferences)) ||
