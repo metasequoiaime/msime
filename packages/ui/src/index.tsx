@@ -91,7 +91,7 @@ import {
   validModelMirror,
   type LocalVoiceModelClient,
 } from "./voice/local-models";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import type {
   DictionaryEntry,
   LocalDictionaryFormat,
@@ -123,7 +123,10 @@ export {
 } from "./dictionary/dictionary-export";
 export { describeImportResult, dictionaryKindKeyHint } from "./dictionary/dictionary-messages";
 import { AppearanceSettingsSection } from "./settings/appearance-settings-section";
-import { useCandidatePreviewTheme } from "./candidate/candidate-preview-theme";
+import {
+  useSettingsPreviewThemes,
+  type SettingsSkinPreviewThemes,
+} from "./settings/use-settings-preview-themes";
 import { LearningDataSection } from "./settings/learning-data-section";
 import { DictionaryManagerHeader } from "./settings/dictionary-manager-header";
 import { DictionaryFailuresNotice } from "./settings/dictionary-failures-notice";
@@ -1184,6 +1187,11 @@ export interface HostCapabilities {
 }
 
 export { useCandidatePreviewTheme } from "./candidate/candidate-preview-theme";
+export {
+  useSettingsPreviewThemes,
+  type SettingsSkinPreviewThemes,
+  type UseSettingsPreviewThemesOptions,
+} from "./settings/use-settings-preview-themes";
 
 export type Preferences = {
   theme?: ThemeMode;
@@ -1891,9 +1899,7 @@ export function SettingsPage({
   } = useDictionaryManager({ client, confirm });
   const mounted = useMountedRef();
   const windowMaximized = useWindowState({ client, setError });
-  const [skinPreviewThemes, setSkinPreviewThemes] = useState<
-    Partial<Record<NonNullable<Preferences["candidate_skin"]>, "light" | "dark">>
-  >({});
+  const [skinPreviewThemes, setSkinPreviewThemes] = useState<SettingsSkinPreviewThemes>({});
   const [showTouchSkinEditor, setShowTouchSkinEditor] = useState(false);
   const {
     onPointerDown: beginTouchGeometryDrag,
@@ -2144,10 +2150,14 @@ export function SettingsPage({
     touchKeyboardHeightAdjustment,
   } = settingsVisualPreferences(draft);
   useSettingsTheme(themeMode, settingsTheme);
-  const candidatePreviewTheme = useCandidatePreviewTheme(themeMode, draft?.candidate_theme);
-  const toolbarPreviewTheme = useCandidatePreviewTheme(themeMode, draft?.toolbar_theme);
-  const keyboardPreviewTheme = useCandidatePreviewTheme(themeMode, draft?.screen_keyboard_theme);
-  useEffect(() => setSkinPreviewThemes({}), [candidatePreviewTheme]);
+  const { candidatePreviewTheme, toolbarPreviewTheme, keyboardPreviewTheme } =
+    useSettingsPreviewThemes({
+      themeMode,
+      candidateTheme: draft?.candidate_theme,
+      toolbarTheme: draft?.toolbar_theme,
+      screenKeyboardTheme: draft?.screen_keyboard_theme,
+      setSkinPreviewThemes,
+    });
   const installerTrust = availableUpdate
     ? describeInstallerTrust(availableUpdate, releasePlatform)
     : null;
