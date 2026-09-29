@@ -1421,17 +1421,6 @@ export type VoiceInputPreferences = {
   [key: string]: unknown;
 };
 export { AI_PROVIDER_OPTIONS, aiProviderUpdate } from "./settings/pages/ai-page";
-export function aiCredentialOrigin(endpoint: string): string | null {
-  if (!endpoint || endpoint.length > 2048 || /[\u0000-\u001f\u007f]/.test(endpoint)) return null;
-  try {
-    const url = new URL(endpoint.trim());
-    if (url.protocol !== "https:" || !url.hostname || url.username || url.password || url.hash)
-      return null;
-    return `https://${url.hostname.toLowerCase()}:${url.port || "443"}`;
-  } catch {
-    return null;
-  }
-}
 
 export type ExternalSkinCatalog = {
   scanned: boolean;
@@ -1753,6 +1742,7 @@ export {
   translationEndpointIssue,
 } from "./settings/translation-validation";
 export {
+  aiCredentialOrigin,
   providerCredentialErrorMessage,
   tencentSecretConfigured,
 } from "./settings/credential-utils";
