@@ -21,7 +21,7 @@ export {
   touchKeyboardSchemeOptions,
   allTouchKeyboardSchemes,
 } from "./settings/touch-keyboard-scheme-helpers";
-import { platformOsName, schemeTitle } from "./settings/label-helpers";
+import { schemeTitle } from "./settings/label-helpers";
 import { platformCopy, type PlatformCopyContext } from "./settings/platform-copy";
 export {
   platformCopy,
@@ -234,6 +234,7 @@ import { useSettingsDestinationActions } from "./settings/use-settings-destinati
 import { useMacosSettings } from "./settings/use-macos-settings";
 import { useWindowState } from "./settings/use-window-state";
 import { useAppVersion } from "./settings/use-app-version";
+import { supportDiagnostics } from "./settings/support-diagnostics";
 export {
   useProviderCredentials,
   type ProviderCredentialBusy,
@@ -290,6 +291,11 @@ export {
 export { useMacosSettings, type UseMacosSettingsOptions } from "./settings/use-macos-settings";
 export { useWindowState, type UseWindowStateOptions } from "./settings/use-window-state";
 export { useAppVersion, type UseAppVersionOptions } from "./settings/use-app-version";
+export {
+  supportDiagnostics,
+  type SupportDiagnosticsHost,
+  type SupportDiagnosticsOptions,
+} from "./settings/support-diagnostics";
 import { createProviderPresetControl } from "./settings/provider-preset-control";
 import { AiCredentialSection } from "./settings/ai-credential-section";
 import { AiLinuxProviderSection } from "./settings/ai-linux-provider-section";
@@ -1970,21 +1976,13 @@ export function SettingsPage({
     runVoiceCredential,
     credentialTestControl,
   } = useProviderCredentials({ client });
-  // What a report needs first is the release and the scheme, because that is what a repro is
-  // written against. The user agent only says which web view drew this window, so it is the
-  // fallback for a host that cannot name its own OS rather than a line of its own.
-  const supportDiagnostics = [
-    `水杉 IME ${currentAppVersion}`,
-    host?.os_version
-      ? `${platformOsName(host.platform)} ${host.os_version}`
-      : `平台：${host?.platform ?? (androidPlatform ? "android" : iosPlatform ? "ios" : "desktop")}`,
-    draft ? `输入方案：${schemeTitle(draft.scheme)}` : "",
-    host?.os_version || typeof navigator === "undefined"
-      ? ""
-      : `User-Agent：${navigator.userAgent.slice(0, 256)}`,
-  ]
-    .filter(Boolean)
-    .join("\n");
+  const diagnosticsText = supportDiagnostics({
+    version: currentAppVersion,
+    host,
+    scheme: draft ? schemeTitle(draft.scheme) : undefined,
+    fallbackPlatform: androidPlatform ? "android" : iosPlatform ? "ios" : "desktop",
+    userAgent: typeof navigator === "undefined" ? undefined : navigator.userAgent,
+  });
   const {
     kind: feedbackKind,
     setKind: setFeedbackKind,
@@ -1997,7 +1995,7 @@ export function SettingsPage({
     submit: submitFeedback,
     copyGroup,
   } = useFeedbackReport({
-    supportDiagnostics,
+    supportDiagnostics: diagnosticsText,
     issuesUrl: platformIssuesUrl,
     copyText: client.copyText,
     openExternalUrl: client.openExternalUrl,
@@ -3934,7 +3932,7 @@ export function SettingsPage({
                     detail={feedbackDetail}
                     reportCopied={feedbackReportCopied}
                     feedbackCopied={feedbackCopied}
-                    supportDiagnostics={supportDiagnostics}
+                    supportDiagnostics={diagnosticsText}
                     issuesUrl={platformIssuesUrl}
                     copyText={client.copyText}
                     openExternalUrl={client.openExternalUrl}
