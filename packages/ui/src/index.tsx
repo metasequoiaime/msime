@@ -141,6 +141,8 @@ export {
 } from "./settings/settings-dictionary-page";
 import { SettingsInputPage } from "./settings/settings-input-page";
 export { SettingsInputPage, type SettingsInputPageProps } from "./settings/settings-input-page";
+import { SettingsFormFrame } from "./settings/settings-form-frame";
+export { SettingsFormFrame, type SettingsFormFrameProps } from "./settings/settings-form-frame";
 import { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
 export { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
 import { useTranslationSettings } from "./settings/use-translation-settings";
@@ -2553,7 +2555,12 @@ export function SettingsPage({
               }}
             />
             {draft && isSettingsFormPage(page) && (
-                <form onSubmit={submitSettings}>
+                <SettingsFormFrame
+                  onSubmit={submitSettings}
+                  showReload={canReloadSettingsPage(page)}
+                  busy={busy}
+                  onReload={reloadSettings}
+                >
                   <SettingsVisualPages
                     appearance={{
                       disabled: busy,
@@ -2983,12 +2990,7 @@ export function SettingsPage({
                     showRestoreDefaults={Boolean(client.loadDefaultPreferences)}
                     onRestoreDefaults={settingsNavigationActions.onRestoreDefaults}
                   />
-                </form>
-              )}
-            {canReloadSettingsPage(page) && (
-                <button className="secondary" disabled={busy} onClick={reloadSettings}>
-                  重新读取
-                </button>
+                </SettingsFormFrame>
               )}
           </div>
         </main>
