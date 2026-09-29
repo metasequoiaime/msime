@@ -115,7 +115,9 @@ impl CommunityResourceLibraryStore {
         let Some(parent) = self.file.parent() else {
             return Err(CommunityResourceLibraryError::Invalid);
         };
-        fs::create_dir_all(parent)?;
+        if !crate::storage::create_directory_and_check(parent)? {
+            return Err(CommunityResourceLibraryError::Invalid);
+        }
         let bytes = serde_json::to_vec_pretty(items)?;
         if bytes.len() as u64 > MAXIMUM_BYTES {
             return Err(CommunityResourceLibraryError::Invalid);
@@ -192,5 +194,24 @@ mod tests {
         )
         .unwrap();
         assert!(store.load().is_err(), "nil publication IDs are not usable");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_a_symlinked_ancestor_before_creating_library_storage() {
+        use std::os::unix::fs::symlink;
+
+        let outside = tempfile::tempdir().unwrap();
+        let parent = tempfile::tempdir().unwrap();
+        let linked = parent.path().join("linked");
+        symlink(outside.path(), &linked).unwrap();
+        let file = linked.join("missing").join("CommunityLibrary.json");
+        let store = CommunityResourceLibraryStore::new(&file);
+
+        assert!(matches!(
+            store.save_reply(reply()),
+            Err(CommunityResourceLibraryError::Io(_))
+        ));
+        assert!(!outside.path().join("missing").exists());
     }
 }
