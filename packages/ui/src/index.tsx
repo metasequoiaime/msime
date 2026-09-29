@@ -15,6 +15,13 @@ import {
   requestedPage,
   type MobilePrimaryPageId,
 } from "./settings/settings-navigation-helpers";
+import {
+  pages,
+  settingsNavGroups,
+  settingsPageAliases,
+  subPageParents,
+  type SettingsPageId,
+} from "./settings/settings-page-registry";
 import type { VoiceDeviceReader } from "./voice/voice-device-picker";
 import type { LocalVoiceModelClient } from "./voice/local-models";
 import {
@@ -406,7 +413,10 @@ import { HelpcodeSettingsPage } from "./settings/pages/helpcode-page";
 import type { HelpcodePreferences } from "./settings/pages/helpcode-page";
 import type { ClipboardHistoryClient } from "./settings/clipboard-history-section";
 import { defaultFuzzyPinyin, type FuzzyPinyinPreferences } from "./settings/fuzzy-pinyin-section";
-import { defaultWordCharacter, type NavigationPreferences } from "./settings/word-character-section";
+import {
+  defaultWordCharacter,
+  type NavigationPreferences,
+} from "./settings/word-character-section";
 import { defaultMixedInput, type MixedInputPreferences } from "./settings/mixed-input-section";
 import { defaultFrequency, type FrequencyPreferences } from "./settings/frequency-section";
 import { defaultLocalModes, type LocalModePreferences } from "./settings/local-modes-section";
@@ -1009,114 +1019,6 @@ export type KeybindingPreferences = {
   toggle_character_set_ctrl_shift_f: boolean;
   toggle_fullwidth_option_shift_h: boolean;
 };
-/**
- * Every settings page, in the design's navigation order (dc.html `NAV`): five groups of eighteen destinations, then the pages reached from inside one of them.
- *
- * The ids are routes as well as keys. Native menus and the Linux launcher open `settings:<id>`, and `client-core`'s `SettingsCategory` names every one a host routes to (all but `home` and `more`), so an existing id keeps its meaning even where its page moved or was renamed: `appearance` is the candidate window page, `skin` the theme page, `tools` the cloud clipboard page. A former page id that no longer has a page opens its successor through `settingsPageAliases`.
- */
-const pages = [
-  { id: "home", title: "首页", icon: new URL("./assets/msime.svg", import.meta.url).href },
-  { id: "skin", title: "主题", icon: new URL("./assets/skin.svg", import.meta.url).href },
-  {
-    id: "appearance",
-    title: "候选窗口",
-    icon: new URL("./assets/appearance.svg", import.meta.url).href,
-  },
-  {
-    id: "floating-toolbar",
-    title: "悬浮工具栏",
-    icon: new URL("./assets/floating-toolbar.svg", import.meta.url).href,
-  },
-  { id: "input", title: "输入", icon: new URL("./assets/input.svg", import.meta.url).href },
-  {
-    id: "expression",
-    title: "表达",
-    icon: new URL("./assets/expression.svg", import.meta.url).href,
-  },
-  {
-    id: "shortcuts",
-    title: "快捷键",
-    icon: new URL("./assets/shortcut.svg", import.meta.url).href,
-  },
-  {
-    id: "dictionary",
-    title: "词库",
-    icon: new URL("./assets/dictionary.svg", import.meta.url).href,
-  },
-  {
-    id: "screen-keyboard",
-    title: "屏幕键盘",
-    icon: new URL("./assets/screen-keyboard.svg", import.meta.url).href,
-  },
-  {
-    id: "voice",
-    title: "语音输入",
-    icon: new URL("./assets/voice-input.svg", import.meta.url).href,
-  },
-  {
-    id: "handwriting",
-    title: "手写输入",
-    icon: new URL("./assets/handwriting.svg", import.meta.url).href,
-  },
-  {
-    id: "account",
-    title: "账户与同步",
-    icon: new URL("./assets/account.svg", import.meta.url).href,
-  },
-  { id: "tools", title: "云剪贴板", icon: new URL("./assets/utilities.svg", import.meta.url).href },
-  {
-    id: "typing-statistics",
-    title: "统计",
-    icon: new URL("./assets/statistics.svg", import.meta.url).href,
-  },
-  { id: "community", title: "社区", icon: new URL("./assets/community.svg", import.meta.url).href },
-  {
-    id: "download",
-    title: "其他平台下载",
-    icon: new URL("./assets/download.svg", import.meta.url).href,
-  },
-  {
-    id: "developer",
-    title: "开发者选项",
-    icon: new URL("./assets/developer.svg", import.meta.url).href,
-  },
-  { id: "feedback", title: "反馈", icon: new URL("./assets/feedback.svg", import.meta.url).href },
-  { id: "about", title: "关于", icon: new URL("./assets/about.svg", import.meta.url).href },
-  // Reached from inside a page rather than from the navigation; see `subPageParents`.
-  { id: "ai", title: "AI 辅助", icon: new URL("./assets/ai.svg", import.meta.url).href },
-  { id: "chat", title: "AI 对话", icon: new URL("./assets/help.svg", import.meta.url).href },
-  {
-    id: "vocabulary",
-    title: "背单词",
-    icon: new URL("./assets/vocabulary.svg", import.meta.url).href,
-  },
-  { id: "help", title: "帮助", icon: new URL("./assets/help.svg", import.meta.url).href },
-  // Mobile only, and the one page that is a list of the other pages. The phone bar carries the source's four tabs, so everything else is reached the way the source reaches it: through the 设置 tab, down one level, into a list.
-  {
-    id: "more",
-    title: "全部设置",
-    icon: new URL("./assets/utilities.svg", import.meta.url).href,
-  },
-] as const;
-/** The design's five navigation groups (dc.html `NAV`), by page id. Every platform groups its sidebar this way; a page a host does not offer simply drops out of its group. */
-const settingsNavGroups = [
-  ["skin", "appearance", "floating-toolbar"],
-  ["input", "expression", "shortcuts", "dictionary"],
-  ["screen-keyboard", "voice", "handwriting"],
-  ["account", "tools", "typing-statistics", "community", "download"],
-  ["developer", "feedback", "about"],
-] as const satisfies readonly (readonly SettingsPageId[])[];
-/**
- * Pages that are not destinations of their own in the design's navigation but live inside one: the AI features under 表达, word review under 词库, help under 反馈. They keep their own page (and route) because each is a full surface of its own, open from a row on the parent, and light the parent in the sidebar while shown.
- */
-const subPageParents: Partial<Record<SettingsPageId, SettingsPageId>> = {
-  ai: "expression",
-  chat: "expression",
-  vocabulary: "dictionary",
-  help: "feedback",
-};
-/** Former page ids whose contents now sit on another page. A route that names one opens that page. */
-const settingsPageAliases: Record<string, SettingsPageId> = { helpcode: "input" };
 export type HostPlatform = "windows" | "macos" | "linux" | "android" | "ios" | "harmony";
 /** Mirrors `client-core::host_surface::HostCapabilities`. */
 export interface HostCapabilities {
@@ -1686,7 +1588,6 @@ export interface PreferencesRecovery {
  *
  * Its page icon is the app logo, which the design does not put in the bar either — its first tab is the `settings` glyph. Three of the four tabs would otherwise be a subject and the fourth a brand.
  */
-type SettingsPageId = (typeof pages)[number]["id"];
 export {
   tencentCredentialIssue,
   translationEndpointIssue,
