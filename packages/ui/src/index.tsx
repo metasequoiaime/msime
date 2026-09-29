@@ -248,6 +248,7 @@ import { createScreenKeyboardActions } from "./settings/screen-keyboard-actions"
 import { createShortcutsSettingsActions } from "./settings/shortcuts-settings-actions";
 import { createHelpcodeSettingsActions } from "./settings/helpcode-settings-actions";
 import { createUtilitiesSettingsActions } from "./settings/utilities-settings-actions";
+import { createSettingsNavigationActions } from "./settings/settings-navigation-actions";
 import { useAppVersion } from "./settings/use-app-version";
 import { supportDiagnostics } from "./settings/support-diagnostics";
 import { useMountedRef } from "./settings/use-mounted-ref";
@@ -445,6 +446,10 @@ export {
   createUtilitiesSettingsActions,
   type CreateUtilitiesSettingsActionsOptions,
 } from "./settings/utilities-settings-actions";
+export {
+  createSettingsNavigationActions,
+  type CreateSettingsNavigationActionsOptions,
+} from "./settings/settings-navigation-actions";
 import { SettingsSidebar } from "./settings/settings-sidebar";
 export {
   SettingsSidebar,
@@ -2383,6 +2388,13 @@ export function SettingsPage({
   });
   const helpcodeSettingsActions = createHelpcodeSettingsActions({ draft, setDraft });
   const utilitiesSettingsActions = createUtilitiesSettingsActions({ draft, setDraft });
+  const settingsNavigationActions = createSettingsNavigationActions({
+    selectPage,
+    chatAvailable: Boolean(client.chat),
+    openPanel,
+    openHandwriting: client.openHandwriting,
+    restoreDefaults,
+  });
   const communityView = communityDestinationView(communityDestination);
   return (
     <div
@@ -2463,7 +2475,7 @@ export function SettingsPage({
                 actions={client.home}
                 onOpenPage={(value) => selectPage(value as SettingsPageId)}
                 onSelectScheme={selectHomeScheme}
-                onOpenChat={client.chat ? () => selectPage("chat") : undefined}
+                onOpenChat={settingsNavigationActions.onOpenChat}
                 touchLayout={mobilePlatform}
               />
             )}
@@ -2669,7 +2681,7 @@ export function SettingsPage({
                     draft={draft}
                     setDraft={setDraft}
                     confirm={confirm}
-                    onOpenAi={() => selectPage("ai")}
+                    onOpenAi={settingsNavigationActions.onOpenAi}
                     openExternalUrl={openExternalUrl}
                     onError={setError}
                     iosPlatform={iosPlatform}
@@ -2871,7 +2883,7 @@ export function SettingsPage({
                       mobile={mobilePlatform}
                       openSystemKeyboardSettings={client.openSystemKeyboardSettings}
                       openHandwriting={client.openHandwriting}
-                      onOpenHandwriting={() => void openPanel(client.openHandwriting)}
+                      onOpenHandwriting={settingsNavigationActions.onOpenHandwriting}
                     />
                   </fieldset>
                   <VoiceSettingsPanel
@@ -2989,7 +3001,7 @@ export function SettingsPage({
                     dirty={dirty}
                     canSave={validCandidateFonts(draft)}
                     showRestoreDefaults={Boolean(client.loadDefaultPreferences)}
-                    onRestoreDefaults={() => void restoreDefaults()}
+                    onRestoreDefaults={settingsNavigationActions.onRestoreDefaults}
                   />
                 </form>
               )}
