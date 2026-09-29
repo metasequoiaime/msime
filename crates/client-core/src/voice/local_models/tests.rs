@@ -440,6 +440,30 @@ fn symlinked_roots_are_rejected_before_installing() {
     assert!(target.path().read_dir().unwrap().next().is_none());
 }
 
+#[cfg(unix)]
+#[test]
+fn symlinked_root_ancestors_are_rejected_before_installing() {
+    let target = tempfile::tempdir().unwrap();
+    let parent = tempfile::tempdir().unwrap();
+    let linked = parent.path().join("linked");
+    std::os::unix::fs::symlink(target.path(), &linked).unwrap();
+    let root = linked.join("missing").join("models");
+    let archive = good_archive();
+    let model = fixture_model(&archive);
+    let fetcher = fetcher_for(&archive, "");
+
+    let (result, _) = run(&root, &model, "", &fetcher, &AtomicBool::new(false));
+
+    assert!(matches!(result, Err(LocalModelError::InvalidRoot)));
+    assert!(fetcher.requested.lock().unwrap().is_empty());
+    assert!(!target.path().join("missing/models").exists());
+    assert!(list(&root).iter().all(|status| !status.installed));
+    assert!(matches!(
+        remove(&root, default_model_id()),
+        Err(LocalModelError::InvalidRoot)
+    ));
+}
+
 #[test]
 fn listing_reports_installed_models_and_removal_accepts_catalog_ids_only() {
     let root = tempfile::tempdir().unwrap();

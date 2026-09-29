@@ -208,6 +208,7 @@ fn find_model(id: &str) -> Result<&'static CatalogModel, LocalModelError> {
 
 /// Every catalog model with whether it is installed under `root`.
 pub fn list(root: &Path) -> Vec<LocalModelStatus> {
+    let root_valid = check_root(root).is_ok();
     catalog()
         .models
         .iter()
@@ -221,7 +222,7 @@ pub fn list(root: &Path) -> Vec<LocalModelStatus> {
                 streaming: model.streaming,
                 default: model.default,
                 desktop_only: model.desktop_only,
-                installed: path.join(MANIFEST_FILE).is_file(),
+                installed: root_valid && path.join(MANIFEST_FILE).is_file(),
                 path: path.to_string_lossy().into_owned(),
                 installed_size: model.installed_size,
                 archive_size: model.archive.size,
@@ -293,11 +294,31 @@ fn check_root(root: &Path) -> Result<(), LocalModelError> {
     // `create_dir_all` follows an existing root symlink. Model installation
     // publishes staging directories and downloaded files below this path, so
     // accepting one would let a caller redirect the whole install elsewhere.
-    if fs::symlink_metadata(root)
-        .map(|metadata| metadata.file_type().is_symlink())
-        .unwrap_or(false)
-    {
-        return Err(LocalModelError::InvalidRoot);
+    match fs::symlink_metadata(root) {
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+            return Err(LocalModelError::InvalidRoot);
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(_) => return Err(LocalModelError::InvalidRoot),
+    }
+    // A not-yet-created root can have several missing components below a
+    // replaced app-data directory. Find the nearest existing ancestor and
+    // inspect that one; walking farther would reject intentional system
+    // aliases such as macOS `/var` even though the nearest real directory
+    // already anchors the app-owned path.
+    let mut current = root.parent();
+    while let Some(path) = current {
+        match fs::symlink_metadata(path) {
+            Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+                return Err(LocalModelError::InvalidRoot);
+            }
+            Ok(_) => break,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                current = path.parent();
+            }
+            Err(_) => return Err(LocalModelError::InvalidRoot),
+        }
     }
     Ok(())
 }
