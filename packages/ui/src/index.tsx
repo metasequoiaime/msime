@@ -10,6 +10,7 @@ import {
 import { platformResourceUrls } from "./settings/platform-resource-urls";
 import { unreadablePreferencesMessage } from "./settings/preferences-recovery-message";
 import { useSettingsWindowInteractions } from "./settings/use-settings-window-interactions";
+import { updateCandidateColor, updateCustomKeyboard } from "./settings/theme-selection-updates";
 import {
   mobilePrimaryPageIds,
   mobileTabForPage,
@@ -64,6 +65,7 @@ export { schemeTitle } from "./settings/label-helpers";
 import { isLinuxDesktop } from "./settings/platform-helpers";
 import { useSettingsTheme } from "./settings/use-settings-theme";
 export { useSettingsTheme } from "./settings/use-settings-theme";
+export { updateCandidateColor, updateCustomKeyboard } from "./settings/theme-selection-updates";
 import { useTouchKeyboardGeometryDrag } from "./settings/use-touch-keyboard-geometry-drag";
 export { useTouchKeyboardGeometryDrag } from "./settings/use-touch-keyboard-geometry-drag";
 import { useMobileKeyboardFeedback } from "./settings/use-mobile-keyboard-feedback";
@@ -2162,42 +2164,9 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   const customTouchKeyboardSkin = draft?.custom_theme?.keyboard ?? defaultTouchKeyboardSkinDesign;
   // A picker colour is part of the custom theme, so choosing one selects that theme; clearing one leaves the selection alone. Choosing one while another theme is selected customizes that theme: it becomes the custom theme's base, and a package, whose own base would replace it, is dropped.
   const setCandidateColor = (slot: keyof CustomCandidateColors, value: string | null) =>
-    setDraft((current) => {
-      if (!current) return current;
-      const colors = { ...current.custom_theme?.candidate_colors, [slot]: value };
-      const selecting = value !== null && (current.global_theme ?? "system") !== "custom";
-      return {
-        ...current,
-        ...(value === null ? {} : { global_theme: "custom" as const }),
-        custom_theme: selecting
-          ? {
-              ...current.custom_theme,
-              base: customThemeBase(current.global_theme ?? "system", current.custom_theme),
-              candidate_skin: null,
-              candidate_colors: colors,
-            }
-          : { ...current.custom_theme, candidate_colors: colors },
-      };
-    });
+    setDraft((current) => (current ? updateCandidateColor(current, slot, value) : current));
   // Choosing the custom keyboard is the same transition as choosing a picker colour: from another theme it customizes that theme (its base kept, a package dropped), so the candidate window does not jump to an unrelated base or package; an already custom theme keeps its base and package.
-  const withCustomKeyboard = (
-    current: Preferences,
-    design: TouchKeyboardSkinDesign,
-  ): Preferences => {
-    const selecting = (current.global_theme ?? "system") !== "custom";
-    return {
-      ...current,
-      global_theme: "custom",
-      custom_theme: selecting
-        ? {
-            ...current.custom_theme,
-            base: customThemeBase(current.global_theme ?? "system", current.custom_theme),
-            candidate_skin: null,
-            keyboard: design,
-          }
-        : { ...current.custom_theme, keyboard: design },
-    };
-  };
+  const withCustomKeyboard = updateCustomKeyboard;
   // A custom theme without a keyboard design draws its base's keyboard, so the custom keyboard card is selected only when the theme carries one.
   const customKeyboardSelected = globalTheme === "custom" && Boolean(draft?.custom_theme?.keyboard);
   useEffect(() => setSkinPreviewThemes({}), [candidatePreviewTheme]);
