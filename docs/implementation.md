@@ -18,7 +18,7 @@
 
 | crate | 职责 |
 | --- | --- |
-| `msime-client-core` | 宿主无关的客户端业务：`preferences`、`account`、`ai`、`cloud`、`community`、`credential`、`dictionary`、`skin`、`translation`、`voice`、`clipboard`、`punctuation`、`chinese_conversion`、`typing_statistics`、`resources`、`host_surface`、`panels`。不依赖 Tauri、React、Engine 或任何平台 API。 |
+| `msime-client-core` | 宿主无关的客户端业务：`preferences`、`account`、`ai`、`cloud`、`community`、`credential`、`dictionary`、`helpcode`、`skin`、`translation`、`voice`、`clipboard`、`punctuation`、`chinese_conversion`、`typing_statistics`、`resources`、`host_surface`、`panels`。不依赖 Tauri、React、Engine 或任何平台 API。 |
 | `msime-engine-bridge` | CXX 桥接到钉死的上游 C++ Engine Session API，另含 `dictionary_stage`、`dictionary_revision` 与词典回放工具 `MetasequoiaImeDictionaryReplay`；`examples/` 下是各类真实词库探针。 |
 | `msime-input-runtime` | 输入宿主的会话编排：焦点、候选翻页、代次选择、全半角转换、在线候选调度。含重排模型 `Reranker` 的接入。 |
 | `msime-host-api` | 版本化 C ABI（`msime_client_abi_version()` 返回 3），132 个 `msime_client_*` 导出（头文件另有 2 个 `static inline` 辅助函数），`crate-type = ["cdylib", "staticlib", "rlib"]`。`ffi/` 按 host/session/input/candidates/lifecycle/providers/translation/voice 分文件。 |
@@ -60,6 +60,8 @@
 ### 资源安装
 
 `ResourceStore` 读取受信任的产品锁，通过宿主注入的传输流安装平面文件集合，严格校验长度与摘要，用独立文件锁和临时目录发布防止半安装，不覆盖旧资源代次。词库升级按代次进行：宿主建会话前比对编译进库的词库锁代次，原子替换运行配置里的 `resources`/`dictionaries` 两项。
+
+`client-core::helpcode` 负责读取资源目录里的用户辅助码元数据。`helpcodes/custom/*.txt` 的文件名形成 `custom/<stem>` 标识，扫描结果按 stem 排序；可选的 `# name:`、`# name_en:` 头部只用于设置界面显示，路径校验拒绝目录穿越和平台文件名分隔符。实际码表解析与候选筛选仍由 Engine 负责，Rust 不复制输入算法。
 
 ### 账号、云与社区
 
