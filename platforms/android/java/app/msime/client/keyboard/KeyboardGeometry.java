@@ -33,7 +33,7 @@ public final class KeyboardGeometry {
 
     public static int heightAdjustment(int value) {
         if (value == Integer.MIN_VALUE) return DEFAULT_HEIGHT_ADJUSTMENT_DP;
-        return Math.max(MIN_HEIGHT_ADJUSTMENT_DP, Math.min(value, MAX_HEIGHT_ADJUSTMENT_DP));
+        return bounded(value, MIN_HEIGHT_ADJUSTMENT_DP, MAX_HEIGHT_ADJUSTMENT_DP);
     }
 
     /** Divide the total adjustment across rows without losing a density-independent pixel. */
