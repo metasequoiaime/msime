@@ -166,6 +166,11 @@ export {
   SettingsDictionaryPage,
   type SettingsDictionaryPageProps,
 } from "./settings/settings-dictionary-page";
+import { settingsPageDictionaryModel } from "./settings/settings-page-dictionary-model";
+export {
+  settingsPageDictionaryModel,
+  type SettingsPageDictionaryModelOptions,
+} from "./settings/settings-page-dictionary-model";
 import { SettingsInputPage } from "./settings/settings-input-page";
 export { SettingsInputPage, type SettingsInputPageProps } from "./settings/settings-input-page";
 import { SettingsFormPages } from "./settings/settings-form-pages";
@@ -2486,14 +2491,11 @@ export function SettingsPage({
             skinSettingsActions,
             floatingToolbarActions,
           }),
-          dictionary: {
-            disabled: busy,
-            hidden: page !== "dictionary",
-            dictionary: client.dictionary,
-            dictionaryManifest: client.dictionaryManifest,
-            platform: client.host?.platform,
+          dictionary: settingsPageDictionaryModel({
+            page,
+            busy,
+            client,
             macos: macosPlatform,
-            resetLearnedData: client.resetLearnedData,
             phraseBusy,
             dictionaryFormat,
             setDictionaryFormat,
@@ -2516,7 +2518,7 @@ export function SettingsPage({
             setPhraseForm,
             onTurnPage: turnPhrasePage,
             phrasePage,
-          },
+          }),
           input: {
             disabled: busy,
             hidden: page !== "input",
