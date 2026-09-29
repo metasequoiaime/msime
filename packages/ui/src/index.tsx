@@ -392,10 +392,12 @@ import { HelpcodeSettingsPage } from "./settings/pages/helpcode-page";
 import type { HelpcodePreferences } from "./settings/pages/helpcode-page";
 import type { ClipboardHistoryClient } from "./settings/clipboard-history-section";
 import { defaultFuzzyPinyin, type FuzzyPinyinPreferences } from "./settings/fuzzy-pinyin-section";
-import type { NavigationPreferences } from "./settings/word-character-section";
+import { defaultWordCharacter, type NavigationPreferences } from "./settings/word-character-section";
 import { defaultMixedInput, type MixedInputPreferences } from "./settings/mixed-input-section";
 import { defaultFrequency, type FrequencyPreferences } from "./settings/frequency-section";
 import { defaultLocalModes, type LocalModePreferences } from "./settings/local-modes-section";
+import { defaultFloatingToolbar } from "./settings/floating-toolbar-defaults";
+import { defaultKeybindings } from "./settings/keybinding-defaults";
 import type { SurfaceTheme, ThemeMode } from "./settings/theme-settings-section";
 import type { TouchToolbarPreferences } from "./settings/touch-keyboard-geometry-section";
 import { HelpSettingsPage } from "./settings/help-settings-page";
@@ -993,13 +995,6 @@ export type KeybindingPreferences = {
   toggle_character_set_ctrl_shift_f: boolean;
   toggle_fullwidth_option_shift_h: boolean;
 };
-const defaultKeybindings: KeybindingPreferences = {
-  switch_language_shift: true,
-  switch_language_ctrl: false,
-  switch_language_ctrl_alt_space: true,
-  toggle_character_set_ctrl_shift_f: true,
-  toggle_fullwidth_option_shift_h: true,
-};
 /**
  * Every settings page, in the design's navigation order (dc.html `NAV`): five groups of eighteen destinations, then the pages reached from inside one of them.
  *
@@ -1493,7 +1488,6 @@ export interface DictionaryClient {
 }
 export { dictionaryKindKeyHint } from "./settings/pages/dictionary-page";
 
-const defaultWordCharacter = { enabled: true, keys: "brackets" as const };
 export type FloatingToolbarPreferences = {
   enabled: boolean;
   english_mode: boolean;
@@ -1507,24 +1501,6 @@ export type FloatingToolbarPreferences = {
   settings: boolean;
   scale_percent: 75 | 100 | 125 | 150;
   font_size: 16 | 18 | 20 | 22 | 24 | 26 | 28;
-};
-// Mirrors FloatingToolbarPreferences::default() in crates/client-core: emoji, handwriting, voice and
-// the screen keyboard are opt-in, so a new profile gets the compact five-button toolbar and turns on
-// what it wants. Drifting from the Rust defaults here would show a switch in one state and save the
-// other.
-const defaultFloatingToolbar: FloatingToolbarPreferences = {
-  enabled: true,
-  english_mode: true,
-  fullwidth: true,
-  punctuation: true,
-  character_set: true,
-  emoji: false,
-  handwriting: false,
-  screen_keyboard: false,
-  voice: false,
-  settings: true,
-  scale_percent: 100,
-  font_size: 24,
 };
 /** What the macOS settings app did with the input method it carries when it started. */
 export {
