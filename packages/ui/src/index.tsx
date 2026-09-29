@@ -81,6 +81,11 @@ export {
   createSettingsDraftActions,
   type CreateSettingsDraftActionsOptions,
 } from "./settings/settings-draft-actions";
+import { createSettingsSaveAction } from "./settings/settings-save-action";
+export {
+  createSettingsSaveAction,
+  type CreateSettingsSaveActionOptions,
+} from "./settings/settings-save-action";
 import { useTranslationSettings } from "./settings/use-translation-settings";
 export {
   useTranslationSettings,
@@ -2079,6 +2084,7 @@ export function SettingsPage({
     saveMacosWubiAutoCommitUnique: client.saveMacosWubiAutoCommitUnique,
     setSavedMacosWubiAutoCommitUnique: setSavedWubiAutoCommitUnique,
   });
+  const submitSettings = createSettingsSaveAction({ save });
 
   const { restoreDefaults, recoverPreferences } = usePreferenceRecovery({
     client,
@@ -2573,12 +2579,7 @@ export function SettingsPage({
               page !== "chat" &&
               page !== "more" &&
               page !== "community" && (
-                <form
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void save();
-                  }}
-                >
+                <form onSubmit={submitSettings}>
                   <AppearanceSettingsSection
                     disabled={busy}
                     hidden={page !== "appearance"}
@@ -3021,7 +3022,7 @@ export function SettingsPage({
               page !== "account" &&
               page !== "chat" &&
               page !== "community" && (
-                <button className="secondary" disabled={busy} onClick={() => void reloadSettings()}>
+                <button className="secondary" disabled={busy} onClick={reloadSettings}>
                   重新读取
                 </button>
               )}
