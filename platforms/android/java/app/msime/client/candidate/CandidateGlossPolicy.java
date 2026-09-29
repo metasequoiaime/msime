@@ -35,6 +35,6 @@ public final class CandidateGlossPolicy {
 
     public static boolean validEntry(String value) {
         return value != null && !value.isEmpty()
-            && value.getBytes(java.nio.charset.StandardCharsets.UTF_8).length <= MAX_ENTRY_BYTES;
+            && TextPolicy.utf8Length(value) <= MAX_ENTRY_BYTES;
     }
 }
