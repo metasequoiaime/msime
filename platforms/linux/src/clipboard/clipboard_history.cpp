@@ -1,5 +1,6 @@
 #include <nlohmann/json.hpp>
 #include "ClipboardText.h"
+#include "ClipboardAtomicWrite.h"
 #include <algorithm>
 #include <array>
 #include <filesystem>
@@ -83,24 +84,7 @@ std::vector<std::string> load(const std::filesystem::path &path) {
   } catch (...) { return {}; }
 }
 bool save(const std::filesystem::path &path, const std::vector<std::string> &items) {
-  std::error_code error; std::filesystem::create_directories(path.parent_path(), error);
-  const auto temporary = path.string() + ".tmp." + std::to_string(getpid());
-  std::ofstream output(temporary, std::ios::trunc); if (!output) return false;
-  output << Json(items).dump();
-  if (!output) { std::filesystem::remove(temporary, error); return false; }
-  // Clipboard history can contain private user text; do not leave it readable
-  // by other local users even when the process umask is permissive.
-  std::filesystem::permissions(
-      temporary, std::filesystem::perms::owner_read |
-                std::filesystem::perms::owner_write,
-      std::filesystem::perm_options::replace, error);
-  output.close();
-  std::filesystem::rename(temporary, path, error);
-  if (error) {
-    std::filesystem::remove(temporary, error);
-    return false;
-  }
-  return true;
+  return msime::linux_host::write_clipboard_file_atomically(path, Json(items).dump());
 }
 }
 int main(int argc, char **argv) {
