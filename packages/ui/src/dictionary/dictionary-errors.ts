@@ -1,6 +1,11 @@
 import { errorCode } from "../core/error-code";
+import type { LocalDictionaryKind } from "./dictionary-file";
 
-export function dictionaryErrorMessage(error: unknown, fallback: string, kind?: string): string {
+export function dictionaryErrorMessage(
+  error: unknown,
+  fallback: string,
+  kind?: LocalDictionaryKind,
+): string {
   switch (errorCode(error)) {
     case "dictionary_busy":
       return "词库正在被输入法占用，请关闭正在使用输入法的程序后重试。";

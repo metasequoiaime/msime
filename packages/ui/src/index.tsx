@@ -13,7 +13,6 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
-  DICTIONARY_PAGE_SIZE,
   type DictionaryEntry,
   type LocalDictionaryFormat,
   type LocalDictionaryKind,
@@ -23,6 +22,14 @@ export type {
   LocalDictionaryFormat,
   LocalDictionaryKind,
 } from "./dictionary/dictionary-file";
+export {
+  dictionaryExportName,
+  dictionaryExportPayload,
+  loadAllPersonalDictionaryEntries,
+  personalDictionaryExportName,
+  personalDictionaryExportPayload,
+} from "./dictionary/dictionary-export";
+export { dictionaryErrorMessage } from "./dictionary/dictionary-errors";
 import type { TouchKeyboardSchemePreferences } from "./settings/touch-keyboard-scheme-helpers";
 export {
   type TouchKeyboardScheme,
@@ -1495,162 +1502,7 @@ export interface DictionaryClient {
   retry?(request_id: string): Promise<void>;
   dismissFailure?(request_id: string): Promise<void>;
 }
-const personalDictionaryExportKinds: [LocalDictionaryKind, string][] = [
-  ["pinyin", "拼音"],
-  ["wubi", "五笔"],
-  ["quick_phrase", "快捷短语"],
-  ["english", "英文"],
-];
 export { dictionaryKindKeyHint } from "./settings/pages/dictionary-page";
-
-/** The single-file name and layout used by the macOS personal dictionary. */
-export function personalDictionaryExportName(): string {
-  return "水杉用户词库.txt";
-}
-
-export function personalDictionaryExportPayload(entries: DictionaryEntry[]): {
-  body: string;
-  rows: number;
-} {
-  const rows = personalDictionaryExportKinds.flatMap(([kind, label]) =>
-    entries
-      .filter((entry) => entry.kind === kind)
-      .map((entry) => `${label}\t${entry.key}\t${entry.value}\t${entry.weight}`),
-  );
-  return {
-    body: `# 类别\t编码\t词条\t权重\n${rows.length ? `${rows.join("\n")}\n` : ""}`,
-    rows: rows.length,
-  };
-}
-
-/** Read every user-owned dictionary entry of every kind in bounded pages, preserving host ordering. */
-export async function loadAllPersonalDictionaryEntries(
-  dictionary: Pick<DictionaryClient, "list">,
-): Promise<DictionaryEntry[]> {
-  const entries: DictionaryEntry[] = [];
-  for (const [kind] of personalDictionaryExportKinds) {
-    let offset = 0;
-    let hasMore = true;
-    while (hasMore && offset <= 1_000_000) {
-      const page = await dictionary.list(offset, DICTIONARY_PAGE_SIZE, kind, "");
-      // Hosts that list the packaged dictionary return bundled rows too; the export holds the user's own words only. Paging still advances by the unfiltered page length.
-      const pageEntries = page.entries.filter(
-        (entry) => entry.kind === kind && entry.source !== "bundled",
-      );
-      entries.push(...pageEntries);
-      // An empty page ends the kind whatever has_more says, so a kind the user never added words to is not mistaken for a truncated export.
-      if (!page.entries.length) {
-        hasMore = false;
-        break;
-      }
-      offset += page.entries.length;
-      hasMore = page.has_more;
-    }
-    if (hasMore) throw new Error("dictionary_export_limit");
-  }
-  return entries;
-}
-
-/** The user-facing name of a local dictionary, for messages about it. */
-/** Prefer the host's reason; fall back to the generic format hint. */
-/**
- * Turn a dictionary command failure into something the user can act on.
- *
- * The host distinguishes several reasons and the desktop bridge now forwards
- * them as codes. Printing one fixed "请稍后重试" for all of them told a user
- * whose IME was simply locked by another process to retry forever.
- */
-export function dictionaryErrorMessage(
-  error: unknown,
-  fallback: string,
-  kind?: LocalDictionaryKind,
-): string {
-  const code =
-    typeof error === "object" && error !== null && "code" in error
-      ? String((error as { code: unknown }).code)
-      : "";
-  switch (code) {
-    case "dictionary_busy":
-      return "词库正在被输入法占用，请关闭正在使用输入法的程序后重试。";
-    case "dictionary_import_rejected":
-      return "词库拒绝了这次写入，请检查编码与词是否匹配。";
-    case "dictionary_too_large":
-      // A file over the bridge's bound, or one line too long to fit any request to the host.
-      return "词库文件过大：文件不能超过 32 MB，单行不能超过 60 KB，请拆分后再导入。";
-    case "dictionary_read_rejected":
-      return "词库拒绝了这次读取，请稍后重试。";
-    case "dictionary_bundled_readonly":
-      return "内置词条只能调整权重或删除，不能修改编码和词。";
-    case "dictionary_pinyin_unavailable":
-      return "拼音表不可用，无法校验这条词的读音。";
-    case "dictionary_reset_rejected":
-      return "清除学习数据失败，请关闭正在使用输入法的程序后重试。";
-    case "dictionary_unavailable":
-      return "无法打开用户词库，请检查输入法是否正在运行。";
-    case "dictionary_invalid_entry":
-      // The entry itself was refused, so retrying cannot help; say what the code has to look like.
-      return invalidDictionaryEntryMessage(kind);
-    case "dictionary_invalid_word":
-      // The code was fine; the word or weight broke a rule, so point at those fields instead.
-      return "词条内容为空、过长或含控制字符，或权重超出 1 到 100000000 的范围。";
-    default:
-      return fallback;
-  }
-}
-
-function invalidDictionaryEntryMessage(kind: LocalDictionaryKind | undefined): string {
-  switch (kind) {
-    case "pinyin":
-      return "拼音必须由完整音节组成，音节数需与汉字数一致，例如“你好”填 nihao 或 ni'hao。";
-    case "wubi":
-      return "五笔编码须为 1 到 4 个字母。";
-    case "quick_phrase":
-      return "快捷短语编码只能包含英文字母，长度 1 到 32。";
-    case "english":
-      return "英文编码只能包含字母、连字符和撇号。";
-    default:
-      return "词条不符合词库规则，请检查编码与词条后再保存。";
-  }
-}
-
-/** The shipped export filenames, one per dictionary kind. */
-export function dictionaryExportName(kind: LocalDictionaryKind): string {
-  const names: Record<LocalDictionaryKind, string> = {
-    pinyin: "水杉IME-拼音用户词库.txt",
-    wubi: "水杉IME-五笔用户词库.txt",
-    english: "水杉IME-英文用户词库.txt",
-    quick_phrase: "水杉IME-快捷短语用户词库.txt",
-  };
-  return names[kind];
-}
-/**
- * Prepare the export payload.
- *
- * Two things the plain Blob did not do. A UTF-8 BOM, because Notepad and Excel
- * on a GBK-default Windows render the Chinese as mojibake without one. And for
- * the pinyin book, single-character rows are dropped: those are learning
- * artefacts the engine accumulated, not words the user added, so exporting
- * them buries the real entries.
- */
-export function dictionaryExportPayload(
-  kind: LocalDictionaryKind,
-  format: LocalDictionaryFormat,
-  text: string,
-): { body: string; rows: number } {
-  const lines = text.split("\n").filter((line) => line.trim().length > 0);
-  // Windows exports put the code first; every other format puts the word first.
-  const wordColumn = format === "windows" ? 1 : 0;
-  const kept =
-    kind === "pinyin"
-      ? lines.filter((line) => {
-          const columns = line.split("\t");
-          const word = columns[wordColumn]?.trim() ?? "";
-          return Array.from(word).length > 1;
-        })
-      : lines;
-  if (!kept.length) return { body: "", rows: 0 };
-  return { body: "\ufeff" + kept.join("\n") + "\n", rows: kept.length };
-}
 
 const defaultWordCharacter = { enabled: true, keys: "brackets" as const };
 export type FloatingToolbarPreferences = {
