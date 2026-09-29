@@ -222,6 +222,11 @@ import { useExternalUrl } from "./settings/use-external-url";
 import { useUpdateCheck } from "./settings/use-update-check";
 import { useOpenPanel } from "./settings/use-open-panel";
 import { useClipboardHistoryToggle } from "./settings/use-clipboard-history-toggle";
+import { clipboardHistoryEnabled } from "./settings/clipboard-history-preferences";
+export {
+  clipboardHistoryEnabled,
+  type ClipboardHistoryPreferencesSource,
+} from "./settings/clipboard-history-preferences";
 import { useTouchKeyboardSchemeSelection } from "./settings/use-touch-keyboard-scheme-selection";
 import { useSettingsDestinationActions } from "./settings/use-settings-destination-actions";
 import { useMacosSettings } from "./settings/use-macos-settings";
@@ -2067,7 +2072,7 @@ export function SettingsPage({
   // A host missing a catalog is still handled, and handled better than by hiding a switch: the runtime
   // turns that mode off when its resource is absent, so the trigger key inserts its capital instead of
   // being swallowed.
-  const clipboardHistory = iosPlatform || (draft?.clipboard_history ?? false);
+  const clipboardHistory = clipboardHistoryEnabled(iosPlatform, draft);
   const toggleClipboardHistory = useClipboardHistoryToggle({
     draft,
     enabled: clipboardHistory,
