@@ -130,6 +130,8 @@ export {
   SettingsVoiceAiPages,
   type SettingsVoiceAiPagesProps,
 } from "./settings/settings-voice-ai-pages";
+import { SettingsAboutPage } from "./settings/settings-about-page";
+export { SettingsAboutPage, type SettingsAboutPageProps } from "./settings/settings-about-page";
 import { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
 export { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
 import { useTranslationSettings } from "./settings/use-translation-settings";
@@ -2779,7 +2781,7 @@ export function SettingsPage({
                         settingsExternalActions.onOpenSystemKeyboardSettings,
                     }}
                   />
-                  <AboutSettingsSection
+                  <SettingsAboutPage
                     disabled={busy}
                     hidden={page !== "about"}
                     logo={logo}
