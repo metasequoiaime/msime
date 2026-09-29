@@ -90,7 +90,9 @@ struct LocalSpeechModelManifest: Equatable {
 /// The text rules of the shared local recognizer, kept byte-for-byte in step with `shared/voice/LocalAsr.cpp` so the same audio reads the same on iOS and the desktops.
 enum LocalSpeechText {
   /// hardware / 2, clamped to 1...4.
-  static var threadCount: Int32 { Int32(min(max(ProcessInfo.processInfo.activeProcessorCount / 2, 1), 4)) }
+  static var threadCount: Int32 {
+    Int32(SharedNumber.clamped(ProcessInfo.processInfo.activeProcessorCount / 2, to: 1...4))
+  }
 
   /// SenseVoice detects the language itself and handles Mandarin with English words best that way, so only the languages it would not otherwise guess reliably are pinned.
   static func senseVoiceLanguage(_ tag: String) -> String {
