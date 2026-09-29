@@ -11,6 +11,8 @@ import { platformResourceUrls } from "./settings/platform-resource-urls";
 import { unreadablePreferencesMessage } from "./settings/preferences-recovery-message";
 import { useSettingsWindowInteractions } from "./settings/use-settings-window-interactions";
 import { updateCandidateColor, updateCustomKeyboard } from "./settings/theme-selection-updates";
+import { useSettingsNavigation } from "./settings/use-settings-navigation";
+import { useSettingsContentScrollReset } from "./settings/use-settings-content-scroll-reset";
 import {
   mobilePrimaryPageIds,
   mobileTabForPage,
@@ -26,7 +28,7 @@ import {
 import { settingsPageProjections } from "./settings/settings-page-projections";
 import type { VoiceDeviceReader } from "./voice/voice-device-picker";
 import type { LocalVoiceModelClient } from "./voice/local-models";
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import {
   type DictionaryEntry,
   type LocalDictionaryFormat,
@@ -148,6 +150,11 @@ export {
   type UseTouchKeyboardSettingsResetOptions,
 } from "./settings/use-touch-keyboard-settings-reset";
 export { useExternalUrl, type UseExternalUrlOptions } from "./settings/use-external-url";
+export {
+  useSettingsNavigation,
+  type SettingsNavigationOptions,
+} from "./settings/use-settings-navigation";
+export { useSettingsContentScrollReset } from "./settings/use-settings-content-scroll-reset";
 export { useUpdateCheck, type UseUpdateCheckOptions } from "./settings/use-update-check";
 export {
   aiSettingsPreferences,
@@ -1760,36 +1767,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     "typing-statistics": mobileInitialTab === "typing-statistics" ? page : "typing-statistics",
     account: mobileInitialTab === "account" ? page : "account",
   });
-  const settingsContentRef = useRef<HTMLElement>(null);
-  // Every settings category shares this one scrolling surface. Reset it after
-  // the new category is committed so sidebar clicks, in-page links and mobile
-  // back navigation all open the destination at its beginning.
-  useLayoutEffect(() => {
-    if (settingsContentRef.current) settingsContentRef.current.scrollTop = 0;
-  }, [page]);
-  // Mobile hosts use the WebView history stack for the system back gesture. The
-  // native activity can therefore dismiss a nested page without the shared UI
-  // having to know which Android/iOS navigation API is in use.
-  useEffect(() => {
-    if (!mobilePlatform || typeof window === "undefined") return;
-    const current = window.history.state;
-    if (!current || current.msimeSettings !== true) {
-      window.history.replaceState(
-        { ...(current && typeof current === "object" ? current : {}), msimeSettings: true, page },
-        "",
-      );
-    }
-    const onPopState = (event: PopStateEvent) => {
-      const state = event.state;
-      if (state?.msimeSettings === true && typeof state.page === "string") {
-        const restored = requestedPage(state.page, pages, settingsPageAliases, "appearance");
-        mobileLastPageByTab.current[mobileTabForPage(restored)] = restored;
-        setPage(restored);
-      }
-    };
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
-  }, [mobilePlatform]);
+  const settingsContentRef = useSettingsContentScrollReset(page);
   const [communityDestination, setCommunityDestination] = useState<
     AccountCommunityDestination | "all"
   >("all");
@@ -2214,64 +2192,21 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     });
   // A sub-page lights its parent in the navigation and offers the way back to it.
   const navigationPage: SettingsPageId = subPageParents[page] ?? page;
-  // Walked in tab order rather than filtered out of `availablePages`, which is in the order the
-  // pages happen to be declared in — that put 我的 second, and the bar read 键盘 / 我的 / 社区 / 统计
-  // against the source's 键盘 / 社区 / 统计 / 我的.
-  // A page without a tab of its own was reached from inside the 键盘 tab, so that is the tab still
-  // standing on. Keyed off the page alone, the bar went blank the moment anyone opened one — nothing
-  // lit, and no way to read where in the app you were.
-  const mobileActiveTab: MobilePrimaryPageId = mobileTabForPage(page);
+  const { mobileActiveTab, selectPage, selectMobileTab, openAccountLogin, finishAccountLogin } =
+    useSettingsNavigation({
+      mobilePlatform,
+      mobileHiddenPageIds,
+      availablePages,
+      page,
+      setPage,
+      mobileLastPageByTab,
+      route,
+      hasHomePage: Boolean(client.home),
+      setCommunityDestination,
+      setAccountLoginReturnPage,
+      accountLoginReturnPage,
+    });
   const untitledOnPhone: readonly SettingsPageId[] = ["home", "typing-statistics", "account"];
-  const selectPage = (next: SettingsPageId) => {
-    if (mobilePlatform && mobileHiddenPageIds.includes(next)) return;
-    if (next === page) return;
-    if (mobilePlatform) mobileLastPageByTab.current[mobileTabForPage(next)] = next;
-    setPage(next);
-    if (mobilePlatform && typeof window !== "undefined") {
-      const current = window.history.state;
-      const state = {
-        ...(current && typeof current === "object" ? current : {}),
-        msimeSettings: true,
-        page: next,
-      } as Record<string, unknown>;
-      delete state.panel;
-      window.history.pushState(state, "");
-    }
-    if (next === "community") setCommunityDestination("all");
-  };
-  // The request the page mounted with is already in `page`'s initializer; only later ones navigate.
-  const handledRoute = useRef(route?.nonce);
-  useEffect(() => {
-    if (!route || route.nonce === handledRoute.current) return;
-    handledRoute.current = route.nonce;
-    selectPage(requestedPage(route.page, pages, settingsPageAliases, "appearance"));
-  }, [route?.nonce]);
-  const selectMobileTab = (tab: SettingsPageId) => {
-    if (!mobilePrimaryPageIds.includes(tab as MobilePrimaryPageId)) return;
-    const primary = tab as MobilePrimaryPageId;
-    if (primary === "account") setAccountLoginReturnPage(null);
-    const remembered = mobileLastPageByTab.current[primary];
-    const available = availablePages.some((item) => item.id === remembered);
-    selectPage(available && !mobileHiddenPageIds.includes(remembered) ? remembered : primary);
-  };
-  const openAccountLogin = () => {
-    if (mobilePlatform) setAccountLoginReturnPage(page);
-    selectPage("account");
-  };
-  const finishAccountLogin = () => {
-    const previous = accountLoginReturnPage;
-    setAccountLoginReturnPage(null);
-    if (!previous) return;
-    mobileLastPageByTab.current[mobileTabForPage(previous)] = previous;
-    setPage(previous);
-    if (mobilePlatform && typeof window !== "undefined") window.history.back();
-  };
-  useEffect(() => {
-    const pageAvailable =
-      availablePages.some((item) => item.id === page) &&
-      (!mobilePlatform || !mobileHiddenPageIds.includes(page));
-    if (!pageAvailable) setPage(mobilePlatform && client.home ? "home" : "appearance");
-  }, [availablePages, client.home, mobilePlatform, page]);
   // The design's row that opens a page from inside another, e.g. AI 辅助 on 表达.
   const pageEntry = (id: SettingsPageId) => availablePages.find((item) => item.id === id);
   const { openCommunity, openLocalDesigns } = useSettingsDestinationActions({
