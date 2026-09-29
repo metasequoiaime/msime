@@ -122,6 +122,15 @@ export {
 } from "./settings/settings-navigation-chrome";
 import { SettingsPageIntro } from "./settings/settings-page-intro";
 export { SettingsPageIntro, type SettingsPageIntroProps } from "./settings/settings-page-intro";
+import {
+  SettingsPageContent,
+  type SettingsPageContentForm,
+} from "./settings/settings-page-content";
+export {
+  SettingsPageContent,
+  type SettingsPageContentForm,
+  type SettingsPageContentProps,
+} from "./settings/settings-page-content";
 export {
   SettingsContentIntro,
   type SettingsContentIntroProps,
@@ -2431,6 +2440,443 @@ export function SettingsPage({
     selection: {},
     communityDestination,
   });
+  const settingsPageForm: SettingsPageContentForm | undefined =
+    draft && isSettingsFormPage(page)
+      ? {
+          frame: {
+            onSubmit: submitSettings,
+            showReload: canReloadSettingsPage(page),
+            busy,
+            onReload: reloadSettings,
+          },
+          visual: {
+            appearance: {
+              disabled: busy,
+              hidden: page !== "appearance",
+              preferences: appearanceSettingsPreferences(draft, windowsPlatform),
+              revision: snapshot?.revision ?? 0,
+              mobile: mobilePlatform,
+              linux: linuxPlatform,
+              windows: host?.platform === "windows",
+              candidatePreviewTheme,
+              candidatePanelLimit: host?.candidate_panel_limit,
+              showCandidateFollowCursor,
+              showCandidateFontControls,
+              showCandidateEnglishFont,
+              showCandidatePreeditFont,
+              showCandidateRowColors,
+              showCandidateSelectionAppearance,
+              showCandidateBorderColor,
+              showShuangpinPreedit,
+              fixedCandidatePageSize: host?.fixed_candidate_page_size !== undefined,
+              fixedCandidateLayout: host?.fixed_candidate_layout !== undefined,
+              floatingToolbar: showFloatingToolbar,
+              desktopPanels,
+              candidatePaletteFollowsDesktop: mobileKeyboardFeedback?.candidatePaletteFollowsDesktop,
+              inlinePreedit: mobileKeyboardFeedback?.inlinePreedit,
+              inlinePreeditBusy: mobileKeyboardFeedbackBusy,
+              scan: client.scanSkinCatalog,
+              readImage: client.readSkinImage,
+              resolveFonts: client.resolveFontFamilies,
+              listFontFamilies: client.listFontFamilies,
+              ...appearanceSettingsActions,
+            },
+            skin: {
+              disabled: busy,
+              hidden: page !== "skin",
+              mobile: mobilePlatform,
+              linux: linuxPlatform,
+              candidatePanelLimit: host?.candidate_panel_limit,
+              mobileKeyboardFeedback,
+              mobileKeyboardFeedbackBusy,
+              ...skinSettingsActions,
+              candidateSkinCatalog: snapshot?.candidate_skin_catalog,
+              selected: draft.candidate_skin ?? "willow_green",
+              previewThemes: skinPreviewThemes,
+              defaultTheme: candidatePreviewTheme,
+              activeTheme: candidatePreviewTheme,
+              scan: client.scanSkinCatalog,
+              openDirectory: client.openSkinDirectory,
+              importsSkin: host?.skin_directory_import === true,
+              readImage: client.readSkinImage,
+              readFont: client.readSkinFont,
+              readToolbarCss: client.readSkinToolbarCss,
+              layout: host?.fixed_candidate_layout ?? draft.candidate_layout ?? "vertical",
+              toolbarPreview: !linuxPlatform,
+            },
+            floatingToolbar: {
+              disabled: busy,
+              hidden: page !== "floating-toolbar",
+              preferences: floatingToolbar,
+              skin: draft.candidate_skin ?? "willow_green",
+              theme: toolbarPreviewTheme,
+              ...floatingToolbarActions,
+              showAppearance: showToolbarAppearance,
+              showComponents: showToolbarComponents,
+              capabilities: host
+                ? {
+                    floating_toolbar_handwriting: host.floating_toolbar_handwriting,
+                    floating_toolbar_voice: host.floating_toolbar_voice,
+                  }
+                : undefined,
+            },
+          },
+          dictionary: {
+            disabled: busy,
+            hidden: page !== "dictionary",
+            dictionary: client.dictionary,
+            dictionaryManifest: client.dictionaryManifest,
+            platform: client.host?.platform,
+            macos: macosPlatform,
+            resetLearnedData: client.resetLearnedData,
+            phraseBusy,
+            dictionaryFormat,
+            setDictionaryFormat,
+            ...dictionaryPanelActions,
+            dictionaryPendingCount,
+            dictionaryFailures,
+            dictionarySnapshotError,
+            canRetry: Boolean(client.dictionary?.retry),
+            canDismiss: Boolean(client.dictionary?.dismissFailure),
+            dictionaryKind,
+            phraseSearch,
+            setDictionaryKind,
+            setPhraseSearch,
+            phraseError,
+            phraseNotice,
+            phrases,
+            setPhrases,
+            phraseForm,
+            phraseListRef,
+            setPhraseForm,
+            onTurnPage: turnPhrasePage,
+            phrasePage,
+          },
+          input: {
+            disabled: busy,
+            hidden: page !== "input",
+            client,
+            draft,
+            setDraft,
+            confirm,
+            onOpenAi: settingsNavigationActions.onOpenAi,
+            openExternalUrl,
+            onError: setError,
+            iosPlatform,
+            harmonyPlatform,
+            androidPlatform,
+            mobilePlatform,
+            macosPlatform,
+            linuxPlatform,
+            windowsPlatform,
+            touchKeyboardSchemes,
+            selectedTouchKeyboardScheme,
+            setTouchKeyboardSchemeEnabled,
+            macosShuangpinKeymap,
+            setShuangpinKeymap,
+            macosWubiAutoCommitUnique,
+            setWubiAutoCommitUnique,
+            wordCharacter,
+            candidateTranslations,
+            candidateGlossLanguagesEnabled,
+            translationTargetLanguage,
+            translationSecondaryLanguage,
+            visibleTranslationLanguages,
+            visibleSecondaryLanguages,
+            customTranslation,
+            tencentTranslation,
+            niutrans,
+            translationProvider,
+            onDeviceMissingLanguages,
+            setTranslationProvider,
+            providerCredentials,
+            tencentCredentialInput,
+            setTencentCredentialInput,
+            providerCredentialBusy,
+            providerCredentialMessages,
+            runProviderCredential,
+            credentialTestControl,
+            customTranslationsText,
+            setCustomTranslationsText,
+            customTranslationsNotice,
+            customTranslationsSummary,
+            customTranslationsBusy,
+            customTranslationsPlaceholder,
+            saveCustomTranslations,
+            fuzzyPinyin,
+            mixedInput,
+            frequency,
+            showCharacterWidth,
+            showInputModeHUD,
+            showEnglishSuggestions,
+            showModeScope,
+            mobileKeyboardFeedback,
+            mobileKeyboardFeedbackBusy,
+            saveMobileKeyboardFeedback,
+            previewMobileKeyboardHaptics,
+          },
+          utility: {
+            helpcode: {
+              value: draft,
+              mobile: mobilePlatform,
+              showShiftEntry: showHelpcodeShiftEntry,
+              disabled: busy,
+              hidden: page !== "helpcode",
+              ...helpcodeSettingsActions,
+            },
+            shortcuts: {
+              disabled: busy,
+              hidden: page !== "shortcuts",
+              mobile: mobilePlatform,
+              keybindings,
+              ...shortcutsSettingsActions,
+              showModeSwitchShortcuts,
+              macos: macosPlatform,
+              showInputModeHUD,
+              inputModeHUD,
+              showFullwidthChord,
+              fullwidthChord,
+              windows: windowsPlatform,
+              navigation,
+              numberRowSelection,
+              showNumberRowSelection,
+              showPanelShortcuts,
+              harmony: harmonyPlatform,
+              showDesktopMaintenanceShortcuts,
+              linux: linuxPlatform,
+              maintenanceChord,
+              showRestartInputMethod: Boolean(showRestartInputMethod),
+              restartInputMethod: client.restartInputMethod,
+              installInputSource: showInstallInputSource ? client.installInputSource : undefined,
+            },
+            utilities: {
+              disabled: busy,
+              hidden: page !== "tools",
+              clipboard: client.clipboard,
+              historyEnabled: clipboardHistory,
+              persistedHistoryEnabled: snapshot?.preferences.clipboard_history ?? false,
+              revision: snapshot?.revision,
+              page,
+              ios: iosPlatform,
+              macos: macosPlatform,
+              onToggleClipboard: toggleClipboardHistory,
+              onError: setError,
+              openCloudClipboard: client.openCloudClipboard,
+              openCloudDictionary: client.openCloudDictionary,
+              onOpenPanel: openPanel,
+              localModes,
+              ...utilitiesSettingsActions,
+            },
+            help: {
+              busy,
+              hidden: page !== "help",
+              macos: macosPlatform,
+              mobile: mobilePlatform,
+              ios: iosPlatform,
+              android: androidPlatform,
+              platformHelpIntro,
+              platformQuickStart,
+              platformNetworkDescription,
+              onOpenDocumentation: settingsExternalActions.onOpenDocumentation,
+              onOpenSystemKeyboardSettings: settingsExternalActions.onOpenSystemKeyboardSettings,
+            },
+          },
+          about: {
+            disabled: busy,
+            hidden: page !== "about",
+            logo,
+            description: platformAboutDescription,
+            currentAppVersion,
+            updateStatus,
+            updateBusy,
+            availableUpdate,
+            installerTrust,
+            licenseUrl: platformLicenseUrl,
+            privacyUrl: platformPrivacyUrl,
+            macos: macosPlatform,
+            linux: linuxPlatform,
+            windows: windowsPlatform || !client.host,
+            mobile: mobilePlatform,
+            dataDirectoryVisible: Boolean(
+              (macosPlatform || linuxPlatform) && client.dataDirectory,
+            ),
+            dataDirectory,
+            dataDirectoryBusy,
+            dataDirectoryResult,
+            ...aboutSettingsActions,
+            onOpenExternalUrl: openExternalUrl,
+            openThirdPartyLicenses: client.openThirdPartyLicenses,
+            uninstallInputSource: client.uninstallInputSource,
+            removeUserData: removeUserDataOnUninstall,
+            uninstallBusy,
+            uninstallConfirmation,
+            uninstallResult,
+            onRemoveUserDataChange: setRemoveUserDataOnUninstall,
+            onRequestUninstall: requestUninstall,
+            onCancelUninstall: cancelUninstall,
+            diagnosticVisible: !client.host || linuxPlatform || windowsPlatform || macosPlatform,
+            diagnosticLog,
+            openDiagnosticLogDirectory: client.openDiagnosticLogDirectory,
+            onDiagnosticLogError: setError,
+            telemetryEnabled: draft.telemetry_enabled,
+          },
+          interaction: {
+            screenKeyboard: {
+              disabled: busy,
+              hidden: page !== "screen-keyboard",
+              mobile: mobilePlatform,
+              screenKeyboardTheme: draft.screen_keyboard_theme ?? "follow",
+              previewTheme: keyboardPreviewTheme,
+              ...screenKeyboardActions,
+              selectedSkin: touchKeyboardSkin,
+              customDesign: customTouchKeyboardSkin,
+              customAvailable: Boolean(client.customTouchKeyboardSkins),
+              editorOpen: showTouchSkinEditor,
+              communityAvailable: Boolean(mobilePlatform && client.communitySkins),
+              library: client.customSkinLibrary,
+              aiSkins: client.aiSkins,
+              communitySkins: client.communitySkins,
+              heightAdjustment: touchKeyboardHeightAdjustment,
+              keySpacingTenths: touchKeySpacingTenths,
+              rowSpacingTenths: touchRowSpacingTenths,
+              touchVoiceShortcut: draft.touch_voice_shortcut ?? false,
+              toolbarComponents: Boolean(host?.touch_toolbar_components),
+              toolbar: draft.touch_toolbar,
+              tabletFullKeys: mobileKeyboardFeedback?.tabletFullKeys,
+              tabletFullKeysBusy: mobileKeyboardFeedbackBusy,
+              onPointerDown: beginTouchGeometryDrag,
+              onPointerMove: updateTouchGeometryDrag,
+              onPointerUp: endTouchGeometryDrag,
+              onPointerCancel: cancelTouchGeometryDrag,
+            },
+            handwriting: {
+              ios: iosPlatform,
+              android: androidPlatform,
+              harmony: harmonyPlatform,
+              macos: macosPlatform,
+              mobile: mobilePlatform,
+              openSystemKeyboardSettings: client.openSystemKeyboardSettings,
+              openHandwriting: client.openHandwriting,
+              onOpenHandwriting: settingsNavigationActions.onOpenHandwriting,
+            },
+            handwritingDisabled: busy,
+            handwritingHidden: page !== "handwriting",
+          },
+          voiceAi: {
+            voice: {
+              disabled: busy,
+              hidden: page !== "voice",
+              client,
+              draft,
+              setDraft,
+              confirm,
+              openExternalUrl,
+              openPanel,
+              voiceInput,
+              systemVoice,
+              systemVoiceHostName,
+              localVoiceAvailable,
+              localVoice,
+              serviceVoice,
+              harmonyUnsupportedAsr,
+              doubaoAuthMode,
+              updateVoice,
+              providerCredentials,
+              voiceCredentialInput,
+              setVoiceCredentialInput,
+              providerCredentialBusy,
+              providerCredentialMessages,
+              runVoiceCredential,
+              credentialTestControl,
+              providerPresetControls,
+              androidPlatform,
+              iosPlatform,
+              macosPlatform,
+              harmonyPlatform,
+              linuxPlatform,
+              windowsPlatform,
+              mobilePlatform,
+              nativeVoicePlatform,
+              desktopPanels,
+              showVoiceProviderSettings,
+              showVoiceStreamPreedit,
+              showVoiceCommitMode,
+              showVoiceCaptureDevices,
+              captureBackendOptions,
+            },
+            ai: {
+              disabled: busy,
+              hidden: page !== "ai",
+              client,
+              ai,
+              updateAi,
+              aiOrigin,
+              aiToken,
+              updateAiToken,
+              aiModels,
+              aiModelsStatus,
+              aiModelsBusy,
+              fetchAiModels,
+              aiTestInput,
+              setAiTestInput,
+              aiTestOutput,
+              aiTestStatus,
+              aiTestBusy,
+              testAi,
+              providerPresetControls,
+              linuxPlatform,
+              windowsPlatform,
+              macosPlatform,
+              iosPlatform,
+              androidPlatform,
+              providerCredentials,
+              storedAiCredential,
+              aiCredentialInput,
+              setAiCredentialInput,
+              providerCredentialBusy,
+              providerCredentialMessages,
+              runProviderCredential,
+              credentialTestControl,
+            },
+          },
+          feedback: {
+            disabled: busy,
+            hidden: page !== "feedback",
+            hero: doc.hero,
+            eyebrow: doc.eyebrow,
+            heroTitle: doc.heroTitle,
+            note: doc.note,
+            feedbackList: doc.feedbackList,
+            feedbackCard: doc.feedbackCard,
+            feedbackIcon: doc.feedbackIcon,
+            feedbackBody: doc.feedbackBody,
+            feedbackTitle: doc.feedbackTitle,
+            serviceRow: settings.serviceRow,
+            kind: feedbackKind,
+            detail: feedbackDetail,
+            reportCopied: feedbackReportCopied,
+            feedbackCopied,
+            supportDiagnostics: diagnosticsText,
+            issuesUrl: platformIssuesUrl,
+            copyText: client.copyText,
+            openExternalUrl,
+            onKindChange: setFeedbackKind,
+            onDetailChange: setFeedbackDetail,
+            onCopyReport: copyReport,
+            onSubmitFeedback: submitFeedback,
+            onOpenIssues: settingsExternalActions.onOpenIssues,
+            onCopyGroup: copyGroup,
+            onOpenTelegram: settingsExternalActions.onOpenTelegram,
+          },
+          footer: {
+            draft,
+            busy,
+            dirty,
+            showRestoreDefaults: Boolean(client.loadDefaultPreferences),
+            onRestoreDefaults: settingsNavigationActions.onRestoreDefaults,
+          },
+        }
+      : undefined;
   return (
     <SettingsPageLayout
       mobile={mobilePlatform}
@@ -2454,501 +2900,43 @@ export function SettingsPage({
       }}
       contentRef={settingsContentRef}
     >
-            {/* Three of the four tabs open on something that already names them — a headline, a
-                profile card, a row of figures — and the source prints no page title over any of
-                them. 社区 is the one that does. Hidden rather than dropped: it labels `main`. */}
-            <SettingsPageIntro
-              page={page}
-              mobile={mobilePlatform}
-              availablePages={availablePages}
-              status={{
-                draft,
-                error,
-                notice,
-                busy,
-                recoveredBackup,
-                canRecover: Boolean(client.recoverPreferences),
-                onRecover: settingsStatusActions.onRecover,
-                openPreferencesDirectory: client.openPreferencesDirectory,
-                macos: macosPlatform,
-                inputSourceStartup,
-                onOpenSettings: settingsStatusActions.onOpenSettings,
-                onDismiss: settingsStatusActions.onDismiss,
-                onError: setError,
-              }}
-              standalone={{
-                draft,
-                client,
-                accountPlatform,
-                keyboardPreviewTheme,
-                communityView,
-                communityKey: communityDestination,
-                mobileSecondaryPages: settingsPageLinks(mobileSecondaryPages),
-                settingsPageSelection,
-                selectHomeScheme,
-                onOpenChat: settingsNavigationActions.onOpenChat,
-                accountPageActions,
-                openAccountLogin,
-              }}
-            />
-            {draft && isSettingsFormPage(page) && (
-                <SettingsFormPages
-                  frame={{
-                    onSubmit: submitSettings,
-                    showReload: canReloadSettingsPage(page),
-                    busy,
-                    onReload: reloadSettings,
-                  }}
-                  visual={
-                    <SettingsVisualPages
-                    appearance={{
-                      disabled: busy,
-                      hidden: page !== "appearance",
-                      preferences: appearanceSettingsPreferences(draft, windowsPlatform),
-                      revision: snapshot?.revision ?? 0,
-                      mobile: mobilePlatform,
-                      linux: linuxPlatform,
-                      windows: host?.platform === "windows",
-                      candidatePreviewTheme,
-                      candidatePanelLimit: host?.candidate_panel_limit,
-                      showCandidateFollowCursor,
-                      showCandidateFontControls,
-                      showCandidateEnglishFont,
-                      showCandidatePreeditFont,
-                      showCandidateRowColors,
-                      showCandidateSelectionAppearance,
-                      showCandidateBorderColor,
-                      showShuangpinPreedit,
-                      fixedCandidatePageSize: host?.fixed_candidate_page_size !== undefined,
-                      fixedCandidateLayout: host?.fixed_candidate_layout !== undefined,
-                      floatingToolbar: showFloatingToolbar,
-                      desktopPanels,
-                      candidatePaletteFollowsDesktop: mobileKeyboardFeedback?.candidatePaletteFollowsDesktop,
-                      inlinePreedit: mobileKeyboardFeedback?.inlinePreedit,
-                      inlinePreeditBusy: mobileKeyboardFeedbackBusy,
-                      scan: client.scanSkinCatalog,
-                      readImage: client.readSkinImage,
-                      resolveFonts: client.resolveFontFamilies,
-                      listFontFamilies: client.listFontFamilies,
-                      ...appearanceSettingsActions,
-                    }}
-                    skin={{
-                      disabled: busy,
-                      hidden: page !== "skin",
-                      mobile: mobilePlatform,
-                      linux: linuxPlatform,
-                      candidatePanelLimit: host?.candidate_panel_limit,
-                      mobileKeyboardFeedback,
-                      mobileKeyboardFeedbackBusy,
-                      ...skinSettingsActions,
-                      candidateSkinCatalog: snapshot?.candidate_skin_catalog,
-                      selected: draft.candidate_skin ?? "willow_green",
-                      previewThemes: skinPreviewThemes,
-                      defaultTheme: candidatePreviewTheme,
-                      activeTheme: candidatePreviewTheme,
-                      scan: client.scanSkinCatalog,
-                      openDirectory: client.openSkinDirectory,
-                      importsSkin: host?.skin_directory_import === true,
-                      readImage: client.readSkinImage,
-                      readFont: client.readSkinFont,
-                      readToolbarCss: client.readSkinToolbarCss,
-                      layout: host?.fixed_candidate_layout ?? draft.candidate_layout ?? "vertical",
-                      toolbarPreview: !linuxPlatform,
-                    }}
-                    floatingToolbar={{
-                      disabled: busy,
-                      hidden: page !== "floating-toolbar",
-                      preferences: floatingToolbar,
-                      skin: draft.candidate_skin ?? "willow_green",
-                      theme: toolbarPreviewTheme,
-                      ...floatingToolbarActions,
-                      showAppearance: showToolbarAppearance,
-                      showComponents: showToolbarComponents,
-                      capabilities: host
-                        ? {
-                            floating_toolbar_handwriting: host.floating_toolbar_handwriting,
-                            floating_toolbar_voice: host.floating_toolbar_voice,
-                          }
-                        : undefined,
-                    }}
-                  />
-                  }
-                  dictionary={
-                    <SettingsDictionaryPage
-                    disabled={busy}
-                    hidden={page !== "dictionary"}
-                    dictionary={client.dictionary}
-                    dictionaryManifest={client.dictionaryManifest}
-                    platform={client.host?.platform}
-                    macos={macosPlatform}
-                    resetLearnedData={client.resetLearnedData}
-                    phraseBusy={phraseBusy}
-                    dictionaryFormat={dictionaryFormat}
-                    setDictionaryFormat={setDictionaryFormat}
-                    {...dictionaryPanelActions}
-                    dictionaryPendingCount={dictionaryPendingCount}
-                    dictionaryFailures={dictionaryFailures}
-                    dictionarySnapshotError={dictionarySnapshotError}
-                    canRetry={Boolean(client.dictionary?.retry)}
-                    canDismiss={Boolean(client.dictionary?.dismissFailure)}
-                    dictionaryKind={dictionaryKind}
-                    phraseSearch={phraseSearch}
-                    setDictionaryKind={setDictionaryKind}
-                    setPhraseSearch={setPhraseSearch}
-                    phraseError={phraseError}
-                    phraseNotice={phraseNotice}
-                    phrases={phrases}
-                    setPhrases={setPhrases}
-                    phraseForm={phraseForm}
-                    phraseListRef={phraseListRef}
-                    setPhraseForm={setPhraseForm}
-                    onTurnPage={turnPhrasePage}
-                    phrasePage={phrasePage}
-                  />
-                  }
-                  input={
-                    <SettingsInputPage
-                    disabled={busy}
-                    hidden={page !== "input"}
-                    client={client}
-                    draft={draft}
-                    setDraft={setDraft}
-                    confirm={confirm}
-                    onOpenAi={settingsNavigationActions.onOpenAi}
-                    openExternalUrl={openExternalUrl}
-                    onError={setError}
-                    iosPlatform={iosPlatform}
-                    harmonyPlatform={harmonyPlatform}
-                    androidPlatform={androidPlatform}
-                    mobilePlatform={mobilePlatform}
-                    macosPlatform={macosPlatform}
-                    linuxPlatform={linuxPlatform}
-                    windowsPlatform={windowsPlatform}
-                    touchKeyboardSchemes={touchKeyboardSchemes}
-                    selectedTouchKeyboardScheme={selectedTouchKeyboardScheme}
-                    setTouchKeyboardSchemeEnabled={setTouchKeyboardSchemeEnabled}
-                    macosShuangpinKeymap={macosShuangpinKeymap}
-                    setShuangpinKeymap={setShuangpinKeymap}
-                    macosWubiAutoCommitUnique={macosWubiAutoCommitUnique}
-                    setWubiAutoCommitUnique={setWubiAutoCommitUnique}
-                    wordCharacter={wordCharacter}
-                    candidateTranslations={candidateTranslations}
-                    candidateGlossLanguagesEnabled={candidateGlossLanguagesEnabled}
-                    translationTargetLanguage={translationTargetLanguage}
-                    translationSecondaryLanguage={translationSecondaryLanguage}
-                    visibleTranslationLanguages={visibleTranslationLanguages}
-                    visibleSecondaryLanguages={visibleSecondaryLanguages}
-                    customTranslation={customTranslation}
-                    tencentTranslation={tencentTranslation}
-                    niutrans={niutrans}
-                    translationProvider={translationProvider}
-                    onDeviceMissingLanguages={onDeviceMissingLanguages}
-                    setTranslationProvider={setTranslationProvider}
-                    providerCredentials={providerCredentials}
-                    tencentCredentialInput={tencentCredentialInput}
-                    setTencentCredentialInput={setTencentCredentialInput}
-                    providerCredentialBusy={providerCredentialBusy}
-                    providerCredentialMessages={providerCredentialMessages}
-                    runProviderCredential={runProviderCredential}
-                    credentialTestControl={credentialTestControl}
-                    customTranslationsText={customTranslationsText}
-                    setCustomTranslationsText={setCustomTranslationsText}
-                    customTranslationsNotice={customTranslationsNotice}
-                    customTranslationsSummary={customTranslationsSummary}
-                    customTranslationsBusy={customTranslationsBusy}
-                    customTranslationsPlaceholder={customTranslationsPlaceholder}
-                    saveCustomTranslations={saveCustomTranslations}
-                    fuzzyPinyin={fuzzyPinyin}
-                    mixedInput={mixedInput}
-                    frequency={frequency}
-                    showCharacterWidth={showCharacterWidth}
-                    showInputModeHUD={showInputModeHUD}
-                    showEnglishSuggestions={showEnglishSuggestions}
-                    showModeScope={showModeScope}
-                    mobileKeyboardFeedback={mobileKeyboardFeedback}
-                    mobileKeyboardFeedbackBusy={mobileKeyboardFeedbackBusy}
-                    saveMobileKeyboardFeedback={saveMobileKeyboardFeedback}
-                    previewMobileKeyboardHaptics={previewMobileKeyboardHaptics}
-                  />
-                  }
-                  utility={
-                    <SettingsUtilityPages
-                    helpcode={{
-                      value: draft,
-                      mobile: mobilePlatform,
-                      showShiftEntry: showHelpcodeShiftEntry,
-                      disabled: busy,
-                      hidden: page !== "helpcode",
-                      ...helpcodeSettingsActions,
-                    }}
-                    shortcuts={{
-                      disabled: busy,
-                      hidden: page !== "shortcuts",
-                      mobile: mobilePlatform,
-                      keybindings,
-                      ...shortcutsSettingsActions,
-                      showModeSwitchShortcuts,
-                      macos: macosPlatform,
-                      showInputModeHUD,
-                      inputModeHUD,
-                      showFullwidthChord,
-                      fullwidthChord,
-                      windows: windowsPlatform,
-                      navigation,
-                      numberRowSelection,
-                      showNumberRowSelection,
-                      showPanelShortcuts,
-                      harmony: harmonyPlatform,
-                      showDesktopMaintenanceShortcuts,
-                      linux: linuxPlatform,
-                      maintenanceChord,
-                      showRestartInputMethod: Boolean(showRestartInputMethod),
-                      restartInputMethod: client.restartInputMethod,
-                      installInputSource: showInstallInputSource ? client.installInputSource : undefined,
-                    }}
-                    utilities={{
-                      disabled: busy,
-                      hidden: page !== "tools",
-                      clipboard: client.clipboard,
-                      historyEnabled: clipboardHistory,
-                      persistedHistoryEnabled: snapshot?.preferences.clipboard_history ?? false,
-                      revision: snapshot?.revision,
-                      page,
-                      ios: iosPlatform,
-                      macos: macosPlatform,
-                      onToggleClipboard: toggleClipboardHistory,
-                      onError: setError,
-                      openCloudClipboard: client.openCloudClipboard,
-                      openCloudDictionary: client.openCloudDictionary,
-                      onOpenPanel: openPanel,
-                      localModes,
-                      ...utilitiesSettingsActions,
-                    }}
-                    help={{
-                      busy,
-                      hidden: page !== "help",
-                      macos: macosPlatform,
-                      mobile: mobilePlatform,
-                      ios: iosPlatform,
-                      android: androidPlatform,
-                      platformHelpIntro,
-                      platformQuickStart,
-                      platformNetworkDescription,
-                      onOpenDocumentation: settingsExternalActions.onOpenDocumentation,
-                      onOpenSystemKeyboardSettings:
-                        settingsExternalActions.onOpenSystemKeyboardSettings,
-                    }}
-                  />
-                  }
-                  about={
-                    <SettingsAboutPage
-                    disabled={busy}
-                    hidden={page !== "about"}
-                    logo={logo}
-                    description={platformAboutDescription}
-                    currentAppVersion={currentAppVersion}
-                    updateStatus={updateStatus}
-                    updateBusy={updateBusy}
-                    availableUpdate={availableUpdate}
-                    installerTrust={installerTrust}
-                    licenseUrl={platformLicenseUrl}
-                    privacyUrl={platformPrivacyUrl}
-                    macos={macosPlatform}
-                    linux={linuxPlatform}
-                    windows={windowsPlatform || !client.host}
-                    mobile={mobilePlatform}
-                    dataDirectoryVisible={Boolean(
-                      (macosPlatform || linuxPlatform) && client.dataDirectory,
-                    )}
-                    dataDirectory={dataDirectory}
-                    dataDirectoryBusy={dataDirectoryBusy}
-                    dataDirectoryResult={dataDirectoryResult}
-                    {...aboutSettingsActions}
-                    onOpenExternalUrl={openExternalUrl}
-                    openThirdPartyLicenses={client.openThirdPartyLicenses}
-                    uninstallInputSource={client.uninstallInputSource}
-                    removeUserData={removeUserDataOnUninstall}
-                    uninstallBusy={uninstallBusy}
-                    uninstallConfirmation={uninstallConfirmation}
-                    uninstallResult={uninstallResult}
-                    onRemoveUserDataChange={setRemoveUserDataOnUninstall}
-                    onRequestUninstall={requestUninstall}
-                    onCancelUninstall={cancelUninstall}
-                    diagnosticVisible={
-                      !client.host || linuxPlatform || windowsPlatform || macosPlatform
-                    }
-                    diagnosticLog={diagnosticLog}
-                    openDiagnosticLogDirectory={client.openDiagnosticLogDirectory}
-                    onDiagnosticLogError={setError}
-                    telemetryEnabled={draft.telemetry_enabled}
-                  />
-                  }
-                  interaction={
-                    <SettingsInteractionPages
-                    screenKeyboard={{
-                      disabled: busy,
-                      hidden: page !== "screen-keyboard",
-                      mobile: mobilePlatform,
-                      screenKeyboardTheme: draft.screen_keyboard_theme ?? "follow",
-                      previewTheme: keyboardPreviewTheme,
-                      ...screenKeyboardActions,
-                      selectedSkin: touchKeyboardSkin,
-                      customDesign: customTouchKeyboardSkin,
-                      customAvailable: Boolean(client.customTouchKeyboardSkins),
-                      editorOpen: showTouchSkinEditor,
-                      communityAvailable: Boolean(mobilePlatform && client.communitySkins),
-                      library: client.customSkinLibrary,
-                      aiSkins: client.aiSkins,
-                      communitySkins: client.communitySkins,
-                      heightAdjustment: touchKeyboardHeightAdjustment,
-                      keySpacingTenths: touchKeySpacingTenths,
-                      rowSpacingTenths: touchRowSpacingTenths,
-                      touchVoiceShortcut: draft.touch_voice_shortcut ?? false,
-                      toolbarComponents: Boolean(host?.touch_toolbar_components),
-                      toolbar: draft.touch_toolbar,
-                      tabletFullKeys: mobileKeyboardFeedback?.tabletFullKeys,
-                      tabletFullKeysBusy: mobileKeyboardFeedbackBusy,
-                      onPointerDown: beginTouchGeometryDrag,
-                      onPointerMove: updateTouchGeometryDrag,
-                      onPointerUp: endTouchGeometryDrag,
-                      onPointerCancel: cancelTouchGeometryDrag,
-                    }}
-                    handwriting={{
-                      ios: iosPlatform,
-                      android: androidPlatform,
-                      harmony: harmonyPlatform,
-                      macos: macosPlatform,
-                      mobile: mobilePlatform,
-                      openSystemKeyboardSettings: client.openSystemKeyboardSettings,
-                      openHandwriting: client.openHandwriting,
-                      onOpenHandwriting: settingsNavigationActions.onOpenHandwriting,
-                    }}
-                    handwritingDisabled={busy}
-                    handwritingHidden={page !== "handwriting"}
-                  />
-                  }
-                  voiceAi={
-                    <SettingsVoiceAiPages
-                    voice={{
-                      disabled: busy,
-                      hidden: page !== "voice",
-                      client,
-                      draft,
-                      setDraft,
-                      confirm,
-                      openExternalUrl,
-                      openPanel,
-                      voiceInput,
-                      systemVoice,
-                      systemVoiceHostName,
-                      localVoiceAvailable,
-                      localVoice,
-                      serviceVoice,
-                      harmonyUnsupportedAsr,
-                      doubaoAuthMode,
-                      updateVoice,
-                      providerCredentials,
-                      voiceCredentialInput,
-                      setVoiceCredentialInput,
-                      providerCredentialBusy,
-                      providerCredentialMessages,
-                      runVoiceCredential,
-                      credentialTestControl,
-                      providerPresetControls,
-                      androidPlatform,
-                      iosPlatform,
-                      macosPlatform,
-                      harmonyPlatform,
-                      linuxPlatform,
-                      windowsPlatform,
-                      mobilePlatform,
-                      nativeVoicePlatform,
-                      desktopPanels,
-                      showVoiceProviderSettings,
-                      showVoiceStreamPreedit,
-                      showVoiceCommitMode,
-                      showVoiceCaptureDevices,
-                      captureBackendOptions,
-                    }}
-                    ai={{
-                      disabled: busy,
-                      hidden: page !== "ai",
-                      client,
-                      ai,
-                      updateAi,
-                      aiOrigin,
-                      aiToken,
-                      updateAiToken,
-                      aiModels,
-                      aiModelsStatus,
-                      aiModelsBusy,
-                      fetchAiModels,
-                      aiTestInput,
-                      setAiTestInput,
-                      aiTestOutput,
-                      aiTestStatus,
-                      aiTestBusy,
-                      testAi,
-                      providerPresetControls,
-                      linuxPlatform,
-                      windowsPlatform,
-                      macosPlatform,
-                      iosPlatform,
-                      androidPlatform,
-                      providerCredentials,
-                      storedAiCredential,
-                      aiCredentialInput,
-                      setAiCredentialInput,
-                      providerCredentialBusy,
-                      providerCredentialMessages,
-                      runProviderCredential,
-                      credentialTestControl,
-                    }}
-                  />
-                  }
-                  feedback={
-                    <SettingsFeedbackPage
-                    disabled={busy}
-                    hidden={page !== "feedback"}
-                    hero={doc.hero}
-                    eyebrow={doc.eyebrow}
-                    heroTitle={doc.heroTitle}
-                    note={doc.note}
-                    feedbackList={doc.feedbackList}
-                    feedbackCard={doc.feedbackCard}
-                    feedbackIcon={doc.feedbackIcon}
-                    feedbackBody={doc.feedbackBody}
-                    feedbackTitle={doc.feedbackTitle}
-                    serviceRow={settings.serviceRow}
-                    kind={feedbackKind}
-                    detail={feedbackDetail}
-                    reportCopied={feedbackReportCopied}
-                    feedbackCopied={feedbackCopied}
-                    supportDiagnostics={diagnosticsText}
-                    issuesUrl={platformIssuesUrl}
-                    copyText={client.copyText}
-                    openExternalUrl={client.openExternalUrl}
-                    onKindChange={setFeedbackKind}
-                    onDetailChange={setFeedbackDetail}
-                    onCopyReport={copyReport}
-                    onSubmitFeedback={submitFeedback}
-                    onOpenIssues={settingsExternalActions.onOpenIssues}
-                    onCopyGroup={copyGroup}
-                    onOpenTelegram={settingsExternalActions.onOpenTelegram}
-                  />
-                  }
-                  footer={
-                    <SettingsFormFooter
-                    draft={draft}
-                    busy={busy}
-                    dirty={dirty}
-                    showRestoreDefaults={Boolean(client.loadDefaultPreferences)}
-                    onRestoreDefaults={settingsNavigationActions.onRestoreDefaults}
-                  />
-                  }
-                >
-                </SettingsFormPages>
-              )}
+      <SettingsPageContent
+        intro={{
+          page,
+          mobile: mobilePlatform,
+          availablePages,
+          status: {
+            draft,
+            error,
+            notice,
+            busy,
+            recoveredBackup,
+            canRecover: Boolean(client.recoverPreferences),
+            onRecover: settingsStatusActions.onRecover,
+            openPreferencesDirectory: client.openPreferencesDirectory,
+            macos: macosPlatform,
+            inputSourceStartup,
+            onOpenSettings: settingsStatusActions.onOpenSettings,
+            onDismiss: settingsStatusActions.onDismiss,
+            onError: setError,
+          },
+          standalone: {
+            draft,
+            client,
+            accountPlatform,
+            keyboardPreviewTheme,
+            communityView,
+            communityKey: communityDestination,
+            mobileSecondaryPages: settingsPageLinks(mobileSecondaryPages),
+            settingsPageSelection,
+            selectHomeScheme,
+            onOpenChat: settingsNavigationActions.onOpenChat,
+            accountPageActions,
+            openAccountLogin,
+          },
+        }}
+        form={settingsPageForm}
+      />
     </SettingsPageLayout>
   );
 }
