@@ -7,6 +7,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use unicode_segmentation::UnicodeSegmentation;
 
 const MAX_ENTRIES: usize = 50;
+/// Keep the decoder's allocation bounded before deduplication and the visible-entry limit.
+/// Legacy migrations may contain duplicates, so this is larger than `MAX_ENTRIES` while still
+/// rejecting an unbounded JSON array of tiny strings.
+const MAX_INPUT_ENTRIES: usize = MAX_ENTRIES * 100;
 pub const MAX_TEXT_UTF16_UNITS: usize = 4000;
 pub const MAX_TEXT_BYTES: usize = MAX_TEXT_UTF16_UNITS * 3;
 pub const MAX_MOBILE_TEXT_CHARACTERS: usize = 10_000;
@@ -67,6 +71,7 @@ impl ClipboardHistoryStore {
                         "clipboard history exceeds size limit",
                     )
                 })?;
+                validate_item_count(&bytes)?;
                 let stored: StoredHistory = serde_json::from_slice(&bytes).map_err(|_| {
                     std::io::Error::new(
                         std::io::ErrorKind::InvalidData,
@@ -322,10 +327,52 @@ pub fn mobile_text_is_valid(text: &str) -> bool {
 }
 
 fn valid_stored(text: &str) -> bool {
-    !text.is_empty()
+    !text.trim().is_empty()
         && text.len() <= MAX_MOBILE_TEXT_BYTES
         && text.graphemes(true).count() <= MAX_MOBILE_TEXT_CHARACTERS
         && valid_characters(text)
+}
+
+fn validate_item_count(bytes: &[u8]) -> std::io::Result<()> {
+    struct CountVisitor;
+
+    impl<'de> serde::de::Visitor<'de> for CountVisitor {
+        type Value = ();
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("a bounded clipboard history array")
+        }
+
+        fn visit_seq<A>(self, mut sequence: A) -> Result<(), A::Error>
+        where
+            A: serde::de::SeqAccess<'de>,
+        {
+            let mut count = 0;
+            while sequence.next_element::<serde::de::IgnoredAny>()?.is_some() {
+                count += 1;
+                if count > MAX_INPUT_ENTRIES {
+                    return Err(serde::de::Error::custom(
+                        "clipboard history contains too many entries",
+                    ));
+                }
+            }
+            Ok(())
+        }
+    }
+
+    let mut deserializer = serde_json::Deserializer::from_slice(bytes);
+    serde::Deserializer::deserialize_seq(&mut deserializer, CountVisitor).map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "invalid clipboard history document",
+        )
+    })?;
+    deserializer.end().map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "invalid clipboard history document",
+        )
+    })
 }
 
 // Matches the Windows history, which keeps every control character as user content; NUL is the one exception because the source stores C strings and the native bridges rely on NUL-free text.
@@ -496,6 +543,35 @@ mod tests {
         assert_eq!(store.entries().len(), MAX_ENTRIES);
         assert_eq!(store.entries()[0].text, "synthetic-first");
         assert_eq!(store.entries()[49].text, "synthetic-48");
+    }
+
+    #[test]
+    fn load_rejects_an_unbounded_number_of_entries() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("history.json");
+        let values: Vec<_> = (0..=MAX_INPUT_ENTRIES)
+            .map(|index| format!("synthetic-{index}"))
+            .collect();
+        fs::write(&path, serde_json::to_vec(&values).unwrap()).unwrap();
+        let mut store = ClipboardHistoryStore::open(&path);
+        assert_eq!(
+            store.load().unwrap_err().kind(),
+            std::io::ErrorKind::InvalidData
+        );
+    }
+
+    #[test]
+    fn load_discards_whitespace_only_records() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("history.json");
+        fs::write(
+            &path,
+            br#"[{"text":" \n\t","timestampMs":2,"pinned":false},{"text":"synthetic","timestampMs":1,"pinned":false}]"#,
+        )
+        .unwrap();
+        let mut store = ClipboardHistoryStore::open(&path);
+        store.load().unwrap();
+        assert_eq!(texts(&store), ["synthetic"]);
     }
 
     #[test]

@@ -335,6 +335,18 @@ impl TypingStatistics {
         if self.total > MAX_COUNT {
             return Err(TypingStatisticsError::InvalidDocument);
         }
+        if self.selections.ranks.len() > RANKS
+            || self.selections.beyond > MAX_COUNT
+            || self.selections.ranks.iter().any(|count| *count > MAX_COUNT)
+            || self
+                .selections
+                .ranks
+                .iter()
+                .try_fold(self.selections.beyond, |sum, count| sum.checked_add(*count))
+                .is_none_or(|sum| sum > MAX_COUNT)
+        {
+            return Err(TypingStatisticsError::InvalidDocument);
+        }
         validate_counts(&self.detail, self.total)?;
         for (day, count) in &self.days {
             validate_day(day)?;
