@@ -192,7 +192,8 @@ impl VocabularyProgress {
         let Some(boundary) = crate::calendar::shift_day(today, -(MAX_RETAINED_DAYS as i64)) else {
             return;
         };
-        self.daily.retain(|day, _| day.as_str() > boundary.as_str());
+        self.daily
+            .retain(|day, _| day.as_str() >= boundary.as_str());
     }
 }
 
@@ -619,6 +620,22 @@ mod tests {
             document.card("cet-4", "ubiquitous").is_some(),
             "a card studied long ago is exactly the card the schedule exists to bring back"
         );
+    }
+
+    #[test]
+    fn retention_keeps_the_exact_boundary_day() {
+        let (_directory, store) = store();
+        let book = book_of(&["ubiquitous", "ephemeral"]);
+        let boundary = crate::calendar::shift_day(TODAY, -(MAX_RETAINED_DAYS as i64)).unwrap();
+
+        store
+            .answer(&book, "ubiquitous", ReviewGrade::Known, &boundary)
+            .unwrap();
+        store
+            .answer(&book, "ephemeral", ReviewGrade::Known, TODAY)
+            .unwrap();
+
+        assert_eq!(store.load().unwrap().answered_on(&boundary), 1);
     }
 
     #[test]
