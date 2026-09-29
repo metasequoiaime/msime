@@ -24,7 +24,32 @@ pub const BUSY: &str = "dictionary maintenance busy";
 /// unbounded allocation when a writer is dropped.
 const MAX_LEASE_BYTES: u64 = 4096;
 
+fn reject_symlinked_path_ancestors(path: &Path) -> std::io::Result<()> {
+    let mut current = path;
+    loop {
+        match std::fs::symlink_metadata(current) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "dictionary lease path is a symbolic link",
+                ));
+            }
+            Ok(_) => return Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+        let parent = current
+            .parent()
+            .ok_or_else(|| std::io::Error::other("dictionary lease path has no parent"))?;
+        if parent == current {
+            return Ok(());
+        }
+        current = parent;
+    }
+}
+
 fn read_lease(path: &Path) -> Option<String> {
+    reject_symlinked_path_ancestors(path).ok()?;
     let bytes = crate::bounded_io::read_bounded_file_with(
         File::open(path).ok()?,
         MAX_LEASE_BYTES,
@@ -77,6 +102,8 @@ impl Lease {
             std::process::id(),
             self.serial
         ));
+        reject_symlinked_path_ancestors(&self.path)?;
+        reject_symlinked_path_ancestors(&staged)?;
         // The owner line tells this lease from one another writer put up; the expiry alone could coincide.
         let contents = format!("{expiry}\n{}\n", self.owner);
         if let Err(error) =
@@ -277,6 +304,19 @@ mod tests {
         let path = directory.path().join(LEASE_NAME);
         std::fs::write(&path, vec![b'x'; MAX_LEASE_BYTES as usize + 1]).unwrap();
         assert_eq!(read_lease(&path), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_user_data_is_rejected_without_writing_outside() {
+        use std::os::unix::fs::symlink;
+
+        let target = tempfile::tempdir().unwrap();
+        let parent = tempfile::tempdir().unwrap();
+        let linked = parent.path().join("linked-user-data");
+        symlink(target.path(), &linked).unwrap();
+        assert!(Lease::acquire(&linked).is_err());
+        assert!(!target.path().join(LEASE_NAME).exists());
     }
 
     #[test]

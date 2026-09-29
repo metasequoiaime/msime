@@ -81,6 +81,20 @@ int main() {
   std::filesystem::remove(root / ".msime-dictionary-quiesce");
   assert(!raise_dictionary_quiesce_lease("relative", written, 1000000));
   assert(!raise_dictionary_quiesce_lease((root / "missing").string(), written, 1000000));
+
+  char outside_pattern[] = "/tmp/msime-quiesce-outside-XXXXXX";
+  const std::filesystem::path outside = mkdtemp(outside_pattern);
+  char link_pattern[] = "/tmp/msime-quiesce-link-XXXXXX";
+  const std::filesystem::path link_parent = mkdtemp(link_pattern);
+  const auto linked = link_parent / "linked-user-data";
+  std::filesystem::create_directory_symlink(outside, linked);
+  assert(!raise_dictionary_quiesce_lease(linked.string(), written, 1000000));
+  assert(!dictionary_quiesced(linked.string(), 1000000));
+  lower_dictionary_quiesce_lease(linked.string(), written);
+  assert(std::filesystem::is_empty(outside));
+  std::filesystem::remove(linked);
+  std::filesystem::remove_all(link_parent);
+  std::filesystem::remove_all(outside);
   std::filesystem::remove_all(root);
   return 0;
 }
