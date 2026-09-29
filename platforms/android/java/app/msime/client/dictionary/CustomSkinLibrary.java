@@ -83,9 +83,7 @@ public final class CustomSkinLibrary {
         String bounded = name.trim();
         if (bounded.isEmpty() || bounded.length() > MAX_NAME_LENGTH) return false;
         Path root = checkedRoot(preferencesDirectory);
-        if (!Files.exists(root, LinkOption.NOFOLLOW_LINKS)) Files.createDirectories(root);
-        if (!Files.isDirectory(root, LinkOption.NOFOLLOW_LINKS))
-            throw new IOException("Invalid preferences directory");
+        ensureSafeDirectory(root);
         List<Item> existing = read(root);
         JSONArray values = new JSONArray();
         boolean replaced = false;
@@ -104,9 +102,7 @@ public final class CustomSkinLibrary {
         byte[] document = values.toString().getBytes(StandardCharsets.UTF_8);
         if (document.length > MAX_LIBRARY_BYTES) return false;
         Path directory = root.resolve("CustomSkins");
-        if (!Files.exists(directory, LinkOption.NOFOLLOW_LINKS)) Files.createDirectories(directory);
-        if (!Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS))
-            throw new IOException("Invalid custom skin directory");
+        ensureSafeDirectory(directory);
         Path pending = directory.resolve("library.json.pending");
         if (Files.exists(pending, LinkOption.NOFOLLOW_LINKS)
                 && !Files.isRegularFile(pending, LinkOption.NOFOLLOW_LINKS))
@@ -124,8 +120,24 @@ public final class CustomSkinLibrary {
     private static Path checkedRoot(Path preferencesDirectory) throws IOException {
         if (preferencesDirectory == null) throw new IOException("Invalid preferences directory");
         Path root = preferencesDirectory.toAbsolutePath().normalize();
-        if (Files.isSymbolicLink(root)) throw new IOException("Invalid preferences directory");
+        Path current = root.getRoot();
+        if (current == null) throw new IOException("Invalid preferences directory");
+        for (Path component : root) {
+            current = current.resolve(component);
+            if (Files.isSymbolicLink(current)) throw new IOException("Invalid preferences directory");
+        }
         return root;
+    }
+
+    static void ensureSafeDirectory(Path directory) throws IOException {
+        Path absolute = checkedRoot(directory);
+        if (Files.exists(absolute, LinkOption.NOFOLLOW_LINKS)
+                && !Files.isDirectory(absolute, LinkOption.NOFOLLOW_LINKS))
+            throw new IOException("Invalid custom skin directory");
+        Files.createDirectories(absolute);
+        checkedRoot(absolute);
+        if (!Files.isDirectory(absolute, LinkOption.NOFOLLOW_LINKS))
+            throw new IOException("Invalid custom skin directory");
     }
 
     private static JSONObject entry(String id, String name, JSONObject design) {

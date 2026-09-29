@@ -44,6 +44,23 @@ public final class CustomSkinLibrarySmoke {
             Files.delete(directory);
             Files.createDirectories(directory);
 
+            Path parentOutside = outside.resolve("parent-outside");
+            Files.createDirectories(parentOutside);
+            Path linkedParent = root.resolve("linked-parent");
+            Files.createSymbolicLink(linkedParent, parentOutside);
+            boolean parentRejected = false;
+            try {
+                java.lang.reflect.Method ensure = CustomSkinLibrary.class
+                    .getDeclaredMethod("ensureSafeDirectory", Path.class);
+                ensure.setAccessible(true);
+                ensure.invoke(null, linkedParent.resolve("preferences"));
+            } catch (java.lang.reflect.InvocationTargetException expected) {
+                check(expected.getCause() instanceof java.io.IOException);
+                parentRejected = true;
+            }
+            check(parentRejected);
+            check(!Files.exists(parentOutside.resolve("preferences/CustomSkins/library.json")));
+
             Path externalRoot = outside.resolve("preferences");
             Files.createDirectories(externalRoot.resolve("CustomSkins"));
             Path linkedRoot = root.resolve("linked-preferences");
