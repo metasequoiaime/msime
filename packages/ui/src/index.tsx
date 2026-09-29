@@ -123,6 +123,7 @@ export {
 } from "./dictionary/dictionary-export";
 export { describeImportResult, dictionaryKindKeyHint } from "./dictionary/dictionary-messages";
 import { AppearanceSettingsSection } from "./settings/appearance-settings-section";
+import { createAppearanceSettingsActions } from "./settings/appearance-settings-actions";
 import { appearanceSettingsPreferences } from "./settings/appearance-settings-preferences";
 import {
   useSettingsPreviewThemes,
@@ -627,6 +628,10 @@ export {
   AppearanceSettingsSection,
   type AppearanceSettingsSectionProps,
 } from "./settings/appearance-settings-section";
+export {
+  createAppearanceSettingsActions,
+  type CreateAppearanceSettingsActionsOptions,
+} from "./settings/appearance-settings-actions";
 export { CandidatePaletteFallbackNotice } from "./settings/candidate-palette-fallback-notice";
 export {
   AiLinuxProviderSection,
@@ -2216,6 +2221,12 @@ export function SettingsPage({
     setDraft,
     setSkinPreviewThemes,
   });
+  const appearanceSettingsActions = createAppearanceSettingsActions({
+    draft,
+    mobileKeyboardFeedback,
+    saveMobileKeyboardFeedback,
+    setDraft,
+  });
   const installerTrust = availableUpdate
     ? describeInstallerTrust(availableUpdate, releasePlatform)
     : null;
@@ -2512,14 +2523,7 @@ export function SettingsPage({
                     readImage={client.readSkinImage}
                     resolveFonts={client.resolveFontFamilies}
                     listFontFamilies={client.listFontFamilies}
-                    onPreferencesChange={(patch) => setDraft({ ...draft, ...patch })}
-                    onInlinePreeditChange={(inlinePreedit) =>
-                      mobileKeyboardFeedback &&
-                      void saveMobileKeyboardFeedback({
-                        ...mobileKeyboardFeedback,
-                        inlinePreedit,
-                      })
-                    }
+                    {...appearanceSettingsActions}
                   />
                   <DictionarySettingsPanel
                     disabled={busy}
