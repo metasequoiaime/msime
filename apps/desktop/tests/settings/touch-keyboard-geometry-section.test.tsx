@@ -1,7 +1,11 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { TouchKeyboardGeometrySection, type TouchToolbarPreferences } from "@msime/ui";
+import {
+  defaultTouchKeyboardGeometry,
+  TouchKeyboardGeometrySection,
+  type TouchToolbarPreferences,
+} from "@msime/ui";
 
 afterEach(() => {
   cleanup();
@@ -36,6 +40,14 @@ const baseProps = {
   onTabletFullKeysChange: vi.fn(),
   onReset: vi.fn(),
 };
+
+test("publishes the shared touch keyboard geometry defaults", () => {
+  expect(defaultTouchKeyboardGeometry).toEqual({
+    heightAdjustment: 0,
+    keySpacingTenths: 60,
+    rowSpacingTenths: 70,
+  });
+});
 
 test("forwards geometry, toolbar, feedback, and reset actions", () => {
   render(<TouchKeyboardGeometrySection {...baseProps} />);

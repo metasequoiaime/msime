@@ -5,6 +5,7 @@ import {
   type SettingsClient,
   type Snapshot,
   type TouchKeyboardSkinDesign,
+  defaultTouchKeyboardGeometry,
   keyboardThemeId,
 } from "@msime/ui";
 import { useCandidatePreviewTheme } from "../../../../packages/ui/src/candidate/candidate-preview-theme";
@@ -81,8 +82,10 @@ export function DesktopKeyboard({
   );
   const layout =
     snapshot?.preferences.touch_keyboard_layout === "nine_key" ? "nine_key" : "twenty_six_key";
-  const keySpacingTenths = snapshot?.preferences.touch_key_spacing_tenths ?? 60;
-  const rowSpacingTenths = snapshot?.preferences.touch_row_spacing_tenths ?? 70;
+  const keySpacingTenths =
+    snapshot?.preferences.touch_key_spacing_tenths ?? defaultTouchKeyboardGeometry.keySpacingTenths;
+  const rowSpacingTenths =
+    snapshot?.preferences.touch_row_spacing_tenths ?? defaultTouchKeyboardGeometry.rowSpacingTenths;
   const skin = keyboardThemeId(
     snapshot?.preferences.global_theme,
     snapshot?.preferences.custom_theme,

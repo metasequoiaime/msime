@@ -70,6 +70,8 @@ import { useSettingsTheme } from "./settings/use-settings-theme";
 export { useSettingsTheme } from "./settings/use-settings-theme";
 export { updateCandidateColor, updateCustomKeyboard } from "./settings/theme-selection-updates";
 import { useTouchKeyboardGeometryDrag } from "./settings/use-touch-keyboard-geometry-drag";
+import { defaultTouchKeyboardGeometry } from "./settings/touch-keyboard-geometry-defaults";
+export { defaultTouchKeyboardGeometry } from "./settings/touch-keyboard-geometry-defaults";
 export { useTouchKeyboardGeometryDrag } from "./settings/use-touch-keyboard-geometry-drag";
 import { useMobileKeyboardFeedback } from "./settings/use-mobile-keyboard-feedback";
 export {
@@ -2081,9 +2083,12 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   // A custom theme without a keyboard design draws its base's keyboard, so the custom keyboard card is selected only when the theme carries one.
   const customKeyboardSelected = globalTheme === "custom" && Boolean(draft?.custom_theme?.keyboard);
   useEffect(() => setSkinPreviewThemes({}), [candidatePreviewTheme]);
-  const touchKeySpacingTenths = draft?.touch_key_spacing_tenths ?? 60;
-  const touchRowSpacingTenths = draft?.touch_row_spacing_tenths ?? 70;
-  const touchKeyboardHeightAdjustment = draft?.touch_keyboard_height_adjustment ?? 0;
+  const touchKeySpacingTenths =
+    draft?.touch_key_spacing_tenths ?? defaultTouchKeyboardGeometry.keySpacingTenths;
+  const touchRowSpacingTenths =
+    draft?.touch_row_spacing_tenths ?? defaultTouchKeyboardGeometry.rowSpacingTenths;
+  const touchKeyboardHeightAdjustment =
+    draft?.touch_keyboard_height_adjustment ?? defaultTouchKeyboardGeometry.heightAdjustment;
   const installerTrust = availableUpdate
     ? describeInstallerTrust(
         availableUpdate,

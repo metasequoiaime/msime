@@ -6,6 +6,7 @@ import {
 } from "react";
 import { clamp } from "../core/number";
 import type { Preferences } from "../index";
+import { defaultTouchKeyboardGeometry } from "./touch-keyboard-geometry-defaults";
 
 type TouchGeometryDrag = {
   pointerId: number;
@@ -29,8 +30,10 @@ export function useTouchKeyboardGeometryDrag(
       pointerId: event.pointerId,
       x: event.clientX,
       y: event.clientY,
-      key: draft.touch_key_spacing_tenths ?? 60,
-      row: draft.touch_row_spacing_tenths ?? 70,
+      key:
+        draft.touch_key_spacing_tenths ?? defaultTouchKeyboardGeometry.keySpacingTenths,
+      row:
+        draft.touch_row_spacing_tenths ?? defaultTouchKeyboardGeometry.rowSpacingTenths,
       axis: null,
     };
     event.currentTarget.setPointerCapture?.(event.pointerId);
