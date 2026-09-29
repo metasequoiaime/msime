@@ -285,7 +285,7 @@ export {
   useSettingsDestinationActions,
   type UseSettingsDestinationActionsOptions,
 } from "./settings/use-settings-destination-actions";
-import { ProviderPresetSection, type ProviderPreset } from "./settings/provider-preset-section";
+import { createProviderPresetControl } from "./settings/provider-preset-control";
 import { AiCredentialSection } from "./settings/ai-credential-section";
 import { AiLinuxProviderSection } from "./settings/ai-linux-provider-section";
 import { AiApiTokenSection } from "./settings/ai-api-token-section";
@@ -785,6 +785,10 @@ export {
   TouchKeyboardSchemesSection,
   type TouchKeyboardSchemesSectionProps,
 } from "./settings/touch-keyboard-schemes-section";
+export {
+  createProviderPresetControl,
+  type ProviderPresetControlFactory,
+} from "./settings/provider-preset-control";
 export {
   TouchKeyboardGeometrySection,
   type TouchKeyboardGeometrySectionProps,
@@ -2326,34 +2330,7 @@ export function SettingsPage({
           : current,
       ),
   });
-  /**
-   * The provider's known models and its own integration page.
-   *
-   * Apple's settings put both next to the provider row, and they are what makes
-   * a freshly picked provider usable: the endpoint is filled in automatically,
-   * but the model box is a free text field, and a user with no credential yet
-   * has nowhere to learn which models that service accepts or where its API key
-   * comes from. Selecting a preset only writes the model; 自定义模型 leaves
-   * whatever the user typed alone.
-   */
-  const providerPresetControls = (
-    label: string,
-    preset: ProviderPreset | undefined,
-    model: string,
-    onSelectModel: (model: string) => void,
-    className = "section provider-preset-section",
-  ) => {
-    return (
-      <ProviderPresetSection
-        label={label}
-        preset={preset}
-        model={model}
-        onSelectModel={onSelectModel}
-        openExternalUrl={client.openExternalUrl}
-        className={className}
-      />
-    );
-  };
+  const providerPresetControls = createProviderPresetControl(client.openExternalUrl);
   const inputModeHUD = draft?.input_mode_hud ?? true;
   const floatingToolbar = { ...defaultFloatingToolbar, ...draft?.floating_toolbar };
   const themeMode = draft?.theme ?? "system";
