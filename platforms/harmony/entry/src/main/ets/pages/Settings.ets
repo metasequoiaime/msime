@@ -1866,8 +1866,7 @@ class SettingsBridge {
 
   private validCredentialEndpoint(value: string, allowHttp: boolean): string | null {
     const endpoint: string = value.trim();
-    const schemes: string[] = allowHttp ? ['https://', 'http://'] : ['https://'];
-    if (!TextPolicy.validAuthority(endpoint, schemes)) return null;
+    if (!TextPolicy.validSecureAuthority(endpoint, allowHttp)) return null;
     return endpoint;
   }
 
@@ -1887,7 +1886,7 @@ class SettingsBridge {
 
   private validAiEndpoint(value: string): string | null {
     const endpoint: string = value.trim();
-    if (!TextPolicy.validAuthority(endpoint, ['http://', 'https://'])) return null;
+    if (!TextPolicy.validSecureAuthority(endpoint, true)) return null;
     return endpoint;
   }
 

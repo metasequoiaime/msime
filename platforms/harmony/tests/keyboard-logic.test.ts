@@ -8623,6 +8623,16 @@ group("AI model catalogs keep each provider's protocol and path", () => {
   check(TextPolicy.hasAuthority("wss://speech.example.test/live", "wss://"), "shares authority parsing for WSS");
   check(TextPolicy.validMultiline("line\nfeed", 32, true), "allows prompt line breaks");
   check(!TextPolicy.validMultiline("bad\u0001", 32, true), "rejects other control characters");
+  check(TextPolicy.validSecureAuthority("https://remote.example/api", true),
+    "accepts remote HTTPS endpoints");
+  check(TextPolicy.validSecureAuthority("http://127.0.0.1:8080/api", true),
+    "accepts loopback HTTP endpoints");
+  check(TextPolicy.validSecureAuthority("http://[::1]:8080/api", true),
+    "accepts IPv6 loopback HTTP endpoints");
+  check(!TextPolicy.validSecureAuthority("http://remote.example/api", true),
+    "rejects remote HTTP endpoints");
+  check(!TextPolicy.validSecureAuthority("http://localhost.example/api", true),
+    "rejects lookalike loopback hosts");
   check(
     AiModelCatalogPolicy.modelsUrl("https://api.everyapi.ai/v1/chat/completions") ===
       "https://api.everyapi.ai/v1/models",

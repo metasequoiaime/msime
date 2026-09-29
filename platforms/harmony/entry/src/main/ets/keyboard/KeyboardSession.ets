@@ -2,6 +2,7 @@ import inputMethodEngine from '@ohos.inputMethodEngine';
 import fs from '@ohos.file.fs';
 import client from 'libmsimeclient.so';
 import { utf8Length } from './Utf8';
+import { TextPolicy } from './TextPolicy';
 import { KeyboardLog, describeError } from './KeyboardLog';
 import { DictionaryMaintenancePolicy } from './DictionaryMaintenancePolicy';
 import { TypingStatisticsPolicy } from './TypingStatisticsPolicy';
@@ -3596,8 +3597,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (!this.translationCurrent(handle, epoch) || typeof descriptor.url !== 'string'
       || descriptor.url.length > 2048 || descriptor.url.includes('\n')
       || descriptor.url.includes('\r')
-      || (!descriptor.url.startsWith('https://')
-        && !(allowHttp && descriptor.url.startsWith('http://')))) return null;
+      || !TextPolicy.validSecureAuthority(descriptor.url, allowHttp)) return null;
     if (descriptor.max_response_bytes > TranslationPolicy.MAX_RESPONSE_BYTES) return null;
     const request = http.createHttp();
     this.translationRequests.add(request);

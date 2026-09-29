@@ -16,6 +16,22 @@ export class TextPolicy {
       && !value.includes("@") && !value.includes("#");
   }
 
+  /** Allows plaintext only for a loopback authority; credentials remain HTTPS-only. */
+  static validSecureAuthority(value: string, allowHttp: boolean, maxBytes: number = 2048): boolean {
+    if (!TextPolicy.validAuthority(value, allowHttp ? ["https://", "http://"] : ["https://"], maxBytes)) {
+      return false;
+    }
+    if (value.startsWith("https://")) return true;
+    if (!allowHttp || !value.startsWith("http://")) return false;
+    const prefixLength: number = "http://".length;
+    const rest: string = value.substring(prefixLength);
+    const relativeEnd: number = rest.search(/[\/?#]/);
+    const authority: string = rest.substring(0, relativeEnd < 0 ? rest.length : relativeEnd);
+    if (authority === "localhost" || authority.startsWith("localhost:")) return true;
+    if (authority === "127.0.0.1" || authority.startsWith("127.0.0.1:")) return true;
+    return authority === "[::1]" || authority.startsWith("[::1]:");
+  }
+
   /** Rejects the C0 and C1 control ranges while leaving printable Unicode untouched. */
   static hasControl(value: string): boolean {
     return Array.from(value).some((character: string): boolean => {
