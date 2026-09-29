@@ -31,6 +31,12 @@ export {
   type SettingsVisualPreferences,
   type SettingsVisualPreferencesSource,
 } from "./settings/settings-visual-preferences";
+import { settingsInputPreferences } from "./settings/settings-input-preferences";
+export {
+  settingsInputPreferences,
+  type SettingsInputPreferences,
+  type SettingsInputPreferencesSource,
+} from "./settings/settings-input-preferences";
 import { platformResourceUrls } from "./settings/platform-resource-urls";
 import {
   initialMobileTabPages,
@@ -351,20 +357,14 @@ import {
   type HelpcodePreferences,
   type HelpcodeSchema,
 } from "./settings/pages/helpcode-page";
-import { defaultFuzzyPinyin, type FuzzyPinyinPreferences } from "./settings/fuzzy-pinyin-section";
+import type { FuzzyPinyinPreferences } from "./settings/fuzzy-pinyin-section";
 import {
-  defaultWordCharacter,
   type NavigationPreferences,
   type WordCharacterPreferences,
 } from "./settings/word-character-section";
-import { defaultNavigation } from "./settings/navigation-section";
-import { defaultMixedInput, type MixedInputPreferences } from "./settings/mixed-input-section";
-import { defaultFrequency, type FrequencyPreferences } from "./settings/frequency-section";
-import {
-  LocalModesSection,
-  defaultLocalModes,
-  type LocalModePreferences,
-} from "./settings/local-modes-section";
+import type { MixedInputPreferences } from "./settings/mixed-input-section";
+import type { FrequencyPreferences } from "./settings/frequency-section";
+import { LocalModesSection, type LocalModePreferences } from "./settings/local-modes-section";
 import { type SurfaceTheme, type ThemeMode } from "./settings/theme-settings-section";
 import {
   type CandidateColorKey,
@@ -1095,7 +1095,6 @@ export type KeybindingPreferences = {
   toggle_character_set_ctrl_shift_f: boolean;
   toggle_fullwidth_option_shift_h: boolean;
 };
-import { defaultKeybindings } from "./settings/keybinding-defaults";
 /**
  * macOS groups its sidebar the way the reference window does: what you type with, what it looks
  * like, what it stores, then where to get help. Pages the reference has no counterpart for keep
@@ -2037,17 +2036,21 @@ export function SettingsPage({
   const storedAiCredential = providerCredentials?.ai.find(
     (entry) => entry.provider === ai.provider,
   );
-  const wordCharacter = draft?.word_character ?? defaultWordCharacter;
-  const keybindings = draft?.keybindings ?? defaultKeybindings;
-  const frequency = draft?.frequency ?? defaultFrequency;
-  const mixedInput = draft?.mixed_input ?? defaultMixedInput;
-  const fuzzyPinyin = draft?.fuzzy_pinyin ?? defaultFuzzyPinyin;
+  const {
+    wordCharacter,
+    keybindings,
+    frequency,
+    mixedInput,
+    fuzzyPinyin,
+    localModes,
+    navigation,
+    numberRowSelection,
+  } = settingsInputPreferences(draft);
   const {
     selected: selectedTouchKeyboardScheme,
     selectHome: selectHomeScheme,
     setEnabled: setTouchKeyboardSchemeEnabled,
   } = useTouchKeyboardSchemeSelection({ draft, setDraft });
-  const localModes = draft?.local_modes ?? defaultLocalModes;
   // Every platform sees every mode. macOS used to hide emoji, kaomoji and temporary Japanese on the
   // grounds that its bundle shipped only msime.db and english.db, but others.db and dict_japanese.dat have
   // been in resources/desktop-dictionary.lock.json since 780a9381b and tauri.macos.conf.json bundles the
@@ -2690,8 +2693,8 @@ export function SettingsPage({
                     showFullwidthChord={showFullwidthChord}
                     fullwidthChord={fullwidthChord}
                     windows={windowsPlatform}
-                    navigation={draft.navigation ?? defaultNavigation}
-                    numberRowSelection={draft.number_row_selection ?? true}
+                    navigation={navigation}
+                    numberRowSelection={numberRowSelection}
                     showNumberRowSelection={showNumberRowSelection}
                     onNumberRowSelectionChange={(number_row_selection) =>
                       setDraft({ ...draft, number_row_selection })
