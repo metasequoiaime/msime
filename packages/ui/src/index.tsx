@@ -123,6 +123,7 @@ export {
 } from "./dictionary/dictionary-export";
 export { describeImportResult, dictionaryKindKeyHint } from "./dictionary/dictionary-messages";
 import { AppearanceSettingsSection } from "./settings/appearance-settings-section";
+import { appearanceSettingsPreferences } from "./settings/appearance-settings-preferences";
 import {
   useSettingsPreviewThemes,
   type SettingsSkinPreviewThemes,
@@ -327,6 +328,7 @@ export {
   aiSettingsPreferences,
   type AiSettingsPreferences,
 } from "./settings/ai-settings-preferences";
+export { appearanceSettingsPreferences } from "./settings/appearance-settings-preferences";
 import {
   VoiceCredentialSection,
   type VoiceCredentialSaveInput,
@@ -2441,13 +2443,7 @@ export function SettingsPage({
                   <AppearanceSettingsSection
                     disabled={busy}
                     hidden={page !== "appearance"}
-                    preferences={{
-                      ...draft,
-                      candidate_english_font:
-                        host?.platform === "windows"
-                          ? (draft.candidate_english_font ?? "Segoe UI")
-                          : draft.candidate_english_font,
-                    }}
+                    preferences={appearanceSettingsPreferences(draft, windowsPlatform)}
                     revision={snapshot?.revision ?? 0}
                     mobile={mobilePlatform}
                     linux={linuxPlatform}
