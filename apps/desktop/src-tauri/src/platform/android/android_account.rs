@@ -8,10 +8,10 @@ use crate::platform::mobile::mobile_account_helpers::{
     account_preferences_schema as shared_account_preferences_schema,
     account_profile as shared_account_profile, account_rename as shared_account_rename,
     account_request_code as shared_account_request_code, account_status as shared_account_status,
-    call, clear_snapshot_previews, clear_snapshot_previews_after, cloud_dictionary_account_request,
-    replace_pending_snapshot, snapshot_command_error, snapshot_response_without_account,
-    take_pending_snapshot, valid_mobile_haptic_strength, validate_pending_snapshot,
-    PendingSnapshot, SnapshotMetadata,
+    call, cleanup_stale_snapshot_previews, clear_snapshot_previews, clear_snapshot_previews_after,
+    cloud_dictionary_account_request, replace_pending_snapshot, snapshot_command_error,
+    snapshot_response_without_account, take_pending_snapshot, valid_mobile_haptic_strength,
+    validate_pending_snapshot, PendingSnapshot, SnapshotMetadata,
 };
 use crate::platform::mobile::mobile_account_preferences::{
     frequency_account_preferences, insert_bool, insert_integer, insert_string,
@@ -163,13 +163,16 @@ pub fn init() -> TauriPlugin<Wry> {
                 AndroidAccountStorage(handle),
             ));
             let community = MobileCommunityState::new(client, &session)?;
+            let snapshot_directory = app
+                .path()
+                .app_data_dir()?
+                .join("files/bootstrap/state/dictionary-snapshots");
+            fs::create_dir_all(&snapshot_directory)?;
+            cleanup_stale_snapshot_previews(&snapshot_directory)?;
             app.manage(AccountState {
                 session,
                 platform,
-                snapshot_directory: app
-                    .path()
-                    .app_data_dir()?
-                    .join("files/bootstrap/state/dictionary-snapshots"),
+                snapshot_directory,
                 snapshot_previews: Arc::new(Mutex::new(HashMap::new())),
                 feedback,
             });
@@ -538,13 +541,6 @@ async fn dictionary_snapshot_preview(
     let file_token = token.clone();
     let (account_id, path, metadata) = tauri::async_runtime::spawn_blocking(move || {
         fs::create_dir_all(&directory).map_err(|_| AccountError::Unavailable)?;
-        if let Ok(files) = fs::read_dir(&directory) {
-            for file in files.flatten() {
-                if file.file_name().to_string_lossy().starts_with("download-") {
-                    let _ = fs::remove_file(file.path());
-                }
-            }
-        }
         let profile = session.profile()?;
         let path = directory.join(format!("download-{file_token}.ndjson"));
         let result = session

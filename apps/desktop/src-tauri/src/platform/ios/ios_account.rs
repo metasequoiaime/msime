@@ -8,10 +8,10 @@ use crate::platform::mobile::mobile_account_helpers::{
     account_preferences_schema as shared_account_preferences_schema,
     account_profile as shared_account_profile, account_rename as shared_account_rename,
     account_request_code as shared_account_request_code, account_status as shared_account_status,
-    call, clear_snapshot_previews, clear_snapshot_previews_after, cloud_dictionary_account_request,
-    replace_pending_snapshot, snapshot_command_error, snapshot_response_without_account,
-    take_pending_snapshot, valid_mobile_haptic_strength, validate_pending_snapshot,
-    PendingSnapshot, SnapshotMetadata,
+    call, cleanup_stale_snapshot_previews, clear_snapshot_previews, clear_snapshot_previews_after,
+    cloud_dictionary_account_request, replace_pending_snapshot, snapshot_command_error,
+    snapshot_response_without_account, take_pending_snapshot, valid_mobile_haptic_strength,
+    validate_pending_snapshot, PendingSnapshot, SnapshotMetadata,
 };
 #[cfg(target_os = "ios")]
 use crate::shared::account_dto::{
@@ -111,6 +111,7 @@ pub fn setup(app: &AppHandle<Wry>) -> Result<(), AccountError> {
     let snapshot_directory =
         std::env::temp_dir().join(format!("msime-ios-tauri-snapshots-{}", std::process::id()));
     fs::create_dir_all(&snapshot_directory).map_err(|_| AccountError::Storage)?;
+    cleanup_stale_snapshot_previews(&snapshot_directory).map_err(|_| AccountError::Storage)?;
     app.manage(AccountState {
         session,
         platform,
