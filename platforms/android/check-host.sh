@@ -446,7 +446,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/candidate/CandidatePreeditStylePolicySmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/SymbolPanelModelSmoke.java"
 java -cp "$output_dir" EditorSmoke
-java -cp "$output_dir" app.msime.client.BootstrapMarkerSmoke
+java -cp "$output_dir:$android_jar" app.msime.client.BootstrapMarkerSmoke
 java -cp "$output_dir" PhrasePreeditSmoke
 java -cp "$output_dir" InputViewRefreshPolicySmoke
 java -cp "$output_dir" EditorContextSnapshotSmoke

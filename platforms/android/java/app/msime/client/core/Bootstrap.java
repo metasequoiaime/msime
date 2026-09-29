@@ -10,6 +10,7 @@ import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import org.json.JSONArray;
@@ -112,8 +113,16 @@ public final class Bootstrap {
     }
 
     private static void deleteTree(File file) throws java.io.IOException {
-        File[] children = file.listFiles();
-        if (children != null) for (File child : children) deleteTree(child);
-        Files.deleteIfExists(file.toPath());
+        java.nio.file.Path path = file.toPath();
+        if (Files.isSymbolicLink(path)) {
+            Files.deleteIfExists(path);
+            return;
+        }
+        if (Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) {
+            try (java.nio.file.DirectoryStream<java.nio.file.Path> children = Files.newDirectoryStream(path)) {
+                for (java.nio.file.Path child : children) deleteTree(child.toFile());
+            }
+        }
+        Files.deleteIfExists(path);
     }
 }

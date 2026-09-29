@@ -2,6 +2,8 @@ package app.msime.client;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
+import java.util.stream.Stream;
 import java.nio.charset.StandardCharsets;
 
 public final class BootstrapMarkerSmoke {
@@ -19,6 +21,33 @@ public final class BootstrapMarkerSmoke {
         } finally {
             Files.deleteIfExists(exact);
             Files.deleteIfExists(oversized);
+        }
+        Path root = Files.createTempDirectory("bootstrap-delete-tree");
+        Path outside = Files.createTempDirectory("bootstrap-delete-outside");
+        try {
+            Path sentinel = outside.resolve("keep.txt");
+            Files.writeString(sentinel, "synthetic");
+            Path link = root.resolve("offline-glosses");
+            Files.createSymbolicLink(link, outside);
+            java.lang.reflect.Method deleteTree = Bootstrap.class.getDeclaredMethod("deleteTree", java.io.File.class);
+            deleteTree.setAccessible(true);
+            deleteTree.invoke(null, link.toFile());
+            check(Files.exists(outside));
+            check(Files.exists(sentinel));
+            check(!Files.exists(link));
+        } finally {
+            try (Stream<Path> paths = Files.walk(root)) {
+                paths.sorted(Comparator.reverseOrder()).forEach(path -> {
+                    try { Files.deleteIfExists(path); }
+                    catch (Exception error) { throw new IllegalStateException(error); }
+                });
+            }
+            try (Stream<Path> paths = Files.walk(outside)) {
+                paths.sorted(Comparator.reverseOrder()).forEach(path -> {
+                    try { Files.deleteIfExists(path); }
+                    catch (Exception error) { throw new IllegalStateException(error); }
+                });
+            }
         }
         System.out.println("Android bootstrap marker bounds passed");
     }
