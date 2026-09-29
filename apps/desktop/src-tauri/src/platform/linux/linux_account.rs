@@ -7,7 +7,7 @@
 use crate::platform::desktop::desktop_account;
 use msime_client_core::account::{AccountError, AccountSessionStorage, SavedAccountSession};
 use std::io::Write;
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 /// A session document is a pair of JWTs and an expiry. Anything appreciably
@@ -71,6 +71,8 @@ impl AccountSessionStorage for LinuxAccountStorage {
         if !super::create_directory_and_check(directory).map_err(|_| AccountError::Storage)? {
             return Err(AccountError::Storage);
         }
+        std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700))
+            .map_err(|_| AccountError::Storage)?;
         // Publish by rename so a reader never sees a half-written document, and
         // create the temporary file 0600 from the start rather than widening it
         // afterwards - between create and chmod the tokens would be readable.
@@ -160,5 +162,31 @@ mod tests {
         };
         assert!(matches!(storage.save(&session), Err(AccountError::Storage)));
         assert!(!outside.path().join("state").exists());
+    }
+
+    #[test]
+    fn creates_account_directory_owner_only() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("nested");
+        let storage = LinuxAccountStorage::new(&directory);
+        let session = SavedAccountSession {
+            tokens: AccountTokens {
+                access_token: "synthetic-access".into(),
+                refresh_token: "synthetic-refresh".into(),
+                token_type: "Bearer".into(),
+                expires_in: 60,
+                user: AccountUser {
+                    id: "synthetic-user".into(),
+                    display_name: "Synthetic".into(),
+                    created_at: "2026-01-01T00:00:00Z".into(),
+                },
+            },
+            expires_at_unix_ms: 1,
+        };
+        storage.save(&session).unwrap();
+        assert_eq!(
+            std::fs::metadata(directory).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
     }
 }

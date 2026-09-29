@@ -13,7 +13,7 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 use std::io::Write;
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -241,6 +241,8 @@ fn write_private(path: &Path, document: Option<&Value>) -> Result<(), Credential
     if !super::create_directory_and_check(parent).map_err(|_| CredentialError::Storage)? {
         return Err(CredentialError::Storage);
     }
+    std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))
+        .map_err(|_| CredentialError::Storage)?;
     // Created 0600 from the start: between a create and a chmod the secret would be readable.
     let temporary = path.with_extension("json.new");
     let _ = std::fs::remove_file(&temporary);
