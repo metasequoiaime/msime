@@ -41,7 +41,7 @@ index 383e783..6b93681 100644
      # needs a dictionary and a set on the command line; see tests/scripts/build_eval_set.py.
      add_executable(eval_sentences tests/src/eval_sentences.cpp)
 diff --git a/contracts/assets/assets.h b/contracts/assets/assets.h
-index 23e36c6..7a2ddfa 100644
+index c6da49e..af200bf 100644
 --- a/contracts/assets/assets.h
 +++ b/contracts/assets/assets.h
 @@ -12,6 +12,9 @@ inline constexpr char other_dictionary[] = "others.db";
@@ -55,7 +55,7 @@ index 23e36c6..7a2ddfa 100644
  inline constexpr char translations[] = "custom_translations.txt";
  inline constexpr char helpcode_lantian[] = "helpcodes/helpcode.txt";
 diff --git a/contracts/assets/assets.json b/contracts/assets/assets.json
-index 49f25fd..7b957d3 100644
+index b21e55f..26047c2 100644
 --- a/contracts/assets/assets.json
 +++ b/contracts/assets/assets.json
 @@ -75,6 +75,33 @@
@@ -116,7 +116,7 @@ index 01a37cd..b6fca91 100644
  {
      switch (scheme_type)
 diff --git a/core/ime_session.h b/core/ime_session.h
-index 3339d8e..2087b87 100644
+index 9effcde..f05b4b2 100644
 --- a/core/ime_session.h
 +++ b/core/ime_session.h
 @@ -3,6 +3,7 @@
@@ -142,7 +142,7 @@ index 3339d8e..2087b87 100644
      void set_wubi_input_options(metasequoia::WubiInputOptions options);
      void replace_shuangpin_raw_input(const std::string &raw_input, const std::string &raw_input_with_cases);
      void replace_quanpin_raw_input(const std::string &raw_input, const std::string &raw_input_with_cases);
-@@ -81,6 +90,8 @@ class ImeSession
+@@ -85,6 +94,8 @@ class ImeSession
      bool sentence_alternatives_ = false;
      unsigned quanpin_autocorrect_types_ = 0;
      metasequoia::FuzzyPinyinOptions fuzzy_pinyin_;
@@ -152,24 +152,20 @@ index 3339d8e..2087b87 100644
      // Resolved when the scheme changes rather than on every keystroke.
      WubiScheme *wubi_scheme_ = nullptr;
 diff --git a/core/input_session.cpp b/core/input_session.cpp
-index 74b3c4f..166b947 100644
+index f1f28c3..48b4453 100644
 --- a/core/input_session.cpp
 +++ b/core/input_session.cpp
-@@ -936,6 +936,12 @@ std::optional<std::string> InputSession::learn_candidate(std::size_t index)
-     }
- 
-     const WordItem &selected = candidates()[index];
-+    if (selected.source == CandidateSource::Generated || selected.source == CandidateSource::Fallback ||
+@@ -960,6 +960,8 @@ std::optional<std::string> InputSession::learn_candidate(std::size_t index)
+     // adjustment has nowhere to persist them. Store the selected sentence as a user phrase instead.
+     // This applies even at index zero and is independent of the frequency-adjustment mode.
+     if (selected.source == CandidateSource::Generated || selected.source == CandidateSource::Fallback ||
 +        selected.source == CandidateSource::NeuralDesktop || selected.source == CandidateSource::NeuralKeyboard ||
 +        selected.source == CandidateSource::CloudSuggestion || selected.source == CandidateSource::AiSuggestion)
-+    {
-+        return learn_sentence_candidate(selected);
-+    }
-     if (!frequency_adjustment_configured_)
+         selected.source == CandidateSource::CloudSuggestion || selected.source == CandidateSource::AiSuggestion)
      {
-         if (selected.source == CandidateSource::Database || selected.source == CandidateSource::UserDatabase)
+         return learn_sentence_candidate(selected);
 diff --git a/core/input_session.h b/core/input_session.h
-index 5f8e0f5..8951cd8 100644
+index f350520..4b0e5b1 100644
 --- a/core/input_session.h
 +++ b/core/input_session.h
 @@ -72,6 +72,14 @@ class InputSession
@@ -244,7 +240,7 @@ index 0000000..44b5535
 +    }
 +};
 diff --git a/core/session.cpp b/core/session.cpp
-index 5412314..d42326c 100644
+index 6c1c8b9..1bd34f6 100644
 --- a/core/session.cpp
 +++ b/core/session.cpp
 @@ -16,6 +16,8 @@ class Session::Impl
@@ -256,9 +252,16 @@ index 5412314..d42326c 100644
          session.set_quanpin_helpcode_enabled(options.helpcode);
          session.set_shuangpin_helpcode_enabled(options.helpcode);
          if (!session.set_helpcode_schema(options.helpcode_schema) ||
-@@ -197,6 +199,14 @@ void Session::reset_cache()
+@@ -200,12 +202,20 @@ void Session::reset_cache()
+ bool Session::expand_initial_candidates()
  {
-     impl_->session.reset_cache();
+     // Nine-key candidates come from the spelling session rather than a dictionary query,
+-    // so there is nothing withheld to hand over. Local modes need no guard here: the
+-    // expansion itself only answers single-letter database queries.
++    // so asking for more is a no-op there.
+     if (impl_->nine_key.active())
+         return false;
+     return impl_->session.expand_initial_candidates();
  }
 +void Session::set_sentence_association(SentenceAssociationOptions options)
 +{
@@ -267,6 +270,7 @@ index 5412314..d42326c 100644
 +void Session::set_rescoring_context(std::string context)
 +{
 +    impl_->session.set_rescoring_context(std::move(context));
++}
 +}
  SessionSnapshot Session::snapshot() const
  {
@@ -285,7 +289,7 @@ index 5ec80bc..aa5a94d 100644
  
  struct WordItem
 diff --git a/include/metasequoia/session.h b/include/metasequoia/session.h
-index 842c4ec..1c72872 100644
+index 6b4e0f8..f46c581 100644
 --- a/include/metasequoia/session.h
 +++ b/include/metasequoia/session.h
 @@ -4,6 +4,7 @@
@@ -307,10 +311,14 @@ index 842c4ec..1c72872 100644
      FuzzyPinyinOptions fuzzy_pinyin;
      FrequencyAdjustmentOptions frequency;
      LocalModeOptions local_modes;
-@@ -122,6 +127,8 @@ class Session
+@@ -123,9 +128,11 @@ class Session
      // Answer an unmatched wubi code with quanpin candidates for the same letters.
      void set_wubi_mixed_pinyin(bool enabled);
      void reset_cache();
+-    // Hand over the candidates withheld from a single-letter query, reporting whether the
++// Hand over the candidates withheld from a single-letter query, reporting whether the
+     // list grew. Hosts call this when paging reaches the end of what the first answer held.
+     bool expand_initial_candidates();
 +    void set_sentence_association(SentenceAssociationOptions options);
 +    void set_rescoring_context(std::string context);
      SessionSnapshot snapshot() const;
@@ -1299,10 +1307,10 @@ index 0000000..28ffffb
 +} // namespace neural
 diff --git a/neural/sentence_model.cpp b/neural/sentence_model.cpp
 new file mode 100644
-index 0000000..6d394b2
+index 0000000..921289c
 --- /dev/null
 +++ b/neural/sentence_model.cpp
-@@ -0,0 +1,1058 @@
+@@ -0,0 +1,1007 @@
 +#include "sentence_model.h"
 +
 +#include "json.h"
@@ -1318,42 +1326,6 @@ index 0000000..6d394b2
 +{
 +namespace
 +{
-+
-+std::size_t utf8_character_count(const std::string &text)
-+{
-+    std::size_t count = 0;
-+    for (unsigned char byte : text)
-+    {
-+        if ((byte & 0xC0) != 0x80)
-+        {
-+            ++count;
-+        }
-+    }
-+    return count;
-+}
-+
-+std::string last_utf8_characters(const std::string &text, std::size_t count)
-+{
-+    if (count == 0)
-+    {
-+        return {};
-+    }
-+    std::size_t seen = 0;
-+    std::size_t start = text.size();
-+    for (std::size_t i = text.size(); i-- > 0;)
-+    {
-+        if ((static_cast<unsigned char>(text[i]) & 0xC0) == 0x80)
-+        {
-+            continue;
-+        }
-+        start = i;
-+        if (++seen == count)
-+        {
-+            break;
-+        }
-+    }
-+    return text.substr(start);
-+}
 +
 +// The exact GELU, matching torch.nn.functional.gelu with its default settings. The tanh
 +// approximation is a different function and the model was not trained with it.
@@ -1674,17 +1646,6 @@ index 0000000..6d394b2
 +}
 +
 +} // namespace
-+
-+std::string rerank_context(const std::string &context, std::size_t window, std::size_t longest_candidate)
-+{
-+    const std::size_t room = longest_candidate >= window ? 0 : window - longest_candidate - 1;
-+    const std::size_t keep = room / kRerankContextStep * kRerankContextStep;
-+    if (utf8_character_count(context) <= room)
-+    {
-+        return context;
-+    }
-+    return last_utf8_characters(context, keep);
-+}
 +
 +float Matrix::dot_row(const float *x, std::size_t row, std::size_t width) const
 +{
@@ -2279,8 +2240,17 @@ index 0000000..6d394b2
 +        return std::vector<double>(texts.size(), 0.0);
 +    }
 +
-+    // Every candidate shares the context but has its own tail. Truncate the context in steps so
-+    // the prefix cache remains valid while a candidate grows one character at a time.
++    // The sequence each candidate is scored under is <bos> + context + candidate. Every candidate
++    // shares all of that but its own tail, so the shared part is split at its last token: that token
++    // leads each batch row, because the distribution it produces is what scores the candidate's
++    // first character. Only what precedes it goes in the cache, since only that stays fixed.
++    std::vector<std::uint32_t> full;
++    full.push_back(kBos);
++    for (std::uint32_t id : encode(context))
++    {
++        full.push_back(id);
++    }
++
 +    std::vector<std::vector<std::uint32_t>> tails;
 +    tails.reserve(texts.size());
 +    std::size_t longest = 0;
@@ -2296,19 +2266,6 @@ index 0000000..6d394b2
 +        longest = std::max(longest, ids.size());
 +        tails.push_back(std::move(ids));
 +    }
-+    const std::string trimmed_context = rerank_context(context, limit, longest);
-+
-+    // The sequence each candidate is scored under is <bos> + context + candidate. Every candidate
-+    // shares all of that but its own tail, so the shared part is split at its last token: that token
-+    // leads each batch row, because the distribution it produces is what scores the candidate's
-+    // first character. Only what precedes it goes in the cache, since only that stays fixed.
-+    std::vector<std::uint32_t> full;
-+    full.push_back(kBos);
-+    for (std::uint32_t id : encode(trimmed_context))
-+    {
-+        full.push_back(id);
-+    }
-+
 +    const std::size_t width = longest + 1; // the shared leading token, then the longest candidate
 +
 +    const std::uint32_t last = full.back();
@@ -2363,10 +2320,10 @@ index 0000000..6d394b2
 +} // namespace neural
 diff --git a/neural/sentence_model.h b/neural/sentence_model.h
 new file mode 100644
-index 0000000..3793c77
+index 0000000..41b2dd3
 --- /dev/null
 +++ b/neural/sentence_model.h
-@@ -0,0 +1,196 @@
+@@ -0,0 +1,185 @@
 +#pragma once
 +
 +// Character-level Transformer "sentence model" from the chinese-ime-lm project, ported to C++.
@@ -2403,17 +2360,6 @@ index 0000000..3793c77
 +
 +namespace neural
 +{
-+
-+// Once the committed context is longer than the model window, keep the prefix stable while a
-+// candidate grows. The model's cache is keyed by the context tokens, so moving the suffix by one
-+// character on every keystroke would rebuild the whole prefix each time.
-+inline constexpr std::size_t kRerankContextStep = 16;
-+
-+// Returns the context passed to a reranker, leaving room for the longest candidate in a model
-+// window. Context and candidate lengths are Unicode character counts for this character-level
-+// model. Contexts that fit are returned unchanged; longer contexts are reduced to a suffix whose
-+// length changes in kRerankContextStep increments and always ends on a UTF-8 character boundary.
-+std::string rerank_context(const std::string &context, std::size_t window, std::size_t longest_candidate);
 +
 +// A weight matrix kept in whatever precision the file stored it in. Quantized matrices are not
 +// expanded on load: the per-output-row scale is a constant factor for the whole row, so it lifts
@@ -2564,10 +2510,10 @@ index 0000000..3793c77
 +
 +} // namespace neural
 diff --git a/quanpin/engine.cpp b/quanpin/engine.cpp
-index 23c777e..2bec7ee 100644
+index ea30cf8..b706bc4 100644
 --- a/quanpin/engine.cpp
 +++ b/quanpin/engine.cpp
-@@ -36,6 +36,8 @@ std::vector<WordItem> QuanpinEngine::query(const QueryRequest &request)
+@@ -41,6 +41,8 @@ std::vector<WordItem> QuanpinEngine::query(const QueryRequest &request)
      // The setter is a no-op when the value is unchanged, so this costs nothing per keystroke and
      // clears the cached lists exactly once, on the keystroke where the host's answer changes.
      dictionary_.set_sentence_alternatives(request.sentence_alternatives);
@@ -2672,7 +2618,7 @@ index 0000000..197fde4
 +
 +} // namespace quanpin
 diff --git a/quanpin/quanpin_dictionary.cpp b/quanpin/quanpin_dictionary.cpp
-index e073c3e..8a15814 100644
+index 08214de..ddb4008 100644
 --- a/quanpin/quanpin_dictionary.cpp
 +++ b/quanpin/quanpin_dictionary.cpp
 @@ -6,6 +6,8 @@
@@ -2684,8 +2630,8 @@ index e073c3e..8a15814 100644
  #include "../shuangpin/shuangpin_utils.h"
  #include <algorithm>
  #include <climits>
-@@ -132,6 +134,10 @@ QuanpinDictionary::QuanpinDictionary(std::string db_path, metasequoia::RuntimePa
-     : cache_(128), series_cache_(128), segmentation_cache_(128), paths_(std::move(paths)),
+@@ -246,6 +248,10 @@ QuanpinDictionary::QuanpinDictionary(std::string db_path, metasequoia::RuntimePa
+     : cache_(128), series_cache_(128), segmentation_cache_(128), resolution_cache_(128), paths_(std::move(paths)),
        decoder_(paths_.resource(metasequoia::assets::pinyin_model),
                 paths_.user(metasequoia::assets::pinyin_user_dictionary)),
 +      neural_desktop_model_(neural::shared_sentence_model(
@@ -2695,7 +2641,7 @@ index e073c3e..8a15814 100644
        db_path_(db_path.empty() ? metasequoia::path_to_utf8(paths_.dictionary(metasequoia::assets::main_dictionary))
                                 : std::move(db_path))
  {
-@@ -186,6 +192,28 @@ void QuanpinDictionary::set_sentence_alternatives(bool enabled)
+@@ -300,6 +306,22 @@ void QuanpinDictionary::set_sentence_alternatives(bool enabled)
      series_cache_.clear();
  }
  
@@ -2712,19 +2658,13 @@ index e073c3e..8a15814 100644
 +    if (rescoring_context_ == context)
 +        return;
 +    rescoring_context_ = context;
-+    // The committed context only affects ordering when a neural model is active. Keep the
-+    // dictionary cache warm for the normal path, where every selection would otherwise make the
-+    // next few keystrokes cold queries.
-+    const bool rescoring_active = (sentence_association_.neural_keyboard && neural_keyboard_model_ != nullptr) ||
-+                                  (sentence_association_.neural_desktop && neural_desktop_model_ != nullptr);
-+    if (rescoring_active)
-+        reset_cache();
++    reset_cache();
 +}
 +
  std::vector<WordItem> QuanpinDictionary::query_exact(const std::string &raw_input, const std::string &segmentation,
                                                       unsigned autocorrect_types)
  {
-@@ -209,7 +237,9 @@ std::vector<WordItem> QuanpinDictionary::query_exact(const std::string &raw_inpu
+@@ -349,7 +371,9 @@ std::vector<WordItem> QuanpinDictionary::query_exact(const std::string &raw_inpu
  
      // Autocorrected results get their own cache slot so they never leak the
      // fallback tail into plain (correct) spellings sharing the same key.
@@ -2735,7 +2675,7 @@ index e073c3e..8a15814 100644
      {
          reset_cache_if_database_changed();
          if (auto cached = series_cache_.get(resolution.cache_key))
-@@ -273,7 +303,8 @@ std::vector<WordItem> QuanpinDictionary::query_exact(const std::string &raw_inpu
+@@ -443,7 +467,8 @@ std::vector<WordItem> QuanpinDictionary::query_exact(const std::string &raw_inpu
                                                       alternative_segmentations, std::move(result));
          }
      }
@@ -2745,22 +2685,30 @@ index e073c3e..8a15814 100644
      return result;
  }
  
-@@ -407,8 +438,12 @@ std::vector<WordItem> QuanpinDictionary::query_series(const std::string &raw_inp
+@@ -577,13 +602,15 @@ std::vector<WordItem> QuanpinDictionary::query_series(const std::string &raw_inp
          // whole_sentence_insert_position computes.  This used to insert at
          // index 0 unconditionally: an assembled sentence displaced the exact
          // word, turning 百依百顺 into 白一百顺 and 颁布实施 into 版不是是.
--        const std::string normalized = remove_delimiters(segmentation.empty() ? raw_input : segmentation);
--        const std::string google_sentence = search_sentence_from_ime_engine(normalized);
+-        // A manual apostrophe is explicit segmentation and must reach the decoder unchanged
+-        // (nu'e is not nue). Automatic cuts may be flattened after rewriting each syllable.
+-        const std::string google_input =
+-            raw_input.find('\'') != std::string::npos
+-                ? quanpin::to_google_spelling(raw_input)
+-                : remove_delimiters(quanpin::to_google_spelling(segmentation.empty() ? raw_input : segmentation));
+-        const std::string google_sentence = search_sentence_from_ime_engine(google_input);
 +        std::string google_sentence;
 +        if (sentence_association_.google)
 +        {
-+            const std::string normalized = remove_delimiters(segmentation.empty() ? raw_input : segmentation);
-+            google_sentence = search_sentence_from_ime_engine(normalized);
++            // A manual apostrophe is explicit segmentation and must reach the decoder unchanged
++            // (nu'e is not nue). Automatic cuts may be flattened after rewriting each syllable.
++            const std::string google_input =
++                segmentation.empty() ? raw_input : to_google_spelling_preserving_delimiters(segmentation);
++            google_sentence = search_sentence_from_ime_engine(google_input);
 +        }
          if (!google_sentence.empty())
          {
              const auto duplicate = std::find_if(result.begin(), result.end(),
-@@ -426,13 +461,30 @@ std::vector<WordItem> QuanpinDictionary::query_series(const std::string &raw_inp
+@@ -601,12 +628,30 @@ std::vector<WordItem> QuanpinDictionary::query_series(const std::string &raw_inp
              }
          }
  
@@ -2776,8 +2724,7 @@ index e073c3e..8a15814 100644
          quanpin::WholeSentenceComparison sentences;
 -        quanpin::merge_lattice_candidates(
 -            result, segments,
--            quanpin::make_lattice_db_lookup(db_, statement_cache_, quanpin::QuerySource::Quanpin,
--                                            lattice_options.span_limit),
+-            quanpin::make_lattice_db_lookup(db_, statement_cache_, lattice_options.span_limit),
 -            segmentation.empty() ? raw_input : segmentation, lattice_options, google_sentence, &sentences);
 +        if (need_lattice)
 +        {
@@ -2786,17 +2733,17 @@ index e073c3e..8a15814 100644
 +                rerankers.empty() ? lattice_options.nbest : static_cast<int>(neural::RerankOptions{}.max_paths);
 +            options.include_lattice_best = sentence_association_.word_lattice;
 +            options.show_next_on_duplicate = sentence_association_.show_next_on_duplicate;
-+            quanpin::merge_lattice_candidates(result, segments,
-+                                              quanpin::make_lattice_db_lookup(db_, statement_cache_,
-+                                                                              quanpin::QuerySource::Quanpin,
-+                                                                              options.span_limit),
-+                                              segmentation.empty() ? raw_input : segmentation, options, google_sentence,
-+                                              sentence_association_.google ? &sentences : nullptr, rerankers);
++            quanpin::merge_lattice_candidates(
++                result, segments,
++                quanpin::make_lattice_db_lookup(db_, statement_cache_, quanpin::QuerySource::Quanpin,
++                                                options.span_limit),
++                segmentation.empty() ? raw_input : segmentation, options, google_sentence,
++                sentence_association_.google ? &sentences : nullptr, rerankers);
 +        }
          // A sentence neither source produced on its own, assembled from one source's frame and the
          // other's disputed span. It only exists when it outscored both, so it goes in front of them.
          if (sentences.hybrid_leads(lattice_options.repair_margin) &&
-@@ -452,7 +504,8 @@ std::vector<WordItem> QuanpinDictionary::query_series(const std::string &raw_inp
+@@ -626,7 +671,8 @@ std::vector<WordItem> QuanpinDictionary::query_series(const std::string &raw_inp
          // including the ones where the lattice read the sentence correctly and it did not. Now both
          // are scored on the same terms and the better one leads; a fallback the dictionary cannot
          // spell has no score, and keeps the seat it always had.
@@ -2806,7 +2753,7 @@ index e073c3e..8a15814 100644
              !sentences.hybrid_leads(lattice_options.repair_margin))
          {
              const auto google = std::find_if(result.begin(), result.end(), [&](const WordItem &item) {
-@@ -699,6 +752,8 @@ std::vector<WordItem> QuanpinDictionary::append_ime_fallback(const std::string &
+@@ -876,6 +922,8 @@ std::vector<WordItem> QuanpinDictionary::append_ime_fallback(const std::string &
          return result;
      }
  
@@ -2816,7 +2763,7 @@ index e073c3e..8a15814 100644
      const std::string sentence = search_sentence_from_ime_engine(normalized);
      if (sentence.empty())
 diff --git a/quanpin/quanpin_dictionary.h b/quanpin/quanpin_dictionary.h
-index cce3f3a..2fa76e2 100644
+index b8c2ef6..a6996f7 100644
 --- a/quanpin/quanpin_dictionary.h
 +++ b/quanpin/quanpin_dictionary.h
 @@ -8,6 +8,9 @@
@@ -2829,17 +2776,16 @@ index cce3f3a..2fa76e2 100644
  #include "../core/fuzzy_pinyin_options.h"
  #include <sqlite3.h>
  #include <string>
-@@ -41,6 +44,9 @@ class QuanpinDictionary
+@@ -58,6 +61,8 @@ class QuanpinDictionary
      // the list, which does not change between keystrokes. Changing it clears the cached lists,
      // which were built under the previous answer.
      void set_sentence_alternatives(bool enabled);
 +    void set_sentence_association(const SentenceAssociationOptions &options);
-+    // The context invalidates cached ordering only when neural reranking is active.
 +    void set_rescoring_context(const std::string &context);
  
      int create_word(std::string pinyin, std::string word);
      int create_word_from_canonical_pinyin(std::string pinyin, std::string word);
-@@ -129,7 +135,11 @@ class QuanpinDictionary
+@@ -151,7 +156,11 @@ class QuanpinDictionary
      sqlite3_int64 data_version_ = -1;
      metasequoia::RuntimePaths paths_;
      bool sentence_alternatives_ = false;
@@ -2852,7 +2798,7 @@ index cce3f3a..2fa76e2 100644
      std::string db_path_;
  
 diff --git a/quanpin/word_lattice.cpp b/quanpin/word_lattice.cpp
-index 8db4d6e..6d9cffe 100644
+index 90061de..b8af10b 100644
 --- a/quanpin/word_lattice.cpp
 +++ b/quanpin/word_lattice.cpp
 @@ -411,7 +411,7 @@ std::vector<LatticePath> decode_word_lattice(const Segments &syllables, const Wo
@@ -2862,7 +2808,7 @@ index 8db4d6e..6d9cffe 100644
 -                              WholeSentenceComparison *comparison)
 +                              WholeSentenceComparison *comparison, const std::vector<SourcedLatticeReranker> &rerankers)
  {
-     if (!lookup || syllables.size() < 3)
+     if (!lookup || syllables.size() < 2)
          return;
 @@ -457,15 +457,115 @@ void merge_lattice_candidates(std::vector<WordItem> &candidates, const Segments
              }
@@ -2985,7 +2931,7 @@ index 8db4d6e..6d9cffe 100644
      for (const auto &path : paths)
      {
 diff --git a/quanpin/word_lattice.h b/quanpin/word_lattice.h
-index 9595b2d..e537523 100644
+index b3dff57..ce2ea41 100644
 --- a/quanpin/word_lattice.h
 +++ b/quanpin/word_lattice.h
 @@ -70,6 +70,8 @@ struct WordLatticeOptions
@@ -3054,7 +3000,7 @@ index 0000000..bf0e4c5
 +}
 +Write-Host 'Neural sentence models are ready.'
 diff --git a/shuangpin/engine.cpp b/shuangpin/engine.cpp
-index 6cab4d0..63a2405 100644
+index 17f4fc5..ec96433 100644
 --- a/shuangpin/engine.cpp
 +++ b/shuangpin/engine.cpp
 @@ -127,6 +127,8 @@ std::vector<WordItem> ShuangpinEngine::query(const QueryRequest &request)
@@ -3067,10 +3013,10 @@ index 6cab4d0..63a2405 100644
      const std::string &raw_input = request.raw_input;
      const std::string &raw_input_with_cases =
 diff --git a/shuangpin/engine.h b/shuangpin/engine.h
-index 969b8d7..6460e10 100644
+index 475e0b7..f71ffd8 100644
 --- a/shuangpin/engine.h
 +++ b/shuangpin/engine.h
-@@ -41,6 +41,18 @@ class ShuangpinEngine
+@@ -42,6 +42,18 @@ class ShuangpinEngine
          if (fuzzy_dictionary_)
              fuzzy_dictionary_->set_sentence_alternatives(enabled);
      }
@@ -3090,7 +3036,7 @@ index 969b8d7..6460e10 100644
    private:
      const ShuangpinProfile profile_;
 diff --git a/shuangpin/shuangpin_dictionary.cpp b/shuangpin/shuangpin_dictionary.cpp
-index 8a1bb9a..f0a4921 100644
+index 039d0f9..0d6a5ee 100644
 --- a/shuangpin/shuangpin_dictionary.cpp
 +++ b/shuangpin/shuangpin_dictionary.cpp
 @@ -6,6 +6,7 @@
@@ -3101,7 +3047,7 @@ index 8a1bb9a..f0a4921 100644
  #include <algorithm>
  #include <mutex>
  #include <shared_mutex>
-@@ -47,6 +48,10 @@ std::string escape_sql_text(std::string text)
+@@ -53,6 +54,10 @@ std::string escape_sql_text(std::string text)
  ShuangpinDictionary::ShuangpinDictionary(const ShuangpinProfile &profile, metasequoia::RuntimePaths paths)
      : profile_(profile), paths_(std::move(paths)), decoder_(paths_.resource(metasequoia::assets::pinyin_model),
                                                              paths_.user(metasequoia::assets::pinyin_user_dictionary)),
@@ -3112,7 +3058,7 @@ index 8a1bb9a..f0a4921 100644
        helpcodes_(HelpcodeUtils::load_helpcode_keymap(paths_.resources, HelpcodeUtils::selected_helpcode_schema())),
        _kb_input_sequence(100), _cached_buffer(128), _cached_buffer_sgl(128), _cached_buffer_sgl_reversed(128),
        _cached_buffer_dbl(128), _cached_buffer_series(128)
-@@ -75,6 +80,27 @@ ShuangpinDictionary::ShuangpinDictionary(const ShuangpinProfile &profile, metase
+@@ -81,6 +86,22 @@ ShuangpinDictionary::ShuangpinDictionary(const ShuangpinProfile &profile, metase
      }
  }
  
@@ -3129,18 +3075,13 @@ index 8a1bb9a..f0a4921 100644
 +    if (rescoring_context_ == context)
 +        return;
 +    rescoring_context_ = context;
-+    // The committed context affects ordering only while a neural model is active; otherwise keep
-+    // the dictionary cache warm across selections.
-+    const bool rescoring_active = (sentence_association_.neural_keyboard && neural_keyboard_model_ != nullptr) ||
-+                                  (sentence_association_.neural_desktop && neural_desktop_model_ != nullptr);
-+    if (rescoring_active)
-+        reset_cache();
++    reset_cache();
 +}
 +
  /**
   * @brief Generate candidate list when not in help mode
   *
-@@ -153,8 +179,10 @@ vector<ShuangpinDictionary::WordItem> ShuangpinDictionary::generateSeries( //
+@@ -159,8 +180,10 @@ vector<ShuangpinDictionary::WordItem> ShuangpinDictionary::generateSeries( //
      else
      {
          const std::string effective_cache_key = cache_key.empty() ? pinyin_sequence : cache_key;
@@ -3152,7 +3093,7 @@ index 8a1bb9a..f0a4921 100644
          {
              reset_cache_if_database_changed();
              if (const auto cached = _cached_buffer_series.get(effective_cache_key))
-@@ -172,7 +200,7 @@ vector<ShuangpinDictionary::WordItem> ShuangpinDictionary::generateSeries( //
+@@ -178,7 +201,7 @@ vector<ShuangpinDictionary::WordItem> ShuangpinDictionary::generateSeries( //
          }
          else
          { /* 可能数据库查询的结果是空，这时就需要联想，这个只适合在此处联想 */
@@ -3161,24 +3102,23 @@ index 8a1bb9a..f0a4921 100644
              {
                  string quanpin_str =
                      ShuangpinUtil::convert_seg_shuangpin_to_seg_complete_pinyin(pinyin_segmentation, profile_);
-@@ -219,7 +247,8 @@ vector<ShuangpinDictionary::WordItem> ShuangpinDictionary::generateSeries( //
+@@ -225,7 +248,8 @@ vector<ShuangpinDictionary::WordItem> ShuangpinDictionary::generateSeries( //
          // this; this one kept inserting at index 0, so an assembled sentence
          // displaced the exact word, turning 筚路蓝缕 into 笔录蓝绿.
          std::string google_sentence;
--        if (quanpin_segments.size() >= 3 && quanpin_segmentation.find('\'') != std::string::npos)
-+        if (sentence_association_.google && quanpin_segments.size() >= 3 &&
+-        if (quanpin_segments.size() >= 2 && quanpin_segmentation.find('\'') != std::string::npos)
++        if (sentence_association_.google && quanpin_segments.size() >= 2 &&
 +            quanpin_segmentation.find('\'') != std::string::npos)
          {
-             google_sentence = search_sentence_from_ime_engine(quanpin_segmentation);
+             google_sentence = search_sentence_from_ime_engine(quanpin::to_google_spelling(quanpin_segmentation));
              const bool duplicate = std::any_of(candidate_list.begin(), candidate_list.end(),
-@@ -234,12 +263,27 @@ vector<ShuangpinDictionary::WordItem> ShuangpinDictionary::generateSeries( //
+@@ -240,11 +264,27 @@ vector<ShuangpinDictionary::WordItem> ShuangpinDictionary::generateSeries( //
                  candidate_list.insert(candidate_list.begin() + at, std::move(sentence));
              }
          }
 -        const auto lattice_options = quanpin::make_sentence_lattice_options(paths_, sentence_alternatives_);
 -        quanpin::merge_lattice_candidates(candidate_list, quanpin_segments,
 -                                          quanpin::make_lattice_db_lookup(quanpin_db_, quanpin_statement_cache_,
--                                                                          quanpin::QuerySource::Shuangpin,
 -                                                                          lattice_options.span_limit),
 -                                          pinyin_sequence, lattice_options);
 +        std::vector<quanpin::SourcedLatticeReranker> rerankers;
@@ -3205,7 +3145,7 @@ index 8a1bb9a..f0a4921 100644
          if (!google_sentence.empty())
          {
              const auto google = std::find_if(candidate_list.begin(), candidate_list.end(), [&](const WordItem &item) {
-@@ -258,7 +302,8 @@ vector<ShuangpinDictionary::WordItem> ShuangpinDictionary::generateSeries( //
+@@ -263,7 +303,8 @@ vector<ShuangpinDictionary::WordItem> ShuangpinDictionary::generateSeries( //
          }
  
          /* 缓存起来 */
@@ -3216,7 +3156,7 @@ index 8a1bb9a..f0a4921 100644
  
      return candidate_list;
 diff --git a/shuangpin/shuangpin_dictionary.h b/shuangpin/shuangpin_dictionary.h
-index 893b011..03fe8f1 100644
+index 9aca94f..fde50f6 100644
 --- a/shuangpin/shuangpin_dictionary.h
 +++ b/shuangpin/shuangpin_dictionary.h
 @@ -10,6 +10,9 @@
@@ -3229,17 +3169,16 @@ index 893b011..03fe8f1 100644
  #include <shared_mutex>
  #include <array>
  #include <vector>
-@@ -73,6 +76,9 @@ class ShuangpinDictionary
+@@ -73,6 +76,8 @@ class ShuangpinDictionary
      explicit ShuangpinDictionary(const ShuangpinProfile &profile = GetXiaoheShuangpinProfile(),
                                   metasequoia::RuntimePaths paths = metasequoia::RuntimePaths::legacy());
      ~ShuangpinDictionary();
 +    void set_sentence_association(const SentenceAssociationOptions &options);
-+    // The context invalidates cached ordering only when neural reranking is active.
 +    void set_rescoring_context(const std::string &context);
  
      const ShuangpinProfile &profile() const
      {
-@@ -86,7 +92,11 @@ class ShuangpinDictionary
+@@ -86,7 +91,11 @@ class ShuangpinDictionary
      sqlite3_int64 data_version_ = -1;
      metasequoia::RuntimePaths paths_;
      bool sentence_alternatives_ = false;
@@ -3253,16 +3192,15 @@ index 893b011..03fe8f1 100644
      void reset_cache_if_database_changed();
 diff --git a/tests/src/test_neural_sentence.cpp b/tests/src/test_neural_sentence.cpp
 new file mode 100644
-index 0000000..6a50cd9
+index 0000000..ecb4cbd
 --- /dev/null
 +++ b/tests/src/test_neural_sentence.cpp
-@@ -0,0 +1,89 @@
+@@ -0,0 +1,50 @@
 +#include "core/sentence_association_options.h"
 +#include "neural/neural_decoder.h"
 +#include "neural/sentence_model.h"
 +
 +#include <iostream>
-+#include <vector>
 +
 +int main(int argc, char **argv)
 +{
@@ -3274,44 +3212,6 @@ index 0000000..6a50cd9
 +    if (!neural::last_characters("你好", 0).empty())
 +    {
 +        std::cerr << "zero context must be empty\n";
-+        return 1;
-+    }
-+    if (neural::rerank_context("你好世界", 64, 10) != "你好世界" || !neural::rerank_context("", 64, 10).empty())
-+    {
-+        std::cerr << "short rerank contexts must be preserved\n";
-+        return 1;
-+    }
-+    const std::string long_context(200, 'x');
-+    std::vector<std::string> windows;
-+    for (std::size_t longest = 1; longest <= 40; ++longest)
-+    {
-+        windows.push_back(neural::rerank_context(long_context, 64, longest));
-+        const std::string &window = windows.back();
-+        if (window.size() + longest >= 64 || window.size() % neural::kRerankContextStep != 0 ||
-+            long_context.compare(long_context.size() - window.size(), window.size(), window) != 0)
-+        {
-+            std::cerr << "rerank context did not hold a stable suffix\n";
-+            return 1;
-+        }
-+    }
-+    if (windows[0] != windows[1] || windows[0] == windows.back())
-+    {
-+        std::cerr << "rerank context should change only at step boundaries\n";
-+        return 1;
-+    }
-+    const std::string unicode_context = "a中b文";
-+    std::string repeated_unicode;
-+    for (int i = 0; i < 12; ++i)
-+    {
-+        repeated_unicode += unicode_context;
-+    }
-+    const std::string unicode_window = neural::rerank_context(repeated_unicode, 64, 20);
-+    const bool is_suffix = repeated_unicode.compare(repeated_unicode.size() - unicode_window.size(),
-+                                                    unicode_window.size(), unicode_window) == 0;
-+    if (unicode_window.size() != 8 * unicode_context.size() || !is_suffix ||
-+        !neural::rerank_context(repeated_unicode, 64, 70).empty())
-+    {
-+        std::cerr << "rerank context must preserve UTF-8 boundaries and allow an empty suffix\n";
 +        return 1;
 +    }
 +    if (neural::SentenceModel::load({}) != nullptr)
