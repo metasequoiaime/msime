@@ -3,6 +3,7 @@
 //! Same `mod tests` as before, so `use super::*` still names the parent.
 
 use super::*;
+use sha2::{Digest, Sha256};
 
 #[test]
 fn selection_statistics_use_the_candidate_id_absolute_index() {
@@ -68,6 +69,31 @@ fn default_sentence_model_uses_verified_resources_not_prepared_dictionaries() {
         ffi::sentence_model_path(resources.to_str().unwrap(), explicit.to_str()),
         explicit
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn resource_verification_rejects_a_symlinked_state_root() {
+    let root = tempfile::tempdir().unwrap();
+    let resources = root.path().join("resources");
+    std::fs::create_dir_all(&resources).unwrap();
+    std::fs::write(resources.join("fixture.db"), b"fixture").unwrap();
+    let specification = ResourceSet {
+        source_commit: "a".repeat(40),
+        artifacts: vec![msime_client_core::resources::Artifact {
+            name: "fixture.db".into(),
+            url: "https://example.invalid/fixture.db".into(),
+            engine_path: String::new(),
+            sha256: hex::encode(Sha256::digest(b"fixture")),
+            size: 7,
+        }],
+    };
+    let outside = tempfile::tempdir().unwrap();
+    let state = root.path().join("state");
+    std::os::unix::fs::symlink(outside.path(), &state).unwrap();
+
+    assert!(verify_resources_once(&resources, &specification, &state).is_err());
+    assert!(!outside.path().join("verified-resources.json").exists());
 }
 
 #[test]

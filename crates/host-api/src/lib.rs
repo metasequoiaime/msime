@@ -693,6 +693,25 @@ fn verify_resources_once(
     specification: &ResourceSet,
     state_root: &std::path::Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    match std::fs::symlink_metadata(state_root) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "state root is a symbolic link",
+            )
+            .into());
+        }
+        Ok(metadata) if !metadata.is_dir() => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "state root is not a directory",
+            )
+            .into());
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
     let marker_path = state_root.join("verified-resources.json");
     let current = VerifiedMarker::describe(resources, specification)?;
     if let (Some(current), Some(recorded)) = (&current, VerifiedMarker::read(&marker_path)) {
