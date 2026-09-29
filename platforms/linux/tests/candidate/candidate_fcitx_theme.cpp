@@ -317,6 +317,15 @@ int main() {
   assert(read(file) == unfilled);
   assert(!std::filesystem::exists(file.string() + ".new"));
   {
+    const auto outside = std::filesystem::path(root) / "outside-theme.conf";
+    write(outside, "keep");
+    const auto staging = file.string() + ".new";
+    std::filesystem::create_symlink(outside, staging);
+    assert(host::write_fcitx_theme(file, theme));
+    assert(read(outside) == "keep");
+    assert(read(file) == theme);
+  }
+  {
     std::ofstream oversized(file, std::ios::binary | std::ios::trunc);
     oversized << std::string(8 * 1024 * 1024, 'x');
   }

@@ -58,6 +58,14 @@ int main() {
   assert(read(file) == Json({{"fcitx5", {{"Theme", {{"prior", "default"}, {"written", "msime"}}}}},
                              {"ibus", {{"use-custom-font", {{"prior", nullptr}, {"written", true}}}}}}));
   assert(!std::filesystem::exists(file.string() + ".new"));
+  {
+    const auto outside = root / "outside-record.json";
+    std::ofstream(outside) << "keep";
+    std::filesystem::create_symlink(outside, file.string() + ".new");
+    assert(record_panel_takeover(file, "fcitx5", "PointerSize", "default", "msime", "default"));
+    std::ifstream in(outside);
+    assert(std::string(std::istreambuf_iterator<char>(in), {}) == "keep");
+  }
   assert(record_panel_takeover(file, "fcitx5", "DarkTheme", "msime", "msime", "default-dark"));
   assert(read(file)["fcitx5"]["DarkTheme"] == Json({{"prior", "default-dark"}, {"written", "msime"}}));
 
