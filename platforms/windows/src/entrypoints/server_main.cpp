@@ -1057,6 +1057,16 @@ int wmain(int argc, wchar_t **argv) {
     auto current_candidate_theme = candidate_theme_values(
         prepared.at("value").at("preferences"));
     std::map<std::string, CandidateThemeResolution> resolved_themes;
+    // Package assets by id, read from the catalog once per package and forgotten with the resolved themes.
+    std::map<std::string, msime::windows::CandidateSkinAssets> skin_assets;
+    auto package_assets = [&](const std::string &id)
+        -> const msime::windows::CandidateSkinAssets & {
+      auto found = skin_assets.find(id);
+      if (found == skin_assets.end())
+        found = skin_assets.emplace(id, resolve_skin_assets(config.skin_directory, id))
+                    .first;
+      return found->second;
+    };
     auto resolved_theme = [&](bool dark,
                               bool horizontal) -> const CandidateThemeResolution & {
       const auto request = candidate_theme_request(
@@ -1085,12 +1095,11 @@ int wmain(int argc, wchar_t **argv) {
         palette.show_selected_bar = *config.candidate_selected_bar;
       candidates.set_palette(palette);
       // An external package may ask for a wider card than the font implies; the artwork is drawn against that width.
-      const auto assets =
-          resolve_skin_assets(config.skin_directory, theme.candidate_skin);
+      const auto &assets = package_assets(theme.candidate_skin);
       candidates.set_skin_min_width(assets.min_width);
-      candidates.set_skin_decoration(assets.decoration.image,
-                                     assets.decoration.top_dip,
-                                     assets.decoration.width_dip);
+      candidates.set_skin_decoration(assets.decoration);
+      candidates.set_skin_background(assets.background);
+      candidates.set_skin_corner_radius(assets.corner_radius);
       candidate_skin_applied = theme.candidate_skin;
     }
     candidates.set_follow_cursor(follow_cursor->load(std::memory_order_acquire));
@@ -1098,6 +1107,12 @@ int wmain(int argc, wchar_t **argv) {
     auto surface_palette = [&](bool dark) {
       return candidate_theme_palette(
           resolved_theme(dark, candidate_horizontal_applied), dark);
+    };
+    // The toolbar's palette in `dark`: the theme's, with the toolbar colours and radius of the package that theme draws in that mode.
+    auto toolbar_surface_palette = [&](bool dark) {
+      const auto &theme = resolved_theme(dark, candidate_horizontal_applied);
+      return apply_toolbar_skin(toolbar_palette(candidate_theme_palette(theme, dark)),
+                                package_assets(theme.candidate_skin).toolbar, dark);
     };
     bool toolbar_visible = toolbar_enabled->load(std::memory_order_acquire);
     FloatingToolbarWindow toolbar(
@@ -1107,7 +1122,7 @@ int wmain(int argc, wchar_t **argv) {
     bool toolbar_dark_applied = !surface_theme_is_light(
         toolbar_theme->load(std::memory_order_acquire), system_dark);
     uint64_t toolbar_theme_applied = candidate_theme_generation;
-    toolbar.set_palette(toolbar_palette(surface_palette(toolbar_dark_applied)));
+    toolbar.set_palette(toolbar_surface_palette(toolbar_dark_applied));
     toolbar.set_scale(config.floating_toolbar_scale);
     toolbar.set_font_size(config.floating_toolbar_font_size);
     toolbar.set_items(config.floating_toolbar_items);
@@ -1466,6 +1481,7 @@ int wmain(int argc, wchar_t **argv) {
         if (*theme != current_candidate_theme) {
           current_candidate_theme = std::move(*theme);
           resolved_themes.clear();
+          skin_assets.clear();
           candidate_theme_dirty = true;
         }
       }
@@ -1479,8 +1495,10 @@ int wmain(int argc, wchar_t **argv) {
         const bool skin_resources_changed = candidate_skin_revision.changed(
             config.skin_directory,
             candidate_theme_package(current_candidate_theme));
-        if (skin_resources_changed)
+        if (skin_resources_changed) {
           resolved_themes.clear();
+          skin_assets.clear();
+        }
         const bool dark =
             candidate_theme_dark(current_candidate_theme, system_dark);
         if (candidate_theme_dirty || skin_resources_changed || dark != candidate_dark_applied ||
@@ -1491,12 +1509,12 @@ int wmain(int argc, wchar_t **argv) {
             next_palette.show_selected_bar = *config.candidate_selected_bar;
           candidates.set_theme_palette(next_palette);
           if (skin_resources_changed || theme.candidate_skin != candidate_skin_applied) {
-            const auto assets =
-                resolve_skin_assets(config.skin_directory, theme.candidate_skin);
+            const auto &assets = package_assets(theme.candidate_skin);
             candidates.invalidate_skin_images();
             candidates.set_skin_min_width(assets.min_width);
-            candidates.set_skin_decoration(assets.decoration.image,
-                assets.decoration.top_dip, assets.decoration.width_dip);
+            candidates.set_skin_decoration(assets.decoration);
+            candidates.set_skin_background(assets.background);
+            candidates.set_skin_corner_radius(assets.corner_radius);
             candidate_skin_applied = theme.candidate_skin;
           }
           candidate_dark_applied = dark;
@@ -1524,7 +1542,7 @@ int wmain(int argc, wchar_t **argv) {
           dark != toolbar_dark_applied || toolbar_theme_applied != candidate_theme_generation) {
         toolbar_dark_applied = dark;
         toolbar_theme_applied = candidate_theme_generation;
-        toolbar.set_palette(toolbar_palette(surface_palette(dark)));
+        toolbar.set_palette(toolbar_surface_palette(dark));
       }
       // The toolbar is topmost, so without this it floats over full-screen
       // video and presentations. ShouldShowFloatingToolbar was ported long ago

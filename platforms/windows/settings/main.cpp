@@ -998,6 +998,7 @@ private:
           slot(L"selected_text", slots.selected_text);
           slot(L"selected_number", slots.selected_number);
           slot(L"hover", slots.hover);
+          slot(L"secondary", slots.secondary);
           const auto bar = colors.GetNamedValue(L"show_selected_bar",
                                                 JsonValue::CreateNullValue());
           if (bar.ValueType() == JsonValueType::Boolean)
@@ -2584,9 +2585,11 @@ private:
       StackPanel cell;
       cell.Orientation(Orientation::Horizontal);
       cell.Spacing(8);
-      // Alpha 0 in the selected slots means "keep the unselected colour", as the renderer reads it. The translation draws in the number colour, as the renderer draws it.
+      // Alpha 0 in the selected slots means "keep the unselected colour", as the renderer reads it. The translation draws in the package's translation colour, or else the number colour, as the renderer draws it.
       const auto number_color =
           msime::windows::candidate_row_number_color(theme, highlighted);
+      const auto translation_color =
+          msime::windows::candidate_row_translation_color(theme, highlighted);
       const auto row_color = msime::windows::candidate_row_text_color(
           theme, theme.text, highlighted, false);
       auto number = make_text(std::to_wstring(i + 1), 13, to_color(number_color));
@@ -2597,7 +2600,7 @@ private:
       candidate.TextWrapping(TextWrapping::NoWrap);
       words.Children().Append(candidate);
       if (translations)
-        words.Children().Append(make_text(gloss, 13, to_color(number_color)));
+        words.Children().Append(make_text(gloss, 13, to_color(translation_color)));
       cell.Children().Append(words);
       item.Children().Append(cell);
       list.Children().Append(item);

@@ -87,7 +87,7 @@ inline CandidateColor parse_css_color(const std::string &text,
 // The candidate slots of a resolved global theme (msime_client_resolve_theme). An absent slot is one the theme leaves to the platform, and keeps the native token; an unparsable one is treated the same way.
 struct CandidatePaletteOverrides {
   std::optional<std::string> accent, selected, hover, surface, border, text,
-      number, selected_text, selected_number;
+      number, selected_text, selected_number, secondary;
   std::optional<bool> show_selected_bar;
 };
 // The card, flyout, toolbar and tray colours. The defaults are the Windows 11 (Fluent) dark tokens the `system` theme draws; candidate_light_palette() holds the light ones.
@@ -108,6 +108,10 @@ struct CandidatePalette {
   CandidateColor menu_border = {1.0f, 1.0f, 1.0f, 0.08f};
   CandidateColor menu_text = candidate_rgb(0xFFFFFF);
   CandidateColor menu_hover = {1.0f, 1.0f, 1.0f, 0.07f};
+  // The translation line, when the theme's secondary colour is not simply the numbers (an external package's `translation`); none draws it like the numbers.
+  std::optional<CandidateColor> translation;
+  // The floating toolbar's separator; none draws it in the border colour.
+  std::optional<CandidateColor> divider;
   // One Fluent flyout shadow, 0 8px 16px rgba(0,0,0,.14), in both modes and for every theme.
   float shadow_alpha = 0.14f;
   float radius = 8.0f;
@@ -125,12 +129,18 @@ inline CandidateColor candidate_row_text_color(const CandidatePalette &palette,
     return palette.selected_text.a > 0.0f ? palette.selected_text : normal;
   return fixed_position ? palette.accent : normal;
 }
-// Resolve the row's secondary colour: the index number and the translation. The theme contract's `secondary` always equals `number`, so both draw in number, or selected_number on the selected row; alpha 0 in selected_number keeps number.
+// Resolve the row's index number colour: number, or selected_number on the selected row; alpha 0 in selected_number keeps number.
 inline CandidateColor candidate_row_number_color(const CandidatePalette &palette,
                                                  bool highlighted) {
   return highlighted && palette.selected_number.a > 0.0f
              ? palette.selected_number
              : palette.number;
+}
+// Resolve the translation line. The theme's `secondary` follows `number` unless a package sets its own translation colour, which is then drawn on every row; otherwise the translation draws like the numbers.
+inline CandidateColor candidate_row_translation_color(const CandidatePalette &palette,
+                                                      bool highlighted) {
+  return palette.translation ? *palette.translation
+                             : candidate_row_number_color(palette, highlighted);
 }
 // The Fluent light tokens; geometry and the shadow are shared with the dark defaults.
 inline CandidatePalette candidate_light_palette() {
@@ -184,6 +194,9 @@ candidate_palette(const CandidatePaletteOverrides &overrides,
     apply(overrides.selected_number, palette.selected_number);
   else
     palette.selected_number = palette.number;
+  // The contract's secondary equals number unless a package gave a translation colour.
+  if (set(overrides.secondary) && overrides.secondary != overrides.number)
+    palette.translation = parse_css_color(*overrides.secondary, palette.number);
   if (set(overrides.surface))
     palette.menu_fill = palette.surface;
   palette.menu_text = palette.text;

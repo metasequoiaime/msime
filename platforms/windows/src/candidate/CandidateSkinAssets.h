@@ -15,6 +15,9 @@ inline bool valid_candidate_skin_id(const std::string &id) {
 struct CandidateSkinAssets {
   double min_width = 0.0;
   CandidateSkinDecoration decoration;
+  std::optional<float> corner_radius;
+  CandidateSkinBackground background;
+  CandidateSkinToolbar toolbar;
 };
 inline CandidateSkinAssets
 candidate_skin_assets(const nlohmann::json &catalog, const std::string &id,
@@ -22,6 +25,9 @@ candidate_skin_assets(const nlohmann::json &catalog, const std::string &id,
   if (!valid_candidate_skin_id(id))
     return {};
   return {candidate_skin_min_width(catalog, id),
-          candidate_skin_decoration(catalog, id, root)};
+          candidate_skin_decoration(catalog, id, root),
+          candidate_skin_corner_radius(catalog, id),
+          candidate_skin_background(catalog, id, root),
+          candidate_skin_toolbar(catalog, id)};
 }
 } // namespace msime::windows

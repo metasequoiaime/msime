@@ -7,6 +7,7 @@
 #include "CandidatePalette.h"
 #include "CandidatePresentation.h"
 #include "CandidateShadow.h"
+#include "CandidateSkin.h"
 #include <functional>
 #include <memory>
 // windows.h first: its DrawText macro has to reach the Direct2D declarations,
@@ -59,11 +60,18 @@ public:
   // anchor is only forgotten when the card hides.
   void set_follow_cursor(bool enabled) { follow_cursor_ = enabled; }
   // The mascot a package draws above the card. Empty image means none.
-  void set_skin_decoration(std::wstring image, double top_dip, double width_dip) {
-    decoration_image_ = std::move(image);
-    decoration_top_ = top_dip;
-    decoration_width_ = width_dip;
+  void set_skin_decoration(const CandidateSkinDecoration &decoration) {
+    decoration_image_ = decoration.image;
+    decoration_top_ = decoration.top_dip;
+    decoration_width_ = decoration.width_dip;
+    decoration_align_ = decoration.align;
   }
+  // The image a package draws over the card surface. Empty image means none.
+  void set_skin_background(CandidateSkinBackground background) {
+    background_ = std::move(background);
+  }
+  // The card radius a package asks for; none keeps the theme's.
+  void set_skin_corner_radius(std::optional<float> radius) { skin_radius_ = radius; }
   void hide();
   bool failed() const { return failed_; }
   HWND handle() const { return window_; }
@@ -131,6 +139,9 @@ private:
   std::wstring decoration_image_;
   double decoration_top_ = 0.0;
   double decoration_width_ = 0.0;
+  CandidateSkinAlign decoration_align_ = CandidateSkinAlign::right;
+  CandidateSkinBackground background_;
+  std::optional<float> skin_radius_;
   // Pixels reserved above the card for the artwork, computed when the card is
   // sized and reused when it is painted so the two cannot disagree.
   float decoration_offset_ = 0.0f;

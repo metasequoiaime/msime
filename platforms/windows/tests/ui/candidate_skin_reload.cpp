@@ -41,6 +41,7 @@ int main() {
   const nlohmann::json catalog{
       {"packages", nlohmann::json::array({{{"id", "sample"},
                                            {"preview", "preview.png"},
+                                           {"decorationImage", "preview.png"},
                                            {"minWidthDip", 320},
                                            {"decorationTopDip", 50},
                                            {"decorationWidthDip", 180}}})}};

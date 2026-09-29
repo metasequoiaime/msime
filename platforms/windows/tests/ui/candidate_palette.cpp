@@ -179,6 +179,20 @@ int main() {
   keep_number.selected_number = "transparent";
   const auto kept_number = candidate_palette(keep_number);
   require(candidate_row_number_color(kept_number, true) == kept_number.number);
+  // A secondary equal to number is the contract's default: the translation draws like the numbers. A package translation colour is drawn on every row.
+  CandidatePaletteOverrides following = numbered;
+  following.secondary = "#7A7A7A";
+  const auto followed = candidate_palette(following);
+  require(!followed.translation);
+  require(candidate_row_translation_color(followed, false) == followed.number);
+  require(candidate_row_translation_color(followed, true) == followed.selected_number);
+  CandidatePaletteOverrides translated = numbered;
+  translated.secondary = "#9FB4E080";
+  const auto own = candidate_palette(translated);
+  require(own.translation && *own.translation == candidate_rgb(0x9FB4E0, 0x80 / 255.0f));
+  require(candidate_row_translation_color(own, false) == *own.translation);
+  require(candidate_row_translation_color(own, true) == *own.translation);
+  require(candidate_row_number_color(own, false) == own.number);
 
   // The toolbar is the candidate palette in the toolbar's own geometry, so it follows the theme.
   for (const auto &base : {defaults, light_defaults, papered}) {

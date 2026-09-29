@@ -117,6 +117,7 @@ candidate_theme_resolution(const nlohmann::json &value) {
     color("selected_text", slots.selected_text);
     color("selected_number", slots.selected_number);
     color("hover", slots.hover);
+    color("secondary", slots.secondary);
     if (candidate.contains("show_selected_bar") &&
         !candidate.at("show_selected_bar").is_null()) {
       if (!candidate.at("show_selected_bar").is_boolean())

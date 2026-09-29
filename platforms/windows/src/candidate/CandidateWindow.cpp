@@ -640,10 +640,35 @@ void CandidateWindow::paint() {
   const WindowShadowPass shadow_passes[] = {
       {8.0f, palette_.shadow_alpha, 0.0f, 8.0f},
   };
-  draw_window_shadow_passes(target, card_rect, palette_.radius, shadow_passes,
+  const float radius = skin_radius_.value_or(palette_.radius);
+  draw_window_shadow_passes(target, card_rect, radius, shadow_passes,
                             std::size(shadow_passes));
-  const D2D1_ROUNDED_RECT card{card_rect, palette_.radius, palette_.radius};
+  const D2D1_ROUNDED_RECT card{card_rect, radius, radius};
   target->FillRoundedRectangle(card, brush(palette_.surface));
+  // The package background sits on the surface and under the border and the text, masked by the card's rounded outline.
+  if (!background_.image.empty() && background_.opacity > 0.0f) {
+    D2D1_SIZE_F natural{};
+    auto *bitmap = device_.GetBitmapFromFile(background_.image, &natural);
+    const auto rects = candidate_background_rects(
+        background_.fit,
+        {card_rect.left, card_rect.top, card_rect.right, card_rect.bottom},
+        natural.width, natural.height);
+    Microsoft::WRL::ComPtr<ID2D1Factory> factory;
+    target->GetFactory(&factory);
+    Microsoft::WRL::ComPtr<ID2D1RoundedRectangleGeometry> outline;
+    if (bitmap && rects && factory &&
+        SUCCEEDED(factory->CreateRoundedRectangleGeometry(card, &outline))) {
+      target->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), outline.Get()),
+                        nullptr);
+      const auto &to = rects->destination;
+      const auto &from = rects->source;
+      const D2D1_RECT_F source{from.left, from.top, from.right, from.bottom};
+      target->DrawBitmap(bitmap, D2D1_RECT_F{to.left, to.top, to.right, to.bottom},
+                         background_.opacity, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR,
+                         &source);
+      target->PopLayer();
+    }
+  }
   target->DrawRoundedRectangle(card, brush(palette_.border),
                                palette_.border_width);
   // The mascot, drawn last so it sits over the card's top edge - that overlap
@@ -657,11 +682,12 @@ void CandidateWindow::paint() {
       const float drawn_height =
           natural.width > 0.0f ? drawn_width * (natural.height / natural.width)
                                : decoration_offset_;
-      // Right-aligned above the card, as the settings preview places it.
-      const float right =
-          static_cast<float>(frame.card_left + frame.card_width) -
-          static_cast<float>(metrics.pad_x);
-      const float left = (std::max)(0.0f, right - drawn_width);
+      // Placed along the card's top edge as the manifest aligns it, as the settings preview places it.
+      const float left = candidate_decoration_left(
+          decoration_align_, static_cast<float>(frame.card_left),
+          static_cast<float>(frame.card_left + frame.card_width),
+          static_cast<float>(metrics.pad_x), drawn_width);
+      const float right = left + drawn_width;
       const float bottom = static_cast<float>(shadow_insets_.top) +
                            decoration_offset_ +
                            static_cast<float>(metrics.pad_y);
@@ -798,10 +824,11 @@ void CandidateWindow::paint() {
         D2D1_RECT_F{rect.left + gutter, rect.top, rect.right,
                     rect.top + static_cast<float>(item.text_height)},
         brush(row_text_color), D2D1_DRAW_TEXT_OPTIONS_CLIP);
-    // The annotation keeps the plain text colour even on a fixed-position row, and follows the selected text colour like the text does. The translation is the theme's secondary colour, which the theme contract fixes to the number colour (selected_number on the selected row).
+    // The annotation keeps the plain text colour even on a fixed-position row, and follows the selected text colour like the text does. The translation is the theme's secondary colour: a package's translation colour, or else the number colour (selected_number on the selected row).
     const auto annotation_color =
         candidate_row_text_color(palette_, text_color, selected, false);
-    const auto &translation_color = number_color;
+    const auto translation_color =
+        candidate_row_translation_color(palette_, selected);
     // Runs extend to the row's right edge rather than their measured width, so rounding cannot wrap or clip a run that was laid out as fitting.
     auto draw_run = [&](const std::string &run, const CandidateRunBox &box,
                         double size, const CandidateColor &color) {

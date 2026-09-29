@@ -300,7 +300,7 @@ void FloatingToolbarWindow::paint() {
         strip + static_cast<float>(layout.handle - 1.0) * unit;
     target->DrawLine({divider, top + height * 0.231f * unit},
                      {divider, top + height * 0.769f * unit},
-                     brush(palette_.border), 1.0f * unit);
+                     brush(palette_.divider.value_or(palette_.border)), 1.0f * unit);
     for (size_t i = 0; i < active.size(); ++i) {
       const int button = active[i];
       const auto box = toolbar_cell(i, layout);
