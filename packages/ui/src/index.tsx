@@ -25,6 +25,11 @@ export {
   type PlatformCopyContext,
   type PlatformCopy,
 } from "./settings/platform-copy";
+import { settingsPlatformPresentation } from "./settings/settings-platform-presentation";
+export {
+  settingsPlatformPresentation,
+  type SettingsPlatformPresentationOptions,
+} from "./settings/settings-platform-presentation";
 import { settingsVisualPreferences } from "./settings/settings-visual-preferences";
 export {
   settingsVisualPreferences,
@@ -1917,33 +1922,28 @@ export function SettingsPage({
     canInstallInputSource: Boolean(client.installInputSource),
     canListVoiceCaptureDevices: Boolean(client.listVoiceCaptureDevices),
   });
-  const fullwidthChord = fullwidthShortcutChord(macosPlatform);
-  const maintenanceChord = maintenanceShortcutChord(macosPlatform);
   const {
+    fullwidthChord,
+    maintenanceChord,
     releasesPageUrl: platformReleasesPageUrl,
     licenseUrl: platformLicenseUrl,
     issuesUrl: platformIssuesUrl,
     privacyUrl: platformPrivacyUrl,
-  } = platformResourceUrls({ clientHostedPlatform, linux: linuxPlatform });
-  const captureBackendOptions = voiceCaptureBackendOptions({
-    linux: linuxPlatform,
-    macos: macosPlatform,
-    windows: windowsPlatform,
-    harmony: harmonyPlatform,
-  });
-  const {
+    captureBackendOptions,
     helpIntro: platformHelpIntro,
     quickStart: platformQuickStart,
     networkDescription: platformNetworkDescription,
     aboutDescription: platformAboutDescription,
-  } = platformCopy({
+  } = settingsPlatformPresentation({
     android: androidPlatform,
     linux: linuxPlatform,
     macos: macosPlatform,
     harmony: harmonyPlatform,
     ios: iosPlatform,
     mobile: mobilePlatform,
-  } satisfies PlatformCopyContext);
+    windows: windowsPlatform,
+    clientHostedPlatform,
+  });
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [draft, setDraft] = useState<Preferences>();
   const [busy, setBusy] = useState(true);
