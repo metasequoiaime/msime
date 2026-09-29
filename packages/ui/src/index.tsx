@@ -246,6 +246,7 @@ import { createSettingsExternalActions } from "./settings/settings-external-acti
 import { createAboutSettingsActions } from "./settings/about-settings-actions";
 import { createScreenKeyboardActions } from "./settings/screen-keyboard-actions";
 import { createShortcutsSettingsActions } from "./settings/shortcuts-settings-actions";
+import { createHelpcodeSettingsActions } from "./settings/helpcode-settings-actions";
 import { useAppVersion } from "./settings/use-app-version";
 import { supportDiagnostics } from "./settings/support-diagnostics";
 import { useMountedRef } from "./settings/use-mounted-ref";
@@ -435,6 +436,10 @@ export {
   createShortcutsSettingsActions,
   type CreateShortcutsSettingsActionsOptions,
 } from "./settings/shortcuts-settings-actions";
+export {
+  createHelpcodeSettingsActions,
+  type CreateHelpcodeSettingsActionsOptions,
+} from "./settings/helpcode-settings-actions";
 import { SettingsSidebar } from "./settings/settings-sidebar";
 export {
   SettingsSidebar,
@@ -2371,6 +2376,7 @@ export function SettingsPage({
     keybindings,
     setDraft,
   });
+  const helpcodeSettingsActions = createHelpcodeSettingsActions({ draft, setDraft });
   const communityView = communityDestinationView(communityDestination);
   return (
     <div
@@ -2719,7 +2725,7 @@ export function SettingsPage({
                     showShiftEntry={showHelpcodeShiftEntry}
                     disabled={busy}
                     hidden={page !== "helpcode"}
-                    onChange={(patch) => setDraft({ ...draft, ...patch })}
+                    {...helpcodeSettingsActions}
                   />
                   <ShortcutsSettingsSection
                     disabled={busy}
