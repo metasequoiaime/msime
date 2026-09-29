@@ -40,24 +40,24 @@ public final class CustomKeyboardSkin {
         value.keyForeground = color(object, "keyForeground", value.keyForeground);
         value.accent = color(object, "accent", value.accent);
         value.actionBackground = color(object, "actionBackground", value.actionBackground);
-        value.cornerRadius = bounded(object.optDouble("cornerRadius", value.cornerRadius), 0, 20, 8);
-        value.borderWidth = bounded(object.optDouble("borderWidth", 0), 0, 2, 0);
-        value.shadow = bounded(object.optDouble("shadow", 0), 0, .4, 0);
+        value.cornerRadius = KeyboardGeometry.bounded(object.optDouble("cornerRadius", value.cornerRadius), 0, 20, 8);
+        value.borderWidth = KeyboardGeometry.bounded(object.optDouble("borderWidth", 0), 0, 2, 0);
+        value.shadow = KeyboardGeometry.bounded(object.optDouble("shadow", 0), 0, .4, 0);
         value.pattern = KeyboardGeometry.bounded(object.optInt("pattern", 0), 0, 3);
         value.monospaced = object.optBoolean("monospaced", false);
         value.keyShape = oneOf(object.optString("keyShape", "rounded"),
             "rounded", "capsule", "ticket", "pebble");
         value.keyMaterial = oneOf(object.optString("keyMaterial", "flat"),
             "flat", "raised", "glass", "paper");
-        value.keyOpacity = bounded(object.optDouble("keyOpacity", 1), .25, 1, 1);
+        value.keyOpacity = KeyboardGeometry.bounded(object.optDouble("keyOpacity", 1), .25, 1, 1);
         if (object.has("gradientEnd") && !object.isNull("gradientEnd"))
             value.gradientEnd = color(object, "gradientEnd", value.background);
         value.gradientHorizontal = object.optBoolean("gradientHorizontal", false);
-        value.patternOpacity = bounded(object.optDouble("patternOpacity", .15), 0, .5, .15);
+        value.patternOpacity = KeyboardGeometry.bounded(object.optDouble("patternOpacity", .15), 0, .5, .15);
         if (object.has("customBorderColor") && !object.isNull("customBorderColor"))
             value.customBorderColor = color(object, "customBorderColor", value.accent);
-        value.photoShade = bounded(object.optDouble("photoShade", .25), 0, .8, .25);
-        value.photoPosition = bounded(object.optDouble("photoPosition", .5), 0, 1, .5);
+        value.photoShade = KeyboardGeometry.bounded(object.optDouble("photoShade", .25), 0, .8, .25);
+        value.photoPosition = KeyboardGeometry.bounded(object.optDouble("photoPosition", .5), 0, 1, .5);
         value.photo = photo(object.optString("photo", ""));
         return value;
     }
@@ -74,31 +74,27 @@ public final class CustomKeyboardSkin {
         value.keyForeground = keyForeground & 0xFFFFFF;
         value.accent = accent & 0xFFFFFF;
         value.actionBackground = actionBackground & 0xFFFFFF;
-        value.cornerRadius = bounded(cornerRadius, 0, 20, 8);
-        value.borderWidth = bounded(borderWidth, 0, 2, 0);
-        value.shadow = bounded(shadow, 0, .4, 0);
+        value.cornerRadius = KeyboardGeometry.bounded(cornerRadius, 0, 20, 8);
+        value.borderWidth = KeyboardGeometry.bounded(borderWidth, 0, 2, 0);
+        value.shadow = KeyboardGeometry.bounded(shadow, 0, .4, 0);
         value.pattern = KeyboardGeometry.bounded(pattern, 0, 3);
         value.monospaced = monospaced;
         value.keyShape = oneOf(keyShape, "rounded", "capsule", "ticket", "pebble");
         value.keyMaterial = oneOf(keyMaterial, "flat", "raised", "glass", "paper");
-        value.keyOpacity = bounded(keyOpacity, .25, 1, 1);
+        value.keyOpacity = KeyboardGeometry.bounded(keyOpacity, .25, 1, 1);
         value.gradientEnd = gradientEnd == null ? null : gradientEnd & 0xFFFFFF;
         value.gradientHorizontal = gradientHorizontal;
-        value.patternOpacity = bounded(patternOpacity, 0, .5, .15);
+        value.patternOpacity = KeyboardGeometry.bounded(patternOpacity, 0, .5, .15);
         value.customBorderColor = customBorderColor == null ? null : customBorderColor & 0xFFFFFF;
         value.photo = photo != null && photo.length <= 512_000 && supportedPhoto(photo)
             ? photo.clone() : null;
-        value.photoShade = bounded(photoShade, 0, .8, .25);
-        value.photoPosition = bounded(photoPosition, 0, 1, .5);
+        value.photoShade = KeyboardGeometry.bounded(photoShade, 0, .8, .25);
+        value.photoPosition = KeyboardGeometry.bounded(photoPosition, 0, 1, .5);
         return value;
     }
 
     private static int color(JSONObject object, String key, int fallback) {
         return (int) object.optLong(key, fallback) & 0xFFFFFF;
-    }
-
-    private static double bounded(double value, double minimum, double maximum, double fallback) {
-        return Double.isFinite(value) ? KeyboardGeometry.bounded(value, minimum, maximum) : fallback;
     }
 
     private static String oneOf(String value, String first, String second, String third, String fourth) {

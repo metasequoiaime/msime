@@ -66,6 +66,10 @@ public final class KeyboardGeometry {
         return Math.max(minimum, Math.min(value, maximum));
     }
 
+    public static double bounded(double value, double minimum, double maximum, double fallback) {
+        return Double.isFinite(value) ? bounded(value, minimum, maximum) : fallback;
+    }
+
     public static float bounded(float value, float minimum, float maximum) {
         return Math.max(minimum, Math.min(value, maximum));
     }
