@@ -13,6 +13,21 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+test("the activity AI settings page uses the shared page section", () => {
+  const source = Object.values(
+    import.meta.glob<string>("../../../../packages/ui/src/settings/pages/ai-page.tsx", {
+      eager: true,
+      query: "?raw",
+      import: "default",
+    }),
+  )[0];
+
+  expect(source).toBeDefined();
+  expect(source).toContain('import { AiSettingsPageSection } from "../ai-settings-page-section";');
+  expect(source).toContain("<AiSettingsPageSection");
+  expect(source).not.toContain('<fieldset disabled={busy} hidden={page !== "ai"}');
+});
+
 const snapshot: Snapshot = {
   format_version: 1,
   revision: 2,
