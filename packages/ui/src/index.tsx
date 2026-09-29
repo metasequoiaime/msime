@@ -26,6 +26,7 @@ export {
   type PlatformCopyContext,
   type PlatformCopy,
 } from "./settings/platform-copy";
+import { platformResourceUrls } from "./settings/platform-resource-urls";
 import {
   mobileTabForPage,
   requestedPage,
@@ -48,19 +49,7 @@ export {
   useMobileKeyboardFeedback,
   type UseMobileKeyboardFeedbackOptions,
 } from "./settings/use-mobile-keyboard-feedback";
-import {
-  androidPrivacyUrl,
-  desktopDownloadUrl,
-  fallbackAppVersion,
-  licenseUrl,
-  linuxIssuesUrl,
-  linuxLicenseUrl,
-  linuxPrivacyUrl,
-  linuxReleasesPageUrl,
-  logo,
-  privacyUrl,
-  releasesPageUrl,
-} from "./settings/app-resources";
+import { desktopDownloadUrl, fallbackAppVersion, logo } from "./settings/app-resources";
 export { AI_PROVIDER_OPTIONS } from "./settings/ai-provider-options";
 import { defaultVoiceInput } from "./settings/voice-input-defaults";
 import { macosSidebarGroups } from "./settings/macos-sidebar-groups";
@@ -796,6 +785,11 @@ export {
   type VoiceCaptureBackendOptionsContext,
 } from "./settings/voice-capture-backend-options";
 export { fullwidthShortcutChord, maintenanceShortcutChord } from "./settings/platform-shortcuts";
+export {
+  platformResourceUrls,
+  type PlatformResourceUrls,
+  type PlatformResourceUrlsContext,
+} from "./settings/platform-resource-urls";
 export { settingsDirty, type SettingsDirtyOptions } from "./settings/settings-dirty";
 export {
   settingsPlatformContext,
@@ -1735,10 +1729,12 @@ export function SettingsPage({
   });
   const fullwidthChord = fullwidthShortcutChord(macosPlatform);
   const maintenanceChord = maintenanceShortcutChord(macosPlatform);
-  // Windows is built from this repository now too, so it reads this repository's releases; msime.app/update.json describes the reference Windows product and names its repository, which the validation below rightly refuses.
-  const platformReleasesPageUrl = clientHostedPlatform ? linuxReleasesPageUrl : releasesPageUrl;
-  const platformLicenseUrl = clientHostedPlatform ? linuxLicenseUrl : licenseUrl;
-  const platformIssuesUrl = linuxIssuesUrl;
+  const {
+    releasesPageUrl: platformReleasesPageUrl,
+    licenseUrl: platformLicenseUrl,
+    issuesUrl: platformIssuesUrl,
+    privacyUrl: platformPrivacyUrl,
+  } = platformResourceUrls({ clientHostedPlatform, linux: linuxPlatform });
   const captureBackendOptions = voiceCaptureBackendOptions({
     linux: linuxPlatform,
     macos: macosPlatform,
@@ -2754,13 +2750,7 @@ export function SettingsPage({
                     availableUpdate={availableUpdate}
                     installerTrust={installerTrust}
                     licenseUrl={platformLicenseUrl}
-                    privacyUrl={
-                      linuxPlatform
-                        ? linuxPrivacyUrl
-                        : clientHostedPlatform
-                          ? androidPrivacyUrl
-                          : privacyUrl
-                    }
+                    privacyUrl={platformPrivacyUrl}
                     macos={macosPlatform}
                     linux={linuxPlatform}
                     windows={windowsPlatform || !client.host}
