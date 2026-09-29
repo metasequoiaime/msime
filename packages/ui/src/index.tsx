@@ -173,6 +173,7 @@ import { VoiceStreamPreeditSection } from "./settings/voice-stream-preedit-secti
 import { VoiceCommitModeSection, type VoiceCommitMode } from "./settings/voice-commit-mode-section";
 import { VoiceCaptureDevicesSection } from "./settings/voice-capture-devices-section";
 import { voiceCaptureBackendOptions } from "./settings/voice-capture-backend-options";
+import { fullwidthShortcutChord, maintenanceShortcutChord } from "./settings/platform-shortcuts";
 import { VoiceSyntheticSilenceNotice } from "./settings/voice-synthetic-silence-notice";
 import { VoiceHotkeysSection } from "./settings/voice-hotkeys-section";
 import { VoicePolishSection } from "./settings/voice-polish-section";
@@ -791,6 +792,7 @@ export {
   voiceCaptureBackendOptions,
   type VoiceCaptureBackendOptionsContext,
 } from "./settings/voice-capture-backend-options";
+export { fullwidthShortcutChord, maintenanceShortcutChord } from "./settings/platform-shortcuts";
 export { VoiceSyntheticSilenceNotice } from "./settings/voice-synthetic-silence-notice";
 export {
   VoiceHotkeysSection,
@@ -1718,8 +1720,8 @@ export function SettingsPage({
     canInstallInputSource: Boolean(client.installInputSource),
     canListVoiceCaptureDevices: Boolean(client.listVoiceCaptureDevices),
   });
-  const fullwidthChord = macosPlatform ? "Option+Shift+H" : "Alt+Shift+H";
-  const maintenanceChord = macosPlatform ? "Ctrl+Shift+Option" : "Ctrl+Shift+Alt";
+  const fullwidthChord = fullwidthShortcutChord(macosPlatform);
+  const maintenanceChord = maintenanceShortcutChord(macosPlatform);
   // Windows is built from this repository now too, so it reads this repository's releases; msime.app/update.json describes the reference Windows product and names its repository, which the validation below rightly refuses.
   const platformReleasesPageUrl = clientHostedPlatform ? linuxReleasesPageUrl : releasesPageUrl;
   const platformLicenseUrl = clientHostedPlatform ? linuxLicenseUrl : licenseUrl;
