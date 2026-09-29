@@ -10,6 +10,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 fn token(byte: u8) -> String {
     std::iter::repeat_n(char::from(byte), 64).collect()
@@ -371,6 +372,14 @@ fn installed(storage: &MemoryStorage, expires_at_unix_ms: u64) {
     });
 }
 
+fn valid_future_expiry() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
+        + 60_000
+}
+
 #[test]
 fn validates_public_inputs_and_tokens() {
     assert!(validate_identity(&AccountIdentity {
@@ -406,6 +415,14 @@ fn validates_public_inputs_and_tokens() {
     assert_eq!(validate_tokens(&unbounded), Err(AccountError::Unavailable));
     unbounded.expires_in = 86_400 * 30;
     assert!(validate_tokens(&unbounded).is_ok());
+}
+
+#[test]
+fn rejects_persisted_session_expiry_beyond_thirty_days() {
+    let storage = MemoryStorage::default();
+    installed(&storage, u64::MAX);
+    let session = BackendAccountSession::new(FakeApi::new(), storage);
+    assert_eq!(session.status(), Err(AccountError::Storage));
 }
 
 #[test]
@@ -511,7 +528,7 @@ fn account_preferences_keep_photo_sized_strings_within_the_negotiated_limit() {
 #[test]
 fn account_preferences_refresh_after_unauthorized_and_preserve_revision_conflicts() {
     let storage = MemoryStorage::default();
-    installed(&storage, u64::MAX);
+    installed(&storage, valid_future_expiry());
     let api = FakeApi::new();
     let refreshes = Arc::clone(&api.refreshes);
     let session = BackendAccountSession::new(api, storage);
@@ -619,7 +636,7 @@ fn generation_exhaustion_refuses_async_account_operations() {
 #[test]
 fn logout_clears_local_session_before_remote_result() {
     let storage = MemoryStorage::default();
-    installed(&storage, u64::MAX);
+    installed(&storage, valid_future_expiry());
     let session = BackendAccountSession::new(FakeApi::new(), storage.clone());
     session.logout(true).unwrap();
     assert!(storage.load().unwrap().is_none());
