@@ -132,6 +132,8 @@ export {
 } from "./settings/settings-voice-ai-pages";
 import { SettingsAboutPage } from "./settings/settings-about-page";
 export { SettingsAboutPage, type SettingsAboutPageProps } from "./settings/settings-about-page";
+import { SettingsVisualPages } from "./settings/settings-visual-pages";
+export { SettingsVisualPages, type SettingsVisualPagesProps } from "./settings/settings-visual-pages";
 import { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
 export { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
 import { useTranslationSettings } from "./settings/use-translation-settings";
@@ -2545,38 +2547,77 @@ export function SettingsPage({
             />
             {draft && isSettingsFormPage(page) && (
                 <form onSubmit={submitSettings}>
-                  <AppearanceSettingsSection
-                    disabled={busy}
-                    hidden={page !== "appearance"}
-                    preferences={appearanceSettingsPreferences(draft, windowsPlatform)}
-                    revision={snapshot?.revision ?? 0}
-                    mobile={mobilePlatform}
-                    linux={linuxPlatform}
-                    windows={host?.platform === "windows"}
-                    candidatePreviewTheme={candidatePreviewTheme}
-                    candidatePanelLimit={host?.candidate_panel_limit}
-                    showCandidateFollowCursor={showCandidateFollowCursor}
-                    showCandidateFontControls={showCandidateFontControls}
-                    showCandidateEnglishFont={showCandidateEnglishFont}
-                    showCandidatePreeditFont={showCandidatePreeditFont}
-                    showCandidateRowColors={showCandidateRowColors}
-                    showCandidateSelectionAppearance={showCandidateSelectionAppearance}
-                    showCandidateBorderColor={showCandidateBorderColor}
-                    showShuangpinPreedit={showShuangpinPreedit}
-                    fixedCandidatePageSize={host?.fixed_candidate_page_size !== undefined}
-                    fixedCandidateLayout={host?.fixed_candidate_layout !== undefined}
-                    floatingToolbar={showFloatingToolbar}
-                    desktopPanels={desktopPanels}
-                    candidatePaletteFollowsDesktop={
-                      mobileKeyboardFeedback?.candidatePaletteFollowsDesktop
-                    }
-                    inlinePreedit={mobileKeyboardFeedback?.inlinePreedit}
-                    inlinePreeditBusy={mobileKeyboardFeedbackBusy}
-                    scan={client.scanSkinCatalog}
-                    readImage={client.readSkinImage}
-                    resolveFonts={client.resolveFontFamilies}
-                    listFontFamilies={client.listFontFamilies}
-                    {...appearanceSettingsActions}
+                  <SettingsVisualPages
+                    appearance={{
+                      disabled: busy,
+                      hidden: page !== "appearance",
+                      preferences: appearanceSettingsPreferences(draft, windowsPlatform),
+                      revision: snapshot?.revision ?? 0,
+                      mobile: mobilePlatform,
+                      linux: linuxPlatform,
+                      windows: host?.platform === "windows",
+                      candidatePreviewTheme,
+                      candidatePanelLimit: host?.candidate_panel_limit,
+                      showCandidateFollowCursor,
+                      showCandidateFontControls,
+                      showCandidateEnglishFont,
+                      showCandidatePreeditFont,
+                      showCandidateRowColors,
+                      showCandidateSelectionAppearance,
+                      showCandidateBorderColor,
+                      showShuangpinPreedit,
+                      fixedCandidatePageSize: host?.fixed_candidate_page_size !== undefined,
+                      fixedCandidateLayout: host?.fixed_candidate_layout !== undefined,
+                      floatingToolbar: showFloatingToolbar,
+                      desktopPanels,
+                      candidatePaletteFollowsDesktop: mobileKeyboardFeedback?.candidatePaletteFollowsDesktop,
+                      inlinePreedit: mobileKeyboardFeedback?.inlinePreedit,
+                      inlinePreeditBusy: mobileKeyboardFeedbackBusy,
+                      scan: client.scanSkinCatalog,
+                      readImage: client.readSkinImage,
+                      resolveFonts: client.resolveFontFamilies,
+                      listFontFamilies: client.listFontFamilies,
+                      ...appearanceSettingsActions,
+                    }}
+                    skin={{
+                      disabled: busy,
+                      hidden: page !== "skin",
+                      mobile: mobilePlatform,
+                      linux: linuxPlatform,
+                      candidatePanelLimit: host?.candidate_panel_limit,
+                      mobileKeyboardFeedback,
+                      mobileKeyboardFeedbackBusy,
+                      ...skinSettingsActions,
+                      candidateSkinCatalog: snapshot?.candidate_skin_catalog,
+                      selected: draft.candidate_skin ?? "willow_green",
+                      previewThemes: skinPreviewThemes,
+                      defaultTheme: candidatePreviewTheme,
+                      activeTheme: candidatePreviewTheme,
+                      scan: client.scanSkinCatalog,
+                      openDirectory: client.openSkinDirectory,
+                      importsSkin: host?.skin_directory_import === true,
+                      readImage: client.readSkinImage,
+                      readFont: client.readSkinFont,
+                      readToolbarCss: client.readSkinToolbarCss,
+                      layout: host?.fixed_candidate_layout ?? draft.candidate_layout ?? "vertical",
+                      toolbarPreview: !linuxPlatform,
+                    }}
+                    floatingToolbar={{
+                      disabled: busy,
+                      hidden: page !== "floating-toolbar",
+                      preferences: floatingToolbar,
+                      skin: draft.candidate_skin ?? "willow_green",
+                      theme: toolbarPreviewTheme,
+                      ...floatingToolbarActions,
+                      showAppearance: showToolbarAppearance,
+                      showComponents: showToolbarComponents,
+                      capabilities: host
+                        ? {
+                            floating_toolbar_handwriting: host.floating_toolbar_handwriting,
+                            floating_toolbar_voice: host.floating_toolbar_voice,
+                          }
+                        : undefined,
+                    }}
                   />
                   <DictionarySettingsPanel
                     disabled={busy}
@@ -2608,48 +2649,6 @@ export function SettingsPage({
                     setPhraseForm={setPhraseForm}
                     onTurnPage={turnPhrasePage}
                     phrasePage={phrasePage}
-                  />
-                  <SkinSettingsSection
-                    disabled={busy}
-                    hidden={page !== "skin"}
-                    mobile={mobilePlatform}
-                    linux={linuxPlatform}
-                    candidatePanelLimit={host?.candidate_panel_limit}
-                    mobileKeyboardFeedback={mobileKeyboardFeedback}
-                    mobileKeyboardFeedbackBusy={mobileKeyboardFeedbackBusy}
-                    {...skinSettingsActions}
-                    candidateSkinCatalog={snapshot?.candidate_skin_catalog}
-                    selected={draft.candidate_skin ?? "willow_green"}
-                    previewThemes={skinPreviewThemes}
-                    defaultTheme={candidatePreviewTheme}
-                    activeTheme={candidatePreviewTheme}
-                    scan={client.scanSkinCatalog}
-                    openDirectory={client.openSkinDirectory}
-                    importsSkin={host?.skin_directory_import === true}
-                    readImage={client.readSkinImage}
-                    readFont={client.readSkinFont}
-                    readToolbarCss={client.readSkinToolbarCss}
-                    // A host that draws one layout judges a skin by that layout, not by a setting it ignores.
-                    layout={host?.fixed_candidate_layout ?? draft.candidate_layout ?? "vertical"}
-                    toolbarPreview={!linuxPlatform}
-                  />
-                  <FloatingToolbarSettingsSection
-                    disabled={busy}
-                    hidden={page !== "floating-toolbar"}
-                    preferences={floatingToolbar}
-                    skin={draft.candidate_skin ?? "willow_green"}
-                    theme={toolbarPreviewTheme}
-                    {...floatingToolbarActions}
-                    showAppearance={showToolbarAppearance}
-                    showComponents={showToolbarComponents}
-                    capabilities={
-                      host
-                        ? {
-                            floating_toolbar_handwriting: host.floating_toolbar_handwriting,
-                            floating_toolbar_voice: host.floating_toolbar_voice,
-                          }
-                        : undefined
-                    }
                   />
                   <InputSettingsPanel
                     disabled={busy}
