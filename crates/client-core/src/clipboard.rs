@@ -63,6 +63,10 @@ impl ClipboardHistoryStore {
     }
 
     pub fn load(&mut self) -> std::io::Result<()> {
+        if let Some(parent) = self.path.parent().filter(|p| !p.as_os_str().is_empty()) {
+            crate::storage::reject_symlink(parent)?;
+        }
+        crate::storage::reject_symlink(&self.path)?;
         match fs::File::open(&self.path) {
             Ok(file) => {
                 let bytes = crate::bounded_io::read_bounded_file(file, MAX_HISTORY_BYTES, || {
@@ -260,10 +264,18 @@ impl ClipboardHistoryStore {
     }
 
     fn lock_writer(&self) -> std::io::Result<fs::File> {
-        let parent = self.path.parent().filter(|p| !p.as_os_str().is_empty());
-        if let Some(parent) = parent {
-            fs::create_dir_all(parent)?;
+        let parent = self
+            .path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or_else(|| std::path::Path::new("."));
+        if !crate::storage::create_directory_and_check(parent)? {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "clipboard history parent is not a real directory",
+            ));
         }
+        crate::storage::reject_symlink(&self.path)?;
         // Keep this sidecar stable across atomic replacement and clear. Removing
         // it would let another process lock a different inode at the same path.
         let mut lock_path = self.path.as_os_str().to_owned();
@@ -279,7 +291,6 @@ impl ClipboardHistoryStore {
             .parent()
             .filter(|p| !p.as_os_str().is_empty())
             .unwrap_or_else(|| std::path::Path::new("."));
-        fs::create_dir_all(parent)?;
         let bytes = serde_json::to_vec(entries).expect("clipboard entries are serializable");
         // Unique temporary file (0600 on Unix); never remove the old file before replacement.
         let mut temp = tempfile::NamedTempFile::new_in(parent)?;
@@ -699,6 +710,36 @@ mod tests {
             }])
             .unwrap());
         assert_eq!(texts(&store), ["synthetic after empty"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_symlinked_history_paths() {
+        use std::os::unix::fs::symlink;
+
+        let target = tempfile::tempdir().unwrap();
+        let parent = tempfile::tempdir().unwrap();
+        let linked_root = parent.path().join("user-data");
+        symlink(target.path(), &linked_root).unwrap();
+        let mut linked = ClipboardHistoryStore::open(linked_root.join("history.json"));
+        assert_eq!(
+            linked.load().unwrap_err().kind(),
+            std::io::ErrorKind::InvalidInput
+        );
+        assert!(!target.path().join("history.json").exists());
+
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("history.json");
+        let outside = tempfile::tempdir().unwrap();
+        let outside_path = outside.path().join("history.json");
+        fs::write(&outside_path, br#"["synthetic outside"]"#).unwrap();
+        symlink(&outside_path, &path).unwrap();
+        let mut store = ClipboardHistoryStore::open(&path);
+        assert_eq!(
+            store.load().unwrap_err().kind(),
+            std::io::ErrorKind::InvalidInput
+        );
+        assert!(store.push("synthetic rejected".into()).is_err());
     }
 
     #[test]
