@@ -22,13 +22,21 @@ export class KeyboardGeometry {
   static readonly MAX_ROW_SPACING_TENTHS: number = 100;
 
   static keySpacing(value: number): number {
-    return KeyboardGeometry.clamp(value, KeyboardGeometry.MIN_KEY_SPACING_TENTHS,
-      KeyboardGeometry.MAX_KEY_SPACING_TENTHS, KeyboardGeometry.DEFAULT_KEY_SPACING_TENTHS);
+    return KeyboardGeometry.clamp(
+      value,
+      KeyboardGeometry.MIN_KEY_SPACING_TENTHS,
+      KeyboardGeometry.MAX_KEY_SPACING_TENTHS,
+      KeyboardGeometry.DEFAULT_KEY_SPACING_TENTHS,
+    );
   }
 
   static rowSpacing(value: number): number {
-    return KeyboardGeometry.clamp(value, KeyboardGeometry.MIN_ROW_SPACING_TENTHS,
-      KeyboardGeometry.MAX_ROW_SPACING_TENTHS, KeyboardGeometry.DEFAULT_ROW_SPACING_TENTHS);
+    return KeyboardGeometry.clamp(
+      value,
+      KeyboardGeometry.MIN_ROW_SPACING_TENTHS,
+      KeyboardGeometry.MAX_ROW_SPACING_TENTHS,
+      KeyboardGeometry.DEFAULT_ROW_SPACING_TENTHS,
+    );
   }
 
   /**
@@ -39,15 +47,21 @@ export class KeyboardGeometry {
     if (value === null) {
       return KeyboardGeometry.DEFAULT_HEIGHT_ADJUSTMENT_VP;
     }
-    return Math.max(KeyboardGeometry.MIN_HEIGHT_ADJUSTMENT_VP,
-      Math.min(value, KeyboardGeometry.MAX_HEIGHT_ADJUSTMENT_VP));
+    return Math.max(
+      KeyboardGeometry.MIN_HEIGHT_ADJUSTMENT_VP,
+      Math.min(value, KeyboardGeometry.MAX_HEIGHT_ADJUSTMENT_VP),
+    );
   }
 
   /** Divide the total adjustment across rows without losing a density-independent pixel. */
-  static adjustedRowHeight(baseHeight: number, adjustment: number | null, rowCount: number,
-                           rowIndex: number): number {
+  static adjustedRowHeight(
+    baseHeight: number,
+    adjustment: number | null,
+    rowCount: number,
+    rowIndex: number,
+  ): number {
     if (baseHeight <= 0 || rowCount <= 0 || rowIndex < 0 || rowIndex >= rowCount) {
-      throw new Error('Invalid keyboard height geometry');
+      throw new Error("Invalid keyboard height geometry");
     }
     const total: number = baseHeight * rowCount + KeyboardGeometry.heightAdjustment(adjustment);
     return Math.floor(total / rowCount) + (rowIndex < total % rowCount ? 1 : 0);
@@ -59,14 +73,14 @@ export class KeyboardGeometry {
 
   static displayHeight(adjustment: number | null): string {
     const value: number = KeyboardGeometry.heightAdjustment(adjustment);
-    return (value > 0 ? '+' : '') + value.toString();
+    return (value > 0 ? "+" : "") + value.toString();
   }
 
   static halfGapPixels(tenths: number, density: number): number {
     if (!Number.isFinite(density) || density <= 0) {
       return 0;
     }
-    return Math.max(0, Math.round(tenths * density / 20));
+    return Math.max(0, Math.round((tenths * density) / 20));
   }
 
   static bounded(value: number, minimum: number, maximum: number): number {

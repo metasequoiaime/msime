@@ -12,13 +12,28 @@ export class WubiCodeHintPolicy {
    * Fallback and local candidates are deliberately left unannotated: their code is not the one the
    * user is partway through typing.
    */
-  static hint(code: string | null, typed: string | null, enabled: boolean, scheme: number,
-              localMode: string, answeredByPinyinFallback: boolean): string {
-    if (!enabled || scheme !== WubiCodeHintPolicy.WUBI_SCHEME || answeredByPinyinFallback
-        || localMode !== 'none' || code === null || typed === null || typed.length === 0
-        || code.length > MAX_CODE_LENGTH || typed.length > MAX_CODE_LENGTH
-        || code.length <= typed.length || !code.startsWith(typed)) {
-      return '';
+  static hint(
+    code: string | null,
+    typed: string | null,
+    enabled: boolean,
+    scheme: number,
+    localMode: string,
+    answeredByPinyinFallback: boolean,
+  ): string {
+    if (
+      !enabled ||
+      scheme !== WubiCodeHintPolicy.WUBI_SCHEME ||
+      answeredByPinyinFallback ||
+      localMode !== "none" ||
+      code === null ||
+      typed === null ||
+      typed.length === 0 ||
+      code.length > MAX_CODE_LENGTH ||
+      typed.length > MAX_CODE_LENGTH ||
+      code.length <= typed.length ||
+      !code.startsWith(typed)
+    ) {
+      return "";
     }
     return code.substring(typed.length);
   }

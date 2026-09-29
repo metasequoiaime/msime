@@ -7,10 +7,10 @@
  */
 export class JapaneseNineKeyActions {
   static spaceTitle(composing: boolean): string {
-    return composing ? '変換' : '空白';
+    return composing ? "変換" : "空白";
   }
 
   static returnTitle(composing: boolean): string {
-    return composing ? '確定' : '改行';
+    return composing ? "確定" : "改行";
   }
 }

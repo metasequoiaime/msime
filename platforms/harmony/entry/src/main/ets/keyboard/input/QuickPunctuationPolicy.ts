@@ -14,28 +14,43 @@ export interface PunctuationEntry {
 function entry(face: string, input: string): PunctuationEntry {
   const code: number = input.charCodeAt(0);
   if (face.length === 0 || code < 32 || code > 126) {
-    throw new Error('Invalid quick punctuation entry');
+    throw new Error("Invalid quick punctuation entry");
   }
   return { face: face, input: input };
 }
 
 const ASCII: PunctuationEntry[] = [
-  entry(',', ','), entry('.', '.'), entry('?', '?'), entry('!', '!'),
-  entry(':', ':'), entry(';', ';'), entry('@', '@')
+  entry(",", ","),
+  entry(".", "."),
+  entry("?", "?"),
+  entry("!", "!"),
+  entry(":", ":"),
+  entry(";", ";"),
+  entry("@", "@"),
 ];
 const CHINESE: PunctuationEntry[] = [
-  entry('，', ','), entry('。', '.'), entry('？', '?'), entry('！', '!'),
-  entry('、', '\\'), entry('；', ';'), entry('：', ':')
+  entry("，", ","),
+  entry("。", "."),
+  entry("？", "?"),
+  entry("！", "!"),
+  entry("、", "\\"),
+  entry("；", ";"),
+  entry("：", ":"),
 ];
 const JAPANESE: PunctuationEntry[] = [
-  entry('、', '\\'), entry('。', '.'), entry('？', '?'), entry('！', '!'),
-  entry('「', '['), entry('」', ']'), entry('・', '/')
+  entry("、", "\\"),
+  entry("。", "."),
+  entry("？", "?"),
+  entry("！", "!"),
+  entry("「", "["),
+  entry("」", "]"),
+  entry("・", "/"),
 ];
 
 export class QuickPunctuationPolicy {
   /** Display faces paired with the ASCII input each one sends to the Engine. */
   static entries(dedicatedEnglish: boolean, scheme: number, localMode: string): PunctuationEntry[] {
-    if (dedicatedEnglish || localMode !== 'none') {
+    if (dedicatedEnglish || localMode !== "none") {
       return ASCII;
     }
     return scheme === 3 ? JAPANESE : CHINESE;

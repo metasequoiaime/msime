@@ -24,61 +24,118 @@ export const DIRECTION_UP: number = 2;
 export const DIRECTION_RIGHT: number = 3;
 export const DIRECTION_DOWN: number = 4;
 
-function key(centre: string, left: string, up: string, right: string, down: string,
-             centreStroke: string, leftStroke: string, upStroke: string,
-             rightStroke: string, downStroke: string): JapaneseKey {
+function key(
+  centre: string,
+  left: string,
+  up: string,
+  right: string,
+  down: string,
+  centreStroke: string,
+  leftStroke: string,
+  upStroke: string,
+  rightStroke: string,
+  downStroke: string,
+): JapaneseKey {
   return {
     kana: [centre, left, up, right, down],
-    strokes: [centreStroke, leftStroke, upStroke, rightStroke, downStroke]
+    strokes: [centreStroke, leftStroke, upStroke, rightStroke, downStroke],
   };
 }
 
 function group(title: string, kana: string[], strokes: string[]): VariantGroup {
   if (kana.length !== strokes.length || kana.length === 0) {
-    throw new Error('Japanese variant labels and strokes must match');
+    throw new Error("Japanese variant labels and strokes must match");
   }
   return { title: title, kana: kana, strokes: strokes };
 }
 
 const KEYS: JapaneseKey[] = [
-  key('あ', 'い', 'う', 'え', 'お', 'a', 'i', 'u', 'e', 'o'),
-  key('か', 'き', 'く', 'け', 'こ', 'ka', 'ki', 'ku', 'ke', 'ko'),
-  key('さ', 'し', 'す', 'せ', 'そ', 'sa', 'shi', 'su', 'se', 'so'),
-  key('た', 'ち', 'つ', 'て', 'と', 'ta', 'chi', 'tsu', 'te', 'to'),
-  key('な', 'に', 'ぬ', 'ね', 'の', 'na', 'ni', 'nu', 'ne', 'no'),
-  key('は', 'ひ', 'ふ', 'へ', 'ほ', 'ha', 'hi', 'fu', 'he', 'ho'),
-  key('ま', 'み', 'む', 'め', 'も', 'ma', 'mi', 'mu', 'me', 'mo'),
-  key('や', '「', 'ゆ', '」', 'よ', 'ya', '', 'yu', '', 'yo'),
-  key('ら', 'り', 'る', 'れ', 'ろ', 'ra', 'ri', 'ru', 're', 'ro'),
-  key('わ', 'を', 'ん', 'ー', '〜', 'wa', 'wo', "n'", '-', ''),
-  key('、', '。', '？', '！', '…', '', '', '', '', '')
+  key("あ", "い", "う", "え", "お", "a", "i", "u", "e", "o"),
+  key("か", "き", "く", "け", "こ", "ka", "ki", "ku", "ke", "ko"),
+  key("さ", "し", "す", "せ", "そ", "sa", "shi", "su", "se", "so"),
+  key("た", "ち", "つ", "て", "と", "ta", "chi", "tsu", "te", "to"),
+  key("な", "に", "ぬ", "ね", "の", "na", "ni", "nu", "ne", "no"),
+  key("は", "ひ", "ふ", "へ", "ほ", "ha", "hi", "fu", "he", "ho"),
+  key("ま", "み", "む", "め", "も", "ma", "mi", "mu", "me", "mo"),
+  key("や", "「", "ゆ", "」", "よ", "ya", "", "yu", "", "yo"),
+  key("ら", "り", "る", "れ", "ろ", "ra", "ri", "ru", "re", "ro"),
+  key("わ", "を", "ん", "ー", "〜", "wa", "wo", "n'", "-", ""),
+  key("、", "。", "？", "！", "…", "", "", "", "", ""),
 ];
 
 /** Symbols printed on the Japanese nine-key digit layer. All choices commit directly. */
 const DIGIT_KEYS: JapaneseKey[] = [
-  key('1', '☆', '♪', '→', '', '', '', '', '', ''),
-  key('2', '¥', '$', '€', '', '', '', '', '', ''),
-  key('3', '%', '°', '#', '', '', '', '', '', ''),
-  key('4', '○', '*', '・', '', '', '', '', '', ''),
-  key('5', '+', '-', '=', '', '', '', '', '', ''),
-  key('6', '<', '^', '>', '', '', '', '', '', ''),
-  key('7', '「', '」', '：', '', '', '', '', '', ''),
-  key('8', '〒', '※', '♂', '', '', '', '', '', ''),
-  key('9', '（', '）', '／', '', '', '', '', '', ''),
-  key('0', '〜', '…', 'ー', '', '', '', '', '', ''),
-  key('、', '。', '？', '！', '…', '', '', '', '', '')
+  key("1", "☆", "♪", "→", "", "", "", "", "", ""),
+  key("2", "¥", "$", "€", "", "", "", "", "", ""),
+  key("3", "%", "°", "#", "", "", "", "", "", ""),
+  key("4", "○", "*", "・", "", "", "", "", "", ""),
+  key("5", "+", "-", "=", "", "", "", "", "", ""),
+  key("6", "<", "^", ">", "", "", "", "", "", ""),
+  key("7", "「", "」", "：", "", "", "", "", "", ""),
+  key("8", "〒", "※", "♂", "", "", "", "", "", ""),
+  key("9", "（", "）", "／", "", "", "", "", "", ""),
+  key("0", "〜", "…", "ー", "", "", "", "", "", ""),
+  key("、", "。", "？", "！", "…", "", "", "", "", ""),
 ];
 
-const DIGIT_BRACKETS: string[] = ['（', '）', '「', '」', '『', '』', '【', '】'];
+const DIGIT_BRACKETS: string[] = ["（", "）", "「", "」", "『", "』", "【", "】"];
 
 const VARIANTS: VariantGroup[] = [
-  group('小假名', ['ぁ', 'ぃ', 'ぅ', 'ぇ', 'ぉ', 'ゃ', 'ゅ', 'ょ', 'っ', 'ゎ'],
-    ['xa', 'xi', 'xu', 'xe', 'xo', 'xya', 'xyu', 'xyo', 'xtsu', 'xwa']),
-  group('浊音', ['が', 'ぎ', 'ぐ', 'げ', 'ご', 'ざ', 'じ', 'ず', 'ぜ', 'ぞ',
-    'だ', 'ぢ', 'づ', 'で', 'ど', 'ば', 'び', 'ぶ', 'べ', 'ぼ', 'ゔ'],
-    ['ga', 'gi', 'gu', 'ge', 'go', 'za', 'ji', 'zu', 'ze', 'zo',
-      'da', 'di', 'du', 'de', 'do', 'ba', 'bi', 'bu', 'be', 'bo', 'vu']),
-  group('半浊音', ['ぱ', 'ぴ', 'ぷ', 'ぺ', 'ぽ'], ['pa', 'pi', 'pu', 'pe', 'po'])
+  group(
+    "小假名",
+    ["ぁ", "ぃ", "ぅ", "ぇ", "ぉ", "ゃ", "ゅ", "ょ", "っ", "ゎ"],
+    ["xa", "xi", "xu", "xe", "xo", "xya", "xyu", "xyo", "xtsu", "xwa"],
+  ),
+  group(
+    "浊音",
+    [
+      "が",
+      "ぎ",
+      "ぐ",
+      "げ",
+      "ご",
+      "ざ",
+      "じ",
+      "ず",
+      "ぜ",
+      "ぞ",
+      "だ",
+      "ぢ",
+      "づ",
+      "で",
+      "ど",
+      "ば",
+      "び",
+      "ぶ",
+      "べ",
+      "ぼ",
+      "ゔ",
+    ],
+    [
+      "ga",
+      "gi",
+      "gu",
+      "ge",
+      "go",
+      "za",
+      "ji",
+      "zu",
+      "ze",
+      "zo",
+      "da",
+      "di",
+      "du",
+      "de",
+      "do",
+      "ba",
+      "bi",
+      "bu",
+      "be",
+      "bo",
+      "vu",
+    ],
+  ),
+  group("半浊音", ["ぱ", "ぴ", "ぷ", "ぺ", "ぽ"], ["pa", "pi", "pu", "pe", "po"]),
 ];
 
 export class JapaneseNineKeyLayout {
@@ -104,7 +161,7 @@ export class JapaneseNineKeyLayout {
    */
   static direction(offsetX: number, offsetY: number, threshold: number): number {
     if (threshold < 0) {
-      throw new Error('Flick threshold cannot be negative');
+      throw new Error("Flick threshold cannot be negative");
     }
     if (Math.max(Math.abs(offsetX), Math.abs(offsetY)) < threshold) {
       return DIRECTION_CENTRE;

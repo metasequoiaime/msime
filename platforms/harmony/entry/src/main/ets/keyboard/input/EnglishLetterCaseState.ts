@@ -6,9 +6,9 @@
  * capitalization policy applied is not sticky either, and Caps Lock survives both.
  */
 export enum LetterCaseMode {
-  LOWERCASE = 'lowercase',
-  SHIFTED = 'shifted',
-  CAPS_LOCK = 'caps_lock'
+  LOWERCASE = "lowercase",
+  SHIFTED = "shifted",
+  CAPS_LOCK = "caps_lock",
 }
 
 export class EnglishLetterCaseState {
@@ -39,16 +39,21 @@ export class EnglishLetterCaseState {
   /** A second tap inside the interval locks; any other tap flips between lower and shifted. */
   toggle(uptimeMillis: number): void {
     if (uptimeMillis < 0) {
-      throw new Error('Uptime must not be negative');
+      throw new Error("Uptime must not be negative");
     }
     this.automaticShift = false;
-    if (this.currentMode === LetterCaseMode.SHIFTED && this.lastShiftTapMillis >= 0
-        && uptimeMillis >= this.lastShiftTapMillis
-        && uptimeMillis - this.lastShiftTapMillis <= EnglishLetterCaseState.CAPS_LOCK_INTERVAL_MILLIS) {
+    if (
+      this.currentMode === LetterCaseMode.SHIFTED &&
+      this.lastShiftTapMillis >= 0 &&
+      uptimeMillis >= this.lastShiftTapMillis &&
+      uptimeMillis - this.lastShiftTapMillis <= EnglishLetterCaseState.CAPS_LOCK_INTERVAL_MILLIS
+    ) {
       this.currentMode = LetterCaseMode.CAPS_LOCK;
     } else {
-      this.currentMode = this.currentMode === LetterCaseMode.LOWERCASE
-        ? LetterCaseMode.SHIFTED : LetterCaseMode.LOWERCASE;
+      this.currentMode =
+        this.currentMode === LetterCaseMode.LOWERCASE
+          ? LetterCaseMode.SHIFTED
+          : LetterCaseMode.LOWERCASE;
     }
     this.lastShiftTapMillis = uptimeMillis;
   }
@@ -77,32 +82,32 @@ export class EnglishLetterCaseState {
   }
 
   keyText(): string {
-    return this.currentMode === LetterCaseMode.CAPS_LOCK ? '⇪' : '⇧';
+    return this.currentMode === LetterCaseMode.CAPS_LOCK ? "⇪" : "⇧";
   }
 
   accessibilityLabel(englishMode: boolean): string {
     switch (this.currentMode) {
       case LetterCaseMode.LOWERCASE:
-        return englishMode ? '大写' : '切换到英文大写';
+        return englishMode ? "大写" : "切换到英文大写";
       case LetterCaseMode.SHIFTED:
-        return '大写';
+        return "大写";
       case LetterCaseMode.CAPS_LOCK:
-        return '大写锁定';
+        return "大写锁定";
       default:
-        return '大写';
+        return "大写";
     }
   }
 
   accessibilityValue(): string {
     switch (this.currentMode) {
       case LetterCaseMode.LOWERCASE:
-        return '关闭';
+        return "关闭";
       case LetterCaseMode.SHIFTED:
-        return this.automaticShift ? '自动开启' : '下一字母';
+        return this.automaticShift ? "自动开启" : "下一字母";
       case LetterCaseMode.CAPS_LOCK:
-        return '开启';
+        return "开启";
       default:
-        return '关闭';
+        return "关闭";
     }
   }
 }

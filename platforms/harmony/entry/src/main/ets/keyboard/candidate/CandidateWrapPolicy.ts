@@ -6,14 +6,18 @@
  * measured width of each candidate, it answers which row each one belongs to.
  */
 export class CandidateWrapPolicy {
-  static shouldWrap(occupiedWidth: number, childWidth: number, availableWidth: number,
-                    spacing: number): boolean {
+  static shouldWrap(
+    occupiedWidth: number,
+    childWidth: number,
+    availableWidth: number,
+    spacing: number,
+  ): boolean {
     return occupiedWidth > 0 && occupiedWidth + spacing + childWidth > availableWidth;
   }
 
   static rows(availableWidth: number, spacing: number, childWidths: number[]): number[] {
     if (availableWidth < 0 || spacing < 0) {
-      throw new Error('Invalid candidate wrap dimensions');
+      throw new Error("Invalid candidate wrap dimensions");
     }
     const rows: number[] = new Array<number>(childWidths.length);
     let row: number = 0;
@@ -21,7 +25,7 @@ export class CandidateWrapPolicy {
     for (let index: number = 0; index < childWidths.length; index++) {
       const width: number = childWidths[index];
       if (width < 0) {
-        throw new Error('Invalid candidate width');
+        throw new Error("Invalid candidate width");
       }
       if (CandidateWrapPolicy.shouldWrap(occupied, width, availableWidth, spacing)) {
         row++;

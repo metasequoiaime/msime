@@ -6,7 +6,7 @@
  * is clamped or rejected rather than trusted. Photos are decoded here with a small runtime-neutral
  * Base64 reader, keeping the size and magic-number checks testable without a device image decoder.
  */
-import { KeyboardGeometry } from '../KeyboardGeometry';
+import { KeyboardGeometry } from "../KeyboardGeometry";
 
 const MAX_PHOTO_BYTES: number = 512000;
 const KEY_SHAPES: string[] = ["rounded", "capsule", "ticket", "pebble"];

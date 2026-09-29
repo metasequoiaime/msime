@@ -8,16 +8,16 @@ export class InputDiagnosticPolicy {
 
   static normalize(value: string | null): string {
     if (value === null) {
-      return '';
+      return "";
     }
     const normalized: string = value.trim();
     if (normalized.length === 0) {
-      return '';
+      return "";
     }
     if (normalized.length <= InputDiagnosticPolicy.MAX_LENGTH) {
       return normalized;
     }
-    return normalized.substring(0, InputDiagnosticPolicy.MAX_LENGTH - 1) + '…';
+    return normalized.substring(0, InputDiagnosticPolicy.MAX_LENGTH - 1) + "…";
   }
 
   static visible(value: string | null): boolean {

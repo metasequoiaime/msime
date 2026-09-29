@@ -9,11 +9,15 @@ export type ChineseConverter = (text: string) => string | null;
 
 export class ChineseOutputPolicy {
   static applies(dedicatedEnglish: boolean, scheme: number, localMode: string): boolean {
-    return !dedicatedEnglish && scheme !== 3 && localMode !== 'temporary_japanese';
+    return !dedicatedEnglish && scheme !== 3 && localMode !== "temporary_japanese";
   }
 
-  static output(text: string, traditional: boolean, applies: boolean,
-                converter: ChineseConverter): string {
+  static output(
+    text: string,
+    traditional: boolean,
+    applies: boolean,
+    converter: ChineseConverter,
+  ): string {
     if (!traditional || !applies || text.length === 0) {
       return text;
     }

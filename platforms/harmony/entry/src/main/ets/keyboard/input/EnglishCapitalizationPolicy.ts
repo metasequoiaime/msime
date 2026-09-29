@@ -7,10 +7,10 @@
  * union of those two Java predicates including the no-break space.
  */
 export enum CapitalizationMode {
-  NONE = 'none',
-  WORDS = 'words',
-  SENTENCES = 'sentences',
-  ALL_CHARACTERS = 'all_characters'
+  NONE = "none",
+  WORDS = "words",
+  SENTENCES = "sentences",
+  ALL_CHARACTERS = "all_characters",
 }
 
 const LETTER_OR_DIGIT = /[\p{L}\p{N}]/u;
@@ -22,13 +22,26 @@ function isApostrophe(codePoint: number): boolean {
 }
 
 function isClosing(codePoint: number): boolean {
-  return codePoint === 0x27 || codePoint === 0x22 || codePoint === 0x2019 || codePoint === 0x201d
-    || codePoint === 0x29 || codePoint === 0x5d || codePoint === 0x7d;
+  return (
+    codePoint === 0x27 ||
+    codePoint === 0x22 ||
+    codePoint === 0x2019 ||
+    codePoint === 0x201d ||
+    codePoint === 0x29 ||
+    codePoint === 0x5d ||
+    codePoint === 0x7d
+  );
 }
 
 function isSentenceTerminator(codePoint: number): boolean {
-  return codePoint === 0x2e || codePoint === 0x21 || codePoint === 0x3f
-    || codePoint === 0x3002 || codePoint === 0xff01 || codePoint === 0xff1f;
+  return (
+    codePoint === 0x2e ||
+    codePoint === 0x21 ||
+    codePoint === 0x3f ||
+    codePoint === 0x3002 ||
+    codePoint === 0xff01 ||
+    codePoint === 0xff1f
+  );
 }
 
 /** Mirrors Character.codePointBefore: reads one full code point ending at the given offset. */

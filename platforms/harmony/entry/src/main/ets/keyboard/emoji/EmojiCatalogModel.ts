@@ -1,4 +1,4 @@
-import { utf8Length } from '../Utf8';
+import { utf8Length } from "../Utf8";
 
 /**
  * Paging and recent-selection policy for the Engine-owned emoji catalog, ported from
@@ -47,8 +47,12 @@ function codePointCount(text: string): number {
 }
 
 function isUsableGroupText(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0 && value.length <= MAX_GROUP_CODE_UNITS
-    && value.trim().length > 0;
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= MAX_GROUP_CODE_UNITS &&
+    value.trim().length > 0
+  );
 }
 
 /** Bounds and de-duplicates Engine-provided kaomoji group names before they reach ArkUI. */
@@ -73,15 +77,19 @@ export function normalizeSymbolGroups(values: unknown): EmojiSymbolGroup[] {
   }
   const groups: EmojiSymbolGroup[] = [];
   for (const value of values) {
-    if (value === null || typeof value !== 'object') {
+    if (value === null || typeof value !== "object") {
       continue;
     }
     const candidate = value as { parent?: unknown; title?: unknown };
     if (!isUsableGroupText(candidate.parent) || !isUsableGroupText(candidate.title)) {
       continue;
     }
-    if (groups.some((group: EmojiSymbolGroup): boolean =>
-      group.parent === candidate.parent && group.title === candidate.title)) {
+    if (
+      groups.some(
+        (group: EmojiSymbolGroup): boolean =>
+          group.parent === candidate.parent && group.title === candidate.title,
+      )
+    ) {
       continue;
     }
     groups.push({ parent: candidate.parent, title: candidate.title });
@@ -91,15 +99,15 @@ export function normalizeSymbolGroups(values: unknown): EmojiSymbolGroup[] {
 
 // Unicode group order; the database row sort order interleaves Symbols and Flags.
 const CATEGORIES: EmojiCategory[] = [
-  { group: 'Smileys and emotion', title: '笑脸' },
-  { group: 'People and body', title: '人物' },
-  { group: 'Animals and nature', title: '动物' },
-  { group: 'Food and drink', title: '食物' },
-  { group: 'Travel and places', title: '旅行' },
-  { group: 'Activities', title: '活动' },
-  { group: 'Objects', title: '物品' },
-  { group: 'Symbols', title: '符号' },
-  { group: 'Flags', title: '旗帜' }
+  { group: "Smileys and emotion", title: "笑脸" },
+  { group: "People and body", title: "人物" },
+  { group: "Animals and nature", title: "动物" },
+  { group: "Food and drink", title: "食物" },
+  { group: "Travel and places", title: "旅行" },
+  { group: "Activities", title: "活动" },
+  { group: "Objects", title: "物品" },
+  { group: "Symbols", title: "符号" },
+  { group: "Flags", title: "旗帜" },
 ];
 
 export class EmojiCatalogModel {
@@ -109,13 +117,13 @@ export class EmojiCatalogModel {
 
   static item(text: string, annotation: string, group: string): EmojiItem {
     if (text.length === 0 || codePointCount(text) > MAX_TEXT_CODE_POINTS) {
-      throw new Error('Invalid emoji catalog text');
+      throw new Error("Invalid emoji catalog text");
     }
     if (codePointCount(annotation) > MAX_ANNOTATION_CODE_POINTS) {
-      throw new Error('Invalid emoji annotation');
+      throw new Error("Invalid emoji annotation");
     }
     if (group.length === 0 || group.length > 128) {
-      throw new Error('Invalid emoji group');
+      throw new Error("Invalid emoji group");
     }
     return { text: text, annotation: annotation, group: group };
   }
@@ -124,12 +132,24 @@ export class EmojiCatalogModel {
    * A page the Engine returned is checked before it is trusted: an offset that goes backwards, or a
    * page that claims to be incomplete while advancing nowhere, would loop the caller forever.
    */
-  static validatePage(items: EmojiItem[], requestedOffset: number, limit: number,
-                      nextOffset: number, complete: boolean): EmojiPage {
-    if (requestedOffset < 0 || limit < 1 || limit > 255 || items.length > limit
-        || nextOffset < requestedOffset || nextOffset > requestedOffset + limit
-        || nextOffset > 2147483647 || (!complete && nextOffset === requestedOffset)) {
-      throw new Error('Invalid emoji catalog page');
+  static validatePage(
+    items: EmojiItem[],
+    requestedOffset: number,
+    limit: number,
+    nextOffset: number,
+    complete: boolean,
+  ): EmojiPage {
+    if (
+      requestedOffset < 0 ||
+      limit < 1 ||
+      limit > 255 ||
+      items.length > limit ||
+      nextOffset < requestedOffset ||
+      nextOffset > requestedOffset + limit ||
+      nextOffset > 2147483647 ||
+      (!complete && nextOffset === requestedOffset)
+    ) {
+      throw new Error("Invalid emoji catalog page");
     }
     return { items: items.slice(), nextOffset: nextOffset, complete: complete };
   }
@@ -139,8 +159,11 @@ export class EmojiCatalogModel {
     const unique: string[] = [];
     if (stored !== null) {
       for (const text of stored) {
-        if (text.length === 0 || codePointCount(text) > MAX_TEXT_CODE_POINTS
-            || unique.includes(text)) {
+        if (
+          text.length === 0 ||
+          codePointCount(text) > MAX_TEXT_CODE_POINTS ||
+          unique.includes(text)
+        ) {
           continue;
         }
         unique.push(text);
@@ -160,8 +183,11 @@ export class EmojiCatalogModel {
    * same code-point and duplicate bounds as values selected in this process.
    */
   static parseRecents(document: string | null): string[] {
-    if (document === null || document.length === 0
-        || utf8Length(document) > EMOJI_RECENTS_MAX_BYTES) {
+    if (
+      document === null ||
+      document.length === 0 ||
+      utf8Length(document) > EMOJI_RECENTS_MAX_BYTES
+    ) {
       return [];
     }
     try {
@@ -171,7 +197,7 @@ export class EmojiCatalogModel {
       }
       const values: string[] = [];
       for (const value of decoded) {
-        if (typeof value === 'string') {
+        if (typeof value === "string") {
           values.push(value);
         }
       }
@@ -187,7 +213,7 @@ export class EmojiCatalogModel {
 
   static recordRecent(stored: string[] | null, selected: string): string[] {
     if (selected.length === 0 || codePointCount(selected) > MAX_TEXT_CODE_POINTS) {
-      throw new Error('Invalid recent emoji');
+      throw new Error("Invalid recent emoji");
     }
     const reordered: string[] = [selected];
     for (const text of EmojiCatalogModel.normalizeRecents(stored)) {

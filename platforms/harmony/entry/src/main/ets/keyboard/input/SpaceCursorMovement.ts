@@ -29,8 +29,13 @@ export class SpaceCursorMovement {
 
   /** Whole steps to move, with the leftover distance carried into the next call. */
   advance(position: number, document: object | null, pixelsPerStep: number): number {
-    if (!this.isActive() || this.document !== document || !Number.isFinite(position)
-        || !Number.isFinite(pixelsPerStep) || pixelsPerStep < 1) {
+    if (
+      !this.isActive() ||
+      this.document !== document ||
+      !Number.isFinite(position) ||
+      !Number.isFinite(pixelsPerStep) ||
+      pixelsPerStep < 1
+    ) {
       this.cancel();
       return 0;
     }
