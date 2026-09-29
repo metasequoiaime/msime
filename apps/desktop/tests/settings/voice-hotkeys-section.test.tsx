@@ -15,8 +15,10 @@ test("uses Windows labels and forwards shortcut changes", () => {
   );
 
   expect(screen.getByText(/输入法运行时全局生效。长按快捷键录音/)).toBeTruthy();
+  expect(screen.getByRole("region", { name: "语音快捷键" })).toBeTruthy();
   const ralt = screen.getByLabelText("长按右 Alt 录音") as HTMLInputElement;
   expect(ralt.checked).toBe(false);
+  expect(screen.getByRole("switch", { name: "长按右 Alt 录音" })).toBe(ralt);
   fireEvent.click(ralt);
   expect(onChange).toHaveBeenCalledWith("hotkey_ralt", true);
 });

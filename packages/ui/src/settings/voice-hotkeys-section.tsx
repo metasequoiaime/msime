@@ -4,7 +4,8 @@ import {
   type VoiceHotkeyKey,
   type VoiceHotkeyPlatform,
 } from "./voice-hotkeys";
-import { SettingToggle } from "./setting-toggle";
+import * as settings from "./settings-style";
+import { GroupList, Row, Switch } from "../core/platform-controls";
 
 export type { VoiceHotkeyKey, VoiceHotkeyPlatform } from "./voice-hotkeys";
 
@@ -17,22 +18,18 @@ export interface VoiceHotkeysSectionProps {
 /** Platform-aware voice recording shortcut controls shared by desktop settings hosts. */
 export function VoiceHotkeysSection({ platform, values, onChange }: VoiceHotkeysSectionProps) {
   return (
-    <div className="section">
-      <div className="section-title">
-        语音快捷键
-        <small>{description(platform)}</small>
-      </div>
+    <GroupList title="语音快捷键">
+      <p className={settings.groupNote}>{description(platform)}</p>
       {/* Linux hosts share the desktop labels; only their native key event handling differs. */}
       {hotkeyOptions(platform).map(([key, label]) => (
-        <SettingToggle
-          key={key}
-          label={label}
-          ariaLabel={label}
-          checked={values[key] !== false}
-          compact
-          onChange={(enabled) => onChange(key, enabled)}
-        />
+        <Row key={key} title={label}>
+          <Switch
+            aria-label={label}
+            checked={values[key] !== false}
+            onChange={(enabled) => onChange(key, enabled)}
+          />
+        </Row>
       ))}
-    </div>
+    </GroupList>
   );
 }
