@@ -2439,7 +2439,6 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
         traditionalChineseOutputEnabled:_appearance.traditionalOutput];
 }
 - (void)appearanceChanged:(NSNotification *)notification {
-    (void)notification;
     _preferenceLoadState.reset(); // Local edits invalidate older disk reads.
     if (!_appearance.cloudCandidatesEnabled) [self cancelCloudCandidates];
     if (_appearance) _glossEnabled = @(_appearance.candidateTranslations);
@@ -2468,7 +2467,8 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     if (_activeClient) [_toolbar setVisible:_appearance.floatingToolbarEnabled forDelegate:self];
     // The settings window can move the scheme in or out of japanese, which moves the menu bar between 中 and 日.
     if (_activeClient) [self syncSystemInputModeForClient:_activeClient];
-    [self persistAppearancePreferences];
+    // Every Shift tap lands here. Saving then wrote this process's whole view of the settings over the shared document once per mode switch, so a controller that had not yet reloaded an edit made elsewhere put the old value back, and two writers that disagreed traded the document on every tap.
+    if (![notification.userInfo[MSIMEAppearanceInputModeOnlyKey] isEqual:@YES]) [self persistAppearancePreferences];
 }
 // One save in flight for the whole process. IMK keeps a controller per text input client and every one of them observes the same shared appearance, so one change asks each of them to save the same document; with a save state per controller they each ran a load and a compare-and-swap save under the exclusive preferences lock, fsync included, at the same time. What they save is the shared appearance, whichever controller asks, so one save and at most one queued behind it cover them all.
 static MSIMEPreferenceSaveState MSIMESharedPreferenceSaveState;

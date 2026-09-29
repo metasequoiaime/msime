@@ -5,6 +5,8 @@
 
 FOUNDATION_EXPORT NSNotificationName const MSIMEAppearanceDidChangeNotification;
 FOUNDATION_EXPORT NSNotificationName const MSIMETranslationPreferencesDidSaveNotification;
+/// Set to @YES in the userInfo of an MSIMEAppearanceDidChangeNotification that only moved the Chinese/English mode. The mode is not part of the shared preferences document, so observers refresh what they show but have nothing to save.
+FOUNDATION_EXPORT NSString *const MSIMEAppearanceInputModeOnlyKey;
 
 // macOS-only presentation settings; never change Engine composition/configuration.
 @interface MSIMEAppearancePreferences : NSWindowController

@@ -35,6 +35,7 @@ extern "C" void MSIMEAccountPaneClose(void) __attribute__((weak_import));
 
 NSNotificationName const MSIMEAppearanceDidChangeNotification = @"MSIMEClientAppearanceDidChange";
 NSNotificationName const MSIMETranslationPreferencesDidSaveNotification = @"MSIMEClientTranslationPreferencesDidSave";
+NSString *const MSIMEAppearanceInputModeOnlyKey = @"MSIMEClientAppearanceInputModeOnly";
 static NSString *const LayoutKey = @"MSIMEClientCandidatePanelStyle";
 static NSString *const CandidateFollowCursorKey = @"MSIMEClientCandidateFollowCursor";
 static NSString *const InputModeHUDKey = @"MSIMEClientInputModeHUD";
@@ -1935,7 +1936,10 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     [self overrideActiveInputModeRule];
     [self rememberActiveInputMode:value];
     [_defaults setBool:value forKey:EnglishKey];
-    [self preferencesChanged];
+    [self refreshControls];
+    if (_silent) return;
+    [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEAppearanceDidChangeNotification object:self
+                                                      userInfo:@{MSIMEAppearanceInputModeOnlyKey : @YES}];
 }
 /// Records that the user switched mode by hand in an application that has a rule, so -englishMode stops answering with the rule until they arrive at the application again. Does nothing where there is no rule to outrank.
 - (void)overrideActiveInputModeRule {

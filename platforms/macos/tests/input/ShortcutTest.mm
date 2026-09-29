@@ -2833,6 +2833,28 @@ static void TestProviderSettingsPersistTheSharedSnapshot() {
     assert(controller.appliedPreferences.count == 0 && session.updates == 0);
 }
 
+// A Chinese/English switch is not part of the shared document, so it asks no controller to save it. Saving on every Shift tap wrote the whole in-memory view of the settings over whatever another writer had just saved.
+static void TestInputModeSwitchDoesNotSaveSharedPreferences() {
+    NSString *suite = [@"msime.mode-switch-save." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    VoiceSettingsPersistenceController *controller = [VoiceSettingsPersistenceController alloc];
+    [controller setValue:prefs forKey:@"appearance"];
+    [NSNotificationCenter.defaultCenter addObserver:controller selector:@selector(appearanceChanged:)
+                                               name:MSIMEAppearanceDidChangeNotification object:prefs];
+    __block NSUInteger announcements = 0;
+    id observer = [NSNotificationCenter.defaultCenter addObserverForName:MSIMEAppearanceDidChangeNotification object:prefs queue:nil usingBlock:^(NSNotification *note) { (void)note; ++announcements; }];
+    prefs.englishMode = YES;
+    prefs.englishMode = NO;
+    // Observers still hear about the switch; only the save is skipped.
+    assert(announcements == 2 && controller.persistenceRequests == 0);
+    prefs.traditionalOutput = YES;
+    assert(announcements == 3 && controller.persistenceRequests == 1);
+    [NSNotificationCenter.defaultCenter removeObserver:observer];
+    [NSNotificationCenter.defaultCenter removeObserver:controller name:MSIMEAppearanceDidChangeNotification object:prefs];
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
 // The synthetic keyboard these cases drive: a key is held between its down and its up, which is what
 // the detector now asks about instead of trusting its own record. The record can lose a release -
 // focus moves while a key is down, or the host is told about fewer event kinds - and a stale entry
@@ -7024,6 +7046,7 @@ int main(int argc, char **argv) {
         TestPreferenceRevisionSkipsUnchangedDocuments();
         TestUnreadablePreferencesAreRecoveredOnce();
         TestProviderSettingsPersistTheSharedSnapshot();
+        TestInputModeSwitchDoesNotSaveSharedPreferences();
         TestFullWidth(defaults, appearance);
         TestSessionOptions();
         TestKeypadDecimal(appearance);
