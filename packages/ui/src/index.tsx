@@ -235,6 +235,7 @@ import { useMacosSettings } from "./settings/use-macos-settings";
 import { useWindowState } from "./settings/use-window-state";
 import { useAppVersion } from "./settings/use-app-version";
 import { supportDiagnostics } from "./settings/support-diagnostics";
+import { useMountedRef } from "./settings/use-mounted-ref";
 export {
   useProviderCredentials,
   type ProviderCredentialBusy,
@@ -296,6 +297,7 @@ export {
   type SupportDiagnosticsHost,
   type SupportDiagnosticsOptions,
 } from "./settings/support-diagnostics";
+export { useMountedRef } from "./settings/use-mounted-ref";
 import { createProviderPresetControl } from "./settings/provider-preset-control";
 import { AiCredentialSection } from "./settings/ai-credential-section";
 import { AiLinuxProviderSection } from "./settings/ai-linux-provider-section";
@@ -1944,13 +1946,7 @@ export function SettingsPage({
     exportAllPhrases,
     resetLearnedData,
   } = useDictionaryManager({ client, confirm });
-  const mounted = useRef(true);
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
+  const mounted = useMountedRef();
   const windowMaximized = useWindowState({ client, setError });
   const [skinPreviewThemes, setSkinPreviewThemes] = useState<
     Partial<Record<NonNullable<Preferences["candidate_skin"]>, "light" | "dark">>
