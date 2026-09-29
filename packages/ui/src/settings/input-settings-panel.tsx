@@ -52,6 +52,11 @@ import {
 } from "./mobile-keyboard-feedback-section";
 import { tencentCredentialIssue, translationEndpointIssue } from "./translation-validation";
 import { tencentSecretConfigured } from "./credential-utils";
+import {
+  customTranslationCredentialTestConfig,
+  niutransCredentialTestConfig,
+  tencentTranslationCredentialTestConfig,
+} from "./translation-credential-test-config";
 import type { TouchKeyboardScheme as TouchKeyboardSchemePreference } from "./touch-keyboard-scheme-helpers";
 import type { FuzzyPinyinPreferences } from "./fuzzy-pinyin-section";
 import type { MixedInputPreferences } from "./mixed-input-section";
@@ -332,7 +337,7 @@ export function InputSettingsPanel({
             {credentialTestControl(
               "translation.niutrans",
               "测试 NiuTrans 配置",
-              { app_id: niutrans.app_id, apikey: niutrans.apikey },
+              niutransCredentialTestConfig(niutrans),
               !candidateTranslations || !niutrans.app_id.trim() || !niutrans.apikey.trim(),
             )}
           </NiuTransSection>
@@ -425,11 +430,7 @@ export function InputSettingsPanel({
                 credentialTestControl(
                   "translation.tencent",
                   "测试腾讯云翻译配置",
-                  {
-                    secret_id: tencentTranslation.secret_id,
-                    secret_key: tencentTranslation.secret_key,
-                    region: tencentTranslation.region,
-                  },
+                  tencentTranslationCredentialTestConfig(tencentTranslation),
                   !candidateTranslations ||
                     Boolean(
                       tencentCredentialIssue(
@@ -485,10 +486,7 @@ export function InputSettingsPanel({
             {credentialTestControl(
               "translation.custom",
               "测试自定义翻译配置",
-              {
-                endpoint: customTranslation.endpoint,
-                api_key: customTranslation.api_key,
-              },
+              customTranslationCredentialTestConfig(customTranslation),
               !candidateTranslations ||
                 Boolean(translationEndpointIssue(customTranslation.endpoint)),
             )}
