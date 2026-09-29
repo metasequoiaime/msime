@@ -250,6 +250,7 @@ import { createHelpcodeSettingsActions } from "./settings/helpcode-settings-acti
 import { createUtilitiesSettingsActions } from "./settings/utilities-settings-actions";
 import { createSettingsNavigationActions } from "./settings/settings-navigation-actions";
 import { createSettingsReloadAction } from "./settings/settings-reload-action";
+import { createSettingsStatusActions } from "./settings/settings-status-actions";
 import { useAppVersion } from "./settings/use-app-version";
 import { supportDiagnostics } from "./settings/support-diagnostics";
 import { useMountedRef } from "./settings/use-mounted-ref";
@@ -455,6 +456,10 @@ export {
   createSettingsReloadAction,
   type CreateSettingsReloadActionOptions,
 } from "./settings/settings-reload-action";
+export {
+  createSettingsStatusActions,
+  type CreateSettingsStatusActionsOptions,
+} from "./settings/settings-status-actions";
 import { SettingsSidebar } from "./settings/settings-sidebar";
 export {
   SettingsSidebar,
@@ -2401,6 +2406,11 @@ export function SettingsPage({
     restoreDefaults,
   });
   const reloadSettings = createSettingsReloadAction({ dirty, reload, confirm });
+  const settingsStatusActions = createSettingsStatusActions({
+    recoverPreferences,
+    inputSourceStartup: client.inputSourceStartup,
+    setInputSourceStartup,
+  });
   const communityView = communityDestinationView(communityDestination);
   return (
     <div
@@ -2459,7 +2469,7 @@ export function SettingsPage({
               busy={busy}
               recoveredBackup={recoveredBackup}
               canRecover={Boolean(client.recoverPreferences)}
-              onRecover={() => void recoverPreferences()}
+              onRecover={settingsStatusActions.onRecover}
               openPreferencesDirectory={client.openPreferencesDirectory}
               macos={macosPlatform}
               onError={setError}
@@ -2469,8 +2479,8 @@ export function SettingsPage({
                 inputSourceStartup.enabled === false) && (
                 <InputSourceStartupNotice
                   status={inputSourceStartup}
-                  onOpenSettings={() => client.inputSourceStartup?.openSettings()}
-                  onDismiss={() => setInputSourceStartup(null)}
+                  onOpenSettings={settingsStatusActions.onOpenSettings}
+                  onDismiss={settingsStatusActions.onDismiss}
                   onError={setError}
                 />
               )}
