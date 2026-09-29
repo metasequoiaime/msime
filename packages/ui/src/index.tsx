@@ -231,6 +231,7 @@ import { useUpdateCheck } from "./settings/use-update-check";
 import { useOpenPanel } from "./settings/use-open-panel";
 import { useClipboardHistoryToggle } from "./settings/use-clipboard-history-toggle";
 import { useTouchKeyboardSchemeSelection } from "./settings/use-touch-keyboard-scheme-selection";
+import { useSettingsDestinationActions } from "./settings/use-settings-destination-actions";
 export {
   useProviderCredentials,
   type ProviderCredentialBusy,
@@ -280,6 +281,10 @@ export {
   useTouchKeyboardSchemeSelection,
   type UseTouchKeyboardSchemeSelectionOptions,
 } from "./settings/use-touch-keyboard-scheme-selection";
+export {
+  useSettingsDestinationActions,
+  type UseSettingsDestinationActionsOptions,
+} from "./settings/use-settings-destination-actions";
 import { ProviderPresetSection, type ProviderPreset } from "./settings/provider-preset-section";
 import { AiCredentialSection } from "./settings/ai-credential-section";
 import { AiLinuxProviderSection } from "./settings/ai-linux-provider-section";
@@ -2441,14 +2446,11 @@ export function SettingsPage({
       setAccountLoginReturnPage,
       accountLoginReturnPage,
     });
-  const openLocalDesigns = () => {
-    selectPage("appearance");
-    setShowTouchSkinEditor(true);
-  };
-  const openCommunity = (destination: AccountCommunityDestination | "all") => {
-    selectPage("community");
-    setCommunityDestination(destination);
-  };
+  const { openCommunity, openLocalDesigns } = useSettingsDestinationActions({
+    selectPage,
+    setShowTouchSkinEditor,
+    setCommunityDestination,
+  });
   const initialCommunityCategory =
     communityDestination === "published-reply" || communityDestination === "saved-reply"
       ? "reply"
