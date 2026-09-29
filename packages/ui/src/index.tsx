@@ -245,6 +245,7 @@ import { useAccountPageActions } from "./settings/use-account-page-actions";
 import { createSettingsExternalActions } from "./settings/settings-external-actions";
 import { createAboutSettingsActions } from "./settings/about-settings-actions";
 import { createScreenKeyboardActions } from "./settings/screen-keyboard-actions";
+import { createShortcutsSettingsActions } from "./settings/shortcuts-settings-actions";
 import { useAppVersion } from "./settings/use-app-version";
 import { supportDiagnostics } from "./settings/support-diagnostics";
 import { useMountedRef } from "./settings/use-mounted-ref";
@@ -430,6 +431,10 @@ export {
   createScreenKeyboardActions,
   type CreateScreenKeyboardActionsOptions,
 } from "./settings/screen-keyboard-actions";
+export {
+  createShortcutsSettingsActions,
+  type CreateShortcutsSettingsActionsOptions,
+} from "./settings/shortcuts-settings-actions";
 import { SettingsSidebar } from "./settings/settings-sidebar";
 export {
   SettingsSidebar,
@@ -2361,6 +2366,11 @@ export function SettingsPage({
     openPanel,
     setDraft,
   });
+  const shortcutsSettingsActions = createShortcutsSettingsActions({
+    draft,
+    keybindings,
+    setDraft,
+  });
   const communityView = communityDestinationView(communityDestination);
   return (
     <div
@@ -2716,12 +2726,7 @@ export function SettingsPage({
                     hidden={page !== "shortcuts"}
                     mobile={mobilePlatform}
                     keybindings={keybindings}
-                    onKeybindingsChange={(patch) =>
-                      setDraft({ ...draft, keybindings: { ...keybindings, ...patch } })
-                    }
-                    onInputModeHUDChange={(input_mode_hud) =>
-                      setDraft({ ...draft, input_mode_hud })
-                    }
+                    {...shortcutsSettingsActions}
                     showModeSwitchShortcuts={showModeSwitchShortcuts}
                     macos={macosPlatform}
                     showInputModeHUD={showInputModeHUD}
@@ -2732,9 +2737,6 @@ export function SettingsPage({
                     navigation={navigation}
                     numberRowSelection={numberRowSelection}
                     showNumberRowSelection={showNumberRowSelection}
-                    onNumberRowSelectionChange={(number_row_selection) =>
-                      setDraft({ ...draft, number_row_selection })
-                    }
                     showPanelShortcuts={showPanelShortcuts}
                     harmony={harmonyPlatform}
                     showDesktopMaintenanceShortcuts={showDesktopMaintenanceShortcuts}
