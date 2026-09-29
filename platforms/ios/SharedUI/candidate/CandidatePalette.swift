@@ -104,7 +104,7 @@ struct CandidatePalette: Equatable {
   static func hex(_ color: UIColor) -> String {
     var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
     color.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
-    let channel = { (value: CGFloat) in Int((min(max(value, 0), 1) * 255).rounded()) }
+    let channel = { (value: CGFloat) in Int((SharedNumber.clamped(value, to: 0...1) * 255).rounded()) }
     return String(format: "#%02x%02x%02x", channel(red), channel(green), channel(blue))
   }
 

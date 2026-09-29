@@ -85,6 +85,6 @@ enum CandidateFontPreference {
 
   private static func size(_ value: Any?, default fallback: Int, range: ClosedRange<Int>) -> Int {
     guard let number = value as? NSNumber else { return fallback }
-    return min(max(number.intValue, range.lowerBound), range.upperBound)
+    return SharedNumber.clamped(number.intValue, to: range)
   }
 }
