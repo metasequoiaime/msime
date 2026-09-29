@@ -44,6 +44,25 @@ private final class AccountProtocol: URLProtocol {
   }
   override func stopLoading() {}
 }
+private final class OversizedAccountProtocol: URLProtocol {
+  override class func canInit(with request: URLRequest) -> Bool { request.url?.path == "/v1/auth/login" }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    let token = String(repeating: "a", count: 64)
+    let refresh = String(repeating: "b", count: 64)
+    let body = try! JSONSerialization.data(withJSONObject: [
+      "access_token": token, "refresh_token": refresh, "token_type": "Bearer", "expires_in": 2_592_001,
+      "user": ["id": "synthetic", "display_name": "", "created_at": "2026-09-08"]
+    ])
+    let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+      headerFields: ["Content-Type": "application/json"])!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: body)
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
+
 final class BackendAccountClientTests: XCTestCase {
   func testDefaultNicknameIsStableAndPreservesChosenName() {
     let empty = BackendAccountClient.User(id: "a7c2ef123456", display_name: "", created_at: "")
@@ -83,6 +102,14 @@ final class BackendAccountClientTests: XCTestCase {
   func testMalformedTokensAreRejected() async throws {
     do { _ = try await client().login(challenge: "challenge", credential: "synthetic"); XCTFail("must reject") }
     catch let error as BackendAccountClient.Failure { XCTAssertEqual(error.status, 0) }
+  }
+  func testTokenExpiryBeyondThirtyDaysIsRejected() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [OversizedAccountProtocol.self]
+    do {
+      _ = try await BackendAccountClient(configuration: configuration).login(challenge: "challenge", credential: "synthetic")
+      XCTFail("must reject")
+    } catch let error as BackendAccountClient.Failure { XCTAssertEqual(error.status, 0) }
   }
   func testClipboardSearchIsEncodedAsOneQueryValue() async throws {
     let search = "学习 & q=other + % #"
