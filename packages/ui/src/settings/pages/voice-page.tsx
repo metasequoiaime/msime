@@ -17,6 +17,7 @@ import { GroupList, Row, Select, Switch } from "../../core/platform-controls";
 import { VoiceInputIntroSection } from "../voice-input-intro-section";
 import { VoiceInputCoreSection } from "../voice-input-core-section";
 import { VoiceModelMirrorSection } from "../voice-model-mirror-section";
+import { VoiceModelPathDisclosure } from "../voice-model-path-disclosure";
 import { VoiceModelSection } from "../voice-model-section";
 import { DoubaoAuthModeSection } from "../doubao-auth-mode-section";
 import { DoubaoStreamEndpointSection } from "../doubao-stream-endpoint-section";
@@ -60,7 +61,6 @@ export function VoiceSettingsPage() {
     systemVoiceHostName,
     localVoiceAvailable,
     localVoice,
-    manualVoiceModelPath,
     serviceVoice,
     harmonyUnsupportedAsr,
     doubaoAuthMode,
@@ -148,15 +148,14 @@ export function VoiceSettingsPage() {
             onChange={(asr_model_mirror) => updateVoice({ asr_model_mirror })}
           />
         )}
-        {localVoice &&
-          (client.localVoiceModels ? (
-            <details className="section">
-              <summary>高级：手动指定 Whisper 模型文件</summary>
-              {manualVoiceModelPath()}
-            </details>
-          ) : (
-            manualVoiceModelPath()
-          ))}
+        {localVoice && (
+          <VoiceModelPathDisclosure
+            disclosure={Boolean(client.localVoiceModels)}
+            path={voiceInput.asr_model_path ?? ""}
+            pickPath={client.pickVoiceModelPath}
+            onChange={(asr_model_path) => updateVoice({ asr_model_path })}
+          />
+        )}
         {showVoiceProviderSettings && (serviceVoice || voiceInput.asr_provider === "doubao") && (
           <GroupList title="识别服务配置">
             {serviceVoice &&

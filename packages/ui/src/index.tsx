@@ -432,7 +432,6 @@ import {
   VoiceCredentialSection,
   type VoiceCredentialSaveInput,
 } from "./settings/voice-credential-section";
-import { VoiceModelPathSection } from "./settings/voice-model-path-section";
 import type { MobileKeyboardFeedbackClient } from "./settings/mobile-keyboard-feedback-section";
 import { HandwritingSettingsPage } from "./settings/pages/handwriting-page";
 import { FeedbackSettingsPage } from "./settings/pages/feedback-page";
@@ -2036,13 +2035,6 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   });
   const candidateEnglishGloss = draft?.candidate_english_gloss ?? false;
   const englishSuggestions = draft?.english_suggestions ?? true;
-  const manualVoiceModelPath = () => (
-    <VoiceModelPathSection
-      path={voiceInput.asr_model_path ?? ""}
-      pickPath={client.pickVoiceModelPath}
-      onChange={(asr_model_path) => updateVoice({ asr_model_path })}
-    />
-  );
   /**
    * The Linux voice provider's credential for the recognition or polishing service selected above. The provider only uses an entry whose model matches the request's, so a save binds the current model; the endpoint is stored in the provider's file, not in the shared preferences.
    */
@@ -2402,7 +2394,6 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     systemVoiceHostName,
     localVoiceAvailable,
     localVoice,
-    manualVoiceModelPath,
     serviceVoice,
     harmonyUnsupportedAsr,
     doubaoAuthMode,
