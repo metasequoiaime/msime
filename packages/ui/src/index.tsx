@@ -242,6 +242,7 @@ import { useMacosSettings } from "./settings/use-macos-settings";
 import { useWindowState } from "./settings/use-window-state";
 import { useWindowResizeCapture } from "./settings/use-window-resize-capture";
 import { useAccountPageActions } from "./settings/use-account-page-actions";
+import { createSettingsExternalActions } from "./settings/settings-external-actions";
 import { useAppVersion } from "./settings/use-app-version";
 import { supportDiagnostics } from "./settings/support-diagnostics";
 import { useMountedRef } from "./settings/use-mounted-ref";
@@ -415,6 +416,10 @@ export {
   useAccountPageActions,
   type UseAccountPageActionsOptions,
 } from "./settings/use-account-page-actions";
+export {
+  createSettingsExternalActions,
+  type CreateSettingsExternalActionsOptions,
+} from "./settings/settings-external-actions";
 import { SettingsSidebar } from "./settings/settings-sidebar";
 export {
   SettingsSidebar,
@@ -2319,6 +2324,13 @@ export function SettingsPage({
     openAbout: () => selectPage("about"),
     setError,
   });
+  const settingsExternalActions = createSettingsExternalActions({
+    mobile: mobilePlatform,
+    canOpenExternalUrl: Boolean(client.openExternalUrl),
+    openExternalUrl,
+    issuesUrl: platformIssuesUrl,
+    openSystemKeyboardSettings: client.openSystemKeyboardSettings,
+  });
   const communityView = communityDestinationView(communityDestination);
   return (
     <div
@@ -2732,15 +2744,9 @@ export function SettingsPage({
                     platformHelpIntro={platformHelpIntro}
                     platformQuickStart={platformQuickStart}
                     platformNetworkDescription={platformNetworkDescription}
-                    onOpenDocumentation={
-                      client.openExternalUrl
-                        ? () => void openExternalUrl("https://msime.app/docs/")
-                        : undefined
-                    }
+                    onOpenDocumentation={settingsExternalActions.onOpenDocumentation}
                     onOpenSystemKeyboardSettings={
-                      mobilePlatform && client.openSystemKeyboardSettings
-                        ? () => void client.openSystemKeyboardSettings!()
-                        : undefined
+                      settingsExternalActions.onOpenSystemKeyboardSettings
                     }
                   />
                   <AboutSettingsSection
@@ -2979,9 +2985,9 @@ export function SettingsPage({
                     onDetailChange={setFeedbackDetail}
                     onCopyReport={copyReport}
                     onSubmitFeedback={submitFeedback}
-                    onOpenIssues={() => void openExternalUrl(platformIssuesUrl)}
+                    onOpenIssues={settingsExternalActions.onOpenIssues}
                     onCopyGroup={copyGroup}
-                    onOpenTelegram={() => void openExternalUrl("https://t.me/msimegroup")}
+                    onOpenTelegram={settingsExternalActions.onOpenTelegram}
                   />
                   {!validCandidateFonts(draft) && (
                     <p role="alert">
