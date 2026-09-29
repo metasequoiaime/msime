@@ -14,18 +14,30 @@ SPEC.loader.exec_module(MODULE)
 
 
 class Response:
-    def __init__(self, payload: bytes):
+    def __init__(self, payload: bytes, short_reads: bool = False):
         self.payload = payload
+        self.short_reads = short_reads
+        self.offset = 0
         self.requested = []
 
     def read(self, size=-1):
         self.requested.append(size)
-        return self.payload if size < 0 else self.payload[:size]
+        if size < 0:
+            return self.payload[self.offset :]
+        if self.offset == len(self.payload):
+            return b""
+        width = min(size, 7) if self.short_reads else size
+        chunk = self.payload[self.offset : self.offset + width]
+        self.offset += len(chunk)
+        return chunk
 
 
 valid = Response(b'{"answers": {}}')
 assert MODULE.read_response_json(valid) == {"answers": {}}
-assert valid.requested == [MODULE.MAX_RESPONSE_BYTES + 1]
+assert valid.requested[0] == 64 * 1024
+
+short = Response(b'{"answers": {"synthetic": true}}', short_reads=True)
+assert MODULE.read_response_json(short) == {"answers": {"synthetic": True}}
 
 oversized = Response(b"x" * (MODULE.MAX_RESPONSE_BYTES + 1))
 try:

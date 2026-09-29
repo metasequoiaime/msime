@@ -73,10 +73,15 @@ if not KEY:
 
 def read_response_json(response):
     """Decode one bounded API response without allowing a hostile body to exhaust memory."""
-    payload = response.read(MAX_RESPONSE_BYTES + 1)
+    payload = bytearray()
+    while len(payload) <= MAX_RESPONSE_BYTES:
+        chunk = response.read(min(64 * 1024, MAX_RESPONSE_BYTES + 1 - len(payload)))
+        if not chunk:
+            break
+        payload.extend(chunk)
     if len(payload) > MAX_RESPONSE_BYTES:
         raise ValueError("API response exceeds the byte limit")
-    return json.loads(payload)
+    return json.loads(bytes(payload))
 
 
 def ask(case):
