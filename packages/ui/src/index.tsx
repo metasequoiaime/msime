@@ -1703,6 +1703,8 @@ export function SettingsPage({
     showVoiceCaptureDevices,
     showDesktopMaintenanceShortcuts,
     showFullwidthChord,
+    clientHostedPlatform,
+    desktopPanels,
   } = settingsCapabilities({
     host,
     linux: linuxPlatform,
@@ -1719,13 +1721,6 @@ export function SettingsPage({
   const fullwidthChord = macosPlatform ? "Option+Shift+H" : "Alt+Shift+H";
   const maintenanceChord = macosPlatform ? "Ctrl+Shift+Option" : "Ctrl+Shift+Alt";
   // Windows is built from this repository now too, so it reads this repository's releases; msime.app/update.json describes the reference Windows product and names its repository, which the validation below rightly refuses.
-  const clientHostedPlatform =
-    windowsPlatform ||
-    linuxPlatform ||
-    androidPlatform ||
-    macosPlatform ||
-    harmonyPlatform ||
-    host?.platform === "ios";
   const platformReleasesPageUrl = clientHostedPlatform ? linuxReleasesPageUrl : releasesPageUrl;
   const platformLicenseUrl = clientHostedPlatform ? linuxLicenseUrl : licenseUrl;
   const platformIssuesUrl = linuxIssuesUrl;
@@ -1748,17 +1743,6 @@ export function SettingsPage({
     ios: iosPlatform,
     mobile: mobilePlatform,
   } satisfies PlatformCopyContext);
-  // Whether this host draws the shared panels as windows of its own — `panel_windows` is the
-  // injected projection of `host_surface::is_desktop`.
-  //
-  // The modifier-chord voice shortcuts and the voice popup bar's theme were both gated on
-  // `!androidPlatform`, so they reached every host that was not Android — including HarmonyOS and
-  // iOS, neither of which has a Ctrl, an Alt or a Win key to press or a panel window to theme. A
-  // phone was being shown `Ctrl+F9 切换语音`.
-  //
-  // Falls back to the form factor when the host answers without the flag: a partial capability
-  // record would otherwise read as "not a desktop" and hide these from Windows too.
-  const desktopPanels = host ? (host.panel_windows ?? !mobilePlatform) : true;
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [draft, setDraft] = useState<Preferences>();
   const [busy, setBusy] = useState(true);
