@@ -232,6 +232,7 @@ import { useOpenPanel } from "./settings/use-open-panel";
 import { useClipboardHistoryToggle } from "./settings/use-clipboard-history-toggle";
 import { useTouchKeyboardSchemeSelection } from "./settings/use-touch-keyboard-scheme-selection";
 import { useSettingsDestinationActions } from "./settings/use-settings-destination-actions";
+import { useMacosSettings } from "./settings/use-macos-settings";
 export {
   useProviderCredentials,
   type ProviderCredentialBusy,
@@ -285,6 +286,7 @@ export {
   useSettingsDestinationActions,
   type UseSettingsDestinationActionsOptions,
 } from "./settings/use-settings-destination-actions";
+export { useMacosSettings, type UseMacosSettingsOptions } from "./settings/use-macos-settings";
 import { createProviderPresetControl } from "./settings/provider-preset-control";
 import { AiCredentialSection } from "./settings/ai-credential-section";
 import { AiLinuxProviderSection } from "./settings/ai-linux-provider-section";
@@ -1833,10 +1835,17 @@ export function SettingsPage({
     result: uninstallResult,
     setRemoveUserData: setRemoveUserDataOnUninstall,
   } = useInputSourceUninstall({ uninstallInputSource: client.uninstallInputSource });
-  const [inputSourceStartup, setInputSourceStartup] = useState<InputSourceStartupStatus | null>(
-    null,
-  );
-  const [onDeviceDownloadable, setOnDeviceDownloadable] = useState<string[]>([]);
+  const {
+    inputSourceStartup,
+    onDeviceDownloadable,
+    setInputSourceStartup,
+    setSavedWubiAutoCommitUnique,
+    setShuangpinKeymap,
+    setWubiAutoCommitUnique,
+    shuangpinKeymap: macosShuangpinKeymap,
+    wubiAutoCommitUnique: macosWubiAutoCommitUnique,
+    savedWubiAutoCommitUnique: savedMacosWubiAutoCommitUnique,
+  } = useMacosSettings({ client, macos: macosPlatform, setError });
   const restoredMobilePage =
     mobilePlatform &&
     typeof window !== "undefined" &&
@@ -1911,9 +1920,6 @@ export function SettingsPage({
     placeholder: customTranslationsPlaceholder,
     save: saveCustomTranslations,
   } = useCustomTranslations({ client: client.customTranslations });
-  const [macosShuangpinKeymap, setMacosShuangpinKeymap] = useState<boolean>();
-  const [macosWubiAutoCommitUnique, setMacosWubiAutoCommitUnique] = useState<boolean>();
-  const [savedMacosWubiAutoCommitUnique, setSavedMacosWubiAutoCommitUnique] = useState<boolean>();
   const {
     phrases,
     setPhrases,
@@ -2066,90 +2072,6 @@ export function SettingsPage({
     };
   }, [client]);
 
-  // The Windows installer registers the input method on every install and upgrade; on macOS the settings app does it when it starts, and this tells the user what happened and whether the source still has to be enabled in System Settings.
-  useEffect(() => {
-    if (!macosPlatform || !client.inputSourceStartup) {
-      setInputSourceStartup(null);
-      return;
-    }
-    let active = true;
-    void client.inputSourceStartup
-      .status()
-      .then((value) => {
-        if (active) setInputSourceStartup(value);
-      })
-      .catch(() => {
-        if (active) setInputSourceStartup(null);
-      });
-    return () => {
-      active = false;
-    };
-  }, [client, macosPlatform]);
-
-  // The input method records the missing pairs when it next translates, so read again whenever the window comes back - typically from System Settings after a download.
-  useEffect(() => {
-    const onDeviceTranslation = client.onDeviceTranslation;
-    if (!macosPlatform || !onDeviceTranslation || typeof window === "undefined") {
-      setOnDeviceDownloadable([]);
-      return;
-    }
-    let active = true;
-    const refresh = () =>
-      void onDeviceTranslation
-        .downloadableLanguages()
-        .then((codes) => {
-          if (active) setOnDeviceDownloadable(codes);
-        })
-        .catch(() => {
-          if (active) setOnDeviceDownloadable([]);
-        });
-    refresh();
-    window.addEventListener("focus", refresh);
-    return () => {
-      active = false;
-      window.removeEventListener("focus", refresh);
-    };
-  }, [client, macosPlatform]);
-
-  useEffect(() => {
-    if (!macosPlatform || !client.loadMacosShuangpinKeymap) {
-      setMacosShuangpinKeymap(undefined);
-      return;
-    }
-    let active = true;
-    void client
-      .loadMacosShuangpinKeymap()
-      .then((value) => {
-        if (active) setMacosShuangpinKeymap(value);
-      })
-      .catch(() => {
-        if (active) setError("无法读取双拼键位提示设置，请重试。");
-      });
-    return () => {
-      active = false;
-    };
-  }, [client, macosPlatform]);
-  useEffect(() => {
-    if (!macosPlatform || !client.loadMacosWubiAutoCommitUnique) {
-      setMacosWubiAutoCommitUnique(undefined);
-      setSavedMacosWubiAutoCommitUnique(undefined);
-      return;
-    }
-    let active = true;
-    void client
-      .loadMacosWubiAutoCommitUnique()
-      .then((value) => {
-        if (!active) return;
-        setMacosWubiAutoCommitUnique(value);
-        setSavedMacosWubiAutoCommitUnique(value);
-      })
-      .catch(() => {
-        if (active) setError("无法读取五笔自动上屏设置，请重试。");
-      });
-    return () => {
-      active = false;
-    };
-  }, [client, macosPlatform]);
   const { draftRef, snapshotRef, reload, save } = useSettingsPersistence({
     client,
     mobile: mobilePlatform,
@@ -2167,7 +2089,7 @@ export function SettingsPage({
     saveMacosShuangpinKeymap: client.saveMacosShuangpinKeymap,
     macosWubiAutoCommitUnique,
     saveMacosWubiAutoCommitUnique: client.saveMacosWubiAutoCommitUnique,
-    setSavedMacosWubiAutoCommitUnique,
+    setSavedMacosWubiAutoCommitUnique: setSavedWubiAutoCommitUnique,
   });
 
   const { restoreDefaults, recoverPreferences } = usePreferenceRecovery({
@@ -2953,7 +2875,7 @@ export function SettingsPage({
                       onShuangpinProfileChange={(shuangpin_profile: ShuangpinProfile) =>
                         setDraft({ ...draft, shuangpin_profile })
                       }
-                      onMacosShuangpinKeymapChange={setMacosShuangpinKeymap}
+                      onMacosShuangpinKeymapChange={setShuangpinKeymap}
                     />
                     {((client.touchKeyboardSchemes &&
                       touchKeyboardSchemes.enabled.includes("wubi")) ||
@@ -2962,7 +2884,7 @@ export function SettingsPage({
                         preferences={draft}
                         autoCommitUnique={macosPlatform ? macosWubiAutoCommitUnique : undefined}
                         onChange={(patch) => setDraft({ ...draft, ...patch })}
-                        onAutoCommitUniqueChange={setMacosWubiAutoCommitUnique}
+                        onAutoCommitUniqueChange={setWubiAutoCommitUnique}
                       />
                     )}
                     <NavigationSection
