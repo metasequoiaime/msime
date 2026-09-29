@@ -429,7 +429,7 @@ import {
 import { defaultMixedInput, type MixedInputPreferences } from "./settings/mixed-input-section";
 import { defaultFrequency, type FrequencyPreferences } from "./settings/frequency-section";
 import { defaultLocalModes, type LocalModePreferences } from "./settings/local-modes-section";
-import { defaultFloatingToolbar } from "./settings/floating-toolbar-defaults";
+import { floatingToolbarPreferences } from "./settings/floating-toolbar-preferences";
 import { defaultKeybindings } from "./settings/keybinding-defaults";
 import type { SurfaceTheme, ThemeMode } from "./settings/theme-settings-section";
 import type { TouchToolbarPreferences } from "./settings/touch-keyboard-geometry-section";
@@ -2063,7 +2063,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
       ),
   });
   const providerPresetControls = createProviderPresetControl(client.openExternalUrl);
-  const floatingToolbar = { ...defaultFloatingToolbar, ...draft?.floating_toolbar };
+  const floatingToolbar = floatingToolbarPreferences(draft);
   const themeMode = draft?.theme ?? "system";
   const settingsTheme = draft?.settings_theme ?? "follow";
   useSettingsTheme(themeMode, settingsTheme);
