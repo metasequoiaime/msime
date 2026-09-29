@@ -50,7 +50,8 @@ import {
 } from './candidate/CandidateGlossLayoutPolicy';
 import { CandidatePresentationPolicy } from './candidate/CandidatePresentationPolicy';
 import {
-  CandidateSkinCatalogPolicy, CandidateSkinPackage, CandidateSkinDecoration
+  CandidateSkinCatalogPolicy, CandidateSkinPackage, CandidateSkinDecoration, CandidateSkinBackground,
+  CandidateSkinAlign, CandidateSkinFit
 } from './candidate/CandidateSkinCatalogPolicy';
 import { CandidateWidthPolicy } from './candidate/CandidateWidthPolicy';
 import { CandidatePagerPolicy } from './candidate/CandidatePagerPolicy';
@@ -744,6 +745,14 @@ export interface KeyboardPreferences {
   readonly candidateDecorationTopVp: number;
   readonly candidateDecorationWidthVp: number;
   readonly candidateDecorationAspectRatio: number;
+  /** Where the decoration sits along the card's top edge. */
+  readonly candidateDecorationAlign: CandidateSkinAlign;
+  /** The drawn package's card radius; null keeps the host's. */
+  readonly candidateCornerRadiusVp: number | null;
+  /** Image-only data URL drawn over the card surface, clipped to the card. */
+  readonly candidateBackgroundImage: string | null;
+  readonly candidateBackgroundFit: CandidateSkinFit;
+  readonly candidateBackgroundOpacity: number;
   readonly candidateDark: boolean;
   /** The shared switch when it is set, otherwise what the theme says; the Harmony window marks the row with a fill, not a bar. */
   readonly candidateSelectedBar: boolean;
@@ -949,6 +958,11 @@ export class KeyboardSession implements HardwareKeyTarget {
     candidateDecorationTopVp: 0,
     candidateDecorationWidthVp: 0,
     candidateDecorationAspectRatio: 1,
+    candidateDecorationAlign: 'right',
+    candidateCornerRadiusVp: null,
+    candidateBackgroundImage: null,
+    candidateBackgroundFit: 'cover',
+    candidateBackgroundOpacity: 1,
     candidateDark: false,
     candidateSelectedBar: false,
     pairedPunctuation: true,
@@ -1081,13 +1095,13 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   private readCandidateSkinImage(stateRoot: string, id: string,
-                                 decoration: CandidateSkinDecoration | null): CandidateSkinImage {
-    if (decoration === null) {
+                                 relative: string | null): CandidateSkinImage {
+    if (relative === null) {
       return NO_CANDIDATE_SKIN_IMAGE;
     }
     try {
       const request: SkinResourceRequest = {
-        directory: `${stateRoot}/skins`, id: id, relative: decoration.relative, kind: 'image'
+        directory: `${stateRoot}/skins`, id: id, relative: relative, kind: 'image'
       };
       const response: SkinResourceResponse =
         JSON.parse(client.skinResource(JSON.stringify(request))) as SkinResourceResponse;
@@ -1157,7 +1171,15 @@ export class KeyboardSession implements HardwareKeyTarget {
       : this.readCandidateSkinToolbar(this.stateDirectory, toolbarPackageId,
         CandidateSkinCatalogPolicy.toolbarStylesheet(skinPackages, toolbarPackageId));
     const skinImage: CandidateSkinImage = KeyboardFormFactor.isDesktop() && packageId !== null
-      ? this.readCandidateSkinImage(this.stateDirectory, packageId, skinDecoration)
+      ? this.readCandidateSkinImage(this.stateDirectory, packageId,
+        skinDecoration === null ? null : skinDecoration.relative)
+      : NO_CANDIDATE_SKIN_IMAGE;
+    const skinBackground: CandidateSkinBackground | null = packageId === null
+      ? null : CandidateSkinCatalogPolicy.background(skinPackages, packageId);
+    // Like the decoration, the background is a desktop candidate window's; the touch strip keeps the keyboard's look.
+    const backgroundImage: CandidateSkinImage = KeyboardFormFactor.isDesktop() && packageId !== null
+      ? this.readCandidateSkinImage(this.stateDirectory, packageId,
+        skinBackground === null ? null : skinBackground.relative)
       : NO_CANDIDATE_SKIN_IMAGE;
     this.appearance = {
       dark: keyboardDark,
@@ -1170,6 +1192,12 @@ export class KeyboardSession implements HardwareKeyTarget {
       candidateDecorationTopVp: skinImage.image === null ? 0 : (skinDecoration?.topVp ?? 0),
       candidateDecorationWidthVp: skinImage.image === null ? 0 : (skinDecoration?.widthVp ?? 0),
       candidateDecorationAspectRatio: skinImage.aspectRatio,
+      candidateDecorationAlign: skinDecoration === null ? 'right' : skinDecoration.align,
+      candidateCornerRadiusVp: packageId === null
+        ? null : CandidateSkinCatalogPolicy.cornerRadiusVp(skinPackages, packageId),
+      candidateBackgroundImage: backgroundImage.image,
+      candidateBackgroundFit: skinBackground === null ? 'cover' : skinBackground.fit,
+      candidateBackgroundOpacity: skinBackground === null ? 1 : skinBackground.opacity,
       candidateDark: candidateDark,
       candidateSelectedBar: preferences.candidate_selected_bar ?? candidateColors.showSelectedBar,
       pairedPunctuation: preferences.paired_punctuation !== false,
@@ -1222,8 +1250,12 @@ export class KeyboardSession implements HardwareKeyTarget {
       voiceShortcut: preferences.touch_voice_shortcut,
       thoughtfulReply: preferences.touch_keyboard_schemes?.selected === 'thoughtful_reply'
     };
-    this.toolbarSkin = ToolbarSkinPolicy.fromCss(GlobalTheme.candidateColors(
-      toolbarTheme === null ? null : toolbarTheme.candidate, toolbarDark), skinToolbar);
+    // The theme's bar, then the package's `[toolbar]` colours for that mode, then its stylesheet.
+    const toolbarColors: CandidateColors = GlobalTheme.candidateColors(
+      toolbarTheme === null ? null : toolbarTheme.candidate, toolbarDark);
+    this.toolbarSkin = ToolbarSkinPolicy.fromCss(toolbarColors, skinToolbar,
+      ToolbarSkinPolicy.withPackage(toolbarColors,
+        CandidateSkinCatalogPolicy.toolbar(skinPackages, toolbarPackageId), toolbarDark));
   }
 
   /** A surface's mode: fixed by a theme with an appearance, otherwise its own setting, then the app mode, then the system. */

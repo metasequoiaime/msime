@@ -1991,6 +1991,7 @@ group("resolves external candidate skin tokens without trusting missing fields",
     minWidthDip: 360,
     decorationTopDip: 24,
     decorationWidthDip: 180,
+    decorationImage: "images/preview.svg",
     toolbarStylesheet: "toolbar.css",
     preview: "images/preview.svg",
   };
@@ -2011,6 +2012,76 @@ group("resolves external candidate skin tokens without trusting missing fields",
   check(
     CandidateSkinCatalogPolicy.decoration(packages, "missing") === null,
     "unknown packages do not invent decoration geometry",
+  );
+  check(
+    decoration !== null &&
+      decoration.relative === "images/preview.svg" &&
+      decoration.align === "right",
+    "the decoration image is the scanned decorationImage, right-aligned by default",
+  );
+  // msime-skins keys: its own decoration image and alignment, a background, a radius and a toolbar palette.
+  const styled: CandidateSkinPackage = {
+    ...sample,
+    id: "styled",
+    decorationImage: "assets/character.png",
+    decorationAlign: "left",
+    cornerRadiusDip: 12,
+    background: { image: "assets/background.png", fit: "contain", opacity: 0.35 },
+    toolbar: {
+      cornerRadiusDip: 6,
+      dark: { background: "#141B33", handle: "#5B9BFF", icon: "red;url(x)", hover: null },
+      light: { background: "#F4F8FF" },
+    },
+  };
+  const all: CandidateSkinPackage[] = [sample, styled];
+  const aligned = CandidateSkinCatalogPolicy.decoration(all, "styled");
+  check(
+    aligned !== null && aligned.relative === "assets/character.png" && aligned.align === "left",
+    "decorationImage and decorationAlign are read, not the preview",
+  );
+  check(
+    CandidateSkinCatalogPolicy.decoration([{ ...styled, decorationImage: null }], "styled") ===
+      null,
+    "a package without a decoration image draws none, whatever its preview",
+  );
+  check(
+    CandidateSkinCatalogPolicy.decoration([{ ...styled, decorationAlign: "top" }], "styled")
+      ?.align === "right",
+    "an unknown alignment reads as the default",
+  );
+  check(
+    CandidateSkinCatalogPolicy.cornerRadiusVp(all, "styled") === 12,
+    "the card radius is exposed",
+  );
+  check(
+    CandidateSkinCatalogPolicy.cornerRadiusVp(all, "sample") === null,
+    "no radius keeps the host's",
+  );
+  check(
+    CandidateSkinCatalogPolicy.cornerRadiusVp([{ ...styled, cornerRadiusDip: 40 }], "styled") ===
+      null,
+    "an out-of-range radius is refused",
+  );
+  const background = CandidateSkinCatalogPolicy.background(all, "styled");
+  check(
+    background !== null &&
+      background.relative === "assets/background.png" &&
+      background.fit === "contain" &&
+      background.opacity === 0.35,
+    "the background image, fit and opacity are exposed",
+  );
+  check(CandidateSkinCatalogPolicy.background(all, "sample") === null, "no background draws none");
+  check(
+    CandidateSkinCatalogPolicy.background(
+      [{ ...styled, background: { image: "assets/background.png", fit: "cover", opacity: 1.5 } }],
+      "styled",
+    ) === null,
+    "an out-of-range opacity is refused",
+  );
+  check(
+    CandidateSkinCatalogPolicy.toolbar(all, "styled")?.cornerRadiusDip === 6 &&
+      CandidateSkinCatalogPolicy.toolbar(all, null) === null,
+    "the toolbar block is exposed only for a drawn package",
   );
   check(
     CandidateSkinCatalogPolicy.imageDataUrl("image/png", [0, 1, 2]) ===
@@ -2061,6 +2132,43 @@ group("maps safe external toolbar CSS to ArkUI values", () => {
   );
   check(unsafe.backgroundColor === base.surface, "resource URLs are ignored");
   check(unsafe.buttonColor === base.text, "unsupported colour syntax is ignored");
+});
+
+group("layers a package toolbar palette between the theme and its stylesheet", () => {
+  const base = GlobalTheme.candidateColors(null, true);
+  const toolbar = {
+    cornerRadiusDip: 6,
+    dark: { background: "#141B33", handle: "#5B9BFF", icon: "red;url(x)", divider: "#5B9BFF47" },
+    light: { background: "#F4F8FF" },
+  };
+  const dark = ToolbarSkinPolicy.withPackage(base, toolbar, true);
+  check(dark.backgroundColor === "#141B33", "the package background is drawn");
+  check(dark.dragHandleColor === "#5B9BFF", "the package handle colours the drag handle");
+  check(
+    dark.dividerColor === "#475B9BFF",
+    "the package divider is drawn in ArkUI's alpha-first order",
+  );
+  check(dark.buttonColor === base.text, "a value that is not a colour keeps the theme's");
+  check(dark.borderColor === base.border, "an absent colour keeps the theme's");
+  check(dark.cornerRadiusVp === 6, "the package radius is drawn");
+  const light = ToolbarSkinPolicy.withPackage(base, toolbar, false);
+  check(
+    light.backgroundColor === "#F4F8FF" && light.dragHandleColor === base.secondary,
+    "each mode takes only its own colours",
+  );
+  const plain = ToolbarSkinPolicy.withPackage(base, null, true);
+  check(
+    plain.backgroundColor === base.surface && plain.cornerRadiusVp === 8,
+    "no package toolbar keeps the theme's bar",
+  );
+  const styled = ToolbarSkinPolicy.fromCss(base, ".status-bar { background: #010203; }", dark);
+  check(styled.backgroundColor === "#010203", "the stylesheet wins over the manifest colours");
+  check(styled.dragHandleColor === "#5B9BFF", "manifest colours the stylesheet leaves alone stay");
+  check(styled.cornerRadiusVp === 6, "the manifest radius stays unless the stylesheet sets one");
+  check(
+    ToolbarSkinPolicy.fromCss(base, null, dark).backgroundColor === "#141B33",
+    "no stylesheet draws the package bar",
+  );
 });
 
 group("applies Windows toolbar scale and font-size bounds to Harmony geometry", () => {

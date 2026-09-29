@@ -1,5 +1,9 @@
-import { CandidateColors } from './skin/GlobalTheme';
-import { KeyboardGeometry } from './KeyboardGeometry';
+import { CandidateColors, GlobalTheme } from "./skin/GlobalTheme";
+import { KeyboardGeometry } from "./KeyboardGeometry";
+import {
+  CandidateSkinToolbar,
+  CandidateSkinToolbarColors,
+} from "./candidate/CandidateSkinCatalogPolicy";
 
 /** The subset of a toolbar stylesheet that ArkUI can render without executing CSS. */
 export interface ToolbarSkin {
@@ -15,25 +19,28 @@ export interface ToolbarSkin {
   cornerRadiusVp: number;
 }
 
-const DEFAULT_FONT_FAMILY: string = 'Noto Sans SC, Microsoft YaHei, sans-serif';
-const DEFAULT_ENGLISH_FONT_FAMILY: string = 'Segoe UI, sans-serif';
+const DEFAULT_FONT_FAMILY: string = "Noto Sans SC, Microsoft YaHei, sans-serif";
+const DEFAULT_ENGLISH_FONT_FAMILY: string = "Segoe UI, sans-serif";
 // The Harmony key radius, which the bar shares so it reads as part of the same keyboard.
 const DEFAULT_CORNER_RADIUS_VP: number = 8;
 
 function stripImportant(value: string): string {
-  return value.trim().replace(/\s*!important\s*$/i, '').trim();
+  return value
+    .trim()
+    .replace(/\s*!important\s*$/i, "")
+    .trim();
 }
 
 function color(value: string): string | null {
   const candidate: string = stripImportant(value);
-  if (candidate === 'transparent') return candidate;
+  if (candidate === "transparent") return candidate;
   if (/^#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{2})?$/.test(candidate)) {
     return candidate;
   }
   const rgb: RegExpMatchArray | null = candidate.match(
-    /^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*(0|1|0?\.\d+))?\s*\)$/);
-  if (rgb !== null && Number(rgb[1]) <= 255 && Number(rgb[2]) <= 255
-      && Number(rgb[3]) <= 255) {
+    /^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*(0|1|0?\.\d+))?\s*\)$/,
+  );
+  if (rgb !== null && Number(rgb[1]) <= 255 && Number(rgb[2]) <= 255 && Number(rgb[3]) <= 255) {
     return candidate;
   }
   return null;
@@ -41,18 +48,25 @@ function color(value: string): string | null {
 
 function fontFamily(value: string): string | null {
   const candidate: string = stripImportant(value);
-  if (candidate.length === 0 || candidate.length > 256 || /[{};<>]|url\s*\(|var\s*\(/i.test(candidate)) {
+  if (
+    candidate.length === 0 ||
+    candidate.length > 256 ||
+    /[{};<>]|url\s*\(|var\s*\(/i.test(candidate)
+  ) {
     return null;
   }
-  const names: string[] = candidate.split(',').map((name: string) => name.trim());
-  if (names.length === 0 || names.length > 16 || names.some((name: string): boolean => {
-    const unquoted: string = name.replace(/^(['"])(.*)\1$/, '$2').trim();
-    return unquoted.length === 0 || unquoted.length > 96
-      || !/^[\p{L}\p{N} _-]+$/u.test(unquoted);
-  })) {
+  const names: string[] = candidate.split(",").map((name: string) => name.trim());
+  if (
+    names.length === 0 ||
+    names.length > 16 ||
+    names.some((name: string): boolean => {
+      const unquoted: string = name.replace(/^(['"])(.*)\1$/, "$2").trim();
+      return unquoted.length === 0 || unquoted.length > 96 || !/^[\p{L}\p{N} _-]+$/u.test(unquoted);
+    })
+  ) {
     return null;
   }
-  return names.join(', ');
+  return names.join(", ");
 }
 
 function radius(value: string): number | null {
@@ -68,16 +82,17 @@ function declarationColor(value: string): string | null {
   if (direct !== null) return direct;
   // A border/background shorthand is safe only when its colour token is itself a supported colour.
   const match: RegExpMatchArray | null = stripImportant(value).match(
-    /(?:^|\s)(#[0-9a-fA-F]{3,8}|rgba?\([^)]*\)|transparent)(?:\s|$)/i);
+    /(?:^|\s)(#[0-9a-fA-F]{3,8}|rgba?\([^)]*\)|transparent)(?:\s|$)/i,
+  );
   return match === null ? null : color(match[1]);
 }
 
 function selectors(block: string): string[] {
-  return block.split(',').map((selector: string) => selector.trim());
+  return block.split(",").map((selector: string) => selector.trim());
 }
 
 function has(selector: string, name: string): boolean {
-  return new RegExp('(?:^|\\s|>)\\.' + name + '(?::[a-z-]+)?(?:\\s|$)', 'i').test(selector);
+  return new RegExp("(?:^|\\s|>)\\." + name + "(?::[a-z-]+)?(?:\\s|$)", "i").test(selector);
 }
 
 /**
@@ -102,16 +117,76 @@ export class ToolbarSkinPolicy {
       settingsColor: colors.text,
       fontFamily: DEFAULT_FONT_FAMILY,
       englishFontFamily: DEFAULT_ENGLISH_FONT_FAMILY,
-      cornerRadiusVp: DEFAULT_CORNER_RADIUS_VP
+      cornerRadiusVp: DEFAULT_CORNER_RADIUS_VP,
     };
   }
 
-  static fromCss(colors: CandidateColors, source: string | null | undefined): ToolbarSkin {
+  /**
+   * The bar with a package's own `[toolbar]` colours and radius for the drawn mode laid over `base`: background, border, handle (the drag handle), divider, icon (the buttons and the settings gear) and hover. The shared scan normalized every colour to `#RRGGBB` or `#RRGGBBAA`; each is converted to ArkUI's order, and anything else is dropped before it reaches a component.
+   */
+  static withPackage(
+    colors: CandidateColors,
+    toolbar: CandidateSkinToolbar | null,
+    dark: boolean,
+  ): ToolbarSkin {
     const output: ToolbarSkin = ToolbarSkinPolicy.base(colors);
-    if (source === null || source === undefined || source.length === 0 || source.length > 128 * 1024) {
+    if (toolbar === null) {
       return output;
     }
-    const css: string = source.replace(/\/\*[\s\S]*?\*\//g, '');
+    const palette: CandidateSkinToolbarColors = dark ? toolbar.dark : toolbar.light;
+    const read = (value: string | null | undefined): string | null => GlobalTheme.arkColor(value);
+    const background: string | null = read(palette?.background);
+    if (background !== null) output.backgroundColor = background;
+    const border: string | null = read(palette?.border);
+    if (border !== null) output.borderColor = border;
+    const handle: string | null = read(palette?.handle);
+    if (handle !== null) output.dragHandleColor = handle;
+    const divider: string | null = read(palette?.divider);
+    if (divider !== null) output.dividerColor = divider;
+    const icon: string | null = read(palette?.icon);
+    if (icon !== null) {
+      output.buttonColor = icon;
+      output.settingsColor = icon;
+    }
+    const hover: string | null = read(palette?.hover);
+    if (hover !== null) output.buttonHoverColor = hover;
+    const cornerRadius: number | null = toolbar.cornerRadiusDip;
+    if (typeof cornerRadius === "number" && Number.isFinite(cornerRadius)) {
+      output.cornerRadiusVp = KeyboardGeometry.bounded(cornerRadius, 0, 32);
+    }
+    return output;
+  }
+
+  /** The toolbar stylesheet's declarations over `start` (the theme's bar, or the package's from `withPackage`), so a stylesheet wins over the manifest colours. */
+  static fromCss(
+    colors: CandidateColors,
+    source: string | null | undefined,
+    start?: ToolbarSkin,
+  ): ToolbarSkin {
+    const output: ToolbarSkin =
+      start === undefined
+        ? ToolbarSkinPolicy.base(colors)
+        : {
+            backgroundColor: start.backgroundColor,
+            borderColor: start.borderColor,
+            dragHandleColor: start.dragHandleColor,
+            dividerColor: start.dividerColor,
+            buttonColor: start.buttonColor,
+            buttonHoverColor: start.buttonHoverColor,
+            settingsColor: start.settingsColor,
+            fontFamily: start.fontFamily,
+            englishFontFamily: start.englishFontFamily,
+            cornerRadiusVp: start.cornerRadiusVp,
+          };
+    if (
+      source === null ||
+      source === undefined ||
+      source.length === 0 ||
+      source.length > 128 * 1024
+    ) {
+      return output;
+    }
+    const css: string = source.replace(/\/\*[\s\S]*?\*\//g, "");
     const blocks: RegExp = /([^{}]{1,1024})\{([^{}]{0,8192})\}/g;
     let match: RegExpExecArray | null;
     while ((match = blocks.exec(css)) !== null) {
@@ -123,45 +198,49 @@ export class ToolbarSkinPolicy {
         const property: string = declaration[1].toLowerCase();
         const value: string = declaration[2].trim();
         for (const selector of names) {
-          if (has(selector, 'status-bar')) {
-            if (property === 'background' || property === 'background-color') {
+          if (has(selector, "status-bar")) {
+            if (property === "background" || property === "background-color") {
               const parsed: string | null = declarationColor(value);
               if (parsed !== null) output.backgroundColor = parsed;
-            } else if (property === 'border' || property === 'border-color') {
+            } else if (property === "border" || property === "border-color") {
               const parsed: string | null = declarationColor(value);
               if (parsed !== null) output.borderColor = parsed;
-            } else if (property === 'border-radius') {
+            } else if (property === "border-radius") {
               const parsed: number | null = radius(value);
               if (parsed !== null) output.cornerRadiusVp = parsed;
             }
           }
-          if (has(selector, 'drag-handle')
-              && (property === 'background' || property === 'background-color')) {
+          if (
+            has(selector, "drag-handle") &&
+            (property === "background" || property === "background-color")
+          ) {
             const parsed: string | null = declarationColor(value);
             if (parsed !== null) output.dragHandleColor = parsed;
           }
-          if (has(selector, 'divider')
-              && (property === 'background' || property === 'background-color')) {
+          if (
+            has(selector, "divider") &&
+            (property === "background" || property === "background-color")
+          ) {
             const parsed: string | null = declarationColor(value);
             if (parsed !== null) output.dividerColor = parsed;
           }
-          if (has(selector, 'icon')) {
-            if (property === 'color') {
+          if (has(selector, "icon")) {
+            if (property === "color") {
               const parsed: string | null = color(value);
               if (parsed !== null) output.buttonColor = parsed;
-            } else if (property === 'background' || property === 'background-color') {
+            } else if (property === "background" || property === "background-color") {
               const parsed: string | null = declarationColor(value);
               if (parsed !== null && /:hover/i.test(selector)) output.buttonHoverColor = parsed;
-            } else if (property === 'font-family') {
+            } else if (property === "font-family") {
               const parsed: string | null = fontFamily(value);
               if (parsed !== null) output.fontFamily = parsed;
             }
           }
-          if (has(selector, 'lang-label') && property === 'font-family') {
+          if (has(selector, "lang-label") && property === "font-family") {
             const parsed: string | null = fontFamily(value);
             if (parsed !== null) output.fontFamily = parsed;
           }
-          if (has(selector, 'english-candidate-label') && property === 'font-family') {
+          if (has(selector, "english-candidate-label") && property === "font-family") {
             const parsed: string | null = fontFamily(value);
             if (parsed !== null) output.englishFontFamily = parsed;
           }

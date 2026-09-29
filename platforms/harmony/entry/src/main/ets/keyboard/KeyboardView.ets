@@ -1745,9 +1745,28 @@ struct KeyboardView {
    * The composition gets a line of its own. Sharing the candidate row costs it width on the one row
    * where width is worth most, which is the reasoning the iOS implementation records.
    */
+  /** The decoration's place along the card's top edge, as the package aligns it. */
+  candidateDecorationAlignment(): Alignment {
+    const align: string = this.settings.candidateDecorationAlign;
+    return align === 'left' ? Alignment.TopStart : align === 'center' ? Alignment.Top : Alignment.TopEnd;
+  }
+
+  /** The package background: over the surface colour, under the candidates, clipped with the card. */
+  @Builder
+  candidateBackground() {
+    if (this.settings.candidateBackgroundImage !== null) {
+      Image(this.settings.candidateBackgroundImage)
+        .width('100%')
+        .height('100%')
+        .objectFit(this.settings.candidateBackgroundFit === 'contain' ? ImageFit.Contain
+          : this.settings.candidateBackgroundFit === 'stretch' ? ImageFit.Fill : ImageFit.Cover)
+        .opacity(this.settings.candidateBackgroundOpacity)
+    }
+  }
+
   @Builder
   candidateStrip() {
-    Stack({ alignContent: Alignment.TopEnd }) {
+    Stack({ alignContent: this.candidateDecorationAlignment() }) {
       Column() {
       // Idle on a touch keyboard the strip is one bar over the height of both lines below: the logo, the switches and the tools. Nothing shifts when a composition starts, because the two lines it gives way to add up to the same height.
       if (this.stripIdle()) {
@@ -1839,7 +1858,10 @@ struct KeyboardView {
       .width('100%')
       .margin({ top: this.settings.candidateDecorationTopVp })
       .backgroundColor(this.candidateColors().surface)
-      .borderRadius(KeyboardFormFactor.isDesktop() ? KeyboardMetrics.CANDIDATE_CARD_CORNER_VP
+      .background(this.candidateBackground)
+      .clip(this.settings.candidateBackgroundImage !== null)
+      .borderRadius(KeyboardFormFactor.isDesktop()
+        ? (this.settings.candidateCornerRadiusVp ?? KeyboardMetrics.CANDIDATE_CARD_CORNER_VP)
         : KeyboardMetrics.STRIP_CORNER_VP)
       .borderWidth(KeyboardFormFactor.isDesktop() ? 1 : 0)
       .borderColor(this.candidateColors().border)
