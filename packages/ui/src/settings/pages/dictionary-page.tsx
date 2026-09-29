@@ -8,6 +8,7 @@ import { GroupList, Row, Select } from "../../core/platform-controls";
 import { DictionaryManifestCard } from "../dictionary-manifest-card";
 import { PersonalDictionaryImportCard } from "../personal-dictionary-import-card";
 import { DictionaryEntries } from "../dictionary-entries";
+import { DictionaryFailuresNotice } from "../dictionary-failures-notice";
 
 export { dictionaryKindKeyHint } from "../../dictionary/dictionary-messages";
 
@@ -138,39 +139,14 @@ export function DictionarySettingsPage() {
                   {dictionarySnapshotError}
                 </p>
               )}
-              {dictionaryFailures.length > 0 && (
-                <div className={settings.failures} role="alert">
-                  <p>有 {dictionaryFailures.length} 项词库请求同步失败，可以重试或移除失败记录。</p>
-                  <ul>
-                    {dictionaryFailures.map((failure) => (
-                      <li key={failure.request_id}>
-                        <span>
-                          <strong>{failure.label}</strong>
-                          <small>{failure.error}</small>
-                        </span>
-                        <span>
-                          <button
-                            type="button"
-                            className="secondary"
-                            disabled={phraseBusy || !client.dictionary?.retry}
-                            onClick={() => void retryDictionaryFailure(failure.request_id)}
-                          >
-                            重试
-                          </button>{" "}
-                          <button
-                            type="button"
-                            className="secondary"
-                            disabled={phraseBusy || !client.dictionary?.dismissFailure}
-                            onClick={() => void dismissDictionaryFailure(failure.request_id)}
-                          >
-                            移除记录
-                          </button>
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
+              <DictionaryFailuresNotice
+                failures={dictionaryFailures}
+                busy={phraseBusy}
+                canRetry={Boolean(client.dictionary?.retry)}
+                canDismiss={Boolean(client.dictionary?.dismissFailure)}
+                onRetry={(requestId) => void retryDictionaryFailure(requestId)}
+                onDismiss={(requestId) => void dismissDictionaryFailure(requestId)}
+              />
             </div>
             <Row title="词库">
               <Select
