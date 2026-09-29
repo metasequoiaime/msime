@@ -6,6 +6,7 @@ import {
   translationEndpointIssue,
   type HostCapabilities,
   type Preferences,
+  type SettingsClient,
   type Snapshot,
 } from "@msime/ui";
 
@@ -255,10 +256,19 @@ describe("macOS points at undownloaded Apple translation languages", () => {
     // Tencent is on by default; without secrets it answers nothing and on-device translation fills in.
     tencent_tmt: { enabled: true, secret_id: "", secret_key: "", region: "ap-guangzhou" },
   };
-  async function mountOnMacos(preferences: Partial<Preferences>, downloadable: string[]) {
+  async function mountOnMacos(
+    preferences: Partial<Preferences>,
+    downloadable: string[],
+    openSettings: boolean = true,
+  ) {
     const snapshot: Snapshot = { ...base, preferences: { ...base.preferences, ...preferences } };
-    const openSettings = vi.fn(async () => {});
+    const openLanguageSettings = vi.fn(async () => {});
     const downloadableLanguages = vi.fn(async () => downloadable);
+    const onDeviceTranslation = openSettings
+      ? { downloadableLanguages, openSettings: openLanguageSettings }
+      : ({ downloadableLanguages } as unknown as NonNullable<
+          SettingsClient["onDeviceTranslation"]
+        >);
     render(
       <SettingsPage
         initialPage="expression"
@@ -266,7 +276,7 @@ describe("macOS points at undownloaded Apple translation languages", () => {
           load: async () => snapshot,
           save: vi.fn(),
           host: { platform: "macos" } as HostCapabilities,
-          onDeviceTranslation: { downloadableLanguages, openSettings },
+          onDeviceTranslation,
         }}
       />,
     );
@@ -274,7 +284,7 @@ describe("macOS points at undownloaded Apple translation languages", () => {
     // Let the host's answer land, so a hidden hint means hidden and not merely not yet shown.
     await waitFor(() => expect(downloadableLanguages).toHaveBeenCalled());
     await act(async () => {});
-    return openSettings;
+    return openLanguageSettings;
   }
   const hint = () => screen.queryByRole("status", { name: "系统翻译语言未下载" });
 
@@ -302,5 +312,11 @@ describe("macOS points at undownloaded Apple translation languages", () => {
     cleanup();
     await mountOnMacos(noService, []);
     expect(hint()).toBeNull();
+  });
+
+  test("omits the settings button when the host cannot open settings", async () => {
+    await mountOnMacos(noService, ["en"], false);
+    expect(hint()).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "打开语言与地区" })).toBeNull();
   });
 });
