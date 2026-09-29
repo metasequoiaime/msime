@@ -56,6 +56,7 @@ export {
   allTouchKeyboardSchemes,
 } from "./settings/touch-keyboard-scheme-helpers";
 import { settingsPlatformPresentation } from "./settings/settings-platform-presentation";
+import { settingsPageEnvironment } from "./settings/settings-page-environment";
 export {
   platformCopy,
   type PlatformCopyContext,
@@ -63,7 +64,6 @@ export {
 } from "./settings/platform-copy";
 import { schemeTitle } from "./settings/label-helpers";
 export { schemeTitle } from "./settings/label-helpers";
-import { isLinuxDesktop } from "./settings/platform-helpers";
 import { useSettingsTheme } from "./settings/use-settings-theme";
 export { useSettingsTheme } from "./settings/use-settings-theme";
 export { updateCandidateColor, updateCustomKeyboard } from "./settings/theme-selection-updates";
@@ -313,7 +313,6 @@ export {
   type WindowResizePoint,
 } from "./settings/window-resize";
 import { useCandidatePreviewTheme } from "./candidate/candidate-preview-theme";
-import { settingsCapabilities } from "./settings/settings-capabilities";
 export {
   settingsCapabilities,
   type SettingsCapabilitiesInput,
@@ -1617,22 +1616,19 @@ type SettingsPageProps = {
 // The state, effects and handlers behind the settings window. The shell below and every page component read the same values - the pages through `SettingsFormContext` - so splitting the page into files changed where the markup lives, not what it closes over.
 function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps) {
   const { confirm, confirmation } = useConfirm();
-  // Hosts that report capabilities are authoritative; the user-agent probe stays
-  // only so a host that predates the contract keeps its current behaviour.
-  const linuxPlatform = client.host ? client.host.platform === "linux" : isLinuxDesktop();
-  const androidPlatform = client.host?.platform === "android";
-  const iosPlatform = client.host?.platform === "ios";
-  // This repository ships the HarmonyOS host too, so its release, license and issue links follow the client-hosted set rather than the Windows ones.
-  const harmonyPlatform = client.host?.platform === "harmony";
-  const mobilePlatform =
-    client.host?.mobile_settings ?? (iosPlatform || androidPlatform || harmonyPlatform);
-  // Ctrl+Space belongs to Windows, not to us, so only that host gets the note
-  // explaining where to change it.
-  const windowsPlatform = client.host?.platform === "windows";
-  const macosPlatform = client.host?.platform === "macos";
+  const {
+    host,
+    linux: linuxPlatform,
+    android: androidPlatform,
+    ios: iosPlatform,
+    harmony: harmonyPlatform,
+    mobile: mobilePlatform,
+    windows: windowsPlatform,
+    macos: macosPlatform,
+    ...capabilities
+  } = settingsPageEnvironment(client);
   // Which of the redesign's eight settings looks the root takes; see `theme/platform-tokens.ts`.
-  const settingsPlatform = useSettingsPlatform(client.host, linuxPlatform);
-  const host = client.host;
+  const settingsPlatform = useSettingsPlatform(host, linuxPlatform);
   const {
     nativeVoicePlatform,
     showModeScope,
@@ -1665,19 +1661,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     showFullwidthChord,
     clientHostedPlatform,
     desktopPanels,
-  } = settingsCapabilities({
-    host,
-    linux: linuxPlatform,
-    android: androidPlatform,
-    ios: iosPlatform,
-    harmony: harmonyPlatform,
-    windows: windowsPlatform,
-    macos: macosPlatform,
-    mobile: mobilePlatform,
-    canRestartInputMethod: Boolean(client.restartInputMethod),
-    canInstallInputSource: Boolean(client.installInputSource),
-    canListVoiceCaptureDevices: Boolean(client.listVoiceCaptureDevices),
-  });
+  } = capabilities;
   const {
     fullwidthChord,
     maintenanceChord,
