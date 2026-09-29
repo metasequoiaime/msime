@@ -28,14 +28,18 @@ export {
 } from "./settings/platform-copy";
 import { platformResourceUrls } from "./settings/platform-resource-urls";
 import {
+  initialMobileTabPages,
+  initialSettingsPage,
   mobileHeaderlessPageIds,
-  mobileTabForPage,
-  requestedPage,
   splitMobilePages,
-  type MobilePrimaryPageId,
   type SettingsPageId,
 } from "./settings/mobile-navigation";
-export { mobileHeaderlessPageIds } from "./settings/mobile-navigation";
+export {
+  initialMobileTabPages,
+  initialSettingsPage,
+  mobileHeaderlessPageIds,
+  type InitialSettingsPageOptions,
+} from "./settings/mobile-navigation";
 import { useSettingsNavigation } from "./settings/use-settings-navigation";
 export {
   useSettingsNavigation,
@@ -1792,27 +1796,19 @@ export function SettingsPage({
     wubiAutoCommitUnique: macosWubiAutoCommitUnique,
     savedWubiAutoCommitUnique: savedMacosWubiAutoCommitUnique,
   } = useMacosSettings({ client, macos: macosPlatform, setError });
-  const restoredMobilePage =
-    mobilePlatform &&
-    typeof window !== "undefined" &&
-    window.history.state?.msimeSettings === true &&
-    typeof window.history.state.page === "string"
-      ? window.history.state.page
-      : undefined;
   const [page, setPage] = useState<SettingsPageId>(() =>
-    requestedPage(initialPage ?? restoredMobilePage ?? (client.home ? "home" : undefined)),
+    initialSettingsPage({
+      initialPage,
+      mobilePlatform,
+      mobileHistoryState: typeof window === "undefined" ? undefined : window.history.state,
+      hasHomePage: Boolean(client.home),
+    }),
   );
   const [accountLoginReturnPage, setAccountLoginReturnPage] = useState<SettingsPageId | null>(null);
   // Each bottom tab owns a navigation stack in the source app. This shared page has a flat route,
   // so remember the visible leaf for each tab: leaving 输入 for 社区 and returning to 键盘 must
   // restore 输入 rather than reset the first tab to 首页.
-  const mobileInitialTab = mobileTabForPage(page);
-  const mobileLastPageByTab = useRef<Record<MobilePrimaryPageId, SettingsPageId>>({
-    home: mobileInitialTab === "home" ? page : "home",
-    community: mobileInitialTab === "community" ? page : "community",
-    "typing-statistics": mobileInitialTab === "typing-statistics" ? page : "typing-statistics",
-    account: mobileInitialTab === "account" ? page : "account",
-  });
+  const mobileLastPageByTab = useRef(initialMobileTabPages(page));
   const settingsContentRef = useRef<HTMLElement>(null);
   // Every settings category shares this one scrolling surface. Reset it after
   // the new category is committed so sidebar clicks, in-page links and mobile
