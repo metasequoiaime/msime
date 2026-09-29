@@ -7,7 +7,6 @@ import {
   fallbackAppVersion,
   windowIcons,
 } from "./settings/app-resources";
-import { platformResourceUrls } from "./settings/platform-resource-urls";
 import { unreadablePreferencesMessage } from "./settings/preferences-recovery-message";
 import { useSettingsWindowInteractions } from "./settings/use-settings-window-interactions";
 import { updateCandidateColor, updateCustomKeyboard } from "./settings/theme-selection-updates";
@@ -56,7 +55,7 @@ export {
   updateTouchKeyboardSchemeEnabled,
   allTouchKeyboardSchemes,
 } from "./settings/touch-keyboard-scheme-helpers";
-import { platformCopy, type PlatformCopyContext } from "./settings/platform-copy";
+import { settingsPlatformPresentation } from "./settings/settings-platform-presentation";
 export {
   platformCopy,
   type PlatformCopyContext,
@@ -1676,43 +1675,27 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     canInstallInputSource: Boolean(client.installInputSource),
     canListVoiceCaptureDevices: Boolean(client.listVoiceCaptureDevices),
   });
-  const fullwidthChord = macosPlatform ? "Option+Shift+H" : "Alt+Shift+H";
-  const maintenanceChord = macosPlatform ? "Ctrl+Shift+Option" : "Ctrl+Shift+Alt";
-  // Windows is built from this repository now too, so it reads this repository's releases; msime.app/update.json describes the reference Windows product and names its repository, which the validation below rightly refuses.
   const {
+    fullwidthChord,
+    maintenanceChord,
     releasesPageUrl: platformReleasesPageUrl,
     licenseUrl: platformLicenseUrl,
     issuesUrl: platformIssuesUrl,
-  } = platformResourceUrls({ clientHostedPlatform, linux: linuxPlatform });
-  const captureBackendOptions: readonly (readonly [
-    NonNullable<VoiceInputPreferences["capture_backend"]>,
-    string,
-  ])[] = [
-    ["auto", "自动选择"],
-    ...(linuxPlatform
-      ? ([
-          ["pulse", "PulseAudio"],
-          ["pipewire", "PipeWire"],
-          ["alsa", "ALSA"],
-        ] as const)
-      : []),
-    ...(macosPlatform ? ([["macos", "CoreAudio"]] as const) : []),
-    ...(windowsPlatform ? ([["windows", "Windows Audio"]] as const) : []),
-    ...(harmonyPlatform ? ([["harmony", "HarmonyOS 音频"]] as const) : []),
-  ];
-  const {
+    captureBackendOptions,
     helpIntro: platformHelpIntro,
     quickStart: platformQuickStart,
     networkDescription: platformNetworkDescription,
     aboutDescription: platformAboutDescription,
-  } = platformCopy({
+  } = settingsPlatformPresentation({
     android: androidPlatform,
     linux: linuxPlatform,
     macos: macosPlatform,
     harmony: harmonyPlatform,
     ios: iosPlatform,
     mobile: mobilePlatform,
-  } satisfies PlatformCopyContext);
+    windows: windowsPlatform,
+    clientHostedPlatform,
+  });
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [draft, setDraft] = useState<Preferences>();
   const [busy, setBusy] = useState(true);
