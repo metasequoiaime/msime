@@ -28,6 +28,7 @@ import { settingsPageProjections } from "./settings/settings-page-projections";
 import { settingsInputPreferences } from "./settings/settings-input-preferences";
 import { aiSettingsPreferences } from "./settings/ai-settings-preferences";
 import { diagnosticLogPreferences } from "./settings/diagnostic-log-preferences";
+import { settingsThemePreferences } from "./settings/settings-theme-preferences";
 import type { VoiceDeviceReader } from "./voice/voice-device-picker";
 import type { LocalVoiceModelClient } from "./voice/local-models";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
@@ -173,6 +174,7 @@ export {
   diagnosticLogPreferences,
   type DiagnosticLogPreferencesSource,
 } from "./settings/diagnostic-log-preferences";
+export { settingsThemePreferences } from "./settings/settings-theme-preferences";
 export {
   settingsInputPreferences,
   type SettingsInputPreferences,
@@ -376,7 +378,6 @@ export {
   type UseVoiceInputSettingsOptions,
 } from "./settings/use-voice-input-settings";
 import {
-  defaultTouchKeyboardSkinDesign,
   type AiSkinClient,
   type CustomSkinLibraryClient,
   type TouchKeyboardSkinDesign,
@@ -2066,15 +2067,12 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   });
   const providerPresetControls = createProviderPresetControl(client.openExternalUrl);
   const floatingToolbar = floatingToolbarPreferences(draft);
-  const themeMode = draft?.theme ?? "system";
-  const settingsTheme = draft?.settings_theme ?? "follow";
+  const { themeMode, settingsTheme, globalTheme, customColors, customTouchKeyboardSkin } =
+    settingsThemePreferences(draft);
   useSettingsTheme(themeMode, settingsTheme);
   const candidatePreviewTheme = useCandidatePreviewTheme(themeMode, draft?.candidate_theme);
   const toolbarPreviewTheme = useCandidatePreviewTheme(themeMode, draft?.toolbar_theme);
   const keyboardPreviewTheme = useCandidatePreviewTheme(themeMode, draft?.screen_keyboard_theme);
-  const globalTheme = draft?.global_theme ?? "system";
-  const customColors = draft?.custom_theme?.candidate_colors ?? {};
-  const customTouchKeyboardSkin = draft?.custom_theme?.keyboard ?? defaultTouchKeyboardSkinDesign;
   // A picker colour is part of the custom theme, so choosing one selects that theme; clearing one leaves the selection alone. Choosing one while another theme is selected customizes that theme: it becomes the custom theme's base, and a package, whose own base would replace it, is dropped.
   const setCandidateColor = (slot: keyof CustomCandidateColors, value: string | null) =>
     setDraft((current) => (current ? updateCandidateColor(current, slot, value) : current));
