@@ -8,9 +8,9 @@ import org.json.JSONObject;
 public final class DictionarySnapshotWorker {
     private DictionarySnapshotWorker() {}
 
-    public static void process(Path queueDirectory, Path stagingDirectory, String options)
+    public static void process(Path filesRoot, Path queueDirectory, Path stagingDirectory, String options)
             throws Exception {
-        DictionarySnapshotQueue queue = new DictionarySnapshotQueue(queueDirectory);
+        DictionarySnapshotQueue queue = new DictionarySnapshotQueue(filesRoot, queueDirectory);
         String current = version(options);
         queue.publishLocalVersion(current);
         try (DictionarySnapshotQueue.WorkerLease lease = queue.acquireWorkerLease()) {

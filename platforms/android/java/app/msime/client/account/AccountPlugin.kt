@@ -90,7 +90,8 @@ class AccountPlugin(activity: Activity) : Plugin(activity) {
     private fun snapshotQueue(): DictionarySnapshotQueue {
         val files = hostActivity.filesDir
             ?: throw IllegalStateException("private files unavailable")
-        return DictionarySnapshotQueue(File(files, "bootstrap/state/dictionary-snapshots").toPath())
+        return DictionarySnapshotQueue(files.toPath(),
+            File(files, "bootstrap/state/dictionary-snapshots").toPath())
     }
 
     private fun snapshotQueueRoot(): Path {

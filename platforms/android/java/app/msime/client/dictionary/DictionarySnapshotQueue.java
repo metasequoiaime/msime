@@ -107,11 +107,18 @@ public final class DictionarySnapshotQueue {
     private interface LockedAction<T> { T run() throws Exception; }
 
     private final Path directory;
+    private final Path trustedRoot;
 
-    public DictionarySnapshotQueue(Path directory) {
-        if (directory == null || !directory.isAbsolute())
-            throw new IllegalArgumentException("Snapshot queue directory must be absolute");
+    /** The files root comes from Android Context, before app-owned path components are appended. */
+    public DictionarySnapshotQueue(Path trustedRoot, Path directory) {
+        if (trustedRoot == null || directory == null
+                || !trustedRoot.isAbsolute() || !directory.isAbsolute())
+            throw new IllegalArgumentException("Snapshot queue paths must be absolute");
+        this.trustedRoot = trustedRoot.normalize();
         this.directory = directory.normalize();
+        if (this.directory.equals(this.trustedRoot)
+                || !this.directory.startsWith(this.trustedRoot))
+            throw new IllegalArgumentException("Snapshot queue must be under the files root");
     }
 
     public static boolean validVersion(String value) {
@@ -338,27 +345,25 @@ public final class DictionarySnapshotQueue {
 
     private Path root() throws Failure {
         try {
-            rejectSymlinkBoundary(directory);
+            rejectSymlinkBoundary();
             Files.createDirectories(directory);
-            rejectSymlinkBoundary(directory);
+            rejectSymlinkBoundary();
             if (!Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS)) throw new Failure(Reason.UNAVAILABLE);
             return directory;
         } catch (Failure error) { throw error; }
         catch (IOException | SecurityException error) { throw new Failure(Reason.UNAVAILABLE, error); }
     }
 
-    private static void rejectSymlinkBoundary(Path path) throws IOException {
-        Path absolute = path.toAbsolutePath().normalize();
-        Path existing = absolute;
-        while (existing != null
-                && !Files.exists(existing, LinkOption.NOFOLLOW_LINKS)) {
-            existing = existing.getParent();
+    private void rejectSymlinkBoundary() throws IOException {
+        Path current = trustedRoot;
+        for (Path component : trustedRoot.relativize(directory)) {
+            current = current.resolve(component);
+            if (Files.isSymbolicLink(current))
+                throw new IOException("snapshot queue path contains a symbolic link");
+            if (Files.exists(current, LinkOption.NOFOLLOW_LINKS)
+                    && !Files.isDirectory(current, LinkOption.NOFOLLOW_LINKS))
+                throw new IOException("snapshot queue path is not a directory");
         }
-        if (existing == null || Files.isSymbolicLink(existing))
-            throw new IOException("snapshot queue path contains a symbolic link");
-        if (Files.exists(absolute, LinkOption.NOFOLLOW_LINKS)
-                && !Files.isDirectory(absolute, LinkOption.NOFOLLOW_LINKS))
-            throw new IOException("snapshot queue directory is not a directory");
     }
 
     private <T> T locked(LockedAction<T> action) throws Failure {

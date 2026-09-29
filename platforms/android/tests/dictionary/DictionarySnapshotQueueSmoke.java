@@ -27,14 +27,15 @@ public final class DictionarySnapshotQueueSmoke {
             Path linkedParent = root.resolve("linked-parent");
             Files.createSymbolicLink(linkedParent, outside);
             DictionarySnapshotQueue linkedQueue = new DictionarySnapshotQueue(
-                linkedParent.resolve("queue"));
+                root, linkedParent.resolve("queue"));
             fails(DictionarySnapshotQueue.Reason.UNAVAILABLE, linkedQueue::read);
             check(!Files.exists(outside.resolve("queue")));
             Files.delete(linkedParent);
+            Files.createDirectory(outside.resolve("state"));
             Path linkedAncestor = root.resolve("linked-ancestor");
             Files.createSymbolicLink(linkedAncestor, outside);
             DictionarySnapshotQueue nestedQueue = new DictionarySnapshotQueue(
-                linkedAncestor.resolve("state/queue"));
+                root, linkedAncestor.resolve("state/queue"));
             fails(DictionarySnapshotQueue.Reason.UNAVAILABLE, nestedQueue::read);
             check(!Files.exists(outside.resolve("state/queue")));
             Files.delete(linkedAncestor);
@@ -54,7 +55,7 @@ public final class DictionarySnapshotQueueSmoke {
             check(stagingRejected);
             check(!Files.exists(stagingOutside.resolve("nested")));
             Files.delete(stagingLink);
-            DictionarySnapshotQueue queue = new DictionarySnapshotQueue(root.resolve("queue"));
+            DictionarySnapshotQueue queue = new DictionarySnapshotQueue(root, root.resolve("queue"));
             String version = "local-v1:legacy:" + "a".repeat(64);
             check(DictionarySnapshotQueue.validVersion(version));
             UUID receipt = UUID.randomUUID();
