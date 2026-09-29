@@ -70,14 +70,17 @@ export {
 } from "./settings/use-mobile-keyboard-feedback";
 import { fallbackAppVersion, logo } from "./settings/app-resources";
 export { AI_PROVIDER_OPTIONS } from "./settings/ai-provider-options";
-import { defaultVoiceInput } from "./settings/voice-input-defaults";
 import { settingsSidebarGroups } from "./settings/sidebar-groups";
 export {
   settingsSidebarGroups,
   type SettingsSidebarGroupsOptions,
 } from "./settings/sidebar-groups";
 import { mobileHiddenPageIds as getMobileHiddenPageIds } from "./settings/mobile-hidden-pages";
-import { defaultAiAssistant } from "./settings/ai-assistant-defaults";
+import { createSettingsDraftActions } from "./settings/settings-draft-actions";
+export {
+  createSettingsDraftActions,
+  type CreateSettingsDraftActionsOptions,
+} from "./settings/settings-draft-actions";
 import { useTranslationSettings } from "./settings/use-translation-settings";
 export {
   useTranslationSettings,
@@ -2045,6 +2048,7 @@ export function SettingsPage({
     copyText: client.copyText,
     openExternalUrl: client.openExternalUrl,
   });
+  const settingsDraftActions = createSettingsDraftActions({ setDraft });
   const {
     dataDirectory,
     busy: dataDirectoryBusy,
@@ -2144,15 +2148,7 @@ export function SettingsPage({
     client: client.aiAssistant,
     ai,
     providerCredentialAvailable: aiProviderCredentials,
-    onChange: (patch) =>
-      setDraft((current) =>
-        current
-          ? {
-              ...current,
-              ai_assistant: { ...(current.ai_assistant ?? defaultAiAssistant), ...patch },
-            }
-          : current,
-      ),
+    onChange: settingsDraftActions.onAiChange,
   });
   const {
     wordCharacter,
@@ -2207,7 +2203,7 @@ export function SettingsPage({
     linux: linuxPlatform,
     candidateEnglishGlossAvailable: Boolean(client.candidateEnglishGloss),
     onDeviceDownloadable,
-    onChange: (next) => setDraft(next),
+    onChange: settingsDraftActions.onTranslationChange,
   });
   const {
     voiceInput,
@@ -2226,15 +2222,7 @@ export function SettingsPage({
     harmony: harmonyPlatform,
     nativeVoicePlatform,
     localModelsAvailable: client.localVoiceModels !== undefined,
-    onChange: (patch) =>
-      setDraft((current) =>
-        current
-          ? {
-              ...current,
-              voice_input: { ...defaultVoiceInput, ...current.voice_input, ...patch },
-            }
-          : current,
-      ),
+    onChange: settingsDraftActions.onVoiceChange,
   });
   const providerPresetControls = createProviderPresetControl(client.openExternalUrl);
   const {
