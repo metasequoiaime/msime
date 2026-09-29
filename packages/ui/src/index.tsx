@@ -150,6 +150,8 @@ export {
 import { SettingsInputPage } from "./settings/settings-input-page";
 export { SettingsInputPage, type SettingsInputPageProps } from "./settings/settings-input-page";
 import { SettingsFormFrame } from "./settings/settings-form-frame";
+import { SettingsFormPages } from "./settings/settings-form-pages";
+export { SettingsFormPages, type SettingsFormPagesProps } from "./settings/settings-form-pages";
 export { SettingsFormFrame, type SettingsFormFrameProps } from "./settings/settings-form-frame";
 import { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
 export { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
@@ -2510,13 +2512,15 @@ export function SettingsPage({
               }}
             />
             {draft && isSettingsFormPage(page) && (
-                <SettingsFormFrame
-                  onSubmit={submitSettings}
-                  showReload={canReloadSettingsPage(page)}
-                  busy={busy}
-                  onReload={reloadSettings}
-                >
-                  <SettingsVisualPages
+                <SettingsFormPages
+                  frame={{
+                    onSubmit: submitSettings,
+                    showReload: canReloadSettingsPage(page),
+                    busy,
+                    onReload: reloadSettings,
+                  }}
+                  visual={
+                    <SettingsVisualPages
                     appearance={{
                       disabled: busy,
                       hidden: page !== "appearance",
@@ -2588,7 +2592,9 @@ export function SettingsPage({
                         : undefined,
                     }}
                   />
-                  <SettingsDictionaryPage
+                  }
+                  dictionary={
+                    <SettingsDictionaryPage
                     disabled={busy}
                     hidden={page !== "dictionary"}
                     dictionary={client.dictionary}
@@ -2619,7 +2625,9 @@ export function SettingsPage({
                     onTurnPage={turnPhrasePage}
                     phrasePage={phrasePage}
                   />
-                  <SettingsInputPage
+                  }
+                  input={
+                    <SettingsInputPage
                     disabled={busy}
                     hidden={page !== "input"}
                     client={client}
@@ -2682,7 +2690,9 @@ export function SettingsPage({
                     saveMobileKeyboardFeedback={saveMobileKeyboardFeedback}
                     previewMobileKeyboardHaptics={previewMobileKeyboardHaptics}
                   />
-                  <SettingsUtilityPages
+                  }
+                  utility={
+                    <SettingsUtilityPages
                     helpcode={{
                       value: draft,
                       mobile: mobilePlatform,
@@ -2749,7 +2759,9 @@ export function SettingsPage({
                         settingsExternalActions.onOpenSystemKeyboardSettings,
                     }}
                   />
-                  <SettingsAboutPage
+                  }
+                  about={
+                    <SettingsAboutPage
                     disabled={busy}
                     hidden={page !== "about"}
                     logo={logo}
@@ -2790,7 +2802,9 @@ export function SettingsPage({
                     onDiagnosticLogError={setError}
                     telemetryEnabled={draft.telemetry_enabled}
                   />
-                  <SettingsInteractionPages
+                  }
+                  interaction={
+                    <SettingsInteractionPages
                     screenKeyboard={{
                       disabled: busy,
                       hidden: page !== "screen-keyboard",
@@ -2832,7 +2846,9 @@ export function SettingsPage({
                     handwritingDisabled={busy}
                     handwritingHidden={page !== "handwriting"}
                   />
-                  <SettingsVoiceAiPages
+                  }
+                  voiceAi={
+                    <SettingsVoiceAiPages
                     voice={{
                       disabled: busy,
                       hidden: page !== "voice",
@@ -2909,7 +2925,9 @@ export function SettingsPage({
                       credentialTestControl,
                     }}
                   />
-                  <SettingsFeedbackPage
+                  }
+                  feedback={
+                    <SettingsFeedbackPage
                     disabled={busy}
                     hidden={page !== "feedback"}
                     hero={doc.hero}
@@ -2938,14 +2956,18 @@ export function SettingsPage({
                     onCopyGroup={copyGroup}
                     onOpenTelegram={settingsExternalActions.onOpenTelegram}
                   />
-                  <SettingsFormFooter
+                  }
+                  footer={
+                    <SettingsFormFooter
                     draft={draft}
                     busy={busy}
                     dirty={dirty}
                     showRestoreDefaults={Boolean(client.loadDefaultPreferences)}
                     onRestoreDefaults={settingsNavigationActions.onRestoreDefaults}
                   />
-                </SettingsFormFrame>
+                  }
+                >
+                </SettingsFormPages>
               )}
           </div>
         </main>
