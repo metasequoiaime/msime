@@ -150,6 +150,19 @@ final class CandidatePaletteTests: XCTestCase {
     XCTAssertEqual(hex(overridden.surface), "#010203")
   }
 
+  /// A package's translation colour draws the hints and translations; without one they follow the numbers, as before.
+  func testImportedSkinTranslationColourIsTheSecondaryText() throws {
+    let root = try skinsRoot([
+      "glossed": manifest("glossed", colors: "number = '#123456'\ntranslation = '#9fb4e0'"),
+      "plain": manifest("plain", colors: "number = '#123456'"),
+    ])
+    let glossed = CandidatePalette.resolve(package("glossed"), systemDark: false, skinsRoot: root)
+    XCTAssertEqual(hex(glossed.secondary), "#9FB4E0")
+    XCTAssertEqual(hex(glossed.number), "#123456")
+    let plain = CandidatePalette.resolve(package("plain"), systemDark: false, skinsRoot: root)
+    XCTAssertEqual(hex(plain.secondary), "#123456")
+  }
+
   /// A package is drawn only for the horizontal layout and the mode of its base, if it declares that mode; a folder the catalog rejects is never drawn. What is left is the base with the pickers.
   func testImportedSkinOutsideWhatItSupportsFallsBack() throws {
     let root = try skinsRoot([

@@ -3747,7 +3747,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let display = chineseOutput(candidate)
     guard var configuration = button.configuration else { return }
     let skin = KeyboardTheme.current
-    let annotationColor = candidatePalette?.number ?? skin.secondary
+    let annotationColor = candidatePalette?.secondary ?? skin.secondary
     if let palette = candidatePalette {
       // Drawn flat like the desktop candidate window: the first candidate, the one space commits, carries the skin's highlight.
       configuration.background.customView = nil

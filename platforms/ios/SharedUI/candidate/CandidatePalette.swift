@@ -6,6 +6,8 @@ import UIKit
 struct CandidatePalette: Equatable {
   var text: UIColor
   var number: UIColor
+  /// Hints and translations: an imported package's translation colour, otherwise the numbers, as client-core resolves `secondary`.
+  var secondary: UIColor
   var accent: UIColor
   var selected: UIColor
   var hover: UIColor
@@ -48,6 +50,7 @@ struct CandidatePalette: Equatable {
     return CandidatePalette(
       text: candidate?.text ?? keyboard.keyForeground,
       number: candidate?.number ?? keyboard.secondary,
+      secondary: candidate?.secondary ?? candidate?.number ?? keyboard.secondary,
       accent: candidate?.accent ?? keyboard.accent,
       selected: candidate?.selected ?? keyboard.accentSoft,
       hover: candidate?.hover ?? .clear,
