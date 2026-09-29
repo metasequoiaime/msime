@@ -510,7 +510,8 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
         return nil;
     }
 
-    self.level = NSStatusWindowLevel;
+    self.level = NSFloatingWindowLevel;
+    self.ignoresMouseEvents = NO;
     _preferredSize = NSMakeSize(kToolbarWidth, kToolbarHeight);
     self.opaque = NO;
     self.backgroundColor = [NSColor clearColor];
@@ -902,6 +903,7 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     _idleHidden = NO;
     _recentInput = YES;
     [self noteInputForDelegate:delegate];
+    [self setIsVisible:YES];
     [self orderFrontRegardless];
 }
 

@@ -367,7 +367,10 @@ impl<E: InputEngine> Runtime<E> {
             page_size: page_size.into(),
             highlighted: 0,
             translations: HashMap::new(),
-            engine_order: (0..cached.candidates.len()).collect(),
+            // The initial snapshot is already in Engine order. Keep the mapping empty until a
+            // presentation reorder actually needs it; engine_index falls back to the seat while
+            // the list remains untouched.
+            engine_order: Vec::new(),
             cached,
             snapshot_valid: true,
             character_width: CharacterWidth::Halfwidth,
@@ -1490,10 +1493,6 @@ impl<E: InputEngine> Runtime<E> {
             self.highlighted = index;
             return Ok(self.transition(empty_result(true)));
         }
-        let commit_context = OutputContext {
-            scheme: self.cached.scheme,
-            local_mode: self.cached.local_mode.clone(),
-        };
         // Going back into the phrase, before the Engine sees the key: both rules replace what the
         // key would otherwise do.
         if let Some(transition) = self.retreat_phrase_selection(&action)? {
@@ -1600,6 +1599,20 @@ impl<E: InputEngine> Runtime<E> {
             Action::SelectHighlighted => self.engine.command(Command::CommitCandidate),
             _ => return Ok(self.transition(empty_result(false))),
         };
+        // Keep the pre-refresh mode only when this action can produce a commit. Most keystrokes
+        // leave the composition open, so copying local_mode for them is wasted work. A held phrase
+        // and the automatic Wubi top-commit can produce a commit after the Engine result itself
+        // says otherwise.
+        let needs_commit_context = result.as_ref().is_ok_and(|result| result.has_commit)
+            || !self.phrase_prefix.is_empty()
+            || (character_action
+                && self.snapshot_valid
+                && self.cached.wubi_unique_four_code
+                && self.phrase_prefix.is_empty());
+        let commit_context = needs_commit_context.then(|| OutputContext {
+            scheme: self.cached.scheme,
+            local_mode: self.cached.local_mode.clone(),
+        });
         let refresh = self.refresh();
         let mut result = result?;
         if let Err(error) = refresh {
@@ -1646,8 +1659,10 @@ impl<E: InputEngine> Runtime<E> {
         );
         self.hold_phrase_progress(picked, discarded, keep_empty, &consumed, &mut result);
         let mut transition = self.transition(result);
-        if transition.commit.is_some() {
-            transition.commit_context = Some(commit_context);
+        if let Some(commit_context) = commit_context {
+            if transition.commit.is_some() {
+                transition.commit_context = Some(commit_context);
+            }
         }
         Ok(transition)
     }
