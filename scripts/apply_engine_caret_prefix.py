@@ -118,7 +118,27 @@ std::string Session::pending_suffix() const
     ApplyShuangpinHelpcodeSegmentation(request, shuangpin_profile_);
     if (!request.valid)
         return {};
-    return provider_registry_.resolve(request.scheme).query(request);
+    std::vector<WordItem> candidates = provider_registry_.resolve(request.scheme).query(request);
+    if (scheme_->type() != SchemeType::Wubi || !wubi_options_.mixed_pinyin)
+        return candidates;
+    QuanpinScheme pinyin;
+    pinyin.set_raw_input(raw_input, raw_input_with_cases);
+    QueryRequest pinyin_request = pinyin.build_request();
+    apply_request_options(pinyin_request);
+    pinyin_request.key_strokes = request.key_strokes;
+    if (!pinyin_request.valid)
+        return candidates;
+    const auto pinyin_candidates = provider_registry_.resolve(SchemeType::Quanpin).query(pinyin_request);
+    std::unordered_set<std::string> seen_words;
+    seen_words.reserve(candidates.size() + pinyin_candidates.size());
+    for (const auto &item : candidates)
+        seen_words.insert(item.word);
+    for (const auto &item : pinyin_candidates)
+    {
+        if (seen_words.insert(item.word).second)
+            candidates.push_back(item);
+    }
+    return candidates;
 }
 
 int ImeSession::cache_dynamic_candidate_for_current_request(const std::string &word, CandidateSource source)
