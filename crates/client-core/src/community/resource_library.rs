@@ -1,6 +1,8 @@
 //! The explicit, bounded local library shared with the Android IME process.
 
-use crate::community::resource::{CommunityResource, CommunityResourceKind};
+use crate::community::resource::{
+    reply_content_has_prompt, CommunityResource, CommunityResourceKind,
+};
 use crate::file_lock;
 use serde_json::from_slice;
 use std::fs::{self, File};
@@ -15,12 +17,7 @@ const MAXIMUM_ITEMS: usize = 50;
 fn is_valid_reply(item: &CommunityResource) -> bool {
     item.id != Uuid::nil()
         && item.kind == CommunityResourceKind::Reply
-        && item.content.entries.is_empty()
-        && item
-            .content
-            .prompt
-            .as_deref()
-            .is_some_and(|prompt| !prompt.is_empty())
+        && reply_content_has_prompt(&item.content)
 }
 
 #[derive(Debug, Error)]

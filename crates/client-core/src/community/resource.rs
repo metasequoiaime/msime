@@ -17,6 +17,14 @@ use uuid::Uuid;
 
 const MAXIMUM_CONTENT_BYTES: usize = 350_000;
 
+pub(super) fn reply_content_has_prompt(content: &CommunityResourceContent) -> bool {
+    content.entries.is_empty()
+        && content
+            .prompt
+            .as_deref()
+            .is_some_and(|prompt| !prompt.is_empty())
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CommunityResourceKind {
@@ -551,7 +559,7 @@ fn validate_content(
 ) -> Result<(), AccountError> {
     match kind {
         CommunityResourceKind::Reply => {
-            if !content.entries.is_empty()
+            if !reply_content_has_prompt(content)
                 || content
                     .prompt
                     .as_deref()
