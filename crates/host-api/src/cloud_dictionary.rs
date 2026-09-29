@@ -127,9 +127,7 @@ pub struct CloudDictionaryValue {
 
 pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'static str> {
     let valid_kind = |kind: &str| matches!(kind, "pinyin" | "wubi" | "quick" | "english");
-    let valid_token = |token: &str| {
-        (1..=96).contains(&token.len()) && msime_client_core::is_ascii_identifier(token)
-    };
+    let valid_token = |token: &str| msime_client_core::is_bounded_ascii_identifier(token, 96);
     let valid_value = |kind: &str, code: &str, word: &str, weight: i64| {
         let max_code_bytes = match kind {
             "wubi" => 4,

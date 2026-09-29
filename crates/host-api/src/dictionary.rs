@@ -590,10 +590,7 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
                 let (entries, report) = parse_import(&kind, &format, &text, Some(&options))?;
                 (entries, Some(report))
             };
-            if request_id.is_empty()
-                || request_id.len() > 120
-                || !msime_client_core::is_ascii_identifier(&request_id)
-            {
+            if !msime_client_core::is_bounded_ascii_identifier(&request_id, 120) {
                 return Err("invalid dictionary request ID".into());
             }
             let _access = DictionaryAccess::try_maintenance(
@@ -1853,10 +1850,7 @@ pub fn import_dictionary_words(
     if words.is_empty() || words.len() > MAX_WORD_IMPORT {
         return Err("invalid dictionary import".into());
     }
-    if request_id.is_empty()
-        || request_id.len() > 120
-        || !msime_client_core::is_ascii_identifier(request_id)
-    {
+    if !msime_client_core::is_bounded_ascii_identifier(request_id, 120) {
         return Err("invalid dictionary request ID".into());
     }
     let options = &options.0;

@@ -102,6 +102,11 @@ pub fn is_ascii_identifier(value: &str) -> bool {
         .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
 }
 
+/// Whether a non-empty ASCII identifier fits the supplied byte bound.
+pub fn is_bounded_ascii_identifier(value: &str, maximum_bytes: usize) -> bool {
+    !value.is_empty() && value.len() <= maximum_bytes && is_ascii_identifier(value)
+}
+
 /// Whether a value contains only ASCII letters, digits, dots, dashes, and underscores.
 pub fn is_ascii_identifier_with_dots(value: &str) -> bool {
     value

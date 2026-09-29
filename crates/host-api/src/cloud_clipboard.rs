@@ -1,4 +1,7 @@
-use msime_client_core::{has_disallowed_control_with_options, is_bounded_text, is_bounded_utf16};
+use msime_client_core::{
+    has_disallowed_control_with_options, is_bounded_ascii_identifier, is_bounded_text,
+    is_bounded_utf16,
+};
 use serde_json::Value;
 
 pub fn validate_request(request: &Value) -> Result<(), &'static str> {
@@ -30,7 +33,7 @@ pub fn validate_request(request: &Value) -> Result<(), &'static str> {
                 .get("id")
                 .and_then(Value::as_str)
                 .ok_or("invalid cloud clipboard request")?;
-            if id.is_empty() || id.len() > 256 || !msime_client_core::is_ascii_identifier(id) {
+            if !is_bounded_ascii_identifier(id, 256) {
                 return Err("invalid cloud clipboard request");
             }
         }

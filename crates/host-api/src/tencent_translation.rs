@@ -37,7 +37,7 @@ pub fn descriptor(bytes: &[u8]) -> Result<Value, &'static str> {
     };
     if !valid_token(&id)
         || !valid_token(&key)
-        || !msime_client_core::is_ascii_identifier(&id)
+        || !msime_client_core::is_bounded_ascii_identifier(&id, 4096)
         || region.len() > 64
         || !msime_client_core::is_ascii_alphanumeric_dash(&region)
         || !translation::is_supported_translation_pair(

@@ -96,7 +96,7 @@ fn ai_skin_error(error: AiSkinError) -> crate::CommandError {
 }
 
 fn valid_ai_skin_request_id(value: &str) -> bool {
-    (1..=96).contains(&value.len()) && msime_client_core::is_ascii_identifier(value)
+    msime_client_core::is_bounded_ascii_identifier(value, 96)
 }
 
 fn community_id(value: &str) -> Result<uuid::Uuid, crate::CommandError> {
