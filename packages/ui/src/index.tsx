@@ -25,6 +25,7 @@ import {
   type SettingsPageId,
 } from "./settings/settings-page-registry";
 import { settingsPageProjections } from "./settings/settings-page-projections";
+import { settingsInputPreferences } from "./settings/settings-input-preferences";
 import type { VoiceDeviceReader } from "./voice/voice-device-picker";
 import type { LocalVoiceModelClient } from "./voice/local-models";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
@@ -1960,11 +1961,8 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   const storedAiCredential = providerCredentials?.ai.find(
     (entry) => entry.provider === ai.provider,
   );
-  const wordCharacter = draft?.word_character ?? defaultWordCharacter;
-  const keybindings = draft?.keybindings ?? defaultKeybindings;
-  const frequency = draft?.frequency ?? defaultFrequency;
-  const mixedInput = draft?.mixed_input ?? defaultMixedInput;
-  const fuzzyPinyin = draft?.fuzzy_pinyin ?? defaultFuzzyPinyin;
+  const { wordCharacter, keybindings, frequency, mixedInput, fuzzyPinyin, localModes } =
+    settingsInputPreferences(draft);
   const touchKeyboardSchemes = draft?.touch_keyboard_schemes ?? {
     enabled: allTouchKeyboardSchemes,
   };
@@ -1973,7 +1971,6 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     selectHome: selectHomeScheme,
     setEnabled: setTouchKeyboardSchemeEnabled,
   } = useTouchKeyboardSchemeSelection({ draft, setDraft });
-  const localModes = draft?.local_modes ?? defaultLocalModes;
   // Every platform sees every mode. macOS used to hide emoji, kaomoji and temporary Japanese on the
   // grounds that its bundle shipped only msime.db and english.db, but others.db and dict_japanese.dat have
   // been in resources/desktop-dictionary.lock.json since 780a9381b and tauri.macos.conf.json bundles the
