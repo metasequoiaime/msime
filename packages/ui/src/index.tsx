@@ -227,6 +227,7 @@ import { useDataDirectory } from "./settings/use-data-directory";
 import { useCustomTranslations } from "./settings/use-custom-translations";
 import { usePreferenceRecovery } from "./settings/use-preference-recovery";
 import { useSettingsPersistence } from "./settings/use-settings-persistence";
+import { useInputSourceUninstall } from "./settings/use-input-source-uninstall";
 export {
   useProviderCredentials,
   type ProviderCredentialBusy,
@@ -256,6 +257,10 @@ export {
   useSettingsPersistence,
   type UseSettingsPersistenceOptions,
 } from "./settings/use-settings-persistence";
+export {
+  useInputSourceUninstall,
+  type UseInputSourceUninstallOptions,
+} from "./settings/use-input-source-uninstall";
 import { ProviderPresetSection, type ProviderPreset } from "./settings/provider-preset-section";
 import { AiCredentialSection } from "./settings/ai-credential-section";
 import { AiLinuxProviderSection } from "./settings/ai-linux-provider-section";
@@ -1799,10 +1804,16 @@ export function SettingsPage({
   const [notice, setNotice] = useState("");
   /** The backup the last repair wrote, while its notice is showing. */
   const [recoveredBackup, setRecoveredBackup] = useState("");
-  const [removeUserDataOnUninstall, setRemoveUserDataOnUninstall] = useState(false);
-  const [uninstallConfirmation, setUninstallConfirmation] = useState(false);
-  const [uninstallBusy, setUninstallBusy] = useState(false);
-  const [uninstallResult, setUninstallResult] = useState<"success" | "error" | null>(null);
+  const {
+    busy: uninstallBusy,
+    cancelUninstall,
+    confirmUninstall,
+    confirmation: uninstallConfirmation,
+    removeUserData: removeUserDataOnUninstall,
+    requestUninstall,
+    result: uninstallResult,
+    setRemoveUserData: setRemoveUserDataOnUninstall,
+  } = useInputSourceUninstall({ uninstallInputSource: client.uninstallInputSource });
   const [inputSourceStartup, setInputSourceStartup] = useState<InputSourceStartupStatus | null>(
     null,
   );
@@ -2156,21 +2167,6 @@ export function SettingsPage({
     setRecoveredBackup,
     confirm,
   });
-
-  async function uninstallInputSource() {
-    if (!client.uninstallInputSource || uninstallBusy) return;
-    setUninstallBusy(true);
-    setUninstallResult(null);
-    try {
-      await client.uninstallInputSource(removeUserDataOnUninstall);
-      setUninstallConfirmation(false);
-      setUninstallResult("success");
-    } catch {
-      setUninstallResult("error");
-    } finally {
-      setUninstallBusy(false);
-    }
-  }
 
   async function resetTouchKeyboardSettings() {
     if (!draft) return;
@@ -3510,12 +3506,9 @@ export function SettingsPage({
                     uninstallConfirmation={uninstallConfirmation}
                     uninstallResult={uninstallResult}
                     onRemoveUserDataChange={setRemoveUserDataOnUninstall}
-                    onRequestUninstall={() => {
-                      setUninstallResult(null);
-                      setUninstallConfirmation(true);
-                    }}
-                    onConfirmUninstall={() => void uninstallInputSource()}
-                    onCancelUninstall={() => setUninstallConfirmation(false)}
+                    onRequestUninstall={requestUninstall}
+                    onConfirmUninstall={() => void confirmUninstall()}
+                    onCancelUninstall={cancelUninstall}
                     diagnosticVisible={
                       !client.host || linuxPlatform || windowsPlatform || macosPlatform
                     }
