@@ -426,6 +426,7 @@ import {
 import { ChatPage, type ChatClient } from "./chat/chat-page";
 import { HomePage, MoreSettingsPage, type HomePageActions } from "./keyboard/home-page";
 import { CommunitySkinsPage, type CommunitySkinClient } from "./community/community-skins";
+import { communityDestinationView } from "./community/community-destination";
 import {
   CommunityHomePage,
   CommunityResourcesPage,
@@ -940,6 +941,13 @@ export {
   type CommunitySkinPage,
   type CommunitySkinTrial,
 } from "./community/community-skins";
+export {
+  communityDestinationView,
+  type CommunityDestination,
+  type CommunityDestinationCategory,
+  type CommunityDestinationScope,
+  type CommunityDestinationView,
+} from "./community/community-destination";
 export {
   CommunityHomePage,
   CommunityResourcesPage,
@@ -2203,19 +2211,7 @@ export function SettingsPage({
     setShowTouchSkinEditor,
     setCommunityDestination,
   });
-  const initialCommunityCategory =
-    communityDestination === "published-reply" || communityDestination === "saved-reply"
-      ? "reply"
-      : communityDestination === "published-dictionary" ||
-          communityDestination === "saved-dictionary"
-        ? "dictionary"
-        : "skin";
-  const initialCommunityScope =
-    communityDestination === "published-dictionary" || communityDestination === "published-reply"
-      ? "mine"
-      : communityDestination === "saved-dictionary" || communityDestination === "saved-reply"
-        ? "saved"
-        : "";
+  const communityView = communityDestinationView(communityDestination);
   return (
     <div
       className={settings.shell}
@@ -2381,9 +2377,9 @@ export function SettingsPage({
                 skins={client.communitySkins}
                 resources={client.communityResources}
                 theme={keyboardPreviewTheme}
-                initialMine={communityDestination === "published-skins"}
-                initialCategory={initialCommunityCategory}
-                initialScope={initialCommunityScope}
+                initialMine={communityView.initialMine}
+                initialCategory={communityView.category}
+                initialScope={communityView.scope}
                 localDictionary={client.dictionary}
                 localSkinLibrary={client.customSkinLibrary}
                 mobile={mobilePlatform}
@@ -2396,7 +2392,7 @@ export function SettingsPage({
                 client={client.communitySkins}
                 theme={keyboardPreviewTheme}
                 localSkinLibrary={client.customSkinLibrary}
-                initialMine={communityDestination === "published-skins"}
+                initialMine={communityView.initialMine}
                 mobile={mobilePlatform}
                 onLogin={openAccountLogin}
               />
@@ -2404,8 +2400,8 @@ export function SettingsPage({
             {!client.communitySkins && client.communityResources && page === "community" && (
               <CommunityResourcesPage
                 client={client.communityResources}
-                kind={initialCommunityCategory === "reply" ? "reply" : "dictionary"}
-                initialScope={initialCommunityScope}
+                kind={communityView.category === "reply" ? "reply" : "dictionary"}
+                initialScope={communityView.scope}
                 mobile={mobilePlatform}
               />
             )}
