@@ -1709,6 +1709,7 @@ export function SettingsPage({
     macos: macosPlatform,
     releasePlatform,
     diagnosticsFallbackPlatform,
+    accountPlatform,
   } = settingsPlatformContext(client.host);
   const {
     nativeVoicePlatform,
@@ -2327,15 +2328,7 @@ export function SettingsPage({
               <AccountPage
                 client={client.account}
                 appIcon={client.appIcon}
-                platform={
-                  androidPlatform
-                    ? "android"
-                    : iosPlatform
-                      ? "ios"
-                      : harmonyPlatform
-                        ? "harmony"
-                        : undefined
-                }
+                platform={accountPlatform}
                 mobile={mobilePlatform}
                 onCancelLogin={accountLoginReturnPage ? finishAccountLogin : undefined}
                 onLoginComplete={accountLoginReturnPage ? finishAccountLogin : undefined}

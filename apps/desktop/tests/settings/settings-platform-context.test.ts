@@ -12,7 +12,9 @@ test("derives release and diagnostics platforms from Android and iOS hosts", () 
   expect(settingsPlatformContext(host("ios"))).toMatchObject({
     releasePlatform: "ios",
     diagnosticsFallbackPlatform: "ios",
+    accountPlatform: "ios",
   });
+  expect(settingsPlatformContext(host("android")).accountPlatform).toBe("android");
 });
 
 test("uses Linux as the release fallback and desktop diagnostics elsewhere", () => {
@@ -24,5 +26,7 @@ test("uses Linux as the release fallback and desktop diagnostics elsewhere", () 
   expect(settingsPlatformContext(host("windows"))).toMatchObject({
     releasePlatform: "windows",
     diagnosticsFallbackPlatform: "desktop",
+    accountPlatform: undefined,
   });
+  expect(settingsPlatformContext(host("harmony")).accountPlatform).toBe("harmony");
 });

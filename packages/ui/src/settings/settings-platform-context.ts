@@ -12,6 +12,7 @@ export interface SettingsPlatformContext {
   macos: boolean;
   releasePlatform: HostPlatform | null;
   diagnosticsFallbackPlatform: "android" | "ios" | "desktop";
+  accountPlatform: "android" | "ios" | "harmony" | undefined;
 }
 
 /** Derives the host and form-factor flags shared by the settings page. */
@@ -32,5 +33,6 @@ export function settingsPlatformContext(host?: HostCapabilities): SettingsPlatfo
     macos: host?.platform === "macos",
     releasePlatform: host?.platform ?? (linux ? "linux" : null),
     diagnosticsFallbackPlatform: android ? "android" : ios ? "ios" : "desktop",
+    accountPlatform: android ? "android" : ios ? "ios" : harmony ? "harmony" : undefined,
   };
 }
