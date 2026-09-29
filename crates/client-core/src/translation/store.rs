@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const MAX_RECORD_BYTES: u64 = 4096;
 
@@ -143,6 +143,14 @@ impl TranslationGlossStore {
         ))
     }
 
+    fn reject_symlinked_roots(&self) -> Result<(), GlossStoreError> {
+        if let Some(parent) = self.root.parent() {
+            reject_symlink(parent)?;
+        }
+        reject_symlink(&self.root)?;
+        Ok(())
+    }
+
     /// Only the English target setting persists, matching Windows glossary rules.
     /// Unsupported inputs are misses; malformed existing records are errors.
     /// Call on an IO worker, not the input event thread.
@@ -158,9 +166,18 @@ impl TranslationGlossStore {
         let Some(key) = direction.key(text) else {
             return Ok(None);
         };
-        let file = match open_shared(&self.path(direction, &key)) {
-            Ok(file) => file,
+        self.reject_symlinked_roots()?;
+        let path = self.path(direction, &key);
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
+        if !metadata.file_type().is_file() {
+            return Err(GlossStoreError::InvalidRecord);
+        }
+        let file = match open_shared(&path) {
+            Ok(file) => file,
             Err(error) => return Err(error.into()),
         };
         let bytes = crate::bounded_io::read_bounded_file(file, MAX_RECORD_BYTES, || {
@@ -211,6 +228,7 @@ impl TranslationGlossStore {
         if bytes.len() as u64 > MAX_RECORD_BYTES {
             return Err(GlossStoreError::InvalidRecord);
         }
+        self.reject_symlinked_roots()?;
         fs::create_dir_all(directory)?;
         // NamedTempFile creates private files and persist atomically replaces only
         // this key; concurrent independent keys cannot lose each other's writes.
@@ -219,6 +237,20 @@ impl TranslationGlossStore {
         temporary.as_file().sync_all()?;
         persist_replacing(temporary, &path)?;
         Ok(true)
+    }
+}
+
+fn reject_symlink(path: &Path) -> Result<(), GlossStoreError> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            Err(GlossStoreError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "learned translation storage path is a symbolic link",
+            )))
+        }
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
     }
 }
 
@@ -271,6 +303,37 @@ mod tests {
         assert!(!store.remember("en", En, &"a".repeat(41), "你好").unwrap());
         assert!(!store.remember("en", En, "hello", &"字".repeat(33)).unwrap());
         assert!(!store.root.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_symlinked_storage_and_record_paths() {
+        use std::os::unix::fs::symlink;
+
+        let target = tempfile::tempdir().unwrap();
+        let parent = tempfile::tempdir().unwrap();
+        let linked_root = parent.path().join("user-data");
+        symlink(target.path(), &linked_root).unwrap();
+        let linked_store = TranslationGlossStore::new(&linked_root);
+        assert!(matches!(
+            linked_store.remember("en", En, "hello", "你好"),
+            Err(GlossStoreError::Io(_))
+        ));
+        assert!(!target.path().join("learned-translations-v1").exists());
+
+        let root = tempfile::tempdir().unwrap();
+        let store = TranslationGlossStore::new(root.path());
+        assert!(store.remember("en", En, "hello", "你好").unwrap());
+        let record = store.path(En, "hello");
+        let outside = tempfile::tempdir().unwrap();
+        let outside_record = outside.path().join("record.json");
+        std::fs::write(&outside_record, std::fs::read(&record).unwrap()).unwrap();
+        std::fs::remove_file(&record).unwrap();
+        symlink(&outside_record, &record).unwrap();
+        assert!(matches!(
+            store.lookup("en", En, "hello"),
+            Err(GlossStoreError::InvalidRecord)
+        ));
     }
 
     #[test]
