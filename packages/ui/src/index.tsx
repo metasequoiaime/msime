@@ -28,6 +28,7 @@ import { settingsPageProjections } from "./settings/settings-page-projections";
 import { settingsInputPreferences } from "./settings/settings-input-preferences";
 import { aiSettingsPreferences } from "./settings/ai-settings-preferences";
 import { diagnosticLogPreferences } from "./settings/diagnostic-log-preferences";
+import { clipboardHistoryEnabled } from "./settings/clipboard-history-preferences";
 import { settingsThemePreferences } from "./settings/settings-theme-preferences";
 import type { VoiceDeviceReader } from "./voice/voice-device-picker";
 import type { LocalVoiceModelClient } from "./voice/local-models";
@@ -2007,7 +2008,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   // A host missing a catalog is still handled, and handled better than by hiding a switch: the runtime
   // turns that mode off when its resource is absent, so the trigger key inserts its capital instead of
   // being swallowed.
-  const clipboardHistory = iosPlatform || (draft?.clipboard_history ?? false);
+  const clipboardHistory = clipboardHistoryEnabled(iosPlatform, draft);
   const toggleClipboardHistory = useClipboardHistoryToggle({
     draft,
     enabled: clipboardHistory,
