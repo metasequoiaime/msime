@@ -3804,16 +3804,22 @@ fn voice_input_language(
 
 fn external_url_is_safe(url: &str) -> bool {
     url.len() <= 4096
-        && url
-            .strip_prefix("https://")
-            .is_some_and(|rest| !rest.is_empty() && rest.as_bytes()[0] != b'/')
-        && url.starts_with("https://")
+        && msime_client_core::is_bounded_text(url, 4096)
         && !url.bytes().any(|byte| {
             byte <= b' '
                 || matches!(
                     byte,
                     b'"' | b'\'' | b'`' | b'&' | b'|' | b'<' | b'>' | b'\\'
                 )
+        })
+        && url
+            .strip_prefix("https://")
+            .is_some_and(|rest| rest.as_bytes().first().is_some_and(|byte| *byte != b'/'))
+        && reqwest::Url::parse(url).ok().is_some_and(|parsed| {
+            parsed.scheme() == "https"
+                && parsed.host_str().is_some_and(|host| !host.is_empty())
+                && parsed.username().is_empty()
+                && parsed.password().is_none()
         })
 }
 

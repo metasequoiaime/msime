@@ -177,6 +177,8 @@ fn external_links_require_clean_https_urls() {
         "https:///path",
         "http://example.com",
         "https://example.com/help path",
+        "https://user:secret@example.com/help",
+        "https://example.com:bad/help",
         "https://example.com/a&b",
         "https://example.com/\"quoted\"",
         "https://example.com/\\escape",
