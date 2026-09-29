@@ -155,6 +155,10 @@ export {
   type DictionaryPaginationProps,
 } from "./settings/dictionary-pagination";
 export {
+  createDictionaryPanelActions,
+  type CreateDictionaryPanelActionsOptions,
+} from "./settings/dictionary-panel-actions";
+export {
   DictionaryEntries,
   type DictionaryEntriesProps,
   type DictionaryPhraseForm,
@@ -337,6 +341,7 @@ import type { MobileKeyboardFeedbackClient } from "./settings/mobile-keyboard-fe
 import { DictionaryManifestCard } from "./settings/dictionary-manifest-card";
 import { PersonalDictionaryImportCard } from "./settings/personal-dictionary-import-card";
 import { DictionarySettingsPanel } from "./settings/dictionary-settings-panel";
+import { createDictionaryPanelActions } from "./settings/dictionary-panel-actions";
 import { validCandidateFonts } from "./candidate/candidate-font-family";
 import type { FontCatalogReader } from "./candidate/font-catalog";
 import {
@@ -1909,6 +1914,19 @@ export function SettingsPage({
     exportAllPhrases,
     resetLearnedData,
   } = useDictionaryManager({ client, confirm });
+  const dictionaryPanelActions = createDictionaryPanelActions({
+    dictionaryKind,
+    setPhraseForm,
+    loadPhrases,
+    exportPhrases,
+    exportAllPhrases,
+    importPhrases,
+    retryDictionaryFailure,
+    dismissDictionaryFailure,
+    savePhrase,
+    removePhrase,
+    resetLearnedData,
+  });
   const mounted = useMountedRef();
   const windowMaximized = useWindowState({ client, setError });
   const handleWindowResizeCapture = useWindowResizeCapture({
@@ -2491,18 +2509,12 @@ export function SettingsPage({
                     phraseBusy={phraseBusy}
                     dictionaryFormat={dictionaryFormat}
                     setDictionaryFormat={setDictionaryFormat}
-                    onQuery={() => void loadPhrases(dictionaryKind, 0)}
-                    onAdd={() => setPhraseForm({ key: "", value: "", weight: 10, previous: null })}
-                    onExportCurrent={() => void exportPhrases()}
-                    onExportAll={() => void exportAllPhrases()}
-                    onImport={(file) => void importPhrases(file)}
+                    {...dictionaryPanelActions}
                     dictionaryPendingCount={dictionaryPendingCount}
                     dictionaryFailures={dictionaryFailures}
                     dictionarySnapshotError={dictionarySnapshotError}
                     canRetry={Boolean(client.dictionary?.retry)}
                     canDismiss={Boolean(client.dictionary?.dismissFailure)}
-                    onRetry={(requestId) => void retryDictionaryFailure(requestId)}
-                    onDismiss={(requestId) => void dismissDictionaryFailure(requestId)}
                     dictionaryKind={dictionaryKind}
                     phraseSearch={phraseSearch}
                     setDictionaryKind={setDictionaryKind}
@@ -2514,12 +2526,8 @@ export function SettingsPage({
                     phraseForm={phraseForm}
                     phraseListRef={phraseListRef}
                     setPhraseForm={setPhraseForm}
-                    onSavePhrase={() => void savePhrase()}
-                    onRemovePhrase={(entry) => void removePhrase(entry)}
-                    onLoadPhrases={(kind, offset) => void loadPhrases(kind, offset)}
                     onTurnPage={turnPhrasePage}
                     phrasePage={phrasePage}
-                    onResetLearnedData={() => void resetLearnedData()}
                   />
                   <SkinSettingsSection
                     disabled={busy}
