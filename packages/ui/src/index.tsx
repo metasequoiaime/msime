@@ -225,6 +225,7 @@ import { useProviderCredentials } from "./settings/use-provider-credentials";
 import { useFeedbackReport } from "./settings/use-feedback-report";
 import { useDataDirectory } from "./settings/use-data-directory";
 import { useCustomTranslations } from "./settings/use-custom-translations";
+import { usePreferenceRecovery } from "./settings/use-preference-recovery";
 export {
   useProviderCredentials,
   type ProviderCredentialBusy,
@@ -245,6 +246,11 @@ export {
   type CustomTranslationsClient,
   type UseCustomTranslationsOptions,
 } from "./settings/use-custom-translations";
+export {
+  usePreferenceRecovery,
+  type PreferenceRecoveryConfirmOptions,
+  type UsePreferenceRecoveryOptions,
+} from "./settings/use-preference-recovery";
 import { ProviderPresetSection, type ProviderPreset } from "./settings/provider-preset-section";
 import { AiCredentialSection } from "./settings/ai-credential-section";
 import { AiLinuxProviderSection } from "./settings/ai-linux-provider-section";
@@ -2115,6 +2121,20 @@ export function SettingsPage({
   const snapshotRef = useRef(snapshot);
   const draftRef = useRef(draft);
 
+  const { restoreDefaults, recoverPreferences } = usePreferenceRecovery({
+    client,
+    busy,
+    snapshotRef,
+    draftRef,
+    setSnapshot,
+    setDraft,
+    setBusy,
+    setError,
+    setNotice,
+    setRecoveredBackup,
+    confirm,
+  });
+
   useEffect(() => {
     snapshotRef.current = snapshot;
     draftRef.current = draft;
@@ -2376,76 +2396,6 @@ export function SettingsPage({
       await action();
     } catch {
       setError("无法打开原生面板，请稍后重试。");
-    }
-  }
-
-  /**
-   * Put every setting back to its default, as a draft.
-   *
-   * The source window writes the defaults the moment the button is clicked. Here the result goes
-   * into the draft instead and the user saves it like any other edit, because this page has an
-   * explicit save and a dirty marker -- writing behind them would be the one action on the page
-   * that does not work the way the rest of it does. It also means a misclick costs nothing.
-   */
-  async function restoreDefaults() {
-    if (!client.loadDefaultPreferences || busy) return;
-    const confirmed = await confirm({
-      title: "恢复默认设置",
-      message: "语音和翻译服务的密钥、词库和学习数据都不会改变。恢复后需要点击保存设置才会生效。",
-      confirmLabel: "恢复",
-    });
-    if (!confirmed || !client.loadDefaultPreferences || busy) return;
-    setError("");
-    setNotice("");
-    try {
-      setDraft(await client.loadDefaultPreferences());
-      setNotice("所有设置已恢复默认，请点击保存设置。");
-    } catch {
-      setError("无法读取默认设置，请重试。原有设置不会被自动重置。");
-    }
-  }
-
-  /**
-   * The Windows source repairs an unparseable config.toml by itself when the IME starts. The input method here does the same for a document that is not JSON at all, and this is the explicit path for everything else it refuses -- a newer build's fields or format, which an automatic rewrite could have destroyed. An unsaved edit survives the repair: it stays in the draft on top of the repaired revision, so saving it still works.
-   */
-  async function recoverPreferences() {
-    if (!client.recoverPreferences || busy) return;
-    const confirmed = await confirm({
-      title: "修复配置文件",
-      message:
-        "损坏的配置文件会先备份到同一目录，然后尽量保留能识别的设置和服务密钥，其余恢复默认。",
-      confirmLabel: "修复",
-    });
-    if (!confirmed || !client.recoverPreferences) return;
-    setBusy(true);
-    setError("");
-    setNotice("");
-    setRecoveredBackup("");
-    try {
-      const result = await client.recoverPreferences();
-      const currentSnapshot = snapshotRef.current;
-      const currentDraft = draftRef.current;
-      const dirty =
-        !!currentSnapshot &&
-        !!currentDraft &&
-        JSON.stringify(currentDraft) !== JSON.stringify(currentSnapshot.preferences);
-      setSnapshot(result.snapshot);
-      if (!dirty) setDraft(result.snapshot.preferences);
-      if (!result.backupPath) {
-        setNotice("配置文件已可以正常读取，无需修复。");
-        return;
-      }
-      const backupName = result.backupPath.split(/[\\/]/).pop() ?? result.backupPath;
-      setRecoveredBackup(result.backupPath);
-      setNotice(
-        `配置文件已修复，原文件已备份为 ${backupName}。${
-          result.salvaged ? "" : "原有设置无法识别，已恢复默认。"
-        }${dirty ? "未保存的修改仍保留，请点击保存设置。" : ""}`,
-      );
-    } catch (reason) {
-      setError(errorMessage(reason));
-    } finally {
-      setBusy(false);
     }
   }
 
