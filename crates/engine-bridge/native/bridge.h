@@ -32,6 +32,7 @@ public:
     EngineSnapshot snapshot() const;
     OnlineQuerySnapshot online_query() const;
     void reset_cache();
+    void reset_context();
     bool apply_online_candidate(const OnlineQuerySnapshot& query, rust::Str candidate,
                                 std::uint8_t source);
     bool apply_online_candidates(const OnlineQuerySnapshot& query, rust::Slice<const rust::String> candidates,

@@ -1,6 +1,8 @@
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -38,10 +38,13 @@ set(METASEQUOIA_IME_ENGINE_SOURCES
+@@ -36,14 +36,17 @@ set(METASEQUOIA_IME_ENGINE_SOURCES
+     core/runtime_paths.cpp
+     core/pinyin_decoder.cpp
      core/ime_session.cpp
      core/input_session.cpp
      core/input_session_composition.cpp
@@ -14,7 +16,11 @@
      japanese/japanese_sentence_decoder.cpp
      japanese/romaji_converter.cpp
      local_modes/date_time_query.cpp
-@@ -58,10 +61,13 @@ set(METASEQUOIA_IME_ENGINE_SOURCES
+     local_modes/emoji_query.cpp
+     local_modes/jianpin_query.cpp
+@@ -56,26 +59,31 @@ set(METASEQUOIA_IME_ENGINE_SOURCES
+     providers/provider_registry.cpp
+     providers/wubi_candidate_provider.cpp
      quanpin/engine.cpp
      quanpin/quanpin_dictionary.cpp
      quanpin/quanpin_query.cpp
@@ -28,7 +34,8 @@
      schemes/quanpin_scheme.cpp
      schemes/shuangpin_scheme.cpp
      schemes/wubi_scheme.cpp
-@@ -70,10 +76,12 @@ set(METASEQUOIA_IME_ENGINE_SOURCES
+     shuangpin/engine.cpp
+     shuangpin/shuangpin_dictionary.cpp
      shuangpin/shuangpin_profile.cpp
      shuangpin/shuangpin_query.cpp
      shuangpin/shuangpin_utils.cpp
@@ -41,7 +48,11 @@
      googlepinyinime-rev/src/share/dictlist.cpp
      googlepinyinime-rev/src/share/dicttrie.cpp
      googlepinyinime-rev/src/share/lpicache.cpp
-@@ -291,10 +299,43 @@ if(BUILD_TESTING)
+     googlepinyinime-rev/src/share/matrixsearch.cpp
+     googlepinyinime-rev/src/share/mystdlib.cpp
+@@ -289,14 +297,47 @@ if(BUILD_TESTING)
+     add_executable(test_local_modes tests/src/test_local_modes.cpp)
+     target_link_libraries(test_local_modes PRIVATE MetasequoiaIme::Engine)
      add_test(NAME local_modes COMMAND test_local_modes)
 ~
      add_executable(test_online_input_session tests/src/test_online_input_session.cpp)
@@ -85,9 +96,13 @@
  option(METASEQUOIA_IME_BUILD_VOICE "Build shared voice input capabilities" OFF)
  if(METASEQUOIA_IME_BUILD_VOICE)
      add_subdirectory(voice)
+ endif()
+~
 --- a/common/helpcode_utils.cpp
 +++ b/common/helpcode_utils.cpp
-@@ -21,17 +21,10 @@
+@@ -19,21 +19,14 @@
+ #include <spdlog/spdlog.h>
+~
  namespace
  {
  std::mutex schema_mutex;
@@ -105,7 +120,11 @@
      const std::string prefix = HelpcodeUtils::kCustomHelpcodeSchemaPrefix;
      if (schema.size() <= prefix.size() || schema.compare(0, prefix.size(), prefix) != 0)
          return {};
-@@ -49,10 +42,17 @@ std::filesystem::path custom_schema_file(const std::filesystem::path &resources,
+     const std::string stem = schema.substr(prefix.size());
+     if (stem.front() == '.' || stem.find_first_of("/\\:*?\"<>|") != std::string::npos ||
+@@ -47,14 +40,21 @@ std::filesystem::path custom_schema_file(const std::filesystem::path &resources,
+     return resources / "helpcodes" / "custom" / (stem + ".txt");
+ }
 ~
  } // namespace
 ~
@@ -123,9 +142,11 @@
      const auto found = std::find_if(metasequoia::assets::helpcodes.begin(), metasequoia::assets::helpcodes.end(),
                                      [&](const auto &entry) { return entry.schema == schema; });
      std::filesystem::path file;
+     if (found != metasequoia::assets::helpcodes.end())
+         file = resources / found->path;
 --- a/common/helpcode_utils.h
 +++ b/common/helpcode_utils.h
-@@ -1,7 +1,8 @@
+@@ -1,9 +1,10 @@
  #pragma once
 ~
 +#include <cstdint>
@@ -134,7 +155,11 @@
  #include <memory>
  #include <unordered_map>
  #include <vector>
-@@ -16,10 +17,12 @@ std::string selected_helpcode_schema();
+~
+ namespace HelpcodeUtils
+@@ -14,14 +15,16 @@ using SharedKeymap = std::shared_ptr<const Keymap>;
+ SharedKeymap load_helpcode_keymap(const std::filesystem::path &resources, const std::string &schema);
+ std::string selected_helpcode_schema();
  const Keymap &helpcode_keymap();
  bool is_supported_helpcode_schema(const std::string &schema);
  bool select_helpcode_schema(const std::string &schema);
@@ -147,6 +172,8 @@
  std::string::size_type count_han_chars(const std::string &words);
  std::string::size_type count_utf8_chars(const std::string &text);
  std::string compute_helpcodes(const std::string &words, bool uppercase_all = false, const Keymap *keymap = nullptr);
+~
+ bool is_quanpin_single_help_mode(const std::string &pinyin_with_cases);
 --- /dev/null
 +++ b/common/sqlite_database.h
 @@ -0,0 +1,33 @@
@@ -320,7 +347,7 @@
 +} // namespace metasequoia
 --- a/core/ime_session.cpp
 +++ b/core/ime_session.cpp
-@@ -1,6 +1,7 @@
+@@ -1,8 +1,9 @@
  #include "ime_session.h"
 +#include "../contracts/assets/assets.h"
  #include "../schemes/quanpin_scheme.h"
@@ -328,7 +355,11 @@
  #include "../schemes/wubi_scheme.h"
  #include "../schemes/japanese_romaji_scheme.h"
  #include "../quanpin/quanpin_utils.h"
-@@ -36,12 +37,13 @@ void ApplyShuangpinHelpcodeSegmentation(QueryRequest &request, const ShuangpinPr
+ #include "../shuangpin/shuangpin_query.h"
+ #include <stdexcept>
+@@ -34,16 +35,17 @@ void ApplyShuangpinHelpcodeSegmentation(QueryRequest &request, const ShuangpinPr
+     request.normalized_segmentation = shuangpin::to_quanpin_segmentation(base_segmentation, profile) + "'" + help_codes;
+     request.segmentation = request.normalized_segmentation;
  }
  } // namespace
 ~
@@ -344,7 +375,11 @@
  }
 ~
  void ImeSession::bind_wubi_scheme()
-@@ -276,10 +278,24 @@ std::optional<WordItem> ImeSession::find_candidate(const std::string &key, const
+ {
+     wubi_scheme_ = dynamic_cast<WubiScheme *>(scheme_.get());
+@@ -274,25 +276,40 @@ std::optional<WordItem> ImeSession::find_candidate(const std::string &key, const
+ }
+~
  bool ImeSession::expand_initial_candidates()
  {
      return provider_registry_.expand_initial_candidates(state_.request, state_.candidates);
@@ -369,7 +404,7 @@
      state_.preedit = scheme_->get_preedit();
      state_.request = scheme_->build_request();
      state_.request.enable_shuangpin_helpcode = enable_shuangpin_helpcode_;
-@@ -287,10 +303,11 @@ void ImeSession::refresh_candidates()
+     state_.request.enable_quanpin_helpcode = enable_quanpin_helpcode_;
      state_.request.sentence_alternatives = sentence_alternatives_;
      state_.request.enable_quanpin_autocorrect_transposition =
          (quanpin_autocorrect_types_ & quanpin::kAutocorrectTransposition) != 0;
@@ -381,7 +416,11 @@
 ~
      state_.answered_by_pinyin_fallback = false;
 ~
-@@ -330,10 +347,11 @@ void ImeSession::refresh_candidates()
+     // An emptied composition starts over, so the fallback flag has to be cleared before the invalid
+     // request leaves early: a scheme that reports an empty input as invalid would otherwise carry the
+@@ -328,14 +345,15 @@ void ImeSession::refresh_candidates()
+         QueryRequest fallback = pinyin.build_request();
+         fallback.enable_quanpin_helpcode = enable_quanpin_helpcode_;
          fallback.sentence_alternatives = sentence_alternatives_;
          fallback.enable_quanpin_autocorrect_transposition =
              (quanpin_autocorrect_types_ & quanpin::kAutocorrectTransposition) != 0;
@@ -393,9 +432,12 @@
          // reaching the provider empty.
          fallback.key_strokes = state_.request.key_strokes;
          if (fallback.valid)
+         {
+             state_.candidates = provider_registry_.resolve(fallback.scheme).query(fallback);
 --- a/core/ime_session.h
 +++ b/core/ime_session.h
-@@ -2,10 +2,11 @@
+@@ -1,13 +1,14 @@
+ #pragma once
 ~
  #include "composition_state.h"
  #include "input_session_types.h"
@@ -407,7 +449,11 @@
  #include "../shuangpin/shuangpin_profile.h"
  #include <memory>
 ~
-@@ -69,10 +70,13 @@ class ImeSession
+ class ImeSession
+ {
+@@ -67,14 +68,17 @@ class ImeSession
+     {
+         provider_registry_.set_helpcode_keymap(std::move(table));
          refresh_candidates();
      }
 ~
@@ -421,7 +467,11 @@
      std::unique_ptr<IInputScheme> create_scheme(SchemeType scheme_type) const;
 ~
    private:
-@@ -90,6 +94,8 @@ class ImeSession
+     ProviderRegistry provider_registry_;
+     const ShuangpinProfile shuangpin_profile_;
+@@ -88,8 +92,10 @@ class ImeSession
+     metasequoia::WubiInputOptions wubi_options_;
+     // Resolved when the scheme changes rather than on every keystroke.
      WubiScheme *wubi_scheme_ = nullptr;
      // Once a composition has been answered by pinyin it stays with pinyin until it ends.
      // Committing a spelling out of a longer one leaves a tail the wubi table may happen to
@@ -432,7 +482,9 @@
  };
 --- a/core/input_session.cpp
 +++ b/core/input_session.cpp
-@@ -10,11 +10,14 @@
+@@ -8,26 +8,33 @@
+ #include "../local_modes/kaomoji_query.h"
+ #include "../local_modes/quick_phrase_query.h"
  #include "../local_modes/unicode_query.h"
  #include "../quanpin/quanpin_query.h"
  #include "../quanpin/quanpin_utils.h"
@@ -447,7 +499,7 @@
  #include <cctype>
  #include <iterator>
  #include <unordered_set>
-@@ -22,10 +25,14 @@
+ #include <utility>
 ~
  namespace metasequoia
  {
@@ -462,7 +514,11 @@
      switch (mode)
      {
      case FrequencyAdjustmentMode::Disabled:
-@@ -59,22 +66,37 @@ InputSession::InputSession(SchemeType scheme_type, unsigned quanpin_autocorrect_
+         return "disabled";
+     case FrequencyAdjustmentMode::Pin:
+@@ -57,26 +64,41 @@ InputSession::InputSession(SchemeType scheme_type, unsigned quanpin_autocorrect_
+       quanpin_helpcode_enabled_(helpcode_enabled), shuangpin_helpcode_enabled_(helpcode_enabled),
+       chinese_punctuation_enabled_(chinese_punctuation_enabled),
        candidate_learning_enabled_(candidate_learning_enabled), shuangpin_profile_(GetXiaoheShuangpinProfile())
  {
      engine_.set_quanpin_autocorrect_types(quanpin_autocorrect_types_);
@@ -500,7 +556,11 @@
          return insert_at_caret(character);
      caret_.reset();
      if (dedicated_english_mode_)
-@@ -97,64 +119,71 @@ KeyResult InputSession::handle_character(char character, bool shift_only)
+     {
+         const bool ascii_letter = (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z');
+@@ -95,79 +117,87 @@ KeyResult InputSession::handle_character(char character, bool shift_only)
+~
+     if (shift_only && character == 'U' && local_mode_options_.unicode && !has_composition() &&
          (scheme() == SchemeType::Quanpin || scheme() == SchemeType::Shuangpin))
      {
          local_input_mode_ = LocalInputMode::Unicode;
@@ -572,7 +632,7 @@
      }
      if (shift_only && character == 'R' && local_mode_options_.temporary_japanese && !has_composition() &&
          (scheme() == SchemeType::Quanpin || scheme() == SchemeType::Shuangpin))
-@@ -162,10 +191,11 @@ KeyResult InputSession::handle_character(char character, bool shift_only)
+     {
          temporary_original_scheme_ = scheme();
          engine_.switch_scheme(SchemeType::JapaneseRomaji);
          local_input_mode_ = LocalInputMode::TemporaryJapanese;
@@ -584,7 +644,11 @@
      }
 ~
      const bool lowercase_letter = character >= 'a' && character <= 'z';
-@@ -178,16 +208,25 @@ KeyResult InputSession::handle_character(char character, bool shift_only)
+     const bool microsoft_final =
+         character == ';' && scheme() == SchemeType::Shuangpin && shuangpin_profile_.name == "microsoft";
+@@ -176,20 +206,29 @@ KeyResult InputSession::handle_character(char character, bool shift_only)
+     // it, so the keyboard had to commit the composition and drop a bare ー beside it instead.
+     const bool japanese_long_vowel = character == '-' && scheme() == SchemeType::JapaneseRomaji;
      const bool active_helpcode = character >= 'A' && character <= 'Z' && has_composition() &&
                                   ((scheme() == SchemeType::Quanpin && quanpin_helpcode_enabled_) ||
                                    (scheme() == SchemeType::Shuangpin && shuangpin_helpcode_enabled_));
@@ -610,12 +674,19 @@
      const auto unsigned_character = static_cast<unsigned char>(character);
      const ImeKeyCode key_code =
          character == '\''
-@@ -207,27 +246,43 @@ KeyResult InputSession::handle_character(char character, bool shift_only)
+             ? ImeKey::Apostrophe
+             : (microsoft_final
+@@ -205,42 +244,66 @@ KeyResult InputSession::handle_character(char character, bool shift_only)
+     return {handled, std::nullopt, std::nullopt};
+ }
 ~
  KeyResult InputSession::handle_candidate_key(char character)
  {
      if (!has_composition() || character < '1' || character > '9')
      {
++        // The host inserts the key itself, so the next word no longer follows the last one.
++        if (!has_composition())
++            reset_commit_context();
 +        note_unhandled_key(character);
          return {};
      }
@@ -654,7 +725,7 @@
      text += punctuation;
      result.commit = std::move(text);
      return result;
-@@ -235,10 +290,15 @@ KeyResult InputSession::handle_punctuation(char character)
+ }
 ~
  KeyResult InputSession::handle_command(Command command)
  {
@@ -670,7 +741,11 @@
 ~
      switch (command)
      {
-@@ -304,25 +364,41 @@ KeyResult InputSession::handle_command(Command command)
+     case Command::MoveLeft:
+     case Command::MoveRight:
+@@ -302,29 +365,45 @@ KeyResult InputSession::handle_command(Command command)
+         std::optional<std::string> diagnostic;
+         if (dedicated_english_mode_ &&
              !user_dictionary::learn_entered_english_word(path_to_utf8(paths_.dictionary(assets::english_dictionary)),
                                                           path_to_utf8(paths_.user(assets::user_journal)), raw))
          {
@@ -712,7 +787,11 @@
      return {};
  }
 ~
-@@ -354,10 +430,13 @@ KeyResult InputSession::finish_composition(std::size_t first_index)
+ KeyResult InputSession::select_candidate(std::size_t index)
+ {
+@@ -352,14 +431,17 @@ KeyResult InputSession::finish_composition(std::size_t first_index)
+             *result.commit += *part.commit;
+         }
          if (part.diagnostic)
          {
              result.diagnostic = std::move(part.diagnostic);
@@ -726,7 +805,11 @@
 ~
  KeyResult InputSession::select_candidate(const std::string &candidate)
  {
-@@ -384,10 +463,16 @@ KeyResult InputSession::select_candidate_edge(std::size_t index, CandidateEdge e
+     const auto found = std::find_if(candidates().begin(), candidates().end(),
+                                     [&](const WordItem &item) { return item.word == candidate; });
+@@ -382,14 +464,20 @@ KeyResult InputSession::select_candidate_edge(std::size_t index, CandidateEdge e
+                                                             : HelpcodeUtils::get_last_han_char(candidate);
+     if (character.empty())
      {
          return {};
      }
@@ -743,7 +826,11 @@
 ~
  void InputSession::set_shuangpin_helpcode_enabled(bool enabled)
  {
-@@ -518,10 +603,12 @@ void InputSession::set_dedicated_english_mode(bool enabled)
+     if (shuangpin_helpcode_enabled_ == enabled)
+     {
+@@ -516,14 +604,16 @@ const MixedExpressiveOptions &InputSession::mixed_expressive_options() const
+ void InputSession::set_dedicated_english_mode(bool enabled)
+ {
      if (dedicated_english_mode_ == enabled)
      {
          return;
@@ -756,7 +843,11 @@
 ~
  bool InputSession::dedicated_english_mode() const
  {
-@@ -601,10 +688,12 @@ bool InputSession::apply_online_candidate(const OnlineQuery &query, std::string
+     return dedicated_english_mode_;
+ }
+@@ -599,14 +689,16 @@ bool InputSession::apply_online_candidate(const OnlineQuery &query, std::string
+     return std::any_of(candidates().begin(), candidates().end(),
+                        [&](const WordItem &item) { return item.word == candidate && item.source == source; });
  }
 ~
  void InputSession::switch_scheme(SchemeType scheme_type)
@@ -769,7 +860,11 @@
  }
 ~
  SchemeType InputSession::scheme() const
-@@ -668,11 +757,11 @@ const std::vector<WordItem> &InputSession::candidates() const
+ {
+     return temporary_original_scheme_.value_or(engine_.current_scheme_type());
+@@ -666,15 +758,15 @@ const std::vector<WordItem> &InputSession::candidates() const
+     {
+         return dedicated_english_candidates_;
      }
      if (local_input_mode_ != LocalInputMode::None)
      {
@@ -782,7 +877,11 @@
           (scheme() == SchemeType::Quanpin || scheme() == SchemeType::Shuangpin)))
      {
          return mixed_candidates_;
-@@ -747,41 +836,112 @@ KeyResult InputSession::commit(std::size_t index)
+     }
+     return engine_.get_candidates();
+@@ -745,45 +837,126 @@ KeyResult InputSession::commit(std::size_t index)
+     }
+     else if (!((local_input_mode_ == LocalInputMode::TemporaryEnglish ||
                  local_input_mode_ == LocalInputMode::TemporaryJapanese) &&
                 local_preedit_.size() == 1))
      {
@@ -807,6 +906,8 @@
 +            recent_commits_.forget_erased();
 +        active_delta_ = &delta;
 +    }
++    // After a retraction, which may have put back the chain the deleted commit followed.
++    const CommitChain chain_before = commit_chain_;
 +    const auto finish = [&](KeyResult result) {
 +        if (!learning_undo_enabled_)
 +            return result;
@@ -817,6 +918,7 @@
 +        record.input = std::move(consumed_raw);
 +        record.scheme = scheme();
 +        record.receipt = receipt_for(std::move(delta));
++        record.chain_before = chain_before;
 +        recent_commits_.remember(std::move(record));
 +        if (!result.diagnostic)
 +            result.diagnostic = std::move(undo_diagnostic);
@@ -847,17 +949,24 @@
      {
 +        // A user row of three or more characters answering the whole composition is almost always a sentence
 +        // stored by learn_sentence_candidate; counting it as one word would teach the model a sentence as a word.
-+        const bool learned_sentence_word = selected->source == CandidateSource::UserDatabase &&
-+                                           !commit_chain_.same_composition &&
-+                                           HelpcodeUtils::count_utf8_chars(selected->word) >= 3 &&
-+                                           selection_completes_composition(selected->pinyin, selected->word);
++        // User rows live in the working dictionary like shipped ones and come back as Database, so the journal's
++        // record of the insert is what tells them apart. Checked last: it is the only part that reads a file.
++        const bool learned_sentence_word =
++            has_dictionary_reading && personal_context_applies() && !commit_chain_.same_composition &&
++            !selected->canonical_pinyin.empty() &&
++            HelpcodeUtils::count_utf8_chars(selected->word) >= 3 &&
++            selection_completes_composition(selected->pinyin, selected->word) &&
++            user_dictionary::is_user_inserted(
++                path_to_utf8(paths_.user(assets::user_journal)), user_dictionary::DictionaryKind::Pinyin,
++                quanpin::join_segments(quanpin::normalize_umlaut_aliases(quanpin::split_segments(selected->canonical_pinyin))),
++                selected->word);
 +        const bool opens_composition = immediate_phrase_progress_.word.empty();
          const auto transition =
              advance_composition_after_selection(selected->pinyin, selected->word, selected->canonical_pinyin);
 +        record_context(learned_sentence_word, transition.continues_composition);
 +        std::optional<CommitChain::Pick> pick;
 +        if (has_dictionary_reading && !learned_sentence_word && !is_wubi() && !is_japanese() &&
-+            candidate_learning_enabled_)
++            candidate_learning_enabled_ && personal_context_enabled_)
 +            pick = CommitChain::Pick{transition.selected_canonical_pinyin, selected->word, steady_now()};
 +        // record_context has already ended the chain for a commit that does not follow the previous one.
 +        if (opens_composition && pick && commit_chain_.last_pick)
@@ -898,7 +1007,11 @@
  KeyResult InputSession::handle_local_character(char character)
  {
      if (local_input_mode_ == LocalInputMode::TemporaryEnglish)
-@@ -881,14 +1041,131 @@ void InputSession::add_local_fallback_candidate()
+     {
+         const bool ascii_letter = (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z');
+@@ -879,18 +1052,155 @@ void InputSession::add_local_fallback_candidate()
+     {
+         local_candidates_.emplace_back(local_preedit_, local_preedit_, 1, CandidateSource::Fallback);
      }
  }
 ~
@@ -917,9 +1030,13 @@
 +    if (commit_chain_.previous && personal_context_applies())
 +    {
 +        const auto personal = personal_context_->read();
-+        reordered =
-+            personal_context_order(decoded, personal.model(), commit_chain_.earlier ? &*commit_chain_.earlier : nullptr,
-+                                   *commit_chain_.previous);
++        const std::string context_key = pinyin_ranking_context();
++        const std::string journal = path_to_utf8(paths_.user(assets::user_journal));
++        reordered = personal_context_order(
++            decoded, personal.model(), commit_chain_.earlier ? &*commit_chain_.earlier : nullptr,
++            *commit_chain_.previous, [&](const WordItem &leader) {
++                return user_dictionary::is_pinned_candidate(journal, context_key, leader.word);
++            });
 +    }
 +    mixed_candidates_ = mixed_from(reordered ? *reordered : decoded);
 +    personal_reranked_ = reordered.has_value();
@@ -941,9 +1058,25 @@
 +        update_mixed_candidates();
 +}
 +
++void InputSession::set_personal_context_enabled(bool enabled)
++{
++    if (personal_context_enabled_ == enabled)
++        return;
++    personal_context_enabled_ = enabled;
++    if (!enabled)
++        reset_commit_context();
++}
++
++std::string InputSession::pinyin_ranking_context() const
++{
++    const auto &request = engine_.get_request();
++    return request.normalized_segmentation.empty() ? request.segmentation : request.normalized_segmentation;
++}
++
 +bool InputSession::personal_context_applies() const
 +{
-+    return candidate_learning_enabled_ && local_input_mode_ == LocalInputMode::None && !dedicated_english_mode_ &&
++    return candidate_learning_enabled_ && personal_context_enabled_ && local_input_mode_ == LocalInputMode::None &&
++           !dedicated_english_mode_ &&
 +           (scheme() == SchemeType::Quanpin || scheme() == SchemeType::Shuangpin);
 +}
 +
@@ -1034,7 +1167,11 @@
  void InputSession::update_dedicated_english_candidates()
  {
      dedicated_english_candidates_.clear();
-@@ -906,10 +1183,26 @@ void InputSession::update_dedicated_english_candidates()
+     if (dedicated_english_preedit_.empty())
+     {
+@@ -904,28 +1214,47 @@ void InputSession::update_dedicated_english_candidates()
+     apply_candidate_positions(dedicated_english_candidates_);
+     if (dedicated_english_candidates_.empty())
      {
          dedicated_english_candidates_.emplace_back("", dedicated_english_preedit_, 0, CandidateSource::Generated);
      }
@@ -1061,7 +1198,10 @@
      caret_.reset();
      immediate_phrase_progress_ = {};
      clear_pending_sequence();
-@@ -920,10 +1213,13 @@ void InputSession::reset_composition()
+     online_requests_.invalidate();
+     const std::optional<SchemeType> original_scheme = temporary_original_scheme_;
+     local_input_mode_ = LocalInputMode::None;
+     temporary_original_scheme_.reset();
      local_preedit_.clear();
      local_candidates_.clear();
      dedicated_english_preedit_.clear();
@@ -1075,7 +1215,11 @@
      {
          engine_.switch_scheme(*original_scheme);
      }
-@@ -936,42 +1232,45 @@ void InputSession::reset_composition()
+ }
+~
+@@ -934,46 +1263,49 @@ void InputSession::reset_composition()
+ // continuing selection whose leftover input collapses to nothing - abandons that phrase, so it has to be dropped here
+ // instead of being concatenated with the next composition's selections and stored as a phrase nobody typed.
  void InputSession::discard_abandoned_phrase_progress()
  {
      if (!has_composition())
@@ -1126,7 +1270,11 @@
      }
      if (frequency_adjustment_.mode == FrequencyAdjustmentMode::Disabled || index == 0)
      {
-@@ -988,11 +1287,12 @@ std::optional<std::string> InputSession::learn_candidate(std::size_t index)
+         return std::nullopt;
+     }
+@@ -986,53 +1318,63 @@ std::optional<std::string> InputSession::learn_candidate(std::size_t index)
+     return adjust_candidate_frequency(index, frequency_adjustment_, false);
+ }
 ~
  KeyResult InputSession::pin_candidate(std::size_t index)
  {
@@ -1140,7 +1288,24 @@
           scheme() == SchemeType::JapaneseRomaji))
          return {};
 ~
-@@ -1011,26 +1311,29 @@ KeyResult InputSession::pin_candidate(std::size_t index)
+     // Manual pinning is independent of automatic learning preferences and never selects text.
+     auto diagnostic = adjust_candidate_frequency(index, {FrequencyAdjustmentMode::Pin, 1, 1}, true);
+     if (diagnostic)
+         return {true, std::nullopt, std::move(diagnostic)};
++    // Remembered so that personal context reordering does not move the pinned word off the top it was pinned to.
++    if (source != CandidateSource::EnglishDictionary && local_input_mode_ == LocalInputMode::None &&
++        !dedicated_english_mode_ && (scheme() == SchemeType::Quanpin || scheme() == SchemeType::Shuangpin) &&
++        !user_dictionary::record_pinned_candidate(path_to_utf8(paths_.user(assets::user_journal)),
++                                                  pinyin_ranking_context(), ranking_candidates()[index].word))
++        return {true, std::nullopt, std::string("Unable to persist the pinned candidate.")};
+     reset_cache();
+     if (dedicated_english_mode_)
+         update_dedicated_english_candidates();
+     else if (local_input_mode_ != LocalInputMode::None)
+         diagnostic = update_local_candidates();
+     else
+         recompute_candidates();
+     return {true, std::nullopt, std::move(diagnostic)};
  }
 ~
  std::optional<std::string> InputSession::adjust_candidate_frequency(std::size_t index,
@@ -1173,7 +1338,11 @@
      }
      const bool super_jianpin = local_input_mode_ == LocalInputMode::SuperJianpin;
      // A wubi code the table could not answer carries quanpin words, so it is ranked, keyed and
-@@ -1052,13 +1355,14 @@ std::optional<std::string> InputSession::adjust_candidate_frequency(std::size_t
+     // stored as pinyin; only a code the wubi table answered is ranked under the code itself. The
+     // fallback reuses the context the fixed positions are written under, otherwise a pinned
+@@ -1050,17 +1392,18 @@ std::optional<std::string> InputSession::adjust_candidate_frequency(std::size_t
+     }
+     const std::string entry_key = (wubi && !super_jianpin)
                                        ? selected.pinyin
                                        : (selected.canonical_pinyin.empty() ? context_key : selected.canonical_pinyin);
      bool ranking_changed = false;
@@ -1190,9 +1359,13 @@
          return std::string("Unable to persist candidate frequency adjustment.");
      }
      if (ranking_changed)
+     {
+         engine_.reset_cache();
 --- a/core/input_session.h
 +++ b/core/input_session.h
-@@ -6,20 +6,29 @@
+@@ -4,24 +4,33 @@
+ #include "input_session_types.h"
+ #include "candidate_queries.h"
  #include "punctuation_policy.h"
  #include "online_request_guard.h"
  #include "../local_modes/date_time_query.h"
@@ -1222,7 +1395,11 @@
  // Platform-neutral composition session shared by the native frontends. It owns an ImeSession and
  // applies the key-handling and commit policy that each frontend would otherwise reimplement, so a
  // frontend only has to translate platform key events into these calls.
-@@ -74,11 +83,32 @@ class InputSession
+ class InputSession
+ {
+@@ -72,15 +81,38 @@ class InputSession
+     const EnglishInputOptions &english_input_options() const;
+     void set_mixed_expressive_options(MixedExpressiveOptions options);
      void set_wubi_input_options(metasequoia::WubiInputOptions options);
      const MixedExpressiveOptions &mixed_expressive_options() const;
      void set_dedicated_english_mode(bool enabled);
@@ -1235,6 +1412,8 @@
 +    // Hosts that turn it on forward idle Backspace, Space, Enter and caret keys, and call forget_recent_commits()
 +    // whenever the text near the caret changes without passing through this session.
 +    void set_learning_undo_enabled(bool enabled);
++    // Personal word-sequence context and pick pair words, on top of candidate learning. On by default.
++    void set_personal_context_enabled(bool enabled);
 +    bool learning_undo_enabled() const
 +    {
 +        return learning_undo_enabled_;
@@ -1255,7 +1434,11 @@
                                   CandidateSource source);
      bool apply_online_candidate(const OnlineQuery &query, std::string candidate, CandidateSource source);
 ~
-@@ -245,10 +275,11 @@ class InputSession
+     SchemeType scheme_type() const;
+     unsigned quanpin_autocorrect_types() const;
+@@ -243,14 +275,15 @@ class InputSession
+     // one, so the rest of the composition has to survive the selection.
+     bool candidates_follow_pinyin() const;
      bool is_japanese() const;
      void clear_pending_sequence();
      void apply_pending_sequence();
@@ -1267,7 +1450,11 @@
      KeyResult edit_at_caret(Command command);
      KeyResult replace_editing_text(std::string text, std::size_t caret);
      std::optional<std::size_t> caret_;
-@@ -260,15 +291,48 @@ class InputSession
+     std::optional<std::string> update_local_candidates();
+     // Adds the visible preedit as a Fallback row when a local mode has nothing else to show, like the reference's PrepareCandidateList.
+@@ -258,19 +291,54 @@ class InputSession
+     void update_mixed_candidates();
+     void apply_candidate_positions(std::vector<WordItem> &items);
      std::string position_context(bool english) const;
      bool fixed_positions_enabled_ = false;
      void update_dedicated_english_candidates();
@@ -1281,6 +1468,8 @@
 +    const std::vector<WordItem> &ranking_candidates();
 +    std::vector<WordItem> mixed_from(const std::vector<WordItem> &decoded);
 +    std::size_t ranking_index(std::size_t displayed_index);
++    // The context key pinyin rankings and pins are stored under; see adjust_candidate_frequency.
++    std::string pinyin_ranking_context() const;
 +    std::chrono::steady_clock::time_point steady_now() const;
 +    bool personal_context_applies() const;
 +    std::optional<std::string> record_personal_context(const WordItem *selected, bool learned_sentence_word,
@@ -1316,7 +1505,11 @@
      bool shuangpin_preedit_uses_raw_ = true;
      std::unique_ptr<QuanpinEngine> canonical_phrase_engine_;
      std::string pending_pinyin_sequence_;
-@@ -302,7 +366,21 @@ class InputSession
+     std::string pending_pinyin_sequence_with_cases_;
+     bool has_pending_pinyin_sequence_ = false;
+@@ -300,9 +368,24 @@ class InputSession
+     std::vector<WordItem> mixed_candidates_;
+     LocalInputMode local_input_mode_ = LocalInputMode::None;
      std::optional<SchemeType> temporary_original_scheme_;
      std::string local_preedit_;
      std::vector<WordItem> local_candidates_;
@@ -1332,6 +1525,7 @@
 +    bool ranking_candidates_built_ = false;
 +    std::vector<WordItem> ranking_candidates_;
 +    bool learning_undo_enabled_ = false;
++    bool personal_context_enabled_ = true;
 +    RecentCommits recent_commits_;
 +    // Set only while commit() runs with learning undo on; the learning writers record their row images into it.
 +    user_dictionary::LearningDelta *active_delta_ = nullptr;
@@ -1340,7 +1534,9 @@
  } // namespace metasequoia
 --- a/core/input_session_candidates.cpp
 +++ b/core/input_session_candidates.cpp
-@@ -115,10 +115,12 @@ KeyResult InputSession::remove_candidate(std::size_t index)
+@@ -113,14 +113,16 @@ KeyResult InputSession::remove_candidate(std::size_t index)
+     if (key.empty())
+         return {};
      if (!user_dictionary::delete_dictionary_candidate(
              path_to_utf8(paths_.dictionary(english ? assets::english_dictionary : assets::main_dictionary)),
              path_to_utf8(paths_.user(assets::user_journal)), kind, key, selected.word))
@@ -1353,9 +1549,11 @@
          update_dedicated_english_candidates();
      else if (local_input_mode_ != LocalInputMode::None)
          return {true, std::nullopt, update_local_candidates()};
+     else
+         recompute_candidates();
 --- a/core/input_session_composition.cpp
 +++ b/core/input_session_composition.cpp
-@@ -1,13 +1,19 @@
+@@ -1,15 +1,21 @@
  #include "input_session.h"
  #include "../common/helpcode_utils.h"
 +#include "../quanpin/quanpin_query.h"
@@ -1375,7 +1573,11 @@
  {
  namespace
  {
-@@ -44,10 +50,31 @@ void remove_consumed_leading_separators(std::string &raw_input, std::string &raw
+ std::string remove_delimiters(const std::string &segmented)
+ {
+@@ -42,14 +48,35 @@ void remove_consumed_leading_separators(std::string &raw_input, std::string &raw
+     raw_input_with_cases.erase(0, count);
+ }
 ~
  // Match the Engine's own maximum stored phrase width. Longer generated sentences are useful
  // for this commit only and would otherwise grow the user dictionary without bound.
@@ -1407,7 +1609,11 @@
      if (pinyin.empty())
      {
          return {};
-@@ -331,10 +358,12 @@ SchemeType InputSession::current_scheme_type() const
+     }
+~
+@@ -329,14 +356,16 @@ SchemeType InputSession::current_scheme_type() const
+     return engine_.current_scheme_type();
+ }
 ~
  void InputSession::reset_state()
  {
@@ -1420,7 +1626,11 @@
  void InputSession::reset_cache()
  {
      engine_.reset_cache();
-@@ -493,13 +522,43 @@ int InputSession::store_user_phrase(std::string pinyin, std::string word)
+     if (canonical_phrase_engine_)
+         canonical_phrase_engine_->reset_cache();
+@@ -491,29 +520,60 @@ int InputSession::store_user_phrase(std::string pinyin, std::string word)
+ }
+~
  int InputSession::store_user_phrase_from_canonical_pinyin(std::string pinyin, std::string word)
  {
      // Both quanpin and shuangpin ultimately share the canonical quanpin
@@ -1465,7 +1675,8 @@
  std::optional<std::string> InputSession::learn_sentence_candidate(const WordItem &selected)
  {
      // Local shortcuts and English/Japanese modes also use Generated candidates, but they are not
-@@ -508,10 +567,11 @@ std::optional<std::string> InputSession::learn_sentence_candidate(const WordItem
+     // pinyin sentences and must never enter the pinyin user dictionary.
+     if (local_input_mode_ != LocalInputMode::None || dedicated_english_mode_ || is_japanese() ||
          !candidates_follow_pinyin())
      {
          return std::nullopt;
@@ -1477,7 +1688,11 @@
      // Online cloud/AI rows are injected after the local query and therefore carry no
      // canonical_pinyin.  For a complete full-pinyin query the session's explicit segmentation is
      // the canonical key; using committed_pinyin would erase apostrophes and let correction
-@@ -523,16 +583,112 @@ std::optional<std::string> InputSession::learn_sentence_candidate(const WordItem
+     // re-segment a reading such as qi'e'huan before it is stored.
+     const bool online_candidate = selected.source == CandidateSource::CloudSuggestion ||
+@@ -521,20 +581,116 @@ std::optional<std::string> InputSession::learn_sentence_candidate(const WordItem
+     const std::string selected_canonical =
+         selected.canonical_pinyin.empty() && online_candidate && is_all_complete_pure_pinyin()
              ? get_pinyin_segmentation()
              : selected.canonical_pinyin;
      const std::string canonical = normalize_canonical_pinyin_for_word(selected_canonical, selected.word);
@@ -1591,7 +1806,11 @@
 ~
  int InputSession::pin_candidate(std::string pinyin, std::string word)
  {
-@@ -589,10 +745,59 @@ bool InputSession::selection_completes_composition(const std::string &selected_p
+     return engine_.update_weight_by_pinyin_and_word(std::move(pinyin), std::move(word));
+ }
+@@ -587,14 +743,63 @@ bool InputSession::selection_completes_composition(const std::string &selected_p
+         quanpin::strip_active_helpcodes_with_cases(request().raw_input, request().raw_input_with_cases);
+     const size_t consumed_raw_length =
          shuangpin::raw_length_for_effective_prefix(raw_input_with_cases_without_helpcodes, selected_pure_pinyin.size());
      return !(!selected_pure_pinyin.empty() && selected_pure_pinyin.size() < request().normalized_input.size() &&
               consumed_raw_length < raw_input_without_helpcodes.size());
@@ -1651,9 +1870,11 @@
  {
      SelectionTransition transition;
      transition.selected_canonical_pinyin = selected_canonical_pinyin;
+     if (is_japanese())
+     {
 --- /dev/null
 +++ b/core/input_session_learning_undo.cpp
-@@ -0,0 +1,133 @@
+@@ -0,0 +1,153 @@
 +#include "candidate_utils.h"
 +#include "data_path.h"
 +#include "input_session.h"
@@ -1755,21 +1976,41 @@
 +                                                               bool &learn_selected_copy)
 +{
 +    auto erased = recent_commits_.take_retraction(consumed_raw, scheme());
++    std::string erased_text;
++    for (const auto &record : erased)
++        erased_text += record.text;
 +    // Picking the deleted word again confirms it; there is nothing to take back.
-+    if (!erased || erased->text == selected.word || !erased->receipt)
++    if (erased.empty() || erased_text == selected.word)
 +        return std::nullopt;
-+    switch (user_dictionary::restore_learning_receipt(*erased->receipt))
++    // The pick replaces the deleted text, so it follows what that text followed; the idle Backspace that deleted it
++    // ended the chain.
++    commit_chain_ = erased.front().chain_before;
++    bool restored = false;
++    bool failed = false;
++    // Newest first, the reverse of the order the commits learned in.
++    for (auto record = erased.rbegin(); record != erased.rend(); ++record)
 +    {
-+    case user_dictionary::UndoOutcome::Superseded:
-+        return std::nullopt;
-+    case user_dictionary::UndoOutcome::Failed:
-+        return std::string("Unable to undo the previous selection's learning.");
-+    case user_dictionary::UndoOutcome::Restored:
-+        break;
++        if (!record->receipt)
++            continue;
++        switch (user_dictionary::restore_learning_receipt(*record->receipt))
++        {
++        case user_dictionary::UndoOutcome::Superseded:
++            break;
++        case user_dictionary::UndoOutcome::Failed:
++            failed = true;
++            break;
++        case user_dictionary::UndoOutcome::Restored:
++            restored = true;
++            break;
++        }
 +    }
++    if (!restored)
++        return failed ? std::optional<std::string>("Unable to undo the previous selection's learning.") : std::nullopt;
 +    // The ranking writer computes its new weights from the candidates' in-memory weights, so the list must be queried
 +    // again after the restore rather than re-wrapped.
 +    auto diagnostic = refresh_after_candidate_change();
++    if (failed && !diagnostic)
++        diagnostic = "Unable to undo the previous selection's learning.";
 +    learn_index.reset();
 +    if (is_sentence_learning_source(selected.source))
 +    {
@@ -1789,7 +2030,7 @@
 +} // namespace metasequoia
 --- /dev/null
 +++ b/core/personal_context_rerank.cpp
-@@ -0,0 +1,69 @@
+@@ -0,0 +1,77 @@
 +#include "personal_context_rerank.h"
 +#include "candidate_utils.h"
 +#include "../common/helpcode_utils.h"
@@ -1797,6 +2038,7 @@
 +#include <algorithm>
 +#include <cmath>
 +#include <cstddef>
++#include <iterator>
 +
 +namespace metasequoia
 +{
@@ -1807,7 +2049,8 @@
 +
 +std::optional<std::vector<WordItem>> personal_context_order(const std::vector<WordItem> &candidates,
 +                                                            const quanpin::PersonalNgram &model,
-+                                                            const std::string *earlier, const std::string &previous)
++                                                            const std::string *earlier, const std::string &previous,
++                                                            const std::function<bool(const WordItem &)> &pinned)
 +{
 +    if (candidates.size() < 2 || !is_dictionary_candidate_source(candidates.front().source))
 +        return std::nullopt;
@@ -1845,6 +2088,12 @@
 +    }
 +    std::stable_sort(scored.begin(), scored.end(),
 +                     [](const auto &lhs, const auto &rhs) { return lhs.first > rhs.first; });
++    // A leader the user pinned keeps its seat; asked only when it would lose it, since the answer reads the journal.
++    if (scored.front().second != 0 && pinned && pinned(candidates.front()))
++    {
++        const auto leader = std::find_if(scored.begin(), scored.end(), [](const auto &entry) { return entry.second == 0; });
++        std::rotate(scored.begin(), leader, std::next(leader));
++    }
 +    bool changed = false;
 +    for (std::size_t i = 0; i < group; ++i)
 +        changed = changed || scored[i].second != i;
@@ -1861,12 +2110,13 @@
 +} // namespace metasequoia
 --- /dev/null
 +++ b/core/personal_context_rerank.h
-@@ -0,0 +1,22 @@
+@@ -0,0 +1,25 @@
 +#pragma once
 +
 +#include "word_item.h"
 +#include "../quanpin/personal_ngram.h"
 +
++#include <functional>
 +#include <optional>
 +#include <string>
 +#include <vector>
@@ -1879,14 +2129,16 @@
 +// at most 16: homophones competing for the same slot, never a prefix against a full answer. Each row scores
 +// log((1 - mu) * P_static + mu * P_personal), where P_static is the row's weight share of the group, P_personal
 +// the model's probability normalised over the group, and mu the model's confidence in `previous`. Returns the
-+// reordered list only when the order changed. `earlier` may be null, meaning the chain start.
++// reordered list only when the order changed. `earlier` may be null, meaning the chain start. When the first row would
++// move, `pinned` (if given) is asked whether the user pinned it, and a pinned first row stays first.
 +std::optional<std::vector<WordItem>> personal_context_order(const std::vector<WordItem> &candidates,
 +                                                            const quanpin::PersonalNgram &model,
-+                                                            const std::string *earlier, const std::string &previous);
++                                                            const std::string *earlier, const std::string &previous,
++                                                            const std::function<bool(const WordItem &)> &pinned = {});
 +} // namespace metasequoia
 --- /dev/null
 +++ b/core/recent_commits.cpp
-@@ -0,0 +1,69 @@
+@@ -0,0 +1,100 @@
 +#include "recent_commits.h"
 +
 +#include <algorithm>
@@ -1923,18 +2175,49 @@
 +    clear();
 +}
 +
-+std::optional<RecentCommit> RecentCommits::take_retraction(const std::string &typed, SchemeType scheme)
++std::vector<RecentCommit> RecentCommits::take_retraction(const std::string &typed, SchemeType scheme)
 +{
++    std::vector<RecentCommit> taken;
 +    for (auto record = records_.rbegin(); record != records_.rend(); ++record)
 +    {
 +        if (!record->is_erased() || !record->same_input(typed, scheme))
 +            continue;
-+        RecentCommit taken = std::move(*record);
++        taken.push_back(std::move(*record));
 +        records_.erase(std::next(record).base());
 +        return taken;
 +    }
++    // Several segments retyped as one input: from the oldest start, the first run that `typed` covers completely up to
++    // its last record and reaches into that one.
++    if (!typed.empty())
++    {
++        for (std::size_t first = 0; first < records_.size(); ++first)
++        {
++            std::string joined;
++            for (std::size_t last = first; last < records_.size(); ++last)
++            {
++                const RecentCommit &record = records_[last];
++                if (!record.is_erased() || record.scheme != scheme || record.input.empty())
++                    break;
++                const std::size_t start = joined.size();
++                joined += record.input;
++                if (typed.compare(0, (std::min)(typed.size(), joined.size()), joined, 0,
++                                  (std::min)(typed.size(), joined.size())) != 0)
++                    break;
++                if (last > first && typed.size() > start && typed.size() <= joined.size())
++                {
++                    for (std::size_t index = first; index <= last; ++index)
++                        taken.push_back(std::move(records_[index]));
++                    records_.erase(records_.begin() + static_cast<std::ptrdiff_t>(first),
++                                   records_.begin() + static_cast<std::ptrdiff_t>(last + 1));
++                    return taken;
++                }
++                if (typed.size() <= joined.size())
++                    break;
++            }
++        }
++    }
 +    forget_erased();
-+    return std::nullopt;
++    return taken;
 +}
 +
 +void RecentCommits::forget_erased()
@@ -1958,9 +2241,10 @@
 +} // namespace metasequoia
 --- /dev/null
 +++ b/core/recent_commits.h
-@@ -0,0 +1,76 @@
+@@ -0,0 +1,84 @@
 +#pragma once
 +
++#include "commit_chain.h"
 +#include "scheme_type.h"
 +#include "../user_dictionary/learning_receipt.h"
 +
@@ -1968,6 +2252,7 @@
 +#include <deque>
 +#include <optional>
 +#include <string>
++#include <vector>
 +
 +namespace metasequoia
 +{
@@ -1989,6 +2274,10 @@
 +
 +    // What the commit taught the dictionaries, when there was anything and all of it could be recorded.
 +    std::optional<user_dictionary::LearningReceipt> receipt;
++
++    // The personal context chain as it was before this commit, so a pick that replaces it learns in the context the
++    // deleted commit had rather than in the one idle Backspace left behind.
++    CommitChain chain_before;
 +
 +    bool is_erased() const
 +    {
@@ -2017,9 +2306,11 @@
 +    // Charges one deleted character to the newest record that still has text left. Deleting past every record means
 +    // the host's text no longer matches the ledger, so everything is forgotten.
 +    void note_backspace();
-+    // Removes and returns the newest fully deleted record whose input starts with `typed`. When none does, every fully
-+    // deleted record is forgotten: the user typed something else in their place.
-+    std::optional<RecentCommit> take_retraction(const std::string &typed, SchemeType scheme);
++    // Removes and returns the fully deleted records a pick consuming `typed` replaces, oldest first: the newest one whose
++    // input starts with `typed`, or else a run of consecutive fully deleted records whose inputs, joined, `typed`
++    // starts with and spans into the last of (a composition picked in segments, retyped and picked whole). When none
++    // match, every fully deleted record is forgotten: the user typed something else in their place.
++    std::vector<RecentCommit> take_retraction(const std::string &typed, SchemeType scheme);
 +    // Forgets every fully deleted record, for commits that are not a pick among alternatives.
 +    void forget_erased();
 +    // Keeps the records, which still count characters in the host's text, but nothing they taught is taken back.
@@ -2037,13 +2328,16 @@
 +} // namespace metasequoia
 --- a/core/session.cpp
 +++ b/core/session.cpp
-@@ -23,15 +23,36 @@ class Session::Impl
+@@ -21,19 +21,41 @@ class Session::Impl
+         if (!session.set_helpcode_schema(options.helpcode_schema) ||
+             !session.set_frequency_adjustment(options.frequency) || !session.set_english_input_options(options.english))
              throw std::invalid_argument("Invalid session options");
          session.set_local_mode_options(options.local_modes);
          session.set_mixed_expressive_options(options.expressive);
          session.set_wubi_input_options(options.wubi);
          session.enable_fixed_positions();
 +        session.set_learning_undo_enabled(options.learning_undo);
++        session.set_personal_context_enabled(options.personal_context);
      }
      InputSession session;
      NineKeySession nine_key;
@@ -2074,7 +2368,11 @@
  Session::Session(SessionOptions options)
  {
      options.paths.validate();
-@@ -44,40 +65,41 @@ Session::Session(SessionOptions options)
+     impl_ = std::make_unique<Impl>(options);
+     impl_->session.set_chinese_punctuation_enabled(options.chinese_punctuation);
+@@ -42,44 +64,45 @@ Session::Session(SessionOptions options)
+     impl_->session.set_candidate_learning_enabled(options.learning);
+     impl_->session.set_sentence_alternatives(options.sentence_alternatives);
  }
  Session::~Session() = default;
  void Session::set_nine_key_enabled(bool enabled)
@@ -2120,7 +2418,11 @@
  std::vector<std::size_t> Session::segment_raw_boundaries() const
  {
      if (impl_->nine_key.active())
-@@ -90,11 +112,15 @@ KeyResult Session::punctuation(char value)
+         return {};
+     return impl_->session.segment_raw_boundaries();
+@@ -88,15 +111,19 @@ KeyResult Session::punctuation(char value)
+ {
+     if (impl_->nine_key.active())
      {
          auto result = impl_->session.handle_punctuation(value);
          if (!result.handled)
@@ -2136,7 +2438,11 @@
      return impl_->session.handle_punctuation(value);
  }
  void Session::set_chinese_punctuation_enabled(bool enabled)
-@@ -116,11 +142,11 @@ void Session::set_punctuation_lock(int lock)
+ {
+     impl_->session.set_chinese_punctuation_enabled(enabled);
+@@ -114,57 +141,57 @@ void Session::set_punctuation_lock(int lock)
+     if (lock < 0 || lock > 2)
+         throw std::invalid_argument("Invalid punctuation lock");
      impl_->session.set_punctuation_lock(lock);
  }
  KeyResult Session::select(std::size_t index)
@@ -2149,7 +2455,7 @@
  KeyResult Session::select_edge(std::size_t index, CandidateEdge edge)
  {
      if (impl_->nine_key.active())
-@@ -128,41 +154,41 @@ KeyResult Session::select_edge(std::size_t index, CandidateEdge edge)
+         return {};
      return impl_->session.select_candidate_edge(index, edge);
  }
  KeyResult Session::pin(std::size_t index)
@@ -2200,7 +2506,11 @@
  void Session::switch_scheme(SchemeType scheme)
  {
      impl_->nine_key.command(Command::Cancel);
-@@ -195,10 +221,23 @@ void Session::set_wubi_mixed_pinyin(bool enabled)
+     impl_->session.switch_scheme(scheme);
+ }
+@@ -193,14 +220,31 @@ void Session::set_wubi_mixed_pinyin(bool enabled)
+ {
+     impl_->session.set_wubi_input_options(WubiInputOptions{enabled});
  }
  void Session::reset_cache()
  {
@@ -2210,6 +2520,10 @@
 +{
 +    impl_->session.reset_commit_context();
 +    impl_->session.forget_recent_commits();
++}
++void Session::set_personal_context_enabled(bool enabled)
++{
++    impl_->session.set_personal_context_enabled(enabled);
 +}
 +void Session::set_learning_undo_enabled(bool enabled)
 +{
@@ -2224,9 +2538,11 @@
      // Nine-key candidates come from the spelling session rather than a dictionary query,
      // so there is nothing withheld to hand over. Local modes need no guard here: the
      // expansion itself only answers single-letter database queries.
+     if (impl_->nine_key.active())
+         return false;
 --- a/core/word_item.h
 +++ b/core/word_item.h
-@@ -1,10 +1,11 @@
+@@ -1,12 +1,13 @@
  #pragma once
 ~
  #include <string>
@@ -2238,7 +2554,11 @@
  {
      Database,
      UserDatabase,
-@@ -41,10 +42,13 @@ struct WordItem
+     CloudSuggestion,
+     AiSuggestion,
+@@ -39,14 +40,17 @@ struct WordItem
+     // QuanpinDictionary::mark_autocorrect_candidates；前端仅据非空与否附加轻标记。
+     std::string corrected_from;
      // Only whole-sentence association rows set this flag. Generated and
      // fallback candidates are also used for raw passthrough, local modes and
      // other synthesized values, so consumers must not infer sentence labels
@@ -2252,9 +2572,13 @@
      WordItem(std::string pinyin_value, std::string word_value, std::int64_t weight_value,
               CandidateSource source_value = CandidateSource::Database, std::string canonical_pinyin_value = {})
          : pinyin(std::move(pinyin_value)), canonical_pinyin(std::move(canonical_pinyin_value)),
+           word(std::move(word_value)), weight(weight_value), source(source_value)
+     {
 --- a/docs/dictionary-state.md
 +++ b/docs/dictionary-state.md
-@@ -6,6 +6,12 @@
+@@ -4,8 +4,16 @@
+~
+ `stream_dictionary_state` 在同一个 SQLite 读事务中顺序导出三类类型化记录，调用方逐条编码即可。使用 WAL 时允许创建协调文件，同时通过 `query_only` 禁止该连接修改用户表。导出回调返回 `false` 会中止并抛出异常。IPC 操作回执、账号标识、凭据及平台设置不进入这些记录。
 ~
  `stage_dictionary_state` 只向独占新建的绝对路径目录写入数据。目录内包含 `user`、用户日志、从只读资源重新生成的词库及 `cache`。记录数上限默认为 500,000；调用方可根据已校验文件的记录数显式设置 `maximum_records`，从而完整接收服务端允许的大快照，以 SQLite 主键和唯一约束拒绝重复条目或固定位置，校验容量、文本编码、权重及计数边界。输入回调返回 `false` 表示完整且已验证的文件结束；解析错误、摘要不符、截断或取消必须抛出异常。失败时删除本次新目录，已有目录不会被覆盖。协议解析、下载完整性和用户确认由调用方负责。
 ~
@@ -2264,12 +2588,16 @@
 +
 +跨次输入的选词配对计数（`pick_transitions`）同样不导出：新代际里这张表为空，已经由配对生成的用户词作为普通日志条目随导出保留。
 +
++置顶记录（`pinned_candidates`，每个拼音上下文记一个用户置顶的词，只用来让个人上下文重排不把它挤下首位）同样是本机状态，不导出；置顶本身写下的词频照常作为日志条目随导出保留。
++
 +打字纠错的学习记录（`pinyin_typo_counts` 记录用户接受过哪些音节纠错，`pinyin_autocorrect_suppressions` 记录哪些输入用户选择原样上屏）也不导出，属于本机状态：`stage_dictionary_state` 生成的新代际里两张表为空，恢复或换机后纠错偏好从零开始。选中纠错整句时存下的用户词按纠正后的读音作为普通日志条目随导出保留。
 +
  根 CMake 测试包含 `dictionary_state` 和 `dictionary_state_capacity`。覆盖完整状态往返、实际候选的固定位置/删除效果、并发导出的一致性、清空替换恢复基础词库、重复记录/槽位拒绝、取消清理、已有目录保护，以及十万条记录的流式准备和完整回读。
 --- a/docs/runtime-architecture.md
 +++ b/docs/runtime-architecture.md
-@@ -153,10 +153,46 @@ coordinates writes to the same user's databases. Resource upgrades must quiesce
+@@ -151,14 +151,52 @@ User journal operations own their SQLite connections, so separate calls cannot a
+ join another session's transaction through a process-wide connection. SQLite locking still
+ coordinates writes to the same user's databases. Resource upgrades must quiesce writers.
 ~
  Online requests contain both a session ID and a composition generation. Hosts copy the
  entire request unchanged through their asynchronous transport. A response from another
@@ -2279,15 +2607,17 @@
 +
 +## Personal context learning
 +
-+With learning enabled, quanpin and shuangpin commits teach a personal word-sequence model: which word the user committed after which one or two words. It is stored in two journal tables, `personal_bigram` and `personal_trigram`, keyed by word text, so it survives dictionary generations without replay. It is deliberately not part of the dictionary-state export (see `dictionary-state.md`). Deleting a pinyin candidate, or removing a personal pinyin entry, deletes every personal row mentioning that word in the same transaction.
++With learning enabled and `SessionOptions::personal_context` on (the default; `Session::set_personal_context_enabled()` changes it at runtime and also governs pick pair words), quanpin and shuangpin commits teach a personal word-sequence model: which word the user committed after which one or two words. It is stored in two journal tables, `personal_bigram` and `personal_trigram`, keyed by word text, so it survives dictionary generations without replay. It is deliberately not part of the dictionary-state export (see `dictionary-state.md`). Deleting a pinyin candidate, or removing a personal pinyin entry, deletes every personal row mentioning that word in the same transaction.
 +
-+What is recorded: a picked dictionary row counts twice, each word of an accepted whole sentence counts once, and a user word of three or more characters that answers the whole composition (normally a sentence stored by sentence learning) ends the chain without being counted. Other sources (English, emoji, cloud and AI suggestions, local modes, wubi, Japanese) end the chain. Punctuation, raw or reading commits, first/last-character selection, scheme switches, `reset_state`, dedicated English, local modes, nine-key commits and `Session::reset_context()` end it too. Punctuation the engine leaves to the host (English punctuation, a punctuation lock, an untranslated key), and any command or non-pinyin key that arrives with nothing composed (Backspace, Enter, caret moves, digits, spaces) end it on a best-effort basis, since many hosts never forward those keys. A new composition that starts more than 8 seconds after the last commit starts a new chain, which covers hosts that do not report focus changes; hosts should still call `reset_context()` on focus or application changes. Cancel keeps the chain.
++What is recorded: a picked dictionary row counts twice, each word of an accepted whole sentence counts once, and a user word of three or more characters that answers the whole composition (normally a sentence stored by sentence learning) ends the chain without being counted. User words come back from the working dictionary as ordinary `Database` rows, so this is decided by the journal's record of the user insert. Other sources (English, emoji, cloud and AI suggestions, local modes, wubi, Japanese) end the chain. Punctuation, raw or reading commits, first/last-character selection, scheme switches, `reset_state`, dedicated English, local modes, nine-key commits and `Session::reset_context()` end it too. Punctuation the engine leaves to the host (English punctuation, a punctuation lock, an untranslated key), and any command or non-pinyin key that arrives with nothing composed (Backspace, Enter, caret moves, digits and spaces, including a digit sent through the candidate-key path) end it on a best-effort basis, since many hosts never forward those keys. A new composition that starts more than 8 seconds after the last commit starts a new chain, which covers hosts that do not report focus changes; hosts should still call `reset_context()` on focus or application changes. Cancel keeps the chain.
 +
-+The model is used in two places. The sentence lattice adds a bounded per-transition term inside a composition (see `WordLatticeOptions::personal_weight`). After a previous word, the leading group of same-length dictionary homophones is reordered by blending their weight share with the personal probability; fixed positions still win. At the chain start nothing is reordered: context-free preference belongs to the frequency setting, and with the default `FrequencyAdjustmentMode::Disabled` the personal model is the only word-level learning a `Session` does, and only after a previous word.
++The model is used in two places. The sentence lattice adds a bounded per-transition term inside a composition (see `WordLatticeOptions::personal_weight`). After a previous word, the leading group of same-length dictionary homophones is reordered by blending their weight share with the personal probability; fixed positions still win, and so does a pin: `pin_candidate` records the pinned word for its context key in the journal table `pinned_candidates` (one per key, replaced by a later pin, dropped when the word is removed), and a pinned first row keeps its seat. The journal is only asked when a reorder would move the first row. At the chain start nothing is reordered: context-free preference belongs to the frequency setting, and with the default `FrequencyAdjustmentMode::Disabled` the personal model is the only word-level learning a `Session` does, and only after a previous word.
 +
 +Frequency learning, pinning and the index-0 check read the order before this reordering, so one context's temporary order is never written into context-free weights and cannot trigger a weight rebalance.
 +
-+The in-memory model of each journal path lives for the process and keeps its own SQLite connection for writes; one writer mutex covers each database transaction together with its in-memory update. `close_default_user_database()` closes those connections and marks every model stale; the next access reloads from disk outside the read lock and swaps the counts in. When distinct pairs plus triples exceed 200,000, all counts are halved and zeros dropped, repeatedly within one transaction until at most 150,000 entries remain. A load that fails (a busy, damaged or unreadable journal) keeps the previous counts and is retried on a later access, at most every 10 seconds.
++The in-memory model of each journal path lives for the process and keeps its own SQLite connection for writes. A commit updates the model at once and queues its transitions; one background thread writes each journal's queue in a single transaction about two seconds after the first queued transition, or as soon as 64 are queued, so the selecting keystroke never waits for SQLite. The queue is also written by `close_default_user_database()`, at process exit, and before a candidate removal, a personal dictionary edit or a learning undo edits the tables on another connection; those edits then subtract exactly the rows they removed from the model instead of forcing a full reload. A write that fails keeps the transitions queued and in memory, is reported as the diagnostic of the next commit, and is retried. The first commit of a process opens the journal synchronously, so a journal that cannot be written is reported on that commit.
++
++One writer mutex covers each database transaction together with the in-memory update or reload that follows it. `close_default_user_database()` writes the queues, closes the connections and marks every model stale; the next access reloads from disk outside the read lock, re-applies whatever is still queued and swaps the counts in. When distinct pairs plus triples exceed 200,000, the background write halves all counts and drops zeros, repeatedly within one transaction until at most 150,000 entries remain, so the pause this costs is not on a keystroke. A load that fails (a busy, damaged or unreadable journal) keeps the previous counts and is retried on a later access, at most every 10 seconds, except after `close_default_user_database()`, when the file may be a different journal: then the model is emptied until a load succeeds. The dictionaries remember which cached series results were scored with the personal model so they can drop them when it changes, and forget the keys their caches have already evicted.
 +
 +## Pick pair words
 +
@@ -2307,7 +2637,7 @@
 +
 +Frequency learning writes absolute weights and rebalances neighbouring rows, so it cannot be undone by subtracting anything. Each learning writer instead reads every row it writes before and after the write, inside its own write transaction and on the connections it already holds, and the commit keeps those images in session memory. The undo runs before the new pick learns, puts every row back to its image before the commit in one transaction over the working dictionary with the journal attached, and then queries the candidates again so the new pick is ranked against the restored weights. A journal row that did not exist is deleted rather than written as a `delete` operation, and one that did exist, a tombstone included, is put back with its `updated_at`, so replay order and dictionary-state export see a state that really existed. If any row changed after the commit (another session, a pin, a removal, an import), nothing is put back; the personal context counts, which are plain counts, are subtracted either way. Nothing new is persisted and there is no schema change.
 +
-+The session keeps the last four commits and charges each idle `Backspace` to the newest one that still has characters left; deleting past all of them forgets them. A pick whose consumed input starts the same way as a fully deleted commit's, under the same scheme, undoes that commit unless it picks the same word; any other pick forgets the fully deleted commits. The consumed input is the typed raw prefix the pick drains, without apostrophes or helpcodes, so an abbreviation, an autocorrected spelling or a segment of a longer composition matches what was typed. Retyping only the start of a deleted commit and picking a segment is enough, and a phrase stored when a segmented composition completes belongs to its last segment, so it is taken back by retyping that segment's input.
++The session keeps the last four commits and charges each idle `Backspace` to the newest one that still has characters left; deleting past all of them forgets them. A pick whose consumed input starts the same way as a fully deleted commit's, under the same scheme, undoes that commit unless it picks the same word; any other pick forgets the fully deleted commits. The consumed input is the typed raw prefix the pick drains, without apostrophes or helpcodes, so an abbreviation, an autocorrected spelling or a segment of a longer composition matches what was typed. Retyping only the start of a deleted commit and picking a segment is enough, and a phrase stored when a segmented composition completes belongs to its last segment, so it is taken back by retyping that segment's input. Several consecutive deleted commits retyped as one input and picked whole (a composition picked in segments, then retyped and picked as one sentence) are taken back together. The pick that replaces deleted commits follows the context the oldest of them followed, even though the idle Backspace ended the chain, so it is learned in the context it replaces.
 +
 +Punctuation, raw and reading commits, first/last-character selection, nine-key text, an idle Space (`CommitCandidate`) and printable keys the engine leaves to the host count as inserted text without anything to undo. Idle Enter, Escape, caret moves and forward deletion, scheme and English-mode switches, `reset_state`, `reset_context()`, `forget_recent_commits()`, switching the nine-key grid and any successful pin, removal or fixed-position edit forget the recent commits. All idle keys still return unhandled, so host key handling does not change. A host that enables the option must forward idle Backspace, Space, Enter and caret keys and call `forget_recent_commits()` (or `reset_context()`) whenever the text near the caret changes without passing through a `KeyResult`. A restore that fails surfaces as the selecting call's diagnostic.
 +
@@ -2316,9 +2646,13 @@
  The root CTest targets include public-header compilation, two independent resource/user
  layouts, per-session helpcodes and punctuation, local query paths, concurrent sessions,
  Japanese model path isolation, real Google Pinyin model interleaving/concurrency, Unicode
+ resource paths, user phrase replay, return to a previous generation and failed replay
+ preserving old working data. Existing candidate, learning, temporary-mode and online tests
 --- a/include/metasequoia/session.h
 +++ b/include/metasequoia/session.h
-@@ -14,12 +14,17 @@ struct SessionOptions
+@@ -12,16 +12,21 @@ namespace metasequoia
+ struct SessionOptions
+ {
      RuntimePaths paths;
      SchemeType scheme = SchemeType::Quanpin;
      ShuangpinProfile shuangpin_profile = GetXiaoheShuangpinProfile();
@@ -2338,7 +2672,11 @@
      bool chinese_punctuation = true;
      bool paired_punctuation = true;
      int punctuation_lock = 0;
-@@ -32,10 +37,18 @@ struct SessionOptions
+     bool learning = true;
+     // Hand back every whole-sentence reading the decoder found rather than only its best. Off by
+@@ -30,14 +35,26 @@ struct SessionOptions
+     bool sentence_alternatives = false;
+     FuzzyPinyinOptions fuzzy_pinyin;
      FrequencyAdjustmentOptions frequency;
      LocalModeOptions local_modes;
      EnglishInputOptions english;
@@ -2352,12 +2690,20 @@
 +    // forget_recent_commits() (or reset_context()) whenever text near the caret changes without passing through a
 +    // KeyResult: focus changes, caret moves by mouse, text the host inserts on its own.
 +    bool learning_undo = false;
++    // Learn which word the user commits after which (personal word-sequence context) and turn two words picked back to
++    // back into a phrase (pick pair words). Both also need `learning`; this switch turns them off on their own, for a
++    // host that offers learning without them. Their tables are local typing history, kept out of dictionary exports.
++    bool personal_context = true;
  };
 ~
  struct SessionSnapshot
  {
      SchemeType scheme;
-@@ -121,10 +134,18 @@ class Session
+     LocalInputMode local_mode;
+     std::string preedit;
+@@ -119,14 +136,24 @@ class Session
+     // Apply the same enable flag to quanpin and shuangpin, as SessionOptions::helpcode does.
+     // Hosts with per-scheme preferences apply the selected preference after switching.
      void set_helpcode_enabled(bool enabled);
      void set_dedicated_english(bool enabled);
      // Answer an unmatched wubi code with quanpin candidates for the same letters.
@@ -2369,6 +2715,8 @@
 +    void reset_context();
 +    // See SessionOptions::learning_undo. Disabling forgets the recent commits.
 +    void set_learning_undo_enabled(bool enabled);
++    // See SessionOptions::personal_context. Disabling also ends the current context.
++    void set_personal_context_enabled(bool enabled);
 +    // Forget the recent commits learning undo tracks, so no later selection takes back what they taught.
 +    void forget_recent_commits();
      // Hand over the candidates withheld from a single-letter query, reporting whether the
@@ -2376,9 +2724,13 @@
      bool expand_initial_candidates();
      SessionSnapshot snapshot() const;
      // Authoritative offsets in snapshot().editing_text for pinyin-unit editing.
+     // Empty for idle, local modes, non-pinyin schemes and active nine-key input.
+     // A read-only query: no candidate generation, caret or composition changes.
 --- a/quanpin/engine.cpp
 +++ b/quanpin/engine.cpp
-@@ -29,10 +29,15 @@ QuanpinEngine::~QuanpinEngine() = default;
+@@ -27,14 +27,19 @@ QuanpinEngine::QuanpinEngine(metasequoia::RuntimePaths paths)
+ QuanpinEngine::~QuanpinEngine() = default;
+~
  std::optional<WordItem> QuanpinEngine::find_candidate(const std::string &key, const std::string &value)
  {
      return dictionary_.find_candidate(key, value);
@@ -2394,7 +2746,11 @@
      if (!request.valid)
      {
          return {};
-@@ -100,13 +105,14 @@ int QuanpinEngine::handleVkCode(ImeKeyCode vk, ImeModifierMask modifiers_down, I
+     }
+~
+@@ -98,17 +103,18 @@ int QuanpinEngine::handleVkCode(ImeKeyCode vk, ImeModifierMask modifiers_down, I
+ }
+~
  int QuanpinEngine::create_word(std::string pinyin, std::string word)
  {
      return dictionary_.create_word(std::move(pinyin), std::move(word));
@@ -2411,9 +2767,13 @@
  int QuanpinEngine::update_weight_by_word(std::string word)
  {
      return dictionary_.update_weight_by_word(std::move(word));
+ }
+~
 --- a/quanpin/engine.h
 +++ b/quanpin/engine.h
-@@ -15,13 +15,15 @@ class QuanpinEngine
+@@ -13,17 +13,19 @@ class QuanpinEngine
+   public:
+     explicit QuanpinEngine(metasequoia::RuntimePaths paths = metasequoia::RuntimePaths::legacy());
      ~QuanpinEngine();
 ~
      std::vector<WordItem> query(const QueryRequest &request);
@@ -2430,9 +2790,11 @@
      int delete_by_pinyin_and_word(std::string pinyin, std::string word);
      int insert_word_to_series_cache(const std::string &pinyin, const std::string &word, CandidateSource source);
      int insert_word_to_series_cache(const std::string &pinyin, const std::vector<std::string> &words,
+                                     CandidateSource source);
+     int insert_word_to_series_cache(const QueryRequest &request, const std::string &word, CandidateSource source);
 --- /dev/null
 +++ b/quanpin/personal_ngram.cpp
-@@ -0,0 +1,272 @@
+@@ -0,0 +1,337 @@
 +#include "personal_ngram.h"
 +#include "ngram_table.h"
 +
@@ -2529,6 +2891,8 @@
 +        {
 +            const std::uint32_t before = values_[index];
 +            values_[index] = saturating_add(before, delta);
++            if (before == 0 && delta > 0)
++                ++live_;
 +            return before;
 +        }
 +        if (keys_[index] == 0)
@@ -2536,8 +2900,31 @@
 +            keys_[index] = key;
 +            values_[index] = delta;
 +            ++size_;
++            if (delta > 0)
++                ++live_;
 +            return 0;
 +        }
++    }
++}
++
++std::uint32_t PersonalNgram::CountTable::subtract(std::uint64_t key, std::uint32_t delta)
++{
++    if (keys_.empty() || delta == 0)
++        return 0;
++    key = slot_key(key);
++    const std::size_t mask = keys_.size() - 1;
++    for (std::size_t index = mix_index(key, mask);; index = (index + 1) & mask)
++    {
++        if (keys_[index] == key)
++        {
++            const std::uint32_t removed = (std::min)(values_[index], delta);
++            values_[index] -= removed;
++            if (removed > 0 && values_[index] == 0)
++                --live_;
++            return removed;
++        }
++        if (keys_[index] == 0)
++            return 0;
 +    }
 +}
 +
@@ -2546,10 +2933,13 @@
 +    std::vector<std::uint64_t> keys(keys_.empty() ? 64 : keys_.size() * 2, 0);
 +    std::vector<std::uint32_t> values(keys.size(), 0);
 +    const std::size_t mask = keys.size() - 1;
++    // Keys subtracted to zero are dropped here: a missing key already reads as zero.
++    size_ = 0;
 +    for (std::size_t i = 0; i < keys_.size(); ++i)
 +    {
-+        if (keys_[i] == 0)
++        if (keys_[i] == 0 || values_[i] == 0)
 +            continue;
++        ++size_;
 +        std::size_t index = mix_index(keys_[i], mask);
 +        while (keys[index] != 0)
 +            index = (index + 1) & mask;
@@ -2565,6 +2955,7 @@
 +    keys_.clear();
 +    values_.clear();
 +    size_ = 0;
++    live_ = 0;
 +}
 +
 +void PersonalNgram::CountTable::swap(CountTable &other) noexcept
@@ -2572,6 +2963,7 @@
 +    keys_.swap(other.keys_);
 +    values_.swap(other.values_);
 +    std::swap(size_, other.size_);
++    std::swap(live_, other.live_);
 +}
 +
 +PersonalNgram::PersonalNgram(PersonalNgramOptions options) : options_(options)
@@ -2609,6 +3001,41 @@
 +    if (triples_.add(key_of(earlier, previous, word), count) == 0)
 +        triple_followers_.add(context, 1);
 +    triple_totals_.add(context, count);
++}
++
++void PersonalNgram::remove(const PersonalTransition &transition)
++{
++    if (transition.word.empty() || transition.times == 0)
++        return;
++    const std::string &start = NgramTable::sentence_start();
++    const std::string &previous = transition.previous.empty() ? start : transition.previous;
++    remove_pair(previous, transition.word, transition.times);
++    if (previous != start)
++        remove_triple(transition.earlier.empty() ? start : transition.earlier, previous, transition.word,
++                      transition.times);
++}
++
++void PersonalNgram::remove_pair(const std::string &previous, const std::string &word, std::uint32_t count)
++{
++    const std::uint32_t removed = pairs_.subtract(key_of(previous, word), count);
++    if (removed == 0)
++        return;
++    context_totals_.subtract(key_of(previous), removed);
++    word_counts_.subtract(key_of(word), removed);
++    total_ -= (std::min)(total_, static_cast<std::uint64_t>(removed));
++}
++
++void PersonalNgram::remove_triple(const std::string &earlier, const std::string &previous, const std::string &word,
++                                  std::uint32_t count)
++{
++    const std::uint64_t context = key_of(earlier, previous);
++    const std::uint64_t key = key_of(earlier, previous, word);
++    const std::uint32_t removed = triples_.subtract(key, count);
++    if (removed == 0)
++        return;
++    if (triples_.get(key) == 0)
++        triple_followers_.subtract(context, 1);
++    triple_totals_.subtract(context, removed);
 +}
 +
 +void PersonalNgram::clear()
@@ -2707,7 +3134,7 @@
 +} // namespace quanpin
 --- /dev/null
 +++ b/quanpin/personal_ngram.h
-@@ -0,0 +1,150 @@
+@@ -0,0 +1,162 @@
 +#pragma once
 +
 +#include <cstddef>
@@ -2787,6 +3214,12 @@
 +    void add_pair(const std::string &previous, const std::string &word, std::uint32_t count);
 +    void add_triple(const std::string &earlier, const std::string &previous, const std::string &word,
 +                    std::uint32_t count);
++    // Take back what add() and the add_* calls added. A count that is already lower (decay halved it) is floored at
++    // zero rather than wrapping, the way the journal drops a row instead of storing a negative count.
++    void remove(const PersonalTransition &transition);
++    void remove_pair(const std::string &previous, const std::string &word, std::uint32_t count);
++    void remove_triple(const std::string &earlier, const std::string &previous, const std::string &word,
++                       std::uint32_t count);
 +    void clear();
 +    void swap(PersonalNgram &other) noexcept;
 +
@@ -2820,9 +3253,12 @@
 +        std::uint32_t get(std::uint64_t key) const;
 +        // Returns the count before the addition.
 +        std::uint32_t add(std::uint64_t key, std::uint32_t delta);
++        // Returns how much was subtracted, which is less than `delta` when the count was lower.
++        std::uint32_t subtract(std::uint64_t key, std::uint32_t delta);
++        // Keys with a count above zero. A key subtracted to zero keeps its slot until the table grows.
 +        std::size_t size() const
 +        {
-+            return size_;
++            return live_;
 +        }
 +        void clear();
 +        void swap(CountTable &other) noexcept;
@@ -2834,7 +3270,10 @@
 +
 +        std::vector<std::uint32_t> values_;
 +
++        // Occupied slots, zero counts included; bounds the load factor.
 +        std::size_t size_ = 0;
++
++        std::size_t live_ = 0;
 +    };
 +
 +    double bigram_probability(std::uint64_t pair_state, std::uint32_t context_total, const std::string &word,
@@ -3154,7 +3593,7 @@
 +} // namespace quanpin
 --- a/quanpin/quanpin_dictionary.cpp
 +++ b/quanpin/quanpin_dictionary.cpp
-@@ -1,13 +1,16 @@
+@@ -1,15 +1,18 @@
  #include "../core/online_candidate_batch.h"
  #include "fuzzy_pinyin.h"
  #include "quanpin_dictionary.h"
@@ -3171,7 +3610,11 @@
  #include <climits>
  #include <cstring>
  #include <fmt/format.h>
-@@ -27,10 +30,21 @@ constexpr size_t kBestAlternativeSegmentationMaxIndex = 1;
+ #include <unordered_set>
+ #include <utf8/cpp17.h>
+@@ -25,65 +28,46 @@ constexpr size_t kMaxSyllablesForMultipleSegmentations = 4;
+ constexpr int kAlternativeSegmentationCandidateLimit = 128;
+ constexpr size_t kBestAlternativeSegmentationMaxIndex = 1;
  // The slot only lifts a reading that cannot be seen at all. Anything already on the first page
  // keeps the position its weight earned, and frequency writes weight: pinning such a word again
  // overwrites the rank the user just typed for. The default page_size is 6.
@@ -3185,6 +3628,8 @@
 +constexpr size_t kMinTypoSpanSyllables = 2;
 +constexpr size_t kMaxTypoSpanSyllables = 3;
 +constexpr int kTypoRowsPerKey = 4;
++// Twice the series cache's capacity: more keys than that cannot all still be cached.
++constexpr size_t kPersonalScoredKeyLimit = 256;
 +constexpr size_t kTypoSpanCacheSize = 512;
 +constexpr unsigned kTypoEdgeTypes =
 +    quanpin::kAutocorrectTransposition | quanpin::kAutocorrectNeighbor | quanpin::kAutocorrectMissingOrExtra;
@@ -3193,7 +3638,9 @@
  {
      return vk >= 'A' && vk <= 'Z';
  }
-@@ -40,48 +54,16 @@ std::string remove_delimiters(const std::string &segmented)
+~
+ std::string remove_delimiters(const std::string &segmented)
+ {
      std::string normalized = segmented;
      normalized.erase(std::remove(normalized.begin(), normalized.end(), '\''), normalized.end());
      return normalized;
@@ -3246,7 +3693,11 @@
  // Folds letters for autocorrect comparisons: lowercases and strips manual
  // delimiters. v and u must compare as distinct letters — the ü-style alias
  // rewrite is a first-class marking source (the trailing star badge), so
-@@ -223,11 +205,12 @@ SeriesQueryResolution resolve_series_query(const std::string &raw_input, const q
+ // 'nve' (primary segmentation) differing from typed 'nue' is exactly what
+ // produces the corrected_from label. The old contract ("aliases never look
+@@ -221,15 +205,16 @@ SeriesQueryResolution resolve_series_query(const std::string &raw_input, const q
+     // carry the canonical (alias-normalised) spelling, while a caller-passed
+     // explicit string could keep the alias spelling — the query would succeed
      // yet nothing would look rewritten, so alias inputs with manual delimiters
      // ("nue'hao") could never get marked. Delimiters sit on syllable boundaries,
      // so split/join round-trips them unchanged ("nu'e" stays "nu'e").
@@ -3260,7 +3711,11 @@
 ~
  std::string escape_sql_text(std::string text)
  {
-@@ -245,11 +228,12 @@ std::string escape_sql_text(std::string text)
+     size_t pos = 0;
+     while ((pos = text.find('\'', pos)) != std::string::npos)
+@@ -243,15 +228,16 @@ std::string escape_sql_text(std::string text)
+ } // namespace
+~
  QuanpinDictionary::QuanpinDictionary(std::string db_path, metasequoia::RuntimePaths paths)
      : cache_(128), series_cache_(128), segmentation_cache_(128), resolution_cache_(128), paths_(std::move(paths)),
        decoder_(paths_.resource(metasequoia::assets::pinyin_model),
@@ -3274,7 +3729,11 @@
      // No SQLITE_OPEN_CREATE: a missing dictionary must stay missing instead of being materialised as an empty file,
      // and the handle has to become null so the db_ == nullptr guards on the query paths actually fire.
      const int exit = sqlite3_open_v2(db_path_.c_str(), &db_, SQLITE_OPEN_READWRITE, nullptr);
-@@ -270,13 +254,32 @@ QuanpinDictionary::QuanpinDictionary(std::string db_path, metasequoia::RuntimePa
+     if (exit != SQLITE_OK)
+     {
+@@ -268,17 +254,48 @@ QuanpinDictionary::QuanpinDictionary(std::string db_path, metasequoia::RuntimePa
+~
+     quanpin::warm_up(db_, statement_cache_);
      // Mapping the tables and checking they are sorted is a sequential pass over fifteen megabytes. Left to the first
      // query that wants them, that lands on a keystroke; here it joins the work of opening the dictionary, which the
      // host already does off the typing path.
@@ -3290,6 +3749,18 @@
      reset_cache_if_database_changed();
  }
 ~
++void QuanpinDictionary::remember_personal_scored_key(const std::string &key)
++{
++    personal_scored_keys_.insert(key);
++    // The series cache evicts on its own, so keys it no longer holds are dropped here; otherwise the set grows for as
++    // long as the model's version stays put.
++    if (personal_scored_keys_.size() > kPersonalScoredKeyLimit)
++    {
++        for (auto it = personal_scored_keys_.begin(); it != personal_scored_keys_.end();)
++            it = series_cache_.contains(*it) ? std::next(it) : personal_scored_keys_.erase(it);
++    }
++}
++
 +void QuanpinDictionary::drop_personal_scored_results()
 +{
 +    personal_context_->refresh();
@@ -3307,7 +3778,11 @@
      for (auto &[sql, stmt] : statement_cache_)
      {
          if (stmt != nullptr)
-@@ -308,10 +311,23 @@ std::vector<WordItem> QuanpinDictionary::query_exact(const std::string &raw_inpu
+         {
+             sqlite3_finalize(stmt);
+@@ -306,14 +323,27 @@ std::vector<WordItem> QuanpinDictionary::query_exact(const std::string &raw_inpu
+     if (raw_input.empty())
+     {
          current_candidate_list_.clear();
          return {};
      }
@@ -3331,7 +3806,11 @@
      // Typing autocorrection: when the spelling is not a legal pinyin
      // combination (the correction cut already fell back to greedy), try to
      // rewrite the whole string into legal syllables. The corrected
-@@ -347,10 +363,11 @@ std::vector<WordItem> QuanpinDictionary::query_exact(const std::string &raw_inpu
+     // segmentation becomes the primary key so that selection and weight
+     // updates land on the right dictionary entries, and the original
+@@ -345,14 +375,15 @@ std::vector<WordItem> QuanpinDictionary::query_exact(const std::string &raw_inpu
+     for (const auto &alternative : resolution.costlier_corrected_cuts)
+     {
          pinyin_alternative_segmentations_.push_back(quanpin::join_segments(alternative));
      }
 ~
@@ -3343,7 +3822,11 @@
          reset_cache_if_database_changed();
          if (auto cached = series_cache_.get(resolution.cache_key))
          {
-@@ -442,10 +459,13 @@ std::vector<WordItem> QuanpinDictionary::query_exact(const std::string &raw_inpu
+             // CircularBuffer::get returns std::optional<Value> by value, so `cached` already owns a private copy and
+             // moving out of it cannot touch the cached entry.
+@@ -440,14 +471,17 @@ std::vector<WordItem> QuanpinDictionary::query_exact(const std::string &raw_inpu
+         if (!alternative_segmentations.empty())
+         {
              result = merge_alternative_segmentations(raw_input, pinyin_segmentation_, segments,
                                                       alternative_segmentations, std::move(result));
          }
@@ -3351,13 +3834,17 @@
      series_cache_.insert(resolution.cache_key, result);
 +    // Only keys long enough for the sentence lattice carry personal scores.
 +    if (segments.size() >= 2 || resolution.corrected_segments.size() >= 2)
-+        personal_scored_keys_.insert(resolution.cache_key);
++        remember_personal_scored_key(resolution.cache_key);
      return result;
  }
 ~
  std::optional<WordItem> QuanpinDictionary::find_candidate(const std::string &key, const std::string &value)
  {
-@@ -462,10 +482,15 @@ std::optional<WordItem> QuanpinDictionary::find_candidate(const std::string &key
+     const std::string table = quanpin::build_table_name(quanpin::split_segments(key));
+     if (!db_ || table.empty())
+@@ -460,14 +494,19 @@ std::optional<WordItem> QuanpinDictionary::find_candidate(const std::string &key
+     if (sqlite3_bind_text(stmt, 1, key.c_str(), -1, SQLITE_TRANSIENT) != SQLITE_OK ||
+         sqlite3_bind_text(stmt, 2, value.c_str(), -1, SQLITE_TRANSIENT) != SQLITE_OK ||
          sqlite3_step(stmt) != SQLITE_ROW)
          return std::nullopt;
      return WordItem(key, value, sqlite3_column_int64(stmt, 0), CandidateSource::Database, key);
@@ -3373,7 +3860,11 @@
      if (code.size() != 1)
      {
          return false;
-@@ -510,11 +535,12 @@ bool QuanpinDictionary::expand_initial_candidates(const std::string &code, std::
+     }
+~
+@@ -508,15 +547,16 @@ bool QuanpinDictionary::expand_initial_candidates(const std::string &code, std::
+             continue;
+         }
          merged.push_back(std::move(item));
      }
 ~
@@ -3387,7 +3878,11 @@
  }
 ~
  std::vector<WordItem> QuanpinDictionary::query_series(const std::string &raw_input, const std::string &segmentation,
-@@ -599,16 +625,30 @@ std::vector<WordItem> QuanpinDictionary::query_series(const std::string &raw_inp
+                                                       const quanpin::Segments &segments)
+ {
+@@ -597,32 +637,47 @@ std::vector<WordItem> QuanpinDictionary::query_series(const std::string &raw_inp
+                 WordItem sentence(segmentation.empty() ? raw_input : segmentation, google_sentence, 1,
+                                   CandidateSource::Fallback, segmentation);
                  sentence.sentence_association = true;
                  result.insert(result.begin() + at, std::move(sentence));
              }
@@ -3420,7 +3915,8 @@
          if (sentences.hybrid_leads(lattice_options.repair_margin) &&
              std::none_of(result.begin(), result.end(),
                           [&](const WordItem &item) { return item.word == sentences.best_hybrid; }))
-@@ -617,10 +657,11 @@ std::vector<WordItem> QuanpinDictionary::query_series(const std::string &raw_inp
+         {
+             const auto at =
                  static_cast<std::ptrdiff_t>(quanpin::whole_sentence_insert_position(result, segments));
              WordItem sentence(segmentation.empty() ? raw_input : segmentation, sentences.best_hybrid,
                                static_cast<std::int64_t>(*sentences.best_hybrid_score * 1000.0),
@@ -3432,7 +3928,11 @@
          // The fallback used to be pushed back in front of the lattice unconditionally, which is an
          // argument about sources rather than about sentences: it wins every input where it exists,
          // including the ones where the lattice read the sentence correctly and it did not. Now both
-@@ -641,10 +682,31 @@ std::vector<WordItem> QuanpinDictionary::query_series(const std::string &raw_inp
+         // are scored on the same terms and the better one leads; a fallback the dictionary cannot
+         // spell has no score, and keeps the seat it always had.
+@@ -639,14 +694,35 @@ std::vector<WordItem> QuanpinDictionary::query_series(const std::string &raw_inp
+             if (google != result.end() && google - result.begin() > boundary)
+             {
                  WordItem preferred = std::move(*google);
                  result.erase(google);
                  result.insert(result.begin() + boundary, std::move(preferred));
@@ -3464,7 +3964,11 @@
      if (result.size() < kSparsePinyinFallbackThreshold)
      {
          result = append_sparse_pinyin_fallbacks(segments, std::move(result));
-@@ -658,12 +720,13 @@ std::vector<WordItem> QuanpinDictionary::append_longer_phrase_candidates(const s
+     }
+~
+@@ -656,16 +732,17 @@ std::vector<WordItem> QuanpinDictionary::query_series(const std::string &raw_inp
+ std::vector<WordItem> QuanpinDictionary::append_longer_phrase_candidates(const std::string &segmentation,
+                                                                          const quanpin::Segments &segments)
  {
      if (db_ == nullptr)
      {
@@ -3480,7 +3984,11 @@
      for (const auto &row : rows)
      {
          items.emplace_back(segmentation, row.value, row.weight, CandidateSource::Database, row.key);
-@@ -692,11 +755,11 @@ quanpin::Segments QuanpinDictionary::resolve_segments(const std::string &raw_inp
+     }
+     return items;
+@@ -690,15 +767,15 @@ std::vector<WordItem> QuanpinDictionary::query_single_path(const std::string &ra
+ quanpin::Segments QuanpinDictionary::resolve_segments(const std::string &raw_input, const std::string &segmentation)
+ {
      // 单一归一咽喉点：显式 segmentation 与自动切分两条路径都过这里，进入查询
      // 管线的 segments 由此保证已归一恰一次。查库、调频、造词各调用点因此
      // 不必各自处理别名。
@@ -3493,7 +4001,11 @@
  quanpin::Segments QuanpinDictionary::get_or_compute_segments(const std::string &raw_input)
  {
      if (auto cached = segmentation_cache_.get(raw_input))
-@@ -974,10 +1037,138 @@ void QuanpinDictionary::mark_autocorrect_candidates(std::vector<WordItem> &candi
+     {
+         return cached.value();
+@@ -972,14 +1049,142 @@ void QuanpinDictionary::mark_autocorrect_candidates(std::vector<WordItem> &candi
+                         [&](const std::string &letters) { return letters != raw_letters && item_letters == letters; }))
+         {
              item.corrected_from = raw_letters;
          }
      }
@@ -3632,7 +4144,11 @@
      pinyin = remove_delimiters(pinyin);
      const auto cuts = quanpin::cut_pinyin_by_mode(pinyin, "correction");
      if (cuts.empty())
-@@ -1005,13 +1196,15 @@ int QuanpinDictionary::create_word(std::string pinyin, std::string word)
+     {
+         return ERROR_CODE;
+@@ -1003,17 +1208,19 @@ int QuanpinDictionary::create_word(std::string pinyin, std::string word)
+     }
+     (void)user_dictionary::record_user_insert(metasequoia::path_to_utf8(paths_.user(metasequoia::assets::user_journal)),
                                                user_dictionary::DictionaryKind::Pinyin, pinyin, word, 10000);
      reset_cache();
      return OK;
@@ -3650,7 +4166,11 @@
          std::any_of(segments.begin(), segments.end(), [](const std::string &segment) {
              return segment.empty() || !quanpin::is_complete_pinyin_input(segment);
          }))
-@@ -1030,12 +1223,34 @@ int QuanpinDictionary::create_word_from_canonical_pinyin(std::string pinyin, std
+     {
+         return ERROR_CODE;
+@@ -1028,16 +1235,38 @@ int QuanpinDictionary::create_word_from_canonical_pinyin(std::string pinyin, std
+     {
+         return OK;
      }
      if (insert_data(build_sql_for_inserting_word(pinyin, jp, word)) != OK)
      {
@@ -3687,7 +4207,11 @@
  }
 ~
  int QuanpinDictionary::update_weight_by_word(std::string word)
-@@ -1050,11 +1265,11 @@ int QuanpinDictionary::update_weight_by_pinyin_and_word(std::string pinyin, std:
+ {
+     return update_weight_by_pinyin_and_word(remove_delimiters(pinyin_segmentation_), std::move(word));
+@@ -1048,15 +1277,15 @@ int QuanpinDictionary::update_weight_by_pinyin_and_word(std::string pinyin, std:
+     pinyin = remove_delimiters(pinyin);
+     const auto cuts = quanpin::cut_pinyin_by_mode(pinyin, "correction");
      if (cuts.empty())
          return ERROR_CODE;
      auto segments = cuts.front();
@@ -3700,7 +4224,11 @@
          segments.resize(han_count);
      const std::string normalized = quanpin::join_segments(segments);
      if (update_data(build_sql_for_updating_word(normalized, word)) != OK)
-@@ -1090,11 +1305,11 @@ int QuanpinDictionary::insert_word_to_series_cache(const std::string &pinyin, co
+     {
+         return ERROR_CODE;
+@@ -1088,15 +1317,15 @@ int QuanpinDictionary::insert_word_to_series_cache(const std::string &pinyin, co
+     if (pinyin.empty() || word.empty())
+     {
          return ERROR_CODE;
      }
 ~
@@ -3713,7 +4241,11 @@
 ~
  int QuanpinDictionary::insert_word_to_series_cache(const std::string &raw_input, const std::string &segmentation,
                                                     unsigned autocorrect_types, const std::string &word,
-@@ -1170,11 +1385,13 @@ void QuanpinDictionary::reset_state()
+                                                    CandidateSource source)
+ {
+@@ -1168,15 +1397,17 @@ void QuanpinDictionary::reset_state()
+     current_candidate_list_.clear();
+ }
 ~
  void QuanpinDictionary::reset_cache()
  {
@@ -3727,7 +4259,11 @@
  void QuanpinDictionary::reset_cache_if_database_changed()
  {
      if (db_ == nullptr)
-@@ -1511,11 +1728,11 @@ int QuanpinDictionary::insert_word_to_series_cache(const std::string &pinyin, co
+     {
+         return;
+@@ -1509,15 +1740,15 @@ int QuanpinDictionary::insert_word_to_series_cache(const std::string &pinyin, co
+     if (pinyin.empty() || words.empty())
+     {
          return ERROR_CODE;
      }
 ~
@@ -3740,9 +4276,13 @@
 ~
  int QuanpinDictionary::insert_word_to_series_cache(const std::string &raw_input, const std::string &segmentation,
                                                     unsigned autocorrect_types, const std::vector<std::string> &words,
+                                                    CandidateSource source)
+ {
 --- a/quanpin/quanpin_dictionary.h
 +++ b/quanpin/quanpin_dictionary.h
-@@ -6,16 +6,26 @@
+@@ -4,20 +4,30 @@
+ #include "../core/data_path.h"
+ #include "../contracts/assets/assets.h"
 ~
  #include "../common/cache.h"
  #include "../core/key_event.h"
@@ -3769,7 +4309,11 @@
  // segmentation plus the ranked alternative readings. Purely a function of
  // (raw_input, segmentation, autocorrect_types) and the static correction tables
  // -- independent of dictionary contents -- so it is safe to memoize without
-@@ -46,10 +56,12 @@ class QuanpinDictionary
+ // tying it to the database-version invalidation the other caches use.
+ struct SeriesQueryResolution
+@@ -44,27 +54,30 @@ class QuanpinDictionary
+~
+     // Autocorrection is gated by a quanpin::kAutocorrect* type mask (0 = off).
      std::vector<WordItem> query(const std::string &raw_input, const std::string &segmentation = "",
                                  unsigned autocorrect_types = 0, metasequoia::FuzzyPinyinOptions fuzzy = {});
      std::vector<WordItem> fuzzy_candidates(const std::string &segmentation, metasequoia::FuzzyPinyinOptions options);
@@ -3782,7 +4326,8 @@
      // Ask the decoder for every whole-sentence reading it found rather than only its best. A host
      // wants this when it reorders the readings itself and crops the list before display; see
      // quanpin::make_sentence_lattice_options for why the default answers with one.
-@@ -58,11 +70,12 @@ class QuanpinDictionary
+     //
+     // A session-level setting rather than a query argument: it describes what the caller does with
      // the list, which does not change between keystrokes. Changing it clears the cached lists,
      // which were built under the previous answer.
      void set_sentence_alternatives(bool enabled);
@@ -3796,7 +4341,11 @@
      int delete_by_pinyin_and_word(std::string pinyin, std::string word);
      int insert_word_to_series_cache(const std::string &pinyin, const std::string &word, CandidateSource source);
      int insert_word_to_series_cache(const std::string &pinyin, const std::vector<std::string> &words,
-@@ -115,10 +128,14 @@ class QuanpinDictionary
+                                     CandidateSource source);
+     int insert_word_to_series_cache(const std::string &raw_input, const std::string &segmentation,
+@@ -113,14 +126,18 @@ class QuanpinDictionary
+                                                          std::vector<WordItem> result);
+     std::vector<WordItem> merge_alternative_segmentations(
          const std::string &raw_input, const std::string &primary_segmentation,
          const quanpin::Segments &primary_segments, const std::vector<quanpin::Segments> &alternative_segmentations,
          std::vector<WordItem> result);
@@ -3811,7 +4360,11 @@
      std::vector<WordItem> select_complete_data(const std::string &sql_str);
      int check_data(const std::string &sql_str);
      int insert_data(const std::string &sql_str);
-@@ -159,6 +176,22 @@ class QuanpinDictionary
+     int update_data(const std::string &sql_str);
+     int delete_data(const std::string &sql_str);
+@@ -157,8 +174,25 @@ class QuanpinDictionary
+~
+     std::string pinyin_sequence_;
      std::string pinyin_segmentation_;
      // Joined alternative correction cuts (k-best readings after the primary)
      // backing mark_autocorrect_candidates on every query, cached or not.
@@ -3824,6 +4377,7 @@
 +    std::unordered_set<std::string> personal_scored_keys_;
 +    std::uint64_t personal_context_version_ = 0;
 +    void drop_personal_scored_results();
++    void remember_personal_scored_key(const std::string &key);
 +
 +    // Shared with every session on the same journal. Holds accepted typo counts, which discount typo edges.
 +    std::shared_ptr<quanpin::PersonalTypoProfile> typo_profile_;
@@ -3836,7 +4390,9 @@
  };
 --- a/quanpin/quanpin_query.cpp
 +++ b/quanpin/quanpin_query.cpp
-@@ -8,10 +8,11 @@
+@@ -6,14 +6,15 @@
+ #include "../shuangpin/shuangpin_utils.h"
+ #include <algorithm>
  #include <climits>
  #include <map>
  #include <sqlite3.h>
@@ -3848,7 +4404,11 @@
 ~
  namespace quanpin
  {
-@@ -1011,10 +1012,45 @@ std::string segments_to_jianpin(const Segments &segments)
+ namespace
+ {
+@@ -1009,14 +1010,49 @@ std::string segments_to_jianpin(const Segments &segments)
+ }
+~
  std::string get_default_db_path()
  {
      return metasequoia::path_to_utf8(shuangpin::get_data_file_path(metasequoia::assets::main_dictionary));
@@ -3894,7 +4454,11 @@
      (void)intact_pinyin_set();
      (void)prefix_pinyin_set();
 ~
-@@ -1315,10 +1351,52 @@ const std::string &canonical_lattice_syllable(const std::string &syllable)
+     if (db == nullptr)
+     {
+@@ -1313,14 +1349,56 @@ const std::string &canonical_lattice_syllable(const std::string &syllable)
+         {"jv", "ju"},   {"qv", "qu"},   {"xv", "xu"},   {"yv", "yu"},   {"jve", "jue"},
+         {"qve", "que"}, {"xve", "xue"}, {"yve", "yue"}, {"lue", "lve"}, {"nue", "nve"},
      };
      const auto found = spellings.find(syllable);
      return found == spellings.end() ? syllable : found->second;
@@ -3947,9 +4511,13 @@
                                           int span_limit)
  {
      return [db, &statement_cache, span_limit](const Segments &span) {
+         Segments normalized;
+         normalized.reserve(span.size());
 --- a/quanpin/quanpin_query.h
 +++ b/quanpin/quanpin_query.h
-@@ -53,10 +53,13 @@ std::string segments_to_jianpin(const Segments &segments);
+@@ -51,14 +51,17 @@ std::string join_segments(const Segments &segments, const std::string &delimiter
+ std::string build_table_name(const Segments &segments);
+ std::string segments_to_jianpin(const Segments &segments);
  std::string get_default_db_path();
  // A learning write holds the dictionary lock only for a short commit. Readers
  // wait briefly for that commit instead of returning an empty candidate page.
@@ -3963,7 +4531,11 @@
                          int limit = 8);
  QueryResult query_segments(const Segments &segments, const std::string &db_path, int limit = 8,
                             QuerySource source = QuerySource::Quanpin);
-@@ -82,10 +85,17 @@ std::vector<KeyedQueryItem> query_exact_segmentations_keyed_flat(
+ std::vector<QueryItem> query_words_flat(const std::string &pinyin, const std::string &db_path,
+                                         const std::string &mode = "greedy", int limit = 8);
+@@ -80,12 +83,19 @@ std::vector<KeyedQueryItem> query_longer_phrases_keyed(const Segments &segments,
+~
+ std::vector<KeyedQueryItem> query_exact_segmentations_keyed_flat(
      const std::vector<Segments> &segmentations, sqlite3 *db,
      std::unordered_map<std::string, sqlite3_stmt *> &statement_cache, int limit = 128);
 ~
@@ -3983,7 +4555,9 @@
  } // namespace quanpin
 --- a/quanpin/quanpin_utils.cpp
 +++ b/quanpin/quanpin_utils.cpp
-@@ -148,10 +148,44 @@ bool has_only_complete_pinyin_segments(const Segments &segments)
+@@ -146,14 +146,48 @@ bool has_only_complete_pinyin_segments(const Segments &segments)
+     }
+~
      const auto &valid_pinyin = intact_pinyin_set();
      return std::all_of(segments.begin(), segments.end(),
                         [&](const std::string &segment) { return valid_pinyin.find(segment) != valid_pinyin.end(); });
@@ -4028,9 +4602,13 @@
      // Manual delimiters express user-intent boundaries and never enter the
      // correction path, so there is nothing for this guard to protect.
      if (pinyin.empty() || pinyin.find('\'') != std::string::npos)
+     {
+         return false;
 --- a/quanpin/quanpin_utils.h
 +++ b/quanpin/quanpin_utils.h
-@@ -23,10 +23,12 @@ struct SyllableGraph
+@@ -21,14 +21,16 @@ struct SyllableGraph
+     std::vector<std::vector<SyllableEdge>> edges;
+ };
 ~
  const std::vector<std::string> &intact_pinyin_list();
  const std::unordered_set<std::string> &intact_pinyin_set();
@@ -4043,7 +4621,11 @@
  std::vector<std::string> cut_one_piece_greedy(const std::string &pinyin, bool intact_only);
  std::vector<std::string> cut_one_piece_min_segments(const std::string &pinyin, bool intact_only);
  bool is_complete_pinyin_input(const std::string &pinyin);
-@@ -49,10 +51,14 @@ inline constexpr unsigned kAutocorrectNeighbor = 1u << 1;
+ // Translate canonical ü syllables to the spelling accepted by Google-Pinyin and InputTools.
+ // Use this only at decoder/query boundaries; dictionary and lattice keys stay canonical.
+@@ -47,14 +49,18 @@ inline constexpr unsigned kAutocorrectNeighbor = 1u << 1;
+ // the two existing autocorrect switches (either one on also enables deletion,
+ // design D2); it stays a separate bit so a future config key can gate it alone.
  inline constexpr unsigned kAutocorrectDeletion = 1u << 2;
  // Insertion (one extra letter, a repeated or QWERTY-neighbor key) corrections.
  // Same linkage model as deletion: the legacy switches carry this bit too (design
@@ -4058,6 +4640,8 @@
   * Integer correction-edge weights (patent CN 101133411 B, [0052]).
   *
   * The patent prescribes probability-weighted edit distances trained on user
+  * data (fig. 10); until such calibration data exists it explicitly allows
+  * estimated constants, which is what these are. The prior: transpositions are
 --- /dev/null
 +++ b/quanpin/syllable_typos.cpp
 @@ -0,0 +1,163 @@
@@ -4270,7 +4854,9 @@
 +} // namespace quanpin
 --- a/quanpin/word_lattice.cpp
 +++ b/quanpin/word_lattice.cpp
-@@ -46,12 +46,15 @@ struct LatticeEdge
+@@ -44,37 +44,62 @@ size_t syllable_count_from_key(const std::string &key)
+ struct LatticeEdge
+ {
      size_t end = 0;
      std::string word;
      std::string key;
@@ -4286,7 +4872,10 @@
      const double w = weight > 0 ? static_cast<double>(weight) : 1.0;
      const double z = options.unigram_z > 1.0 ? options.unigram_z : 1e6;
      const double lp = std::log(w);
-@@ -62,17 +65,39 @@ double edge_log_prob(std::int64_t weight, size_t syllables, const WordLatticeOpt
+     // Single-character rows in msime.db are raw corpus counts (often 1e6+);
+     // multi-syllable rows are phrase weights on a much smaller scale.
+     // libpinyin stores comparable log-probabilities; we approximate that by
+     // down-projecting unigrams and giving dictionary phrases a length bonus.
      if (syllables <= 1)
          return lp - std::log(z);
      return lp + options.phrase_length_bonus * static_cast<double>(syllables);
@@ -4326,7 +4915,11 @@
  void keep_beam(std::vector<Hyp> &column, int beam)
  {
      if (static_cast<int>(column.size()) <= beam)
-@@ -133,12 +158,12 @@ size_t utf8_codepoints(const std::string &text)
+         return;
+     std::partial_sort(column.begin(), column.begin() + beam, column.end(),
+@@ -131,16 +156,16 @@ size_t utf8_codepoints(const std::string &text)
+             ++n;
+     }
      return n;
  }
 ~
@@ -4341,7 +4934,11 @@
  // bigram score is the whole model, not a second opinion competing with the first.
  void rescore_with_trigram(std::vector<LatticePath> &paths, const WordLatticeOptions &options)
  {
-@@ -165,11 +190,12 @@ void rescore_with_trigram(std::vector<LatticePath> &paths, const WordLatticeOpti
+     if (!options.trigram || options.trigram_weight == 0.0 || paths.size() < 2)
+         return;
+@@ -163,15 +188,16 @@ void rescore_with_trigram(std::vector<LatticePath> &paths, const WordLatticeOpti
+ // Best score the lattice can give one specific sentence, on the same terms it scores its own paths.
+ //
  // The Google-Pinyin fallback and the lattice each produce a whole sentence, and they used to be ordered by
  // which source they came from rather than by how good they are. Scoring the fallback over the same graph
  // makes the two comparable: same edge weights, same phrase bonus, same context terms. Returns nothing when
@@ -4355,7 +4952,11 @@
          return std::nullopt;
      // One hypothesis per (syllable, characters spelled so far). Two segmentations can reach the same
      // syllable having produced different numbers of characters, which is why the offset is part of the
-@@ -181,28 +207,42 @@ std::optional<double> score_known_sentence(const std::vector<std::vector<Lattice
+     // key; in practice a column holds one or two of these, so a flat vector beats a map.
+     struct Hypothesis
+@@ -179,32 +205,46 @@ std::optional<double> score_known_sentence(const std::vector<std::vector<Lattice
+         size_t consumed = 0;
+         double score = kNegInf;
          int previous_position = -1; // column the hypothesis came from
          int previous_index = -1;    // and where in it
          const std::string *word = nullptr;
@@ -4399,7 +5000,11 @@
                  auto slot = std::find_if(column.begin(), column.end(),
                                           [&](const Hypothesis &h) { return h.consumed == consumed; });
                  const Hypothesis next{consumed, score, static_cast<int>(pos), static_cast<int>(hi), &edge.word};
-@@ -218,11 +258,12 @@ std::optional<double> score_known_sentence(const std::vector<std::vector<Lattice
+                 if (slot == column.end())
+                     column.push_back(next);
+@@ -216,27 +256,36 @@ std::optional<double> score_known_sentence(const std::vector<std::vector<Lattice
+     const auto &final_column = columns[n];
+     const auto complete = std::find_if(final_column.begin(), final_column.end(), [&](const Hypothesis &h) {
          return h.consumed == sentence.size() && h.score != kNegInf;
      });
      if (complete == final_column.end())
@@ -4413,7 +5018,8 @@
      std::vector<const std::string *> words;
      for (const Hypothesis *hypothesis = &*complete; hypothesis != nullptr && hypothesis->word != nullptr;)
      {
-@@ -231,10 +272,18 @@ std::optional<double> score_known_sentence(const std::vector<std::vector<Lattice
+         words.push_back(hypothesis->word);
+         if (hypothesis->previous_position < 0)
              break;
          hypothesis = &columns[static_cast<size_t>(hypothesis->previous_position)]
                               [static_cast<size_t>(hypothesis->previous_index)];
@@ -4432,7 +5038,11 @@
      for (size_t i = 0; i < words.size(); ++i)
      {
          const std::string &before = i >= 2 ? *words[i - 2] : start;
-@@ -306,10 +355,22 @@ std::vector<std::pair<std::string, size_t>> span_swapped_sentences(const Lattice
+         const std::string &previous = i >= 1 ? *words[i - 1] : start;
+         bonus += options.trigram->bonus(before, previous, *words[i]);
+@@ -304,54 +353,90 @@ std::vector<std::pair<std::string, size_t>> span_swapped_sentences(const Lattice
+             hybrids.emplace_back(std::move(repaired), width);
+         }
          start += width;
      }
      return hybrids;
@@ -4455,7 +5065,7 @@
      if (n_syllables == 0)
          return false;
      if (utf8_codepoints(item.word) == n_syllables)
-@@ -317,14 +378,17 @@ bool covers_all_syllables(const WordItem &item, size_t n_syllables)
+         return true;
      if (!item.canonical_pinyin.empty() && syllable_count_from_key(item.canonical_pinyin) == n_syllables)
          return true;
      return false;
@@ -4475,7 +5085,10 @@
 ~
      for (size_t pos = 0; pos < n; ++pos)
      {
-@@ -335,21 +399,42 @@ std::vector<LatticePath> decode_from_graph(const std::vector<std::vector<Lattice
+         keep_beam(columns[pos], options.beam);
+         if (columns[pos].empty())
+             continue;
+         for (int hi = 0; hi < static_cast<int>(columns[pos].size()); ++hi)
          {
              const Hyp &hyp = columns[pos][static_cast<size_t>(hi)];
              // Column 0 has no predecessor, so the start token carries whatever the corpus knows about how
@@ -4520,7 +5133,11 @@
      }
 ~
      auto &final_col = columns[n];
-@@ -367,10 +452,11 @@ std::vector<LatticePath> decode_from_graph(const std::vector<std::vector<Lattice
+     if (final_col.empty())
+         return {};
+@@ -365,14 +450,15 @@ std::vector<LatticePath> decode_from_graph(const std::vector<std::vector<Lattice
+     std::vector<LatticePath> paths;
+     paths.reserve(static_cast<size_t>(take));
      std::unordered_set<std::string> seen;
      for (int i = 0; i < static_cast<int>(final_col.size()) && static_cast<int>(paths.size()) < take; ++i)
      {
@@ -4532,7 +5149,11 @@
          std::vector<std::string> keys;
          while (pos > 0 && idx >= 0)
          {
-@@ -396,10 +482,50 @@ std::vector<LatticePath> decode_from_graph(const std::vector<std::vector<Lattice
+             const Hyp &h = columns[static_cast<size_t>(pos)][static_cast<size_t>(idx)];
+             path.words.push_back(h.word);
+@@ -394,28 +480,68 @@ std::vector<LatticePath> decode_from_graph(const std::vector<std::vector<Lattice
+             continue;
+         paths.push_back(std::move(path));
      }
      rescore_with_trigram(paths, options);
      return paths;
@@ -4583,7 +5204,9 @@
  std::vector<LatticePath> decode_word_lattice(const Segments &syllables, const WordLatticeLookup &lookup,
                                               const WordLatticeOptions &options)
  {
-@@ -409,11 +535,11 @@ std::vector<LatticePath> decode_word_lattice(const Segments &syllables, const Wo
+     if (syllables.empty() || !lookup)
+         return {};
+     return decode_from_graph(build_graph(syllables, lookup, options), options);
  }
 ~
  void merge_lattice_candidates(std::vector<WordItem> &candidates, const Segments &syllables,
@@ -4596,7 +5219,11 @@
          return;
      if (!has_only_complete_pinyin_segments(syllables))
          return;
-@@ -432,33 +558,44 @@ void merge_lattice_candidates(std::vector<WordItem> &candidates, const Segments
+~
+     // One graph for both: decoding the lattice and scoring the fallback have to see the same edges, and
+@@ -430,37 +556,48 @@ void merge_lattice_candidates(std::vector<WordItem> &candidates, const Segments
+         comparison->lattice_score = paths.front().log_prob;
+         comparison->syllables = syllables.size();
          // Nothing to arbitrate when the two sources already agree, and that is the common case on the
          // short compositions most keystrokes produce. Scoring it anyway spent a constrained decode per
          // keystroke to re-derive a tie.
@@ -4643,7 +5270,11 @@
      if (options.emit > 0 && paths.size() > static_cast<size_t>(options.emit))
          paths.resize(static_cast<size_t>(options.emit));
 ~
-@@ -473,10 +610,11 @@ void merge_lattice_candidates(std::vector<WordItem> &candidates, const Segments
+     std::unordered_set<std::string> already;
+     for (const auto &item : candidates)
+@@ -471,14 +608,15 @@ void merge_lattice_candidates(std::vector<WordItem> &candidates, const Segments
+     {
+         if (!already.insert(path.sentence).second)
              continue;
          // Often negative (log-space). Ranking is insert order, not weight.
          const auto weight = static_cast<std::int64_t>(path.log_prob * 1000.0);
@@ -4655,9 +5286,11 @@
      if (extra.empty())
          return;
 ~
+     const size_t insert_at = whole_sentence_insert_position(candidates, syllables);
+     candidates.insert(candidates.begin() + static_cast<std::ptrdiff_t>(insert_at), extra.begin(), extra.end());
 --- a/quanpin/word_lattice.h
 +++ b/quanpin/word_lattice.h
-@@ -1,14 +1,17 @@
+@@ -1,16 +1,19 @@
  #pragma once
 ~
  #include "../core/runtime_paths.h"
@@ -4675,7 +5308,11 @@
  #include <vector>
 ~
  namespace quanpin
-@@ -62,12 +65,30 @@ struct LatticePath
+ {
+~
+@@ -60,16 +63,34 @@ struct LatticeLexeme
+~
+ struct LatticePath
  {
      std::string sentence;
      std::string key;
@@ -4706,7 +5343,11 @@
      int beam = 32;
      int nbest = 5;
      // Cap on lexemes per span (injected lookups). DB lookup already applies
-@@ -94,10 +115,31 @@ struct WordLatticeOptions
+     // the same cap in query_segments_keyed_flat.
+     int span_limit = 32;
+@@ -92,14 +113,35 @@ struct WordLatticeOptions
+     // sweep recorded above: at bonus 20 the bigram term is worth doubling - sentences-v2 top-1 0.173
+     // -> 0.189 and MRR 0.393 -> 0.401, sentences-v1 unchanged - while 3.0 starts trading page
      // coverage for it. The trigram weight moved nothing at any value tried, which is what a term that
      // only fires on a third word of history looks like on sets this short; it stays at 1.0 rather
      // than being tuned to a number the measurement cannot support.
@@ -4738,7 +5379,11 @@
      // feeding a candidate page wants 1.
      int emit = 0;
      // How far, per swapped syllable, a repaired sentence has to beat the one it repaired. Swept on the
-@@ -112,10 +154,30 @@ struct WordLatticeOptions
+     // eval sets with the frame margin below at 4.0: at 4.0 repairs fire too readily and sentences-v1
+     // drops 70.0% -> 66.7%, at 8.0 and above the repair that fixes the reported sentence stops firing.
+@@ -110,14 +152,34 @@ struct WordLatticeOptions
+     // the leading seat. See WholeSentenceComparison::lattice_outranks_fallback.
+     //
      // Swept on the eval sets: 0 hands the seat over whenever the graph can spell the fallback at all,
      // which costs sentences-v1 71.7% -> 58.3%; past 5 the lattice stops winning anything. Between 3.5
      // and 4 sentences-v1 is untouched and sentences-v2 goes 34.6% -> 45.8%, measured on the decoder
@@ -4769,7 +5414,11 @@
  using WordLatticeLookup = std::function<std::vector<LatticeLexeme>(const Segments &span)>;
 ~
  std::vector<LatticePath> decode_word_lattice(const Segments &syllables, const WordLatticeLookup &lookup,
-@@ -138,10 +200,12 @@ struct WholeSentenceComparison
+                                              const WordLatticeOptions &options = {});
+~
+@@ -136,14 +198,16 @@ struct WholeSentenceComparison
+     // The best sentence assembled from one source's frame and the other's disputed span, when one of
+     // those beat both originals. Empty when the two sources agree, when neither can be spelled, or
      // when no swap scored better than what it was made from.
      std::string best_hybrid;
      std::optional<double> best_hybrid_score;
@@ -4782,7 +5431,11 @@
      //
      // A bare `>` would always be true: the lattice score is the maximum over every path, and a
      // fallback the graph can spell is one of those paths, so it can never score higher. What the
-@@ -161,15 +225,42 @@ struct WholeSentenceComparison
+     // comparison can say is by how much, and `margin_per_syllable` is where that becomes a decision -
+     // see WordLatticeOptions::fallback_margin for what it is worth.
+@@ -159,19 +223,46 @@ struct WholeSentenceComparison
+     bool hybrid_leads(double margin_per_syllable) const
+     {
          return decoded && best_hybrid_score.has_value() && fallback_score.has_value() &&
                 *best_hybrid_score > *fallback_score + margin_per_syllable * static_cast<double>(best_hybrid_span);
      }
@@ -4826,9 +5479,13 @@
  // exact full-cover Database/UserDatabase hits. Both whole-sentence sources share it so neither can
  // displace a dictionary entry that already answers the whole key, per the ranking above.
  size_t whole_sentence_insert_position(const std::vector<WordItem> &candidates, const Segments &syllables);
+~
+ // The one place the sentence decoder is configured.
 --- a/schemes/quanpin_scheme.cpp
 +++ b/schemes/quanpin_scheme.cpp
-@@ -74,26 +74,21 @@ void QuanpinScheme::handle_key(ImeKeyCode vk, ImeModifierMask modifiers_down, Im
+@@ -72,43 +72,38 @@ void QuanpinScheme::handle_key(ImeKeyCode vk, ImeModifierMask modifiers_down, Im
+     }
+     else
      {
          raw_input_.push_back(static_cast<char>(vk + ('a' - 'A')));
      }
@@ -4861,7 +5518,8 @@
      {
          if (ch != '\'')
          {
-@@ -102,11 +97,11 @@ QueryRequest QuanpinScheme::build_request() const
+             request.normalized_input.push_back(ch);
+         }
      }
      if (!request.normalized_input.empty())
      {
@@ -4874,7 +5532,11 @@
                  request.normalized_segmentation = quanpin::join_segments(segments.front());
              }
          }
-@@ -139,13 +134,33 @@ QueryRequest QuanpinScheme::build_request() const
+         catch (...)
+         {
+@@ -137,17 +132,37 @@ QueryRequest QuanpinScheme::build_request() const
+         request.raw_segmentation += "'";
+         request.raw_segmentation +=
              request.raw_input_with_cases.substr(request.raw_input_with_cases.size() - helpcode_length, helpcode_length);
      }
      request.segmentation = request.normalized_segmentation;
@@ -4908,9 +5570,13 @@
      return raw_input_;
  }
 ~
+ SchemeType QuanpinScheme::type() const
+ {
 --- a/schemes/quanpin_scheme.h
 +++ b/schemes/quanpin_scheme.h
-@@ -11,10 +11,13 @@ class QuanpinScheme : public IInputScheme
+@@ -9,12 +9,15 @@ class QuanpinScheme : public IInputScheme
+   public:
+     void reset() override;
      void handle_key(ImeKeyCode vk, ImeModifierMask modifiers_down, ImeCharacter wch) override;
      QueryRequest build_request() const override;
      std::string get_preedit() const override;
@@ -4926,7 +5592,7 @@
  };
 --- a/shuangpin/shuangpin_dictionary.cpp
 +++ b/shuangpin/shuangpin_dictionary.cpp
-@@ -1,8 +1,9 @@
+@@ -1,10 +1,11 @@
  #include "../core/online_candidate_batch.h"
  #include "shuangpin_dictionary.h"
  #include "../user_dictionary/user_dictionary_journal.h"
@@ -4936,7 +5602,11 @@
  #include "../quanpin/quanpin_utils.h"
  #include "shuangpin_query.h"
  #include "shuangpin_utils.h"
-@@ -77,10 +78,26 @@ ShuangpinDictionary::ShuangpinDictionary(const ShuangpinProfile &profile, metase
+ #include <algorithm>
+ #include <mutex>
+@@ -75,14 +76,30 @@ ShuangpinDictionary::ShuangpinDictionary(const ShuangpinProfile &profile, metase
+         sqlite3_busy_timeout(quanpin_db_, quanpin::kDictionaryBusyTimeoutMs);
+         quanpin::warm_up(quanpin_db_, quanpin_statement_cache_);
          // Off the typing path, for the reason QuanpinDictionary's constructor gives.
          quanpin::NgramTable::shared(paths_.dictionary(quanpin::kBigramFileName));
          quanpin::NgramTable::shared(paths_.dictionary(quanpin::kTrigramFileName));
@@ -4963,7 +5633,11 @@
  /**
   * @brief Generate candidate list when not in help mode
   *
-@@ -157,10 +174,11 @@ vector<ShuangpinDictionary::WordItem> ShuangpinDictionary::generateSeries( //
+  * @param pinyin_sequence
+  * @param pinyin_segmentation
+@@ -155,14 +172,15 @@ vector<ShuangpinDictionary::WordItem> ShuangpinDictionary::generateSeries( //
+     if (pinyin_sequence.size() == 1)
+     {
          generate_for_single_char(candidate_list, pinyin_sequence);
      }
      else
@@ -4975,7 +5649,11 @@
          {
              reset_cache_if_database_changed();
              if (const auto cached = _cached_buffer_series.get(effective_cache_key))
-@@ -238,11 +256,14 @@ vector<ShuangpinDictionary::WordItem> ShuangpinDictionary::generateSeries( //
+             {
+                 return cached.value();
+@@ -236,15 +254,18 @@ vector<ShuangpinDictionary::WordItem> ShuangpinDictionary::generateSeries( //
+                     quanpin::whole_sentence_insert_position(candidate_list, quanpin_segments));
+                 WordItem sentence(_pinyin_sequence, google_sentence, 1, CandidateSource::Fallback,
                                    quanpin_segmentation);
                  sentence.sentence_association = true;
                  candidate_list.insert(candidate_list.begin() + at, std::move(sentence));
@@ -4991,7 +5669,11 @@
                                                                            lattice_options.span_limit),
                                            pinyin_sequence, lattice_options);
          if (!google_sentence.empty())
-@@ -262,10 +283,13 @@ vector<ShuangpinDictionary::WordItem> ShuangpinDictionary::generateSeries( //
+         {
+             const auto google = std::find_if(candidate_list.begin(), candidate_list.end(), [&](const WordItem &item) {
+@@ -260,14 +281,26 @@ vector<ShuangpinDictionary::WordItem> ShuangpinDictionary::generateSeries( //
+                 candidate_list.erase(google);
+                 candidate_list.insert(candidate_list.begin() + boundary, std::move(preferred));
              }
          }
 ~
@@ -4999,13 +5681,26 @@
          _cached_buffer_series.insert(effective_cache_key, candidate_list);
 +        // Only keys long enough for the sentence lattice carry personal scores.
 +        if (quanpin_segments.size() >= 2)
++        {
 +            personal_scored_keys_.insert(effective_cache_key);
++            // The series cache evicts on its own; keys it no longer holds are dropped so the set stays bounded while
++            // the model's version stays put. Twice the cache's capacity cannot all still be cached.
++            if (personal_scored_keys_.size() > 256)
++            {
++                for (auto it = personal_scored_keys_.begin(); it != personal_scored_keys_.end();)
++                    it = _cached_buffer_series.contains(*it) ? std::next(it) : personal_scored_keys_.erase(it);
++            }
++        }
      }
 ~
      return candidate_list;
  }
 ~
-@@ -1146,10 +1170,11 @@ void ShuangpinDictionary::reset_cache()
+ /**
+  * @brief Filter with single help code
+@@ -1144,14 +1177,15 @@ void ShuangpinDictionary::reset_state()
+ void ShuangpinDictionary::reset_cache()
+ {
      _cached_buffer.clear();
      _cached_buffer_sgl.clear();
      _cached_buffer_sgl_reversed.clear();
@@ -5017,9 +5712,13 @@
  void ShuangpinDictionary::reset_cache_if_database_changed()
  {
      if (quanpin_db_ == nullptr)
+     {
+         return;
 --- a/shuangpin/shuangpin_dictionary.h
 +++ b/shuangpin/shuangpin_dictionary.h
-@@ -17,10 +17,17 @@
+@@ -15,14 +15,21 @@
+ #include <vector>
+ #include <unordered_map>
  #include <string>
  #include <sqlite3.h>
  #include <memory>
@@ -5037,7 +5736,11 @@
  {
    public:
      using WordItem = ::WordItem;
-@@ -87,10 +94,16 @@ class ShuangpinDictionary
+~
+     static const int OK = 0;
+@@ -85,14 +92,20 @@ class ShuangpinDictionary
+     sqlite3 *quanpin_db_ = nullptr;
+     sqlite3_int64 data_version_ = -1;
      metasequoia::RuntimePaths paths_;
      bool sentence_alternatives_ = false;
      metasequoia::PinyinDecoder decoder_;
@@ -5054,6 +5757,8 @@
      void generate_for_single_char(std::vector<WordItem> &candidate_list, std::string code);
      void filter_with_single_helpcode(                //
          const std::vector<WordItem> &candidate_list, //
+         std::vector<WordItem> &filtered_list,        //
+         const std::string &help_code,                //
 --- /dev/null
 +++ b/tests/scripts/build_typo_eval_set.py
 @@ -0,0 +1,152 @@
@@ -5211,7 +5916,9 @@
 +    sys.exit(main())
 --- a/tests/src/eval_sentences.cpp
 +++ b/tests/src/eval_sentences.cpp
-@@ -12,11 +12,17 @@
+@@ -10,15 +10,21 @@
+ //   within page      the sentence is somewhere on the first page. This is the ceiling for any reranker: a sentence the
+ //   decoder never proposed cannot be promoted into first place, so the gap between this and top-1 is all a rescoring
  //   pass could ever win. commit           what Session::finish() actually inserts, which for a partially covered input
  //   is the leading candidate plus the remaining segments rather than candidate zero. character        per-position
  //   agreement between candidate zero and the sentence, so a near miss scores better than a wrong sentence of the same
@@ -5230,7 +5937,11 @@
 ~
  #include <algorithm>
  #include <chrono>
-@@ -91,29 +97,32 @@ double percent(std::size_t part, std::size_t whole)
+ #include <cstdlib>
+ #include <filesystem>
+@@ -89,33 +95,36 @@ double percent(std::size_t part, std::size_t whole)
+~
+ } // namespace
 ~
  int main(int argc, char **argv)
  {
@@ -5265,7 +5976,11 @@
              std::cerr << "unknown argument: " << flag << '\n';
              return 2;
          }
-@@ -132,10 +141,11 @@ int main(int argc, char **argv)
+     }
+~
+@@ -130,25 +139,27 @@ int main(int argc, char **argv)
+     std::filesystem::remove_all(user);
+     std::filesystem::create_directories(user);
      SessionOptions options;
      options.paths = {dictionary, user, user, dictionary};
      // Learning off keeps every row a cold start: the set measures the shipped dictionary, not the order in which the
@@ -5277,7 +5992,7 @@
      std::ofstream detail;
      if (!detail_path.empty())
      {
-@@ -143,10 +153,11 @@ int main(int argc, char **argv)
+         detail.open(detail_path);
          detail << "pinyin\texpected\ttop1\trank\tcommit\n";
      }
 ~
@@ -5289,7 +6004,11 @@
      std::size_t total_characters = 0;
      std::vector<double> query_ms;
      query_ms.reserve(rows.size());
-@@ -167,10 +178,18 @@ int main(int argc, char **argv)
+~
+     for (const auto &row : rows)
+@@ -165,14 +176,22 @@ int main(int argc, char **argv)
+         const auto view = session.snapshot();
+         const std::string best = view.candidates.empty() ? std::string() : view.candidates.front().word;
          if (best == row.sentence)
              ++top1;
 ~
@@ -5308,7 +6027,11 @@
              {
                  rank = i + 1;
                  ++within_page;
-@@ -204,10 +223,12 @@ int main(int argc, char **argv)
+                 break;
+             }
+@@ -202,14 +221,16 @@ int main(int argc, char **argv)
+     const double p95_ms = query_ms[static_cast<std::size_t>(0.95 * static_cast<double>(query_ms.size() - 1))];
+     const double max_ms = query_ms.back();
 ~
      std::cout << std::fixed << std::setprecision(1);
      std::cout << "sentences            " << rows.size() << '\n';
@@ -5321,9 +6044,13 @@
      std::cout << std::setprecision(2);
      std::cout << "final-key latency    avg " << average_ms << " ms  p95 " << p95_ms << " ms  max " << max_ms << " ms\n";
      if (detail.is_open())
+         std::cout << "per-sentence detail  " << detail_path << '\n';
+~
 --- a/tests/src/test_input_session.cpp
 +++ b/tests/src/test_input_session.cpp
-@@ -114,10 +114,22 @@ void set_data_directory(const std::filesystem::path &directory)
+@@ -112,14 +112,26 @@ void set_data_directory(const std::filesystem::path &directory)
+     if (setenv("METASEQUOIA_IME_DATA_DIR", metasequoia::path_to_utf8(directory).c_str(), 1) != 0)
+ #endif
      {
          throw std::runtime_error("Failed to set the data directory override.");
      }
@@ -5346,7 +6073,11 @@
      std::filesystem::create_directories(directory);
      Database database(directory / "msime.db");
      database.execute("BEGIN;"
-@@ -1100,12 +1112,12 @@ int run_test()
+                      "CREATE TABLE tbl_1_n(key TEXT, jp TEXT, value TEXT, weight INTEGER);"
+                      "INSERT INTO tbl_1_n VALUES('ni', 'n', '甲', 100);"
+@@ -1098,16 +1110,16 @@ int run_test()
+         require(learned.handled && learned.commit == "己" && !learned.diagnostic.has_value(),
+                 "Frequency learning changed or diagnosed a successful candidate commit.");
 ~
          metasequoia::InputSession reopened(SchemeType::Quanpin);
          type(reopened, "ni");
@@ -5361,7 +6092,11 @@
 ~
      user_dictionary::close_default_user_database();
      const std::filesystem::path trigger_directory = data_directory / "frequency-trigger";
-@@ -1133,11 +1145,11 @@ int run_test()
+     prepare_frequency_fixture(trigger_directory);
+     set_data_directory(trigger_directory);
+@@ -1131,15 +1143,15 @@ int run_test()
+     prepare_frequency_fixture(first_candidate_directory);
+     set_data_directory(first_candidate_directory);
      metasequoia::InputSession first_candidate_session(SchemeType::Quanpin);
      require(first_candidate_session.set_frequency_adjustment({metasequoia::FrequencyAdjustmentMode::Pin, 1, 1}),
              "A valid first-candidate learning configuration was rejected.");
@@ -5374,15 +6109,18 @@
      user_dictionary::close_default_user_database();
      const std::filesystem::path mixed_key_directory = data_directory / "frequency-mixed-key";
      prepare_mixed_key_frequency_fixture(mixed_key_directory);
+     set_data_directory(mixed_key_directory);
+     metasequoia::InputSession mixed_key_session(SchemeType::Quanpin);
 --- /dev/null
 +++ b/tests/src/test_learning_undo_input_session.cpp
-@@ -0,0 +1,715 @@
+@@ -0,0 +1,771 @@
 +#include "../../common/helpcode_utils.h"
 +#include "../../contracts/assets/assets.h"
 +#include "../../core/data_path.h"
 +#include "../../core/input_session.h"
 +#include "../../core/recent_commits.h"
 +#include "../../english/english_dictionary.h"
++#include "../../user_dictionary/personal_ngram_store.h"
 +#include "../../user_dictionary/user_dictionary_journal.h"
 +#include "test_directory_cleanup.h"
 +
@@ -5439,6 +6177,8 @@
 +// Every row of the query, columns joined by '|' and rows by ';'. Empty when the database or table is missing.
 +std::string rows(const std::filesystem::path &path, const std::string &sql)
 +{
++    // Personal context reaches the journal in the background; write it before reading.
++    (void)user_dictionary::PersonalNgramStore::flush_all();
 +    if (!std::filesystem::exists(path))
 +        return {};
 +    sqlite3 *database = nullptr;
@@ -5466,6 +6206,8 @@
 +
 +std::int64_t integer(const std::filesystem::path &path, const std::string &sql)
 +{
++    // Personal context reaches the journal in the background; write it before reading.
++    (void)user_dictionary::PersonalNgramStore::flush_all();
 +    const std::string value = rows(path, sql);
 +    return value.empty() ? -1 : std::stoll(value.substr(0, value.find('|')));
 +}
@@ -5653,6 +6395,40 @@
 +            "The undone commit kept its personal context.");
 +    require(!rows(journal(options), "SELECT 1 FROM personal_bigram WHERE previous='沃德' AND word='书'").empty(),
 +            "The still deleted 书 lost its context before its own retype.");
++}
++
++void test_whole_retype(Fixture &fixture)
++{
++    auto options = fixture.options();
++    // A whole-key row other than the deleted text; the lattice itself reads wodeshu as the 沃德书 it just learned.
++    execute(dictionary(options), "INSERT INTO tbl_3_w VALUES('wo''de''shu','wds','我的书',5000);");
++    Session session(options);
++    const auto before = learned_state(options, "tbl_2_w", "沃德");
++    pick(session, "wode", "沃德");
++    pick(session, "shu", "书");
++    backspace(session, 3);
++    type(session, "wodeshu");
++    const auto result = session.select(index_of(session, "我的书"));
++    require(result.commit == "我的书" && session.snapshot().preedit.empty(), "The whole-key row did not commit.");
++    require(learned_state(options, "tbl_2_w", "沃德") == before,
++            "Retyping two segments as one sentence did not undo the first.");
++    require(rows(journal(options), "SELECT 1 FROM personal_bigram WHERE previous='沃德' AND word='书'").empty(),
++            "Retyping two segments as one sentence did not undo the second.");
++}
++
++void test_chain_after_undo(Fixture &fixture)
++{
++    auto options = fixture.options();
++    Session session(options);
++    pick(session, "wo", "我");
++    pick(session, "ni", "丙");
++    backspace(session, 1);
++    pick(session, "ni", "乙");
++    // The idle Backspace ended the chain; the pick that replaced 丙 still follows 我, as 丙 did.
++    require(integer(journal(options), "SELECT count FROM personal_bigram WHERE previous='我' AND word='乙'") == 2,
++            "The corrected pick lost the context of the commit it replaced.");
++    require(rows(journal(options), "SELECT 1 FROM personal_bigram WHERE previous='我' AND word='丙'").empty(),
++            "The deleted pick kept its context.");
 +}
 +
 +void test_prefix_retype(Fixture &fixture)
@@ -6026,11 +6802,11 @@
 +    ledger.note_backspace();
 +    require(ledger.records().front().erased == 1 && !ledger.records().front().is_erased(),
 +            "A partly deleted record counted as deleted.");
-+    require(!ledger.take_retraction("ab", SchemeType::Quanpin) && ledger.records().size() == 1 &&
++    require(ledger.take_retraction("ab", SchemeType::Quanpin).empty() && ledger.records().size() == 1 &&
 +                ledger.records().front().text == "ab",
 +            "A partly deleted record was retracted, or a miss kept the deleted one.");
 +    ledger.note_backspace();
-+    require(!ledger.take_retraction("ab", SchemeType::Shuangpin) && ledger.records().empty(),
++    require(ledger.take_retraction("ab", SchemeType::Shuangpin).empty() && ledger.records().empty(),
 +            "A retype under another scheme matched.");
 +
 +    ledger.remember(commit("ab", 2, "ab"));
@@ -6038,11 +6814,26 @@
 +    for (int i = 0; i < 3; ++i)
 +        ledger.note_backspace();
 +    const auto newest = ledger.take_retraction("ab", SchemeType::Quanpin);
-+    require(newest && newest->text == "ab2" && ledger.records().size() == 1,
++    require(newest.size() == 1 && newest.front().text == "ab2" && ledger.records().size() == 1,
 +            "The newest matching deleted record was not the one retracted.");
-+    require(ledger.take_retraction("ab", SchemeType::Quanpin)->text == "ab", "A prefix retype did not match.");
++    const auto prefix = ledger.take_retraction("ab", SchemeType::Quanpin);
++    require(prefix.size() == 1 && prefix.front().text == "ab", "A prefix retype did not match.");
 +    ledger.note_backspace();
 +    require(ledger.records().empty(), "Deleting past every record kept the ledger.");
++
++    // Two segments retyped as one input take both back, oldest first; an input that stops inside the first does not.
++    ledger.remember(commit("甲", 1, "wo"));
++    ledger.remember(commit("乙", 1, "de"));
++    ledger.remember(commit("丙", 1, "shu"));
++    for (int i = 0; i < 2; ++i)
++        ledger.note_backspace();
++    const auto joined = ledger.take_retraction("desh", SchemeType::Quanpin);
++    require(joined.size() == 2 && joined.front().text == "乙" && joined.back().text == "丙" &&
++                ledger.records().size() == 1 && ledger.records().front().text == "甲",
++            "A retype spanning two deleted segments did not take both back.");
++    ledger.note_backspace();
++    require(ledger.take_retraction("wodeshu", SchemeType::Quanpin).empty() && ledger.records().empty(),
++            "A retype running past the deleted text matched.");
 +
 +    ledger.remember(commit("x", 1, "x"));
 +    ledger.remember(commit("y", 1, "y"));
@@ -6073,6 +6864,8 @@
 +        test_same_word(fixture);
 +        test_two_words(fixture);
 +        test_prefix_retype(fixture);
++        test_whole_retype(fixture);
++        test_chain_after_undo(fixture);
 +        test_unrelated_retype(fixture);
 +        test_over_delete(fixture);
 +        test_plain_records(fixture);
@@ -6094,7 +6887,9 @@
 +}
 --- a/tests/src/test_online_input_session.cpp
 +++ b/tests/src/test_online_input_session.cpp
-@@ -40,10 +40,24 @@ class Database
+@@ -38,14 +38,28 @@ class Database
+         {
+             const std::string message = error == nullptr ? "SQLite operation failed." : error;
              sqlite3_free(error);
              throw std::runtime_error(message);
          }
@@ -6119,7 +6914,11 @@
  };
 ~
  void require(bool condition, const char *message)
-@@ -98,10 +112,23 @@ int main()
+ {
+     if (!condition)
+@@ -96,14 +110,27 @@ int main()
+                              "CREATE TABLE tbl_1_a(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
+                              "INSERT INTO tbl_1_a VALUES('ang','a','昂',200);"
                               "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
                               "INSERT INTO tbl_1_n VALUES('ni','n','你',200);"
                               "INSERT INTO tbl_1_n VALUES('ni','n','倪',100);"
@@ -6143,7 +6942,11 @@
          {
              Database database(root / "english.db");
              database.execute("CREATE TABLE english_words(word TEXT COLLATE BINARY NOT NULL,display TEXT NOT NULL,"
-@@ -256,10 +283,49 @@ int main()
+                              "weight INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(word,display)) WITHOUT ROWID;"
+                              "INSERT INTO english_words VALUES('ninja','Ninja',100);");
+@@ -254,14 +281,53 @@ int main()
+         require(local_mode.handle_character('U', true).handled && !local_mode.online_query().has_value(),
+                 "A local input mode unexpectedly exposed an online query.");
 ~
          metasequoia::InputSession dedicated(SchemeType::Quanpin);
          dedicated.set_dedicated_english_mode(true);
@@ -6193,9 +6996,11 @@
      {
          std::fprintf(stderr, "Test failure: %s\n", error.what());
          return 1;
+     }
+     return 0;
 --- /dev/null
 +++ b/tests/src/test_personal_context_input_session.cpp
-@@ -0,0 +1,811 @@
+@@ -0,0 +1,881 @@
 +#include "../../core/data_path.h"
 +#include "../../core/input_session.h"
 +#include "../../english/english_dictionary.h"
@@ -6216,6 +7021,7 @@
 +#include <cmath>
 +#include <cstdio>
 +#include <filesystem>
++#include <fstream>
 +#include <functional>
 +#include <map>
 +#include <memory>
@@ -6288,21 +7094,25 @@
 +    return value;
 +}
 +
-+// 0 when the journal, the table or the row is missing.
++// 0 when the journal, the table or the row is missing. Every read first writes what the stores still hold in memory:
++// the journal is written in the background, and these checks are about what reaches it, not when.
 +std::int64_t pair_count(const std::filesystem::path &journal, const std::string &previous, const std::string &word)
 +{
++    (void)PersonalNgramStore::flush_all();
 +    return query_integer(journal, "SELECT count FROM personal_bigram WHERE previous=?1 AND word=?2", {previous, word});
 +}
 +
 +std::int64_t triple_count(const std::filesystem::path &journal, const std::string &earlier, const std::string &previous,
 +                          const std::string &word)
 +{
++    (void)PersonalNgramStore::flush_all();
 +    return query_integer(journal, "SELECT count FROM personal_trigram WHERE earlier=?1 AND previous=?2 AND word=?3",
 +                         {earlier, previous, word});
 +}
 +
 +std::int64_t personal_rows(const std::filesystem::path &journal)
 +{
++    (void)PersonalNgramStore::flush_all();
 +    return query_integer(journal, "SELECT (SELECT COUNT(*) FROM personal_bigram)+(SELECT COUNT(*) FROM "
 +                                  "personal_trigram)");
 +}
@@ -6566,14 +7376,44 @@
 +    require(near(store.read().model().probability(start(), "我", "想"), before),
 +            "Reloading from the journal changed the counts.");
 +
-+    // A failed transaction leaves memory untouched.
++    // A failed write keeps the transitions queued and in memory, reports the failure on the next record, and writes
++    // them once the journal accepts writes again.
 +    execute(journal, "CREATE TRIGGER reject_personal BEFORE INSERT ON personal_bigram "
 +                     "BEGIN SELECT RAISE(FAIL, 'injected'); END;");
-+    const auto version = store.version();
-+    require(!store.record({transition("我", "想", "去", 2)}), "A rejected write reported success.");
-+    require(store.version() == version && store.read().model().bigram_probability("想", "去") == 0.0,
-+            "A rolled-back write changed the in-memory model.");
++    require(store.record({transition("我", "想", "去", 2)}), "Queueing a transition failed.");
++    require(!PersonalNgramStore::flush_all(), "A rejected write reported success.");
++    require(store.read().model().bigram_probability("想", "去") > 0.0, "A rejected write dropped the queued counts.");
++    require(!store.record({transition("我", "想", "去", 2)}), "A failed background write was not reported.");
 +    execute(journal, "DROP TRIGGER reject_personal;");
++    require(pair_count(journal, "想", "去") == 4 && store.record({transition("", "", "我", 0)}),
++            "Queued transitions were not written once the journal accepted them, or the failure stayed reported.");
++
++    // Recording does not touch the journal: the write happens later, off the committing thread.
++    require(store.record({transition("想", "去", "玩", 1)}), "Queueing a transition failed.");
++    require(query_integer(journal, "SELECT count(*) FROM personal_bigram WHERE previous='去' AND word='玩'") == 0,
++            "A recorded transition was written synchronously.");
++    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
++    while (query_integer(journal, "SELECT count(*) FROM personal_bigram WHERE previous='去' AND word='玩'") == 0 &&
++           std::chrono::steady_clock::now() < deadline)
++        std::this_thread::sleep_for(std::chrono::milliseconds(50));
++    require(query_integer(journal, "SELECT count(*) FROM personal_bigram WHERE previous='去' AND word='玩'") == 1,
++            "The background write never ran.");
++
++    // A journal replaced after close_default_user_database() that cannot be read does not keep serving the counts of
++    // the one it replaced.
++    {
++        const auto replaced_journal = root / "replaced" / "msime_user.db";
++        std::filesystem::create_directories(replaced_journal.parent_path());
++        auto &replaced = PersonalNgramStore::for_journal(metasequoia::path_to_utf8(replaced_journal));
++        require(replaced.record({transition("", "", "甲", 2)}) && PersonalNgramStore::flush_all(),
++                "The replaced-journal fixture could not be written.");
++        require(replaced.read().model_if_any() != nullptr, "The replaced-journal fixture has no counts.");
++        user_dictionary::close_default_user_database();
++        std::filesystem::remove(replaced_journal);
++        std::ofstream(replaced_journal, std::ios::binary) << std::string(4096, 'x');
++        require(replaced.read().model_if_any() == nullptr,
++                "A journal that could not be read after a close kept serving the previous counts.");
++    }
 +
 +    // Decay halves every count once the entry limit is passed, and memory matches the disk afterwards.
 +    const auto decay_journal = metasequoia::path_to_utf8(root / "decay" / "msime_user.db");
@@ -6606,6 +7446,8 @@
 +    require(picks.record({transition("", "", "甲", 2), transition("", "甲", "乙", 2)}), "Pick fixture failed.");
 +    require(picks.record({transition("甲", "乙", "丙", 2)}), "The pick that crosses the limit failed.");
 +    const auto picks_path = std::filesystem::u8path(picks_journal);
++    // Decay runs with the write, so the model is checked after it.
++    require(PersonalNgramStore::flush_all(), "Writing the pick fixture failed.");
 +    require(picks.read().model().entries() <= 3 && personal_rows(picks_path) <= 3,
 +            "Decay left the model above the limit.");
 +    user_dictionary::close_default_user_database();
@@ -6767,12 +7609,29 @@
 +                    query_integer(journal, "SELECT COUNT(*) FROM candidate_selection_state") == 0,
 +                "Picking the original leader after reordering wrote frequency state.");
 +    }
++
++    // A word the user pinned stays on top after a context word that would otherwise reorder it away.
++    {
++        auto owned = make_session(directory);
++        auto &session = *owned;
++        type(session, "hao");
++        require(index_of(session, "子") == 0, "The pin fixture does not lead with 子.");
++        require(session.pin_candidate(0).handled, "Pinning the leader failed.");
++        session.handle_command(metasequoia::Command::Cancel);
++        commit(session, "ni", "甲");
++        type(session, "hao");
++        require(index_of(session, "子") == 0, "Personal context moved a pinned word off the top.");
++        require(index_of(session, "寅") == 1, "Personal context stopped ordering the rows below a pinned word.");
++        session.handle_command(metasequoia::Command::Cancel);
++    }
 +}
 +
 +void test_sentence_commit(const std::filesystem::path &root)
 +{
 +    const auto directory = root / "sentence";
 +    prepare_dictionary(directory);
++    // Where a selected three-syllable sentence is stored.
++    execute(directory / "msime.db", "CREATE TABLE tbl_3_n(key TEXT, jp TEXT, value TEXT, weight INTEGER);");
 +    const auto journal = journal_in(directory);
 +    auto owned = make_session(directory);
 +    auto &session = *owned;
@@ -6792,6 +7651,21 @@
 +        require(pair_count(journal, previous, word) == 1, "A sentence commit did not record its word chain.");
 +        previous = word;
 +    }
++
++    // Selecting it stored the sentence as a user word. Picked again it comes back as an ordinary dictionary row, and
++    // must still not be counted as one word.
++    std::string sentence_text;
++    for (const auto &word : words)
++        sentence_text += word;
++    session.reset_commit_context();
++    type(session, "nihaohao");
++    const auto &again = session.candidates();
++    const auto stored = std::find_if(again.begin(), again.end(), [&](const WordItem &item) {
++        return item.word == sentence_text && item.source == CandidateSource::Database;
++    });
++    require(stored != again.end(), "The learned sentence did not come back as a dictionary row.");
++    session.select_candidate(static_cast<std::size_t>(stored - again.begin()));
++    require(pair_count(journal, start(), sentence_text) == 0, "A stored sentence was counted as one word.");
 +}
 +
 +void test_chain_breaks(const std::filesystem::path &root)
@@ -6843,6 +7717,7 @@
 +        {"idle enter", [](InputSession &session) { session.handle_command(metasequoia::Command::CommitCandidate); },
 +         true},
 +        {"idle digit", [](InputSession &session) { session.handle_character('3'); }, true},
++        {"idle candidate digit", [](InputSession &session) { session.handle_candidate_key('3'); }, true},
 +        {"english punctuation",
 +         [](InputSession &session) {
 +             session.set_chinese_punctuation_enabled(false);
@@ -8037,7 +8912,7 @@
 +}
 --- /dev/null
 +++ b/user_dictionary/learning_receipt.cpp
-@@ -0,0 +1,366 @@
+@@ -0,0 +1,368 @@
 +#include "learning_receipt.h"
 +#include "personal_ngram_store.h"
 +#include "../common/sqlite_database.h"
@@ -8353,8 +9228,10 @@
 +        return UndoOutcome::Failed;
 +    if (delta.empty())
 +        return UndoOutcome::Restored;
-+    // Initialize the journal before attaching it, as the removal path does.
-+    if (!ensure_user_database(receipt.user_db_path))
++    // Initialize the journal before attaching it, as the removal path does. Queued context is written first, so the
++    // counts taken back below are on disk.
++    if (!ensure_user_database(receipt.user_db_path) ||
++        (!delta.contexts.empty() && !PersonalNgramStore::flush(receipt.user_db_path)))
 +        return UndoOutcome::Failed;
 +    auto database =
 +        metasequoia::sqlite_open_database(receipt.main_db_path, SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX);
@@ -8400,7 +9277,7 @@
 +    if (!execute(db, "COMMIT"))
 +        return fail();
 +    if (!delta.contexts.empty())
-+        PersonalNgramStore::invalidate(receipt.user_db_path);
++        PersonalNgramStore::retract(receipt.user_db_path, delta.contexts);
 +    return current ? UndoOutcome::Restored : UndoOutcome::Superseded;
 +}
 +} // namespace user_dictionary
@@ -8567,18 +9444,21 @@
 +} // namespace user_dictionary
 --- /dev/null
 +++ b/user_dictionary/personal_ngram_store.cpp
-@@ -0,0 +1,408 @@
+@@ -0,0 +1,673 @@
 +#include "personal_ngram_store.h"
 +#include "user_dictionary_journal.h"
 +#include "../common/sqlite_statement.h"
 +#include "../quanpin/ngram_table.h"
 +
 +#include <chrono>
++#include <condition_variable>
++#include <cstdlib>
 +#include <filesystem>
 +#include <limits>
 +#include <map>
 +#include <memory>
 +#include <optional>
++#include <thread>
 +#include <utility>
 +
 +namespace user_dictionary
@@ -8588,6 +9468,11 @@
 +constexpr std::uint64_t kNeverLoaded = std::numeric_limits<std::uint64_t>::max();
 +
 +constexpr std::chrono::seconds kReloadRetryPause{10};
++
++// How long a recorded transition waits for the background write, and how many make it write at once.
++constexpr std::chrono::seconds kFlushDelay{2};
++
++constexpr std::size_t kFlushBatch = 64;
 +
 +std::atomic<std::uint64_t> &store_generation()
 +{
@@ -8608,6 +9493,69 @@
 +    static Registry *instance = new Registry;
 +    return *instance;
 +}
++
++// The one thread that writes queued transitions, started by the first store that queues any. Stores are never
++// destroyed, so the pointers it holds stay valid, and it is never joined: at exit flush_all() writes what is left.
++class FlushWorker
++{
++  public:
++    static FlushWorker &instance()
++    {
++        static FlushWorker *worker = new FlushWorker;
++        return *worker;
++    }
++
++    template <typename Flush>
++    void schedule(PersonalNgramStore *store, std::chrono::steady_clock::time_point due, Flush flush)
++    {
++        const std::lock_guard<std::mutex> lock(mutex_);
++        const auto [found, inserted] = due_.emplace(store, due);
++        if (!inserted && due < found->second)
++            found->second = due;
++        if (!started_)
++        {
++            started_ = true;
++            std::thread([this, flush] { run(flush); }).detach();
++        }
++        wake_.notify_one();
++    }
++
++  private:
++    template <typename Flush> void run(Flush flush)
++    {
++        std::unique_lock<std::mutex> lock(mutex_);
++        for (;;)
++        {
++            if (due_.empty())
++            {
++                wake_.wait(lock);
++                continue;
++            }
++            auto next = due_.begin();
++            for (auto entry = due_.begin(); entry != due_.end(); ++entry)
++                if (entry->second < next->second)
++                    next = entry;
++            if (std::chrono::steady_clock::now() < next->second)
++            {
++                wake_.wait_until(lock, next->second);
++                continue;
++            }
++            PersonalNgramStore *store = next->first;
++            due_.erase(next);
++            lock.unlock();
++            flush(store);
++            lock.lock();
++        }
++    }
++
++    std::mutex mutex_;
++
++    std::condition_variable wake_;
++
++    std::map<PersonalNgramStore *, std::chrono::steady_clock::time_point> due_;
++
++    bool started_ = false;
++};
 +
 +bool execute(sqlite3 *database, const char *sql)
 +{
@@ -8665,8 +9613,30 @@
 +                             "CREATE INDEX IF NOT EXISTS personal_trigram_word ON personal_trigram(word);");
 +}
 +
-+bool delete_personal_ngram_word(sqlite3 *database, const std::string &schema, const std::string &word)
++bool delete_personal_ngram_word(sqlite3 *database, const std::string &schema, const std::string &word,
++                                PersonalNgramRows *removed)
 +{
++    if (removed != nullptr)
++    {
++        auto pairs = metasequoia::sqlite_prepare_statement(
++            database, "SELECT previous,word,count FROM " + schema + ".personal_bigram WHERE previous=?1 OR word=?1");
++        auto triples = metasequoia::sqlite_prepare_statement(
++            database, "SELECT earlier,previous,word,count FROM " + schema +
++                          ".personal_trigram WHERE earlier=?1 OR previous=?1 OR word=?1");
++        if (!pairs || !triples || !bind_text(pairs.get(), 1, word) || !bind_text(triples.get(), 1, word))
++            return false;
++        int step = SQLITE_ROW;
++        while ((step = sqlite3_step(pairs.get())) == SQLITE_ROW)
++            removed->pairs.push_back(
++                {column_text(pairs.get(), 0), column_text(pairs.get(), 1), column_count(pairs.get(), 2)});
++        if (step != SQLITE_DONE)
++            return false;
++        while ((step = sqlite3_step(triples.get())) == SQLITE_ROW)
++            removed->triples.push_back({column_text(triples.get(), 0), column_text(triples.get(), 1),
++                                        column_text(triples.get(), 2), column_count(triples.get(), 3)});
++        if (step != SQLITE_DONE)
++            return false;
++    }
 +    for (const std::string &sql :
 +         {"DELETE FROM " + schema + ".personal_bigram WHERE previous=?1 OR word=?1",
 +          "DELETE FROM " + schema + ".personal_trigram WHERE earlier=?1 OR previous=?1 OR word=?1"})
@@ -8727,10 +9697,14 @@
 +    const std::lock_guard<std::mutex> lock(shared.mutex);
 +    auto found = shared.stores.find(journal_path);
 +    if (found == shared.stores.end())
++    {
++        if (shared.stores.empty())
++            std::atexit([] { (void)PersonalNgramStore::flush_all(); });
 +        found = shared.stores
 +                    .emplace(journal_path,
 +                             std::unique_ptr<PersonalNgramStore>(new PersonalNgramStore(journal_path, options)))
 +                    .first;
++    }
 +    return *found->second;
 +}
 +
@@ -8741,9 +9715,100 @@
 +    const std::lock_guard<std::mutex> lock(shared.mutex);
 +    for (auto &entry : shared.stores)
 +    {
-+        const std::lock_guard<std::mutex> writer(entry.second->writer_mutex_);
-+        entry.second->connection_.reset();
++        PersonalNgramStore &store = *entry.second;
++        const std::lock_guard<std::mutex> writer(store.writer_mutex_);
++        // The queue belongs to the journal being closed, which the caller may replace or delete next; what cannot be
++        // written now is dropped rather than written into whatever file takes its place. Transitions recorded while
++        // this runs are kept: they were recorded after the close.
++        if (!store.flush_locked())
++        {
++            const std::lock_guard<std::mutex> pending(store.pending_mutex_);
++            store.pending_.clear();
++            store.write_failed_.store(false, std::memory_order_release);
++        }
++        store.connection_.reset();
 +    }
++}
++
++bool PersonalNgramStore::flush(const std::string &journal_path)
++{
++    PersonalNgramStore *store = nullptr;
++    {
++        auto &shared = registry();
++        const std::lock_guard<std::mutex> lock(shared.mutex);
++        const auto found = shared.stores.find(journal_path);
++        if (found == shared.stores.end())
++            return true;
++        store = found->second.get();
++    }
++    const std::lock_guard<std::mutex> writer(store->writer_mutex_);
++    return store->flush_locked();
++}
++
++bool PersonalNgramStore::flush_all()
++{
++    std::vector<PersonalNgramStore *> stores;
++    {
++        auto &shared = registry();
++        const std::lock_guard<std::mutex> lock(shared.mutex);
++        for (auto &entry : shared.stores)
++            stores.push_back(entry.second.get());
++    }
++    bool ok = true;
++    for (PersonalNgramStore *store : stores)
++    {
++        const std::lock_guard<std::mutex> writer(store->writer_mutex_);
++        ok = store->flush_locked() && ok;
++    }
++    return ok;
++}
++
++void PersonalNgramStore::forget(const std::string &journal_path, const PersonalNgramRows &rows)
++{
++    PersonalNgramStore *store = nullptr;
++    {
++        auto &shared = registry();
++        const std::lock_guard<std::mutex> lock(shared.mutex);
++        const auto found = shared.stores.find(journal_path);
++        if (found == shared.stores.end())
++            return;
++        store = found->second.get();
++    }
++    const std::lock_guard<std::mutex> writer(store->writer_mutex_);
++    // A stale model is rebuilt from disk on its next access, which already lacks the rows.
++    if (store->stale())
++        return;
++    {
++        const std::unique_lock<std::shared_mutex> lock(store->model_mutex_);
++        for (const auto &pair : rows.pairs)
++            store->model_.remove_pair(pair.previous, pair.word, pair.count);
++        for (const auto &triple : rows.triples)
++            store->model_.remove_triple(triple.earlier, triple.previous, triple.word, triple.count);
++    }
++    store->version_.fetch_add(1, std::memory_order_acq_rel);
++}
++
++void PersonalNgramStore::retract(const std::string &journal_path,
++                                 const std::vector<quanpin::PersonalTransition> &transitions)
++{
++    PersonalNgramStore *store = nullptr;
++    {
++        auto &shared = registry();
++        const std::lock_guard<std::mutex> lock(shared.mutex);
++        const auto found = shared.stores.find(journal_path);
++        if (found == shared.stores.end())
++            return;
++        store = found->second.get();
++    }
++    const std::lock_guard<std::mutex> writer(store->writer_mutex_);
++    if (store->stale())
++        return;
++    {
++        const std::unique_lock<std::shared_mutex> lock(store->model_mutex_);
++        for (const auto &transition : transitions)
++            store->model_.remove(transition);
++    }
++    store->version_.fetch_add(1, std::memory_order_acq_rel);
 +}
 +
 +void PersonalNgramStore::invalidate(const std::string &journal_path)
@@ -8807,6 +9872,9 @@
 +        loaded_invalidations_.load(std::memory_order_acquire) == invalidations)
 +        return;
 +
++    // A moved generation means close_default_user_database() ran, after which the file at this path may be another
++    // journal altogether. Counts loaded from the old one must not outlive a failed reload of the new one.
++    const bool reopened = loaded_generation_.load(std::memory_order_acquire) != generation;
 +    const auto now = std::chrono::steady_clock::now();
 +    if (now < retry_after_)
 +        return;
@@ -8837,9 +9905,22 @@
 +        // A busy, damaged or unreadable journal keeps the previous counts and stays stale, so a later access loads
 +        // again. The pause keeps a lasting failure from costing every keystroke a full read.
 +        retry_after_ = now + kReloadRetryPause;
++        if (reopened && !model_.empty())
++        {
++            {
++                const std::lock_guard<std::mutex> pending(pending_mutex_);
++                quanpin::PersonalNgram queued(model_.options());
++                apply_pending(queued);
++                const std::unique_lock<std::shared_mutex> lock(model_mutex_);
++                model_.swap(queued);
++            }
++            version_.fetch_add(1, std::memory_order_acq_rel);
++        }
 +        return;
 +    }
 +    {
++        const std::lock_guard<std::mutex> pending(pending_mutex_);
++        apply_pending(fresh);
 +        const std::unique_lock<std::shared_mutex> lock(model_mutex_);
 +        model_.swap(fresh);
 +    }
@@ -8949,36 +10030,97 @@
 +        return;
 +    }
 +    {
++        const std::lock_guard<std::mutex> pending(pending_mutex_);
++        apply_pending(fresh);
 +        const std::unique_lock<std::shared_mutex> lock(model_mutex_);
 +        model_.swap(fresh);
 +    }
 +    version_.fetch_add(1, std::memory_order_acq_rel);
 +}
 +
-+bool PersonalNgramStore::record(const std::vector<quanpin::PersonalTransition> &transitions)
++void PersonalNgramStore::apply_pending(quanpin::PersonalNgram &model) const
 +{
-+    if (transitions.empty())
++    for (const auto &transition : pending_)
++        model.add(transition);
++}
++
++void PersonalNgramStore::schedule_flush(bool now)
++{
++    const auto due = std::chrono::steady_clock::now() + (now ? std::chrono::steady_clock::duration::zero()
++                                                             : std::chrono::steady_clock::duration(kFlushDelay));
++    FlushWorker::instance().schedule(this, due, [](PersonalNgramStore *store) {
++        const std::lock_guard<std::mutex> writer(store->writer_mutex_);
++        (void)store->flush_locked();
++    });
++}
++
++bool PersonalNgramStore::flush_locked()
++{
++    std::vector<quanpin::PersonalTransition> batch;
++    {
++        const std::lock_guard<std::mutex> pending(pending_mutex_);
++        batch.swap(pending_);
++    }
++    if (batch.empty())
 +        return true;
-+    const std::lock_guard<std::mutex> writer(writer_mutex_);
-+    reload_locked();
-+    if (!open_connection_locked() || !write_locked(transitions))
++    if (!open_connection_locked() || !write_locked(batch))
++    {
++        {
++            // Back in front of anything queued meanwhile, so the next write keeps the order they were recorded in.
++            const std::lock_guard<std::mutex> pending(pending_mutex_);
++            batch.insert(batch.end(), std::make_move_iterator(pending_.begin()),
++                         std::make_move_iterator(pending_.end()));
++            pending_.swap(batch);
++        }
++        write_failed_.store(true, std::memory_order_release);
 +        return false;
++    }
++    write_failed_.store(false, std::memory_order_release);
 +    bool over_limit = false;
 +    {
-+        const std::unique_lock<std::shared_mutex> lock(model_mutex_);
-+        for (const auto &transition : transitions)
-+            model_.add(transition);
++        const std::shared_lock<std::shared_mutex> lock(model_mutex_);
 +        over_limit = model_.entries() > model_.options().max_transitions;
 +    }
-+    version_.fetch_add(1, std::memory_order_acq_rel);
 +    if (over_limit)
 +        decay_locked();
 +    return true;
 +}
++
++bool PersonalNgramStore::record(const std::vector<quanpin::PersonalTransition> &transitions)
++{
++    if (transitions.empty())
++        return true;
++    refresh();
++    if (!probed_.load(std::memory_order_acquire))
++    {
++        // Once per store, so a journal that cannot be written is reported on the commit that first tries.
++        const std::lock_guard<std::mutex> writer(writer_mutex_);
++        if (!probed_.load(std::memory_order_acquire))
++        {
++            if (!open_connection_locked())
++                return false;
++            probed_.store(true, std::memory_order_release);
++        }
++    }
++    std::size_t queued = 0;
++    {
++        const std::lock_guard<std::mutex> pending(pending_mutex_);
++        {
++            const std::unique_lock<std::shared_mutex> lock(model_mutex_);
++            for (const auto &transition : transitions)
++                model_.add(transition);
++        }
++        pending_.insert(pending_.end(), transitions.begin(), transitions.end());
++        queued = pending_.size();
++    }
++    version_.fetch_add(1, std::memory_order_acq_rel);
++    schedule_flush(queued >= kFlushBatch);
++    return !write_failed_.load(std::memory_order_acquire);
++}
 +} // namespace user_dictionary
 --- /dev/null
 +++ b/user_dictionary/personal_ngram_store.h
-@@ -0,0 +1,125 @@
+@@ -0,0 +1,188 @@
 +#pragma once
 +
 +#include "../common/sqlite_database.h"
@@ -9001,9 +10143,39 @@
 +// dictionary-state export: they are a record of what was typed.
 +bool ensure_personal_ngram_schema(sqlite3 *database);
 +
++// Rows of the two personal tables, as read from the journal.
++struct PersonalNgramRows
++{
++    struct Pair
++    {
++        std::string previous;
++
++        std::string word;
++
++        std::uint32_t count = 0;
++    };
++
++    struct Triple
++    {
++        std::string earlier;
++
++        std::string previous;
++
++        std::string word;
++
++        std::uint32_t count = 0;
++    };
++
++    std::vector<Pair> pairs;
++
++    std::vector<Triple> triples;
++};
++
 +// Deletes every personal row that mentions `word`, inside the caller's transaction. `schema` names the attached
-+// journal ("main" when the journal is the connection's own database).
-+bool delete_personal_ngram_word(sqlite3 *database, const std::string &schema, const std::string &word);
++// journal ("main" when the journal is the connection's own database). With `removed`, the deleted rows are read into
++// it first, so the in-memory model can be patched with PersonalNgramStore::forget() instead of reloaded.
++bool delete_personal_ngram_word(sqlite3 *database, const std::string &schema, const std::string &word,
++                                PersonalNgramRows *removed = nullptr);
 +
 +// Subtracts what record() added for these transitions, inside the caller's transaction, dropping rows that reach zero.
 +// A count halved by decay since then is floored rather than driven negative.
@@ -9017,9 +10189,15 @@
 +// connections (Windows cannot delete a directory holding an open database), and the next access reloads from disk
 +// outside the model lock before swapping the new counts in.
 +//
-+// Writes are serialised by one writer mutex per store, which covers the database transaction together with the
-+// in-memory update or reload that follows it. Without that, a decay reload could pick up another writer's committed
-+// increment that the other writer is about to apply a second time.
++// record() applies transitions in memory at once and queues them; a background thread writes the queue in one
++// transaction about two seconds after the first queued transition, or as soon as 64 are queued, and runs decay when
++// the model has grown past its limit. The keystroke that commits a word therefore never waits for SQLite. The queue
++// is also written by flush(), flush_all() (registered to run at exit), release_all() and before any other connection
++// edits these tables, so what a crash can lose is the last couple of seconds of context.
++//
++// Disk writes are serialised by one writer mutex per store, which covers each database transaction together with the
++// in-memory update or reload that follows it. A reload or decay rebuilds the model from disk and then re-applies the
++// transitions still queued, so nothing recorded is lost or counted twice.
 +class PersonalNgramStore
 +{
 +  public:
@@ -9056,6 +10234,15 @@
 +    static void release_all();
 +    // Marks the store of this path stale after another connection changed its tables. Creates nothing.
 +    static void invalidate(const std::string &journal_path);
++    // Writes the queue of this path's store, if there is one. Callers that edit the personal tables on their own
++    // connection call it first, so the edit sees every recorded transition. Creates nothing.
++    static bool flush(const std::string &journal_path);
++    // Writes every store's queue. False when any write failed; the failed transitions stay queued.
++    static bool flush_all();
++    // Subtracts rows another connection deleted (see delete_personal_ngram_word) from this path's in-memory model.
++    static void forget(const std::string &journal_path, const PersonalNgramRows &rows);
++    // Subtracts transitions another connection took back (see retract_personal_ngram) from the in-memory model.
++    static void retract(const std::string &journal_path, const std::vector<quanpin::PersonalTransition> &transitions);
 +
 +    PersonalNgramStore(const PersonalNgramStore &) = delete;
 +    PersonalNgramStore &operator=(const PersonalNgramStore &) = delete;
@@ -9063,7 +10250,9 @@
 +    // Loads from disk when stale. Cheap when not: two atomic loads.
 +    void refresh();
 +    Reader read();
-+    // Persists the transitions in one transaction, then applies them in memory. False leaves both untouched.
++    // Applies the transitions in memory and queues them for the background write. False when the journal cannot be
++    // opened on the first record of this store (nothing is applied then), or when an earlier background write failed
++    // (the transitions are still applied and queued, and the write is retried).
 +    bool record(const std::vector<quanpin::PersonalTransition> &transitions);
 +    // Changes whenever the in-memory counts change, so caches built from them can be keyed on it.
 +    std::uint64_t version() const
@@ -9075,6 +10264,11 @@
 +    PersonalNgramStore(std::string journal_path, const quanpin::PersonalNgramOptions &options);
 +
 +    bool stale() const;
++    // Writes the queued transitions and decays when over the limit. Caller holds writer_mutex_.
++    bool flush_locked();
++    // Adds the transitions still queued to `model`. Caller holds pending_mutex_.
++    void apply_pending(quanpin::PersonalNgram &model) const;
++    void schedule_flush(bool now);
 +    void reload_locked();
 +    bool load_from(sqlite3 *database, quanpin::PersonalNgram &model) const;
 +    bool open_connection_locked();
@@ -9102,11 +10296,22 @@
 +
 +    // After a failed load, no reload is attempted before this. Guarded by writer_mutex_.
 +    std::chrono::steady_clock::time_point retry_after_{};
++
++    // Recorded in memory, not yet on disk. Lock order: writer_mutex_, then pending_mutex_, then model_mutex_.
++    mutable std::mutex pending_mutex_;
++
++    std::vector<quanpin::PersonalTransition> pending_;
++
++    // Whether the first record() has checked that the journal opens.
++    std::atomic<bool> probed_{false};
++
++    // Set by a failed background write, reported by the next record() and cleared by a successful write.
++    std::atomic<bool> write_failed_{false};
 +};
 +} // namespace user_dictionary
 --- a/user_dictionary/user_dictionary_journal.cpp
 +++ b/user_dictionary/user_dictionary_journal.cpp
-@@ -1,8 +1,11 @@
+@@ -1,10 +1,13 @@
  #include "../contracts/assets/assets.h"
  #include "../contracts/dictionary/format.h"
  #include "user_dictionary_journal.h"
@@ -9118,7 +10323,11 @@
  #include <sqlite3.h>
  #include <atomic>
  #include <cctype>
-@@ -127,12 +130,27 @@ bool ensure_schema(sqlite3 *db)
+ #include <cstdint>
+ #include <cstdlib>
+@@ -125,16 +128,35 @@ bool ensure_schema(sqlite3 *db)
+         "CREATE TABLE IF NOT EXISTS candidate_selection_state("
+         "context_key TEXT NOT NULL,entry_key TEXT NOT NULL,value TEXT NOT NULL,"
          "selection_count INTEGER NOT NULL DEFAULT 0,"
          "PRIMARY KEY(context_key,entry_key,value));"
          "CREATE TABLE IF NOT EXISTS fixed_candidate_positions("
@@ -9141,6 +10350,10 @@
 +        "CREATE TABLE IF NOT EXISTS pinyin_autocorrect_suppressions("
 +        "input TEXT PRIMARY KEY,"
 +        "commits INTEGER NOT NULL CHECK(commits >= 1),"
++        "updated_at INTEGER NOT NULL DEFAULT(unixepoch()));"
++        "CREATE TABLE IF NOT EXISTS pinned_candidates("
++        "context_key TEXT PRIMARY KEY,"
++        "value TEXT NOT NULL,"
 +        "updated_at INTEGER NOT NULL DEFAULT(unixepoch()));";
 +    if (sqlite3_exec(db, sql, nullptr, nullptr, nullptr) != SQLITE_OK || !ensure_personal_ngram_schema(db))
          return false;
@@ -9148,7 +10361,11 @@
      bool has_user_inserted = false;
      auto columns = prepare(db, "PRAGMA table_info(user_dictionary_operations)");
      if (!columns)
-@@ -150,11 +168,13 @@ bool ensure_schema(sqlite3 *db)
+         return false;
+     while (sqlite3_step(columns.get()) == SQLITE_ROW)
+@@ -148,15 +170,17 @@ bool ensure_schema(sqlite3 *db)
+     }
+     columns.reset();
      if (!has_user_inserted && sqlite3_exec(db,
                                             "ALTER TABLE user_dictionary_operations "
                                             "ADD COLUMN user_inserted INTEGER NOT NULL DEFAULT 0",
@@ -9163,7 +10380,11 @@
  std::vector<std::string> pinyin_segments(const std::string &key)
  {
      std::vector<std::string> segments;
-@@ -350,10 +370,31 @@ bool apply_english(sqlite3 *db, const std::string &key, const std::string &value
+     size_t start = 0;
+     while (start <= key.size())
+@@ -348,14 +372,35 @@ bool apply_english(sqlite3 *db, const std::string &key, const std::string &value
+ } // namespace
+~
  std::string default_user_db_path()
  {
      return metasequoia::path_to_utf8(metasequoia::data_file_path(metasequoia::assets::user_journal));
@@ -9195,7 +10416,11 @@
  // Opening the journal costs a file open plus a full ensure_schema() pass, and
  // callers on the hot path pay it per keystroke: apply_fixed_positions runs while
  // the candidate list for every input is being built. Measured on Windows with a
-@@ -463,10 +504,12 @@ void close_default_user_database()
+ // busy disk, that open dominated the candidate build -- 90% of its time, with
+ // single calls reaching 737 ms -- which stalled the IME server's task thread long
+@@ -461,14 +506,16 @@ void close_default_user_database()
+ {
+     // Callers use this to let go of the journal before deleting or replacing the
      // data directory; a connection left open would block that on Windows. The
      // calling thread's connection closes now (once no operation still holds it);
      // other threads' connections close on their next journal access.
@@ -9208,7 +10433,11 @@
      // generation is deleted or replaced.
      metasequoia::local_modes::close_cached_local_databases();
  }
-@@ -493,26 +536,47 @@ bool record_upsert(const std::string &user_db_path, DictionaryKind kind, const s
+~
+ bool ensure_user_database(const std::string &user_db_path)
+@@ -491,30 +538,51 @@ bool record_upsert(const std::string &user_db_path, DictionaryKind kind, const s
+     UserDatabase db(user_db_path);
+     if (!db)
          return false;
      auto stmt = prepare_upsert_journal(db.get());
      return stmt && write_upsert_journal(stmt.get(), kind, key, value, weight, display);
@@ -9266,7 +10495,11 @@
                     const std::string &value)
  {
      UserDatabase db(user_db_path);
-@@ -538,10 +602,265 @@ bool is_user_inserted(const std::string &user_db_path, DictionaryKind kind, cons
+     if (!db)
+         return false;
+@@ -536,14 +604,294 @@ bool is_user_inserted(const std::string &user_db_path, DictionaryKind kind, cons
+     auto stmt = prepare(db.get(), "SELECT user_inserted FROM user_dictionary_operations "
+                                   "WHERE dictionary=?1 AND key=?2 AND value=?3 LIMIT 1");
      return stmt && bind_text(stmt.get(), 1, kind_name(kind)) && bind_text(stmt.get(), 2, key) &&
             bind_text(stmt.get(), 3, value) && sqlite3_step(stmt.get()) == SQLITE_ROW &&
             sqlite3_column_int(stmt.get(), 0) != 0;
@@ -9330,6 +10563,31 @@
 +        merge_delta(*delta, std::move(written));
 +    }
 +    return count;
++}
++
++bool record_pinned_candidate(const std::string &user_db_path, const std::string &context_key, const std::string &value)
++{
++    UserDatabase db(user_db_path);
++    if (!db)
++        return false;
++    auto stmt = prepare(db.get(), "INSERT INTO pinned_candidates(context_key,value) VALUES(?1,?2)"
++                                  " ON CONFLICT(context_key) DO UPDATE SET value=excluded.value,updated_at=unixepoch()");
++    return stmt && bind_text(stmt.get(), 1, context_key) && bind_text(stmt.get(), 2, value) &&
++           sqlite3_step(stmt.get()) == SQLITE_DONE;
++}
++
++bool is_pinned_candidate(const std::string &user_db_path, const std::string &context_key, const std::string &value)
++{
++    // A lookup must not create the journal.
++    std::error_code error;
++    if (!std::filesystem::exists(std::filesystem::u8path(user_db_path), error))
++        return false;
++    UserDatabase db(user_db_path);
++    if (!db)
++        return false;
++    auto stmt = prepare(db.get(), "SELECT 1 FROM pinned_candidates WHERE context_key=?1 AND value=?2");
++    return stmt && bind_text(stmt.get(), 1, context_key) && bind_text(stmt.get(), 2, value) &&
++           sqlite3_step(stmt.get()) == SQLITE_ROW;
 +}
 +
 +bool clear_pick_transition(const std::string &user_db_path, const std::string &previous_key,
@@ -9532,7 +10790,11 @@
  {
      auto db = open_database(main_db_path, SQLITE_OPEN_READONLY);
      const std::string table = pinyin_table(key);
-@@ -579,11 +898,12 @@ bool set_fixed_position(const std::string &user_db_path, const std::string &cont
+     if (!db || table.empty())
+         return false;
+@@ -577,15 +925,16 @@ bool set_fixed_position(const std::string &user_db_path, const std::string &cont
+     sqlite3_exec(db.get(), ok ? "COMMIT" : "ROLLBACK", nullptr, nullptr, nullptr);
+     return ok;
  }
 ~
  bool adjust_english_candidate_ranking(const std::string &english_db_path, const std::string &user_db_path,
@@ -9546,7 +10808,11 @@
          *ranking_changed = false;
      if (entry_key.empty() || value.empty() || ordered_candidates.empty() ||
          is_fixed(user_db_path, context_key, entry_key, value))
-@@ -598,10 +918,27 @@ bool adjust_english_candidate_ranking(const std::string &english_db_path, const
+         return false;
+     if (!force_top && mode == "disabled")
+@@ -596,14 +945,31 @@ bool adjust_english_candidate_ranking(const std::string &english_db_path, const
+         return false;
+     auto journal = prepare_upsert_journal(user_db.get());
      if (!journal)
          return false;
      if (!execute_sql(user_db.get(), "BEGIN IMMEDIATE"))
@@ -9574,7 +10840,11 @@
      {
          auto counter = prepare(
              user_db.get(),
-@@ -615,13 +952,15 @@ bool adjust_english_candidate_ranking(const std::string &english_db_path, const
+             "INSERT INTO candidate_selection_state(context_key,entry_key,value,selection_count) VALUES(?1,?2,?3,1)"
+             " ON CONFLICT(context_key,entry_key,value) DO UPDATE SET selection_count=selection_count+1"
+@@ -613,17 +979,19 @@ bool adjust_english_candidate_ranking(const std::string &english_db_path, const
+         {
+             rollback_user();
              return false;
          }
          if (sqlite3_column_int(counter.get(), 0) < trigger_count)
@@ -9591,7 +10861,11 @@
      }
 ~
      const auto selected = std::find_if(ordered_candidates.begin(), ordered_candidates.end(), [&](const WordItem &item) {
-@@ -638,13 +977,15 @@ bool adjust_english_candidate_ranking(const std::string &english_db_path, const
+         return item.source == CandidateSource::EnglishDictionary && item.pinyin == entry_key && item.word == value;
+     });
+@@ -636,17 +1004,19 @@ bool adjust_english_candidate_ranking(const std::string &english_db_path, const
+     if (rank == 0)
+     {
          auto reset = prepare(
              user_db.get(), "DELETE FROM candidate_selection_state WHERE context_key=?1 AND entry_key=?2 AND value=?3");
          const bool reset_ok = reset && bind_text(reset.get(), 1, context_key) && bind_text(reset.get(), 2, entry_key) &&
@@ -9608,7 +10882,11 @@
      size_t target = 0;
      if (!force_top && mode == "halve")
          target = rank / 2;
-@@ -664,35 +1005,69 @@ bool adjust_english_candidate_ranking(const std::string &english_db_path, const
+     else if (!force_top && mode == "linear")
+         target = rank > static_cast<size_t>((std::max)(1, linear_step))
+@@ -662,39 +1032,73 @@ bool adjust_english_candidate_ranking(const std::string &english_db_path, const
+~
+     auto english_db = open_database(english_db_path, SQLITE_OPEN_READWRITE);
      auto update = english_db
                        ? prepare(english_db.get(), "UPDATE english_words SET weight=?1 WHERE word=?2 AND display=?3")
                        : Stmt{};
@@ -9683,25 +10961,60 @@
      return ok;
  }
 ~
-@@ -745,12 +1120,17 @@ bool delete_dictionary_candidate(const std::string &dictionary_db_path, const st
+ bool delete_dictionary_candidate(const std::string &dictionary_db_path, const std::string &user_db_path,
+                                  DictionaryKind kind, const std::string &entry_key, const std::string &value)
+@@ -717,14 +1121,17 @@ bool delete_dictionary_candidate(const std::string &dictionary_db_path, const st
+         return false;
+     }
+     if (table.empty())
+         return false;
+     // Initialize the journal before attaching it; every operation owns its connections.
+     if (!ensure_user_database(user_db_path))
+         return false;
++    // The deletion below has to see the personal context still queued in memory, or it would be written back later.
++    if (kind == DictionaryKind::Pinyin && !PersonalNgramStore::flush(user_db_path))
++        return false;
+     auto database = open_database(dictionary_db_path, SQLITE_OPEN_READWRITE);
+     auto attach = database ? prepare(database.get(), "ATTACH DATABASE ?1 AS candidate_journal") : Stmt{};
+     if (!attach || !bind_text(attach.get(), 1, user_db_path) || sqlite3_step(attach.get()) != SQLITE_DONE)
+         return false;
+     attach.reset();
+     if (!execute_sql(database.get(), "BEGIN IMMEDIATE"))
+         return false;
+@@ -743,16 +1150,30 @@ bool delete_dictionary_candidate(const std::string &dictionary_db_path, const st
+                            " VALUES(?1,?2,?3,'delete')"
+                            " ON CONFLICT(dictionary,key,value) DO UPDATE SET operation='delete',weight=0,display='',"
                             " updated_at=unixepoch()");
      if (!journal || !bind_text(journal.get(), 1, kind_name(kind)) || !bind_text(journal.get(), 2, entry_key) ||
          !bind_text(journal.get(), 3, value) || sqlite3_step(journal.get()) != SQLITE_DONE)
          return rollback();
      journal.reset();
++    // A removed word is no longer pinned anywhere.
++    if (kind == DictionaryKind::Pinyin)
++    {
++        auto unpin = prepare(database.get(), "DELETE FROM candidate_journal.pinned_candidates WHERE value=?1");
++        if (!unpin || !bind_text(unpin.get(), 1, value) || sqlite3_step(unpin.get()) != SQLITE_DONE)
++            return rollback();
++    }
 +    // A removed word should not keep steering sentences through the context it was typed in.
-+    if (kind == DictionaryKind::Pinyin && !delete_personal_ngram_word(database.get(), "candidate_journal", value))
++    PersonalNgramRows removed_context;
++    if (kind == DictionaryKind::Pinyin &&
++        !delete_personal_ngram_word(database.get(), "candidate_journal", value, &removed_context))
 +        return rollback();
      if (!execute_sql(database.get(), "COMMIT"))
          return rollback();
 +    if (kind == DictionaryKind::Pinyin)
-+        PersonalNgramStore::invalidate(user_db_path);
++        PersonalNgramStore::forget(user_db_path, removed_context);
      return true;
  }
 ~
  bool delete_english_candidate(const std::string &english_db_path, const std::string &user_db_path,
                                const std::string &entry_key, const std::string &value)
-@@ -926,11 +1306,11 @@ void apply_fixed_positions(
+ {
+     return delete_dictionary_candidate(english_db_path, user_db_path, DictionaryKind::English, entry_key, value);
+@@ -924,15 +1345,15 @@ void apply_fixed_positions(
+     }
+ }
 ~
  bool adjust_candidate_ranking(const std::string &main_db_path, const std::string &user_db_path,
                                const std::string &context_key, const std::vector<WordItem> &ordered_candidates,
@@ -9714,7 +11027,11 @@
          *ranking_changed = false;
      if (entry_key.empty() || value.empty() || ordered_candidates.empty() ||
          is_fixed(user_db_path, context_key, entry_key, value))
-@@ -944,10 +1324,27 @@ bool adjust_candidate_ranking(const std::string &main_db_path, const std::string
+         return false;
+     if (!force_top && mode == "disabled")
+@@ -942,14 +1363,31 @@ bool adjust_candidate_ranking(const std::string &main_db_path, const std::string
+         return false;
+     auto journal_upsert = prepare_upsert_journal(user_db.get());
      if (!journal_upsert)
          return false;
      if (!execute_sql(user_db.get(), "BEGIN IMMEDIATE"))
@@ -9742,7 +11059,11 @@
      {
          auto counter = prepare(
              user_db.get(),
-@@ -961,13 +1358,15 @@ bool adjust_candidate_ranking(const std::string &main_db_path, const std::string
+             "INSERT INTO candidate_selection_state(context_key,entry_key,value,selection_count) VALUES(?1,?2,?3,1)"
+             " ON CONFLICT(context_key,entry_key,value) DO UPDATE SET selection_count=selection_count+1"
+@@ -959,17 +1397,19 @@ bool adjust_candidate_ranking(const std::string &main_db_path, const std::string
+         {
+             rollback_user();
              return false;
          }
          if (sqlite3_column_int(counter.get(), 0) < trigger_count)
@@ -9759,7 +11080,11 @@
      }
 ~
      // One list mixes several entry keys: the context "y" shows 一/yi beside 有/you, a nine-key
-@@ -1017,23 +1416,47 @@ bool adjust_candidate_ranking(const std::string &main_db_path, const std::string
+     // digit mixes whole single-character tables, and a re-segmentation puts 吉安 (ji'an) inside
+     // the jian list. All of them share one scale, because the user's 调频 means "move this above
+@@ -1015,27 +1455,51 @@ bool adjust_candidate_ranking(const std::string &main_db_path, const std::string
+     if (rank == 0)
+     {
          auto reset = prepare(
              user_db.get(), "DELETE FROM candidate_selection_state WHERE context_key=?1 AND entry_key=?2 AND value=?3");
          const bool reset_ok = reset && bind_text(reset.get(), 1, context_key) && bind_text(reset.get(), 2, entry_key) &&
@@ -9808,7 +11133,11 @@
      // caused local rebalances to create values around 10^12. A later bug used a
      // tiny `upper` (weight=1 rare words) as the staircase base and wrote
      // negative weights onto neighboring keys from query_series().
-@@ -1127,11 +1550,12 @@ bool adjust_candidate_ranking(const std::string &main_db_path, const std::string
+     std::int64_t new_weight = 0;
+     const bool top_near_limit =
+@@ -1125,50 +1589,55 @@ bool adjust_candidate_ranking(const std::string &main_db_path, const std::string
+         }
+         bool rebalance_ok = true;
          for (size_t i = target; i < rebalance_end && rebalance_ok; ++i)
          {
              if (!owns_entry_key[i])
@@ -9822,7 +11151,8 @@
          if (!rebalance_ok)
          {
              rollback_main();
-@@ -1140,11 +1564,12 @@ bool adjust_candidate_ranking(const std::string &main_db_path, const std::string
+             rollback_user();
+             return false;
          }
          new_weight = target == 0 ? base + kRebalanceGap
                                   : base - static_cast<std::int64_t>(target) * kRebalanceGap + kRebalanceGap / 2;
@@ -9836,7 +11166,7 @@
          rollback_main();
          rollback_user();
          return false;
-@@ -1152,21 +1577,24 @@ bool adjust_candidate_ranking(const std::string &main_db_path, const std::string
+     }
      auto reset = prepare(user_db.get(),
                           "DELETE FROM candidate_selection_state WHERE context_key=?1 AND entry_key=?2 AND value=?3");
      const bool reset_ok = reset && bind_text(reset.get(), 1, context_key) && bind_text(reset.get(), 2, entry_key) &&
@@ -9862,7 +11192,30 @@
      return true;
  }
 ~
-@@ -1419,10 +1847,16 @@ PersonalDictionaryEditResult edit_personal_dictionary(const RuntimePaths &paths,
+ ReplayResult replay(const std::string &user_db_path, const std::string &main_db_path,
+                     const std::string &english_db_path)
+@@ -1361,14 +1830,18 @@ PersonalDictionaryEditResult edit_personal_dictionary(const RuntimePaths &paths,
+         for (const auto &attachment :
+              {std::make_pair("personal_journal", journal_path), std::make_pair("replay_english", english_path)})
+         {
+             auto attach = prepare(db.get(), std::string("ATTACH DATABASE ?1 AS ") + attachment.first);
+             if (!attach || !bind_text(attach.get(), 1, attachment.second) || sqlite3_step(attach.get()) != SQLITE_DONE)
+                 return {false, "Cannot attach personal dictionary storage"};
+         }
++        // A removal below may delete personal context rows, which must include what is still queued in memory. Written
++        // before the transaction: the store writes on its own connection.
++        if (!PersonalNgramStore::flush(journal_path))
++            return {false, "Cannot write personal context"};
+         if (!execute_sql(db.get(), "BEGIN IMMEDIATE"))
+             return {false, "Cannot begin personal dictionary edit"};
+         const auto fail = [&](const char *message) {
+             execute_sql(db.get(), "ROLLBACK");
+             return PersonalDictionaryEditResult{false, message};
+         };
+         std::string payload;
+@@ -1417,25 +1890,35 @@ PersonalDictionaryEditResult edit_personal_dictionary(const RuntimePaths &paths,
+                 return fail("The entry changed; reload it before editing");
+             match.reset();
              if (!apply_personal_edit(db.get(), *old_entry, true))
                  return fail("Cannot remove previous personal entry");
          }
@@ -9872,29 +11225,33 @@
 +        const bool forget_context =
 +            old_entry && old_entry->kind == PersonalDictionaryKind::Pinyin &&
 +            !(new_entry && new_entry->kind == PersonalDictionaryKind::Pinyin && new_entry->value == old_entry->value);
-+        if (forget_context && !delete_personal_ngram_word(db.get(), "personal_journal", old_entry->value))
++        PersonalNgramRows removed_context;
++        if (forget_context &&
++            !delete_personal_ngram_word(db.get(), "personal_journal", old_entry->value, &removed_context))
 +            return fail("Cannot remove personal context");
          if (!request_id.empty())
          {
              auto receipt =
                  prepare(db.get(),
                          "INSERT INTO personal_journal.personal_dictionary_receipts(request_id,payload) VALUES(?1,?2)");
-@@ -1430,10 +1864,12 @@ PersonalDictionaryEditResult edit_personal_dictionary(const RuntimePaths &paths,
+             if (!receipt || !bind_text(receipt.get(), 1, request_id) || !bind_text(receipt.get(), 2, payload) ||
                  sqlite3_step(receipt.get()) != SQLITE_DONE)
                  return fail("Cannot save edit receipt");
          }
          if (!execute_sql(db.get(), "COMMIT"))
              return fail("Cannot commit personal dictionary edit");
 +        if (forget_context)
-+            PersonalNgramStore::invalidate(journal_path);
++            PersonalNgramStore::forget(journal_path, removed_context);
          return {true, {}};
      }
      catch (const std::exception &)
      {
          return {false, "Cannot access personal dictionary storage"};
+     }
+ }
 --- a/user_dictionary/user_dictionary_journal.h
 +++ b/user_dictionary/user_dictionary_journal.h
-@@ -1,8 +1,11 @@
+@@ -1,10 +1,13 @@
  #pragma once
 ~
 +#include <map>
@@ -9906,7 +11263,11 @@
  #include <optional>
  #include "../core/word_item.h"
 ~
-@@ -14,23 +17,82 @@ enum class DictionaryKind
+ namespace user_dictionary
+ {
+@@ -12,27 +15,91 @@ enum class DictionaryKind
+ {
+     Pinyin,
      Wubi,
      QuickPhrase,
      English,
@@ -9945,6 +11306,11 @@
 +int record_pick_transition(const std::string &user_db_path, const std::string &previous_key,
 +                           const std::string &previous_value, const std::string &key, const std::string &value,
 +                           LearningDelta *delta = nullptr);
++// The word the user pinned for a pinyin context key (see InputSession::pin_candidate), one per key. Personal context
++// reordering never moves a pinned leader; a later pin in the same context replaces it, and removing the word drops it.
++bool record_pinned_candidate(const std::string &user_db_path, const std::string &context_key, const std::string &value);
++// False when the journal does not exist; never creates it.
++bool is_pinned_candidate(const std::string &user_db_path, const std::string &context_key, const std::string &value);
 +bool clear_pick_transition(const std::string &user_db_path, const std::string &previous_key,
 +                           const std::string &previous_value, const std::string &key, const std::string &value,
 +                           LearningDelta *delta = nullptr);
@@ -9990,7 +11356,11 @@
  bool record_pinyin_upsert_from_database(const std::string &main_db_path, const std::string &key,
                                          const std::string &value,
                                          const std::string &user_db_path = default_user_db_path());
-@@ -44,20 +106,23 @@ struct ReplayResult
+~
+ struct ReplayResult
+@@ -42,24 +109,27 @@ struct ReplayResult
+     int failed = 0;
+     std::string error;
  };
 ~
  ReplayResult replay(const std::string &user_db_path, const std::string &main_db_path,
@@ -10016,3 +11386,5 @@
  // on statement/commit failures (not a cross-file power-loss guarantee in WAL mode).
  bool delete_dictionary_candidate(const std::string &dictionary_db_path, const std::string &user_db_path,
                                   DictionaryKind kind, const std::string &entry_key, const std::string &value);
+ bool delete_english_candidate(const std::string &english_db_path, const std::string &user_db_path,
+                               const std::string &entry_key, const std::string &value);

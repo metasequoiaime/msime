@@ -269,6 +269,7 @@ mod ffi {
         fn snapshot(self: &EngineSession) -> Result<EngineSnapshot>;
         fn online_query(self: &EngineSession) -> Result<OnlineQuerySnapshot>;
         fn reset_cache(self: Pin<&mut EngineSession>);
+        fn reset_context(self: Pin<&mut EngineSession>);
         fn apply_online_candidate(
             self: Pin<&mut EngineSession>,
             query: &OnlineQuerySnapshot,
@@ -683,6 +684,11 @@ impl Session {
     }
     pub fn reset_cache(&mut self) {
         self.inner.pin_mut().reset_cache()
+    }
+    /// Forgets the committed words the Engine's personal context learning follows, and the recent commits learning
+    /// undo tracks. Called when the text the next word lands in is no longer the text the last one went to.
+    pub fn reset_context(&mut self) {
+        self.inner.pin_mut().reset_context()
     }
     pub fn apply_online_candidate(
         &mut self,

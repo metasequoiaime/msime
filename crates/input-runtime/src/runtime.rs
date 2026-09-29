@@ -1506,8 +1506,10 @@ impl<E: InputEngine> Runtime<E> {
         self.hold_phrase_progress(false, false, false, "", &mut result);
         self.focused = focused;
         // A different client is a different sentence, so context never leaks
-        // from one application into another.
+        // from one application into another. The Engine's committed-word context follows the same rule: the next word
+        // no longer follows the last one, and no later pick may take back what a commit in the other client taught.
         self.ai_context.clear();
+        self.engine.reset_context();
         Ok(self.transition(result))
     }
 

@@ -935,6 +935,9 @@ EngineSnapshot EngineSession::snapshot() const {
 void EngineSession::reset_cache() {
     session_.reset_cache();
 }
+void EngineSession::reset_context() {
+    session_.reset_context();
+}
 OnlineQuerySnapshot EngineSession::online_query() const {
     OnlineQuerySnapshot output;
     const auto query = session_.online_query();

@@ -24,6 +24,7 @@ struct Fixture {
     snapshot_fails: bool,
     balanced_openings: Vec<u8>,
     cache_resets: usize,
+    context_resets: usize,
     /// Candidates this engine holds back until asked, standing in for the Engine's cap on a
     /// single-letter query. Empty means an engine that already returns everything it has.
     withheld: Vec<String>,
@@ -551,6 +552,9 @@ fn voice_control_rejects_zero_generation_without_connecting() {
     );
 }
 impl InputEngine for Fixture {
+    fn reset_context(&mut self) {
+        self.context_resets += 1;
+    }
     fn reset_cache(&mut self) -> Result<(), RuntimeError> {
         self.cache_resets += 1;
         Ok(())
@@ -905,6 +909,7 @@ fn runtime() -> Runtime<Fixture> {
             snapshot_fails: false,
             balanced_openings: Vec::new(),
             cache_resets: 0,
+            context_resets: 0,
             withheld: Vec::new(),
             sources: Vec::new(),
             remaining_after_select: None,
@@ -957,6 +962,7 @@ fn several_candidates_from_one_provider_take_their_seat_as_a_group() {
                 snapshot_fails: false,
                 balanced_openings: Vec::new(),
                 cache_resets: 0,
+                context_resets: 0,
                 withheld: Vec::new(),
                 sources,
                 remaining_after_select: None,
@@ -1076,6 +1082,7 @@ fn promoted_english_candidate_keeps_the_first_seat_with_cloud_and_ai() {
                 snapshot_fails: false,
                 balanced_openings: Vec::new(),
                 cache_resets: 0,
+                context_resets: 0,
                 withheld: Vec::new(),
                 sources,
                 remaining_after_select: None,
@@ -1198,6 +1205,7 @@ fn a_chosen_phrase_piece_waits_for_the_rest_of_the_phrase() {
                 snapshot_fails: false,
                 balanced_openings: Vec::new(),
                 cache_resets: 0,
+                context_resets: 0,
                 withheld: Vec::new(),
                 sources: Vec::new(),
                 remaining_after_select: remaining.map(str::to_owned),
@@ -1298,6 +1306,7 @@ fn a_phrase_piece_survives_the_reading_being_deleted() {
             snapshot_fails: false,
             balanced_openings: Vec::new(),
             cache_resets: 0,
+            context_resets: 0,
             withheld: Vec::new(),
             sources: Vec::new(),
             remaining_after_select: Some("p".into()),
@@ -1664,6 +1673,7 @@ fn candidate_codes_follow_candidates_in_page_and_complete_snapshots() {
             snapshot_fails: false,
             balanced_openings: Vec::new(),
             cache_resets: 0,
+            context_resets: 0,
             withheld: Vec::new(),
             sources: Vec::new(),
             remaining_after_select: None,
@@ -2419,6 +2429,17 @@ fn stale_views_and_other_sessions_cannot_select() {
     ));
 }
 #[test]
+fn focus_changes_end_the_engine_context() {
+    let mut runtime = runtime();
+    runtime.focus(true).unwrap();
+    assert_eq!(runtime.engine.context_resets, 1);
+    type_key(&mut runtime);
+    runtime.focus(false).unwrap();
+    assert_eq!(runtime.engine.context_resets, 2);
+    runtime.focus(true).unwrap();
+    assert_eq!(runtime.engine.context_resets, 3);
+}
+#[test]
 fn cache_maintenance_reaches_engine_without_acquiring_focus() {
     let mut runtime = runtime();
     let idle = runtime.dispatch(Action::ResetCache).unwrap();
@@ -2706,6 +2727,7 @@ fn withholding_runtime(offered: usize, withheld: usize, page_size: u8) -> Runtim
             snapshot_fails: false,
             balanced_openings: Vec::new(),
             cache_resets: 0,
+            context_resets: 0,
             withheld: (offered..offered + withheld)
                 .map(|n| format!("candidate-{n}"))
                 .collect(),
