@@ -4,12 +4,31 @@
 #include <array>
 #include <fstream>
 #ifdef _WIN32
+#include "StateRootLease.h"
 #include <windows.h>
 #endif
 
 namespace msime::windows {
 namespace {
 constexpr size_t max_store_bytes = 1024 * 1024;
+
+bool store_parent_is_safe(const std::filesystem::path &store) {
+#ifdef _WIN32
+  try {
+    auto parent = store.parent_path();
+    if (parent.empty())
+      parent = L".";
+    if (!parent.is_absolute())
+      parent = std::filesystem::absolute(parent);
+    reject_reparse_ancestors(parent);
+  } catch (...) {
+    return false;
+  }
+#else
+  (void)store;
+#endif
+  return true;
+}
 
 bool read_store_payload(std::ifstream &input, std::string &payload) {
   std::array<char, 8192> buffer{};
@@ -28,6 +47,8 @@ class StoreLock final {
 public:
   explicit StoreLock(const std::filesystem::path &store) {
 #ifdef _WIN32
+    if (!store_parent_is_safe(store))
+      return;
     auto lock_path = store;
     lock_path += ".lock";
     handle_ = CreateFileW(lock_path.c_str(), GENERIC_READ | GENERIC_WRITE,
@@ -75,6 +96,7 @@ std::vector<std::string> read_store(const std::filesystem::path &path) {
   try { const auto value = nlohmann::json::parse(payload); if (!value.is_array()) return {}; std::vector<std::string> result; for (const auto &item : value) { if (!item.is_string()) continue; auto text = normalize_clipboard_text(item.get<std::string>()); if (!text.empty() && result.size() < ClipboardHistory::max_items) result.push_back(std::move(text)); } return result; } catch (...) { return {}; }
 }
 bool write_store(const std::filesystem::path &path, const std::vector<std::string> &items) {
+  if (!store_parent_is_safe(path)) return false;
   std::error_code error;
   std::filesystem::create_directories(path.parent_path(), error);
   if (error) return false;

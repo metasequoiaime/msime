@@ -4,6 +4,9 @@
 #include <fstream>
 #include <stdexcept>
 #include <string>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 namespace {
 void require(bool value, int line) {
   if (!value)
@@ -96,6 +99,22 @@ int main() {
     output << "[\"" << std::string(1024 * 1024, 'x') << "\"]";
   }
   REQUIRE(history.load().empty());
+
+#ifdef _WIN32
+  // A replaced state subdirectory must not redirect the lock, temporary
+  // archive, or final store outside the state root.
+  const auto linked_directory = directory / "linked";
+  const auto outside_directory = directory / "outside";
+  std::filesystem::create_directory(outside_directory);
+  if (CreateSymbolicLinkW(linked_directory.c_str(), outside_directory.c_str(),
+                          SYMBOLIC_LINK_FLAG_DIRECTORY)) {
+    msime::windows::ClipboardHistory linked_history(
+        linked_directory / "history.json");
+    REQUIRE(!linked_history.add("synthetic-reparse"));
+    REQUIRE(!std::filesystem::exists(outside_directory / "history.json"));
+    std::filesystem::remove(linked_directory, error);
+  }
+#endif
 
   std::filesystem::remove_all(directory, error);
 }

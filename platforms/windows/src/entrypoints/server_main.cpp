@@ -205,6 +205,9 @@ std::string read_document(const std::filesystem::path &path) {
 void write_document_atomic(const std::filesystem::path &path, const std::string &document) {
   if (document.size() > kMaxConfigBytes)
     throw std::runtime_error("Configuration document oversized");
+#ifdef _WIN32
+  msime::windows::reject_reparse_ancestors(path.parent_path());
+#endif
   wchar_t temporary_name[MAX_PATH] = {};
   if (!GetTempFileNameW(path.parent_path().c_str(), L"msi", 0, temporary_name))
     throw std::runtime_error("Configuration temporary file unavailable");
@@ -504,6 +507,9 @@ void publish_switch_language_keybindings(const nlohmann::json &preferences) {
   values.character_set_ctrl_shift_f =
       bindings.value("toggle_character_set_ctrl_shift_f", true);
   try {
+#ifdef _WIN32
+    msime::windows::reject_reparse_ancestors(path.parent_path());
+#endif
     std::string existing;
     {
       std::ifstream input(path, std::ios::binary);
