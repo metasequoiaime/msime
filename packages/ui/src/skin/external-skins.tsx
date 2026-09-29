@@ -8,12 +8,23 @@ import { useToolbarCss, type ToolbarCssReader } from "./use-toolbar-css";
 import * as settings from "../settings/settings-style";
 import {
   customCandidateStyle,
+  normalizedColor,
   themeEntry,
   type GlobalTheme,
   type PackageCandidatePalette,
 } from "../theme/global-theme";
 
 type Palette = PackageCandidatePalette;
+export type SkinBackground = {
+  /** Package-relative; read through the host image reader. */
+  image: string;
+  fit: "cover" | "contain" | "stretch";
+  opacity: number;
+};
+/** One mode of the manifest's `[toolbar]` colours, normalized by the scan. */
+export type ToolbarPalette = Partial<
+  Record<"background" | "border" | "handle" | "divider" | "icon" | "hover", string | null>
+>;
 export type ExternalSkin = {
   id: string;
   name: string;
@@ -25,11 +36,19 @@ export type ExternalSkin = {
   layouts: string[];
   themes: string[];
   minWidthDip: number;
+  /** The card radius, 0-32; `null` keeps the preview's own. The keys below are optional because a document from before they existed has none of them. */
+  cornerRadiusDip?: number | null;
   decorationTopDip: number;
   decorationWidthDip: number;
+  /** The image drawn in the decoration band, set only for a decorated package. */
+  decorationImage?: string | null;
+  decorationAlign?: "left" | "center" | "right";
+  background?: SkinBackground | null;
+  toolbar?: { cornerRadiusDip: number | null; dark: ToolbarPalette; light: ToolbarPalette };
   toolbarStylesheet: string | null;
   preview: string | null;
   candidate: { dark: Palette; light: Palette };
+  license?: { code: string | null; assets: string | null; source: string | null } | null;
 };
 export type SkinCatalog = {
   directory: string;
@@ -41,6 +60,40 @@ export function dimension(value: number, maximum: number): number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= maximum
     ? value
     : 0;
+}
+
+/** The decoration band's image as the scan resolved it; a document without `decorationImage` predates it and drew its preview there. */
+export function decorationImage(
+  skin: Pick<ExternalSkin, "decorationImage" | "preview">,
+): string | null {
+  return skin.decorationImage === undefined ? skin.preview : skin.decorationImage;
+}
+
+/** The preview's geometry and toolbar properties for a package drawn in `theme`: minimum width, decoration band, card radius and the `[toolbar]` radius and colours. Colours are checked again before they reach a style, as every value from a manifest is. */
+export function skinGeometryStyle(
+  skin: ExternalSkin,
+  theme: "dark" | "light",
+): Record<string, string> {
+  const top = dimension(skin.decorationTopDip, 500);
+  const width = dimension(skin.decorationWidthDip, 1000);
+  const decorated = top > 0 && width > 0;
+  const style: Record<string, string> = {
+    "--msime-skin-min-width": `${dimension(skin.minWidthDip, 1000)}px`,
+    "--msime-skin-decoration-top": `${decorated ? top : 0}px`,
+    "--msime-skin-decoration-width": `${decorated ? width : 0}px`,
+  };
+  if (typeof skin.cornerRadiusDip === "number")
+    style["--msime-skin-radius"] = `${dimension(skin.cornerRadiusDip, 32)}px`;
+  const toolbar = skin.toolbar;
+  if (typeof toolbar?.cornerRadiusDip === "number")
+    style["--msime-toolbar-radius"] = `${dimension(toolbar.cornerRadiusDip, 32)}px`;
+  const colors = toolbar?.[theme] ?? {};
+  for (const key of ["background", "border", "handle", "divider", "icon", "hover"] as const) {
+    const value = colors[key];
+    const color = typeof value === "string" ? normalizedColor(value) : null;
+    if (color) style[`--msime-toolbar-${key}`] = color;
+  }
+  return style;
 }
 
 /** The package palette `resolve()` draws for `theme`: the declared one, or none, in which case the base is drawn alone. A package is never layered over its other mode. */
@@ -56,6 +109,31 @@ export function selectedBarCss(scope: string, palette: Palette | null): string[]
   return palette?.showSelectedBar === false
     ? [`.${scope} .first::before{display:none !important}`]
     : [];
+}
+
+/** The package background read through the host image reader, ready for `SkinCandidatePreview`; nothing is drawn while it loads, when it fails to load or decode, or without a reader. */
+export function usePreviewBackground(
+  readImage: SkinImageReader | undefined,
+  skin: Pick<ExternalSkin, "id" | "background">,
+  revision: number,
+) {
+  const background = skin.background ?? null;
+  const image = useSkinImage(readImage, skin.id, background?.image ?? null, revision);
+  const [decodeFailed, setDecodeFailed] = useState(false);
+  useEffect(() => setDecodeFailed(false), [image]);
+  const drawn =
+    background && image?.url && !decodeFailed
+      ? {
+          url: image.url,
+          fit: background.fit,
+          opacity: Math.min(1, Math.max(0, Number(background.opacity) || 0)),
+        }
+      : undefined;
+  return {
+    drawn,
+    failed: Boolean(image?.failed || decodeFailed),
+    onError: () => setDecodeFailed(true),
+  };
 }
 
 function ExternalSkinCard({
@@ -123,18 +201,17 @@ function ExternalSkinCard({
   // Card-only overrides must not change runtime compatibility or selection. A package over a built-in base is drawn in that base's mode, so the host mode does not rule it out.
   const compatible =
     skin.layouts.includes(layout) && (fixed !== null || skin.themes.includes(activeTheme));
-  const top = dimension(skin.decorationTopDip, 500);
-  const width = dimension(skin.decorationWidthDip, 1000);
-  const decorated = top > 0 && width > 0;
-  const image = useSkinImage(readImage, skin.id, decorated ? skin.preview : null, revision);
+  const decorated =
+    dimension(skin.decorationTopDip, 500) > 0 && dimension(skin.decorationWidthDip, 1000) > 0;
+  const decoration = decorated ? decorationImage(skin) : null;
+  const image = useSkinImage(readImage, skin.id, decoration, revision);
   const [decodeFailed, setDecodeFailed] = useState(false);
   useEffect(() => setDecodeFailed(false), [image]);
+  const background = usePreviewBackground(readImage, skin, revision);
   const geometry = {
     // The package drawn over its base theme, as `resolve()` layers them; a card has no pickers.
     ...customCandidateStyle(skin.base, undefined, palette),
-    "--msime-skin-min-width": `${dimension(skin.minWidthDip, 1000)}px`,
-    "--msime-skin-decoration-top": `${decorated ? top : 0}px`,
-    "--msime-skin-decoration-width": `${decorated ? width : 0}px`,
+    ...skinGeometryStyle(skin, theme),
   } as CSSProperties;
   return (
     <article
@@ -181,6 +258,7 @@ function ExternalSkinCard({
         className={`${settings.skinCardPreview} ${scope}${theme === "light" ? " theme-light" : ""}`}
         style={geometry}
         data-preview-theme={theme}
+        data-decoration-align={skin.decorationAlign ?? "right"}
         aria-hidden="true"
       >
         <div className={settings.skinPreviewStage} data-skin-stage="">
@@ -189,6 +267,8 @@ function ExternalSkinCard({
             decorated={decorated}
             image={decodeFailed ? undefined : image?.url}
             onImageError={() => setDecodeFailed(true)}
+            background={background.drawn}
+            onBackgroundError={background.onError}
           />
         </div>
         <div className={settings.skinPreviewStage} data-skin-stage="">
@@ -197,6 +277,8 @@ function ExternalSkinCard({
             decorated={decorated}
             image={decodeFailed ? undefined : image?.url}
             onImageError={() => setDecodeFailed(true)}
+            background={background.drawn}
+            onBackgroundError={background.onError}
           />
         </div>
         {toolbarPreview && (
@@ -210,12 +292,12 @@ function ExternalSkinCard({
           当前浏览器无法隐藏皮肤的选中条，其余配色照常预览。
         </p>
       )}
-      {(image?.failed || decodeFailed) && (
+      {(image?.failed || decodeFailed || background.failed) && (
         <p role="status" className="skin-card-description external-skin-resource-note">
           皮肤图片加载失败，保留基础预览。可刷新皮肤重试。
         </p>
       )}
-      {skin.preview && decorated && !readImage && (
+      {(decoration || skin.background) && !readImage && (
         <p className="skin-card-description external-skin-resource-note">
           当前宿主不支持皮肤图片预览。
         </p>

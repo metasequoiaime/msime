@@ -142,7 +142,10 @@ export function themeCandidateStyle(id: string | undefined): CSSProperties {
 
 /** One mode of an external package's candidate palette as the skin scan (`msime_client_skin_catalog`) carries it: manifest colours as written, and the selected-bar switch. */
 export type PackageCandidatePalette = Partial<
-  Record<"surface" | "border" | "text" | "number" | "accent" | "selected" | "hover", string | null>
+  Record<
+    "surface" | "border" | "text" | "number" | "accent" | "selected" | "hover" | "translation",
+    string | null
+  >
 > & { showSelectedBar?: boolean | null };
 
 /** `theme::normalized_color`: a package colour as `#RRGGBB` or `#RRGGBBAA` (uppercase), converting `#RGB`, `rgb()`/`rgba()` with 0-255 channels and a 0-1 alpha, and `transparent`; `null` for anything else. */
@@ -181,7 +184,7 @@ function withAlpha(color: string, alpha: string): string {
   return `${color.slice(0, 7)}${alpha}`;
 }
 
-/** The candidate palette `resolve()` gives a custom theme over `base`, layered the same way: the base palette, then `packagePalette` (the package's palette for the drawn mode, only when the package is drawn in that layout and mode), then the pickers. A text picker also sets the numbers at `9D` alpha unless the number picker is set, and over a built-in base the selected row, hover fill, selected text and selected numbers follow the final accent, text and numbers unless set. `null` when nothing is set, like the Rust palette. `custom-theme-parity.json`, written by the Rust tests, pins this to `resolve()`. */
+/** The candidate palette `resolve()` gives a custom theme over `base`, layered the same way: the base palette, then `packagePalette` (the package's palette for the drawn mode, only when the package is drawn in that layout and mode), then the pickers. A text picker also sets the numbers at `9D` alpha unless the number picker is set, the secondary text is the package's translation colour or else the numbers, and over a built-in base the selected row, hover fill, selected text and selected numbers follow the final accent, text and numbers unless set. `null` when nothing is set, like the Rust palette. `custom-theme-parity.json`, written by the Rust tests, pins this to `resolve()`. */
 export function customCandidatePalette(
   base: GlobalTheme | undefined,
   colors: CustomCandidateColors | undefined,
@@ -205,7 +208,7 @@ export function customCandidatePalette(
     border: slot("border") ?? basePalette?.border ?? null,
     text,
     number,
-    secondary: number,
+    secondary: fromPackage(packagePalette?.translation) ?? number,
     accent,
     selected: slot("selected") ?? (derived && accent ? withAlpha(accent, "24") : null),
     selected_text: derived ? accent : null,

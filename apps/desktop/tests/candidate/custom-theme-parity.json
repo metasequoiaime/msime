@@ -58,6 +58,37 @@
     }
   },
   {
+    "base": "paper",
+    "colors": {
+      "text": "#abcdef"
+    },
+    "dark": false,
+    "expected": {
+      "accent": "#2C7A4B",
+      "border": "#0000001F",
+      "hover": "#ABCDEF0F",
+      "number": "#ABCDEF9D",
+      "secondary": "#01020380",
+      "selected": "#2C7A4B24",
+      "selected_number": "#ABCDEF9D",
+      "selected_text": "#2C7A4B",
+      "show_selected_bar": null,
+      "surface": "#F7F5F0",
+      "text": "#ABCDEF"
+    },
+    "name": "a package translation colour is the secondary text",
+    "package": {
+      "candidate": {
+        "dark": {},
+        "light": {
+          "number": "#123456",
+          "translation": "rgba(1, 2, 3, .5)"
+        }
+      },
+      "themes": ["light"]
+    }
+  },
+  {
     "base": "night",
     "colors": {},
     "dark": false,

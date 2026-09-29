@@ -621,6 +621,18 @@
     object-fit: contain;
     pointer-events: none;
   }
+
+  /* The manifest's `decoration.align`; right is the default above. */
+  & [data-decoration-align="left"] .skin-decoration-image,
+  & [data-decoration-align="left"] .candidate .containerParent:not(:empty)::before {
+    left: 0;
+    right: auto;
+  }
+  & [data-decoration-align="center"] .skin-decoration-image,
+  & [data-decoration-align="center"] .candidate .containerParent:not(:empty)::before {
+    left: calc(50% - var(--msime-skin-decoration-width, 0px) / 2);
+    right: auto;
+  }
 }
 
 @utility skin-card-preview {
@@ -649,6 +661,22 @@
   & .container.preedit-hidden > .pinyin {
     display: none;
   }
+  /* The manifest's `candidate_window.background`: over the surface, under the candidates, clipped to the card's rounded outline. Fit and opacity are inline. */
+  & .container:has(> .skin-background-image) {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+  }
+  & .container:has(> .skin-background-image) > :not(.skin-background-image) {
+    position: relative;
+  }
+  & .skin-background-image {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
   & .wnd-h {
     /* Preview card is narrower than a real candwnd host; constrain to parent. */
     max-width: 100%;
@@ -661,7 +689,7 @@
       margin-left: 0px;
       background: var(--cand-bg);
       padding: 2px 1px;
-      border-radius: 6px;
+      border-radius: var(--msime-skin-radius, 6px);
       box-shadow: var(--cand-shadow);
       min-width: 7em;
       /* Allow wrapping so the sample row is not clipped in settings preview.
@@ -779,7 +807,7 @@
       margin-left: 0px;
       background: var(--cand-bg);
       padding: 2px;
-      border-radius: 6px;
+      border-radius: var(--msime-skin-radius, 6px);
       box-shadow: var(--cand-shadow);
       min-width: 7em;
       width: min(720px, fit-content);
@@ -886,7 +914,8 @@
     --ftb-gap: 6px;
     --ftb-pad-left: 8px;
     --ftb-pad-right: 4px;
-    --ftb-radius: 8px;
+    /* A package's `[toolbar]` sets the `--msime-toolbar-*` properties on the card; unset ones keep these defaults. */
+    --ftb-radius: var(--msime-toolbar-radius, 8px);
     --ftb-handle-width: 2.5px;
     --ftb-handle-height: 14px;
   }
@@ -898,8 +927,8 @@
     padding: 0 calc(var(--ftb-pad-right) * var(--ftb-scale)) 0
       calc(var(--ftb-pad-left) * var(--ftb-scale));
     gap: calc(var(--ftb-gap) * var(--ftb-scale));
-    background-color: #1a1a1a;
-    border: 1.4px solid rgba(255, 255, 255, 0.15);
+    background-color: var(--msime-toolbar-background, #1a1a1a);
+    border: 1.4px solid var(--msime-toolbar-border, rgba(255, 255, 255, 0.15));
     border-radius: calc(var(--ftb-radius) * var(--ftb-scale));
     box-shadow: 4px 4px 4px rgba(0, 0, 0, 0.4);
     backdrop-filter: blur(8px);
@@ -910,14 +939,14 @@
     height: calc(var(--ftb-handle-height) * var(--ftb-scale));
     margin-right: 0;
     border-radius: calc(2px * var(--ftb-scale));
-    background: var(--accent-color);
+    background: var(--msime-toolbar-handle, var(--accent-color));
   }
   & .ftb-preview-host .divider {
     align-self: stretch;
     width: calc(1.2px * var(--ftb-scale));
     height: auto;
     margin: 0 0 0 calc(4px * var(--ftb-scale));
-    background-color: rgba(255, 255, 255, 0.15);
+    background-color: var(--msime-toolbar-divider, rgba(255, 255, 255, 0.15));
   }
   & .ftb-preview-host .icon {
     display: flex;
@@ -925,7 +954,7 @@
     justify-content: center;
     width: calc(var(--ftb-icon-size) * var(--ftb-scale));
     height: calc(var(--ftb-icon-size) * var(--ftb-scale));
-    color: #fff;
+    color: var(--msime-toolbar-icon, #fff);
     border-radius: calc(6px * var(--ftb-scale));
     font-family: "Segoe UI Symbol", "Microsoft YaHei", sans-serif;
     font-size: calc(var(--ftb-icon-size) * 0.833 * var(--ftb-scale));
@@ -949,15 +978,15 @@
     display: block;
   }
   &[data-preview-theme="light"] .ftb-preview-host .status-bar {
-    background-color: #ffffff;
-    border: 1.4px solid rgba(0, 0, 0, 0.12);
+    background-color: var(--msime-toolbar-background, #ffffff);
+    border: 1.4px solid var(--msime-toolbar-border, rgba(0, 0, 0, 0.12));
     box-shadow: 4px 4px 8px rgba(0, 0, 0, 0.12);
   }
   &[data-preview-theme="light"] .ftb-preview-host .divider {
-    background-color: rgba(0, 0, 0, 0.12);
+    background-color: var(--msime-toolbar-divider, rgba(0, 0, 0, 0.12));
   }
   &[data-preview-theme="light"] .ftb-preview-host .icon {
-    color: #1a1a1a;
+    color: var(--msime-toolbar-icon, #1a1a1a);
   }
   &[data-preview-theme="light"] .ftb-preview-host .icon svg {
     filter: invert(1);

@@ -14,11 +14,20 @@ const samples = [
   ["拧", "nG"],
 ] as const;
 
+/** A package background as the preview draws it: an image URL from the bounded host reader, never one from the manifest. */
+export type PreviewBackground = {
+  url: string;
+  fit: "cover" | "contain" | "stretch";
+  opacity: number;
+};
+
 export function SkinCandidatePreview({
   orientation,
   decorated = false,
   image,
   onImageError,
+  background,
+  onBackgroundError,
   count = 6,
   preedit = true,
   helpcode = false,
@@ -27,6 +36,8 @@ export function SkinCandidatePreview({
   decorated?: boolean;
   image?: string;
   onImageError?: () => void;
+  background?: PreviewBackground;
+  onBackgroundError?: () => void;
   count?: number;
   preedit?: boolean;
   /** Off unless the caller says otherwise: the core's default scheme is 全拼, whose helper codes stay out of the candidate window by default. */
@@ -36,6 +47,18 @@ export function SkinCandidatePreview({
   const visibleCount = Number.isFinite(count) ? clamp(Math.trunc(count), 1, 9) : 6;
   const content = (
     <div className={`container${preedit ? "" : " preedit-hidden"}`}>
+      {background && (
+        <img
+          className="skin-background-image"
+          src={background.url}
+          alt=""
+          style={{
+            objectFit: background.fit === "stretch" ? "fill" : background.fit,
+            opacity: background.opacity,
+          }}
+          onError={onBackgroundError}
+        />
+      )}
       <div className="row pinyin" hidden={!preedit}>
         <div className="text">
           ni'mf

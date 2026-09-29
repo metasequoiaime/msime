@@ -1,9 +1,12 @@
 import { useEffect, useId, useMemo, useState, type CSSProperties } from "react";
 import type { Preferences } from "../index";
 import {
+  decorationImage,
   dimension,
   drawnPackagePalette,
   selectedBarCss,
+  skinGeometryStyle,
+  usePreviewBackground,
   type ExternalSkin,
   type SkinCatalog,
 } from "./external-skins";
@@ -90,19 +93,18 @@ function LoadedPreview({
       setPaletteFailed(true);
     }
   }, [hideBar, scope]);
-  const top = dimension(skin.decorationTopDip, 500),
-    width = dimension(skin.decorationWidthDip, 1000);
-  const decorated = top > 0 && width > 0;
-  const image = useSkinImage(readImage, skin.id, decorated ? skin.preview : null, 0);
+  const decorated =
+    dimension(skin.decorationTopDip, 500) > 0 && dimension(skin.decorationWidthDip, 1000) > 0;
+  const decoration = decorated ? decorationImage(skin) : null;
+  const image = useSkinImage(readImage, skin.id, decoration, 0);
   const [decodeFailed, setDecodeFailed] = useState(false);
   useEffect(() => setDecodeFailed(false), [image]);
+  const background = usePreviewBackground(readImage, skin, 0);
   const geometry = {
     ...candidatePaletteStyle(palette),
     ...candidateFontStyle(preferences),
     ...candidateFamilyStyle(preferences),
-    "--msime-skin-min-width": `${dimension(skin.minWidthDip, 1000)}px`,
-    "--msime-skin-decoration-top": `${decorated ? top : 0}px`,
-    "--msime-skin-decoration-width": `${decorated ? width : 0}px`,
+    ...skinGeometryStyle(skin, theme),
   } as CSSProperties;
   return (
     <div className={decorated ? "external-skin-decorated" : undefined}>
@@ -111,6 +113,7 @@ function LoadedPreview({
         className={`${settings.skinCardPreview} appearance-candidate-preview ${scope}`}
         style={geometry}
         data-preview-theme={theme}
+        data-decoration-align={skin.decorationAlign ?? "right"}
         data-font-size={candidateFontSize(preferences.candidate_font_size)}
         aria-hidden="true"
       >
@@ -123,14 +126,18 @@ function LoadedPreview({
             decorated={decorated}
             image={decodeFailed ? undefined : image?.url}
             onImageError={() => setDecodeFailed(true)}
+            background={background.drawn}
+            onBackgroundError={background.onError}
           />
         </div>
       </div>
       {paletteFailed && <p role="status">当前浏览器无法隐藏皮肤的选中条，其余配色照常预览。</p>}
-      {(image?.failed || decodeFailed) && (
+      {(image?.failed || decodeFailed || background.failed) && (
         <p role="status">皮肤图片加载失败，保留基础预览。可刷新预览重试。</p>
       )}
-      {decorated && skin.preview && !readImage && <p role="status">当前宿主不支持皮肤图片预览。</p>}
+      {(decoration || skin.background) && !readImage && (
+        <p role="status">当前宿主不支持皮肤图片预览。</p>
+      )}
     </div>
   );
 }

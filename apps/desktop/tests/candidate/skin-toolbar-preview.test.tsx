@@ -96,9 +96,10 @@ test("toolbar preview contains upstream static icons without scripts, IDs or hos
   }
 });
 
+// jsdom does not substitute custom properties, so the computed value is the declaration itself: a package's `--msime-toolbar-background`, falling back to the upstream colour.
 test.each([
-  ["dark", "rgb(26, 26, 26)"],
-  ["light", "rgb(255, 255, 255)"],
+  ["dark", "var(--msime-toolbar-background, #1a1a1a)"],
+  ["light", "var(--msime-toolbar-background, #ffffff)"],
 ])("%s toolbar uses the upstream palette", (appearance, surface) => {
   const mounted = render(
     <>

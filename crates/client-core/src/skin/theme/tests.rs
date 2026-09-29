@@ -772,6 +772,12 @@ fn web_custom_theme_mirror_cases_match_resolve() {
             "colors": {},
         },
         {
+            "name": "a package translation colour is the secondary text",
+            "base": "paper", "dark": false,
+            "package": {"themes": ["light"], "candidate": {"light": {"number": "#123456", "translation": "rgba(1, 2, 3, .5)"}, "dark": {}}},
+            "colors": {"text": "#abcdef"},
+        },
+        {
             "name": "the package number and converted notations are drawn",
             "base": "night", "dark": false,
             "package": {"themes": ["dark"], "candidate": {"light": {}, "dark": {"number": "#123456", "surface": "rgb(1, 2, 3)"}}},

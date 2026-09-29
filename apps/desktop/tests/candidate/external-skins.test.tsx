@@ -950,3 +950,90 @@ test("the Windows skin page keeps the toolbar preview", async () => {
   expect(within(builtin).getByText("深色候选窗、悬浮工具栏与键盘")).toBeTruthy();
   expect(builtin.querySelectorAll("[data-skin-stage]")).toHaveLength(3);
 });
+
+// The keys a msime-skins package adds: its own decoration image and alignment, a background, a card radius and a toolbar palette.
+const styledCatalog: SkinCatalog = {
+  ...catalog,
+  packages: [
+    {
+      ...catalog.packages[0],
+      preview: "preview.png",
+      decorationTopDip: 104,
+      decorationWidthDip: 96,
+      decorationImage: "assets/character.png",
+      decorationAlign: "left",
+      cornerRadiusDip: 12,
+      background: { image: "assets/background.png", fit: "stretch", opacity: 0.35 },
+      toolbar: {
+        cornerRadiusDip: 8,
+        dark: { background: "#141B33", handle: "#5B9BFF", icon: "red;background:url(x)" },
+        light: { background: "#F4F8FF" },
+      },
+    },
+  ],
+};
+
+test("a styled package draws its decoration image, alignment, background, radius and toolbar", async () => {
+  const readImage = vi.fn().mockResolvedValue(imageData);
+  render(
+    <ExternalSkins
+      {...props}
+      activeTheme="dark"
+      toolbarPreview
+      scan={async () => styledCatalog}
+      readImage={readImage}
+    />,
+  );
+  refresh();
+  const card = await screen.findByRole("article");
+  await waitFor(() => expect(card.querySelectorAll("img.skin-background-image")).toHaveLength(2));
+  // The decoration comes from `decorationImage`, not the preview.
+  expect(readImage).toHaveBeenCalledWith("sample", "assets/character.png");
+  expect(readImage).toHaveBeenCalledWith("sample", "assets/background.png");
+  expect(readImage).not.toHaveBeenCalledWith("sample", "preview.png");
+  for (const layout of ["horizontal", "vertical"]) {
+    const image = card.querySelector<HTMLImageElement>(
+      `[data-preview-layout="${layout}"] .container > img.skin-background-image`,
+    )!;
+    expect(image.getAttribute("src")).toBe(skinImageUrl(imageData));
+    expect(image.style.objectFit).toBe("fill");
+    expect(image.style.opacity).toBe("0.35");
+  }
+  const preview = card.querySelector<HTMLElement>("[data-skin-preview]")!;
+  expect(preview.dataset.decorationAlign).toBe("left");
+  expect(drawn(card, "--msime-skin-radius")).toBe("12px");
+  expect(drawn(card, "--msime-toolbar-radius")).toBe("8px");
+  expect(drawn(card, "--msime-toolbar-background")).toBe("#141B33");
+  expect(drawn(card, "--msime-toolbar-handle")).toBe("#5B9BFF");
+  // A value that is not a colour never reaches the style.
+  expect(drawn(card, "--msime-toolbar-icon")).toBe("");
+  expect(preview.getAttribute("style")).not.toContain("url(");
+  fireEvent.click(within(card).getByRole("button", { name: "预览浅色" }));
+  expect(drawn(card, "--msime-toolbar-background")).toBe("#F4F8FF");
+  expect(drawn(card, "--msime-toolbar-handle")).toBe("");
+});
+
+test("a background that fails to load keeps the plain card and says so", async () => {
+  const readImage = vi.fn(async (_id: string, relative: string) => {
+    if (relative === "assets/background.png") throw new Error("synthetic");
+    return imageData;
+  });
+  render(<ExternalSkins {...props} scan={async () => styledCatalog} readImage={readImage} />);
+  refresh();
+  const card = await screen.findByRole("article");
+  expect(await within(card).findByText(/皮肤图片加载失败/)).toBeTruthy();
+  expect(card.querySelector("img.skin-background-image")).toBeNull();
+  expect(card.querySelectorAll("img.skin-decoration-image")).toHaveLength(2);
+});
+
+test("the geometry stylesheet aligns the decoration and clips the background to the card", () => {
+  const card = utilityCss("skin-card-preview").replace(/\s+/g, "");
+  expect(geometryCss.replace(/\s+/g, "")).toContain(
+    '[data-decoration-align="left"].skin-decoration-image',
+  );
+  expect(card).toContain("border-radius:var(--msime-skin-radius,6px)");
+  expect(card).toContain(
+    ".container:has(>.skin-background-image){position:relative;overflow:hidden",
+  );
+  expect(card).toContain("--ftb-radius:var(--msime-toolbar-radius,8px)");
+});
