@@ -1,7 +1,6 @@
 package app.msime.client;
 
 import java.io.File;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -40,7 +39,7 @@ public final class CandidateTranslationPolicy {
         for (String value : translation.split("\\R", -1)) {
             String gloss = value.trim();
             if (gloss.isEmpty() || result.contains(gloss)
-                    || gloss.getBytes(StandardCharsets.UTF_8).length > 4096
+                    || TextPolicy.utf8Length(gloss) > 4096
                     || TextPolicy.hasControl(gloss)) continue;
             result.add(gloss);
             if (result.size() == 2) break;

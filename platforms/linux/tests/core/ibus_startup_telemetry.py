@@ -102,6 +102,14 @@ def run_host(host, registration_bus, scratch, recovered):
         options = scratch / "options/runtime-options.json"
         options.parent.mkdir()
         options.write_text('{"preferences":{}}')
+        if not recovered:
+            queue = scratch / "state/msime"
+            queue.mkdir(parents=True)
+            (queue / "telemetry.json").write_text(json.dumps([
+                {"id": f"old-{index}", "kind": "download", "platform": "fixture", "version": "0"}
+                for index in range(64)
+            ] + [{"id": "oversized", "kind": "download", "platform": "fixture",
+                  "version": "0", "message": "x" * (1024 * 1024)}]))
         proxy = f"http://127.0.0.1:{endpoint.port}"
         environment = {
             "PATH": os.environ.get("PATH", "/usr/bin:/bin"),

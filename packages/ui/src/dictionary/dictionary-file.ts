@@ -1,3 +1,6 @@
+import { utf8ByteLength } from "../core/text";
+import { dictionaryFileSizeLabel } from "./dictionary-size";
+
 // Dictionary exports in the wild are not all UTF-8: Windows tools still write
 // UTF-16 with a BOM and GB18030. Ported from the shipped settings page so an
 // imported file reads the same here.
@@ -37,20 +40,13 @@ export const MAX_DICTIONARY_FILE_BYTES = 32 * 1024 * 1024;
 /** The bound for a host whose dictionary client sends a file to the input method in one request instead of batching it the way the desktop bridge does: the mobile hosts and HarmonyOS. It is the bound the page has always applied to them; their own request bound refuses what it cannot take. */
 export const UNBATCHED_DICTIONARY_FILE_BYTES = 1_048_576;
 
-/** A byte bound as the page states it: whole mebibytes as MB, anything smaller as KB. */
-function fileSizeLabel(bytes: number): string {
-  return bytes >= 1_048_576 && bytes % 1_048_576 === 0
-    ? `${bytes / 1_048_576} MB`
-    : `${Math.floor(bytes / 1024)} KB`;
-}
-
 /** Read and decode a dictionary file of at most `maxBytes`, refusing a larger one before reading it. A caller whose backend takes less than the desktop bridge passes its own bound. */
 export async function readDictionaryFile(
   file: File,
   maxBytes: number = MAX_DICTIONARY_FILE_BYTES,
 ): Promise<string> {
   if (file.size > maxBytes)
-    throw new Error(`文件不能超过 ${fileSizeLabel(maxBytes)}，请拆分后分别导入。`);
+    throw new Error(`文件不能超过 ${dictionaryFileSizeLabel(maxBytes)}，请拆分后分别导入。`);
   return decodeDictionaryBytes(new Uint8Array(await file.arrayBuffer()));
 }
 
@@ -69,12 +65,12 @@ const personalDictionaryKinds = new Set<PersonalDictionaryImportEntry["kind"]>([
 ]);
 
 function personalEntryIdentity(entry: PersonalDictionaryImportEntry): string {
-  return `${entry.kind}:${new TextEncoder().encode(entry.key).length}:${entry.key}${entry.value}`;
+  return `${entry.kind}:${utf8ByteLength(entry.key)}:${entry.key}${entry.value}`;
 }
 
 /** Parse the Apple-compatible bounded personal dictionary envelope before previewing it. */
 export function parsePersonalDictionaryImport(text: string): PersonalDictionaryImportEntry[] {
-  if (new TextEncoder().encode(text).length > 1_048_576) throw new Error("文件不能超过 1 MB。");
+  if (utf8ByteLength(text) > 1_048_576) throw new Error("文件不能超过 1 MB。");
   let file: unknown;
   try {
     file = JSON.parse(text);
@@ -121,7 +117,7 @@ export function parsePersonalDictionaryImport(text: string): PersonalDictionaryI
       value: word,
       weight: weight as number,
     };
-    const keyBytes = new TextEncoder().encode(normalizedKey).length;
+    const keyBytes = utf8ByteLength(normalizedKey);
     const keyValid =
       entry.kind === "pinyin"
         ? normalizedKey.length > 0 && keyBytes <= 512 && /^[a-z']+$/.test(normalizedKey)
@@ -133,7 +129,7 @@ export function parsePersonalDictionaryImport(text: string): PersonalDictionaryI
     if (
       !keyValid ||
       word.length === 0 ||
-      new TextEncoder().encode(word).length > 4096 ||
+      utf8ByteLength(word) > 4096 ||
       (entry.kind === "quickPhrase"
         ? /[\u0000-\u0008\u000b-\u001f\u007f]/.test(word)
         : /[\u0000-\u001f\u007f]/.test(word)) ||
@@ -167,6 +163,16 @@ export const personalDictionaryExample = JSON.stringify(
 );
 
 export const DICTIONARY_PAGE_SIZE = 100;
+
+export type LocalDictionaryKind = "pinyin" | "wubi" | "quick_phrase" | "english";
+export type LocalDictionaryFormat = "standard" | "windows" | "rime" | "hans";
+export type DictionaryEntry = {
+  kind: LocalDictionaryKind;
+  key: string;
+  value: string;
+  weight: number;
+  source?: "user" | "bundled";
+};
 
 /// Status line for one page of results, matching the shipped pager.
 export function dictionaryPageStatus(offset: number, count: number, hasMore: boolean): string {

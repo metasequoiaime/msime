@@ -83,6 +83,18 @@ final class LocalSpeechModelTests: XCTestCase {
     XCTAssertThrowsError(try LocalSpeechModelManifest(directory: model))
   }
 
+  func testTokenVocabularyReadIsBounded() throws {
+    let model = try makeModel(id: "large-tokens", manifest: [
+      "kind": "online_transducer",
+      "files": ["tokens": "tokens.txt"],
+    ], files: ["tokens.txt"])
+    try Data(repeating: 0x41, count: LocalSpeechModelManifest.maximumTokensBytes + 1)
+      .write(to: model.appendingPathComponent("tokens.txt"))
+
+    XCTAssertThrowsError(try LocalSpeechModelManifest(directory: model)
+      .textFile("tokens", maximumBytes: LocalSpeechModelManifest.maximumTokensBytes))
+  }
+
   func testManifestRejectsFilesOutsideModelDirectory() throws {
     let model = try makeModel(id: "escape", manifest: [
       "kind": "offline_sense_voice",
@@ -120,6 +132,17 @@ final class LocalSpeechModelTests: XCTestCase {
     let root = scratch.appendingPathComponent("voice-models", isDirectory: true)
     let outside = try makeModel(id: "outside", manifest: ["kind": "online_transducer", "files": [:]], files: [])
     XCTAssertNil(LocalSpeechModelLocation.resolve(storedPath: outside.path, root: root))
+  }
+
+  func testMovedModelCannotEscapeManagedRootThroughASymlink() throws {
+    let root = scratch.appendingPathComponent("voice-models", isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let outside = try makeModel(id: "zipformer", manifest: ["kind": "online_transducer", "files": [:]], files: [])
+    let link = root.appendingPathComponent("zipformer", isDirectory: true)
+    try FileManager.default.createSymbolicLink(at: link, withDestinationURL: outside)
+
+    let old = "/private/var/mobile/Containers/Data/Application/OLD/Library/Application Support/voice-models/zipformer"
+    XCTAssertNil(LocalSpeechModelLocation.resolve(storedPath: old, root: root))
   }
 
   func testCatalogEntriesDecodeWithDefaultsForMissingFields() throws {

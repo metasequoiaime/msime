@@ -263,14 +263,7 @@ impl ClipboardHistoryStore {
         // it would let another process lock a different inode at the same path.
         let mut lock_path = self.path.as_os_str().to_owned();
         lock_path.push(".lock");
-        let mut options = fs::OpenOptions::new();
-        options.create(true).truncate(false).read(true).write(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let lock = options.open(lock_path)?;
+        let lock = crate::file_lock::open_private_lock_file(lock_path)?;
         crate::file_lock::exclusive(&lock)?;
         Ok(lock)
     }

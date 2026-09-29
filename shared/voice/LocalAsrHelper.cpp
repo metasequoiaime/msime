@@ -5,6 +5,7 @@
 // `msime-voice-local --model <dir> --wav <file>` transcribes a 16 kHz mono 16-bit WAV file and prints the text, for tests and for checking an installed model by hand.
 
 #include "LocalAsr.h"
+#include "VoiceProviders.h"
 
 #include <msime/voice/stt_service.h>
 #include <nlohmann/json.hpp>
@@ -21,6 +22,7 @@
 #include <cstring>
 #include <deque>
 #include <fstream>
+#include <filesystem>
 #include <iostream>
 #include <memory>
 #include <mutex>
@@ -42,6 +44,9 @@ namespace {
 
 using msime::voice::LocalAsrOptions;
 using msime::voice::LocalAsrSession;
+
+constexpr std::size_t kMaxWavBytes = 44 + msime::voice::local_asr_sample_limit * 2;
+constexpr std::size_t kMaxRequestLineBytes = 1024 * 1024;
 
 std::mutex output_mutex;
 
@@ -93,7 +98,15 @@ std::vector<float> read_wav(const std::string &path) {
   std::ifstream input(path, std::ios::binary);
   if (!input)
     throw std::runtime_error("cannot open " + path);
-  std::vector<char> data((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+  std::error_code error;
+  const auto length = std::filesystem::file_size(path, error);
+  if (error)
+    throw std::runtime_error("cannot stat " + path);
+  if (length > kMaxWavBytes)
+    throw std::runtime_error(path + " is too large for local recognition");
+  std::vector<char> data(static_cast<std::size_t>(length));
+  if (!data.empty() && !input.read(data.data(), static_cast<std::streamsize>(data.size())))
+    throw std::runtime_error("cannot read " + path);
   auto u16 = [&](std::size_t at) { return static_cast<uint16_t>(static_cast<unsigned char>(data[at]) | static_cast<unsigned char>(data[at + 1]) << 8); };
   auto u32 = [&](std::size_t at) { return static_cast<uint32_t>(u16(at)) | static_cast<uint32_t>(u16(at + 2)) << 16; };
   if (data.size() < 12 || std::memcmp(data.data(), "RIFF", 4) != 0 || std::memcmp(data.data() + 8, "WAVE", 4) != 0)
@@ -159,6 +172,7 @@ private:
 #if !defined(_WIN32)
     std::string pending;
     std::array<char, 8192> buffer{};
+    bool discarding_line = false;
     for (;;) {
       pollfd descriptors[] = {{stop_pipe_[0], POLLIN, 0}, {STDIN_FILENO, POLLIN, 0}};
       const int ready = ::poll(descriptors, 2, -1);
@@ -177,16 +191,46 @@ private:
       pending.append(buffer.data(), static_cast<size_t>(count));
       for (;;) {
         const auto newline = pending.find('\n');
-        if (newline == std::string::npos) break;
+        if (newline == std::string::npos) {
+          if (!discarding_line && pending.size() > kMaxRequestLineBytes) {
+            emit({{"type", "error"}, {"message", "request too large"}});
+            pending.clear();
+            discarding_line = true;
+          }
+          break;
+        }
         auto line = pending.substr(0, newline);
         pending.erase(0, newline + 1);
+        if (discarding_line) {
+          discarding_line = false;
+          continue;
+        }
         handle_line(std::move(line));
       }
     }
 #else
     std::string line;
-    while (std::getline(std::cin, line)) {
-      handle_line(std::move(line));
+    line.reserve(kMaxRequestLineBytes);
+    bool discarding_line = false;
+    char character = '\0';
+    while (std::cin.get(character)) {
+      if (character == '\n') {
+        if (discarding_line) {
+          emit({{"type", "error"}, {"message", "request too large"}});
+          discarding_line = false;
+          line.clear();
+        } else {
+          handle_line(std::move(line));
+          line.clear();
+        }
+      } else if (!discarding_line) {
+        if (line.size() == kMaxRequestLineBytes) {
+          discarding_line = true;
+          line.clear();
+        } else {
+          line.push_back(character);
+        }
+      }
     }
 #endif
     std::lock_guard<std::mutex> lock(mutex_);
@@ -196,6 +240,10 @@ private:
 
   void handle_line(std::string line) {
     if (line.empty()) return;
+    if (line.size() > kMaxRequestLineBytes) {
+      emit({{"type", "error"}, {"message", "request too large"}});
+      return;
+    }
     nlohmann::json message;
     try {
       message = nlohmann::json::parse(line);

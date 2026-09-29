@@ -1,7 +1,7 @@
 //! Cooperative cross-process access to prepared dictionaries and their user journal.
 //! Lock files are stable coordination objects and must not be removed.
 
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io;
 use std::path::Path;
 
@@ -33,14 +33,9 @@ impl DictionaryAccess {
         roots.dedup();
         let mut files = Vec::new();
         for root in roots {
-            let mut options = OpenOptions::new();
-            options.read(true).write(true).create(true).truncate(false);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                options.mode(0o600);
-            }
-            let file = options.open(root.join(".msime-dictionary-access.lock"))?;
+            let file = crate::file_lock::open_private_lock_file(
+                root.join(".msime-dictionary-access.lock"),
+            )?;
             let acquired = if exclusive {
                 crate::file_lock::try_exclusive(&file)?
             } else {

@@ -11,6 +11,7 @@ import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import app.msime.client.R;
+import app.msime.client.keyboard.KeyboardGeometry;
 import app.msime.client.TypingStatisticsModel;
 import app.msime.client.TypingStatisticsModel.Section;
 import com.google.android.material.button.MaterialButton;
@@ -178,7 +179,7 @@ public final class StatisticsFragment extends HomeTabFragment {
             // 画到最早那条记录为止，上限一年：数据本来就攒着一年，固定三十天看不出月与月之间的差。
             int span = statistics.recordedSpan(day);
             int days = span <= 0 ? TREND_DAY_FLOOR
-                : Math.min(TREND_DAY_LIMIT, Math.max(TREND_DAY_FLOOR, span));
+                : KeyboardGeometry.bounded(span, TREND_DAY_FLOOR, TREND_DAY_LIMIT);
             int[] series = statistics.trend(day, days);
             TrendChart chart = view.findViewById(R.id.statistics_trend);
             ((TextView) view.findViewById(R.id.statistics_trend_title))

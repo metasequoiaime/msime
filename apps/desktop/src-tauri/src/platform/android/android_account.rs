@@ -7,16 +7,18 @@ use crate::platform::mobile::mobile_account_helpers::{
     account_preferences_schema as shared_account_preferences_schema,
     account_profile as shared_account_profile, account_rename as shared_account_rename,
     account_request_code as shared_account_request_code, account_status as shared_account_status,
-    call, clear_snapshot_previews_after, cloud_dictionary_account_request, parse_snapshot_token,
-    snapshot_command_error, snapshot_response_without_account, PendingSnapshot, SnapshotMetadata,
+    call, clear_snapshot_previews, clear_snapshot_previews_after, cloud_dictionary_account_request,
+    replace_pending_snapshot, snapshot_command_error, snapshot_response_without_account,
+    take_pending_snapshot, valid_mobile_haptic_strength, validate_pending_snapshot,
+    PendingSnapshot, SnapshotMetadata,
 };
 use crate::platform::mobile::mobile_account_preferences::{
     frequency_account_preferences, insert_bool, insert_integer, insert_string,
 };
 use crate::platform::mobile::mobile_community::MobileCommunityState;
 use crate::shared::account_dto::{
-    ChallengeResponse, ChatModelsResponse, ChatResponse, PreferenceSchemaResponse, ProfileResponse,
-    StatusResponse, UserResponse,
+    providers_response_without_apple, ChallengeResponse, ChatModelsResponse, ChatResponse,
+    PreferenceSchemaResponse, ProfileResponse, ProvidersResponse, StatusResponse, UserResponse,
 };
 use msime_client_core::account::{
     merge_account_preferences, validate_account_preferences, AccountChatMessage, AccountError,
@@ -25,13 +27,13 @@ use msime_client_core::account::{
 };
 use msime_client_core::cloud::dictionary::DictionaryKind;
 use msime_client_core::cloud::snapshot_validation::{
-    has_keys as snapshot_has_keys, valid_timestamp as snapshot_timestamp,
+    has_keys as snapshot_has_keys, parse_strict_object, required_integer as snapshot_integer,
+    required_text as snapshot_text, valid_timestamp as snapshot_timestamp,
 };
 use msime_client_core::preferences::{
     FrequencyMode, InputScheme, Preferences, PreferencesSnapshot, PreferencesStore,
     ShuangpinProfile, ThemeMode, TouchKeyboardLayout, TouchKeyboardSkin,
 };
-use serde::de::{DeserializeSeed, MapAccess, Visitor};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -45,6 +47,10 @@ use tauri::{Manager, Runtime, State, Wry};
 use uuid::Uuid;
 
 const MAX_SECURE_SESSION_BYTES: usize = 16 * 1024;
+
+fn valid_secure_session(value: &str) -> bool {
+    !value.is_empty() && value.len() <= MAX_SECURE_SESSION_BYTES
+}
 
 #[derive(Deserialize)]
 struct LoadResponse {
@@ -102,7 +108,7 @@ impl<R: Runtime> AccountSessionStorage for AndroidAccountStorage<R> {
         response
             .value
             .map(|value| {
-                if value.is_empty() || value.len() > MAX_SECURE_SESSION_BYTES {
+                if !valid_secure_session(&value) {
                     return Err(AccountError::Storage);
                 }
                 serde_json::from_str(&value).map_err(|_| AccountError::Storage)
@@ -112,7 +118,7 @@ impl<R: Runtime> AccountSessionStorage for AndroidAccountStorage<R> {
 
     fn save(&self, session: &SavedAccountSession) -> Result<(), AccountError> {
         let value = serde_json::to_string(session).map_err(|_| AccountError::Storage)?;
-        if value.is_empty() || value.len() > MAX_SECURE_SESSION_BYTES {
+        if !valid_secure_session(&value) {
             return Err(AccountError::Storage);
         }
         self.0
@@ -172,129 +178,6 @@ pub fn init() -> TauriPlugin<Wry> {
         .build()
 }
 
-struct StrictSnapshotValue {
-    depth: usize,
-}
-
-impl<'de> DeserializeSeed<'de> for StrictSnapshotValue {
-    type Value = Value;
-
-    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        struct SnapshotValueVisitor {
-            depth: usize,
-        }
-
-        impl<'de> Visitor<'de> for SnapshotValueVisitor {
-            type Value = Value;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("a strict JSON object value")
-            }
-
-            fn visit_bool<E>(self, value: bool) -> Result<Self::Value, E> {
-                Ok(Value::Bool(value))
-            }
-
-            fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E> {
-                Ok(Value::Number(value.into()))
-            }
-
-            fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E> {
-                Ok(Value::Number(value.into()))
-            }
-
-            fn visit_f64<E>(self, _value: f64) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                Err(E::custom("floating point values are not allowed"))
-            }
-
-            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E> {
-                Ok(Value::String(value.to_owned()))
-            }
-
-            fn visit_string<E>(self, value: String) -> Result<Self::Value, E> {
-                Ok(Value::String(value))
-            }
-
-            fn visit_none<E>(self) -> Result<Self::Value, E> {
-                Ok(Value::Null)
-            }
-
-            fn visit_unit<E>(self) -> Result<Self::Value, E> {
-                Ok(Value::Null)
-            }
-
-            fn visit_seq<A>(self, _sequence: A) -> Result<Self::Value, A::Error>
-            where
-                A: serde::de::SeqAccess<'de>,
-            {
-                Err(serde::de::Error::custom("arrays are not allowed"))
-            }
-
-            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
-            where
-                A: MapAccess<'de>,
-            {
-                if self.depth > 1 {
-                    return Err(serde::de::Error::custom("nested objects are not allowed"));
-                }
-                let mut object = serde_json::Map::new();
-                while let Some(key) = map.next_key::<String>()? {
-                    if object.contains_key(&key) {
-                        return Err(serde::de::Error::custom("duplicate JSON key"));
-                    }
-                    let value = map.next_value_seed(StrictSnapshotValue {
-                        depth: self.depth + 1,
-                    })?;
-                    object.insert(key, value);
-                }
-                Ok(Value::Object(object))
-            }
-        }
-
-        deserializer.deserialize_any(SnapshotValueVisitor { depth: self.depth })
-    }
-}
-
-fn parse_snapshot_object(bytes: &[u8]) -> Result<serde_json::Map<String, Value>, AccountError> {
-    let mut deserializer = serde_json::Deserializer::from_slice(bytes);
-    let value = StrictSnapshotValue { depth: 0 }
-        .deserialize(&mut deserializer)
-        .map_err(|_| AccountError::Invalid)?;
-    deserializer.end().map_err(|_| AccountError::Invalid)?;
-    value.as_object().cloned().ok_or(AccountError::Invalid)
-}
-
-fn snapshot_text<'a>(
-    data: &'a serde_json::Map<String, Value>,
-    key: &str,
-    maximum: usize,
-) -> Result<&'a str, AccountError> {
-    let value = data
-        .get(key)
-        .and_then(Value::as_str)
-        .filter(|value| {
-            !value.is_empty()
-                && value.len() <= maximum
-                && !value
-                    .bytes()
-                    .any(|byte| matches!(byte, 0 | b'\t' | b'\n' | b'\r'))
-        })
-        .ok_or(AccountError::Invalid)?;
-    Ok(value)
-}
-
-fn snapshot_integer(data: &serde_json::Map<String, Value>, key: &str) -> Result<i64, AccountError> {
-    data.get(key)
-        .and_then(Value::as_i64)
-        .ok_or(AccountError::Invalid)
-}
-
 fn inspect_snapshot_record(
     map: &serde_json::Map<String, Value>,
     revision: i64,
@@ -313,8 +196,8 @@ fn inspect_snapshot_record(
         .get("data")
         .and_then(Value::as_object)
         .ok_or(AccountError::Invalid)?;
-    let code = snapshot_text(data, "code", 512)?.to_owned();
-    let word = snapshot_text(data, "word", 2048)?.to_owned();
+    let code = snapshot_text(data, "code", 512, AccountError::Invalid)?.to_owned();
+    let word = snapshot_text(data, "word", 2048, AccountError::Invalid)?.to_owned();
     match kind {
         "entry" | "overlay" => {
             let outer_keys_valid = if kind == "overlay" {
@@ -376,8 +259,8 @@ fn inspect_snapshot_record(
             {
                 return Err(AccountError::Invalid);
             }
-            let weight = snapshot_integer(data, "weight")?;
-            let record_revision = snapshot_integer(data, "revision")?;
+            let weight = snapshot_integer(data, "weight", AccountError::Invalid)?;
+            let record_revision = snapshot_integer(data, "revision", AccountError::Invalid)?;
             if !(0..=100_000_000).contains(&weight)
                 || (weight == 0 && !deleted)
                 || !(1..=revision).contains(&record_revision)
@@ -420,13 +303,13 @@ fn inspect_snapshot_record(
             if !snapshot_has_keys(data, &["context", "code", "word", value_key]) {
                 return Err(AccountError::Invalid);
             }
-            let context = snapshot_text(data, "context", 512)?.to_owned();
+            let context = snapshot_text(data, "context", 512, AccountError::Invalid)?.to_owned();
             if context.len() + code.len() + word.len() > 2048 {
                 return Err(AccountError::Invalid);
             }
             let identity = (context.clone(), code, word);
             if kind == "position" {
-                let position = snapshot_integer(data, "position")?;
+                let position = snapshot_integer(data, "position", AccountError::Invalid)?;
                 if !(1..=5).contains(&position)
                     || !positions.insert(identity)
                     || !position_slots.insert((context, position))
@@ -435,7 +318,7 @@ fn inspect_snapshot_record(
                 }
                 Ok(3)
             } else {
-                let count = snapshot_integer(data, "count")?;
+                let count = snapshot_integer(data, "count", AccountError::Invalid)?;
                 if !(0..=10).contains(&count) || !selections.insert(identity) {
                     return Err(AccountError::Invalid);
                 }
@@ -503,7 +386,7 @@ fn inspect_snapshot(path: &std::path::Path) -> Result<SnapshotMetadata, AccountE
         if total_bytes > MAX_BYTES || line.is_empty() {
             return Err(AccountError::Invalid);
         }
-        let map = parse_snapshot_object(&line)?;
+        let map = parse_strict_object(&line).map_err(|_| AccountError::Invalid)?;
         let kind = map
             .get("type")
             .and_then(Value::as_str)
@@ -576,9 +459,7 @@ fn inspect_snapshot(path: &std::path::Path) -> Result<SnapshotMetadata, AccountE
                 let expected_sha = map
                     .get("sha256")
                     .and_then(Value::as_str)
-                    .filter(|value| {
-                        value.len() == 64 && value.bytes().all(|b| b.is_ascii_hexdigit())
-                    })
+                    .filter(|value| msime_client_core::is_ascii_hex(value, 64))
                     .ok_or(AccountError::Invalid)?;
                 // Cloned, not consumed: the loop keeps reading after the footer
                 // so that trailing data is rejected, and those iterations still
@@ -679,22 +560,15 @@ async fn dictionary_snapshot_preview(
     .await
     .map_err(|_| snapshot_command_error())?
     .map_err(account_command_error)?;
-    let old = {
-        let mut pending = previews.lock().map_err(|_| snapshot_command_error())?;
-        let old = pending
-            .drain()
-            .map(|(_, item)| item.path)
-            .collect::<Vec<_>>();
-        pending.insert(
-            token.clone(),
-            PendingSnapshot {
-                account_id,
-                path,
-                metadata: metadata.clone(),
-            },
-        );
-        old
-    };
+    let old = replace_pending_snapshot(
+        &previews,
+        token.clone(),
+        PendingSnapshot {
+            account_id,
+            path,
+            metadata: metadata.clone(),
+        },
+    )?;
     for path in old {
         let _ = fs::remove_file(path);
     }
@@ -708,31 +582,13 @@ async fn dictionary_snapshot_enqueue(
     state: State<'_, AccountState>,
     token: String,
 ) -> Result<Value, crate::CommandError> {
-    let parsed = parse_snapshot_token(&token)?;
-    let pending = {
-        let mut previews = state
-            .snapshot_previews
-            .lock()
-            .map_err(|_| snapshot_command_error())?;
-        previews
-            .remove(&parsed.to_string())
-            .ok_or_else(|| crate::CommandError {
-                code: "snapshot_invalid",
-            })?
-    };
+    let pending = take_pending_snapshot(&state.snapshot_previews, &token)?;
     let session = Arc::clone(&state.session);
     let platform = state.platform.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
         let path = pending.path.clone();
         let result = (|| {
-            let profile = session.profile()?;
-            if profile.user.id != pending.account_id {
-                return Err(AccountError::Conflict);
-            }
-            let changes = session.dictionary_changes(pending.metadata.cloud_revision, 1)?;
-            if !changes.changes.is_empty() {
-                return Err(AccountError::Conflict);
-            }
+            validate_pending_snapshot(&session, &pending)?;
             let state = platform
                 .run_mobile_plugin::<Value>("snapshotState", ())
                 .map_err(|_| AccountError::Unavailable)?;
@@ -882,16 +738,7 @@ async fn dictionary_snapshot_cancel(
     .await
     .map_err(|_| snapshot_command_error())?
     .map_err(account_command_error)?;
-    let old = {
-        let mut pending = previews.lock().map_err(|_| snapshot_command_error())?;
-        pending
-            .drain()
-            .map(|(_, item)| item.path)
-            .collect::<Vec<_>>()
-    };
-    for path in old {
-        let _ = fs::remove_file(path);
-    }
+    clear_snapshot_previews(&previews);
     let result = tauri::async_runtime::spawn_blocking(move || {
         platform
             .run_mobile_plugin::<Value>("cancelSnapshot", CancelSnapshotRequest { account_id })
@@ -900,12 +747,6 @@ async fn dictionary_snapshot_cancel(
     .await
     .map_err(|_| snapshot_command_error())??;
     snapshot_response_without_account(result)
-}
-
-#[derive(Serialize)]
-pub struct ProvidersResponse {
-    email: bool,
-    phone: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -1094,10 +935,7 @@ pub async fn account_providers(
     state: State<'_, AccountState>,
 ) -> Result<ProvidersResponse, crate::CommandError> {
     call(state, |session| {
-        session.providers().map(|providers| ProvidersResponse {
-            email: providers.get("email") == Some(&true),
-            phone: providers.get("phone") == Some(&true) || providers.get("sms") == Some(&true),
-        })
+        session.providers().map(providers_response_without_apple)
     })
     .await
 }
@@ -1178,7 +1016,7 @@ pub async fn cloud_dictionary_request(
 ) -> Result<Value, crate::CommandError> {
     use msime_host_api::cloud_dictionary::CloudDictionaryRequest;
 
-    if let Some(result) = cloud_dictionary_account_request(state, &request).await {
+    if let Some(result) = cloud_dictionary_account_request(&state, &request).await {
         return result;
     }
     match request {
@@ -1204,6 +1042,7 @@ pub async fn cloud_dictionary_request(
         }
         CloudDictionaryRequest::SnapshotStatus => dictionary_snapshot_status(state).await,
         CloudDictionaryRequest::SnapshotCancel => dictionary_snapshot_cancel(state).await,
+        _ => unreachable!("account cloud dictionary request was handled above"),
     }
 }
 
@@ -1226,10 +1065,7 @@ pub async fn app_icon_set(
     state: State<'_, AccountState>,
     style: String,
 ) -> Result<AppIconResponse, crate::CommandError> {
-    if !matches!(
-        style.as_str(),
-        "classic" | "forest" | "sky" | "dusk" | "vermilion"
-    ) {
+    if !msime_tauri_mobile_platform::is_supported_app_icon_style(&style) {
         return Err(crate::CommandError {
             code: "invalid_app_icon",
         });
@@ -1428,26 +1264,31 @@ fn integer_setting(
     }
 }
 
+fn supports_schema_field(
+    schema: &AccountPreferenceSchema,
+    key: &str,
+    expected: &str,
+) -> Result<bool, AccountError> {
+    match schema.fields.get(key) {
+        None => Ok(false),
+        Some(field)
+            if field.value_type == expected
+                || ((expected == "number" || expected == "integer")
+                    && matches!(field.value_type.as_str(), "integer" | "number")) =>
+        {
+            Ok(true)
+        }
+        Some(_) => Err(AccountError::Invalid),
+    }
+}
+
 fn apply_frequency_preferences(
     preferences: &mut Preferences,
     values: &BTreeMap<String, AccountPreferenceValue>,
     schema: &AccountPreferenceSchema,
 ) -> Result<(), AccountError> {
-    let supports = |key: &str, expected: &str| -> Result<bool, AccountError> {
-        match schema.fields.get(key) {
-            None => Ok(false),
-            Some(field)
-                if field.value_type == expected
-                    || ((expected == "number" || expected == "integer")
-                        && matches!(field.value_type.as_str(), "integer" | "number")) =>
-            {
-                Ok(true)
-            }
-            Some(_) => Err(AccountError::Invalid),
-        }
-    };
     if let Some(value) = string_setting(values, "input.frequency_mode")? {
-        if supports("input.frequency_mode", "string")? {
+        if supports_schema_field(schema, "input.frequency_mode", "string")? {
             preferences.frequency.mode = match value.as_str() {
                 "disabled" => FrequencyMode::Disabled,
                 "pin" => FrequencyMode::Pin,
@@ -1459,13 +1300,13 @@ fn apply_frequency_preferences(
         }
     }
     if let Some(value) = integer_setting(values, "input.frequency_trigger_count")? {
-        if supports("input.frequency_trigger_count", "integer")? {
+        if supports_schema_field(schema, "input.frequency_trigger_count", "integer")? {
             preferences.frequency.trigger_count =
                 u8::try_from(value).map_err(|_| AccountError::Invalid)?;
         }
     }
     if let Some(value) = integer_setting(values, "input.frequency_linear_step")? {
-        if supports("input.frequency_linear_step", "integer")? {
+        if supports_schema_field(schema, "input.frequency_linear_step", "integer")? {
             preferences.frequency.linear_step =
                 u8::try_from(value).map_err(|_| AccountError::Invalid)?;
         }
@@ -1491,21 +1332,8 @@ fn apply_local_account_preferences(
     }
     let mut preferences = snapshot.preferences.clone();
     let values = &cloud.settings;
-    let supports = |key: &str, expected: &str| -> Result<bool, AccountError> {
-        match schema.fields.get(key) {
-            None => Ok(false),
-            Some(field)
-                if field.value_type == expected
-                    || ((expected == "number" || expected == "integer")
-                        && matches!(field.value_type.as_str(), "integer" | "number")) =>
-            {
-                Ok(true)
-            }
-            Some(_) => Err(AccountError::Invalid),
-        }
-    };
     if let Some(value) = string_setting(values, "input.schema")? {
-        if supports("input.schema", "string")? {
+        if supports_schema_field(schema, "input.schema", "string")? {
             preferences.scheme = match value.as_str() {
                 "quanpin" => InputScheme::Quanpin,
                 "shuangpin" => InputScheme::Shuangpin,
@@ -1516,7 +1344,7 @@ fn apply_local_account_preferences(
         }
     }
     if let Some(value) = string_setting(values, "input.character_set")? {
-        if supports("input.character_set", "string")? {
+        if supports_schema_field(schema, "input.character_set", "string")? {
             preferences.traditional_chinese_output = match value.as_str() {
                 "traditional" => true,
                 "simplified" => false,
@@ -1525,7 +1353,7 @@ fn apply_local_account_preferences(
         }
     }
     if let Some(value) = string_setting(values, "input.shuangpin_schema")? {
-        if supports("input.shuangpin_schema", "string")? {
+        if supports_schema_field(schema, "input.shuangpin_schema", "string")? {
             preferences.shuangpin_profile = match value.as_str() {
                 "xiaohe" => ShuangpinProfile::Xiaohe,
                 "ziranma" => ShuangpinProfile::Ziranma,
@@ -1536,33 +1364,33 @@ fn apply_local_account_preferences(
         }
     }
     if let Some(value) = bool_setting(values, "input.learning")? {
-        if supports("input.learning", "boolean")? {
+        if supports_schema_field(schema, "input.learning", "boolean")? {
             preferences.learning = value;
         }
     }
     apply_frequency_preferences(&mut preferences, values, schema)?;
     if let Some(value) = bool_setting(values, "input.chinese_punctuation")? {
-        if supports("input.chinese_punctuation", "boolean")? {
+        if supports_schema_field(schema, "input.chinese_punctuation", "boolean")? {
             preferences.chinese_punctuation = value;
         }
     }
     if let Some(value) = bool_setting(values, "input.smart_punctuation")? {
-        if supports("input.smart_punctuation", "boolean")? {
+        if supports_schema_field(schema, "input.smart_punctuation", "boolean")? {
             preferences.smart_punctuation = value;
         }
     }
     if let Some(value) = bool_setting(values, "input.paired_punctuation")? {
-        if supports("input.paired_punctuation", "boolean")? {
+        if supports_schema_field(schema, "input.paired_punctuation", "boolean")? {
             preferences.paired_punctuation = value;
         }
     }
     if let Some(value) = bool_setting(values, "input.wubi_code_hint")? {
-        if supports("input.wubi_code_hint", "boolean")? {
+        if supports_schema_field(schema, "input.wubi_code_hint", "boolean")? {
             preferences.wubi_code_hint = Some(value);
         }
     }
     if let Some(value) = string_setting(values, "platform.android.keyboard_layout")? {
-        if supports("platform.android.keyboard_layout", "string")? {
+        if supports_schema_field(schema, "platform.android.keyboard_layout", "string")? {
             preferences.touch_keyboard_layout = match value.as_str() {
                 "twenty_six_key" => TouchKeyboardLayout::TwentySixKey,
                 "nine_key" => TouchKeyboardLayout::NineKey,
@@ -1572,7 +1400,7 @@ fn apply_local_account_preferences(
         }
     }
     if let Some(value) = string_setting(values, "platform.android.keyboard_skin")? {
-        if supports("platform.android.keyboard_skin", "string")? {
+        if supports_schema_field(schema, "platform.android.keyboard_skin", "string")? {
             preferences.touch_keyboard_skin = match value.as_str() {
                 "forest" => TouchKeyboardSkin::Forest,
                 "ocean" => TouchKeyboardSkin::Ocean,
@@ -1588,13 +1416,13 @@ fn apply_local_account_preferences(
         }
     }
     if let Some(value) = string_setting(values, "platform.android.custom_keyboard_skin")? {
-        if supports("platform.android.custom_keyboard_skin", "string")? {
+        if supports_schema_field(schema, "platform.android.custom_keyboard_skin", "string")? {
             preferences.custom_touch_keyboard_skin =
                 serde_json::from_str(&value).map_err(|_| AccountError::Invalid)?;
         }
     }
     if let Some(value) = string_setting(values, "platform.android.theme")? {
-        if supports("platform.android.theme", "string")? {
+        if supports_schema_field(schema, "platform.android.theme", "string")? {
             preferences.theme = match value.as_str() {
                 "dark" => ThemeMode::Dark,
                 "light" => ThemeMode::Light,
@@ -1604,33 +1432,45 @@ fn apply_local_account_preferences(
         }
     }
     if let Some(value) = string_setting(values, "platform.android.candidate_skin")? {
-        if supports("platform.android.candidate_skin", "string")? {
-            if value.is_empty() || value.len() > 128 || value.chars().any(char::is_control) {
+        if supports_schema_field(schema, "platform.android.candidate_skin", "string")? {
+            if value.is_empty() || !msime_client_core::is_bounded_text(&value, 128) {
                 return Err(AccountError::Invalid);
             }
             preferences.candidate_skin = value;
         }
     }
     if let Some(value) = integer_setting(values, "platform.android.touch_key_spacing_tenths")? {
-        if supports("platform.android.touch_key_spacing_tenths", "integer")? {
+        if supports_schema_field(
+            schema,
+            "platform.android.touch_key_spacing_tenths",
+            "integer",
+        )? {
             preferences.touch_key_spacing_tenths =
                 u8::try_from(value).map_err(|_| AccountError::Invalid)?;
         }
     }
     if let Some(value) = integer_setting(values, "platform.android.touch_row_spacing_tenths")? {
-        if supports("platform.android.touch_row_spacing_tenths", "integer")? {
+        if supports_schema_field(
+            schema,
+            "platform.android.touch_row_spacing_tenths",
+            "integer",
+        )? {
             preferences.touch_row_spacing_tenths =
                 u8::try_from(value).map_err(|_| AccountError::Invalid)?;
         }
     }
     if let Some(value) = integer_setting(values, "platform.android.keyboard_height_adjustment")? {
-        if supports("platform.android.keyboard_height_adjustment", "integer")? {
+        if supports_schema_field(
+            schema,
+            "platform.android.keyboard_height_adjustment",
+            "integer",
+        )? {
             preferences.touch_keyboard_height_adjustment =
                 i8::try_from(value).map_err(|_| AccountError::Invalid)?;
         }
     }
     if let Some(value) = bool_setting(values, "platform.android.voice_shortcut")? {
-        if supports("platform.android.voice_shortcut", "boolean")? {
+        if supports_schema_field(schema, "platform.android.voice_shortcut", "boolean")? {
             preferences.touch_voice_shortcut = value;
         }
     }
@@ -1653,7 +1493,7 @@ fn apply_local_account_preferences(
         None
     };
     if let Some(value) = bool_setting(values, "platform.android.sound_enabled")? {
-        if supports("platform.android.sound_enabled", "boolean")? {
+        if supports_schema_field(schema, "platform.android.sound_enabled", "boolean")? {
             feedback_values
                 .as_mut()
                 .ok_or(AccountError::Storage)?
@@ -1661,7 +1501,7 @@ fn apply_local_account_preferences(
         }
     }
     if let Some(value) = bool_setting(values, "platform.android.haptics_enabled")? {
-        if supports("platform.android.haptics_enabled", "boolean")? {
+        if supports_schema_field(schema, "platform.android.haptics_enabled", "boolean")? {
             feedback_values
                 .as_mut()
                 .ok_or(AccountError::Storage)?
@@ -1669,8 +1509,8 @@ fn apply_local_account_preferences(
         }
     }
     if let Some(value) = string_setting(values, "platform.android.haptic_strength")? {
-        if supports("platform.android.haptic_strength", "string")? {
-            if !matches!(value.as_str(), "light" | "medium" | "strong") {
+        if supports_schema_field(schema, "platform.android.haptic_strength", "string")? {
+            if !valid_mobile_haptic_strength(&value) {
                 return Err(AccountError::Invalid);
             }
             feedback_values
@@ -1786,10 +1626,7 @@ pub async fn mobile_keyboard_feedback_save(
     state: State<'_, AccountState>,
     request: MobileKeyboardFeedbackRequest,
 ) -> Result<FeedbackSettings, crate::CommandError> {
-    if !matches!(
-        request.settings.haptic_strength.as_str(),
-        "light" | "medium" | "strong"
-    ) {
+    if !valid_mobile_haptic_strength(&request.settings.haptic_strength) {
         return Err(crate::CommandError {
             code: "invalid_feedback",
         });
@@ -1819,7 +1656,7 @@ pub async fn mobile_keyboard_feedback_preview(
     state: State<'_, AccountState>,
     request: MobileKeyboardFeedbackPreviewRequest,
 ) -> Result<(), crate::CommandError> {
-    if !matches!(request.strength.as_str(), "light" | "medium" | "strong") {
+    if !valid_mobile_haptic_strength(&request.strength) {
         return Err(crate::CommandError {
             code: "invalid_feedback",
         });

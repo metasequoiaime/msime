@@ -3,7 +3,6 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
-use std::path::Path;
 use std::time::Duration;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -24,16 +23,14 @@ pub struct CloudClipboardSession {
 
 impl CloudClipboardSession {
     pub fn parse(value: &str) -> Result<Self, CloudClipboardError> {
-        if value.len() > 2048 {
+        if value.len() > super::SESSION_JSON_MAX_BYTES {
             return Err(CloudClipboardError::Invalid);
         }
         let session: Self =
             serde_json::from_str(value).map_err(|_| CloudClipboardError::Invalid)?;
         if session.version != 1
             || session.host_pid <= 0
-            || !Path::new(&session.path).is_absolute()
-            || session.path.len() >= 104
-            || session.path.contains('\0')
+            || !super::valid_session_socket_path(&session.path)
         {
             return Err(CloudClipboardError::Invalid);
         }

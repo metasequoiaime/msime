@@ -14,6 +14,14 @@ pub mod cloud_dictionary;
 #[cfg(target_os = "macos")]
 pub mod panel_session;
 
+#[cfg(target_os = "macos")]
+pub(crate) const SESSION_JSON_MAX_BYTES: usize = 2048;
+
+#[cfg(target_os = "macos")]
+pub(crate) fn valid_session_socket_path(path: &str) -> bool {
+    path.len() < 104 && std::path::Path::new(path).is_absolute() && !path.contains('\0')
+}
+
 /// Keeps WebKit detached while a desktop adapter changes a window's class.
 /// Main-thread-only; dropping restores the view and its window observations.
 #[cfg(target_os = "macos")]
@@ -101,8 +109,8 @@ pub fn voice_capture_devices() -> Vec<(String, String)> {
             || name.is_empty()
             || uid.len() > 512
             || name.len() > 512
-            || uid.chars().any(char::is_control)
-            || name.chars().any(char::is_control)
+            || msime_client_core::has_disallowed_control_with_options(uid, false)
+            || msime_client_core::has_disallowed_control_with_options(name, false)
         {
             return;
         }

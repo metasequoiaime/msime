@@ -1,3 +1,5 @@
+import { SettingToggle } from "./setting-toggle";
+
 export interface VoiceInputCoreSectionProps {
   enabled: boolean;
   provider: string;
@@ -34,20 +36,13 @@ export function VoiceInputCoreSection({
 }: VoiceInputCoreSectionProps) {
   return (
     <>
-      <div className="section">
-        <label className="section-header">
-          <span className="section-title">
-            语音输入<small>使用语音识别将录音转换为文字</small>
-          </span>
-          <input
-            aria-label="启用语音输入"
-            className="toggle"
-            type="checkbox"
-            checked={enabled}
-            onChange={(event) => onEnabledChange(event.target.checked)}
-          />
-        </label>
-      </div>
+      <SettingToggle
+        label="语音输入"
+        description="使用语音识别将录音转换为文字"
+        ariaLabel="启用语音输入"
+        checked={enabled}
+        onChange={onEnabledChange}
+      />
       {showProviderSettings && (
         <div className="section">
           <label className="section-header">

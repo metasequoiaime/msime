@@ -88,5 +88,14 @@ int main() {
 
   { std::ofstream output(path, std::ios::trunc); output << "not-json"; }
   REQUIRE(history.load().empty());
+
+  // A damaged or attacker-controlled store must not make the input method
+  // read and allocate an unbounded JSON document before it can reject it.
+  {
+    std::ofstream output(path, std::ios::trunc);
+    output << "[\"" << std::string(1024 * 1024, 'x') << "\"]";
+  }
+  REQUIRE(history.load().empty());
+
   std::filesystem::remove_all(directory, error);
 }

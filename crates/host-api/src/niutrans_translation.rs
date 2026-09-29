@@ -40,14 +40,11 @@ pub fn descriptor(bytes: &[u8]) -> Result<Value, &'static str> {
     let target = request.target_language.as_str();
     if !valid_credential(app_id)
         || !valid_credential(apikey)
-        || request.text.is_empty()
-        || request.text.chars().count() > 40
-        || request.text.chars().any(char::is_control)
+        || !translation::is_valid_source_text(&request.text)
         || request.timestamp.is_empty()
         || request.timestamp.len() > 20
-        || !request.timestamp.bytes().all(|byte| byte.is_ascii_digit())
-        || !["zh", "en", "fr", "ja", "es", "ru", "de", "ko"].contains(&source)
-        || !["zh", "en", "fr", "ja", "es", "ru", "de", "ko"].contains(&target)
+        || !msime_client_core::is_ascii_digits(&request.timestamp)
+        || !translation::is_supported_translation_pair(source, target)
     {
         return Err("invalid NiuTrans parameters");
     }

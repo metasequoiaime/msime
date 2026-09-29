@@ -304,6 +304,16 @@ def check_setup(harness: Harness) -> None:
     assert result.returncode != 0 and "runtime-options.json" in result.stderr, result
     assert harness.prepare_calls() == []
 
+    # The hosts and refresh API cap runtime-options.json at 16 KiB. The installer must reject a
+    # damaged or hostile oversized document before loading it, rather than handing an unbounded
+    # file to json.loads or attempting a dictionary update from its contents.
+    state = harness.installed("state-oversized-options")
+    options_file = state / "runtime-options.json"
+    options_file.write_bytes(b"{" + b"x" * (16 * 1024) + b"}")
+    result = harness.run("--update", "--state", str(state))
+    assert result.returncode != 0 and "runtime-options.json" in result.stderr, result
+    assert "限制" in result.stderr and harness.prepare_calls() == [], result
+
 
 def check_prepare(prepare: Path, harness: Harness) -> None:
     """The built msime-linux-prepare against the lock it was compiled with: the fixture dictionaries match none of it."""

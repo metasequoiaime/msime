@@ -129,7 +129,14 @@ inline bool write_fcitx_theme(const std::filesystem::path &file, const std::stri
   std::error_code error;
   {
     std::ifstream current(file, std::ios::binary);
-    if (current && std::string(std::istreambuf_iterator<char>(current), {}) == content) return true;
+    if (current) {
+      std::string existing(content.size() + 1, '\0');
+      current.read(existing.data(), static_cast<std::streamsize>(existing.size()));
+      const auto count = current.gcount();
+      if (count == static_cast<std::streamsize>(content.size()) &&
+          existing.compare(0, content.size(), content) == 0)
+        return true;
+    }
   }
   std::filesystem::create_directories(file.parent_path(), error);
   if (error) return false;

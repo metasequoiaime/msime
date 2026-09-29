@@ -1,8 +1,7 @@
 import type { Preferences } from "../index";
 import { SkinCandidatePreview } from "../skin/skin-candidate-preview";
-import { candidateFontSize, candidateFontStyle } from "./candidate-font-size";
-import { candidateTextStyle } from "./candidate-text-color";
-import { candidateFamilyStyle } from "./candidate-font-family";
+import { candidateFontSize } from "./candidate-font-size";
+import { candidateAppearanceStyle } from "./candidate-preview-style";
 import { ExternalAppearancePreview } from "../skin/external-appearance-preview";
 import type { SkinCatalog } from "../skin/external-skins";
 import type { SkinImageReader } from "../skin/skin-image";
@@ -59,17 +58,7 @@ export function AppearanceCandidatePreview({
           data-font-size={candidateFontSize(preferences.candidate_font_size)}
           style={{
             ...candidateSkinPalette(skin, theme),
-            ...candidateFontStyle(preferences),
-            ...candidateTextStyle(
-              preferences.candidate_text_color,
-              preferences.candidate_number_color,
-              preferences.candidate_accent_color,
-              preferences.candidate_selected_color,
-              preferences.candidate_hover_color,
-              preferences.candidate_surface_color,
-              preferences.candidate_border_color,
-            ),
-            ...candidateFamilyStyle(preferences),
+            ...candidateAppearanceStyle(preferences),
           }}
           aria-hidden="true"
         >

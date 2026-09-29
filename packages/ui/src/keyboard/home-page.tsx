@@ -1,6 +1,7 @@
 import { ScreenKeyboardPreview, type TouchKeyboardSkin } from "./screen-keyboard-preview";
 import { useCandidatePreviewTheme } from "../candidate/candidate-preview-theme";
 import type { Preferences, TouchKeyboardScheme } from "../index";
+import { touchKeyboardSchemeTitle } from "../settings/touch-keyboard-scheme-helpers";
 
 // Every tappable surface on this page is the same card: full width, a hairline that strengthens on
 // hover, and the shared press animation. Named here rather than repeated at each of the five call
@@ -116,32 +117,6 @@ export interface HomePageActions {
   showInputMethodPicker?: () => Promise<void>;
 }
 
-function schemeTitle(preferences: Preferences): string {
-  const selected = preferences.touch_keyboard_schemes?.selected;
-  if (selected) {
-    return {
-      quanpin: "全拼 26 键",
-      nine_key: "全拼 9 键",
-      xiaohe: "小鹤双拼",
-      ziranma: "自然码双拼",
-      microsoft: "微软双拼",
-      shoudao: "首道双拼",
-      wubi: "86 五笔",
-      japanese_nine_key: "日语 9 键",
-      japanese: "日语 26 键",
-      handwriting: "手写",
-      thoughtful_reply: "高情商回复",
-    }[selected];
-  }
-  if (preferences.touch_keyboard_layout === "handwriting") return "手写";
-  if (preferences.touch_keyboard_layout === "nine_key")
-    return preferences.scheme === "japanese" ? "日语 9 键" : "全拼 9 键";
-  if (preferences.scheme === "japanese") return "日语 26 键";
-  if (preferences.scheme === "wubi") return "86 五笔";
-  if (preferences.scheme === "shuangpin") return `${preferences.shuangpin_profile} 双拼`;
-  return "全拼 26 键";
-}
-
 export function HomePage({
   preferences,
   actions,
@@ -218,7 +193,7 @@ export function HomePage({
           <span>
             <strong className={cardTitle}>我的键盘</strong>
             <small className={cardNote}>
-              {skinTitle} · {schemeTitle(preferences)}
+              {skinTitle} · {touchKeyboardSchemeTitle(preferences)}
             </small>
           </span>
           <em className="shrink-0 grow-0 basis-auto rounded-full bg-accent-soft px-2 py-1 text-[11px] not-italic text-accent">
@@ -260,7 +235,7 @@ export function HomePage({
             icon={new URL("../assets/input.svg", import.meta.url).href}
           />
           <strong className={quickTitle}>输入方案</strong>
-          <small className={quickNote}>{schemeTitle(preferences)}</small>
+          <small className={quickNote}>{touchKeyboardSchemeTitle(preferences)}</small>
         </button>
         <button type="button" className={quickTile} onClick={() => onOpenPage("screen-keyboard")}>
           <QuickIcon

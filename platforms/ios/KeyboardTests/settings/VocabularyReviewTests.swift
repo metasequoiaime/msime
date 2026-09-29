@@ -78,6 +78,15 @@ final class VocabularyReviewTests: XCTestCase {
     XCTAssertTrue(try store.load().wordbooks.isEmpty)
   }
 
+  func testOversizedWordbookIsRejectedBeforeItIsLoaded() throws {
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    addTeardownBlock { try? FileManager.default.removeItem(at: url) }
+    try Data(repeating: 0x78, count: VocabularyReviewStore.maximumImportBytes + 1).write(to: url)
+    XCTAssertThrowsError(try VocabularyReviewStore.readWordbookData(from: url)) { error in
+      XCTAssertEqual(error as? VocabularyReviewStore.Failure, .unreadableWordbook)
+    }
+  }
+
   func testNeedsWordbookSeparatesNoSelectionFromAFinishedDay() {
     var status = VocabularyReviewStatus()
     XCTAssertTrue(status.needsWordbook, "no selection asks for a book")

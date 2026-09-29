@@ -41,6 +41,10 @@ ROOT = Path(__file__).resolve().parents[1]
 LOCK = ROOT / "engine-lock.json"
 DEST = ROOT / "vendor/MSIME-Engine"
 MARKER = DEST / ".msime-engine-lock"
+# GitHub does not provide archive sizes in a reliable Content-Length header. Keep a generous
+# ceiling for the current Engine while bounding a bad or compromised response before hashing it.
+MAX_ARCHIVE_BYTES = 512 * 1024 * 1024
+DOWNLOAD_CHUNK_BYTES = 1024 * 1024
 
 
 def lock_marker(lock: dict) -> str:
@@ -101,7 +105,23 @@ def download_and_extract(artifact: dict, directory: Path) -> Path:
     archive = directory / "source.tar.gz"
     directory.mkdir(parents=True)
     with urllib.request.urlopen(artifact["archive"], timeout=300) as response, archive.open("wb") as out:
-        shutil.copyfileobj(response, out)
+        advertised = response.headers.get("Content-Length")
+        if advertised is not None:
+            try:
+                if int(advertised) > MAX_ARCHIVE_BYTES:
+                    raise RuntimeError(
+                        f"archive for {artifact['repository']} exceeds the {MAX_ARCHIVE_BYTES} byte limit"
+                    )
+            except ValueError:
+                pass
+        size = 0
+        while chunk := response.read(DOWNLOAD_CHUNK_BYTES):
+            if size + len(chunk) > MAX_ARCHIVE_BYTES:
+                raise RuntimeError(
+                    f"archive for {artifact['repository']} exceeds the {MAX_ARCHIVE_BYTES} byte limit"
+                )
+            out.write(chunk)
+            size += len(chunk)
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
     if digest != artifact["sha256"]:
         raise RuntimeError(

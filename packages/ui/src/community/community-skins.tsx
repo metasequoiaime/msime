@@ -1,8 +1,19 @@
 // Source: MSIME-Apple@9ca823ab40018ced3cb71812503dbc3b94615ac0
 // (`SkinCommunityView.swift`, `CommunityGalleryStyle.swift`).
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { boundedGraphemes } from "../core/text";
+import { randomUuid } from "../core/random-id";
+import { pushMobileSettingsState } from "../settings/mobile-navigation";
 import { ScreenKeyboardPreview } from "../keyboard/screen-keyboard-preview";
+import {
+  appendUniqueById,
+  communityNeedsSignIn,
+  communityRating,
+  communitySkinMessage,
+  communitySkinPublishMessage,
+} from "./community-helpers";
 import * as style from "./community-style";
+import { CommunitySearchForm } from "./community-search-form";
 import type {
   CustomSkinLibraryClient,
   SavedTouchKeyboardSkin,
@@ -48,110 +59,6 @@ export interface CommunitySkinClient {
   finishTrial(id: string, keep: boolean): Promise<void>;
 }
 
-function communityMessage(error: unknown): string {
-  if (typeof error === "object" && error !== null && "code" in error) {
-    switch (error.code) {
-      case "community_invalid":
-        return "搜索内容无效，请修改后重试。";
-      case "community_unauthorized":
-        return "登录已失效；仍可退出后匿名浏览。";
-      case "community_forbidden":
-        return "没有权限执行此操作；自己的作品不能评分或下架。";
-      case "community_conflict":
-        return "作品状态已变化或已达到发布上限，请刷新后重试。";
-      case "community_not_found":
-        return "作品不存在或已下架。";
-      case "community_rate_limited":
-        return "请求过于频繁，请稍后再试。";
-      case "community_cancelled":
-        return "账号状态已变化，请重新加载。";
-      case "community_storage":
-        return "无法安全读取登录状态，请检查设备安全设置。";
-      case "community_skin_library_full":
-        return "最多保存 12 套皮肤，请先删除不需要的设计。";
-      case "community_skin_invalid_name":
-        return "无法保存这款皮肤：名称无效。";
-      case "community_skin_duplicate_name":
-        return "无法保存这款皮肤：名称重复。";
-      case "community_trial_format":
-        return "无法安全保存试用状态，请稍后重试。";
-    }
-  }
-  return "社区暂时不可用，请稍后重试。";
-}
-
-function mergeUnique(current: CommunitySkin[], incoming: CommunitySkin[]): CommunitySkin[] {
-  const ids = new Set(current.map((skin) => skin.id));
-  const additions: CommunitySkin[] = [];
-  for (const skin of incoming) {
-    if (ids.has(skin.id)) continue;
-    ids.add(skin.id);
-    additions.push(skin);
-  }
-  return [...current, ...additions];
-}
-
-function rating(skin: CommunitySkin): string {
-  return skin.rating_count === 0 ? "暂无评分" : `${skin.rating_average.toFixed(1)} 分`;
-}
-
-function boundedGraphemes(value: string, maximum: number): string {
-  if (typeof Intl !== "undefined" && "Segmenter" in Intl) {
-    const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
-    return Array.from(segmenter.segment(value), (item) => item.segment)
-      .slice(0, maximum)
-      .join("");
-  }
-  return [...value].slice(0, maximum).join("");
-}
-
-function randomPublicationId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function")
-    return crypto.randomUUID();
-  const bytes = new Uint8Array(16);
-  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function")
-    crypto.getRandomValues(bytes);
-  else
-    for (let index = 0; index < bytes.length; index += 1)
-      bytes[index] = Math.floor(Math.random() * 256);
-  bytes[6] = (bytes[6] & 0x0f) | 0x40;
-  bytes[8] = (bytes[8] & 0x3f) | 0x80;
-  const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-}
-
-function publishMessage(error: unknown): string {
-  if (typeof error === "object" && error !== null && "code" in error) {
-    switch (error.code) {
-      case "community_unauthorized":
-        return "请先登录后再发布皮肤。";
-      case "community_forbidden":
-        return "当前账号没有权限执行发布操作。";
-      case "community_conflict":
-        return "作品状态已变化或已达到发布上限，请刷新后重试。";
-      case "community_invalid":
-        return "名称、说明或皮肤设计不符合发布要求。";
-      case "community_rate_limited":
-        return "发布操作过于频繁，请稍后再试。";
-      case "community_not_found":
-        return "账号或作品不存在，请重新加载。";
-      case "community_cancelled":
-        return "账号状态已变化，请重新登录后重试。";
-    }
-  }
-  return "暂时无法发布皮肤，请稍后重试。";
-}
-
-/** Whether a failure is the one the user can act on from here by signing in. */
-function needsSignIn(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    error.code === "community_unauthorized"
-  );
-}
-
 function CommunitySkinPublishDialog({
   client,
   library,
@@ -176,7 +83,7 @@ function CommunitySkinPublishDialog({
   // Kept next to the sentence because publishMessage collapses the code, and this is the one
   // failure the dialog can do something about rather than only name.
   const [signInRequired, setSignInRequired] = useState(false);
-  const [publicationId, setPublicationId] = useState(randomPublicationId);
+  const [publicationId, setPublicationId] = useState(randomUuid);
   const clientGeneration = useRef(0);
 
   useEffect(() => {
@@ -196,8 +103,8 @@ function CommunitySkinPublishDialog({
       })
       .catch((loadError) => {
         if (!active) return;
-        setError(publishMessage(loadError));
-        setSignInRequired(needsSignIn(loadError));
+        setError(communitySkinPublishMessage(loadError));
+        setSignInRequired(communityNeedsSignIn(loadError));
       })
       .finally(() => {
         if (active) setBusy(false);
@@ -234,8 +141,8 @@ function CommunitySkinPublishDialog({
       await onPublished();
     } catch (publishError) {
       if (generation !== clientGeneration.current) return;
-      setError(publishMessage(publishError));
-      setSignInRequired(needsSignIn(publishError));
+      setError(communitySkinPublishMessage(publishError));
+      setSignInRequired(communityNeedsSignIn(publishError));
       if (generation === clientGeneration.current) setBusy(false);
     }
   };
@@ -292,7 +199,7 @@ function CommunitySkinPublishDialog({
                 onChange={(event) => {
                   const item = saved.find((value) => value.id === event.target.value);
                   setSelectedId(event.target.value);
-                  setPublicationId(randomPublicationId());
+                  setPublicationId(randomUuid());
                   if (item) setName(item.name);
                 }}
               >
@@ -317,7 +224,7 @@ function CommunitySkinPublishDialog({
                 value={name}
                 disabled={busy}
                 onChange={(event) => {
-                  setPublicationId(randomPublicationId());
+                  setPublicationId(randomUuid());
                   setName(boundedGraphemes(event.target.value, 32));
                 }}
               />
@@ -332,7 +239,7 @@ function CommunitySkinPublishDialog({
                 value={description}
                 disabled={busy}
                 onChange={(event) => {
-                  setPublicationId(randomPublicationId());
+                  setPublicationId(randomUuid());
                   setDescription(event.target.value);
                 }}
               />
@@ -389,7 +296,7 @@ function CommunitySkinCard({
       <span className={style.cardAuthor}>{skin.owned ? "我的作品" : skin.author}</span>
       <span className={style.cardMetrics}>
         <span>↓ {skin.downloads.toLocaleString("zh-CN")}</span>
-        <span>☆ {rating(skin)}</span>
+        <span>☆ {communityRating(skin.rating_count, skin.rating_average)}</span>
       </span>
     </button>
   );
@@ -435,8 +342,8 @@ export function CommunitySkinsPage({
    */
   const fail = (failure: unknown) => {
     if (!mounted.current) return;
-    setError(communityMessage(failure));
-    setSignInRequired(needsSignIn(failure));
+    setError(communitySkinMessage(failure));
+    setSignInRequired(communityNeedsSignIn(failure));
   };
   const [confirmUnpublish, setConfirmUnpublish] = useState(false);
   const listGeneration = useRef(0);
@@ -455,9 +362,7 @@ export function CommunitySkinsPage({
     try {
       const page = await client.list(offset, query);
       if (generation !== listGeneration.current) return;
-      setSkins((current) =>
-        append ? mergeUnique(current, page.skins) : mergeUnique([], page.skins),
-      );
+      setSkins((current) => (append ? appendUniqueById(current, page.skins) : page.skins));
       nextOffset.current = offset + page.skins.length;
       if (!append) activeSearch.current = query;
       setHasMore(page.has_more);
@@ -486,16 +391,10 @@ export function CommunitySkinsPage({
 
   const open = (skin: CommunitySkin) => {
     if (mobile && typeof window !== "undefined") {
-      const current = window.history.state;
-      window.history.pushState(
-        {
-          ...(current && typeof current === "object" ? current : {}),
-          msimeSettings: true,
-          page: "community",
-          communityDetail: { kind: "skin", id: skin.id },
-        },
-        "",
-      );
+      pushMobileSettingsState({
+        page: "community",
+        communityDetail: { kind: "skin", id: skin.id },
+      });
     }
     const generation = ++detailGeneration.current;
     setSelected(skin);
@@ -678,7 +577,8 @@ export function CommunitySkinsPage({
           </div>
           {selected.description && <p className={style.description}>{selected.description}</p>}
           <p className={style.metrics}>
-            {selected.downloads.toLocaleString("zh-CN")} 人下载 · {rating(selected)} ·{" "}
+            {selected.downloads.toLocaleString("zh-CN")} 人下载 ·{" "}
+            {communityRating(selected.rating_count, selected.rating_average)} ·{" "}
             {selected.rating_count.toLocaleString("zh-CN")} 人评分
           </p>
           {selected.my_rating > 0 && (
@@ -785,25 +685,12 @@ export function CommunitySkinsPage({
 
   return (
     <div className={style.page}>
-      <form
-        className={style.searchRow}
-        role="search"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void requestList(search, false);
-        }}
-      >
-        <input
-          className={style.searchInput}
-          aria-label="搜索皮肤设计"
-          placeholder="搜索皮肤设计"
-          value={search}
-          onChange={(event) => setSearch([...event.target.value].slice(0, 128).join(""))}
-        />
-        <button type="submit" className={style.searchSubmit}>
-          搜索
-        </button>
-      </form>
+      <CommunitySearchForm
+        label="搜索皮肤设计"
+        value={search}
+        onChange={setSearch}
+        onSubmit={() => void requestList(search, false)}
+      />
       <div className={style.heading}>
         <div className={style.headingBody}>
           <h2 className={style.headingTitle}>

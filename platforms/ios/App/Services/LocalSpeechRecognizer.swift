@@ -165,7 +165,7 @@ final class LocalSpeechEngine: @unchecked Sendable {
       guard let online = SherpaOnnxCreateOnlineRecognizer(&config) else {
         throw ServiceFailure(message: "无法加载本地语音模型，请删除后重新下载。")
       }
-      let tokenSet = native ? LocalSpeechText.tokenSet((try? String(contentsOfFile: tokens, encoding: .utf8)) ?? "") : []
+      let tokenSet = native ? LocalSpeechText.tokenSet((try? model.textFile("tokens", maximumBytes: LocalSpeechModelManifest.maximumTokensBytes)) ?? "") : []
       return LoadedLocalRecognizer(kind: model.kind, online: online, offline: nil, vadModel: "", tokens: tokenSet,
                                    nativeHotwords: native)
     }

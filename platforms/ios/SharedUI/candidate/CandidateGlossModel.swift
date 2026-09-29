@@ -12,6 +12,10 @@ enum CandidateGlossModel {
     case oversized
   }
 
+  static func isBounded(_ value: String, allowingEmpty: Bool = false) -> Bool {
+    (allowingEmpty || !value.isEmpty) && value.utf8.count <= maxEntryBytes
+  }
+
   /// `targetLanguage` is one of `CandidateTranslationPreference.offlineGlossCodes`, to read that language's offline dictionary instead of English.
   static func request(generation: UInt64, candidates: [[String: Any]], targetLanguage: String? = nil) throws -> Data {
     guard !candidates.isEmpty, candidates.count <= 4096 else { throw Failure.invalidRequest }
@@ -19,7 +23,7 @@ enum CandidateGlossModel {
       guard let text = candidate["text"] as? String,
             let source = candidate["source"] as? NSNumber,
             source.intValue >= 0, source.intValue <= 255,
-            bounded(text) else { throw Failure.invalidRequest }
+            isBounded(text) else { throw Failure.invalidRequest }
       return ["text": text, "source": source.intValue]
     }
     var object: [String: Any] = ["generation": generation, "candidates": copied]
@@ -42,14 +46,11 @@ enum CandidateGlossModel {
     for entry in entries {
       guard let text = entry["text"] as? String,
             let translation = entry["translation"] as? String,
-            bounded(text), bounded(translation) else { throw Failure.invalidResponse }
+            isBounded(text), isBounded(translation) else { throw Failure.invalidResponse }
     }
     let translations = try JSONSerialization.data(withJSONObject: entries)
     guard translations.count <= maxResponseBytes else { throw Failure.oversized }
     return (generation, translations)
   }
 
-  private static func bounded(_ value: String) -> Bool {
-    !value.isEmpty && value.utf8.count <= maxEntryBytes
-  }
 }

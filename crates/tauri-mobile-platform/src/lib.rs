@@ -59,11 +59,13 @@ pub struct AndroidVoicePolishRequest {
 impl AndroidVoicePolishRequest {
     pub fn is_valid(&self) -> bool {
         self.endpoint.starts_with("https://")
-            && is_bounded_text(&self.endpoint, 2048)
+            && msime_client_core::voice::provider::bounded_voice_fields(
+                &self.endpoint,
+                &self.model,
+                &self.token,
+            )
             && !self.model.trim().is_empty()
-            && is_bounded_text(&self.model, 512)
             && !self.token.trim().is_empty()
-            && is_bounded_text(&self.token, 16 * 1024)
             && is_bounded_text(&self.prompt_id, 64)
             && [
                 &self.prompt_legacy,
@@ -84,13 +86,15 @@ struct AndroidVoiceResponse {
 
 #[cfg(any(target_os = "android", test))]
 fn valid_android_voice_request(request_id: &str, language: &str) -> bool {
-    !request_id.is_empty()
-        && request_id.len() <= 64
-        && request_id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+    msime_client_core::voice::is_valid_request_id(request_id)
         && !language.is_empty()
         && is_bounded_text(language, 64)
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn valid_mobile_voice_text(text: &str) -> bool {
+    !text.trim().is_empty()
+        && msime_client_core::is_bounded_chars_without_nul(text, MAX_MOBILE_VOICE_TEXT_CHARS)
 }
 
 #[cfg(target_os = "android")]
@@ -123,7 +127,7 @@ impl<R: Runtime> AndroidVoicePlatform<R> {
             )
             .await
             .map_err(|_| ())?;
-        if response.text.chars().count() > 10_000 || response.text.contains('\0') {
+        if !msime_client_core::is_bounded_chars_without_nul(&response.text, 10_000) {
             return Err(());
         }
         Ok(response.text)
@@ -151,7 +155,7 @@ impl<R: Runtime> AndroidVoicePlatform<R> {
     }
 
     pub fn save_voice_text(&self, text: &str) -> Result<(), ()> {
-        if text.trim().is_empty() || text.chars().count() > 10_000 || text.contains('\0') {
+        if !valid_mobile_voice_text(text) {
             return Err(());
         }
         self.0
@@ -170,10 +174,7 @@ pub struct AppIconInfo {
 const MAX_IOS_CUSTOM_KEYBOARD_SKIN_BYTES: usize = 800_000;
 #[cfg(any(target_os = "ios", test))]
 const MAX_IOS_CLIPBOARD_TEXT_UTF16_UNITS: usize = 4_000;
-const MAX_MOBILE_VOICE_ENDPOINT_BYTES: usize = 2_048;
-const MAX_MOBILE_VOICE_MODEL_BYTES: usize = 512;
-const MAX_MOBILE_VOICE_TOKEN_BYTES: usize = 16 * 1024;
-#[cfg(any(target_os = "ios", test))]
+#[cfg(any(target_os = "android", target_os = "ios", test))]
 const MAX_MOBILE_VOICE_TEXT_CHARS: usize = 10_000;
 const MAX_MOBILE_VOICE_HEADER_BYTES: usize = 8_192;
 const MAX_MOBILE_VOICE_BOOSTING_TABLE_BYTES: usize = 4_096;
@@ -292,15 +293,12 @@ fn valid_mobile_voice_hotwords(hotwords: &[MobileVoiceHotword]) -> bool {
 
 impl MobileVoiceTranscriptionRequest {
     pub fn is_valid(&self) -> bool {
-        let common = !self.request_id.is_empty()
-            && self.request_id.len() <= 64
-            && self
-                .request_id
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
-            && is_bounded_text(&self.endpoint, MAX_MOBILE_VOICE_ENDPOINT_BYTES)
-            && is_bounded_text(&self.model, MAX_MOBILE_VOICE_MODEL_BYTES)
-            && is_bounded_text(&self.token, MAX_MOBILE_VOICE_TOKEN_BYTES)
+        let common = msime_client_core::voice::is_valid_request_id(&self.request_id)
+            && msime_client_core::voice::provider::bounded_voice_fields(
+                &self.endpoint,
+                &self.model,
+                &self.token,
+            )
             && is_bounded_text(
                 &self.boosting_table_id,
                 MAX_MOBILE_VOICE_BOOSTING_TABLE_BYTES,
@@ -376,7 +374,7 @@ pub struct MobileVoiceTranscriptionResponse {
 #[cfg(any(target_os = "ios", test))]
 impl MobileVoiceTranscriptionResponse {
     fn is_valid(&self) -> bool {
-        self.text.chars().count() <= MAX_MOBILE_VOICE_TEXT_CHARS && !self.text.contains('\0')
+        msime_client_core::is_bounded_chars_without_nul(&self.text, MAX_MOBILE_VOICE_TEXT_CHARS)
     }
 }
 
@@ -435,7 +433,7 @@ fn installed_font_families(families: Vec<String>) -> Option<Vec<String>> {
 #[cfg(any(target_os = "ios", test))]
 fn is_valid_ios_clipboard_text(value: &str) -> bool {
     !value.is_empty()
-        && value.encode_utf16().count() <= MAX_IOS_CLIPBOARD_TEXT_UTF16_UNITS
+        && msime_client_core::is_bounded_utf16(value, MAX_IOS_CLIPBOARD_TEXT_UTF16_UNITS)
         && !value.contains('\0')
 }
 
@@ -671,10 +669,10 @@ impl<R: Runtime> MobilePlatform<R> {
     pub async fn sign_in_with_apple(&self, challenge_id: &str, nonce: &str) -> Result<String, ()> {
         if challenge_id.is_empty()
             || challenge_id.len() > 256
-            || challenge_id.chars().any(char::is_control)
+            || msime_client_core::has_disallowed_control_with_options(challenge_id, false)
             || nonce.is_empty()
             || nonce.len() > 4096
-            || nonce.chars().any(char::is_control)
+            || msime_client_core::has_disallowed_control_with_options(nonce, false)
         {
             return Err(());
         }
@@ -691,7 +689,7 @@ impl<R: Runtime> MobilePlatform<R> {
             .map_err(|_| ())?;
         (!response.credential.is_empty()
             && response.credential.len() <= 16 * 1024
-            && !response.credential.chars().any(char::is_control))
+            && !msime_client_core::has_disallowed_control_with_options(&response.credential, false))
         .then_some(response.credential)
         .ok_or(())
     }
@@ -735,7 +733,7 @@ impl<R: Runtime> MobilePlatform<R> {
     }
 
     pub fn save_voice_text(&self, text: &str) -> Result<(), ()> {
-        if text.trim().is_empty() || text.chars().count() > 10_000 || text.contains('\0') {
+        if !valid_mobile_voice_text(text) {
             return Err(());
         }
         self.0
@@ -759,7 +757,7 @@ impl<R: Runtime> MobilePlatform<R> {
     }
 
     pub fn stop_voice(&self, request_id: &str) -> Result<(), ()> {
-        if request_id.is_empty() || request_id.len() > 64 {
+        if !msime_client_core::voice::is_valid_request_id(request_id) {
             return Err(());
         }
         self.0
@@ -773,7 +771,7 @@ impl<R: Runtime> MobilePlatform<R> {
     }
 
     pub fn cancel_voice(&self, request_id: Option<&str>) -> Result<(), ()> {
-        if request_id.is_some_and(|value| value.is_empty() || value.len() > 64) {
+        if request_id.is_some_and(|value| !msime_client_core::voice::is_valid_request_id(value)) {
             return Err(());
         }
         self.0

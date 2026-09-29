@@ -1273,9 +1273,9 @@ export class KeyboardSession implements HardwareKeyTarget {
         // The shared store validates these to 12..32 and strips control
         // characters from family names. Clamp again at the host boundary so
         // an older staged document cannot produce an unusable panel.
-        candidateFontSize: Math.max(12, Math.min(32, preferences.candidate_font_size)),
+        candidateFontSize: KeyboardGeometry.bounded(preferences.candidate_font_size, 12, 32),
         candidatePreeditFontSize:
-          Math.max(12, Math.min(32, preferences.candidate_preedit_font_size)),
+          KeyboardGeometry.bounded(preferences.candidate_preedit_font_size, 12, 32),
         candidateFontFamily: preferences.candidate_font_family.trim().length > 0
           ? preferences.candidate_font_family : 'Noto Sans SC',
         candidateEnglishFont: preferences.candidate_english_font ?? null,
@@ -2854,7 +2854,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   private moveTranslationHighlight(delta: number): boolean {
     const translations: string[] | null = this.translationPage;
     if (translations === null) return false;
-    this.translationHighlight = Math.max(0, Math.min(translations.length - 1, this.translationHighlight + delta));
+    this.translationHighlight = KeyboardGeometry.bounded(
+      this.translationHighlight + delta, 0, translations.length - 1);
     this.publishTranslationPage();
     return true;
   }
@@ -3268,8 +3269,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       const response: http.HttpResponse = await request.request(descriptor.url, {
         method: http.RequestMethod.POST,
         header: descriptor.headers,
-        connectTimeout: Math.min(8000, Math.max(1000, descriptor.connect_timeout_ms)),
-        readTimeout: Math.min(10000, Math.max(1000, descriptor.timeout_ms)),
+        connectTimeout: KeyboardGeometry.bounded(descriptor.connect_timeout_ms, 1000, 8000),
+        readTimeout: KeyboardGeometry.bounded(descriptor.timeout_ms, 1000, 10000),
         extraData: JSON.stringify(descriptor.body)
       });
       if (epoch !== this.onlineEpoch || handle !== this.handle || response.responseCode < 200
@@ -3604,8 +3605,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       const response: http.HttpResponse = await request.request(descriptor.url, {
         method: http.RequestMethod.POST,
         header: descriptor.headers,
-        connectTimeout: Math.min(3000, Math.max(1000, descriptor.timeout_ms)),
-        readTimeout: Math.min(8000, Math.max(1000, descriptor.timeout_ms)),
+        connectTimeout: KeyboardGeometry.bounded(descriptor.timeout_ms, 1000, 3000),
+        readTimeout: KeyboardGeometry.bounded(descriptor.timeout_ms, 1000, 8000),
         extraData: descriptor.body_utf8 !== undefined
           ? descriptor.body_utf8 : JSON.stringify(descriptor.body ?? {})
       });
@@ -3643,7 +3644,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   static feedbackIn(stateRoot: string): FeedbackSettings {
     try {
       const path: string = KeyboardSession.feedbackFileIn(stateRoot);
-      if (!fs.accessSync(path)) {
+      if (!fs.accessSync(path) || fs.statSync(path).size > KeyboardFeedback.MAX_BYTES) {
         return KeyboardFeedback.DEFAULTS;
       }
       return KeyboardFeedback.parse(fs.readTextSync(path));
@@ -3672,7 +3673,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** How keys should feel on this device, which is not something the shared preferences carry. */
   feedback(): FeedbackSettings {
     try {
-      if (!fs.accessSync(this.feedbackFile())) {
+      if (!fs.accessSync(this.feedbackFile())
+        || fs.statSync(this.feedbackFile()).size > KeyboardFeedback.MAX_BYTES) {
         return KeyboardFeedback.DEFAULTS;
       }
       return KeyboardFeedback.parse(fs.readTextSync(this.feedbackFile()));
@@ -3997,8 +3999,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     try {
       const response: http.HttpResponse = await requestHttp.request(descriptor.url, {
         method: http.RequestMethod.POST, header: descriptor.headers,
-        connectTimeout: Math.min(8000, Math.max(1000, descriptor.connect_timeout_ms)),
-        readTimeout: Math.min(10000, Math.max(1000, descriptor.timeout_ms)),
+        connectTimeout: KeyboardGeometry.bounded(descriptor.connect_timeout_ms, 1000, 8000),
+        readTimeout: KeyboardGeometry.bounded(descriptor.timeout_ms, 1000, 10000),
         extraData: JSON.stringify(descriptor.body)
       });
       if (!ReplyContextPolicy.matches(editorGeneration, this.editorGeneration,

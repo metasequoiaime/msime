@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { SecretInput } from "../core/secret-input";
 import * as settings from "./settings-style";
+import { SettingToggle } from "./setting-toggle";
 
 export interface TencentTranslationSectionProps {
   enabled: boolean;
@@ -34,20 +35,15 @@ export function TencentTranslationSection({
 }: TencentTranslationSectionProps) {
   return (
     <div className="section" role="group" aria-label="在线翻译服务">
-      <label className="section-header">
-        <span className="section-title">
-          在线翻译服务
-          <small>候选词翻译默认使用腾讯云机器翻译，需要填入你自己的 API 凭据</small>
-        </span>
-        <input
-          aria-label="腾讯云机器翻译"
-          className="toggle"
-          type="checkbox"
-          disabled={!available}
-          checked={enabled}
-          onChange={(event) => onToggle(event.target.checked)}
-        />
-      </label>
+      <SettingToggle
+        label="在线翻译服务"
+        description="候选词翻译默认使用腾讯云机器翻译，需要填入你自己的 API 凭据"
+        ariaLabel="腾讯云机器翻译"
+        disabled={!available}
+        checked={enabled}
+        compact
+        onChange={onToggle}
+      />
       <div className="input-option-divider" />
       <label className="section-header">
         <span className="section-title">SecretId</span>

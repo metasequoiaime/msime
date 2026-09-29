@@ -50,6 +50,8 @@
 #endif
 
 namespace {
+constexpr std::size_t kMaxConfigBytes = 16 * 1024;
+
 // The desktop shell is packaged beside this Server; a development build points
 // at another copy with the same variable the Linux host reads.
 std::filesystem::path executable_directory() {
@@ -187,15 +189,15 @@ std::string read_document(const std::filesystem::path &path) {
   std::ifstream input(path, std::ios::binary);
   if (!input)
     throw std::runtime_error("Configuration unavailable");
-  std::string document(16385, '\0');
+  std::string document(kMaxConfigBytes + 1, '\0');
   input.read(document.data(), static_cast<std::streamsize>(document.size()));
-  if (input.bad() || input.gcount() > 16384)
+  if (input.bad() || input.gcount() > static_cast<std::streamsize>(kMaxConfigBytes))
     throw std::runtime_error("Configuration read failed");
   document.resize(static_cast<size_t>(input.gcount()));
   return document;
 }
 void write_document_atomic(const std::filesystem::path &path, const std::string &document) {
-  if (document.size() > 16384)
+  if (document.size() > kMaxConfigBytes)
     throw std::runtime_error("Configuration document oversized");
   const auto temporary = path.wstring() + L".tmp";
   {
@@ -419,9 +421,13 @@ void publish_switch_language_keybindings(const nlohmann::json &preferences) {
     std::string existing;
     {
       std::ifstream input(path, std::ios::binary);
-      if (input)
-        existing.assign(std::istreambuf_iterator<char>(input),
-                        std::istreambuf_iterator<char>());
+      if (input) {
+        existing.resize(kMaxConfigBytes + 1);
+        input.read(existing.data(), static_cast<std::streamsize>(existing.size()));
+        if (input.bad() || input.gcount() > static_cast<std::streamsize>(kMaxConfigBytes))
+          return;
+        existing.resize(static_cast<std::size_t>(input.gcount()));
+      }
     }
     const auto updated = msime::windows::update_keybindings(existing, values);
     if (updated == existing)

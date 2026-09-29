@@ -2,11 +2,10 @@
 //!
 //! Both targets used to carry an identical copy of this body next to their account commands. It lives apart from [`super::mobile_community`] because it reads nothing from the community services: it talks to the account session itself, which each target's account state exposes through `AccountState::session`.
 
-use msime_client_core::account::AccountError;
 use serde_json::Value;
 use std::sync::Arc;
 
-use super::mobile_account_helpers::call_session;
+use super::mobile_account_helpers::{account_value, call_session};
 use super::MobileSession;
 
 pub(crate) async fn cloud_clipboard_request(
@@ -27,9 +26,7 @@ pub(crate) async fn cloud_clipboard_request(
                 .unwrap_or_default()
                 .to_owned();
             call_session(session, move |session| {
-                session.clipboard(&search).and_then(|page| {
-                    serde_json::to_value(page).map_err(|_| AccountError::Unavailable)
-                })
+                session.clipboard(&search).and_then(account_value)
             })
             .await
         }
@@ -57,9 +54,7 @@ pub(crate) async fn cloud_clipboard_request(
                 })?
                 .to_owned();
             call_session(session, move |session| {
-                session.add_clipboard(&text).and_then(|item| {
-                    serde_json::to_value(item).map_err(|_| AccountError::Unavailable)
-                })
+                session.add_clipboard(&text).and_then(account_value)
             })
             .await
         }

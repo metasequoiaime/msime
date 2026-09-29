@@ -1,9 +1,11 @@
 //! The explicit, bounded local library shared with the Android IME process.
 
-use crate::community::resource::{CommunityResource, CommunityResourceKind};
+use crate::community::resource::{
+    reply_content_has_prompt, CommunityResource, CommunityResourceKind,
+};
 use crate::file_lock;
 use serde_json::from_slice;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -11,6 +13,12 @@ use uuid::Uuid;
 
 const MAXIMUM_BYTES: u64 = 4_000_000;
 const MAXIMUM_ITEMS: usize = 50;
+
+fn is_valid_reply(item: &CommunityResource) -> bool {
+    item.id != Uuid::nil()
+        && item.kind == CommunityResourceKind::Reply
+        && reply_content_has_prompt(&item.content)
+}
 
 #[derive(Debug, Error)]
 pub enum CommunityResourceLibraryError {
@@ -40,11 +48,7 @@ impl CommunityResourceLibraryStore {
     }
 
     pub fn save_reply(&self, item: CommunityResource) -> Result<(), CommunityResourceLibraryError> {
-        if item.kind != CommunityResourceKind::Reply
-            || item.id == Uuid::nil()
-            || !item.content.entries.is_empty()
-            || item.content.prompt.as_deref().is_none_or(str::is_empty)
-        {
+        if !is_valid_reply(&item) {
             return Err(CommunityResourceLibraryError::Invalid);
         }
         let _lock = self.lock()?;
@@ -71,17 +75,11 @@ impl CommunityResourceLibraryStore {
         let Some(parent) = self.file.parent() else {
             return Err(CommunityResourceLibraryError::Invalid);
         };
-        fs::create_dir_all(parent)?;
-        if !fs::symlink_metadata(parent)?.file_type().is_dir() {
+        if !crate::storage::create_directory_and_check(parent)? {
             return Err(CommunityResourceLibraryError::Invalid);
         }
         let lock_path = self.file.with_extension("json.lock");
-        let lock = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .open(lock_path)?;
+        let lock = file_lock::open_lock_file(lock_path)?;
         file_lock::exclusive(&lock)?;
         Ok(lock)
     }
@@ -100,14 +98,7 @@ impl CommunityResourceLibraryStore {
                 CommunityResourceLibraryError::Invalid
             })?;
         let items: Vec<CommunityResource> = from_slice(&bytes)?;
-        if items.len() > MAXIMUM_ITEMS
-            || items.iter().any(|item| {
-                item.id == Uuid::nil()
-                    || item.kind != CommunityResourceKind::Reply
-                    || !item.content.entries.is_empty()
-                    || item.content.prompt.as_deref().is_none_or(str::is_empty)
-            })
-        {
+        if items.len() > MAXIMUM_ITEMS || items.iter().any(|item| !is_valid_reply(item)) {
             return Err(CommunityResourceLibraryError::Invalid);
         }
         let mut ids = std::collections::BTreeSet::new();

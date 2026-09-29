@@ -1,5 +1,32 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useConfirm } from "../core/confirm";
+import { scopedBreakdown } from "./typing-breakdown";
+import { chartGradient } from "./typing-chart";
+import {
+  charactersPerMinute,
+  readableCharacters,
+  withUnknown,
+  type TypingBreakdown,
+} from "./typing-speed";
+export type { TypingBreakdown } from "./typing-speed";
+import {
+  dayKey,
+  dayLabel,
+  addDays,
+  currentStreak,
+  formatActiveTime,
+  longestStreak,
+  mobileTrendLength,
+  recentDays,
+  statisticsHeatmapWeeks,
+  sumStatisticValues,
+} from "./typing-statistics-helpers";
+export {
+  addDays,
+  currentStreak,
+  formatActiveTime,
+  longestStreak,
+} from "./typing-statistics-helpers";
 
 const heading = "m-0 text-[15px] font-semibold text-body";
 const metric = "flex min-w-0 flex-col gap-1";
@@ -55,11 +82,6 @@ const axis = "mt-[7px] flex justify-between text-xs text-muted";
 // columns after a fifth tab was added -- the extra one wrapped onto a second row at a quarter width.
 const segmented = (columns: number) =>
   `grid gap-[3px] rounded-[9px] bg-subtle p-[3px] ${columns === 5 ? "grid-cols-5" : "grid-cols-3"} [&>button]:min-h-[34px] [&>button]:rounded-[7px] [&>button]:border-0 [&>button]:bg-transparent [&>button]:text-secondary [&>button[aria-selected=true]]:bg-raised [&>button[aria-selected=true]]:text-body [&>button[aria-selected=true]]:shadow-card [&>button[aria-pressed=true]]:bg-raised [&>button[aria-pressed=true]]:text-body [&>button[aria-pressed=true]]:shadow-card`;
-
-export type TypingBreakdown = {
-  characters: Record<string, number>;
-  sources: Record<string, number>;
-};
 
 export type SelectionCounts = {
   /** Commits from positions 1..9, index 0 being the first candidate. */
@@ -183,43 +205,6 @@ const sourceSymbols: Record<string, string> = {
   unknown: "?",
 };
 
-function dayKey(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function recentDays(length: number, today = new Date()): { key: string; label: string }[] {
-  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  return Array.from({ length }, (_, index) => {
-    const date = new Date(start);
-    date.setDate(start.getDate() - (length - index - 1));
-    return { key: dayKey(date), label: `${date.getMonth() + 1}月${date.getDate()}日` };
-  });
-}
-
-function mobileTrendLength(days: Record<string, number>): number {
-  const earliest = Object.keys(days)
-    .filter((key) => /^\d{4}-\d{2}-\d{2}$/.test(key))
-    .sort()[0];
-  if (!earliest) return 30;
-  const start = new Date(`${earliest}T00:00:00`);
-  if (Number.isNaN(start.getTime())) return 30;
-  const today = new Date();
-  const span =
-    Math.floor(
-      (new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime() -
-        start.getTime()) /
-        86_400_000,
-    ) + 1;
-  return Math.min(366, Math.max(30, span));
-}
-
-function sum(values: Record<string, number>, keys: readonly string[]): number {
-  return keys.reduce((total, key) => total + (values[key] ?? 0), 0);
-}
-
 /** Buckets in a day, matching the shared store. */
 export const HOURS = 24;
 /**
@@ -231,13 +216,6 @@ export const HOURS = 24;
  * into `other`, so Japanese input measures as zero speed. This product has a full Japanese mode,
  * so `otherLetter` (kana, hangul, and every other script that is not Han or Latin) counts too.
  */
-const speedCharacterKinds = ["han", "latin", "otherLetter"] as const;
-
-/** A day's characters that count toward speed; zero for days with no recorded breakdown. */
-function readableCharacters(detail: Partial<TypingBreakdown> | undefined): number {
-  return speedCharacterKinds.reduce((total, kind) => total + (detail?.characters?.[kind] ?? 0), 0);
-}
-
 /**
  * Offsets a `YYYY-MM-DD` key by whole days.
  *
@@ -245,21 +223,6 @@ function readableCharacters(detail: Partial<TypingBreakdown> | undefined): numbe
  * arithmetic would lose or repeat a day at a daylight-saving boundary - which on those two days a
  * year would break a streak that was never broken.
  */
-export function addDays(key: string, days: number): string {
-  const parsed = Date.parse(`${key}T00:00:00Z`);
-  if (Number.isNaN(parsed)) return key;
-  const shifted = new Date(parsed + days * 86_400_000);
-  const month = String(shifted.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(shifted.getUTCDate()).padStart(2, "0");
-  return `${shifted.getUTCFullYear()}-${month}-${day}`;
-}
-
-/** Characters per active minute; zero when either side is missing. */
-function charactersPerMinute(characters: number, activeMs: number): number {
-  if (characters <= 0 || activeMs <= 0) return 0;
-  return characters / (activeMs / 60_000);
-}
-
 /**
  * A day needs this much active time before it can win "fastest day".
  *
@@ -355,59 +318,7 @@ export function activityMetrics(statistics: TypingStatistics, todayKey: string):
  *
  * Today is still in progress, so it must not reset a streak the user has not actually broken.
  */
-export function currentStreak(recorded: readonly string[], todayKey: string): number {
-  const present = new Set(recorded);
-  let cursor = present.has(todayKey) ? todayKey : addDays(todayKey, -1);
-  let streak = 0;
-  while (present.has(cursor)) {
-    streak += 1;
-    cursor = addDays(cursor, -1);
-  }
-  return streak;
-}
-
-/** The longest run of consecutive recorded days. `recorded` must be sorted ascending. */
-export function longestStreak(recorded: readonly string[]): number {
-  if (recorded.length === 0) return 0;
-  let longest = 1;
-  let run = 1;
-  for (let index = 1; index < recorded.length; index += 1) {
-    if (recorded[index] === recorded[index - 1]) continue;
-    run = recorded[index] === addDays(recorded[index - 1], 1) ? run + 1 : 1;
-    if (run > longest) longest = run;
-  }
-  return longest;
-}
-
-/** `1小时23分` / `12分` / `45秒`, so a reader does not divide milliseconds in their head. */
-export function formatActiveTime(milliseconds: number): string {
-  if (milliseconds <= 0) return "0分";
-  const totalMinutes = Math.floor(milliseconds / 60_000);
-  if (totalMinutes === 0) return `${Math.max(1, Math.round(milliseconds / 1000))}秒`;
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  if (hours === 0) return `${minutes}分`;
-  return minutes === 0 ? `${hours}小时` : `${hours}小时${minutes}分`;
-}
-
 /** `9月21日` from a `YYYY-MM-DD` key, matching the labels the trend axis uses. */
-function dayLabel(key: string): string {
-  const [, month, day] = key.split("-");
-  return `${Number(month)}月${Number(day)}日`;
-}
-
-function withUnknown(value: Partial<TypingBreakdown> | undefined, total: number): TypingBreakdown {
-  const characters = { ...value?.characters };
-  const sourceCounts = { ...value?.sources };
-  characters.unknown =
-    (characters.unknown ?? 0) +
-    Math.max(0, total - Object.values(characters).reduce((a, b) => a + b, 0));
-  sourceCounts.unknown =
-    (sourceCounts.unknown ?? 0) +
-    Math.max(0, total - Object.values(sourceCounts).reduce((a, b) => a + b, 0));
-  return { characters, sources: sourceCounts };
-}
-
 /** How many recorded days the per-day detail table lists, as in the Windows source's `DETAIL_DAYS`. */
 export const DETAIL_DAYS = 30;
 
@@ -528,44 +439,6 @@ function DailyDetails({ rows }: { rows: DailyDetailRow[] }) {
         个有记录的日期，新的在上；「其他」含其他文字、表情、符号与历史未分类。活跃与速度显示「—」的日期早于活跃时长的记录。
       </p>
     </section>
-  );
-}
-
-function scopedBreakdown(statistics: TypingStatistics, keys: string[] | null): TypingBreakdown {
-  if (keys === null) return withUnknown(statistics.detail, statistics.total);
-  const result: TypingBreakdown = { characters: {}, sources: {} };
-  for (const key of keys) {
-    const count = statistics.days[key] ?? 0;
-    const detail = withUnknown(statistics.dailyDetails?.[key], count);
-    for (const [id, value] of Object.entries(detail.characters))
-      result.characters[id] = (result.characters[id] ?? 0) + value;
-    for (const [id, value] of Object.entries(detail.sources))
-      result.sources[id] = (result.sources[id] ?? 0) + value;
-  }
-  return result;
-}
-
-type HeatmapDay = { key: string; label: string; count: number; future: boolean };
-
-function statisticsHeatmapWeeks(days: Record<string, number>, today = new Date()): HeatmapDay[][] {
-  const current = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  // Weeks start on Monday, as in the Windows source's calendar, so the current week's column begins on this Monday.
-  const thisMonday = new Date(current);
-  thisMonday.setDate(current.getDate() - ((current.getDay() + 6) % 7));
-  const start = new Date(thisMonday);
-  start.setDate(thisMonday.getDate() - 52 * 7);
-  return Array.from({ length: 53 }, (_, week) =>
-    Array.from({ length: 7 }, (_, row) => {
-      const date = new Date(start);
-      date.setDate(start.getDate() + week * 7 + row);
-      const key = dayKey(date);
-      return {
-        key,
-        label: `${date.getMonth() + 1}月${date.getDate()}日`,
-        count: days[key] ?? 0,
-        future: date > current,
-      };
-    }),
   );
 }
 
@@ -710,18 +583,6 @@ function StatisticsTrendLine({
 }
 
 type DistributionVariant = "bar" | "pie" | "donut" | "rank";
-
-function chartGradient(slices: Slice[], total: number): string {
-  let cursor = 0;
-  const segments = slices
-    .filter((slice) => slice.count > 0)
-    .map((slice) => {
-      const start = (cursor / total) * 360;
-      cursor += slice.count;
-      return `${slice.color} ${start}deg ${(cursor / total) * 360}deg`;
-    });
-  return segments.length ? `conic-gradient(${segments.join(", ")})` : "var(--surface-subtle)";
-}
 
 function ShapeChart({
   slices,
@@ -1182,7 +1043,7 @@ export function TypingStatisticsPage({
     {
       id: "chinese",
       title: "中文模式",
-      count: sum(breakdown.sources, [
+      count: sumStatisticValues(breakdown.sources, [
         "quanpin",
         "nineKey",
         "shuangpin",

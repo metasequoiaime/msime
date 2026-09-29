@@ -41,35 +41,27 @@ export function MobileKeyboardFeedbackSection({
   return (
     <div className="section" role="group" aria-label="按键反馈">
       <div className="section-title">按键反馈</div>
-      <label className="section-header">
-        <span className="section-title">
-          按键音<small>按键音受系统静音设置控制</small>
-        </span>
-        <input
-          aria-label="按键音"
-          className="toggle"
-          type="checkbox"
-          disabled={busy}
-          checked={value.soundEnabled}
-          onChange={(event) => onChange({ ...value, soundEnabled: event.target.checked })}
-        />
-      </label>
+      <SettingToggle
+        label="按键音"
+        description="按键音受系统静音设置控制"
+        ariaLabel="按键音"
+        disabled={busy}
+        checked={value.soundEnabled}
+        compact
+        onChange={(enabled) => onChange({ ...value, soundEnabled: enabled })}
+      />
       {value.hapticsAvailable !== false && (
         <>
           <div className="input-option-divider" />
-          <label className="section-header">
-            <span className="section-title">
-              按键振动<small>振动效果取决于设备与系统支持</small>
-            </span>
-            <input
-              aria-label="按键振动"
-              className="toggle"
-              type="checkbox"
-              disabled={busy}
-              checked={value.hapticsEnabled}
-              onChange={(event) => onChange({ ...value, hapticsEnabled: event.target.checked })}
-            />
-          </label>
+          <SettingToggle
+            label="按键振动"
+            description="振动效果取决于设备与系统支持"
+            ariaLabel="按键振动"
+            disabled={busy}
+            checked={value.hapticsEnabled}
+            compact
+            onChange={(enabled) => onChange({ ...value, hapticsEnabled: enabled })}
+          />
           {value.hapticsEnabled && (
             <>
               <div className="input-option-divider" />
@@ -104,24 +96,18 @@ export function MobileKeyboardFeedbackSection({
       {ios && (
         <>
           <div className="input-option-divider" />
-          <label className="section-header">
-            <span className="section-title">
-              英文建议
-              <small>
-                英文 26 键直接输入时，在候选栏显示当前单词的补全建议；关闭后仍可正常输入英文。
-              </small>
-            </span>
-            <input
-              aria-label="英文建议"
-              className="toggle"
-              type="checkbox"
-              disabled={busy}
-              checked={value.englishSuggestions !== false}
-              onChange={(event) => onChange({ ...value, englishSuggestions: event.target.checked })}
-            />
-          </label>
+          <SettingToggle
+            label="英文建议"
+            description="英文 26 键直接输入时，在候选栏显示当前单词的补全建议；关闭后仍可正常输入英文。"
+            ariaLabel="英文建议"
+            disabled={busy}
+            checked={value.englishSuggestions !== false}
+            compact
+            onChange={(enabled) => onChange({ ...value, englishSuggestions: enabled })}
+          />
         </>
       )}
     </div>
   );
 }
+import { SettingToggle } from "./setting-toggle";

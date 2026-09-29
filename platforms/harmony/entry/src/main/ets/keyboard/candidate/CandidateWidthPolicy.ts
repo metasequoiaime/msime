@@ -64,14 +64,7 @@ export class CandidateWidthPolicy {
         CandidateWidthPolicy.textWidthVp(suffix, Math.max(12, candidateFontSize - 8));
       contentWidth = Math.max(contentWidth, candidateWidth);
     }
-    const boundedMinimum: number = Math.max(
-      CandidateWidthPolicy.MIN_WIDTH_VP,
-      Math.min(maxWidthVp, minWidthVp),
-    );
-    return Math.min(
-      maxWidthVp,
-      Math.max(boundedMinimum, Math.ceil(contentWidth + CandidateWidthPolicy.EXTRA_WIDTH_VP)),
-    );
+    return CandidateWidthPolicy.clampWidth(contentWidth, minWidthVp, maxWidthVp);
   }
 
   /**
@@ -110,14 +103,7 @@ export class CandidateWidthPolicy {
       row,
       CandidateWidthPolicy.textWidthVp(editing, preeditFontSize),
     );
-    const boundedMinimum: number = Math.max(
-      CandidateWidthPolicy.MIN_WIDTH_VP,
-      Math.min(maxWidthVp, minWidthVp),
-    );
-    return Math.min(
-      maxWidthVp,
-      Math.max(boundedMinimum, Math.ceil(contentWidth + CandidateWidthPolicy.EXTRA_WIDTH_VP)),
-    );
+    return CandidateWidthPolicy.clampWidth(contentWidth, minWidthVp, maxWidthVp);
   }
 
   /** What one desktop chip holds between its paddings: the selection bar's room, the ordinal and its gap when `ordinalFontSize` is above zero, the word, and the badge, hint and annotation after it. The view sizes its chips with this too, so the window and the chips in it agree. */
@@ -140,6 +126,17 @@ export class CandidateWidthPolicy {
       (suffix.length > 0
         ? CandidateWidthPolicy.textWidthVp(suffix, Math.max(12, candidateFontSize - 8))
         : 0)
+    );
+  }
+
+  private static clampWidth(contentWidth: number, minWidthVp: number, maxWidthVp: number): number {
+    const boundedMinimum: number = Math.max(
+      CandidateWidthPolicy.MIN_WIDTH_VP,
+      Math.min(maxWidthVp, minWidthVp),
+    );
+    return Math.min(
+      maxWidthVp,
+      Math.max(boundedMinimum, Math.ceil(contentWidth + CandidateWidthPolicy.EXTRA_WIDTH_VP)),
     );
   }
 

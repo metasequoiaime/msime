@@ -2,18 +2,28 @@
 //! Network, credentials, and UI state stay outside client-core.
 
 use crate::account::{
-    AccountApi, AccountError, AccountSessionStorage, BackendAccountClient, BackendAccountSession,
+    request_with_account_session, AccountApi, AccountError, AccountSessionStorage,
+    BackendAccountClient, BackendAccountSession,
 };
 use crate::cloud::dictionary::{percent_encode, DictionaryKind};
-use crate::community::{valid_query, valid_text};
+use crate::community::{
+    valid_author, valid_description, valid_name, valid_query, valid_rating, valid_text,
+    MAXIMUM_JAVASCRIPT_INTEGER, MAXIMUM_PAGE_ITEMS,
+};
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
 
-const MAXIMUM_PAGE_ITEMS: usize = 20;
 const MAXIMUM_CONTENT_BYTES: usize = 350_000;
-const MAXIMUM_JAVASCRIPT_INTEGER: u64 = 9_007_199_254_740_991;
+
+pub(super) fn reply_content_has_prompt(content: &CommunityResourceContent) -> bool {
+    content.entries.is_empty()
+        && content
+            .prompt
+            .as_deref()
+            .is_some_and(|prompt| !prompt.is_empty())
+}
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -393,16 +403,21 @@ where
         search: &str,
         offset: usize,
     ) -> Result<CommunityResourcePage, AccountError> {
-        self.request(scope != CommunityResourceScope::All, |api, token| {
-            api.community_resources(kind, scope, search, offset, token)
-        })
+        request_with_account_session(
+            &self.api,
+            &self.session,
+            scope != CommunityResourceScope::All,
+            |api, token| api.community_resources(kind, scope, search, offset, token),
+        )
     }
 
     pub fn detail(&self, id: Uuid) -> Result<CommunityResource, AccountError> {
         if id.is_nil() {
             return Err(AccountError::Invalid);
         }
-        self.request(false, |api, token| api.community_resource(id, token))
+        request_with_account_session(&self.api, &self.session, false, |api, token| {
+            api.community_resource(id, token)
+        })
     }
 
     pub fn publish(
@@ -422,7 +437,7 @@ where
             content,
             revision,
         };
-        self.request(true, |api, token| {
+        request_with_account_session(&self.api, &self.session, true, |api, token| {
             api.publish_community_resource(&request, token.ok_or(AccountError::Unauthorized)?)
         })
     }
@@ -432,7 +447,7 @@ where
         id: Uuid,
         resource_revision: u32,
     ) -> Result<CommunityResourceApplication, AccountError> {
-        self.request(true, |api, token| {
+        request_with_account_session(&self.api, &self.session, true, |api, token| {
             let token = token.ok_or(AccountError::Unauthorized)?;
             let dictionary_revision = api.dictionary_revision(token)?;
             api.apply_community_resource(id, resource_revision, dictionary_revision, token)
@@ -443,13 +458,13 @@ where
         if id.is_nil() {
             return Err(AccountError::Invalid);
         }
-        self.request(true, |api, token| {
+        request_with_account_session(&self.api, &self.session, true, |api, token| {
             api.save_community_resource(id, saved, token.ok_or(AccountError::Unauthorized)?)
         })
     }
 
     pub fn rate(&self, id: Uuid, stars: u8) -> Result<(), AccountError> {
-        self.request(true, |api, token| {
+        request_with_account_session(&self.api, &self.session, true, |api, token| {
             api.rate_community_resource(id, stars, token.ok_or(AccountError::Unauthorized)?)
         })
     }
@@ -458,42 +473,9 @@ where
         if id.is_nil() {
             return Err(AccountError::Invalid);
         }
-        self.request(true, |api, token| {
+        request_with_account_session(&self.api, &self.session, true, |api, token| {
             api.delete_community_resource(id, token.ok_or(AccountError::Unauthorized)?)
         })
-    }
-
-    fn request<T>(
-        &self,
-        authenticated: bool,
-        operation: impl Fn(&A, Option<&str>) -> Result<T, AccountError>,
-    ) -> Result<T, AccountError> {
-        let identity = if self.session.status()?.is_some() {
-            Some(self.session.credentials(None, None)?)
-        } else {
-            None
-        };
-        if authenticated && identity.is_none() {
-            return Err(AccountError::Unauthorized);
-        }
-        let mut active_token = identity.as_ref().map(|value| value.1.clone());
-        let result = match operation(&self.api, active_token.as_deref()) {
-            Err(AccountError::Unauthorized) if identity.is_some() => {
-                let expected = identity.as_ref().map(|value| value.0.as_str());
-                let (_, replacement) = self
-                    .session
-                    .credentials(active_token.as_deref(), expected)?;
-                active_token = Some(replacement);
-                operation(&self.api, active_token.as_deref())
-            }
-            result => result,
-        }?;
-        let expected = identity.as_ref().map(|value| value.0.as_str());
-        let current = self.session.status()?.map(|user| user.id);
-        if current.as_deref() != expected {
-            return Err(AccountError::Cancelled);
-        }
-        Ok(result)
     }
 }
 
@@ -537,17 +519,11 @@ fn validate_page(
 fn validate_resource(value: &CommunityResource) -> Result<(), AccountError> {
     if value.id.is_nil()
         || value.revision == 0
-        || !valid_text(&value.name, 1, 32, false)
-        || value.name.trim() != value.name
-        || !valid_text(&value.description, 0, 280, true)
-        || !valid_text(&value.author, 1, 128, false)
-        || value.author.trim() != value.author
+        || !valid_name(&value.name)
+        || !valid_description(&value.description)
+        || !valid_author(&value.author)
         || value.saves > MAXIMUM_JAVASCRIPT_INTEGER
-        || value.rating_count > MAXIMUM_JAVASCRIPT_INTEGER
-        || value.my_rating > 5
-        || !value.rating_average.is_finite()
-        || !(0.0..=5.0).contains(&value.rating_average)
-        || (value.rating_count == 0 && value.rating_average != 0.0)
+        || !valid_rating(value.rating_count, value.rating_average, value.my_rating)
         || validate_content(value.kind, &value.content).is_err()
     {
         return Err(AccountError::Unavailable);
@@ -565,9 +541,8 @@ fn validate_publication(
 ) -> Result<(), AccountError> {
     if id.is_nil()
         || revision > 50_000
-        || !valid_text(name, 1, 32, false)
-        || name.trim() != name
-        || !valid_text(description, 0, 280, true)
+        || !valid_name(name)
+        || !valid_description(description)
         || validate_content(kind, content).is_err()
         || serde_json::to_vec(content)
             .map(|bytes| bytes.len() > MAXIMUM_CONTENT_BYTES)
@@ -584,7 +559,7 @@ fn validate_content(
 ) -> Result<(), AccountError> {
     match kind {
         CommunityResourceKind::Reply => {
-            if !content.entries.is_empty()
+            if !reply_content_has_prompt(content)
                 || content
                     .prompt
                     .as_deref()

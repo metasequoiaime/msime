@@ -1,7 +1,17 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { randomUuid } from "../core/random-id";
+import { pushMobileSettingsState } from "../settings/mobile-navigation";
 import { CommunitySkinsPage, type CommunitySkinClient } from "./community-skins";
+import {
+  appendUniqueById,
+  communityRating,
+  resourceKindTitle,
+  resourceMessage,
+  resourceScopeTitle,
+} from "./community-helpers";
 import type { CustomSkinLibraryClient } from "../keyboard/touch-keyboard-skin-design";
 import * as style from "./community-style";
+import { CommunitySearchForm } from "./community-search-form";
 
 export type CommunityResourceKind = "dictionary" | "reply";
 export type CommunityResourceScope = "" | "mine" | "saved";
@@ -66,61 +76,13 @@ export interface CommunityResourceClient {
   removeReply(id: string): Promise<void>;
 }
 
-function resourceMessage(error: unknown): string {
-  if (typeof error === "object" && error !== null && "code" in error) {
-    switch (error.code) {
-      case "community_invalid":
-        return "内容无效，请修改后重试。";
-      case "community_unauthorized":
-        return "请先登录后执行此操作。";
-      case "community_forbidden":
-        return "没有权限执行此操作。";
-      case "community_conflict":
-        return "作品状态已变化或已达到发布上限，请刷新后重试。";
-      case "community_not_found":
-        return "作品不存在或已下架。";
-      case "community_rate_limited":
-        return "请求过于频繁，请稍后再试。";
-      case "community_cancelled":
-        return "账号状态已变化，请重新加载。";
-      case "community_storage":
-        return "无法安全保存本地模板，请稍后重试。";
-      case "community_resource_library_format":
-        return "本地模板库无法读取，请检查后重试。";
-    }
-  }
-  return "社区暂时不可用，请稍后重试。";
-}
-
-function unique(current: CommunityResource[], incoming: CommunityResource[]): CommunityResource[] {
-  const ids = new Set(current.map((item) => item.id));
-  return [...current, ...incoming.filter((item) => !ids.has(item.id) && ids.add(item.id))];
-}
-
-function publicationId(): string {
-  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
-  return (
-    "00000000-0000-4000-8000-" + Math.random().toString(16).slice(2).padEnd(12, "0").slice(0, 12)
-  );
-}
-
-function kindTitle(kind: CommunityResourceKind): string {
-  return kind === "dictionary" ? "词库" : "回复";
-}
-function scopeTitle(scope: CommunityResourceScope): string {
-  return scope === "mine" ? "我的作品" : scope === "saved" ? "收藏" : "全部";
-}
-function rating(item: CommunityResource): string {
-  return item.rating_count === 0 ? "暂无评分" : `${item.rating_average.toFixed(1)} 分`;
-}
-
 function ResourceCard({ item, open }: { item: CommunityResource; open: () => void }) {
   return (
     <button
       type="button"
       className={style.card}
       onClick={open}
-      aria-label={`查看${kindTitle(item.kind)} ${item.name}`}
+      aria-label={`查看${resourceKindTitle(item.kind)} ${item.name}`}
     >
       <span className={style.resourceIcon} aria-hidden="true">
         {item.kind === "dictionary" ? "字" : "话"}
@@ -131,7 +93,8 @@ function ResourceCard({ item, open }: { item: CommunityResource; open: () => voi
         {item.description || (item.kind === "dictionary" ? "共享词条" : "回复语气模板")}
       </span>
       <span className={style.cardMetrics}>
-        ☆ {rating(item)} · {item.saves.toLocaleString("zh-CN")} 人收藏
+        ☆ {communityRating(item.rating_count, item.rating_average)} ·{" "}
+        {item.saves.toLocaleString("zh-CN")} 人收藏
       </span>
     </button>
   );
@@ -150,7 +113,7 @@ function ResourceEditor({
   close: () => void;
   onPublished: () => Promise<void>;
 }) {
-  const [id] = useState(existing?.id ?? publicationId);
+  const [id] = useState(existing?.id ?? randomUuid());
   const [name, setName] = useState(existing?.name ?? "");
   const [description, setDescription] = useState(existing?.description ?? "");
   const [prompt, setPrompt] = useState(existing?.content.prompt ?? "");
@@ -239,11 +202,13 @@ function ResourceEditor({
         className={style.dialog}
         role="dialog"
         aria-modal="true"
-        aria-label={existing ? "更新社区作品" : `发布${kindTitle(kind)}`}
+        aria-label={existing ? "更新社区作品" : `发布${resourceKindTitle(kind)}`}
         onSubmit={(event) => void submit(event)}
       >
         <div className={style.dialogHeading}>
-          <h2 className={style.dialogTitle}>{existing ? "更新作品" : `发布${kindTitle(kind)}`}</h2>
+          <h2 className={style.dialogTitle}>
+            {existing ? "更新作品" : `发布${resourceKindTitle(kind)}`}
+          </h2>
           <button
             type="button"
             className={style.dialogClose}
@@ -539,7 +504,8 @@ function ResourceDetail({
         </div>
         {item.description && <p className={style.description}>{item.description}</p>}
         <p className={style.metrics}>
-          {item.saves.toLocaleString("zh-CN")} 人收藏 · {rating(item)} ·{" "}
+          {item.saves.toLocaleString("zh-CN")} 人收藏 ·{" "}
+          {communityRating(item.rating_count, item.rating_average)} ·{" "}
           {item.rating_count.toLocaleString("zh-CN")} 人评分
         </p>
         {item.kind === "dictionary" ? (
@@ -722,7 +688,7 @@ export function CommunityResourcesPage({
     try {
       const page = await client.list(kind, scope, search, offset);
       if (current !== generation.current) return;
-      setItems((value) => (append ? unique(value, page.items) : page.items));
+      setItems((value) => (append ? appendUniqueById(value, page.items) : page.items));
       setMore(page.has_more);
     } catch (loadError) {
       if (current === generation.current) setError(resourceMessage(loadError));
@@ -738,16 +704,7 @@ export function CommunityResourcesPage({
   }, [client, kind, scope]);
   const openDetail = (item: CommunityResource) => {
     if (mobile && typeof window !== "undefined") {
-      const current = window.history.state;
-      window.history.pushState(
-        {
-          ...(current && typeof current === "object" ? current : {}),
-          msimeSettings: true,
-          page: "community",
-          communityDetail: { kind, id: item.id },
-        },
-        "",
-      );
+      pushMobileSettingsState({ page: "community", communityDetail: { kind, id: item.id } });
     }
     setSelected(item);
   };
@@ -782,32 +739,19 @@ export function CommunityResourcesPage({
     );
   return (
     <div className={style.page}>
-      <form
-        className={style.searchRow}
-        role="search"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void load();
-        }}
-      >
-        <input
-          className={style.searchInput}
-          aria-label={`搜索${kindTitle(kind)}`}
-          placeholder={`搜索${kindTitle(kind)}`}
-          value={search}
-          onChange={(event) => setSearch([...event.target.value].slice(0, 128).join(""))}
-        />
-        <button type="submit" className={style.searchSubmit}>
-          搜索
-        </button>
-      </form>
+      <CommunitySearchForm
+        label={`搜索${resourceKindTitle(kind)}`}
+        value={search}
+        onChange={setSearch}
+        onSubmit={() => void load()}
+      />
       <div className={style.heading}>
         <div className={style.headingBody}>
           <h2 className={style.headingTitle}>
             {scope === "mine"
-              ? `我的${kindTitle(kind)}作品`
+              ? `我的${resourceKindTitle(kind)}作品`
               : scope === "saved"
-                ? `收藏的${kindTitle(kind)}`
+                ? `收藏的${resourceKindTitle(kind)}`
                 : kind === "dictionary"
                   ? "好词，随手可得"
                   : "找到舒服的表达"}
@@ -822,7 +766,7 @@ export function CommunityResourcesPage({
           <div
             className={style.scopeButtonsCollapsing}
             role="group"
-            aria-label={`${kindTitle(kind)}范围`}
+            aria-label={`${resourceKindTitle(kind)}范围`}
           >
             <button
               type="button"
@@ -850,13 +794,16 @@ export function CommunityResourcesPage({
             </button>
           </div>
           <details className={style.scopeMenu}>
-            <summary className={style.scopeMenuSummary} aria-label={`${kindTitle(kind)}筛选范围`}>
-              {scopeTitle(scope)}
+            <summary
+              className={style.scopeMenuSummary}
+              aria-label={`${resourceKindTitle(kind)}筛选范围`}
+            >
+              {resourceScopeTitle(scope)}
             </summary>
             <div
               className={style.scopeMenuList}
               role="group"
-              aria-label={`${kindTitle(kind)}筛选范围`}
+              aria-label={`${resourceKindTitle(kind)}筛选范围`}
             >
               <button
                 type="button"
@@ -907,7 +854,7 @@ export function CommunityResourcesPage({
         </p>
       )}
       {!busy && items.length === 0 && (
-        <p className={style.notice}>这里还没有{kindTitle(kind)}作品。</p>
+        <p className={style.notice}>这里还没有{resourceKindTitle(kind)}作品。</p>
       )}
       <div className={style.grid}>
         {items.map((item) => (

@@ -74,6 +74,19 @@ final class DiagnosticLogTests: XCTestCase {
     XCTAssertTrue(try String(contentsOf: file, encoding: .utf8).hasSuffix("] focus_in\n"))
   }
 
+  /// Reading the preview keeps the allocation bounded while still reporting the complete file size.
+  func testReadTailBoundsThePreviewForAnOversizedLog() throws {
+    let expectedTail = Data(repeating: 0x42, count: 32 * 1024)
+    var oversized = Data(repeating: 0x11, count: 2 * 1024 * 1024)
+    oversized.append(expectedTail)
+    try oversized.write(to: file)
+
+    let result = try DiagnosticLog.readTail(from: file, maximumBytes: expectedTail.count)
+
+    XCTAssertEqual(result.size, 2 * 1024 * 1024 + expectedTail.count)
+    XCTAssertEqual(result.data, expectedTail)
+  }
+
   /// The App's switch writes `diagnostic_log.server` and leaves the Windows-only field as stored.
   func testSwitchKeepsTheWindowsField() throws {
     _ = MetasequoiaInputSessionBridge(stateRoot: state)

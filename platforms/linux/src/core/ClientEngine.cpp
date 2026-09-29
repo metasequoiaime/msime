@@ -1077,22 +1077,41 @@ std::string traditional_display(const State &s, const Json &context,
     text = msime_linux_simplified_to_traditional(text);
   return text;
 }
+constexpr size_t kClipboardStoreBytes = 1024 * 1024;
+
+std::optional<Json> read_clipboard_store(const std::filesystem::path &path) {
+  std::ifstream input(path, std::ios::binary);
+  if (!input) return std::nullopt;
+  std::array<char, 8192> buffer{};
+  std::string payload;
+  while (input) {
+    input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+    const auto count = input.gcount();
+    if (count <= 0) continue;
+    const auto bytes = static_cast<size_t>(count);
+    if (payload.size() > kClipboardStoreBytes - bytes) return std::nullopt;
+    payload.append(buffer.data(), bytes);
+  }
+  if (!input.eof()) return std::nullopt;
+  try {
+    return Json::parse(payload);
+  } catch (...) {
+    return std::nullopt;
+  }
+}
+
 std::vector<std::string> clipboard_items(const std::string &path) {
   std::vector<std::string> items;
   if (path.empty() || path.size() > 4096) return items;
-  std::ifstream input{std::filesystem::path(path)};
-  if (!input) return items;
-  try {
-    auto value = Json::parse(input);
-    if (!value.is_array()) return items;
-    for (const auto &entry : value) {
-      if (items.size() == 50) break;
-      if (!entry.is_string()) continue;
-      auto text = entry.get<std::string>();
-      if (text.size() > 12000) continue;
-      if (!text.empty()) items.push_back(std::move(text));
-    }
-  } catch (...) {}
+  const auto value = read_clipboard_store(std::filesystem::path(path));
+  if (!value || !value->is_array()) return items;
+  for (const auto &entry : *value) {
+    if (items.size() == 50) break;
+    if (!entry.is_string()) continue;
+    auto text = entry.get<std::string>();
+    if (text.size() > 12000) continue;
+    if (!text.empty()) items.push_back(std::move(text));
+  }
   return items;
 }
 bool clipboard_delete(const std::string &path, const std::optional<std::string> &text) {
@@ -1112,20 +1131,19 @@ bool clipboard_delete(const std::string &path, const std::optional<std::string> 
       std::filesystem::remove(path, error);
       removed = !error;
     } else {
-      std::ifstream input{std::filesystem::path(path)};
-      auto value = Json::parse(input);
-      if (value.is_array()) {
-        const auto entry = std::find(value.begin(), value.end(), Json(*text));
-        if (entry == value.end()) {
+      auto value = read_clipboard_store(std::filesystem::path(path));
+      if (value && value->is_array()) {
+        const auto entry = std::find(value->begin(), value->end(), Json(*text));
+        if (entry == value->end()) {
           flock(lock, LOCK_UN);
           close(lock);
           return true;
         }
-        value.erase(entry);
+        value->erase(entry);
         const auto temporary = path + ".tmp." + std::to_string(getpid());
         std::ofstream output{std::filesystem::path(temporary), std::ios::trunc};
         if (output) {
-          output << value.dump();
+          output << value->dump();
           output.close();
           std::error_code error;
           std::filesystem::permissions(

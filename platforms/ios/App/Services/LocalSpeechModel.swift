@@ -11,6 +11,8 @@ struct LocalSpeechModelManifest: Equatable {
   static let fileName = "msime-model.json"
   /// The manifest is a small catalog entry, not a model payload. Keep a damaged or untrusted file from being read without a bound.
   static let maximumManifestBytes = 256 * 1024
+  /// Token vocabularies are model data, but only their first field is needed for native hotwords.
+  static let maximumTokensBytes = 8 * 1024 * 1024
 
   let directory: URL
   let kind: Kind
@@ -59,6 +61,14 @@ struct LocalSpeechModelManifest: Equatable {
 
   func optionalFile(_ role: String) throws -> String? { files[role] == nil ? nil : try file(role) }
 
+  func textFile(_ role: String, maximumBytes: Int) throws -> String {
+    let data = try BoundedFileReader.read(from: URL(fileURLWithPath: try file(role)), maximumBytes: maximumBytes)
+    guard let text = String(data: data, encoding: .utf8) else {
+      throw ServiceFailure(message: "本地语音模型的 \(role) 文件不是有效的 UTF-8。")
+    }
+    return text
+  }
+
   static func isModelDirectory(_ url: URL) -> Bool {
     var directory: ObjCBool = false
     return FileManager.default.fileExists(atPath: url.path, isDirectory: &directory) && directory.boolValue
@@ -80,7 +90,9 @@ struct LocalSpeechModelManifest: Equatable {
 /// The text rules of the shared local recognizer, kept byte-for-byte in step with `shared/voice/LocalAsr.cpp` so the same audio reads the same on iOS and the desktops.
 enum LocalSpeechText {
   /// hardware / 2, clamped to 1...4.
-  static var threadCount: Int32 { Int32(min(max(ProcessInfo.processInfo.activeProcessorCount / 2, 1), 4)) }
+  static var threadCount: Int32 {
+    Int32(SharedNumber.clamped(ProcessInfo.processInfo.activeProcessorCount / 2, to: 1...4))
+  }
 
   /// SenseVoice detects the language itself and handles Mandarin with English words best that way, so only the languages it would not otherwise guess reliably are pinned.
   static func senseVoiceLanguage(_ tag: String) -> String {
@@ -275,7 +287,11 @@ enum LocalSpeechModelLocation {
       return resolvedStored
     }
     let moved = root.appendingPathComponent(stored.lastPathComponent, isDirectory: true)
-    return LocalSpeechModelManifest.isModelDirectory(moved) ? moved.resolvingSymlinksInPath().standardizedFileURL : nil
+    let resolvedMoved = moved.resolvingSymlinksInPath().standardizedFileURL
+    guard isWithin(resolvedMoved, root: managedRoot), LocalSpeechModelManifest.isModelDirectory(resolvedMoved) else {
+      return nil
+    }
+    return resolvedMoved
   }
 
   /// Whether `storedPath` points at the model `id`, wherever the container was when it was written.

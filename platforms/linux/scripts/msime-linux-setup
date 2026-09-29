@@ -36,9 +36,16 @@ import urllib.request
 from pathlib import Path
 
 CHUNK = 1024 * 1024
+# IBus, Fcitx5 and the host refresh path all reject runtime-options.json above this size.
+RUNTIME_OPTIONS_LIMIT = 16 * 1024
+# The hosts cap the shared panel restore record before parsing it.
+PANEL_RESTORE_LIMIT = 64 * 1024
 # Each registration step is a local D-Bus or dconf round trip; a wedged daemon must not hold up the end of setup.
 COMMAND_TIMEOUT = 10
 DOWNLOAD_TIMEOUT = 60
+# Engine dependency archives have no individual size in the dictionary lock. Keep their compressed
+# response bounded while allowing the largest currently pinned archive.
+DOWNLOAD_MAX_BYTES = 512 * 1024 * 1024
 FCITX5_INPUT_METHOD = "msime"
 FCITX5_NAME = "水杉输入法"
 IBUS_ENGINE = "msime-linux"
@@ -152,9 +159,25 @@ def dependency_for(engine_path: str, engine_lock: dict) -> dict | None:
     return None
 
 
-def fetch(url: str, destination: Path) -> None:
-    with urllib.request.urlopen(url, timeout=DOWNLOAD_TIMEOUT) as response, destination.open("wb") as handle:
-        shutil.copyfileobj(response, handle)
+def fetch(url: str, destination: Path, maximum: int) -> None:
+    try:
+        with urllib.request.urlopen(url, timeout=DOWNLOAD_TIMEOUT) as response, destination.open("wb") as handle:
+            advertised = response.headers.get("Content-Length")
+            if advertised is not None:
+                try:
+                    if int(advertised) > maximum:
+                        raise SystemExit(f"下载响应超过 {maximum} 字节限制")
+                except ValueError:
+                    pass
+            size = 0
+            while block := response.read(CHUNK):
+                size += len(block)
+                if size > maximum:
+                    raise SystemExit(f"下载响应超过 {maximum} 字节限制")
+                handle.write(block)
+    except BaseException:
+        destination.unlink(missing_ok=True)
+        raise
 
 
 def download_artifacts(lock: dict, engine_lock: dict | None, directory: Path) -> None:
@@ -174,7 +197,7 @@ def download_artifacts(lock: dict, engine_lock: dict | None, directory: Path) ->
             url = artifact.get("url", "")
             if url:
                 print(f"下载 {name}")
-                fetch(url, staged)
+                fetch(url, staged, artifact["size"])
             else:
                 engine_path = artifact.get("engine_path", "")
                 dependency = dependency_for(engine_path, engine_lock or {})
@@ -186,7 +209,7 @@ def download_artifacts(lock: dict, engine_lock: dict | None, directory: Path) ->
                     )
                 print(f"取 {name}（来自 {dependency['repository']} 的固定归档）")
                 archive = staging / "dependency.tar.gz"
-                fetch(dependency["archive"], archive)
+                fetch(dependency["archive"], archive, DOWNLOAD_MAX_BYTES)
                 if digest(archive) != dependency["sha256"]:
                     raise SystemExit(f"{dependency['repository']} 归档校验失败，已中止")
                 member_suffix = engine_path[len(dependency["path"]) + 1 :]
@@ -205,7 +228,12 @@ def download_artifacts(lock: dict, engine_lock: dict | None, directory: Path) ->
                     if extracted is None:
                         raise SystemExit(f"无法读取归档中的 {member_suffix}，已中止")
                     with staged.open("wb") as handle:
-                        shutil.copyfileobj(extracted, handle)
+                        size = 0
+                        while block := extracted.read(CHUNK):
+                            size += len(block)
+                            if size > artifact["size"]:
+                                raise SystemExit(f"{name} 解压后超过 {artifact['size']} 字节限制")
+                            handle.write(block)
                 archive.unlink()
             if digest(staged) != artifact["sha256"]:
                 raise SystemExit(f"{name} 校验失败，已中止；目标目录未改动")
@@ -279,7 +307,11 @@ REFRESH_OUTDATED = 3
 
 def read_options(options_file: Path) -> dict:
     try:
-        document = json.loads(options_file.read_text())
+        with options_file.open("rb") as handle:
+            raw = handle.read(RUNTIME_OPTIONS_LIMIT + 1)
+        if len(raw) > RUNTIME_OPTIONS_LIMIT:
+            raise ValueError(f"文件超过 {RUNTIME_OPTIONS_LIMIT} 字节限制")
+        document = json.loads(raw.decode())
     except (OSError, ValueError) as error:
         raise SystemExit(f"无法读取 {options_file}：{error}")
     if not isinstance(document, dict):
@@ -889,6 +921,14 @@ def panel_restore_lock(record_file: Path):
         os.close(descriptor)
 
 
+def read_bounded_text(path: Path, limit: int) -> str:
+    with path.open("rb") as source:
+        raw = source.read(limit + 1)
+    if len(raw) > limit:
+        raise ValueError(f"文件超过 {limit} 字节限制")
+    return raw.decode()
+
+
 def restore_panel_settings() -> None:
     """Undo what the hosts changed in the desktop's candidate panel settings, which every input method shares, and remove the theme MSIME generated for Fcitx5. The record is removed once every host's settings were dealt with; a failure keeps it, so a later --unregister can still restore them.
 
@@ -896,7 +936,7 @@ def restore_panel_settings() -> None:
     record_file = xdg_base("XDG_STATE_HOME", ".local/state") / PANEL_RESTORE_FILE
     text = None
     try:
-        text = record_file.read_text()
+        text = read_bounded_text(record_file, PANEL_RESTORE_LIMIT)
         record = json.loads(text)
     except FileNotFoundError:
         record = {}
@@ -927,13 +967,14 @@ def restore_panel_settings() -> None:
     if complete:
         try:
             with panel_restore_lock(record_file):
-                if record_file.read_text() == text:
+                if read_bounded_text(record_file, PANEL_RESTORE_LIMIT) == text:
                     record_file.unlink()
                     return
         except FileNotFoundError:
             return
-        except OSError as error:
-            print(f"未能删除候选面板设置的恢复记录 {record_file}：{error.strerror}", file=sys.stderr)
+        except (OSError, ValueError) as error:
+            detail = getattr(error, "strerror", None) or str(error)
+            print(f"未能删除候选面板设置的恢复记录 {record_file}：{detail}", file=sys.stderr)
             return
         print(f"恢复期间宿主又记下了候选面板设置的改动，恢复记录保留在 {record_file}，可稍后再次运行 msime-linux-setup --unregister。", file=sys.stderr)
     elif record is not None:

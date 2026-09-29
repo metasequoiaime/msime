@@ -9,14 +9,15 @@ use crate::platform::mobile::mobile_account_helpers::{
     account_profile as shared_account_profile, account_rename as shared_account_rename,
     account_request_code as shared_account_request_code, account_status as shared_account_status,
     call, clear_snapshot_previews, clear_snapshot_previews_after, cloud_dictionary_account_request,
-    parse_snapshot_token, PendingSnapshot, SnapshotMetadata,
+    replace_pending_snapshot, snapshot_command_error, snapshot_response_without_account,
+    take_pending_snapshot, valid_mobile_haptic_strength, validate_pending_snapshot,
+    PendingSnapshot, SnapshotMetadata,
 };
 #[cfg(target_os = "ios")]
 use crate::shared::account_dto::{
     providers_response, ChallengeResponse, ProfileResponse, ProvidersResponse, StatusResponse,
 };
 use crate::shared::account_dto::{ChatModelsResponse, ChatResponse, PreferenceSchemaResponse};
-use serde::Serialize;
 use std::collections::BTreeMap;
 #[cfg(target_os = "ios")]
 use std::collections::HashMap;
@@ -368,22 +369,15 @@ async fn dictionary_snapshot_preview(
     })
     .await
     .map_err(|_| snapshot_command_error())??;
-    let old = {
-        let mut pending = previews.lock().map_err(|_| snapshot_command_error())?;
-        let old = pending
-            .drain()
-            .map(|(_, item)| item.path)
-            .collect::<Vec<_>>();
-        pending.insert(
-            token.clone(),
-            PendingSnapshot {
-                account_id,
-                path,
-                metadata: metadata.clone(),
-            },
-        );
-        old
-    };
+    let old = replace_pending_snapshot(
+        &previews,
+        token.clone(),
+        PendingSnapshot {
+            account_id,
+            path,
+            metadata: metadata.clone(),
+        },
+    )?;
     for path in old {
         let _ = fs::remove_file(path);
     }
@@ -398,36 +392,12 @@ async fn dictionary_snapshot_enqueue(
     state: State<'_, AccountState>,
     token: String,
 ) -> Result<Value, crate::CommandError> {
-    let parsed = parse_snapshot_token(&token)?;
-    let pending = {
-        let mut previews = state
-            .snapshot_previews
-            .lock()
-            .map_err(|_| snapshot_command_error())?;
-        previews
-            .remove(&parsed.to_string())
-            .ok_or(crate::CommandError {
-                code: "snapshot_invalid",
-            })?
-    };
+    let pending = take_pending_snapshot(&state.snapshot_previews, &token)?;
     let session = Arc::clone(&state.session);
     let path = pending.path.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
         let result = (|| {
-            let profile = session.profile().map_err(account_command_error)?;
-            if profile.user.id != pending.account_id {
-                return Err(crate::CommandError {
-                    code: "snapshot_conflict",
-                });
-            }
-            let changes = session
-                .dictionary_changes(pending.metadata.cloud_revision, 1)
-                .map_err(account_command_error)?;
-            if !changes.changes.is_empty() {
-                return Err(crate::CommandError {
-                    code: "snapshot_conflict",
-                });
-            }
+            validate_pending_snapshot(&session, &pending).map_err(account_command_error)?;
             let state = snapshot_bridge(serde_json::json!({ "operation": "state" }))?;
             let expected = state
                 .get("localVersion")
@@ -592,7 +562,7 @@ pub async fn cloud_dictionary_request(
     request: msime_host_api::cloud_dictionary::CloudDictionaryRequest,
 ) -> Result<Value, crate::CommandError> {
     use msime_host_api::cloud_dictionary::CloudDictionaryRequest;
-    if let Some(result) = cloud_dictionary_account_request(state, &request).await {
+    if let Some(result) = cloud_dictionary_account_request(&state, &request).await {
         return result;
     }
     match request {
@@ -617,6 +587,7 @@ pub async fn cloud_dictionary_request(
         }
         CloudDictionaryRequest::SnapshotStatus => dictionary_snapshot_status(state).await,
         CloudDictionaryRequest::SnapshotCancel => dictionary_snapshot_cancel(state).await,
+        _ => unreachable!("account cloud dictionary request was handled above"),
     }
 }
 
@@ -796,10 +767,7 @@ pub async fn mobile_keyboard_feedback_save(
     state: State<'_, AccountState>,
     request: MobileKeyboardFeedbackRequest,
 ) -> Result<MobileKeyboardFeedback, crate::CommandError> {
-    if !matches!(
-        request.settings.haptic_strength.as_str(),
-        "light" | "medium" | "strong"
-    ) {
+    if !valid_mobile_haptic_strength(&request.settings.haptic_strength) {
         return Err(crate::CommandError {
             code: "invalid_feedback",
         });
@@ -841,7 +809,7 @@ pub async fn mobile_keyboard_feedback_preview(
     state: State<'_, AccountState>,
     request: MobileKeyboardFeedbackPreviewRequest,
 ) -> Result<(), crate::CommandError> {
-    if !matches!(request.strength.as_str(), "light" | "medium" | "strong") {
+    if !valid_mobile_haptic_strength(&request.strength) {
         return Err(crate::CommandError {
             code: "invalid_feedback",
         });

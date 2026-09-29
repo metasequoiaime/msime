@@ -2,16 +2,14 @@ import { useEffect, useId, useMemo, useState, type CSSProperties } from "react";
 import type { Preferences } from "../index";
 import {
   dimension,
-  previewPaletteCss,
+  useExternalSkinPalette,
   type ExternalSkin,
   type SkinCatalog,
 } from "./external-skins";
-import { installSkinPalette } from "./skin-palette";
 import { useSkinImage, type SkinImageReader } from "./skin-image";
 import { SkinCandidatePreview } from "./skin-candidate-preview";
-import { candidateFontSize, candidateFontStyle } from "../candidate/candidate-font-size";
-import { candidateTextStyle } from "../candidate/candidate-text-color";
-import { candidateFamilyStyle } from "../candidate/candidate-font-family";
+import { candidateFontSize } from "../candidate/candidate-font-size";
+import { candidateAppearanceStyle } from "../candidate/candidate-preview-style";
 import * as settings from "../settings/settings-style";
 
 function LoadedPreview({
@@ -28,16 +26,7 @@ function LoadedPreview({
   theme: "dark" | "light";
 }) {
   const scope = `appearance-external-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
-  const [paletteFailed, setPaletteFailed] = useState(false);
-  useEffect(() => {
-    try {
-      const remove = installSkinPalette(previewPaletteCss(scope, skin.candidate, theme));
-      setPaletteFailed(false);
-      return remove;
-    } catch {
-      setPaletteFailed(true);
-    }
-  }, [scope, skin.candidate, theme]);
+  const paletteFailed = useExternalSkinPalette(scope, skin.candidate, theme);
   const top = dimension(skin.decorationTopDip, 500),
     width = dimension(skin.decorationWidthDip, 1000);
   const decorated = top > 0 && width > 0;
@@ -48,17 +37,7 @@ function LoadedPreview({
     ? skin.base
     : "fluent";
   const geometry = {
-    ...candidateFontStyle(preferences),
-    ...candidateTextStyle(
-      preferences.candidate_text_color,
-      preferences.candidate_number_color,
-      preferences.candidate_accent_color,
-      preferences.candidate_selected_color,
-      preferences.candidate_hover_color,
-      preferences.candidate_surface_color,
-      preferences.candidate_border_color,
-    ),
-    ...candidateFamilyStyle(preferences),
+    ...candidateAppearanceStyle(preferences),
     "--msime-skin-min-width": `${dimension(skin.minWidthDip, 1000)}px`,
     "--msime-skin-decoration-top": `${decorated ? top : 0}px`,
     "--msime-skin-decoration-width": `${decorated ? width : 0}px`,

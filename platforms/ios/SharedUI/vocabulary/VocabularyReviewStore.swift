@@ -58,6 +58,8 @@ struct VocabularyReviewStatus: Equatable {
 /// scheduler that quietly disagrees with the five others, which is what the shared layer exists to
 /// prevent. This type only moves JSON across the boundary.
 struct VocabularyReviewStore {
+  static let maximumImportBytes = 8 * 1024 * 1024
+
   let root: URL
   /// The verified Engine resources, whose `wordbooks/` sibling would hold bundled books. The shared entry point requires an absolute path, so a host without packaged resources passes its own directory, where no bundled book is found and only imported books are offered.
   let resources: URL
@@ -96,6 +98,21 @@ struct VocabularyReviewStore {
   }
 
   func reset() throws -> VocabularyReviewStatus { try call(["operation": "reset"]) }
+
+  /// Read a picked wordbook without allocating more than the shared import limit.
+  static func readWordbookData(from url: URL) throws -> Data {
+    let handle = try FileHandle(forReadingFrom: url)
+    defer { try? handle.close() }
+    var data = Data()
+    data.reserveCapacity(min(maximumImportBytes, 64 * 1024))
+    while data.count <= maximumImportBytes {
+      let chunk = try handle.read(
+        upToCount: min(64 * 1024, maximumImportBytes + 1 - data.count)) ?? Data()
+      if chunk.isEmpty { return data }
+      data.append(chunk)
+    }
+    throw Failure.unreadableWordbook
+  }
 
   /// The device's local day, as the shared layer spells one.
   ///

@@ -313,11 +313,11 @@ pub unsafe extern "C" fn msime_client_load_preferences(
         }
         // SAFETY: guaranteed by the documented caller contract.
         let bytes = unsafe { std::slice::from_raw_parts(directory, length) };
-        let directory =
-            std::str::from_utf8(bytes).map_err(|_| "invalid preferences directory encoding")?;
-        if !std::path::Path::new(directory).is_absolute() {
-            return Err("preferences directory must be absolute".into());
-        }
+        let directory = super::parse_absolute_path(
+            bytes,
+            "invalid preferences directory encoding",
+            "preferences directory must be absolute",
+        )?;
         let snapshot = PreferencesStore::new(directory)
             .load()
             .map_err(|e| e.to_string())?;
@@ -980,7 +980,7 @@ pub unsafe extern "C" fn msime_client_ai_skin_plan(
                 // refuses is one the service would refuse after four requests.
                 if prompt.is_empty()
                     || prompt.chars().count() > 500
-                    || prompt.chars().any(char::is_control)
+                    || msime_client_core::has_disallowed_control_with_options(&prompt, false)
                     || model.is_empty()
                     || !is_bounded_text(&model, 200)
                 {
@@ -1071,12 +1071,7 @@ pub unsafe extern "C" fn msime_client_dictionary_manifest(
             serde_json::from_str(&text).map_err(|_| "dictionary_manifest_unavailable")?;
         if manifest.profile.is_empty()
             || !is_bounded_text(&manifest.profile, 64)
-            || !manifest
-                .source
-                .commit
-                .bytes()
-                .all(|byte| byte.is_ascii_hexdigit())
-            || manifest.source.commit.len() != 40
+            || !msime_client_core::is_ascii_hex(&manifest.source.commit, 40)
         {
             return Err("dictionary_manifest_unavailable".into());
         }
@@ -1184,15 +1179,7 @@ fn apple_date_to_unix_ms(value: f64) -> Option<u64> {
 fn apple_clipboard_migration_lock(root: &std::path::Path) -> Result<std::fs::File, String> {
     std::fs::create_dir_all(root).map_err(|_| "clipboard migration unavailable")?;
     let lock_path = root.join(".msime-clipboard-history-migration.lock");
-    let mut options = std::fs::OpenOptions::new();
-    options.create(true).truncate(false).read(true).write(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let lock = options
-        .open(lock_path)
+    let lock = msime_client_core::file_lock::open_private_lock_file(lock_path)
         .map_err(|_| "clipboard migration unavailable")?;
     // Not `File::lock`: std has no implementation of it on Android, so it fails outright there and
     // takes every shared clipboard operation with it. `client-core` already owns the per-target
@@ -1563,11 +1550,11 @@ pub unsafe extern "C" fn msime_client_try_load_preferences(
         }
         // SAFETY: guaranteed by the documented caller contract.
         let bytes = unsafe { std::slice::from_raw_parts(directory, length) };
-        let directory =
-            std::str::from_utf8(bytes).map_err(|_| "invalid preferences directory encoding")?;
-        if !std::path::Path::new(directory).is_absolute() {
-            return Err("preferences directory must be absolute".into());
-        }
+        let directory = super::parse_absolute_path(
+            bytes,
+            "invalid preferences directory encoding",
+            "preferences directory must be absolute",
+        )?;
         let snapshot = PreferencesStore::new(directory)
             .try_load()
             .map_err(|e| e.to_string())?;
@@ -1590,11 +1577,11 @@ pub unsafe extern "C" fn msime_client_recover_preferences(
         }
         // SAFETY: guaranteed by the documented caller contract.
         let bytes = unsafe { std::slice::from_raw_parts(directory, length) };
-        let directory =
-            std::str::from_utf8(bytes).map_err(|_| "invalid preferences directory encoding")?;
-        if !std::path::Path::new(directory).is_absolute() {
-            return Err("preferences directory must be absolute".into());
-        }
+        let directory = super::parse_absolute_path(
+            bytes,
+            "invalid preferences directory encoding",
+            "preferences directory must be absolute",
+        )?;
         let outcome = PreferencesStore::new(directory)
             .recover_malformed()
             .map_err(|e| e.to_string())?;
@@ -1645,11 +1632,11 @@ pub unsafe extern "C" fn msime_client_save_preferences(
             return Err("invalid preferences save buffer".into());
         }
         let directory_bytes = unsafe { std::slice::from_raw_parts(directory, directory_length) };
-        let directory = std::str::from_utf8(directory_bytes)
-            .map_err(|_| "invalid preferences directory encoding")?;
-        if !std::path::Path::new(directory).is_absolute() {
-            return Err("preferences directory must be absolute".into());
-        }
+        let directory = super::parse_absolute_path(
+            directory_bytes,
+            "invalid preferences directory encoding",
+            "preferences directory must be absolute",
+        )?;
         let snapshot_bytes = unsafe { std::slice::from_raw_parts(snapshot, snapshot_length) };
         let snapshot: PreferencesSnapshot =
             serde_json::from_slice(snapshot_bytes).map_err(|_| "invalid preferences snapshot")?;

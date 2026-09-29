@@ -74,6 +74,19 @@ if /build/stage/usr/local/bin/msime-linux-clipboard "$clipboard_fixture/history.
   exit 1
 fi
 echo "Linux clipboard stream acceptance passed"
+
+python3 - "$clipboard_fixture/history.json" <<'PYTHON'
+import sys
+from pathlib import Path
+
+Path(sys.argv[1]).write_text('["' + 'x' * (1024 * 1024) + '"]')
+PYTHON
+if [[ $(/build/stage/usr/local/bin/msime-linux-clipboard "$clipboard_fixture/history.json" list) != '[]' ]]; then
+  echo "Linux clipboard history accepted an oversized store" >&2
+  exit 1
+fi
+echo "Linux clipboard history size limit passed"
+
 unicode_text='水杉输入法 😀'
 /build/stage/usr/local/bin/msime-linux-clipboard "$clipboard_fixture/history.json" add "$unicode_text"
 [[ $(/build/stage/usr/local/bin/msime-linux-clipboard "$clipboard_fixture/history.json" get 0) == "$unicode_text" ]]

@@ -5,7 +5,7 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
@@ -53,12 +53,7 @@ pub enum ResourceError {
 
 impl ResourceSet {
     pub fn validate(&self) -> Result<(), ResourceError> {
-        let hex = |text: &str, len| {
-            text.len() == len
-                && text
-                    .bytes()
-                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-        };
+        let hex = crate::is_lower_hex;
         if !hex(&self.source_commit, 40) || self.artifacts.is_empty() || self.artifacts.len() > 128
         {
             return Err(ResourceError::InvalidManifest);
@@ -80,10 +75,7 @@ impl ResourceSet {
                 || artifact.name.len() > 128
                 || artifact.name.starts_with('.')
                 || artifact.name.ends_with('.')
-                || !artifact
-                    .name
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+                || !crate::is_ascii_identifier_with_dots(&artifact.name)
                 || reserved
                 || !names.insert(artifact.name.to_ascii_lowercase())
                 || !hex(&artifact.sha256, 64)
@@ -114,10 +106,7 @@ impl ResourceSet {
 fn portable_relative_path(path: &str) -> bool {
     path.is_empty()
         || path.split('/').all(|segment| {
-            !matches!(segment, "" | "." | "..")
-                && segment
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+            !matches!(segment, "" | "." | "..") && crate::is_ascii_identifier_with_dots(segment)
         })
 }
 
@@ -156,12 +145,7 @@ impl ResourceStore {
     ) -> Result<PathBuf, ResourceError> {
         let generation = specification.generation()?;
         fs::create_dir_all(&self.root)?;
-        let lock = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(self.root.join("resources.lock"))?;
+        let lock = crate::file_lock::open_lock_file(self.root.join("resources.lock"))?;
         crate::file_lock::exclusive(&lock)?;
         sweep_abandoned_stages(&self.root);
         let destination = self.root.join(generation);

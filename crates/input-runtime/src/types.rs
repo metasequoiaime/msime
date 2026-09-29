@@ -167,6 +167,17 @@ pub struct OnlineQuery {
     pub ai_cache_only: bool,
 }
 
+impl OnlineQuery {
+    pub fn ai_candidate_limit(&self) -> usize {
+        self.ai_assistant
+            .as_ref()
+            .filter(|assistant| assistant.enabled)
+            .map_or(0, |assistant| {
+                usize::from(assistant.candidate_limit.clamp(1, 10))
+            })
+    }
+}
+
 fn default_cloud_candidates() -> bool {
     true
 }

@@ -7,13 +7,17 @@
 //! working input source.
 
 use std::fs;
-use std::io;
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 
 // The identifier the input method bundle carries, which is MetasequoiaIME's rather than a new one of this client's: the client supersedes that input source in place instead of standing beside it. `validate_bundle` looks for it in the packaged Info.plist, so a value that has drifted from platforms/macos/Info.plist.in rejects the correct bundle rather than accepting a wrong one.
 pub(crate) const INPUT_SOURCE_BUNDLE_ID: &str = "app.msime.inputmethod.MetasequoiaIME";
 pub(crate) const INPUT_SOURCE_BUNDLE_NAME: &str = "水杉输入法.app";
 const INPUT_SOURCE_EXECUTABLE: &str = "水杉输入法";
+const MAX_INFO_PLIST_BYTES: u64 = 1024 * 1024;
+const MAX_LAUNCH_SERVICES_DUMP_BYTES: usize = 8 * 1024 * 1024;
+const MAX_INPUT_SOURCE_PREFERENCES_BYTES: usize = 1024 * 1024;
 /// Bundles under a name this no longer installs, still sitting in `~/Library/Input Methods`.
 ///
 /// The directory name is not something a user ever reads - the input menu and System Settings show
@@ -38,6 +42,28 @@ pub(crate) enum InstallError {
 
 // Staging and backup directories are named by process id, so two installs in one process - the start-time refresh and the settings page's button, or an uninstall - would work on the same paths; every install and removal holds this for its whole run.
 static INSTALL_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn bounded_command_output(command: &mut Command, maximum: usize) -> Option<Vec<u8>> {
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let mut stdout = child.stdout.take()?;
+    let mut bytes = Vec::new();
+    let read = stdout
+        .take((maximum.saturating_add(1)) as u64)
+        .read_to_end(&mut bytes);
+    let oversized = bytes.len() > maximum;
+    if read.is_err() || oversized {
+        let _ = child.kill();
+    }
+    let status = child.wait().ok()?;
+    if read.is_err() || oversized || !status.success() {
+        return None;
+    }
+    Some(bytes)
+}
 
 /// Hold off every other install, refresh or removal of the input method in this process until the guard is dropped.
 pub(crate) fn install_lock() -> std::sync::MutexGuard<'static, ()> {
@@ -64,7 +90,11 @@ fn validate_bundle(source: &Path) -> Result<(), InstallError> {
     {
         return Err(InstallError::InvalidBundle);
     }
-    let plist = fs::read(info).map_err(|_| InstallError::InvalidBundle)?;
+    let plist = crate::shared::bounded_body::read_bounded(
+        fs::File::open(info).map_err(|_| InstallError::InvalidBundle)?,
+        MAX_INFO_PLIST_BYTES as usize,
+    )
+    .map_err(|_| InstallError::InvalidBundle)?;
     if !String::from_utf8_lossy(&plist).contains(INPUT_SOURCE_BUNDLE_ID) {
         return Err(InstallError::InvalidBundle);
     }
@@ -315,17 +345,16 @@ fn remove_competing_launch_services_records(bundle: &Path) {
     if !Path::new(LSREGISTER).exists() {
         return;
     }
-    let Ok(output) = std::process::Command::new(LSREGISTER).arg("-dump").output() else {
+    let mut command = Command::new(LSREGISTER);
+    command.arg("-dump");
+    let Some(output) = bounded_command_output(&mut command, MAX_LAUNCH_SERVICES_DUMP_BYTES) else {
         return;
     };
-    if !output.status.success() {
-        return;
-    }
     let installed = bundle
         .canonicalize()
         .ok()
         .unwrap_or_else(|| bundle.to_path_buf());
-    let dump = String::from_utf8_lossy(&output.stdout);
+    let dump = String::from_utf8_lossy(&output);
     for stale in launch_services_paths_for_identifier(&dump, INPUT_SOURCE_BUNDLE_ID) {
         let same_bundle = stale == bundle
             || stale
@@ -551,14 +580,9 @@ fn enabled_in_input_source_list(json: &[u8]) -> Option<bool> {
 /// Read through `defaults export`, which asks cfprefsd, rather than the plist file itself: the file lags behind a registration that has only just enabled the source.
 pub(crate) fn input_source_enabled() -> Option<bool> {
     use std::io::Write;
-    use std::process::{Command, Stdio};
-    let exported = Command::new("/usr/bin/defaults")
-        .args(["export", "com.apple.HIToolbox", "-"])
-        .output()
-        .ok()?;
-    if !exported.status.success() {
-        return None;
-    }
+    let mut command = Command::new("/usr/bin/defaults");
+    command.args(["export", "com.apple.HIToolbox", "-"]);
+    let exported = bounded_command_output(&mut command, MAX_INPUT_SOURCE_PREFERENCES_BYTES)?;
     let mut plutil = Command::new("/usr/bin/plutil")
         .args([
             "-extract",
@@ -573,7 +597,7 @@ pub(crate) fn input_source_enabled() -> Option<bool> {
         .stderr(Stdio::null())
         .spawn()
         .ok()?;
-    plutil.stdin.take()?.write_all(&exported.stdout).ok()?;
+    plutil.stdin.take()?.write_all(&exported).ok()?;
     let output = plutil.wait_with_output().ok()?;
     if !output.status.success() {
         return None;
@@ -601,6 +625,13 @@ mod tests {
         bundle
     }
 
+    #[test]
+    fn bounded_command_output_rejects_oversized_stdout() {
+        let mut command = Command::new("/bin/sh");
+        command.args(["-c", "printf 12345"]);
+        assert!(bounded_command_output(&mut command, 4).is_none());
+    }
+
     #[cfg(target_os = "macos")]
     fn versioned_fixture(root: &Path, short: &str, build: &str, contents: &[u8]) -> PathBuf {
         let bundle = fixture(root, INPUT_SOURCE_BUNDLE_ID, contents);
@@ -616,6 +647,20 @@ mod tests {
 
     fn version(short: &str, build: &str) -> BundleVersion {
         BundleVersion::parse(short, build).unwrap()
+    }
+
+    #[test]
+    fn rejects_oversized_info_plist() {
+        let root = tempdir().unwrap();
+        let bundle = fixture(root.path(), INPUT_SOURCE_BUNDLE_ID, b"synthetic");
+        let mut plist = vec![b'x'; 1024 * 1024 + 1];
+        plist.extend_from_slice(INPUT_SOURCE_BUNDLE_ID.as_bytes());
+        fs::write(bundle.join("Contents/Info.plist"), plist).unwrap();
+
+        assert!(matches!(
+            validate_bundle(&bundle),
+            Err(InstallError::InvalidBundle)
+        ));
     }
 
     #[test]

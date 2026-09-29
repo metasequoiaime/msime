@@ -25,6 +25,10 @@ int main() {
     assert(!is_local_model_dir((root / "missing").u8string()));
     // A directory without the manifest is what an interrupted install leaves behind; it must not look usable.
     assert(!is_local_model_dir((root / "model").u8string()));
+    std::ofstream(root / "model" / std::string(local_model_manifest))
+        << R"({"kind":"offline_sense_voice","files":{},"padding":")"
+        << std::string(256 * 1024, 'x') << R"("})";
+    assert(!is_local_model_dir((root / "model").u8string()));
     std::ofstream(root / "model" / std::string(local_model_manifest)) << R"({"kind":"offline_sense_voice","files":{}})";
     assert(is_local_model_dir((root / "model").u8string()));
 

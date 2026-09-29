@@ -1,3 +1,5 @@
+import { SettingToggle } from "./setting-toggle";
+
 export interface TraditionalChineseOutputSectionProps {
   value?: boolean;
   onChange: (value: boolean) => void;
@@ -9,19 +11,12 @@ export function TraditionalChineseOutputSection({
   onChange,
 }: TraditionalChineseOutputSectionProps) {
   return (
-    <div className="section">
-      <label className="section-header">
-        <span className="section-title">
-          简繁输入<small>将提交的简体中文转换为繁体中文</small>
-        </span>
-        <input
-          aria-label="简繁输入"
-          className="toggle"
-          type="checkbox"
-          checked={value ?? false}
-          onChange={(event) => onChange(event.target.checked)}
-        />
-      </label>
-    </div>
+    <SettingToggle
+      label="简繁输入"
+      description="将提交的简体中文转换为繁体中文"
+      ariaLabel="简繁输入"
+      checked={value ?? false}
+      onChange={onChange}
+    />
   );
 }

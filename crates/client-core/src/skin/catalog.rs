@@ -91,10 +91,13 @@ pub struct SkinSummary {
 }
 
 impl SkinSummary {
+    fn supports_theme(&self, theme: &str) -> bool {
+        self.themes.iter().any(|value| value == theme)
+    }
+
     /// Compatibility comes from the manifest, not the base skin's capabilities.
     pub fn supports(&self, layout: &str, theme: &str) -> bool {
-        self.layouts.iter().any(|value| value == layout)
-            && self.themes.iter().any(|value| value == theme)
+        self.layouts.iter().any(|value| value == layout) && self.supports_theme(theme)
     }
 }
 
@@ -140,9 +143,7 @@ fn safe_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 64
         && id.as_bytes()[0].is_ascii_alphanumeric()
-        && id.bytes().all(|b| {
-            b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'.' | b'_' | b'-')
-        })
+        && crate::is_ascii_lowercase_identifier_with_dots(id)
 }
 
 fn contained(root: &Path, child: &Path) -> bool {
@@ -197,9 +198,7 @@ fn safe_resource(value: &str, max: usize) -> bool {
             !part.is_empty()
                 && part != "."
                 && part != ".."
-                && part
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+                && crate::is_ascii_identifier_with_dots(part)
         })
 }
 
@@ -562,7 +561,7 @@ pub fn host_candidate_catalog(
                 ("light", &package.candidate.light),
                 ("dark", &package.candidate.dark),
             ] {
-                if !package.themes.iter().any(|value| value == theme) {
+                if !package.supports_theme(theme) {
                     continue;
                 }
                 let colors = host_palette(palette);
@@ -609,7 +608,10 @@ fn host_palette(palette: &CandidatePalette) -> serde_json::Map<String, serde_jso
         ("selected", &palette.selected),
         ("surface", &palette.surface),
     ] {
-        if let Some(value) = value.as_deref().filter(|value| hex_color(value, &[6])) {
+        if let Some(value) = value
+            .as_deref()
+            .filter(|value| crate::is_hex_color(value, &[6]))
+        {
             colors.insert(key.to_owned(), value.into());
         }
     }
@@ -617,17 +619,11 @@ fn host_palette(palette: &CandidatePalette) -> serde_json::Map<String, serde_jso
     if let Some(value) = palette
         .border
         .as_deref()
-        .filter(|value| *value == "transparent" || hex_color(value, &[6, 8]))
+        .filter(|value| *value == "transparent" || crate::is_hex_color(value, &[6, 8]))
     {
         colors.insert("border".to_owned(), value.into());
     }
     colors
-}
-
-fn hex_color(value: &str, digits: &[usize]) -> bool {
-    value.strip_prefix('#').is_some_and(|hex| {
-        digits.contains(&hex.len()) && hex.bytes().all(|byte| byte.is_ascii_hexdigit())
-    })
 }
 
 #[cfg(test)]

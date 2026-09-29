@@ -41,7 +41,7 @@ pub(crate) fn valid_model_catalog<'a>(
         && ids.len() <= maximum_models
         && !default_model.is_empty()
         && crate::text::is_bounded_text(default_model, maximum_id_bytes)
-        && ids.iter().any(|id| *id == default_model)
+        && ids.contains(&default_model)
         && ids
             .iter()
             .all(|id| !id.is_empty() && crate::text::is_bounded_text(id, maximum_id_bytes))

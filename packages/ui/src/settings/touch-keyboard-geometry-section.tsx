@@ -1,3 +1,6 @@
+import { SettingCheck } from "./setting-check";
+import { SettingToggle } from "./setting-toggle";
+
 export type TouchToolbarPreferences = {
   layout: boolean;
   emoji: boolean;
@@ -127,18 +130,14 @@ export function TouchKeyboardGeometrySection({
         />
       </label>
       <div className="input-option-divider" />
-      <label className="section-header">
-        <span className="section-title">
-          顶部语音入口 <small>在触屏键盘工具栏直接打开最近一次语音结果</small>
-        </span>
-        <input
-          aria-label="顶部语音入口"
-          className="toggle"
-          type="checkbox"
-          checked={touchVoiceShortcut}
-          onChange={(event) => onTouchVoiceShortcutChange(event.target.checked)}
-        />
-      </label>
+      <SettingToggle
+        label="顶部语音入口"
+        description="在触屏键盘工具栏直接打开最近一次语音结果"
+        ariaLabel="顶部语音入口"
+        checked={touchVoiceShortcut}
+        compact
+        onChange={onTouchVoiceShortcutChange}
+      />
       {toolbarComponents && (
         <>
           <div className="input-option-divider" />
@@ -147,40 +146,28 @@ export function TouchKeyboardGeometrySection({
             <small>勾选要显示在键盘顶部工具栏的功能；未勾选的仍在「更多」里</small>
           </div>
           {touchToolbarOptions.map(([key, label]) => (
-            <label key={key} className="check-option">
-              <input
-                type="checkbox"
-                aria-label={`工具栏：${label}`}
-                checked={toolbarValues[key]}
-                onChange={(event) =>
-                  onToolbarChange({ ...toolbarValues, [key]: event.target.checked })
-                }
-              />
-              <span>{label}</span>
-            </label>
+            <SettingCheck
+              key={key}
+              label={label}
+              ariaLabel={`工具栏：${label}`}
+              checked={toolbarValues[key]}
+              onChange={(enabled) => onToolbarChange({ ...toolbarValues, [key]: enabled })}
+            />
           ))}
         </>
       )}
       {tabletFullKeys !== undefined && (
         <>
           <div className="input-option-divider" />
-          <label className="section-header">
-            <span className="section-title">
-              数字行与 Tab 键
-              <small>
-                iPad 全宽键盘在字母上方显示数字行，并在 Q 左侧显示 Tab
-                键；浮动键盘和窄窗口没有空间，不显示。
-              </small>
-            </span>
-            <input
-              aria-label="数字行与 Tab 键"
-              className="toggle"
-              type="checkbox"
-              disabled={tabletFullKeysBusy}
-              checked={tabletFullKeys}
-              onChange={(event) => onTabletFullKeysChange(event.target.checked)}
-            />
-          </label>
+          <SettingToggle
+            label="数字行与 Tab 键"
+            description="iPad 全宽键盘在字母上方显示数字行，并在 Q 左侧显示 Tab 键；浮动键盘和窄窗口没有空间，不显示。"
+            ariaLabel="数字行与 Tab 键"
+            disabled={tabletFullKeysBusy}
+            checked={tabletFullKeys}
+            compact
+            onChange={onTabletFullKeysChange}
+          />
         </>
       )}
       <button

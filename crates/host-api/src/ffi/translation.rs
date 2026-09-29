@@ -38,15 +38,19 @@ pub unsafe extern "C" fn msime_client_custom_translation_plan(
             )?
         };
         if request.candidates.len() > 9
-            || !["en", "fr", "ja", "es", "ru", "de", "ko"]
-                .contains(&request.target_language.as_str())
+            || request.target_language == "zh"
+            || !msime_client_core::translation::is_supported_translation_language(
+                &request.target_language,
+            )
         {
             return Err("invalid translation plan parameters".into());
         }
         let mut results = Vec::new();
         for candidate in request.candidates {
             // Engine CandidateSource::Emoji / Kaomoji, and unknown sources.
-            if matches!(candidate.source, 6 | 7 | 10..=255) || candidate.text.chars().count() > 40 {
+            if matches!(candidate.source, 6 | 7 | 10..=255)
+                || !msime_client_core::translation::is_valid_source_text(&candidate.text)
+            {
                 continue;
             }
             let (source, target, key) =
@@ -273,7 +277,7 @@ pub unsafe extern "C" fn msime_client_custom_translation_http_request(
             || !is_bounded_text(&config.api_key, 4096)
             || text.is_empty()
             || !is_bounded_text(&text, 160)
-            || text.chars().count() > 40
+            || !msime_client_core::translation::is_valid_source_text(&text)
             || !valid_language(&source_language)
             || !valid_language(&target_language)
         {
@@ -418,7 +422,7 @@ pub unsafe extern "C" fn msime_client_translation_gloss_save(
             };
             for item in request.translations {
                 let english = is_cloud_translatable_english(&item.text);
-                if item.text.chars().count() > 40
+                if !msime_client_core::translation::is_valid_source_text(&item.text)
                     || (!english && !is_cloud_translatable_chinese(&item.text))
                 {
                     continue;
@@ -491,12 +495,11 @@ pub unsafe extern "C" fn msime_client_candidate_gloss_request(
         {
             return Err("candidate gloss entries exceed limits".into());
         }
-        let resources =
-            std::str::from_utf8(unsafe { std::slice::from_raw_parts(resources, resources_length) })
-                .map_err(|_| "resources path is not UTF-8")?;
-        if !std::path::Path::new(resources).is_absolute() {
-            return Err("resources path must be absolute".into());
-        }
+        let resources = super::parse_absolute_path(
+            unsafe { std::slice::from_raw_parts(resources, resources_length) },
+            "resources path is not UTF-8",
+            "resources path must be absolute",
+        )?;
         let candidates = request
             .candidates
             .iter()
@@ -595,10 +598,7 @@ pub unsafe extern "C" fn msime_client_english_completions_request(
         if !(1..=32).contains(&request.limit)
             || request.prefix.is_empty()
             || request.prefix.len() > 128
-            || !request
-                .prefix
-                .bytes()
-                .all(|byte| byte.is_ascii_alphabetic())
+            || !msime_client_core::is_ascii_alphabetic(&request.prefix)
         {
             return Err("invalid English completion prefix".into());
         }

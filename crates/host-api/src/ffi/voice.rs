@@ -158,12 +158,9 @@ pub unsafe extern "C" fn msime_client_voice_provider_request(
             std::slice::from_raw_parts(query, query_length)
         })
         .map_err(|_| "invalid voice query document")?;
-        let path =
-            std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
-                .map_err(|_| "socket path is not UTF-8")?;
-        if !std::path::Path::new(path).is_absolute() {
-            return Err("socket path must be absolute".into());
-        }
+        let path = super::parse_absolute_socket_path(unsafe {
+            std::slice::from_raw_parts(socket_path, socket_length)
+        })?;
         Ok(UnixSocketProvider::new(path)
             .voice_with_options(&query.language, query.generation, &query.options)
             .map(|text| json!({"text": text}))
@@ -261,12 +258,9 @@ pub unsafe extern "C" fn msime_client_voice_provider_stream_feedback(
             std::slice::from_raw_parts(query, query_length)
         })
         .map_err(|_| "invalid voice query document")?;
-        let path =
-            std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
-                .map_err(|_| "socket path is not UTF-8")?;
-        if !std::path::Path::new(path).is_absolute() {
-            return Err("socket path must be absolute".into());
-        }
+        let path = super::parse_absolute_socket_path(unsafe {
+            std::slice::from_raw_parts(socket_path, socket_length)
+        })?;
         let mut update = |text: &str, final_result: bool| {
             if let Some(callback) = callback {
                 unsafe {
@@ -335,12 +329,9 @@ pub unsafe extern "C" fn msime_client_voice_provider_cancel(
         if socket_path.is_null() || socket_length > 4096 {
             return Err("invalid voice provider socket buffer".into());
         }
-        let path =
-            std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
-                .map_err(|_| "socket path is not UTF-8")?;
-        if !std::path::Path::new(path).is_absolute() {
-            return Err("socket path must be absolute".into());
-        }
+        let path = super::parse_absolute_socket_path(unsafe {
+            std::slice::from_raw_parts(socket_path, socket_length)
+        })?;
         Ok(json!(UnixSocketProvider::new(path).voice_cancel(generation)))
     })
 }
@@ -361,12 +352,9 @@ pub unsafe extern "C" fn msime_client_voice_provider_stop(
         if socket_path.is_null() || socket_length > 4096 {
             return Err("invalid voice provider socket buffer".into());
         }
-        let path =
-            std::str::from_utf8(unsafe { std::slice::from_raw_parts(socket_path, socket_length) })
-                .map_err(|_| "socket path is not UTF-8")?;
-        if !std::path::Path::new(path).is_absolute() {
-            return Err("socket path must be absolute".into());
-        }
+        let path = super::parse_absolute_socket_path(unsafe {
+            std::slice::from_raw_parts(socket_path, socket_length)
+        })?;
         Ok(json!(UnixSocketProvider::new(path).voice_stop(generation)))
     })
 }
@@ -432,38 +420,36 @@ pub unsafe extern "C" fn msime_client_voice_hotwords(
             .unwrap_or(msime_client_core::voice::hotwords::DEFAULT_HOTWORD_LIMIT)
             .min(1_000);
         // Enough rows that the heaviest words can be picked even from a large dictionary, without reading the whole store for every voice session.
-        const PAGE: usize = 1_000;
-        const MAX_ROWS: usize = 5_000;
-        let mut rows: Vec<(String, String, i64)> = Vec::new();
-        let mut offset = 0;
-        while limit > 0 && offset < MAX_ROWS {
-            let page = crate::dictionary_request_json(
-                &serde_json::to_vec(&json!({
-                    "options": request.options,
-                    "action": {"operation": "list", "offset": offset, "limit": PAGE, "kind": "pinyin", "user_only": true},
-                }))
-                .map_err(|_| "invalid voice request")?,
-            )?;
-            let entries = page["entries"].as_array().cloned().unwrap_or_default();
-            rows.extend(entries.iter().filter_map(|entry| {
-                Some((
-                    entry["value"].as_str()?.to_owned(),
-                    entry["key"].as_str()?.to_owned(),
-                    entry["weight"].as_i64().unwrap_or(0),
-                ))
-            }));
-            offset += entries.len();
-            if entries.is_empty() || page["has_more"].as_bool() != Some(true) {
-                break;
-            }
-        }
-        // Stable, so words of equal weight keep the dictionary's order.
-        rows.sort_by_key(|(_, _, weight)| std::cmp::Reverse(*weight));
-        let hotwords = msime_client_core::voice::hotwords::hotwords_from_entries(
-            rows.iter()
-                .map(|(text, pinyin, _)| (text.as_str(), pinyin.as_str())),
+        let hotwords = msime_client_core::voice::hotwords::hotwords_from_dictionary_pages(
             limit,
-        );
+            1_000,
+            5_000,
+            |offset, page_size| {
+                let page = crate::dictionary_request_json(
+                    &serde_json::to_vec(&json!({
+                        "options": request.options,
+                        "action": {"operation": "list", "offset": offset, "limit": page_size, "kind": "pinyin", "user_only": true},
+                    }))
+                    .map_err(|_| "invalid voice request")?,
+                )?;
+                let entries = page["entries"].as_array().cloned().unwrap_or_default();
+                Ok::<Option<msime_client_core::voice::hotwords::DictionaryHotwordPage>, String>(
+                    Some(msime_client_core::voice::hotwords::DictionaryHotwordPage {
+                        entries: entries
+                            .iter()
+                            .filter_map(|entry| {
+                                Some((
+                                    entry["value"].as_str()?.to_owned(),
+                                    entry["key"].as_str()?.to_owned(),
+                                    entry["weight"].as_i64().unwrap_or(0),
+                                ))
+                            })
+                            .collect(),
+                        has_more: page["has_more"].as_bool() == Some(true),
+                    }),
+                )
+            },
+        )?;
         Ok(json!({ "hotwords": hotwords }))
     })
 }

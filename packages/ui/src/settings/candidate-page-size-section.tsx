@@ -1,15 +1,9 @@
+import { offeredCandidatePageSizes } from "./candidate-page-size";
+
 export interface CandidatePageSizeSectionProps {
   value: number;
   fixed: boolean;
   onChange: (value: number) => void;
-}
-
-const candidatePageSizes = Array.from({ length: 7 }, (_, index) => index + 3);
-
-function offeredCandidatePageSizes(current: number): number[] {
-  return candidatePageSizes.includes(current)
-    ? candidatePageSizes
-    : [current, ...candidatePageSizes];
 }
 
 /** Candidate page-size selector shared by hosts that expose a configurable candidate strip. */

@@ -8,7 +8,7 @@ use crate::preferences::{
     TouchKeyboardSkinDesign,
 };
 use serde::{Deserialize, Serialize};
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -152,16 +152,10 @@ impl KeyboardSkinTrialStore {
     }
 
     fn lock(&self) -> Result<File, KeyboardSkinTrialError> {
-        fs::create_dir_all(&self.directory)?;
-        if !fs::symlink_metadata(&self.directory)?.file_type().is_dir() {
+        if !crate::storage::create_directory_and_check(&self.directory)? {
             return Err(KeyboardSkinTrialError::Invalid);
         }
-        let lock = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .open(self.directory.join("KeyboardSkinTrial.lock"))?;
+        let lock = file_lock::open_lock_file(self.directory.join("KeyboardSkinTrial.lock"))?;
         file_lock::exclusive(&lock)?;
         Ok(lock)
     }
@@ -222,7 +216,7 @@ fn normalized_name(name: &str) -> Result<String, KeyboardSkinTrialError> {
     let name = name.trim();
     if name.is_empty()
         || name.graphemes(true).count() > MAXIMUM_NAME_GRAPHEMES
-        || name.chars().any(char::is_control)
+        || crate::has_disallowed_control_with_options(name, false)
     {
         return Err(KeyboardSkinTrialError::Invalid);
     }

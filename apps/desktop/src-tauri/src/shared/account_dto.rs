@@ -1,6 +1,6 @@
 //! Redacted account responses the webview reads, shared by the iOS host and the three desktop hosts.
 //!
-//! These are the JSON shapes `packages/ui/src/account/account-page.tsx` declares as `AccountUser`, `AccountProviders`, `AccountChallenge` and `AccountProfile`, plus the `{ user }` status wrapper. Tokens, nonces and authorization URLs never reach them. Android keeps its own provider wrapper because its providers response has no `apple` field, while reusing the common user, status, challenge and profile DTOs.
+//! These are the JSON shapes `packages/ui/src/account/account-page.tsx` declares as `AccountUser`, `AccountProviders`, `AccountChallenge` and `AccountProfile`, plus the `{ user }` status wrapper. Tokens, nonces and authorization URLs never reach them. The Android host reuses the same provider DTO while omitting the optional `apple` field.
 
 use msime_client_core::account::{
     AccountChallenge, AccountChatModels, AccountPreferenceSchema, AccountProfile, AccountUser,
@@ -36,14 +36,34 @@ impl From<AccountUser> for UserResponse {
 pub struct ProvidersResponse {
     email: bool,
     phone: bool,
-    apple: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    apple: Option<bool>,
+}
+
+pub(crate) fn provider_flags(providers: &HashMap<String, bool>) -> (bool, bool) {
+    (
+        providers.get("email") == Some(&true),
+        providers.get("phone") == Some(&true) || providers.get("sms") == Some(&true),
+    )
 }
 
 pub(crate) fn providers_response(providers: HashMap<String, bool>) -> ProvidersResponse {
+    let (email, phone) = provider_flags(&providers);
     ProvidersResponse {
-        email: providers.get("email") == Some(&true),
-        phone: providers.get("phone") == Some(&true) || providers.get("sms") == Some(&true),
-        apple: providers.get("apple") == Some(&true),
+        email,
+        phone,
+        apple: Some(providers.get("apple") == Some(&true)),
+    }
+}
+
+pub(crate) fn providers_response_without_apple(
+    providers: HashMap<String, bool>,
+) -> ProvidersResponse {
+    let (email, phone) = provider_flags(&providers);
+    ProvidersResponse {
+        email,
+        phone,
+        apple: None,
     }
 }
 

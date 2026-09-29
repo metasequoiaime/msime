@@ -1,3 +1,4 @@
+use crate::platform::mobile::mobile_account_helpers::valid_mobile_haptic_strength;
 use crate::platform::mobile::mobile_account_preferences::{
     frequency_account_preferences, insert_bool, insert_string,
 };
@@ -197,7 +198,7 @@ impl IosPreferencePlan {
         let haptic_strength = string_setting(values, "platform.ios.haptic_strength")?;
         if haptic_strength
             .as_deref()
-            .is_some_and(|value| !matches!(value, "light" | "medium" | "strong"))
+            .is_some_and(|value| !valid_mobile_haptic_strength(value))
         {
             return Err(AccountError::Invalid);
         }

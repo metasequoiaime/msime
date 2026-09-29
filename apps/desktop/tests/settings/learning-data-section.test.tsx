@@ -1,0 +1,30 @@
+// @vitest-environment jsdom
+import { afterEach, expect, test, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { LearningDataSection } from "@msime/ui";
+
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
+
+test("learning data section reports a reset request", () => {
+  const onReset = vi.fn();
+  render(<LearningDataSection onReset={onReset} disabled={false} />);
+
+  expect(screen.getByRole("region", { name: "学习数据" })).toBeTruthy();
+  expect(
+    screen.getByText("清除候选词频、用户词典和拼音学习记录；输入方案与其他设置不会改变。"),
+  ).toBeTruthy();
+
+  fireEvent.click(screen.getByRole("button", { name: "清除全部学习数据" }));
+  expect(onReset).toHaveBeenCalledTimes(1);
+});
+
+test("learning data section disables the reset button while busy", () => {
+  render(<LearningDataSection onReset={vi.fn()} disabled />);
+
+  expect(
+    (screen.getByRole("button", { name: "清除全部学习数据" }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+});

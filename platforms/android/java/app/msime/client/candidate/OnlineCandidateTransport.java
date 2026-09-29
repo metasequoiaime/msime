@@ -60,9 +60,10 @@ public final class OnlineCandidateTransport {
             connection = (HttpsURLConnection) target.openConnection();
             connection.setInstanceFollowRedirects(false);
             connection.setRequestMethod("POST");
-            connection.setConnectTimeout(bounded(descriptor, "connect_timeout_ms",
-                CONNECT_TIMEOUT_MILLIS));
-            connection.setReadTimeout(bounded(descriptor, "timeout_ms", READ_TIMEOUT_MILLIS));
+            connection.setConnectTimeout(KeyboardGeometry.bounded(
+                descriptor.optInt("connect_timeout_ms", CONNECT_TIMEOUT_MILLIS), 1_000, 10_000));
+            connection.setReadTimeout(KeyboardGeometry.bounded(
+                descriptor.optInt("timeout_ms", READ_TIMEOUT_MILLIS), 1_000, 10_000));
             connection.setDoOutput(true);
             connection.setFixedLengthStreamingMode(payload.length);
             JSONObject headers = descriptor.optJSONObject("headers");
@@ -83,11 +84,6 @@ public final class OnlineCandidateTransport {
         } finally {
             if (connection != null) connection.disconnect();
         }
-    }
-
-    private static int bounded(JSONObject descriptor, String key, int fallback) {
-        int value = descriptor.optInt(key, fallback);
-        return Math.min(10_000, Math.max(1_000, value));
     }
 
     private static String readBounded(InputStream input, int limit) throws IOException {

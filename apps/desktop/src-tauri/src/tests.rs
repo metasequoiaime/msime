@@ -85,6 +85,33 @@ fn ai_response_body_limit_rejects_oversized_streams() {
 }
 
 #[test]
+fn runtime_options_reader_rejects_oversized_documents_without_allocating_them() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("runtime-options.json");
+    std::fs::write(
+        &path,
+        vec![b'x'; super::RUNTIME_OPTIONS_READ_LIMIT as usize + 1],
+    )
+    .unwrap();
+    assert_eq!(
+        super::read_runtime_options_bytes(&path).unwrap_err().kind(),
+        std::io::ErrorKind::InvalidData
+    );
+}
+
+#[test]
+fn candidate_panel_status_reader_rejects_oversized_documents() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("candidate-panel.json");
+    std::fs::write(
+        &path,
+        vec![b'x'; super::CANDIDATE_PANEL_STATUS_READ_LIMIT as usize + 1],
+    )
+    .unwrap();
+    assert!(super::read_candidate_panel_status(&path).is_none());
+}
+
+#[test]
 fn clipboard_text_validation_enforces_nonempty_nul_free_byte_limit() {
     assert!(!crate::clipboard_history::clipboard_text_is_valid(""));
     assert!(!crate::clipboard_history::clipboard_text_is_valid("a\0b"));
@@ -851,6 +878,16 @@ fn custom_translations_refuse_documents_the_engine_could_not_read() {
     assert_eq!(
         super::read_custom_translations_at(user.clone()).unwrap(),
         "你好\thello\n"
+    );
+
+    std::fs::write(
+        user.join("custom_translations.txt"),
+        vec![b'a'; super::CUSTOM_TRANSLATIONS_MAX_BYTES + 1],
+    )
+    .unwrap();
+    assert_eq!(
+        super::read_custom_translations_at(user).unwrap_err().code,
+        "storage"
     );
 }
 

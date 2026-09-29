@@ -5,8 +5,30 @@
 //! locking API works on which target. `host-api` had its own `File::lock` call, and on Android it
 //! failed on the first line of every shared clipboard operation - which made the keyboard's own
 //! `onCreateInputView` throw and the input method die before it could draw a single key.
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io;
+use std::path::Path;
+
+fn lock_file_options() -> OpenOptions {
+    let mut options = File::options();
+    options.read(true).write(true).create(true).truncate(false);
+    options
+}
+
+pub(crate) fn open_lock_file(path: impl AsRef<Path>) -> io::Result<File> {
+    lock_file_options().open(path)
+}
+
+/// Open a lock file with owner-only permissions on Unix hosts.
+pub fn open_private_lock_file(path: impl AsRef<Path>) -> io::Result<File> {
+    let mut options = lock_file_options();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options.open(path)
+}
 
 pub(crate) fn try_shared(file: &File) -> io::Result<bool> {
     #[cfg(not(target_os = "android"))]

@@ -8,16 +8,14 @@ use msime_client_core::cloud::snapshot_queue::{
     local_version, local_version_digest, DictionarySnapshotQueue, SnapshotQueueError,
 };
 use msime_client_core::cloud::snapshot_validation::{
-    has_keys as snapshot_has_keys, valid_timestamp as snapshot_timestamp,
+    has_keys as snapshot_has_keys, parse_strict_object, required_integer as snapshot_integer,
+    required_text as snapshot_text, valid_timestamp as snapshot_timestamp,
 };
 use msime_client_core::resources::{ResourceSet, ResourceStore};
 use msime_engine_bridge::{
     dictionary_state_revision, stage_dictionary_state, EngineOptions, Session, SnapshotReadError,
 };
-use serde::{
-    de::{DeserializeSeed, MapAccess, Visitor},
-    Deserialize, Serialize,
-};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
@@ -118,132 +116,6 @@ struct SnapshotMetadata {
     engine_records: usize,
 }
 
-struct StrictSnapshotValue {
-    depth: usize,
-}
-
-impl<'de> DeserializeSeed<'de> for StrictSnapshotValue {
-    type Value = Value;
-
-    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        struct SnapshotValueVisitor {
-            depth: usize,
-        }
-
-        impl<'de> Visitor<'de> for SnapshotValueVisitor {
-            type Value = Value;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("a strict JSON object value")
-            }
-
-            fn visit_bool<E>(self, value: bool) -> Result<Self::Value, E> {
-                Ok(Value::Bool(value))
-            }
-
-            fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E> {
-                Ok(Value::Number(value.into()))
-            }
-
-            fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E> {
-                Ok(Value::Number(value.into()))
-            }
-
-            fn visit_f64<E>(self, _value: f64) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                Err(E::custom("floating point values are not allowed"))
-            }
-
-            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E> {
-                Ok(Value::String(value.to_owned()))
-            }
-
-            fn visit_string<E>(self, value: String) -> Result<Self::Value, E> {
-                Ok(Value::String(value))
-            }
-
-            fn visit_none<E>(self) -> Result<Self::Value, E> {
-                Ok(Value::Null)
-            }
-
-            fn visit_unit<E>(self) -> Result<Self::Value, E> {
-                Ok(Value::Null)
-            }
-
-            fn visit_seq<A>(self, _sequence: A) -> Result<Self::Value, A::Error>
-            where
-                A: serde::de::SeqAccess<'de>,
-            {
-                Err(serde::de::Error::custom("arrays are not allowed"))
-            }
-
-            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
-            where
-                A: MapAccess<'de>,
-            {
-                if self.depth > 1 {
-                    return Err(serde::de::Error::custom("nested objects are not allowed"));
-                }
-                let mut object = serde_json::Map::new();
-                while let Some(key) = map.next_key::<String>()? {
-                    if object.contains_key(&key) {
-                        return Err(serde::de::Error::custom("duplicate JSON key"));
-                    }
-                    let value = map.next_value_seed(StrictSnapshotValue {
-                        depth: self.depth + 1,
-                    })?;
-                    object.insert(key, value);
-                }
-                Ok(Value::Object(object))
-            }
-        }
-
-        deserializer.deserialize_any(SnapshotValueVisitor { depth: self.depth })
-    }
-}
-
-fn parse_snapshot_object(bytes: &[u8]) -> Result<serde_json::Map<String, Value>, &'static str> {
-    let mut deserializer = serde_json::Deserializer::from_slice(bytes);
-    let value = StrictSnapshotValue { depth: 0 }
-        .deserialize(&mut deserializer)
-        .map_err(|_| "invalid snapshot document")?;
-    deserializer
-        .end()
-        .map_err(|_| "invalid snapshot document")?;
-    value
-        .as_object()
-        .cloned()
-        .ok_or("invalid snapshot document")
-}
-
-fn snapshot_text<'a>(
-    data: &'a serde_json::Map<String, Value>,
-    key: &str,
-    maximum: usize,
-) -> Result<&'a str, &'static str> {
-    data.get(key)
-        .and_then(Value::as_str)
-        .filter(|value| {
-            !value.is_empty()
-                && value.len() <= maximum
-                && !value
-                    .bytes()
-                    .any(|byte| matches!(byte, 0 | b'\t' | b'\n' | b'\r'))
-        })
-        .ok_or("invalid snapshot document")
-}
-
-fn snapshot_integer(data: &serde_json::Map<String, Value>, key: &str) -> Result<i64, &'static str> {
-    data.get(key)
-        .and_then(Value::as_i64)
-        .ok_or("invalid snapshot document")
-}
-
 #[derive(Default)]
 struct SnapshotIdentities {
     entry_keys: HashMap<(String, String, String), i64>,
@@ -267,8 +139,8 @@ fn inspect_snapshot_record(
         .get("data")
         .and_then(Value::as_object)
         .ok_or("invalid snapshot document")?;
-    let code = snapshot_text(data, "code", 512)?.to_owned();
-    let word = snapshot_text(data, "word", 2048)?.to_owned();
+    let code = snapshot_text(data, "code", 512, "invalid snapshot document")?.to_owned();
+    let word = snapshot_text(data, "word", 2048, "invalid snapshot document")?.to_owned();
     match kind {
         "entry" | "overlay" => {
             let outer_keys_valid = if kind == "overlay" {
@@ -330,8 +202,8 @@ fn inspect_snapshot_record(
             {
                 return Err("invalid snapshot document");
             }
-            let weight = snapshot_integer(data, "weight")?;
-            let record_revision = snapshot_integer(data, "revision")?;
+            let weight = snapshot_integer(data, "weight", "invalid snapshot document")?;
+            let record_revision = snapshot_integer(data, "revision", "invalid snapshot document")?;
             if !(0..=100_000_000).contains(&weight)
                 || (weight == 0 && !deleted)
                 || !(1..=revision).contains(&record_revision)
@@ -377,13 +249,14 @@ fn inspect_snapshot_record(
             if !snapshot_has_keys(data, &["context", "code", "word", value_key]) {
                 return Err("invalid snapshot document");
             }
-            let context = snapshot_text(data, "context", 512)?.to_owned();
+            let context =
+                snapshot_text(data, "context", 512, "invalid snapshot document")?.to_owned();
             if context.len() + code.len() + word.len() > 2048 {
                 return Err("invalid snapshot document");
             }
             let identity = (context.clone(), code, word);
             if kind == "position" {
-                let position = snapshot_integer(data, "position")?;
+                let position = snapshot_integer(data, "position", "invalid snapshot document")?;
                 if !(1..=5).contains(&position)
                     || !identities.positions.insert(identity)
                     || !identities.position_slots.insert((context, position))
@@ -392,7 +265,7 @@ fn inspect_snapshot_record(
                 }
                 Ok(3)
             } else {
-                let count = snapshot_integer(data, "count")?;
+                let count = snapshot_integer(data, "count", "invalid snapshot document")?;
                 if !(0..=10).contains(&count) || !identities.selections.insert(identity) {
                     return Err("invalid snapshot document");
                 }
@@ -462,7 +335,7 @@ fn inspect_snapshot(path: &Path) -> Result<SnapshotMetadata, &'static str> {
         if total_bytes > MAX_SNAPSHOT_BYTES || line.is_empty() {
             return Err("invalid snapshot document");
         }
-        let map = parse_snapshot_object(&line)?;
+        let map = parse_strict_object(&line).map_err(|_| "invalid snapshot document")?;
         let kind = map
             .get("type")
             .and_then(Value::as_str)
@@ -576,13 +449,7 @@ fn restore_snapshot_with(
     path: &Path,
     upload: impl FnOnce(&Path, i64, &str) -> Result<AccountDictionarySnapshotRestore, AccountError>,
 ) -> Result<Value, String> {
-    if request.revision < 0
-        || request.expected_sha256.len() != 64
-        || !request
-            .expected_sha256
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-    {
+    if request.revision < 0 || !msime_client_core::is_lower_hex(&request.expected_sha256, 64) {
         return Err("account_invalid".to_owned());
     }
     let metadata = inspect_snapshot(path).map_err(|_| "account_invalid".to_owned())?;
@@ -1042,7 +909,7 @@ impl Iterator for SnapshotFileRecords {
                 }
                 Ok(true) => {}
             }
-            let kind = match parse_snapshot_object(&self.line)
+            let kind = match parse_strict_object(&self.line)
                 .ok()
                 .and_then(|map| map.get("type").and_then(Value::as_str).map(str::to_owned))
             {

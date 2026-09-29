@@ -7,11 +7,12 @@
 //! The React surface only learns which providers have a credential and the endpoint and model each one is bound to. Secrets travel from the webview into this process and never back.
 
 use super::config_home;
+use msime_client_core::{has_disallowed_control_with_options, is_ascii_graphic, is_bounded_chars};
 use reqwest::Url;
 use serde::Serialize;
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -206,11 +207,7 @@ fn read_private(path: &Path) -> Result<Option<Map<String, Value>>, CredentialErr
     }
     // The file can grow after symlink_metadata returns. Read through a bounded handle so a
     // concurrent replacement cannot turn the size check into an unbounded allocation.
-    let mut bytes = Vec::new();
-    std::fs::File::open(path)
-        .map_err(|_| CredentialError::Storage)?
-        .take(MAX_PROVIDER_CONFIG_BYTES as u64 + 1)
-        .read_to_end(&mut bytes)
+    let bytes = super::read_bounded_file(path, MAX_PROVIDER_CONFIG_BYTES as u64)
         .map_err(|_| CredentialError::Storage)?;
     if bytes.len() > MAX_PROVIDER_CONFIG_BYTES {
         return Err(CredentialError::Existing);
@@ -272,16 +269,10 @@ fn trim_pasted(value: &str) -> &str {
     value.trim_matches([' ', '\t', '\r', '\n'])
 }
 
-fn has_control(value: &str) -> bool {
-    value
-        .chars()
-        .any(|character| (character as u32) < 32 || (127..=159).contains(&(character as u32)))
-}
-
 /// A secret as the provider accepts it: printable ASCII, and not an obvious placeholder.
 fn valid_secret(value: &str) -> bool {
     !value.is_empty()
-        && value.bytes().all(|byte| (33..=126).contains(&byte))
+        && is_ascii_graphic(value)
         && !value.starts_with('<')
         && !value.starts_with("FAKESECRET_")
 }
@@ -337,15 +328,15 @@ fn entry_text<'a>(entry: &'a Map<String, Value>, key: &str) -> &'a str {
 /// The checks `load_ai_config` applies to each entry.
 fn validate_ai_entry(entry: &Map<String, Value>) -> Result<(), CredentialError> {
     let provider = trim_pasted(entry_text(entry, "provider"));
-    if provider.is_empty() || provider.chars().count() > 64 || has_control(provider) {
+    if provider.is_empty() || !is_bounded_chars(provider, 64) {
         return Err(CredentialError::InvalidProvider);
     }
     let endpoint = trim_pasted(entry_text(entry, "endpoint"));
-    if has_control(endpoint) || !valid_endpoint(endpoint) {
+    if has_disallowed_control_with_options(endpoint, false) || !valid_endpoint(endpoint) {
         return Err(CredentialError::InvalidEndpoint);
     }
     let model = trim_pasted(entry_text(entry, "model"));
-    if model.is_empty() || has_control(model) {
+    if model.is_empty() || has_disallowed_control_with_options(model, false) {
         return Err(CredentialError::InvalidModel);
     }
     if !valid_secret(trim_pasted(entry_text(entry, "token"))) {
@@ -528,7 +519,7 @@ fn doubao_auth_mode(entry: &Map<String, Value>) -> &'static str {
 }
 
 fn doubao_field_ok(value: &str) -> bool {
-    value.len() <= MAX_DOUBAO_FIELD && value.bytes().all(|byte| (33..=126).contains(&byte))
+    value.len() <= MAX_DOUBAO_FIELD && is_ascii_graphic(value)
 }
 
 /// Whether `entry` is the provider's on-device recognition entry, which `load_config` accepts without a credential.
@@ -556,7 +547,9 @@ fn validate_voice_entry(
     }
     let endpoint = trim_pasted(entry_text(entry, "endpoint"));
     let model = trim_pasted(entry_text(entry, "model"));
-    if has_control(endpoint) || has_control(model) {
+    if has_disallowed_control_with_options(endpoint, false)
+        || has_disallowed_control_with_options(model, false)
+    {
         return Err(CredentialError::InvalidEndpoint);
     }
     let doubao = kind == VoiceKind::Asr && provider == "doubao";

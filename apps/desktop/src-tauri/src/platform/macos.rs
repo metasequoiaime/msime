@@ -5,9 +5,11 @@
 //! for macOS.
 
 use msime_client_core::host_surface::{PanelSurface, SurfaceRoute};
+#[cfg(target_os = "macos")]
 use msime_host_macos::cloud_clipboard::{CloudClipboardError, CloudClipboardSession};
 use tauri::utils::config::WindowConfig;
 
+#[cfg(target_os = "macos")]
 pub(crate) fn cloud_clipboard_error(error: CloudClipboardError) -> crate::CommandError {
     crate::CommandError {
         code: match error {
@@ -19,6 +21,7 @@ pub(crate) fn cloud_clipboard_error(error: CloudClipboardError) -> crate::Comman
     }
 }
 
+#[cfg(target_os = "macos")]
 pub(crate) fn native_cloud_session_from_environment(
     variable: &str,
     invalid_message: &'static str,

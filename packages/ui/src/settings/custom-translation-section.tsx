@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { SecretInput } from "../core/secret-input";
 import * as settings from "./settings-style";
+import { SettingToggle } from "./setting-toggle";
 
 export interface CustomTranslationSectionProps {
   enabled: boolean;
@@ -28,20 +29,15 @@ export function CustomTranslationSection({
 }: CustomTranslationSectionProps) {
   return (
     <div className="section" role="group" aria-label="自定义翻译服务">
-      <label className="section-header">
-        <span className="section-title">
-          自定义翻译服务
-          <small>改用自建的兼容 DeepLX 的 HTTPS 服务；关闭后候选词翻译使用上面选择的在线服务</small>
-        </span>
-        <input
-          aria-label="自定义翻译服务"
-          className="toggle"
-          type="checkbox"
-          disabled={!available}
-          checked={enabled}
-          onChange={(event) => onToggle(event.target.checked)}
-        />
-      </label>
+      <SettingToggle
+        label="自定义翻译服务"
+        description="改用自建的兼容 DeepLX 的 HTTPS 服务；关闭后候选词翻译使用上面选择的在线服务"
+        ariaLabel="自定义翻译服务"
+        disabled={!available}
+        checked={enabled}
+        compact
+        onChange={onToggle}
+      />
       <div className="input-option-divider" />
       <label className="section-header">
         <span className="section-title">翻译 Endpoint</span>

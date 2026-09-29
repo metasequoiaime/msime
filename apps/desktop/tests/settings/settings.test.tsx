@@ -2518,6 +2518,28 @@ const initial: Snapshot = {
   },
 };
 
+test("macOS exposes learning data reset and keeps its confirmation flow", async () => {
+  const resetLearnedData = vi.fn().mockResolvedValue(undefined);
+  render(
+    <SettingsPage
+      initialPage="dictionary"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        resetLearnedData,
+        dictionary: {} as never,
+        host: { platform: "macos" } as HostCapabilities,
+      }}
+    />,
+  );
+
+  await screen.findByRole("region", { name: "学习数据" });
+  fireEvent.click(screen.getByRole("button", { name: "清除全部学习数据" }));
+  await answerConfirm("confirm");
+  await waitFor(() => expect(resetLearnedData).toHaveBeenCalledTimes(1));
+  expect(await screen.findByText("已清除所有学习数据；输入方案和设置保持不变。")).toBeTruthy();
+});
+
 test("mobile hosts use Apple-style primary navigation and retain secondary settings", async () => {
   const host: HostCapabilities = {
     platform: "ios",

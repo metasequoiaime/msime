@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import * as account from "./account-style";
+import { accountProviderName, preferredAccountName } from "./account-labels";
+import { accountMessage, isAccountCancellation } from "./account-errors";
+import { pushMobileSettingsState } from "../settings/mobile-navigation";
 
 export type AccountUser = {
   id: string;
@@ -79,49 +82,6 @@ export type AccountCommunityDestination =
 
 type Channel = "email" | "phone";
 type Confirmation = "logout-all" | "delete" | null;
-
-function isAccountCancellation(error: unknown): boolean {
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    error.code === "account_cancelled"
-  )
-    return true;
-  if (
-    typeof DOMException !== "undefined" &&
-    error instanceof DOMException &&
-    error.name === "AbortError"
-  )
-    return true;
-  if (!(error instanceof Error)) return false;
-  const message = error.message.trim().toLowerCase();
-  return (
-    error.name === "AbortError" ||
-    message === "cancelled" ||
-    message === "the operation was aborted."
-  );
-}
-
-function accountMessage(error: unknown): string {
-  if (typeof error === "object" && error !== null && "code" in error) {
-    switch (error.code) {
-      case "account_invalid":
-        return "填写的内容无效，请检查后重试。";
-      case "account_unauthorized":
-        return "登录已失效，请重新登录。";
-      case "account_conflict":
-        return "云端设置已被其他设备更新，请刷新后重新确认。";
-      case "account_rate_limited":
-        return "操作过于频繁，请稍后再试。";
-      case "account_storage":
-        return "无法安全读取登录状态，请检查设备安全设置。";
-      case "account_cancelled":
-        return "操作已取消，请重试。";
-    }
-  }
-  return "账号服务暂不可用，请稍后再试。";
-}
 
 function MobileAccountProfilePage({
   client,
@@ -308,7 +268,7 @@ function MobileAccountProfilePage({
           </div>
           <div>
             <dt>登录方式</dt>
-            <dd>{profile?.providers.map(providerName).join("、") || "正在读取"}</dd>
+            <dd>{profile?.providers.map(accountProviderName).join("、") || "正在读取"}</dd>
           </div>
           <div>
             <dt>加入水杉</dt>
@@ -398,18 +358,6 @@ function MobileAccountProfilePage({
       )}
     </div>
   );
-}
-
-function preferredName(user: AccountUser): string {
-  const name = user.displayName.trim();
-  return name || `水杉小鹿·${user.id.slice(0, 6).toUpperCase()}`;
-}
-
-function providerName(provider: string): string {
-  if (provider === "apple") return "Apple";
-  if (provider === "email") return "邮箱";
-  if (provider === "phone" || provider === "sms") return "手机号";
-  return provider;
 }
 
 const appIconOptions = [
@@ -1082,25 +1030,16 @@ function AccountDetailsPage({
         onClick={() => {
           if (!user) return;
           if (mobile && typeof window !== "undefined") {
-            const current = window.history.state;
-            window.history.pushState(
-              {
-                ...(current && typeof current === "object" ? current : {}),
-                msimeSettings: true,
-                page: "account",
-                accountSubpage: "profile",
-              },
-              "",
-            );
+            pushMobileSettingsState({ page: "account", accountSubpage: "profile" });
             setMobileProfilePage(true);
           } else setEditingProfile(true);
         }}
       >
         <div className={account.avatar("medium")} aria-hidden="true">
-          {user ? preferredName(user).slice(0, 1) : "杉"}
+          {user ? preferredAccountName(user).slice(0, 1) : "杉"}
         </div>
         <div>
-          <h2 className={account.heading}>{user ? preferredName(user) : "欢迎来到水杉"}</h2>
+          <h2 className={account.heading}>{user ? preferredAccountName(user) : "欢迎来到水杉"}</h2>
           <p className={account.note}>{user ? "水杉账号已登录" : "登录，分享你的键盘设计"}</p>
         </div>
         {user && (
@@ -1162,7 +1101,7 @@ function AccountDetailsPage({
                 </div>
                 <div>
                   <dt>登录方式</dt>
-                  <dd>{profile?.providers.map(providerName).join("、") || "正在读取"}</dd>
+                  <dd>{profile?.providers.map(accountProviderName).join("、") || "正在读取"}</dd>
                 </div>
               </dl>
             </section>
@@ -1194,7 +1133,7 @@ function AccountDetailsPage({
                 </div>
                 <div className={account.profilePreview}>
                   <div className={account.avatar("small")} aria-hidden="true">
-                    {preferredName(user).slice(0, 1)}
+                    {preferredAccountName(user).slice(0, 1)}
                   </div>
                   <strong>{name.trim() || "你的昵称"}</strong>
                 </div>
@@ -1221,7 +1160,7 @@ function AccountDetailsPage({
                   </div>
                   <div>
                     <dt>登录方式</dt>
-                    <dd>{profile?.providers.map(providerName).join("、") || "正在读取"}</dd>
+                    <dd>{profile?.providers.map(accountProviderName).join("、") || "正在读取"}</dd>
                   </div>
                   <div>
                     <dt>加入水杉</dt>

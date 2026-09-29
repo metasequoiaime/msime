@@ -16,6 +16,40 @@ pub struct Hotword {
     pub pinyin: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DictionaryHotwordPage {
+    pub entries: Vec<(String, String, i64)>,
+    pub has_more: bool,
+}
+
+/// Read bounded dictionary pages and turn their weighted entries into hotwords.
+pub fn hotwords_from_dictionary_pages<E>(
+    limit: usize,
+    page_size: usize,
+    max_rows: usize,
+    mut read_page: impl FnMut(usize, usize) -> Result<Option<DictionaryHotwordPage>, E>,
+) -> Result<Vec<Hotword>, E> {
+    let mut rows: Vec<(String, String, i64)> = Vec::new();
+    let mut offset = 0;
+    while limit > 0 && offset < max_rows {
+        let Some(page) = read_page(offset, page_size)? else {
+            break;
+        };
+        let count = page.entries.len();
+        rows.extend(page.entries);
+        offset += count;
+        if count == 0 || !page.has_more {
+            break;
+        }
+    }
+    rows.sort_by_key(|(_, _, weight)| std::cmp::Reverse(*weight));
+    Ok(hotwords_from_entries(
+        rows.iter()
+            .map(|(text, pinyin, _)| (text.as_str(), pinyin.as_str())),
+        limit,
+    ))
+}
+
 /// Build the hotword list from `(text, stored pinyin)` dictionary entries, in the order given.
 ///
 /// Only words of at least two characters, all of them Chinese, are kept: a single character matches far too much of any transcript, and other scripts have no pinyin to compare. The stored pinyin (`ni'hao`, `ni hao`, `ni3hao3`) is normalized; when it does not give one syllable per character it is derived from the text instead. Repeated texts are kept once, and at most `limit` words are returned.

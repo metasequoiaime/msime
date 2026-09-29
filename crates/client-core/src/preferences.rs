@@ -17,12 +17,6 @@ fn valid_font_family(value: &str) -> bool {
     !value.is_empty() && crate::text::is_bounded_text(value, 128)
 }
 
-fn valid_hex_color(value: &str) -> bool {
-    value.len() == 7
-        && value.as_bytes()[0] == b'#'
-        && value[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum InputScheme {
@@ -1667,15 +1661,9 @@ impl Preferences {
         let tencent = &self.tencent_tmt;
         if tencent.secret_id.len() > 4096
             || !crate::text::is_bounded_text(&tencent.secret_key, 4096)
-            || !tencent
-                .secret_id
-                .bytes()
-                .all(|ch| ch.is_ascii_alphanumeric() || ch == b'_' || ch == b'-')
+            || !crate::is_ascii_identifier(&tencent.secret_id)
             || tencent.region.len() > 64
-            || !tencent
-                .region
-                .bytes()
-                .all(|ch| ch.is_ascii_alphanumeric() || ch == b'-')
+            || !crate::is_ascii_alphanumeric_dash(&tencent.region)
         {
             return Err(PreferencesError::InvalidTencentTmt);
         }
@@ -1750,27 +1738,27 @@ impl Preferences {
             return Err(PreferencesError::InvalidCandidateFontSize);
         }
         if let Some(color) = &self.candidate_text_color {
-            if !valid_hex_color(color) {
+            if !crate::is_hex_color(color, &[6]) {
                 return Err(PreferencesError::InvalidCandidateTextColor);
             }
         }
         if let Some(color) = &self.candidate_number_color {
-            if !valid_hex_color(color) {
+            if !crate::is_hex_color(color, &[6]) {
                 return Err(PreferencesError::InvalidCandidateNumberColor);
             }
         }
         if let Some(color) = &self.candidate_accent_color {
-            if !valid_hex_color(color) {
+            if !crate::is_hex_color(color, &[6]) {
                 return Err(PreferencesError::InvalidCandidateAccentColor);
             }
         }
         if let Some(color) = &self.candidate_selected_color {
-            if !valid_hex_color(color) {
+            if !crate::is_hex_color(color, &[6]) {
                 return Err(PreferencesError::InvalidCandidateSelectedColor);
             }
         }
         if let Some(color) = &self.candidate_hover_color {
-            if !valid_hex_color(color) {
+            if !crate::is_hex_color(color, &[6]) {
                 return Err(PreferencesError::InvalidCandidateHoverColor);
             }
         }
@@ -1785,7 +1773,7 @@ impl Preferences {
             ),
         ] {
             if let Some(color) = color {
-                if !valid_hex_color(color) {
+                if !crate::is_hex_color(color, &[6]) {
                     return Err(error);
                 }
             }
@@ -1804,15 +1792,8 @@ impl Preferences {
         }
         if self.candidate_skin.is_empty()
             || self.candidate_skin.len() > 64
-            || !self.candidate_skin.is_ascii()
             || !self.candidate_skin.as_bytes()[0].is_ascii_alphanumeric()
-            || !self.candidate_skin.bytes().all(|byte| {
-                byte.is_ascii_lowercase()
-                    || byte.is_ascii_digit()
-                    || byte == b'.'
-                    || byte == b'_'
-                    || byte == b'-'
-            })
+            || !crate::is_ascii_lowercase_identifier_with_dots(&self.candidate_skin)
         {
             return Err(PreferencesError::InvalidCandidateSkin);
         }
@@ -1958,12 +1939,7 @@ impl PreferencesStore {
 
     fn open_lock(&self) -> Result<File, PreferencesError> {
         fs::create_dir_all(&self.directory)?;
-        let lock = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(self.directory.join("preferences.lock"))?;
+        let lock = crate::file_lock::open_lock_file(self.directory.join("preferences.lock"))?;
         Ok(lock)
     }
 

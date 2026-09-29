@@ -6,7 +6,8 @@
 
 use crate::file_lock;
 use serde::{Deserialize, Serialize};
-use std::fs::{self, File, OpenOptions};
+use std::collections::HashSet;
+use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
@@ -67,21 +68,20 @@ impl PersonalWord {
             PersonalWordKind::English => 64,
         };
         let key_valid = match self.kind {
-            PersonalWordKind::Pinyin => self
-                .key
-                .bytes()
-                .all(|byte| byte.is_ascii_lowercase() || byte == b'\'' || byte == b' '),
+            PersonalWordKind::Pinyin => super::pinyin_code_is_well_formed(&self.key, true),
             PersonalWordKind::Wubi => super::wubi_code_is_well_formed(&self.key),
-            PersonalWordKind::QuickPhrase => self
-                .key
-                .bytes()
-                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit()),
+            PersonalWordKind::QuickPhrase => {
+                super::quick_phrase_transport_code_is_well_formed(&self.key)
+            }
             PersonalWordKind::English => super::english_code_is_well_formed(&self.key),
         };
-        let value_has_invalid_control = self.value.chars().any(|character| {
-            character.is_control()
-                && !(self.kind == PersonalWordKind::QuickPhrase && matches!(character, '\n' | '\t'))
-        });
+        let allowed_controls: &[char] = if self.kind == PersonalWordKind::QuickPhrase {
+            &['\n', '\t']
+        } else {
+            &[]
+        };
+        let value_has_invalid_control =
+            crate::has_disallowed_control_with_allowed(&self.value, allowed_controls);
         if self.key.is_empty()
             || self.key.len() > key_limit
             || !key_valid
@@ -312,12 +312,14 @@ impl PersonalDictionaryStore {
             if active + words.len() > MAX_ACTIVE_REQUESTS {
                 return Err(PersonalDictionaryError::TooManyRequests);
             }
-            if state.requests.iter().any(|request| {
-                request.status != PersonalWordRequestStatus::Applied
-                    && request
-                        .identities()
-                        .any(|identity| identities.contains(&identity))
-            }) {
+            if has_identity_conflict(
+                &state.requests,
+                &identities,
+                &[
+                    PersonalWordRequestStatus::Pending,
+                    PersonalWordRequestStatus::Failed,
+                ],
+            ) {
                 return Err(PersonalDictionaryError::Conflict);
             }
             prune_history(state);
@@ -345,12 +347,11 @@ impl PersonalDictionaryStore {
             };
             let identities: std::collections::HashSet<_> =
                 state.requests[index].identities().collect();
-            if state.requests.iter().any(|request| {
-                request.status == PersonalWordRequestStatus::Pending
-                    && request
-                        .identities()
-                        .any(|identity| identities.contains(&identity))
-            }) {
+            if has_identity_conflict(
+                &state.requests,
+                &identities,
+                &[PersonalWordRequestStatus::Pending],
+            ) {
                 return Err(PersonalDictionaryError::Conflict);
             }
             state.requests[index].status = PersonalWordRequestStatus::Pending;
@@ -454,12 +455,7 @@ impl PersonalDictionaryStore {
     {
         fs::create_dir_all(&self.directory)?;
         let lock_path = self.directory.join("sync.lock");
-        let lock = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(lock_path)?;
+        let lock = file_lock::open_lock_file(lock_path)?;
         if !file_lock::try_exclusive(&lock)? {
             return Err(PersonalDictionaryError::Busy);
         }
@@ -500,19 +496,31 @@ fn enqueue_request(
     if active >= MAX_ACTIVE_REQUESTS {
         return Err(PersonalDictionaryError::TooManyRequests);
     }
-    let identities: std::collections::HashSet<_> = request.identities().collect();
-    if state.requests.iter().any(|item| {
-        item.status == PersonalWordRequestStatus::Pending
-            && item
-                .identities()
-                .any(|identity| identities.contains(&identity))
-    }) {
+    let identities: HashSet<_> = request.identities().collect();
+    if has_identity_conflict(
+        &state.requests,
+        &identities,
+        &[PersonalWordRequestStatus::Pending],
+    ) {
         return Err(PersonalDictionaryError::Conflict);
     }
     prune_history(state);
     state.requests.push(request);
     state.refresh_id = Uuid::new_v4().to_string();
     Ok(())
+}
+
+fn has_identity_conflict(
+    requests: &[PersonalWordRequest],
+    identities: &HashSet<String>,
+    statuses: &[PersonalWordRequestStatus],
+) -> bool {
+    requests.iter().any(|request| {
+        statuses.contains(&request.status)
+            && request
+                .identities()
+                .any(|identity| identities.contains(&identity))
+    })
 }
 
 fn prune_history(state: &mut PersonalDictionaryState) {
@@ -530,12 +538,7 @@ fn prune_history(state: &mut PersonalDictionaryState) {
 }
 
 fn validate_request_id(id: &str) -> Result<(), PersonalDictionaryError> {
-    if id.is_empty()
-        || id.len() > 120
-        || !id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
-    {
+    if !crate::is_bounded_ascii_identifier(id, 120) {
         return Err(PersonalDictionaryError::InvalidRequest);
     }
     Ok(())

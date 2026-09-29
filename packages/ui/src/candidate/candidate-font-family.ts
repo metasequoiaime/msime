@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { utf8ByteLength } from "../core/text";
 
 export type CandidateFontPreferences = {
   candidate_font_family?: string;
@@ -12,7 +13,7 @@ export function validFontFamily(value: unknown): value is string {
   return (
     typeof value === "string" &&
     value.length > 0 &&
-    new TextEncoder().encode(value).length <= 128 &&
+    utf8ByteLength(value) <= 128 &&
     !/[\x00-\x1f\x7f-\x9f]/.test(value)
   );
 }

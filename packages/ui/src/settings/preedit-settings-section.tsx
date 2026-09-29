@@ -1,3 +1,5 @@
+import { SettingToggle } from "./setting-toggle";
+
 export type TsfPreeditStyle = "raw" | "pinyin" | "empty";
 export type CandidatePreeditStyle = "pinyin" | "empty";
 
@@ -50,25 +52,14 @@ export function PreeditSettingsSection({
         </div>
       )}
       {inlinePreedit !== undefined ? (
-        <div className="section">
-          <label className="section-header">
-            <span className="section-title">
-              行内预编辑
-              <small>
-                把正在拼写的编码也写进输入框，像系统键盘那样带下划线显示。默认关闭；个别 App
-                显示不完整时可以关掉。
-              </small>
-            </span>
-            <input
-              aria-label="行内预编辑"
-              className="toggle"
-              type="checkbox"
-              disabled={inlinePreeditBusy}
-              checked={inlinePreedit}
-              onChange={(event) => onInlinePreeditChange?.(event.target.checked)}
-            />
-          </label>
-        </div>
+        <SettingToggle
+          label="行内预编辑"
+          description="把正在拼写的编码也写进输入框，像系统键盘那样带下划线显示。默认关闭；个别 App 显示不完整时可以关掉。"
+          ariaLabel="行内预编辑"
+          checked={inlinePreedit}
+          disabled={inlinePreeditBusy}
+          onChange={(enabled) => onInlinePreeditChange?.(enabled)}
+        />
       ) : (
         <div className="section">
           <label className="section-header">

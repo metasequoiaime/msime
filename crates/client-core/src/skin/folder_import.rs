@@ -6,13 +6,19 @@ use std::path::Path;
 ///
 /// This is how a skin arrives on a host whose skin folder sits inside the application sandbox: the iOS App Group, reached from both the Tauri shell and the native settings app through the C ABI. The name and the manifest are checked first, by the rule the catalog lists skins by, so nothing is copied that the page would then report as unusable. An existing skin of that name is replaced whole rather than merged, since a half-overwritten skin draws a stylesheet from one version with assets from another. Symbolic links are left behind: the catalog refuses anything that resolves outside the skin folder anyway.
 pub fn import(source: &Path, root: &Path) -> Result<String, &'static str> {
+    let source_metadata = std::fs::symlink_metadata(source).map_err(|_| "skin_manifest")?;
+    if !source_metadata.is_dir() || source_metadata.file_type().is_symlink() {
+        return Err("skin_manifest");
+    }
     let name = source
         .file_name()
         .and_then(|name| name.to_str())
         .filter(|name| super::catalog::is_external_id(name))
         .ok_or("skin_name")?
         .to_owned();
-    if !source.join("skin.toml").is_file() {
+    let manifest = source.join("skin.toml");
+    let manifest_metadata = std::fs::symlink_metadata(&manifest).map_err(|_| "skin_manifest")?;
+    if !manifest_metadata.is_file() || manifest_metadata.file_type().is_symlink() {
         return Err("skin_manifest");
     }
     std::fs::create_dir_all(root).map_err(|_| "storage")?;
@@ -152,6 +158,41 @@ mod tests {
         let bare = files.path().join("bare");
         std::fs::create_dir_all(&bare).unwrap();
         assert_eq!(import(&bare, &root), Err("skin_manifest"));
+        assert!(!root.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn import_rejects_a_symlinked_manifest_without_replacing_existing_skin() {
+        let files = tempfile::tempdir().unwrap();
+        let state = tempfile::tempdir().unwrap();
+        let root = state.path().join("skins");
+        std::fs::create_dir_all(root.join("sakura")).unwrap();
+        std::fs::write(root.join("sakura").join("skin.toml"), b"old").unwrap();
+        let source = picked(files.path(), "sakura");
+        let outside = files.path().join("outside.toml");
+        std::fs::write(&outside, b"id = 'synthetic'").unwrap();
+        std::fs::remove_file(source.join("skin.toml")).unwrap();
+        std::os::unix::fs::symlink(&outside, source.join("skin.toml")).unwrap();
+
+        assert_eq!(import(&source, &root), Err("skin_manifest"));
+        assert_eq!(
+            std::fs::read(root.join("sakura").join("skin.toml")).unwrap(),
+            b"old"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn import_rejects_a_symlinked_source_directory() {
+        let files = tempfile::tempdir().unwrap();
+        let state = tempfile::tempdir().unwrap();
+        let root = state.path().join("skins");
+        let actual = picked(files.path(), "sakura");
+        let source = files.path().join("linked-sakura");
+        std::os::unix::fs::symlink(&actual, &source).unwrap();
+
+        assert_eq!(import(&source, &root), Err("skin_manifest"));
         assert!(!root.exists());
     }
 

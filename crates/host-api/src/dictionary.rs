@@ -590,12 +590,7 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
                 let (entries, report) = parse_import(&kind, &format, &text, Some(&options))?;
                 (entries, Some(report))
             };
-            if request_id.is_empty()
-                || request_id.len() > 120
-                || !request_id
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
-            {
+            if !msime_client_core::is_bounded_ascii_identifier(&request_id, 120) {
                 return Err("invalid dictionary request ID".into());
             }
             let _access = DictionaryAccess::try_maintenance(
@@ -1250,20 +1245,20 @@ fn validate_entry(entry: &Entry) -> Result<(), String> {
         Kind::English => 64,
     };
     let key_valid = match entry.kind {
-        Kind::Pinyin => entry
-            .key
-            .bytes()
-            .all(|b| b.is_ascii_lowercase() || b == b'\'' || b == b' '),
-        Kind::Wubi | Kind::QuickPhrase => entry.key.bytes().all(|b| {
-            b.is_ascii_lowercase()
-                || (matches!(entry.kind, Kind::QuickPhrase) && b.is_ascii_digit())
-        }),
+        Kind::Pinyin => msime_client_core::dictionary::pinyin_code_is_well_formed(&entry.key, true),
+        Kind::Wubi => msime_client_core::dictionary::wubi_code_is_well_formed(&entry.key),
+        Kind::QuickPhrase => {
+            msime_client_core::dictionary::quick_phrase_transport_code_is_well_formed(&entry.key)
+        }
         Kind::English => msime_client_core::dictionary::english_code_is_well_formed(&entry.key),
     };
-    let value_has_invalid_control = entry.value.chars().any(|character| {
-        character.is_control()
-            && !(matches!(entry.kind, Kind::QuickPhrase) && matches!(character, '\n' | '\t'))
-    });
+    let allowed_controls: &[char] = if matches!(entry.kind, Kind::QuickPhrase) {
+        &['\n', '\t']
+    } else {
+        &[]
+    };
+    let value_has_invalid_control =
+        msime_client_core::has_disallowed_control_with_allowed(&entry.value, allowed_controls);
     let reason = if entry.key.is_empty() || entry.key.len() > key_limit {
         "code is empty or too long"
     } else if !key_valid {
@@ -1372,9 +1367,7 @@ fn parse_hans_import(
         || text.is_empty()
         || text.len() > msime_client_core::cloud::dictionary::MAX_IMPORT_BYTES
         || text.contains('\0')
-        || text
-            .chars()
-            .any(|character| character.is_control() && !matches!(character, '\n' | '\r'))
+        || msime_client_core::has_disallowed_control_with_line_breaks(text)
     {
         return Err("invalid dictionary import".into());
     }
@@ -1857,12 +1850,7 @@ pub fn import_dictionary_words(
     if words.is_empty() || words.len() > MAX_WORD_IMPORT {
         return Err("invalid dictionary import".into());
     }
-    if request_id.is_empty()
-        || request_id.len() > 120
-        || !request_id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
-    {
+    if !msime_client_core::is_bounded_ascii_identifier(request_id, 120) {
         return Err("invalid dictionary request ID".into());
     }
     let options = &options.0;

@@ -2,7 +2,6 @@ package app.msime.client;
 
 import android.content.Context;
 import android.os.Handler;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -150,7 +149,7 @@ public final class CandidateTranslationStore {
             String value = values.get(index);
             value = trimWhitespace(value);
             if (value == null || value.isEmpty() || value.equals(words.get(index))
-                    || value.getBytes(StandardCharsets.UTF_8).length > 4096) continue;
+                    || TextPolicy.utf8Length(value) > 4096) continue;
             cache.put(key(target, words.get(index)), value);
             arrived = true;
         }

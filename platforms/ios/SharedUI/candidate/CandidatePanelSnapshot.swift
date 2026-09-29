@@ -24,13 +24,15 @@ struct CandidatePanelSnapshot: Equatable, Sendable {
   static func decode(_ value: [String: Any]) throws -> CandidatePanelSnapshot {
     guard let generationValue = value["generation"] as? NSNumber,
           generationValue.int64Value >= 0,
-          let preedit = value["preedit"] as? String, bounded(preedit),
+          let preedit = value["preedit"] as? String,
+          CandidateGlossModel.isBounded(preedit, allowingEmpty: true),
           let candidates = value["candidates"] as? [[String: Any]],
           candidates.count <= 4096 else { throw Failure.invalidResponse }
     let generation = generationValue.uint64Value
     var seen = Set<UInt64>()
     let entries = try candidates.map { candidate -> Entry in
-      guard let text = candidate["text"] as? String, !text.isEmpty, bounded(text),
+      guard let text = candidate["text"] as? String,
+            CandidateGlossModel.isBounded(text),
             let identity = candidate["id"] as? [String: Any],
             let identityGeneration = identity["generation"] as? NSNumber,
             identityGeneration.int64Value >= 0,
@@ -45,15 +47,14 @@ struct CandidatePanelSnapshot: Equatable, Sendable {
       let translation = candidate["translation"] as? String ?? ""
       let annotation = candidate["annotation"] as? String ?? ""
       guard code.utf8.count <= WubiCodeHintPreference.maxCodeLength,
-            bounded(translation), bounded(annotation) else { throw Failure.invalidResponse }
+            CandidateGlossModel.isBounded(translation, allowingEmpty: true),
+            CandidateGlossModel.isBounded(annotation, allowingEmpty: true) else {
+        throw Failure.invalidResponse
+      }
       return Entry(text: text, code: code, translation: translation, annotation: annotation,
                    source: (candidate["source"] as? NSNumber)?.intValue ?? 0,
                    fixedPosition: (candidate["fixed_position"] as? NSNumber)?.intValue ?? 0, index: index)
     }
     return CandidatePanelSnapshot(generation: generation, preedit: preedit, entries: entries)
-  }
-
-  private static func bounded(_ value: String) -> Bool {
-    value.utf8.count <= CandidateGlossModel.maxEntryBytes
   }
 }

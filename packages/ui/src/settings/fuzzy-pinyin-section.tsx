@@ -1,4 +1,6 @@
 import type { ConfirmRequest } from "../core/confirm";
+import { SettingToggle } from "./setting-toggle";
+import { SettingCheck } from "./setting-check";
 
 export type FuzzyPinyinPreferences = { enabled: boolean; rules: string[]; seeded?: boolean };
 
@@ -50,26 +52,21 @@ export interface FuzzyPinyinSectionProps {
 export function FuzzyPinyinSection({ preferences, onChange, confirm }: FuzzyPinyinSectionProps) {
   return (
     <div className="section" role="group" aria-label="模糊音">
-      <label className="section-header">
-        <span className="section-title">
-          模糊音<small>全拼、九键与双拼均支持；更改会在当前输入结束后生效</small>
-        </span>
-        <input
-          aria-label="启用模糊音"
-          className="toggle"
-          type="checkbox"
-          checked={preferences.enabled}
-          onChange={(event) => {
-            const enabled = event.target.checked;
-            const firstEnable = enabled && !preferences.seeded;
-            onChange({
-              ...preferences,
-              enabled,
-              ...(firstEnable ? { rules: fuzzyPinyinRuleIds, seeded: true } : {}),
-            });
-          }}
-        />
-      </label>
+      <SettingToggle
+        label="模糊音"
+        description="全拼、九键与双拼均支持；更改会在当前输入结束后生效"
+        ariaLabel="启用模糊音"
+        checked={preferences.enabled}
+        compact
+        onChange={(enabled) => {
+          const firstEnable = enabled && !preferences.seeded;
+          onChange({
+            ...preferences,
+            enabled,
+            ...(firstEnable ? { rules: fuzzyPinyinRuleIds, seeded: true } : {}),
+          });
+        }}
+      />
       <p className="input-setting-description">
         勾选容易混淆的读音后，会补充对应候选。关闭总开关会保留已选规则。
       </p>
@@ -80,21 +77,18 @@ export function FuzzyPinyinSection({ preferences, onChange, confirm }: FuzzyPiny
             {rules.map(([id, label], index) => (
               <div className="input-option-item" key={id}>
                 {index > 0 && <div className="input-option-divider" />}
-                <label className="check-option">
-                  <input
-                    aria-label={`模糊音规则 ${id}`}
-                    type="checkbox"
-                    disabled={!preferences.enabled}
-                    checked={preferences.rules.includes(id)}
-                    onChange={(event) => {
-                      const selected = new Set(preferences.rules);
-                      if (event.target.checked) selected.add(id);
-                      else selected.delete(id);
-                      onChange({ ...preferences, rules: [...selected].sort() });
-                    }}
-                  />
-                  <span>{label}</span>
-                </label>
+                <SettingCheck
+                  label={label}
+                  ariaLabel={`模糊音规则 ${id}`}
+                  disabled={!preferences.enabled}
+                  checked={preferences.rules.includes(id)}
+                  onChange={(checked) => {
+                    const selected = new Set(preferences.rules);
+                    if (checked) selected.add(id);
+                    else selected.delete(id);
+                    onChange({ ...preferences, rules: [...selected].sort() });
+                  }}
+                />
               </div>
             ))}
           </div>

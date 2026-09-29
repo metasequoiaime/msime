@@ -1,5 +1,16 @@
 // Fixed source: MSIME-Apple@11c950a63ec57656cd78b3f75aa621c293bfe453,
 // platforms/ios/SharedUI/CustomKeyboardSkin.swift and KeyboardSkinCollection.swift.
+import { boundedGraphemes } from "../core/text";
+import { clamp as clampNumber } from "../core/number";
+
+export function skinColorNumber(value: string): number {
+  return Number.parseInt(value.slice(1), 16);
+}
+
+export function boundedSkinName(value: string): string {
+  return boundedGraphemes(value, 32);
+}
+
 export type TouchSkinKeyShape = "rounded" | "capsule" | "ticket" | "pebble";
 export type TouchSkinKeyMaterial = "flat" | "raised" | "glass" | "paper";
 
@@ -320,9 +331,7 @@ export const touchKeyboardBackgroundPresets: { start: number; end?: number; titl
 ];
 
 export function skinColor(value: number): string {
-  return `#${Math.max(0, Math.min(0xffffff, Math.round(value)))
-    .toString(16)
-    .padStart(6, "0")}`;
+  return `#${clampNumber(Math.round(value), 0, 0xffffff).toString(16).padStart(6, "0")}`;
 }
 
 export function skinLuminance(rgb: number): number {
@@ -357,7 +366,7 @@ export function normalizeTouchKeyboardSkinDesign(
 ): TouchKeyboardSkinDesign {
   const color = (entry: number) => Math.round(entry) & 0xffffff;
   const clamp = (entry: number, min: number, max: number, fallback: number) =>
-    Number.isFinite(entry) ? Math.min(max, Math.max(min, entry)) : fallback;
+    Number.isFinite(entry) ? clampNumber(entry, min, max) : fallback;
   return {
     ...value,
     background: color(value.background),

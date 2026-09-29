@@ -78,6 +78,24 @@ export function previewPaletteCss(
   ];
 }
 
+export function useExternalSkinPalette(
+  scope: string,
+  candidate: ExternalSkin["candidate"],
+  theme: "dark" | "light",
+): boolean {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    try {
+      const remove = installSkinPalette(previewPaletteCss(scope, candidate, theme));
+      setFailed(false);
+      return remove;
+    } catch {
+      setFailed(true);
+    }
+  }, [scope, candidate, theme]);
+  return failed;
+}
+
 function ExternalSkinCard({
   skin,
   selected,
@@ -120,16 +138,7 @@ function ExternalSkinCard({
     readImage,
     readFont,
   );
-  const [paletteFailed, setPaletteFailed] = useState(false);
-  useEffect(() => {
-    try {
-      const remove = installSkinPalette(previewPaletteCss(scope, skin.candidate, theme));
-      setPaletteFailed(false);
-      return remove;
-    } catch {
-      setPaletteFailed(true);
-    }
-  }, [scope, skin.candidate, theme]);
+  const paletteFailed = useExternalSkinPalette(scope, skin.candidate, theme);
   // Card-only overrides must not change runtime compatibility or selection.
   const compatible = skin.layouts.includes(layout) && skin.themes.includes(activeTheme);
   const base = ["fluent", "wechat", "graphite", "willow_green"].includes(skin.base)

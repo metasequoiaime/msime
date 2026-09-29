@@ -1,4 +1,14 @@
 import type { NavigationPreferences, WordCharacterPreferences } from "./word-character-section";
+import { SettingCheck } from "./setting-check";
+
+export const defaultNavigation: NavigationPreferences = {
+  minus_equal: true,
+  comma_period: true,
+  brackets: false,
+  tab: true,
+  page_up_down: true,
+  arrows: true,
+};
 
 const navigationOptions: [keyof NavigationPreferences, string][] = [
   ["minus_equal", "- / ="],
@@ -39,23 +49,19 @@ export function NavigationSection({
         {navigationOptions.map(([key, label], index) => (
           <div className="input-option-item" key={key}>
             {index > 0 && <div className="input-option-divider" />}
-            <label className="check-option">
-              <input
-                type="checkbox"
-                checked={navigation[key]}
-                onChange={(event) => {
-                  const enabled = event.target.checked;
-                  onChange({
-                    navigation: { ...navigation, [key]: enabled },
-                    wordCharacter:
-                      enabled && wordCharacter.enabled && wordCharacter.keys === key
-                        ? { ...wordCharacter, enabled: false }
-                        : wordCharacter,
-                  });
-                }}
-              />
-              <span>{label}</span>
-            </label>
+            <SettingCheck
+              label={label}
+              checked={navigation[key] ?? false}
+              onChange={(enabled) => {
+                onChange({
+                  navigation: { ...navigation, [key]: enabled },
+                  wordCharacter:
+                    enabled && wordCharacter.enabled && wordCharacter.keys === key
+                      ? { ...wordCharacter, enabled: false }
+                      : wordCharacter,
+                });
+              }}
+            />
           </div>
         ))}
       </div>

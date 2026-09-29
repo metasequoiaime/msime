@@ -135,10 +135,7 @@ const INVALID_IMPORT: &str = "invalid dictionary import";
 
 /// Whether the host's `hans` parser would read `text` as a whole, short of asking the Engine for the readings: no control character but line breaks, at least one word, and every word at most 1024 bytes of Han characters alone. The host's own count limit is per request and the batches keep to it. These are `parse_hans_import`'s checks in `msime-host-api`, which still makes them for every batch.
 fn hans_text_is_acceptable(text: &str) -> bool {
-    if text
-        .chars()
-        .any(|character| character.is_control() && !matches!(character, '\n' | '\r'))
-    {
+    if msime_client_core::has_disallowed_control_with_line_breaks(text) {
         return false;
     }
     let mut words = text

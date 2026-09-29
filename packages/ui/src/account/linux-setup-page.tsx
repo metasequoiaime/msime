@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import * as onboarding from "./onboarding-style";
+import { linuxSetupFailureMessage } from "./linux-setup-errors";
 
 export interface LinuxSetupStatus {
   prepared: boolean;
@@ -27,16 +28,6 @@ export interface LinuxSetupClient {
   ) => Promise<LinuxSetupStatus>;
 }
 
-function failureMessage(error: unknown) {
-  const code = (error as { code?: string } | null)?.code;
-  if (code === "setup_unavailable")
-    return "找不到 msime-linux-setup，请确认安装完整，或在终端运行 msime-linux-setup。";
-  if (code === "setup_directory_exists") return "配置目录已存在但不完整。请先移走它，再重新配置。";
-  if (code === "setup_running") return "配置已在进行中。";
-  if (code === "setup_timeout") return "配置超时，请检查网络后重试。";
-  return "配置未完成，请查看上面的输出。";
-}
-
 export function LinuxSetupPage({
   status,
   client,
@@ -62,7 +53,7 @@ export function LinuxSetupPage({
   );
   const directory = status.stateDirectory ?? "~/.config/msime-client";
   const blocked = !status.setupAvailable
-    ? failureMessage({ code: "setup_unavailable" })
+    ? linuxSetupFailureMessage({ code: "setup_unavailable" })
     : status.directoryOccupied
       ? `${directory} 已存在但缺少 runtime-options.json。请先移走这个目录，再重新打开设置。`
       : "";
@@ -82,9 +73,9 @@ export function LinuxSetupPage({
       });
       if (!mounted.current) return;
       if (result.prepared) setDone(true);
-      else setError(failureMessage(null));
+      else setError(linuxSetupFailureMessage(null));
     } catch (failure) {
-      if (mounted.current) setError(failureMessage(failure));
+      if (mounted.current) setError(linuxSetupFailureMessage(failure));
     } finally {
       if (mounted.current) setBusy(false);
     }

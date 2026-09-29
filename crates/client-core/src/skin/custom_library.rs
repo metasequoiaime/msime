@@ -4,7 +4,7 @@ use crate::file_lock;
 use crate::preferences::TouchKeyboardSkinDesign;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -166,16 +166,10 @@ impl CustomSkinLibraryStore {
     }
 
     fn lock(&self) -> Result<File, CustomSkinLibraryError> {
-        fs::create_dir_all(&self.directory)?;
-        if !fs::symlink_metadata(&self.directory)?.file_type().is_dir() {
+        if !crate::storage::create_directory_and_check(&self.directory)? {
             return Err(CustomSkinLibraryError::Invalid);
         }
-        let lock = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .open(self.directory.join("library.lock"))?;
+        let lock = file_lock::open_lock_file(self.directory.join("library.lock"))?;
         file_lock::exclusive(&lock)?;
         Ok(lock)
     }
@@ -249,11 +243,15 @@ fn reject_duplicate_name(
     Ok(())
 }
 
+fn contains_name(items: &[SavedTouchKeyboardSkin], name: &str) -> bool {
+    items.iter().any(|item| item.name == name)
+}
+
 fn unique_import_name(
     items: &[SavedTouchKeyboardSkin],
     name: String,
 ) -> Result<String, CustomSkinLibraryError> {
-    if !items.iter().any(|item| item.name == name) {
+    if !contains_name(items, &name) {
         return Ok(name);
     }
     for index in 2..=MAXIMUM_ITEMS + 1 {
@@ -264,7 +262,7 @@ fn unique_import_name(
             name.graphemes(true).take(prefix_length).collect::<String>(),
             suffix
         );
-        if !items.iter().any(|item| item.name == candidate) {
+        if !contains_name(items, &candidate) {
             return Ok(candidate);
         }
     }

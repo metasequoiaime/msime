@@ -1,4 +1,5 @@
 import { decodeCssUrl } from "./css-image-value";
+import { fontFamilyKey } from "./font-family";
 import { animationVariables } from "./skin-animation-variables";
 import { preserveAnimationShorthands, preserveFontShorthands } from "./animation-shorthand-source";
 import { installConditionalFonts, type ConditionalFont } from "./conditional-fonts";
@@ -47,10 +48,6 @@ export function fontPackagePath(source: string): string | null {
     : null;
 }
 
-function familyKey(value: string): string | null {
-  const quoted = value.startsWith('"') || value.startsWith("'");
-  return decodeCssUrl(quoted ? value.slice(1, -1) : value, quoted)?.toLowerCase() ?? null;
-}
 const genericFamilies =
   /^(serif|sans-serif|monospace|cursive|fantasy|system-ui|ui-serif|ui-sans-serif|ui-monospace|ui-rounded|math|fangsong|inherit|initial|unset|revert|revert-layer)$/i;
 let generation = 0;
@@ -122,7 +119,7 @@ export async function prepareToolbarFonts(
     return result;
   };
   for (const { style, media, supported } of definitions) {
-    const key = familyKey(style.getPropertyValue("font-family"));
+    const key = fontFamilyKey(style.getPropertyValue("font-family"));
     if (!key) {
       partial = true;
       continue;
@@ -202,7 +199,9 @@ export async function prepareToolbarFonts(
     return {
       value: splitCssFontList(canonical)
         .map((family) =>
-          genericFamilies.test(family) ? family : (families.get(familyKey(family) ?? "") ?? family),
+          genericFamilies.test(family)
+            ? family
+            : (families.get(fontFamilyKey(family) ?? "") ?? family),
         )
         .join(", "),
       partial: false,

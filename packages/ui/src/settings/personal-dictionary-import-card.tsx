@@ -5,6 +5,7 @@ import {
   readDictionaryFile,
   type PersonalDictionaryImportEntry,
 } from "../dictionary/dictionary-file";
+import { personalDictionaryKindTitle } from "../dictionary/dictionary-messages";
 import * as settings from "./settings-style";
 
 export interface PersonalDictionaryImportClient {
@@ -17,16 +18,6 @@ export interface PersonalDictionaryImportClient {
 export interface PersonalDictionaryImportCardProps {
   dictionary: PersonalDictionaryImportClient;
   platform?: string;
-}
-
-function personalDictionaryKindTitle(kind: PersonalDictionaryImportEntry["kind"]): string {
-  return kind === "pinyin"
-    ? "拼音"
-    : kind === "wubi"
-      ? "五笔"
-      : kind === "quickPhrase"
-        ? "快捷短语"
-        : "英文";
 }
 
 /** Imports an Apple-compatible personal dictionary into the host's sync queue. */

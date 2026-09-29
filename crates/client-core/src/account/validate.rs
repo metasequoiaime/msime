@@ -4,16 +4,12 @@
 use super::*;
 
 pub(super) fn validate_clipboard_search(value: &str) -> Result<(), AccountError> {
-    if !crate::text::is_bounded_text(value, 1024) {
-        Err(AccountError::Invalid)
-    } else {
-        Ok(())
-    }
+    validate_bounded_text(value, 1024)
 }
 
 pub(super) fn validate_clipboard_text(value: &str) -> Result<(), AccountError> {
     if value.trim().is_empty()
-        || value.encode_utf16().count() > 4000
+        || !crate::is_bounded_utf16(value, 4000)
         || value.contains('\0')
         || crate::text::has_disallowed_control(value)
     {
@@ -52,14 +48,29 @@ pub(super) fn validate_clipboard_page(value: &AccountClipboardPage) -> Result<()
 
 fn dictionary_code_is_well_formed(kind: DictionaryKind, code: &str) -> bool {
     match kind {
-        DictionaryKind::Pinyin => code
-            .bytes()
-            .all(|byte| byte.is_ascii_lowercase() || matches!(byte, b'\'' | b' ')),
+        DictionaryKind::Pinyin => crate::dictionary::pinyin_code_is_well_formed(code, true),
         DictionaryKind::Wubi => crate::dictionary::wubi_code_is_well_formed(code),
-        DictionaryKind::Quick => code
-            .bytes()
-            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit()),
+        DictionaryKind::Quick => {
+            crate::dictionary::quick_phrase_transport_code_is_well_formed(code)
+        }
         DictionaryKind::English => crate::dictionary::english_code_is_well_formed(code),
+    }
+}
+
+fn validate_dictionary_fields(
+    kind: DictionaryKind,
+    code: &str,
+    word: &str,
+) -> Result<(), AccountError> {
+    if !dictionary_code_is_well_formed(kind, code)
+        || code.is_empty()
+        || !crate::text::is_bounded_text(code, 256)
+        || word.is_empty()
+        || !crate::text::is_bounded_text(word, 1024)
+    {
+        Err(AccountError::Invalid)
+    } else {
+        Ok(())
     }
 }
 
@@ -104,16 +115,7 @@ pub(super) fn validate_dictionary_catalog_identity(
     code: &str,
     word: &str,
 ) -> Result<(), AccountError> {
-    if !dictionary_code_is_well_formed(kind, code)
-        || code.is_empty()
-        || !crate::text::is_bounded_text(code, 256)
-        || word.is_empty()
-        || !crate::text::is_bounded_text(word, 1024)
-    {
-        Err(AccountError::Invalid)
-    } else {
-        Ok(())
-    }
+    validate_dictionary_fields(kind, code, word)
 }
 
 pub(super) fn validate_dictionary_catalog_entry(
@@ -187,7 +189,7 @@ pub(super) fn validate_candidate_value(
         return Err(AccountError::Invalid);
     }
     if query.kind == "quick"
-        && word.encode_utf16().count() > crate::dictionary::import::MAX_QUICK_PHRASE_UTF16
+        && !crate::is_bounded_utf16(word, crate::dictionary::import::MAX_QUICK_PHRASE_UTF16)
     {
         Err(AccountError::Invalid)
     } else {
@@ -271,28 +273,20 @@ pub(super) fn validate_dictionary_value(
     word: &str,
     weight: i64,
 ) -> Result<(), AccountError> {
-    // Keep writes and inbound responses on the same shared contract. The cloud
-    // module owns the common bounds/control-character checks; this layer adds
-    // only the per-dictionary syntax and legacy inbound compatibility rules.
-    crate::cloud::dictionary::validate_value(&crate::cloud::dictionary::DictionaryValue {
-        code: code.to_owned(),
-        word: word.to_owned(),
-        weight,
-    })
-    .map_err(|_| AccountError::Invalid)?;
+    // Keep writes and inbound responses on the same shared contract. The
+    // shared field check runs first; this layer adds only the per-dictionary
+    // syntax and legacy inbound compatibility rules.
+    validate_dictionary_fields(kind, code, word)?;
     let code_limit = match kind {
         DictionaryKind::Pinyin => 256,
         DictionaryKind::Wubi => 4,
         DictionaryKind::Quick => 32,
         DictionaryKind::English => 64,
     };
-    if !dictionary_code_is_well_formed(kind, code)
-        || code.is_empty()
-        || code.len() > code_limit
-        || word.is_empty()
+    if code.len() > code_limit
         || weight < 0
         || (kind == DictionaryKind::Quick
-            && word.encode_utf16().count() > crate::dictionary::import::MAX_QUICK_PHRASE_UTF16)
+            && !crate::is_bounded_utf16(word, crate::dictionary::import::MAX_QUICK_PHRASE_UTF16))
     {
         return Err(AccountError::Invalid);
     }
@@ -480,9 +474,7 @@ pub fn merge_account_preferences(
 pub(super) fn valid_preference_key(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= MAX_ACCOUNT_PREFERENCE_KEY_BYTES
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+        && crate::is_ascii_identifier_with_dots(value)
 }
 
 pub(super) fn validate_provider_target(provider: &str, target: &str) -> Result<(), AccountError> {
@@ -521,7 +513,7 @@ pub(super) fn validate_login(challenge: &str, credential: &str) -> Result<(), Ac
     if challenge.is_empty()
         || !crate::text::is_bounded_text(challenge, 256)
         || credential.len() != 6
-        || !credential.bytes().all(|byte| byte.is_ascii_digit())
+        || !crate::is_ascii_digits(credential)
     {
         return Err(AccountError::Invalid);
     }

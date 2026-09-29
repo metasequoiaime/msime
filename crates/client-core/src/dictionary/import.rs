@@ -51,11 +51,9 @@ impl ImportKind {
 
     fn key_is_well_formed(self, key: &str, format: ImportFormat) -> bool {
         match self {
-            ImportKind::Pinyin => key.bytes().all(|byte| {
-                byte.is_ascii_lowercase()
-                    || byte == b'\''
-                    || (format == ImportFormat::Rime && byte == b' ')
-            }),
+            ImportKind::Pinyin => {
+                super::pinyin_code_is_well_formed(key, format == ImportFormat::Rime)
+            }
             ImportKind::Wubi => super::wubi_code_is_well_formed(key),
             ImportKind::QuickPhrase => super::quick_phrase_code_is_well_formed(key),
             ImportKind::English => super::english_code_is_well_formed(key),
@@ -223,9 +221,9 @@ pub fn parse(
     if text.len() > max_bytes {
         return Err(ImportError::TooLarge);
     }
-    // A NUL or stray control byte means the file is not the text format claimed;
-    // examining rows from it would be guesswork.
-    if text.contains('\0') || crate::text::has_disallowed_control(text) {
+    // A disallowed control byte means the file is not the text format claimed; examining rows
+    // from it would be guesswork.
+    if crate::text::has_disallowed_control(text) {
         return Err(ImportError::ControlCharacters);
     }
 
@@ -337,7 +335,7 @@ fn parse_row(
     if !crate::text::is_bounded_text(word, MAX_VALUE_BYTES) {
         return Err(ImportIssue::ValueTooLong);
     }
-    if kind == ImportKind::QuickPhrase && word.encode_utf16().count() > MAX_QUICK_PHRASE_UTF16 {
+    if kind == ImportKind::QuickPhrase && !crate::is_bounded_utf16(word, MAX_QUICK_PHRASE_UTF16) {
         return Err(ImportIssue::QuickPhraseTooLong);
     }
     if weight < 0 {

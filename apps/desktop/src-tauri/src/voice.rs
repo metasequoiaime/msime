@@ -102,9 +102,7 @@ pub(crate) fn voice_provider_options(document: &Value) -> Result<Value, HostActi
     if let Some(path) = voice
         .get("asr_model_path")
         .and_then(Value::as_str)
-        .filter(|path| {
-            !path.is_empty() && path.len() <= 4096 && !path.chars().any(char::is_control)
-        })
+        .filter(|path| !path.is_empty() && msime_client_core::is_bounded_text(path, 4096))
     {
         options.insert("asr_model_path".to_owned(), Value::String(path.to_owned()));
     }
@@ -209,15 +207,10 @@ pub(crate) async fn recognize_voice(
     let _ = (&runtime, &store);
     #[cfg(not(any(unix, windows)))]
     let _ = (&app, &runtime, &store, &dictionary);
-    if request.request_id.is_empty()
-        || request.request_id.len() > 64
-        || !request
-            .request_id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+    if !msime_client_core::voice::is_valid_request_id(&request.request_id)
         || request.language.is_empty()
         || request.language.len() > 64
-        || request.language.chars().any(char::is_control)
+        || msime_client_core::has_disallowed_control_with_options(&request.language, false)
     {
         return Err(HostActionError {
             code: "invalid_voice",

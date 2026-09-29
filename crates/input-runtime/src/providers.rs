@@ -53,6 +53,50 @@ fn with_terminator(request: &str) -> String {
     line
 }
 
+#[cfg(unix)]
+fn valid_ai_provider_endpoint(provider: &str, endpoint: &str) -> bool {
+    !provider.is_empty()
+        && msime_client_core::is_bounded_text(provider, 64)
+        && !endpoint.is_empty()
+        && msime_client_core::is_bounded_text(endpoint, 2048)
+}
+
+// Read one newline-delimited response before the deadline, retaining only the
+// line itself and refusing to grow the buffer past the provider contract.
+#[cfg(unix)]
+fn read_bounded_line(
+    stream: &mut UnixStream,
+    deadline: std::time::Instant,
+    response_limit: usize,
+    accept_eof: bool,
+) -> Option<String> {
+    let mut bytes = Vec::new();
+    loop {
+        let remaining = deadline.checked_duration_since(std::time::Instant::now())?;
+        if remaining.is_zero() {
+            return None;
+        }
+        stream.set_read_timeout(Some(remaining)).ok()?;
+        let mut chunk = [0_u8; 1024];
+        let count = match stream.read(&mut chunk) {
+            Ok(0) if accept_eof => return String::from_utf8(bytes).ok(),
+            Ok(0) => return None,
+            Ok(count) => count,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => return None,
+        };
+        let end = chunk[..count].iter().position(|byte| *byte == b'\n');
+        let consumed = end.map_or(count, |index| index + 1);
+        if bytes.len() + consumed > response_limit {
+            return None;
+        }
+        bytes.extend_from_slice(&chunk[..consumed]);
+        if end.is_some() {
+            return String::from_utf8(bytes).ok();
+        }
+    }
+}
+
 // One-shot panel providers have a fixed transfer deadline, including writes.
 // Check the response envelope before appending bytes, not after allocating it.
 #[cfg(unix)]
@@ -78,30 +122,7 @@ fn exchange_panel_request(
             Err(_) => return None,
         }
     }
-    let mut bytes = Vec::new();
-    loop {
-        let remaining = deadline.checked_duration_since(std::time::Instant::now())?;
-        if remaining.is_zero() {
-            return None;
-        }
-        stream.set_read_timeout(Some(remaining)).ok()?;
-        let mut chunk = [0_u8; 1024];
-        let count = match stream.read(&mut chunk) {
-            Ok(0) => return String::from_utf8(bytes).ok(),
-            Ok(count) => count,
-            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
-            Err(_) => return None,
-        };
-        let end = chunk[..count].iter().position(|byte| *byte == b'\n');
-        let consumed = end.map_or(count, |index| index + 1);
-        if bytes.len() + consumed > response_limit {
-            return None;
-        }
-        bytes.extend_from_slice(&chunk[..consumed]);
-        if end.is_some() {
-            return String::from_utf8(bytes).ok();
-        }
-    }
+    read_bounded_line(stream, deadline, response_limit, true)
 }
 
 // Retain incomplete UTF-8/JSON lines across polling timeouts. Bound the
@@ -216,28 +237,7 @@ impl UnixSocketProvider {
         // One response deadline: partial writes by the provider must not
         // restart the inference timeout or grow an unbounded line buffer.
         let deadline = std::time::Instant::now() + timeout;
-        let mut bytes = Vec::new();
-        loop {
-            let remaining = deadline.checked_duration_since(std::time::Instant::now())?;
-            if remaining.is_zero() {
-                return None;
-            }
-            stream.set_read_timeout(Some(remaining)).ok()?;
-            let mut chunk = [0_u8; 1024];
-            let count = stream.read(&mut chunk).ok()?;
-            if count == 0 {
-                return None;
-            }
-            let end = chunk[..count].iter().position(|byte| *byte == b'\n');
-            bytes.extend_from_slice(&chunk[..end.map_or(count, |index| index + 1)]);
-            if bytes.len() > 16384 {
-                return None;
-            }
-            if end.is_some() {
-                break;
-            }
-        }
-        let line = String::from_utf8(bytes).ok()?;
+        let line = read_bounded_line(&mut stream, deadline, 16_384, false)?;
         #[derive(Deserialize)]
         struct Reply {
             text: String,
@@ -256,11 +256,7 @@ impl UnixSocketProvider {
         if replies.len() > 11 {
             return None;
         }
-        let ai_limit = query
-            .ai_assistant
-            .as_ref()
-            .filter(|ai| ai.enabled)
-            .map_or(0, |ai| usize::from(ai.candidate_limit.clamp(1, 10)));
+        let ai_limit = query.ai_candidate_limit();
         let limits = [1, ai_limit];
         let mut source_counts = [0; 2];
         let mut candidates = Vec::new();
@@ -324,28 +320,7 @@ impl UnixSocketProvider {
         // Leave room for the provider's six-second translation batch budget.
         // A partial response cannot renew this deadline or grow without bound.
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
-        let mut bytes = Vec::new();
-        loop {
-            let remaining = deadline.checked_duration_since(std::time::Instant::now())?;
-            if remaining.is_zero() {
-                return None;
-            }
-            stream.set_read_timeout(Some(remaining)).ok()?;
-            let mut chunk = [0_u8; 1024];
-            let count = stream.read(&mut chunk).ok()?;
-            if count == 0 {
-                return None;
-            }
-            let end = chunk[..count].iter().position(|byte| *byte == b'\n');
-            bytes.extend_from_slice(&chunk[..end.map_or(count, |index| index + 1)]);
-            if bytes.len() > 131_072 {
-                return None;
-            }
-            if end.is_some() {
-                break;
-            }
-        }
-        let line = String::from_utf8(bytes).ok()?;
+        let line = read_bounded_line(&mut stream, deadline, 131_072, false)?;
         #[derive(Deserialize)]
         struct Reply {
             translations: Vec<TranslationResult>,
@@ -398,7 +373,7 @@ impl UnixSocketProvider {
         let result = serde_json::from_str::<CredentialTestResult>(&line).ok()?;
         (!result.message.is_empty()
             && result.message.len() <= 1024
-            && !result.message.chars().any(char::is_control))
+            && !msime_client_core::has_disallowed_control_with_options(&result.message, false))
         .then_some(result)
     }
 
@@ -411,11 +386,7 @@ impl UnixSocketProvider {
     /// the request. `provider` and `endpoint` come from the settings page and the
     /// provider refuses unless its private configuration names the same two.
     pub fn ai_models(&self, provider: &str, endpoint: &str) -> Option<Vec<String>> {
-        if provider.is_empty()
-            || !msime_client_core::is_bounded_text(provider, 64)
-            || endpoint.is_empty()
-            || !msime_client_core::is_bounded_text(endpoint, 2048)
-        {
+        if !valid_ai_provider_endpoint(provider, endpoint) {
             return None;
         }
         let request = json!({
@@ -459,10 +430,7 @@ impl UnixSocketProvider {
         prompt: &str,
         text: &str,
     ) -> Option<String> {
-        if provider.is_empty()
-            || !msime_client_core::is_bounded_text(provider, 64)
-            || endpoint.is_empty()
-            || !msime_client_core::is_bounded_text(endpoint, 2048)
+        if !valid_ai_provider_endpoint(provider, endpoint)
             || model.is_empty()
             || !msime_client_core::is_bounded_text(model, 256)
             || text.trim().is_empty()
@@ -501,9 +469,7 @@ impl UnixSocketProvider {
         let polished = reply.text.trim();
         (!polished.is_empty()
             && polished.len() <= 16_384
-            && !polished
-                .chars()
-                .any(|character| character.is_control() && character != '\n'))
+            && !msime_client_core::has_disallowed_control_with_allowed(polished, &['\n']))
         .then(|| polished.to_owned())
     }
 

@@ -6,6 +6,8 @@
  * is clamped or rejected rather than trusted. Photos are decoded here with a small runtime-neutral
  * Base64 reader, keeping the size and magic-number checks testable without a device image decoder.
  */
+import { KeyboardGeometry } from '../KeyboardGeometry';
+
 const MAX_PHOTO_BYTES: number = 512000;
 const KEY_SHAPES: string[] = ["rounded", "capsule", "ticket", "pebble"];
 const KEY_MATERIALS: string[] = ["flat", "raised", "glass", "paper"];
@@ -42,7 +44,7 @@ function bounded(
   if (value === undefined || !Number.isFinite(value)) {
     return fallback;
   }
-  return Math.max(minimum, Math.min(maximum, value));
+  return KeyboardGeometry.bounded(value, minimum, maximum);
 }
 
 function oneOf(value: string | undefined, allowed: string[]): string {
@@ -213,7 +215,7 @@ export class CustomKeyboardSkin {
     value.cornerRadiusValue = bounded(document.cornerRadius, 0, 20, 8);
     value.borderWidthValue = bounded(document.borderWidth, 0, 2, 0);
     value.shadowValue = bounded(document.shadow, 0, 0.4, 0);
-    value.patternValue = Math.max(0, Math.min(3, document.pattern ?? 0));
+    value.patternValue = KeyboardGeometry.bounded(document.pattern ?? 0, 0, 3);
     value.monospacedValue = document.monospaced ?? false;
     value.keyShapeValue = oneOf(document.keyShape, KEY_SHAPES);
     value.keyMaterialValue = oneOf(document.keyMaterial, KEY_MATERIALS);

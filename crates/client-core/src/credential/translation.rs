@@ -37,7 +37,7 @@ fn usable(value: &str) -> bool {
         && crate::text::is_bounded_text(value, 4096)
         && !value.starts_with('<')
         && !value.starts_with("FAKESECRET_")
-        && !value.chars().all(|c| c == '*')
+        && !crate::credential::is_all_asterisks(value)
 }
 
 fn request(service: &str, config: &Value, milliseconds: u64) -> Option<Request> {
@@ -50,11 +50,7 @@ fn request(service: &str, config: &Value, milliseconds: u64) -> Option<Request> 
                 return None;
             }
             let region = get("region");
-            if region.len() > 64
-                || region
-                    .chars()
-                    .any(|c| !c.is_ascii_alphanumeric() && c != '-')
-            {
+            if region.len() > 64 || !crate::is_ascii_alphanumeric_dash(region) {
                 return None;
             }
             let seconds = i64::try_from(milliseconds / 1000).ok()?;

@@ -26,10 +26,10 @@ public final class BackendTranslationClient implements CandidateTranslationStore
 
     @Override public List<String> translate(List<String> texts, String target) throws Exception {
         if (texts == null || texts.isEmpty() || texts.size() > 32
-                || target == null || target.isEmpty() || target.getBytes(StandardCharsets.UTF_8).length > 16)
+                || target == null || target.isEmpty() || TextPolicy.utf8Length(target) > 16)
             throw new IllegalArgumentException("Invalid translation request");
         for (String text : texts) {
-            if (text == null || text.isEmpty() || text.getBytes(StandardCharsets.UTF_8).length > 2048)
+            if (text == null || text.isEmpty() || TextPolicy.utf8Length(text) > 2048)
                 throw new IllegalArgumentException("Invalid translation text");
         }
         String token = accessToken();
@@ -61,7 +61,7 @@ public final class BackendTranslationClient implements CandidateTranslationStore
             java.util.ArrayList<String> result = new java.util.ArrayList<>(values.length());
             for (int index = 0; index < values.length(); index++) {
                 String value = values.optString(index, "").trim();
-                if (value.isEmpty() || value.getBytes(StandardCharsets.UTF_8).length > 4096
+                if (value.isEmpty() || TextPolicy.utf8Length(value) > 4096
                         || value.chars().anyMatch(ch -> ch == '\n' || ch == '\r' || (ch < 0x20 && ch != '\t')))
                     throw new IllegalStateException("Invalid translation response");
                 result.add(value);

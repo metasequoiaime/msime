@@ -1,3 +1,5 @@
+import { KeyboardGeometry } from './KeyboardGeometry';
+
 /**
  * The touch keyboard's measurements, taken from the iOS extension in
  * platforms/ios/KeyboardExtension/Sources/KeyboardViewController.swift so the two keyboards are laid
@@ -83,7 +85,7 @@ export class KeyboardMetrics {
     candidateFontSize: number = KeyboardMetrics.CANDIDATE_FONT_SIZE,
     preeditFontSize: number = KeyboardMetrics.CANDIDATE_PREEDIT_FONT_SIZE,
   ): number {
-    const rows: number = layout === "vertical" ? Math.max(1, Math.min(9, candidateCount)) : 1;
+    const rows: number = layout === "vertical" ? KeyboardMetrics.visibleCandidateRows(candidateCount) : 1;
     const decoration: number =
       Number.isFinite(decorationTopVp) && decorationTopVp > 0 ? Math.min(512, decorationTopVp) : 0;
     return (
@@ -93,6 +95,10 @@ export class KeyboardMetrics {
       (layout === "vertical" ? 0 : KeyboardMetrics.glossHeightVp(glossRows, candidateFontSize)) +
       KeyboardMetrics.ROOT_VERTICAL_PADDING_VP * 2
     );
+  }
+
+  static visibleCandidateRows(candidateCount: number): number {
+    return KeyboardGeometry.bounded(candidateCount, 1, 9);
   }
 
   /**

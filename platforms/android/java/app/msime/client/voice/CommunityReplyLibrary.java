@@ -60,7 +60,8 @@ public final class CommunityReplyLibrary {
             String prompt = string(content.get("prompt"));
             if (id.isBlank() || name.isBlank() || prompt == null || prompt.isBlank())
                 throw new IOException("Invalid community library");
-            if (!validUnicode(id) || !validUnicode(name) || !validUnicode(prompt))
+            if (!TextPolicy.validUnicode(id) || !TextPolicy.validUnicode(name)
+                    || !TextPolicy.validUnicode(prompt))
                 throw new IOException("Invalid community library");
             replies.add(new Template(id, name, prompt));
         }
@@ -83,16 +84,6 @@ public final class CommunityReplyLibrary {
     }
 
     private static String string(Object value) { return value instanceof String text ? text : null; }
-
-    private static boolean validUnicode(String value) {
-        for (int index = 0; index < value.length(); index++) {
-            char unit = value.charAt(index);
-            if (Character.isHighSurrogate(unit)) {
-                if (++index >= value.length() || !Character.isLowSurrogate(value.charAt(index))) return false;
-            } else if (Character.isLowSurrogate(unit)) return false;
-        }
-        return true;
-    }
 
     private static final class Parser {
         private static final int MAXIMUM_DEPTH = 24;

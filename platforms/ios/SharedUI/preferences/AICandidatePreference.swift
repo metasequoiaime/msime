@@ -21,7 +21,7 @@ enum AICandidatePreference {
                         provider: String, endpoint: String, model: String) -> [String: Any] {
     var assistant = existing ?? [:]
     assistant["enabled"] = enabled
-    assistant["candidate_limit"] = min(max(limit, limits.lowerBound), limits.upperBound)
+    assistant["candidate_limit"] = SharedNumber.clamped(limit, to: limits)
     if enabled {
       assistant["provider"] = provider.lowercased()
       assistant["endpoint"] = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)

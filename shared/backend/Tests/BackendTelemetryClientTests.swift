@@ -16,6 +16,26 @@ private final class TelemetryFlushProtocol: URLProtocol {
   override func stopLoading() {}
 }
 
+private final class TelemetryRedirectProtocol: URLProtocol {
+  static var followed = false
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    if request.url?.host == "redirect.invalid" {
+      Self.followed = true
+      let response = HTTPURLResponse(url: request.url!, statusCode: 204, httpVersion: nil, headerFields: nil)!
+      client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+      client?.urlProtocolDidFinishLoading(self)
+    } else {
+      let target = URL(string: "https://redirect.invalid/v1/telemetry/events")!
+      let response = HTTPURLResponse(url: request.url!, statusCode: 302, httpVersion: nil,
+                                     headerFields: ["Location": target.absoluteString])!
+      client?.urlProtocol(self, wasRedirectedTo: URLRequest(url: target), redirectResponse: response)
+    }
+  }
+  override func stopLoading() {}
+}
+
 private final class TelemetryOversizedResponseProtocol: URLProtocol {
   override class func canInit(with request: URLRequest) -> Bool { true }
   override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -31,6 +51,21 @@ private final class TelemetryOversizedResponseProtocol: URLProtocol {
 }
 
 final class BackendTelemetryClientTests: XCTestCase {
+  func testRedirectedUploadKeepsEventQueued() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("msime-telemetry-test-\(UUID().uuidString)")
+    let queue = directory.appendingPathComponent("events.json")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let event = BackendTelemetryEvent(kind: "crash", platform: "test", version: "1", message: "synthetic")
+    try JSONEncoder().encode([event]).write(to: queue)
+    let configuration = URLSessionConfiguration.ephemeral
+    TelemetryRedirectProtocol.followed = false
+    configuration.protocolClasses = [TelemetryRedirectProtocol.self]
+    await BackendTelemetryClient(configuration: configuration, queueURL: queue).flush()
+    XCTAssertEqual(BackendTelemetryClient.readQueue(queue).map(\.id), [event.id])
+    XCTAssertFalse(TelemetryRedirectProtocol.followed)
+  }
+
   func testCrashIsBoundedAndPersistedSynchronously() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("msime-telemetry-test-\(UUID().uuidString)")
     let queue = directory.appendingPathComponent("events.json")

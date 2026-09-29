@@ -1,4 +1,4 @@
-use msime_client_core::is_bounded_text;
+use msime_client_core::{has_disallowed_control_with_options, is_bounded_text, is_bounded_utf16};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -127,12 +127,7 @@ pub struct CloudDictionaryValue {
 
 pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'static str> {
     let valid_kind = |kind: &str| matches!(kind, "pinyin" | "wubi" | "quick" | "english");
-    let valid_token = |token: &str| {
-        (1..=96).contains(&token.len())
-            && token
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
-    };
+    let valid_token = |token: &str| msime_client_core::is_bounded_ascii_identifier(token, 96);
     let valid_value = |kind: &str, code: &str, word: &str, weight: i64| {
         let max_code_bytes = match kind {
             "wubi" => 4,
@@ -141,14 +136,12 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
             _ => 256,
         };
         let code_alphabet_ok = match kind {
-            "quick" => code
-                .bytes()
-                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()),
-            "wubi" => code.bytes().all(|b| b.is_ascii_lowercase()),
-            "english" => code.bytes().all(|b| b.is_ascii_alphabetic()),
-            _ => code
-                .bytes()
-                .all(|b| b.is_ascii_lowercase() || b == b'\'' || b == b' '),
+            "quick" => {
+                msime_client_core::dictionary::quick_phrase_transport_code_is_well_formed(code)
+            }
+            "wubi" => msime_client_core::dictionary::wubi_code_is_well_formed(code),
+            "english" => msime_client_core::is_ascii_alphabetic(code),
+            _ => msime_client_core::dictionary::pinyin_code_is_well_formed(code, true),
         };
         code_alphabet_ok
             && !code.is_empty()
@@ -157,8 +150,10 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
             && is_bounded_text(word, 1024)
             && weight >= 0
             && (kind != "quick"
-                || word.encode_utf16().count()
-                    <= msime_client_core::dictionary::import::MAX_QUICK_PHRASE_UTF16)
+                || is_bounded_utf16(
+                    word,
+                    msime_client_core::dictionary::import::MAX_QUICK_PHRASE_UTF16,
+                ))
     };
     let valid_format = |kind: &str, format: &str| {
         matches!(format, "standard" | "windows") || (kind == "pinyin" && format == "hans")
@@ -398,10 +393,7 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
                 && valid_format(kind, format)
                 && !text.is_empty()
                 && text.len() <= msime_client_core::cloud::dictionary::MAX_IMPORT_BYTES
-                && !text.contains('\0')
-                && text.chars().all(|character| {
-                    !character.is_control() || matches!(character, '\n' | '\r' | '\t')
-                })
+                && !has_disallowed_control_with_options(text, true)
             {
                 Ok(())
             } else {
@@ -422,10 +414,7 @@ fn valid_snapshot_text(value: &str) -> bool {
     const MAX_SNAPSHOT_BYTES: usize = 512 * 1024 * 1024;
     !value.is_empty()
         && value.len() <= MAX_SNAPSHOT_BYTES
-        && !value.contains('\0')
-        && value
-            .chars()
-            .all(|character| !character.is_control() || matches!(character, '\n' | '\r' | '\t'))
+        && !has_disallowed_control_with_options(value, true)
 }
 
 #[cfg(test)]

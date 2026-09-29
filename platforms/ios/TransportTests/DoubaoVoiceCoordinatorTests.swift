@@ -3,6 +3,24 @@ import XCTest
 @testable import MSIMEDoubaoTransport
 
 final class DoubaoVoiceCoordinatorTests: XCTestCase {
+  func testTransportRefusesWebSocketRedirects() {
+    let transport = DoubaoWebSocketTransport()
+    let response = HTTPURLResponse(
+      url: URL(string: "https://openspeech.example.invalid")!,
+      statusCode: 302,
+      httpVersion: "HTTP/1.1",
+      headerFields: ["Location": "wss://untrusted.example.invalid"]
+    )!
+    var redirected: URLRequest?
+    let session = URLSession(configuration: .ephemeral)
+    let task = session.dataTask(with: URL(string: "wss://openspeech.example.invalid")!)
+    transport.urlSession(session, task: task,
+      willPerformHTTPRedirection: response,
+      newRequest: URLRequest(url: URL(string: "wss://untrusted.example.invalid")!),
+      completionHandler: { redirected = $0 })
+    XCTAssertNil(redirected)
+  }
+
   func testCodecRunSendsWindowsSizedAudioAndAppliesFinalTextGeneration() async throws {
     let transport = FakeTransport(incoming: [Data([0xFF])])
     let packets = PacketRecorder()

@@ -1,3 +1,6 @@
+import { utf8ByteLength } from "../core/text";
+import { isChineseTranslationSource } from "./translation-text";
+
 /**
  * The user's own candidate glosses, as the Engine reads them.
  *
@@ -24,12 +27,6 @@ export type CustomTranslationReport = {
 const MAX_BYTES = 1024 * 1024;
 const MAX_ENTRIES = 20000;
 
-/** A source is Chinese when any character is non-ASCII, which is how the Engine picks direction. */
-function isChineseSource(source: string): boolean {
-  for (const character of source) if ((character.codePointAt(0) ?? 0) > 0x7f) return true;
-  return false;
-}
-
 export function parseCustomTranslations(text: string): CustomTranslationReport {
   const body = text.startsWith("﻿") ? text.slice(1) : text;
   const seen = new Map<string, CustomTranslationEntry>();
@@ -50,7 +47,7 @@ export function parseCustomTranslations(text: string): CustomTranslationReport {
       continue;
     }
     // Last wins, as the Engine's map assignment does.
-    seen.set(source, { source, gloss, chinese: isChineseSource(source) });
+    seen.set(source, { source, gloss, chinese: isChineseTranslationSource(source) });
     if (seen.size > MAX_ENTRIES) break;
   }
   return { entries: [...seen.values()], skipped };
@@ -58,7 +55,7 @@ export function parseCustomTranslations(text: string): CustomTranslationReport {
 
 /** Whether a document is small enough to send across a bridge and keep on a phone. */
 export function customTranslationsWithinBounds(text: string): boolean {
-  return new TextEncoder().encode(text).length <= MAX_BYTES;
+  return utf8ByteLength(text) <= MAX_BYTES;
 }
 
 export const customTranslationsExample =

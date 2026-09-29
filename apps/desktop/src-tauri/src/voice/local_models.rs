@@ -91,12 +91,7 @@ fn app_model_root<R: tauri::Runtime>(
 }
 
 fn valid_model_id(id: &str) -> Result<(), HostActionError> {
-    if id.is_empty()
-        || id.len() > MAX_MODEL_ID_BYTES
-        || !id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
-    {
+    if !msime_client_core::is_bounded_ascii_identifier(id, MAX_MODEL_ID_BYTES) {
         return Err(HostActionError {
             code: "local_model_unknown",
         });
@@ -251,39 +246,37 @@ pub(crate) fn dictionary_hotwords_with(
     limit: usize,
     mut list: impl FnMut(&Value) -> Option<Value>,
 ) -> Vec<Hotword> {
-    let mut rows: Vec<(String, String, i64)> = Vec::new();
-    let mut offset = 0;
-    while limit > 0 && offset < HOTWORD_MAX_ROWS {
-        let action = serde_json::json!({
-            "operation": "list",
-            "offset": offset,
-            "limit": HOTWORD_PAGE,
-            "kind": "pinyin",
-            "user_only": true,
-        });
-        let Some(page) = list(&action) else {
-            break;
-        };
-        let entries = page["entries"].as_array().cloned().unwrap_or_default();
-        rows.extend(entries.iter().filter_map(|entry| {
-            Some((
-                entry["value"].as_str()?.to_owned(),
-                entry["key"].as_str()?.to_owned(),
-                entry["weight"].as_i64().unwrap_or(0),
-            ))
-        }));
-        offset += entries.len();
-        if entries.is_empty() || page["has_more"].as_bool() != Some(true) {
-            break;
-        }
-    }
-    // Stable, so words of equal weight keep the dictionary's order.
-    rows.sort_by_key(|(_, _, weight)| std::cmp::Reverse(*weight));
-    msime_client_core::voice::hotwords::hotwords_from_entries(
-        rows.iter()
-            .map(|(text, pinyin, _)| (text.as_str(), pinyin.as_str())),
+    msime_client_core::voice::hotwords::hotwords_from_dictionary_pages(
         limit,
+        HOTWORD_PAGE,
+        HOTWORD_MAX_ROWS,
+        |offset, page_size| {
+            let action = serde_json::json!({
+                "operation": "list",
+                "offset": offset,
+                "limit": page_size,
+                "kind": "pinyin",
+                "user_only": true,
+            });
+            Ok::<_, ()>(list(&action).map(|page| {
+                let entries = page["entries"].as_array().cloned().unwrap_or_default();
+                msime_client_core::voice::hotwords::DictionaryHotwordPage {
+                    entries: entries
+                        .iter()
+                        .filter_map(|entry| {
+                            Some((
+                                entry["value"].as_str()?.to_owned(),
+                                entry["key"].as_str()?.to_owned(),
+                                entry["weight"].as_i64().unwrap_or(0),
+                            ))
+                        })
+                        .collect(),
+                    has_more: page["has_more"].as_bool() == Some(true),
+                }
+            }))
+        },
     )
+    .unwrap_or_default()
 }
 
 /// One list page through the same store the dictionary page reads on this host. Listing never needs the input sessions released, so none of the maintenance handshakes `dictionary_request` performs for edits apply.

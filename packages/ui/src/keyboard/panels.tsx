@@ -1,4 +1,6 @@
 import { useConfirm } from "../core/confirm";
+import { clamp } from "../core/number";
+import { utf8ByteLength } from "../core/text";
 import { readDictionaryFile } from "../dictionary/dictionary-file";
 import { usePanelDrag } from "./use-panel-drag";
 import { useEmojiNavigation } from "../emoji/use-emoji-navigation";
@@ -17,9 +19,42 @@ import {
   type EmojiCatalogGroup,
   type EmojiCatalogItem,
 } from "../emoji/emoji-catalog";
-import { touchKeyboardSkinOptions, type TouchKeyboardSkin } from "./screen-keyboard-preview";
+import { type TouchKeyboardSkin } from "./screen-keyboard-preview";
 import * as cloud from "./cloud-panel-style";
 import * as surface from "./panel-surface-style";
+import { normalizeHandwritingCandidates } from "./handwriting";
+import { validVoiceLanguage } from "./voice-panel";
+import {
+  isImeCommitKey,
+  keyboardKeyWeight,
+  modifierPrefix,
+  type KeyboardKey,
+  type Modifier,
+} from "./keyboard-input";
+import { keyboardSkinStyles } from "./keyboard-skin-styles";
+import { keyboardRows, nineKeyRows } from "./panel-keyboard-layouts";
+import {
+  clipboardTooltip,
+  emojiDisplayName,
+  flattenGroups,
+  matchesEmojiItem,
+} from "./emoji-panel-helpers";
+
+export { emojiDisplayName } from "./emoji-panel-helpers";
+import {
+  appendPointerSamples,
+  MAX_HANDWRITING_STROKES,
+  type Point,
+  WINDOWS_HANDWRITING_STROKES,
+} from "./handwriting-input";
+import {
+  candidateMutationCode,
+  cloudClipboardItems,
+  cloudDictionaryCatalogEntries,
+  cloudDictionaryEntries,
+  cloudResponseRequest,
+  cloudResponseText,
+} from "./cloud-response";
 import {
   skinColor,
   skinLuminance,
@@ -82,17 +117,6 @@ export interface VoicePanelClient extends PanelClient {
   stopVoice?(): Promise<void>;
   sendVoiceText?(text: string): Promise<void>;
   copyText?(text: string): Promise<void>;
-}
-
-function validVoiceLanguage(value: string) {
-  return (
-    value.length > 0 &&
-    value.length <= 64 &&
-    !Array.from(value).some((character) => {
-      const code = character.codePointAt(0) ?? 0;
-      return code <= 0x1f || code === 0x7f;
-    })
-  );
 }
 
 export type CloudClipboardAction =
@@ -298,287 +322,6 @@ export interface EmojiPanelClient extends PanelClient {
     symbols: EmojiCatalogGroup[];
     unavailable?: ("emoji" | "kaomoji" | "symbols")[];
   }>;
-}
-
-type Modifier = "Shift" | "Caps Lock" | "Ctrl" | "Alt" | "Win";
-type KeyboardKey = { label: string; shifted?: string; virtualKey: number; modifier?: Modifier };
-const key = (label: string, virtualKey: number, shifted?: string): KeyboardKey => ({
-  label,
-  virtualKey,
-  shifted,
-});
-const modifier = (label: Modifier, virtualKey: number): KeyboardKey => ({
-  label,
-  virtualKey,
-  modifier: label,
-});
-const keyboardRows: KeyboardKey[][] = [
-  [
-    key("Num Lock", 0x90),
-    key("Num 0", 0x60),
-    key("Num 1", 0x61),
-    key("Num 2", 0x62),
-    key("Num 3", 0x63),
-    key("Num 4", 0x64),
-    key("Num 5", 0x65),
-    key("Num 6", 0x66),
-    key("Num 7", 0x67),
-    key("Num 8", 0x68),
-    key("Num 9", 0x69),
-    key("Num *", 0x6a),
-    key("Num +", 0x6b),
-    key("Num -", 0x6d),
-    key("Num /", 0x6f),
-    key("Num .", 0x6e),
-  ],
-  [
-    key("Esc", 0x1b),
-    key("F1", 0x70),
-    key("F2", 0x71),
-    key("F3", 0x72),
-    key("F4", 0x73),
-    key("F5", 0x74),
-    key("F6", 0x75),
-    key("F7", 0x76),
-    key("F8", 0x77),
-    key("F9", 0x78),
-    key("F10", 0x79),
-    key("F11", 0x7a),
-    key("F12", 0x7b),
-    key("PrtSc", 0x2c),
-    key("Scroll", 0x91),
-    key("Pause", 0x13),
-    key("Ins", 0x2d),
-    key("Home", 0x24),
-    key("End", 0x23),
-    key("PgUp", 0x21),
-    key("PgDn", 0x22),
-  ],
-  [
-    key("`", 0xc0, "~"),
-    ...[..."1234567890"].map((label, index) =>
-      key(label, label.charCodeAt(0), ["!", "@", "#", "$", "%", "^", "&", "*", "(", ")"][index]),
-    ),
-    key("-", 0xbd, "_"),
-    key("=", 0xbb, "+"),
-    key("Backspace", 0x08),
-  ],
-  [
-    key("Tab", 0x09),
-    ...[..."QWERTYUIOP"].map((label) => key(label.toLowerCase(), label.charCodeAt(0))),
-    key("[", 0xdb, "{"),
-    key("]", 0xdd, "}"),
-    key("\\", 0xdc, "|"),
-  ],
-  [
-    modifier("Caps Lock", 0x14),
-    ...[..."ASDFGHJKL"].map((label) => key(label.toLowerCase(), label.charCodeAt(0))),
-    key(";", 0xba, ":"),
-    key("'", 0xde, '"'),
-    key("Enter", 0x0d),
-  ],
-  [
-    modifier("Shift", 0x10),
-    ...[..."ZXCVBNM"].map((label) => key(label.toLowerCase(), label.charCodeAt(0))),
-    key(",", 0xbc, "<"),
-    key(".", 0xbe, ">"),
-    key("/", 0xbf, "?"),
-    modifier("Shift", 0x10),
-  ],
-  [
-    modifier("Ctrl", 0x11),
-    modifier("Win", 0x5b),
-    modifier("Alt", 0x12),
-    key("Space", 0x20, " "),
-    modifier("Alt", 0x12),
-    modifier("Win", 0x5b),
-    key("Menu", 0x5d),
-    key("Del", 0x2e),
-    key("←", 0x25),
-    key("↑", 0x26),
-    key("↓", 0x28),
-    key("→", 0x27),
-    modifier("Ctrl", 0x11),
-  ],
-];
-const nineKeyRows: KeyboardKey[][] = [
-  [key("1", 0x31), key("2", 0x32), key("3", 0x33)],
-  [key("4", 0x34), key("5", 0x35), key("6", 0x36)],
-  [key("7", 0x37), key("8", 0x38), key("9", 0x39)],
-  [key("Backspace", 0x08), key("0", 0x30), key("Enter", 0x0d)],
-  [key("Space", 0x20, " ")],
-];
-
-function modifierPrefix(modifiers: Set<Modifier>) {
-  return ["Ctrl", "Alt", "Win", "Shift"]
-    .filter((value) => modifiers.has(value as Modifier))
-    .join("+");
-}
-// Width ratios from Windows KeyboardPanel.cpp at 7fa6fb1a7862c5ca1541b9cb839d9bea3a06e2c6.
-// Identify the space row by its content: Linux adds function and numpad rows.
-function keyboardKeyWeight(label: string, index: number, spaceRow: boolean) {
-  if (spaceRow) return label === "Space" ? 6.7 : 1.25;
-  if (label === "Backspace") return 1.9;
-  if (label === "Tab") return 1.5;
-  if (label === "\\") return 1.4;
-  if (label === "Caps Lock") return 1.85;
-  if (label === "Enter") return 2;
-  if (label === "Shift") return index === 0 ? 2.35 : 2.15;
-  return 1;
-}
-function isImeCommitKey(virtualKey: number) {
-  return (
-    [0x20, 0x0d, 0x09, 0x08, 0x2e, 0x6a, 0x6b, 0x6d, 0x6e, 0x6f].includes(virtualKey) ||
-    (virtualKey >= 0x30 && virtualKey <= 0x39) ||
-    (virtualKey >= 0x60 && virtualKey <= 0x69)
-  );
-}
-
-function mixKeyboardColor(first: string, second: string, amount: number) {
-  const parse = (value: string) => Number.parseInt(value.replace(/^#/, ""), 16);
-  const a = parse(first),
-    b = parse(second);
-  if (!Number.isFinite(a) || !Number.isFinite(b)) return first;
-  const channel = (shift: number) =>
-    Math.round(((a >> shift) & 0xff) * (1 - amount) + ((b >> shift) & 0xff) * amount);
-  return `#${((channel(16) << 16) | (channel(8) << 8) | channel(0)).toString(16).padStart(6, "0")}`;
-}
-
-function readableKeyboardText(value: string) {
-  const parsed = Number.parseInt(value.replace(/^#/, ""), 16);
-  return Number.isFinite(parsed) && skinLuminance(parsed) > 0.179 ? "#000000" : "#ffffff";
-}
-
-function keyboardRgba(value: string, opacity: number) {
-  const parsed = Number.parseInt(value.replace(/^#/, ""), 16);
-  if (!Number.isFinite(parsed)) return value;
-  const channel = (shift: number) => (parsed >> shift) & 0xff;
-  return `rgba(${channel(16)}, ${channel(8)}, ${channel(0)}, ${Math.max(0, Math.min(1, opacity))})`;
-}
-
-function keyboardBackgroundStyle(
-  skin: TouchKeyboardSkin,
-  customDesign: TouchKeyboardSkinDesign | undefined,
-  palette: { background: string; accent: string },
-): CSSProperties {
-  const custom = skin === "custom" && customDesign ? customDesign : undefined;
-  const option =
-    touchKeyboardSkinOptions.find((item) => item.id === (skin === "custom" ? "forest" : skin)) ??
-    touchKeyboardSkinOptions[0];
-  const pattern = custom?.pattern ?? option.pattern;
-  const patternOpacity = custom?.patternOpacity ?? 0.15;
-  const images: string[] = [];
-  const sizes: string[] = [];
-  const positions: string[] = [];
-  const add = (image: string, size: string, position = "0 0") => {
-    images.push(image);
-    sizes.push(size);
-    positions.push(position);
-  };
-  const accent = keyboardRgba(palette.accent, patternOpacity);
-  if (pattern === 1) add(`radial-gradient(circle, ${accent} 1px, transparent 1.5px)`, "16px 16px");
-  else if (pattern === 2)
-    add(
-      `linear-gradient(${accent} 1px, transparent 1px), linear-gradient(90deg, ${accent} 1px, transparent 1px)`,
-      "20px 20px",
-    );
-  else if (pattern === 3)
-    add(
-      `repeating-linear-gradient(155deg, transparent 0 18px, ${accent} 18px 20px, transparent 20px 38px)`,
-      "48px 48px",
-    );
-  if (custom?.gradientEnd !== undefined) {
-    const direction = custom.gradientHorizontal ? "90deg" : "180deg";
-    add(
-      `linear-gradient(${direction}, ${palette.background}, ${skinColor(custom.gradientEnd)})`,
-      "cover",
-    );
-  }
-  const photo =
-    typeof custom?.photo === "string" &&
-    /^[A-Za-z0-9+/=]+$/.test(custom.photo) &&
-    custom.photo.length <= 682668
-      ? custom.photo
-      : undefined;
-  if (photo) {
-    const shade = Math.max(0, Math.min(0.8, custom?.photoShade ?? 0.25));
-    const position = Math.max(0, Math.min(1, custom?.photoPosition ?? 0.5)) * 100;
-    // Keep the image and its shade above the color/pattern layers while
-    // retaining the bounded data URL produced by the skin editor.
-    add(`url("data:image/jpeg;base64,${photo}")`, "cover", `${position}% ${position}%`);
-    add(`linear-gradient(rgba(0, 0, 0, ${shade}), rgba(0, 0, 0, ${shade}))`, "cover");
-  }
-  return images.length
-    ? {
-        backgroundImage: images.reverse().join(", "),
-        backgroundSize: sizes.reverse().join(", "),
-        backgroundPosition: positions.reverse().join(", "),
-      }
-    : {};
-}
-
-function keyboardSkinStyles(
-  theme: "dark" | "light",
-  skin: TouchKeyboardSkin,
-  customDesign?: TouchKeyboardSkinDesign,
-): CSSProperties {
-  const custom = skin === "custom" && customDesign ? customDesign : undefined;
-  const option =
-    touchKeyboardSkinOptions.find((item) => item.id === (skin === "custom" ? "forest" : skin)) ??
-    touchKeyboardSkinOptions[0];
-  const palette = custom
-    ? {
-        background: skinColor(custom.background),
-        key: skinColor(custom.keyBackground),
-        foreground: skinColor(custom.keyForeground),
-        accent: skinColor(custom.accent),
-        action: skinColor(custom.actionBackground),
-      }
-    : option[theme];
-  const radius = custom?.cornerRadius ?? option.cornerRadius;
-  const borderWidth = custom?.borderWidth ?? option.borderWidth;
-  const shadowOpacity = custom?.shadow ?? option.shadowOpacity;
-  const shadowOffset = custom ? 1 : option.shadowOffset;
-  const shadowRadius = custom ? 2 : option.shadowRadius;
-  const keyOpacity = custom?.keyOpacity ?? 1;
-  const keyShape = custom?.keyShape ?? "rounded";
-  const keyMaterial = custom?.keyMaterial ?? "flat";
-  const keyRadius =
-    keyShape === "capsule"
-      ? "999px"
-      : keyShape === "pebble"
-        ? "42% 58% 48% 52% / 52% 44% 56% 48%"
-        : keyShape === "ticket"
-          ? `${Math.min(4, Math.max(0, radius))}px`
-          : `${Math.max(0, Math.min(20, radius))}px`;
-  const fontFamily =
-    (custom?.monospaced ?? option.monospaced)
-      ? "ui-monospace, SFMono-Regular, Consolas, monospace"
-      : "inherit";
-  return {
-    ...keyboardBackgroundStyle(skin, customDesign, palette),
-    "--kb-background": palette.background,
-    "--kb-text": palette.foreground,
-    "--kb-heading": palette.accent,
-    "--kb-key": palette.key,
-    "--kb-key-fill": keyboardRgba(palette.key, keyOpacity),
-    "--kb-action": palette.action,
-    "--kb-action-fill": keyboardRgba(palette.action, 1),
-    "--kb-action-text": readableKeyboardText(palette.action),
-    "--kb-paper-line": keyboardRgba(palette.accent, 0.08),
-    "--kb-hover": mixKeyboardColor(palette.key, palette.accent, 0.18),
-    "--kb-active": mixKeyboardColor(palette.key, palette.accent, 0.3),
-    "--kb-pressed": mixKeyboardColor(palette.key, palette.accent, 0.42),
-    "--kb-key-radius": keyRadius,
-    "--kb-border-width": `${Math.max(0, Math.min(2, borderWidth))}px`,
-    "--kb-border-color": palette.accent,
-    "--kb-shadow":
-      shadowOpacity > 0
-        ? `0 ${shadowOffset}px ${shadowRadius}px rgba(0, 0, 0, ${shadowOpacity})`
-        : "none",
-    "--kb-font-family": fontFamily,
-    "--kb-key-material": keyMaterial,
-  } as CSSProperties;
 }
 
 export function KeyboardPanel({
@@ -886,8 +629,8 @@ export function KeyboardPanel({
       );
     return match ?? fallback;
   }
-  const keyGap = Math.max(3, Math.min(6, keySpacingTenths / 10));
-  const rowGap = Math.max(4, Math.min(10, rowSpacingTenths / 10));
+  const keyGap = clamp(keySpacingTenths / 10, 3, 6);
+  const rowGap = clamp(rowSpacingTenths / 10, 4, 10);
   const keyboardStyle = {
     "--keyboard-key-gap": `${keyGap}px`,
     "--keyboard-row-gap": `${rowGap}px`,
@@ -991,94 +734,6 @@ export function KeyboardPanel({
   );
 }
 
-type Point = InkPoint;
-// Keep captured ink within the Linux provider's 32-stroke and 256 KiB envelope.
-// Two decimal places retain subpixel precision in the 420-unit drawing space.
-const MAX_HANDWRITING_STROKES = 32;
-// Windows never reaches that provider: it recognizes with the Windows Ink recognizer and then the packaged Engine model. The shipped HandwritingPanel keeps every stroke, so the only bound left is the shared request contract (MAX_STROKES in crates/client-core/src/panels.rs), which rejects anything longer before a recognizer sees it.
-const WINDOWS_HANDWRITING_STROKES = 64;
-const MAX_HANDWRITING_CANDIDATES = 12;
-
-function hasBmpCjk(text: string) {
-  return Array.from(text).some((character) => {
-    const code = character.codePointAt(0) ?? 0;
-    return (
-      (code >= 0x3400 && code <= 0x4dbf) ||
-      (code >= 0x4e00 && code <= 0x9fff) ||
-      (code >= 0xf900 && code <= 0xfaff)
-    );
-  });
-}
-
-function normalizeHandwritingCandidates(candidates: string[]) {
-  const seen = new Set<string>();
-  const chinese: string[] = [];
-  const other: string[] = [];
-  for (const candidate of candidates) {
-    if (!candidate || seen.has(candidate)) continue;
-    seen.add(candidate);
-    (hasBmpCjk(candidate) ? chinese : other).push(candidate);
-  }
-  return [...chinese, ...other].slice(0, MAX_HANDWRITING_CANDIDATES);
-}
-const MAX_CAPTURED_POINTS = 256;
-function appendInkPoint(points: Point[], point: Point, endpoint = false): Point[] {
-  if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return points;
-  const next = { x: Math.round(point.x * 100) / 100, y: Math.round(point.y * 100) / 100 };
-  const last = points[points.length - 1];
-  if (last?.x === next.x && last?.y === next.y) return points;
-  // Match the Windows panel's half-unit movement threshold while keeping the
-  // final pen position and Linux touch/stylus dots available to recognition.
-  if (last && !endpoint && Math.abs(last.x - next.x) + Math.abs(last.y - next.y) < 0.5)
-    return points;
-  if (points.length < MAX_CAPTURED_POINTS) return [...points, next];
-  // Thin older samples while retaining both the original start and latest end.
-  return [...points.filter((_, index) => index % 2 === 0), last, next];
-}
-
-function pointFromCoordinates(
-  canvas: SVGSVGElement,
-  event: { clientX: number; clientY: number },
-): Point {
-  // The SVG matrix accounts for borders, viewBox letterboxing, window zoom
-  // and CSS transforms; the bounding rectangle alone cannot represent these.
-  const matrix = canvas.getScreenCTM?.();
-  if (matrix && canvas.createSVGPoint) {
-    try {
-      const pointer = canvas.createSVGPoint();
-      pointer.x = event.clientX;
-      pointer.y = event.clientY;
-      const local = pointer.matrixTransform(matrix.inverse());
-      if (Number.isFinite(local.x) && Number.isFinite(local.y)) {
-        return { x: Math.max(0, Math.min(420, local.x)), y: Math.max(0, Math.min(420, local.y)) };
-      }
-    } catch {
-      /* A detached or non-invertible canvas uses the bounded fallback. */
-    }
-  }
-  const rect = canvas.getBoundingClientRect();
-  const width = rect.width || 420;
-  const height = rect.height || 420;
-  return {
-    x: Math.max(0, Math.min(420, ((event.clientX - rect.left) / width) * 420)),
-    y: Math.max(0, Math.min(420, ((event.clientY - rect.top) / height) * 420)),
-  };
-}
-
-function appendPointerSamples(
-  points: Point[],
-  event: PointerEvent<SVGSVGElement>,
-  endpoint = false,
-): Point[] {
-  let next = points;
-  for (const sample of event.nativeEvent.getCoalescedEvents?.() ?? []) {
-    if (sample.pointerId === event.pointerId) {
-      next = appendInkPoint(next, pointFromCoordinates(event.currentTarget, sample));
-    }
-  }
-  return appendInkPoint(next, pointFromCoordinates(event.currentTarget, event), endpoint);
-}
-
 function HandwritingCandidateButton({
   candidate,
   copy,
@@ -1109,7 +764,7 @@ function HandwritingCandidateButton({
   }, []);
   // Use Unicode code points so supplementary Han does not count as two glyphs.
   const length = Math.max(1, Array.from(candidate).length);
-  const fontSize = Math.max(13, Math.min(34, width * 0.52, (width - 12) / length));
+  const fontSize = clamp(Math.min(width * 0.52, (width - 12) / length), 13, 34);
   function copyShortcut(event: import("react").KeyboardEvent<HTMLButtonElement>) {
     if (
       !onCopy ||
@@ -1463,7 +1118,7 @@ export function HandwritingPanel({
                   ? -4
                   : 4);
     event.preventDefault();
-    const target = buttons[Math.max(0, Math.min(buttons.length - 1, next))];
+    const target = buttons[clamp(next, 0, buttons.length - 1)];
     target.focus({ preventScroll: true });
     target.scrollIntoView({ block: "nearest", inline: "nearest" });
   }
@@ -1680,8 +1335,7 @@ export function VoicePanel({
   const [language, setLanguage] = useState("zh-CN");
   const [text, setText] = useState("");
   const exceedsSubmitLimit =
-    client.maxSubmitBytes !== undefined &&
-    new TextEncoder().encode(text).length > client.maxSubmitBytes;
+    client.maxSubmitBytes !== undefined && utf8ByteLength(text) > client.maxSubmitBytes;
   const textRevision = useRef(0);
   function updateText(value: string) {
     textRevision.current++;
@@ -2056,14 +1710,6 @@ export function VoicePanel({
   );
 }
 
-function cloudClipboardItems(value: { items?: CloudClipboardItem[] }) {
-  return Array.isArray(value.items)
-    ? value.items.filter(
-        (item) => item && typeof item.id === "string" && typeof item.text === "string",
-      )
-    : [];
-}
-
 export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelClient }) {
   const [inputAvailable, setInputAvailable] = useState(
     Boolean(client.sendText && !client.canSendText),
@@ -2349,18 +1995,6 @@ const cloudDictionaryKinds: [CloudDictionaryKind, string][] = [
   ["english", "英文"],
 ];
 
-function cloudDictionaryEntries(value: CloudDictionaryResponse) {
-  return Array.isArray(value.entries)
-    ? value.entries.filter(
-        (entry) =>
-          entry &&
-          typeof entry.id === "string" &&
-          typeof entry.code === "string" &&
-          typeof entry.word === "string",
-      )
-    : [];
-}
-
 export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelClient }) {
   const { confirm, confirmation } = useConfirm();
   const [kind, setKind] = useState<CloudDictionaryKind>("pinyin");
@@ -2428,7 +2062,7 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
       throw error;
     }
     if (revision !== refreshRevision.current) return;
-    setEntries(cloudDictionaryEntries(result));
+    setEntries(cloudDictionaryEntries<CloudDictionaryEntry>(result));
     setOffset(typeof result.offset === "number" ? result.offset : nextOffset);
     setHasMore(result.has_more === true);
   }
@@ -2892,7 +2526,7 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
         setNotice(result.saved === true ? "云词库已导出" : "已取消导出");
         return;
       }
-      const text = typeof result.text === "string" ? result.text : result.content;
+      const text = cloudResponseText(result);
       if (typeof text !== "string") throw new Error("provider returned no file");
       const anchor = document.createElement("a");
       const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
@@ -2920,7 +2554,7 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
         setNotice(result.saved ? "完整云词库快照已导出" : "已取消导出");
         return;
       }
-      const text = typeof result.text === "string" ? result.text : result.content;
+      const text = cloudResponseText(result);
       if (typeof text !== "string" || !text) throw new Error("provider returned no snapshot");
       const anchor = document.createElement("a");
       const url = URL.createObjectURL(
@@ -3263,9 +2897,7 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
       const result = await client.request({ operation: "snapshot_status" });
       if (lifecycle !== lifecycleRevision.current || revision !== statusRevision.current) return;
       setLocalVersion(typeof result.localVersion === "string" ? result.localVersion : null);
-      setRequest(
-        result.request && typeof result.request.status === "string" ? result.request : null,
-      );
+      setRequest(cloudResponseRequest<CloudDictionarySnapshotRequest>(result));
     } catch {
       if (lifecycle === lifecycleRevision.current && revision === statusRevision.current)
         setNotice("无法读取本机词库状态，请确认键盘已启用");
@@ -3327,9 +2959,7 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
         return;
       setPreview(null);
       setPreviewToken(null);
-      setRequest(
-        result.request && typeof result.request.status === "string" ? result.request : null,
-      );
+      setRequest(cloudResponseRequest<CloudDictionarySnapshotRequest>(result));
       setNotice("快照已入列，将在输入法空闲时应用");
     }, "快照入列失败，本机词库未改变");
   }
@@ -3348,9 +2978,7 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
       const result = await client.request({ operation: "snapshot_cancel" });
       if (currentLifecycle !== lifecycleRevision.current || revision !== statusRevision.current)
         return;
-      setRequest(
-        result.request && typeof result.request.status === "string" ? result.request : null,
-      );
+      setRequest(cloudResponseRequest<CloudDictionarySnapshotRequest>(result));
       setNotice("已取消待应用快照");
     }, "取消快照失败");
   }
@@ -3477,18 +3105,6 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
   );
 }
 
-function cloudDictionaryCatalogEntries(value: CloudDictionaryResponse) {
-  return Array.isArray(value.catalog_entries)
-    ? value.catalog_entries.filter(
-        (entry) =>
-          entry &&
-          typeof entry.kind === "string" &&
-          typeof entry.code === "string" &&
-          typeof entry.word === "string",
-      )
-    : [];
-}
-
 export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionaryPanelClient }) {
   const { confirm, confirmation } = useConfirm();
   const [kind, setKind] = useState<CloudDictionaryKind>("pinyin");
@@ -3579,7 +3195,7 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
       throw error;
     }
     if (current !== requestRevision.current) return;
-    setEntries(cloudDictionaryCatalogEntries(result));
+    setEntries(cloudDictionaryCatalogEntries<CloudDictionaryCatalogEntry>(result));
     setOffset(typeof result.offset === "number" ? result.offset : nextOffset);
     setHasMore(result.has_more === true);
     setRevision(typeof result.revision === "number" ? result.revision : 0);
@@ -3913,12 +3529,6 @@ const cloudRankingModes: [CloudRankingMode, string][] = [
   ["linear", "线性调频"],
   ["promote", "一次置前"],
 ];
-
-function candidateMutationCode(candidate: CloudCandidate) {
-  return candidate.canonical_pinyin && candidate.canonical_pinyin.length > 0
-    ? candidate.canonical_pinyin
-    : candidate.code;
-}
 
 export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelClient }) {
   const { confirm, confirmation } = useConfirm();
@@ -4282,9 +3892,7 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
                 min="1"
                 max="100"
                 value={step}
-                onChange={(event) =>
-                  setStep(Math.max(1, Math.min(100, Number(event.target.value) || 1)))
-                }
+                onChange={(event) => setStep(clamp(Number(event.target.value) || 1, 1, 100))}
                 disabled={busy || mode !== "linear"}
               />
             </label>
@@ -4296,9 +3904,7 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
                 min="1"
                 max="10"
                 value={trigger}
-                onChange={(event) =>
-                  setTrigger(Math.max(1, Math.min(10, Number(event.target.value) || 1)))
-                }
+                onChange={(event) => setTrigger(clamp(Number(event.target.value) || 1, 1, 10))}
                 disabled={busy}
               />
             </label>
@@ -4445,40 +4051,6 @@ const emojiPages: { id: EmojiPage; label: string; icon: string }[] = [
   { id: "symbols", label: "符号", icon: "★" },
   { id: "clipboard", label: "剪贴板", icon: "▣" },
 ];
-
-function matchesEmojiItem(item: EmojiCatalogItem, query: string) {
-  const normalizedQuery = query.toLocaleLowerCase();
-  return (
-    !query ||
-    item.text.includes(query) ||
-    item.keywords.toLocaleLowerCase().includes(normalizedQuery)
-  );
-}
-
-function clipboardTooltip(text: string) {
-  const preview = text.replace(/[\r\t]/g, " ").replace(/\n+$/, "");
-  const characters = Array.from(preview);
-  return characters.length > 200 ? `${characters.slice(0, 200).join("")}…` : preview;
-}
-
-/**
- * A short label for an item's hover tooltip.
- *
- * Keywords are a space-separated blob ("grinning face smile happy 笑 高兴 开心"),
- * which is noisy as a tooltip and, for symbols whose keywords default to the
- * category name, not a name at all. Mirrors the shipped DisplayNameForItem:
- * prefer the first token containing CJK, else the first token.
- */
-export function emojiDisplayName(keywords: string | undefined, fallback = ""): string {
-  const tokens = (keywords ?? "").split(/\s+/).filter(Boolean);
-  if (!tokens.length) return fallback;
-  const cjk = tokens.find((token) => /[\u3400-\u9fff\uf900-\ufaff]/.test(token));
-  return cjk ?? tokens[0];
-}
-
-function flattenGroups(groups: EmojiCatalogGroup[]) {
-  return groups.flatMap((group) => group.items);
-}
 
 /*
  * The emoji panel is its own window with its own palette, switched by `data-panel-theme` on the root

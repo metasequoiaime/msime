@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useConfirm } from "../core/confirm";
+import { errorCode } from "../core/error-code";
 import * as chat from "./chat-style";
+import { boundedHistory, chatMessageByteLength, MAX_MESSAGE_BYTES } from "./chat-history";
+import { chatError } from "./chat-errors";
 
 export type ChatMessage = {
   role: "user" | "assistant" | "system";
@@ -21,39 +24,7 @@ export interface ChatClient {
 
 type DisplayMessage = ChatMessage & { id: number };
 
-function chatError(error: unknown): string {
-  if (typeof error === "object" && error !== null && "code" in error) {
-    switch (error.code) {
-      case "account_unauthorized":
-        return "登录后即可与 AI 对话。";
-      case "account_invalid":
-        return "消息或模型无效，请检查后重试。";
-      case "account_rate_limited":
-        return "操作过于频繁，请稍后再试。";
-      case "account_unavailable":
-        return "聊天服务暂不可用，请稍后重试。";
-    }
-  }
-  return "连接失败，请检查网络后重试。";
-}
-
-// Mirrors MAX_CHAT_MESSAGE_BYTES in client-core, which counts UTF-8 bytes. The composer's
-// maxLength counts UTF-16 units, so a long CJK message passes it at a third of that size and
-// would only come back as the generic 消息或模型无效.
-const MAX_MESSAGE_BYTES = 16 * 1024;
-const utf8 = new TextEncoder();
-
-function boundedHistory(messages: DisplayMessage[]): ChatMessage[] {
-  const result: ChatMessage[] = [];
-  let bytes = 0;
-  for (const message of [...messages].reverse()) {
-    const nextBytes = bytes + utf8.encode(message.content).length;
-    if (result.length >= 14 || nextBytes >= 48_000) break;
-    result.unshift({ role: message.role, content: message.content });
-    bytes = nextBytes;
-  }
-  return result;
-}
+// Mirrors the client-core byte and message limits used by the chat service.
 
 export function ChatPage({
   client,
@@ -97,11 +68,7 @@ export function ChatPage({
       );
     } catch (cause) {
       if (!mounted.current || modelGeneration.current !== current) return;
-      const unauthorized =
-        typeof cause === "object" &&
-        cause !== null &&
-        "code" in cause &&
-        cause.code === "account_unauthorized";
+      const unauthorized = errorCode(cause) === "account_unauthorized";
       setLoginNeeded(unauthorized);
       setError(chatError(cause));
     } finally {
@@ -139,11 +106,7 @@ export function ChatPage({
       ]);
     } catch (cause) {
       if (generation.current !== version) return;
-      const unauthorized =
-        typeof cause === "object" &&
-        cause !== null &&
-        "code" in cause &&
-        cause.code === "account_unauthorized";
+      const unauthorized = errorCode(cause) === "account_unauthorized";
       setLoginNeeded(unauthorized);
       setError(chatError(cause));
     } finally {
@@ -160,7 +123,7 @@ export function ChatPage({
     }
     if (!selectedModel) return;
     // Refused before it joins the conversation; otherwise every retry would resend it and fail.
-    if (utf8.encode(content).length > MAX_MESSAGE_BYTES) {
+    if (chatMessageByteLength(content) > MAX_MESSAGE_BYTES) {
       setError("消息过长，请精简后再发送。");
       return;
     }

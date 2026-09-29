@@ -22,7 +22,8 @@ pub(crate) fn sanitize_name(name: &str) -> Result<&str, &'static str> {
         || name.starts_with('.')
         || name
             .chars()
-            .any(|character| matches!(character, '/' | '\\' | ':') || character.is_control())
+            .any(|character| matches!(character, '/' | '\\' | ':'))
+        || msime_client_core::has_disallowed_control_with_options(name, false)
     {
         return Err("export_name");
     }

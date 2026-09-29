@@ -6,9 +6,10 @@
  * drawing code, so the same values reach the keyboard, the preview and the settings card.
  */
 import { CustomKeyboardSkin } from "./CustomKeyboardSkin";
+import { KeyboardGeometry } from "../KeyboardGeometry";
 
 function clampChannel(value: number): number {
-  return Math.round(Math.max(0, Math.min(1, value)) * 255);
+  return Math.round(KeyboardGeometry.bounded(value, 0, 1) * 255);
 }
 
 /** Matches the Java String.format("#%02X%02X%02X", ...) exactly, including the upper case. */

@@ -16,6 +16,8 @@
 #![allow(unsafe_code)]
 #![cfg(windows)]
 
+use msime_client_core::{is_bounded_text, is_bounded_utf16};
+
 pub mod ink;
 pub mod voice_controller;
 
@@ -361,7 +363,7 @@ pub fn read_clipboard_text() -> Result<String, ()> {
 /// makes SetClipboardData fail after EmptyClipboard) and retries a clipboard
 /// another process is briefly holding.
 pub fn write_clipboard_text(text: &str) -> bool {
-    if text.contains('\0') || text.encode_utf16().count() >= MAX_CLIPBOARD_UNITS {
+    if text.contains('\0') || !is_bounded_utf16(text, MAX_CLIPBOARD_UNITS - 1) {
         return false;
     }
     voice_output::write_unicode_clipboard(text).is_some()
@@ -504,7 +506,7 @@ pub fn send_key(virtual_key: u16, modifiers: Modifiers) -> bool {
 /// Type text the panel already holds. Surrogate pairs are delivered as the two
 /// code units the receiving control expects.
 pub fn valid_text(text: &str) -> bool {
-    !text.is_empty() && text.len() <= MAX_TEXT_BYTES && !text.chars().any(char::is_control)
+    !text.is_empty() && is_bounded_text(text, MAX_TEXT_BYTES)
 }
 
 pub fn send_text(text: &str) -> bool {

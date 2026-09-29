@@ -51,7 +51,18 @@ def fetch(artifact: dict, destination: Path) -> None:
         staged_path = Path(staged.name)
         try:
             with urllib.request.urlopen(url, timeout=300) as response:
+                advertised = response.headers.get("Content-Length")
+                if advertised is not None:
+                    try:
+                        if int(advertised) > artifact["size"]:
+                            raise SystemExit(f"{artifact['name']}: response is larger than the lock")
+                    except ValueError:
+                        pass
+                size = 0
                 while block := response.read(CHUNK):
+                    size += len(block)
+                    if size > artifact["size"]:
+                        raise SystemExit(f"{artifact['name']}: response is larger than the lock")
                     staged.write(block)
         except BaseException:
             staged_path.unlink(missing_ok=True)

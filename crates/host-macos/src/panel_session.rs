@@ -73,15 +73,13 @@ impl PanelSession {
         }
     }
     pub fn parse(value: &str) -> Result<Self, SessionError> {
-        if value.len() > 2048 {
+        if value.len() > super::SESSION_JSON_MAX_BYTES {
             return Err(SessionError::Invalid);
         }
         let configuration: Configuration =
             serde_json::from_str(value).map_err(|_| SessionError::Invalid)?;
         if configuration.version != 1
-            || !Path::new(&configuration.path).is_absolute()
-            || configuration.path.len() >= 104
-            || configuration.path.contains('\0')
+            || !super::valid_session_socket_path(&configuration.path)
             || configuration.host_pid <= 0
             || configuration.target_pid <= 0
             || !configuration.target_started.is_finite()
@@ -163,7 +161,7 @@ impl PanelSession {
 pub fn validate_clipboard_text(text: &str) -> Result<(), SessionError> {
     if text.is_empty()
         || text.len() > 12_000
-        || text.encode_utf16().count() > 4_000
+        || !msime_client_core::is_bounded_utf16(text, 4_000)
         || text.contains('\0')
     {
         return Err(SessionError::Invalid);

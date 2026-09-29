@@ -33,7 +33,7 @@ public final class KeyboardGeometry {
 
     public static int heightAdjustment(int value) {
         if (value == Integer.MIN_VALUE) return DEFAULT_HEIGHT_ADJUSTMENT_DP;
-        return Math.max(MIN_HEIGHT_ADJUSTMENT_DP, Math.min(value, MAX_HEIGHT_ADJUSTMENT_DP));
+        return bounded(value, MIN_HEIGHT_ADJUSTMENT_DP, MAX_HEIGHT_ADJUSTMENT_DP);
     }
 
     /** Divide the total adjustment across rows without losing a density-independent pixel. */
@@ -58,8 +58,24 @@ public final class KeyboardGeometry {
         return Math.max(0, Math.round(tenths * density / 20f));
     }
 
+    public static int bounded(int value, int minimum, int maximum) {
+        return Math.max(minimum, Math.min(value, maximum));
+    }
+
+    public static double bounded(double value, double minimum, double maximum) {
+        return Math.max(minimum, Math.min(value, maximum));
+    }
+
+    public static double bounded(double value, double minimum, double maximum, double fallback) {
+        return Double.isFinite(value) ? bounded(value, minimum, maximum) : fallback;
+    }
+
+    public static float bounded(float value, float minimum, float maximum) {
+        return Math.max(minimum, Math.min(value, maximum));
+    }
+
     private static int clamp(int value, int minimum, int maximum, int fallback) {
         if (value < 0) return fallback;
-        return Math.max(minimum, Math.min(value, maximum));
+        return bounded(value, minimum, maximum);
     }
 }

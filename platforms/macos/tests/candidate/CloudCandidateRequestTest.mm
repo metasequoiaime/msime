@@ -85,7 +85,7 @@ static void TestTranslationTransport() {
             assert(![request valueForKey:@"translationRequest"]);
         }
     }
-    for (NSDictionary *override in @[@{@"url":@"file:///synthetic"}, @{@"url":@"https://user:pass@translation.invalid/"},
+    for (NSDictionary *override in @[@{@"url":@"file:///synthetic"}, @{@"url":@"http://translation.invalid/api"}, @{@"url":@"https://user:pass@translation.invalid/"},
         @{@"headers":@{@"Content-Type":@"application/json", @"Authorization":@"synthetic\r\nX: bad"}}, @{@"timeout_ms":@9999}, @{@"method":@"GET"}]) {
         NSMutableDictionary *invalid = [descriptor mutableCopy]; [invalid addEntriesFromDictionary:override];
         __block BOOL rejected = NO;
@@ -93,6 +93,13 @@ static void TestTranslationTransport() {
         [request start];
         assert(rejected && ![request valueForKey:@"session"]);
     }
+    NSMutableDictionary *loopback = [descriptor mutableCopy];
+    loopback[@"url"] = @"http://127.0.0.1:8765/translate";
+    MSIMECloudCandidateRequest *local = [[MSIMECloudCandidateRequest alloc]
+        initWithTranslationDescriptor:loopback
+        configuration:NSURLSessionConfiguration.ephemeralSessionConfiguration
+        completion:^(NSData *body) { assert(!body); }];
+    assert([[(NSURLRequest *)[local valueForKey:@"translationRequest"] URL].host isEqual:@"127.0.0.1"]);
     NSURLSessionConfiguration *configuration = NSURLSessionConfiguration.ephemeralSessionConfiguration;
     configuration.protocolClasses = @[SyntheticCloudProtocol.class];
     MSIMECloudCandidateRequest *cancelled = [[MSIMECloudCandidateRequest alloc] initWithTranslationDescriptor:descriptor configuration:configuration completion:^(NSData *body) { (void)body; assert(false && "cancelled translation must not complete"); }];
@@ -101,6 +108,27 @@ static void TestTranslationTransport() {
     assert(![cancelled valueForKey:@"translationRequest"]);
     [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
     TranslationMode = NO;
+}
+
+static void TestAIRejectsPlainHTTP() {
+    NSDictionary *descriptor = @{@"url":@"http://ai.invalid/chat", @"method":@"POST",
+        @"headers":@{@"Content-Type":@"application/json", @"Authorization":@"Bearer synthetic"},
+        @"body":@{@"model":@"synthetic"}, @"timeout_ms":@8000, @"connect_timeout_ms":@2500,
+        @"max_response_bytes":@1048576};
+    MSIMECloudCandidateRequest *request = [[MSIMECloudCandidateRequest alloc]
+        initWithAITranslationDescriptor:descriptor
+        configuration:NSURLSessionConfiguration.ephemeralSessionConfiguration
+        completion:^(NSData *body) { assert(!body); }];
+    assert(![request valueForKey:@"translationRequest"]);
+    [request start];
+    assert(![request valueForKey:@"session"]);
+    descriptor = [descriptor mutableCopy];
+    descriptor[@"url"] = @"http://localhost:8765/chat";
+    request = [[MSIMECloudCandidateRequest alloc]
+        initWithAITranslationDescriptor:descriptor
+        configuration:NSURLSessionConfiguration.ephemeralSessionConfiguration
+        completion:^(NSData *body) { assert(!body); }];
+    assert([[(NSURLRequest *)[request valueForKey:@"translationRequest"] URL].host isEqual:@"localhost"]);
 }
 
 static void TestTencentTransport() {
@@ -170,6 +198,7 @@ static void TestTencentTransport() {
 int main() {
     @autoreleasepool {
         TestTranslationTransport();
+        TestAIRejectsPlainHTTP();
         TestTencentTransport();
         for (NSNumber *bytes in @[@8, @262144, @262145]) {
             for (NSNumber *status in @[@200, @503]) {

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { errorCode } from "../core/error-code";
 
 /** Host failures may contain private paths or data; display only fixed UI messages. */
 export function HostActionButton({
@@ -34,8 +35,7 @@ export function HostActionButton({
       setResult("success");
     } catch (reason) {
       if (!mounted.current) return;
-      const code =
-        typeof reason === "object" && reason !== null && "code" in reason ? reason.code : undefined;
+      const code = errorCode(reason);
       setErrorMessage(
         code === "unknown_skin"
           ? "找不到该外部皮肤，请先刷新皮肤目录。"

@@ -1,3 +1,5 @@
+import { KeyboardGeometry } from './KeyboardGeometry';
+
 /**
  * Converts ArkUI pan offsets (vp) into a clamped status-bar position (px).
  *
@@ -19,8 +21,8 @@ export class FloatingToolbarDragPolicy {
     const maxX: number = Math.max(0, screenWidth - toolbarWidth);
     const maxY: number = Math.max(0, screenHeight - toolbarHeight);
     return [
-      Math.round(Math.min(Math.max(0, x), maxX)),
-      Math.round(Math.min(Math.max(0, y), maxY))
+      Math.round(KeyboardGeometry.bounded(x, 0, maxX)),
+      Math.round(KeyboardGeometry.bounded(y, 0, maxY))
     ];
   }
 }

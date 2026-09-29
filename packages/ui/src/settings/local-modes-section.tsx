@@ -1,3 +1,5 @@
+import { SettingToggle } from "./setting-toggle";
+
 export type LocalModeKey =
   | "unicode"
   | "date_time"
@@ -69,10 +71,6 @@ const localModeRows: readonly [LocalModeKey, string, string][] = [
   ],
 ];
 
-function iosLocalModeEntry(title: string): string {
-  return `在候选栏点「水杉输入法」，或在「更多 → 本地输入」里选「${title}」，`;
-}
-
 const iosLocalModeDescriptions: Record<LocalModeKey, string> = {
   quick_phrase: `${iosLocalModeEntry("快捷短语")}再输入编码即可调用快捷短语`,
   date_time: `${iosLocalModeEntry("日期时间")}再输入 rq / riqi / date 输入日期，sj / shijian / time 输入时间，xq / xingqi / week 输入星期`,
@@ -95,21 +93,15 @@ export function LocalModesSection({ preferences, ios, onChange }: LocalModesSect
   return (
     <>
       {localModeRows.map(([key, label, description]) => (
-        <div className="section" key={key}>
-          <label className="section-header">
-            <span className="section-title">
-              {label}
-              <small>{ios ? iosLocalModeDescriptions[key] : description}</small>
-            </span>
-            <input
-              className="toggle"
-              type="checkbox"
-              checked={preferences[key]}
-              onChange={(event) => onChange({ ...preferences, [key]: event.target.checked })}
-            />
-          </label>
-        </div>
+        <SettingToggle
+          key={key}
+          label={label}
+          description={ios ? iosLocalModeDescriptions[key] : description}
+          checked={preferences[key]}
+          onChange={(checked) => onChange({ ...preferences, [key]: checked })}
+        />
       ))}
     </>
   );
 }
+import { iosLocalModeEntry } from "./local-mode-text";

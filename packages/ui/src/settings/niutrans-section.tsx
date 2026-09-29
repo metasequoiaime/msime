@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { SecretInput } from "../core/secret-input";
+import { SettingToggle } from "./setting-toggle";
 
 export interface NiuTransSectionProps {
   enabled: boolean;
@@ -25,20 +26,15 @@ export function NiuTransSection({
 }: NiuTransSectionProps) {
   return (
     <div className="section" role="group" aria-label="小牛翻译（NiuTrans）">
-      <label className="section-header">
-        <span className="section-title">
-          小牛翻译（NiuTrans）
-          <small>使用 App ID 和 API Key 为候选词提供逐条翻译</small>
-        </span>
-        <input
-          aria-label="小牛翻译（NiuTrans）"
-          className="toggle"
-          type="checkbox"
-          disabled={!available}
-          checked={enabled}
-          onChange={(event) => onToggle(event.target.checked)}
-        />
-      </label>
+      <SettingToggle
+        label="小牛翻译（NiuTrans）"
+        description="使用 App ID 和 API Key 为候选词提供逐条翻译"
+        ariaLabel="小牛翻译（NiuTrans）"
+        disabled={!available}
+        checked={enabled}
+        compact
+        onChange={onToggle}
+      />
       <div className="input-option-divider" />
       <label className="section-header">
         <span className="section-title">App ID</span>

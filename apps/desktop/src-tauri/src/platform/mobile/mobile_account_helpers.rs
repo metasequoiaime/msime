@@ -1,4 +1,4 @@
-use crate::platform::account_helpers::call_session;
+pub(crate) use crate::platform::account_helpers::{account_command_error, call_session};
 use crate::shared::account_dto::{
     ChallengeResponse, ChatModelsResponse, ChatResponse, PreferenceSchemaResponse, ProfileResponse,
     StatusResponse,
@@ -11,7 +11,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+
+pub(crate) fn account_value<T: Serialize>(value: T) -> Result<Value, AccountError> {
+    serde_json::to_value(value).map_err(|_| AccountError::Unavailable)
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -46,6 +49,48 @@ pub(crate) fn clear_snapshot_previews(
     }
 }
 
+pub(crate) fn replace_pending_snapshot(
+    previews: &std::sync::Arc<std::sync::Mutex<HashMap<String, PendingSnapshot>>>,
+    token: String,
+    snapshot: PendingSnapshot,
+) -> Result<Vec<PathBuf>, crate::CommandError> {
+    let mut pending = previews.lock().map_err(|_| snapshot_command_error())?;
+    let old = pending
+        .drain()
+        .map(|(_, item)| item.path)
+        .collect::<Vec<_>>();
+    pending.insert(token, snapshot);
+    Ok(old)
+}
+
+pub(crate) fn validate_pending_snapshot(
+    session: &crate::platform::mobile::MobileSession,
+    pending: &PendingSnapshot,
+) -> Result<(), AccountError> {
+    let profile = session.profile()?;
+    if profile.user.id != pending.account_id {
+        return Err(AccountError::Conflict);
+    }
+    let changes = session.dictionary_changes(pending.metadata.cloud_revision, 1)?;
+    if !changes.changes.is_empty() {
+        return Err(AccountError::Conflict);
+    }
+    Ok(())
+}
+
+pub(crate) fn take_pending_snapshot(
+    previews: &std::sync::Arc<std::sync::Mutex<HashMap<String, PendingSnapshot>>>,
+    token: &str,
+) -> Result<PendingSnapshot, crate::CommandError> {
+    let token = parse_snapshot_token(token)?;
+    let mut pending = previews.lock().map_err(|_| snapshot_command_error())?;
+    pending
+        .remove(&token.to_string())
+        .ok_or(crate::CommandError {
+            code: "snapshot_invalid",
+        })
+}
+
 pub(crate) fn clear_snapshot_previews_after<T>(
     previews: &std::sync::Arc<std::sync::Mutex<HashMap<String, PendingSnapshot>>>,
     result: Result<T, crate::CommandError>,
@@ -70,6 +115,10 @@ pub(crate) fn parse_cloud_dictionary_request(
     Ok(request)
 }
 
+pub(crate) fn valid_mobile_haptic_strength(value: &str) -> bool {
+    matches!(value, "light" | "medium" | "strong")
+}
+
 pub(crate) fn dictionary_kind(value: &str) -> Result<DictionaryKind, crate::CommandError> {
     match value {
         "pinyin" => Ok(DictionaryKind::Pinyin),
@@ -88,7 +137,7 @@ pub(crate) fn dictionary_kind(value: &str) -> Result<DictionaryKind, crate::Comm
 /// iOS sends the corresponding request through its native bridge. Returning `None` leaves those
 /// branches to the caller.
 pub(crate) async fn cloud_dictionary_account_request(
-    state: tauri::State<'_, crate::platform::mobile::MobileAccountState>,
+    state: &tauri::State<'_, crate::platform::mobile::MobileAccountState>,
     request: &msime_host_api::cloud_dictionary::CloudDictionaryRequest,
 ) -> Option<Result<Value, crate::CommandError>> {
     use msime_host_api::cloud_dictionary::CloudDictionaryRequest;
@@ -104,12 +153,13 @@ pub(crate) async fn cloud_dictionary_account_request(
                 Err(error) => return Some(Err(error)),
             };
             Some(
-                call(state, {
+                call_session(state.session(), {
                     let search = search.clone();
+                    let offset = *offset;
                     move |session| {
-                        session.dictionary(kind, &search, *offset).and_then(|page| {
-                            serde_json::to_value(page).map_err(|_| AccountError::Unavailable)
-                        })
+                        session
+                            .dictionary(kind, &search, offset)
+                            .and_then(|page| account_value(page))
                     }
                 })
                 .await,
@@ -127,34 +177,38 @@ pub(crate) async fn cloud_dictionary_account_request(
                 Err(error) => return Some(Err(error)),
             };
             let code = code.clone();
+            let offset = *offset;
             let scheme = scheme.clone();
             let profile = profile.clone();
             Some(
-                call(state, move |session| {
+                call_session(state.session(), move |session| {
                     session
-                        .dictionary_catalog(kind, &code, *offset, &scheme, &profile)
+                        .dictionary_catalog(kind, &code, offset, &scheme, &profile)
                         .and_then(|page| {
-                            serde_json::to_value(serde_json::json!({
+                            account_value(serde_json::json!({
                                 "catalog_entries": page.entries,
                                 "has_more": page.has_more,
                                 "offset": page.offset,
                                 "revision": page.revision,
                                 "normalized": page.normalized,
                             }))
-                            .map_err(|_| AccountError::Unavailable)
                         })
                 })
                 .await,
             )
         }
-        CloudDictionaryRequest::Changes { after, limit } => Some(
-            call(state, move |session| {
-                session.dictionary_changes(*after, *limit).and_then(|page| {
-                    serde_json::to_value(page).map_err(|_| AccountError::Unavailable)
+        CloudDictionaryRequest::Changes { after, limit } => {
+            let after = *after;
+            let limit = *limit;
+            Some(
+                call_session(state.session(), move |session| {
+                    session
+                        .dictionary_changes(after, limit)
+                        .and_then(|page| account_value(page))
                 })
-            })
-            .await,
-        ),
+                .await,
+            )
+        }
         CloudDictionaryRequest::Add {
             kind,
             code,
@@ -167,13 +221,12 @@ pub(crate) async fn cloud_dictionary_account_request(
             };
             let code = code.clone();
             let word = word.clone();
+            let weight = *weight;
             Some(
-                call(state, move |session| {
+                call_session(state.session(), move |session| {
                     session
-                        .add_dictionary(kind, &code, &word, *weight)
-                        .and_then(|change| {
-                            serde_json::to_value(change).map_err(|_| AccountError::Unavailable)
-                        })
+                        .add_dictionary(kind, &code, &word, weight)
+                        .and_then(|change| account_value(change))
                 })
                 .await,
             )
@@ -193,13 +246,13 @@ pub(crate) async fn cloud_dictionary_account_request(
             let id = id.clone();
             let code = code.clone();
             let word = word.clone();
+            let weight = *weight;
+            let revision = *revision;
             Some(
-                call(state, move |session| {
+                call_session(state.session(), move |session| {
                     session
-                        .update_dictionary(kind, &id, &code, &word, *weight, *revision)
-                        .and_then(|change| {
-                            serde_json::to_value(change).map_err(|_| AccountError::Unavailable)
-                        })
+                        .update_dictionary(kind, &id, &code, &word, weight, revision)
+                        .and_then(|change| account_value(change))
                 })
                 .await,
             )
@@ -217,19 +270,18 @@ pub(crate) async fn cloud_dictionary_account_request(
             };
             let code = code.clone();
             let word = word.clone();
+            let revision = *revision;
             let replacement = replacement
                 .as_ref()
                 .map(|value| (value.code.clone(), value.word.clone(), value.weight));
             Some(
-                call(state, move |session| {
+                call_session(state.session(), move |session| {
                     let replacement = replacement
                         .as_ref()
                         .map(|(code, word, weight)| (code.as_str(), word.as_str(), *weight));
                     session
-                        .edit_dictionary_catalog(kind, &code, &word, *revision, replacement)
-                        .and_then(|change| {
-                            serde_json::to_value(change).map_err(|_| AccountError::Unavailable)
-                        })
+                        .edit_dictionary_catalog(kind, &code, &word, revision, replacement)
+                        .and_then(|change| account_value(change))
                 })
                 .await,
             )
@@ -249,10 +301,10 @@ pub(crate) async fn cloud_dictionary_account_request(
                 limit: *limit,
             };
             Some(
-                call(state, move |session| {
-                    session.personal_candidates(&query).and_then(|result| {
-                        serde_json::to_value(result).map_err(|_| AccountError::Unavailable)
-                    })
+                call_session(state.session(), move |session| {
+                    session
+                        .personal_candidates(&query)
+                        .and_then(|result| account_value(result))
                 })
                 .await,
             )
@@ -281,18 +333,22 @@ pub(crate) async fn cloud_dictionary_account_request(
             let code = code.clone();
             let word = word.clone();
             let mode = mode.clone();
+            let revision = *revision;
+            let linear_step = *linear_step;
+            let trigger_count = *trigger_count;
+            let force_top = *force_top;
             Some(
-                call(state, move |session| {
+                call_session(state.session(), move |session| {
                     session
                         .rank_candidate(
                             &query,
                             &code,
                             &word,
-                            *revision,
+                            revision,
                             &mode,
-                            *linear_step,
-                            *trigger_count,
-                            *force_top,
+                            linear_step,
+                            trigger_count,
+                            force_top,
                         )
                         .map(|result| {
                             serde_json::json!({
@@ -324,26 +380,24 @@ pub(crate) async fn cloud_dictionary_account_request(
             };
             let code = code.clone();
             let word = word.clone();
+            let revision = *revision;
             Some(
-                call(state, move |session| {
+                call_session(state.session(), move |session| {
                     session
-                        .remove_candidate(&query, &code, &word, *revision)
-                        .and_then(|result| {
-                            serde_json::to_value(result).map_err(|_| AccountError::Unavailable)
-                        })
+                        .remove_candidate(&query, &code, &word, revision)
+                        .and_then(|result| account_value(result))
                 })
                 .await,
             )
         }
         CloudDictionaryRequest::FixedPositions { context, offset } => {
             let context = context.clone();
+            let offset = *offset;
             Some(
-                call(state, move |session| {
+                call_session(state.session(), move |session| {
                     session
-                        .fixed_positions(&context, *offset)
-                        .and_then(|result| {
-                            serde_json::to_value(result).map_err(|_| AccountError::Unavailable)
-                        })
+                        .fixed_positions(&context, offset)
+                        .and_then(|result| account_value(result))
                 })
                 .await,
             )
@@ -358,13 +412,13 @@ pub(crate) async fn cloud_dictionary_account_request(
             let context = context.clone();
             let code = code.clone();
             let word = word.clone();
+            let position = *position;
+            let revision = *revision;
             Some(
-                call(state, move |session| {
+                call_session(state.session(), move |session| {
                     session
-                        .set_fixed_position(&context, &code, &word, *position, *revision)
-                        .and_then(|result| {
-                            serde_json::to_value(result).map_err(|_| AccountError::Unavailable)
-                        })
+                        .set_fixed_position(&context, &code, &word, position, revision)
+                        .and_then(|result| account_value(result))
                 })
                 .await,
             )
@@ -375,13 +429,12 @@ pub(crate) async fn cloud_dictionary_account_request(
                 Err(error) => return Some(Err(error)),
             };
             let id = id.clone();
+            let revision = *revision;
             Some(
-                call(state, move |session| {
+                call_session(state.session(), move |session| {
                     session
-                        .delete_dictionary(kind, &id, *revision)
-                        .and_then(|change| {
-                            serde_json::to_value(change).map_err(|_| AccountError::Unavailable)
-                        })
+                        .delete_dictionary(kind, &id, revision)
+                        .and_then(|change| account_value(change))
                 })
                 .await,
             )
@@ -394,12 +447,10 @@ pub(crate) async fn cloud_dictionary_account_request(
             let format = format.clone();
             let text = text.clone();
             Some(
-                call(state, move |session| {
+                call_session(state.session(), move |session| {
                     session
                         .import_dictionary(kind, &format, &text)
-                        .and_then(|result| {
-                            serde_json::to_value(result).map_err(|_| AccountError::Unavailable)
-                        })
+                        .and_then(|result| account_value(result))
                 })
                 .await,
             )
@@ -411,7 +462,7 @@ pub(crate) async fn cloud_dictionary_account_request(
             };
             let format = format.clone();
             Some(
-                call(state, move |session| {
+                call_session(state.session(), move |session| {
                     session.export_dictionary(kind, &format).map(|result| {
                         serde_json::json!({
                             "text": result.text,
@@ -456,21 +507,10 @@ pub(crate) fn snapshot_response_without_account(
     Ok(value)
 }
 
-pub(crate) async fn call<T, F>(
-    state: tauri::State<'_, crate::platform::mobile::MobileAccountState>,
-    operation: F,
-) -> Result<T, crate::CommandError>
-where
-    T: Send + 'static,
-    F: FnOnce(&crate::platform::mobile::MobileSession) -> Result<T, AccountError> + Send + 'static,
-{
-    call_session(state.session(), operation).await
-}
-
 pub(crate) async fn account_status(
     state: tauri::State<'_, crate::platform::mobile::MobileAccountState>,
 ) -> Result<StatusResponse, crate::CommandError> {
-    call(state, |session| {
+    call_session(state.session(), |session| {
         session.status().map(|user| StatusResponse {
             user: user.map(Into::into),
         })
@@ -483,7 +523,7 @@ pub(crate) async fn account_request_code(
     provider: String,
     target: String,
 ) -> Result<ChallengeResponse, crate::CommandError> {
-    call(state, move |session| {
+    call_session(state.session(), move |session| {
         session
             .request_code(&provider, &target)
             .map(ChallengeResponse::from)
@@ -496,7 +536,7 @@ pub(crate) async fn account_login(
     challenge_id: String,
     code: String,
 ) -> Result<StatusResponse, crate::CommandError> {
-    call(state, move |session| {
+    call_session(state.session(), move |session| {
         session
             .sign_in(&challenge_id, &code)
             .map(|user| StatusResponse {
@@ -509,7 +549,7 @@ pub(crate) async fn account_login(
 pub(crate) async fn account_profile(
     state: tauri::State<'_, crate::platform::mobile::MobileAccountState>,
 ) -> Result<ProfileResponse, crate::CommandError> {
-    call(state, |session| {
+    call_session(state.session(), |session| {
         session.profile().map(ProfileResponse::from)
     })
     .await
@@ -518,7 +558,10 @@ pub(crate) async fn account_profile(
 pub(crate) async fn account_chat_models(
     state: tauri::State<'_, crate::platform::mobile::MobileAccountState>,
 ) -> Result<ChatModelsResponse, crate::CommandError> {
-    call(state, |session| session.chat_models().map(Into::into)).await
+    call_session(state.session(), |session| {
+        session.chat_models().map(Into::into)
+    })
+    .await
 }
 
 pub(crate) async fn account_chat(
@@ -526,7 +569,7 @@ pub(crate) async fn account_chat(
     messages: Vec<AccountChatMessage>,
     model: String,
 ) -> Result<ChatResponse, crate::CommandError> {
-    call(state, move |session| {
+    call_session(state.session(), move |session| {
         session
             .chat(&messages, &model)
             .map(|content| ChatResponse { content })
@@ -538,7 +581,7 @@ pub(crate) async fn account_rename(
     state: tauri::State<'_, crate::platform::mobile::MobileAccountState>,
     display_name: String,
 ) -> Result<ProfileResponse, crate::CommandError> {
-    call(state, move |session| {
+    call_session(state.session(), move |session| {
         session.rename(&display_name).map(ProfileResponse::from)
     })
     .await
@@ -547,30 +590,33 @@ pub(crate) async fn account_rename(
 pub(crate) async fn account_preferences_schema(
     state: tauri::State<'_, crate::platform::mobile::MobileAccountState>,
 ) -> Result<PreferenceSchemaResponse, crate::CommandError> {
-    call(state, |session| session.preference_schema().map(Into::into)).await
+    call_session(state.session(), |session| {
+        session.preference_schema().map(Into::into)
+    })
+    .await
 }
 
 pub(crate) async fn account_preferences_load(
     state: tauri::State<'_, crate::platform::mobile::MobileAccountState>,
 ) -> Result<AccountPreferences, crate::CommandError> {
-    call(state, |session| session.preferences()).await
+    call_session(state.session(), |session| session.preferences()).await
 }
 
 pub(crate) async fn account_logout(
     state: tauri::State<'_, crate::platform::mobile::MobileAccountState>,
     all: bool,
 ) -> Result<(), crate::CommandError> {
-    call(state, move |session| session.logout(all)).await
+    call_session(state.session(), move |session| session.logout(all)).await
 }
 
 pub(crate) async fn account_delete(
     state: tauri::State<'_, crate::platform::mobile::MobileAccountState>,
 ) -> Result<(), crate::CommandError> {
-    call(state, |session| session.delete_account()).await
+    call_session(state.session(), |session| session.delete_account()).await
 }
 
 pub(crate) async fn account_forget(
     state: tauri::State<'_, crate::platform::mobile::MobileAccountState>,
 ) -> Result<(), crate::CommandError> {
-    call(state, |session| session.forget()).await
+    call_session(state.session(), |session| session.forget()).await
 }

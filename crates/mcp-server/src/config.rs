@@ -123,16 +123,13 @@ fn default_options_path(env: &impl Fn(&str) -> Option<OsString>) -> Option<PathB
 impl Config {
     /// The runtime-options document as it is now.
     pub fn read_options(&self) -> Result<Value, String> {
-        use std::io::Read;
         let file = std::fs::File::open(&self.options)
             .map_err(|_| "cannot open the runtime options; is the input method set up?")?;
-        let mut bytes = Vec::new();
-        file.take(OPTIONS_READ_LIMIT + 1)
-            .read_to_end(&mut bytes)
-            .map_err(|_| "cannot read the runtime options")?;
-        if bytes.len() as u64 > OPTIONS_READ_LIMIT {
-            return Err("the runtime options are too large".into());
-        }
+        let bytes =
+            crate::bounded::read(file, OPTIONS_READ_LIMIT).map_err(|error| match error {
+                crate::bounded::ReadError::TooLarge => "the runtime options are too large",
+                crate::bounded::ReadError::Io => "cannot read the runtime options",
+            })?;
         let document: Value =
             serde_json::from_slice(&bytes).map_err(|_| "cannot parse the runtime options")?;
         if !document.is_object() {

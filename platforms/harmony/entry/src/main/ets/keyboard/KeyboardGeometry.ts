@@ -69,10 +69,14 @@ export class KeyboardGeometry {
     return Math.max(0, Math.round(tenths * density / 20));
   }
 
+  static bounded(value: number, minimum: number, maximum: number): number {
+    return Math.max(minimum, Math.min(value, maximum));
+  }
+
   private static clamp(value: number, minimum: number, maximum: number, fallback: number): number {
     if (value < 0) {
       return fallback;
     }
-    return Math.max(minimum, Math.min(value, maximum));
+    return KeyboardGeometry.bounded(value, minimum, maximum);
   }
 }

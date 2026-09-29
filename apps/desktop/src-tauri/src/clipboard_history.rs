@@ -330,7 +330,10 @@ pub(crate) async fn copy_text_impl(
     let store = store.inner().clone();
     #[cfg(target_os = "android")]
     {
-        if text.is_empty() || text.encode_utf16().count() > 4000 || text.contains('\0') {
+        if text.is_empty()
+            || !msime_client_core::is_bounded_utf16(&text, 4000)
+            || text.contains('\0')
+        {
             return Err(HostActionError {
                 code: "invalid_text",
             });

@@ -3,18 +3,19 @@
 //! (`SkinCommunityAPI.swift`, `CustomKeyboardSkin.swift`).
 
 use crate::account::{
-    AccountApi, AccountError, AccountSessionStorage, BackendAccountClient, BackendAccountSession,
+    request_with_account_session, AccountApi, AccountError, AccountSessionStorage,
+    BackendAccountClient, BackendAccountSession,
 };
 use crate::cloud::dictionary::percent_encode;
-use crate::community::{valid_query, valid_text};
+use crate::community::{
+    valid_author, valid_description, valid_name, valid_query, valid_rating,
+    MAXIMUM_JAVASCRIPT_INTEGER, MAXIMUM_PAGE_ITEMS,
+};
 use crate::preferences::TouchKeyboardSkinDesign;
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
-
-const MAXIMUM_PAGE_ITEMS: usize = 20;
-const MAXIMUM_JAVASCRIPT_INTEGER: u64 = 9_007_199_254_740_991;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -226,7 +227,7 @@ where
 {
     pub fn list(&self, offset: usize, search: &str) -> Result<CommunitySkinPage, AccountError> {
         validate_query(offset, search)?;
-        self.request(false, |api, token| {
+        request_with_account_session(&self.api, &self.session, false, |api, token| {
             api.community_skins(offset, search, token)
         })
     }
@@ -235,14 +236,16 @@ where
         if id.is_nil() {
             return Err(AccountError::Invalid);
         }
-        self.request(false, |api, token| api.community_skin(id, token))
+        request_with_account_session(&self.api, &self.session, false, |api, token| {
+            api.community_skin(id, token)
+        })
     }
 
     pub fn download(&self, id: Uuid) -> Result<TouchKeyboardSkinDesign, AccountError> {
         if id.is_nil() {
             return Err(AccountError::Invalid);
         }
-        self.request(true, |api, token| {
+        request_with_account_session(&self.api, &self.session, true, |api, token| {
             api.download_community_skin(id, token.ok_or(AccountError::Unauthorized)?)
         })
     }
@@ -251,7 +254,7 @@ where
         if id.is_nil() || !(1..=5).contains(&stars) {
             return Err(AccountError::Invalid);
         }
-        self.request(true, |api, token| {
+        request_with_account_session(&self.api, &self.session, true, |api, token| {
             api.rate_community_skin(id, stars, token.ok_or(AccountError::Unauthorized)?)
         })
     }
@@ -264,7 +267,7 @@ where
         design: &TouchKeyboardSkinDesign,
     ) -> Result<(), AccountError> {
         validate_publish(id, name, description, design)?;
-        self.request(true, |api, token| {
+        request_with_account_session(&self.api, &self.session, true, |api, token| {
             api.publish_community_skin(
                 id,
                 name,
@@ -279,42 +282,9 @@ where
         if id.is_nil() {
             return Err(AccountError::Invalid);
         }
-        self.request(true, |api, token| {
+        request_with_account_session(&self.api, &self.session, true, |api, token| {
             api.unpublish_community_skin(id, token.ok_or(AccountError::Unauthorized)?)
         })
-    }
-
-    fn request<T>(
-        &self,
-        authenticated: bool,
-        operation: impl Fn(&A, Option<&str>) -> Result<T, AccountError>,
-    ) -> Result<T, AccountError> {
-        let identity = if self.session.status()?.is_some() {
-            Some(self.session.credentials(None, None)?)
-        } else {
-            None
-        };
-        if authenticated && identity.is_none() {
-            return Err(AccountError::Unauthorized);
-        }
-        let mut active_token = identity.as_ref().map(|value| value.1.clone());
-        let result = match operation(&self.api, active_token.as_deref()) {
-            Err(AccountError::Unauthorized) if identity.is_some() => {
-                let expected = identity.as_ref().map(|value| value.0.as_str());
-                let (_, replacement) = self
-                    .session
-                    .credentials(active_token.as_deref(), expected)?;
-                active_token = Some(replacement);
-                operation(&self.api, active_token.as_deref())
-            }
-            result => result,
-        }?;
-        let expected = identity.as_ref().map(|value| value.0.as_str());
-        let current = self.session.status()?.map(|user| user.id);
-        if current.as_deref() != expected {
-            return Err(AccountError::Cancelled);
-        }
-        Ok(result)
     }
 }
 
@@ -331,12 +301,7 @@ fn validate_publish(
     description: &str,
     design: &TouchKeyboardSkinDesign,
 ) -> Result<(), AccountError> {
-    if id.is_nil()
-        || !valid_text(name, 1, 32, false)
-        || name.trim() != name
-        || !valid_text(description, 0, 280, true)
-        || !design.validate()
-    {
+    if id.is_nil() || !valid_name(name) || !valid_description(description) || !design.validate() {
         return Err(AccountError::Invalid);
     }
     Ok(())
@@ -358,18 +323,12 @@ fn validate_page(page: &CommunitySkinPage) -> Result<(), AccountError> {
 
 fn validate_skin(skin: &CommunitySkin) -> Result<(), AccountError> {
     if skin.id.is_nil()
-        || !valid_text(&skin.name, 1, 32, false)
-        || skin.name.trim() != skin.name
-        || !valid_text(&skin.description, 0, 280, true)
-        || !valid_text(&skin.author, 1, 128, false)
-        || skin.author.trim() != skin.author
+        || !valid_name(&skin.name)
+        || !valid_description(&skin.description)
+        || !valid_author(&skin.author)
         || !skin.design.validate()
-        || !skin.rating_average.is_finite()
-        || !(0.0..=5.0).contains(&skin.rating_average)
         || skin.downloads > MAXIMUM_JAVASCRIPT_INTEGER
-        || skin.rating_count > MAXIMUM_JAVASCRIPT_INTEGER
-        || skin.my_rating > 5
-        || (skin.rating_count == 0 && skin.rating_average != 0.0)
+        || !valid_rating(skin.rating_count, skin.rating_average, skin.my_rating)
     {
         return Err(AccountError::Unavailable);
     }
