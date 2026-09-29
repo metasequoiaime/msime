@@ -408,6 +408,16 @@ fn activation_case(nested_dictionaries: bool, hold_session: bool, handle: u64) {
     }
     fs::create_dir_all(staged.join("cache")).unwrap();
     fs::write(staged.join("cache").join("marker"), b"new").unwrap();
+    let outside_backup = tempfile::tempdir_in(root.path()).unwrap();
+    fs::write(outside_backup.path().join("sentinel"), b"keep").unwrap();
+    let linked_backup = backup_path(&active.join("user"));
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(outside_backup.path(), &linked_backup).unwrap();
+    #[cfg(windows)]
+    std::os::windows::fs::symlink_dir(outside_backup.path(), &linked_backup).unwrap();
+    assert!(activate(handle, &expected).is_err());
+    assert_eq!(fs::read(outside_backup.path().join("sentinel")).unwrap(), b"keep");
+    fs::remove_file(&linked_backup).unwrap();
     // Other tests spawn processes concurrently, and a fork can briefly inherit the dropped session's locked file description before close-on-exec runs, so maintenance access may read busy for a moment. Same allowance as the access lock's own test.
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
     let activated = loop {
