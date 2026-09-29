@@ -1707,6 +1707,8 @@ export function SettingsPage({
     mobile: mobilePlatform,
     windows: windowsPlatform,
     macos: macosPlatform,
+    releasePlatform,
+    diagnosticsFallbackPlatform,
   } = settingsPlatformContext(client.host);
   const {
     nativeVoicePlatform,
@@ -1911,7 +1913,7 @@ export function SettingsPage({
     version: currentAppVersion,
     host,
     scheme: draft ? schemeTitle(draft.scheme) : undefined,
-    fallbackPlatform: androidPlatform ? "android" : iosPlatform ? "ios" : "desktop",
+    fallbackPlatform: diagnosticsFallbackPlatform,
     userAgent: typeof navigator === "undefined" ? undefined : navigator.userAgent,
   });
   const {
@@ -1994,7 +1996,7 @@ export function SettingsPage({
     status: updateStatus,
   } = useUpdateCheck({
     clientHostedPlatform,
-    releasePlatform: client.host?.platform ?? (linuxPlatform ? "linux" : null),
+    releasePlatform,
     releasePageUrl: platformReleasesPageUrl,
     currentAppVersion,
   });
@@ -2141,10 +2143,7 @@ export function SettingsPage({
   const keyboardPreviewTheme = useCandidatePreviewTheme(themeMode, draft?.screen_keyboard_theme);
   useEffect(() => setSkinPreviewThemes({}), [candidatePreviewTheme]);
   const installerTrust = availableUpdate
-    ? describeInstallerTrust(
-        availableUpdate,
-        client.host?.platform ?? (linuxPlatform ? "linux" : null),
-      )
+    ? describeInstallerTrust(availableUpdate, releasePlatform)
     : null;
   const availablePages = availableSettingsPages({
     home: Boolean(client.home),
