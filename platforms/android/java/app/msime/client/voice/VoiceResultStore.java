@@ -141,7 +141,9 @@ public final class VoiceResultStore {
 
     private <T> T locked(LockedAction<T> action) throws Failure {
         try {
+            rejectSymlinkComponents(directory);
             Files.createDirectories(directory);
+            rejectSymlinkComponents(directory);
             if (!Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS))
                 throw new Failure(Reason.UNAVAILABLE);
             Path lockPath = directory.resolve(LOCK_NAME);
@@ -159,6 +161,17 @@ public final class VoiceResultStore {
         } catch (IOException | SecurityException error) {
             throw new Failure(Reason.UNAVAILABLE, error);
         }
+    }
+
+    private static void rejectSymlinkComponents(Path path) throws IOException {
+        if (Files.isSymbolicLink(path))
+            throw new IOException("voice result directory is a symbolic link");
+        Path parent = path.getParent();
+        if (parent != null && Files.isSymbolicLink(parent))
+            throw new IOException("voice result parent is a symbolic link");
+        if (Files.exists(path, LinkOption.NOFOLLOW_LINKS)
+                && !Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS))
+            throw new IOException("voice result directory is not a directory");
     }
 
     private static Entry readFile(Path result, long nowMillis) throws Failure, IOException {
