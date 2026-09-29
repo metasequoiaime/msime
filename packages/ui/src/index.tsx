@@ -234,6 +234,7 @@ import { useTouchKeyboardSchemeSelection } from "./settings/use-touch-keyboard-s
 import { useSettingsDestinationActions } from "./settings/use-settings-destination-actions";
 import { useMacosSettings } from "./settings/use-macos-settings";
 import { useWindowState } from "./settings/use-window-state";
+import { useWindowResizeCapture } from "./settings/use-window-resize-capture";
 import { useAppVersion } from "./settings/use-app-version";
 import { supportDiagnostics } from "./settings/support-diagnostics";
 import { useMountedRef } from "./settings/use-mounted-ref";
@@ -397,6 +398,10 @@ export {
   type WindowResizeBounds,
   type WindowResizePoint,
 } from "./settings/window-resize";
+export {
+  useWindowResizeCapture,
+  type UseWindowResizeCaptureOptions,
+} from "./settings/use-window-resize-capture";
 import { SettingsSidebar } from "./settings/settings-sidebar";
 export {
   SettingsSidebar,
@@ -1899,6 +1904,11 @@ export function SettingsPage({
   } = useDictionaryManager({ client, confirm });
   const mounted = useMountedRef();
   const windowMaximized = useWindowState({ client, setError });
+  const handleWindowResizeCapture = useWindowResizeCapture({
+    resizeWindow: client.resizeWindow,
+    windowMaximized,
+    setError,
+  });
   const [skinPreviewThemes, setSkinPreviewThemes] = useState<SettingsSkinPreviewThemes>({});
   const [showTouchSkinEditor, setShowTouchSkinEditor] = useState(false);
   const {
@@ -2244,16 +2254,7 @@ export function SettingsPage({
       // The phone hosts read as one product with the Apple app, which is where the palette below
       // comes from. The inherited one is the Windows settings accent.
       data-mobile={mobilePlatform ? "" : undefined}
-      onPointerDownCapture={(event) => {
-        if (!client.resizeWindow || event.button !== 0 || windowMaximized) return;
-        const rect = event.currentTarget.getBoundingClientRect();
-        const value = windowResizeEdge(event, rect);
-        if (value) {
-          event.preventDefault();
-          event.stopPropagation();
-          void client.resizeWindow(value).catch(() => setError("无法调整窗口大小，请重试。"));
-        }
-      }}
+      onPointerDownCapture={handleWindowResizeCapture}
     >
       {confirmation}
       {/* A phone has no window to minimise, maximise, close or drag: the OS owns the frame. The host
