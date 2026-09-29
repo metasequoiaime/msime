@@ -4,6 +4,7 @@ import { SkinToolbarPreview } from "../../skin/skin-toolbar-preview";
 import type { FloatingToolbarPreferences, HostCapabilities } from "../../index";
 import { useSettingsForm } from "../settings-form-context";
 import { Checks, GroupList, Row, Select, Switch } from "../../core/platform-controls";
+import { FloatingToolbarPlatformNotice } from "../floating-toolbar-platform-notice";
 
 type FloatingToolbarOptionKey = keyof Pick<
   FloatingToolbarPreferences,
@@ -133,9 +134,7 @@ export function FloatingToolbarSettingsPage() {
               </Row>
             </>
           ) : (
-            <p className={settings.groupNote}>
-              当前宿主以输入法菜单呈现工具栏，缩放和图标尺寸不适用；组件选择仍然生效，上方开关仍然生效。
-            </p>
+            <FloatingToolbarPlatformNotice />
           )}
         </GroupList>
         {showToolbarComponents && (
