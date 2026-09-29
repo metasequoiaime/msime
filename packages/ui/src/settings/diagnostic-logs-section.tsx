@@ -6,6 +6,16 @@ export interface DiagnosticLogPreferences {
   tsf: boolean;
 }
 
+/** Fills missing diagnostic-log switches with their disabled defaults. */
+export function diagnosticLogPreferences(
+  value?: Partial<DiagnosticLogPreferences> | null,
+): DiagnosticLogPreferences {
+  return {
+    server: value?.server ?? false,
+    tsf: value?.tsf ?? false,
+  };
+}
+
 export interface DiagnosticLogsSectionProps {
   visible: boolean;
   linux: boolean;

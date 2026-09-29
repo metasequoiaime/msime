@@ -147,7 +147,10 @@ import { MaintenanceShortcutsSection } from "./settings/maintenance-shortcuts-se
 import { InputMethodServiceSection } from "./settings/input-method-service-section";
 import { DataDirectorySection } from "./settings/data-directory-section";
 import { LicenseUninstallSection } from "./settings/license-uninstall-section";
-import { DiagnosticLogsSection } from "./settings/diagnostic-logs-section";
+import {
+  DiagnosticLogsSection,
+  diagnosticLogPreferences,
+} from "./settings/diagnostic-logs-section";
 import { HelpFeedbackSection } from "./settings/help-feedback-section";
 import { HelpSettingsPage } from "./settings/help-settings-page";
 import { ScreenKeyboardSettingsSection } from "./settings/screen-keyboard-settings-section";
@@ -695,6 +698,7 @@ export {
 } from "./settings/license-uninstall-section";
 export {
   DiagnosticLogsSection,
+  diagnosticLogPreferences,
   type DiagnosticLogPreferences,
   type DiagnosticLogsSectionProps,
 } from "./settings/diagnostic-logs-section";
@@ -2058,10 +2062,7 @@ export function SettingsPage({
     setDraft,
     setError,
   });
-  const diagnosticLog = {
-    server: draft?.diagnostic_log?.server ?? false,
-    tsf: draft?.diagnostic_log?.tsf ?? false,
-  };
+  const diagnosticLog = diagnosticLogPreferences(draft?.diagnostic_log);
   const {
     candidateTranslations,
     candidateGlossLanguagesEnabled,

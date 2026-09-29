@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { DiagnosticLogsSection } from "@msime/ui";
+import { DiagnosticLogsSection, diagnosticLogPreferences } from "@msime/ui";
 
 afterEach(() => {
   cleanup();
@@ -26,6 +26,12 @@ test("diagnostic logs report server and TSF toggle changes", () => {
   fireEvent.click(screen.getByLabelText("TSF 端日志"));
   expect(onChange).toHaveBeenNthCalledWith(1, { server: true });
   expect(onChange).toHaveBeenNthCalledWith(2, { tsf: true });
+});
+
+test("diagnostic log preferences default missing switches to off", () => {
+  expect(diagnosticLogPreferences()).toEqual({ server: false, tsf: false });
+  expect(diagnosticLogPreferences({ server: true })).toEqual({ server: true, tsf: false });
+  expect(diagnosticLogPreferences({ tsf: true })).toEqual({ server: false, tsf: true });
 });
 
 test("diagnostic logs expose the macOS directory action", () => {
