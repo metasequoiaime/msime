@@ -87,6 +87,11 @@ export {
   createSettingsSaveAction,
   type CreateSettingsSaveActionOptions,
 } from "./settings/settings-save-action";
+import { SettingsStandalonePages } from "./settings/settings-standalone-pages";
+export {
+  SettingsStandalonePages,
+  type SettingsStandalonePagesProps,
+} from "./settings/settings-standalone-pages";
 import { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
 export { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
 import { useTranslationSettings } from "./settings/use-translation-settings";
@@ -2489,92 +2494,26 @@ export function SettingsPage({
                 />
               )}
             {busy && !draft && <p role="status">正在读取设置…</p>}
-            {client.home && draft && page === "home" && (
-              <HomePage
-                preferences={draft}
-                actions={client.home}
-                {...settingsPageSelection}
-                onSelectScheme={selectHomeScheme}
-                onOpenChat={settingsNavigationActions.onOpenChat}
-                touchLayout={mobilePlatform}
-              />
-            )}
-            {page === "more" && (
-              <MoreSettingsPage
-                pages={mobileSecondaryPages.map((item) => ({
-                  id: item.id,
-                  title: item.title,
-                  icon: item.icon,
-                }))}
-                {...settingsPageSelection}
-              />
-            )}
-            {(client.account || client.appIcon) && page === "account" && (
-              <AccountPage
-                client={client.account}
-                appIcon={client.appIcon}
-                platform={accountPlatform}
-                mobile={mobilePlatform}
-                {...accountPageActions}
-              />
-            )}
-            {client.chat && page === "chat" && (
-              <ChatPage
-                client={client.chat}
-                autoFocus={mobilePlatform}
-                touch={mobilePlatform}
-                onLogin={openAccountLogin}
-              />
-            )}
-            {client.communitySkins && client.communityResources && page === "community" && (
-              <CommunityHomePage
-                key={communityDestination}
-                skins={client.communitySkins}
-                resources={client.communityResources}
-                theme={keyboardPreviewTheme}
-                initialMine={communityView.initialMine}
-                initialCategory={communityView.category}
-                initialScope={communityView.scope}
-                localDictionary={client.dictionary}
-                localSkinLibrary={client.customSkinLibrary}
-                mobile={mobilePlatform}
-                onLogin={openAccountLogin}
-              />
-            )}
-            {client.communitySkins && !client.communityResources && page === "community" && (
-              <CommunitySkinsPage
-                key={communityDestination}
-                client={client.communitySkins}
-                theme={keyboardPreviewTheme}
-                localSkinLibrary={client.customSkinLibrary}
-                initialMine={communityView.initialMine}
-                mobile={mobilePlatform}
-                onLogin={openAccountLogin}
-              />
-            )}
-            {!client.communitySkins && client.communityResources && page === "community" && (
-              <CommunityResourcesPage
-                client={client.communityResources}
-                kind={communityView.category === "reply" ? "reply" : "dictionary"}
-                initialScope={communityView.scope}
-                mobile={mobilePlatform}
-              />
-            )}
-            {client.typingStatistics && page === "typing-statistics" && (
-              <TypingStatisticsPage
-                client={client.typingStatistics}
-                mobile={mobilePlatform}
-                platform={client.host?.platform}
-                openSystemSettings={client.openSystemKeyboardSettings}
-              />
-            )}
-            {client.vocabularyReview && page === "vocabulary" && (
-              <VocabularyReviewPage
-                client={client.vocabularyReview}
-                mobile={mobilePlatform}
-                openPanel={client.openVocabulary}
-              />
-            )}
+            <SettingsStandalonePages
+              page={page}
+              draft={draft}
+              client={client}
+              mobile={mobilePlatform}
+              accountPlatform={accountPlatform}
+              keyboardPreviewTheme={keyboardPreviewTheme}
+              communityView={communityView}
+              communityKey={communityDestination}
+              mobileSecondaryPages={mobileSecondaryPages.map((item) => ({
+                id: item.id,
+                title: item.title,
+                icon: item.icon,
+              }))}
+              settingsPageSelection={settingsPageSelection}
+              selectHomeScheme={selectHomeScheme}
+              onOpenChat={settingsNavigationActions.onOpenChat}
+              accountPageActions={accountPageActions}
+              openAccountLogin={openAccountLogin}
+            />
             {draft && isSettingsFormPage(page) && (
                 <form onSubmit={submitSettings}>
                   <AppearanceSettingsSection
