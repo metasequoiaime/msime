@@ -8,6 +8,7 @@ import type {
   HostCapabilities,
 } from "../index";
 import type { ThemeCatalogEntry } from "../theme/global-theme";
+export { logo } from "./app-resources";
 
 // Options and defaults that the settings model in index.tsx shares with the settings pages, or that several pages share with each other.
 
@@ -74,8 +75,6 @@ export function selectTouchKeyboardScheme(
     touch_keyboard_schemes,
   };
 }
-
-export const logo = new URL("../assets/msime.svg", import.meta.url).href;
 
 // The prompt slots start empty as in AiAssistantPreferences::default(). The associative-candidate paths (client-core's chat_completion_http_request and the Linux online provider) treat a blank slot as the built-in DEFAULT_CANDIDATE_PROMPT, the text Windows compiles into ai_assistant.prompt. Android and the iOS keyboard mirror instead read ai_assistant.prompt as a polish instruction and use their own polish text when it is blank, which is why this default stays empty rather than holding the associative prompt.
 export const defaultAiAssistant: AiAssistantPreferences = {

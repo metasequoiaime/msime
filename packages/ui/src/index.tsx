@@ -1,6 +1,14 @@
 import { useConfirm } from "./core/confirm";
 import { NavItem } from "./core/platform-controls";
 import { mobilePageTitle, mobileTabIcon, mobileTabTitle } from "./settings/mobile-tab-helpers";
+import {
+  desktopDownloadUrl,
+  documentationUrl,
+  fallbackAppVersion,
+  windowIcons,
+} from "./settings/app-resources";
+import { platformResourceUrls } from "./settings/platform-resource-urls";
+import { unreadablePreferencesMessage } from "./settings/preferences-recovery-message";
 import type { VoiceDeviceReader } from "./voice/voice-device-picker";
 import type { LocalVoiceModelClient } from "./voice/local-models";
 import {
@@ -1103,21 +1111,6 @@ const subPageParents: Partial<Record<SettingsPageId, SettingsPageId>> = {
 };
 /** Former page ids whose contents now sit on another page. A route that names one opens that page. */
 const settingsPageAliases: Record<string, SettingsPageId> = { helpcode: "input" };
-const windowIcons = {
-  minimize: new URL("./assets/minimize.svg", import.meta.url).href,
-  maximize: new URL("./assets/maximize.svg", import.meta.url).href,
-  restore: new URL("./assets/restore.svg", import.meta.url).href,
-  close: new URL("./assets/close.svg", import.meta.url).href,
-};
-const fallbackAppVersion = "0.1.0";
-const releasesPageUrl = "https://github.com/metasequoiaime/msime/releases";
-const linuxReleasesPageUrl = "https://github.com/metasequoiaime/msime/releases";
-const licenseUrl = "https://github.com/metasequoiaime/msime/blob/develop/LICENSE";
-const linuxLicenseUrl = "https://github.com/metasequoiaime/msime/blob/develop/LICENSE";
-const linuxIssuesUrl = "https://github.com/metasequoiaime/msime/issues";
-const desktopDownloadUrl = "https://msime.app/download/";
-const documentationUrl = "https://msime.app/docs/";
-
 export type HostPlatform = "windows" | "macos" | "linux" | "android" | "ios" | "harmony";
 /** Mirrors `client-core::host_surface::HostCapabilities`. */
 export interface HostCapabilities {
@@ -1682,8 +1675,6 @@ export interface PreferencesRecovery {
 }
 
 /** What a load or save that failed on an unreadable document says; the repair button sits beside exactly this message. */
-const unreadablePreferencesMessage = "配置文件无法读取或版本较新，原文件已保留。";
-
 /**
  * The 设置 tab draws a gear, not the app.
  *
@@ -1799,9 +1790,11 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   const fullwidthChord = macosPlatform ? "Option+Shift+H" : "Alt+Shift+H";
   const maintenanceChord = macosPlatform ? "Ctrl+Shift+Option" : "Ctrl+Shift+Alt";
   // Windows is built from this repository now too, so it reads this repository's releases; msime.app/update.json describes the reference Windows product and names its repository, which the validation below rightly refuses.
-  const platformReleasesPageUrl = clientHostedPlatform ? linuxReleasesPageUrl : releasesPageUrl;
-  const platformLicenseUrl = clientHostedPlatform ? linuxLicenseUrl : licenseUrl;
-  const platformIssuesUrl = linuxIssuesUrl;
+  const {
+    releasesPageUrl: platformReleasesPageUrl,
+    licenseUrl: platformLicenseUrl,
+    issuesUrl: platformIssuesUrl,
+  } = platformResourceUrls({ clientHostedPlatform, linux: linuxPlatform });
   const captureBackendOptions: readonly (readonly [
     NonNullable<VoiceInputPreferences["capture_backend"]>,
     string,
