@@ -8,7 +8,6 @@ import org.json.JSONObject;
 /** Bounded host orchestration for display-only offline candidate glosses. */
 public final class CandidateGlossModel {
     public static final int MAX_CANDIDATES = 4096;
-    public static final int MAX_ENTRY_BYTES = 4096;
     public static final int MAX_REQUEST_BYTES = 262_144;
     public static final int MAX_RESPONSE_BYTES = 1_048_576;
 
@@ -41,7 +40,7 @@ public final class CandidateGlossModel {
             if (candidate == null) throw new IllegalArgumentException("Invalid candidate entry");
             String text = candidate.optString("text", "");
             int source = candidate.optInt("source", -1);
-            if (!bounded(text) || source < 0 || source > 255)
+            if (!CandidateGlossPolicy.validEntry(text) || source < 0 || source > 255)
                 throw new IllegalArgumentException("Invalid candidate entry");
             copied.put(new JSONObject().put("text", text).put("source", source));
         }
@@ -72,7 +71,8 @@ public final class CandidateGlossModel {
             if (entry == null) throw new IllegalArgumentException("Invalid candidate gloss entry");
             String text = entry.optString("text", "");
             String translation = entry.optString("translation", "");
-            if (!bounded(text) || !bounded(translation))
+            if (!CandidateGlossPolicy.validEntry(text)
+                    || !CandidateGlossPolicy.validEntry(translation))
                 throw new IllegalArgumentException("Invalid candidate gloss entry");
             copied.put(new JSONObject().put("text", text).put("translation", translation));
         }
@@ -82,8 +82,4 @@ public final class CandidateGlossModel {
         return new Result(generation, payload);
     }
 
-    private static boolean bounded(String value) {
-        return value != null && !value.isEmpty()
-            && value.getBytes(StandardCharsets.UTF_8).length <= MAX_ENTRY_BYTES;
-    }
 }

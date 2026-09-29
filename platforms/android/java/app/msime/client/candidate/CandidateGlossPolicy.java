@@ -1,10 +1,8 @@
 package app.msime.client;
 
-import java.nio.charset.StandardCharsets;
-
 /** Pure lifecycle and presentation rules for optional offline candidate glosses. */
 public final class CandidateGlossPolicy {
-    private static final int MAX_ENTRY_BYTES = 4096;
+    public static final int MAX_ENTRY_BYTES = 4096;
 
     public record Token(long session, long generation, long epoch) {
         public Token {
@@ -24,7 +22,7 @@ public final class CandidateGlossPolicy {
     public static String annotation(
             String engineAnnotation, String translation, boolean glossEnabled) {
         if (engineAnnotation != null && !engineAnnotation.isEmpty()) return engineAnnotation;
-        return glossEnabled && bounded(translation) ? translation : "";
+        return glossEnabled && validEntry(translation) ? translation : "";
     }
 
     public static String accessibilitySuffix(
@@ -35,8 +33,8 @@ public final class CandidateGlossPolicy {
         return gloss.isEmpty() ? "" : "，英文释义：" + gloss;
     }
 
-    private static boolean bounded(String value) {
+    public static boolean validEntry(String value) {
         return value != null && !value.isEmpty()
-            && value.getBytes(StandardCharsets.UTF_8).length <= MAX_ENTRY_BYTES;
+            && value.getBytes(java.nio.charset.StandardCharsets.UTF_8).length <= MAX_ENTRY_BYTES;
     }
 }
