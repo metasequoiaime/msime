@@ -1,14 +1,12 @@
 import * as settings from "../settings-style";
 import {
   asrProviderUpdate,
-  ASR_PROVIDER_DEFAULTS,
   isAsrServiceProvider,
 } from "../../voice/voice-providers";
 import { LocalModelManager, localModelInUse } from "../../voice/local-models";
 import {
   defaultVoiceInput,
   isVoicePolishEnabled,
-  voiceAsrTokenLabel,
 } from "../voice-input-defaults";
 import { useSettingsForm } from "../settings-form-context";
 import { GroupList, Row, Select, Switch } from "../../core/platform-controls";
@@ -16,12 +14,7 @@ import { VoiceInputIntroSection } from "../voice-input-intro-section";
 import { VoiceInputCoreSection } from "../voice-input-core-section";
 import { VoiceModelMirrorSection } from "../voice-model-mirror-section";
 import { VoiceModelPathDisclosure } from "../voice-model-path-disclosure";
-import { VoiceModelSection } from "../voice-model-section";
-import { DoubaoAuthModeSection } from "../doubao-auth-mode-section";
-import { DoubaoStreamEndpointSection } from "../doubao-stream-endpoint-section";
-import { VoiceEndpointSection } from "../voice-endpoint-section";
-import { VoiceCredentialFieldsSection } from "../voice-credential-fields-section";
-import { DoubaoResourceIdSection } from "../doubao-resource-id-section";
+import { VoiceAsrProviderSettingsSection } from "../voice-asr-provider-settings-section";
 import { VoiceStreamPreeditSection } from "../voice-stream-preedit-section";
 import { VoiceCommitModeSection } from "../voice-commit-mode-section";
 import { VoiceCaptureDevicesSection } from "../voice-capture-devices-section";
@@ -81,7 +74,6 @@ export function VoiceSettingsPage() {
     credentialTestControl,
     providerPresetControls,
   } = useSettingsForm();
-  const asrTokenLabel = voiceAsrTokenLabel(voiceInput.asr_provider, doubaoAuthMode);
   const polishEnabled = isVoicePolishEnabled(voiceInput);
   return (
     <fieldset disabled={busy} hidden={page !== "voice"} aria-label="语音输入">
@@ -164,55 +156,16 @@ export function VoiceSettingsPage() {
         )}
         {showVoiceProviderSettings && (serviceVoice || voiceInput.asr_provider === "doubao") && (
           <GroupList title="识别服务配置">
-            {serviceVoice &&
-              providerPresetControls(
-                "识别服务",
-                ASR_PROVIDER_DEFAULTS[String(voiceInput.asr_provider)],
-                voiceInput.asr_model ?? "",
-                (asr_model) => updateVoice({ asr_model }),
-                settings.managerBlock,
-              )}
-            {serviceVoice && (
-              <VoiceModelSection
-                value={voiceInput.asr_model ?? ""}
-                onChange={(asr_model) => updateVoice({ asr_model })}
-              />
-            )}
-            {voiceInput.asr_provider === "doubao" && (
-              <DoubaoAuthModeSection
-                value={doubaoAuthMode}
-                linux={linuxPlatform}
-                onChange={(doubao_auth_mode) => updateVoice({ doubao_auth_mode })}
-              />
-            )}
-            {!linuxPlatform && serviceVoice && (
-              <>
-                {voiceInput.asr_provider === "doubao" && (
-                  <DoubaoStreamEndpointSection
-                    endpoint={voiceInput.asr_endpoint ?? ""}
-                    onChange={(asr_endpoint) => updateVoice({ asr_endpoint })}
-                  />
-                )}
-                <VoiceEndpointSection
-                  value={voiceInput.asr_endpoint ?? ""}
-                  onChange={(asr_endpoint) => updateVoice({ asr_endpoint })}
-                />
-                <VoiceCredentialFieldsSection
-                  showAppKey={voiceInput.asr_provider === "doubao" && doubaoAuthMode === "legacy"}
-                  appKey={voiceInput.asr_app_key ?? ""}
-                  tokenLabel={asrTokenLabel}
-                  token={voiceInput.asr_token ?? ""}
-                  onAppKeyChange={(asr_app_key) => updateVoice({ asr_app_key })}
-                  onTokenChange={(asr_token) => updateVoice({ asr_token })}
-                />
-              </>
-            )}
-            {serviceVoice && (
-              <DoubaoResourceIdSection
-                value={voiceInput.asr_resource_id ?? ""}
-                onChange={(asr_resource_id) => updateVoice({ asr_resource_id })}
-              />
-            )}
+            <VoiceAsrProviderSettingsSection
+              voiceInput={voiceInput}
+              showProviderSettings={showVoiceProviderSettings}
+              serviceVoice={serviceVoice}
+              linux={linuxPlatform}
+              doubaoAuthMode={doubaoAuthMode}
+              providerPresetControls={providerPresetControls}
+              providerPresetClassName={settings.managerBlock}
+              updateVoice={updateVoice}
+            />
           </GroupList>
         )}
         {linuxPlatform &&

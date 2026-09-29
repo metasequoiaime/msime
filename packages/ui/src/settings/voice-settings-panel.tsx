@@ -10,21 +10,17 @@ import type {
 import {
   defaultVoiceInput,
   isVoicePolishEnabled,
-  voiceAsrTokenLabel,
 } from "./voice-input-defaults";
 import { LocalModelManager, localModelInUse } from "../voice/local-models";
 import {
   asrProviderUpdate,
-  ASR_PROVIDER_DEFAULTS,
   isAsrServiceProvider,
 } from "../voice/voice-providers";
 import { VoiceInputIntroSection } from "./voice-input-intro-section";
 import { VoiceInputCoreSection } from "./voice-input-core-section";
 import { VoiceModelMirrorSection } from "./voice-model-mirror-section";
 import { VoiceModelPathDisclosure } from "./voice-model-path-disclosure";
-import { VoiceModelSection } from "./voice-model-section";
-import { VoiceEndpointSection } from "./voice-endpoint-section";
-import { VoiceCredentialFieldsSection } from "./voice-credential-fields-section";
+import { VoiceAsrProviderSettingsSection } from "./voice-asr-provider-settings-section";
 import { VoiceStreamPreeditSection } from "./voice-stream-preedit-section";
 import { VoiceCommitModeSection } from "./voice-commit-mode-section";
 import {
@@ -34,10 +30,7 @@ import {
 import { VoiceAsrServiceTestSection } from "./voice-asr-service-test-section";
 import { VoiceHotkeysSection } from "./voice-hotkeys-section";
 import { VoicePolishSettingsSection } from "./voice-polish-settings-section";
-import { DoubaoAuthModeSection } from "./doubao-auth-mode-section";
-import { DoubaoStreamEndpointSection } from "./doubao-stream-endpoint-section";
 import { DoubaoOptionsSection } from "./doubao-options-section";
-import { DoubaoResourceIdSection } from "./doubao-resource-id-section";
 import { VoiceRecordingBehaviorSection } from "./voice-recording-behavior-section";
 import { VoiceCredentialControl } from "./voice-credential-control";
 import {
@@ -224,55 +217,15 @@ export function VoiceSettingsPanel({
           onChange={(asr_model_path) => updateVoice({ asr_model_path })}
         />
       )}
-      {showVoiceProviderSettings &&
-        serviceVoice &&
-        providerPresetControls(
-          "识别服务",
-          ASR_PROVIDER_DEFAULTS[String(voiceInput.asr_provider)],
-          voiceInput.asr_model ?? "",
-          (asr_model) => updateVoice({ asr_model }),
-        )}
-      {showVoiceProviderSettings && serviceVoice && (
-        <VoiceModelSection
-          value={voiceInput.asr_model ?? ""}
-          onChange={(asr_model) => updateVoice({ asr_model })}
-        />
-      )}
-      {showVoiceProviderSettings && voiceInput.asr_provider === "doubao" && (
-        <DoubaoAuthModeSection
-          value={doubaoAuthMode}
-          linux={linuxPlatform}
-          onChange={(doubao_auth_mode) => updateVoice({ doubao_auth_mode })}
-        />
-      )}
-      {showVoiceProviderSettings && !linuxPlatform && serviceVoice && (
-        <>
-          {voiceInput.asr_provider === "doubao" && (
-            <DoubaoStreamEndpointSection
-              endpoint={voiceInput.asr_endpoint ?? ""}
-              onChange={(asr_endpoint) => updateVoice({ asr_endpoint })}
-            />
-          )}
-          <VoiceEndpointSection
-            value={voiceInput.asr_endpoint ?? ""}
-            onChange={(asr_endpoint) => updateVoice({ asr_endpoint })}
-          />
-          <VoiceCredentialFieldsSection
-            showAppKey={voiceInput.asr_provider === "doubao" && doubaoAuthMode === "legacy"}
-            appKey={voiceInput.asr_app_key ?? ""}
-            tokenLabel={voiceAsrTokenLabel(voiceInput.asr_provider, doubaoAuthMode)}
-            token={voiceInput.asr_token ?? ""}
-            onAppKeyChange={(asr_app_key) => updateVoice({ asr_app_key })}
-            onTokenChange={(asr_token) => updateVoice({ asr_token })}
-          />
-        </>
-      )}
-      {showVoiceProviderSettings && serviceVoice && (
-        <DoubaoResourceIdSection
-          value={voiceInput.asr_resource_id ?? ""}
-          onChange={(asr_resource_id) => updateVoice({ asr_resource_id })}
-        />
-      )}
+      <VoiceAsrProviderSettingsSection
+        voiceInput={voiceInput}
+        showProviderSettings={showVoiceProviderSettings}
+        serviceVoice={serviceVoice}
+        linux={linuxPlatform}
+        doubaoAuthMode={doubaoAuthMode}
+        providerPresetControls={providerPresetControls}
+        updateVoice={updateVoice}
+      />
       {linuxPlatform &&
         isAsrServiceProvider(voiceInput.asr_provider ?? "doubao") &&
         <VoiceCredentialControl

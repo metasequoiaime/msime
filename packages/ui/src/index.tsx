@@ -755,6 +755,10 @@ export {
 } from "./settings/touch-keyboard-geometry-section";
 export { VoiceSettingsPanel, type VoiceSettingsPanelProps } from "./settings/voice-settings-panel";
 export {
+  VoiceAsrProviderSettingsSection,
+  type VoiceAsrProviderSettingsSectionProps,
+} from "./settings/voice-asr-provider-settings-section";
+export {
   VoiceCredentialControl,
   type VoiceCredentialControlProps,
 } from "./settings/voice-credential-control";
