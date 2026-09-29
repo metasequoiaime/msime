@@ -482,7 +482,15 @@ impl TypingStatisticsStore {
     }
 
     fn lock(&self) -> Result<File, TypingStatisticsError> {
-        fs::create_dir_all(&self.directory)?;
+        if let Some(parent) = self.directory.parent() {
+            crate::storage::reject_symlink(parent)?;
+        }
+        if !crate::storage::create_directory_and_check(&self.directory)? {
+            return Err(TypingStatisticsError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "typing statistics directory is not a real directory",
+            )));
+        }
         let lock = crate::file_lock::open_lock_file(self.directory.join("typing-statistics.lock"))?;
         crate::file_lock::exclusive(&lock)?;
         Ok(lock)
@@ -490,13 +498,20 @@ impl TypingStatisticsStore {
 
     fn read_locked(&self) -> Result<TypingStatistics, TypingStatisticsError> {
         let path = self.path();
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(TypingStatistics::default());
+            }
+            Err(error) => return Err(error.into()),
+        };
+        if !metadata.file_type().is_file() {
+            return Err(TypingStatisticsError::InvalidDocument);
+        }
         let bytes = match File::open(&path) {
             Ok(file) => crate::bounded_io::read_bounded_file(file, MAX_DOCUMENT_BYTES, || {
                 TypingStatisticsError::InvalidDocument
             })?,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(TypingStatistics::default());
-            }
             Err(error) => return Err(error.into()),
         };
         let value: TypingStatistics = serde_json::from_slice(&bytes)?;
@@ -547,8 +562,9 @@ impl TypingStatisticsStore {
     }
 
     pub fn last_written(&self) -> Result<Option<SystemTime>, TypingStatisticsError> {
-        match fs::metadata(self.path()) {
-            Ok(metadata) => Ok(metadata.modified().ok()),
+        match fs::symlink_metadata(self.path()) {
+            Ok(metadata) if metadata.file_type().is_file() => Ok(metadata.modified().ok()),
+            Ok(_) => Err(TypingStatisticsError::InvalidDocument),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(error.into()),
         }

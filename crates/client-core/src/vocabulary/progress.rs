@@ -300,7 +300,15 @@ impl VocabularyProgressStore {
     }
 
     fn lock(&self) -> Result<File, VocabularyProgressError> {
-        fs::create_dir_all(&self.directory)?;
+        if let Some(parent) = self.directory.parent() {
+            crate::storage::reject_symlink(parent)?;
+        }
+        if !crate::storage::create_directory_and_check(&self.directory)? {
+            return Err(VocabularyProgressError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "vocabulary progress directory is not a real directory",
+            )));
+        }
         let lock =
             crate::file_lock::open_lock_file(self.directory.join("vocabulary-progress.lock"))?;
         crate::file_lock::exclusive(&lock)?;
@@ -309,15 +317,22 @@ impl VocabularyProgressStore {
 
     fn read_locked(&self) -> Result<VocabularyProgress, VocabularyProgressError> {
         let path = self.path();
-        let bytes = match File::open(&path) {
-            Ok(file) => crate::bounded_io::read_bounded_file(file, MAX_DOCUMENT_BYTES, || {
-                VocabularyProgressError::InvalidDocument
-            })?,
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
             // A missing file is a fresh profile. A damaged one is not, and is never overwritten
             // below — the two cases are deliberately different.
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 return Ok(VocabularyProgress::default());
             }
+            Err(error) => return Err(error.into()),
+        };
+        if !metadata.file_type().is_file() {
+            return Err(VocabularyProgressError::InvalidDocument);
+        }
+        let bytes = match File::open(&path) {
+            Ok(file) => crate::bounded_io::read_bounded_file(file, MAX_DOCUMENT_BYTES, || {
+                VocabularyProgressError::InvalidDocument
+            })?,
             Err(error) => return Err(error.into()),
         };
         let value: VocabularyProgress = serde_json::from_slice(&bytes)?;
@@ -849,5 +864,39 @@ mod tests {
         let mut bad = book;
         bad.id = "CET 4".to_owned();
         assert!(build_queue(&progress, &bad, TODAY, 20, 200).is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_symlinked_progress_storage_and_record() {
+        use std::os::unix::fs::symlink;
+
+        let target = tempfile::tempdir().unwrap();
+        let parent = tempfile::tempdir().unwrap();
+        let linked_root = parent.path().join("user-data");
+        symlink(target.path(), &linked_root).unwrap();
+        let linked_store = VocabularyProgressStore::new(&linked_root);
+        assert!(matches!(
+            linked_store.load(),
+            Err(VocabularyProgressError::Io(_))
+        ));
+        assert!(!target.path().join("vocabulary-progress.lock").exists());
+
+        let root = tempfile::tempdir().unwrap();
+        let store = VocabularyProgressStore::new(root.path());
+        fs::write(root.path().join("vocabulary-progress.json"), b"{}").unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let outside_record = outside.path().join("progress.json");
+        fs::write(&outside_record, b"{}").unwrap();
+        fs::remove_file(root.path().join("vocabulary-progress.json")).unwrap();
+        symlink(
+            &outside_record,
+            root.path().join("vocabulary-progress.json"),
+        )
+        .unwrap();
+        assert!(matches!(
+            store.load(),
+            Err(VocabularyProgressError::InvalidDocument)
+        ));
     }
 }
