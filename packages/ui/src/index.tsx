@@ -104,6 +104,12 @@ export { SettingsPageStatus, type SettingsPageStatusProps } from "./settings/set
 import { SettingsFormFooter } from "./settings/settings-form-footer";
 export { SettingsFormFooter, type SettingsFormFooterProps } from "./settings/settings-form-footer";
 import { settingsPageLinks } from "./settings/settings-page-view-model";
+import { settingsPagePreferences } from "./settings/settings-page-preferences";
+export {
+  settingsPagePreferences,
+  type SettingsPagePreferences,
+  type SettingsPagePreferencesOptions,
+} from "./settings/settings-page-preferences";
 export {
   settingsPageLinks,
   settingsPageTitle,
@@ -2157,16 +2163,38 @@ export function SettingsPage({
 
   const openPanel = useOpenPanel({ setError });
 
-  const dirty = settingsDirty({
+  const {
+    ai,
+    storedAiCredential,
+    wordCharacter,
+    keybindings,
+    frequency,
+    mixedInput,
+    fuzzyPinyin,
+    localModes,
+    navigation,
+    numberRowSelection,
+    inputModeHUD,
+    floatingToolbar,
+    themeMode,
+    settingsTheme,
+    touchKeyboardSchemes,
+    touchKeyboardSkin,
+    customTouchKeyboardSkin,
+    touchKeySpacingTenths,
+    touchRowSpacingTenths,
+    touchKeyboardHeightAdjustment,
+    clipboardHistory,
+    diagnosticLog,
+    dirty,
+  } = settingsPagePreferences({
     draft,
+    providerCredentials,
     snapshot,
     macosWubiAutoCommitUnique,
     savedMacosWubiAutoCommitUnique,
+    ios: iosPlatform,
   });
-  const { ai, storedAiCredential } = aiSettingsPreferences(
-    draft?.ai_assistant,
-    providerCredentials,
-  );
   const {
     origin: aiOrigin,
     token: aiToken,
@@ -2188,21 +2216,6 @@ export function SettingsPage({
     providerCredentialAvailable: aiProviderCredentials,
     onChange: settingsDraftActions.onAiChange,
   });
-  const {
-    wordCharacter,
-    keybindings,
-    frequency,
-    mixedInput,
-    fuzzyPinyin,
-    localModes,
-    navigation,
-    numberRowSelection,
-  } = settingsInputPreferences(draft);
-  const {
-    selected: selectedTouchKeyboardScheme,
-    selectHome: selectHomeScheme,
-    setEnabled: setTouchKeyboardSchemeEnabled,
-  } = useTouchKeyboardSchemeSelection({ draft, setDraft });
   // Every platform sees every mode. macOS used to hide emoji, kaomoji and temporary Japanese on the
   // grounds that its bundle shipped only msime.db and english.db, but others.db and dict_japanese.dat have
   // been in resources/desktop-dictionary.lock.json since 780a9381b and tauri.macos.conf.json bundles the
@@ -2212,7 +2225,11 @@ export function SettingsPage({
   // A host missing a catalog is still handled, and handled better than by hiding a switch: the runtime
   // turns that mode off when its resource is absent, so the trigger key inserts its capital instead of
   // being swallowed.
-  const clipboardHistory = clipboardHistoryEnabled(iosPlatform, draft);
+  const {
+    selected: selectedTouchKeyboardScheme,
+    selectHome: selectHomeScheme,
+    setEnabled: setTouchKeyboardSchemeEnabled,
+  } = useTouchKeyboardSchemeSelection({ draft, setDraft });
   const toggleClipboardHistory = useClipboardHistoryToggle({
     draft,
     enabled: clipboardHistory,
@@ -2220,7 +2237,6 @@ export function SettingsPage({
     setDraft,
     setError,
   });
-  const diagnosticLog = diagnosticLogPreferences(draft?.diagnostic_log);
   const {
     candidateTranslations,
     candidateGlossLanguagesEnabled,
@@ -2263,18 +2279,6 @@ export function SettingsPage({
     onChange: settingsDraftActions.onVoiceChange,
   });
   const providerPresetControls = createProviderPresetControl(client.openExternalUrl);
-  const {
-    inputModeHUD,
-    floatingToolbar,
-    themeMode,
-    settingsTheme,
-    touchKeyboardSchemes,
-    touchKeyboardSkin,
-    customTouchKeyboardSkin,
-    touchKeySpacingTenths,
-    touchRowSpacingTenths,
-    touchKeyboardHeightAdjustment,
-  } = settingsVisualPreferences(draft);
   const floatingToolbarActions = createFloatingToolbarActions({
     draft,
     preferences: floatingToolbar,
