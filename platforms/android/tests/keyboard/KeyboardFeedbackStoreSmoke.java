@@ -32,6 +32,23 @@ public final class KeyboardFeedbackStoreSmoke {
                 } catch (java.io.IOException expected) {
                     // Expected: the reader must stop at the configured limit.
                 }
+                Path external = Files.createTempFile("keyboard-feedback-external", ".json");
+                Path link = Files.createTempFile("keyboard-feedback-link", ".json");
+                try {
+                    Files.writeString(external, "synthetic");
+                    Files.delete(link);
+                    Files.createSymbolicLink(link, external);
+                    check(Files.isRegularFile(link));
+                    try {
+                        KeyboardFeedbackFileReader.read(link);
+                        throw new AssertionError("symlinked feedback file accepted");
+                    } catch (java.io.IOException expected) {
+                        // Expected: feedback paths must not follow links.
+                    }
+                } finally {
+                    Files.deleteIfExists(link);
+                    Files.deleteIfExists(external);
+                }
             } finally {
                 Files.deleteIfExists(exact);
                 Files.deleteIfExists(oversized);

@@ -67,7 +67,14 @@ public final class KeyboardFeedbackStore {
         Path file = file(context);
         Path parent = file.getParent();
         if (parent == null) throw new IOException("feedback directory unavailable");
+        if (Files.exists(parent, LinkOption.NOFOLLOW_LINKS)
+                && (!Files.isDirectory(parent, LinkOption.NOFOLLOW_LINKS)
+                    || Files.isSymbolicLink(parent)))
+            throw new IOException("feedback directory unavailable");
         Files.createDirectories(parent);
+        if (!Files.isDirectory(parent, LinkOption.NOFOLLOW_LINKS)
+                || Files.isSymbolicLink(parent))
+            throw new IOException("feedback directory unavailable");
         Path temporary = Files.createTempFile(parent, FILE_NAME + ".", ".tmp");
         try {
             String encoded;
