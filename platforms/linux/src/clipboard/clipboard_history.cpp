@@ -2,9 +2,7 @@
 #include "ClipboardText.h"
 #include "ClipboardAtomicWrite.h"
 #include <algorithm>
-#include <array>
 #include <filesystem>
-#include <fstream>
 #include <fcntl.h>
 #include <iostream>
 #include <string>
@@ -17,19 +15,6 @@ namespace {
 constexpr size_t kMaxItems = 50;
 constexpr size_t kMaxChars = 4000;
 constexpr size_t kMaxStoreBytes = 1024 * 1024;
-
-bool read_store_payload(std::ifstream &input, std::string &payload) {
-  std::array<char, 8192> buffer{};
-  while (input) {
-    input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
-    const auto count = input.gcount();
-    if (count <= 0) continue;
-    const auto bytes = static_cast<size_t>(count);
-    if (payload.size() > kMaxStoreBytes - bytes) return false;
-    payload.append(buffer.data(), bytes);
-  }
-  return input.eof();
-}
 
 class HistoryLock {
  public:
@@ -72,10 +57,9 @@ std::string normalize(std::string text) {
   return text;
 }
 std::vector<std::string> load(const std::filesystem::path &path) {
-  std::ifstream input(path, std::ios::binary); if (!input) return {};
-  std::string payload;
-  if (!read_store_payload(input, payload)) return {};
-  try { auto value = Json::parse(payload); if (!value.is_array()) return {};
+  const auto payload = msime::linux_host::read_clipboard_file(path, kMaxStoreBytes);
+  if (!payload) return {};
+  try { auto value = Json::parse(*payload); if (!value.is_array()) return {};
     std::vector<std::string> items;
     for (const auto &item : value) if (item.is_string() && items.size() < kMaxItems) {
       auto text = normalize(item.get<std::string>()); if (!text.empty()) items.push_back(std::move(text));

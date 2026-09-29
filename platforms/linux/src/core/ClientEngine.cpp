@@ -1076,21 +1076,10 @@ std::string traditional_display(const State &s, const Json &context,
 constexpr size_t kClipboardStoreBytes = 1024 * 1024;
 
 std::optional<Json> read_clipboard_store(const std::filesystem::path &path) {
-  std::ifstream input(path, std::ios::binary);
-  if (!input) return std::nullopt;
-  std::array<char, 8192> buffer{};
-  std::string payload;
-  while (input) {
-    input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
-    const auto count = input.gcount();
-    if (count <= 0) continue;
-    const auto bytes = static_cast<size_t>(count);
-    if (payload.size() > kClipboardStoreBytes - bytes) return std::nullopt;
-    payload.append(buffer.data(), bytes);
-  }
-  if (!input.eof()) return std::nullopt;
+  const auto payload = msime::linux_host::read_clipboard_file(path, kClipboardStoreBytes);
+  if (!payload) return std::nullopt;
   try {
-    return Json::parse(payload);
+    return Json::parse(*payload);
   } catch (...) {
     return std::nullopt;
   }
