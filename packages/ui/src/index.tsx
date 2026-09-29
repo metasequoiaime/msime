@@ -230,6 +230,7 @@ import { useExternalUrl } from "./settings/use-external-url";
 import { useUpdateCheck } from "./settings/use-update-check";
 import { useOpenPanel } from "./settings/use-open-panel";
 import { useClipboardHistoryToggle } from "./settings/use-clipboard-history-toggle";
+import { useTouchKeyboardSchemeSelection } from "./settings/use-touch-keyboard-scheme-selection";
 export {
   useProviderCredentials,
   type ProviderCredentialBusy,
@@ -275,6 +276,10 @@ export {
   useClipboardHistoryToggle,
   type UseClipboardHistoryToggleOptions,
 } from "./settings/use-clipboard-history-toggle";
+export {
+  useTouchKeyboardSchemeSelection,
+  type UseTouchKeyboardSchemeSelectionOptions,
+} from "./settings/use-touch-keyboard-scheme-selection";
 import { ProviderPresetSection, type ProviderPreset } from "./settings/provider-preset-section";
 import { AiCredentialSection } from "./settings/ai-credential-section";
 import { AiLinuxProviderSection } from "./settings/ai-linux-provider-section";
@@ -2240,21 +2245,11 @@ export function SettingsPage({
   const touchKeyboardSchemes = draft?.touch_keyboard_schemes ?? {
     enabled: allTouchKeyboardSchemes,
   };
-  const selectedTouchKeyboardScheme = draft ? inferredTouchKeyboardScheme(draft) : "quanpin";
-  const setTouchKeyboardSchemeEnabled = (scheme: TouchKeyboardScheme, enabled: boolean) => {
-    if (!draft) return;
-    const next = updateTouchKeyboardSchemeEnabled(
-      draft,
-      scheme,
-      enabled,
-      selectedTouchKeyboardScheme,
-    );
-    if (next) setDraft(next);
-  };
-  const selectHomeScheme = (scheme: TouchKeyboardScheme) => {
-    if (!draft) return;
-    setDraft(selectHomeTouchKeyboardScheme(draft, scheme));
-  };
+  const {
+    selected: selectedTouchKeyboardScheme,
+    selectHome: selectHomeScheme,
+    setEnabled: setTouchKeyboardSchemeEnabled,
+  } = useTouchKeyboardSchemeSelection({ draft, setDraft });
   const localModes = draft?.local_modes ?? defaultLocalModes;
   // Every platform sees every mode. macOS used to hide emoji, kaomoji and temporary Japanese on the
   // grounds that its bundle shipped only msime.db and english.db, but others.db and dict_japanese.dat have
