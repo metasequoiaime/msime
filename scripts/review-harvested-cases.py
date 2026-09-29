@@ -40,6 +40,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 ENDPOINT = "https://api.typesafe.ai/v1/systemone"
 MODEL = "jev-latest"
+MAX_RESPONSE_BYTES = 1 << 20
 
 # Thresholds are starting points to evaluate on this data, not settled policy.
 #
@@ -68,6 +69,14 @@ MIN_WELL_WRITTEN = 0.50
 KEY = os.environ.get("TYPESAFE_API_KEY", "")
 if not KEY:
     sys.exit("TYPESAFE_API_KEY is not set")
+
+
+def read_response_json(response):
+    """Decode one bounded API response without allowing a hostile body to exhaust memory."""
+    payload = response.read(MAX_RESPONSE_BYTES + 1)
+    if len(payload) > MAX_RESPONSE_BYTES:
+        raise ValueError("API response exceeds the byte limit")
+    return json.loads(payload)
 
 
 def ask(case):
@@ -165,7 +174,7 @@ def ask(case):
     for attempt in range(5):
         try:
             with urllib.request.urlopen(request, timeout=40) as response:
-                answer = json.loads(response.read())
+                answer = read_response_json(response)
             break
         except urllib.error.HTTPError as error:
             if error.code in (429, 500, 502, 503, 504) and attempt < 4:
