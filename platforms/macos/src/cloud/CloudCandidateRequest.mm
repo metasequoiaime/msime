@@ -38,7 +38,7 @@
     if ([address lengthOfBytesUsingEncoding:NSUTF8StringEncoding] > 2048 ||
         [address rangeOfCharacterFromSet:NSCharacterSet.controlCharacterSet].location != NSNotFound) return self;
     NSURL *url = [NSURL URLWithString:address];
-    if (![@[@"https", @"http"] containsObject:url.scheme] || !url.host.length || url.user || url.password || url.fragment) return self;
+    if (![url.scheme isEqual:@"https"] || !url.host.length || url.user || url.password || url.fragment) return self;
     NSDictionary *headers = descriptor[@"headers"];
     if (![headers isKindOfClass:NSDictionary.class] || headers.count > 2 || ![headers[@"Content-Type"] isEqual:@"application/json"]) return self;
     for (id key in headers) {
@@ -123,7 +123,7 @@
     NSString *address = descriptor[@"url"];
     NSURL *url = [NSURL URLWithString:address];
     NSDictionary *headers = descriptor[@"headers"];
-    if ([address lengthOfBytesUsingEncoding:NSUTF8StringEncoding] > 2048 || ![@[@"https", @"http"] containsObject:url.scheme] ||
+    if ([address lengthOfBytesUsingEncoding:NSUTF8StringEncoding] > 2048 || ![url.scheme isEqual:@"https"] ||
         !url.host.length || url.user || url.password || url.fragment || ![headers isKindOfClass:NSDictionary.class] ||
         headers.count != 2 || ![headers[@"Content-Type"] isEqual:@"application/json"] ||
         ![headers[@"Authorization"] isKindOfClass:NSString.class] || ![headers[@"Authorization"] hasPrefix:@"Bearer "]) return self;
