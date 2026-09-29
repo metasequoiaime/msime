@@ -131,7 +131,8 @@ bool should_polish(const VoiceInputConfig &config, std::string_view text) {
                          ? default_polish_model(config.polish_provider)
                          : config.polish_model;
   return (config.polish_enabled || config.polish_text) && !text.empty() &&
-         !config.polish_token.empty() && !endpoint.empty() && !model.empty();
+         !config.polish_token.empty() && secure_voice_endpoint(endpoint, false) &&
+         !model.empty();
 }
 
 std::string polish_prompt(const VoiceInputConfig &config) {

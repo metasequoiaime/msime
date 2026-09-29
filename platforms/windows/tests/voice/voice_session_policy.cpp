@@ -59,6 +59,12 @@ int main() {
             VoiceStartCheck::Ready);
     REQUIRE(voice_start_verdict({true, false, "t", "https://synthetic", "m", ""}).check ==
             VoiceStartCheck::Ready);
+    REQUIRE(voice_start_verdict({true, false, "t", "http://synthetic", "m", ""}).message ==
+            voice_missing_endpoint_message);
+    REQUIRE(voice_start_verdict({true, false, "t", "https://user:pass@synthetic", "m", ""}).message ==
+            voice_missing_endpoint_message);
+    REQUIRE(voice_start_verdict({true, true, "t", "ws://synthetic", "", "r"}).message ==
+            voice_missing_endpoint_message);
     // The on-device provider needs an installed model and none of the cloud fields: no token, endpoint, model name or resource id.
     const auto local_ready = voice_start_verdict({true, false, "", "", "", "", true, "C:\\Users\\synthetic\\voice-models\\x-asr-zh-en-streaming"});
     REQUIRE(local_ready.check == VoiceStartCheck::Ready);
