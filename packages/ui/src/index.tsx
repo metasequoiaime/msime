@@ -68,7 +68,7 @@ export {
   useMobileKeyboardFeedback,
   type UseMobileKeyboardFeedbackOptions,
 } from "./settings/use-mobile-keyboard-feedback";
-import { desktopDownloadUrl, fallbackAppVersion, logo } from "./settings/app-resources";
+import { fallbackAppVersion, logo } from "./settings/app-resources";
 export { AI_PROVIDER_OPTIONS } from "./settings/ai-provider-options";
 import { defaultVoiceInput } from "./settings/voice-input-defaults";
 import { settingsSidebarGroups } from "./settings/sidebar-groups";
@@ -235,6 +235,7 @@ import { useSettingsDestinationActions } from "./settings/use-settings-destinati
 import { useMacosSettings } from "./settings/use-macos-settings";
 import { useWindowState } from "./settings/use-window-state";
 import { useWindowResizeCapture } from "./settings/use-window-resize-capture";
+import { useAccountPageActions } from "./settings/use-account-page-actions";
 import { useAppVersion } from "./settings/use-app-version";
 import { supportDiagnostics } from "./settings/support-diagnostics";
 import { useMountedRef } from "./settings/use-mounted-ref";
@@ -402,6 +403,10 @@ export {
   useWindowResizeCapture,
   type UseWindowResizeCaptureOptions,
 } from "./settings/use-window-resize-capture";
+export {
+  useAccountPageActions,
+  type UseAccountPageActionsOptions,
+} from "./settings/use-account-page-actions";
 import { SettingsSidebar } from "./settings/settings-sidebar";
 export {
   SettingsSidebar,
@@ -2246,6 +2251,20 @@ export function SettingsPage({
     setShowTouchSkinEditor,
     setCommunityDestination,
   });
+  const accountPageActions = useAccountPageActions({
+    hasAccountLoginReturnPage: Boolean(accountLoginReturnPage),
+    finishAccountLogin,
+    openLocalDesigns: client.customTouchKeyboardSkins ? openLocalDesigns : undefined,
+    openCommunity: client.communitySkins && client.communityResources ? openCommunity : undefined,
+    openCloudDictionary: client.openCloudDictionary,
+    openCloudClipboard: client.openCloudClipboard,
+    mobile: mobilePlatform,
+    canOpenExternalUrl: Boolean(client.openExternalUrl),
+    openExternalUrl,
+    onReplayOnboarding,
+    openAbout: () => selectPage("about"),
+    setError,
+  });
   const communityView = communityDestinationView(communityDestination);
   return (
     <div
@@ -2346,39 +2365,7 @@ export function SettingsPage({
                 appIcon={client.appIcon}
                 platform={accountPlatform}
                 mobile={mobilePlatform}
-                onCancelLogin={accountLoginReturnPage ? finishAccountLogin : undefined}
-                onLoginComplete={accountLoginReturnPage ? finishAccountLogin : undefined}
-                onOpenLocalDesigns={client.customTouchKeyboardSkins ? openLocalDesigns : undefined}
-                onOpenCommunity={
-                  client.communitySkins && client.communityResources ? openCommunity : undefined
-                }
-                onOpenCloudDictionary={
-                  client.openCloudDictionary
-                    ? () => {
-                        void client.openCloudDictionary!().catch(() =>
-                          setError("无法打开云词库，请重试。"),
-                        );
-                      }
-                    : undefined
-                }
-                onOpenCloudClipboard={
-                  client.openCloudClipboard
-                    ? () => {
-                        void client.openCloudClipboard!().catch(() =>
-                          setError("无法打开云剪贴板，请重试。"),
-                        );
-                      }
-                    : undefined
-                }
-                onOpenAbout={mobilePlatform ? () => selectPage("about") : undefined}
-                onOpenDesktopDownload={
-                  mobilePlatform && client.openExternalUrl
-                    ? () => {
-                        void openExternalUrl(desktopDownloadUrl);
-                      }
-                    : undefined
-                }
-                onReplayOnboarding={mobilePlatform ? onReplayOnboarding : undefined}
+                {...accountPageActions}
               />
             )}
             {client.chat && page === "chat" && (
