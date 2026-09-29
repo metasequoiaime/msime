@@ -279,6 +279,9 @@ mod ffi {
         fn snapshot(self: &EngineSession) -> Result<EngineSnapshot>;
         fn online_query(self: &EngineSession) -> Result<OnlineQuerySnapshot>;
         fn reset_cache(self: Pin<&mut EngineSession>);
+        fn set_caret(self: Pin<&mut EngineSession>, caret: u64);
+        fn prefix_end(self: &EngineSession) -> usize;
+        fn pending_suffix(self: &EngineSession) -> String;
         fn apply_online_candidate(
             self: Pin<&mut EngineSession>,
             query: &OnlineQuerySnapshot,
@@ -694,6 +697,18 @@ impl Session {
     }
     pub fn reset_cache(&mut self) {
         self.inner.pin_mut().reset_cache()
+    }
+    /// Set the composition caret used for prefix candidate decoding. `None` returns to the end.
+    pub fn set_caret(&mut self, caret: Option<usize>) {
+        self.inner
+            .pin_mut()
+            .set_caret(caret.map_or(u64::MAX, |value| value as u64));
+    }
+    pub fn prefix_end(&self) -> usize {
+        self.inner.prefix_end()
+    }
+    pub fn pending_suffix(&self) -> String {
+        self.inner.pending_suffix()
     }
     pub fn apply_online_candidate(
         &mut self,

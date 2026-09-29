@@ -941,6 +941,18 @@ EngineSnapshot EngineSession::snapshot() const {
 void EngineSession::reset_cache() {
     session_.reset_cache();
 }
+void EngineSession::set_caret(std::uint64_t caret) {
+    if (caret == std::numeric_limits<std::uint64_t>::max())
+        session_.set_caret(std::nullopt);
+    else
+        session_.set_caret(static_cast<std::size_t>(caret));
+}
+std::size_t EngineSession::prefix_end() const {
+    return session_.prefix_end();
+}
+rust::String EngineSession::pending_suffix() const {
+    return rust::String(session_.pending_suffix());
+}
 OnlineQuerySnapshot EngineSession::online_query() const {
     OnlineQuerySnapshot output;
     const auto query = session_.online_query();

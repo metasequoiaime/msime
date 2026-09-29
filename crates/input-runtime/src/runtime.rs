@@ -583,6 +583,23 @@ impl<E: InputEngine> Runtime<E> {
     }
 
     /// Switch the Engine's digit interpretation only after the host finishes composition.
+    /// Move the caret used by Engine prefix decoding. `None` restores end-of-composition behavior.
+    pub fn set_caret(&mut self, caret: Option<usize>) -> Result<(), RuntimeError> {
+        self.engine.set_caret(caret);
+        self.refresh()
+            .map_err(|error| RuntimeError::Engine(error.to_string()))
+    }
+
+    /// Raw offset consumed by the candidate decoder, floored to a complete pinyin unit.
+    pub fn prefix_end(&self) -> usize {
+        self.engine.prefix_end()
+    }
+
+    /// Original-cased raw input after the decoded prefix.
+    pub fn pending_suffix(&self) -> String {
+        self.engine.pending_suffix()
+    }
+
     pub fn set_nine_key_enabled(&mut self, enabled: bool) -> Result<(), RuntimeError> {
         if enabled && self.cached.scheme != 0 {
             return Err(RuntimeError::InvalidNineKeyScheme);

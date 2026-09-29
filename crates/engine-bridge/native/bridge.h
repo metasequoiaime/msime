@@ -32,6 +32,10 @@ public:
     EngineSnapshot snapshot() const;
     OnlineQuerySnapshot online_query() const;
     void reset_cache();
+    // u64::MAX clears the explicit caret and restores end-of-composition decoding.
+    void set_caret(std::uint64_t caret);
+    std::size_t prefix_end() const;
+    rust::String pending_suffix() const;
     bool apply_online_candidate(const OnlineQuerySnapshot& query, rust::Str candidate,
                                 std::uint8_t source);
     bool apply_online_candidates(const OnlineQuerySnapshot& query, rust::Slice<const rust::String> candidates,
