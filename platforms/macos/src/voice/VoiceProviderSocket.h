@@ -1,6 +1,7 @@
 #pragma once
 
 #import <Foundation/Foundation.h>
+#import "../settings/RuntimeOptions.h"
 
 // Keep the provider selection contract shared with the Tauri shell: an
 // absolute socket in runtime-options.json wins, then the process environment
@@ -26,11 +27,7 @@ static inline NSString *MSIMEVoiceProviderSocketFromConfiguration(NSDictionary *
 static inline NSString *MSIMEVoiceProviderSocketFromOptionsPath(NSString *optionsPath,
                                                                 NSDictionary *environment,
                                                                 NSFileManager *fileManager) {
-    if (!optionsPath) {
-        NSURL *support = [[fileManager URLsForDirectory:NSApplicationSupportDirectory
-                                                                   inDomains:NSUserDomainMask] firstObject];
-        optionsPath = [[support URLByAppendingPathComponent:@"app.msime.client/runtime-options.json"] path];
-    }
+    if (!optionsPath) optionsPath = MSIMEDefaultRuntimeOptionsPath(fileManager);
     NSData *data = optionsPath.length ? [NSData dataWithContentsOfFile:optionsPath] : nil;
     NSDictionary *options = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
     return MSIMEVoiceProviderSocketFromConfiguration(options, environment, fileManager);

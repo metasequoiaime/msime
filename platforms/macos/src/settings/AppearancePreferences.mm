@@ -4706,12 +4706,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSDictionary *runtime = MSIMELoadRuntimeOptions();
     NSString *configuredState = [runtime[ @"preferences_directory"] isKindOfClass:NSString.class]
         && [runtime[@"preferences_directory"] isAbsolutePath] ? runtime[@"preferences_directory"] : nil;
-    NSURL *support = [fileManager URLForDirectory:NSApplicationSupportDirectory
-                                           inDomain:NSUserDomainMask
-                                  appropriateForURL:nil
-                                             create:NO
-                                              error:nil];
-    NSURL *defaultState = [support URLByAppendingPathComponent:@"app.msime.client" isDirectory:YES];
+    NSURL *defaultState = MSIMEDefaultClientStateDirectory(fileManager);
     NSString *userData = configuredState ?: defaultState.path;
     BOOL ok = msime_macos_uninstall_input_source(bundle.path.fileSystemRepresentation,
                                                   userData.fileSystemRepresentation,

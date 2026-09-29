@@ -16,7 +16,9 @@ static inline void MSIMEOpenDesktopRouteWithContext(NSString *route, NSString *o
         fallback();
         return;
     }
-    NSURL *url = [workspace URLForApplicationWithBundleIdentifier:@"app.msime.client"];
+    // The legacy state directory is only read until the settings app migrates it, and the settings app migrates only when it starts without a HostOptions override. Handing it the legacy file would keep both processes on the old directory indefinitely.
+    if ([optionsPath isEqualToString:MSIMELegacyRuntimeOptionsPath(NSFileManager.defaultManager)]) optionsPath = nil;
+    NSURL *url = [workspace URLForApplicationWithBundleIdentifier:MSIMEClientApplicationIdentifier];
     if (!url) {
         os_log(MSIMEUILog(), "desktop_route_fallback route=%{public}@ reason=settings_app_not_found", route);
         fallback();
@@ -33,7 +35,7 @@ static inline void MSIMEOpenDesktopRouteWithContext(NSString *route, NSString *o
     NSMutableDictionary *launchEnvironment = [NSMutableDictionary dictionaryWithDictionary:environment ?: @{}];
     if (optionsPath) launchEnvironment[@"MSIME_CLIENT_HOST_OPTIONS"] = optionsPath;
     if (launchEnvironment.count) configuration.environment = launchEnvironment;
-    // Always a new process, settings included. Without it LaunchServices would activate whichever app.msime.client instance is running, possibly a hidden per-session panel process, and drop the arguments. A settings launch that finds a settings window already open hands its --route= to that window through the shell's single-instance socket and exits, so the existing window comes back on the requested page.
+    // Always a new process, settings included. Without it LaunchServices would activate whichever app.msime.macos instance is running, possibly a hidden per-session panel process, and drop the arguments. A settings launch that finds a settings window already open hands its --route= to that window through the shell's single-instance socket and exits, so the existing window comes back on the requested page.
     configuration.createsNewApplicationInstance = YES;
     os_log(MSIMEUILog(), "desktop_route_launching route=%{public}@ activates=%d", route, configuration.activates);
     const uint64_t started = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);

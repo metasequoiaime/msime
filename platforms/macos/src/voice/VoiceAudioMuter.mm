@@ -1,4 +1,5 @@
 #import "VoiceAudioMuter.h"
+#import "../settings/RuntimeOptions.h"
 #include <fcntl.h>
 #include <sys/file.h>
 #include <sys/stat.h>
@@ -23,9 +24,8 @@ static BOOL MSIMEVoiceValidUID(id uid) {
 }
 - (instancetype)init {
     _journalFD = -1;
-    NSURL *support = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory
-        inDomains:NSUserDomainMask].firstObject;
-    NSURL *directory = [support URLByAppendingPathComponent:@"app.msime.client/voice-audio-recovery" isDirectory:YES];
+    NSURL *directory = [MSIMEDefaultClientStateDirectory(NSFileManager.defaultManager)
+        URLByAppendingPathComponent:@"voice-audio-recovery" isDirectory:YES];
     // A missing support directory must not silently disable crash protection.
     if (!directory) return nil;
     return [self initWithAudioAPI:{} recoveryDirectory:directory];

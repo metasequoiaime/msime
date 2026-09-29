@@ -39,7 +39,7 @@ int main()
         char temporary[] = "/tmp/msime-candidate-panel-XXXXXX";
         Require(mkdtemp(temporary) != nullptr, "Failed to create candidate panel fixture directory.");
         const std::filesystem::path fixtureRoot = std::filesystem::path(temporary) / "Library" / "Application Support" /
-                                                   "app.msime.client" / "skins" / "wide-card";
+                                                   "app.msime.macos" / "skins" / "wide-card";
         std::filesystem::create_directories(fixtureRoot);
         std::ofstream manifest(fixtureRoot / "skin.toml");
         manifest << R"toml(schema_version = 1

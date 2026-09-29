@@ -5759,7 +5759,7 @@ static void TestGlossScheduling() {
 @end
 @implementation SettingsRouteWorkspace
 - (NSURL *)URLForApplicationWithBundleIdentifier:(NSString *)identifier {
-    assert([identifier isEqual:@"app.msime.client"]);
+    assert([identifier isEqual:@"app.msime.macos"]);
     return self.installed ? [NSURL fileURLWithPath:@"/synthetic/Settings.app"] : nil;
 }
 - (void)openApplicationAtURL:(NSURL *)url configuration:(NSWorkspaceOpenConfiguration *)configuration

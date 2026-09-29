@@ -10,7 +10,7 @@
 
 @implementation TestWorkspace
 - (NSURL *)URLForApplicationWithBundleIdentifier:(NSString *)identifier {
-    assert([identifier isEqualToString:@"app.msime.client"]);
+    assert([identifier isEqualToString:@"app.msime.macos"]);
     return self.installed ? [NSURL fileURLWithPath:@"/synthetic/Settings.app"] : nil;
 }
 - (void)openApplicationAtURL:(NSURL *)url configuration:(NSWorkspaceOpenConfiguration *)configuration
@@ -83,9 +83,15 @@ int main() {
         MSIMEOpenDesktopRouteWithOptions(@"settings:input", nil, workspace, fallback);
         assert(!workspace.configuration.environment[@"MSIME_CLIENT_HOST_OPTIONS"]);
         assert(workspace.launches == 9);
-        // Existing entry points select exactly the same file as the native host.
+        // Options left in the pre-migration app.msime.client directory are never handed over: the settings app migrates only when it starts without an override.
+        MSIMEOpenDesktopRouteWithOptions(@"settings:input", MSIMELegacyRuntimeOptionsPath(NSFileManager.defaultManager), workspace, fallback);
+        assert(!workspace.configuration.environment[@"MSIME_CLIENT_HOST_OPTIONS"]);
+        assert(workspace.launches == 10);
+        // Existing entry points select exactly the same file as the native host, unless that is the legacy one this machine may still have.
         MSIMEOpenDesktopRoute(@"settings:ai", workspace, fallback);
-        assert([workspace.configuration.environment[@"MSIME_CLIENT_HOST_OPTIONS"] isEqual:MSIMERuntimeOptionsPath()]);
+        assert([MSIMERuntimeOptionsPath() isEqualToString:MSIMELegacyRuntimeOptionsPath(NSFileManager.defaultManager)]
+                   ? !workspace.configuration.environment[@"MSIME_CLIENT_HOST_OPTIONS"]
+                   : [workspace.configuration.environment[@"MSIME_CLIENT_HOST_OPTIONS"] isEqual:MSIMERuntimeOptionsPath()]);
         MSIMEOpenDesktopRoute(@"keyboard", workspace, fallback);
         assert([workspace.configuration.arguments isEqual:@[@"--route=keyboard"]]);
         assert(!workspace.configuration.activates);
