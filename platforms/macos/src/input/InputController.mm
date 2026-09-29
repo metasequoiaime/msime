@@ -4343,10 +4343,23 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     const bool timed = msime_macos_diagnostic_enabled();
     const uint64_t started = timed ? clock_gettime_nsec_np(CLOCK_UPTIME_RAW) : 0;
     _smartPunctuationShadowWritten = NO;
+    if (event.type == NSEventTypeKeyDown && sender) {
+        [self ensureAppearance];
+        if (_appearance.floatingToolbarEnabled)
+            [[MSIMEFloatingToolbarPanel sharedPanel] wakeForInputDelegate:self];
+    }
     const BOOL handled = [self handleKeyEvent:event client:sender];
     CGEventRef nativeEvent = event.CGEvent;
     const BOOL selfPosted = nativeEvent && CGEventGetIntegerValueField(nativeEvent, kCGEventSourceUserData) == MSIMEVoiceCommitEventTag;
-    if (event.type == NSEventTypeKeyDown && sender && !selfPosted) [self noteKeyForSmartPunctuationShadow:event eaten:handled];
+    if (event.type == NSEventTypeKeyDown && sender && !selfPosted) {
+        // A key event is the wake-up edge: restore the toolbar before the next event arrives, even if
+        // a preceding focus or preference callback left its requested visibility stale.
+        if (_appearance.floatingToolbarEnabled) {
+            _toolbar = [MSIMEFloatingToolbarPanel sharedPanel];
+            [_toolbar wakeForInputDelegate:self];
+        }
+        [self noteKeyForSmartPunctuationShadow:event eaten:handled];
+    }
     if (!handled) [self recordPassthroughKey:event client:sender];
     const double elapsedMs = timed ? static_cast<double>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - started) / 1e6 : 0;
     if (timed && elapsedMs >= 8.0) {
