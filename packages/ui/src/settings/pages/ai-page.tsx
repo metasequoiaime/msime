@@ -10,6 +10,7 @@ import {
   aiServiceCredentialTestConfig,
   aiServiceCredentialTestDisabled,
 } from "../ai-credential-test-config";
+import { aiCredentialSaveConfig } from "../ai-credential-save-config";
 
 /** The AI 辅助 page of the settings form. */
 export function AiSettingsPage() {
@@ -128,12 +129,7 @@ export function AiSettingsPage() {
             void runProviderCredential(
               "ai",
               (credentials) =>
-                credentials.saveAi({
-                  provider: ai.provider,
-                  endpoint: ai.endpoint,
-                  model: ai.model,
-                  ...(aiCredentialInput.trim() ? { token: aiCredentialInput } : {}),
-                }),
+                credentials.saveAi(aiCredentialSaveConfig(ai, aiCredentialInput)),
               "凭据已保存，provider 服务下次请求时生效。",
             )
           }

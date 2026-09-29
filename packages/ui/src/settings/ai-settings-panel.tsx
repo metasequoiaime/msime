@@ -8,6 +8,7 @@ import {
   aiServiceCredentialTestConfig,
   aiServiceCredentialTestDisabled,
 } from "./ai-credential-test-config";
+import { aiCredentialSaveConfig } from "./ai-credential-save-config";
 import { defaultAiAssistant } from "./ai-assistant-defaults";
 import { AiSettingsPageSection } from "./ai-settings-page-section";
 import { AiCredentialSection } from "./ai-credential-section";
@@ -131,12 +132,7 @@ export function AiSettingsPanel({
               void runProviderCredential(
                 "ai",
                 (credentials) =>
-                  credentials.saveAi({
-                    provider: ai.provider,
-                    endpoint: ai.endpoint,
-                    model: ai.model,
-                    ...(aiCredentialInput.trim() ? { token: aiCredentialInput } : {}),
-                  }),
+                  credentials.saveAi(aiCredentialSaveConfig(ai, aiCredentialInput)),
                 "凭据已保存，provider 服务下次请求时生效。",
               )
             }
