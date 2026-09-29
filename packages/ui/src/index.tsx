@@ -229,6 +229,7 @@ import { usePreferenceRecovery } from "./settings/use-preference-recovery";
 import { useSettingsPersistence } from "./settings/use-settings-persistence";
 import { useInputSourceUninstall } from "./settings/use-input-source-uninstall";
 import { useTouchKeyboardSettingsReset } from "./settings/use-touch-keyboard-settings-reset";
+import { useExternalUrl } from "./settings/use-external-url";
 export {
   useProviderCredentials,
   type ProviderCredentialBusy,
@@ -267,6 +268,7 @@ export {
   type TouchKeyboardSettingsResetConfirmOptions,
   type UseTouchKeyboardSettingsResetOptions,
 } from "./settings/use-touch-keyboard-settings-reset";
+export { useExternalUrl, type UseExternalUrlOptions } from "./settings/use-external-url";
 import { ProviderPresetSection, type ProviderPreset } from "./settings/provider-preset-section";
 import { AiCredentialSection } from "./settings/ai-credential-section";
 import { AiLinuxProviderSection } from "./settings/ai-linux-provider-section";
@@ -2181,19 +2183,10 @@ export function SettingsPage({
     setNotice,
     confirm,
   });
-
-  async function openExternalUrl(url: string) {
-    try {
-      if (client.openExternalUrl) {
-        await client.openExternalUrl(url);
-      } else {
-        const opened = window.open(url, "_blank", "noopener,noreferrer");
-        if (!opened) throw new Error("popup blocked");
-      }
-    } catch {
-      setError("无法打开外部链接，请稍后重试。");
-    }
-  }
+  const openExternalUrl = useExternalUrl({
+    openExternalUrl: client.openExternalUrl,
+    setError,
+  });
 
   async function checkForUpdate() {
     setUpdateBusy(true);
