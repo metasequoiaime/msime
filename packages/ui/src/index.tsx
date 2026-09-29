@@ -226,6 +226,7 @@ import { useFeedbackReport } from "./settings/use-feedback-report";
 import { useDataDirectory } from "./settings/use-data-directory";
 import { useCustomTranslations } from "./settings/use-custom-translations";
 import { usePreferenceRecovery } from "./settings/use-preference-recovery";
+import { useSettingsPersistence } from "./settings/use-settings-persistence";
 export {
   useProviderCredentials,
   type ProviderCredentialBusy,
@@ -251,6 +252,10 @@ export {
   type PreferenceRecoveryConfirmOptions,
   type UsePreferenceRecoveryOptions,
 } from "./settings/use-preference-recovery";
+export {
+  useSettingsPersistence,
+  type UseSettingsPersistenceOptions,
+} from "./settings/use-settings-persistence";
 import { ProviderPresetSection, type ProviderPreset } from "./settings/provider-preset-section";
 import { AiCredentialSection } from "./settings/ai-credential-section";
 import { AiLinuxProviderSection } from "./settings/ai-linux-provider-section";
@@ -2118,8 +2123,25 @@ export function SettingsPage({
       active = false;
     };
   }, [client, macosPlatform]);
-  const snapshotRef = useRef(snapshot);
-  const draftRef = useRef(draft);
+  const { draftRef, snapshotRef, reload, save } = useSettingsPersistence({
+    client,
+    mobile: mobilePlatform,
+    macos: macosPlatform,
+    mounted,
+    snapshot,
+    draft,
+    setSnapshot,
+    setDraft,
+    setBusy,
+    setError,
+    setNotice,
+    setRecoveredBackup,
+    macosShuangpinKeymap,
+    saveMacosShuangpinKeymap: client.saveMacosShuangpinKeymap,
+    macosWubiAutoCommitUnique,
+    saveMacosWubiAutoCommitUnique: client.saveMacosWubiAutoCommitUnique,
+    setSavedMacosWubiAutoCommitUnique,
+  });
 
   const { restoreDefaults, recoverPreferences } = usePreferenceRecovery({
     client,
@@ -2134,166 +2156,6 @@ export function SettingsPage({
     setRecoveredBackup,
     confirm,
   });
-
-  useEffect(() => {
-    snapshotRef.current = snapshot;
-    draftRef.current = draft;
-  }, [snapshot, draft]);
-
-  // The refs are also written the moment a load or save resolves: the host's monitor echoes this
-  // window's own save back as a change, and it can arrive before React commits the new snapshot.
-  const adoptSnapshot = (value: Snapshot) => {
-    if (!mounted.current) return;
-    snapshotRef.current = value;
-    draftRef.current = value.preferences;
-    setSnapshot(value);
-    setDraft(value.preferences);
-  };
-  // A change that arrives while this window's save is in flight waits for it rather than being
-  // judged against the revision the save is about to replace; the revision check then drops the
-  // echo and still applies another window's later write.
-  const savingRef = useRef(false);
-  const heldChange = useRef<Snapshot>(undefined);
-  const applyPreferencesChange = (value: Snapshot) => {
-    const currentSnapshot = snapshotRef.current;
-    // Our own save echoed back, or an event older than what a reload already read.
-    if (currentSnapshot && value.revision <= currentSnapshot.revision) return;
-    const currentDraft = draftRef.current;
-    const dirty =
-      !!currentSnapshot &&
-      !!currentDraft &&
-      JSON.stringify(currentDraft) !== JSON.stringify(currentSnapshot.preferences);
-    if (dirty) {
-      setNotice("设置已被其他窗口修改。请重新读取后再保存。");
-      return;
-    }
-    adoptSnapshot(value);
-    setError("");
-    setNotice("设置已从其他窗口更新。");
-  };
-  // The subscription outlives renders; it reaches the handler through this so it never runs a stale
-  // one (the handler itself only touches refs and state setters).
-  const applyPreferencesChangeRef = useRef(applyPreferencesChange);
-  applyPreferencesChangeRef.current = applyPreferencesChange;
-
-  useEffect(() => {
-    if (!client.onPreferencesChanged) return;
-    let active = true;
-    let unsubscribe: (() => void) | undefined;
-    void client
-      .onPreferencesChanged((value) => {
-        if (!active) return;
-        if (savingRef.current) {
-          if (!heldChange.current || value.revision > heldChange.current.revision)
-            heldChange.current = value;
-          return;
-        }
-        applyPreferencesChangeRef.current(value);
-      })
-      .then((value) => {
-        if (active) unsubscribe = value;
-        else value();
-      })
-      .catch(() => undefined);
-    return () => {
-      active = false;
-      unsubscribe?.();
-    };
-  }, [client]);
-
-  useEffect(() => {
-    let active = true;
-    client
-      .load()
-      .then((value) => {
-        if (active) adoptSnapshot(value);
-      })
-      .catch((reason) => {
-        if (active) setError(errorMessage(reason));
-      })
-      .finally(() => {
-        if (active) setBusy(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [client]);
-
-  async function reload() {
-    if (!mounted.current) return;
-    setBusy(true);
-    setError("");
-    setNotice("");
-    setRecoveredBackup("");
-    try {
-      const value = await client.load();
-      if (!mounted.current) return;
-      adoptSnapshot(value);
-    } catch (reason) {
-      if (mounted.current) setError(errorMessage(reason));
-    } finally {
-      if (mounted.current) setBusy(false);
-    }
-  }
-
-  useEffect(() => {
-    if (!mobilePlatform || typeof document === "undefined") return;
-    let hidden = document.hidden;
-    const onVisibilityChange = () => {
-      const nextHidden = document.hidden;
-      const resumed = hidden && !nextHidden;
-      hidden = nextHidden;
-      if (!resumed) return;
-      const currentSnapshot = snapshotRef.current;
-      const currentDraft = draftRef.current;
-      const dirty =
-        !!currentSnapshot &&
-        !!currentDraft &&
-        JSON.stringify(currentDraft) !== JSON.stringify(currentSnapshot.preferences);
-      if (dirty) {
-        setNotice("设置已被其他窗口修改。请重新读取后再保存。");
-        return;
-      }
-      void reload();
-    };
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
-  }, [client, mobilePlatform]);
-
-  async function save() {
-    if (!draft || !snapshot || !validCandidateFonts(draft)) return;
-    setBusy(true);
-    setError("");
-    setNotice("");
-    setRecoveredBackup("");
-    savingRef.current = true;
-    try {
-      const value = await client.save(snapshot.revision, draft);
-      if (macosPlatform && client.saveMacosShuangpinKeymap && macosShuangpinKeymap !== undefined) {
-        await client.saveMacosShuangpinKeymap(macosShuangpinKeymap);
-      }
-      if (
-        macosPlatform &&
-        client.saveMacosWubiAutoCommitUnique &&
-        macosWubiAutoCommitUnique !== undefined
-      ) {
-        await client.saveMacosWubiAutoCommitUnique(macosWubiAutoCommitUnique);
-        if (!mounted.current) return;
-        setSavedMacosWubiAutoCommitUnique(macosWubiAutoCommitUnique);
-      }
-      if (!mounted.current) return;
-      adoptSnapshot(value);
-      setNotice("设置已保存。");
-    } catch (reason) {
-      if (mounted.current) setError(errorMessage(reason));
-    } finally {
-      if (mounted.current) setBusy(false);
-      savingRef.current = false;
-      const held = heldChange.current;
-      heldChange.current = undefined;
-      if (held) applyPreferencesChange(held);
-    }
-  }
 
   async function uninstallInputSource() {
     if (!client.uninstallInputSource || uninstallBusy) return;
