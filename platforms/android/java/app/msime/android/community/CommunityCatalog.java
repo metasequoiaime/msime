@@ -87,7 +87,8 @@ public final class CommunityCatalog {
         JSONArray values = root.optJSONArray(
             kind == CommunityRequest.Kind.SKIN ? "skins" : "items");
         if (values == null) return new Page(List.of(), false, "");
-        if (exceedsPageLimit(values.length())) {
+        boolean hasMore = root.optBoolean("has_more", false);
+        if (invalidPage(values.length(), hasMore)) {
             return new Page(List.of(), false, CommunityRequest.message(null, 500));
         }
         List<Item> items = new ArrayList<>(values.length());
@@ -104,12 +105,12 @@ public final class CommunityCatalog {
                 kind == CommunityRequest.Kind.SKIN ? value.optJSONObject("design")
                     : value.optJSONObject("content")));
         }
-        return new Page(List.copyOf(items), root.optBoolean("has_more", false), "");
+        return new Page(List.copyOf(items), hasMore, "");
     }
 
-    /** A page longer than the one the client asked for is a backend fault, not more results to show. Kept apart from parse so the JVM smoke can check it: the smokes run against android.jar, whose org.json classes are stubs that throw. */
-    private static boolean exceedsPageLimit(int length) {
-        return length > CommunityRequest.PAGE_SIZE;
+    /** A malformed page is a backend fault, not more results to show. Kept apart from parse so the JVM smoke can check it: the smokes run against android.jar, whose org.json classes are stubs that throw. */
+    static boolean invalidPage(int length, boolean hasMore) {
+        return length > CommunityRequest.PAGE_SIZE || (hasMore && length == 0);
     }
 
     /** The backend's own name for a failure, so the reader is told the specific thing. */
