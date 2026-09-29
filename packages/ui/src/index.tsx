@@ -125,6 +125,11 @@ export {
   SettingsInteractionPages,
   type SettingsInteractionPagesProps,
 } from "./settings/settings-interaction-pages";
+import { SettingsVoiceAiPages } from "./settings/settings-voice-ai-pages";
+export {
+  SettingsVoiceAiPages,
+  type SettingsVoiceAiPagesProps,
+} from "./settings/settings-voice-ai-pages";
 import { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
 export { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
 import { useTranslationSettings } from "./settings/use-translation-settings";
@@ -2857,80 +2862,82 @@ export function SettingsPage({
                     handwritingDisabled={busy}
                     handwritingHidden={page !== "handwriting"}
                   />
-                  <VoiceSettingsPanel
-                    disabled={busy}
-                    hidden={page !== "voice"}
-                    client={client}
-                    draft={draft}
-                    setDraft={setDraft}
-                    confirm={confirm}
-                    openExternalUrl={openExternalUrl}
-                    openPanel={openPanel}
-                    voiceInput={voiceInput}
-                    systemVoice={systemVoice}
-                    systemVoiceHostName={systemVoiceHostName}
-                    localVoiceAvailable={localVoiceAvailable}
-                    localVoice={localVoice}
-                    serviceVoice={serviceVoice}
-                    harmonyUnsupportedAsr={harmonyUnsupportedAsr}
-                    doubaoAuthMode={doubaoAuthMode}
-                    updateVoice={updateVoice}
-                    providerCredentials={providerCredentials}
-                    voiceCredentialInput={voiceCredentialInput}
-                    setVoiceCredentialInput={setVoiceCredentialInput}
-                    providerCredentialBusy={providerCredentialBusy}
-                    providerCredentialMessages={providerCredentialMessages}
-                    runVoiceCredential={runVoiceCredential}
-                    credentialTestControl={credentialTestControl}
-                    providerPresetControls={providerPresetControls}
-                    androidPlatform={androidPlatform}
-                    iosPlatform={iosPlatform}
-                    macosPlatform={macosPlatform}
-                    harmonyPlatform={harmonyPlatform}
-                    linuxPlatform={linuxPlatform}
-                    windowsPlatform={windowsPlatform}
-                    mobilePlatform={mobilePlatform}
-                    nativeVoicePlatform={nativeVoicePlatform}
-                    desktopPanels={desktopPanels}
-                    showVoiceProviderSettings={showVoiceProviderSettings}
-                    showVoiceStreamPreedit={showVoiceStreamPreedit}
-                    showVoiceCommitMode={showVoiceCommitMode}
-                    showVoiceCaptureDevices={showVoiceCaptureDevices}
-                    captureBackendOptions={captureBackendOptions}
-                  />
-                  <AiSettingsPanel
-                    disabled={busy}
-                    hidden={page !== "ai"}
-                    client={client}
-                    ai={ai}
-                    updateAi={updateAi}
-                    aiOrigin={aiOrigin}
-                    aiToken={aiToken}
-                    updateAiToken={updateAiToken}
-                    aiModels={aiModels}
-                    aiModelsStatus={aiModelsStatus}
-                    aiModelsBusy={aiModelsBusy}
-                    fetchAiModels={fetchAiModels}
-                    aiTestInput={aiTestInput}
-                    setAiTestInput={setAiTestInput}
-                    aiTestOutput={aiTestOutput}
-                    aiTestStatus={aiTestStatus}
-                    aiTestBusy={aiTestBusy}
-                    testAi={testAi}
-                    providerPresetControls={providerPresetControls}
-                    linuxPlatform={linuxPlatform}
-                    windowsPlatform={windowsPlatform}
-                    macosPlatform={macosPlatform}
-                    iosPlatform={iosPlatform}
-                    androidPlatform={androidPlatform}
-                    providerCredentials={providerCredentials}
-                    storedAiCredential={storedAiCredential}
-                    aiCredentialInput={aiCredentialInput}
-                    setAiCredentialInput={setAiCredentialInput}
-                    providerCredentialBusy={providerCredentialBusy}
-                    providerCredentialMessages={providerCredentialMessages}
-                    runProviderCredential={runProviderCredential}
-                    credentialTestControl={credentialTestControl}
+                  <SettingsVoiceAiPages
+                    voice={{
+                      disabled: busy,
+                      hidden: page !== "voice",
+                      client,
+                      draft,
+                      setDraft,
+                      confirm,
+                      openExternalUrl,
+                      openPanel,
+                      voiceInput,
+                      systemVoice,
+                      systemVoiceHostName,
+                      localVoiceAvailable,
+                      localVoice,
+                      serviceVoice,
+                      harmonyUnsupportedAsr,
+                      doubaoAuthMode,
+                      updateVoice,
+                      providerCredentials,
+                      voiceCredentialInput,
+                      setVoiceCredentialInput,
+                      providerCredentialBusy,
+                      providerCredentialMessages,
+                      runVoiceCredential,
+                      credentialTestControl,
+                      providerPresetControls,
+                      androidPlatform,
+                      iosPlatform,
+                      macosPlatform,
+                      harmonyPlatform,
+                      linuxPlatform,
+                      windowsPlatform,
+                      mobilePlatform,
+                      nativeVoicePlatform,
+                      desktopPanels,
+                      showVoiceProviderSettings,
+                      showVoiceStreamPreedit,
+                      showVoiceCommitMode,
+                      showVoiceCaptureDevices,
+                      captureBackendOptions,
+                    }}
+                    ai={{
+                      disabled: busy,
+                      hidden: page !== "ai",
+                      client,
+                      ai,
+                      updateAi,
+                      aiOrigin,
+                      aiToken,
+                      updateAiToken,
+                      aiModels,
+                      aiModelsStatus,
+                      aiModelsBusy,
+                      fetchAiModels,
+                      aiTestInput,
+                      setAiTestInput,
+                      aiTestOutput,
+                      aiTestStatus,
+                      aiTestBusy,
+                      testAi,
+                      providerPresetControls,
+                      linuxPlatform,
+                      windowsPlatform,
+                      macosPlatform,
+                      iosPlatform,
+                      androidPlatform,
+                      providerCredentials,
+                      storedAiCredential,
+                      aiCredentialInput,
+                      setAiCredentialInput,
+                      providerCredentialBusy,
+                      providerCredentialMessages,
+                      runProviderCredential,
+                      credentialTestControl,
+                    }}
                   />
                   <SettingsFeedbackPage
                     disabled={busy}
