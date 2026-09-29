@@ -2037,13 +2037,23 @@ impl PreferencesStore {
 
     fn read_locked(&self) -> Result<PreferencesSnapshot, PreferencesError> {
         let path = self.path();
+        let metadata = match std::fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(PreferencesSnapshot::default())
+            }
+            Err(error) => return Err(error.into()),
+        };
+        if !metadata.file_type().is_file() {
+            return Err(PreferencesError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "preferences document is not a regular file",
+            )));
+        }
         let bytes = match File::open(&path) {
             Ok(file) => crate::bounded_io::read_bounded_file(file, MAX_DOCUMENT_BYTES, || {
                 PreferencesError::DocumentTooLarge
             })?,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(PreferencesSnapshot::default())
-            }
             Err(error) => return Err(error.into()),
         };
         let mut snapshot: PreferencesSnapshot = serde_json::from_slice(&bytes)?;
