@@ -215,10 +215,29 @@ pub fn is_cloud_translatable_chinese(text: &str) -> bool {
     has_han
 }
 
+/// Credentials and private input may only travel over TLS or to a local service.
+pub fn is_secure_endpoint(endpoint: &str) -> bool {
+    if !crate::text::is_bounded_text(endpoint, 2048) {
+        return false;
+    }
+    let Ok(url) = reqwest::Url::parse(endpoint) else {
+        return false;
+    };
+    if !url.username().is_empty() || url.password().is_some() || url.fragment().is_some() {
+        return false;
+    }
+    match url.scheme() {
+        "https" => url.host_str().is_some(),
+        "http" => matches!(
+            url.host_str(),
+            Some("localhost" | "127.0.0.1" | "[::1]" | "::1")
+        ),
+        _ => false,
+    }
+}
+
 pub fn is_supported_endpoint(endpoint: &str) -> bool {
-    !endpoint.is_empty()
-        && crate::text::is_bounded_text(endpoint, 2048)
-        && (endpoint.starts_with("https://") || endpoint.starts_with("http://"))
+    is_secure_endpoint(endpoint)
 }
 
 pub fn parse_translation_response(response: &str) -> Option<String> {
@@ -269,6 +288,13 @@ mod tests {
     fn accepts_supported_endpoints_only() {
         assert!(is_supported_endpoint("https://translate.example/api"));
         assert!(is_supported_endpoint("http://localhost:8080/translate"));
+        assert!(is_supported_endpoint("http://127.0.0.1:8080/translate"));
+        assert!(is_supported_endpoint("http://[::1]:8080/translate"));
+        assert!(!is_supported_endpoint("http://translate.example/api"));
+        assert!(!is_supported_endpoint("http://localhost.example/api"));
+        assert!(!is_supported_endpoint("http://127.0.0.2/api"));
+        assert!(!is_supported_endpoint("http://user:secret@localhost/api"));
+        assert!(!is_supported_endpoint("http://localhost/api#fragment"));
         assert!(!is_supported_endpoint("ftp://translate.example"));
         assert!(!is_supported_endpoint("https://bad\n.example"));
     }

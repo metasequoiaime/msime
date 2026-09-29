@@ -104,13 +104,8 @@ pub fn chat_completion_http_request(
         return Ok(None);
     }
     let endpoint = &config.endpoint;
-    let url = reqwest::Url::parse(endpoint).map_err(|_| AiError::InvalidConfiguration)?;
-    if !crate::text::is_bounded_text(endpoint, 2048)
-        || !matches!(url.scheme(), "http" | "https")
-        || url.host_str().is_none()
-        || !url.username().is_empty()
-        || url.password().is_some()
-        || url.fragment().is_some()
+    reqwest::Url::parse(endpoint).map_err(|_| AiError::InvalidConfiguration)?;
+    if !crate::translation::is_secure_endpoint(endpoint)
         || request.candidate_limit != config.candidate_limit
     {
         return Err(AiError::InvalidConfiguration);
@@ -518,6 +513,12 @@ mod tests {
             assert!(chat_completion_http_request(&config, &request).is_err());
         }
         config.endpoint = "http://localhost:8080/chat".into();
+        assert!(chat_completion_http_request(&config, &request).is_ok());
+        config.endpoint = "http://api.deepseek.com/chat".into();
+        assert!(chat_completion_http_request(&config, &request).is_err());
+        config.endpoint = "http://localhost.example/chat".into();
+        assert!(chat_completion_http_request(&config, &request).is_err());
+        config.endpoint = "http://[::1]:8080/chat".into();
         assert!(chat_completion_http_request(&config, &request).is_ok());
         config.token = "bad\r\nheader".into();
         assert!(chat_completion_http_request(&config, &request).is_err());

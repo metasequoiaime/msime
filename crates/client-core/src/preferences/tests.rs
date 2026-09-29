@@ -1995,13 +1995,13 @@ fn custom_translation_defaults_and_validation_are_stable() {
         "https://translate.example/api",
         "http://127.0.0.1:1188/translate",
         "http://[::1]:1188/translate",
-        "http://translate.example/api",
     ] {
         valid.custom_translation.endpoint = endpoint.into();
         assert!(valid.validate().is_ok());
     }
 
     for endpoint in [
+        "http://translate.example/api",
         "ftp://translate.example/api",
         "https://translate.example/\napi",
     ] {
