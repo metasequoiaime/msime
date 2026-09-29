@@ -1,7 +1,5 @@
 import type {
   Preferences,
-  AiAssistantPreferences,
-  VoiceInputPreferences,
   LocalDictionaryKind,
   NavigationPreferences,
   HostCapabilities,
@@ -13,33 +11,10 @@ export {
   selectTouchKeyboardScheme,
   touchKeyboardSchemeOptions,
 } from "./touch-keyboard-scheme-helpers";
+export { defaultAiAssistant } from "./ai-assistant-defaults";
+export { defaultVoiceInput } from "./voice-input-defaults";
 
 // Options and defaults that the settings model in index.tsx shares with the settings pages, or that several pages share with each other.
-
-// The prompt slots start empty as in AiAssistantPreferences::default(). The associative-candidate paths (client-core's chat_completion_http_request and the Linux online provider) treat a blank slot as the built-in DEFAULT_CANDIDATE_PROMPT, the text Windows compiles into ai_assistant.prompt. Android and the iOS keyboard mirror instead read ai_assistant.prompt as a polish instruction and use their own polish text when it is blank, which is why this default stays empty rather than holding the associative prompt.
-export const defaultAiAssistant: AiAssistantPreferences = {
-  enabled: false,
-  provider: "deepseek",
-  model: "deepseek-v4-flash",
-  endpoint: "https://api.deepseek.com/chat/completions",
-  candidate_limit: 3,
-  token: "",
-  tokens: {},
-  prompt_id: "custom_1",
-  prompt: "",
-  prompt_custom_1: "",
-  prompt_custom_2: "",
-  prompt_custom_3: "",
-};
-
-// asr_provider mirrors client-core's default; the two disagreeing meant a host wrote a provider no backend implements.
-export const defaultVoiceInput: VoiceInputPreferences = {
-  enabled: true,
-  language: "zh-CN",
-  asr_provider: "doubao",
-  doubao_auth_mode: "api_key",
-  asr_resource_id: "volc.seedasr.sauc.duration",
-};
 
 export const localDictionaryKinds: [LocalDictionaryKind, string][] = [
   ["pinyin", "全拼"],

@@ -439,11 +439,9 @@ import type { MobileKeyboardFeedbackClient } from "./settings/mobile-keyboard-fe
 import { HandwritingSettingsPage } from "./settings/pages/handwriting-page";
 import { FeedbackSettingsPage } from "./settings/pages/feedback-page";
 import { allTouchKeyboardSchemes } from "./settings/touch-keyboard-scheme-helpers";
-import {
-  logo,
-  defaultAiAssistant,
-  defaultVoiceInput,
-} from "./settings/settings-options";
+import { defaultAiAssistant } from "./settings/ai-assistant-defaults";
+import { defaultVoiceInput } from "./settings/voice-input-defaults";
+import { logo } from "./settings/settings-options";
 import { CommunitySkinsPage, type CommunitySkinClient } from "./community/community-skins";
 import { communityDestinationView } from "./community/community-destination";
 import {

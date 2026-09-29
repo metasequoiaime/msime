@@ -1,5 +1,5 @@
 import { SecretInput } from "../../core/secret-input";
-import { defaultAiAssistant } from "../settings-options";
+import { defaultAiAssistant } from "../ai-assistant-defaults";
 import type { AiAssistantPreferences } from "../../index";
 import { useSettingsForm } from "../settings-form-context";
 import { AiCredentialSection } from "../ai-credential-section";

@@ -6,7 +6,7 @@ import {
   POLISH_PROVIDER_DEFAULTS,
 } from "../../voice/voice-providers";
 import { LocalModelManager, localModelInUse } from "../../voice/local-models";
-import { defaultVoiceInput } from "../settings-options";
+import { defaultVoiceInput } from "../voice-input-defaults";
 import {
   POLISH_PRESET_IDS,
   POLISH_PRESET_NAMES,
