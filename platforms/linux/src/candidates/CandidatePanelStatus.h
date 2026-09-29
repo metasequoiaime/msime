@@ -12,6 +12,8 @@
 #include <string_view>
 #include <system_error>
 
+#include "AtomicWrite.h"
+
 namespace msime::linux_host {
 
 // Neither Linux host draws its candidate list: IBus hands it to whichever panel the desktop runs and Fcitx5 to whichever user interface it loaded. Some of those ignore the candidate font, colour and skin settings, and only the running host can tell which one is drawing. It says so in a per-session file the settings page reads (HostCapabilities.candidate_panel_limit in client-core host_surface.rs, which parses the same names).
@@ -80,7 +82,7 @@ inline CandidatePanelLimit fcitx_candidate_panel_limit(std::string_view current_
 // Replace the status file atomically when its content changes. The directory is shared with the session's sockets, so it has to belong to this user and admit no one else's writes, the same check the panel input socket makes.
 inline bool write_candidate_panel_status(const std::filesystem::path &file, const std::string &document) {
   const auto directory = file.parent_path();
-  if (::mkdir(directory.c_str(), 0700) != 0 && errno != EEXIST) return false;
+  if (!prepare_candidate_directory(directory)) return false;
   struct stat info {};
   if (::lstat(directory.c_str(), &info) != 0 || !S_ISDIR(info.st_mode) || info.st_uid != ::getuid() ||
       (info.st_mode & 022) != 0)
@@ -96,19 +98,7 @@ inline bool write_candidate_panel_status(const std::filesystem::path &file, cons
         return true;
     }
   }
-  auto staged = file;
-  staged += ".new";
-  {
-    std::ofstream out(staged, std::ios::binary | std::ios::trunc);
-    if (!(out << document) || !out.flush()) return false;
-  }
-  std::error_code error;
-  std::filesystem::rename(staged, file, error);
-  if (error) {
-    std::filesystem::remove(staged, error);
-    return false;
-  }
-  return true;
+  return write_candidate_file_atomically(file, document);
 }
 
 } // namespace msime::linux_host

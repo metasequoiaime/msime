@@ -1,0 +1,86 @@
+import type { VoiceInputPreferences } from "../index";
+import type { DoubaoAuthMode } from "./doubao-auth-mode-section";
+import {
+  ASR_PROVIDER_DEFAULTS,
+  POLISH_PROVIDER_DEFAULTS,
+  providerSettingValue,
+} from "../voice/voice-providers";
+
+/** Configuration sent to the Linux voice provider when checking ASR settings. */
+export function asrProviderCredentialTestConfig(
+  voiceInput: VoiceInputPreferences,
+  doubaoAuthMode: DoubaoAuthMode,
+): Record<string, unknown> {
+  return {
+    asr_provider: voiceInput.asr_provider ?? "doubao",
+    asr_model: voiceInput.asr_model ?? "",
+    asr_resource_id: voiceInput.asr_resource_id ?? "",
+    doubao_auth_mode: doubaoAuthMode,
+    doubao_enable_itn: voiceInput.doubao_enable_itn !== false,
+    doubao_enable_punc: voiceInput.doubao_enable_punc !== false,
+    doubao_enable_ddc: voiceInput.doubao_enable_ddc === true,
+  };
+}
+
+/** Configuration sent directly to a remote ASR service for a synthetic-silence check. */
+export function asrServiceCredentialTestConfig(
+  voiceInput: VoiceInputPreferences,
+  doubaoAuthMode: DoubaoAuthMode,
+): Record<string, unknown> {
+  const provider = voiceInput.asr_provider;
+  return {
+    provider,
+    endpoint: providerSettingValue(
+      voiceInput.asr_endpoint,
+      provider,
+      ASR_PROVIDER_DEFAULTS,
+      "endpoint",
+    ),
+    model: providerSettingValue(voiceInput.asr_model, provider, ASR_PROVIDER_DEFAULTS, "model"),
+    token: voiceInput.asr_token ?? "",
+    ...(provider === "doubao"
+      ? {
+          auth_mode: doubaoAuthMode,
+          app_id: doubaoAuthMode === "legacy" ? (voiceInput.asr_app_key ?? "") : "",
+          resource_id: voiceInput.asr_resource_id ?? "volc.seedasr.sauc.duration",
+          doubao_enable_itn: voiceInput.doubao_enable_itn !== false,
+          doubao_enable_punc: voiceInput.doubao_enable_punc !== false,
+          doubao_enable_ddc: voiceInput.doubao_enable_ddc === true,
+          doubao_boosting_table_id: voiceInput.doubao_boosting_table_id ?? "",
+        }
+      : {}),
+  };
+}
+
+/** Configuration sent to the Linux voice provider when checking polish settings. */
+export function polishProviderCredentialTestConfig(
+  voiceInput: VoiceInputPreferences,
+): Record<string, unknown> {
+  return {
+    polish_provider: voiceInput.polish_provider ?? "siliconflow",
+    polish_model: voiceInput.polish_model ?? "",
+  };
+}
+
+/** Configuration sent directly to a remote polish service for a credential check. */
+export function polishServiceCredentialTestConfig(
+  voiceInput: VoiceInputPreferences,
+): Record<string, unknown> {
+  const provider = voiceInput.polish_provider ?? "siliconflow";
+  return {
+    provider,
+    endpoint: providerSettingValue(
+      voiceInput.polish_endpoint,
+      provider,
+      POLISH_PROVIDER_DEFAULTS,
+      "endpoint",
+    ),
+    model: providerSettingValue(
+      voiceInput.polish_model,
+      provider,
+      POLISH_PROVIDER_DEFAULTS,
+      "model",
+    ),
+    token: voiceInput.polish_token ?? "",
+  };
+}

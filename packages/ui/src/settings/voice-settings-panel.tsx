@@ -7,12 +7,13 @@ import type {
   VoiceInputPreferences,
   VoiceCredentialKind,
 } from "../index";
-import { defaultVoiceInput } from "./voice-input-defaults";
+import { defaultVoiceInput, isVoicePolishEnabled } from "./voice-input-defaults";
 import { LocalModelManager, localModelInUse } from "../voice/local-models";
 import {
   asrProviderUpdate,
   polishProviderUpdate,
   ASR_PROVIDER_DEFAULTS,
+  isAsrServiceProvider,
   POLISH_PROVIDER_DEFAULTS,
 } from "../voice/voice-providers";
 import { VoiceInputIntroSection } from "./voice-input-intro-section";
@@ -37,7 +38,13 @@ import { DoubaoStreamEndpointSection } from "./doubao-stream-endpoint-section";
 import { DoubaoOptionsSection } from "./doubao-options-section";
 import { DoubaoResourceIdSection } from "./doubao-resource-id-section";
 import { VoiceRecordingBehaviorSection } from "./voice-recording-behavior-section";
-import { VoiceCredentialSection, type VoiceCredentialSaveInput } from "./voice-credential-section";
+import { VoiceCredentialControl } from "./voice-credential-control";
+import {
+  asrProviderCredentialTestConfig,
+  asrServiceCredentialTestConfig,
+  polishProviderCredentialTestConfig,
+  polishServiceCredentialTestConfig,
+} from "./voice-credential-test-config";
 import { PolishPromptSection } from "./polish-prompt-section";
 import type { ProviderPresetControlFactory } from "./provider-preset-control";
 import type { useProviderCredentials } from "./use-provider-credentials";
@@ -271,56 +278,25 @@ export function VoiceSettingsPanel({
         />
       )}
       {linuxPlatform &&
-        client.providerCredentials &&
-        ["openai", "siliconflow", "groq", "everyapi", "mistral", "doubao"].includes(
-          voiceInput.asr_provider ?? "doubao",
-        ) &&
-        (() => {
-          const provider = voiceInput.asr_provider ?? "doubao";
-          return (
-            <VoiceCredentialSection
-              kind="asr"
-              provider={provider}
-              model={voiceInput.asr_model ?? ""}
-              resourceId={voiceInput.asr_resource_id}
-              authMode={doubaoAuthMode}
-              credentials={providerCredentials}
-              input={voiceCredentialInput.asr}
-              busy={providerCredentialBusy === "asr"}
-              message={providerCredentialMessages.asr}
-              onChange={(patch) =>
-                setVoiceCredentialInput((current) => ({
-                  ...current,
-                  asr: { ...current.asr, ...patch },
-                }))
-              }
-              onSave={(credential: VoiceCredentialSaveInput) =>
-                void runVoiceCredential(
-                  "asr",
-                  (credentials) => credentials.saveVoice(credential),
-                  "凭据已保存，语音 provider 下次请求时生效。",
-                )
-              }
-              onClear={() =>
-                void runVoiceCredential(
-                  "asr",
-                  (credentials) => credentials.clearVoice("asr", provider),
-                  "凭据已清除。",
-                )
-              }
-            />
-          );
-        })()}
+        isAsrServiceProvider(voiceInput.asr_provider ?? "doubao") &&
+        <VoiceCredentialControl
+          available={Boolean(client.providerCredentials)}
+          kind="asr"
+          voiceInput={voiceInput}
+          doubaoAuthMode={doubaoAuthMode}
+          providerCredentials={providerCredentials}
+          voiceCredentialInput={voiceCredentialInput}
+          setVoiceCredentialInput={setVoiceCredentialInput}
+          providerCredentialBusy={providerCredentialBusy}
+          providerCredentialMessages={providerCredentialMessages}
+          runVoiceCredential={runVoiceCredential}
+        />}
       {linuxPlatform &&
-        credentialTestControl("voice.asr", "测试语音识别配置", {
-          asr_provider: voiceInput.asr_provider ?? "doubao",
-          asr_model: voiceInput.asr_model ?? "",
-          asr_resource_id: voiceInput.asr_resource_id ?? "",
-          doubao_auth_mode: doubaoAuthMode,
-          doubao_enable_itn: voiceInput.doubao_enable_itn !== false,
-          doubao_enable_punc: voiceInput.doubao_enable_punc !== false,
-          doubao_enable_ddc: voiceInput.doubao_enable_ddc === true,
-        })}
+        credentialTestControl(
+          "voice.asr",
+          "测试语音识别配置",
+          asrProviderCredentialTestConfig(voiceInput, doubaoAuthMode),
+        )}
       {/*
        * Doubao belongs in this list, not in a HarmonyOS-only arm: the probe is the
        * shared one, and Windows and macOS have had it since it was added. Gating it
@@ -328,37 +304,13 @@ export function VoiceSettingsPanel({
        * cover it.
        */}
       {(windowsPlatform || macosPlatform || harmonyPlatform) &&
-        ["openai", "siliconflow", "groq", "everyapi", "mistral", "doubao"].includes(
-          voiceInput.asr_provider ?? "",
-        ) && (
+        isAsrServiceProvider(voiceInput.asr_provider ?? "") && (
           <>
             <VoiceSyntheticSilenceNotice />
             {credentialTestControl(
               "voice.asr",
               voiceInput.asr_provider === "doubao" ? "测试豆包识别配置" : "测试语音识别配置",
-              {
-                provider: voiceInput.asr_provider,
-                endpoint:
-                  voiceInput.asr_endpoint?.trim() ||
-                  ASR_PROVIDER_DEFAULTS[voiceInput.asr_provider ?? ""]?.endpoint ||
-                  "",
-                model:
-                  voiceInput.asr_model?.trim() ||
-                  ASR_PROVIDER_DEFAULTS[voiceInput.asr_provider ?? ""]?.model ||
-                  "",
-                token: voiceInput.asr_token ?? "",
-                ...(voiceInput.asr_provider === "doubao"
-                  ? {
-                      auth_mode: doubaoAuthMode,
-                      app_id: doubaoAuthMode === "legacy" ? (voiceInput.asr_app_key ?? "") : "",
-                      resource_id: voiceInput.asr_resource_id ?? "volc.seedasr.sauc.duration",
-                      doubao_enable_itn: voiceInput.doubao_enable_itn !== false,
-                      doubao_enable_punc: voiceInput.doubao_enable_punc !== false,
-                      doubao_enable_ddc: voiceInput.doubao_enable_ddc === true,
-                      doubao_boosting_table_id: voiceInput.doubao_boosting_table_id ?? "",
-                    }
-                  : {}),
-              },
+              asrServiceCredentialTestConfig(voiceInput, doubaoAuthMode),
               !voiceInput.asr_token?.trim() ||
                 (voiceInput.asr_provider === "doubao" &&
                   doubaoAuthMode === "legacy" &&
@@ -427,7 +379,7 @@ export function VoiceSettingsPanel({
       )}
       {showVoiceProviderSettings && (
         <VoicePolishSection
-          enabled={voiceInput.polish_text === true || voiceInput.polish_enabled === true}
+          enabled={isVoicePolishEnabled(voiceInput)}
           provider={voiceInput.polish_provider ?? "siliconflow"}
           model={voiceInput.polish_model ?? ""}
           providerPreset={providerPresetControls(
@@ -471,70 +423,34 @@ export function VoiceSettingsPanel({
             onRestore={(polish_prompt) => updateVoice({ polish_prompt })}
           />
           {linuxPlatform &&
-            client.providerCredentials &&
-            (() => {
-              const provider = voiceInput.polish_provider ?? "siliconflow";
-              return (
-                <VoiceCredentialSection
-                  kind="polish"
-                  provider={provider}
-                  model={voiceInput.polish_model ?? ""}
-                  credentials={providerCredentials}
-                  input={voiceCredentialInput.polish}
-                  busy={providerCredentialBusy === "polish"}
-                  message={providerCredentialMessages.polish}
-                  onChange={(patch) =>
-                    setVoiceCredentialInput((current) => ({
-                      ...current,
-                      polish: { ...current.polish, ...patch },
-                    }))
-                  }
-                  onSave={(credential: VoiceCredentialSaveInput) =>
-                    void runVoiceCredential(
-                      "polish",
-                      (credentials) => credentials.saveVoice(credential),
-                      "凭据已保存，语音 provider 下次请求时生效。",
-                    )
-                  }
-                  onClear={() =>
-                    void runVoiceCredential(
-                      "polish",
-                      (credentials) => credentials.clearVoice("polish", provider),
-                      "凭据已清除。",
-                    )
-                  }
-                />
-              );
-            })()}
-          {linuxPlatform &&
             credentialTestControl(
               "voice.polish",
               "测试语音润色配置",
-              {
-                polish_provider: voiceInput.polish_provider ?? "siliconflow",
-                polish_model: voiceInput.polish_model ?? "",
-              },
-              !(voiceInput.polish_text === true || voiceInput.polish_enabled === true),
+              polishProviderCredentialTestConfig(voiceInput),
+              !isVoicePolishEnabled(voiceInput),
             )}
           {(windowsPlatform || macosPlatform || iosPlatform || harmonyPlatform) &&
             credentialTestControl(
               "voice.polish",
               "测试语音润色配置",
-              {
-                provider: voiceInput.polish_provider ?? "siliconflow",
-                endpoint:
-                  voiceInput.polish_endpoint?.trim() ||
-                  POLISH_PROVIDER_DEFAULTS[voiceInput.polish_provider ?? "siliconflow"]?.endpoint ||
-                  "",
-                model:
-                  voiceInput.polish_model?.trim() ||
-                  POLISH_PROVIDER_DEFAULTS[voiceInput.polish_provider ?? "siliconflow"]?.model ||
-                  "",
-                token: voiceInput.polish_token ?? "",
-              },
+              polishServiceCredentialTestConfig(voiceInput),
               !voiceInput.polish_token?.trim(),
             )}
         </VoicePolishSection>
+      )}
+      {showVoiceProviderSettings && linuxPlatform && (
+        <VoiceCredentialControl
+          available={Boolean(client.providerCredentials)}
+          kind="polish"
+          voiceInput={voiceInput}
+          doubaoAuthMode={doubaoAuthMode}
+          providerCredentials={providerCredentials}
+          voiceCredentialInput={voiceCredentialInput}
+          setVoiceCredentialInput={setVoiceCredentialInput}
+          providerCredentialBusy={providerCredentialBusy}
+          providerCredentialMessages={providerCredentialMessages}
+          runVoiceCredential={runVoiceCredential}
+        />
       )}
       {desktopPanels && (
         <VoiceHotkeysSection

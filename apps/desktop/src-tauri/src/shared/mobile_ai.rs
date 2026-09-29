@@ -183,7 +183,9 @@ pub fn fetch_models(endpoint: &str, token: &str) -> Result<Vec<String>, Error> {
             if models.is_empty() {
                 return Err(Error::Invalid);
             }
-            return Ok(models.into_iter().collect());
+            let mut result = Vec::with_capacity(models.len());
+            result.extend(models);
+            return Ok(result);
         }
         if !anthropic {
             return Err(Error::Invalid);

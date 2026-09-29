@@ -2,11 +2,12 @@ import * as settings from "../settings-style";
 import {
   asrProviderUpdate,
   ASR_PROVIDER_DEFAULTS,
+  isAsrServiceProvider,
   polishProviderUpdate,
   POLISH_PROVIDER_DEFAULTS,
 } from "../../voice/voice-providers";
 import { LocalModelManager, localModelInUse } from "../../voice/local-models";
-import { defaultVoiceInput } from "../voice-input-defaults";
+import { defaultVoiceInput, isVoicePolishEnabled } from "../voice-input-defaults";
 import {
   POLISH_PRESET_IDS,
   POLISH_PRESET_NAMES,
@@ -34,6 +35,12 @@ import { VoiceCaptureDevicesSection } from "../voice-capture-devices-section";
 import { VoiceRecordingBehaviorSection } from "../voice-recording-behavior-section";
 import { DoubaoOptionsSection } from "../doubao-options-section";
 import { VoiceCredentialControl } from "../voice-credential-control";
+import {
+  asrProviderCredentialTestConfig,
+  asrServiceCredentialTestConfig,
+  polishProviderCredentialTestConfig,
+  polishServiceCredentialTestConfig,
+} from "../voice-credential-test-config";
 
 /** The 语音输入 page of the settings form. */
 export function VoiceSettingsPage() {
@@ -83,7 +90,7 @@ export function VoiceSettingsPage() {
     voiceInput.asr_provider === "doubao" && doubaoAuthMode !== "legacy"
       ? "Doubao API Key"
       : "识别 API Token";
-  const polishEnabled = voiceInput.polish_text === true || voiceInput.polish_enabled === true;
+  const polishEnabled = isVoicePolishEnabled(voiceInput);
   return (
     <fieldset disabled={busy} hidden={page !== "voice"} aria-label="语音输入">
       <div className={settings.groups}>
@@ -217,9 +224,7 @@ export function VoiceSettingsPage() {
           </GroupList>
         )}
         {linuxPlatform &&
-          ["openai", "siliconflow", "groq", "everyapi", "mistral", "doubao"].includes(
-            voiceInput.asr_provider ?? "doubao",
-          ) &&
+          isAsrServiceProvider(voiceInput.asr_provider ?? "doubao") &&
           <VoiceCredentialControl
             available={Boolean(client.providerCredentials)}
             kind="asr"
@@ -235,23 +240,17 @@ export function VoiceSettingsPage() {
         {linuxPlatform && client.testApiCredential && (
           <GroupList title="检查识别配置">
             <div className={settings.groupBlock}>
-              {credentialTestControl("voice.asr", "测试语音识别配置", {
-                asr_provider: voiceInput.asr_provider ?? "doubao",
-                asr_model: voiceInput.asr_model ?? "",
-                asr_resource_id: voiceInput.asr_resource_id ?? "",
-                doubao_auth_mode: doubaoAuthMode,
-                doubao_enable_itn: voiceInput.doubao_enable_itn !== false,
-                doubao_enable_punc: voiceInput.doubao_enable_punc !== false,
-                doubao_enable_ddc: voiceInput.doubao_enable_ddc === true,
-              })}
+              {credentialTestControl(
+                "voice.asr",
+                "测试语音识别配置",
+                asrProviderCredentialTestConfig(voiceInput, doubaoAuthMode),
+              )}
             </div>
           </GroupList>
         )}
         {/* Doubao belongs in this list, not in a HarmonyOS-only arm: the probe is the shared one, and Windows and macOS have had it since it was added. Gating it on HarmonyOS alone silently dropped the button on the two hosts whose tests cover it. */}
         {(windowsPlatform || macosPlatform || harmonyPlatform) &&
-          ["openai", "siliconflow", "groq", "everyapi", "mistral", "doubao"].includes(
-            voiceInput.asr_provider ?? "",
-          ) && (
+          isAsrServiceProvider(voiceInput.asr_provider ?? "") && (
             <GroupList title="检查识别配置">
               <p className={settings.groupNote}>
                 测试会向当前服务发送一秒合成静音，不使用麦克风；服务可能计入 API 用量。
@@ -261,30 +260,7 @@ export function VoiceSettingsPage() {
                   {credentialTestControl(
                     "voice.asr",
                     voiceInput.asr_provider === "doubao" ? "测试豆包识别配置" : "测试语音识别配置",
-                    {
-                      provider: voiceInput.asr_provider,
-                      endpoint:
-                        voiceInput.asr_endpoint?.trim() ||
-                        ASR_PROVIDER_DEFAULTS[voiceInput.asr_provider ?? ""]?.endpoint ||
-                        "",
-                      model:
-                        voiceInput.asr_model?.trim() ||
-                        ASR_PROVIDER_DEFAULTS[voiceInput.asr_provider ?? ""]?.model ||
-                        "",
-                      token: voiceInput.asr_token ?? "",
-                      ...(voiceInput.asr_provider === "doubao"
-                        ? {
-                            auth_mode: doubaoAuthMode,
-                            app_id:
-                              doubaoAuthMode === "legacy" ? (voiceInput.asr_app_key ?? "") : "",
-                            resource_id: voiceInput.asr_resource_id ?? "volc.seedasr.sauc.duration",
-                            doubao_enable_itn: voiceInput.doubao_enable_itn !== false,
-                            doubao_enable_punc: voiceInput.doubao_enable_punc !== false,
-                            doubao_enable_ddc: voiceInput.doubao_enable_ddc === true,
-                            doubao_boosting_table_id: voiceInput.doubao_boosting_table_id ?? "",
-                          }
-                        : {}),
-                    },
+                    asrServiceCredentialTestConfig(voiceInput, doubaoAuthMode),
                     !voiceInput.asr_token?.trim() ||
                       (voiceInput.asr_provider === "doubao" &&
                         doubaoAuthMode === "legacy" &&
@@ -466,20 +442,7 @@ export function VoiceSettingsPage() {
                   credentialTestControl(
                     "voice.polish",
                     "测试语音润色配置",
-                    {
-                      provider: voiceInput.polish_provider ?? "siliconflow",
-                      endpoint:
-                        voiceInput.polish_endpoint?.trim() ||
-                        POLISH_PROVIDER_DEFAULTS[voiceInput.polish_provider ?? "siliconflow"]
-                          ?.endpoint ||
-                        "",
-                      model:
-                        voiceInput.polish_model?.trim() ||
-                        POLISH_PROVIDER_DEFAULTS[voiceInput.polish_provider ?? "siliconflow"]
-                          ?.model ||
-                        "",
-                      token: voiceInput.polish_token ?? "",
-                    },
+                    polishServiceCredentialTestConfig(voiceInput),
                     !voiceInput.polish_token?.trim(),
                   )}
               </div>
@@ -506,10 +469,7 @@ export function VoiceSettingsPage() {
               {credentialTestControl(
                 "voice.polish",
                 "测试语音润色配置",
-                {
-                  polish_provider: voiceInput.polish_provider ?? "siliconflow",
-                  polish_model: voiceInput.polish_model ?? "",
-                },
+                polishProviderCredentialTestConfig(voiceInput),
                 !polishEnabled,
               )}
             </div>

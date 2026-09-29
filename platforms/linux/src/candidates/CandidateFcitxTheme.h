@@ -18,6 +18,7 @@
 #include "CandidateColors.h"
 #include "CandidatePalette.h"
 #include "FcitxThemeImages.h"
+#include "AtomicWrite.h"
 
 namespace msime::linux_host {
 
@@ -347,7 +348,6 @@ inline std::optional<std::filesystem::path> fcitx_theme_file(const char *xdg_dat
 
 // Replace the theme file atomically, leaving it untouched when it already holds the content. Returns whether the file now holds it.
 inline bool write_fcitx_theme(const std::filesystem::path &file, const std::string &content) {
-  std::error_code error;
   {
     std::ifstream current(file, std::ios::binary);
     if (current) {
@@ -359,20 +359,7 @@ inline bool write_fcitx_theme(const std::filesystem::path &file, const std::stri
         return true;
     }
   }
-  std::filesystem::create_directories(file.parent_path(), error);
-  if (error) return false;
-  auto staged = file;
-  staged += ".new";
-  {
-    std::ofstream out(staged, std::ios::binary | std::ios::trunc);
-    if (!(out << content) || !out.flush()) return false;
-  }
-  std::filesystem::rename(staged, file, error);
-  if (error) {
-    std::filesystem::remove(staged, error);
-    return false;
-  }
-  return true;
+  return write_candidate_file_atomically(file, content);
 }
 
 // Copies of decoration images in the theme directory are named decoration-<content hash><extension>: a changed image gets a new name, so theme.conf changes with it and the classic UI loads the new picture rather than one it already holds under the old name.

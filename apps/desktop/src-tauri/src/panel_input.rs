@@ -455,7 +455,7 @@ fn xdotool_key_name(virtual_key: u16) -> Option<String> {
 #[cfg(target_os = "linux")]
 fn xdotool_key_args(request: &KeyboardInputRequest) -> Option<String> {
     let key = xdotool_key_name(request.virtual_key)?;
-    let mut parts: Vec<String> = Vec::new();
+    let mut parts: Vec<String> = Vec::with_capacity(5);
     if request.include_sticky_modifiers {
         if request.modifiers.ctrl {
             parts.push("ctrl".to_owned());
@@ -829,8 +829,8 @@ pub(crate) fn send_panel_key(
         let code = ydotool_key_code(request.virtual_key).ok_or(HostActionError {
             code: "invalid_key",
         })?;
-        let mut args = Vec::new();
-        let mut modifiers = Vec::new();
+        let mut args = Vec::with_capacity(10);
+        let mut modifiers = Vec::with_capacity(3);
         if request.include_sticky_modifiers {
             if request.modifiers.ctrl {
                 modifiers.push(29u16);
@@ -864,7 +864,7 @@ pub(crate) fn send_panel_key(
     let key = xdotool_key_name(request.virtual_key).ok_or(HostActionError {
         code: "invalid_key",
     })?;
-    let mut args = Vec::new();
+    let mut args = Vec::with_capacity(10);
     if request.include_sticky_modifiers {
         if request.modifiers.ctrl {
             args.extend(["-M".to_owned(), "ctrl".to_owned()]);

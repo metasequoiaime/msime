@@ -422,7 +422,9 @@ fn installed_font_families(families: Vec<String>) -> Option<Vec<String>> {
         return None;
     }
     let families: std::collections::BTreeSet<String> = families.into_iter().collect();
-    Some(families.into_iter().collect())
+    let mut result = Vec::with_capacity(families.len());
+    result.extend(families);
+    Some(result)
 }
 
 #[cfg(any(target_os = "ios", test))]

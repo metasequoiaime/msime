@@ -559,10 +559,12 @@ pub unsafe extern "C" fn msime_client_candidate_gloss_request(
             "resources path is not UTF-8",
             "resources path must be absolute",
         )?;
-        let candidates = raw_candidates
-            .into_iter()
-            .map(|candidate| (candidate.text, candidate.source))
-            .collect::<Vec<_>>();
+        let mut candidates = Vec::with_capacity(raw_candidates.len());
+        candidates.extend(
+            raw_candidates
+                .into_iter()
+                .map(|candidate| (candidate.text, candidate.source)),
+        );
         let user_data = user_data.as_deref().unwrap_or("");
         if !user_data.is_empty()
             && (user_data.len() > 4096 || !std::path::Path::new(user_data).is_absolute())

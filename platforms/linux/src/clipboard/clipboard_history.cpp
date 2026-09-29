@@ -1,9 +1,8 @@
 #include <nlohmann/json.hpp>
 #include "ClipboardText.h"
+#include "ClipboardAtomicWrite.h"
 #include <algorithm>
-#include <array>
 #include <filesystem>
-#include <fstream>
 #include <fcntl.h>
 #include <iostream>
 #include <string>
@@ -16,19 +15,6 @@ namespace {
 constexpr size_t kMaxItems = 50;
 constexpr size_t kMaxChars = 4000;
 constexpr size_t kMaxStoreBytes = 1024 * 1024;
-
-bool read_store_payload(std::ifstream &input, std::string &payload) {
-  std::array<char, 8192> buffer{};
-  while (input) {
-    input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
-    const auto count = input.gcount();
-    if (count <= 0) continue;
-    const auto bytes = static_cast<size_t>(count);
-    if (payload.size() > kMaxStoreBytes - bytes) return false;
-    payload.append(buffer.data(), bytes);
-  }
-  return input.eof();
-}
 
 class HistoryLock {
  public:
@@ -71,10 +57,9 @@ std::string normalize(std::string text) {
   return text;
 }
 std::vector<std::string> load(const std::filesystem::path &path) {
-  std::ifstream input(path, std::ios::binary); if (!input) return {};
-  std::string payload;
-  if (!read_store_payload(input, payload)) return {};
-  try { auto value = Json::parse(payload); if (!value.is_array()) return {};
+  const auto payload = msime::linux_host::read_clipboard_file(path, kMaxStoreBytes);
+  if (!payload) return {};
+  try { auto value = Json::parse(*payload); if (!value.is_array()) return {};
     std::vector<std::string> items;
     for (const auto &item : value) if (item.is_string() && items.size() < kMaxItems) {
       auto text = normalize(item.get<std::string>()); if (!text.empty()) items.push_back(std::move(text));
@@ -83,24 +68,7 @@ std::vector<std::string> load(const std::filesystem::path &path) {
   } catch (...) { return {}; }
 }
 bool save(const std::filesystem::path &path, const std::vector<std::string> &items) {
-  std::error_code error; std::filesystem::create_directories(path.parent_path(), error);
-  const auto temporary = path.string() + ".tmp." + std::to_string(getpid());
-  std::ofstream output(temporary, std::ios::trunc); if (!output) return false;
-  output << Json(items).dump();
-  if (!output) { std::filesystem::remove(temporary, error); return false; }
-  // Clipboard history can contain private user text; do not leave it readable
-  // by other local users even when the process umask is permissive.
-  std::filesystem::permissions(
-      temporary, std::filesystem::perms::owner_read |
-                std::filesystem::perms::owner_write,
-      std::filesystem::perm_options::replace, error);
-  output.close();
-  std::filesystem::rename(temporary, path, error);
-  if (error) {
-    std::filesystem::remove(temporary, error);
-    return false;
-  }
-  return true;
+  return msime::linux_host::write_clipboard_file_atomically(path, Json(items).dump());
 }
 }
 int main(int argc, char **argv) {

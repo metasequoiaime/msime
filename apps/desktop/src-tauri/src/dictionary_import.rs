@@ -90,7 +90,7 @@ pub(crate) fn send_dictionary_action(
             return send(&bytes);
         }
     };
-    let mut refusals = Vec::new();
+    let mut refusals = Vec::with_capacity(batches.len());
     let mut index = 0;
     for batch in batches {
         if let Some((kind, format)) = rows {

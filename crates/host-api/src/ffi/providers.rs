@@ -622,9 +622,13 @@ pub unsafe extern "C" fn msime_client_emoji_catalog_request(
         if query.list_symbol_groups {
             let groups = msime_engine_bridge::emoji_symbol_groups(resources)
                 .map_err(|_| "local emoji catalog unavailable")?;
-            return Ok(
-                json!({"symbol_groups": groups.into_iter().map(|g| json!({"parent":g.parent,"title":g.title})).collect::<Vec<_>>()}),
+            let mut symbol_groups = Vec::with_capacity(groups.len());
+            symbol_groups.extend(
+                groups
+                    .into_iter()
+                    .map(|group| json!({"parent":group.parent,"title":group.title})),
             );
+            return Ok(json!({"symbol_groups": symbol_groups}));
         }
         if !query.parent.is_empty() && query.panel.category != "symbols" {
             return Err("parent filter requires symbols catalog".into());
@@ -640,12 +644,18 @@ pub unsafe extern "C" fn msime_client_emoji_catalog_request(
                 &query.parent,
             )
             .map_err(|_| "local emoji catalog unavailable")?;
-            return Ok(json!({
-                "items": slice.items.into_iter().map(|item| json!({
+            let next_offset = slice.next_offset;
+            let complete = slice.complete;
+            let mut items = Vec::with_capacity(slice.items.len());
+            items.extend(slice.items.into_iter().map(|item| {
+                json!({
                     "text": item.text, "annotation": item.annotation, "group": item.group,
-                })).collect::<Vec<_>>(),
-                "next_offset": slice.next_offset,
-                "complete": slice.complete,
+                })
+            }));
+            return Ok(json!({
+                "items": items,
+                "next_offset": next_offset,
+                "complete": complete,
             }));
         }
         let items = msime_engine_bridge::emoji_catalog_filtered_page(
@@ -658,17 +668,16 @@ pub unsafe extern "C" fn msime_client_emoji_catalog_request(
             &query.parent,
         )
         .map_err(|_| "local emoji catalog unavailable")?;
+        let mut rendered_items = Vec::with_capacity(items.len());
+        rendered_items.extend(items.into_iter().map(|item| {
+            json!({
+                "text": item.text,
+                "annotation": item.annotation,
+                "group": item.group,
+            })
+        }));
         Ok(json!({
-            "items": items
-                .into_iter()
-                .map(|item| {
-                    json!({
-                        "text": item.text,
-                        "annotation": item.annotation,
-                        "group": item.group,
-                    })
-                })
-                .collect::<Vec<_>>()
+            "items": rendered_items
         }))
     })
 }

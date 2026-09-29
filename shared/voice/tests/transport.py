@@ -7,7 +7,6 @@ import socketserver
 import subprocess
 import sys
 import threading
-from urllib.parse import quote
 
 
 # HTTPServer.server_bind resolves the bound address with socket.getfqdn, which waits on reverse DNS before this loopback server exists - 35 s on the macOS CI runners. Nothing reads server_name, so bind without it.
@@ -15,6 +14,9 @@ class LoopbackHTTPServer(http.server.HTTPServer):
     def server_bind(self):
         socketserver.TCPServer.server_bind(self)
         self.server_name, self.server_port = self.server_address[:2]
+
+
+REDIRECT_TARGETS = {"asr": "/asr/success", "polish": "/polish/success"}
 
 
 class SharedVoiceHandler(http.server.BaseHTTPRequestHandler):
@@ -44,9 +46,8 @@ class SharedVoiceHandler(http.server.BaseHTTPRequestHandler):
             body = b" " * (1024 * 1024 + 1) + body
         self.send_response(status)
         if status == 307:
-            # Quote the route components even though the fixture values are fixed;
-            # this keeps the test server from ever emitting a header from input data.
-            self.send_header("Location", "/" + quote(mode, safe="") + "/success")
+            # Pick the target from a fixed table instead of echoing the request path, so no header value is ever built from request data.
+            self.send_header("Location", REDIRECT_TARGETS[mode])
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         try:

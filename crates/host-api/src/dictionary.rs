@@ -221,7 +221,7 @@ fn parse_personal_dictionary_import(text: &str) -> Result<Vec<PersonalWord>, Str
     if file.entries.is_empty() || file.entries.len() > 128 {
         return Err("invalid personal dictionary entry count".into());
     }
-    let mut identities = std::collections::HashSet::new();
+    let mut identities = std::collections::HashSet::with_capacity(file.entries.len());
     let mut entries = Vec::with_capacity(file.entries.len());
     for entry in file.entries {
         let entry = normalize_personal_word(entry)?;

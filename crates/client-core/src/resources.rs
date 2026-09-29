@@ -58,7 +58,7 @@ impl ResourceSet {
         {
             return Err(ResourceError::InvalidManifest);
         }
-        let mut names = HashSet::new();
+        let mut names = HashSet::with_capacity(self.artifacts.len());
         for artifact in &self.artifacts {
             // A flat, portable resource layout. Reject aliases, traversal and device names.
             let stem = artifact
@@ -181,11 +181,8 @@ impl ResourceStore {
                 describe(kind)
             )));
         }
-        let expected: HashSet<_> = specification
-            .artifacts
-            .iter()
-            .map(|a| a.name.as_str())
-            .collect();
+        let mut expected = HashSet::with_capacity(specification.artifacts.len());
+        expected.extend(specification.artifacts.iter().map(|a| a.name.as_str()));
         let mut count = 0;
         for entry in fs::read_dir(directory)? {
             let entry = entry?;
@@ -217,11 +214,13 @@ impl ResourceStore {
             count += 1;
         }
         if count != expected.len() {
-            let mut missing: Vec<_> = expected
-                .iter()
-                .filter(|name| !directory.join(name).is_file())
-                .copied()
-                .collect();
+            let mut missing = Vec::with_capacity(expected.len());
+            missing.extend(
+                expected
+                    .iter()
+                    .filter(|name| !directory.join(name).is_file())
+                    .copied(),
+            );
             missing.sort_unstable();
             return Err(ResourceError::ExistingGeneration(format!(
                 "{} holds {count} of the {} pinned resources, missing: {}",
@@ -321,15 +320,17 @@ impl VerifiedMarker {
         directory: &Path,
         specification: &ResourceSet,
     ) -> Result<Option<Self>, ResourceError> {
-        let expected: HashSet<_> = specification
-            .artifacts
-            .iter()
-            .map(|artifact| artifact.name.as_str())
-            .collect();
+        let mut expected = HashSet::with_capacity(specification.artifacts.len());
+        expected.extend(
+            specification
+                .artifacts
+                .iter()
+                .map(|artifact| artifact.name.as_str()),
+        );
         let Ok(directory_entries) = fs::read_dir(directory) else {
             return Ok(None);
         };
-        let mut entries = Vec::new();
+        let mut entries = Vec::with_capacity(specification.artifacts.len() + 1);
         for entry in directory_entries {
             let Ok(entry) = entry else {
                 return Ok(None);

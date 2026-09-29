@@ -27,6 +27,9 @@ import {
 import { settingsPageProjections } from "./settings/settings-page-projections";
 import { settingsInputPreferences } from "./settings/settings-input-preferences";
 import { aiSettingsPreferences } from "./settings/ai-settings-preferences";
+import { diagnosticLogPreferences } from "./settings/diagnostic-log-preferences";
+import { clipboardHistoryEnabled } from "./settings/clipboard-history-preferences";
+import { settingsThemePreferences } from "./settings/settings-theme-preferences";
 import type { VoiceDeviceReader } from "./voice/voice-device-picker";
 import type { LocalVoiceModelClient } from "./voice/local-models";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
@@ -168,6 +171,11 @@ export {
   clipboardHistoryEnabled,
   type ClipboardHistoryPreferencesSource,
 } from "./settings/clipboard-history-preferences";
+export {
+  diagnosticLogPreferences,
+  type DiagnosticLogPreferencesSource,
+} from "./settings/diagnostic-log-preferences";
+export { settingsThemePreferences } from "./settings/settings-theme-preferences";
 export {
   settingsInputPreferences,
   type SettingsInputPreferences,
@@ -371,7 +379,6 @@ export {
   type UseVoiceInputSettingsOptions,
 } from "./settings/use-voice-input-settings";
 import {
-  defaultTouchKeyboardSkinDesign,
   type AiSkinClient,
   type CustomSkinLibraryClient,
   type TouchKeyboardSkinDesign,
@@ -958,11 +965,20 @@ export {
 } from "./voice/polish-presets";
 export {
   ASR_PROVIDER_DEFAULTS,
+  ASR_SERVICE_PROVIDER_IDS,
   POLISH_PROVIDER_DEFAULTS,
   asrProviderUpdate,
+  isAsrServiceProvider,
+  providerSettingValue,
   polishProviderUpdate,
   type ProviderDefaults,
 } from "./voice/voice-providers";
+export {
+  asrProviderCredentialTestConfig,
+  asrServiceCredentialTestConfig,
+  polishProviderCredentialTestConfig,
+  polishServiceCredentialTestConfig,
+} from "./settings/voice-credential-test-config";
 export {
   candidateTemplate,
   type CandidateAppearance,
@@ -1342,7 +1358,8 @@ export type VoiceInputPreferences = {
   doubao_boosting_table_id?: string;
   [key: string]: unknown;
 };
-export { AI_PROVIDER_OPTIONS, aiProviderUpdate } from "./settings/pages/ai-page";
+export { AI_PROVIDER_OPTIONS } from "./settings/ai-provider-options";
+export { aiProviderUpdate } from "./settings/ai-provider-update";
 
 export type ExternalSkinCatalog = {
   scanned: boolean;
@@ -2001,7 +2018,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   // A host missing a catalog is still handled, and handled better than by hiding a switch: the runtime
   // turns that mode off when its resource is absent, so the trigger key inserts its capital instead of
   // being swallowed.
-  const clipboardHistory = iosPlatform || (draft?.clipboard_history ?? false);
+  const clipboardHistory = clipboardHistoryEnabled(iosPlatform, draft);
   const toggleClipboardHistory = useClipboardHistoryToggle({
     draft,
     enabled: clipboardHistory,
@@ -2009,10 +2026,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     setDraft,
     setError,
   });
-  const diagnosticLog = {
-    server: draft?.diagnostic_log?.server ?? false,
-    tsf: draft?.diagnostic_log?.tsf ?? false,
-  };
+  const diagnosticLog = diagnosticLogPreferences(draft);
   const {
     candidateTranslations,
     candidateGlossLanguagesEnabled,
@@ -2064,15 +2078,12 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   });
   const providerPresetControls = createProviderPresetControl(client.openExternalUrl);
   const floatingToolbar = floatingToolbarPreferences(draft);
-  const themeMode = draft?.theme ?? "system";
-  const settingsTheme = draft?.settings_theme ?? "follow";
+  const { themeMode, settingsTheme, globalTheme, customColors, customTouchKeyboardSkin } =
+    settingsThemePreferences(draft);
   useSettingsTheme(themeMode, settingsTheme);
   const candidatePreviewTheme = useCandidatePreviewTheme(themeMode, draft?.candidate_theme);
   const toolbarPreviewTheme = useCandidatePreviewTheme(themeMode, draft?.toolbar_theme);
   const keyboardPreviewTheme = useCandidatePreviewTheme(themeMode, draft?.screen_keyboard_theme);
-  const globalTheme = draft?.global_theme ?? "system";
-  const customColors = draft?.custom_theme?.candidate_colors ?? {};
-  const customTouchKeyboardSkin = draft?.custom_theme?.keyboard ?? defaultTouchKeyboardSkinDesign;
   // A picker colour is part of the custom theme, so choosing one selects that theme; clearing one leaves the selection alone. Choosing one while another theme is selected customizes that theme: it becomes the custom theme's base, and a package, whose own base would replace it, is dropped.
   const setCandidateColor = (slot: keyof CustomCandidateColors, value: string | null) =>
     setDraft((current) => (current ? updateCandidateColor(current, slot, value) : current));

@@ -670,11 +670,13 @@ fn extract(
     };
     let decoder = bzip2::read::MultiBzDecoder::new(BufReader::with_capacity(CHUNK, reader));
     let mut tar = tar::Archive::new(decoder);
-    let needed: Vec<Vec<String>> = model
-        .files
-        .values()
-        .filter_map(|path| relative_components(path))
-        .collect();
+    let mut needed = Vec::with_capacity(model.files.len());
+    needed.extend(
+        model
+            .files
+            .values()
+            .filter_map(|path| relative_components(path)),
+    );
     let is_needed = |relative: &[String]| {
         needed
             .iter()

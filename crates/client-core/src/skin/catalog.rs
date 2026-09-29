@@ -747,19 +747,20 @@ pub fn host_candidate_catalog(
     root: &Path,
     selected: &str,
 ) -> serde_json::Value {
-    let mut listed = catalog
-        .packages
-        .iter()
-        .enumerate()
-        .filter(|(index, package)| *index < HOST_CATALOG_MAX_PACKAGES || package.id == selected)
-        .map(|(_, package)| package)
-        .collect::<Vec<_>>();
+    let mut listed = Vec::with_capacity(HOST_CATALOG_MAX_PACKAGES + 1);
+    listed.extend(
+        catalog
+            .packages
+            .iter()
+            .enumerate()
+            .filter(|(index, package)| *index < HOST_CATALOG_MAX_PACKAGES || package.id == selected)
+            .map(|(_, package)| package),
+    );
     if listed.len() > HOST_CATALOG_MAX_PACKAGES {
         listed.remove(HOST_CATALOG_MAX_PACKAGES - 1);
     }
-    let packages = listed
-        .into_iter()
-        .map(|package| {
+    let mut packages = Vec::with_capacity(HOST_CATALOG_MAX_PACKAGES);
+    packages.extend(listed.into_iter().map(|package| {
             let mut entry = serde_json::json!({ "id": package.id, "title": package.name, "base": package.base, "layouts": package.layouts });
             let mut candidate = serde_json::Map::new();
             for (theme, palette) in [
@@ -791,8 +792,7 @@ pub fn host_candidate_catalog(
                 entry["corner_radius_dip"] = radius.into();
             }
             entry
-        })
-        .collect::<Vec<_>>();
+        }));
     serde_json::json!({ "packages": packages })
 }
 

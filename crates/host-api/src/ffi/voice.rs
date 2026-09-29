@@ -433,18 +433,17 @@ pub unsafe extern "C" fn msime_client_voice_hotwords(
                     .map_err(|_| "invalid voice request")?,
                 )?;
                 let entries = page["entries"].as_array().cloned().unwrap_or_default();
+                let mut hotword_entries = Vec::with_capacity(entries.len());
+                hotword_entries.extend(entries.iter().filter_map(|entry| {
+                    Some((
+                        entry["value"].as_str()?.to_owned(),
+                        entry["key"].as_str()?.to_owned(),
+                        entry["weight"].as_i64().unwrap_or(0),
+                    ))
+                }));
                 Ok::<Option<msime_client_core::voice::hotwords::DictionaryHotwordPage>, String>(
                     Some(msime_client_core::voice::hotwords::DictionaryHotwordPage {
-                        entries: entries
-                            .iter()
-                            .filter_map(|entry| {
-                                Some((
-                                    entry["value"].as_str()?.to_owned(),
-                                    entry["key"].as_str()?.to_owned(),
-                                    entry["weight"].as_i64().unwrap_or(0),
-                                ))
-                            })
-                            .collect(),
+                        entries: hotword_entries,
                         has_more: page["has_more"].as_bool() == Some(true),
                     }),
                 )

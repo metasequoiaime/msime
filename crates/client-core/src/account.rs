@@ -39,7 +39,8 @@ pub(crate) fn valid_model_catalog<'a>(
     maximum_models: usize,
     maximum_id_bytes: usize,
 ) -> bool {
-    let ids: Vec<&str> = models.into_iter().collect();
+    let mut ids = Vec::with_capacity(maximum_models);
+    ids.extend(models);
     !ids.is_empty()
         && ids.len() <= maximum_models
         && !default_model.is_empty()
@@ -48,7 +49,13 @@ pub(crate) fn valid_model_catalog<'a>(
         && ids
             .iter()
             .all(|id| !id.is_empty() && crate::text::is_bounded_text(id, maximum_id_bytes))
-        && ids.iter().collect::<std::collections::HashSet<_>>().len() == ids.len()
+        && {
+            let mut unique = std::collections::HashSet::with_capacity(ids.len());
+            for id in &ids {
+                unique.insert(id);
+            }
+            unique.len() == ids.len()
+        }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

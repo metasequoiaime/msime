@@ -535,18 +535,25 @@ fn write_activation_receipt(
     activation_id: &str,
 ) -> Result<(), &'static str> {
     let directory = Path::new(&options.user_data);
-    let temporary = directory.join(format!("{ACTIVATION_RECEIPT_NAME}.tmp"));
     let path = directory.join(ACTIVATION_RECEIPT_NAME);
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
-        .open(&temporary)
+    write_activation_receipt_at(directory, &path, activation_id)
+}
+
+fn write_activation_receipt_at(
+    directory: &Path,
+    path: &Path,
+    activation_id: &str,
+) -> Result<(), &'static str> {
+    let mut temporary = tempfile::NamedTempFile::new_in(directory)
         .map_err(|_| "snapshot activation receipt unavailable")?;
-    file.write_all(activation_id.as_bytes())
-        .and_then(|_| file.sync_all())
+    temporary
+        .write_all(activation_id.as_bytes())
+        .and_then(|_| temporary.as_file().sync_all())
         .map_err(|_| "snapshot activation receipt unavailable")?;
-    std::fs::rename(temporary, path).map_err(|_| "snapshot activation receipt unavailable")
+    temporary
+        .persist(path)
+        .map(|_| ())
+        .map_err(|_| "snapshot activation receipt unavailable")
 }
 
 fn prepare(

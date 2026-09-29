@@ -148,10 +148,8 @@ pub(crate) fn combine_cell_candidates(cells: Vec<Vec<String>>) -> Vec<String> {
     if cells.is_empty() || cells.iter().any(Vec::is_empty) {
         return Vec::new();
     }
-    let best = cells
-        .iter()
-        .map(|cell| cell[0].as_str())
-        .collect::<Vec<_>>();
+    let mut best = Vec::with_capacity(cells.len());
+    best.extend(cells.iter().map(|cell| cell[0].as_str()));
     let mut result = Vec::with_capacity(MAX_HANDWRITING_CANDIDATES);
     result.push(best.concat());
     let deepest = cells.iter().map(Vec::len).max().unwrap_or(0);

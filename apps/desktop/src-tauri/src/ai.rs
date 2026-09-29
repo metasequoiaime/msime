@@ -11,6 +11,7 @@ use serde_json::Value;
 use std::io::Read;
 
 pub(crate) const MAX_RESPONSE_BYTES: usize = 1_024 * 1_024;
+const MAX_MODELS: usize = 128;
 
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum AiResponseBodyError {
@@ -108,20 +109,23 @@ pub(crate) fn ai_models_request(endpoint: &str, token: &str) -> Result<Vec<Strin
     let document: Value = serde_json::from_slice(&body).map_err(|_| CommandError {
         code: "ai_models_invalid",
     })?;
-    let models = document
+    let data = document
         .get("data")
         .and_then(Value::as_array)
         .ok_or(CommandError {
             code: "ai_models_invalid",
-        })?
+        })?;
+    let mut models = Vec::with_capacity(MAX_MODELS);
+    for id in data
         .iter()
         .filter_map(|item| item.get("id").and_then(Value::as_str))
         .filter(|id| {
             !id.is_empty() && msime_client_core::is_bounded_text_with_options(id, 256, false)
         })
-        .take(128)
-        .map(str::to_owned)
-        .collect::<Vec<_>>();
+        .take(MAX_MODELS)
+    {
+        models.push(id.to_owned());
+    }
     if models.is_empty() {
         return Err(CommandError {
             code: "ai_models_invalid",

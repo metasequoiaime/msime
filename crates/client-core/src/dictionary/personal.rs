@@ -309,7 +309,7 @@ impl PersonalDictionaryStore {
             return Err(PersonalDictionaryError::InvalidRequest);
         }
         validate_request_id(&id_prefix)?;
-        let mut identities = std::collections::HashSet::new();
+        let mut identities = std::collections::HashSet::with_capacity(words.len());
         for word in &words {
             word.validate_new()
                 .map_err(|_| PersonalDictionaryError::InvalidRequest)?;
@@ -492,13 +492,10 @@ impl PersonalDictionaryStore {
         if bytes.len() > MAX_STATE_BYTES {
             return Err(PersonalDictionaryError::InvalidState);
         }
-        let temporary = self
-            .directory
-            .join(format!("sync.json.tmp-{}", std::process::id()));
-        let mut output = File::create(&temporary)?;
-        output.write_all(&bytes)?;
-        output.sync_all()?;
-        fs::rename(temporary, file)?;
+        let mut temporary = tempfile::NamedTempFile::new_in(&self.directory)?;
+        temporary.write_all(&bytes)?;
+        temporary.as_file().sync_all()?;
+        temporary.persist(file).map_err(|error| error.error)?;
         Ok(())
     }
 }
@@ -590,7 +587,7 @@ fn validate_state(state: &PersonalDictionaryState) -> Result<(), PersonalDiction
     {
         return Err(PersonalDictionaryError::InvalidState);
     }
-    let mut ids = std::collections::HashSet::new();
+    let mut ids = std::collections::HashSet::with_capacity(state.requests.len());
     for request in &state.requests {
         if request.id.is_empty() || !ids.insert(&request.id) {
             return Err(PersonalDictionaryError::InvalidState);
@@ -828,6 +825,28 @@ mod tests {
             store.read(),
             Err(PersonalDictionaryError::InvalidState)
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn does_not_follow_a_fixed_personal_dictionary_temporary_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let temporary = root
+            .path()
+            .join(format!("sync.json.tmp-{}", std::process::id()));
+        let outside_file = outside.path().join("sync.json");
+        fs::write(&outside_file, b"keep me").unwrap();
+        symlink(&outside_file, &temporary).unwrap();
+        let store = PersonalDictionaryStore::new(root.path());
+
+        store
+            .enqueue(None, Some(word("ni", "你")), "synthetic-id".into())
+            .unwrap();
+        assert_eq!(fs::read(outside_file).unwrap(), b"keep me");
+        assert!(root.path().join("sync.json").is_file());
     }
 
     #[test]

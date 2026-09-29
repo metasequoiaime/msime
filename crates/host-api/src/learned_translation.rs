@@ -9,7 +9,41 @@ use msime_client_core::translation::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::fs;
 use std::path::Path;
+
+fn reject_symlinked_path(path: &Path) -> Result<(), &'static str> {
+    let mut current = path;
+    loop {
+        match fs::symlink_metadata(current) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err("learned translation storage unavailable")
+            }
+            Ok(_) => return Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let Some(parent) = current.parent() else {
+                    return Ok(());
+                };
+                if parent == current {
+                    return Ok(());
+                }
+                current = parent;
+            }
+            Err(_) => return Err("learned translation storage unavailable"),
+        }
+    }
+}
+
+fn prepare_storage_directory(directory: &Path) -> Result<(), &'static str> {
+    reject_symlinked_path(directory)?;
+    fs::create_dir_all(directory).map_err(|_| "learned translation storage unavailable")?;
+    let metadata =
+        fs::symlink_metadata(directory).map_err(|_| "learned translation storage unavailable")?;
+    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+        return Err("learned translation storage unavailable");
+    }
+    Ok(())
+}
 
 #[derive(Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -57,6 +91,9 @@ pub fn execute(bytes: &[u8]) -> Result<Value, &'static str> {
     {
         return Err("invalid learned translation parameters");
     }
+    reject_symlinked_path(directory)?;
+    let database = directory.join("translation-glosses.db");
+    reject_symlinked_path(&database)?;
     // Preserve previous JSON records as read-only fallback. New writes use the
     // same Engine-owned user database as other native hosts, never resources.
     let legacy = TranslationGlossStore::new(directory);
@@ -112,8 +149,7 @@ pub fn execute(bytes: &[u8]) -> Result<Value, &'static str> {
                 if !should_persist_translation(&key, &gloss) {
                     continue;
                 }
-                std::fs::create_dir_all(directory)
-                    .map_err(|_| "learned translation storage unavailable")?;
+                prepare_storage_directory(directory)?;
                 let mut options = std::fs::OpenOptions::new();
                 options.write(true).create_new(true);
                 #[cfg(unix)]
@@ -121,7 +157,7 @@ pub fn execute(bytes: &[u8]) -> Result<Value, &'static str> {
                     use std::os::unix::fs::OpenOptionsExt;
                     options.mode(0o600);
                 }
-                match options.open(directory.join("translation-glosses.db")) {
+                match options.open(&database) {
                     Ok(_) => {}
                     Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
                     Err(_) => return Err("learned translation storage unavailable"),
@@ -317,5 +353,46 @@ mod tests {
             std::fs::read(database).unwrap(),
             b"synthetic damaged database"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_a_symlinked_ancestor_before_creating_the_engine_database() {
+        use std::os::unix::fs::symlink;
+
+        let outside = tempfile::tempdir().unwrap();
+        let parent = tempfile::tempdir().unwrap();
+        let linked = parent.path().join("linked");
+        symlink(outside.path(), &linked).unwrap();
+        let directory = linked.join("missing");
+        let write = request(
+            &directory,
+            "remember",
+            json!([{"text":"Hello","direction":"english_to_chinese","translation":"你好"}]),
+        );
+
+        assert_eq!(run(&write), Err("learned translation storage unavailable"));
+        assert!(!outside.path().join("missing").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_a_symlinked_engine_database() {
+        use std::os::unix::fs::symlink;
+
+        let outside = tempfile::tempdir().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let database = root.path().join("translation-glosses.db");
+        let outside_database = outside.path().join("translation-glosses.db");
+        std::fs::write(&outside_database, b"keep me").unwrap();
+        symlink(&outside_database, &database).unwrap();
+        let write = request(
+            root.path(),
+            "remember",
+            json!([{"text":"Hello","direction":"english_to_chinese","translation":"你好"}]),
+        );
+
+        assert_eq!(run(&write), Err("learned translation storage unavailable"));
+        assert_eq!(std::fs::read(outside_database).unwrap(), b"keep me");
     }
 }

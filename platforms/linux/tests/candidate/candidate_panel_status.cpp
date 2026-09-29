@@ -52,6 +52,14 @@ int main() {
     assert(std::string(std::istreambuf_iterator<char>(in), {}) == document);
   }
   assert(!std::filesystem::exists(std::filesystem::path(file.string() + ".new")));
+  {
+    const auto outside = root / "outside-status.json";
+    std::ofstream(outside) << "keep";
+    std::filesystem::create_symlink(outside, file.string() + ".new");
+    assert(write_candidate_panel_status(file, candidate_panel_status_document("ibus", CandidatePanelLimit::None)));
+    std::ifstream in(outside);
+    assert(std::string(std::istreambuf_iterator<char>(in), {}) == "keep");
+  }
   assert((std::filesystem::status(file.parent_path()).permissions() & std::filesystem::perms::group_write) ==
          std::filesystem::perms::none);
   {

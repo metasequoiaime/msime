@@ -2,6 +2,7 @@
 #include "KeyRouterAdapter.h"
 #include "BackspaceHoldPolicy.h"
 #include "../clipboard/ClipboardText.h"
+#include "../clipboard/ClipboardAtomicWrite.h"
 #include "../system/ChineseTextConversion.h"
 #include "HelpcodeDefaults.h"
 #include "HelpcodeSchemaNames.h"
@@ -1078,21 +1079,10 @@ std::string traditional_display(const State &s, const Json &context,
 constexpr size_t kClipboardStoreBytes = 1024 * 1024;
 
 std::optional<Json> read_clipboard_store(const std::filesystem::path &path) {
-  std::ifstream input(path, std::ios::binary);
-  if (!input) return std::nullopt;
-  std::array<char, 8192> buffer{};
-  std::string payload;
-  while (input) {
-    input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
-    const auto count = input.gcount();
-    if (count <= 0) continue;
-    const auto bytes = static_cast<size_t>(count);
-    if (payload.size() > kClipboardStoreBytes - bytes) return std::nullopt;
-    payload.append(buffer.data(), bytes);
-  }
-  if (!input.eof()) return std::nullopt;
+  const auto payload = msime::linux_host::read_clipboard_file(path, kClipboardStoreBytes);
+  if (!payload) return std::nullopt;
   try {
-    return Json::parse(payload);
+    return Json::parse(*payload);
   } catch (...) {
     return std::nullopt;
   }
@@ -1138,22 +1128,8 @@ bool clipboard_delete(const std::string &path, const std::optional<std::string> 
           return true;
         }
         value->erase(entry);
-        const auto temporary = path + ".tmp." + std::to_string(getpid());
-        std::ofstream output{std::filesystem::path(temporary), std::ios::trunc};
-        if (output) {
-          output << value->dump();
-          output.close();
-          std::error_code error;
-          std::filesystem::permissions(
-              temporary, std::filesystem::perms::owner_read |
-                             std::filesystem::perms::owner_write,
-              std::filesystem::perm_options::replace, error);
-          std::filesystem::rename(temporary, path, error);
-          if (!error)
-            removed = true;
-          else
-            std::filesystem::remove(temporary, error);
-        }
+        removed = msime::linux_host::write_clipboard_file_atomically(
+            std::filesystem::path(path), value->dump());
       }
     }
   } catch (...) {

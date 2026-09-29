@@ -39,7 +39,7 @@ pub(crate) fn clipboard_enabled(
 /// nothing to capture.
 pub(crate) fn linux_clipboard_text() -> Result<Option<String>, HostActionError> {
     type Arguments = &'static [&'static str];
-    let mut commands: Vec<(&str, Arguments, Option<Arguments>)> = Vec::new();
+    let mut commands: Vec<(&str, Arguments, Option<Arguments>)> = Vec::with_capacity(3);
     if std::env::var_os("WAYLAND_DISPLAY").is_some_and(|value| !value.is_empty()) {
         commands.push((
             "wl-paste",

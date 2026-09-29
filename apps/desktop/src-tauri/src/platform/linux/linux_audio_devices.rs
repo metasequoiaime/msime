@@ -2,6 +2,8 @@ use serde::Serialize;
 use serde_json::Value;
 use std::time::Duration;
 
+const MAX_CAPTURE_DEVICES: usize = 256;
+
 #[derive(Serialize)]
 pub struct CaptureDevice {
     backend: &'static str,
@@ -10,7 +12,7 @@ pub struct CaptureDevice {
 }
 
 fn add(devices: &mut Vec<CaptureDevice>, backend: &'static str, id: &str, label: &str) {
-    if devices.len() >= 256
+    if devices.len() >= MAX_CAPTURE_DEVICES
         || id.is_empty()
         || id.len() > 512
         || id.chars().count() > 128
@@ -70,10 +72,10 @@ fn pipewire_value_id(value: &Value) -> Option<String> {
 }
 
 fn pipewire_devices(document: &Value) -> Vec<CaptureDevice> {
-    let mut devices = Vec::new();
     let Some(nodes) = document.as_array() else {
-        return devices;
+        return Vec::new();
     };
+    let mut devices = Vec::with_capacity(nodes.len().min(MAX_CAPTURE_DEVICES));
     for node in nodes {
         if node.get("type").and_then(Value::as_str) != Some("PipeWire:Interface:Node") {
             continue;
@@ -109,6 +111,7 @@ pub fn list() -> Vec<CaptureDevice> {
     if let Some(Value::Array(sources)) = output("pactl", &["--format=json", "list", "sources"])
         .and_then(|text| serde_json::from_str(&text).ok())
     {
+        devices.reserve(sources.len().min(MAX_CAPTURE_DEVICES));
         for source in sources {
             let Some(id) = source.get("name").and_then(Value::as_str) else {
                 continue;

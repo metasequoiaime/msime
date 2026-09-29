@@ -771,15 +771,11 @@ fn write_custom_translations_at(user: PathBuf, text: &str) -> Result<(), Command
             Err(_) => Err(CommandError { code: "storage" }),
         };
     }
-    std::fs::create_dir_all(&user).map_err(|_| CommandError { code: "storage" })?;
-    // Written beside the target and renamed, so a failure halfway through leaves the previous overlay
-    // in place rather than a truncated one the Engine would read as the whole set.
-    let staging = user.join("custom_translations.txt.writing");
-    std::fs::write(&staging, text).map_err(|_| CommandError { code: "storage" })?;
-    std::fs::rename(&staging, &path).map_err(|_| {
-        let _ = std::fs::remove_file(&staging);
-        CommandError { code: "storage" }
-    })
+    // Use a fresh private sibling and publish it atomically. This avoids
+    // following a pre-existing staging symlink and leaves the previous overlay
+    // intact if writing or syncing fails.
+    crate::shared::atomic_file::write(&path, text.as_bytes())
+        .map_err(|_| CommandError { code: "storage" })
 }
 
 #[tauri::command]

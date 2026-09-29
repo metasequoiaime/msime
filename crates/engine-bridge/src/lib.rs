@@ -592,17 +592,19 @@ pub fn candidate_glosses_with_user(
     user_data: &str,
     candidates: &[(String, u8)],
 ) -> Result<Vec<String>, cxx::Exception> {
-    let candidates = candidates
-        .iter()
-        .map(|(text, source)| ffi::CandidateGlossInput {
-            text: text.clone(),
-            source: *source,
-        })
-        .collect::<Vec<_>>();
+    let mut candidate_inputs = Vec::with_capacity(candidates.len());
+    candidate_inputs.extend(
+        candidates
+            .iter()
+            .map(|(text, source)| ffi::CandidateGlossInput {
+                text: text.clone(),
+                source: *source,
+            }),
+    );
     if user_data.is_empty() {
-        ffi::candidate_glosses(resources, &candidates)
+        ffi::candidate_glosses(resources, &candidate_inputs)
     } else {
-        ffi::candidate_glosses_with_user(resources, user_data, &candidates)
+        ffi::candidate_glosses_with_user(resources, user_data, &candidate_inputs)
     }
 }
 
@@ -612,14 +614,16 @@ pub fn candidate_target_glosses(
     target_language: &str,
     candidates: &[(String, u8)],
 ) -> Result<Vec<String>, cxx::Exception> {
-    let candidates = candidates
-        .iter()
-        .map(|(text, source)| ffi::CandidateGlossInput {
-            text: text.clone(),
-            source: *source,
-        })
-        .collect::<Vec<_>>();
-    ffi::candidate_target_glosses(database_path, target_language, &candidates)
+    let mut candidate_inputs = Vec::with_capacity(candidates.len());
+    candidate_inputs.extend(
+        candidates
+            .iter()
+            .map(|(text, source)| ffi::CandidateGlossInput {
+                text: text.clone(),
+                source: *source,
+            }),
+    );
+    ffi::candidate_target_glosses(database_path, target_language, &candidate_inputs)
 }
 
 /// Apply Engine's shared handwriting candidate policy to provider results.
