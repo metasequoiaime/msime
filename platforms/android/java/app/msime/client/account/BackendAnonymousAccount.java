@@ -84,7 +84,8 @@ final class BackendAnonymousAccount {
             if (token == null || refresh == null || !"Bearer".equals(tokens.optString("token_type", "")))
                 throw new IllegalStateException("anonymous account unavailable");
             long expires = tokens.optLong("expires_in", 0);
-            if (expires <= 0 || expires > 86_400 * 30L) throw new IllegalStateException("anonymous account unavailable");
+            if (!AccountTokenPolicy.validSession(tokens.optString("token_type", ""), token,
+                    refresh, expires)) throw new IllegalStateException("anonymous account unavailable");
             JSONObject savedSession = new JSONObject().put("tokens", tokens)
                 .put("expires_at_unix_ms", System.currentTimeMillis() + expires * 1000L);
             sessions.save(savedSession.toString());
