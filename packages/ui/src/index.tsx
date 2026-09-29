@@ -244,6 +244,7 @@ import { useWindowResizeCapture } from "./settings/use-window-resize-capture";
 import { useAccountPageActions } from "./settings/use-account-page-actions";
 import { createSettingsExternalActions } from "./settings/settings-external-actions";
 import { createAboutSettingsActions } from "./settings/about-settings-actions";
+import { createScreenKeyboardActions } from "./settings/screen-keyboard-actions";
 import { useAppVersion } from "./settings/use-app-version";
 import { supportDiagnostics } from "./settings/support-diagnostics";
 import { useMountedRef } from "./settings/use-mounted-ref";
@@ -425,6 +426,10 @@ export {
   createAboutSettingsActions,
   type CreateAboutSettingsActionsOptions,
 } from "./settings/about-settings-actions";
+export {
+  createScreenKeyboardActions,
+  type CreateScreenKeyboardActionsOptions,
+} from "./settings/screen-keyboard-actions";
 import { SettingsSidebar } from "./settings/settings-sidebar";
 export {
   SettingsSidebar,
@@ -2345,6 +2350,17 @@ export function SettingsPage({
     selectPage,
     setDraft,
   });
+  const screenKeyboardActions = createScreenKeyboardActions({
+    draft,
+    openCommunity: () => openCommunity("all"),
+    setShowTouchSkinEditor,
+    saveMobileKeyboardFeedback,
+    mobileKeyboardFeedback,
+    resetTouchKeyboardSettings,
+    openScreenKeyboard: client.openScreenKeyboard,
+    openPanel,
+    setDraft,
+  });
   const communityView = communityDestinationView(communityDestination);
   return (
     <div
@@ -2810,33 +2826,15 @@ export function SettingsPage({
                     mobile={mobilePlatform}
                     screenKeyboardTheme={draft.screen_keyboard_theme ?? "follow"}
                     previewTheme={keyboardPreviewTheme}
-                    onScreenKeyboardThemeChange={(screen_keyboard_theme) =>
-                      setDraft({ ...draft, screen_keyboard_theme })
-                    }
+                    {...screenKeyboardActions}
                     selectedSkin={touchKeyboardSkin}
                     customDesign={customTouchKeyboardSkin}
                     customAvailable={Boolean(client.customTouchKeyboardSkins)}
                     editorOpen={showTouchSkinEditor}
-                    onSkinSelect={(touch_keyboard_skin) =>
-                      setDraft({ ...draft, touch_keyboard_skin })
-                    }
-                    onToggleEditor={() => setShowTouchSkinEditor((value) => !value)}
                     communityAvailable={Boolean(mobilePlatform && client.communitySkins)}
-                    onOpenCommunity={() => openCommunity("all")}
                     library={client.customSkinLibrary}
                     aiSkins={client.aiSkins}
                     communitySkins={client.communitySkins}
-                    onDesignChange={(design) =>
-                      setDraft((current) =>
-                        current ? { ...current, custom_touch_keyboard_skin: design } : current,
-                      )
-                    }
-                    onUseDesign={() =>
-                      setDraft((current) =>
-                        current ? { ...current, touch_keyboard_skin: "custom" } : current,
-                      )
-                    }
-                    onCloseEditor={() => setShowTouchSkinEditor(false)}
                     heightAdjustment={touchKeyboardHeightAdjustment}
                     keySpacingTenths={touchKeySpacingTenths}
                     rowSpacingTenths={touchRowSpacingTenths}
@@ -2845,33 +2843,6 @@ export function SettingsPage({
                     toolbar={draft.touch_toolbar}
                     tabletFullKeys={mobileKeyboardFeedback?.tabletFullKeys}
                     tabletFullKeysBusy={mobileKeyboardFeedbackBusy}
-                    onHeightAdjustmentChange={(touch_keyboard_height_adjustment) =>
-                      setDraft({ ...draft, touch_keyboard_height_adjustment })
-                    }
-                    onKeySpacingChange={(touch_key_spacing_tenths) =>
-                      setDraft({ ...draft, touch_key_spacing_tenths })
-                    }
-                    onRowSpacingChange={(touch_row_spacing_tenths) =>
-                      setDraft({ ...draft, touch_row_spacing_tenths })
-                    }
-                    onTouchVoiceShortcutChange={(touch_voice_shortcut) =>
-                      setDraft({ ...draft, touch_voice_shortcut })
-                    }
-                    onToolbarChange={(touch_toolbar) => setDraft({ ...draft, touch_toolbar })}
-                    onTabletFullKeysChange={(tabletFullKeys) => {
-                      if (mobileKeyboardFeedback) {
-                        void saveMobileKeyboardFeedback({
-                          ...mobileKeyboardFeedback,
-                          tabletFullKeys,
-                        });
-                      }
-                    }}
-                    onReset={() => void resetTouchKeyboardSettings()}
-                    openScreenKeyboard={
-                      client.openScreenKeyboard
-                        ? () => void openPanel(client.openScreenKeyboard)
-                        : undefined
-                    }
                     onPointerDown={beginTouchGeometryDrag}
                     onPointerMove={updateTouchGeometryDrag}
                     onPointerUp={endTouchGeometryDrag}
