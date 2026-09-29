@@ -4,6 +4,20 @@
 
 use super::*;
 
+#[cfg(unix)]
+#[test]
+fn preference_store_rejects_a_symlinked_directory_without_writing_through_it() {
+    let target = tempfile::tempdir().unwrap();
+    let parent = tempfile::tempdir().unwrap();
+    let directory = parent.path().join("preferences");
+    std::os::unix::fs::symlink(target.path(), &directory).unwrap();
+
+    let result = PreferencesStore::new(&directory).load();
+
+    assert!(matches!(result, Err(PreferencesError::Io(_))));
+    assert!(!target.path().join("preferences.lock").exists());
+}
+
 #[test]
 fn voice_commit_mode_defaults_for_legacy_documents() {
     let mut value = serde_json::to_value(Preferences::default()).unwrap();

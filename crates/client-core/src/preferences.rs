@@ -1952,7 +1952,12 @@ impl PreferencesStore {
     }
 
     fn open_lock(&self) -> Result<File, PreferencesError> {
-        fs::create_dir_all(&self.directory)?;
+        if !crate::storage::create_directory_and_check(&self.directory)? {
+            return Err(PreferencesError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "preferences directory is not a real directory",
+            )));
+        }
         let lock = crate::file_lock::open_lock_file(self.directory.join("preferences.lock"))?;
         Ok(lock)
     }
