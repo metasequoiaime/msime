@@ -444,12 +444,11 @@ import {
   defaultVoiceInput,
 } from "./settings/settings-options";
 import { CommunitySkinsPage, type CommunitySkinClient } from "./community/community-skins";
+import { communityDestinationView } from "./community/community-destination";
 import {
   CommunityHomePage,
   CommunityResourcesPage,
   type CommunityResourceClient,
-  type CommunityResourceKind,
-  type CommunityResourceScope,
 } from "./community/community-resources";
 export { useConfirm, type ConfirmRequest } from "./core/confirm";
 export {
@@ -917,6 +916,13 @@ export {
   type CommunitySkinPage,
   type CommunitySkinTrial,
 } from "./community/community-skins";
+export {
+  communityDestinationView,
+  type CommunityDestination,
+  type CommunityDestinationCategory,
+  type CommunityDestinationScope,
+  type CommunityDestinationView,
+} from "./community/community-destination";
 export {
   CommunityHomePage,
   CommunityResourcesPage,
@@ -2168,20 +2174,12 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     setShowTouchSkinEditor,
     setCommunityDestination,
   });
-  // Typed rather than inferred: they reach the shell through the model object, where an inferred literal would widen to string.
-  const initialCommunityCategory: CommunityResourceKind | "skin" =
-    communityDestination === "published-reply" || communityDestination === "saved-reply"
-      ? "reply"
-      : communityDestination === "published-dictionary" ||
-          communityDestination === "saved-dictionary"
-        ? "dictionary"
-        : "skin";
-  const initialCommunityScope: CommunityResourceScope =
-    communityDestination === "published-dictionary" || communityDestination === "published-reply"
-      ? "mine"
-      : communityDestination === "saved-dictionary" || communityDestination === "saved-reply"
-        ? "saved"
-        : "";
+  const {
+    category: initialCommunityCategory,
+    scope: initialCommunityScope,
+    initialMine: initialCommunityMine,
+  } =
+    communityDestinationView(communityDestination);
   return {
     client,
     confirmation,
@@ -2434,6 +2432,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     openCommunity,
     initialCommunityCategory,
     initialCommunityScope,
+    initialCommunityMine,
   };
 }
 
@@ -2514,6 +2513,7 @@ export function SettingsPage(props: SettingsPageProps) {
     openCommunity,
     initialCommunityCategory,
     initialCommunityScope,
+    initialCommunityMine,
   } = model;
   const winShell = settingsPlatform === "win";
   const macShell = settingsPlatform === "mac";
@@ -2923,7 +2923,7 @@ export function SettingsPage(props: SettingsPageProps) {
                 skins={client.communitySkins}
                 resources={client.communityResources}
                 theme={keyboardPreviewTheme}
-                initialMine={communityDestination === "published-skins"}
+                initialMine={initialCommunityMine}
                 initialCategory={initialCommunityCategory}
                 initialScope={initialCommunityScope}
                 localDictionary={client.dictionary}
@@ -2938,7 +2938,7 @@ export function SettingsPage(props: SettingsPageProps) {
                 client={client.communitySkins}
                 theme={keyboardPreviewTheme}
                 localSkinLibrary={client.customSkinLibrary}
-                initialMine={communityDestination === "published-skins"}
+                initialMine={initialCommunityMine}
                 mobile={mobilePlatform}
                 onLogin={openAccountLogin}
               />
