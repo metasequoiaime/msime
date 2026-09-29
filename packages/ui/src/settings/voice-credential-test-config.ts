@@ -52,6 +52,19 @@ export function asrServiceCredentialTestConfig(
   };
 }
 
+/** Whether the remote ASR credential test lacks the credentials required by its auth mode. */
+export function asrServiceCredentialTestDisabled(
+  voiceInput: VoiceInputPreferences,
+  doubaoAuthMode: DoubaoAuthMode,
+): boolean {
+  return (
+    !voiceInput.asr_token?.trim() ||
+    (voiceInput.asr_provider === "doubao" &&
+      doubaoAuthMode === "legacy" &&
+      !voiceInput.asr_app_key?.trim())
+  );
+}
+
 /** Configuration sent to the Linux voice provider when checking polish settings. */
 export function polishProviderCredentialTestConfig(
   voiceInput: VoiceInputPreferences,

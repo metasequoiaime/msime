@@ -46,6 +46,7 @@ import { VoiceCredentialControl } from "./voice-credential-control";
 import {
   asrProviderCredentialTestConfig,
   asrServiceCredentialTestConfig,
+  asrServiceCredentialTestDisabled,
   polishProviderCredentialTestConfig,
   polishServiceCredentialTestConfig,
 } from "./voice-credential-test-config";
@@ -311,10 +312,7 @@ export function VoiceSettingsPanel({
               "voice.asr",
               voiceInput.asr_provider === "doubao" ? "测试豆包识别配置" : "测试语音识别配置",
               asrServiceCredentialTestConfig(voiceInput, doubaoAuthMode),
-              !voiceInput.asr_token?.trim() ||
-                (voiceInput.asr_provider === "doubao" &&
-                  doubaoAuthMode === "legacy" &&
-                  !voiceInput.asr_app_key?.trim()),
+              asrServiceCredentialTestDisabled(voiceInput, doubaoAuthMode),
             )}
           </>
         )}
