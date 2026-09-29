@@ -108,6 +108,11 @@ export {
   SettingsNavigationChrome,
   type SettingsNavigationChromeProps,
 } from "./settings/settings-navigation-chrome";
+import { SettingsContentIntro } from "./settings/settings-content-intro";
+export {
+  SettingsContentIntro,
+  type SettingsContentIntroProps,
+} from "./settings/settings-content-intro";
 import { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
 export { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
 import { useTranslationSettings } from "./settings/use-translation-settings";
@@ -2484,40 +2489,40 @@ export function SettingsPage({
             {/* Three of the four tabs open on something that already names them — a headline, a
                 profile card, a row of figures — and the source prints no page title over any of
                 them. 社区 is the one that does. Hidden rather than dropped: it labels `main`. */}
-            <SettingsPageHeader
-              title={settingsPageTitle(availablePages, page)}
-              hiddenOnPhone={mobilePlatform && mobileHeaderlessPageIds.includes(page)}
-            />
-            <SettingsPageStatus
-              draft={draft}
-              error={error}
-              notice={notice}
-              busy={busy}
-              recoveredBackup={recoveredBackup}
-              canRecover={Boolean(client.recoverPreferences)}
-              onRecover={settingsStatusActions.onRecover}
-              openPreferencesDirectory={client.openPreferencesDirectory}
-              macos={macosPlatform}
-              inputSourceStartup={inputSourceStartup}
-              onOpenSettings={settingsStatusActions.onOpenSettings}
-              onDismiss={settingsStatusActions.onDismiss}
-              onError={setError}
-            />
-            <SettingsStandalonePages
+            <SettingsContentIntro
               page={page}
-              draft={draft}
-              client={client}
               mobile={mobilePlatform}
-              accountPlatform={accountPlatform}
-              keyboardPreviewTheme={keyboardPreviewTheme}
-              communityView={communityView}
-              communityKey={communityDestination}
-              mobileSecondaryPages={settingsPageLinks(mobileSecondaryPages)}
-              settingsPageSelection={settingsPageSelection}
-              selectHomeScheme={selectHomeScheme}
-              onOpenChat={settingsNavigationActions.onOpenChat}
-              accountPageActions={accountPageActions}
-              openAccountLogin={openAccountLogin}
+              pageTitle={settingsPageTitle(availablePages, page)}
+              hideHeaderOnPhone={mobileHeaderlessPageIds.includes(page)}
+              status={{
+                draft,
+                error,
+                notice,
+                busy,
+                recoveredBackup,
+                canRecover: Boolean(client.recoverPreferences),
+                onRecover: settingsStatusActions.onRecover,
+                openPreferencesDirectory: client.openPreferencesDirectory,
+                macos: macosPlatform,
+                inputSourceStartup,
+                onOpenSettings: settingsStatusActions.onOpenSettings,
+                onDismiss: settingsStatusActions.onDismiss,
+                onError: setError,
+              }}
+              standalone={{
+                draft,
+                client,
+                accountPlatform,
+                keyboardPreviewTheme,
+                communityView,
+                communityKey: communityDestination,
+                mobileSecondaryPages: settingsPageLinks(mobileSecondaryPages),
+                settingsPageSelection,
+                selectHomeScheme,
+                onOpenChat: settingsNavigationActions.onOpenChat,
+                accountPageActions,
+                openAccountLogin,
+              }}
             />
             {draft && isSettingsFormPage(page) && (
                 <form onSubmit={submitSettings}>
