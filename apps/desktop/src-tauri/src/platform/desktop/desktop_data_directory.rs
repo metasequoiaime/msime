@@ -15,6 +15,7 @@ pub(crate) fn validate_directory<E: Copy>(path: &Path, error: E) -> Result<PathB
     if !path.is_absolute() {
         return Err(error);
     }
+    crate::shared::atomic_file::check_directory_ancestors(path).map_err(|_| error)?;
     let metadata = fs::symlink_metadata(path).map_err(|_| error)?;
     if !metadata.is_dir() || metadata.file_type().is_symlink() {
         return Err(error);
@@ -56,4 +57,24 @@ pub(crate) fn has_ownership_marker(directory: &Path, marker: &str) -> bool {
     fs::symlink_metadata(directory.join(marker))
         .map(|metadata| metadata.is_file())
         .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn validate_directory_rejects_a_symlinked_ancestor() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let real = outside.path().join("Downloads");
+        fs::create_dir(&real).unwrap();
+        let linked = root.path().join("redirect");
+        symlink(outside.path(), &linked).unwrap();
+
+        assert!(validate_directory::<()>(&linked.join("Downloads"), ()).is_err());
+    }
 }

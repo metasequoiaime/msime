@@ -17,10 +17,7 @@ export function randomUuid(): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-/** Generate a readable request id for callers whose non-UUID fallback carries a prefix. */
+/** Generate a readable request id while retaining the caller's operation prefix. */
 export function randomRequestId(prefix: string): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `${prefix}-${randomUuid()}`;
 }

@@ -36,11 +36,40 @@ inline std::int64_t dictionary_quiesce_now_ms() {
       .count();
 }
 
+inline bool dictionary_lease_path_is_safe(const std::filesystem::path &path) {
+  std::error_code error;
+  auto current = path.root_path();
+  bool saw_prefix_alias = false;
+  bool saw_real_component = false;
+  const auto relative = path.relative_path();
+  const auto component_count = static_cast<std::size_t>(std::distance(relative.begin(), relative.end()));
+  std::size_t index = 0;
+  for (const auto &component : relative) {
+    current /= component;
+    const auto status = std::filesystem::symlink_status(current, error);
+    if (!error) {
+      if (std::filesystem::is_symlink(status)) {
+        const bool target = index + 1 == component_count;
+        if (target || saw_real_component || saw_prefix_alias) return false;
+        saw_prefix_alias = true;
+      } else {
+        saw_real_component = true;
+      }
+    }
+    if (error && error != std::errc::no_such_file_or_directory) return false;
+    error.clear();
+    ++index;
+  }
+  return true;
+}
+
 // Called from the hosts' timers and before a session opens; a missing lease costs one failed open.
 inline bool dictionary_quiesced(const std::string &user_data,
                                 std::int64_t now_ms = dictionary_quiesce_now_ms()) {
   if (user_data.empty() || user_data.front() != '/') return false;
-  std::ifstream lease(std::filesystem::path(user_data) / std::string(kDictionaryQuiesceLeaseName));
+  const auto lease_path = std::filesystem::path(user_data) / std::string(kDictionaryQuiesceLeaseName);
+  if (!dictionary_lease_path_is_safe(lease_path)) return false;
+  std::ifstream lease(lease_path);
   if (!lease) return false;
   char buffer[32] = {};
   lease.read(buffer, sizeof buffer - 1);
@@ -55,6 +84,7 @@ inline bool raise_dictionary_quiesce_lease(const std::string &user_data, std::st
   const std::string pid = std::to_string(getpid()), serial = std::to_string(next.fetch_add(1));
   const std::filesystem::path root(user_data);
   const auto lease = root / std::string(kDictionaryQuiesceLeaseName);
+  if (!dictionary_lease_path_is_safe(lease)) return false;
   auto staged = lease;
   staged += "." + pid + "-" + serial;
   const std::string contents = std::to_string(now_ms + kDictionaryQuiesceLeaseMaxMs) + "\n" + pid + " " + serial + "\n";
@@ -80,6 +110,7 @@ inline bool raise_dictionary_quiesce_lease(const std::string &user_data, std::st
 inline void lower_dictionary_quiesce_lease(const std::string &user_data, const std::string &written) {
   if (user_data.empty() || user_data.front() != '/') return;
   const auto lease = std::filesystem::path(user_data) / std::string(kDictionaryQuiesceLeaseName);
+  if (!dictionary_lease_path_is_safe(lease)) return;
   std::ifstream file(lease, std::ios::binary);
   if (!file) return;
   std::error_code error;

@@ -149,14 +149,12 @@ impl WordbookLibrary {
     pub fn list(&self) -> Result<Vec<WordbookSummary>, WordbookLibraryError> {
         let _lock = self.lock()?;
         let index = self.read_index_locked()?;
-        Ok(index
-            .books
-            .into_iter()
-            .filter(|book| {
-                fs::symlink_metadata(self.book_path(&book.id))
-                    .is_ok_and(|metadata| metadata.file_type().is_file())
-            })
-            .collect())
+        let mut books = Vec::with_capacity(index.books.len());
+        books.extend(index.books.into_iter().filter(|book| {
+            fs::symlink_metadata(self.book_path(&book.id))
+                .is_ok_and(|metadata| metadata.file_type().is_file())
+        }));
+        Ok(books)
     }
 
     /// One book in full. `Ok(None)` when the library does not have it.

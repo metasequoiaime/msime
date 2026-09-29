@@ -98,14 +98,14 @@ pub(crate) fn segment_handwriting_cells(strokes: &[Vec<(f32, f32)>]) -> Vec<Vec<
     if split.len() < 2 || split.len() > MAX_CELLS {
         return whole();
     }
-    split
-        .into_iter()
-        .map(|cell| {
-            let mut strokes = cell.into_iter().map(|span| span.stroke).collect::<Vec<_>>();
-            strokes.sort_unstable();
-            strokes
-        })
-        .collect()
+    let mut result = Vec::with_capacity(split.len());
+    result.extend(split.into_iter().map(|cell| {
+        let mut strokes = Vec::with_capacity(cell.len());
+        strokes.extend(cell.into_iter().map(|span| span.stroke));
+        strokes.sort_unstable();
+        strokes
+    }));
+    result
 }
 
 fn extent(spans: &[Span]) -> (f32, f32) {

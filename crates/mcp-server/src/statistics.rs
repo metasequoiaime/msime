@@ -89,41 +89,33 @@ pub fn load(state_dir: &Path, request: &StatisticsRequest) -> Result<StatisticsV
 
 /// The most recent `days` recorded days rather than a calendar window: only the host knows the user's timezone, so the server does not guess which day today is.
 fn view(statistics: &TypingStatistics, days: usize) -> StatisticsView {
-    let recent: Vec<String> = statistics
-        .days
-        .keys()
-        .rev()
-        .take(days)
-        .rev()
-        .cloned()
-        .collect();
+    let mut recent = Vec::with_capacity(days);
+    recent.extend(statistics.days.keys().rev().take(days).rev().cloned());
     let breakdown = statistics.breakdown(Some(&recent));
     let mut active_ms = 0_u64;
     let mut speed_characters = 0_u64;
     let mut hours: Option<Vec<u64>> = None;
-    let days = recent
-        .iter()
-        .map(|day| {
-            let active = statistics.active_ms(day);
-            let characters = speed_characters_on(statistics, day);
-            if let Some(active) = active.filter(|active| *active > 0) {
-                active_ms = active_ms.saturating_add(active);
-                speed_characters = speed_characters.saturating_add(characters);
+    let mut days = Vec::with_capacity(recent.len());
+    days.extend(recent.iter().map(|day| {
+        let active = statistics.active_ms(day);
+        let characters = speed_characters_on(statistics, day);
+        if let Some(active) = active.filter(|active| *active > 0) {
+            active_ms = active_ms.saturating_add(active);
+            speed_characters = speed_characters.saturating_add(characters);
+        }
+        if let Some(day_hours) = statistics.hours(day) {
+            let sums = hours.get_or_insert_with(|| vec![0; day_hours.len()]);
+            for (sum, count) in sums.iter_mut().zip(day_hours) {
+                *sum = sum.saturating_add(*count);
             }
-            if let Some(day_hours) = statistics.hours(day) {
-                let sums = hours.get_or_insert_with(|| vec![0; day_hours.len()]);
-                for (sum, count) in sums.iter_mut().zip(day_hours) {
-                    *sum = sum.saturating_add(*count);
-                }
-            }
-            DayCount {
-                day: day.clone(),
-                characters: statistics.days[day],
-                active_seconds: active.map(|active| active / 1000),
-                characters_per_minute: active.and_then(|active| per_minute(characters, active)),
-            }
-        })
-        .collect();
+        }
+        DayCount {
+            day: day.clone(),
+            characters: statistics.days[day],
+            active_seconds: active.map(|active| active / 1000),
+            characters_per_minute: active.and_then(|active| per_minute(characters, active)),
+        }
+    }));
     StatisticsView {
         enabled: statistics.enabled,
         total: statistics.total,

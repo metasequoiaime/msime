@@ -1,6 +1,6 @@
 import type { ThemeMode } from "../../index";
 import * as settings from "../settings-style";
-import { candidatePanelLimitNotes, globalThemeDescription } from "../settings-options";
+import { globalThemeDescription } from "../settings-options";
 import {
   themeCatalog,
   themeEntry,
@@ -19,6 +19,7 @@ import { CandidateColorsSection } from "../candidate-colors-section";
 import { ThemeSettingsSection } from "../theme-settings-section";
 import { ScreenKeyboardSkinsSection } from "../screen-keyboard-skins-section";
 import { useSettingsForm } from "../settings-form-context";
+import { CandidatePanelLimitSection } from "../candidate-panel-limit-section";
 
 const themeModeOptions = [
   { value: "system", label: "跟随系统" },
@@ -74,9 +75,7 @@ export function SkinSettingsPage() {
             : "选择候选窗和悬浮工具栏使用的主题；明暗预览仅影响当前卡片，不修改设置。"}
       </div>
       {host?.candidate_panel_limit && (
-        <div className="section">
-          <small>{candidatePanelLimitNotes[host.candidate_panel_limit]}</small>
-        </div>
+        <CandidatePanelLimitSection limit={host.candidate_panel_limit} />
       )}
       <div className={settings.skinGrid}>
         {themeCatalog.map((entry) => {

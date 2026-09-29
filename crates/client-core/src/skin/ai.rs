@@ -367,9 +367,10 @@ where
             first_error.map_or_else(|| Ok(results), Err)
         })?;
         results.sort_by_key(|(index, _)| *index);
-        let results = results.into_iter().map(|(_, result)| result).collect();
+        let mut ordered = Vec::with_capacity(results.len());
+        ordered.extend(results.into_iter().map(|(_, result)| result));
         self.ensure_identity(&user_id)?;
-        Ok(results)
+        Ok(ordered)
     }
 
     fn request_authenticated<T>(
@@ -532,7 +533,7 @@ pub fn plan_ai_skins(text: &str) -> Result<Vec<AiSkinPlan>, AiSkinError> {
 
 fn distinct<T: PartialEq>(values: impl Iterator<Item = T>) -> usize {
     values
-        .fold(Vec::new(), |mut seen, value| {
+        .fold(Vec::with_capacity(3), |mut seen, value| {
             if !seen.contains(&value) {
                 seen.push(value);
             }

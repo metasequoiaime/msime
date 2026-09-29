@@ -135,7 +135,9 @@ pub(super) fn list() -> Result<Vec<String>, &'static str> {
     if catalog.names.is_empty() {
         return Err("font_catalog");
     }
-    Ok(catalog.names.into_iter().collect())
+    let mut names = Vec::with_capacity(catalog.names.len());
+    names.extend(catalog.names);
+    Ok(names)
 }
 
 #[cfg(test)]

@@ -359,8 +359,8 @@ impl PersonalDictionaryStore {
             }) else {
                 return Ok(());
             };
-            let identities: std::collections::HashSet<_> =
-                state.requests[index].identities().collect();
+            let mut identities = std::collections::HashSet::with_capacity(2);
+            identities.extend(state.requests[index].identities());
             if has_identity_conflict(
                 &state.requests,
                 &identities,
@@ -415,15 +415,17 @@ impl PersonalDictionaryStore {
         Page: FnMut(&PersonalPageRequest) -> Result<PersonalWordPage, String>,
     {
         self.update(|state| {
-            let pending: Vec<usize> = state
-                .requests
-                .iter()
-                .enumerate()
-                .filter_map(|(index, request)| {
-                    (request.status == PersonalWordRequestStatus::Pending).then_some(index)
-                })
-                .take(4)
-                .collect();
+            let mut pending = Vec::with_capacity(4);
+            pending.extend(
+                state
+                    .requests
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, request)| {
+                        (request.status == PersonalWordRequestStatus::Pending).then_some(index)
+                    })
+                    .take(4),
+            );
             for index in pending {
                 match apply(&state.requests[index]) {
                     Ok(()) => {
@@ -512,7 +514,8 @@ fn enqueue_request(
     if active >= MAX_ACTIVE_REQUESTS {
         return Err(PersonalDictionaryError::TooManyRequests);
     }
-    let identities: HashSet<_> = request.identities().collect();
+    let mut identities = HashSet::with_capacity(2);
+    identities.extend(request.identities());
     if has_identity_conflict(
         &state.requests,
         &identities,
@@ -540,14 +543,16 @@ fn has_identity_conflict(
 }
 
 fn prune_history(state: &mut PersonalDictionaryState) {
-    let keep: std::collections::HashSet<_> = state
-        .requests
-        .iter()
-        .filter(|request| request.status == PersonalWordRequestStatus::Applied)
-        .rev()
-        .take(MAX_HISTORY)
-        .map(|request| request.id.clone())
-        .collect();
+    let mut keep = std::collections::HashSet::with_capacity(MAX_HISTORY.min(state.requests.len()));
+    keep.extend(
+        state
+            .requests
+            .iter()
+            .filter(|request| request.status == PersonalWordRequestStatus::Applied)
+            .rev()
+            .take(MAX_HISTORY)
+            .map(|request| request.id.clone()),
+    );
     state.requests.retain(|request| {
         request.status != PersonalWordRequestStatus::Applied || keep.contains(&request.id)
     });

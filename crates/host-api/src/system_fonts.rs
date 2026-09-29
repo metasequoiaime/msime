@@ -87,7 +87,9 @@ fn parse_catalog(output: &[u8], max_families: usize) -> Result<Vec<String>, &'st
             }
         }
     }
-    Ok(names.into_iter().collect())
+    let mut result = Vec::with_capacity(names.len());
+    result.extend(names);
+    Ok(result)
 }
 
 #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
@@ -280,7 +282,9 @@ mod macos {
                 }
             }
         }
-        Ok(names.into_iter().collect())
+        let mut result = Vec::with_capacity(names.len());
+        result.extend(names);
+        Ok(result)
     }
 
     #[cfg(test)]

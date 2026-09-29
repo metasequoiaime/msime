@@ -64,5 +64,21 @@ int main() {
           "fresh file after rotation");
 
   std::filesystem::remove_all(root);
+  const auto linked_root = std::filesystem::path(temp) /
+                           (L"msime-diagnostic-log-linked-" +
+                            std::to_wstring(GetCurrentProcessId()));
+  const auto outside = linked_root / L"outside";
+  std::filesystem::remove_all(linked_root);
+  require(std::filesystem::create_directories(outside), "outside directory");
+  const auto logs = linked_root / L"logs";
+  if (CreateSymbolicLinkW(logs.c_str(), outside.c_str(), SYMBOLIC_LINK_FLAG_DIRECTORY)) {
+    DiagnosticLog linked_log(logs / L"server.log");
+    linked_log.set_enabled(true, false);
+    linked_log.server("must not escape");
+    require(!std::filesystem::exists(outside / L"server.log"),
+            "diagnostic log followed a reparse point");
+    std::filesystem::remove(logs);
+  }
+  std::filesystem::remove_all(linked_root);
   return 0;
 }

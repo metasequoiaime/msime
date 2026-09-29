@@ -1,7 +1,5 @@
-import type { Preferences } from "../../index";
 import * as settings from "../settings-style";
 import { useSettingsForm } from "../settings-form-context";
-import { CredentialStatusMessage } from "../credential-status-message";
 import { SubPageEntries } from "./sub-page-entries";
 import { GroupList, Row, Select, Switch } from "../../core/platform-controls";
 import { FuzzyPinyinSection } from "../fuzzy-pinyin-section";
@@ -13,8 +11,11 @@ import { NiuTransSection } from "../niutrans-section";
 import { TencentTranslationSection } from "../tencent-translation-section";
 import { CustomTranslationsSection } from "../custom-translations-section";
 import { CustomTranslationSection } from "../custom-translation-section";
+import { LinuxTencentCredentialsSection } from "../linux-tencent-credentials-section";
+import { CandidateTranslationOptionsSection } from "../candidate-translation-options-section";
 import { tencentCredentialIssue, translationEndpointIssue } from "../translation-validation";
 import { tencentSecretConfigured } from "../credential-utils";
+import { OnDeviceTranslationNotice } from "../on-device-translation-notice";
 import {
   customTranslationCredentialTestConfig,
   customTranslationCredentialTestDisabled,
@@ -61,7 +62,6 @@ export function ExpressionSettingsPage() {
     englishSuggestions,
     candidateGlossLanguagesEnabled,
     translationTargetLanguage,
-    translationSecondaryLanguage,
     visibleTranslationLanguages,
     visibleSecondaryLanguages,
     customTranslation,
@@ -120,100 +120,43 @@ export function ExpressionSettingsPage() {
           )}
         </GroupList>
         <GroupList title="候选词翻译">
-          <Row title="候选词翻译" description="为当前候选请求翻译结果并显示在候选行">
-            <Switch
-              checked={candidateTranslations}
-              onChange={(checked) => setDraft({ ...draft, candidate_translations: checked })}
-            />
-          </Row>
-          <Row title="目标语言">
-            <Select
-              aria-label="候选词翻译目标语言"
-              disabled={!candidateGlossLanguagesEnabled}
-              value={translationTargetLanguage}
-              onChange={(event) =>
-                setDraft({
-                  ...draft,
-                  translation_target_language: event.target
-                    .value as Preferences["translation_target_language"],
-                })
-              }
-            >
-              {visibleTranslationLanguages.map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </Select>
-          </Row>
-          {(androidPlatform || iosPlatform || macosPlatform || harmonyPlatform) && (
-            <Row title="第二种语言" description="候选词下方可同时显示第二种释义">
-              <Select
-                aria-label="候选词翻译第二种语言"
-                disabled={!candidateGlossLanguagesEnabled}
-                value={translationSecondaryLanguage}
-                onChange={(event) =>
-                  setDraft({
-                    ...draft,
-                    translation_secondary_language:
-                      event.target.value === ""
-                        ? null
-                        : (event.target.value as Preferences["translation_target_language"]),
-                  })
-                }
-              >
-                {visibleSecondaryLanguages.map(([value, label]) => (
-                  <option key={value || "none"} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </Select>
-            </Row>
-          )}
-          {androidPlatform && (
-            <Row
-              title="使用水杉账号翻译候选词"
-              description="当前页的中文候选词会发送到 api.msime.app；匿名账号在 Linux 安装后的用户初始化中自动注册；不开启则不联网翻译"
-            >
-              <Switch
-                disabled={translationControlsDisabled}
-                checked={draft.translation_account ?? false}
-                onChange={(checked) =>
-                  checked
-                    ? setTranslationProvider("account")
-                    : setDraft({ ...draft, translation_account: undefined })
-                }
-              />
-            </Row>
-          )}
+          <CandidateTranslationOptionsSection
+            enabled={candidateTranslations}
+            targetLanguage={translationTargetLanguage}
+            secondaryLanguage={draft.translation_secondary_language ?? ""}
+            candidateGlossLanguagesEnabled={candidateGlossLanguagesEnabled}
+            visibleLanguages={visibleTranslationLanguages}
+            visibleSecondaryLanguages={visibleSecondaryLanguages}
+            showSecondaryLanguage={
+              androidPlatform || iosPlatform || macosPlatform || harmonyPlatform
+            }
+            showAccountTranslation={androidPlatform}
+            accountTranslation={draft.translation_account ?? false}
+            onEnabledChange={(candidate_translations) =>
+              setDraft({ ...draft, candidate_translations })
+            }
+            onTargetLanguageChange={(translation_target_language) =>
+              setDraft({ ...draft, translation_target_language })
+            }
+            onSecondaryLanguageChange={(value) =>
+              setDraft({
+                ...draft,
+                translation_secondary_language: value === "" ? null : value,
+              })
+            }
+            onAccountTranslationChange={(enabled) =>
+              enabled
+                ? setTranslationProvider("account")
+                : setDraft({ ...draft, translation_account: undefined })
+            }
+          />
           {onDeviceMissingLanguages.length > 0 && (
             <div className={settings.groupBlock}>
-              <div role="status" className={settings.groupNote} aria-label="系统翻译语言未下载">
-                <p>
-                  整句候选暂时没有翻译：macOS 还没有下载「中文（简体）→{" "}
-                  {onDeviceMissingLanguages.map(([, label]) => label).join("、")}
-                  」翻译语言。离线词库只收词语，「现在几点了」这样的整句要靠系统在本机翻译，不联网。
-                </p>
-                <p>
-                  请在 系统设置 &gt; 通用 &gt; 语言与地区 &gt; 翻译语言
-                  中下载，然后回到输入框继续输入即可生效。也可以在下方选择一个在线翻译服务。{" "}
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() =>
-                      void client.onDeviceTranslation
-                        ?.openSettings()
-                        .catch(() =>
-                          setError(
-                            "无法打开系统设置，请手动前往 系统设置 > 通用 > 语言与地区 > 翻译语言。",
-                          ),
-                        )
-                    }
-                  >
-                    打开语言与地区
-                  </button>
-                </p>
-              </div>
+              <OnDeviceTranslationNotice
+                languages={onDeviceMissingLanguages.map(([, label]) => label)}
+                openSettings={client.onDeviceTranslation?.openSettings}
+                onError={setError}
+              />
             </div>
           )}
           {!androidPlatform && (
@@ -267,136 +210,45 @@ export function ExpressionSettingsPage() {
             </GroupList>
             <GroupList title="腾讯云机器翻译">
               {linuxPlatform ? (
-                <div role="group" aria-label="在线翻译服务" className={settings.rowStack}>
-                  <Row
-                    title="在线翻译服务"
-                    description="由用户管理的 Linux provider 服务负责网络请求和凭据"
-                  />
-                  {client.providerCredentials ? (
-                    <>
-                      <p className={settings.groupNote}>
-                        {providerCredentials?.tencentInvalid
-                          ? "现有 tencent-provider.json 无效，provider 服务不会发出翻译请求；请修复或删除该文件。"
-                          : providerCredentials?.tencent
-                            ? "腾讯云凭据已保存；SecretId 和 SecretKey 留空则保留原值。"
-                            : "凭据只写入用户配置目录的 tencent-provider.json，由 provider 服务读取，不进入共享设置。"}
-                      </p>
-                      <Row title="SecretId">
-                        <input
-                          aria-label="腾讯云 SecretId"
-                          type="password"
-                          autoComplete="off"
-                          value={tencentCredentialInput.secretId}
-                          onChange={(event) =>
-                            setTencentCredentialInput({
-                              ...tencentCredentialInput,
-                              secretId: event.target.value,
-                            })
-                          }
-                        />
-                      </Row>
-                      <Row title="SecretKey">
-                        <input
-                          aria-label="腾讯云 SecretKey"
-                          type="password"
-                          autoComplete="off"
-                          value={tencentCredentialInput.secretKey}
-                          onChange={(event) =>
-                            setTencentCredentialInput({
-                              ...tencentCredentialInput,
-                              secretKey: event.target.value,
-                            })
-                          }
-                        />
-                      </Row>
-                      <Row title="地域">
-                        <input
-                          aria-label="腾讯云地域"
-                          value={
-                            tencentCredentialInput.region ??
-                            providerCredentials?.tencent?.region ??
-                            "ap-guangzhou"
-                          }
-                          onChange={(event) =>
-                            setTencentCredentialInput({
-                              ...tencentCredentialInput,
-                              region: event.target.value,
-                            })
-                          }
-                        />
-                      </Row>
-                      <div className={settings.groupBlock}>
-                        <div className={settings.serviceRow}>
-                          <div>
-                            <button
-                              type="button"
-                              className="secondary"
-                              disabled={
-                                providerCredentialBusy === "tencent" ||
-                                (!providerCredentials?.tencent &&
-                                  (!tencentCredentialInput.secretId.trim() ||
-                                    !tencentCredentialInput.secretKey.trim()))
-                              }
-                              onClick={() =>
-                                void runProviderCredential(
-                                  "tencent",
-                                  (credentials) =>
-                                    credentials.saveTencent({
-                                      ...(tencentCredentialInput.secretId.trim()
-                                        ? { secretId: tencentCredentialInput.secretId }
-                                        : {}),
-                                      ...(tencentCredentialInput.secretKey.trim()
-                                        ? { secretKey: tencentCredentialInput.secretKey }
-                                        : {}),
-                                      region:
-                                        tencentCredentialInput.region ??
-                                        providerCredentials?.tencent?.region ??
-                                        "ap-guangzhou",
-                                    }),
-                                  "凭据已保存，provider 服务下次请求时生效。",
-                                )
-                              }
-                            >
-                              保存凭据
-                            </button>
-                            {providerCredentials?.tencent && (
-                              <button
-                                type="button"
-                                className="secondary"
-                                disabled={providerCredentialBusy === "tencent"}
-                                onClick={() =>
-                                  void runProviderCredential(
-                                    "tencent",
-                                    (credentials) => credentials.clearTencent(),
-                                    "凭据已清除。",
-                                  )
-                                }
-                              >
-                                清除凭据
-                              </button>
-                            )}
-                            <CredentialStatusMessage message={providerCredentialMessages.tencent} />
-                          </div>
-                        </div>
-                      </div>
-                    </>
-                  ) : (
-                    <p className={settings.groupNote}>
-                      候选词翻译开启后，provider 从用户配置目录的 <code>tencent-provider.json</code>{" "}
-                      读取腾讯云凭据；设置页不保存不会生效的 SecretId 或 SecretKey。
-                    </p>
-                  )}
-                  {translationProvider === "tencent" && (
-                    <div className={settings.groupBlock}>
-                      {credentialTestControl(
-                        "translation.tencent",
-                        "测试腾讯云翻译配置",
-                        {},
-                        translationControlsDisabled,
-                      )}
-                    </div>
-                  )}
-                </div>
+                <LinuxTencentCredentialsSection
+                  available={Boolean(client.providerCredentials)}
+                  status={
+                    providerCredentials
+                      ? {
+                          tencent: providerCredentials.tencent,
+                          tencentInvalid: providerCredentials.tencentInvalid,
+                        }
+                      : undefined
+                  }
+                  input={tencentCredentialInput}
+                  busy={providerCredentialBusy === "tencent"}
+                  message={providerCredentialMessages.tencent}
+                  onInputChange={(patch) =>
+                    setTencentCredentialInput({ ...tencentCredentialInput, ...patch })
+                  }
+                  onSave={(credential) =>
+                    void runProviderCredential(
+                      "tencent",
+                      (credentials) => credentials.saveTencent(credential),
+                      "凭据已保存，provider 服务下次请求时生效。",
+                    )
+                  }
+                  onClear={() =>
+                    void runProviderCredential(
+                      "tencent",
+                      (credentials) => credentials.clearTencent(),
+                      "凭据已清除。",
+                    )
+                  }
+                >
+                  {translationProvider === "tencent" &&
+                    credentialTestControl(
+                      "translation.tencent",
+                      "测试腾讯云翻译配置",
+                      {},
+                      translationControlsDisabled,
+                    )}
+                </LinuxTencentCredentialsSection>
               ) : (
                 <TencentTranslationSection
                   enabled={tencentTranslation.enabled}

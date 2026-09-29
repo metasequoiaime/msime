@@ -40,6 +40,7 @@
 #include "WindowsServer.h"
 #include "ipc_negotiation.h"
 #include <fstream>
+#include <windows.h>
 #include <iostream>
 #include <map>
 #include <memory>
@@ -204,16 +205,36 @@ std::string read_document(const std::filesystem::path &path) {
 void write_document_atomic(const std::filesystem::path &path, const std::string &document) {
   if (document.size() > kMaxConfigBytes)
     throw std::runtime_error("Configuration document oversized");
-  const auto temporary = path.wstring() + L".tmp";
-  {
-    std::ofstream output(std::filesystem::path(temporary), std::ios::binary | std::ios::trunc);
-    if (!output) throw std::runtime_error("Configuration temporary file unavailable");
-    output.write(document.data(), static_cast<std::streamsize>(document.size()));
-    output.flush();
-    if (!output) throw std::runtime_error("Configuration write failed");
+#ifdef _WIN32
+  msime::windows::reject_reparse_ancestors(path.parent_path());
+#endif
+  wchar_t temporary_name[MAX_PATH] = {};
+  if (!GetTempFileNameW(path.parent_path().c_str(), L"msi", 0, temporary_name))
+    throw std::runtime_error("Configuration temporary file unavailable");
+  const std::filesystem::path temporary(temporary_name);
+  HANDLE handle = CreateFileW(temporary.c_str(), GENERIC_WRITE, 0, nullptr,
+                              OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (handle == INVALID_HANDLE_VALUE) {
+    std::filesystem::remove(temporary);
+    throw std::runtime_error("Configuration temporary file unavailable");
   }
-  if (!MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+  DWORD written = 0;
+  const bool complete = document.size() <= MAXDWORD &&
+                        WriteFile(handle, document.data(),
+                                  static_cast<DWORD>(document.size()), &written,
+                                  nullptr) &&
+                        written == static_cast<DWORD>(document.size()) &&
+                        FlushFileBuffers(handle);
+  CloseHandle(handle);
+  if (!complete) {
+    std::filesystem::remove(temporary);
+    throw std::runtime_error("Configuration write failed");
+  }
+  if (!MoveFileExW(temporary.c_str(), path.c_str(),
+                   MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+    std::filesystem::remove(temporary);
     throw std::runtime_error("Configuration replace failed");
+  }
 }
 // The native toolbar and TSF shortcut use the same revisioned store as the
 // settings shell. Read and write on their shared single action worker so
@@ -486,6 +507,9 @@ void publish_switch_language_keybindings(const nlohmann::json &preferences) {
   values.character_set_ctrl_shift_f =
       bindings.value("toggle_character_set_ctrl_shift_f", true);
   try {
+#ifdef _WIN32
+    msime::windows::reject_reparse_ancestors(path.parent_path());
+#endif
     std::string existing;
     {
       std::ifstream input(path, std::ios::binary);
@@ -502,21 +526,9 @@ void publish_switch_language_keybindings(const nlohmann::json &preferences) {
       return;
     std::error_code ignored;
     std::filesystem::create_directories(path.parent_path(), ignored);
-    // Write beside the target and rename over it: a crash mid-write must not
-    // leave the user with a truncated config the TIP then reads as defaults.
-    const auto temporary = std::filesystem::path(path).concat(L".new");
-    {
-      std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
-      if (!output)
-        return;
-      output.write(updated.data(),
-                   static_cast<std::streamsize>(updated.size()));
-      if (!output)
-        return;
-    }
-    std::filesystem::rename(temporary, path, ignored);
-    if (ignored)
-      std::filesystem::remove(temporary, ignored);
+    // Use a unique private sibling so a pre-existing staging symlink cannot
+    // redirect the keybinding document outside the state directory.
+    write_document_atomic(path, updated);
   } catch (const std::exception &) {
     // A read-only or roaming profile is the user's business, not a fatal error.
   }
@@ -645,6 +657,7 @@ int wmain(int argc, wchar_t **argv) {
       document = production_preview_document(document, default_state);
     auto config = PreviewConfig::parse(document);
     config.resources = std::filesystem::canonical(config.resources);
+    reject_reparse_ancestors(config.state_root);
     config.state_root = std::filesystem::weakly_canonical(config.state_root);
     if (contains(config.resources, config.state_root) ||
         contains(config.state_root, config.resources))

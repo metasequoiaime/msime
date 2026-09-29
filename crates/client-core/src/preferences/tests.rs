@@ -18,6 +18,22 @@ fn preference_store_rejects_a_symlinked_directory_without_writing_through_it() {
     assert!(!target.path().join("preferences.lock").exists());
 }
 
+#[cfg(unix)]
+#[test]
+fn preference_store_rejects_a_symlinked_document() {
+    let directory = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let path = directory.path().join("preferences.json");
+    let outside_path = outside.path().join("preferences.json");
+    std::fs::write(&outside_path, br#"{"formatVersion":1}"#).unwrap();
+    std::os::unix::fs::symlink(&outside_path, &path).unwrap();
+
+    assert!(matches!(
+        PreferencesStore::new(directory.path()).load(),
+        Err(PreferencesError::Io(_))
+    ));
+}
+
 #[test]
 fn voice_commit_mode_defaults_for_legacy_documents() {
     let mut value = serde_json::to_value(Preferences::default()).unwrap();

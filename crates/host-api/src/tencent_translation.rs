@@ -102,10 +102,13 @@ pub fn parse(bytes: &[u8], expected: usize) -> Option<Value> {
         return None;
     }
     let values = translation::parse_tencent_tmt_response(text, expected)?;
-    Some(json!(values
-        .iter()
-        .map(|text| translation::format_translation_gloss(text).filter(|text| text.len() <= 4096))
-        .collect::<Vec<_>>()))
+    let mut glosses = Vec::with_capacity(values.len());
+    glosses.extend(
+        values.iter().map(|text| {
+            translation::format_translation_gloss(text).filter(|text| text.len() <= 4096)
+        }),
+    );
+    Some(json!(glosses))
 }
 
 #[cfg(test)]

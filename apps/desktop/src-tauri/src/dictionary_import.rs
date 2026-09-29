@@ -249,13 +249,24 @@ fn json_escaped_len(text: &str) -> usize {
         .sum()
 }
 
-#[derive(Default)]
 struct ImportTotal {
     applied: u64,
     failed: u64,
     truncated: bool,
     swapped: bool,
     failures: Vec<ImportFailure>,
+}
+
+impl Default for ImportTotal {
+    fn default() -> Self {
+        Self {
+            applied: 0,
+            failed: 0,
+            truncated: false,
+            swapped: false,
+            failures: Vec::with_capacity(REPORTED_FAILURES),
+        }
+    }
 }
 
 impl ImportTotal {

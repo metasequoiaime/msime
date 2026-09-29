@@ -1211,11 +1211,8 @@ pub unsafe extern "C" fn msime_client_load_clipboard_history(
         history
             .load()
             .map_err(|_| "clipboard history unavailable")?;
-        let entries: Vec<_> = history
-            .entries()
-            .iter()
-            .map(|entry| entry.text.as_str())
-            .collect();
+        let mut entries = Vec::with_capacity(history.entries().len());
+        entries.extend(history.entries().iter().map(|entry| entry.text.as_str()));
         // Keep the existing ABI shape until native hosts opt into the
         // structured history bridge in their platform-specific migrations.
         Ok(serde_json::json!({"enabled": true, "entries": entries}))

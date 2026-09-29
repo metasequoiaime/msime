@@ -241,17 +241,7 @@ impl TranslationGlossStore {
 }
 
 fn reject_symlink(path: &Path) -> Result<(), GlossStoreError> {
-    match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_symlink() => {
-            Err(GlossStoreError::Io(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "learned translation storage path is a symbolic link",
-            )))
-        }
-        Ok(_) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error.into()),
-    }
+    crate::storage::reject_symlink(path).map_err(GlossStoreError::Io)
 }
 
 #[cfg(test)]

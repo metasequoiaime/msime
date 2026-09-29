@@ -231,11 +231,13 @@ pub fn status(
                 settings.session_limit as usize,
             )
             .ok_or(ReviewSessionError::InvalidDay)?;
-            let cards = built
-                .words
-                .iter()
-                .filter_map(|word| book.entry(word).cloned())
-                .collect();
+            let mut cards = Vec::with_capacity(built.words.len());
+            cards.extend(
+                built
+                    .words
+                    .iter()
+                    .filter_map(|word| book.entry(word).cloned()),
+            );
             (cards, built.due, built.introducing, built.remaining)
         }
     };

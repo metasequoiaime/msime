@@ -8,7 +8,7 @@
 
 use std::ffi::OsStr;
 use std::fs::File;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -24,7 +24,48 @@ pub const BUSY: &str = "dictionary maintenance busy";
 /// unbounded allocation when a writer is dropped.
 const MAX_LEASE_BYTES: u64 = 4096;
 
+fn reject_symlinked_path_ancestors(path: &Path) -> std::io::Result<()> {
+    let mut current = PathBuf::new();
+    let mut saw_prefix_alias = false;
+    let mut saw_real_component = false;
+    let components: Vec<_> = path.components().collect();
+    for (index, component) in components.iter().enumerate() {
+        match component {
+            Component::Prefix(_) | Component::RootDir => current.push(component),
+            Component::CurDir => continue,
+            Component::ParentDir => current.push(component),
+            Component::Normal(_) => {
+                current.push(component);
+                match std::fs::symlink_metadata(&current) {
+                    Ok(metadata) if metadata.file_type().is_symlink() => {
+                        let system_alias = path.is_absolute()
+                            && !saw_real_component
+                            && !saw_prefix_alias
+                            && matches!(component, Component::Normal(name) if *name == std::ffi::OsStr::new("tmp") || *name == std::ffi::OsStr::new("var"));
+                        if index + 1 == components.len()
+                            || saw_real_component
+                            || saw_prefix_alias
+                            || !system_alias
+                        {
+                            return Err(std::io::Error::new(
+                                std::io::ErrorKind::InvalidInput,
+                                "dictionary lease path is a symbolic link",
+                            ));
+                        }
+                        saw_prefix_alias = true;
+                    }
+                    Ok(_) => saw_real_component = true,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(error),
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn read_lease(path: &Path) -> Option<String> {
+    reject_symlinked_path_ancestors(path).ok()?;
     let bytes = crate::bounded_io::read_bounded_file_with(
         File::open(path).ok()?,
         MAX_LEASE_BYTES,
@@ -77,6 +118,8 @@ impl Lease {
             std::process::id(),
             self.serial
         ));
+        reject_symlinked_path_ancestors(&self.path)?;
+        reject_symlinked_path_ancestors(&staged)?;
         // The owner line tells this lease from one another writer put up; the expiry alone could coincide.
         let contents = format!("{expiry}\n{}\n", self.owner);
         if let Err(error) =
@@ -277,6 +320,39 @@ mod tests {
         let path = directory.path().join(LEASE_NAME);
         std::fs::write(&path, vec![b'x'; MAX_LEASE_BYTES as usize + 1]).unwrap();
         assert_eq!(read_lease(&path), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_user_data_is_rejected_without_writing_outside() {
+        use std::os::unix::fs::symlink;
+
+        let target = tempfile::tempdir().unwrap();
+        let parent = tempfile::tempdir().unwrap();
+        let linked = parent.path().join("linked-user-data");
+        symlink(target.path(), &linked).unwrap();
+        assert!(Lease::acquire(&linked).is_err());
+        assert!(!target.path().join(LEASE_NAME).exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn existing_lease_below_a_symlinked_parent_is_rejected() {
+        use std::os::unix::fs::symlink;
+
+        let target = tempfile::tempdir().unwrap();
+        let parent = tempfile::tempdir().unwrap();
+        let target_data = target.path().join("data");
+        std::fs::create_dir(&target_data).unwrap();
+        let linked = parent.path().join("linked");
+        symlink(target.path(), &linked).unwrap();
+        let user_data = linked.join("data");
+        std::fs::write(user_data.join(LEASE_NAME), b"synthetic\n").unwrap();
+        assert!(Lease::acquire(&user_data).is_err());
+        assert_eq!(
+            std::fs::read_to_string(target_data.join(LEASE_NAME)).unwrap(),
+            "synthetic\n"
+        );
     }
 
     #[test]

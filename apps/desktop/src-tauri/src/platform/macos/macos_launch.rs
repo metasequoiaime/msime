@@ -58,12 +58,32 @@ pub(crate) fn resolve_with_resources(
     if !options_path.is_absolute() {
         return Err("HostOptions path must be absolute");
     }
-    if using_default_options && !options_path.exists() {
+    if let Some(parent) = options_path.parent() {
+        crate::shared::atomic_file::check_directory_ancestors(parent)
+            .map_err(|_| "Cannot read prepared HostOptions JSON")?;
+    }
+    let options_exists = match fs::symlink_metadata(&options_path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            return Err("Cannot read prepared HostOptions JSON");
+        }
+        Ok(_) => true,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(_) => return Err("Cannot read prepared HostOptions JSON"),
+    };
+    if using_default_options && !options_exists {
         let resources = resources_directory.ok_or("Cannot read prepared HostOptions JSON")?;
         let state_root = state_directory.as_deref().unwrap_or(application_directory);
         prepare_default_options(resources, state_root, &options_path)?;
     }
-    if options_path.symlink_metadata().is_ok() {
+    if options_exists || options_path.symlink_metadata().is_ok() {
+        if options_path
+            .symlink_metadata()
+            .map_err(|_| "Cannot read prepared HostOptions JSON")?
+            .file_type()
+            .is_symlink()
+        {
+            return Err("Cannot read prepared HostOptions JSON");
+        }
         refresh_options(&options_path);
     }
     let file =
@@ -179,7 +199,8 @@ fn copy_legacy_state(source: &Path, destination: &Path) -> Result<(), &'static s
     let parent = destination
         .parent()
         .ok_or("Cannot migrate legacy application data")?;
-    fs::create_dir_all(parent).map_err(|_| "Cannot migrate legacy application data")?;
+    crate::shared::atomic_file::create_directory_and_check(parent)
+        .map_err(|_| "Cannot migrate legacy application data")?;
     let staging = tempfile::Builder::new()
         .prefix(".msime-client-migration-")
         .tempdir_in(parent)
@@ -318,7 +339,8 @@ fn prepare_default_options(
     state_root: &Path,
     options_path: &Path,
 ) -> Result<(), &'static str> {
-    std::fs::create_dir_all(state_root).map_err(|_| "Cannot prepare default HostOptions JSON")?;
+    crate::shared::atomic_file::create_directory_and_check(state_root)
+        .map_err(|_| "Cannot prepare default HostOptions JSON")?;
     let document = msime_host_api::prepare_host_configuration(resources_directory, state_root)
         .map_err(|_| "Cannot prepare default HostOptions JSON")?;
     let document: Value =
@@ -333,7 +355,8 @@ fn publish_options(options_path: &Path, document: &Value) -> Result<(), &'static
     let parent = options_path
         .parent()
         .ok_or("Cannot prepare default HostOptions JSON")?;
-    std::fs::create_dir_all(parent).map_err(|_| "Cannot prepare default HostOptions JSON")?;
+    crate::shared::atomic_file::create_directory_and_check(parent)
+        .map_err(|_| "Cannot prepare default HostOptions JSON")?;
     let serialized = serde_json::to_vec_pretty(document)
         .map_err(|_| "Cannot prepare default HostOptions JSON")?;
     let mut temporary = tempfile::NamedTempFile::new_in(parent)
@@ -353,7 +376,8 @@ pub(crate) fn replace_options(options_path: &Path, document: &Value) -> Result<(
     let parent = options_path
         .parent()
         .ok_or("Cannot publish prepared HostOptions JSON")?;
-    std::fs::create_dir_all(parent).map_err(|_| "Cannot publish prepared HostOptions JSON")?;
+    crate::shared::atomic_file::create_directory_and_check(parent)
+        .map_err(|_| "Cannot publish prepared HostOptions JSON")?;
     let serialized = serde_json::to_vec_pretty(document)
         .map_err(|_| "Cannot publish prepared HostOptions JSON")?;
     let mut temporary = tempfile::NamedTempFile::new_in(parent)
@@ -456,6 +480,26 @@ mod tests {
         assert_eq!(launch.options_path, path);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn refuses_a_symlinked_options_file() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let application = root.path().join("app");
+        std::fs::create_dir(&application).unwrap();
+        let outside = root.path().join("outside-options.json");
+        std::fs::write(
+            &outside,
+            json!({"preferences_directory": root.path().join("outside-state")}).to_string(),
+        )
+        .unwrap();
+        symlink(&outside, application.join("runtime-options.json")).unwrap();
+
+        assert!(resolve(&application, None, None).is_err());
+        assert!(!root.path().join("outside-state").exists());
+    }
+
     #[test]
     fn bad_explicit_paths_never_fall_back_to_another_store() {
         let root = tempfile::tempdir().unwrap();
@@ -504,6 +548,24 @@ mod tests {
                 ["preferences_directory"],
             "/synthetic/new"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn replace_options_refuses_a_symlinked_parent() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let linked = root.path().join("redirect");
+        symlink(outside.path(), &linked).unwrap();
+        let path = linked.join("runtime-options.json");
+
+        assert_eq!(
+            replace_options(&path, &json!({"synthetic": true})),
+            Err("Cannot publish prepared HostOptions JSON")
+        );
+        assert!(!outside.path().join("runtime-options.json").exists());
     }
 
     #[test]

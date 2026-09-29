@@ -603,6 +603,10 @@ export {
   type CandidatePaletteSectionProps,
 } from "./settings/candidate-palette-section";
 export { VoicePolishSection, type VoicePolishSectionProps } from "./settings/voice-polish-section";
+export {
+  VoicePolishSettingsSection,
+  type VoicePolishSettingsSectionProps,
+} from "./settings/voice-polish-settings-section";
 export { availableSettingsPages, type AvailablePageCapabilities } from "./settings/available-pages";
 export { describeImportResult } from "./dictionary/dictionary-messages";
 export {
@@ -751,6 +755,22 @@ export {
 } from "./settings/touch-keyboard-geometry-section";
 export { VoiceSettingsPanel, type VoiceSettingsPanelProps } from "./settings/voice-settings-panel";
 export {
+  VoiceAsrProviderSettingsSection,
+  type VoiceAsrProviderSettingsSectionProps,
+} from "./settings/voice-asr-provider-settings-section";
+export {
+  VoiceLocalModelSettingsSection,
+  type VoiceLocalModelSettingsSectionProps,
+} from "./settings/voice-local-model-settings-section";
+export {
+  VoiceInputBasicsSection,
+  type VoiceInputBasicsSectionProps,
+} from "./settings/voice-input-basics-section";
+export {
+  VoiceRecordingBehaviorSettingsSection,
+  type VoiceRecordingBehaviorSettingsSectionProps,
+} from "./settings/voice-recording-behavior-settings-section";
+export {
   VoiceCredentialControl,
   type VoiceCredentialControlProps,
 } from "./settings/voice-credential-control";
@@ -804,6 +824,10 @@ export {
   type VoiceCaptureBackend,
 } from "./settings/voice-capture-devices-section";
 export { VoiceSyntheticSilenceNotice } from "./settings/voice-synthetic-silence-notice";
+export {
+  VoiceAsrServiceTestSection,
+  type VoiceAsrServiceTestSectionProps,
+} from "./settings/voice-asr-service-test-section";
 export {
   VoiceHotkeysSection,
   type VoiceHotkeysSectionProps,

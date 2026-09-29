@@ -7,7 +7,7 @@
 use crate::platform::desktop::desktop_account;
 use msime_client_core::account::{AccountError, AccountSessionStorage, SavedAccountSession};
 use std::io::Write;
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 /// A session document is a pair of JWTs and an expiry. Anything appreciably
@@ -29,6 +29,9 @@ impl LinuxAccountStorage {
 
 impl AccountSessionStorage for LinuxAccountStorage {
     fn load(&self) -> Result<Option<SavedAccountSession>, AccountError> {
+        if let Some(parent) = self.path.parent() {
+            super::reject_symlink_ancestors(parent).map_err(|_| AccountError::Storage)?;
+        }
         // symlink_metadata, not metadata: a symlink here is not a store this
         // host wrote, and following it would read through a path chosen by
         // whoever planted it. A file any other user can read is likewise not
@@ -65,7 +68,11 @@ impl AccountSessionStorage for LinuxAccountStorage {
             return Err(AccountError::Storage);
         }
         let directory = self.path.parent().ok_or(AccountError::Storage)?;
-        std::fs::create_dir_all(directory).map_err(|_| AccountError::Storage)?;
+        if !super::create_directory_and_check(directory).map_err(|_| AccountError::Storage)? {
+            return Err(AccountError::Storage);
+        }
+        std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700))
+            .map_err(|_| AccountError::Storage)?;
         // Publish by rename so a reader never sees a half-written document, and
         // create the temporary file 0600 from the start rather than widening it
         // afterwards - between create and chmod the tokens would be readable.
@@ -96,6 +103,9 @@ impl AccountSessionStorage for LinuxAccountStorage {
     }
 
     fn clear(&self) -> Result<(), AccountError> {
+        if let Some(parent) = self.path.parent() {
+            super::reject_symlink_ancestors(parent).map_err(|_| AccountError::Storage)?;
+        }
         match std::fs::remove_file(&self.path) {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -112,6 +122,7 @@ pub fn setup(app: &tauri::AppHandle, directory: &Path) -> Result<(), Box<dyn std
 #[cfg(test)]
 mod tests {
     use super::*;
+    use msime_client_core::account::{AccountTokens, AccountUser};
 
     #[test]
     fn oversized_session_is_rejected_after_a_bounded_read() {
@@ -123,5 +134,59 @@ mod tests {
         )
         .unwrap();
         assert!(matches!(storage.load(), Err(AccountError::Storage)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_a_symlinked_storage_ancestor_before_save() {
+        let outside = tempfile::tempdir().unwrap();
+        let parent = tempfile::tempdir().unwrap();
+        let real = parent.path().join("real");
+        std::fs::create_dir(&real).unwrap();
+        let linked = real.join("linked");
+        std::os::unix::fs::symlink(outside.path(), &linked).unwrap();
+        let storage = LinuxAccountStorage::new(&linked.join("state"));
+        let session = SavedAccountSession {
+            tokens: AccountTokens {
+                access_token: "synthetic-access".into(),
+                refresh_token: "synthetic-refresh".into(),
+                token_type: "Bearer".into(),
+                expires_in: 60,
+                user: AccountUser {
+                    id: "synthetic-user".into(),
+                    display_name: "Synthetic".into(),
+                    created_at: "2026-01-01T00:00:00Z".into(),
+                },
+            },
+            expires_at_unix_ms: 1,
+        };
+        assert!(matches!(storage.save(&session), Err(AccountError::Storage)));
+        assert!(!outside.path().join("state").exists());
+    }
+
+    #[test]
+    fn creates_account_directory_owner_only() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("nested");
+        let storage = LinuxAccountStorage::new(&directory);
+        let session = SavedAccountSession {
+            tokens: AccountTokens {
+                access_token: "synthetic-access".into(),
+                refresh_token: "synthetic-refresh".into(),
+                token_type: "Bearer".into(),
+                expires_in: 60,
+                user: AccountUser {
+                    id: "synthetic-user".into(),
+                    display_name: "Synthetic".into(),
+                    created_at: "2026-01-01T00:00:00Z".into(),
+                },
+            },
+            expires_at_unix_ms: 1,
+        };
+        storage.save(&session).unwrap();
+        assert_eq!(
+            std::fs::metadata(directory).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
     }
 }

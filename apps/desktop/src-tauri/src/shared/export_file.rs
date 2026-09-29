@@ -49,7 +49,7 @@ pub(crate) fn save(directory: &Path, name: &str, contents: &str) -> Result<PathB
     if contents.len() > CONTENTS_MAX_BYTES {
         return Err("export_too_large");
     }
-    std::fs::create_dir_all(directory).map_err(|_| "storage")?;
+    super::atomic_file::create_directory_and_check(directory).map_err(|_| "storage")?;
     let directory = std::path::absolute(directory).map_err(|_| "storage")?;
     for index in 1..=MAX_DUPLICATES {
         let candidate = numbered_name(name, index);
@@ -150,5 +150,19 @@ mod tests {
         let state = tempfile::tempdir().unwrap();
         assert_eq!(save(state.path(), "../words.txt", "x"), Err("export_name"));
         assert_eq!(std::fs::read_dir(state.path()).unwrap().count(), 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refuses_a_symlinked_downloads_directory_without_writing_outside_it() {
+        use std::os::unix::fs::symlink;
+
+        let outside = tempfile::tempdir().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let downloads = root.path().join("Downloads");
+        symlink(outside.path(), &downloads).unwrap();
+
+        assert_eq!(save(&downloads, "words.txt", "synthetic\n"), Err("storage"));
+        assert!(!outside.path().join("words.txt").exists());
     }
 }

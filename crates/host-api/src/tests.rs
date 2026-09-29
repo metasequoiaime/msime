@@ -4797,6 +4797,12 @@ fn custom_translation_http_bridge_is_bounded_and_pure() {
         false
     );
 }
+
+#[test]
+fn niutrans_reply_failure_rejects_unbounded_lengths() {
+    assert!(unsafe { msime_client_niutrans_translation_reply_failed(b"x".as_ptr(), usize::MAX) });
+}
+
 #[test]
 fn invalid_buffers_and_commands_return_owned_errors() {
     assert_eq!(

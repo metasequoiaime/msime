@@ -338,6 +338,20 @@ int main() {
       StateRootLease reacquired(root);
     }
     require(std::filesystem::exists(root / L".msime-client-server.lock"));
+    const auto outside = root.parent_path() / (root.filename().wstring() + L"-outside");
+    require(std::filesystem::create_directory(outside));
+    const auto linked = root.parent_path() / (root.filename().wstring() + L"-linked");
+    if (CreateSymbolicLinkW(linked.c_str(), outside.c_str(), SYMBOLIC_LINK_FLAG_DIRECTORY)) {
+      bool rejected = false;
+      try {
+        reject_reparse_ancestors(linked / L"nested");
+      } catch (...) {
+        rejected = true;
+      }
+      require(rejected);
+      std::filesystem::remove(linked);
+    }
+    std::filesystem::remove_all(outside);
     auto host = test_host_options(root);
     WindowsServerOptions options;
     options.pipes.max_clients = 2;

@@ -247,10 +247,11 @@ pub fn parse(
 ///
 /// Unlike [`parse`] this never refuses the text: it neither checks the envelope nor tries the other column order. A caller that already had the host refuse part of a larger file uses it to name that part's rows the way a single request would have.
 pub fn parse_rows(kind: ImportKind, format: ImportFormat, text: &str) -> ImportReport {
+    let row_capacity = text.lines().take(MAX_ENTRIES).count();
     let mut report = ImportReport {
-        entries: Vec::new(),
+        entries: Vec::with_capacity(row_capacity),
         failed: 0,
-        first_failures: Vec::new(),
+        first_failures: Vec::with_capacity(REPORTED_FAILURES),
         truncated: false,
         swapped: false,
     };

@@ -147,11 +147,12 @@ fn engine_handwriting_candidates(
     width: f32,
     height: f32,
 ) -> Result<Vec<String>, &'static str> {
-    let strokes = query
-        .strokes
-        .iter()
-        .map(|stroke| stroke.iter().map(|point| (point.x, point.y)).collect())
-        .collect::<Vec<Vec<(f32, f32)>>>();
+    let mut strokes = Vec::with_capacity(query.strokes.len());
+    strokes.extend(query.strokes.iter().map(|stroke| {
+        let mut points = Vec::with_capacity(stroke.len());
+        points.extend(stroke.iter().map(|point| (point.x, point.y)));
+        points
+    }));
     let recognize = |strokes: &[Vec<(f32, f32)>]| {
         msime_engine_bridge::handwriting_recognize(model_path, strokes, width, height)
             .map_err(|_| "local handwriting recognizer unavailable")
@@ -163,10 +164,8 @@ fn engine_handwriting_candidates(
     }
     let mut per_cell = Vec::with_capacity(cells.len());
     for cell in &cells {
-        let cell_strokes = cell
-            .iter()
-            .map(|&index| strokes[index].clone())
-            .collect::<Vec<_>>();
+        let mut cell_strokes = Vec::with_capacity(cell.len());
+        cell_strokes.extend(cell.iter().map(|&index| strokes[index].clone()));
         per_cell.push(recognize(&cell_strokes)?);
     }
     let combined = handwriting_cells::combine_cell_candidates(per_cell);

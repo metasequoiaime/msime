@@ -6,7 +6,7 @@ fn prepare_and_open(
     root: &Path,
     launch: impl FnOnce(&Path) -> std::io::Result<()>,
 ) -> std::io::Result<PathBuf> {
-    std::fs::create_dir_all(root)?;
+    super::atomic_file::create_directory_and_check(root)?;
     // Do not canonicalize: Windows canonicalization adds a verbatim path prefix
     // which is intended for filesystem APIs, not shell directory navigation.
     let directory = std::path::absolute(root)?;
@@ -97,6 +97,21 @@ mod tests {
         std::fs::write(&root, b"synthetic").unwrap();
         assert!(prepare_and_open(&root, |_| panic!("must not launch")).is_err());
         assert_eq!(std::fs::read(root).unwrap(), b"synthetic");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refuses_a_symlinked_parent_without_creating_outside_it() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let linked = root.path().join("redirect");
+        symlink(outside.path(), &linked).unwrap();
+        let directory = linked.join("skins");
+
+        assert!(prepare_and_open(&directory, |_| panic!("must not launch")).is_err());
+        assert!(!outside.path().join("skins").exists());
     }
 
     #[test]

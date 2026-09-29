@@ -4,12 +4,31 @@
 #include <array>
 #include <fstream>
 #ifdef _WIN32
+#include "StateRootLease.h"
 #include <windows.h>
 #endif
 
 namespace msime::windows {
 namespace {
 constexpr size_t max_store_bytes = 1024 * 1024;
+
+bool store_parent_is_safe(const std::filesystem::path &store) {
+#ifdef _WIN32
+  try {
+    auto parent = store.parent_path();
+    if (parent.empty())
+      parent = L".";
+    if (!parent.is_absolute())
+      parent = std::filesystem::absolute(parent);
+    reject_reparse_ancestors(parent);
+  } catch (...) {
+    return false;
+  }
+#else
+  (void)store;
+#endif
+  return true;
+}
 
 bool read_store_payload(std::ifstream &input, std::string &payload) {
   std::array<char, 8192> buffer{};
@@ -28,6 +47,8 @@ class StoreLock final {
 public:
   explicit StoreLock(const std::filesystem::path &store) {
 #ifdef _WIN32
+    if (!store_parent_is_safe(store))
+      return;
     auto lock_path = store;
     lock_path += ".lock";
     handle_ = CreateFileW(lock_path.c_str(), GENERIC_READ | GENERIC_WRITE,
@@ -75,24 +96,34 @@ std::vector<std::string> read_store(const std::filesystem::path &path) {
   try { const auto value = nlohmann::json::parse(payload); if (!value.is_array()) return {}; std::vector<std::string> result; for (const auto &item : value) { if (!item.is_string()) continue; auto text = normalize_clipboard_text(item.get<std::string>()); if (!text.empty() && result.size() < ClipboardHistory::max_items) result.push_back(std::move(text)); } return result; } catch (...) { return {}; }
 }
 bool write_store(const std::filesystem::path &path, const std::vector<std::string> &items) {
+  if (!store_parent_is_safe(path)) return false;
   std::error_code error;
   std::filesystem::create_directories(path.parent_path(), error);
   if (error) return false;
   const auto payload = nlohmann::json(items).dump();
 #ifdef _WIN32
   auto temporary = path;
-  temporary += ".tmp";
-  temporary += std::to_string(GetCurrentProcessId());
-  std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
-  if (!output) return false;
-  output.write(payload.data(), static_cast<std::streamsize>(payload.size()));
-  output.close();
-  if (!output) {
+  wchar_t temporary_name[MAX_PATH] = {};
+  if (!GetTempFileNameW(path.parent_path().c_str(), L"msi", 0, temporary_name))
+    return false;
+  temporary = temporary_name;
+  HANDLE handle = CreateFileW(temporary.c_str(), GENERIC_WRITE, 0, nullptr,
+                              OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (handle == INVALID_HANDLE_VALUE) {
     std::filesystem::remove(temporary, error);
     return false;
   }
-  if (!MoveFileExW(temporary.c_str(), path.c_str(),
-                   MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+  DWORD written = 0;
+  const bool complete = payload.size() <= MAXDWORD &&
+                        WriteFile(handle, payload.data(),
+                                  static_cast<DWORD>(payload.size()), &written,
+                                  nullptr) &&
+                        written == static_cast<DWORD>(payload.size()) &&
+                        FlushFileBuffers(handle);
+  CloseHandle(handle);
+  if (!complete || !MoveFileExW(temporary.c_str(), path.c_str(),
+                                MOVEFILE_REPLACE_EXISTING |
+                                    MOVEFILE_WRITE_THROUGH)) {
     std::filesystem::remove(temporary, error);
     return false;
   }
