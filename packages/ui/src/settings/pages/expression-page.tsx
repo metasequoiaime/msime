@@ -17,8 +17,11 @@ import { tencentCredentialIssue, translationEndpointIssue } from "../translation
 import { tencentSecretConfigured } from "../credential-utils";
 import {
   customTranslationCredentialTestConfig,
+  customTranslationCredentialTestDisabled,
   niutransCredentialTestConfig,
+  niutransCredentialTestDisabled,
   tencentTranslationCredentialTestConfig,
+  tencentTranslationCredentialTestDisabled,
 } from "../translation-credential-test-config";
 
 /**
@@ -258,7 +261,7 @@ export function ExpressionSettingsPage() {
                   "translation.niutrans",
                   "测试 NiuTrans 配置",
                   niutransCredentialTestConfig(niutrans),
-                  translationControlsDisabled || !niutrans.app_id.trim() || !niutrans.apikey.trim(),
+                  niutransCredentialTestDisabled(candidateTranslations, niutrans),
                 )}
               </NiuTransSection>
             </GroupList>
@@ -430,7 +433,7 @@ export function ExpressionSettingsPage() {
                       "translation.tencent",
                       "测试腾讯云翻译配置",
                       tencentTranslationCredentialTestConfig(tencentTranslation),
-                      translationControlsDisabled || Boolean(tencentIssue),
+                      tencentTranslationCredentialTestDisabled(candidateTranslations, tencentIssue),
                     )}
                 </TencentTranslationSection>
               )}
@@ -473,8 +476,10 @@ export function ExpressionSettingsPage() {
                   "translation.custom",
                   "测试自定义翻译配置",
                   customTranslationCredentialTestConfig(customTranslation),
-                  translationControlsDisabled ||
-                    Boolean(translationEndpointIssue(customTranslation.endpoint)),
+                  customTranslationCredentialTestDisabled(
+                    candidateTranslations,
+                    translationEndpointIssue(customTranslation.endpoint),
+                  ),
                 )}
               </CustomTranslationSection>
             </GroupList>

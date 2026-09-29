@@ -54,8 +54,11 @@ import { tencentCredentialIssue, translationEndpointIssue } from "./translation-
 import { tencentSecretConfigured } from "./credential-utils";
 import {
   customTranslationCredentialTestConfig,
+  customTranslationCredentialTestDisabled,
   niutransCredentialTestConfig,
+  niutransCredentialTestDisabled,
   tencentTranslationCredentialTestConfig,
+  tencentTranslationCredentialTestDisabled,
 } from "./translation-credential-test-config";
 import type { TouchKeyboardScheme as TouchKeyboardSchemePreference } from "./touch-keyboard-scheme-helpers";
 import type { FuzzyPinyinPreferences } from "./fuzzy-pinyin-section";
@@ -338,7 +341,7 @@ export function InputSettingsPanel({
               "translation.niutrans",
               "测试 NiuTrans 配置",
               niutransCredentialTestConfig(niutrans),
-              !candidateTranslations || !niutrans.app_id.trim() || !niutrans.apikey.trim(),
+              niutransCredentialTestDisabled(candidateTranslations, niutrans),
             )}
           </NiuTransSection>
           {linuxPlatform ? (
@@ -431,14 +434,14 @@ export function InputSettingsPanel({
                   "translation.tencent",
                   "测试腾讯云翻译配置",
                   tencentTranslationCredentialTestConfig(tencentTranslation),
-                  !candidateTranslations ||
-                    Boolean(
-                      tencentCredentialIssue(
-                        tencentTranslation.secret_id,
-                        tencentTranslation.secret_key,
-                        tencentTranslation.region,
-                      ),
+                  tencentTranslationCredentialTestDisabled(
+                    candidateTranslations,
+                    tencentCredentialIssue(
+                      tencentTranslation.secret_id,
+                      tencentTranslation.secret_key,
+                      tencentTranslation.region,
                     ),
+                  ),
                 )}
             </TencentTranslationSection>
           )}
@@ -487,8 +490,10 @@ export function InputSettingsPanel({
               "translation.custom",
               "测试自定义翻译配置",
               customTranslationCredentialTestConfig(customTranslation),
-              !candidateTranslations ||
-                Boolean(translationEndpointIssue(customTranslation.endpoint)),
+              customTranslationCredentialTestDisabled(
+                candidateTranslations,
+                translationEndpointIssue(customTranslation.endpoint),
+              ),
             )}
           </CustomTranslationSection>
         </>

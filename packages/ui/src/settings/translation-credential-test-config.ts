@@ -40,3 +40,27 @@ export function customTranslationCredentialTestConfig(
     api_key: preferences.api_key,
   };
 }
+
+/** Whether NiuTrans can run its credential check from the current settings. */
+export function niutransCredentialTestDisabled(
+  available: boolean,
+  preferences: NiuTransPreferences,
+): boolean {
+  return !available || !preferences.app_id.trim() || !preferences.apikey.trim();
+}
+
+/** Whether Tencent translation can run its credential check. */
+export function tencentTranslationCredentialTestDisabled(
+  available: boolean,
+  credentialIssue: string,
+): boolean {
+  return !available || Boolean(credentialIssue);
+}
+
+/** Whether custom translation can run its credential check. */
+export function customTranslationCredentialTestDisabled(
+  available: boolean,
+  endpointIssue: string,
+): boolean {
+  return !available || Boolean(endpointIssue);
+}
