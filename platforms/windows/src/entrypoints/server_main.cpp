@@ -520,21 +520,9 @@ void publish_switch_language_keybindings(const nlohmann::json &preferences) {
       return;
     std::error_code ignored;
     std::filesystem::create_directories(path.parent_path(), ignored);
-    // Write beside the target and rename over it: a crash mid-write must not
-    // leave the user with a truncated config the TIP then reads as defaults.
-    const auto temporary = std::filesystem::path(path).concat(L".new");
-    {
-      std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
-      if (!output)
-        return;
-      output.write(updated.data(),
-                   static_cast<std::streamsize>(updated.size()));
-      if (!output)
-        return;
-    }
-    std::filesystem::rename(temporary, path, ignored);
-    if (ignored)
-      std::filesystem::remove(temporary, ignored);
+    // Use a unique private sibling so a pre-existing staging symlink cannot
+    // redirect the keybinding document outside the state directory.
+    write_document_atomic(path, updated);
   } catch (const std::exception &) {
     // A read-only or roaming profile is the user's business, not a fatal error.
   }
