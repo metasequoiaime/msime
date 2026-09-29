@@ -1,20 +1,25 @@
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-fn create_directory_and_check(path: &Path) -> io::Result<()> {
+/// Create `path` only when it and all existing ancestors are real directories.
+///
+/// Refusing symlink ancestors keeps callers from writing through a redirected
+/// settings or export directory. The final metadata check also closes the
+/// common race where a missing path is replaced while `create_dir_all` runs.
+pub(crate) fn create_directory_and_check(path: &Path) -> io::Result<()> {
     let mut current = path;
     loop {
         match std::fs::symlink_metadata(current) {
             Ok(metadata) if metadata.file_type().is_symlink() => {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
-                    "atomic file parent has a symbolic-link ancestor",
+                    "directory has a symbolic-link ancestor",
                 ));
             }
             Ok(metadata) if !metadata.is_dir() => {
                 return Err(io::Error::new(
                     io::ErrorKind::NotADirectory,
-                    "atomic file parent is not a directory",
+                    "directory parent is not a directory",
                 ));
             }
             Ok(_) => break,
@@ -35,7 +40,7 @@ fn create_directory_and_check(path: &Path) -> io::Result<()> {
     if metadata.file_type().is_symlink() || !metadata.is_dir() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "atomic file parent is not a real directory",
+            "directory is not a real directory",
         ));
     }
     Ok(())
