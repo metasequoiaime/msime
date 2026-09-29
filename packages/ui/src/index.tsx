@@ -1,3 +1,6 @@
+const SUPPORT_QQ_GROUP = "829919142";
+const SUPPORT_TELEGRAM_URL = "https://t.me/msimegroup";
+
 import { useConfirm } from "./core/confirm";
 import { errorMessage } from "./core/error-message";
 import { clamp } from "./core/number";
@@ -3942,7 +3945,7 @@ export function SettingsPage({
                     onSubmitFeedback={submitFeedback}
                     onOpenIssues={() => void openExternalUrl(platformIssuesUrl)}
                     onCopyGroup={copyGroup}
-                    onOpenTelegram={() => void openExternalUrl("https://t.me/msimegroup")}
+                    onOpenTelegram={() => void openExternalUrl(SUPPORT_TELEGRAM_URL)}
                   />
                   {!validCandidateFonts(draft) && (
                     <p role="alert">
