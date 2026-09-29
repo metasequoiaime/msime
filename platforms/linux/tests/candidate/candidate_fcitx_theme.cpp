@@ -341,6 +341,21 @@ int main() {
   // Without an outline the image keeps the same inset, where the hairline would be.
   assert(contains(host::fcitx_candidate_theme(willow, false, host::FcitxThemeOverlay{"decoration-ab.png", 25, 25}),
                   "OverlayOffsetX=13\nOverlayOffsetY=9\n"));
+  // A skin aligned to the left or centre moves the gravity, measured from that edge.
+  assert(contains(host::fcitx_candidate_theme(wechat_dark, true,
+                                              host::FcitxThemeOverlay{"decoration-ab.png", 25, 15, host::CandidateSkinAlign::left}),
+                  "Gravity=Top Left\nOverlayOffsetX=13\n"));
+  assert(contains(host::fcitx_candidate_theme(wechat_dark, true,
+                                              host::FcitxThemeOverlay{"decoration-ab.png", 25, 15, host::CandidateSkinAlign::center}),
+                  "Gravity=Top Center\nOverlayOffsetX=0\n"));
+  // A skin's corner radius replaces the design's 10 px in the card's corner slices; none keeps it.
+  assert(contains(host::fcitx_candidate_theme(wechat_dark, true, std::nullopt, 16.0),
+                  "[InputPanel/Background/Margin]\nLeft=28\nRight=28\nTop=28\nBottom=32\n"));
+  assert(contains(host::fcitx_candidate_theme(wechat_dark, true, std::nullopt, 0.0),
+                  "[InputPanel/Background/Margin]\nLeft=12\nRight=12\nTop=12\nBottom=16\n"));
+  assert(host::fcitx_candidate_theme(wechat_dark, true, std::nullopt, std::nullopt) ==
+         host::fcitx_candidate_theme(wechat_dark, true));
+  assert(host::fcitx_candidate_theme(wechat_dark, true, std::nullopt, 16.0) != host::fcitx_candidate_theme(wechat_dark, true));
   assert(host::fcitx_png_height(png(48)) == 48);
   assert(!host::fcitx_png_height("GIF89a" + std::string(32, '\0')));
   assert(!host::fcitx_png_height(png(0)));

@@ -7,7 +7,9 @@
 
 using Json = nlohmann::json;
 using msime::linux_host::apply_theme_choice;
+using msime::linux_host::candidate_skin_corner_radius;
 using msime::linux_host::candidate_skin_package;
+using msime::linux_host::CandidateSkinAlign;
 using msime::linux_host::current_theme_choice;
 using msime::linux_host::find_theme_choice;
 using msime::linux_host::parse_configured_skins;
@@ -159,5 +161,25 @@ int main() {
   assert(!candidate_skin_decoration(decorated_catalog, "absent"));
   assert(!candidate_skin_decoration(catalog, "sakura"));
   assert(!candidate_skin_decoration(nlohmann::json(), "sakura"));
+  // The alignment the shared catalog publishes; absent or unknown is the trailing edge.
+  assert(parse_skin_decoration(decorated)->align == CandidateSkinAlign::right);
+  auto aligned = decorated;
+  aligned["decoration_align"] = "left";
+  assert(parse_skin_decoration(aligned)->align == CandidateSkinAlign::left);
+  aligned["decoration_align"] = "center";
+  assert(parse_skin_decoration(aligned)->align == CandidateSkinAlign::center);
+  aligned["decoration_align"] = "top";
+  assert(parse_skin_decoration(aligned)->align == CandidateSkinAlign::right);
+  // The card radius of the drawn skin, bounded like the manifest.
+  auto rounded = decorated;
+  rounded["corner_radius_dip"] = 12.0;
+  const nlohmann::json rounded_catalog = {{"packages", nlohmann::json::array({rounded})}};
+  assert(candidate_skin_corner_radius(rounded_catalog, "sakura") == 12.0);
+  assert(!candidate_skin_corner_radius(rounded_catalog, ""));
+  assert(!candidate_skin_corner_radius(decorated_catalog, "sakura"));
+  for (const nlohmann::json &value : {nlohmann::json(33), nlohmann::json(-1), nlohmann::json("12")}) {
+    rounded["corner_radius_dip"] = value;
+    assert(!candidate_skin_corner_radius(nlohmann::json{{"packages", nlohmann::json::array({rounded})}}, "sakura"));
+  }
   return 0;
 }

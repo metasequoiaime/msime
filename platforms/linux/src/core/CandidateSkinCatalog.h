@@ -81,11 +81,13 @@ inline const nlohmann::json *candidate_skin_package(const nlohmann::json &catalo
   return nullptr;
 }
 
-// The decoration an installed skin draws above its candidate list: an image, trailing-aligned in a band top_dip tall and width_dip wide on Windows (candidate_presenter.cpp). The shared host catalog (skin::catalog::host_candidate_catalog) publishes it only for a package that declares one, with the image as an absolute path inside that package. The bounds are the manifest's (0 < top <= 500, 0 < width <= 1000) and are checked again here, because the document is read as untrusted input. Only Fcitx5 draws it; IBus text attributes have no way to show an image, and IBus never reads these keys.
+// The decoration an installed skin draws above its candidate list: an image in a band top_dip tall and width_dip wide, placed along the card's top edge as `decoration_align` says (trailing when it says nothing, as Windows' candidate_presenter.cpp always drew it). The shared host catalog (skin::catalog::host_candidate_catalog) publishes it only for a package that declares one, with the image as an absolute path inside that package. The bounds are the manifest's (0 < top <= 500, 0 < width <= 1000) and are checked again here, because the document is read as untrusted input. Only Fcitx5 draws it; IBus text attributes have no way to show an image, and IBus never reads these keys.
+enum class CandidateSkinAlign { left, center, right };
 struct CandidateSkinDecoration {
   std::string image;
   double top_dip = 0;
   double width_dip = 0;
+  CandidateSkinAlign align = CandidateSkinAlign::right;
 };
 
 // One package's decoration. A package without all three keys, or with any of them out of bounds, has none; that costs the skin its decoration, not its place in the catalogue.
@@ -104,7 +106,12 @@ inline std::optional<CandidateSkinDecoration> parse_skin_decoration(const nlohma
   auto path = image->get<std::string>();
   if (path.empty() || path.size() > 4096 || path.front() != '/' || path.find('\0') != std::string::npos)
     return std::nullopt;
-  return CandidateSkinDecoration{std::move(path), top_dip, width_dip};
+  auto align = CandidateSkinAlign::right;
+  if (const auto value = package.find("decoration_align"); value != package.end() && value->is_string()) {
+    if (*value == "left") align = CandidateSkinAlign::left;
+    else if (*value == "center") align = CandidateSkinAlign::center;
+  }
+  return CandidateSkinDecoration{std::move(path), top_dip, width_dip, align};
 }
 
 // The decoration of the skin the resolved theme draws: its `candidate_skin`, which the shared layer sets only when a custom theme names an installed package whose manifest declares the layout and the mode being drawn. That is the only gate; the host keeps no layout or mode check of its own. An empty id (nothing drawn) has none.
@@ -112,6 +119,17 @@ inline std::optional<CandidateSkinDecoration> candidate_skin_decoration(const nl
                                                                         std::string_view drawn) {
   const auto *package = candidate_skin_package(catalog, drawn);
   return package ? parse_skin_decoration(*package) : std::nullopt;
+}
+
+// The card radius the drawn skin asks for (`corner_radius_dip`, 0-32), or none to keep the host's own. Checked again here like the decoration, as the document is untrusted. Only Fcitx5 draws a card; the IBus panel belongs to the desktop.
+inline std::optional<double> candidate_skin_corner_radius(const nlohmann::json &catalog, std::string_view drawn) {
+  const auto *package = candidate_skin_package(catalog, drawn);
+  if (!package) return std::nullopt;
+  const auto value = package->find("corner_radius_dip");
+  if (value == package->end() || !value->is_number()) return std::nullopt;
+  const auto radius = value->get<double>();
+  if (!std::isfinite(radius) || radius < 0 || radius > 32) return std::nullopt;
+  return radius;
 }
 
 }  // namespace msime::linux_host

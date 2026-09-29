@@ -87,6 +87,14 @@ int main() {
   filled["candidate"]["selected"] = "#654321";
   const auto filled_colors = host::candidate_theme_colors(filled, false);
   assert(filled_colors.colors.selected == 0x654321u && filled_colors.colors.selected_text == 0x123456u);
+  // The contract's secondary equals number unless a skin gives the translation its own colour, which is then drawn over the surface.
+  assert(!filled_colors.colors.translation && !picked.colors.translation);
+  auto glossed = custom;
+  glossed["candidate"]["secondary"] = "#9FB4E0";
+  assert(host::candidate_theme_colors(glossed, true).colors.translation == 0x9FB4E0u);
+  glossed["candidate"]["secondary"] = "#9FB4E080";
+  assert(host::candidate_theme_colors(glossed, true).colors.translation ==
+         host::composite_color(0x9FB4E0u, 0x80, 0x303030u));
   // A package draws its decoration only when the shared layer names it, and a transparent border means no outline.
   filled["candidate_skin"] = "sakura";
   filled["candidate"]["border"] = "#00000000";

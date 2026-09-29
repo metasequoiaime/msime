@@ -417,6 +417,7 @@ struct State {
   std::optional<guint> candidate_selected_color;
   std::optional<guint> candidate_selected_text_color;
   std::optional<guint> candidate_selected_number_color;
+  std::optional<guint> candidate_translation_color;
   IBusOrientation candidate_orientation = IBUS_ORIENTATION_VERTICAL;
   msime::linux_host::NavigationBindings navigation;
   msime::linux_host::WordCharacterBinding word_character;
@@ -796,6 +797,7 @@ struct State {
     const auto colors = candidate_theme(options.at("preferences")).colors;
     candidate_text_color = colors.text;
     candidate_number_color = colors.number;
+    candidate_translation_color = colors.translation;
     candidate_accent_color = colors.accent;
     candidate_background_color = colors.background;
     candidate_selected_color = colors.selected;
@@ -920,6 +922,7 @@ struct State {
     const auto colors = candidate_theme(display_preferences).colors;
     candidate_text_color = colors.text;
     candidate_number_color = colors.number;
+    candidate_translation_color = colors.translation;
     candidate_accent_color = colors.accent;
     candidate_background_color = colors.background;
     candidate_selected_color = colors.selected;
@@ -3514,6 +3517,8 @@ void render(IBusEngine *engine, const Json &view) {
     auto value = candidate.at("text").get<std::string>();
     if (candidate.value("corrected", false))
       value += "*";
+    // The gloss is kept apart until the row is converted, so its character range is known for a skin's translation colour.
+    std::string gloss;
     const auto &engine_state = state(engine);
     const bool show_translations =
         engine_state.candidate_translations ||
@@ -3529,25 +3534,33 @@ void render(IBusEngine *engine, const Json &view) {
       // destabilize the panel.
       if (!translation.empty() && translation.size() <= 4096 &&
           value.size() <= 4096)
-        value += " · " + translation;
+        gloss = " · " + translation;
     }
+    std::string tail;
     switch (candidate.value("source", 0)) {
-    case 2: value += "  云"; break;
-    case 3: value += "  AI"; break;
+    case 2: tail += "  云"; break;
+    case 3: tail += "  AI"; break;
     default: break;
     }
     const auto fixed_position = candidate.value("fixed_position", 0);
     if (fixed_position >= 1 && fixed_position <= 5)
-      value += "  固定" + std::to_string(fixed_position);
+      tail += "  固定" + std::to_string(fixed_position);
     const auto annotation = candidate.value("annotation", std::string{});
     const bool wubi_annotation = view.value("scheme", 255) != 2 ||
                                  state(engine).wubi_code_hint;
     if (!annotation.empty() && state(engine).show_helpcode_in_candidate_window &&
         wubi_annotation) {
-      value += "  ";
-      value += annotation;
+      tail += "  ";
+      tail += annotation;
     }
+    // Converted piece by piece: the separators already split them, and the gloss's range then stays exact whatever the conversion does to lengths.
     value = traditional_display(state(engine), view, std::move(value));
+    const auto gloss_start = static_cast<guint>(g_utf8_strlen(value.c_str(), -1));
+    if (!gloss.empty())
+      value += traditional_display(state(engine), view, std::move(gloss));
+    const auto gloss_end = static_cast<guint>(g_utf8_strlen(value.c_str(), -1));
+    if (!tail.empty())
+      value += traditional_display(state(engine), view, std::move(tail));
     auto text = ibus_text_new_from_string(value.c_str());
     const bool highlighted = candidate.at("highlighted").get<bool>();
     const auto row_text_color =
@@ -3566,6 +3579,11 @@ void render(IBusEngine *engine, const Json &view) {
     else if (row_text_color)
       ibus_text_append_attribute(text, IBUS_ATTR_TYPE_FOREGROUND,
                                  *row_text_color, 0, G_MAXUINT);
+    // A skin's translation colour over the gloss, appended after the row colour so it wins where they overlap. Whether the desktop panel honours a ranged attribute is up to the panel.
+    if (gloss_end > gloss_start && state(engine).candidate_translation_color)
+      ibus_text_append_attribute(text, IBUS_ATTR_TYPE_FOREGROUND,
+                                 *state(engine).candidate_translation_color,
+                                 gloss_start, gloss_end);
     const auto row_background =
         highlighted && state(engine).candidate_selected_color
             ? state(engine).candidate_selected_color

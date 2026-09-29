@@ -35,6 +35,8 @@ struct CandidateColors {
   std::optional<std::uint32_t> selected;
   std::optional<std::uint32_t> selected_text;
   std::optional<std::uint32_t> selected_number;
+  // The translation line, only when a skin gives it a colour of its own (the resolved secondary differs from number); otherwise it draws in the row's text colour as before. Only IBus colours it: the classic UI draws a candidate's text in one colour.
+  std::optional<std::uint32_t> translation;
   // The card's outline, already composited over the background: Fcitx5's classic UI paints the border with the SOURCE operator, so a translucent one would show the desktop through the panel rather than tint the surface the way it does on Windows. Only Fcitx5 draws it; IBus text attributes have no way to outline the panel.
   std::optional<std::uint32_t> border;
   int border_width = 0;
@@ -151,6 +153,10 @@ inline CandidateTheme candidate_theme_colors(const nlohmann::json &resolved, boo
   colors.background = surface;
   colors.text = over_surface("text").value_or(native.text);
   colors.number = over_surface("number").value_or(native.number);
+  const auto number_slot = slot("number");
+  if (const auto secondary = slot("secondary");
+      secondary && !(number_slot && number_slot->rgb == secondary->rgb && number_slot->alpha == secondary->alpha))
+    colors.translation = over_surface("secondary");
   colors.accent = over_surface("accent").value_or(native.accent);
   // The selected row: a theme's own fill with its own foregrounds, an accent without a fill drawn solid as the design's Linux selection is, or the native solid #3584E4 with white text.
   const auto selected = over_surface("selected");

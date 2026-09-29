@@ -45,6 +45,7 @@ struct FcitxThemeOverlay {
   std::string file;
   int band = 0;
   std::optional<int> height;
+  CandidateSkinAlign align = CandidateSkinAlign::right;
 };
 
 // An image the theme draws with, generated from the colours: its file name in the theme directory and its PNG bytes.
@@ -160,7 +161,8 @@ inline std::string fcitx_margin(int left, int right, int top, int bottom) {
 //
 // A decoration is drawn as the background's overlay. Windows draws it above the card, trailing-aligned, in a band top_inset_dip tall that pushes the card down; the classic UI draws an overlay only inside the panel, so here the band is the top of the card itself, just inside the outline: the content margin grows by it and the image sits at the top right. The classic UI draws an overlay at its own pixel size and cannot scale it into the width_dip x top_inset_dip box the way Windows does, so an image of known height is centred in the band like Windows' contain, and one taller than the band is anchored to its bottom so that what does not fit is cut at the card's top edge instead of being drawn over the candidates.
 inline FcitxThemeFiles fcitx_candidate_theme_files(const CandidateColors &colors, bool dark,
-                                                   const std::optional<FcitxThemeOverlay> &overlay = std::nullopt) {
+                                                   const std::optional<FcitxThemeOverlay> &overlay = std::nullopt,
+                                                   const std::optional<double> &corner_radius = std::nullopt) {
   using G = FcitxPanelGeometry;
   using M = FcitxMenuGeometry;
   FcitxThemeFiles files;
@@ -173,21 +175,23 @@ inline FcitxThemeFiles fcitx_candidate_theme_files(const CandidateColors &colors
   // The content keeps the design's 1 px hairline plus 6 px padding even without a border, and grows with a wider one, so the highlight never covers the outline.
   const int inset = std::max(1, border_width);
   const int band = overlay ? std::max(0, overlay->band) : 0;
+  // A skin's own radius (0-32) replaces the design's; the corner slices grow and shrink with it.
+  const int radius = corner_radius ? std::clamp(static_cast<int>(std::lround(*corner_radius)), 0, 32) : G::radius;
 
   // The card: the corner slices hold the rounded corners and the part of the shadow that varies along the edge, so the stretched middle slices are exact.
-  const int slice_left = G::shadow_left + G::radius;
-  const int slice_right = G::shadow_right + G::radius;
-  const int slice_top = G::shadow_top + G::shadow_offset + G::radius;
-  const int slice_bottom = G::shadow_bottom + G::radius;
+  const int slice_left = G::shadow_left + radius;
+  const int slice_right = G::shadow_right + radius;
+  const int slice_top = G::shadow_top + G::shadow_offset + radius;
+  const int slice_bottom = G::shadow_bottom + radius;
   const int panel_width = slice_left + 2 + slice_right;
   const int panel_height = slice_top + 2 + slice_bottom;
   const FcitxRect card{G::shadow_left, G::shadow_top, static_cast<double>(panel_width - G::shadow_right),
                        static_cast<double>(panel_height - G::shadow_bottom)};
   const auto panel = fcitx_add_shape(files.images, panel_width, panel_height, [&](FcitxCanvas &canvas) {
     const FcitxRect shadow{card.left, card.top + G::shadow_offset, card.right, card.bottom + G::shadow_offset};
-    fcitx_drop_shadow(canvas, shadow, G::radius, G::shadow_sigma, G::shadow_alpha);
-    fcitx_fill_rounded(canvas, card, G::radius, surface);
-    if (border_width > 0) fcitx_stroke_rounded(canvas, card, G::radius, border_width, *colors.border);
+    fcitx_drop_shadow(canvas, shadow, radius, G::shadow_sigma, G::shadow_alpha);
+    fcitx_fill_rounded(canvas, card, radius, surface);
+    if (border_width > 0) fcitx_stroke_rounded(canvas, card, radius, border_width, *colors.border);
   });
   std::string highlight_image;
   if (colors.selected)
@@ -238,8 +242,15 @@ inline FcitxThemeFiles fcitx_candidate_theme_files(const CandidateColors &colors
   if (overlay) {
     int offset = G::shadow_top + inset;
     if (overlay->height) offset += *overlay->height <= band ? (band - *overlay->height) / 2 : band - *overlay->height;
-    decoration = "Overlay=" + overlay->file + "\nGravity=Top Right\nOverlayOffsetX=" +
-                 std::to_string(G::shadow_right + inset) + "\nOverlayOffsetY=" + std::to_string(offset) +
+    // The offset is measured from the gravity's edge: inside the outline on the side the skin aligns to, none when centred.
+    const char *gravity = overlay->align == CandidateSkinAlign::left     ? "Top Left"
+                          : overlay->align == CandidateSkinAlign::center ? "Top Center"
+                                                                         : "Top Right";
+    const int offset_x = overlay->align == CandidateSkinAlign::left     ? G::shadow_left + inset
+                         : overlay->align == CandidateSkinAlign::center ? 0
+                                                                        : G::shadow_right + inset;
+    decoration = "Overlay=" + overlay->file + "\nGravity=" + gravity + "\nOverlayOffsetX=" +
+                 std::to_string(offset_x) + "\nOverlayOffsetY=" + std::to_string(offset) +
                  "\nHideOverlayIfOversize=False\n\n[InputPanel/Background/OverlayClipMargin]\n" +
                  fcitx_margin(G::shadow_left + inset, G::shadow_right + inset, G::shadow_top + inset,
                               G::shadow_bottom + inset);
@@ -317,8 +328,9 @@ inline FcitxThemeFiles fcitx_candidate_theme_files(const CandidateColors &colors
 }
 
 inline std::string fcitx_candidate_theme(const CandidateColors &colors, bool dark,
-                                         const std::optional<FcitxThemeOverlay> &overlay = std::nullopt) {
-  return fcitx_candidate_theme_files(colors, dark, overlay).conf;
+                                         const std::optional<FcitxThemeOverlay> &overlay = std::nullopt,
+                                         const std::optional<double> &corner_radius = std::nullopt) {
+  return fcitx_candidate_theme_files(colors, dark, overlay, corner_radius).conf;
 }
 
 // Where Fcitx5 looks for a user theme: $XDG_DATA_HOME/fcitx5/themes/<name>/theme.conf. A relative XDG value is ignored, as the specification requires.
@@ -406,7 +418,8 @@ inline std::optional<FcitxThemeOverlay> stage_fcitx_overlay(const std::filesyste
   if (bytes.empty() || bytes.size() > kFcitxOverlayMaxBytes) return std::nullopt;
   auto file = std::string(kFcitxOverlayPrefix) + fcitx_content_hash(bytes) + extension;
   if (!write_fcitx_theme(directory / file, bytes)) return std::nullopt;
-  return FcitxThemeOverlay{std::move(file), static_cast<int>(std::ceil(decoration.top_dip)), fcitx_png_height(bytes)};
+  return FcitxThemeOverlay{std::move(file), static_cast<int>(std::ceil(decoration.top_dip)), fcitx_png_height(bytes),
+                           decoration.align};
 }
 
 // Remove every file with `prefix` whose name is not in `keep`, so the theme directory holds only the images the current theme names.
@@ -431,19 +444,21 @@ inline std::string fcitx_overlay_stamp(const std::optional<CandidateSkinDecorati
   const auto time = std::filesystem::last_write_time(decoration->image, time_error);
   std::ostringstream stamp;
   stamp << "\n# overlay " << decoration->image << ' ' << decoration->top_dip << ' '
+        << static_cast<int>(decoration->align) << ' '
         << (size_error ? 0 : size) << ' ' << (time_error ? 0LL : static_cast<long long>(time.time_since_epoch().count())) << '\n';
   return stamp.str();
 }
 
 // Write the theme for these colours and decoration into `file`. The images are written before theme.conf so the theme never names a file that is not there, and the images of an earlier theme are removed once theme.conf no longer names them. A decoration that cannot be staged leaves the theme without it rather than without MSIME's colours; a shape that cannot be written leaves theme.conf unchanged. Returns whether theme.conf now holds the theme.
 inline bool write_fcitx_candidate_theme(const std::filesystem::path &file, const CandidateColors &colors, bool dark,
-                                        const std::optional<CandidateSkinDecoration> &decoration) {
+                                        const std::optional<CandidateSkinDecoration> &decoration,
+                                        const std::optional<double> &corner_radius = std::nullopt) {
   const auto directory = file.parent_path();
   std::error_code error;
   std::filesystem::create_directories(directory, error);
   if (error) return false;
   const auto overlay = decoration ? stage_fcitx_overlay(directory, *decoration) : std::nullopt;
-  const auto theme = fcitx_candidate_theme_files(colors, dark, overlay);
+  const auto theme = fcitx_candidate_theme_files(colors, dark, overlay, corner_radius);
   std::vector<std::string> shapes;
   for (const auto &image : theme.images) {
     if (!write_fcitx_theme(directory / image.file, image.bytes)) return false;
