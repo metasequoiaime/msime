@@ -172,6 +172,7 @@ import { PolishCredentialFieldsSection } from "./settings/polish-credential-fiel
 import { VoiceStreamPreeditSection } from "./settings/voice-stream-preedit-section";
 import { VoiceCommitModeSection, type VoiceCommitMode } from "./settings/voice-commit-mode-section";
 import { VoiceCaptureDevicesSection } from "./settings/voice-capture-devices-section";
+import { voiceCaptureBackendOptions } from "./settings/voice-capture-backend-options";
 import { VoiceSyntheticSilenceNotice } from "./settings/voice-synthetic-silence-notice";
 import { VoiceHotkeysSection } from "./settings/voice-hotkeys-section";
 import { VoicePolishSection } from "./settings/voice-polish-section";
@@ -786,6 +787,10 @@ export {
   type VoiceCaptureBackendOption,
   type VoiceCaptureBackend,
 } from "./settings/voice-capture-devices-section";
+export {
+  voiceCaptureBackendOptions,
+  type VoiceCaptureBackendOptionsContext,
+} from "./settings/voice-capture-backend-options";
 export { VoiceSyntheticSilenceNotice } from "./settings/voice-synthetic-silence-notice";
 export {
   VoiceHotkeysSection,
@@ -1724,22 +1729,12 @@ export function SettingsPage({
   const platformReleasesPageUrl = clientHostedPlatform ? linuxReleasesPageUrl : releasesPageUrl;
   const platformLicenseUrl = clientHostedPlatform ? linuxLicenseUrl : licenseUrl;
   const platformIssuesUrl = linuxIssuesUrl;
-  const captureBackendOptions: readonly (readonly [
-    NonNullable<VoiceInputPreferences["capture_backend"]>,
-    string,
-  ])[] = [
-    ["auto", "自动选择"],
-    ...(linuxPlatform
-      ? ([
-          ["pulse", "PulseAudio"],
-          ["pipewire", "PipeWire"],
-          ["alsa", "ALSA"],
-        ] as const)
-      : []),
-    ...(macosPlatform ? ([["macos", "CoreAudio"]] as const) : []),
-    ...(windowsPlatform ? ([["windows", "Windows Audio"]] as const) : []),
-    ...(harmonyPlatform ? ([["harmony", "HarmonyOS 音频"]] as const) : []),
-  ];
+  const captureBackendOptions = voiceCaptureBackendOptions({
+    linux: linuxPlatform,
+    macos: macosPlatform,
+    windows: windowsPlatform,
+    harmony: harmonyPlatform,
+  });
   const {
     helpIntro: platformHelpIntro,
     quickStart: platformQuickStart,
