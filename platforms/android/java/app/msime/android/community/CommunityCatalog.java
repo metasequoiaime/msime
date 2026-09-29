@@ -87,6 +87,9 @@ public final class CommunityCatalog {
         JSONArray values = root.optJSONArray(
             kind == CommunityRequest.Kind.SKIN ? "skins" : "items");
         if (values == null) return new Page(List.of(), false, "");
+        if (values.length() > CommunityRequest.PAGE_SIZE) {
+            return new Page(List.of(), false, CommunityRequest.message(null, 500));
+        }
         List<Item> items = new ArrayList<>(values.length());
         for (int index = 0; index < values.length(); index++) {
             JSONObject value = values.optJSONObject(index);
