@@ -49,6 +49,24 @@ public final class BootstrapMarkerSmoke {
                 });
             }
         }
+        Path boundaryRoot = Files.createTempDirectory("bootstrap-boundary-root");
+        Path boundaryOutside = Files.createTempDirectory("bootstrap-boundary-outside");
+        try {
+            Files.createSymbolicLink(boundaryRoot.resolve("bootstrap"), boundaryOutside);
+            boolean rejected = false;
+            try {
+                Bootstrap.ensureSafeDirectory(boundaryRoot.resolve("bootstrap/resources"));
+            } catch (java.io.IOException expected) {
+                rejected = true;
+            }
+            check(rejected);
+            check(!Files.exists(boundaryOutside.resolve("resources")));
+        } finally {
+            Files.deleteIfExists(boundaryRoot.resolve("bootstrap"));
+            Files.deleteIfExists(boundaryRoot);
+            Files.deleteIfExists(boundaryOutside.resolve("resources"));
+            Files.deleteIfExists(boundaryOutside);
+        }
         System.out.println("Android bootstrap marker bounds passed");
     }
 }

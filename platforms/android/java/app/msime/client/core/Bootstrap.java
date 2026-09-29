@@ -28,7 +28,7 @@ public final class Bootstrap {
             File configuration = new File(root, "runtime-options.json");
             if (configuration.exists()) return false;
             File resources = new File(root, "bootstrap/resources");
-            Files.createDirectories(resources.toPath());
+            ensureSafeDirectory(resources.toPath());
             JSONObject manifest;
             try (InputStream input = context.getAssets().open("desktop-dictionary.lock.json")) {
                 // Small immutable APK manifest; large dictionary files are streamed below.
@@ -67,6 +67,28 @@ public final class Bootstrap {
         }
     }
 
+    static void ensureSafeDirectory(java.nio.file.Path directory) throws java.io.IOException {
+        java.nio.file.Path absolute = directory.toAbsolutePath().normalize();
+        java.nio.file.Path current = absolute.getRoot();
+        if (current == null) throw new java.io.IOException("bootstrap directory unavailable");
+        for (java.nio.file.Path component : absolute) {
+            current = current.resolve(component);
+            if (Files.isSymbolicLink(current))
+                throw new java.io.IOException("bootstrap path contains a symbolic link");
+        }
+        if (Files.exists(absolute, LinkOption.NOFOLLOW_LINKS)
+                && !Files.isDirectory(absolute, LinkOption.NOFOLLOW_LINKS))
+            throw new java.io.IOException("bootstrap directory unavailable");
+        Files.createDirectories(absolute);
+        for (java.nio.file.Path component : absolute) {
+            current = current.getRoot().resolve(component);
+            if (Files.isSymbolicLink(current))
+                throw new java.io.IOException("bootstrap path contains a symbolic link");
+        }
+        if (!Files.isDirectory(absolute, LinkOption.NOFOLLOW_LINKS))
+            throw new java.io.IOException("bootstrap directory unavailable");
+    }
+
     /**
      * Non-English candidate glosses (scripts/build_offline_glosses.py), extracted beside the resources where the Engine looks for one zh-&lt;lang&gt;.db per target language.
      *
@@ -79,8 +101,9 @@ public final class Bootstrap {
             File marker = new File(destination, ".package");
             if (marker.isFile() && stamp.equals(readMarker(marker.toPath()))) return;
             File staging = new File(destination.getParentFile(), "offline-glosses.staging");
+            ensureSafeDirectory(destination.getParentFile().toPath());
             deleteTree(staging);
-            Files.createDirectories(staging.toPath());
+            ensureSafeDirectory(staging.toPath());
             String[] names = context.getAssets().list("offline-glosses");
             for (String name : names == null ? new String[0] : names) {
                 if (!name.matches("[A-Za-z0-9_.-]+") || name.contains("..")) throw new IllegalArgumentException("Invalid asset name");
