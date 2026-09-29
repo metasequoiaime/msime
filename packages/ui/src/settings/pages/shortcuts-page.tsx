@@ -1,5 +1,5 @@
 import * as settings from "../settings-style";
-import { defaultNavigation } from "../settings-options";
+import { defaultNavigation } from "../navigation-section";
 import { useSettingsForm } from "../settings-form-context";
 import { InputModeShortcutsSection } from "../input-mode-shortcuts-section";
 import { PanelShortcutsSection } from "../panel-shortcuts-section";

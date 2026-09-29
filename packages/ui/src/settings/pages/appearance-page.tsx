@@ -1,7 +1,7 @@
 import { AppearanceCandidatePreview } from "../../candidate/appearance-candidate-preview";
 import { candidatePanelLimitNotes } from "../settings-options";
 import { CandidateFontControls } from "../../candidate/candidate-font-controls";
-import { defaultNavigation } from "../settings-options";
+import { defaultNavigation } from "../navigation-section";
 import { useSettingsForm } from "../settings-form-context";
 import * as settings from "../settings-style";
 import { GroupList } from "../../core/platform-controls";

@@ -1,7 +1,6 @@
 import type {
   Preferences,
   LocalDictionaryKind,
-  NavigationPreferences,
   HostCapabilities,
 } from "../index";
 import type { ThemeCatalogEntry } from "../theme/global-theme";
@@ -13,6 +12,7 @@ export {
 } from "./touch-keyboard-scheme-helpers";
 export { defaultAiAssistant } from "./ai-assistant-defaults";
 export { defaultVoiceInput } from "./voice-input-defaults";
+export { defaultNavigation } from "./navigation-section";
 
 // Options and defaults that the settings model in index.tsx shares with the settings pages, or that several pages share with each other.
 
@@ -22,15 +22,6 @@ export const localDictionaryKinds: [LocalDictionaryKind, string][] = [
   ["english", "英文"],
   ["quick_phrase", "快捷短语"],
 ];
-
-export const defaultNavigation: NavigationPreferences = {
-  minus_equal: true,
-  comma_period: true,
-  brackets: false,
-  tab: true,
-  page_up_down: true,
-  arrows: true,
-};
 
 // The Linux hosts do not draw the candidate list themselves; when the desktop panel that does ignores these settings, the host says why (HostCapabilities.candidate_panel_limit) and the appearance and skin pages say so once.
 export const candidatePanelLimitNotes: Record<
