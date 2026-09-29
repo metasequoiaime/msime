@@ -1,4 +1,5 @@
 #include "DiagnosticLog.h"
+#include "StateRootLease.h"
 #include <windows.h>
 #include <cstdio>
 #include <string>
@@ -40,6 +41,7 @@ void DiagnosticLog::append(std::string_view line) {
   // Diagnostics must never affect the input path, so every failure here - a missing directory, a full disk, a string that cannot be built - drops the line.
   try {
     std::lock_guard<std::mutex> lock(mutex_);
+    reject_reparse_ancestors(file_.parent_path());
     std::error_code error;
     std::filesystem::create_directories(file_.parent_path(), error);
     const auto size = std::filesystem::file_size(file_, error);
