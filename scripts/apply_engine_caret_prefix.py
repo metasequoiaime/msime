@@ -143,7 +143,14 @@ int ImeSession::cache_dynamic_candidate_for_current_request(const std::string &w
             (quanpin_autocorrect_types_ & quanpin::kAutocorrectNeighbor) != 0;
         fallback.fuzzy_pinyin = fuzzy_pinyin_;
 """
-    replace_once(ime, mixed_options, "        apply_request_options(fallback);\n", "apply_request_options(fallback)")
+    text = ime.read_text(encoding="utf-8")
+    if mixed_options in text:
+        ime.write_text(text.replace(mixed_options, "        apply_request_options(fallback);\n", 1), encoding="utf-8")
+    elif "        apply_request_options(fallback);\n" not in text and "        apply_request_options(mixed);\n" not in text:
+        mixed_options = mixed_options.replace("fallback", "mixed")
+        if mixed_options not in text:
+            raise RuntimeError(f"Engine caret overlay did not match Wubi fallback options in {ime}")
+        ime.write_text(text.replace(mixed_options, "        apply_request_options(mixed);\n", 1), encoding="utf-8")
     anchor = """std::unique_ptr<IInputScheme> ImeSession::create_scheme(SchemeType scheme_type) const
 """
     helper = """void ImeSession::apply_request_options(QueryRequest &request) const
