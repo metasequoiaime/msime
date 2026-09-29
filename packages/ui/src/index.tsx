@@ -113,6 +113,8 @@ export {
   SettingsContentIntro,
   type SettingsContentIntroProps,
 } from "./settings/settings-content-intro";
+import { SettingsUtilityPages } from "./settings/settings-utility-pages";
+export { SettingsUtilityPages, type SettingsUtilityPagesProps } from "./settings/settings-utility-pages";
 import { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
 export { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
 import { useTranslationSettings } from "./settings/use-translation-settings";
@@ -2695,73 +2697,72 @@ export function SettingsPage({
                     saveMobileKeyboardFeedback={saveMobileKeyboardFeedback}
                     previewMobileKeyboardHaptics={previewMobileKeyboardHaptics}
                   />
-                  <HelpcodeSettingsPage
-                    value={draft}
-                    mobile={mobilePlatform}
-                    showShiftEntry={showHelpcodeShiftEntry}
-                    disabled={busy}
-                    hidden={page !== "helpcode"}
-                    {...helpcodeSettingsActions}
-                  />
-                  <ShortcutsSettingsSection
-                    disabled={busy}
-                    hidden={page !== "shortcuts"}
-                    mobile={mobilePlatform}
-                    keybindings={keybindings}
-                    {...shortcutsSettingsActions}
-                    showModeSwitchShortcuts={showModeSwitchShortcuts}
-                    macos={macosPlatform}
-                    showInputModeHUD={showInputModeHUD}
-                    inputModeHUD={inputModeHUD}
-                    showFullwidthChord={showFullwidthChord}
-                    fullwidthChord={fullwidthChord}
-                    windows={windowsPlatform}
-                    navigation={navigation}
-                    numberRowSelection={numberRowSelection}
-                    showNumberRowSelection={showNumberRowSelection}
-                    showPanelShortcuts={showPanelShortcuts}
-                    harmony={harmonyPlatform}
-                    showDesktopMaintenanceShortcuts={showDesktopMaintenanceShortcuts}
-                    linux={linuxPlatform}
-                    maintenanceChord={maintenanceChord}
-                    showRestartInputMethod={Boolean(showRestartInputMethod)}
-                    restartInputMethod={client.restartInputMethod}
-                    installInputSource={
-                      showInstallInputSource ? client.installInputSource : undefined
-                    }
-                  />
-                  <UtilitiesSettingsSection
-                    disabled={busy}
-                    hidden={page !== "tools"}
-                    clipboard={client.clipboard}
-                    historyEnabled={clipboardHistory}
-                    persistedHistoryEnabled={snapshot?.preferences.clipboard_history ?? false}
-                    revision={snapshot?.revision}
-                    page={page}
-                    ios={iosPlatform}
-                    macos={macosPlatform}
-                    onToggleClipboard={toggleClipboardHistory}
-                    onError={setError}
-                    openCloudClipboard={client.openCloudClipboard}
-                    openCloudDictionary={client.openCloudDictionary}
-                    onOpenPanel={openPanel}
-                    localModes={localModes}
-                    {...utilitiesSettingsActions}
-                  />
-                  <HelpSettingsPage
-                    busy={busy}
-                    hidden={page !== "help"}
-                    macos={macosPlatform}
-                    mobile={mobilePlatform}
-                    ios={iosPlatform}
-                    android={androidPlatform}
-                    platformHelpIntro={platformHelpIntro}
-                    platformQuickStart={platformQuickStart}
-                    platformNetworkDescription={platformNetworkDescription}
-                    onOpenDocumentation={settingsExternalActions.onOpenDocumentation}
-                    onOpenSystemKeyboardSettings={
-                      settingsExternalActions.onOpenSystemKeyboardSettings
-                    }
+                  <SettingsUtilityPages
+                    helpcode={{
+                      value: draft,
+                      mobile: mobilePlatform,
+                      showShiftEntry: showHelpcodeShiftEntry,
+                      disabled: busy,
+                      hidden: page !== "helpcode",
+                      ...helpcodeSettingsActions,
+                    }}
+                    shortcuts={{
+                      disabled: busy,
+                      hidden: page !== "shortcuts",
+                      mobile: mobilePlatform,
+                      keybindings,
+                      ...shortcutsSettingsActions,
+                      showModeSwitchShortcuts,
+                      macos: macosPlatform,
+                      showInputModeHUD,
+                      inputModeHUD,
+                      showFullwidthChord,
+                      fullwidthChord,
+                      windows: windowsPlatform,
+                      navigation,
+                      numberRowSelection,
+                      showNumberRowSelection,
+                      showPanelShortcuts,
+                      harmony: harmonyPlatform,
+                      showDesktopMaintenanceShortcuts,
+                      linux: linuxPlatform,
+                      maintenanceChord,
+                      showRestartInputMethod: Boolean(showRestartInputMethod),
+                      restartInputMethod: client.restartInputMethod,
+                      installInputSource: showInstallInputSource ? client.installInputSource : undefined,
+                    }}
+                    utilities={{
+                      disabled: busy,
+                      hidden: page !== "tools",
+                      clipboard: client.clipboard,
+                      historyEnabled: clipboardHistory,
+                      persistedHistoryEnabled: snapshot?.preferences.clipboard_history ?? false,
+                      revision: snapshot?.revision,
+                      page,
+                      ios: iosPlatform,
+                      macos: macosPlatform,
+                      onToggleClipboard: toggleClipboardHistory,
+                      onError: setError,
+                      openCloudClipboard: client.openCloudClipboard,
+                      openCloudDictionary: client.openCloudDictionary,
+                      onOpenPanel: openPanel,
+                      localModes,
+                      ...utilitiesSettingsActions,
+                    }}
+                    help={{
+                      busy,
+                      hidden: page !== "help",
+                      macos: macosPlatform,
+                      mobile: mobilePlatform,
+                      ios: iosPlatform,
+                      android: androidPlatform,
+                      platformHelpIntro,
+                      platformQuickStart,
+                      platformNetworkDescription,
+                      onOpenDocumentation: settingsExternalActions.onOpenDocumentation,
+                      onOpenSystemKeyboardSettings:
+                        settingsExternalActions.onOpenSystemKeyboardSettings,
+                    }}
                   />
                   <AboutSettingsSection
                     disabled={busy}
