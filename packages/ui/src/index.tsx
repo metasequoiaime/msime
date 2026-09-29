@@ -2338,11 +2338,12 @@ export function SettingsPage({
       setAccountLoginReturnPage,
       accountLoginReturnPage,
     });
-  const { openCommunity, openLocalDesigns } = useSettingsDestinationActions({
-    selectPage,
-    setShowTouchSkinEditor,
-    setCommunityDestination,
-  });
+  const { openAbout, openCommunity, openCommunityAll, openLocalDesigns } =
+    useSettingsDestinationActions({
+      selectPage,
+      setShowTouchSkinEditor,
+      setCommunityDestination,
+    });
   const accountPageActions = useAccountPageActions({
     hasAccountLoginReturnPage: Boolean(accountLoginReturnPage),
     finishAccountLogin,
@@ -2354,7 +2355,7 @@ export function SettingsPage({
     canOpenExternalUrl: Boolean(client.openExternalUrl),
     openExternalUrl,
     onReplayOnboarding,
-    openAbout: () => selectPage("about"),
+    openAbout,
     setError,
   });
   const settingsExternalActions = createSettingsExternalActions({
@@ -2375,7 +2376,7 @@ export function SettingsPage({
   });
   const screenKeyboardActions = createScreenKeyboardActions({
     draft,
-    openCommunity: () => openCommunity("all"),
+    openCommunity: openCommunityAll,
     setShowTouchSkinEditor,
     saveMobileKeyboardFeedback,
     mobileKeyboardFeedback,

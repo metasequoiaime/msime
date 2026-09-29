@@ -24,5 +24,10 @@ export function useSettingsDestinationActions({
     setCommunityDestination(destination);
   };
 
-  return { openCommunity, openLocalDesigns } as const;
+  return {
+    openAbout: () => selectPage("about"),
+    openCommunity,
+    openCommunityAll: () => openCommunity("all"),
+    openLocalDesigns,
+  } as const;
 }
