@@ -400,7 +400,7 @@ cp sqlite-amalgamation-3530400/sqlite3.h "$deps/include/"
 
 ## 模拟器验证（2026-09-20）
 
-首次在 HarmonyOS 模拟器上跑起来，记录可复现路径与结果。镜像为 DevEco 自带的 HarmonyOS 6.0.1(21) phone，与项目 `compileSdkVersion` 一致：
+首次在 HarmonyOS 模拟器上跑起来，记录可复现路径与结果。当时的 bundleName 是 `app.msime.client`，下文日志与验证记录里的包名照原样保留；现在的 bundleName 是 `app.msime.harmony`，命令已按它改写。镜像为 DevEco 自带的 HarmonyOS 6.0.1(21) phone，与项目 `compileSdkVersion` 一致：
 
 ```sh
 emu=/Applications/DevEco-Studio.app/Contents/tools/emulator/Emulator
@@ -410,7 +410,7 @@ export PATH="<command-line-tools>/sdk/default/openharmony/toolchains:$PATH"
 hdc list targets -v                            # 等到 Connected
 hdc file send <hap> /data/local/tmp/msime.hap
 hdc shell bm install -p /data/local/tmp/msime.hap
-hdc shell ime -e app.msime.client -f           # 启用输入法
+hdc shell ime -e app.msime.harmony -f          # 启用输入法
 hdc shell hilog -x | grep A00051/MSIME         # 本宿主的日志域
 ```
 

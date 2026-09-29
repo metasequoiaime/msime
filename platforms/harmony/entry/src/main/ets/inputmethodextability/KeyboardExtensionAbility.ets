@@ -38,7 +38,7 @@ const HUD_HEIGHT_VP: number = 56;
 const HUD_SCREEN_MARGIN_VP: number = 8;
 const HUD_CARET_GAP_VP: number = 10;
 const HUD_VISIBLE_MS: number = 780;
-const BUNDLE_NAME: string = 'app.msime.client';
+const BUNDLE_NAME: string = 'app.msime.harmony';
 // KEYCODE_DEL, the Backspace key.
 const KEYCODE_DEL: number = 2055;
 const TOOLBAR_MARGIN_VP: number = 20;
