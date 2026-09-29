@@ -348,13 +348,16 @@ public final class DictionarySnapshotQueue {
     }
 
     private static void rejectSymlinkBoundary(Path path) throws IOException {
-        if (Files.isSymbolicLink(path))
-            throw new IOException("snapshot queue directory is a symbolic link");
-        Path parent = path.getParent();
-        if (parent != null && Files.isSymbolicLink(parent))
-            throw new IOException("snapshot queue parent is a symbolic link");
-        if (Files.exists(path, LinkOption.NOFOLLOW_LINKS)
-                && !Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS))
+        Path absolute = path.toAbsolutePath().normalize();
+        Path existing = absolute;
+        while (existing != null
+                && !Files.exists(existing, LinkOption.NOFOLLOW_LINKS)) {
+            existing = existing.getParent();
+        }
+        if (existing == null || Files.isSymbolicLink(existing))
+            throw new IOException("snapshot queue path contains a symbolic link");
+        if (Files.exists(absolute, LinkOption.NOFOLLOW_LINKS)
+                && !Files.isDirectory(absolute, LinkOption.NOFOLLOW_LINKS))
             throw new IOException("snapshot queue directory is not a directory");
     }
 

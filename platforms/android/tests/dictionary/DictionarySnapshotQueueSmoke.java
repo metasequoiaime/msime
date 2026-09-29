@@ -31,6 +31,13 @@ public final class DictionarySnapshotQueueSmoke {
             fails(DictionarySnapshotQueue.Reason.UNAVAILABLE, linkedQueue::read);
             check(!Files.exists(outside.resolve("queue")));
             Files.delete(linkedParent);
+            Path linkedAncestor = root.resolve("linked-ancestor");
+            Files.createSymbolicLink(linkedAncestor, outside);
+            DictionarySnapshotQueue nestedQueue = new DictionarySnapshotQueue(
+                linkedAncestor.resolve("state/queue"));
+            fails(DictionarySnapshotQueue.Reason.UNAVAILABLE, nestedQueue::read);
+            check(!Files.exists(outside.resolve("state/queue")));
+            Files.delete(linkedAncestor);
             Path stagingOutside = Files.createDirectory(root.resolve("staging-outside"));
             Path stagingLink = root.resolve("staging-link");
             Files.createSymbolicLink(stagingLink, stagingOutside);
