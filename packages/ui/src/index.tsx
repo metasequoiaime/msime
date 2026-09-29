@@ -243,6 +243,7 @@ import { useWindowState } from "./settings/use-window-state";
 import { useWindowResizeCapture } from "./settings/use-window-resize-capture";
 import { useAccountPageActions } from "./settings/use-account-page-actions";
 import { createSettingsExternalActions } from "./settings/settings-external-actions";
+import { createAboutSettingsActions } from "./settings/about-settings-actions";
 import { useAppVersion } from "./settings/use-app-version";
 import { supportDiagnostics } from "./settings/support-diagnostics";
 import { useMountedRef } from "./settings/use-mounted-ref";
@@ -420,6 +421,10 @@ export {
   createSettingsExternalActions,
   type CreateSettingsExternalActionsOptions,
 } from "./settings/settings-external-actions";
+export {
+  createAboutSettingsActions,
+  type CreateAboutSettingsActionsOptions,
+} from "./settings/about-settings-actions";
 import { SettingsSidebar } from "./settings/settings-sidebar";
 export {
   SettingsSidebar,
@@ -2331,6 +2336,15 @@ export function SettingsPage({
     issuesUrl: platformIssuesUrl,
     openSystemKeyboardSettings: client.openSystemKeyboardSettings,
   });
+  const aboutSettingsActions = createAboutSettingsActions({
+    draft,
+    diagnosticLog,
+    checkForUpdate,
+    chooseDataDirectory,
+    confirmUninstall,
+    selectPage,
+    setDraft,
+  });
   const communityView = communityDestinationView(communityDestination);
   return (
     <div
@@ -2771,9 +2785,8 @@ export function SettingsPage({
                     dataDirectory={dataDirectory}
                     dataDirectoryBusy={dataDirectoryBusy}
                     dataDirectoryResult={dataDirectoryResult}
-                    onCheckForUpdate={() => void checkForUpdate()}
+                    {...aboutSettingsActions}
                     onOpenExternalUrl={openExternalUrl}
-                    onChooseDataDirectory={() => void chooseDataDirectory()}
                     openThirdPartyLicenses={client.openThirdPartyLicenses}
                     uninstallInputSource={client.uninstallInputSource}
                     removeUserData={removeUserDataOnUninstall}
@@ -2782,23 +2795,14 @@ export function SettingsPage({
                     uninstallResult={uninstallResult}
                     onRemoveUserDataChange={setRemoveUserDataOnUninstall}
                     onRequestUninstall={requestUninstall}
-                    onConfirmUninstall={() => void confirmUninstall()}
                     onCancelUninstall={cancelUninstall}
                     diagnosticVisible={
                       !client.host || linuxPlatform || windowsPlatform || macosPlatform
                     }
                     diagnosticLog={diagnosticLog}
                     openDiagnosticLogDirectory={client.openDiagnosticLogDirectory}
-                    onDiagnosticLogChange={(patch) =>
-                      setDraft({ ...draft, diagnostic_log: { ...diagnosticLog, ...patch } })
-                    }
                     onDiagnosticLogError={setError}
                     telemetryEnabled={draft.telemetry_enabled}
-                    onTelemetryChange={(telemetry_enabled) =>
-                      setDraft({ ...draft, telemetry_enabled })
-                    }
-                    onHelp={() => selectPage("help")}
-                    onFeedback={() => selectPage("feedback")}
                   />
                   <ScreenKeyboardSettingsSection
                     disabled={busy}
