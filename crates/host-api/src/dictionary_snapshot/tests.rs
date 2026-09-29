@@ -331,6 +331,14 @@ fn activation_case(nested_dictionaries: bool, hold_session: bool, handle: u64) {
         local_temporary_english: true,
         local_temporary_japanese: true,
         sentence_alternatives: true,
+        sentence_association: msime_engine_bridge::SentenceAssociationOptions {
+            word_lattice: true,
+            google: true,
+            neural_desktop: false,
+            neural_keyboard: false,
+            show_next_on_duplicate: false,
+        },
+        rescoring_context: String::new(),
     };
     let active_options = make(&active);
     let staged_options = make(&staged);
@@ -424,7 +432,10 @@ fn activation_case(nested_dictionaries: bool, hold_session: bool, handle: u64) {
     #[cfg(windows)]
     std::os::windows::fs::symlink_dir(outside_backup.path(), &linked_backup).unwrap();
     assert!(activate(handle, &expected).is_err());
-    assert_eq!(fs::read(outside_backup.path().join("sentinel")).unwrap(), b"keep");
+    assert_eq!(
+        fs::read(outside_backup.path().join("sentinel")).unwrap(),
+        b"keep"
+    );
     fs::remove_file(&linked_backup).unwrap();
     // Other tests spawn processes concurrently, and a fork can briefly inherit the dropped session's locked file description before close-on-exec runs, so maintenance access may read busy for a moment. Same allowance as the access lock's own test.
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);

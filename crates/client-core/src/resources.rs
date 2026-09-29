@@ -694,7 +694,11 @@ mod tests {
             .unwrap()
             .unwrap();
         marker.write(&path).unwrap();
-        assert_eq!(VerifiedMarker::read(&path), Some(marker.clone()), "round trips");
+        assert_eq!(
+            VerifiedMarker::read(&path),
+            Some(marker.clone()),
+            "round trips"
+        );
 
         #[cfg(unix)]
         {
@@ -703,8 +707,15 @@ mod tests {
             fs::write(&outside, b"keep outside").unwrap();
             fs::remove_file(&path).unwrap();
             symlink(&outside, &path).unwrap();
-            assert_eq!(VerifiedMarker::read(&path), None, "a symlinked marker is a cache miss");
-            assert!(marker.write(&path).is_err(), "a symlinked marker is not overwritten");
+            assert_eq!(
+                VerifiedMarker::read(&path),
+                None,
+                "a symlinked marker is a cache miss"
+            );
+            assert!(
+                marker.write(&path).is_err(),
+                "a symlinked marker is not overwritten"
+            );
             assert_eq!(fs::read(&outside).unwrap(), b"keep outside");
             fs::remove_file(&path).unwrap();
         }

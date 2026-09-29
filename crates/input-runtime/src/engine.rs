@@ -26,6 +26,15 @@ pub enum RuntimeError {
 pub trait InputEngine {
     /// Ends the committed-word context the Engine learns and ranks against. Engines without one ignore it.
     fn reset_context(&mut self) {}
+    /// Moves the caret prefix decoding answers for; `None` returns to the end of the composition. Engines without
+    /// prefix decoding ignore it and report nothing pending below.
+    fn set_caret(&mut self, _caret: Option<usize>) {}
+    fn prefix_end(&self) -> usize {
+        0
+    }
+    fn pending_suffix(&self) -> String {
+        String::new()
+    }
     fn reset_cache(&mut self) -> Result<(), RuntimeError> {
         Err(RuntimeError::Engine(
             "Engine cache reset is unsupported".into(),
@@ -148,6 +157,15 @@ pub enum SegmentCommand {
 impl InputEngine for Session {
     fn reset_context(&mut self) {
         Session::reset_context(self);
+    }
+    fn set_caret(&mut self, caret: Option<usize>) {
+        Session::set_caret(self, caret);
+    }
+    fn prefix_end(&self) -> usize {
+        Session::prefix_end(self)
+    }
+    fn pending_suffix(&self) -> String {
+        Session::pending_suffix(self)
     }
     fn reset_cache(&mut self) -> Result<(), RuntimeError> {
         Session::reset_cache(self);

@@ -392,8 +392,7 @@ mod ffi {
 pub use ffi::{
     CaptureDevice, DictionaryEntry, DictionaryKind, DictionaryPage, DictionaryTableEntry,
     DictionaryTablePage, EmojiCatalogItem, EngineOptions, EngineResult, EngineSnapshot,
-    SentenceAssociationOptions,
-    HandwritingPoint, OnlineQuerySnapshot,
+    HandwritingPoint, OnlineQuerySnapshot, SentenceAssociationOptions,
 };
 
 /// Read a bounded page of user-inserted entries, excluding the bundled dictionary.
@@ -715,7 +714,6 @@ impl Session {
     /// undo tracks. Called when the text the next word lands in is no longer the text the last one went to.
     pub fn reset_context(&mut self) {
         self.inner.pin_mut().reset_context()
-    }
     }
     pub fn apply_online_candidate(
         &mut self,

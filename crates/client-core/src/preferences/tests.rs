@@ -1554,7 +1554,10 @@ fn custom_helpcode_schema_roundtrips_and_rejects_unsafe_ids() {
         ..Preferences::default()
     };
     let saved = store.save(0, preferences).unwrap();
-    assert_eq!(saved.preferences.quanpin_helpcode.schema.as_str(), "custom/synthetic");
+    assert_eq!(
+        saved.preferences.quanpin_helpcode.schema.as_str(),
+        "custom/synthetic"
+    );
 
     let document = fs::read_to_string(store.path()).unwrap();
     for unsafe_id in ["custom/../escape", "custom/a\\b", "custom/"] {

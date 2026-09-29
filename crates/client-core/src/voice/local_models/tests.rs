@@ -432,13 +432,7 @@ fn symlinked_roots_are_rejected_before_installing() {
     let model = fixture_model(&archive);
     let fetcher = fetcher_for(&archive, "");
 
-    let (result, _) = run(
-        &root,
-        &model,
-        "",
-        &fetcher,
-        &AtomicBool::new(false),
-    );
+    let (result, _) = run(&root, &model, "", &fetcher, &AtomicBool::new(false));
 
     assert!(matches!(result, Err(LocalModelError::InvalidRoot)));
     assert!(fetcher.requested.lock().unwrap().is_empty());
