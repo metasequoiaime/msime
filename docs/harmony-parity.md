@@ -116,7 +116,7 @@ iOS 与 macOS 的同类文档是 [ios-parity.md](ios-parity.md) 和 [macos-parit
 
 写这个符号扫描踩过两个会让数字偏低的坑，判据因此是现在这样：按裸方法名 `.method(` 匹配会撞名（`CandidateGlossPolicy.isCurrent` 一度显示为已接线，只因为 `HarmonyDoubaoRecognizer` 有个同名私有方法），所以按类名限定；按「文件里第一个导出类」归属方法也是错的（`ClipboardHistoryStore.ts` 导出六个类），所以按类体范围归属。
 
-同一类的另外两道：`scripts/test-harmony-bridge-parity.py` 比的是「页面会调用的桥方法」与「真正注册出去的名字」，而不是两边都有没有这个符号；`scripts/test-harmony-settings-bundle.py` 重建 `apps/harmony` 的单文件设置包并逐字节比对，防止改了 `packages/ui/src` 而忘记重建。
+同一类的另外两道：`scripts/test-harmony-bridge-parity.py` 比的是「页面会调用的桥方法」与「真正注册出去的名字」，而不是两边都有没有这个符号；`scripts/test-harmony-settings-bundle.py` 确认 `apps/harmony` 的单文件设置页没有被重新提交进仓库、仍能构建成单文件——它由 `platforms/harmony/stage-settings.sh` 在每次打 HAP 前构建，不会比同一份检出里的 `packages/ui/src` 旧。
 
 ArkTS 本身也有一道：`tsc`、逻辑套件、设置包构建全绿并不代表 HAP 打得出来，因为 `tests/run.sh` 只编译 `.ts` 不编译 `.ets`，而 ArkTS 的 `@Builder`/`build` 体内不得声明局部变量、对象字面量必须对应已声明接口等限制只有真打包才抓得到。`scripts/test-harmony-arkts-subset.py` 用文本扫描抓其中能抓的两类；装好 DevEco 命令行工具、`oh_modules` 与三 ABI 原生库之后，`verify-local.sh` 会直接跑一次完整的 `hvigorw assembleHap`。
 

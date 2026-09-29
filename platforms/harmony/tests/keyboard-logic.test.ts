@@ -6309,6 +6309,26 @@ group("account and cloud clipboard bridge keeps secrets native", () => {
     });
 });
 
+group("account responses reject oversized JSON envelopes", () => {
+  const transport: AccountTransport = {
+    request: async () => ({
+      status: 200,
+      body: `{"providers":{},"padding":"${"x".repeat(1024 * 1024)}"}`,
+    }),
+  };
+  const bridge = new AccountCloudBridge(transport, {
+    load: () => null,
+    save: () => {},
+    clear: () => {},
+  });
+  void bridge.handle('{"operation":"providers"}').then((result) => {
+    check(
+      JSON.parse(result).error === "account_unavailable",
+      "an account response larger than the shared JSON limit is refused",
+    );
+  });
+});
+
 group("account sessions reject unbounded lifetimes", () => {
   let stored: string | null = null;
   const bridge = new AccountCloudBridge(

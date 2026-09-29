@@ -1,79 +1,55 @@
 #!/usr/bin/env python3
-"""Whether the HarmonyOS settings bundle still matches the UI it was built from.
+"""Whether the HarmonyOS settings page is built, not committed, and still builds.
 
-The HarmonyOS settings window is a WebView over `$rawfile('settings/index.html')`, and that file is
-a generated artefact committed to the repository: one 1.3 MB document with the script, the styles
-and every asset inlined, because a resource:// document has a null origin and the webview will not
-fetch anything across it. Nothing rebuilds it. It was produced by hand once and then sat there while
-the shared UI it is built from moved on — by the time this check was written, fifty-two commits had
-touched `packages/ui/src` and the bundle had not been regenerated once, so the HarmonyOS settings
-page was rendering a UI that no longer existed anywhere else. Every capability-gated control added
-in that window was invisible on HarmonyOS and there was no error to see, because a stale bundle is a
-working bundle.
+The HarmonyOS settings window is a WebView over `$rawfile('settings/index.html')`: one self-contained document with the script, the styles and every asset inlined, because a resource:// document has a null origin and the webview will not fetch anything across it. `platforms/harmony/stage-settings.sh` builds it from `packages/ui` before every HAP build, and `entry/hvigorfile.ts` refuses to package without it.
 
-A generated file under version control needs something that notices when it stops matching its
-source, or it drifts silently and indefinitely. The build is byte-for-byte reproducible, so that
-something can simply be the build: rebuild into a scratch directory and compare.
+It used to be committed. That went wrong twice over. First it went stale: fifty-two commits touched `packages/ui/src` while the committed bundle was never regenerated, and a stale bundle is a working bundle, so the HarmonyOS settings page rendered a UI that no longer existed anywhere else with no error to see. The fix for that, a check that rebuilt it and demanded the committed bytes match, made every shared-UI pull request regenerate the same 1 MB single-line file, so any two of them in flight conflicted on it, and a merge could only be resolved by building it again.
+
+Building it from the same checkout as the HAP removes both: it cannot be older than the UI it ships with, and there is nothing to conflict on. What is left to check is that it stays that way, which is that the page is not tracked again, and that it still builds into the one file the webview can read.
 """
 
-import hashlib
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-BUNDLE = ROOT / "platforms/harmony/entry/src/main/resources/rawfile/settings/index.html"
-REBUILD = ["pnpm", "--filter", "@msime/harmony", "build"]
+PAGE = "platforms/harmony/entry/src/main/resources/rawfile/settings/index.html"
+STAGE = ["bash", "platforms/harmony/stage-settings.sh"]
 
 
-def digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+def git(*arguments: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", *arguments], cwd=ROOT, capture_output=True, text=True)
 
 
 def main() -> int:
-    if not BUNDLE.exists():
-        print(f"missing: {BUNDLE.relative_to(ROOT)}")
-        print("  the settings window would load nothing at all")
-        return 1
+    if shutil.which("git") is not None and git("rev-parse", "--is-inside-work-tree").returncode == 0:
+        if git("ls-files", "--error-unmatch", PAGE).returncode == 0:
+            print(f"{PAGE} is tracked again")
+            print("  it is built by platforms/harmony/stage-settings.sh; committing it makes every shared-UI change conflict on it")
+            print(f"  untrack it with: git rm --cached {PAGE}")
+            return 1
+        if git("check-ignore", "-q", PAGE).returncode != 0:
+            print(f"{PAGE} is not ignored, so a build leaves it looking like a change to commit")
+            return 1
     if shutil.which("pnpm") is None:
-        print("skipped: pnpm not on PATH, cannot rebuild the bundle to compare against")
+        print("skipped: pnpm not on PATH, cannot build the settings page")
         return 0
     if not (ROOT / "node_modules").exists():
         print("skipped: dependencies not installed, run pnpm install at the repository root")
         return 0
-
-    committed = digest(BUNDLE)
-    # The build writes over the tracked file in place, so keep the bytes to put back: this check
-    # reports drift, it does not silently resolve it. A developer who wanted the rebuild would have
-    # run the rebuild. The restore is in `finally` so a Ctrl-C mid-build puts it back too.
-    original = BUNDLE.read_bytes()
     try:
-        try:
-            result = subprocess.run(REBUILD, cwd=ROOT, capture_output=True, text=True)
-        except OSError as error:
-            print(f"skipped: could not run the bundle build ({error})")
-            return 0
-        if result.returncode != 0:
-            print("the settings bundle does not build")
-            print(result.stdout[-2000:])
-            print(result.stderr[-2000:])
-            return 1
-        rebuilt = digest(BUNDLE)
-    finally:
-        # emptyOutDir clears the directory before the build writes it, so it may be gone.
-        BUNDLE.parent.mkdir(parents=True, exist_ok=True)
-        BUNDLE.write_bytes(original)
-
-    if rebuilt == committed:
-        print("harmony settings bundle: matches the shared UI it is built from")
+        result = subprocess.run(STAGE, cwd=ROOT, capture_output=True, text=True)
+    except OSError as error:
+        print(f"skipped: could not run the settings build ({error})")
         return 0
-    print("harmony settings bundle is stale")
-    print(f"  committed: {committed[:16]}")
-    print(f"  rebuilt:   {rebuilt[:16]}")
-    print("  the HarmonyOS settings window is rendering an older UI than every other host")
-    print("  regenerate with: pnpm --filter @msime/harmony build")
-    return 1
+    if result.returncode != 0:
+        print("the HarmonyOS settings page does not build")
+        print(result.stdout[-2000:])
+        print(result.stderr[-2000:])
+        return 1
+    print("harmony settings page: builds into one file and is not committed")
+    return 0
 
 
 if __name__ == "__main__":

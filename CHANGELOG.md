@@ -21,7 +21,7 @@
 
 - `packages/ui` 提供跨平台共享的 React 设置页，桌面、Android、iOS 与 HarmonyOS 宿主共用同一份实现，包含首页、账号、AI 对话、社区、打字统计、外观、输入、辅助码、快捷键、词库、皮肤、语音、屏幕键盘、手写、实用功能、AI 辅助、悬浮工具栏、帮助、关于与反馈等页面，并带移动端底部 tab 映射。
 - 桌面 shell（Tauri）提供跨平台命令层，并按 Windows / macOS / Linux / Android / iOS 分目录接入各自的账号、凭据、数据目录、输入源与音频能力。
-- HarmonyOS 宿主消费同一份设置页的单文件构建产物，产物差异由 `scripts/test-harmony-settings-bundle.py` 在本地验证中重建比对，防止 UI 源码与已提交产物漂移。
+- HarmonyOS 宿主消费同一份设置页的单文件构建产物，由 `platforms/harmony/stage-settings.sh` 在每次打 HAP 前从 `packages/ui` 构建、不提交进仓库，`entry/hvigorfile.ts` 在它缺失时拒绝打包。
 
 #### macOS
 

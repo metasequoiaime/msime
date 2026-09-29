@@ -127,7 +127,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # The settings bundle below is a committed build artefact, so the toolchain that produces it has to be the same one contributors run; the runner's default Node is not pinned to anything.
+      # The settings page below is built with the same toolchain contributors and the release build run; the runner's default Node is not pinned to anything.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         if: ${{ needs.changes.outputs.harmonyos == 'true' }}
         with:
@@ -140,8 +140,8 @@ jobs:
       - name: Type-check and run Harmony keyboard logic tests
         if: ${{ needs.changes.outputs.harmonyos == 'true' }}
         run: bash platforms/harmony/tests/run.sh
-      # The settings window is a WebView over a generated artefact committed to the repository, and nothing rebuilds it. It sat fifty-two commits out of date once, and it goes stale again on every merge that touches packages/ui -- where the only thing that notices is whoever next runs verify-local.sh, and until they regenerate it the pre-push hook rejects everyone else's pushes too. This job already runs for every shared-UI change and already has pnpm, which is all the check needs.
-      - name: Check the settings bundle matches the shared UI
+      # The settings window is a WebView over a page built from packages/ui by platforms/harmony/stage-settings.sh before every HAP build. It used to be committed, and every shared-UI pull request then conflicted on it; this checks it stays uncommitted and still builds into the one file the WebView can read. This job already runs for every shared-UI change and already has pnpm, which is all the check needs.
+      - name: Check the settings page builds and is not committed
         if: ${{ needs.changes.outputs.harmonyos == 'true' }}
         run: python3 scripts/test-harmony-settings-bundle.py
       - name: HarmonyOS platform unchanged

@@ -152,7 +152,7 @@ ArkTS 宿主，`module.json5` 声明 `mainElement: "KeyboardExtensionAbility"`�
 
 能力按平台 API 实际具备的来：手写走 Core Vision Kit 的 `textRecognition`，语音走 Core Speech Kit 的离线短语音加 HTTP ASR 加豆包流式，录音提示音与静音走 AVPlayer 与 `CONCURRENCY_PAUSE_OTHERS`，录音设备用 `AudioRoutingManager`。AI 润色改为润色光标前文本，因为 `InputClient` 只提供 `getForwardSync`/`getBackwardSync`。明确不做的几项在 README 里带 SDK 查证记录：应用图标切换（`bundleManager` 与 `shortcutManager` 都没有对应 API）、独立的表情/剪贴板窗口（在本宿主它们是键面而不是窗口）。
 
-设置页的形态是 HarmonyOS 特有的：`resource://` 的 origin 为 null，WebView 拒绝跨 origin 拉模块脚本和样式，所以 `apps/harmony` 把同一份 `@msime/ui` 打成**单文件** `entry/src/main/resources/rawfile/settings/index.html` 并提交进仓库（hvigor 不调 Node 工具链，构建时没机会重建）。`scripts/test-harmony-settings-bundle.py` 在本地验证里重建并逐字节比对，防止 `packages/ui/src` 改了而包没重建。
+设置页的形态是 HarmonyOS 特有的：`resource://` 的 origin 为 null，WebView 拒绝跨 origin 拉模块脚本和样式，所以 `apps/harmony` 把同一份 `@msime/ui` 打成**单文件** `entry/src/main/resources/rawfile/settings/index.html`，由 `platforms/harmony/stage-settings.sh` 在每次打 HAP 前构建，不提交进仓库（`entry/hvigorfile.ts` 在它缺失时拒绝打包）。它以前是提交的产物，改共享 UI 的 PR 之间因此反复冲突；`scripts/test-harmony-settings-bundle.py` 现在检查它没有被重新提交，并且仍能构建成单文件。
 
 `ohpm install` 与 `hvigorw assembleHap` 两步缺一不可：缺前者则 `import client from 'libmsimeclient.so'` 解析不到 `.d.ts`，ArkTS 会把整个 NAPI 边界当无类型并照样打包成功；`tests/run.sh` 只编译 `.ts` 不编译 `.ets`，ArkTS 对 `@Builder`/`build` 体内局部变量、对象字面量必须对应已声明接口等限制只有真打包才抓得到。原生库产出 `libmsime_host_api.so`、`libmsimeclient.so` 与 `libc++_shared.so` 三个文件，最后一个必须随包——OpenHarmony 不给应用提供系统副本。
 

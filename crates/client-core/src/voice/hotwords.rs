@@ -91,22 +91,20 @@ pub fn hotwords_from_entries<'a>(
 
 /// Replace every run of Chinese characters that sounds like a hotword (fuzzy initials zh/z, ch/c, sh/s, n/l and finals an/ang, en/eng, in/ing treated alike) but is written differently with that hotword. Longer hotwords win, replacements never overlap, and text already spelled as a hotword is left alone.
 pub fn correct(text: &str, hotwords: &[Hotword]) -> String {
-    let mut prepared: Vec<(Vec<char>, Vec<String>)> = hotwords
-        .iter()
-        .filter_map(|hotword| {
-            let characters: Vec<char> = hotword.text.chars().collect();
-            let syllables = normalized_syllables(&hotword.pinyin)?;
-            (characters.len() >= 2
-                && syllables.len() == characters.len()
-                && characters.iter().all(|&ch| is_han(ch)))
-            .then(|| {
-                (
-                    characters,
-                    syllables.iter().map(|syllable| fuzzy(syllable)).collect(),
-                )
-            })
+    let mut prepared: Vec<(Vec<char>, Vec<String>)> = Vec::with_capacity(hotwords.len());
+    prepared.extend(hotwords.iter().filter_map(|hotword| {
+        let characters: Vec<char> = hotword.text.chars().collect();
+        let syllables = normalized_syllables(&hotword.pinyin)?;
+        (characters.len() >= 2
+            && syllables.len() == characters.len()
+            && characters.iter().all(|&ch| is_han(ch)))
+        .then(|| {
+            (
+                characters,
+                syllables.iter().map(|syllable| fuzzy(syllable)).collect(),
+            )
         })
-        .collect();
+    }));
     if prepared.is_empty() {
         return text.to_owned();
     }

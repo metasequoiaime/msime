@@ -113,6 +113,7 @@ bash platforms/android/verify-native.sh "$READELF" target/android/jniLibs/arm64-
 
 ```sh
 export PATH="<DevEco command-line-tools>/bin:$PATH"
+bash platforms/harmony/stage-settings.sh   # settings page from packages/ui; hvigor refuses to package without it
 cd platforms/harmony && ohpm install && hvigorw assembleHap --no-daemon
 ```
 
@@ -120,7 +121,7 @@ cd platforms/harmony && ohpm install && hvigorw assembleHap --no-daemon
 
 - **`ohpm install` 不能省**：它建立 `entry/oh_modules/` 里的链接，`import client from 'libmsimeclient.so'` 才能解析到 `.d.ts`。不跑它，ArkTS 把整个 NAPI 边界当成无类型，**构建照样成功**——于是「构建通过」可能意味着一个原生调用都没被检查。
 - `hvigorw assembleHap` 是唯一编译 ArkTS 的地方。`tsc` 全过、单测全绿、`verify-local.sh --quick` 通过，都不代表 HAP 打得出来：曾有 13 个 ArkTS 错误进入 develop 而没有任何门禁发现。改过 `.ets` 就跑一次。
-- 改了 `packages/ui` 必须 `pnpm --filter @msime/harmony build` 重新生成 `rawfile/settings/index.html` 并连同源码提交，否则设备上看到的还是旧界面。
+- 设置页 `rawfile/settings/index.html` 不提交，由 `stage-settings.sh` 在打包前从 `packages/ui` 构建；改了 `packages/ui` 重跑一次它再打包，设备上才是新界面。不要把这个文件加回版本库。
 
 ## Linux
 

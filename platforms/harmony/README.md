@@ -339,7 +339,7 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 - `tests/`：不依赖设备的 TypeScript 键盘逻辑测试。
 - `AppScope/`、`entry/src/main/resources/`：应用元数据和资源。
 - `build-native.sh`、`stage-resources.sh`、`stage-voice-runtime.sh`：共享 Host API、NAPI 库、固定资源和 sherpa-onnx HAR 的构建/暂存入口。
-- `entry/src/main/resources/rawfile/settings/index.html`：设置页的单文件打包产物，由 `apps/harmony` 生成，见下方[设置页打包](#设置页打包)。
+- `entry/src/main/resources/rawfile/settings/index.html`：设置页的单文件打包产物，由 `stage-settings.sh` 从 `apps/harmony` 生成，不提交，见下方[设置页打包](#设置页打包)。
 
 Windows 文档里的“自定义候选窗翻译”在 Harmony 上改由设置页提供。Engine 本来就在每个宿主上读这份覆盖层——`prepare_translation_sidecar` 先看用户数据目录再看资源目录——所以缺的从来不是功能，而是投放途径：没人能把文件放进应用沙盒。设置页的“自定义候选释义”把同一份内容写到 Engine 已经在看的位置（`<state>/user/custom_translations.txt`），解析规则逐条对齐 `EnglishDictionary::load_custom_translations`（Tab 分隔、`#` 注释、首尾空白修剪、源词含非 ASCII 即中译英、同源词后者覆盖前者），页面因此能在保存前说清楚这份文件里到底有多少条、多少行读不出来。留空即删除该文件，而不是留下一份 Engine 每次都读成空集的文档。**不写进已暂存的资源目录**：那里按锁文件逐项精确校验，多一个文件就会让键盘拒绝启动。
 
@@ -347,15 +347,15 @@ Windows 文档里的“自定义候选窗翻译”在 Harmony 上改由设置页
 
 ## 设置页打包
 
-`entry/src/main/resources/rawfile/settings/index.html` 是提交进仓库的构建产物，不要手工编辑。它由 `apps/harmony` 生成：
+设置页是 `entry/src/main/resources/rawfile/settings/index.html`，由 `apps/harmony` 从共享设置 UI（`packages/ui`）构建，**不提交进仓库**（已加入 `.gitignore`）。每次打 HAP 之前运行：
 
 ```sh
-pnpm --filter @msime/harmony build
+bash platforms/harmony/stage-settings.sh   # 需先在仓库根目录 pnpm install --frozen-lockfile
 ```
 
-之所以提交而不是在打包时生成，是因为 `hvigorw assembleHap` 不会调用 Node 工具链；HAP 打包时这个文件必须已经在 rawfile 里。它也必须是**单文件**：`resource://` 文档的 origin 为 null，WebView 会拒绝跨 origin 拉取模块脚本和样式表，所以脚本、样式和资源全部内联进 HTML，因此体积在 1 MB 以上。改动共享设置 UI（`packages/ui`）后需要重新生成并连同源码一起提交，否则 HarmonyOS 上看到的还是旧界面。
+它必须是**单文件**：`resource://` 文档的 origin 为 null，WebView 会拒绝跨 origin 拉取模块脚本和样式表，所以脚本、样式和资源全部内联进 HTML，体积在 1 MB 以上；脚本在构建后确认目录里只有这一个文件。`entry/hvigorfile.ts` 在 hvigor 配置阶段检查它存在且非空，缺失时直接报错并给出上面这条命令——没有它的 HAP 能装能跑，只是设置窗口一片空白、没有任何报错，所以不让它被打出来。
 
-这一段以上的话此前就写在这里，仍然被违反了 52 次：从 #2863 到本次修复之间有 52 个提交改动 `packages/ui/src`，包没有重建过一次，HarmonyOS 的设置页一直在渲染一个别处已经不存在的界面。陈旧的包不会报错——它照常打开，只是少掉了此后加的每一个控件。因此 `scripts/verify-local.sh` 现在跑 `scripts/test-harmony-settings-bundle.py`：重建到临时目录并逐字节比对（该构建可复现，三次构建同一哈希），不一致就失败并给出重建命令。校验只报告漂移，不替你改文件。没写成 hvigor 任务是因为打包侧调不动 Node 工具链，而 `verify-local.sh` 本来就是本仓唯一的合并前门。
+这个文件以前是提交进仓库的，理由是 `hvigorw assembleHap` 不调用 Node 工具链。它先是漂移过：52 个改动 `packages/ui/src` 的提交期间包一次都没重建，HarmonyOS 的设置页一直在渲染别处已经不存在的界面。为此加的门禁要求提交的产物与源码逐字节一致，于是每个改共享 UI 的 PR 都要重新生成这个 1 MB 的单行文件，任意两个同时在途的 PR 必然在它上面冲突，合并时只能再构建一次来解决。可打 HAP 本来就要先跑 `stage-resources.sh`、`build-native.sh`、`stage-voice-runtime.sh` 这些准备步骤，在同一处构建设置页，它就不可能比同一份检出里的 UI 旧，也没有东西可冲突。`scripts/test-harmony-settings-bundle.py`（`verify-local.sh` 与 HarmonyOS CI 都跑）现在检查它没有被重新提交、仍被忽略，并且仍能构建成单文件。
 
 ## 本地构建
 
@@ -364,6 +364,7 @@ pnpm --filter @msime/harmony build
 ```sh
 resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources --locked -- target/resources)"
 bash platforms/harmony/stage-resources.sh "$resource_dir"
+bash platforms/harmony/stage-settings.sh
 MSIME_OHOS_NDK=/absolute/openharmony/native \
 MSIME_OHOS_DEPS=/absolute/ohos-deps/arm64-v8a \
 bash platforms/harmony/build-native.sh arm64-v8a

@@ -18,6 +18,15 @@ jobs:
         env: {REQUESTED: "${{ inputs.version }}"}
         run: |
           version="${REQUESTED:-$(tr -d '[:space:]' < platforms/harmony/version.txt)}"; [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; echo "value=$version" >> "$GITHUB_OUTPUT"
+      # The settings page is built from packages/ui for every HAP rather than committed (see platforms/harmony/stage-settings.sh), with the Node the rest of the repository pins.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+      - name: Build the HarmonyOS settings page
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile --ignore-scripts
+          bash platforms/harmony/stage-settings.sh
       - name: Build HarmonyOS native host
         run: bash platforms/harmony/build-native.sh arm64-v8a
       - name: Stage the sherpa-onnx HAR
