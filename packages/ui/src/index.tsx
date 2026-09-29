@@ -50,6 +50,7 @@ export {
   initialSettingsPage,
   mobileHeaderlessPageIds,
   type InitialSettingsPageOptions,
+  type SettingsPageId,
 } from "./settings/mobile-navigation";
 import { useSettingsNavigation } from "./settings/use-settings-navigation";
 export {
@@ -86,6 +87,8 @@ export {
   createSettingsSaveAction,
   type CreateSettingsSaveActionOptions,
 } from "./settings/settings-save-action";
+import { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
+export { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
 import { useTranslationSettings } from "./settings/use-translation-settings";
 export {
   useTranslationSettings,
@@ -2572,13 +2575,7 @@ export function SettingsPage({
                 openPanel={client.openVocabulary}
               />
             )}
-            {draft &&
-              page !== "typing-statistics" &&
-              page !== "vocabulary" &&
-              page !== "account" &&
-              page !== "chat" &&
-              page !== "more" &&
-              page !== "community" && (
+            {draft && isSettingsFormPage(page) && (
                 <form onSubmit={submitSettings}>
                   <AppearanceSettingsSection
                     disabled={busy}
@@ -3017,11 +3014,7 @@ export function SettingsPage({
                   />
                 </form>
               )}
-            {page !== "typing-statistics" &&
-              page !== "vocabulary" &&
-              page !== "account" &&
-              page !== "chat" &&
-              page !== "community" && (
+            {canReloadSettingsPage(page) && (
                 <button className="secondary" disabled={busy} onClick={reloadSettings}>
                   重新读取
                 </button>
