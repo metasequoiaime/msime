@@ -9,6 +9,7 @@ import {
 } from "./settings/app-resources";
 import { platformResourceUrls } from "./settings/platform-resource-urls";
 import { unreadablePreferencesMessage } from "./settings/preferences-recovery-message";
+import { useSettingsWindowInteractions } from "./settings/use-settings-window-interactions";
 import {
   mobilePrimaryPageIds,
   mobileTabForPage,
@@ -24,15 +25,7 @@ import {
 import { settingsPageProjections } from "./settings/settings-page-projections";
 import type { VoiceDeviceReader } from "./voice/voice-device-picker";
 import type { LocalVoiceModelClient } from "./voice/local-models";
-import {
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-  type MouseEvent as ReactMouseEvent,
-  type PointerEvent as ReactPointerEvent,
-} from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import {
   type DictionaryEntry,
   type LocalDictionaryFormat,
@@ -95,7 +88,6 @@ import {
   InputSourceStartupNotice,
   type InputSourceStartupStatus,
 } from "./settings/input-source-startup-notice";
-import { windowResizeEdge } from "./settings/window-resize";
 import { useProviderCredentials } from "./settings/use-provider-credentials";
 import { useFeedbackReport } from "./settings/use-feedback-report";
 import { useDataDirectory } from "./settings/use-data-directory";
@@ -295,6 +287,10 @@ export {
 } from "./settings/use-settings-destination-actions";
 export { useMacosSettings, type UseMacosSettingsOptions } from "./settings/use-macos-settings";
 export { useWindowState, type UseWindowStateOptions } from "./settings/use-window-state";
+export {
+  useSettingsWindowInteractions,
+  type UseSettingsWindowInteractionsOptions,
+} from "./settings/use-settings-window-interactions";
 export { useAppVersion, type UseAppVersionOptions } from "./settings/use-app-version";
 export {
   supportDiagnostics,
@@ -1897,18 +1893,6 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     copyText: client.copyText,
     openExternalUrl: client.openExternalUrl,
   });
-  const pendingTitlebarDrag = useRef<{ x: number; y: number; pointerId: number } | null>(null);
-  useEffect(() => {
-    const clear = () => {
-      pendingTitlebarDrag.current = null;
-    };
-    window.addEventListener("blur", clear);
-    return () => {
-      clear();
-      window.removeEventListener("blur", clear);
-    };
-  }, [client]);
-
   const {
     dataDirectory,
     busy: dataDirectoryBusy,
@@ -2484,7 +2468,6 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     supportDiagnostics: diagnosticsText,
     feedbackReport,
     submitFeedback,
-    pendingTitlebarDrag,
     saveCustomTranslations,
     reload,
     save,
@@ -2633,7 +2616,6 @@ export function SettingsPage(props: SettingsPageProps) {
     settingsContentRef,
     communityDestination,
     windowMaximized,
-    pendingTitlebarDrag,
     reload,
     save,
     openExternalUrl,
@@ -2662,6 +2644,15 @@ export function SettingsPage(props: SettingsPageProps) {
   const macShell = settingsPlatform === "mac";
   const linuxShell = settingsPlatform === "linux";
   const ipadShell = settingsPlatform === "ipad";
+  const { onWindowPointerDownCapture, windowDragHandlers, keepPointer } =
+    useSettingsWindowInteractions({
+      windowControl: client.windowControl,
+      beginWindowDrag: client.beginWindowDrag,
+      resizeWindow: client.resizeWindow,
+      windowMaximized,
+      macShell,
+      onError: setError,
+    });
   // An iPad shows the settings split only on the 设置 tab; the other three tabs take the whole width.
   const ipadSidebarShown = mobileActiveTab === "home";
   // macOS keeps its native traffic lights over the page (an overlay title bar), and a phone's frame belongs to the OS, so only the platforms that draw their own caption get one. The host still exposes the window commands on mobile because the same Tauri app binary backs both, so the presence of a command is not the question -- the platform is.
@@ -2725,64 +2716,6 @@ export function SettingsPage(props: SettingsPageProps) {
       />
     </>
   );
-  // The caption, the macOS sidebar top and the macOS toolbar all move the window: a press that travels past 2px starts the host drag, and a double-click toggles maximise the way the platform's own title bar does.
-  const windowDragHandlers = {
-    onDoubleClick: (event: ReactMouseEvent<HTMLElement>) => {
-      pendingTitlebarDrag.current = null;
-      if (event.button !== 0 || !client.windowControl) return;
-      const rect = event.currentTarget.closest("[data-settings-shell]")!.getBoundingClientRect();
-      if (
-        !windowMaximized &&
-        client.resizeWindow &&
-        (event.clientX - rect.left < 8 ||
-          rect.right - event.clientX < 8 ||
-          event.clientY - rect.top < 8 ||
-          rect.bottom - event.clientY < 8)
-      )
-        return;
-      void client.windowControl(windowMaximized ? "restore" : "maximize");
-    },
-    onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
-      if (event.button === 0 && event.detail < 2 && client.beginWindowDrag)
-        pendingTitlebarDrag.current = {
-          x: event.clientX,
-          y: event.clientY,
-          pointerId: event.pointerId,
-        };
-    },
-    onPointerMove: (event: ReactPointerEvent<HTMLElement>) => {
-      const pending = pendingTitlebarDrag.current;
-      if (!pending || pending.pointerId !== event.pointerId) return;
-      if (event.buttons !== 1) {
-        pendingTitlebarDrag.current = null;
-        return;
-      }
-      if (Math.abs(event.clientX - pending.x) + Math.abs(event.clientY - pending.y) < 2) return;
-      pendingTitlebarDrag.current = null;
-      // Invoke during the gesture; catch synchronous and asynchronous host failures.
-      void (async () => {
-        try {
-          await client.beginWindowDrag?.();
-        } catch {
-          setError("无法移动窗口，请重试。");
-        }
-      })();
-    },
-    onPointerUp: () => {
-      pendingTitlebarDrag.current = null;
-    },
-    onPointerCancel: () => {
-      pendingTitlebarDrag.current = null;
-    },
-    onPointerLeave: () => {
-      pendingTitlebarDrag.current = null;
-    },
-  };
-  // A control inside a drag region keeps its own press and double-click.
-  const keepPointer = {
-    onPointerDown: (event: ReactPointerEvent<HTMLElement>) => event.stopPropagation(),
-    onDoubleClick: (event: ReactMouseEvent<HTMLElement>) => event.stopPropagation(),
-  };
   return (
     <div
       className={settings.shell}
@@ -2791,18 +2724,7 @@ export function SettingsPage(props: SettingsPageProps) {
       data-platform={settingsPlatform}
       // Marks the phone navigation. It no longer carries a palette: the `[data-platform]` rules in styles.css cover the phone hosts too.
       data-mobile={mobilePlatform ? "" : undefined}
-      onPointerDownCapture={(event) => {
-        pendingTitlebarDrag.current = null;
-        // macOS resizes from its native frame, and the host cannot start a resize there (the window layer reports it unsupported), so an edge press would only surface an error.
-        if (!client.resizeWindow || macShell || event.button !== 0 || windowMaximized) return;
-        const rect = event.currentTarget.getBoundingClientRect();
-        const value = windowResizeEdge(event, rect);
-        if (value) {
-          event.preventDefault();
-          event.stopPropagation();
-          void client.resizeWindow(value).catch(() => setError("无法调整窗口大小，请重试。"));
-        }
-      }}
+      onPointerDownCapture={onWindowPointerDownCapture}
     >
       {confirmation}
       {titlebarShown && (
