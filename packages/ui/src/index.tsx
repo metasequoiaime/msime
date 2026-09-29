@@ -103,6 +103,11 @@ export {
   type SettingsPageLinkItem,
   type SettingsPageTitleItem,
 } from "./settings/settings-page-view-model";
+import { SettingsNavigationChrome } from "./settings/settings-navigation-chrome";
+export {
+  SettingsNavigationChrome,
+  type SettingsNavigationChromeProps,
+} from "./settings/settings-navigation-chrome";
 import { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
 export { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
 import { useTranslationSettings } from "./settings/use-translation-settings";
@@ -2460,14 +2465,15 @@ export function SettingsPage({
         {/* A bottom tab bar. `order-2` seats it below the content while the DOM keeps it ahead, so
             assistive technology and keyboard focus still reach the navigation first, and the bottom
             padding clears the gesture inset. Hidden above phone width, where the sidebar serves. */}
-        {mobilePlatform && (
-          <MobileSettingsTabs
-            tabs={mobilePrimaryPages}
-            activeTab={mobileActiveTab}
-            onSelect={selectMobileTab}
-          />
-        )}
-        <SettingsSidebar groups={sidebarGroups} selectedPage={page} onSelectPage={selectPage} />
+        <SettingsNavigationChrome
+          mobile={mobilePlatform}
+          tabs={mobilePrimaryPages}
+          activeTab={mobileActiveTab}
+          onSelectTab={selectMobileTab}
+          groups={sidebarGroups}
+          selectedPage={page}
+          onSelectPage={selectPage}
+        />
         <main
           ref={settingsContentRef}
           id="settings-content"
