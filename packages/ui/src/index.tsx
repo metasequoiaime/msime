@@ -973,6 +973,12 @@ export {
   type ProviderDefaults,
 } from "./voice/voice-providers";
 export {
+  asrProviderCredentialTestConfig,
+  asrServiceCredentialTestConfig,
+  polishProviderCredentialTestConfig,
+  polishServiceCredentialTestConfig,
+} from "./settings/voice-credential-test-config";
+export {
   candidateTemplate,
   type CandidateAppearance,
   type CandidateOrientation,

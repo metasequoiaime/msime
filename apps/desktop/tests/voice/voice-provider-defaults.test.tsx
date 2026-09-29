@@ -4,12 +4,71 @@ import {
   ASR_PROVIDER_DEFAULTS,
   ASR_SERVICE_PROVIDER_IDS,
   POLISH_PROVIDER_DEFAULTS,
+  asrProviderCredentialTestConfig,
+  asrServiceCredentialTestConfig,
   asrProviderUpdate,
+  polishProviderCredentialTestConfig,
+  polishServiceCredentialTestConfig,
   providerSettingValue,
   polishProviderUpdate,
+  type VoiceInputPreferences,
 } from "@msime/ui";
 
 const doubaoEndpoint = ASR_PROVIDER_DEFAULTS.doubao.endpoint;
+
+const voiceInput: VoiceInputPreferences = {
+  enabled: true,
+  language: "zh-CN",
+  asr_provider: "doubao",
+  asr_endpoint: " ",
+  asr_model: "",
+  asr_token: "synthetic-asr",
+  asr_app_key: "synthetic-app",
+  asr_resource_id: "synthetic-resource",
+  doubao_enable_itn: false,
+  doubao_enable_punc: true,
+  doubao_enable_ddc: true,
+  doubao_boosting_table_id: "synthetic-table",
+  polish_provider: "openai",
+  polish_endpoint: " ",
+  polish_model: "",
+  polish_token: "synthetic-polish",
+};
+
+test("voice credential test configs share Linux and remote defaults", () => {
+  expect(asrProviderCredentialTestConfig(voiceInput, "legacy")).toEqual({
+    asr_provider: "doubao",
+    asr_model: "",
+    asr_resource_id: "synthetic-resource",
+    doubao_auth_mode: "legacy",
+    doubao_enable_itn: false,
+    doubao_enable_punc: true,
+    doubao_enable_ddc: true,
+  });
+  expect(asrServiceCredentialTestConfig(voiceInput, "legacy")).toEqual({
+    provider: "doubao",
+    endpoint: ASR_PROVIDER_DEFAULTS.doubao.endpoint,
+    model: "",
+    token: "synthetic-asr",
+    auth_mode: "legacy",
+    app_id: "synthetic-app",
+    resource_id: "synthetic-resource",
+    doubao_enable_itn: false,
+    doubao_enable_punc: true,
+    doubao_enable_ddc: true,
+    doubao_boosting_table_id: "synthetic-table",
+  });
+  expect(polishProviderCredentialTestConfig(voiceInput)).toEqual({
+    polish_provider: "openai",
+    polish_model: "",
+  });
+  expect(polishServiceCredentialTestConfig(voiceInput)).toEqual({
+    provider: "openai",
+    endpoint: POLISH_PROVIDER_DEFAULTS.openai.endpoint,
+    model: POLISH_PROVIDER_DEFAULTS.openai.model,
+    token: "synthetic-polish",
+  });
+});
 
 test("shared ASR service provider ids cover the credential-backed providers", () => {
   expect(ASR_SERVICE_PROVIDER_IDS).toEqual([
