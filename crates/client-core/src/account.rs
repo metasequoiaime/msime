@@ -29,6 +29,9 @@ const MAX_CHAT_MESSAGE_BYTES: usize = 16 * 1024;
 const MAX_CHAT_REQUEST_BYTES: usize = 64 * 1024;
 const MAX_CHAT_RESPONSE_BYTES: usize = 16 * 1024;
 const REFRESH_EARLY_SECONDS: u64 = 30;
+/// Backend bearer sessions are short-lived; reject malformed responses that would create a
+/// practically permanent local session.
+const MAX_SESSION_SECONDS: u64 = 86_400 * 30;
 
 pub(crate) fn valid_model_catalog<'a>(
     models: impl IntoIterator<Item = &'a str>,

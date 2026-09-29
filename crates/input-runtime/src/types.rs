@@ -38,6 +38,22 @@ pub struct Candidate {
     pub translation: Option<String>,
 }
 
+/// The candidate fields needed by translation providers, without copying the rest of a display row.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TranslationCandidate {
+    pub text: String,
+    pub source: u8,
+}
+
+/// Lightweight snapshot used when a host is deciding which visible candidates need glosses.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TranslationCandidates {
+    pub generation: u64,
+    pub scheme: u8,
+    pub local_mode: String,
+    pub candidates: Vec<TranslationCandidate>,
+}
+
 /// On-demand copy of every candidate owned by one Engine generation.
 ///
 /// Regular [`View`] values remain page-bounded so hosts do not pay to serialize

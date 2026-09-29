@@ -22,6 +22,21 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
         options.preferences.validate().map_err(|e| e.to_string())?;
         let page_size = options.preferences.candidate_page_size;
         let applied = options.preferences.clone();
+        let ai_provider_cache = {
+            let ai = &applied.ai_assistant;
+            ai.enabled.then(|| AiAssistantProviderConfig {
+                enabled: true,
+                provider: ai.provider.clone(),
+                model: ai.model.clone(),
+                endpoint: ai.endpoint.clone(),
+                candidate_limit: ai.candidate_limit,
+                prompt_id: ai.prompt_id.clone(),
+                prompt: ai.prompt.clone(),
+                prompt_custom_1: ai.prompt_custom_1.clone(),
+                prompt_custom_2: ai.prompt_custom_2.clone(),
+                prompt_custom_3: ai.prompt_custom_3.clone(),
+            })
+        };
         // Taken before the options are consumed, and kept separate from the engine's own paths.
         let sentence_model_path = options.sentence_model.clone();
         let settled_model_path = options.settled_model.clone();
@@ -77,6 +92,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                     options,
                     applied,
                     requested: None,
+                    preferences_pending: false,
                     punctuation_override: None,
                     paired_punctuation_override: None,
                     punctuation_lock_override: None,
@@ -84,6 +100,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                     page_size_override: None,
                     nine_key_override: None,
                     ai_credential: None,
+                    ai_provider_cache,
                     voice: VoiceSessionState::default(),
                     pending_selections: Default::default(),
                     _dictionary_access: dictionary_access,

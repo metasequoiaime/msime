@@ -39,12 +39,13 @@ struct BackendLocalStore: BackendSessionStorage {
       let data: Data
       do { data = try Self.readBounded(url, maximumBytes: Self.maximumSessionBytes) }
       catch { throw BackendAccountClient.Failure(status: 0) }
-      do { return try JSONDecoder().decode(BackendSavedSession.self, from: data) }
+      do { return try BackendSavedSession.validated(JSONDecoder().decode(BackendSavedSession.self, from: data)) }
       catch { throw BackendAccountClient.Failure(status: 0) }
     }
   }
   func save(_ session: BackendSavedSession) throws {
-    let data = try JSONEncoder().encode(session)
+    let validatedSession = try BackendSavedSession.validated(session)
+    let data = try JSONEncoder().encode(validatedSession)
     try withLock {
       guard let url else { throw BackendAccountClient.Failure(status: 0) }
       try data.write(to: url, options: [.atomic])

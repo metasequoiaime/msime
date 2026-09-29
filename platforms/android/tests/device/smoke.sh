@@ -103,6 +103,9 @@ if [[ "$settings" == true ]]; then
     printf '%s\n' "$result"
     [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Shared settings acceptance failed" >&2; exit 1; }
   done
+  result=$("$adb" -s "$serial" shell am instrument -w app.msime.client.test/app.msime.client.BackendAccountRefreshDeviceSmoke)
+  printf '%s\n' "$result"
+  [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Account refresh acceptance failed" >&2; exit 1; }
 fi
 if [[ "$statistics" == true ]]; then
   "$adb" -s "$serial" shell am force-stop app.msime.android

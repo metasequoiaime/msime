@@ -375,7 +375,7 @@ public final class KeyboardSheets {
 
     @Nullable private static JSONObject buildAi(@Nullable JSONObject previous, boolean enabled,
             String endpoint, String model, String prompt, String token) {
-        if (enabled && !endpoint.startsWith("https://")) return null;
+        if (enabled && !TextPolicy.validAuthority(endpoint, "https://", 2048)) return null;
         try {
             JSONObject next = previous == null ? new JSONObject()
                 : new JSONObject(previous.toString());

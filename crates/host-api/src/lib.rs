@@ -200,6 +200,9 @@ struct HostSession {
     options: EngineOptions,
     applied: Preferences,
     requested: Option<PreferencesSnapshot>,
+    /// Whether the requested preferences still need an Engine replacement. This decision is made
+    /// when the document arrives so every keystroke does not compare the full preference tree.
+    preferences_pending: bool,
     punctuation_override: Option<bool>,
     paired_punctuation_override: Option<bool>,
     punctuation_lock_override: Option<u8>,
@@ -208,6 +211,8 @@ struct HostSession {
     nine_key_override: Option<bool>,
     /// An AI provider credential the host keeps outside the preferences (the iOS Keychain), handed over for this session only and never written back.
     ai_credential: Option<String>,
+    /// Cached copy used by every online query until preferences change.
+    ai_provider_cache: Option<AiAssistantProviderConfig>,
     voice: VoiceSessionState,
     /// Committing candidate selections counted but not yet written to typing statistics, indexed by one-based position minus one, with every position past a page in the last slot. See `SELECTION_BATCH`.
     pending_selections: [u64; RANKS + 1],
@@ -254,14 +259,16 @@ impl HostSession {
         )
     }
 
-    fn ai_provider_config(&self) -> Option<AiAssistantProviderConfig> {
-        let preferences = self
-            .requested
-            .as_ref()
-            .map(|snapshot| &snapshot.preferences)
-            .unwrap_or(&self.applied);
+    fn ai_provider_config(&self) -> Option<&AiAssistantProviderConfig> {
+        self.ai_provider_cache.as_ref()
+    }
+    fn ai_query_is_current(&self, query: &OnlineQuery) -> bool {
+        self.ai_provider_config()
+            .is_some_and(|config| query.ai_assistant.as_ref() == Some(config))
+    }
+    fn set_ai_provider_cache(&mut self, preferences: &Preferences) {
         let ai = &preferences.ai_assistant;
-        ai.enabled.then(|| AiAssistantProviderConfig {
+        self.ai_provider_cache = ai.enabled.then(|| AiAssistantProviderConfig {
             enabled: true,
             provider: ai.provider.clone(),
             model: ai.model.clone(),
@@ -272,11 +279,7 @@ impl HostSession {
             prompt_custom_1: ai.prompt_custom_1.clone(),
             prompt_custom_2: ai.prompt_custom_2.clone(),
             prompt_custom_3: ai.prompt_custom_3.clone(),
-        })
-    }
-    fn ai_query_is_current(&self, query: &OnlineQuery) -> bool {
-        self.ai_provider_config()
-            .is_some_and(|config| query.ai_assistant.as_ref() == Some(&config))
+        });
     }
     fn cloud_candidates_enabled(&self) -> bool {
         self.applied.cloud_candidates
@@ -327,7 +330,7 @@ impl HostSession {
         let Some(snapshot) = &self.requested else {
             return Ok(());
         };
-        if snapshot.preferences == self.applied || !self.runtime.is_idle() {
+        if !self.preferences_pending || !self.runtime.is_idle() {
             return Ok(());
         }
         let mut options = self.options.clone();
@@ -423,11 +426,13 @@ impl HostSession {
             .map_err(|e| e.to_string())?;
         self.options = options;
         self.applied = snapshot.preferences.clone();
+        self.preferences_pending = false;
         self.nine_key_override = next_nine_key_override;
         Ok(())
     }
 
     fn complete_transition(&mut self, mut result: Transition) -> Transition {
+        let generation = self.runtime.generation();
         if let Err(error) = self.apply_pending() {
             let prior = result.diagnostic.take().unwrap_or_default();
             result.diagnostic = Some(
@@ -453,7 +458,12 @@ impl HostSession {
                     .collect();
             }
         }
-        result.view = self.runtime.view();
+        // Dispatch already built the view for this transition. Rebuild it only
+        // when applying a deferred page-size or preference change advanced the
+        // runtime generation; otherwise cloning the page again costs every key.
+        if self.runtime.generation() != generation {
+            result.view = self.runtime.view();
+        }
         result
     }
 
@@ -469,7 +479,15 @@ impl HostSession {
                 return Err("stale or conflicting preferences revision".into());
             }
         }
+        self.preferences_pending = snapshot.preferences != self.applied;
         self.requested = Some(snapshot);
+        let requested_preferences = self
+            .requested
+            .as_ref()
+            .expect("requested snapshot exists")
+            .preferences
+            .clone();
+        self.set_ai_provider_cache(&requested_preferences);
         self.apply_pending()?;
         let snapshot = self.requested.as_ref().expect("requested snapshot exists");
         Ok(

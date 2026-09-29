@@ -3,7 +3,7 @@ import type { AccountCommunityDestination } from "../account/account-page";
 
 export interface UseSettingsDestinationActionsOptions {
   // Only the pages these actions open, so any settings page list that has them can pass its own selector.
-  selectPage: (page: "skin" | "community") => void;
+  selectPage: (page: "skin" | "community" | "about") => void;
   setShowTouchSkinEditor: Dispatch<SetStateAction<boolean>>;
   setCommunityDestination: Dispatch<SetStateAction<AccountCommunityDestination | "all">>;
 }
@@ -25,5 +25,10 @@ export function useSettingsDestinationActions({
     setCommunityDestination(destination);
   };
 
-  return { openCommunity, openLocalDesigns } as const;
+  return {
+    openAbout: () => selectPage("about"),
+    openCommunity,
+    openCommunityAll: () => openCommunity("all"),
+    openLocalDesigns,
+  } as const;
 }

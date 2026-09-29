@@ -12,6 +12,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <limits>
 #include <mutex>
@@ -131,6 +132,27 @@ std::string default_polish_model(std::string_view provider) {
 
 bool voice_endpoint_is_websocket(std::string_view endpoint) {
   return endpoint.rfind("wss://", 0) == 0 || endpoint.rfind("ws://", 0) == 0;
+}
+bool secure_voice_endpoint(std::string_view endpoint, bool websocket) {
+  constexpr std::size_t maximum_bytes = 2048;
+  const std::string_view scheme = websocket ? "wss://" : "https://";
+  if (endpoint.empty() || endpoint.size() > maximum_bytes ||
+      endpoint.rfind(scheme, 0) != 0)
+    return false;
+  for (const unsigned char byte : endpoint) {
+    if (byte < 0x20 || byte == 0x7f || byte == '\\' ||
+        (byte < 0x80 && std::isspace(byte)))
+      return false;
+  }
+  const auto authority_start = scheme.size();
+  const auto authority_end = endpoint.find_first_of("/?#", authority_start);
+  const auto authority = endpoint.substr(
+      authority_start, authority_end == std::string_view::npos
+                           ? std::string_view::npos
+                           : authority_end - authority_start);
+  return !authority.empty() && authority.front() != ':' &&
+         authority.find('@') == std::string_view::npos &&
+         endpoint.find('#', authority_start) == std::string_view::npos;
 }
 std::string resolved_asr_endpoint(std::string_view provider,
                                   std::string_view configured_endpoint) {

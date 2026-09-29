@@ -2,6 +2,9 @@ import Foundation
 
 /// Shared account transport. Platform UI owns consent and Keychain persistence.
 struct BackendAccountClient: Sendable {
+  /// Backend bearer sessions are short-lived; reject responses that would create a practically permanent local session.
+  static let maxSessionSeconds = 86_400 * 30
+
   struct User: Codable, Equatable, Sendable {
     let id: String
     let display_name: String
@@ -222,14 +225,16 @@ struct BackendAccountClient: Sendable {
     do { return try JSONDecoder().decode(T.self, from: data) }
     catch { throw Failure(status: 0) }
   }
-  private func validated(_ tokens: Tokens) throws -> Tokens {
+  static func validate(_ tokens: Tokens) throws {
     let hex = CharacterSet(charactersIn: "0123456789abcdef")
-    guard tokens.token_type == "Bearer", tokens.expires_in > 0,
+    guard tokens.token_type == "Bearer", (1...maxSessionSeconds).contains(tokens.expires_in),
           !tokens.user.id.isEmpty,
           [tokens.access_token, tokens.refresh_token].allSatisfy({ token in
             token.utf8.count == 64 && token.unicodeScalars.allSatisfy(hex.contains)
           }) else { throw Failure(status: 0) }
+  }
+  private func validated(_ tokens: Tokens) throws -> Tokens {
+    try Self.validate(tokens)
     return tokens
   }
 }
-

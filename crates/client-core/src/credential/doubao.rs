@@ -159,7 +159,13 @@ pub fn test(config: &Value, transport: &impl Transport) -> ProbeResult {
         && endpoint.len() <= 2048
         && reqwest::Url::parse(endpoint).ok().is_some_and(|url| {
             url.scheme() == "wss"
-                && url.host_str().is_some()
+                && endpoint.split_once("://").is_some_and(|(_, authority)| {
+                    authority
+                        .as_bytes()
+                        .first()
+                        .is_some_and(|byte| *byte != b'/')
+                })
+                && url.host_str().is_some_and(|host| !host.is_empty())
                 && url.username().is_empty()
                 && url.password().is_none()
                 && url.fragment().is_none()
@@ -262,6 +268,7 @@ mod tests {
             ("endpoint", "ws://fixture.invalid/asr"),
             ("endpoint", "https://fixture.invalid/asr"),
             ("endpoint", "wss://user:pass@fixture.invalid/asr"),
+            ("endpoint", "wss:///asr"),
             ("endpoint", "wss://fixture.invalid/asr#fragment"),
         ] {
             let mut config = config();

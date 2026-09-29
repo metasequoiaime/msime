@@ -6114,6 +6114,59 @@ group("account and cloud clipboard bridge keeps secrets native", () => {
     });
 });
 
+group("account sessions reject unbounded lifetimes", () => {
+  let stored: string | null = null;
+  const bridge = new AccountCloudBridge(
+    {
+      request: async (_method, path) => {
+        if (path === "/v1/auth/login") {
+          return {
+            status: 200,
+            body: JSON.stringify({
+              access_token: "a".repeat(64),
+              refresh_token: "b".repeat(64),
+              token_type: "Bearer",
+              expires_in: Number.MAX_SAFE_INTEGER,
+              user: { id: "synthetic-user", display_name: "Test", created_at: "2026-01-01" },
+            }),
+          };
+        }
+        return { status: 500, body: "" };
+      },
+    },
+    {
+      load: () => stored,
+      save: (value) => {
+        stored = value;
+      },
+      clear: () => {
+        stored = null;
+      },
+    },
+  );
+  void bridge
+    .handle(JSON.stringify({ operation: "login", challenge_id: "challenge", credential: "123456" }))
+    .then((reply) => {
+      check(JSON.parse(reply).error === "account_unavailable", "unbounded account lifetime is refused");
+      check(stored === null, "an invalid account lifetime is never persisted");
+    });
+
+  const persisted = JSON.stringify({
+    access_token: "c".repeat(64),
+    refresh_token: "d".repeat(64),
+    token_type: "Bearer",
+    expires_at: Date.now() + Number.MAX_SAFE_INTEGER,
+    user: { id: "persisted-user", display_name: "Test", created_at: "2026-01-01" },
+  });
+  const persistedBridge = new AccountCloudBridge(
+    { request: async () => ({ status: 500, body: "" }) },
+    { load: () => persisted, save: () => {}, clear: () => {} },
+  );
+  void persistedBridge.handle('{"operation":"status"}').then((reply) => {
+    check(JSON.parse(reply).value.user === null, "an unbounded persisted lifetime is discarded");
+  });
+});
+
 group("cloud candidate mutations preserve the service protocol", () => {
   const stored = JSON.stringify({
     access_token: "a".repeat(64),

@@ -8,6 +8,7 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.FutureTask;
 import javax.net.ssl.HttpsURLConnection;
 import org.json.JSONObject;
 import app.msime.client.clipboard.CloudClipboardTextPolicy;
@@ -27,6 +28,10 @@ public final class BackendAccount {
     private static final String ORIGIN = "https://api.msime.app";
     private static final String SESSION_STORE = "msime_account_session_v2";
     private static final int MAX_RESPONSE_BYTES = 64 * 1024;
+    private static final long MAX_SESSION_MILLISECONDS = AccountTokenPolicy.MAX_SESSION_SECONDS * 1000L;
+    private static final Object SESSION_LOCK = new Object();
+    private static FutureTask<String> refreshFlight;
+    private static long sessionGeneration;
 
     /** One challenge, waiting for the provider's token. */
     public record Challenge(String id, String nonce) {}
@@ -35,10 +40,36 @@ public final class BackendAccount {
     public record ClipboardItem(String id, String text, String updatedAt) {}
     public record ClipboardPage(boolean enabled, List<ClipboardItem> items) {}
 
-    private final AndroidAccountSessionStorage sessions;
+    interface SessionStore {
+        String load() throws Exception;
+        void save(String value) throws Exception;
+        void clear() throws Exception;
+    }
+
+    interface Requester {
+        JSONObject request(String method, String path, JSONObject body, String token) throws Exception;
+    }
+
+    static final class RequestException extends IllegalStateException {
+        private static final long serialVersionUID = 1L;
+        final int status;
+
+        RequestException(int status) {
+            super("HTTP " + status);
+            this.status = status;
+        }
+    }
+
+    private final SessionStore sessions;
+    private final Requester requester;
 
     public BackendAccount(Context context) {
-        sessions = new AndroidAccountSessionStorage(context, SESSION_STORE);
+        this(new AndroidAccountSessionStorage(context, SESSION_STORE), BackendAccount::httpRequest);
+    }
+
+    BackendAccount(SessionStore sessions, Requester requester) {
+        this.sessions = sessions;
+        this.requester = requester;
     }
 
     /**
@@ -82,24 +113,53 @@ public final class BackendAccount {
                 tokens.optString("refresh_token", ""), expires)) {
             throw new IllegalStateException("login refused");
         }
-        sessions.save(new JSONObject().put("tokens", tokens)
-            .put("expires_at_unix_ms", System.currentTimeMillis() + expires * 1000L).toString());
+        String saved = new JSONObject().put("tokens", tokens)
+            .put("expires_at_unix_ms", expiration(expires)).toString();
+        synchronized (SESSION_LOCK) {
+            sessionGeneration++;
+            sessions.save(saved);
+        }
     }
 
     /** The saved access token, or an empty string when this device is not signed in. */
     public String accessToken() {
         try {
-            String saved = sessions.load();
-            if (saved == null) return "";
-            JSONObject session = new JSONObject(saved);
-            if (session.optLong("expires_at_unix_ms", 0) <= System.currentTimeMillis() + 30_000L) {
-                return "";
+            FutureTask<String> flight;
+            boolean owner = false;
+            synchronized (SESSION_LOCK) {
+                String saved = sessions.load();
+                if (saved == null) return "";
+                JSONObject session = new JSONObject(saved);
+                JSONObject tokens = session.getJSONObject("tokens");
+                if (!AccountTokenPolicy.validSession(tokens.optString("token_type", ""),
+                        tokens.optString("access_token", ""), tokens.optString("refresh_token", ""),
+                        tokens.optLong("expires_in", 0))) return "";
+                long now = System.currentTimeMillis();
+                long expiry = session.optLong("expires_at_unix_ms", 0);
+                if (expiry > now + MAX_SESSION_MILLISECONDS) return "";
+                if (expiry > now + 30_000L) {
+                    return tokens.optString("access_token", "");
+                }
+                if (refreshFlight != null) {
+                    flight = refreshFlight;
+                } else {
+                    long generation = sessionGeneration;
+                    String refresh = tokens.optString("refresh_token", "");
+                    flight = new FutureTask<>(() -> refresh(refresh, generation));
+                    refreshFlight = flight;
+                    owner = true;
+                }
             }
-            JSONObject tokens = session.getJSONObject("tokens");
-            if (!AccountTokenPolicy.validSession(tokens.optString("token_type", ""),
-                    tokens.optString("access_token", ""), tokens.optString("refresh_token", ""),
-                    tokens.optLong("expires_in", 0))) return "";
-            return tokens.optString("access_token", "");
+            if (owner) {
+                try {
+                    flight.run();
+                } finally {
+                    synchronized (SESSION_LOCK) {
+                        if (refreshFlight == flight) refreshFlight = null;
+                    }
+                }
+            }
+            return flight.get();
         } catch (Exception | LinkageError error) {
             return "";
         }
@@ -206,13 +266,57 @@ public final class BackendAccount {
     /** Forget the session on this device. The account itself is untouched. */
     public void signOut() {
         try {
-            sessions.clear();
+            synchronized (SESSION_LOCK) {
+                sessionGeneration++;
+                sessions.clear();
+            }
         } catch (Exception | LinkageError error) {
             // 清不掉也不要抛：调用方要的是「退出」，而过期的令牌本来就用不了。
         }
     }
 
-    private static JSONObject request(String method, String path, JSONObject body, String token)
+    private JSONObject request(String method, String path, JSONObject body, String token)
+            throws Exception {
+        return requester.request(method, path, body, token);
+    }
+
+    private String refresh(String refreshToken, long generation) throws Exception {
+        JSONObject tokens;
+        try {
+            tokens = request("POST", "/v1/auth/refresh",
+                new JSONObject().put("refresh_token", refreshToken), null);
+        } catch (RequestException error) {
+            if (error.status == 401 || error.status == 403) {
+                synchronized (SESSION_LOCK) {
+                    if (sessionGeneration == generation) {
+                        sessionGeneration++;
+                        sessions.clear();
+                    }
+                }
+                return "";
+            }
+            throw error;
+        }
+        String access = tokens.optString("access_token", "");
+        long expires = tokens.optLong("expires_in", 0);
+        if (!AccountTokenPolicy.validSession(tokens.optString("token_type", ""), access,
+                tokens.optString("refresh_token", ""), expires)) {
+            throw new IllegalStateException("refresh refused");
+        }
+        String saved = new JSONObject().put("tokens", tokens)
+            .put("expires_at_unix_ms", expiration(expires)).toString();
+        synchronized (SESSION_LOCK) {
+            if (sessionGeneration != generation) return "";
+            sessions.save(saved);
+        }
+        return access;
+    }
+
+    private static long expiration(long expiresInSeconds) {
+        return Math.addExact(System.currentTimeMillis(), Math.multiplyExact(expiresInSeconds, 1000L));
+    }
+
+    private static JSONObject httpRequest(String method, String path, JSONObject body, String token)
             throws Exception {
         byte[] payload = body == null ? null : body.toString().getBytes(StandardCharsets.UTF_8);
         HttpsURLConnection connection = null;
@@ -233,7 +337,7 @@ public final class BackendAccount {
             }
             int status = connection.getResponseCode();
             // 状态码带进消息里：503 是这个登录方式没配，401 是凭据不对，两件事不该长同一个样子。
-            if (status / 100 != 2) throw new IllegalStateException("HTTP " + status);
+            if (status / 100 != 2) throw new RequestException(status);
             try (InputStream input = connection.getInputStream()) {
                 byte[] response = readBounded(input);
                 if (response.length == 0) return new JSONObject();

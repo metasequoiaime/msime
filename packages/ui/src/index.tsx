@@ -124,6 +124,115 @@ export {
 } from "./settings/use-touch-keyboard-settings-reset";
 export { useExternalUrl, type UseExternalUrlOptions } from "./settings/use-external-url";
 export { useUpdateCheck, type UseUpdateCheckOptions } from "./settings/use-update-check";
+export {
+  aiSettingsPreferences,
+  type AiSettingsPreferences,
+} from "./settings/ai-settings-preferences";
+export { appearanceSettingsPreferences } from "./settings/appearance-settings-preferences";
+export {
+  clipboardHistoryEnabled,
+  type ClipboardHistoryPreferencesSource,
+} from "./settings/clipboard-history-preferences";
+export {
+  settingsInputPreferences,
+  type SettingsInputPreferences,
+  type SettingsInputPreferencesSource,
+} from "./settings/settings-input-preferences";
+export {
+  settingsPlatformContext,
+  type SettingsPlatformContext,
+} from "./settings/settings-platform-context";
+export {
+  platformResourceUrls,
+  type PlatformResourceUrls,
+  type PlatformResourceUrlsContext,
+} from "./settings/platform-resource-urls";
+export {
+  settingsSidebarGroups,
+  type SettingsSidebarGroupsOptions,
+} from "./settings/sidebar-groups";
+export { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
+export type { SettingsPageId } from "./settings/mobile-navigation";
+export {
+  settingsPageLinks,
+  settingsPageTitle,
+  type SettingsPageLinkItem,
+  type SettingsPageTitleItem,
+} from "./settings/settings-page-view-model";
+export { SettingsPageStatus, type SettingsPageStatusProps } from "./settings/settings-page-status";
+export { SettingsFormFooter, type SettingsFormFooterProps } from "./settings/settings-form-footer";
+export {
+  SettingsFeedbackPage,
+  type SettingsFeedbackPageProps,
+} from "./settings/settings-feedback-page";
+export {
+  SettingsUtilityPages,
+  type SettingsUtilityPagesProps,
+} from "./settings/settings-utility-pages";
+export {
+  SettingsVoiceAiPages,
+  type SettingsVoiceAiPagesProps,
+} from "./settings/settings-voice-ai-pages";
+export {
+  createAboutSettingsActions,
+  type CreateAboutSettingsActionsOptions,
+} from "./settings/about-settings-actions";
+export {
+  createAppearanceSettingsActions,
+  type CreateAppearanceSettingsActionsOptions,
+} from "./settings/appearance-settings-actions";
+export {
+  createDictionaryPanelActions,
+  type CreateDictionaryPanelActionsOptions,
+} from "./settings/dictionary-panel-actions";
+export {
+  createHelpcodeSettingsActions,
+  type CreateHelpcodeSettingsActionsOptions,
+} from "./settings/helpcode-settings-actions";
+export {
+  createSettingsDraftActions,
+  type CreateSettingsDraftActionsOptions,
+} from "./settings/settings-draft-actions";
+export {
+  createSettingsExternalActions,
+  type CreateSettingsExternalActionsOptions,
+} from "./settings/settings-external-actions";
+export {
+  createSettingsNavigationActions,
+  type CreateSettingsNavigationActionsOptions,
+} from "./settings/settings-navigation-actions";
+export {
+  createSettingsPageSelection,
+  type CreateSettingsPageSelectionOptions,
+} from "./settings/settings-page-selection";
+export {
+  createSettingsReloadAction,
+  type CreateSettingsReloadActionOptions,
+} from "./settings/settings-reload-action";
+export {
+  createSettingsSaveAction,
+  type CreateSettingsSaveActionOptions,
+} from "./settings/settings-save-action";
+export {
+  createSettingsStatusActions,
+  type CreateSettingsStatusActionsOptions,
+} from "./settings/settings-status-actions";
+export {
+  createShortcutsSettingsActions,
+  type CreateShortcutsSettingsActionsOptions,
+} from "./settings/shortcuts-settings-actions";
+export {
+  createUtilitiesSettingsActions,
+  type CreateUtilitiesSettingsActionsOptions,
+} from "./settings/utilities-settings-actions";
+export {
+  useAccountPageActions,
+  type UseAccountPageActionsOptions,
+} from "./settings/use-account-page-actions";
+export {
+  useWindowResizeCapture,
+  type UseWindowResizeCaptureOptions,
+} from "./settings/use-window-resize-capture";
 export { useOpenPanel, type UseOpenPanelOptions } from "./settings/use-open-panel";
 export {
   useClipboardHistoryToggle,
@@ -1808,11 +1917,8 @@ function schemeTitle(scheme: Preferences["scheme"]): string {
         ? "五笔"
         : "日语";
 }
-export {
-  tencentSecretConfigured,
-  tencentCredentialIssue,
-  translationEndpointIssue,
-} from "./settings/pages/expression-page";
+export { tencentCredentialIssue, translationEndpointIssue } from "./settings/translation-validation";
+export { providerCredentialErrorMessage, tencentSecretConfigured } from "./settings/credential-utils";
 
 type SettingsPageProps = {
   client: SettingsClient;

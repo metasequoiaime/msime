@@ -89,7 +89,7 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         if !state.loaded {
             let saved = self.storage.load()?;
             if let Some(value) = &saved {
-                validate_tokens(&value.tokens).map_err(|_| AccountError::Storage)?;
+                validate_saved_session(value)?;
             }
             state.saved = saved;
             state.loaded = true;
@@ -607,6 +607,17 @@ fn saved_session(tokens: AccountTokens) -> Result<SavedAccountSession, AccountEr
         tokens,
         expires_at_unix_ms,
     })
+}
+
+fn validate_saved_session(session: &SavedAccountSession) -> Result<(), AccountError> {
+    validate_tokens(&session.tokens).map_err(|_| AccountError::Storage)?;
+    let maximum = unix_ms()?
+        .checked_add(MAX_SESSION_SECONDS * 1000)
+        .ok_or(AccountError::Storage)?;
+    if session.expires_at_unix_ms > maximum {
+        return Err(AccountError::Storage);
+    }
+    Ok(())
 }
 
 fn unix_ms() -> Result<u64, AccountError> {

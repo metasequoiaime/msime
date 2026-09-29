@@ -21,6 +21,35 @@ fn selection_statistics_use_the_candidate_id_absolute_index() {
 }
 
 #[test]
+fn completed_transition_keeps_dispatch_view_without_pending_changes() {
+    let directory = tempfile::tempdir().unwrap();
+    let handle = test_host(directory.path());
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    SESSIONS.with(|sessions| {
+        let mut sessions = sessions.borrow_mut();
+        let session = sessions.get_mut(&handle).unwrap();
+        let dispatched = session
+            .runtime
+            .dispatch(Action::Character {
+                value: b'n',
+                shift: false,
+            })
+            .unwrap();
+        let mut expected = dispatched.view.clone();
+        expected.generation = expected.generation.wrapping_add(99);
+        let completed = session.complete_transition(Transition {
+            handled: dispatched.handled,
+            commit: dispatched.commit,
+            commit_context: dispatched.commit_context,
+            diagnostic: dispatched.diagnostic,
+            view: expected.clone(),
+        });
+        assert_eq!(completed.view.generation, expected.generation);
+    });
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
+#[test]
 fn default_sentence_model_uses_verified_resources_not_prepared_dictionaries() {
     let root = tempfile::tempdir().unwrap();
     let resources = root.path().join("resources");
@@ -2796,6 +2825,19 @@ fn test_host_with_pinyin_fixture(root: &std::path::Path, preferences: Preference
     assert_eq!(created["ok"], true);
     created["value"]["session"].as_u64().unwrap()
 }
+
+#[test]
+fn settled_rerank_without_movement_omits_the_unused_view() {
+    let directory = tempfile::tempdir().unwrap();
+    let handle = test_host(directory.path());
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    let result = read(msime_client_rerank_settled(handle));
+    assert_eq!(result["ok"], true);
+    assert_eq!(result["value"]["moved"], false);
+    assert!(result["value"].get("view").is_none());
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
 fn update(handle: u64, revision: u64, preferences: &Preferences) -> Value {
     let snapshot = json!({ "format_version": 1, "revision": revision, "preferences": preferences })
         .to_string();
@@ -3935,11 +3977,17 @@ fn preferences_wait_for_commit_keep_handle_and_reject_old_revisions() {
     let queued = update(handle, 1, &prefs);
     assert_eq!(queued["value"]["deferred"], true);
     assert_eq!(queued["value"]["view"], before);
+    SESSIONS.with(|sessions| {
+        assert!(sessions.borrow().get(&handle).unwrap().preferences_pending);
+    });
     let committed = read(msime_client_command(handle, 1));
     assert_eq!(committed["value"]["commit"], "中");
     assert_eq!(committed["value"]["view"]["session"], handle);
     assert_eq!(committed["value"]["view"]["focused"], true);
     assert_eq!(update(handle, 1, &prefs)["value"]["deferred"], false);
+    SESSIONS.with(|sessions| {
+        assert!(!sessions.borrow().get(&handle).unwrap().preferences_pending);
+    });
     assert_eq!(
         read(msime_client_character(handle, b',', false))["value"]["handled"],
         false

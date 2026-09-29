@@ -19,6 +19,8 @@ public final class AccountTokenPolicySmoke {
             "short refresh token is refused");
         check(!AccountTokenPolicy.validSession("Bearer", access, refresh, 0),
             "expired response is refused");
+        check(!AccountTokenPolicy.validSession("Bearer", access, refresh, 86_400L * 30 + 1),
+            "unbounded session lifetime is refused");
         System.out.println("Android account token policy passed");
     }
 }

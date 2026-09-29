@@ -120,18 +120,19 @@ pub(crate) const LATTICE_SOURCE: u8 = 8;
 
 /// Move the flagged elements to the end, keeping both groups in their existing order.
 pub(crate) fn move_to_back<T>(items: &mut Vec<T>, moved: &[bool]) {
-    let mut flags = moved.iter();
-    let mut tail: Vec<T> = Vec::new();
-    let mut head: Vec<T> = Vec::with_capacity(items.len());
-    for item in items.drain(..) {
-        if flags.next().copied().unwrap_or(false) {
-            tail.push(item);
-        } else {
-            head.push(item);
+    // Stable-partition in place. A rotation moves the next unflagged item ahead of the flagged
+    // run without allocating a second vector; candidate arrays are kept in lockstep by calling
+    // this once for each array below, and their usual size makes the bounded O(n²) movement cheap.
+    let mut head_len = 0;
+    for index in 0..items.len() {
+        if moved.get(index).copied().unwrap_or(false) {
+            continue;
         }
+        if head_len != index {
+            items[head_len..=index].rotate_right(1);
+        }
+        head_len += 1;
     }
-    head.append(&mut tail);
-    *items = head;
 }
 
 /// Move the element at `index` to the front, keeping everything else in its existing order.
@@ -140,6 +141,17 @@ pub(crate) fn move_to_back<T>(items: &mut Vec<T>, moved: &[bool]) {
 /// one candidate is the whole change, not a reshuffle.
 fn apply_order<T: Clone>(items: &mut Vec<T>, order: &[usize]) {
     *items = order.iter().map(|index| items[*index].clone()).collect();
+}
+
+/// Keep the Engine-index mapping empty while the cached candidates are still in Engine order.
+/// Reordering paths call this immediately before their first permutation, so ordinary keystrokes
+/// avoid rebuilding an identity vector on every snapshot.
+fn ensure_engine_order(engine_order: &mut Vec<usize>, count: usize) {
+    if engine_order.len() == count {
+        return;
+    }
+    engine_order.clear();
+    engine_order.extend(0..count);
 }
 
 fn rotate_to_front<T>(items: &mut [T], index: usize) {
@@ -496,6 +508,56 @@ impl<E: InputEngine> Runtime<E> {
         }
     }
 
+    /// Number of candidates on the currently published page, without building candidate rows.
+    /// Hosts that only need the count for a punctuation decision can avoid materializing a full
+    /// [`View`].
+    pub fn candidate_page_len(&self) -> usize {
+        let start = (self.highlighted / self.page_size) * self.page_size;
+        self.cached
+            .candidates
+            .len()
+            .saturating_sub(start)
+            .min(self.page_size)
+    }
+
+    /// Whether punctuation may use the Engine's Chinese route for this applied state.
+    /// This mirrors the host-facing mode checks without materializing a [`View`].
+    pub fn punctuation_host_context_available(&self, english_mode: bool) -> bool {
+        !english_mode
+            && !self.cached.dedicated_english
+            && self.cached.local_mode == "none"
+            && self.cached.scheme != 3
+    }
+
+    /// Copy only the state and candidate fields needed to plan translation requests. This avoids
+    /// constructing display-only codes, annotations, IDs and highlight flags on every key.
+    pub fn translation_candidates(&self) -> Option<TranslationCandidates> {
+        let start = (self.highlighted / self.page_size) * self.page_size;
+        let candidates = self
+            .cached
+            .candidates
+            .iter()
+            .enumerate()
+            .skip(start)
+            .take(self.page_size)
+            .map(|(index, text)| TranslationCandidate {
+                text: text.clone(),
+                source: self
+                    .cached
+                    .candidate_sources
+                    .get(index)
+                    .copied()
+                    .unwrap_or_default(),
+            })
+            .collect::<Vec<_>>();
+        (!candidates.is_empty()).then_some(TranslationCandidates {
+            generation: self.generation,
+            scheme: self.cached.scheme,
+            local_mode: self.cached.local_mode.clone(),
+            candidates,
+        })
+    }
+
     /// Copy the complete candidate generation for an explicitly opened panel.
     ///
     /// The engine holds candidates back behind the initial answer and only releases them when asked
@@ -588,6 +650,12 @@ impl<E: InputEngine> Runtime<E> {
             && self.cached.preedit.is_empty()
             && self.cached.editing_text.is_empty()
             && self.cached.candidates.is_empty()
+    }
+
+    /// The host uses the generation to detect whether a deferred preference
+    /// update changed the view after an input action.
+    pub fn generation(&self) -> u64 {
+        self.generation
     }
 
     /// Apply translations to the current candidate generation. Stale async
@@ -717,7 +785,9 @@ impl<E: InputEngine> Runtime<E> {
 
     /// Take a snapshot straight from the Engine, whose seats are still in the Engine's order.
     fn load_snapshot(&mut self, snapshot: EngineSnapshot) {
-        self.engine_order = (0..snapshot.candidates.len()).collect();
+        // An empty mapping means the cached order is the Engine's order; build it lazily only if
+        // one of the presentation reorderings below actually moves a candidate.
+        self.engine_order.clear();
         self.cached = snapshot;
     }
 
@@ -957,35 +1027,37 @@ impl<E: InputEngine> Runtime<E> {
             return;
         }
 
-        let (mut locals, mut cloud, mut ai, mut english, mut emoji, mut kaomoji) = (
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-        );
-        for (index, source) in snapshot.candidate_sources.iter().enumerate() {
-            match *source {
-                CLOUD => cloud.push(index),
-                AI => ai.push(index),
-                ENGLISH => english.push(index),
-                EMOJI => emoji.push(index),
-                KAOMOJI => kaomoji.push(index),
-                _ => locals.push(index),
-            }
-        }
-
         // A provider may answer with several candidates - the AI limit reaches ten - and they take
         // their seat as a group. The reference has only one of each to place and silently drops the
         // rest; dropping a candidate the user was offered is not an option here.
         //
         // The Engine never puts English first while a Chinese candidate exists, whatever its weight or pin, except for a word the user fixed at position 1 (`apply_candidate_positions`). An English candidate at index zero with locals present is that word. It keeps the first seat and the leading English seat is not filled a second time.
-        let promoted_english = english.first() == Some(&0) && !locals.is_empty();
+        let is_local = |source: u8| !matches!(source, CLOUD | AI | ENGLISH | EMOJI | KAOMOJI);
+        let first_english = snapshot
+            .candidate_sources
+            .iter()
+            .position(|source| *source == ENGLISH);
+        let local_count = snapshot
+            .candidate_sources
+            .iter()
+            .filter(|source| is_local(**source))
+            .count();
+        let promoted_english = first_english == Some(0) && local_count != 0;
+        let has_cloud = snapshot
+            .candidate_sources
+            .iter()
+            .any(|source| *source == CLOUD);
+        let first_emoji = snapshot
+            .candidate_sources
+            .iter()
+            .position(|source| *source == EMOJI);
+        let first_kaomoji = snapshot
+            .candidate_sources
+            .iter()
+            .position(|source| *source == KAOMOJI);
         let mut order = Vec::with_capacity(count);
-        let mut english = english.into_iter();
         if promoted_english {
-            order.extend(english.next());
+            order.push(0);
         }
         // The hiragana/katakana pair of a single complete kana keeps seats 1 and 2 ahead of every online candidate, as the reference's `preserve_single_kana_pair` does (server/src/ipc/event_listener.cpp); the reading is the converted kana, so one character in U+3041..U+3096 is its `IsSingleKanaConversion`.
         const JAPANESE_ROMAJI: u8 = 3;
@@ -993,24 +1065,69 @@ impl<E: InputEngine> Runtime<E> {
         let single_kana = snapshot.scheme == JAPANESE_ROMAJI
             && matches!((reading.next(), reading.next()), (Some(kana), None) if ('\u{3041}'..='\u{3096}').contains(&kana));
         let local_prefix = if single_kana { 2 } else { 1 };
-        let mut locals = locals.into_iter();
-        order.extend(locals.by_ref().take(local_prefix));
-        if !cloud.is_empty() {
-            order.append(&mut cloud);
-            order.append(&mut ai);
+        let mut local_seen = 0;
+        for (index, source) in snapshot.candidate_sources.iter().enumerate() {
+            if is_local(*source) {
+                if local_seen < local_prefix {
+                    order.push(index);
+                }
+                local_seen += 1;
+            }
+        }
+        if has_cloud {
+            for (index, source) in snapshot.candidate_sources.iter().enumerate() {
+                if *source == CLOUD {
+                    order.push(index);
+                }
+            }
+            for (index, source) in snapshot.candidate_sources.iter().enumerate() {
+                if *source == AI {
+                    order.push(index);
+                }
+            }
         }
         if !promoted_english {
-            order.extend(english.next());
+            if let Some(index) = first_english {
+                order.push(index);
+            }
         }
-        order.append(&mut ai);
-        let mut emoji = emoji.into_iter();
-        let mut kaomoji = kaomoji.into_iter();
-        order.extend(emoji.next());
-        order.extend(kaomoji.next());
-        order.extend(locals);
-        order.extend(english);
-        order.extend(emoji);
-        order.extend(kaomoji);
+        if !has_cloud {
+            for (index, source) in snapshot.candidate_sources.iter().enumerate() {
+                if *source == AI {
+                    order.push(index);
+                }
+            }
+        }
+        if let Some(index) = first_emoji {
+            order.push(index);
+        }
+        if let Some(index) = first_kaomoji {
+            order.push(index);
+        }
+        local_seen = 0;
+        for (index, source) in snapshot.candidate_sources.iter().enumerate() {
+            if is_local(*source) {
+                if local_seen >= local_prefix {
+                    order.push(index);
+                }
+                local_seen += 1;
+            }
+        }
+        for (index, source) in snapshot.candidate_sources.iter().enumerate() {
+            if *source == ENGLISH && Some(index) != first_english {
+                order.push(index);
+            }
+        }
+        for (index, source) in snapshot.candidate_sources.iter().enumerate() {
+            if *source == EMOJI && Some(index) != first_emoji {
+                order.push(index);
+            }
+        }
+        for (index, source) in snapshot.candidate_sources.iter().enumerate() {
+            if *source == KAOMOJI && Some(index) != first_kaomoji {
+                order.push(index);
+            }
+        }
         // An English candidate the user fixed to a seat goes back to that seat after the seating, so a cloud or AI reply does not push it behind the online candidates (reference: server/src/ipc/candidate_selection_policy.h, the fixed-English pass at the end of NormalizeMixedCandidateOrder). Seats are 1-based and 0 means unfixed; a seat past the end clamps to the end, as the reference's `insert_at` does.
         let mut fixed_english = Vec::new();
         order.retain(|index| {
@@ -1035,6 +1152,7 @@ impl<E: InputEngine> Runtime<E> {
             return;
         }
 
+        ensure_engine_order(&mut self.engine_order, count);
         let snapshot = &mut self.cached;
         apply_order(&mut snapshot.candidates, &order);
         apply_order(&mut snapshot.candidate_codes, &order);
@@ -1043,9 +1161,7 @@ impl<E: InputEngine> Runtime<E> {
         apply_order(&mut snapshot.candidate_positions, &order);
         apply_order(&mut snapshot.candidate_corrected, &order);
         apply_order(&mut snapshot.candidate_answers_key, &order);
-        if self.engine_order.len() == count {
-            apply_order(&mut self.engine_order, &order);
-        }
+        apply_order(&mut self.engine_order, &order);
     }
 
     fn rerank(&mut self) {
@@ -1093,6 +1209,7 @@ impl<E: InputEngine> Runtime<E> {
         }) else {
             return;
         };
+        ensure_engine_order(&mut self.engine_order, count);
         let snapshot = &mut self.cached;
         rotate_to_front(&mut snapshot.candidates, promote);
         rotate_to_front(&mut snapshot.candidate_codes, promote);
@@ -1101,9 +1218,7 @@ impl<E: InputEngine> Runtime<E> {
         rotate_to_front(&mut snapshot.candidate_positions, promote);
         rotate_to_front(&mut snapshot.candidate_corrected, promote);
         rotate_to_front(&mut snapshot.candidate_answers_key, promote);
-        if self.engine_order.len() == count {
-            rotate_to_front(&mut self.engine_order, promote);
-        }
+        rotate_to_front(&mut self.engine_order, promote);
     }
 
     /// Move the runner-up sentence readings behind the rest of the list.
@@ -1156,6 +1271,7 @@ impl<E: InputEngine> Runtime<E> {
         if !demote.iter().any(|moved| *moved) {
             return;
         }
+        ensure_engine_order(&mut self.engine_order, count);
         let snapshot = &mut self.cached;
         move_to_back(&mut snapshot.candidates, &demote);
         move_to_back(&mut snapshot.candidate_codes, &demote);
@@ -1164,9 +1280,7 @@ impl<E: InputEngine> Runtime<E> {
         move_to_back(&mut snapshot.candidate_positions, &demote);
         move_to_back(&mut snapshot.candidate_corrected, &demote);
         move_to_back(&mut snapshot.candidate_answers_key, &demote);
-        if self.engine_order.len() == count {
-            move_to_back(&mut self.engine_order, &demote);
-        }
+        move_to_back(&mut self.engine_order, &demote);
     }
 
     pub(crate) fn refresh(&mut self) -> Result<(), RuntimeError> {
@@ -1387,7 +1501,12 @@ impl<E: InputEngine> Runtime<E> {
         }
         // What the reading held before the Engine saw this key. A selection that consumes part of
         // it has to record the piece it took, and only the difference says what that was.
-        let reading_before = self.cached.editing_text.clone();
+        // Hosts that do not draw the held phrase never consume this value. Avoid copying the
+        // current reading for their ordinary key path; Linux, macOS and iOS enable the feature and
+        // still receive the same snapshot.
+        let reading_before = self
+            .phrase_preedit
+            .then(|| self.cached.editing_text.clone());
         // A digit on the candidate page picks a candidate; the Engine is asked the same question as
         // for Select, so it can begin a phrase the same way.
         let mut selected_by_digit = false;
@@ -1506,9 +1625,9 @@ impl<E: InputEngine> Runtime<E> {
         // mode rewriting it, a fallback replacing it - leaves nothing to restore, and that
         // selection is recorded as unretractable rather than guessed at.
         let consumed = reading_before
-            .strip_suffix(self.cached.editing_text.as_str())
-            .unwrap_or("")
-            .to_owned();
+            .as_deref()
+            .and_then(|reading| reading.strip_suffix(self.cached.editing_text.as_str()))
+            .unwrap_or("");
         let picked = selected_by_digit
             || matches!(
                 action,

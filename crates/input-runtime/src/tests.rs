@@ -2324,6 +2324,23 @@ fn dedicated_english_state_resets_highlight_without_guessing_from_text() {
 }
 
 #[test]
+fn punctuation_host_context_uses_the_applied_runtime_state() {
+    let mut runtime = runtime();
+    runtime.focus(true).unwrap();
+    assert!(runtime.punctuation_host_context_available(false));
+    assert!(!runtime.punctuation_host_context_available(true));
+
+    runtime.engine.dedicated_english = true;
+    runtime.refresh().unwrap();
+    assert!(!runtime.punctuation_host_context_available(false));
+
+    runtime.engine.dedicated_english = false;
+    runtime.engine.local_mode = "unicode".into();
+    runtime.refresh().unwrap();
+    assert!(!runtime.punctuation_host_context_available(false));
+}
+
+#[test]
 fn switching_the_language_drops_the_composition_being_spelled() {
     // The source pairs `SetEnglishInputMode` with `ClearState`, and the engine does the same inside
     // `set_dedicated_english_mode`: letters spelled for Chinese are not what the user wants sitting
@@ -2717,6 +2734,42 @@ fn paging_reaches_candidates_the_engine_withheld() {
         fourth.candidates.first().map(|c| c.text.as_str()),
         Some("candidate-15")
     );
+}
+
+#[test]
+fn candidate_page_len_matches_the_published_page_without_building_rows() {
+    let mut short = withholding_runtime(3, 4, 5);
+    short.focus(true).unwrap();
+    type_key(&mut short);
+    assert_eq!(short.candidate_page_len(), 3);
+    short.dispatch(Action::NextPage).unwrap();
+    assert_eq!(short.candidate_page_len(), 5);
+
+    let mut runtime = withholding_runtime(12, 8, 5);
+    runtime.focus(true).unwrap();
+    type_key(&mut runtime);
+    assert_eq!(runtime.candidate_page_len(), 5);
+    runtime.dispatch(Action::NextPage).unwrap();
+    assert_eq!(runtime.candidate_page_len(), 5);
+    runtime.dispatch(Action::NextPage).unwrap();
+    assert_eq!(runtime.candidate_page_len(), 5);
+}
+
+#[test]
+fn translation_candidates_match_the_visible_page_without_full_rows() {
+    let mut runtime = withholding_runtime(12, 8, 5);
+    runtime.focus(true).unwrap();
+    type_key(&mut runtime);
+    let light = runtime.translation_candidates().unwrap();
+    let view = runtime.view();
+    assert_eq!(light.generation, view.generation);
+    assert_eq!(light.scheme, view.scheme);
+    assert_eq!(light.local_mode, view.local_mode);
+    assert_eq!(light.candidates.len(), view.candidates.len());
+    for (candidate, visible) in light.candidates.iter().zip(&view.candidates) {
+        assert_eq!(candidate.text, visible.text);
+        assert_eq!(candidate.source, visible.source);
+    }
 }
 
 #[test]

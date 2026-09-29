@@ -17,6 +17,7 @@ fn ai_endpoint_validation_accepts_http_api_urls_and_rejects_unsafe_urls() {
     }
     for endpoint in [
         "file:///tmp/models",
+        "https:///v1/chat/completions",
         "https://user:password@example.test/v1/chat/completions",
         "https://example.test/v1/chat/completions#fragment",
         "https://example.test/v1/chat/\ncompletions",
@@ -177,6 +178,8 @@ fn external_links_require_clean_https_urls() {
         "https:///path",
         "http://example.com",
         "https://example.com/help path",
+        "https://user:secret@example.com/help",
+        "https://example.com:bad/help",
         "https://example.com/a&b",
         "https://example.com/\"quoted\"",
         "https://example.com/\\escape",

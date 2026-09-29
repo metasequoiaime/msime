@@ -346,9 +346,7 @@ public final class DoubaoRecognizer {
 
     /** Only `wss://` is accepted: this protocol carries the user's credentials in its headers. */
     static URI parse(String endpoint) {
-        if (endpoint == null || !endpoint.startsWith("wss://") || endpoint.length() > 2048) {
-            return null;
-        }
+        if (!DoubaoAsrPolicy.validEndpoint(endpoint)) return null;
         try {
             URI uri = new URI(endpoint);
             return uri.getHost() == null || uri.getHost().isEmpty() ? null : uri;

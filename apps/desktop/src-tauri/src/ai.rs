@@ -37,7 +37,13 @@ pub(crate) fn validate_ai_endpoint(value: &str) -> Result<Url, CommandError> {
     }
     let url = Url::parse(value).map_err(|_| CommandError { code: "ai_invalid" })?;
     if !matches!(url.scheme(), "http" | "https")
-        || url.host_str().is_none()
+        || !value.split_once("://").is_some_and(|(_, authority)| {
+            authority
+                .as_bytes()
+                .first()
+                .is_some_and(|byte| *byte != b'/')
+        })
+        || url.host_str().is_none_or(str::is_empty)
         || !url.username().is_empty()
         || url.password().is_some()
         || url.fragment().is_some()

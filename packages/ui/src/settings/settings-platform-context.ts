@@ -1,4 +1,4 @@
-import type { HostCapabilities } from "../index";
+import type { HostCapabilities, HostPlatform } from "../index";
 import { isLinuxDesktop } from "./platform-helpers";
 
 export interface SettingsPlatformContext {
@@ -10,6 +10,9 @@ export interface SettingsPlatformContext {
   mobile: boolean;
   windows: boolean;
   macos: boolean;
+  releasePlatform: HostPlatform | null;
+  diagnosticsFallbackPlatform: "android" | "ios" | "desktop";
+  accountPlatform: "android" | "ios" | "harmony" | undefined;
 }
 
 /** Derives the host and form-factor flags shared by the settings page. */
@@ -18,14 +21,18 @@ export function settingsPlatformContext(host?: HostCapabilities): SettingsPlatfo
   const ios = host?.platform === "ios";
   const harmony = host?.platform === "harmony";
   const mobile = host?.mobile_settings ?? (ios || android || harmony);
+  const linux = host ? host.platform === "linux" : isLinuxDesktop();
   return {
     host,
-    linux: host ? host.platform === "linux" : isLinuxDesktop(),
+    linux,
     android,
     ios,
     harmony,
     mobile,
     windows: host?.platform === "windows",
     macos: host?.platform === "macos",
+    releasePlatform: host?.platform ?? (linux ? "linux" : null),
+    diagnosticsFallbackPlatform: android ? "android" : ios ? "ios" : "desktop",
+    accountPlatform: android ? "android" : ios ? "ios" : harmony ? "harmony" : undefined,
   };
 }

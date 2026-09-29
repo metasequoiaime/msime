@@ -347,6 +347,7 @@ mod tests {
     use std::net::TcpListener;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{mpsc, Mutex};
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn token(byte: u8) -> String {
         std::iter::repeat_n(char::from(byte), 64).collect()
@@ -368,6 +369,14 @@ mod tests {
             expires_in: 900,
             user: user(),
         }
+    }
+
+    fn valid_future_expiry() -> u64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64
+            + 60_000
     }
 
     fn skin() -> CommunitySkin {
@@ -497,7 +506,7 @@ mod tests {
         let storage = MemoryStorage::default();
         *storage.0.lock().unwrap() = Some(SavedAccountSession {
             tokens: tokens(b'a', b'b'),
-            expires_at_unix_ms: u64::MAX,
+            expires_at_unix_ms: valid_future_expiry(),
         });
         let api = FakeApi::default();
         let calls = Arc::clone(&api.skin_calls);
@@ -533,7 +542,7 @@ mod tests {
 
         *storage.0.lock().unwrap() = Some(SavedAccountSession {
             tokens: tokens(b'a', b'b'),
-            expires_at_unix_ms: u64::MAX,
+            expires_at_unix_ms: valid_future_expiry(),
         });
         let session = Arc::new(BackendAccountSession::new(api.clone(), storage));
         let service = BackendCommunitySkinService::new(api.clone(), session);
