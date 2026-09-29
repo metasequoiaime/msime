@@ -120,6 +120,11 @@ export {
   SettingsFeedbackPage,
   type SettingsFeedbackPageProps,
 } from "./settings/settings-feedback-page";
+import { SettingsInteractionPages } from "./settings/settings-interaction-pages";
+export {
+  SettingsInteractionPages,
+  type SettingsInteractionPagesProps,
+} from "./settings/settings-interaction-pages";
 import { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
 export { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
 import { useTranslationSettings } from "./settings/use-translation-settings";
@@ -2810,46 +2815,48 @@ export function SettingsPage({
                     onDiagnosticLogError={setError}
                     telemetryEnabled={draft.telemetry_enabled}
                   />
-                  <ScreenKeyboardSettingsSection
-                    disabled={busy}
-                    hidden={page !== "screen-keyboard"}
-                    mobile={mobilePlatform}
-                    screenKeyboardTheme={draft.screen_keyboard_theme ?? "follow"}
-                    previewTheme={keyboardPreviewTheme}
-                    {...screenKeyboardActions}
-                    selectedSkin={touchKeyboardSkin}
-                    customDesign={customTouchKeyboardSkin}
-                    customAvailable={Boolean(client.customTouchKeyboardSkins)}
-                    editorOpen={showTouchSkinEditor}
-                    communityAvailable={Boolean(mobilePlatform && client.communitySkins)}
-                    library={client.customSkinLibrary}
-                    aiSkins={client.aiSkins}
-                    communitySkins={client.communitySkins}
-                    heightAdjustment={touchKeyboardHeightAdjustment}
-                    keySpacingTenths={touchKeySpacingTenths}
-                    rowSpacingTenths={touchRowSpacingTenths}
-                    touchVoiceShortcut={draft.touch_voice_shortcut ?? false}
-                    toolbarComponents={Boolean(host?.touch_toolbar_components)}
-                    toolbar={draft.touch_toolbar}
-                    tabletFullKeys={mobileKeyboardFeedback?.tabletFullKeys}
-                    tabletFullKeysBusy={mobileKeyboardFeedbackBusy}
-                    onPointerDown={beginTouchGeometryDrag}
-                    onPointerMove={updateTouchGeometryDrag}
-                    onPointerUp={endTouchGeometryDrag}
-                    onPointerCancel={cancelTouchGeometryDrag}
+                  <SettingsInteractionPages
+                    screenKeyboard={{
+                      disabled: busy,
+                      hidden: page !== "screen-keyboard",
+                      mobile: mobilePlatform,
+                      screenKeyboardTheme: draft.screen_keyboard_theme ?? "follow",
+                      previewTheme: keyboardPreviewTheme,
+                      ...screenKeyboardActions,
+                      selectedSkin: touchKeyboardSkin,
+                      customDesign: customTouchKeyboardSkin,
+                      customAvailable: Boolean(client.customTouchKeyboardSkins),
+                      editorOpen: showTouchSkinEditor,
+                      communityAvailable: Boolean(mobilePlatform && client.communitySkins),
+                      library: client.customSkinLibrary,
+                      aiSkins: client.aiSkins,
+                      communitySkins: client.communitySkins,
+                      heightAdjustment: touchKeyboardHeightAdjustment,
+                      keySpacingTenths: touchKeySpacingTenths,
+                      rowSpacingTenths: touchRowSpacingTenths,
+                      touchVoiceShortcut: draft.touch_voice_shortcut ?? false,
+                      toolbarComponents: Boolean(host?.touch_toolbar_components),
+                      toolbar: draft.touch_toolbar,
+                      tabletFullKeys: mobileKeyboardFeedback?.tabletFullKeys,
+                      tabletFullKeysBusy: mobileKeyboardFeedbackBusy,
+                      onPointerDown: beginTouchGeometryDrag,
+                      onPointerMove: updateTouchGeometryDrag,
+                      onPointerUp: endTouchGeometryDrag,
+                      onPointerCancel: cancelTouchGeometryDrag,
+                    }}
+                    handwriting={{
+                      ios: iosPlatform,
+                      android: androidPlatform,
+                      harmony: harmonyPlatform,
+                      macos: macosPlatform,
+                      mobile: mobilePlatform,
+                      openSystemKeyboardSettings: client.openSystemKeyboardSettings,
+                      openHandwriting: client.openHandwriting,
+                      onOpenHandwriting: settingsNavigationActions.onOpenHandwriting,
+                    }}
+                    handwritingDisabled={busy}
+                    handwritingHidden={page !== "handwriting"}
                   />
-                  <fieldset disabled={busy} hidden={page !== "handwriting"} aria-label="手写识别板">
-                    <HandwritingSettingsSection
-                      ios={iosPlatform}
-                      android={androidPlatform}
-                      harmony={harmonyPlatform}
-                      macos={macosPlatform}
-                      mobile={mobilePlatform}
-                      openSystemKeyboardSettings={client.openSystemKeyboardSettings}
-                      openHandwriting={client.openHandwriting}
-                      onOpenHandwriting={settingsNavigationActions.onOpenHandwriting}
-                    />
-                  </fieldset>
                   <VoiceSettingsPanel
                     disabled={busy}
                     hidden={page !== "voice"}
