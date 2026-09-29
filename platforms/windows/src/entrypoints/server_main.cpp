@@ -651,6 +651,7 @@ int wmain(int argc, wchar_t **argv) {
       document = production_preview_document(document, default_state);
     auto config = PreviewConfig::parse(document);
     config.resources = std::filesystem::canonical(config.resources);
+    reject_reparse_ancestors(config.state_root);
     config.state_root = std::filesystem::weakly_canonical(config.state_root);
     if (contains(config.resources, config.state_root) ||
         contains(config.state_root, config.resources))
