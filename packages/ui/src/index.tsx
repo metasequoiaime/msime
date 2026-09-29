@@ -111,7 +111,6 @@ export {
   type SettingsPageLinkItem,
   type SettingsPageTitleItem,
 } from "./settings/settings-page-view-model";
-import { SettingsNavigationChrome } from "./settings/settings-navigation-chrome";
 export {
   SettingsNavigationChrome,
   type SettingsNavigationChromeProps,
@@ -149,8 +148,9 @@ export {
 } from "./settings/settings-dictionary-page";
 import { SettingsInputPage } from "./settings/settings-input-page";
 export { SettingsInputPage, type SettingsInputPageProps } from "./settings/settings-input-page";
-import { SettingsFormFrame } from "./settings/settings-form-frame";
 import { SettingsFormPages } from "./settings/settings-form-pages";
+import { SettingsPageLayout } from "./settings/settings-page-layout";
+export { SettingsPageLayout, type SettingsPageLayoutProps } from "./settings/settings-page-layout";
 export { SettingsFormPages, type SettingsFormPagesProps } from "./settings/settings-form-pages";
 export { SettingsFormFrame, type SettingsFormFrameProps } from "./settings/settings-form-frame";
 import { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
@@ -480,7 +480,6 @@ import {
   ClipboardHistorySection,
   type ClipboardHistoryClient,
 } from "./settings/clipboard-history-section";
-import { WindowTitlebar } from "./settings/window-titlebar";
 export { WindowTitlebar, type WindowTitlebarProps } from "./settings/window-titlebar";
 import { windowResizeEdge } from "./settings/window-resize";
 export {
@@ -2429,50 +2428,28 @@ export function SettingsPage({
     communityDestination,
   });
   return (
-    <div
-      className={settings.shell}
-      data-settings-shell=""
-      // The phone hosts read as one product with the Apple app, which is where the palette below
-      // comes from. The inherited one is the Windows settings accent.
-      data-mobile={mobilePlatform ? "" : undefined}
+    <SettingsPageLayout
+      mobile={mobilePlatform}
+      confirmation={confirmation}
       onPointerDownCapture={handleWindowResizeCapture}
+      windowTitlebar={{
+        maximized: windowMaximized,
+        windowControl: client.windowControl,
+        beginWindowDrag: client.beginWindowDrag,
+        resizeWindow: client.resizeWindow,
+        onError: setError,
+      }}
+      navigation={{
+        mobile: mobilePlatform,
+        tabs: mobilePrimaryPages,
+        activeTab: mobileActiveTab,
+        onSelectTab: selectMobileTab,
+        groups: sidebarGroups,
+        selectedPage: page,
+        onSelectPage: selectPage,
+      }}
+      contentRef={settingsContentRef}
     >
-      {confirmation}
-      {/* A phone has no window to minimise, maximise, close or drag: the OS owns the frame. The host
-          still exposes the window commands on mobile because the same Tauri app binary backs both, so
-          the presence of a command is not the question -- the platform is. */}
-      {!mobilePlatform && (
-        <WindowTitlebar
-          maximized={windowMaximized}
-          windowControl={client.windowControl}
-          beginWindowDrag={client.beginWindowDrag}
-          resizeWindow={client.resizeWindow}
-          onError={setError}
-        />
-      )}
-      <div
-        className="flex min-h-0 min-w-0 flex-1 overflow-hidden max-phone:flex-col"
-        data-settings-body=""
-      >
-        {/* A bottom tab bar. `order-2` seats it below the content while the DOM keeps it ahead, so
-            assistive technology and keyboard focus still reach the navigation first, and the bottom
-            padding clears the gesture inset. Hidden above phone width, where the sidebar serves. */}
-        <SettingsNavigationChrome
-          mobile={mobilePlatform}
-          tabs={mobilePrimaryPages}
-          activeTab={mobileActiveTab}
-          onSelectTab={selectMobileTab}
-          groups={sidebarGroups}
-          selectedPage={page}
-          onSelectPage={selectPage}
-        />
-        <main
-          ref={settingsContentRef}
-          id="settings-content"
-          className="min-h-0 min-w-0 flex-1 overflow-y-auto pt-0 pr-6 pb-0 pl-4 [scrollbar-gutter:stable] max-phone:px-2"
-          aria-labelledby="page-title"
-        >
-          <div className="mx-auto mt-0.5 mb-0 w-full max-w-[900px] p-3 max-phone:px-1 max-phone:py-3">
             {/* Three of the four tabs open on something that already names them — a headline, a
                 profile card, a row of figures — and the source prints no page title over any of
                 them. 社区 is the one that does. Hidden rather than dropped: it labels `main`. */}
@@ -2969,9 +2946,6 @@ export function SettingsPage({
                 >
                 </SettingsFormPages>
               )}
-          </div>
-        </main>
-      </div>
-    </div>
+    </SettingsPageLayout>
   );
 }
