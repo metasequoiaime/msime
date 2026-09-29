@@ -46,7 +46,6 @@ import { platformResourceUrls } from "./settings/platform-resource-urls";
 import {
   initialMobileTabPages,
   initialSettingsPage,
-  mobileHeaderlessPageIds,
   type SettingsPageId,
 } from "./settings/mobile-navigation";
 export {
@@ -104,7 +103,7 @@ import { SettingsPageStatus } from "./settings/settings-page-status";
 export { SettingsPageStatus, type SettingsPageStatusProps } from "./settings/settings-page-status";
 import { SettingsFormFooter } from "./settings/settings-form-footer";
 export { SettingsFormFooter, type SettingsFormFooterProps } from "./settings/settings-form-footer";
-import { settingsPageLinks, settingsPageTitle } from "./settings/settings-page-view-model";
+import { settingsPageLinks } from "./settings/settings-page-view-model";
 export {
   settingsPageLinks,
   settingsPageTitle,
@@ -115,7 +114,8 @@ export {
   SettingsNavigationChrome,
   type SettingsNavigationChromeProps,
 } from "./settings/settings-navigation-chrome";
-import { SettingsContentIntro } from "./settings/settings-content-intro";
+import { SettingsPageIntro } from "./settings/settings-page-intro";
+export { SettingsPageIntro, type SettingsPageIntroProps } from "./settings/settings-page-intro";
 export {
   SettingsContentIntro,
   type SettingsContentIntroProps,
@@ -2453,11 +2453,10 @@ export function SettingsPage({
             {/* Three of the four tabs open on something that already names them — a headline, a
                 profile card, a row of figures — and the source prints no page title over any of
                 them. 社区 is the one that does. Hidden rather than dropped: it labels `main`. */}
-            <SettingsContentIntro
+            <SettingsPageIntro
               page={page}
               mobile={mobilePlatform}
-              pageTitle={settingsPageTitle(availablePages, page)}
-              hideHeaderOnPhone={mobileHeaderlessPageIds.includes(page)}
+              availablePages={availablePages}
               status={{
                 draft,
                 error,
