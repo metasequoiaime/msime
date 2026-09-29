@@ -925,6 +925,31 @@ fn custom_translations_refuse_documents_the_engine_could_not_read() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn custom_translation_save_does_not_follow_a_staging_symlink() {
+    use std::os::unix::fs::symlink;
+
+    let state = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let user = state.path().join("user");
+    std::fs::create_dir_all(&user).unwrap();
+    let outside_staging = outside.path().join("staging.txt");
+    std::fs::write(&outside_staging, b"keep me").unwrap();
+    symlink(
+        &outside_staging,
+        user.join("custom_translations.txt.writing"),
+    )
+    .unwrap();
+
+    super::write_custom_translations_at(user.clone(), "你好\thello\n").unwrap();
+    assert_eq!(std::fs::read(outside_staging).unwrap(), b"keep me");
+    assert_eq!(
+        super::read_custom_translations_at(user).unwrap(),
+        "你好\thello\n"
+    );
+}
+
 #[test]
 fn typing_statistics_status_reports_file_availability_without_content() {
     let directory = tempfile::tempdir().unwrap();
