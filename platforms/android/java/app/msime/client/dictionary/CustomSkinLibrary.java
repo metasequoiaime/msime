@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
@@ -24,9 +25,19 @@ public final class CustomSkinLibrary {
     }
 
     public static List<Item> read(Path preferencesDirectory) throws IOException {
-        Path file = preferencesDirectory.resolve("CustomSkins").resolve("library.json");
-        if (!Files.isRegularFile(file))
+        Path root = checkedRoot(preferencesDirectory);
+        if (!Files.exists(root, LinkOption.NOFOLLOW_LINKS)) return List.of();
+        if (!Files.isDirectory(root, LinkOption.NOFOLLOW_LINKS))
+            throw new IOException("Invalid preferences directory");
+        Path directory = root.resolve("CustomSkins");
+        if (!Files.exists(directory, LinkOption.NOFOLLOW_LINKS)) return List.of();
+        if (!Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS))
+            throw new IOException("Invalid custom skin directory");
+        Path file = directory.resolve("library.json");
+        if (!Files.exists(file, LinkOption.NOFOLLOW_LINKS))
             return List.of();
+        if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS))
+            throw new IOException("Invalid custom skin library");
         String document;
         try (InputStream input = Files.newInputStream(file)) {
             ByteArrayOutputStream bytes = new ByteArrayOutputStream((int) MAX_LIBRARY_BYTES);
@@ -71,7 +82,11 @@ public final class CustomSkinLibrary {
         if (id == null || id.isEmpty() || name == null || design == null) return false;
         String bounded = name.trim();
         if (bounded.isEmpty() || bounded.length() > MAX_NAME_LENGTH) return false;
-        List<Item> existing = read(preferencesDirectory);
+        Path root = checkedRoot(preferencesDirectory);
+        if (!Files.exists(root, LinkOption.NOFOLLOW_LINKS)) Files.createDirectories(root);
+        if (!Files.isDirectory(root, LinkOption.NOFOLLOW_LINKS))
+            throw new IOException("Invalid preferences directory");
+        List<Item> existing = read(root);
         JSONArray values = new JSONArray();
         boolean replaced = false;
         for (Item item : existing) {
@@ -88,13 +103,29 @@ public final class CustomSkinLibrary {
         }
         byte[] document = values.toString().getBytes(StandardCharsets.UTF_8);
         if (document.length > MAX_LIBRARY_BYTES) return false;
-        Path directory = preferencesDirectory.resolve("CustomSkins");
-        Files.createDirectories(directory);
+        Path directory = root.resolve("CustomSkins");
+        if (!Files.exists(directory, LinkOption.NOFOLLOW_LINKS)) Files.createDirectories(directory);
+        if (!Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS))
+            throw new IOException("Invalid custom skin directory");
         Path pending = directory.resolve("library.json.pending");
+        if (Files.exists(pending, LinkOption.NOFOLLOW_LINKS)
+                && !Files.isRegularFile(pending, LinkOption.NOFOLLOW_LINKS))
+            throw new IOException("Invalid custom skin pending file");
+        Path target = directory.resolve("library.json");
+        if (Files.exists(target, LinkOption.NOFOLLOW_LINKS)
+                && !Files.isRegularFile(target, LinkOption.NOFOLLOW_LINKS))
+            throw new IOException("Invalid custom skin library");
         Files.write(pending, document);
-        Files.move(pending, directory.resolve("library.json"),
+        Files.move(pending, target,
             StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
         return true;
+    }
+
+    private static Path checkedRoot(Path preferencesDirectory) throws IOException {
+        if (preferencesDirectory == null) throw new IOException("Invalid preferences directory");
+        Path root = preferencesDirectory.toAbsolutePath().normalize();
+        if (Files.isSymbolicLink(root)) throw new IOException("Invalid preferences directory");
+        return root;
     }
 
     private static JSONObject entry(String id, String name, JSONObject design) {

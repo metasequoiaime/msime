@@ -425,6 +425,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/candidate/CandidateScrollPolicySmoke.java" \
   "$repo_root/platforms/android/tests/dictionary/ClipboardHistoryPolicySmoke.java" \
   "$repo_root/platforms/android/tests/dictionary/DictionarySnapshotQueueSmoke.java" \
+  "$repo_root/platforms/android/tests/dictionary/CustomSkinLibrarySmoke.java" \
   "$repo_root/platforms/android/tests/settings/DiagnosticPolicySmoke.java" \
   "$repo_root/platforms/android/tests/settings/HostOptionsPolicySmoke.java" \
   "$repo_root/platforms/android/tests/settings/AccountTokenPolicySmoke.java" \
@@ -510,6 +511,7 @@ java -cp "$output_dir" CandidateManagementSmoke
 java -cp "$output_dir" CandidateScrollPolicySmoke
 java -cp "$output_dir" ClipboardHistoryPolicySmoke
 java -cp "$output_dir" DictionarySnapshotQueueSmoke
+java -cp "$output_dir:$android_jar" CustomSkinLibrarySmoke
 java -cp "$output_dir" DiagnosticPolicySmoke
 java -cp "$output_dir" HostOptionsPolicySmoke
 java -cp "$output_dir" AccountTokenPolicySmoke
