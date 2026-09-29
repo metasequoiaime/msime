@@ -43,6 +43,9 @@ PANEL_RESTORE_LIMIT = 64 * 1024
 # Each registration step is a local D-Bus or dconf round trip; a wedged daemon must not hold up the end of setup.
 COMMAND_TIMEOUT = 10
 DOWNLOAD_TIMEOUT = 60
+# Engine dependency archives have no individual size in the dictionary lock. Keep their compressed
+# response bounded while allowing the largest currently pinned archive.
+DOWNLOAD_MAX_BYTES = 512 * 1024 * 1024
 FCITX5_INPUT_METHOD = "msime"
 FCITX5_NAME = "水杉输入法"
 IBUS_ENGINE = "msime-linux"
@@ -156,9 +159,25 @@ def dependency_for(engine_path: str, engine_lock: dict) -> dict | None:
     return None
 
 
-def fetch(url: str, destination: Path) -> None:
-    with urllib.request.urlopen(url, timeout=DOWNLOAD_TIMEOUT) as response, destination.open("wb") as handle:
-        shutil.copyfileobj(response, handle)
+def fetch(url: str, destination: Path, maximum: int) -> None:
+    try:
+        with urllib.request.urlopen(url, timeout=DOWNLOAD_TIMEOUT) as response, destination.open("wb") as handle:
+            advertised = response.headers.get("Content-Length")
+            if advertised is not None:
+                try:
+                    if int(advertised) > maximum:
+                        raise SystemExit(f"下载响应超过 {maximum} 字节限制")
+                except ValueError:
+                    pass
+            size = 0
+            while block := response.read(CHUNK):
+                size += len(block)
+                if size > maximum:
+                    raise SystemExit(f"下载响应超过 {maximum} 字节限制")
+                handle.write(block)
+    except BaseException:
+        destination.unlink(missing_ok=True)
+        raise
 
 
 def download_artifacts(lock: dict, engine_lock: dict | None, directory: Path) -> None:
@@ -178,7 +197,7 @@ def download_artifacts(lock: dict, engine_lock: dict | None, directory: Path) ->
             url = artifact.get("url", "")
             if url:
                 print(f"下载 {name}")
-                fetch(url, staged)
+                fetch(url, staged, artifact["size"])
             else:
                 engine_path = artifact.get("engine_path", "")
                 dependency = dependency_for(engine_path, engine_lock or {})
@@ -190,7 +209,7 @@ def download_artifacts(lock: dict, engine_lock: dict | None, directory: Path) ->
                     )
                 print(f"取 {name}（来自 {dependency['repository']} 的固定归档）")
                 archive = staging / "dependency.tar.gz"
-                fetch(dependency["archive"], archive)
+                fetch(dependency["archive"], archive, DOWNLOAD_MAX_BYTES)
                 if digest(archive) != dependency["sha256"]:
                     raise SystemExit(f"{dependency['repository']} 归档校验失败，已中止")
                 member_suffix = engine_path[len(dependency["path"]) + 1 :]
@@ -209,7 +228,12 @@ def download_artifacts(lock: dict, engine_lock: dict | None, directory: Path) ->
                     if extracted is None:
                         raise SystemExit(f"无法读取归档中的 {member_suffix}，已中止")
                     with staged.open("wb") as handle:
-                        shutil.copyfileobj(extracted, handle)
+                        size = 0
+                        while block := extracted.read(CHUNK):
+                            size += len(block)
+                            if size > artifact["size"]:
+                                raise SystemExit(f"{name} 解压后超过 {artifact['size']} 字节限制")
+                            handle.write(block)
                 archive.unlink()
             if digest(staged) != artifact["sha256"]:
                 raise SystemExit(f"{name} 校验失败，已中止；目标目录未改动")
