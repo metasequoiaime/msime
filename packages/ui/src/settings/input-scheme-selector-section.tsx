@@ -1,15 +1,14 @@
-export type InputSchemeSelectorValue = "quanpin" | "shuangpin" | "wubi";
+import {
+  chineseInputSchemeOptions,
+  type ChineseInputScheme,
+} from "./input-scheme-options";
+
+export type InputSchemeSelectorValue = ChineseInputScheme;
 
 export interface InputSchemeSelectorSectionProps {
   value: InputSchemeSelectorValue;
   onChange: (value: InputSchemeSelectorValue) => void;
 }
-
-const options: [InputSchemeSelectorValue, string][] = [
-  ["quanpin", "全拼"],
-  ["shuangpin", "双拼"],
-  ["wubi", "五笔"],
-];
 
 /** Radio selector for the desktop Chinese input schemes. */
 export function InputSchemeSelectorSection({ value, onChange }: InputSchemeSelectorSectionProps) {
@@ -19,7 +18,7 @@ export function InputSchemeSelectorSection({ value, onChange }: InputSchemeSelec
         输入方案
       </div>
       <div className="input-option-content">
-        {options.map(([scheme, label], index) => (
+        {chineseInputSchemeOptions.map(({ value: scheme, label }, index) => (
           <div className="input-option-item" key={scheme}>
             {index > 0 && <div className="input-option-divider" />}
             <label className="radio-option">

@@ -20,14 +20,11 @@ import { FrequencySection } from "../frequency-section";
 import { LocalModesSection } from "../local-modes-section";
 import { CharacterWidthRow } from "../punctuation-section";
 import { InputModeHudSection } from "../input-mode-hud-section";
+import {
+  chineseInputSchemeOptions,
+  japaneseInputSchemeOptions,
+} from "../input-scheme-options";
 
-const chineseSchemeOptions = [
-  { value: "quanpin", label: "全拼" },
-  { value: "shuangpin", label: "双拼" },
-  { value: "wubi", label: "五笔" },
-] as const satisfies readonly { value: Preferences["scheme"]; label: string }[];
-/** The reference offers one Japanese scheme and shows it as a chosen option rather than a bare line of text. */
-const japaneseSchemeOptions = [{ value: "romaji", label: "罗马音" }] as const;
 
 /** The 输入 page of the settings form. */
 export function InputSettingsPage() {
@@ -82,7 +79,7 @@ export function InputSettingsPage() {
           )}
           <Row title="输入方案" hidden={client.touchKeyboardSchemes || !chineseSchemes}>
             <Segmented
-              options={chineseSchemeOptions}
+              options={chineseInputSchemeOptions}
               value={
                 draft.scheme === "shuangpin" || draft.scheme === "wubi" ? draft.scheme : "quanpin"
               }
@@ -137,7 +134,7 @@ export function InputSettingsPage() {
             description="直接输入罗马音，提供平假名、片假名及日语词库候选"
             hidden={client.touchKeyboardSchemes || chineseSchemes}
           >
-            <Segmented options={japaneseSchemeOptions} value="romaji" onChange={() => {}} />
+            <Segmented options={japaneseInputSchemeOptions} value="romaji" onChange={() => {}} />
           </Row>
         </GroupList>
         <GroupList title="选词">
