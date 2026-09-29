@@ -94,6 +94,8 @@ export {
 } from "./settings/settings-standalone-pages";
 import { SettingsPageStatus } from "./settings/settings-page-status";
 export { SettingsPageStatus, type SettingsPageStatusProps } from "./settings/settings-page-status";
+import { SettingsFormFooter } from "./settings/settings-form-footer";
+export { SettingsFormFooter, type SettingsFormFooterProps } from "./settings/settings-form-footer";
 import { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
 export { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
 import { useTranslationSettings } from "./settings/use-translation-settings";
@@ -371,7 +373,6 @@ import { DictionaryManifestCard } from "./settings/dictionary-manifest-card";
 import { PersonalDictionaryImportCard } from "./settings/personal-dictionary-import-card";
 import { DictionarySettingsPanel } from "./settings/dictionary-settings-panel";
 import { createDictionaryPanelActions } from "./settings/dictionary-panel-actions";
-import { validCandidateFonts } from "./candidate/candidate-font-family";
 import type { FontCatalogReader } from "./candidate/font-catalog";
 import {
   asrProviderUpdate,
@@ -2933,16 +2934,10 @@ export function SettingsPage({
                     onCopyGroup={copyGroup}
                     onOpenTelegram={settingsExternalActions.onOpenTelegram}
                   />
-                  {!validCandidateFonts(draft) && (
-                    <p role="alert">
-                      请在外观页修正字体：名称不能为空、不能含控制字符或超过 128 个 UTF-8
-                      字节，补充字体最多 32 项。
-                    </p>
-                  )}
-                  <SettingsActionsFooter
+                  <SettingsFormFooter
+                    draft={draft}
                     busy={busy}
                     dirty={dirty}
-                    canSave={validCandidateFonts(draft)}
                     showRestoreDefaults={Boolean(client.loadDefaultPreferences)}
                     onRestoreDefaults={settingsNavigationActions.onRestoreDefaults}
                   />
