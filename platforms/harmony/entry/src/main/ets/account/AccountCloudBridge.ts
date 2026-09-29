@@ -70,6 +70,8 @@ type AuthorizedReply = { response?: AccountTransportResponse; token?: string; er
  * envelope would have refused a resource the server would have accepted, on this host only.
  */
 const MAX_ACTION_BYTES = 512 * 1024;
+const MAX_SESSION_SECONDS = 86_400 * 30;
+const MAX_SESSION_MILLISECONDS = MAX_SESSION_SECONDS * 1000;
 const MAX_CLIPBOARD_TEXT = 4000;
 const MAX_SEARCH = 256;
 
@@ -307,6 +309,7 @@ function validateSession(value: unknown): value is Session {
     session.token_type === "Bearer" &&
     typeof session.expires_at === "number" &&
     Number.isFinite(session.expires_at) &&
+    session.expires_at <= Date.now() + MAX_SESSION_MILLISECONDS &&
     validateUser(session.user)
   );
 }
@@ -319,6 +322,7 @@ function sessionFromTokens(value: Action): Session | null {
     typeof value.expires_in !== "number" ||
     !Number.isFinite(value.expires_in) ||
     value.expires_in <= 0 ||
+    value.expires_in > MAX_SESSION_SECONDS ||
     !validateUser(value.user)
   ) {
     return null;
