@@ -134,6 +134,11 @@ import { SettingsAboutPage } from "./settings/settings-about-page";
 export { SettingsAboutPage, type SettingsAboutPageProps } from "./settings/settings-about-page";
 import { SettingsVisualPages } from "./settings/settings-visual-pages";
 export { SettingsVisualPages, type SettingsVisualPagesProps } from "./settings/settings-visual-pages";
+import { SettingsDictionaryPage } from "./settings/settings-dictionary-page";
+export {
+  SettingsDictionaryPage,
+  type SettingsDictionaryPageProps,
+} from "./settings/settings-dictionary-page";
 import { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
 export { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
 import { useTranslationSettings } from "./settings/use-translation-settings";
@@ -2619,7 +2624,7 @@ export function SettingsPage({
                         : undefined,
                     }}
                   />
-                  <DictionarySettingsPanel
+                  <SettingsDictionaryPage
                     disabled={busy}
                     hidden={page !== "dictionary"}
                     dictionary={client.dictionary}
