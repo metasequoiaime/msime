@@ -58,8 +58,11 @@ export {
 import { desktopDownloadUrl, fallbackAppVersion, logo } from "./settings/app-resources";
 export { AI_PROVIDER_OPTIONS } from "./settings/ai-provider-options";
 import { defaultVoiceInput } from "./settings/voice-input-defaults";
-import { macosSidebarGroups } from "./settings/macos-sidebar-groups";
-import { groupSidebarPages } from "./settings/sidebar-groups";
+import { settingsSidebarGroups } from "./settings/sidebar-groups";
+export {
+  settingsSidebarGroups,
+  type SettingsSidebarGroupsOptions,
+} from "./settings/sidebar-groups";
 import { mobileHiddenPageIds as getMobileHiddenPageIds } from "./settings/mobile-hidden-pages";
 import { defaultAiAssistant } from "./settings/ai-assistant-defaults";
 import { useTranslationSettings } from "./settings/use-translation-settings";
@@ -2175,11 +2178,11 @@ export function SettingsPage({
     android: androidPlatform,
     harmony: harmonyPlatform,
   });
-  // The sidebar is the list this page duplicates, so it does not list it. A mobile host above phone width still shows the sidebar, and `selectPage` refuses the pages hidden above, so listing them there left buttons that did nothing when tapped.
-  const sidebarPages = availablePages.filter(
-    (item) => item.id !== "more" && !(mobilePlatform && mobileHiddenPageIds.includes(item.id)),
-  );
-  const sidebarGroups = groupSidebarPages(sidebarPages, macosPlatform, macosSidebarGroups);
+  const sidebarGroups = settingsSidebarGroups(availablePages, {
+    mobile: mobilePlatform,
+    hiddenPageIds: mobileHiddenPageIds,
+    macos: macosPlatform,
+  });
   // Walked in tab order rather than filtered out of `availablePages`, which is in the order the
   // pages happen to be declared in — that put 我的 second, and the bar read 键盘 / 我的 / 社区 / 统计
   // against the source's 键盘 / 社区 / 统计 / 我的.
