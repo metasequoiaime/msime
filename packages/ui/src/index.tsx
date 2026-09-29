@@ -1,3 +1,4 @@
+import { VoiceSettingsPanel } from "./settings/voice-settings-panel";
 import { useConfirm } from "./core/confirm";
 import { errorMessage } from "./core/error-message";
 import { clamp } from "./core/number";
@@ -77,7 +78,7 @@ export {
 } from "./settings/use-translation-settings";
 import { aiProviderUpdate } from "./settings/ai-provider-update";
 export { aiProviderUpdate } from "./settings/ai-provider-update";
-import { VoiceDevicePicker, type VoiceDeviceReader } from "./voice/voice-device-picker";
+import type { VoiceDeviceReader } from "./voice/voice-device-picker";
 import {
   LocalModelManager,
   localModelInUse,
@@ -808,6 +809,7 @@ export {
   type TouchKeyboardGeometrySectionProps,
   type TouchToolbarPreferences,
 } from "./settings/touch-keyboard-geometry-section";
+export { VoiceSettingsPanel, type VoiceSettingsPanelProps } from "./settings/voice-settings-panel";
 export {
   VoiceInputIntroSection,
   type VoiceInputIntroSectionProps,
@@ -3308,462 +3310,47 @@ export function SettingsPage({
                       onOpenHandwriting={() => void openPanel(client.openHandwriting)}
                     />
                   </fieldset>
-                  <fieldset disabled={busy} hidden={page !== "voice"} aria-label="语音输入">
-                    <VoiceInputIntroSection
-                      localVoice={localVoice}
-                      localVoiceModelsAvailable={Boolean(client.localVoiceModels)}
-                      systemVoice={systemVoice}
-                      systemVoiceHostName={systemVoiceHostName}
-                      android={androidPlatform}
-                      ios={iosPlatform}
-                      macos={macosPlatform}
-                      harmony={harmonyPlatform}
-                      linux={linuxPlatform}
-                      showVoiceProviderSettings={showVoiceProviderSettings}
-                      onOpenVoice={
-                        client.openVoice ? () => void openPanel(client.openVoice) : undefined
-                      }
-                    />
-                    <VoiceInputCoreSection
-                      enabled={voiceInput.enabled}
-                      provider={String(voiceInput.asr_provider)}
-                      language={voiceInput.language}
-                      showProviderSettings={showVoiceProviderSettings}
-                      systemVoice={systemVoice}
-                      macos={macosPlatform}
-                      harmony={harmonyPlatform}
-                      android={androidPlatform}
-                      localVoiceAvailable={localVoiceAvailable}
-                      nativeVoicePlatform={nativeVoicePlatform}
-                      harmonyUnsupportedAsr={harmonyUnsupportedAsr}
-                      onEnabledChange={(enabled) => updateVoice({ enabled })}
-                      onProviderChange={(provider) =>
-                        updateVoice({
-                          ...asrProviderUpdate(provider, voiceInput),
-                          ...(provider === "system" && voiceInput.language === "auto"
-                            ? { language: "zh-CN" }
-                            : {}),
-                          ...(linuxPlatform
-                            ? { asr_resource_id: "", doubao_boosting_table_id: "" }
-                            : {}),
-                        })
-                      }
-                      onLanguageChange={(language) => updateVoice({ language })}
-                    />
-                    {localVoice && client.localVoiceModels && (
-                      <LocalModelManager
-                        client={client.localVoiceModels}
-                        mobile={mobilePlatform}
-                        modelPath={voiceInput.asr_model_path ?? ""}
-                        onUse={(asr_model_path) => updateVoice({ asr_model_path })}
-                        onRemoved={(model) =>
-                          // Checked against the draft as it is once the removal lands.
-                          setDraft((current) =>
-                            current &&
-                            localModelInUse(model, current.voice_input?.asr_model_path ?? "")
-                              ? {
-                                  ...current,
-                                  voice_input: {
-                                    ...defaultVoiceInput,
-                                    ...current.voice_input,
-                                    asr_model_path: "",
-                                  },
-                                }
-                              : current,
-                          )
-                        }
-                        confirm={confirm}
-                        openExternalUrl={client.openExternalUrl ? openExternalUrl : undefined}
-                      />
-                    )}
-                    {localVoice && client.localVoiceModels && (
-                      <VoiceModelMirrorSection
-                        value={voiceInput.asr_model_mirror ?? ""}
-                        onChange={(asr_model_mirror) => updateVoice({ asr_model_mirror })}
-                      />
-                    )}
-                    {localVoice && (
-                      <VoiceModelPathDisclosure
-                        disclosure={Boolean(client.localVoiceModels)}
-                        path={voiceInput.asr_model_path ?? ""}
-                        pickPath={client.pickVoiceModelPath}
-                        onChange={(asr_model_path) => updateVoice({ asr_model_path })}
-                      />
-                    )}
-                    {showVoiceProviderSettings &&
-                      serviceVoice &&
-                      providerPresetControls(
-                        "识别服务",
-                        ASR_PROVIDER_DEFAULTS[String(voiceInput.asr_provider)],
-                        voiceInput.asr_model ?? "",
-                        (asr_model) => updateVoice({ asr_model }),
-                      )}
-                    {showVoiceProviderSettings && serviceVoice && (
-                      <VoiceModelSection
-                        value={voiceInput.asr_model ?? ""}
-                        onChange={(asr_model) => updateVoice({ asr_model })}
-                      />
-                    )}
-                    {showVoiceProviderSettings && voiceInput.asr_provider === "doubao" && (
-                      <DoubaoAuthModeSection
-                        value={doubaoAuthMode}
-                        linux={linuxPlatform}
-                        onChange={(doubao_auth_mode) => updateVoice({ doubao_auth_mode })}
-                      />
-                    )}
-                    {showVoiceProviderSettings && !linuxPlatform && serviceVoice && (
-                      <>
-                        {voiceInput.asr_provider === "doubao" && (
-                          <DoubaoStreamEndpointSection
-                            endpoint={voiceInput.asr_endpoint ?? ""}
-                            onChange={(asr_endpoint) => updateVoice({ asr_endpoint })}
-                          />
-                        )}
-                        <VoiceEndpointSection
-                          value={voiceInput.asr_endpoint ?? ""}
-                          onChange={(asr_endpoint) => updateVoice({ asr_endpoint })}
-                        />
-                        <VoiceCredentialFieldsSection
-                          showAppKey={
-                            voiceInput.asr_provider === "doubao" && doubaoAuthMode === "legacy"
-                          }
-                          appKey={voiceInput.asr_app_key ?? ""}
-                          tokenLabel={
-                            voiceInput.asr_provider === "doubao" && doubaoAuthMode !== "legacy"
-                              ? "Doubao API Key"
-                              : "识别 API Token"
-                          }
-                          token={voiceInput.asr_token ?? ""}
-                          onAppKeyChange={(asr_app_key) => updateVoice({ asr_app_key })}
-                          onTokenChange={(asr_token) => updateVoice({ asr_token })}
-                        />
-                      </>
-                    )}
-                    {showVoiceProviderSettings && serviceVoice && (
-                      <DoubaoResourceIdSection
-                        value={voiceInput.asr_resource_id ?? ""}
-                        onChange={(asr_resource_id) => updateVoice({ asr_resource_id })}
-                      />
-                    )}
-                    {linuxPlatform &&
-                      client.providerCredentials &&
-                      ["openai", "siliconflow", "groq", "everyapi", "mistral", "doubao"].includes(
-                        voiceInput.asr_provider ?? "doubao",
-                      ) &&
-                      (() => {
-                        const provider = voiceInput.asr_provider ?? "doubao";
-                        return (
-                          <VoiceCredentialSection
-                            kind="asr"
-                            provider={provider}
-                            model={voiceInput.asr_model ?? ""}
-                            resourceId={voiceInput.asr_resource_id}
-                            authMode={doubaoAuthMode}
-                            credentials={providerCredentials}
-                            input={voiceCredentialInput.asr}
-                            busy={providerCredentialBusy === "asr"}
-                            message={providerCredentialMessages.asr}
-                            onChange={(patch) =>
-                              setVoiceCredentialInput((current) => ({
-                                ...current,
-                                asr: { ...current.asr, ...patch },
-                              }))
-                            }
-                            onSave={(credential: VoiceCredentialSaveInput) =>
-                              void runVoiceCredential(
-                                "asr",
-                                (credentials) => credentials.saveVoice(credential),
-                                "凭据已保存，语音 provider 下次请求时生效。",
-                              )
-                            }
-                            onClear={() =>
-                              void runVoiceCredential(
-                                "asr",
-                                (credentials) => credentials.clearVoice("asr", provider),
-                                "凭据已清除。",
-                              )
-                            }
-                          />
-                        );
-                      })()}
-                    {linuxPlatform &&
-                      credentialTestControl("voice.asr", "测试语音识别配置", {
-                        asr_provider: voiceInput.asr_provider ?? "doubao",
-                        asr_model: voiceInput.asr_model ?? "",
-                        asr_resource_id: voiceInput.asr_resource_id ?? "",
-                        doubao_auth_mode: doubaoAuthMode,
-                        doubao_enable_itn: voiceInput.doubao_enable_itn !== false,
-                        doubao_enable_punc: voiceInput.doubao_enable_punc !== false,
-                        doubao_enable_ddc: voiceInput.doubao_enable_ddc === true,
-                      })}
-                    {/*
-                     * Doubao belongs in this list, not in a HarmonyOS-only arm: the probe is the
-                     * shared one, and Windows and macOS have had it since it was added. Gating it
-                     * on HarmonyOS alone silently dropped the button on the two hosts whose tests
-                     * cover it.
-                     */}
-                    {(windowsPlatform || macosPlatform || harmonyPlatform) &&
-                      ["openai", "siliconflow", "groq", "everyapi", "mistral", "doubao"].includes(
-                        voiceInput.asr_provider ?? "",
-                      ) && (
-                        <>
-                          <VoiceSyntheticSilenceNotice />
-                          {credentialTestControl(
-                            "voice.asr",
-                            voiceInput.asr_provider === "doubao"
-                              ? "测试豆包识别配置"
-                              : "测试语音识别配置",
-                            {
-                              provider: voiceInput.asr_provider,
-                              endpoint:
-                                voiceInput.asr_endpoint?.trim() ||
-                                ASR_PROVIDER_DEFAULTS[voiceInput.asr_provider ?? ""]?.endpoint ||
-                                "",
-                              model:
-                                voiceInput.asr_model?.trim() ||
-                                ASR_PROVIDER_DEFAULTS[voiceInput.asr_provider ?? ""]?.model ||
-                                "",
-                              token: voiceInput.asr_token ?? "",
-                              ...(voiceInput.asr_provider === "doubao"
-                                ? {
-                                    auth_mode: doubaoAuthMode,
-                                    app_id:
-                                      doubaoAuthMode === "legacy"
-                                        ? (voiceInput.asr_app_key ?? "")
-                                        : "",
-                                    resource_id:
-                                      voiceInput.asr_resource_id ?? "volc.seedasr.sauc.duration",
-                                    doubao_enable_itn: voiceInput.doubao_enable_itn !== false,
-                                    doubao_enable_punc: voiceInput.doubao_enable_punc !== false,
-                                    doubao_enable_ddc: voiceInput.doubao_enable_ddc === true,
-                                    doubao_boosting_table_id:
-                                      voiceInput.doubao_boosting_table_id ?? "",
-                                  }
-                                : {}),
-                            },
-                            !voiceInput.asr_token?.trim() ||
-                              (voiceInput.asr_provider === "doubao" &&
-                                doubaoAuthMode === "legacy" &&
-                                !voiceInput.asr_app_key?.trim()),
-                          )}
-                        </>
-                      )}
-                    {showVoiceStreamPreedit && (
-                      <VoiceStreamPreeditSection
-                        enabled={voiceInput.stream_inline_preedit === true}
-                        onChange={(stream_inline_preedit) => updateVoice({ stream_inline_preedit })}
-                      />
-                    )}
-                    {showVoiceCommitMode && (
-                      <VoiceCommitModeSection
-                        macos={macosPlatform}
-                        value={voiceInput.commit_mode ?? "tsf"}
-                        onChange={(commit_mode) => updateVoice({ commit_mode })}
-                      />
-                    )}
-                    {showVoiceCaptureDevices && (
-                      <VoiceCaptureDevicesSection
-                        windows={windowsPlatform}
-                        harmony={harmonyPlatform}
-                        backend={voiceInput.capture_backend ?? ""}
-                        device={voiceInput.capture_device ?? ""}
-                        backendOptions={captureBackendOptions}
-                        readDevices={client.listVoiceCaptureDevices!}
-                        onBackendChange={(capture_backend, capture_device) =>
-                          updateVoice({ capture_backend, capture_device })
-                        }
-                        onDeviceChange={(capture_device) => updateVoice({ capture_device })}
-                      />
-                    )}
-                    {/* Not provider configuration: these four are the host's own recording
-                        behaviour, and the Android host plays no prompt tones and does not mute
-                        system audio while it records. Four switches with nothing behind them is
-                        what this page keeps being audited for. */}
-                    {!androidPlatform && (
-                      <VoiceRecordingBehaviorSection
-                        linux={linuxPlatform}
-                        soundEnabled={voiceInput.sound_enabled !== false}
-                        startSound={voiceInput.start_sound !== false}
-                        endSound={voiceInput.end_sound !== false}
-                        muteSystemAudio={voiceInput.mute_system_audio === true}
-                        onSoundEnabledChange={(sound_enabled) => updateVoice({ sound_enabled })}
-                        onStartSoundChange={(start_sound) => updateVoice({ start_sound })}
-                        onEndSoundChange={(end_sound) => updateVoice({ end_sound })}
-                        onMuteSystemAudioChange={(mute_system_audio) =>
-                          updateVoice({ mute_system_audio })
-                        }
-                      />
-                    )}
-                    {showVoiceProviderSettings && voiceInput.asr_provider === "doubao" && (
-                      <DoubaoOptionsSection
-                        linux={linuxPlatform}
-                        enableItn={voiceInput.doubao_enable_itn !== false}
-                        enablePunc={voiceInput.doubao_enable_punc !== false}
-                        enableDdc={voiceInput.doubao_enable_ddc === true}
-                        boostingTableId={voiceInput.doubao_boosting_table_id ?? ""}
-                        onEnableItnChange={(doubao_enable_itn) =>
-                          updateVoice({ doubao_enable_itn })
-                        }
-                        onEnablePuncChange={(doubao_enable_punc) =>
-                          updateVoice({ doubao_enable_punc })
-                        }
-                        onEnableDdcChange={(doubao_enable_ddc) =>
-                          updateVoice({ doubao_enable_ddc })
-                        }
-                        onBoostingTableIdChange={(doubao_boosting_table_id) =>
-                          updateVoice({ doubao_boosting_table_id })
-                        }
-                      />
-                    )}
-                    {showVoiceProviderSettings && (
-                      <VoicePolishSection
-                        enabled={
-                          voiceInput.polish_text === true || voiceInput.polish_enabled === true
-                        }
-                        provider={voiceInput.polish_provider ?? "siliconflow"}
-                        model={voiceInput.polish_model ?? ""}
-                        providerPreset={providerPresetControls(
-                          "文本润色",
-                          POLISH_PROVIDER_DEFAULTS[voiceInput.polish_provider ?? "siliconflow"],
-                          voiceInput.polish_model ?? "",
-                          (polish_model) => updateVoice({ polish_model }),
-                          "provider-preset-section",
-                        )}
-                        onEnabledChange={(enabled) =>
-                          updateVoice({ polish_text: enabled, polish_enabled: enabled })
-                        }
-                        onProviderChange={(provider) =>
-                          updateVoice(polishProviderUpdate(provider, voiceInput))
-                        }
-                        onModelChange={(polish_model) => updateVoice({ polish_model })}
-                      >
-                        {!linuxPlatform && (
-                          <PolishCredentialFieldsSection
-                            endpoint={voiceInput.polish_endpoint ?? ""}
-                            token={voiceInput.polish_token ?? ""}
-                            onEndpointChange={(polish_endpoint) => updateVoice({ polish_endpoint })}
-                            onTokenChange={(polish_token) => updateVoice({ polish_token })}
-                          />
-                        )}
-                        <PolishPromptSection
-                          promptId={voiceInput.polish_prompt_id}
-                          prompt={voiceInput.polish_prompt ?? ""}
-                          customPrompts={{
-                            custom_1: voiceInput.polish_prompt_custom_1,
-                            custom_2: voiceInput.polish_prompt_custom_2,
-                            custom_3: voiceInput.polish_prompt_custom_3,
-                          }}
-                          onSelectPrompt={(polish_prompt_id, polish_prompt) =>
-                            updateVoice({ polish_prompt_id, polish_prompt })
-                          }
-                          onPromptChange={(polish_prompt, customSlot) =>
-                            updateVoice({
-                              polish_prompt,
-                              ...(customSlot
-                                ? { [`polish_prompt_${customSlot}`]: polish_prompt }
-                                : {}),
-                            })
-                          }
-                          onRestore={(polish_prompt) => updateVoice({ polish_prompt })}
-                        />
-                        {linuxPlatform &&
-                          client.providerCredentials &&
-                          (() => {
-                            const provider = voiceInput.polish_provider ?? "siliconflow";
-                            return (
-                              <VoiceCredentialSection
-                                kind="polish"
-                                provider={provider}
-                                model={voiceInput.polish_model ?? ""}
-                                credentials={providerCredentials}
-                                input={voiceCredentialInput.polish}
-                                busy={providerCredentialBusy === "polish"}
-                                message={providerCredentialMessages.polish}
-                                onChange={(patch) =>
-                                  setVoiceCredentialInput((current) => ({
-                                    ...current,
-                                    polish: { ...current.polish, ...patch },
-                                  }))
-                                }
-                                onSave={(credential: VoiceCredentialSaveInput) =>
-                                  void runVoiceCredential(
-                                    "polish",
-                                    (credentials) => credentials.saveVoice(credential),
-                                    "凭据已保存，语音 provider 下次请求时生效。",
-                                  )
-                                }
-                                onClear={() =>
-                                  void runVoiceCredential(
-                                    "polish",
-                                    (credentials) => credentials.clearVoice("polish", provider),
-                                    "凭据已清除。",
-                                  )
-                                }
-                              />
-                            );
-                          })()}
-                        {linuxPlatform &&
-                          credentialTestControl(
-                            "voice.polish",
-                            "测试语音润色配置",
-                            {
-                              polish_provider: voiceInput.polish_provider ?? "siliconflow",
-                              polish_model: voiceInput.polish_model ?? "",
-                            },
-                            !(
-                              voiceInput.polish_text === true || voiceInput.polish_enabled === true
-                            ),
-                          )}
-                        {(windowsPlatform || macosPlatform || iosPlatform || harmonyPlatform) &&
-                          credentialTestControl(
-                            "voice.polish",
-                            "测试语音润色配置",
-                            {
-                              provider: voiceInput.polish_provider ?? "siliconflow",
-                              endpoint:
-                                voiceInput.polish_endpoint?.trim() ||
-                                POLISH_PROVIDER_DEFAULTS[
-                                  voiceInput.polish_provider ?? "siliconflow"
-                                ]?.endpoint ||
-                                "",
-                              model:
-                                voiceInput.polish_model?.trim() ||
-                                POLISH_PROVIDER_DEFAULTS[
-                                  voiceInput.polish_provider ?? "siliconflow"
-                                ]?.model ||
-                                "",
-                              token: voiceInput.polish_token ?? "",
-                            },
-                            !voiceInput.polish_token?.trim(),
-                          )}
-                      </VoicePolishSection>
-                    )}
-                    {desktopPanels && (
-                      <VoiceHotkeysSection
-                        platform={
-                          macosPlatform
-                            ? "macos"
-                            : windowsPlatform
-                              ? "windows"
-                              : linuxPlatform
-                                ? "linux"
-                                : "other"
-                        }
-                        values={draft.voice_input ?? {}}
-                        onChange={(key, enabled) =>
-                          setDraft({
-                            ...draft,
-                            voice_input: {
-                              ...draft.voice_input,
-                              enabled: draft.voice_input?.enabled ?? true,
-                              language: draft.voice_input?.language ?? "zh-CN",
-                              [key]: enabled,
-                            },
-                          })
-                        }
-                      />
-                    )}
-                  </fieldset>
+                  <VoiceSettingsPanel
+                    disabled={busy}
+                    hidden={page !== "voice"}
+                    client={client}
+                    draft={draft}
+                    setDraft={setDraft}
+                    confirm={confirm}
+                    openExternalUrl={openExternalUrl}
+                    openPanel={openPanel}
+                    voiceInput={voiceInput}
+                    systemVoice={systemVoice}
+                    systemVoiceHostName={systemVoiceHostName}
+                    localVoiceAvailable={localVoiceAvailable}
+                    localVoice={localVoice}
+                    serviceVoice={serviceVoice}
+                    harmonyUnsupportedAsr={harmonyUnsupportedAsr}
+                    doubaoAuthMode={doubaoAuthMode}
+                    updateVoice={updateVoice}
+                    providerCredentials={providerCredentials}
+                    voiceCredentialInput={voiceCredentialInput}
+                    setVoiceCredentialInput={setVoiceCredentialInput}
+                    providerCredentialBusy={providerCredentialBusy}
+                    providerCredentialMessages={providerCredentialMessages}
+                    runVoiceCredential={runVoiceCredential}
+                    credentialTestControl={credentialTestControl}
+                    providerPresetControls={providerPresetControls}
+                    androidPlatform={androidPlatform}
+                    iosPlatform={iosPlatform}
+                    macosPlatform={macosPlatform}
+                    harmonyPlatform={harmonyPlatform}
+                    linuxPlatform={linuxPlatform}
+                    windowsPlatform={windowsPlatform}
+                    mobilePlatform={mobilePlatform}
+                    nativeVoicePlatform={nativeVoicePlatform}
+                    desktopPanels={desktopPanels}
+                    showVoiceProviderSettings={showVoiceProviderSettings}
+                    showVoiceStreamPreedit={showVoiceStreamPreedit}
+                    showVoiceCommitMode={showVoiceCommitMode}
+                    showVoiceCaptureDevices={showVoiceCaptureDevices}
+                    captureBackendOptions={captureBackendOptions}
+                  />
                   <AiSettingsPageSection
                     disabled={busy}
                     hidden={page !== "ai"}
