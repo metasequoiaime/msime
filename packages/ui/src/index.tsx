@@ -234,6 +234,7 @@ import { useTouchKeyboardSchemeSelection } from "./settings/use-touch-keyboard-s
 import { useSettingsDestinationActions } from "./settings/use-settings-destination-actions";
 import { useMacosSettings } from "./settings/use-macos-settings";
 import { useWindowState } from "./settings/use-window-state";
+import { useAppVersion } from "./settings/use-app-version";
 export {
   useProviderCredentials,
   type ProviderCredentialBusy,
@@ -289,6 +290,7 @@ export {
 } from "./settings/use-settings-destination-actions";
 export { useMacosSettings, type UseMacosSettingsOptions } from "./settings/use-macos-settings";
 export { useWindowState, type UseWindowStateOptions } from "./settings/use-window-state";
+export { useAppVersion, type UseAppVersionOptions } from "./settings/use-app-version";
 import { createProviderPresetControl } from "./settings/provider-preset-control";
 import { AiCredentialSection } from "./settings/ai-credential-section";
 import { AiLinuxProviderSection } from "./settings/ai-linux-provider-section";
@@ -1024,7 +1026,7 @@ export {
   type CandidateOrientation,
   type CandidateTheme,
 } from "./candidate/candidate-themes";
-import { describeInstallerTrust, parseVersion } from "./settings/update-manifest";
+import { describeInstallerTrust } from "./settings/update-manifest";
 export {
   serializeWindowHostMessage,
   type WindowControl,
@@ -1902,7 +1904,10 @@ export function SettingsPage({
   const [communityDestination, setCommunityDestination] = useState<
     AccountCommunityDestination | "all"
   >("all");
-  const [currentAppVersion, setCurrentAppVersion] = useState(fallbackAppVersion);
+  const currentAppVersion = useAppVersion({
+    readAppVersion: client.readAppVersion,
+    fallbackVersion: fallbackAppVersion,
+  });
   const {
     value: mobileKeyboardFeedback,
     busy: mobileKeyboardFeedbackBusy,
@@ -2026,22 +2031,6 @@ export function SettingsPage({
     enabled: macosPlatform || linuxPlatform,
     confirm,
   });
-  useEffect(() => {
-    let active = true;
-    setCurrentAppVersion(fallbackAppVersion);
-    if (client.readAppVersion) {
-      void client
-        .readAppVersion()
-        .then((value) => {
-          const version = parseVersion(value);
-          if (active && version) setCurrentAppVersion(version.display);
-        })
-        .catch(() => undefined);
-    }
-    return () => {
-      active = false;
-    };
-  }, [client]);
 
   const { draftRef, snapshotRef, reload, save } = useSettingsPersistence({
     client,
