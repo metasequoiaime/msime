@@ -43,9 +43,7 @@ public final class AiPolishModelCatalog {
         for (int page = 0; page < MAX_PAGES; page++) {
             URI requestUri = base;
             if (anthropic) {
-                String query = "limit=1000";
-                if (cursor != null) query += "&after_id=" + encode(cursor);
-                requestUri = withQuery(base, query);
+                requestUri = withAnthropicQuery(base, cursor);
             }
             JSONObject document = get(requestUri, configuration.token(), anthropic);
             JSONArray data = document.optJSONArray("data");
@@ -126,8 +124,8 @@ public final class AiPolishModelCatalog {
         return output.toByteArray();
     }
 
-    private static URI modelsUri(URI endpoint) throws AiPolishClient.Failure {
-        String path = endpoint.getPath() == null ? "" : endpoint.getPath();
+    static URI modelsUri(URI endpoint) throws AiPolishClient.Failure {
+        String path = endpoint.getRawPath() == null ? "" : endpoint.getRawPath();
         while (path.endsWith("/")) path = path.substring(0, path.length() - 1);
         String chatSuffix = "/chat/completions";
         String transcriptionSuffix = "/audio/transcriptions";
@@ -136,17 +134,54 @@ public final class AiPolishModelCatalog {
             path = path.substring(0, path.length() - transcriptionSuffix.length());
         }
         if (!path.endsWith("/")) path += "/";
-        try {
-            return new URI(endpoint.getScheme(), null, endpoint.getHost(), endpoint.getPort(),
-                path + "models", endpoint.getQuery(), null);
-        } catch (URISyntaxException error) {
-            throw new AiPolishClient.Failure(AiPolishClient.Reason.INVALID, error);
+        return rawUri(endpoint, path + "models", endpoint.getRawQuery());
+    }
+
+    static URI withQuery(URI base, String query) throws AiPolishClient.Failure {
+        return rawUri(base, base.getRawPath(), query);
+    }
+
+    static URI withAnthropicQuery(URI base, String cursor)
+            throws AiPolishClient.Failure {
+        StringBuilder query = new StringBuilder();
+        appendPreservedQuery(base.getRawQuery(), query);
+        appendQueryPart(query, "limit=1000");
+        if (cursor != null) appendQueryPart(query, "after_id=" + encode(cursor));
+        return withQuery(base, query.toString());
+    }
+
+    private static void appendPreservedQuery(String rawQuery, StringBuilder output) {
+        if (rawQuery == null || rawQuery.isEmpty()) return;
+        for (String part : rawQuery.split("&", -1)) {
+            if (part.isEmpty()) continue;
+            int equals = part.indexOf('=');
+            String rawName = equals < 0 ? part : part.substring(0, equals);
+            String name;
+            try {
+                name = java.net.URLDecoder.decode(rawName, StandardCharsets.UTF_8.name());
+            } catch (IllegalArgumentException | java.io.UnsupportedEncodingException error) {
+                name = rawName;
+            }
+            if ("limit".equals(name) || "after_id".equals(name)) continue;
+            appendQueryPart(output, part);
         }
     }
 
-    private static URI withQuery(URI base, String query) throws AiPolishClient.Failure {
+    private static void appendQueryPart(StringBuilder query, String part) {
+        if (query.length() > 0) query.append('&');
+        query.append(part);
+    }
+
+    private static URI rawUri(URI base, String path, String rawQuery)
+            throws AiPolishClient.Failure {
         try {
-            return new URI(base.getScheme(), null, base.getHost(), base.getPort(), base.getPath(), query, null);
+            StringBuilder value = new StringBuilder(base.getScheme()).append("://")
+                .append(base.getRawAuthority());
+            if (path == null || path.isEmpty()) value.append('/');
+            else if (path.charAt(0) == '/') value.append(path);
+            else value.append('/').append(path);
+            if (rawQuery != null && !rawQuery.isEmpty()) value.append('?').append(rawQuery);
+            return new URI(value.toString());
         } catch (URISyntaxException error) {
             throw new AiPolishClient.Failure(AiPolishClient.Reason.INVALID, error);
         }
