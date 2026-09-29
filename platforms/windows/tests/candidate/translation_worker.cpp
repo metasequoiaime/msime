@@ -105,6 +105,16 @@ struct Harness {
 
 int main() {
   try {
+    require(valid_candidate_url("https://remote.example/api"),
+            "remote HTTPS is accepted");
+    require(valid_candidate_url("http://127.0.0.1:8080/api", true),
+            "loopback HTTP is accepted");
+    require(valid_candidate_url("http://[::1]:8080/api", true),
+            "IPv6 loopback HTTP is accepted");
+    require(!valid_candidate_url("http://remote.example/api", true),
+            "remote HTTP is refused");
+    require(!valid_candidate_url("http://localhost.example/api", true),
+            "lookalike loopback host is refused");
     // A completed request reaches the owner with its own lease, generation and
     // rows.
     {
