@@ -175,6 +175,7 @@ import { VoiceCaptureDevicesSection } from "./settings/voice-capture-devices-sec
 import { voiceCaptureBackendOptions } from "./settings/voice-capture-backend-options";
 import { fullwidthShortcutChord, maintenanceShortcutChord } from "./settings/platform-shortcuts";
 import { settingsDirty } from "./settings/settings-dirty";
+import { settingsPlatformContext } from "./settings/settings-platform-context";
 import { VoiceSyntheticSilenceNotice } from "./settings/voice-synthetic-silence-notice";
 import { VoiceHotkeysSection } from "./settings/voice-hotkeys-section";
 import { VoicePolishSection } from "./settings/voice-polish-section";
@@ -795,6 +796,10 @@ export {
 } from "./settings/voice-capture-backend-options";
 export { fullwidthShortcutChord, maintenanceShortcutChord } from "./settings/platform-shortcuts";
 export { settingsDirty, type SettingsDirtyOptions } from "./settings/settings-dirty";
+export {
+  settingsPlatformContext,
+  type SettingsPlatformContext,
+} from "./settings/settings-platform-context";
 export { VoiceSyntheticSilenceNotice } from "./settings/voice-synthetic-silence-notice";
 export {
   VoiceHotkeysSection,
@@ -1665,18 +1670,16 @@ export function SettingsPage({
   const { confirm, confirmation } = useConfirm();
   // Hosts that report capabilities are authoritative; the user-agent probe stays
   // only so a host that predates the contract keeps its current behaviour.
-  const linuxPlatform = client.host ? client.host.platform === "linux" : isLinuxDesktop();
-  const androidPlatform = client.host?.platform === "android";
-  const iosPlatform = client.host?.platform === "ios";
-  // This repository ships the HarmonyOS host too, so its release, license and issue links follow the client-hosted set rather than the Windows ones.
-  const harmonyPlatform = client.host?.platform === "harmony";
-  const mobilePlatform =
-    client.host?.mobile_settings ?? (iosPlatform || androidPlatform || harmonyPlatform);
-  // Ctrl+Space belongs to Windows, not to us, so only that host gets the note
-  // explaining where to change it.
-  const windowsPlatform = client.host?.platform === "windows";
-  const macosPlatform = client.host?.platform === "macos";
-  const host = client.host;
+  const {
+    host,
+    linux: linuxPlatform,
+    android: androidPlatform,
+    ios: iosPlatform,
+    harmony: harmonyPlatform,
+    mobile: mobilePlatform,
+    windows: windowsPlatform,
+    macos: macosPlatform,
+  } = settingsPlatformContext(client.host);
   const {
     nativeVoicePlatform,
     showModeScope,
