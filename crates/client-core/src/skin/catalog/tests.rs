@@ -316,7 +316,7 @@ fn scan_manifest(body: &str) -> SkinCatalog {
 
 #[test]
 fn candidate_palettes_preserve_both_themes_and_serialize_host_names() {
-    let body = format!("{}\n[candidate.dark]\naccent = '#123456'\nselected = '#234567'\nhover = '#345678'\nsurface = '#456789'\nborder = '#56789a'\ntext = '#6789ab'\nnumber = '#789abc'\nshow_selected_bar = false\n[candidate.light]\ntext = '#123'\nshow_selected_bar = true\n", manifest("sample"));
+    let body = format!("{}\n[candidate.dark]\naccent = '#123456'\nselected = '#234567'\nhover = '#345678'\nsurface = '#456789'\nborder = '#56789a'\ntext = '#6789ab'\nnumber = '#789abc'\ntranslation = '#89abcd'\nshow_selected_bar = false\n[candidate.light]\ntext = '#123'\nshow_selected_bar = true\n", manifest("sample"));
     let catalog = scan_manifest(&body);
     assert!(catalog.issues.is_empty(), "{catalog:?}");
     let json = serde_json::to_value(&catalog.packages[0]).unwrap();
@@ -325,7 +325,7 @@ fn candidate_palettes_preserve_both_themes_and_serialize_host_names() {
         serde_json::json!({
             "accent": "#123456", "selected": "#234567", "hover": "#345678",
             "surface": "#456789", "border": "#56789a", "text": "#6789ab",
-            "number": "#789abc", "showSelectedBar": false,
+            "number": "#789abc", "translation": "#89abcd", "showSelectedBar": false,
         })
     );
     assert_eq!(json["candidate"]["light"]["text"], "#123");
@@ -341,7 +341,14 @@ fn candidate_palettes_preserve_both_themes_and_serialize_host_names() {
 fn candidate_color_fields_enforce_types_and_utf8_byte_limits() {
     for theme in ["dark", "light"] {
         for key in [
-            "accent", "selected", "hover", "surface", "border", "text", "number",
+            "accent",
+            "selected",
+            "hover",
+            "surface",
+            "border",
+            "text",
+            "number",
+            "translation",
         ] {
             for value in [
                 "false".to_owned(),
@@ -531,11 +538,17 @@ fn scans_valid_and_rejects_unsafe_manifests() {
             layouts: vec!["vertical".into()],
             themes: vec!["light".into()],
             min_width_dip: 0.0,
+            corner_radius_dip: None,
             decoration_top_dip: 0.0,
             decoration_width_dip: 0.0,
+            decoration_image: None,
+            decoration_align: DecorationAlign::Right,
+            background: None,
+            toolbar: SkinToolbar::default(),
             toolbar_stylesheet: None,
             preview: None,
             candidate: CandidateColors::default(),
+            license: None,
         }],
         "{catalog:?}"
     );
@@ -652,7 +665,7 @@ fn a_published_entry_resolves_exactly_as_the_scanned_package() {
     use super::super::theme::{resolve, GlobalTheme, ThemePackage};
     use crate::preferences::CandidateLayout;
     // Every slot, each in a form the Windows presenter accepts but the contract does not emit.
-    let palette = "surface = '#fef'\nborder = 'rgba(0, 0, 0, 0.25)'\ntext = 'rgb(17, 34, 51)'\nnumber = '#abc8'\naccent = '#ff69b4'\nselected = 'transparent'\nhover = 'rgba(255,255,255,0.5)'\nshow_selected_bar = false\n";
+    let palette = "surface = '#fef'\nborder = 'rgba(0, 0, 0, 0.25)'\ntext = 'rgb(17, 34, 51)'\nnumber = '#abc8'\naccent = '#ff69b4'\nselected = 'transparent'\nhover = 'rgba(255,255,255,0.5)'\ntranslation = 'rgba(1, 2, 3, .5)'\nshow_selected_bar = false\n";
     let bases = ["system", "paper", "night"];
     for base in bases {
         let body = format!(
@@ -931,4 +944,307 @@ fn a_fifo_manifest_is_rejected_without_blocking() {
         Err("skin.toml is not a regular file".into())
     );
     assert_eq!(scan(root.path()).issues[0].folder, "pipe");
+}
+
+/// The layout msime-skins (github.com/metasequoiaime/msime-skins) writes: a decoration with its own image and alignment, a background image, a corner radius, a toolbar palette per mode, a translation colour and licence metadata.
+fn styled_package(root: &Path) -> std::path::PathBuf {
+    let skin = root.join("bigfish");
+    fs::create_dir_all(skin.join("assets")).unwrap();
+    fs::write(skin.join("assets/character.png"), b"png").unwrap();
+    fs::write(skin.join("assets/background.png"), b"png").unwrap();
+    fs::write(
+        skin.join("skin.toml"),
+        "schema_version = 1\nid = 'bigfish'\nname = '蓝色大肥鱼'\nversion = '1.0.0'\nbase = 'system'\n\
+         [supports]\nlayouts = ['horizontal', 'vertical']\nthemes = ['dark', 'light']\n\
+         [candidate_window]\nmin_width_dip = 176\ncorner_radius_dip = 12\n\
+         [candidate_window.decoration]\nimage = 'assets/character.png'\ntop_inset_dip = 104\nwidth_dip = 96\nalign = 'left'\n\
+         [candidate_window.background]\nimage = 'assets/background.png'\nfit = 'contain'\nopacity = 0.35\n\
+         [candidate.dark]\nnumber = '#E0C07A'\ntranslation = '#9FB4E0'\n\
+         [candidate.light]\ntranslation = 'rgba(90, 106, 150, .5)'\n\
+         [toolbar]\ncorner_radius_dip = 8\n\
+         [toolbar.dark]\nbackground = '#141B33'\nborder = 'rgba(91, 155, 255, 0.38)'\nhandle = '#5B9BFF'\ndivider = 'rgba(91, 155, 255, 0.28)'\nicon = '#E3EAFF'\nhover = 'not a colour'\n\
+         [toolbar.light]\nbackground = '#f4f8ff'\n\
+         [license]\ncode = 'MIT'\nassets = 'CC-BY-4.0'\nsource = 'synthetic'\n",
+    )
+    .unwrap();
+    skin
+}
+
+#[test]
+fn styled_manifests_load_every_drawn_key() {
+    let root = tempdir().unwrap();
+    styled_package(root.path());
+    let catalog = scan(root.path());
+    assert!(catalog.issues.is_empty(), "{catalog:?}");
+    let package = &catalog.packages[0];
+    assert_eq!(package.corner_radius_dip, Some(12.0));
+    assert_eq!(
+        package.decoration_image.as_deref(),
+        Some("assets/character.png")
+    );
+    assert_eq!(package.decoration_align, DecorationAlign::Left);
+    assert_eq!(
+        package.background,
+        Some(SkinBackground {
+            image: "assets/background.png".into(),
+            fit: BackgroundFit::Contain,
+            opacity: 0.35,
+        })
+    );
+    // Toolbar colours arrive normalized; one a host could not read is left out.
+    assert_eq!(
+        package.toolbar,
+        SkinToolbar {
+            corner_radius_dip: Some(8.0),
+            dark: ToolbarPalette {
+                background: Some("#141B33".into()),
+                border: Some("#5B9BFF61".into()),
+                handle: Some("#5B9BFF".into()),
+                divider: Some("#5B9BFF47".into()),
+                icon: Some("#E3EAFF".into()),
+                hover: None,
+            },
+            light: ToolbarPalette {
+                background: Some("#F4F8FF".into()),
+                ..Default::default()
+            },
+        }
+    );
+    assert_eq!(
+        package.license,
+        Some(SkinLicense {
+            code: Some("MIT".into()),
+            assets: Some("CC-BY-4.0".into()),
+            source: Some("synthetic".into()),
+        })
+    );
+    let json = serde_json::to_value(package).unwrap();
+    assert_eq!(json["cornerRadiusDip"], 12.0);
+    assert_eq!(json["decorationImage"], "assets/character.png");
+    assert_eq!(json["decorationAlign"], "left");
+    assert_eq!(
+        json["background"],
+        serde_json::json!({"image": "assets/background.png", "fit": "contain", "opacity": 0.35})
+    );
+    assert_eq!(json["toolbar"]["cornerRadiusDip"], 8.0);
+    assert_eq!(json["toolbar"]["dark"]["handle"], "#5B9BFF");
+    assert_eq!(json["candidate"]["dark"]["translation"], "#9FB4E0");
+}
+
+#[test]
+fn defaults_leave_new_keys_to_the_host() {
+    // No decoration table at all, as msime-skins writes a package without one.
+    let body = manifest("sample").replace(
+        "[candidate_window.decoration]\ntop_inset_dip = 0\nwidth_dip = 0\n",
+        "",
+    );
+    let catalog = scan_manifest(&body);
+    assert!(catalog.issues.is_empty(), "{catalog:?}");
+    let package = &catalog.packages[0];
+    assert_eq!(package.decoration_top_dip, 0.0);
+    assert_eq!(package.corner_radius_dip, None);
+    assert_eq!(package.decoration_image, None);
+    assert_eq!(package.decoration_align, DecorationAlign::Right);
+    assert_eq!(package.background, None);
+    assert_eq!(package.toolbar, SkinToolbar::default());
+    assert_eq!(package.license, None);
+    let json = serde_json::to_value(package).unwrap();
+    assert!(json["cornerRadiusDip"].is_null());
+    assert_eq!(json["decorationAlign"], "right");
+    // A background without fit or opacity covers the card at full strength.
+    let root = tempdir().unwrap();
+    let skin = root.path().join("sample");
+    fs::create_dir(&skin).unwrap();
+    fs::write(skin.join("bg.webp"), b"webp").unwrap();
+    fs::write(
+        skin.join("skin.toml"),
+        format!(
+            "{}[candidate_window.background]\nimage = 'bg.webp'\n",
+            manifest("sample")
+        ),
+    )
+    .unwrap();
+    let catalog = scan(root.path());
+    assert!(catalog.issues.is_empty(), "{catalog:?}");
+    assert_eq!(
+        catalog.packages[0].background,
+        Some(SkinBackground {
+            image: "bg.webp".into(),
+            fit: BackgroundFit::Cover,
+            opacity: 1.0,
+        })
+    );
+}
+
+#[test]
+fn decoration_image_prefers_its_own_key_over_the_preview() {
+    let root = tempdir().unwrap();
+    let skin = root.path().join("sample");
+    fs::create_dir(&skin).unwrap();
+    fs::write(skin.join("preview.png"), b"png").unwrap();
+    fs::write(skin.join("ears.png"), b"png").unwrap();
+    let decorated = |extra: &str| {
+        format!("preview = 'preview.png'\n{}", manifest("sample"))
+            .replace("top_inset_dip = 0", &format!("{extra}top_inset_dip = 20"))
+            .replace("width_dip = 0", "width_dip = 40")
+    };
+    fs::write(skin.join("skin.toml"), decorated("image = 'ears.png'\n")).unwrap();
+    assert_eq!(
+        scan(root.path()).packages[0].decoration_image.as_deref(),
+        Some("ears.png")
+    );
+    fs::write(skin.join("skin.toml"), decorated("")).unwrap();
+    assert_eq!(
+        scan(root.path()).packages[0].decoration_image.as_deref(),
+        Some("preview.png")
+    );
+    // An undecorated package draws no decoration, whatever its preview.
+    fs::write(
+        skin.join("skin.toml"),
+        format!("preview = 'preview.png'\n{}", manifest("sample")),
+    )
+    .unwrap();
+    assert_eq!(scan(root.path()).packages[0].decoration_image, None);
+}
+
+#[test]
+fn styled_keys_out_of_bounds_reject_the_package() {
+    let cases = [
+        (
+            "corner_radius_dip = 12",
+            "corner_radius_dip = 33",
+            "invalid corner_radius_dip",
+        ),
+        (
+            "corner_radius_dip = 12",
+            "corner_radius_dip = -1",
+            "invalid corner_radius_dip",
+        ),
+        (
+            "corner_radius_dip = 12",
+            "corner_radius_dip = '12'",
+            "invalid corner_radius_dip",
+        ),
+        ("align = 'left'", "align = 'top'", "invalid decoration"),
+        ("align = 'left'", "align = 3", "align must be a string"),
+        (
+            "image = 'assets/character.png'",
+            "image = 'assets/missing.png'",
+            "invalid decoration",
+        ),
+        (
+            "image = 'assets/character.png'",
+            "image = '../outside.png'",
+            "invalid decoration",
+        ),
+        (
+            "image = 'assets/character.png'",
+            "image = 'skin.toml'",
+            "invalid decoration",
+        ),
+        ("fit = 'contain'", "fit = 'tile'", "invalid background"),
+        ("opacity = 0.35", "opacity = 1.5", "invalid background"),
+        ("opacity = 0.35", "opacity = -0.1", "invalid background"),
+        (
+            "image = 'assets/background.png'",
+            "image = 'assets/background.txt'",
+            "invalid background",
+        ),
+        (
+            "image = 'assets/background.png'",
+            "image = '/etc/passwd.png'",
+            "invalid background",
+        ),
+        (
+            "[toolbar]\ncorner_radius_dip = 8",
+            "[toolbar]\ncorner_radius_dip = 40",
+            "invalid toolbar",
+        ),
+        (
+            "background = '#141B33'",
+            "background = 5",
+            "invalid toolbar",
+        ),
+        (
+            "background = '#141B33'",
+            &format!("background = '{}'", "a".repeat(81)),
+            "toolbar color exceeds 80 bytes",
+        ),
+        (
+            "translation = '#9FB4E0'",
+            "translation = 7",
+            "invalid candidate colors",
+        ),
+        ("code = 'MIT'", "code = ''", "code has invalid length"),
+    ];
+    for (from, to, reason) in cases {
+        let root = tempdir().unwrap();
+        let skin = styled_package(root.path());
+        let body = fs::read_to_string(skin.join("skin.toml")).unwrap();
+        assert_eq!(body.matches(from).count(), 1, "{from}");
+        fs::write(skin.join("skin.toml"), body.replacen(from, to, 1)).unwrap();
+        let catalog = scan(root.path());
+        assert!(catalog.packages.is_empty(), "accepted {to}");
+        assert_eq!(catalog.issues[0].reason, reason, "{to}");
+    }
+    // A decoration image needs a band to be drawn in.
+    let root = tempdir().unwrap();
+    let skin = styled_package(root.path());
+    let body = fs::read_to_string(skin.join("skin.toml")).unwrap();
+    fs::write(
+        skin.join("skin.toml"),
+        body.replace("top_inset_dip = 104\nwidth_dip = 96\n", ""),
+    )
+    .unwrap();
+    assert_eq!(scan(root.path()).issues[0].reason, "invalid decoration");
+    // Tables where a table belongs.
+    for (from, to) in [
+        (
+            "[candidate_window.background]\n",
+            "[candidate_window]\nbackground = 1\n[x]\n",
+        ),
+        ("[toolbar.light]\n", "[toolbar]\nlight = 1\n[y]\n"),
+    ] {
+        let root = tempdir().unwrap();
+        let skin = styled_package(root.path());
+        let body = fs::read_to_string(skin.join("skin.toml")).unwrap();
+        fs::write(skin.join("skin.toml"), body.replacen(from, to, 1)).unwrap();
+        assert!(scan(root.path()).packages.is_empty(), "accepted {to}");
+    }
+    let root = tempdir().unwrap();
+    let skin = styled_package(root.path());
+    let body = fs::read_to_string(skin.join("skin.toml")).unwrap();
+    fs::write(
+        skin.join("skin.toml"),
+        format!("license = 1\n{}", body.replace("[license]\n", "[z]\n")),
+    )
+    .unwrap();
+    assert_eq!(scan(root.path()).issues[0].reason, "invalid license");
+}
+
+#[test]
+fn host_catalog_publishes_what_linux_draws_of_a_styled_package() {
+    let root = tempdir().unwrap();
+    let skin = styled_package(root.path());
+    let catalog = scan(root.path());
+    let published = host_candidate_catalog(&catalog, root.path(), "bigfish");
+    // The background and toolbar stay out: neither Linux host can draw them.
+    assert_eq!(
+        published,
+        serde_json::json!({"packages": [{
+            "id": "bigfish",
+            "title": "蓝色大肥鱼",
+            "base": "system",
+            "layouts": ["horizontal", "vertical"],
+            "candidate": {
+                "dark": {"number": "#E0C07A", "translation": "#9FB4E0"},
+                "light": {"translation": "#5A6A9680"},
+            },
+            "decoration_top_dip": 104.0,
+            "decoration_width_dip": 96.0,
+            "decoration_image": skin.join("assets/character.png").to_str().unwrap(),
+            "decoration_align": "left",
+            "corner_radius_dip": 12.0,
+        }]})
+    );
 }

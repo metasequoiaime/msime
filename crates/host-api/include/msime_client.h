@@ -218,12 +218,7 @@ int32_t msime_client_typing_statistics_enabled(const uint8_t *directory, size_t 
  * word list is a few hundred kilobytes of text. Takes a file lock and reads the
  * library: call on a worker, never on the input path. */
 char *msime_client_vocabulary_review(const uint8_t *request, size_t length);
-/* Scan an absolute UTF-8 skin root and return the catalog the settings page
- * sees: {packages:[...],issues:[...]}. Reads the directory: use a worker.
- * An unreadable root is an empty catalog; an invalid package becomes an issue
- * and is never returned as renderable. Presenters must still check that a
- * package supports the layout and theme before adopting its colors.
- * Keys are camelCase, the same document the settings page consumes. */
+/* Scan an absolute UTF-8 skin root and return the catalog the settings page sees: {packages:[...],issues:[...]}. Reads the directory: use a worker. An unreadable root is an empty catalog; an invalid package becomes an issue and is never returned as renderable. Presenters must still check that a package supports the layout and theme before adopting its colors. Keys are camelCase, the same document the settings page consumes. Besides the colours (drawn through msime_client_resolve_theme, where a palette's translation becomes secondary) a package carries what a presenter draws itself: minWidthDip; cornerRadiusDip (0-32, null keeps the host radius); decorationTopDip, decorationWidthDip and decorationImage (package-relative, null unless decorated) placed by decorationAlign ("left"|"center"|"right"); background null or {image,fit:"cover"|"contain"|"stretch",opacity:0-1}, drawn over the surface and under the candidates, clipped to the card outline; toolbar {cornerRadiusDip|null, light, dark} where each mode is {background,border,handle,divider,icon,hover}, each #RRGGBB, #RRGGBBAA or null for the host's own. Image paths are already confined to the package and are images; read them with msime_client_skin_resource. */
 char *msime_client_skin_catalog(const uint8_t *directory, size_t length);
 /* Scan an absolute Engine resource directory for optional custom helper-code tables. The
  * response value is an array of {schema,file_stem,name,name_en}; missing or unreadable

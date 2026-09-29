@@ -360,7 +360,7 @@ impl From<&SkinSummary> for ThemePackage {
 }
 
 impl ThemePackage {
-    /// Read one entry of the published `candidate_skin_catalog` (see `catalog::host_candidate_catalog`). That entry carries a palette for exactly the modes the package declares, so a missing mode reads as undeclared. Its `title` and decoration keys are not theme colours and are ignored. The entry is read strictly: an unknown key anywhere, a missing `layouts`, a `base` that is not `system` or a built-in theme (as `catalog::scan` refuses the manifest) or an unsafe id is refused. In particular a `SkinSummary` from `msime_client_skin_catalog`, whose keys are camelCase (`showSelectedBar`, `minWidthDip`, `themes`), is not an entry and is refused rather than read with its selection bar and declared modes silently lost; hosts that scan the skin root pass `skins_directory` instead.
+    /// Read one entry of the published `candidate_skin_catalog` (see `catalog::host_candidate_catalog`). That entry carries a palette for exactly the modes the package declares, so a missing mode reads as undeclared. Its `title`, decoration and corner radius keys are not theme colours and are ignored. The entry is read strictly: an unknown key anywhere, a missing `layouts`, a `base` that is not `system` or a built-in theme (as `catalog::scan` refuses the manifest) or an unsafe id is refused. In particular a `SkinSummary` from `msime_client_skin_catalog`, whose keys are camelCase (`showSelectedBar`, `minWidthDip`, `themes`), is not an entry and is refused rather than read with its selection bar and declared modes silently lost; hosts that scan the skin root pass `skins_directory` instead.
     pub fn from_host_catalog_entry(entry: serde_json::Value) -> Result<Self, String> {
         #[derive(Deserialize)]
         #[serde(deny_unknown_fields)]
@@ -378,6 +378,10 @@ impl ThemePackage {
             _decoration_width_dip: serde::de::IgnoredAny,
             #[serde(default, rename = "decoration_image")]
             _decoration_image: serde::de::IgnoredAny,
+            #[serde(default, rename = "decoration_align")]
+            _decoration_align: serde::de::IgnoredAny,
+            #[serde(default, rename = "corner_radius_dip")]
+            _corner_radius_dip: serde::de::IgnoredAny,
         }
         #[derive(Default, Deserialize)]
         #[serde(deny_unknown_fields)]
@@ -396,6 +400,7 @@ impl ThemePackage {
             accent: Option<String>,
             selected: Option<String>,
             hover: Option<String>,
+            translation: Option<String>,
             show_selected_bar: Option<bool>,
         }
         impl From<EntryPalette> for CandidatePalette {
@@ -408,6 +413,7 @@ impl ThemePackage {
                     border: palette.border,
                     text: palette.text,
                     number: palette.number,
+                    translation: palette.translation,
                     show_selected_bar: palette.show_selected_bar,
                 }
             }
@@ -449,7 +455,7 @@ pub struct ResolvedTheme {
 ///
 /// A custom theme is drawn over a base: the named package's manifest `base`, or else `custom.base`. A built-in base fixes the mode, so the package palette is the one for the base's own appearance and `dark` is ignored. The package is drawn only where its manifest says it may be: in a layout it does not declare, or a mode it does not declare, it contributes nothing and is not reported in `candidate_skin`, and the base is drawn with the pickers. A `system` base contributes no slots and follows `dark`.
 ///
-/// Candidate colours are layered: the base, then the package palette, then every picker the user set. A text picker also sets the numbers to that colour at `PICKED_NUMBER_ALPHA` unless the number picker is set. `secondary` always follows `number`. Over a built-in base the slots that base derives keep following their sources unless the package or a picker set them: `selected` is `accent` at `SELECTED_ALPHA`, `hover` is `text` at `HOVER_ALPHA`, `selected_text` is `accent` and `selected_number` is `number`. A custom theme over `system` with no package slots and no pickers has no candidate palette at all and draws the platform's own.
+/// Candidate colours are layered: the base, then the package palette, then every picker the user set. A text picker also sets the numbers to that colour at `PICKED_NUMBER_ALPHA` unless the number picker is set. `secondary` is the package's `translation` colour, and otherwise follows `number`. Over a built-in base the slots that base derives keep following their sources unless the package or a picker set them: `selected` is `accent` at `SELECTED_ALPHA`, `hover` is `text` at `HOVER_ALPHA`, `selected_text` is `accent` and `selected_number` is `number`. A custom theme over `system` with no package slots and no pickers has no candidate palette at all and draws the platform's own.
 ///
 /// The keyboard is the user's design when there is one, otherwise the base theme's keyboard (`None`, the platform keyboard, over `system`).
 pub fn resolve(
@@ -515,7 +521,7 @@ pub fn resolve(
     let candidate = CandidateThemePalette {
         surface: explicit.surface.or(base_palette.surface),
         border: explicit.border.or(base_palette.border),
-        secondary: number.clone(),
+        secondary: explicit.translation.or_else(|| number.clone()),
         selected: explicit.selected.or_else(|| {
             accent
                 .as_deref()
@@ -558,6 +564,8 @@ struct Overrides {
     accent: Option<String>,
     selected: Option<String>,
     hover: Option<String>,
+    /// Only a package sets it; there is no translation picker.
+    translation: Option<String>,
     show_selected_bar: Option<bool>,
 }
 
@@ -571,6 +579,7 @@ impl Overrides {
             accent: color(&palette.accent),
             selected: color(&palette.selected),
             hover: color(&palette.hover),
+            translation: color(&palette.translation),
             show_selected_bar: palette.show_selected_bar,
         }
     }
@@ -584,6 +593,7 @@ impl Overrides {
             accent: color(&pickers.accent),
             selected: color(&pickers.selected),
             hover: color(&pickers.hover),
+            translation: None,
             show_selected_bar: None,
         }
     }
@@ -602,6 +612,7 @@ impl Overrides {
         over(&mut self.accent, top.accent);
         over(&mut self.selected, top.selected);
         over(&mut self.hover, top.hover);
+        over(&mut self.translation, top.translation);
         over(&mut self.show_selected_bar, top.show_selected_bar);
     }
 }

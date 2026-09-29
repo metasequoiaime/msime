@@ -574,11 +574,17 @@ fn summary_packages_keep_only_declared_modes() {
         layouts: vec!["vertical".into()],
         themes: vec!["dark".into()],
         min_width_dip: 0.0,
+        corner_radius_dip: None,
         decoration_top_dip: 0.0,
         decoration_width_dip: 0.0,
+        decoration_image: None,
+        decoration_align: Default::default(),
+        background: None,
+        toolbar: Default::default(),
         toolbar_stylesheet: None,
         preview: None,
         candidate: Default::default(),
+        license: None,
     };
     let package = ThemePackage::from(&summary);
     assert_eq!(package.base, GlobalTheme::Paper);
@@ -641,7 +647,9 @@ fn host_catalog_entries_read_as_packages() {
         "candidate": { "dark": { "accent": "#ff0000", "border": "transparent", "show_selected_bar": false } },
         "decoration_top_dip": 12.0,
         "decoration_width_dip": 40.0,
-        "decoration_image": "/skins/sakura/preview.png"
+        "decoration_image": "/skins/sakura/preview.png",
+        "decoration_align": "center",
+        "corner_radius_dip": 12.0
     }))
     .unwrap();
     assert_eq!(package.id, "sakura");
@@ -820,6 +828,7 @@ fn web_custom_theme_mirror_cases_match_resolve() {
         accent: value["accent"].as_str().map(Into::into),
         selected: value["selected"].as_str().map(Into::into),
         hover: value["hover"].as_str().map(Into::into),
+        translation: value["translation"].as_str().map(Into::into),
         show_selected_bar: value["showSelectedBar"].as_bool(),
     };
     let mut expected = Vec::new();
@@ -870,5 +879,46 @@ fn web_custom_theme_mirror_cases_match_resolve() {
     assert_eq!(
         copy, expected,
         "apps/desktop/tests/candidate/custom-theme-parity.json is stale; rerun this test with MSIME_WRITE_THEME_CATALOG=1"
+    );
+}
+
+#[test]
+fn a_package_translation_colour_is_the_secondary_text() {
+    let custom = CustomTheme {
+        candidate_skin: Some("sakura".into()),
+        ..Default::default()
+    };
+    let package = |translation: Option<&str>| ThemePackage {
+        id: "sakura".into(),
+        base: GlobalTheme::Paper,
+        layouts: vec![CandidateLayout::Vertical],
+        light: Some(CandidatePalette {
+            number: Some("#123456".into()),
+            translation: translation.map(Into::into),
+            ..Default::default()
+        }),
+        dark: None,
+    };
+    let secondary = |package: &ThemePackage| {
+        resolve(
+            GlobalTheme::Custom,
+            &custom,
+            false,
+            CandidateLayout::Vertical,
+            Some(package),
+        )
+        .candidate
+        .unwrap()
+        .secondary
+    };
+    assert_eq!(
+        secondary(&package(Some("rgba(1, 2, 3, 0.5)"))).as_deref(),
+        Some("#01020380")
+    );
+    // Without one, or with one no host could read, it follows the numbers as before.
+    assert_eq!(secondary(&package(None)).as_deref(), Some("#123456"));
+    assert_eq!(
+        secondary(&package(Some("blue"))).as_deref(),
+        Some("#123456")
     );
 }
