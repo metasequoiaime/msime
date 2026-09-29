@@ -58,12 +58,32 @@ pub(crate) fn resolve_with_resources(
     if !options_path.is_absolute() {
         return Err("HostOptions path must be absolute");
     }
-    if using_default_options && !options_path.exists() {
+    if let Some(parent) = options_path.parent() {
+        crate::shared::atomic_file::check_directory_ancestors(parent)
+            .map_err(|_| "Cannot read prepared HostOptions JSON")?;
+    }
+    let options_exists = match fs::symlink_metadata(&options_path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            return Err("Cannot read prepared HostOptions JSON");
+        }
+        Ok(_) => true,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(_) => return Err("Cannot read prepared HostOptions JSON"),
+    };
+    if using_default_options && !options_exists {
         let resources = resources_directory.ok_or("Cannot read prepared HostOptions JSON")?;
         let state_root = state_directory.as_deref().unwrap_or(application_directory);
         prepare_default_options(resources, state_root, &options_path)?;
     }
-    if options_path.symlink_metadata().is_ok() {
+    if options_exists || options_path.symlink_metadata().is_ok() {
+        if options_path
+            .symlink_metadata()
+            .map_err(|_| "Cannot read prepared HostOptions JSON")?
+            .file_type()
+            .is_symlink()
+        {
+            return Err("Cannot read prepared HostOptions JSON");
+        }
         refresh_options(&options_path);
     }
     let file =
@@ -458,6 +478,26 @@ mod tests {
         .unwrap();
         assert_eq!(launch.preferences_directory, override_path);
         assert_eq!(launch.options_path, path);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refuses_a_symlinked_options_file() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let application = root.path().join("app");
+        std::fs::create_dir(&application).unwrap();
+        let outside = root.path().join("outside-options.json");
+        std::fs::write(
+            &outside,
+            json!({"preferences_directory": root.path().join("outside-state")}).to_string(),
+        )
+        .unwrap();
+        symlink(&outside, application.join("runtime-options.json")).unwrap();
+
+        assert!(resolve(&application, None, None).is_err());
+        assert!(!root.path().join("outside-state").exists());
     }
 
     #[test]
