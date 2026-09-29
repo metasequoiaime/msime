@@ -22,6 +22,8 @@ inline constexpr std::size_t kPanelRestoreMaxBytes = 64 * 1024;
 
 inline std::optional<nlohmann::json> read_panel_restore(const std::filesystem::path &file) {
   std::error_code error;
+  const auto status = std::filesystem::symlink_status(file, error);
+  if (error || !std::filesystem::is_regular_file(status)) return std::nullopt;
   const auto size = std::filesystem::file_size(file, error);
   if (error || size > kPanelRestoreMaxBytes) return std::nullopt;
   std::ifstream in(file, std::ios::binary);

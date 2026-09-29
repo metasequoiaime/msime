@@ -69,6 +69,14 @@ int main() {
   assert(record_panel_takeover(file, "fcitx5", "DarkTheme", "msime", "msime", "default-dark"));
   assert(read(file)["fcitx5"]["DarkTheme"] == Json({{"prior", "default-dark"}, {"written", "msime"}}));
 
+  // A planted record symlink must not be read as the user's restore state.
+  const auto outside = root / "outside-record.json";
+  std::ofstream(outside) << R"({"fcitx5":{"Font":{"prior":"attacker","written":"msime"}}})";
+  std::filesystem::remove(file);
+  std::filesystem::create_symlink(outside, file);
+  assert(!read_panel_restore(file));
+  std::filesystem::remove(file);
+
   // An unreadable record is replaced rather than blocking the write.
   std::ofstream(file) << "{not json";
   assert(record_panel_takeover(file, "fcitx5", "Font", "Sans 10", "Noto Sans SC 18px"));
