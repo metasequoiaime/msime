@@ -26,6 +26,10 @@ public final class DoubaoAsrPolicy {
         return PROVIDER.equals(provider);
     }
 
+    static boolean validEndpoint(String endpoint) {
+        return TextPolicy.validAuthority(endpoint, "wss://", 2048);
+    }
+
     /**
      * Whether this host can open the session as configured.
      *
@@ -34,7 +38,7 @@ public final class DoubaoAsrPolicy {
      */
     public static boolean usable(String provider, String endpoint, List<String> headerNames) {
         if (!isStreaming(provider)) return false;
-        if (!TextPolicy.validAuthority(endpoint, "wss://", 2048)) {
+        if (!validEndpoint(endpoint)) {
             return false;
         }
         if (headerNames == null || headerNames.size() < 3 || headerNames.size() > 8) return false;
