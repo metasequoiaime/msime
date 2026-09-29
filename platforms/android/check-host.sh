@@ -433,7 +433,6 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/settings/VocabularyReviewModelSmoke.java" \
   "$repo_root/platforms/android/tests/settings/InputFeatureToggleSmoke.java" \
   "$repo_root/platforms/android/tests/community/CommunityRequestSmoke.java" \
-  "$repo_root/platforms/android/tests/community/CommunityCatalogSmoke.java" \
   "$repo_root/platforms/android/tests/settings/AppIconStyleSmoke.java" \
   "$repo_root/platforms/android/tests/settings/CloudClipboardTextPolicySmoke.java" \
   "$repo_root/platforms/android/tests/settings/SmartPunctuationContextSmoke.java" \
@@ -520,7 +519,6 @@ java -cp "$output_dir" TypingStatisticsModelSmoke
 java -cp "$output_dir" VocabularyReviewModelSmoke
 java -cp "$output_dir" InputFeatureToggleSmoke
 java -cp "$output_dir" CommunityRequestSmoke
-java -cp "$output_dir:$android_jar" CommunityCatalogSmoke
 java -cp "$output_dir" AppIconStyleSmoke
 java -cp "$output_dir" SmartPunctuationContextSmoke
 java -cp "$output_dir" HardwareKeyPolicySmoke
@@ -560,6 +558,14 @@ fi
 # The JVM smokes cannot load org.json, so nothing else here can reach the one place where the
 # shared runtime's JSON nulls meet this host's reads of them.
 python3 "$repo_root/scripts/test-android-json-null-reads.py" || exit 1
+# The catalogue parser's page bound is covered by source inspection because its input type is
+# org.json.JSONObject, which android.jar exposes only as throwing stubs on this host JVM.
+if ! rg -q 'values\.length\(\) > CommunityRequest\.PAGE_SIZE' \
+    "$repo_root/platforms/android/java/app/msime/android/community/CommunityCatalog.java"; then
+  echo "Android community catalogue must reject pages larger than PAGE_SIZE" >&2
+  exit 1
+fi
+echo "Android community catalogue bound: source guard present"
 # Every other contract check that needs ripgrep is discovered by scripts/run-checks.sh, whose
 # contracts job deliberately installs nothing and therefore skips this one; this job already
 # installs rg, so it is the only place where the reader search actually runs.
