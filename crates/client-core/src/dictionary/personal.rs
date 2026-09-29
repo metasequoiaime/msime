@@ -6,6 +6,7 @@
 
 use crate::file_lock;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -311,12 +312,14 @@ impl PersonalDictionaryStore {
             if active + words.len() > MAX_ACTIVE_REQUESTS {
                 return Err(PersonalDictionaryError::TooManyRequests);
             }
-            if state.requests.iter().any(|request| {
-                request.status != PersonalWordRequestStatus::Applied
-                    && request
-                        .identities()
-                        .any(|identity| identities.contains(&identity))
-            }) {
+            if has_identity_conflict(
+                &state.requests,
+                &identities,
+                &[
+                    PersonalWordRequestStatus::Pending,
+                    PersonalWordRequestStatus::Failed,
+                ],
+            ) {
                 return Err(PersonalDictionaryError::Conflict);
             }
             prune_history(state);
@@ -344,12 +347,11 @@ impl PersonalDictionaryStore {
             };
             let identities: std::collections::HashSet<_> =
                 state.requests[index].identities().collect();
-            if state.requests.iter().any(|request| {
-                request.status == PersonalWordRequestStatus::Pending
-                    && request
-                        .identities()
-                        .any(|identity| identities.contains(&identity))
-            }) {
+            if has_identity_conflict(
+                &state.requests,
+                &identities,
+                &[PersonalWordRequestStatus::Pending],
+            ) {
                 return Err(PersonalDictionaryError::Conflict);
             }
             state.requests[index].status = PersonalWordRequestStatus::Pending;
@@ -494,19 +496,31 @@ fn enqueue_request(
     if active >= MAX_ACTIVE_REQUESTS {
         return Err(PersonalDictionaryError::TooManyRequests);
     }
-    let identities: std::collections::HashSet<_> = request.identities().collect();
-    if state.requests.iter().any(|item| {
-        item.status == PersonalWordRequestStatus::Pending
-            && item
-                .identities()
-                .any(|identity| identities.contains(&identity))
-    }) {
+    let identities: HashSet<_> = request.identities().collect();
+    if has_identity_conflict(
+        &state.requests,
+        &identities,
+        &[PersonalWordRequestStatus::Pending],
+    ) {
         return Err(PersonalDictionaryError::Conflict);
     }
     prune_history(state);
     state.requests.push(request);
     state.refresh_id = Uuid::new_v4().to_string();
     Ok(())
+}
+
+fn has_identity_conflict(
+    requests: &[PersonalWordRequest],
+    identities: &HashSet<String>,
+    statuses: &[PersonalWordRequestStatus],
+) -> bool {
+    requests.iter().any(|request| {
+        statuses.contains(&request.status)
+            && request
+                .identities()
+                .any(|identity| identities.contains(&identity))
+    })
 }
 
 fn prune_history(state: &mut PersonalDictionaryState) {
