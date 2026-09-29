@@ -520,7 +520,14 @@ endif()
 #
 # Optional because it is 25 MB and buys a desktop-only improvement — 49 points of top-1 on the
 # harvested failure set, at a cost that keeps it off the keystroke path and on the settle timer.
-# Fetch it with `scripts/fetch_settled_model.py`, which writes `target/settled-model` by default.
+# Fetch it with `scripts/fetch_neural_model.py`, which writes `target/neural-model` by default.
+# The historical one-artifact `scripts/fetch_settled_model.py` output remains accepted below.
+if(NOT MSIME_SETTLED_MODEL AND
+   EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../target/neural-model/sentence-model-desktop.safetensors")
+  get_filename_component(MSIME_SETTLED_MODEL
+                         "${CMAKE_CURRENT_SOURCE_DIR}/../../target/neural-model" ABSOLUTE)
+  message(STATUS "Using neural model staging directory: ${MSIME_SETTLED_MODEL}")
+endif()
 if(MSIME_SETTLED_MODEL)
   if(NOT IS_DIRECTORY "${MSIME_SETTLED_MODEL}")
     message(FATAL_ERROR "MSIME_SETTLED_MODEL is not a directory: ${MSIME_SETTLED_MODEL}")

@@ -41,7 +41,7 @@
 
 `engine-lock.json` 把 Engine 钉到具体 commit 的 tar.gz 归档（带 sha256），而不是 submodule；`patches` 为空，改动全部走 18 个 `scripts/apply_engine_*.py` overlay 脚本和 2 个 overlay asset，这样上游 bump 时冲突面清晰可见。四个嵌套依赖（Google-PinyinIME-Rev、utfcpp、miniaudio、whisper.cpp）各自带归档和摘要。
 
-`resources/desktop-dictionary.lock.json` 锁定 10 个词库 artifact（合计约 175 MB，含 `msime.db`、`dict_japanese.dat`、`bigram.bin`/`trigram.bin`、`english.db`、`others.db`、`dict_pinyin.dat`、`sentence-model.safetensors`），每项带 sha256 和长度；`resources/settled-model.lock.json` 锁定重排模型。`resources/eval/` 是四套转换质量数据集及其基线，`resources/helpcodes/` 是辅助码表与其 NOTICE。
+`resources/desktop-dictionary.lock.json` 锁定 10 个词库 artifact（合计约 175 MB，含 `msime.db`、`dict_japanese.dat`、`bigram.bin`/`trigram.bin`、`english.db`、`others.db`、`dict_pinyin.dat`、`sentence-model.safetensors`），每项带 sha256 和长度；`resources/neural-model.lock.json` 同时锁定键盘与桌面落定两个神经模型，`scripts/fetch_neural_model.py` 将它们原子下载到 `target/neural-model`；旧的 `resources/settled-model.lock.json` 和 `scripts/fetch_settled_model.py` 仍兼容只准备桌面模型的构建。`resources/eval/` 是四套转换质量数据集及其基线，`resources/helpcodes/` 是辅助码表与其 NOTICE。
 
 ## 三、共享层的最终形态
 

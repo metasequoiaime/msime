@@ -1,0 +1,21 @@
+{
+  "source": "https://github.com/metasequoiaime/chinese-ime-lm/releases/tag/model-v1",
+  "release_tag": "model-v1",
+  "license": "Apache-2.0",
+  "models": [
+    {
+      "file": "sentence-model.safetensors",
+      "preset": "keyboard",
+      "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/model-v1/sentence-model.safetensors",
+      "sha256": "86ac529510cb3b4968a5e6ade83ec8080f5b34a0a681e75c362accbbd387d1c1",
+      "size": 4486280
+    },
+    {
+      "file": "sentence-model-desktop.safetensors",
+      "preset": "desktop",
+      "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/model-v1/sentence-model-desktop.safetensors",
+      "sha256": "0a6ecba69bf1d39c7eb49549c716477dd6c03fdf05757773e1f50435262fb469",
+      "size": 25480184
+    }
+  ]
+}

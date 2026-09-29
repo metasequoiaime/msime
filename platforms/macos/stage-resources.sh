@@ -27,6 +27,13 @@ cargo run --quiet -p msime-client-core --example verify_resources --locked -- "$
 # Optional: 25 MB buying a desktop-only improvement, fetched by scripts/fetch_settled_model.py.
 # Without it the host behaves exactly as it does today.
 settled_source=${2:-$repo_root/target/settled-model}
+# fetch_neural_model.py keeps both presets together in target/neural-model. Keep the historical
+# settled-model argument working, but use the shared neural staging directory when that older
+# one-artifact directory was not prepared.
+if [ ! -f "$settled_source/sentence-model-desktop.safetensors" ] &&
+   [ -f "$repo_root/target/neural-model/sentence-model-desktop.safetensors" ]; then
+  settled_source="$repo_root/target/neural-model"
+fi
 settled_destination="$repo_root/target/macos/settled-model"
 rm -rf "$settled_destination"
 if [ -f "$settled_source/sentence-model-desktop.safetensors" ]; then

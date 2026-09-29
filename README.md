@@ -119,6 +119,14 @@ cargo run -p msime-client-core --example install_resources -- target/resources
 cargo run -p msime-engine-bridge --example query_dictionary -- <上一步返回的资源目录>
 ```
 
+整句神经重排模型另有一份 `resources/neural-model.lock.json`，把键盘用的小模型和桌面落定时使用的大模型锁在同一发布版本。需要单独准备两份模型时运行：
+
+```sh
+python3 scripts/fetch_neural_model.py --out target/neural-model
+```
+
+下载只接受 HTTPS，先写入临时文件，再逐个核对锁定的长度和 SHA-256 后改名发布；已有摘要匹配的文件会跳过。macOS、Windows 和 Linux 的资源打包会优先继续接受历史的 `target/settled-model` 目录，并在它缺失时自动使用这个 `target/neural-model` 目录里的桌面模型。键盘模型仍由 `desktop-dictionary.lock.json` 的词库资源安装器校验并复制进 EngineResources，两个锁都保留作来源记录。
+
 macOS 原生 IMK bundle 的构建、隔离状态目录与安装见 [macOS 宿主](platforms/macos/README.md)。`platforms/macos/scripts/install.sh` 用 Developer ID 重签并原子替换到 `~/Library/Input Methods`，失败回滚；`platforms/macos/scripts/check_input_source.swift` 核查输入源注册结果。
 
 ## 许可证
