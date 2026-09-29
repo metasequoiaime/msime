@@ -421,6 +421,31 @@ fn only_https_mirrors_and_absolute_roots_are_accepted() {
     assert!(fetcher.requested.lock().unwrap().is_empty());
 }
 
+#[cfg(unix)]
+#[test]
+fn symlinked_roots_are_rejected_before_installing() {
+    let target = tempfile::tempdir().unwrap();
+    let parent = tempfile::tempdir().unwrap();
+    let root = parent.path().join("models");
+    std::os::unix::fs::symlink(target.path(), &root).unwrap();
+    let archive = good_archive();
+    let model = fixture_model(&archive);
+    let fetcher = fetcher_for(&archive, "");
+
+    let (result, _) = run(
+        &root,
+        &model,
+        "",
+        &fetcher,
+        &AtomicBool::new(false),
+    );
+
+    assert!(matches!(result, Err(LocalModelError::InvalidRoot)));
+    assert!(fetcher.requested.lock().unwrap().is_empty());
+    assert!(root.join(model.id).symlink_metadata().is_err());
+    assert!(target.path().read_dir().unwrap().next().is_none());
+}
+
 #[test]
 fn listing_reports_installed_models_and_removal_accepts_catalog_ids_only() {
     let root = tempfile::tempdir().unwrap();

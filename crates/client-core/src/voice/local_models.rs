@@ -290,6 +290,15 @@ fn check_root(root: &Path) -> Result<(), LocalModelError> {
     if !root.is_absolute() || root.to_str().is_none() {
         return Err(LocalModelError::InvalidRoot);
     }
+    // `create_dir_all` follows an existing root symlink. Model installation
+    // publishes staging directories and downloaded files below this path, so
+    // accepting one would let a caller redirect the whole install elsewhere.
+    if fs::symlink_metadata(root)
+        .map(|metadata| metadata.file_type().is_symlink())
+        .unwrap_or(false)
+    {
+        return Err(LocalModelError::InvalidRoot);
+    }
     Ok(())
 }
 
