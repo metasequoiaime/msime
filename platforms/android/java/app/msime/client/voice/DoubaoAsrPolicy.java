@@ -34,8 +34,7 @@ public final class DoubaoAsrPolicy {
      */
     public static boolean usable(String provider, String endpoint, List<String> headerNames) {
         if (!isStreaming(provider)) return false;
-        if (endpoint == null || !endpoint.startsWith("wss://") || endpoint.length() > 2048
-                || TextPolicy.hasControl(endpoint)) {
+        if (!TextPolicy.validAuthority(endpoint, "wss://", 2048)) {
             return false;
         }
         if (headerNames == null || headerNames.size() < 3 || headerNames.size() > 8) return false;
