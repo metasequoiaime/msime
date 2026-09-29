@@ -106,6 +106,34 @@ test("voice settings pages reuse the shared input basics section", () => {
   expect(panel).not.toContain("<VoiceInputCoreSection");
 });
 
+test("voice settings pages reuse the shared recording behavior settings", () => {
+  const page = Object.values(
+    import.meta.glob<string>("../../../../packages/ui/src/settings/pages/voice-page.tsx", {
+      eager: true,
+      query: "?raw",
+      import: "default",
+    }),
+  )[0];
+  const panel = Object.values(
+    import.meta.glob<string>("../../../../packages/ui/src/settings/voice-settings-panel.tsx", {
+      eager: true,
+      query: "?raw",
+      import: "default",
+    }),
+  )[0];
+
+  expect(page).toContain(
+    'import { VoiceRecordingBehaviorSettingsSection } from "../voice-recording-behavior-settings-section";',
+  );
+  expect(panel).toContain(
+    'import { VoiceRecordingBehaviorSettingsSection } from "./voice-recording-behavior-settings-section";',
+  );
+  expect(page).toContain("<VoiceRecordingBehaviorSettingsSection");
+  expect(panel).toContain("<VoiceRecordingBehaviorSettingsSection");
+  expect(page).not.toContain("<VoiceRecordingBehaviorSection");
+  expect(panel).not.toContain("<VoiceRecordingBehaviorSection");
+});
+
 const snapshot: Snapshot = {
   format_version: 1,
   revision: 2,

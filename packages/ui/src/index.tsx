@@ -767,6 +767,10 @@ export {
   type VoiceInputBasicsSectionProps,
 } from "./settings/voice-input-basics-section";
 export {
+  VoiceRecordingBehaviorSettingsSection,
+  type VoiceRecordingBehaviorSettingsSectionProps,
+} from "./settings/voice-recording-behavior-settings-section";
+export {
   VoiceCredentialControl,
   type VoiceCredentialControlProps,
 } from "./settings/voice-credential-control";

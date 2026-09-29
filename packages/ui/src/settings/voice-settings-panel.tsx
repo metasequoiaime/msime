@@ -22,7 +22,7 @@ import { VoiceAsrServiceTestSection } from "./voice-asr-service-test-section";
 import { VoiceHotkeysSection } from "./voice-hotkeys-section";
 import { VoicePolishSettingsSection } from "./voice-polish-settings-section";
 import { DoubaoOptionsSection } from "./doubao-options-section";
-import { VoiceRecordingBehaviorSection } from "./voice-recording-behavior-section";
+import { VoiceRecordingBehaviorSettingsSection } from "./voice-recording-behavior-settings-section";
 import { VoiceCredentialControl } from "./voice-credential-control";
 import {
   asrProviderCredentialTestConfig,
@@ -228,23 +228,12 @@ export function VoiceSettingsPanel({
           onDeviceChange={(capture_device) => updateVoice({ capture_device })}
         />
       )}
-      {/* Not provider configuration: these four are the host's own recording
-          behaviour, and the Android host plays no prompt tones and does not mute
-          system audio while it records. Four switches with nothing behind them is
-          what this page keeps being audited for. */}
-      {!androidPlatform && (
-        <VoiceRecordingBehaviorSection
-          linux={linuxPlatform}
-          soundEnabled={voiceInput.sound_enabled !== false}
-          startSound={voiceInput.start_sound !== false}
-          endSound={voiceInput.end_sound !== false}
-          muteSystemAudio={voiceInput.mute_system_audio === true}
-          onSoundEnabledChange={(sound_enabled) => updateVoice({ sound_enabled })}
-          onStartSoundChange={(start_sound) => updateVoice({ start_sound })}
-          onEndSoundChange={(end_sound) => updateVoice({ end_sound })}
-          onMuteSystemAudioChange={(mute_system_audio) => updateVoice({ mute_system_audio })}
-        />
-      )}
+      <VoiceRecordingBehaviorSettingsSection
+        android={androidPlatform}
+        linux={linuxPlatform}
+        voiceInput={voiceInput}
+        updateVoice={updateVoice}
+      />
       {showVoiceProviderSettings && voiceInput.asr_provider === "doubao" && (
         <DoubaoOptionsSection
           linux={linuxPlatform}
