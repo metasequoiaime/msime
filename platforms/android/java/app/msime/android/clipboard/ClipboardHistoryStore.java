@@ -150,10 +150,10 @@ public final class ClipboardHistoryStore {
     private void migrate() {
         if (directory == null || legacy.getBoolean(LEGACY_MIGRATED_KEY, false)) return;
         String encoded = legacy.getString(LEGACY_ITEMS_KEY, null);
-        // Mark first: a half-finished move must not be retried on every launch, and the entries it
-        // did carry across are already in the shared store.
-        legacy.edit().putBoolean(LEGACY_MIGRATED_KEY, true).remove(LEGACY_ITEMS_KEY).apply();
-        if (encoded == null || encoded.isEmpty()) return;
+        if (encoded == null || encoded.isEmpty()) {
+            markMigrated();
+            return;
+        }
         try {
             JSONArray array = new JSONArray(encoded);
             List<JSONObject> ordered = new ArrayList<>();
@@ -166,14 +166,21 @@ public final class ClipboardHistoryStore {
             for (JSONObject value : ordered) {
                 String text = value.optString("text", "");
                 if (!ClipboardHistoryPolicy.hasText(text)) continue;
-                // A refusal ends the move: the shared store is either full or has started
-                // declining this document's text, and neither gets better by trying again.
-                if (add(text) != null) break;
+                // A refusal leaves the legacy document in place so a later launch can retry after
+                // the shared store becomes available or has room. Captures are content-deduplicated
+                // by the shared store, so retrying entries already moved is safe.
+                if (add(text) != null) return;
                 if (value.optBoolean("pinned", false)) setPinned(text, true);
             }
+            markMigrated();
         } catch (JSONException | IllegalStateException | IllegalArgumentException ignored) {
-            // The old document is gone either way; a history that cannot be read is not worth
-            // failing the keyboard's startup over.
+            // Malformed legacy data is not recoverable. Shared-store failures leave it untouched so
+            // a later launch can retry instead of losing entries during a transient outage.
+            if (ignored instanceof JSONException) markMigrated();
         }
+    }
+
+    private void markMigrated() {
+        legacy.edit().putBoolean(LEGACY_MIGRATED_KEY, true).remove(LEGACY_ITEMS_KEY).apply();
     }
 }
