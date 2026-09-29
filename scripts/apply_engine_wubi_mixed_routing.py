@@ -101,6 +101,7 @@ bool InputSession::candidates_follow_pinyin() const
     cpp = root / "core/input_session.cpp"
     replace_once(cpp, "advance_composition_after_selection(selected->pinyin, selected->word, selected->canonical_pinyin)", "advance_composition_after_selection(selected->pinyin, selected->word, selected->canonical_pinyin, selected->scheme)")
     replace_once(cpp, "engine_.update_weight_by_pinyin_and_word(pinyin, selected.word)", "engine_.update_weight_by_pinyin_and_word(selected.scheme, pinyin, selected.word)")
+    replace_once(cpp, "    const bool wubi = wubi_candidates_are_native();", "    const bool wubi = selected.scheme == SchemeType::Wubi;")
 
     candidates = root / "core/input_session_candidates.cpp"
     replace_once(candidates, "std::string InputSession::position_context(bool english) const", "std::string InputSession::position_context(bool english, bool wubi) const")
