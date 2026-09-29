@@ -3,8 +3,6 @@ import {
   asrProviderUpdate,
   ASR_PROVIDER_DEFAULTS,
   isAsrServiceProvider,
-  polishProviderUpdate,
-  POLISH_PROVIDER_DEFAULTS,
 } from "../../voice/voice-providers";
 import { LocalModelManager, localModelInUse } from "../../voice/local-models";
 import {
@@ -23,7 +21,6 @@ import { DoubaoAuthModeSection } from "../doubao-auth-mode-section";
 import { DoubaoStreamEndpointSection } from "../doubao-stream-endpoint-section";
 import { VoiceEndpointSection } from "../voice-endpoint-section";
 import { VoiceCredentialFieldsSection } from "../voice-credential-fields-section";
-import { PolishCredentialFieldsSection } from "../polish-credential-fields-section";
 import { DoubaoResourceIdSection } from "../doubao-resource-id-section";
 import { VoiceStreamPreeditSection } from "../voice-stream-preedit-section";
 import { VoiceCommitModeSection } from "../voice-commit-mode-section";
@@ -32,8 +29,7 @@ import { VoiceRecordingBehaviorSection } from "../voice-recording-behavior-secti
 import { DoubaoOptionsSection } from "../doubao-options-section";
 import { VoiceCredentialControl } from "../voice-credential-control";
 import { VoiceHotkeysSection } from "../voice-hotkeys-section";
-import { VoicePolishSection } from "../voice-polish-section";
-import { PolishPromptSection } from "../polish-prompt-section";
+import { VoicePolishSettingsSection } from "../voice-polish-settings-section";
 import { VoiceAsrServiceTestSection } from "../voice-asr-service-test-section";
 import {
   asrProviderCredentialTestConfig,
@@ -312,50 +308,12 @@ export function VoiceSettingsPage() {
           />
         )}
         {showVoiceProviderSettings && (
-          <VoicePolishSection
-            enabled={polishEnabled}
-            provider={voiceInput.polish_provider ?? "siliconflow"}
-            model={voiceInput.polish_model ?? ""}
-            providerPreset={providerPresetControls(
-              "文本润色",
-              POLISH_PROVIDER_DEFAULTS[voiceInput.polish_provider ?? "siliconflow"],
-              voiceInput.polish_model ?? "",
-              (polish_model) => updateVoice({ polish_model }),
-              "provider-preset-section",
-            )}
-            onEnabledChange={(enabled) =>
-              updateVoice({ polish_text: enabled, polish_enabled: enabled })
-            }
-            onProviderChange={(provider) => updateVoice(polishProviderUpdate(provider, voiceInput))}
-            onModelChange={(polish_model) => updateVoice({ polish_model })}
+          <VoicePolishSettingsSection
+            voiceInput={voiceInput}
+            linux={linuxPlatform}
+            providerPresetControls={providerPresetControls}
+            updateVoice={updateVoice}
           >
-            {!linuxPlatform && (
-              <PolishCredentialFieldsSection
-                endpoint={voiceInput.polish_endpoint ?? ""}
-                token={voiceInput.polish_token ?? ""}
-                onEndpointChange={(polish_endpoint) => updateVoice({ polish_endpoint })}
-                onTokenChange={(polish_token) => updateVoice({ polish_token })}
-              />
-            )}
-            <PolishPromptSection
-              promptId={voiceInput.polish_prompt_id}
-              prompt={voiceInput.polish_prompt ?? ""}
-              customPrompts={{
-                custom_1: voiceInput.polish_prompt_custom_1,
-                custom_2: voiceInput.polish_prompt_custom_2,
-                custom_3: voiceInput.polish_prompt_custom_3,
-              }}
-              onSelectPrompt={(polish_prompt_id, polish_prompt) =>
-                updateVoice({ polish_prompt_id, polish_prompt })
-              }
-              onPromptChange={(polish_prompt, customSlot) =>
-                updateVoice({
-                  polish_prompt,
-                  ...(customSlot ? { [`polish_prompt_${customSlot}`]: polish_prompt } : {}),
-                })
-              }
-              onRestore={(polish_prompt) => updateVoice({ polish_prompt })}
-            />
             {(windowsPlatform || macosPlatform || iosPlatform || harmonyPlatform) &&
               credentialTestControl(
                 "voice.polish",
@@ -363,7 +321,7 @@ export function VoiceSettingsPage() {
                 polishServiceCredentialTestConfig(voiceInput),
                 polishServiceCredentialTestDisabled(voiceInput),
               )}
-          </VoicePolishSection>
+          </VoicePolishSettingsSection>
         )}
         {showVoiceProviderSettings && linuxPlatform && (
           <VoiceCredentialControl

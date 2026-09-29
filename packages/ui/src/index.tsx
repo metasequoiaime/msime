@@ -603,6 +603,10 @@ export {
   type CandidatePaletteSectionProps,
 } from "./settings/candidate-palette-section";
 export { VoicePolishSection, type VoicePolishSectionProps } from "./settings/voice-polish-section";
+export {
+  VoicePolishSettingsSection,
+  type VoicePolishSettingsSectionProps,
+} from "./settings/voice-polish-settings-section";
 export { availableSettingsPages, type AvailablePageCapabilities } from "./settings/available-pages";
 export { describeImportResult } from "./dictionary/dictionary-messages";
 export {
