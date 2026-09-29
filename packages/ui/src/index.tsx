@@ -208,6 +208,11 @@ import { DictionaryManagerControls } from "./settings/dictionary-manager-control
 import { DictionaryEntries } from "./settings/dictionary-entries";
 import { DictionaryPagination } from "./settings/dictionary-pagination";
 import { useDictionaryManager } from "./settings/use-dictionary-manager";
+import { useSettingsDictionaryState } from "./settings/use-settings-dictionary-state";
+export {
+  useSettingsDictionaryState,
+  type UseSettingsDictionaryStateOptions,
+} from "./settings/use-settings-dictionary-state";
 export {
   useDictionaryManager,
   type DictionaryManagerClient,
@@ -2028,20 +2033,8 @@ export function SettingsPage({
     exportPhrases,
     exportAllPhrases,
     resetLearnedData,
-  } = useDictionaryManager({ client, confirm });
-  const dictionaryPanelActions = createDictionaryPanelActions({
-    dictionaryKind,
-    setPhraseForm,
-    loadPhrases,
-    exportPhrases,
-    exportAllPhrases,
-    importPhrases,
-    retryDictionaryFailure,
-    dismissDictionaryFailure,
-    savePhrase,
-    removePhrase,
-    resetLearnedData,
-  });
+    dictionaryPanelActions,
+  } = useSettingsDictionaryState({ client, confirm });
   const mounted = useMountedRef();
   const windowMaximized = useWindowState({ client, setError });
   const handleWindowResizeCapture = useWindowResizeCapture({
