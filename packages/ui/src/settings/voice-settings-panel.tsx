@@ -7,7 +7,11 @@ import type {
   VoiceInputPreferences,
   VoiceCredentialKind,
 } from "../index";
-import { defaultVoiceInput, isVoicePolishEnabled } from "./voice-input-defaults";
+import {
+  defaultVoiceInput,
+  isVoicePolishEnabled,
+  voiceAsrTokenLabel,
+} from "./voice-input-defaults";
 import { LocalModelManager, localModelInUse } from "../voice/local-models";
 import {
   asrProviderUpdate,
@@ -260,11 +264,7 @@ export function VoiceSettingsPanel({
           <VoiceCredentialFieldsSection
             showAppKey={voiceInput.asr_provider === "doubao" && doubaoAuthMode === "legacy"}
             appKey={voiceInput.asr_app_key ?? ""}
-            tokenLabel={
-              voiceInput.asr_provider === "doubao" && doubaoAuthMode !== "legacy"
-                ? "Doubao API Key"
-                : "识别 API Token"
-            }
+            tokenLabel={voiceAsrTokenLabel(voiceInput.asr_provider, doubaoAuthMode)}
             token={voiceInput.asr_token ?? ""}
             onAppKeyChange={(asr_app_key) => updateVoice({ asr_app_key })}
             onTokenChange={(asr_token) => updateVoice({ asr_token })}

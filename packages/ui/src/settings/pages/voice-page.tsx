@@ -7,7 +7,11 @@ import {
   POLISH_PROVIDER_DEFAULTS,
 } from "../../voice/voice-providers";
 import { LocalModelManager, localModelInUse } from "../../voice/local-models";
-import { defaultVoiceInput, isVoicePolishEnabled } from "../voice-input-defaults";
+import {
+  defaultVoiceInput,
+  isVoicePolishEnabled,
+  voiceAsrTokenLabel,
+} from "../voice-input-defaults";
 import {
   POLISH_PRESET_IDS,
   POLISH_PRESET_NAMES,
@@ -86,10 +90,7 @@ export function VoiceSettingsPage() {
     providerPresetControls,
   } = useSettingsForm();
   const polishSlot = normalizePolishSlot(voiceInput.polish_prompt_id);
-  const asrTokenLabel =
-    voiceInput.asr_provider === "doubao" && doubaoAuthMode !== "legacy"
-      ? "Doubao API Key"
-      : "识别 API Token";
+  const asrTokenLabel = voiceAsrTokenLabel(voiceInput.asr_provider, doubaoAuthMode);
   const polishEnabled = isVoicePolishEnabled(voiceInput);
   return (
     <fieldset disabled={busy} hidden={page !== "voice"} aria-label="语音输入">
