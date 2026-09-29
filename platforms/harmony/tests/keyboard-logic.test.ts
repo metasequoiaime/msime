@@ -280,6 +280,7 @@ import { SurfaceRoutingPolicy } from "../entry/src/main/ets/keyboard/SurfaceRout
 import { PreferenceRevisionPolicy } from "../entry/src/main/ets/keyboard/input/PreferenceRevisionPolicy";
 import { PreferencesErrorCode } from "../entry/src/main/ets/keyboard/settings/PreferencesErrorCode";
 import { LocalVoiceModelPolicy } from "../entry/src/main/ets/keyboard/settings/LocalVoiceModelPolicy";
+import { AiAuthenticationPolicy } from "../entry/src/main/ets/keyboard/settings/AiAuthenticationPolicy";
 import {
   AiCatalogPage,
   AiModelCatalogPolicy,
@@ -8671,6 +8672,27 @@ group("rewriting a reply touches only the refusals", () => {
 });
 
 group("AI model catalogs keep each provider's protocol and path", () => {
+  check(
+    AiAuthenticationPolicy.isAnthropic("https://api.anthropic.com/v1/chat/completions"),
+    "the Anthropic endpoint selects native authentication",
+  );
+  check(
+    AiAuthenticationPolicy.isAnthropic("https://api.anthropic.com:443/v1/chat/completions"),
+    "an explicit Anthropic HTTPS port keeps native authentication",
+  );
+  const anthropicHeaders = AiAuthenticationPolicy.headers(
+    "https://api.anthropic.com/v1/chat/completions", "fixture",
+  );
+  check(anthropicHeaders["x-api-key"] === "fixture", "Anthropic tests send x-api-key");
+  check(anthropicHeaders["anthropic-version"] === "2023-06-01",
+    "Anthropic tests send the API version");
+  check(anthropicHeaders.Authorization === undefined,
+    "Anthropic tests do not send Bearer auth");
+  const compatibleHeaders = AiAuthenticationPolicy.headers(
+    "https://api.everyapi.ai/v1/chat/completions", "fixture",
+  );
+  check(compatibleHeaders.Authorization === "Bearer fixture",
+    "compatible tests keep Bearer auth");
   check(TextPolicy.hasAuthority("https://example.test/path", "https://"), "accepts a populated HTTPS authority");
   check(!TextPolicy.hasAuthority("https:///path", "https://"), "rejects an empty HTTPS authority");
   check(TextPolicy.hasAuthority("wss://speech.example.test/live", "wss://"), "shares authority parsing for WSS");

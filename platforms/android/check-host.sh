@@ -385,6 +385,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/keyboard/KeyboardLayoutAdjustPolicySmoke.java" \
   "$repo_root/platforms/android/tests/voice/VoiceResultStoreSmoke.java" \
   "$repo_root/platforms/android/tests/voice/AiPolishClientSmoke.java" \
+  "$repo_root/platforms/android/tests/voice/AiPolishHttpTransportSmoke.java" \
   "$repo_root/platforms/android/tests/voice/AiPolishModelCatalogSmoke.java" \
   "$repo_root/platforms/android/tests/voice/HttpAsrPolicySmoke.java" \
   "$repo_root/platforms/android/tests/voice/WebSocketFramesSmoke.java" \
@@ -468,6 +469,7 @@ java -cp "$output_dir" KeyboardFormFactorPolicySmoke
 java -cp "$output_dir" KeyboardLayoutAdjustPolicySmoke
 java -cp "$output_dir" VoiceResultStoreSmoke
 java -cp "$output_dir" AiPolishClientSmoke
+java -cp "$output_dir:$android_jar" app.msime.client.AiPolishHttpTransportSmoke
 java -cp "$output_dir:$android_jar" app.msime.client.AiPolishModelCatalogSmoke
 java -cp "$output_dir" HttpAsrPolicySmoke
 java -cp "$output_dir" WebSocketFramesSmoke

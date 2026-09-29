@@ -38,6 +38,7 @@ import {
 import { SettingsFormFactorCapabilities, SettingsFormFactorProjection }
   from '../keyboard/settings/SettingsFormFactorCapabilities';
 import { LocalVoiceModelAction, LocalVoiceModelPolicy } from '../keyboard/settings/LocalVoiceModelPolicy';
+import { AiAuthenticationPolicy } from '../keyboard/settings/AiAuthenticationPolicy';
 
 /** `{root}` for the list, `{root, id, mirror}` for an install, `{root, id}` for a removal, `{id}` for a cancel. */
 interface LocalVoiceModelRequest {
@@ -1396,8 +1397,7 @@ class SettingsBridge {
     try {
       const response: http.HttpResponse = await httpRequest.request(endpoint, {
         method: http.RequestMethod.POST,
-        header: { Accept: 'application/json', 'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}` },
+        header: { ...AiAuthenticationPolicy.headers(endpoint, token), 'Content-Type': 'application/json' },
         connectTimeout: 5000,
         readTimeout: 15000,
         extraData: JSON.stringify(body)
