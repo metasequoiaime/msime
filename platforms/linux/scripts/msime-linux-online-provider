@@ -791,14 +791,21 @@ def select_ai_profile(config, path):
 def ai_models_url(endpoint):
     """The model catalogue beside the configured chat endpoint.
 
-    Reuses the API prefix the endpoint already carries rather than assuming one,
-    matching `ai_models_url` in the desktop shell: an endpoint of
-    `https://host/openai/v1/chat/completions` lists at `https://host/openai/v1/models`.
+    Remove a known operation suffix and append ``/models`` under the same API
+    prefix, matching the desktop and mobile hosts. An endpoint of
+    ``https://host/openai/v1/chat/completions`` lists at
+    ``https://host/openai/v1/models``; a provider whose endpoint is
+    ``https://host/chat/completions`` lists at ``https://host/models``.
     """
     parts = urllib.parse.urlsplit(endpoint)
-    index = parts.path.find("/v1/")
-    base = parts.path[:index] if index >= 0 else ""
-    return urllib.parse.urlunsplit((parts.scheme, parts.netloc, base + "/v1/models", "", ""))
+    path = parts.path.rstrip("/")
+    for suffix in ("/chat/completions", "/audio/transcriptions"):
+        if path.endswith(suffix):
+            path = path[: -len(suffix)]
+            break
+    if not path.endswith("/"):
+        path += "/"
+    return urllib.parse.urlunsplit((parts.scheme, parts.netloc, path + "models", "", ""))
 
 
 def ai_models(query, server):

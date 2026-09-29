@@ -119,6 +119,7 @@ pub struct Runtime<E: InputEngine = Session> {
 pub(crate) const LATTICE_SOURCE: u8 = 8;
 
 /// Move the flagged elements to the end, keeping both groups in their existing order.
+#[cfg(test)]
 pub(crate) fn move_to_back<T>(items: &mut Vec<T>, moved: &[bool]) {
     // Stable-partition in place. A rotation moves the next unflagged item ahead of the flagged
     // run without allocating a second vector; candidate arrays are kept in lockstep by calling
@@ -135,12 +136,31 @@ pub(crate) fn move_to_back<T>(items: &mut Vec<T>, moved: &[bool]) {
     }
 }
 
-/// Move the element at `index` to the front, keeping everything else in its existing order.
+/// Apply a permutation in place. `order` maps each new seat to its old seat.
 ///
-/// A rotation rather than a swap, so the rest of the list stays as the engine ranked it: promoting
-/// one candidate is the whole change, not a reshuffle.
-fn apply_order<T: Clone>(items: &mut Vec<T>, order: &[usize]) {
-    *items = order.iter().map(|index| items[*index].clone()).collect();
+/// The order is built as a permutation of the candidate seats, so each cycle can be rotated with
+/// swaps. Keeping the operation in place matters here because the same order is applied to eight
+/// parallel arrays, several of which contain candidate strings.
+pub(crate) fn apply_order<T>(items: &mut [T], order: &[usize]) {
+    debug_assert_eq!(items.len(), order.len());
+    for start in 0..items.len() {
+        // Process each cycle only from its smallest member, without allocating a visited bitmap.
+        let mut current = order[start];
+        let mut smallest = start;
+        while current != start {
+            smallest = smallest.min(current);
+            current = order[current];
+        }
+        if smallest != start {
+            continue;
+        }
+        current = start;
+        while order[current] != start {
+            let next = order[current];
+            items.swap(current, next);
+            current = next;
+        }
+    }
 }
 
 /// Keep the Engine-index mapping empty while the cached candidates are still in Engine order.
@@ -207,7 +227,11 @@ impl Runtime<Session> {
             ai_eligible: query.ai_eligible,
             cloud_candidates: true,
             session_id: query.session_id,
-            ai_context: self.ai_context.clone(),
+            ai_context: if query.ai_eligible {
+                self.ai_context.clone()
+            } else {
+                String::new()
+            },
             ai_assistant: None,
             ai_cache_only: false,
         }))
@@ -218,6 +242,68 @@ impl Runtime<Session> {
         query: &OnlineQuery,
         candidate: &str,
         source: u8,
+    ) -> Result<bool, RuntimeError> {
+        let cloud_candidates = query.cloud_candidates;
+        let query = OnlineQuerySnapshot {
+            available: true,
+            scheme: query.scheme,
+            generation: query.generation,
+            identity: query.identity.clone(),
+            query_text: query.query_text.clone(),
+            cache_key: query.cache_key.clone(),
+            pinyin_segments: query.pinyin_segments.clone(),
+            cloud_eligible: query.cloud_eligible,
+            ai_eligible: query.ai_eligible,
+            session_id: query.session_id,
+        };
+        self.apply_online_candidate_snapshot(query, candidate, source, cloud_candidates)
+    }
+
+    /// Apply a provider result while transferring its query into the Engine call.
+    ///
+    /// Hosts that own the deserialized query do not need it after this call. Moving its strings
+    /// and pinyin segments avoids rebuilding the same bounded query just before every asynchronous
+    /// candidate is merged.
+    pub fn apply_online_candidate_owned(
+        &mut self,
+        query: OnlineQuery,
+        candidate: &str,
+        source: u8,
+    ) -> Result<bool, RuntimeError> {
+        let cloud_candidates = query.cloud_candidates;
+        let OnlineQuery {
+            scheme,
+            generation,
+            identity,
+            query_text,
+            cache_key,
+            pinyin_segments,
+            cloud_eligible,
+            ai_eligible,
+            session_id,
+            ..
+        } = query;
+        let query = OnlineQuerySnapshot {
+            available: true,
+            scheme,
+            generation,
+            identity,
+            query_text,
+            cache_key,
+            pinyin_segments,
+            cloud_eligible,
+            ai_eligible,
+            session_id,
+        };
+        self.apply_online_candidate_snapshot(query, candidate, source, cloud_candidates)
+    }
+
+    fn apply_online_candidate_snapshot(
+        &mut self,
+        query: OnlineQuerySnapshot,
+        candidate: &str,
+        source: u8,
+        cloud_candidates: bool,
     ) -> Result<bool, RuntimeError> {
         // Provider callbacks are asynchronous and can be malformed even when
         // their query identity is still current. Keep the single-item path
@@ -233,23 +319,11 @@ impl Runtime<Session> {
             // Windows accepts them for an otherwise eligible pinyin query
             // even when the local dictionary returned no rows.
             || (source == 0 && self.cached.candidates.is_empty())
-            || (source == 0 && (!query.cloud_candidates || !query.cloud_eligible))
+            || (source == 0 && (!cloud_candidates || !query.cloud_eligible))
             || (source == 1 && !query.ai_eligible)
         {
             return Ok(false);
         }
-        let query = OnlineQuerySnapshot {
-            available: true,
-            scheme: query.scheme,
-            generation: query.generation,
-            identity: query.identity.clone(),
-            query_text: query.query_text.clone(),
-            cache_key: query.cache_key.clone(),
-            pinyin_segments: query.pinyin_segments.clone(),
-            cloud_eligible: query.cloud_eligible,
-            ai_eligible: query.ai_eligible,
-            session_id: query.session_id,
-        };
         let applied = self
             .engine
             .apply_online_candidate(&query, candidate, source)
@@ -272,23 +346,12 @@ impl Runtime<Session> {
         candidates: &[String],
         source: u8,
     ) -> Result<bool, RuntimeError> {
+        let cloud_candidates = query.cloud_candidates;
         let limit = if source == 0 {
             1
         } else {
             query.ai_candidate_limit()
         };
-        if candidates.is_empty()
-            || candidates.len() > limit
-            || candidates
-                .iter()
-                .any(|text| text.is_empty() || !msime_client_core::is_bounded_text(text, 4096))
-            || source > 1
-            || (source == 0 && self.cached.candidates.is_empty())
-            || (source == 0 && (!query.cloud_candidates || !query.cloud_eligible))
-            || (source == 1 && !query.ai_eligible)
-        {
-            return Ok(false);
-        }
         let query = OnlineQuerySnapshot {
             available: true,
             scheme: query.scheme,
@@ -301,6 +364,69 @@ impl Runtime<Session> {
             ai_eligible: query.ai_eligible,
             session_id: query.session_id,
         };
+        self.apply_online_candidates_snapshot(query, candidates, source, cloud_candidates, limit)
+    }
+
+    /// Apply an ordered provider batch while transferring its query into the Engine call.
+    pub fn apply_online_candidates_owned(
+        &mut self,
+        query: OnlineQuery,
+        candidates: &[String],
+        source: u8,
+    ) -> Result<bool, RuntimeError> {
+        let cloud_candidates = query.cloud_candidates;
+        let limit = if source == 0 {
+            1
+        } else {
+            query.ai_candidate_limit()
+        };
+        let OnlineQuery {
+            scheme,
+            generation,
+            identity,
+            query_text,
+            cache_key,
+            pinyin_segments,
+            cloud_eligible,
+            ai_eligible,
+            session_id,
+            ..
+        } = query;
+        let query = OnlineQuerySnapshot {
+            available: true,
+            scheme,
+            generation,
+            identity,
+            query_text,
+            cache_key,
+            pinyin_segments,
+            cloud_eligible,
+            ai_eligible,
+            session_id,
+        };
+        self.apply_online_candidates_snapshot(query, candidates, source, cloud_candidates, limit)
+    }
+
+    fn apply_online_candidates_snapshot(
+        &mut self,
+        query: OnlineQuerySnapshot,
+        candidates: &[String],
+        source: u8,
+        cloud_candidates: bool,
+        limit: usize,
+    ) -> Result<bool, RuntimeError> {
+        if candidates.is_empty()
+            || candidates.len() > limit
+            || candidates
+                .iter()
+                .any(|text| text.is_empty() || !msime_client_core::is_bounded_text(text, 4096))
+            || source > 1
+            || (source == 0 && self.cached.candidates.is_empty())
+            || (source == 0 && (!cloud_candidates || !query.cloud_eligible))
+            || (source == 1 && !query.ai_eligible)
+        {
+            return Ok(false);
+        }
         let applied = self
             .engine
             .apply_online_candidates(&query, candidates, source)
@@ -640,7 +766,9 @@ impl<E: InputEngine> Runtime<E> {
                 .copied()
                 .unwrap_or_default(),
             highlighted: index == self.highlighted,
-            translation: self.translations.get(text).cloned(),
+            translation: (!self.translations.is_empty())
+                .then(|| self.translations.get(text).cloned())
+                .flatten(),
         }
     }
 
@@ -1262,27 +1390,47 @@ impl<E: InputEngine> Runtime<E> {
         if width < SENTENCE_SYLLABLES {
             return false;
         }
-        // Everything after the first lattice reading of the full key is a runner-up.
+        // Everything after the first lattice reading of the full key is a runner-up. First detect
+        // whether there is work, then partition all parallel arrays in one pass so no per-candidate
+        // mask needs to be allocated.
         let mut kept_one = false;
-        let mut demote: Vec<bool> = Vec::with_capacity(count);
-        for (text, source) in snapshot.candidates.iter().zip(&snapshot.candidate_sources) {
-            let reading = *source == LATTICE_SOURCE && text.chars().count() == width;
-            demote.push(reading && kept_one);
+        let mut moved = false;
+        for index in 0..count {
+            let reading = self.cached.candidate_sources[index] == LATTICE_SOURCE
+                && self.cached.candidates[index].chars().count() == width;
+            if reading && kept_one {
+                moved = true;
+                continue;
+            }
             kept_one |= reading;
         }
-        if !demote.iter().any(|moved| *moved) {
+        if !moved {
             return false;
         }
         ensure_engine_order(&mut self.engine_order, count);
         let snapshot = &mut self.cached;
-        move_to_back(&mut snapshot.candidates, &demote);
-        move_to_back(&mut snapshot.candidate_codes, &demote);
-        move_to_back(&mut snapshot.candidate_annotations, &demote);
-        move_to_back(&mut snapshot.candidate_sources, &demote);
-        move_to_back(&mut snapshot.candidate_positions, &demote);
-        move_to_back(&mut snapshot.candidate_corrected, &demote);
-        move_to_back(&mut snapshot.candidate_answers_key, &demote);
-        move_to_back(&mut self.engine_order, &demote);
+        let engine_order = &mut self.engine_order;
+        let mut kept_one = false;
+        let mut head_len = 0;
+        for index in 0..count {
+            let reading = snapshot.candidate_sources[index] == LATTICE_SOURCE
+                && snapshot.candidates[index].chars().count() == width;
+            if reading && kept_one {
+                continue;
+            }
+            kept_one |= reading;
+            if head_len != index {
+                snapshot.candidates[head_len..=index].rotate_right(1);
+                snapshot.candidate_codes[head_len..=index].rotate_right(1);
+                snapshot.candidate_annotations[head_len..=index].rotate_right(1);
+                snapshot.candidate_sources[head_len..=index].rotate_right(1);
+                snapshot.candidate_positions[head_len..=index].rotate_right(1);
+                snapshot.candidate_corrected[head_len..=index].rotate_right(1);
+                snapshot.candidate_answers_key[head_len..=index].rotate_right(1);
+                engine_order[head_len..=index].rotate_right(1);
+            }
+            head_len += 1;
+        }
         true
     }
 
@@ -1499,13 +1647,19 @@ impl<E: InputEngine> Runtime<E> {
             return Ok(transition);
         }
         // What the reading held before the Engine saw this key. A selection that consumes part of
-        // it has to record the piece it took, and only the difference says what that was.
-        // Hosts that do not draw the held phrase never consume this value. Avoid copying the
-        // current reading for their ordinary key path; Linux, macOS and iOS enable the feature and
-        // still receive the same snapshot.
-        let reading_before = self
-            .phrase_preedit
-            .then(|| self.cached.editing_text.clone());
+        // it has to record the piece it took, and only the difference says what that was. Digits
+        // may become a selection after the Engine sees them, so all Character actions stay in the
+        // set; commands, punctuation and navigation never consume a candidate reading.
+        let selection_action = matches!(
+            &action,
+            Action::Character { .. }
+                | Action::Select(_)
+                | Action::SelectAnyCandidate(_)
+                | Action::SelectEdge(..)
+                | Action::SelectHighlighted
+        );
+        let reading_before =
+            (self.phrase_preedit && selection_action).then(|| self.cached.editing_text.clone());
         // A digit on the candidate page picks a candidate; the Engine is asked the same question as
         // for Select, so it can begin a phrase the same way.
         let mut selected_by_digit = false;
@@ -1641,14 +1795,7 @@ impl<E: InputEngine> Runtime<E> {
             .as_deref()
             .and_then(|reading| reading.strip_suffix(self.cached.editing_text.as_str()))
             .unwrap_or("");
-        let picked = selected_by_digit
-            || matches!(
-                action,
-                Action::Select(_)
-                    | Action::SelectAnyCandidate(_)
-                    | Action::SelectEdge(..)
-                    | Action::SelectHighlighted
-            );
+        let picked = selected_by_digit || selection_action;
         // Escape throws the whole composition away, the chosen pieces with it - the reference's
         // _HandleCancel clears `word_for_creating_word` in the same breath.
         let discarded = matches!(action, Action::Command(Command::Cancel));

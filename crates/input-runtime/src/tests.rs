@@ -1733,7 +1733,7 @@ fn online_provider_worker_keeps_only_the_latest_completed_result() {
     let observed = std::sync::Arc::clone(&calls);
     let worker = OnlineProviderWorker::spawn(1, move |query| {
         observed.fetch_add(1, Ordering::SeqCst);
-        Some((query.query_text, 0))
+        Some((query.query_text.clone(), 0))
     })
     .unwrap();
     let query = |text: &str| OnlineQuery {
@@ -2515,6 +2515,13 @@ fn demotion_moves_flagged_items_to_the_end_and_keeps_both_orders() {
 }
 
 #[test]
+fn in_place_order_applies_candidate_permutations() {
+    let mut values = vec!["zero", "one", "two", "three", "four"];
+    apply_order(&mut values, &[2, 4, 1, 0, 3]);
+    assert_eq!(values, vec!["two", "four", "one", "zero", "three"]);
+}
+
+#[test]
 fn demotion_loses_nothing() {
     // The point of moving rather than removing: every candidate is still reachable by paging.
     let mut items: Vec<u32> = (0..9).collect();
@@ -3134,7 +3141,7 @@ fn a_busy_provider_keeps_only_the_newest_completed_result() {
     let (started, first_running) = std::sync::mpsc::channel::<()>();
     let (release, gate) = std::sync::mpsc::channel::<()>();
     let gate = std::sync::Mutex::new(gate);
-    let worker = OnlineProviderWorker::spawn(1, move |query: OnlineQuery| {
+    let worker = OnlineProviderWorker::spawn(1, move |query: &OnlineQuery| {
         if query.query_text == "ni" {
             started.send(()).unwrap();
             gate.lock().unwrap().recv().unwrap();

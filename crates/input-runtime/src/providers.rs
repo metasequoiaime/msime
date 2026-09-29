@@ -923,7 +923,7 @@ pub struct OnlineProviderWorker {
 impl OnlineProviderWorker {
     pub fn spawn<F>(capacity: usize, provider: F) -> Result<Self, &'static str>
     where
-        F: Fn(OnlineQuery) -> Option<(String, u8)> + Send + 'static,
+        F: Fn(&OnlineQuery) -> Option<(String, u8)> + Send + 'static,
     {
         Self::spawn_with_debounce(capacity, std::time::Duration::ZERO, provider)
     }
@@ -936,7 +936,7 @@ impl OnlineProviderWorker {
         provider: F,
     ) -> Result<Self, &'static str>
     where
-        F: Fn(OnlineQuery) -> Option<(String, u8)> + Send + 'static,
+        F: Fn(&OnlineQuery) -> Option<(String, u8)> + Send + 'static,
     {
         if capacity == 0 {
             return Err("provider queue capacity must be positive");
@@ -978,7 +978,7 @@ impl OnlineProviderWorker {
                     let Some(query) = query else {
                         continue;
                     };
-                    if let Some((text, source)) = provider(query.clone()) {
+                    if let Some((text, source)) = provider(&query) {
                         if text.is_empty() || source > 1 {
                             continue;
                         }

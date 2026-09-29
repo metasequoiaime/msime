@@ -867,6 +867,7 @@ EngineSnapshot EngineSession::snapshot() const {
     output.local_mode = local_mode_name(value.local_mode);
     output.dedicated_english = value.dedicated_english;
     output.nine_key = nine_key_;
+    output.nine_key_spellings.reserve(value.nine_key_spellings.size());
     for (const auto& spelling : value.nine_key_spellings)
         output.nine_key_spellings.push_back(rust::String(spelling));
     output.microsoft_shuangpin = microsoft_shuangpin_;
@@ -880,9 +881,19 @@ EngineSnapshot EngineSession::snapshot() const {
                          : std::string{};
     output.editing_text = value.editing_text;
     output.caret_position = value.caret_position;
-    for (const auto boundary : session_.segment_raw_boundaries())
+    const auto boundaries = session_.segment_raw_boundaries();
+    output.segment_raw_boundaries.reserve(boundaries.size());
+    for (const auto boundary : boundaries)
         output.segment_raw_boundaries.push_back(static_cast<std::uint64_t>(boundary));
-    for (std::size_t index = 0; index < value.candidates.size(); ++index) {
+    const auto candidate_count = value.candidates.size();
+    output.candidates.reserve(candidate_count);
+    output.candidate_codes.reserve(candidate_count);
+    output.candidate_annotations.reserve(candidate_count);
+    output.candidate_sources.reserve(candidate_count);
+    output.candidate_positions.reserve(candidate_count);
+    output.candidate_corrected.reserve(candidate_count);
+    output.candidate_answers_key.reserve(candidate_count);
+    for (std::size_t index = 0; index < candidate_count; ++index) {
         const auto &candidate = value.candidates[index];
         output.candidates.push_back(rust::String(candidate.word));
         output.candidate_codes.push_back(rust::String(candidate.pinyin));

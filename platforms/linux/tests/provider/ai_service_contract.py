@@ -68,7 +68,7 @@ class AiServiceContract(unittest.TestCase):
         )
         self.assertEqual(
             online.ai_models_url("https://service.example.invalid/chat/completions"),
-            "https://service.example.invalid/v1/models",
+            "https://service.example.invalid/models",
         )
 
     def test_models_are_listed_with_the_private_token_and_bounded(self):
