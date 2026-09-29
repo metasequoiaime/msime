@@ -27,6 +27,7 @@ import {
 import { settingsPageProjections } from "./settings/settings-page-projections";
 import { settingsInputPreferences } from "./settings/settings-input-preferences";
 import { aiSettingsPreferences } from "./settings/ai-settings-preferences";
+import { diagnosticLogPreferences } from "./settings/diagnostic-log-preferences";
 import type { VoiceDeviceReader } from "./voice/voice-device-picker";
 import type { LocalVoiceModelClient } from "./voice/local-models";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
@@ -168,6 +169,10 @@ export {
   clipboardHistoryEnabled,
   type ClipboardHistoryPreferencesSource,
 } from "./settings/clipboard-history-preferences";
+export {
+  diagnosticLogPreferences,
+  type DiagnosticLogPreferencesSource,
+} from "./settings/diagnostic-log-preferences";
 export {
   settingsInputPreferences,
   type SettingsInputPreferences,
@@ -2009,10 +2014,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     setDraft,
     setError,
   });
-  const diagnosticLog = {
-    server: draft?.diagnostic_log?.server ?? false,
-    tsf: draft?.diagnostic_log?.tsf ?? false,
-  };
+  const diagnosticLog = diagnosticLogPreferences(draft);
   const {
     candidateTranslations,
     candidateGlossLanguagesEnabled,
