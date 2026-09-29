@@ -1,5 +1,6 @@
 import { useConfirm } from "./core/confirm";
 import { NavItem } from "./core/platform-controls";
+import { mobilePageTitle, mobileTabIcon, mobileTabTitle } from "./settings/mobile-tab-helpers";
 import type { VoiceDeviceReader } from "./voice/voice-device-picker";
 import type { LocalVoiceModelClient } from "./voice/local-models";
 import {
@@ -1871,37 +1872,6 @@ const unreadablePreferencesMessage = "配置文件无法读取或版本较新，
  *
  * Its page icon is the app logo, which the design does not put in the bar either — its first tab is the `settings` glyph. Three of the four tabs would otherwise be a subject and the fourth a brand.
  */
-const settingsTabIcon = new URL("./assets/settings.svg", import.meta.url).href;
-
-function mobileTabIcon(id: string, icon: string): string {
-  return id === "home" ? settingsTabIcon : icon;
-}
-
-/**
- * What a tab is called, which is not always what its page is called.
- *
- * The design names these four 设置 / 社区 / 统计 / 我的 and nothing else appears in the bar. The page titles are longer because they also head the page they open.
- */
-function mobileTabTitle(id: string, title: string): string {
-  if (id === "home") return "设置";
-  if (id === "typing-statistics") return "统计";
-  if (id === "account") return "我的";
-  return title;
-}
-
-/**
- * What a touch host calls a page, where that differs from the desktop title.
- *
- * On a phone or tablet the candidate window is the candidate bar above the keys, the on-screen keyboard is simply 键盘 (its toolbar buttons live on the same page, so the desktop floating-toolbar page, which a touch host never lists, needs no touch name), and the shortcut page only acts on an attached hardware keyboard, which its name has to say (dc.html `pageLabel`). The account page is the 我的 tab, which also holds 关于 there, so it keeps the tab's name. The ids, and so the routes, stay the same.
- */
-function mobilePageTitle(id: string, title: string): string {
-  if (id === "appearance") return "候选栏";
-  if (id === "screen-keyboard") return "键盘";
-  if (id === "shortcuts") return "外接键盘快捷键";
-  if (id === "account") return "我的";
-  return title;
-}
-
 type SettingsPageId = (typeof pages)[number]["id"];
 type MobilePrimaryPageId = Extract<
   SettingsPageId,
