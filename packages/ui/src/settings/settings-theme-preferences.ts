@@ -13,8 +13,15 @@ export interface SettingsThemePreferences {
   customTouchKeyboardSkin: TouchKeyboardSkinDesign;
 }
 
+export type SettingsThemePreferencesSource = Pick<
+  Preferences,
+  "theme" | "settings_theme" | "global_theme" | "custom_theme"
+>;
+
 /** Resolves the theme defaults used by settings pages and their previews. */
-export function settingsThemePreferences(draft?: Preferences): SettingsThemePreferences {
+export function settingsThemePreferences(
+  draft?: SettingsThemePreferencesSource,
+): SettingsThemePreferences {
   return {
     themeMode: draft?.theme ?? "system",
     settingsTheme: draft?.settings_theme ?? "follow",
