@@ -552,6 +552,31 @@ static NSDictionary *MSIMERenderedHighlightedCandidateIdentity(NSPanel *panel) {
     return nil;
 }
 
+// Translation replies may replace the view while leaving every actionable field unchanged.
+// Comparing the rest of the view also protects preedit, paging and candidate menu actions.
+static BOOL MSIMEOnlyCandidateTranslationsChanged(NSDictionary *before, NSDictionary *after) {
+    if (![before isKindOfClass:NSDictionary.class] || ![after isKindOfClass:NSDictionary.class]) return NO;
+    NSArray *oldCandidates = before[@"candidates"], *newCandidates = after[@"candidates"];
+    if (![oldCandidates isKindOfClass:NSArray.class] || ![newCandidates isKindOfClass:NSArray.class] ||
+        oldCandidates.count == 0 || oldCandidates.count != newCandidates.count) return NO;
+    NSMutableDictionary *oldView = [before mutableCopy], *newView = [after mutableCopy];
+    [oldView removeObjectForKey:@"candidates"];
+    [newView removeObjectForKey:@"candidates"];
+    if (![oldView isEqual:newView]) return NO;
+    BOOL changed = NO;
+    for (NSUInteger index = 0; index < oldCandidates.count; ++index) {
+        NSDictionary *oldCandidate = oldCandidates[index], *newCandidate = newCandidates[index];
+        if (![oldCandidate isKindOfClass:NSDictionary.class] || ![newCandidate isKindOfClass:NSDictionary.class]) return NO;
+        changed |= ![CandidateTranslation(oldCandidate) isEqual:CandidateTranslation(newCandidate)];
+        NSMutableDictionary *oldFields = [oldCandidate mutableCopy], *newFields = [newCandidate mutableCopy];
+        [oldFields removeObjectForKey:@"translation"];
+        [newFields removeObjectForKey:@"translation"];
+        if (![oldFields isEqual:newFields]) return NO;
+    }
+    return changed;
+}
+
+
 static BOOL MSIMESmartPunctuationKey(unichar character) {
     return character == ',' || character == '.' || character == ':';
 }
@@ -805,6 +830,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     MSIMEPanelTextCompletion _desktopEmojiCompletion;
     double _desktopEmojiDeadline;
     NSDictionary *_view;
+    NSDictionary *_renderedCandidateView;
     // Bumped by every apply:. Writing marked text is a synchronous call into the client, and IMK services the next key inside it, so an apply: can finish after a newer one that ran nested in it.
     uint64_t _applySequence;
     // Bumped when a gloss arrival replaces the view, which can also happen inside an apply:'s marked-text write.
@@ -4423,10 +4449,23 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     const bool timed = msime_macos_diagnostic_enabled();
     const uint64_t started = timed ? clock_gettime_nsec_np(CLOCK_UPTIME_RAW) : 0;
     _smartPunctuationShadowWritten = NO;
+    if (event.type == NSEventTypeKeyDown && sender) {
+        [self ensureAppearance];
+        if (_appearance.floatingToolbarEnabled)
+            [[MSIMEFloatingToolbarPanel sharedPanel] wakeForInputDelegate:self];
+    }
     const BOOL handled = [self handleKeyEvent:event client:sender];
     CGEventRef nativeEvent = event.CGEvent;
     const BOOL selfPosted = nativeEvent && CGEventGetIntegerValueField(nativeEvent, kCGEventSourceUserData) == MSIMEVoiceCommitEventTag;
-    if (event.type == NSEventTypeKeyDown && sender && !selfPosted) [self noteKeyForSmartPunctuationShadow:event eaten:handled];
+    if (event.type == NSEventTypeKeyDown && sender && !selfPosted) {
+        // A key event is the wake-up edge: restore the toolbar before the next event arrives, even if
+        // a preceding focus or preference callback left its requested visibility stale.
+        if (_appearance.floatingToolbarEnabled) {
+            _toolbar = [MSIMEFloatingToolbarPanel sharedPanel];
+            [_toolbar wakeForInputDelegate:self];
+        }
+        [self noteKeyForSmartPunctuationShadow:event eaten:handled];
+    }
     if (!handled) [self recordPassthroughKey:event client:sender];
     const double elapsedMs = timed ? static_cast<double>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - started) / 1e6 : 0;
     if (timed && elapsedMs >= 8.0) {
@@ -5394,12 +5433,14 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
 - (void)renderCandidates {
     const bool timed = msime_macos_diagnostic_enabled();
     const uint64_t buildStarted = timed ? clock_gettime_nsec_np(CLOCK_UPTIME_RAW) : 0;
+    NSDictionary *previousRenderedView = _renderedCandidateView;
     _candidateMenuToken = [NSObject new];
     [self updateKeymapPanel];
-    if (_appearance.englishMode) { [self resetCandidateAnchor]; [self hideCandidatePanel:"english_mode"]; return; }
+    if (_appearance.englishMode) { _renderedCandidateView = nil; [self resetCandidateAnchor]; [self hideCandidatePanel:"english_mode"]; return; }
     NSArray *candidates = MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view));
     if (![candidates isKindOfClass:NSArray.class] || candidates.count == 0) {
         _armedGlossColumn = 0;
+        _renderedCandidateView = nil;
         [self resetCandidateAnchor];
         [self hideCandidatePanel:"empty"];
         return;
@@ -5411,13 +5452,13 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     NSRect reportedCursor = NSZeroRect;
     [(id<IMKTextInput>)_activeClient attributesForCharacterIndex:0 lineHeightRectangle:&reportedCursor];
     NSRect cursor = [self candidateCaretForRendering:reportedCursor];
-    if (!MSIMEValidCaret(cursor)) { [self hideCandidatePanel:"invalid_caret"]; return; }
+    if (!MSIMEValidCaret(cursor)) { _renderedCandidateView = nil; [self hideCandidatePanel:"invalid_caret"]; return; }
     NSScreen *screen = nil;
     for (NSScreen *candidate in NSScreen.screens) {
         if (NSPointInRect(NSMakePoint(NSMinX(cursor), NSMidY(cursor)), candidate.frame)) { screen = candidate; break; }
     }
     screen = screen ?: NSScreen.mainScreen;
-    if (!screen) { [self hideCandidatePanel:"no_screen"]; return; }
+    if (!screen) { _renderedCandidateView = nil; [self hideCandidatePanel:"no_screen"]; return; }
     NSRect visible = screen.visibleFrame;
     [self ensureAppearance];
     NSAppearance *candidateAppearance = [_appearance candidateAppearanceOverride];
@@ -5629,6 +5670,7 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
         [content addSubview:decoration];
     }
     _panel.contentView = content;
+    _renderedCandidateView = [_view copy];
     content.appearanceTarget = self;
     content.appearanceAction = @selector(refreshCandidateSkin);
     [self refreshCandidateSkin];

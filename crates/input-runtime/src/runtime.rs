@@ -423,14 +423,12 @@ impl<E: InputEngine> Runtime<E> {
         {
             return false;
         }
-        let before = self.cached.candidates.clone();
         std::mem::swap(&mut self.reranker, &mut self.settled_reranker);
-        self.rerank();
+        let mut moved = self.rerank();
         std::mem::swap(&mut self.reranker, &mut self.settled_reranker);
         // The same passes the fast path runs after its rerank, so the seats they fix stay fixed.
-        self.demote_runner_up_readings();
-        self.normalize_online_slots();
-        let moved = self.cached.candidates != before;
+        moved |= self.demote_runner_up_readings();
+        moved |= self.normalize_online_slots();
         if moved {
             self.snapshot_valid = true;
             self.highlighted = 0;
@@ -956,8 +954,7 @@ impl<E: InputEngine> Runtime<E> {
         // Every commit passes through here, so this is the one place the AI
         // context has to be fed from.
         if result.has_commit {
-            let committed = result.commit.clone();
-            self.remember_commit(&committed);
+            self.remember_commit(&result.commit);
         }
         Transition {
             commit_context: result.has_commit.then(|| OutputContext {
@@ -1000,7 +997,7 @@ impl<E: InputEngine> Runtime<E> {
     /// Only the online case is touched: with neither a cloud nor an AI candidate present the
     /// Engine already produces the fourth line, so there is nothing to rearrange and nothing to
     /// risk.
-    fn normalize_online_slots(&mut self) {
+    fn normalize_online_slots(&mut self) -> bool {
         const CLOUD: u8 = 2;
         const AI: u8 = 3;
         const ENGLISH: u8 = 4;
@@ -1017,14 +1014,14 @@ impl<E: InputEngine> Runtime<E> {
             || snapshot.candidate_corrected.len() != count
             || snapshot.candidate_answers_key.len() != count
         {
-            return;
+            return false;
         }
         if !snapshot
             .candidate_sources
             .iter()
             .any(|source| *source == CLOUD || *source == AI)
         {
-            return;
+            return false;
         }
 
         // A provider may answer with several candidates - the AI limit reaches ten - and they take
@@ -1146,10 +1143,10 @@ impl<E: InputEngine> Runtime<E> {
         // A permutation or nothing: a missing or repeated index would silently drop a candidate.
         debug_assert_eq!(order.len(), count);
         if order.len() != count {
-            return;
+            return false;
         }
         if order.iter().enumerate().all(|(seat, index)| seat == *index) {
-            return;
+            return false;
         }
 
         ensure_engine_order(&mut self.engine_order, count);
@@ -1162,11 +1159,12 @@ impl<E: InputEngine> Runtime<E> {
         apply_order(&mut snapshot.candidate_corrected, &order);
         apply_order(&mut snapshot.candidate_answers_key, &order);
         apply_order(&mut self.engine_order, &order);
+        true
     }
 
-    fn rerank(&mut self) {
+    fn rerank(&mut self) -> bool {
         let Some(reranker) = self.reranker.as_mut() else {
-            return;
+            return false;
         };
         let snapshot = &self.cached;
         let count = snapshot.candidates.len();
@@ -1178,7 +1176,7 @@ impl<E: InputEngine> Runtime<E> {
             || snapshot.candidate_corrected.len() != count
             || snapshot.candidate_answers_key.len() != count
         {
-            return;
+            return false;
         }
         let texts: Vec<&str> = snapshot.candidates.iter().map(String::as_str).collect();
         // A dictionary hit earns the model's deference because it carries corpus frequency for the
@@ -1207,7 +1205,7 @@ impl<E: InputEngine> Runtime<E> {
             trusted_dictionary_hit: DICTIONARY_SOURCES.contains(&snapshot.candidate_sources[index])
                 && !corrected_key,
         }) else {
-            return;
+            return false;
         };
         ensure_engine_order(&mut self.engine_order, count);
         let snapshot = &mut self.cached;
@@ -1219,6 +1217,7 @@ impl<E: InputEngine> Runtime<E> {
         rotate_to_front(&mut snapshot.candidate_corrected, promote);
         rotate_to_front(&mut snapshot.candidate_answers_key, promote);
         rotate_to_front(&mut self.engine_order, promote);
+        true
     }
 
     /// Move the runner-up sentence readings behind the rest of the list.
@@ -1237,7 +1236,7 @@ impl<E: InputEngine> Runtime<E> {
     /// candidate, not that two candidates are spellings of one answer, and most of the other
     /// sources are plural by design — English words, emoji, kaomoji, quick phrases and AI
     /// suggestions all arrive as lists, and that version silently dropped all but one of each.
-    fn demote_runner_up_readings(&mut self) {
+    fn demote_runner_up_readings(&mut self) -> bool {
         // The lattice never runs on fewer than three syllables, so a shorter candidate reached the
         // list some other way and is not a reading of the same sentence. Japanese kana are the case
         // that proves it: あ and ア are both Generated and both one character.
@@ -1246,7 +1245,7 @@ impl<E: InputEngine> Runtime<E> {
         let snapshot = &self.cached;
         let count = snapshot.candidates.len();
         if count < 2 || snapshot.candidate_sources.len() != count {
-            return;
+            return false;
         }
         let Some(width) = snapshot
             .candidates
@@ -1255,10 +1254,10 @@ impl<E: InputEngine> Runtime<E> {
             .find(|(_, source)| **source == LATTICE_SOURCE)
             .map(|(text, _)| text.chars().count())
         else {
-            return;
+            return false;
         };
         if width < SENTENCE_SYLLABLES {
-            return;
+            return false;
         }
         // Everything after the first lattice reading of the full key is a runner-up.
         let mut kept_one = false;
@@ -1269,7 +1268,7 @@ impl<E: InputEngine> Runtime<E> {
             kept_one |= reading;
         }
         if !demote.iter().any(|moved| *moved) {
-            return;
+            return false;
         }
         ensure_engine_order(&mut self.engine_order, count);
         let snapshot = &mut self.cached;
@@ -1281,6 +1280,7 @@ impl<E: InputEngine> Runtime<E> {
         move_to_back(&mut snapshot.candidate_corrected, &demote);
         move_to_back(&mut snapshot.candidate_answers_key, &demote);
         move_to_back(&mut self.engine_order, &demote);
+        true
     }
 
     pub(crate) fn refresh(&mut self) -> Result<(), RuntimeError> {

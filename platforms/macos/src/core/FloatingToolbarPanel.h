@@ -51,6 +51,10 @@ FOUNDATION_EXPORT NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
                    fullWidthEnabled:(BOOL)fullWidthEnabled
     traditionalChineseOutputEnabled:(BOOL)traditionalChineseOutputEnabled;
 - (void)activateForDelegate:(id<MetasequoiaFloatingToolbarDelegate>)delegate visible:(BOOL)visible;
+/// Force the toolbar visible for a real input event, repairing stale ownership/focus state.
+- (void)wakeForInputDelegate:(id<MetasequoiaFloatingToolbarDelegate>)delegate;
+/// Reset the 10-second idle timeout and restore the toolbar for its current owner.
+- (void)noteInputForDelegate:(id<MetasequoiaFloatingToolbarDelegate>)delegate;
 - (void)setVisible:(BOOL)visible forDelegate:(id<MetasequoiaFloatingToolbarDelegate>)delegate;
 - (void)deactivateForDelegate:(id<MetasequoiaFloatingToolbarDelegate>)delegate;
 /// Counterpart of the reference's WM_IMEDEACTIVATE: the user selected another input source, so the toolbar hides and releases whichever controller owns it. A client focus-out does not call this; the toolbar stays resident with its owner until the next activation hands it on.

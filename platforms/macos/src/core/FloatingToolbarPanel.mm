@@ -277,7 +277,7 @@ BOOL MetasequoiaFloatingToolbarShouldShow(BOOL configuredEnabled, BOOL imeActive
     return configuredEnabled && imeActive && !fullscreen;
 }
 
-static BOOL FrontmostApplicationOwnsFullscreenDisplay(void)
+static BOOL __attribute__((unused)) FrontmostApplicationOwnsFullscreenDisplay(void)
 {
     NSRunningApplication *frontmost = NSWorkspace.sharedWorkspace.frontmostApplication;
     if (frontmost == nil || frontmost == NSRunningApplication.currentApplication)
@@ -484,6 +484,9 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     msime::mac::SkinTokens _darkToolbarSkin;
     BOOL _requestedVisible;
     BOOL _imeActive;
+    BOOL _idleHidden;
+    BOOL _recentInput;
+    NSTimer *_idleTimer;
 }
 
 + (instancetype)sharedPanel
@@ -519,7 +522,7 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     // app's full-screen Space. Candidate and panel windows remain auxiliary;
     // the toolbar itself should disappear while a full-screen app owns the
     // display, matching the Windows foreground policy.
-    self.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces;
+    self.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary;
     [self setFrameAutosaveName:kToolbarFrameAutosaveName];
     // The autosave name only writes the frame out; a programmatically created window has to read it back itself, and
     // force: is required because this panel is borderless and therefore not resizable.
@@ -626,6 +629,7 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
 
 - (void)dealloc
 {
+    [_idleTimer invalidate];
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [[NSWorkspace sharedWorkspace].notificationCenter removeObserver:self];
 }
@@ -640,7 +644,7 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
         return;
     }
     const BOOL show = MetasequoiaFloatingToolbarShouldShow(
-        _requestedVisible, _imeActive, FrontmostApplicationOwnsFullscreenDisplay());
+        _requestedVisible && !_idleHidden, _imeActive, NO);
     if (!show)
     {
         [self orderOut:nil];
@@ -864,9 +868,15 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
 
 - (void)activateForDelegate:(id<MetasequoiaFloatingToolbarDelegate>)delegate visible:(BOOL)visible
 {
+    const BOOL newlyActive = !_imeActive;
+    const BOOL ownerChanged = self.toolbarDelegate != delegate;
     self.toolbarDelegate = delegate;
     _imeActive = YES;
     _requestedVisible = visible;
+    // Focus activation is also used when the current owner moves between
+    // documents. Preserve an idle timeout across that routine callback; only
+    // a genuinely new activation or owner is allowed to wake the toolbar.
+    if ((newlyActive || ownerChanged) && visible) [self noteInputForDelegate:delegate];
     [self refreshVisibility];
 }
 
@@ -876,8 +886,54 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     {
         return;
     }
+    const BOOL newlyEnabled = visible && !_requestedVisible;
     _requestedVisible = visible;
+    if (newlyEnabled) [self noteInputForDelegate:delegate];
+    if (!visible) { [_idleTimer invalidate]; _idleTimer = nil; }
     [self refreshVisibility];
+}
+
+- (void)wakeForInputDelegate:(id<MetasequoiaFloatingToolbarDelegate>)delegate
+{
+    if (!delegate) return;
+    self.toolbarDelegate = delegate;
+    _imeActive = YES;
+    _requestedVisible = YES;
+    _idleHidden = NO;
+    _recentInput = YES;
+    [self noteInputForDelegate:delegate];
+    [self orderFrontRegardless];
+}
+
+- (void)noteInputForDelegate:(id<MetasequoiaFloatingToolbarDelegate>)delegate
+{
+    if (!delegate || self.toolbarDelegate != delegate || !_imeActive || !_requestedVisible) return;
+    _idleHidden = NO;
+    _recentInput = YES;
+    if (_idleTimer) {
+        _idleTimer.fireDate = [NSDate dateWithTimeIntervalSinceNow:10.0];
+    } else {
+        __weak MetasequoiaFloatingToolbarPanel *weakSelf = self;
+        _idleTimer = [NSTimer timerWithTimeInterval:10.0 repeats:NO block:^(NSTimer *timer) {
+            MetasequoiaFloatingToolbarPanel *panel = weakSelf;
+            if (!panel || panel->_idleTimer != timer) return;
+            panel->_idleTimer = nil;
+            panel->_idleHidden = YES;
+            panel->_recentInput = NO;
+            [panel refreshVisibility];
+        }];
+        [NSRunLoop.mainRunLoop addTimer:_idleTimer forMode:NSRunLoopCommonModes];
+    }
+    if (!self.visible) [self refreshVisibility];
+}
+
+- (void)sendEvent:(NSEvent *)event
+{
+    // Keep controls available while clicking or dragging the toolbar itself.
+    if (event.type == NSEventTypeLeftMouseDown || event.type == NSEventTypeLeftMouseDragged ||
+        event.type == NSEventTypeLeftMouseUp || event.type == NSEventTypeRightMouseDown)
+        [self noteInputForDelegate:self.toolbarDelegate];
+    [super sendEvent:event];
 }
 
 - (void)deactivateForDelegate:(id<MetasequoiaFloatingToolbarDelegate>)delegate
@@ -892,6 +948,10 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     [self orderOut:nil];
     _imeActive = NO;
     _requestedVisible = NO;
+    [_idleTimer invalidate];
+    _idleTimer = nil;
+    _idleHidden = NO;
+    _recentInput = NO;
     self.toolbarDelegate = nil;
 }
 
@@ -900,6 +960,10 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     [self orderOut:nil];
     _imeActive = NO;
     _requestedVisible = NO;
+    [_idleTimer invalidate];
+    _idleTimer = nil;
+    _idleHidden = NO;
+    _recentInput = NO;
     self.toolbarDelegate = nil;
 }
 

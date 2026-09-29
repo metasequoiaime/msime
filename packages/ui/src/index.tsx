@@ -154,6 +154,22 @@ export {
 export { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
 export type { SettingsPageId } from "./settings/mobile-navigation";
 export {
+  useSettingsDictionaryState,
+  type UseSettingsDictionaryStateOptions,
+} from "./settings/use-settings-dictionary-state";
+export { SettingsFormFrame, type SettingsFormFrameProps } from "./settings/settings-form-frame";
+export { SettingsInputPage, type SettingsInputPageProps } from "./settings/settings-input-page";
+export {
+  settingsPageCatalog,
+  type SettingsPageCatalog,
+  type SettingsPageCatalogOptions,
+} from "./settings/settings-page-catalog";
+export { settingsPageEnvironment } from "./settings/settings-page-environment";
+export {
+  settingsPlatformPresentation,
+  type SettingsPlatformPresentationOptions,
+} from "./settings/settings-platform-presentation";
+export {
   settingsPageLinks,
   settingsPageTitle,
   type SettingsPageLinkItem,
@@ -1917,8 +1933,14 @@ function schemeTitle(scheme: Preferences["scheme"]): string {
         ? "五笔"
         : "日语";
 }
-export { tencentCredentialIssue, translationEndpointIssue } from "./settings/translation-validation";
-export { providerCredentialErrorMessage, tencentSecretConfigured } from "./settings/credential-utils";
+export {
+  tencentCredentialIssue,
+  translationEndpointIssue,
+} from "./settings/translation-validation";
+export {
+  providerCredentialErrorMessage,
+  tencentSecretConfigured,
+} from "./settings/credential-utils";
 
 type SettingsPageProps = {
   client: SettingsClient;
