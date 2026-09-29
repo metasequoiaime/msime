@@ -329,7 +329,13 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
     let base = required_string(table, "base", 32)?;
     let author = optional_string(table, "author", 120)?;
     let description = optional_string(table, "description", 500)?;
-    let base = super::theme::GlobalTheme::from_id(&base)
+    // msime-windows only accepts its own built-in looks as a base, and the packages written for it (github.com/metasequoiaime/msime-skins) say `fluent`: the native Windows Fluent tokens, which is what `system` draws. Only the manifest reads it that way; everywhere else `fluent` is a retired id and is refused.
+    let base = if base == "fluent" {
+        "system"
+    } else {
+        base.as_str()
+    };
+    let base = super::theme::GlobalTheme::from_id(base)
         .filter(|theme| theme.is_base())
         .ok_or("base must be system or a built-in theme")?;
     let supports = table

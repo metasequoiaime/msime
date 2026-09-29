@@ -614,8 +614,23 @@ fn base_names_system_or_a_builtin_theme() {
         assert!(catalog.issues.is_empty(), "{base}: {catalog:?}");
         assert_eq!(catalog.packages[0].base, expected, "{base}");
     }
-    // `custom` is not a base, and retired or misspelt ids are refused rather than read as system.
-    for base in ["custom", "fluent", "wechat", "Night"] {
+    // The msime-windows packages' `fluent` is the native Fluent look, which is `system` here.
+    let catalog = scan_manifest(&manifest("sample").replace("base = 'night'", "base = 'fluent'"));
+    assert!(catalog.issues.is_empty(), "{catalog:?}");
+    assert_eq!(catalog.packages[0].base, GlobalTheme::System);
+    assert_eq!(
+        serde_json::to_value(&catalog.packages[0]).unwrap()["base"],
+        "system"
+    );
+    // `custom` is not a base, and the other retired or misspelt ids are refused rather than read as system.
+    for base in [
+        "custom",
+        "wechat",
+        "graphite",
+        "willow_green",
+        "Fluent",
+        "Night",
+    ] {
         let catalog = scan_manifest(
             &manifest("sample").replace("base = 'night'", &format!("base = '{base}'")),
         );
