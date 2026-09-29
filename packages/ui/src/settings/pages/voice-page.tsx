@@ -4,6 +4,7 @@ import {
   ASR_PROVIDER_DEFAULTS,
   polishProviderUpdate,
   POLISH_PROVIDER_DEFAULTS,
+  providerSettingValue,
 } from "../../voice/voice-providers";
 import { LocalModelManager, localModelInUse } from "../../voice/local-models";
 import { defaultVoiceInput } from "../voice-input-defaults";
@@ -263,14 +264,18 @@ export function VoiceSettingsPage() {
                     voiceInput.asr_provider === "doubao" ? "测试豆包识别配置" : "测试语音识别配置",
                     {
                       provider: voiceInput.asr_provider,
-                      endpoint:
-                        voiceInput.asr_endpoint?.trim() ||
-                        ASR_PROVIDER_DEFAULTS[voiceInput.asr_provider ?? ""]?.endpoint ||
-                        "",
-                      model:
-                        voiceInput.asr_model?.trim() ||
-                        ASR_PROVIDER_DEFAULTS[voiceInput.asr_provider ?? ""]?.model ||
-                        "",
+                      endpoint: providerSettingValue(
+                        voiceInput.asr_endpoint,
+                        voiceInput.asr_provider,
+                        ASR_PROVIDER_DEFAULTS,
+                        "endpoint",
+                      ),
+                      model: providerSettingValue(
+                        voiceInput.asr_model,
+                        voiceInput.asr_provider,
+                        ASR_PROVIDER_DEFAULTS,
+                        "model",
+                      ),
                       token: voiceInput.asr_token ?? "",
                       ...(voiceInput.asr_provider === "doubao"
                         ? {
@@ -468,16 +473,18 @@ export function VoiceSettingsPage() {
                     "测试语音润色配置",
                     {
                       provider: voiceInput.polish_provider ?? "siliconflow",
-                      endpoint:
-                        voiceInput.polish_endpoint?.trim() ||
-                        POLISH_PROVIDER_DEFAULTS[voiceInput.polish_provider ?? "siliconflow"]
-                          ?.endpoint ||
-                        "",
-                      model:
-                        voiceInput.polish_model?.trim() ||
-                        POLISH_PROVIDER_DEFAULTS[voiceInput.polish_provider ?? "siliconflow"]
-                          ?.model ||
-                        "",
+                      endpoint: providerSettingValue(
+                        voiceInput.polish_endpoint,
+                        voiceInput.polish_provider ?? "siliconflow",
+                        POLISH_PROVIDER_DEFAULTS,
+                        "endpoint",
+                      ),
+                      model: providerSettingValue(
+                        voiceInput.polish_model,
+                        voiceInput.polish_provider ?? "siliconflow",
+                        POLISH_PROVIDER_DEFAULTS,
+                        "model",
+                      ),
                       token: voiceInput.polish_token ?? "",
                     },
                     !voiceInput.polish_token?.trim(),

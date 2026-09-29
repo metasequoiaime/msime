@@ -4,10 +4,24 @@ import {
   ASR_PROVIDER_DEFAULTS,
   POLISH_PROVIDER_DEFAULTS,
   asrProviderUpdate,
+  providerSettingValue,
   polishProviderUpdate,
 } from "@msime/ui";
 
 const doubaoEndpoint = ASR_PROVIDER_DEFAULTS.doubao.endpoint;
+
+test("provider setting values prefer edits and fall back to known defaults", () => {
+  expect(
+    providerSettingValue(
+      "  https://asr.internal.example/v1/audio/transcriptions  ",
+      "openai",
+      ASR_PROVIDER_DEFAULTS,
+      "endpoint",
+    ),
+  ).toBe("https://asr.internal.example/v1/audio/transcriptions");
+  expect(providerSettingValue("  ", "openai", ASR_PROVIDER_DEFAULTS, "model")).toBe("whisper-1");
+  expect(providerSettingValue(undefined, "unknown", POLISH_PROVIDER_DEFAULTS, "model")).toBe("");
+});
 
 test("system recognition clears the active cloud credential and restores it on return", () => {
   const system = asrProviderUpdate("system", {

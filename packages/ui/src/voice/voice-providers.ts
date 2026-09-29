@@ -22,6 +22,16 @@ export type ProviderDefaults = {
   documentation?: string;
 };
 
+/** Resolve an editable provider setting, falling back to its shipped default. */
+export function providerSettingValue(
+  value: string | undefined,
+  provider: string | undefined,
+  defaults: Record<string, ProviderDefaults>,
+  field: "endpoint" | "model",
+): string {
+  return value?.trim() || defaults[provider ?? ""]?.[field] || "";
+}
+
 export const ASR_PROVIDER_DEFAULTS: Record<string, ProviderDefaults> = {
   system: { endpoint: "", model: "" },
   // On-device recognition. The model is a downloaded model directory or a Whisper file the user points at, not a name a service resolves, so it lives in `asr_model_path` and there is no endpoint, token or model list to offer here.

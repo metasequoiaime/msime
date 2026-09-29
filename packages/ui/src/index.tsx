@@ -967,6 +967,7 @@ export {
   ASR_PROVIDER_DEFAULTS,
   POLISH_PROVIDER_DEFAULTS,
   asrProviderUpdate,
+  providerSettingValue,
   polishProviderUpdate,
   type ProviderDefaults,
 } from "./voice/voice-providers";
