@@ -1,19 +1,32 @@
 package app.msime.client;
 
-import java.util.List;
+import java.util.HashMap;
 import java.util.Locale;
+import java.util.Map;
+import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 
-/** Android rendering values for Apple's independent touch-keyboard skin preference. */
+/**
+ * Android rendering values for the touch keyboard under the selected global theme.
+ *
+ * <p>There is no skin table here any more. The colours come from one of three places: the Material 3 tokens this host draws for `system` (and for any slot a theme leaves null), the keyboard palette `msime_client_resolve_theme` returns for a built-in or custom theme, or the user's full custom design (photo, gradient, key shape and material) when `custom_theme.keyboard` holds one. Every colour is `#RRGGBB` or `#AARRGGBB`, the form `Color.parseColor` reads.
+ */
 public final class KeyboardSkin {
+    /** The design's Android key corner radius, in dp. */
+    public static final double KEY_RADIUS_DP = 8;
+
     private final String id;
     private final String title;
     private final String description;
     private final boolean dark;
+    private final boolean designed;
     private final String background;
     private final String keyBackground;
     private final String keyForeground;
+    private final String secondary;
     private final String accent;
+    private final String onAccent;
     private final String actionBackground;
     private final String actionForeground;
     private final double cornerRadius;
@@ -35,29 +48,32 @@ public final class KeyboardSkin {
     private final double photoPosition;
     private final String designKey;
 
+    /** A flat palette: the M3 tokens or a resolved theme's keyboard. No border, no shadow, radius 8. */
     private KeyboardSkin(String id, String title, String description, boolean dark,
-            String background, String keyBackground, String keyForeground, String accent,
-            String actionBackground, double cornerRadius, double borderWidth,
-            double shadowOpacity, double shadowRadius, double shadowOffset,
-            boolean monospaced, int pattern) {
+            String background, String keyBackground, String functionBackground, String text,
+            String secondary, String accent, String onAccent) {
         this.id = id;
         this.title = title;
         this.description = description;
         this.dark = dark;
+        designed = false;
         this.background = background;
         this.keyBackground = keyBackground;
-        this.keyForeground = keyForeground;
+        keyForeground = text;
+        this.secondary = secondary;
         this.accent = accent;
-        this.actionBackground = actionBackground;
-        this.actionForeground = "#FFFFFF";
-        this.cornerRadius = cornerRadius;
-        this.borderWidth = borderWidth;
-        this.borderColor = alpha(accent, "midnight".equals(id) ? 0.65 : 0.28);
-        this.shadowOpacity = shadowOpacity;
-        this.shadowRadius = shadowRadius;
-        this.shadowOffset = shadowOffset;
-        this.monospaced = monospaced;
-        this.pattern = pattern;
+        this.onAccent = onAccent;
+        actionBackground = functionBackground;
+        // The design labels its tinted function keys in the key text colour (dc.html X()).
+        actionForeground = text;
+        cornerRadius = KEY_RADIUS_DP;
+        borderWidth = 0;
+        borderColor = alpha(accent, .28);
+        shadowOpacity = 0;
+        shadowRadius = 0;
+        shadowOffset = 0;
+        monospaced = false;
+        pattern = 0;
         keyShape = "rounded";
         keyMaterial = "flat";
         keyOpacity = 1;
@@ -67,7 +83,8 @@ public final class KeyboardSkin {
         photo = null;
         photoShade = .25;
         photoPosition = .5;
-        designKey = "";
+        designKey = String.join(",", background, keyBackground, functionBackground, text,
+            secondary, accent, onAccent);
     }
 
     private KeyboardSkin(CustomKeyboardSkin design, boolean dark) {
@@ -75,10 +92,14 @@ public final class KeyboardSkin {
         title = "我的皮肤";
         description = "自由配色 · 自定义键帽";
         this.dark = dark;
+        designed = true;
         background = design.background();
         keyBackground = design.keyBackground();
         keyForeground = design.keyForeground();
+        // The shared flattening (`custom_keyboard`) draws hints in the key text at 0x99. The resolver never sees the design (themeRequest leaves it out), so its `secondary` belongs to the base theme and must not be used here.
+        secondary = alpha(design.keyForeground(), 0x99 / 255.0);
         accent = design.accent();
+        onAccent = readable(design.accent());
         actionBackground = design.actionBackground();
         actionForeground = design.actionForeground();
         cornerRadius = design.cornerRadius();
@@ -101,127 +122,223 @@ public final class KeyboardSkin {
         designKey = design.key();
     }
 
-    public static KeyboardSkin from(String value) { return from(value, false); }
-
-    public static boolean resolveDark(String keyboardTheme, String globalTheme, boolean systemDark) {
-        if ("dark".equals(keyboardTheme)) return true;
-        if ("light".equals(keyboardTheme)) return false;
-        if ("dark".equals(globalTheme)) return true;
-        if ("light".equals(globalTheme)) return false;
+    /**
+     * Whether one surface draws dark. `surfaceMode` is that surface's own `*_theme` preference and wins when it is `dark` or `light`; anything else follows `appMode` (the `theme` preference), and a `system` app mode follows the Android night mode. A theme with a fixed appearance overrides the result after resolution.
+     */
+    public static boolean resolveDark(String surfaceMode, String appMode, boolean systemDark) {
+        if ("dark".equals(surfaceMode)) return true;
+        if ("light".equals(surfaceMode)) return false;
+        if ("dark".equals(appMode)) return true;
+        if ("light".equals(appMode)) return false;
         return systemDark;
     }
 
-    public static KeyboardSkin from(String value, boolean dark) { return from(value, dark, null); }
-
-    public static KeyboardSkin from(String value, boolean dark, JSONObject customDesign) {
-        String id = value == null ? "" : value;
-        return switch (id) {
-            case "custom" -> new KeyboardSkin(CustomKeyboardSkin.from(customDesign), dark);
-            case "ocean" -> skin(id, "海盐蓝", "海盐浅蓝 · 轻盈平面", dark,
-                adaptive(dark, rgb(.90, .94, .98), rgb(.09, .12, .17)),
-                adaptive(dark, "#FFFFFF", rgb(.18, .22, .29)),
-                label(dark), adaptive(dark, rgb(.12, .36, .64), rgb(.50, .74, .98)),
-                adaptive(dark, rgb(.12, .36, .64), rgb(.16, .36, .62)), 8, 0, 0, 3, 2,
-                false, 0);
-            case "rose" -> skin(id, "浅蔷薇", "柔和蔷薇 · 简洁圆角", dark,
-                adaptive(dark, rgb(.98, .91, .94), rgb(.16, .10, .13)),
-                adaptive(dark, "#FFFFFF", rgb(.27, .19, .23)),
-                label(dark), adaptive(dark, rgb(.63, .25, .39), rgb(.96, .62, .74)),
-                adaptive(dark, rgb(.63, .25, .39), rgb(.56, .23, .36)), 8, 0, 0, 3, 2,
-                false, 0);
-            case "porcelain" -> skin(id, "素白瓷", "细线边框 · 克制直角", dark,
-                adaptive(dark, rgb(.92, .93, .94), rgb(.10, .11, .13)),
-                adaptive(dark, rgb(.99, .99, .99), rgb(.20, .21, .23)),
-                label(dark), adaptive(dark, rgb(.20, .24, .28), rgb(.80, .84, .89)),
-                adaptive(dark, rgb(.20, .24, .28), rgb(.27, .31, .36)), 3, .5, 0, 3, 2,
-                false, 0);
-            case "typewriter" -> skin(id, "纸上时光", "暖纸网点 · 复古键帽", dark,
-                adaptive(dark, rgb(.89, .84, .74), rgb(.15, .13, .10)),
-                adaptive(dark, rgb(.99, .96, .88), rgb(.25, .22, .17)),
-                label(dark), adaptive(dark, rgb(.37, .25, .15), rgb(.87, .72, .51)),
-                adaptive(dark, rgb(.37, .25, .15), rgb(.40, .28, .18)), 5, 1, .30, 0, 3,
-                true, 1);
-            case "candy" -> skin(id, "奶油桃桃", "奶油波纹 · 饱满圆角", dark,
-                adaptive(dark, rgb(.99, .88, .82), rgb(.19, .12, .15)),
-                adaptive(dark, rgb(1, .97, .93), rgb(.30, .20, .24)),
-                label(dark), adaptive(dark, rgb(.58, .22, .32), rgb(1, .66, .73)),
-                adaptive(dark, rgb(.58, .22, .32), rgb(.58, .22, .32)), 18, 0, .16, 3, 2,
-                false, 3);
-            case "midnight" -> skin(id, "霓虹夜航", "紫色星点 · 霓虹描边", dark,
-                rgb(.075, .06, .14), rgb(.16, .12, .25), "#FFFFFF", rgb(.78, .69, 1),
-                rgb(.40, .23, .70), 10, 1, 0, 3, 2, false, 1);
-            case "blueprint" -> skin(id, "工程蓝图", "蓝图网格 · 等宽字形", dark,
-                rgb(.055, .13, .22), rgb(.09, .20, .32), "#FFFFFF", rgb(.54, .84, 1),
-                rgb(.12, .34, .54), 3, 1, 0, 3, 2, true, 2);
-            default -> skin("forest", "水杉绿", "清新留白 · 经典圆角", dark,
-                adaptive(dark, rgb(.91, .94, .92), rgb(.09, .13, .11)),
-                adaptive(dark, "#FFFFFF", rgb(.19, .24, .21)),
-                label(dark), adaptive(dark, rgb(.094, .36, .28), rgb(.45, .80, .65)),
-                adaptive(dark, rgb(.094, .36, .28), rgb(.12, .38, .29)), 8, 0, 0, 3, 2,
-                false, 0);
-        };
+    /** The Material 3 keyboard this host draws for the `system` theme (the design's Android tokens). */
+    public static KeyboardSkin system(boolean dark) {
+        return new KeyboardSkin("system", "跟随系统", "Material 3 · 跟随系统明暗", dark,
+            systemBackground(dark), systemKey(dark), systemFunction(dark), systemText(dark),
+            systemSecondary(dark), platformAccent(dark), platformOnAccent(dark));
     }
 
-    private static KeyboardSkin skin(String id, String title, String description, boolean dark,
-            String background, String keyBackground, String keyForeground, String accent,
-            String actionBackground, double cornerRadius, double borderWidth,
-            double shadowOpacity, double shadowRadius, double shadowOffset,
-            boolean monospaced, int pattern) {
-        return new KeyboardSkin(id, title, description, dark, background, keyBackground,
-            keyForeground, accent, actionBackground, cornerRadius, borderWidth, shadowOpacity,
-            shadowRadius, shadowOffset, monospaced, pattern);
+    /**
+     * A resolved keyboard palette in the contract's colour form (`#RRGGBB` or `#RRGGBBAA`). A null or unreadable slot is the Material 3 token for that slot, never transparent.
+     */
+    public static KeyboardSkin palette(String id, String title, boolean dark, String background,
+            String key, String functionKey, String text, String secondary, String accent,
+            String onAccent) {
+        return new KeyboardSkin(id, title, dark ? "深色主题" : "浅色主题", dark,
+            slot(background, systemBackground(dark)), slot(key, systemKey(dark)),
+            slot(functionKey, systemFunction(dark)), slot(text, systemText(dark)),
+            slot(secondary, systemSecondary(dark)), slot(accent, platformAccent(dark)),
+            slot(onAccent, platformOnAccent(dark)));
     }
 
-    private static String adaptive(boolean dark, String light, String darkValue) {
-        return dark ? darkValue : light;
-    }
-
-    private static String label(boolean dark) { return dark ? "#FFFFFF" : "#000000"; }
-
-    private static String rgb(double red, double green, double blue) {
-        return String.format(Locale.ROOT, "#%02X%02X%02X", channel(red), channel(green), channel(blue));
-    }
-
-    private static int channel(double value) {
-        return (int) Math.round(KeyboardGeometry.bounded(value, 0, 1) * 255);
-    }
-
-    private static String alpha(String rgb, double value) {
-        return String.format(Locale.ROOT, "#%02X%s", channel(value), rgb.substring(1));
-    }
-
-    public static List<KeyboardSkin> builtIns(boolean dark) {
-        return List.of(from("forest", dark), from("ocean", dark), from("rose", dark),
-            from("porcelain", dark), from("typewriter", dark), from("candy", dark),
-            from("midnight", dark), from("blueprint", dark));
-    }
-
-    public static List<KeyboardSkin> choices(boolean dark, JSONObject customDesign) {
-        return List.of(from("forest", dark), from("ocean", dark), from("rose", dark),
-            from("porcelain", dark), from("typewriter", dark), from("candy", dark),
-            from("midnight", dark), from("blueprint", dark), from("custom", dark, customDesign));
+    /** The user's full custom design from `custom_theme.keyboard`. */
+    public static KeyboardSkin custom(JSONObject design, boolean dark) {
+        return new KeyboardSkin(CustomKeyboardSkin.from(design), dark);
     }
 
     static KeyboardSkin customFixture(CustomKeyboardSkin design, boolean dark) {
         return new KeyboardSkin(design, dark);
     }
 
+    /**
+     * The keyboard for one `msime_client_resolve_theme` value.
+     *
+     * <p>`hostDark` is the mode the request was made in; a non-null `appearance` fixes the mode instead. `customDesign` is `custom_theme.keyboard` and is drawn in full when the resolved theme is custom, because the flattened palette cannot carry a photo, gradient or key shape. `title` names the theme in the picker and the skin button's description.
+     */
+    public static KeyboardSkin resolved(JSONObject theme, String title, boolean hostDark,
+            JSONObject customDesign) {
+        JSONObject keyboard = theme.optJSONObject("keyboard");
+        Map<String, String> slots = null;
+        if (keyboard != null) {
+            slots = new HashMap<>();
+            for (String slot : KEYBOARD_SLOTS) slots.put(slot, text(keyboard, slot));
+        }
+        return resolved(theme.optString("id", "system"), title, text(theme, "appearance"),
+            hostDark, slots, customDesign == null ? null : CustomKeyboardSkin.from(customDesign));
+    }
+
+    /** The slots of a resolved theme's `keyboard` object. */
+    private static final String[] KEYBOARD_SLOTS = {
+        "background", "key", "function_key", "text", "secondary", "accent", "on_accent"
+    };
+
+    /**
+     * {@link #resolved(JSONObject, String, boolean, JSONObject)} on values already read out of the resolver's answer. `appearance` is null when the theme has no fixed mode; `keyboard` maps each of {@link #KEYBOARD_SLOTS} to its colour (a slot may be null) and is itself null when the answer carries no keyboard.
+     */
+    static KeyboardSkin resolved(String id, String title, String appearance, boolean hostDark,
+            Map<String, String> keyboard, CustomKeyboardSkin customDesign) {
+        boolean dark = appearance == null ? hostDark : "dark".equals(appearance);
+        if ("custom".equals(id) && customDesign != null)
+            return new KeyboardSkin(customDesign, dark);
+        if (keyboard == null) {
+            KeyboardSkin system = system(dark);
+            return "system".equals(id) ? system : system.named(id, title);
+        }
+        return palette(id, title, dark, keyboard.get("background"), keyboard.get("key"),
+            keyboard.get("function_key"), keyboard.get("text"), keyboard.get("secondary"),
+            keyboard.get("accent"), keyboard.get("on_accent"));
+    }
+
+    /**
+     * The `msime_client_resolve_theme` request for one global theme in one host mode.
+     *
+     * <p>Android reads no skin root and no published package catalog, so the request carries neither `skins_directory` nor `package`, and it asks for the horizontal strip. `custom_theme.keyboard` stays out: it can carry a half-megabyte photo, the shared resolver only flattens it to colours, and this host draws the design itself through {@link #resolved}.
+     */
+    public static String themeRequest(String globalTheme, JSONObject customTheme, boolean dark)
+            throws JSONException {
+        JSONObject theme = new JSONObject();
+        if (customTheme != null) {
+            for (java.util.Iterator<String> keys = customTheme.keys(); keys.hasNext(); ) {
+                String name = keys.next();
+                if (!"keyboard".equals(name)) theme.put(name, customTheme.get(name));
+            }
+        }
+        return new JSONObject()
+            .put("global_theme", globalTheme)
+            .put("custom_theme", theme)
+            .put("dark", dark)
+            .put("layout", "horizontal")
+            .toString();
+    }
+
+    /** The catalog title of one global theme id, or the id itself when the catalog does not list it. */
+    public static String themeTitle(JSONArray themes, String id) {
+        for (int index = 0; index < themes.length(); index++) {
+            JSONObject entry = themes.optJSONObject(index);
+            if (entry != null && id.equals(entry.optString("id")))
+                return entry.optString("title", id);
+        }
+        return id;
+    }
+
+    private static String text(JSONObject object, String key) {
+        if (object.isNull(key)) return null;
+        return object.optString(key, null);
+    }
+
+    private KeyboardSkin named(String id, String title) {
+        return new KeyboardSkin(id, title, description, dark, background, keyBackground,
+            actionBackground, keyForeground, secondary, accent, onAccent);
+    }
+
+    /**
+     * `#RRGGBB` stays as it is; `#RRGGBBAA` (alpha last, the shared contract's form) becomes `#AARRGGBB` (alpha first, Android's form). Anything else is null.
+     */
+    public static String androidColor(String value) {
+        if (value == null || !value.startsWith("#")) return null;
+        String digits = value.substring(1).toUpperCase(Locale.ROOT);
+        if (!digits.matches("[0-9A-F]{6}|[0-9A-F]{8}")) return null;
+        return digits.length() == 6 ? "#" + digits
+            : "#" + digits.substring(6) + digits.substring(0, 6);
+    }
+
+    private static String slot(String value, String fallback) {
+        String color = androidColor(value);
+        return color == null ? fallback : color;
+    }
+
+    // ---- Material 3 tokens (the design's Android tok(), light / dark) ----
+
+    private static String systemBackground(boolean dark) { return dark ? "#1D201D" : "#E6EAE2"; }
+    private static String systemKey(boolean dark) { return dark ? "#343833" : "#FFFFFF"; }
+    private static String systemFunction(boolean dark) { return dark ? "#2A4F37" : "#CFE9D6"; }
+    private static String systemText(boolean dark) { return dark ? "#E1E3DE" : "#191C19"; }
+    private static String systemSecondary(boolean dark) { return dark ? "#C0C9BF" : "#414941"; }
+
+    /** The platform accent: the return key's fill while composing and every native accent. */
+    private static String platformAccent(boolean dark) { return dark ? "#8FD5A6" : "#2C7A4B"; }
+
+    /**
+     * Text on the platform accent. The design draws white on both, but white on the dark-mode #8FD5A6 is about 1.9:1, so the dark mode takes Material's on-primary for that green instead.
+     */
+    private static String platformOnAccent(boolean dark) { return dark ? "#003920" : "#FFFFFF"; }
+
+    /** The tinted surface of a switched-on function tile. */
+    private static String platformAccentSoft(boolean dark) { return dark ? "#2A4F37" : "#CFE9D6"; }
+
+    private static String readable(String rgb) {
+        int value = Integer.parseInt(rgb.substring(rgb.length() - 6), 16);
+        double luminance = .2126 * linear(value >> 16) + .7152 * linear(value >> 8)
+            + .0722 * linear(value);
+        return luminance > .179 ? "#000000" : "#FFFFFF";
+    }
+
+    private static double linear(int channel) {
+        double component = (channel & 255) / 255.0;
+        return component <= .04045 ? component / 12.92
+            : Math.pow((component + .055) / 1.055, 2.4);
+    }
+
+    private static int channel(double value) {
+        return (int) Math.round(Math.max(0, Math.min(1, value)) * 255);
+    }
+
+    /** `color` at a fraction of full opacity; any alpha it already carried is replaced. */
+    private static String alpha(String color, double value) {
+        return String.format(Locale.ROOT, "#%02X%s", channel(value),
+            color.substring(color.length() - 6));
+    }
+
     public String id() { return id; }
     public String title() { return title; }
     public String description() { return description; }
     public boolean dark() { return dark; }
+    /** Whether this is the user's full custom design, drawn with its own key drawable and background. */
+    public boolean designed() { return designed; }
     public String key() { return id + ":" + dark + (designKey.isEmpty() ? "" : ":" + designKey); }
     public String background() { return background; }
     public String keyBackground() { return keyBackground; }
     public String keyForeground() { return keyForeground; }
+    /** Hints, candidate numbers, translations and the space bar's label. */
+    public String secondary() { return secondary; }
+    /** The selected strip candidate's text and the theme's own accent (drawn with no fill). */
     public String accent() { return accent; }
+    /** Text on anything filled with {@link #accent()}. */
+    public String onAccent() { return onAccent; }
+    /** The tinted function-key face (shift, delete, 123, 中/英). */
+    public String functionBackground() { return actionBackground; }
+    /**
+     * The return key while composing (确认). It is not a theme colour: the design fills it with the platform accent in every theme (dc.html L2211, THEME_CONTRACT `KeyboardThemePalette`), as the iOS and Harmony keyboards do. Only the user's own keyboard design keeps its accent.
+     */
+    public String returnBackground() { return designed ? accent : platformAccent(dark); }
+    /** The label on {@link #returnBackground()}. */
+    public String returnForeground() { return designed ? onAccent : platformOnAccent(dark); }
+    /**
+     * A switched-on function tile's surface. The design draws `tileOn` from the platform tokens in every theme (`k.accentSoft`), the same on every host; only the user's own keyboard design tints it with its accent, at the shared selected-candidate tint (0x24).
+     */
+    public String accentSoft() {
+        return designed ? alpha(accent, 0x24 / 255.0) : platformAccentSoft(dark);
+    }
+    /** A switched-on function tile's label: the platform accent (`k.accentText`), or a keyboard design's own accent. */
+    public String accentText() { return designed ? accent : platformAccent(dark); }
     public String actionBackground() { return actionBackground; }
 
     /**
      * The rail the nine-key punctuation column sits on.
      *
-     * <p>Those four keys wear no cap of their own, so without a rail behind them the column reads as
-     * a hole in the grid. Half the key face is what the shared design puts there.
+     * <p>Those four keys wear no cap of their own, so without a rail behind them the column reads as a hole in the grid. Half the key face is what the shared design puts there.
      */
     public String sidebarBackground() { return alpha(keyBackground, .5); }
     public String actionForeground() { return actionForeground; }

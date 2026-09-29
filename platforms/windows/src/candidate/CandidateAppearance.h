@@ -8,15 +8,11 @@
 namespace msime::windows {
 // Translate the stored preferences into PreviewConfig's appearance block.
 //
-// Every field is optional on purpose. PreviewConfig validates hard - a colour
-// over 32 bytes or a font size outside 8..48 throws - and that validation runs
-// on the production launch path, so copying a bad stored value straight
-// through would turn a cosmetic preference into a Server that refuses to
-// start. A value that would not survive validation is left out instead, and
-// the built-in default stands in for it.
+// Every field is optional on purpose. PreviewConfig validates hard - a font size outside 8..48 or an unprintable font name throws - and that validation runs on the production launch path, so copying a bad stored value straight through would turn a cosmetic preference into a Server that refuses to start. A value that would not survive validation is left out instead, and the built-in default stands in for it.
 //
-// system_dark is resolved by the caller rather than read here, so this stays a
-// pure function of its inputs and the registry is not consulted under test.
+// Colours are not copied: the card, the toolbar and the menus resolve the global theme from the stored preferences at run time.
+//
+// system_dark is resolved by the caller rather than read here, so this stays a pure function of its inputs and the registry is not consulted under test.
 inline nlohmann::json candidate_appearance(const std::filesystem::path &state,
                                            const nlohmann::json &preferences,
                                            bool system_dark) {
@@ -33,9 +29,6 @@ inline nlohmann::json candidate_appearance(const std::filesystem::path &state,
                                                            : "vertical";
   appearance["candidate_preedit_style"] =
       text("candidate_preedit_style", "pinyin") == "empty" ? "empty" : "pinyin";
-  const auto skin = text("candidate_skin", "");
-  if (!skin.empty() && skin.size() <= 64)
-    appearance["skin"] = skin;
   // Mirrors PreviewConfig's own bounds, so anything kept here will load.
   auto printable = [](const std::string &value, size_t limit) {
     return !value.empty() && value.size() <= limit &&
@@ -51,17 +44,6 @@ inline nlohmann::json candidate_appearance(const std::filesystem::path &state,
     const auto size = preferences.at(name).get<int64_t>();
     if (size >= 8 && size <= 48)
       appearance[name] = static_cast<int>(size);
-  }
-  for (const char *name :
-       {"candidate_text_color", "candidate_number_color",
-        "candidate_surface_color", "candidate_border_color",
-        "candidate_selected_color", "candidate_hover_color",
-        "candidate_accent_color"}) {
-    if (!preferences.contains(name) || !preferences.at(name).is_string())
-      continue;
-    const auto value = preferences.at(name).get<std::string>();
-    if (printable(value, 32))
-      appearance[name] = value;
   }
   // Windows upstream uses the English face first for all candidate text, then
   // supplementary faces for missing glyphs, independent of input mode.

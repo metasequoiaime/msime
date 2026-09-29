@@ -3,8 +3,14 @@ import Foundation
 struct KeyboardSkinTrial: Codable, Identifiable {
   let id: UUID
   let name: String
+  /// The App Group `globalTheme` before the trial.
   let previousSelection: String?
+  /// The App Group design before the trial.
   let previousDesign: Data?
+  /// The document's `global_theme` before the trial.
+  let previousTheme: String?
+  /// The document's `custom_theme` before the trial, as JSON, nil when it had none.
+  let previousCustomTheme: Data?
   let design: CustomKeyboardSkin
 }
 
@@ -25,19 +31,25 @@ struct KeyboardSkinTrialStore {
   }
   func begin(name: String, design: CustomKeyboardSkin) throws -> KeyboardSkinTrial {
     try restorePending()
+    let document = MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: stateRoot)
+    let custom = document?["custom_theme"] as? [String: Any]
     let trial = KeyboardSkinTrial(id: UUID(), name: name,
-      previousSelection: defaults.string(forKey: KeyboardSkinPreference.key),
-      previousDesign: defaults.data(forKey: CustomKeyboardSkinStore.key), design: design.normalized)
+      previousSelection: defaults.string(forKey: GlobalThemePreference.key),
+      previousDesign: defaults.data(forKey: CustomKeyboardSkinStore.key),
+      previousTheme: document?["global_theme"] as? String,
+      previousCustomTheme: custom.flatMap { try? JSONSerialization.data(withJSONObject: $0) },
+      design: design.normalized)
     let data = try JSONEncoder().encode(trial)
     try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
     try data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-    // The keyboard takes its skin from the shared document, so a trial the document did not take would not show.
-    guard KeyboardSkinPreference.writeDocument(.custom, design: trial.design, stateRoot: stateRoot) else {
+    // The keyboard takes its theme from the shared document, so a trial the document did not take would not show.
+    guard let mapping = GlobalThemePreference.applyingDesign(trial.design),
+          MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: stateRoot, mapping) else {
       try? FileManager.default.removeItem(at: file)
       throw PersonalDictionaryStore.StoreError.unavailable
     }
     defaults.set(try JSONEncoder().encode(trial.design), forKey: CustomKeyboardSkinStore.key)
-    defaults.set(KeyboardSkin.custom.rawValue, forKey: KeyboardSkinPreference.key)
+    defaults.set(GlobalThemeCatalog.customId, forKey: GlobalThemePreference.key)
     return trial
   }
   func finish(_ id: UUID, keep: Bool) throws {
@@ -63,17 +75,18 @@ struct KeyboardSkinTrialStore {
     return try JSONDecoder().decode(KeyboardSkinTrial.self, from: data)
   }
   private func restore(_ trial: KeyboardSkinTrial) {
-    // Do not undo a different skin explicitly selected while the trial was open.
-    guard defaults.string(forKey: KeyboardSkinPreference.key) == KeyboardSkin.custom.rawValue,
+    // Do not undo a different theme or design explicitly selected while the trial was open.
+    guard defaults.string(forKey: GlobalThemePreference.key) == GlobalThemeCatalog.customId,
           let data = defaults.data(forKey: CustomKeyboardSkinStore.key),
           (try? JSONDecoder().decode(CustomKeyboardSkin.self, from: data)) == trial.design else { return }
-    let previousDesign = trial.previousDesign.flatMap { try? JSONDecoder().decode(CustomKeyboardSkin.self, from: $0) }
-    _ = KeyboardSkinPreference.writeDocument(
-      trial.previousSelection.flatMap(KeyboardSkin.init(rawValue:)) ?? .forest,
-      design: previousDesign ?? CustomKeyboardSkin(), stateRoot: stateRoot)
+    let previousCustom = trial.previousCustomTheme.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+    _ = MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: stateRoot) { document in
+      document["global_theme"] = trial.previousTheme ?? GlobalThemeCatalog.systemId
+      if let previousCustom { document["custom_theme"] = previousCustom } else { document.removeValue(forKey: "custom_theme") }
+    }
     if let previous = trial.previousDesign { defaults.set(previous, forKey: CustomKeyboardSkinStore.key) }
     else { defaults.removeObject(forKey: CustomKeyboardSkinStore.key) }
-    if let previous = trial.previousSelection { defaults.set(previous, forKey: KeyboardSkinPreference.key) }
-    else { defaults.removeObject(forKey: KeyboardSkinPreference.key) }
+    if let previous = trial.previousSelection { defaults.set(previous, forKey: GlobalThemePreference.key) }
+    else { defaults.removeObject(forKey: GlobalThemePreference.key) }
   }
 }

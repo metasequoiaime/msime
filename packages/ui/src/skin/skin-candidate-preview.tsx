@@ -21,7 +21,7 @@ export function SkinCandidatePreview({
   onImageError,
   count = 6,
   preedit = true,
-  helpcode = true,
+  helpcode = false,
 }: {
   orientation: "horizontal" | "vertical";
   decorated?: boolean;
@@ -29,6 +29,7 @@ export function SkinCandidatePreview({
   onImageError?: () => void;
   count?: number;
   preedit?: boolean;
+  /** Off unless the caller says otherwise: the core's default scheme is 全拼, whose helper codes stay out of the candidate window by default. */
   helpcode?: boolean;
 }) {
   const horizontal = orientation === "horizontal";

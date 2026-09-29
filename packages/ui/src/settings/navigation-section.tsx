@@ -1,3 +1,5 @@
+import { Checks } from "../core/platform-controls";
+import * as settings from "./settings-style";
 import type { NavigationPreferences, WordCharacterPreferences } from "./word-character-section";
 import { SettingCheck } from "./setting-check";
 
@@ -33,7 +35,7 @@ export interface NavigationSectionProps {
   }) => void;
 }
 
-/** Shared candidate paging controls and their mutual exclusion with 以词定字. */
+/** Shared candidate paging controls and their mutual exclusion with 以词定字: the contents of the 翻页 group. */
 export function NavigationSection({
   navigation,
   wordCharacter,
@@ -41,31 +43,29 @@ export function NavigationSection({
   onChange,
 }: NavigationSectionProps) {
   return (
-    <div className="section" role="group" aria-labelledby="paging-title">
-      <div className="section-title" id="paging-title">
-        翻页方式
+    <>
+      <div className={settings.groupBlock}>
+        <Checks
+          legend="翻页方式"
+          items={navigationOptions.map(([key, label]) => ({
+            value: key,
+            label,
+            // `mouse_wheel` is optional; unset is off, as it always drew.
+            checked: navigation[key] ?? false,
+          }))}
+          onChange={(key, enabled) =>
+            onChange({
+              navigation: { ...navigation, [key]: enabled },
+              wordCharacter:
+                enabled && wordCharacter.enabled && wordCharacter.keys === key
+                  ? { ...wordCharacter, enabled: false }
+                  : wordCharacter,
+            })
+          }
+        />
       </div>
-      <div className="input-option-content">
-        {navigationOptions.map(([key, label], index) => (
-          <div className="input-option-item" key={key}>
-            {index > 0 && <div className="input-option-divider" />}
-            <SettingCheck
-              label={label}
-              checked={navigation[key] ?? false}
-              onChange={(enabled) => {
-                onChange({
-                  navigation: { ...navigation, [key]: enabled },
-                  wordCharacter:
-                    enabled && wordCharacter.enabled && wordCharacter.keys === key
-                      ? { ...wordCharacter, enabled: false }
-                      : wordCharacter,
-                });
-              }}
-            />
-          </div>
-        ))}
-      </div>
-      {linux && <div className="input-setting-description">{linuxWheelPagingNote}</div>}
-    </div>
+      {/* IBus pages on the panel's cursor_up/down and button 4/5 only with the switch on; Fcitx5 classic UI pages by itself, so the host writes the switch into classicui's WheelForPaging once it leaves the default (platforms/linux/README.md). */}
+      {linux && <p className={settings.groupNote}>{linuxWheelPagingNote}</p>}
+    </>
   );
 }

@@ -9,9 +9,11 @@
 export const page = "leading-[1.7] [&>p]:mt-0 [&>p]:mb-3.5 [&>p]:text-secondary";
 export const subsection =
   "mt-6 border-t border-[var(--divider-color)] pt-[18px] [&>p:last-child]:mb-0";
-export const hero = "flex items-center gap-[18px] [&_p]:mt-[7px] [&_p]:mb-0";
-export const eyebrow = "text-xs tracking-[0.04em] text-muted";
-export const heroTitle = "mt-0.5 text-[22px] font-semibold text-body";
+/** The page's lead: the mark or eyebrow, a title and a line of prose, as the first block of an untitled group. */
+export const hero =
+  "flex items-center gap-[18px] px-5 py-5 [&_p]:mt-[7px] [&_p]:mb-0 [&_p]:[font-size:var(--p-sub-fs)] [&_p]:[color:var(--p-sub)]";
+export const eyebrow = "text-xs tracking-[0.04em] [color:var(--p-sub)]";
+export const heroTitle = "mt-0.5 text-[22px] font-semibold [color:var(--p-text)]";
 export const note = "flex flex-col gap-[5px] text-secondary [&>span]:text-xs [&>span]:text-muted";
 
 /**
@@ -28,29 +30,27 @@ export const guideText = "m-0! text-secondary";
 
 export const mark =
   "flex size-[62px] items-center justify-center rounded-2xl bg-raised p-2.5 [&>img]:size-12";
-/** The link lists are inset from the card edge so the dividers stop short of it, as iOS does. */
-export const linkList = "px-5 py-0";
+/** A row of a group that opens a page or a link; the group draws the dividers between rows. */
 export const linkRow =
-  "flex w-full items-center justify-between gap-4 border-0 border-b border-[var(--divider-color)] bg-transparent px-1 py-[18px] text-left last:border-b-0";
-export const linkTitle = "text-sm text-body";
+  "flex min-h-[var(--p-row-h)] w-full cursor-pointer items-center justify-between gap-4 rounded-[var(--p-row-r)] border-0 bg-[var(--p-row-bg)] text-left [padding:var(--p-row-pad)] [color:var(--p-sub)] hover:bg-[var(--p-hover)]";
+export const linkTitle = "[font-size:var(--p-row-fs)] [color:var(--p-text)]";
 
-export const version = "mt-1 text-[13px] text-muted";
-export const versionRow = "items-start";
+export const version = "mt-1 [font-size:var(--p-sub-fs)] [color:var(--p-sub)]";
+export const versionRow = "cursor-default items-start hover:bg-[var(--p-row-bg)]";
 export const updateButton = "mt-0 shrink-0 grow-0 basis-auto";
 export const updateStatus = "mt-[5px]! mb-0! text-xs";
 export const updateResult =
-  "border-b border-[var(--divider-color)] px-1 py-3.5 text-secondary [&>p]:mt-0 [&>p]:mb-2 [&>p]:text-xs [&_code]:inline-block [&_code]:max-w-full [&_code]:break-anywhere";
+  "[padding:var(--p-row-pad)] [color:var(--p-sub)] [&>p]:mt-0 [&>p]:mb-2 [&>p]:text-xs [&_code]:inline-block [&_code]:max-w-full [&_code]:break-anywhere";
 export const updateWarning = "text-danger!";
 
-export const feedbackList = "flex flex-col gap-3";
 /** Icon, body, action. The icon column narrows on a phone, where 42px of gutter is a lot to give up. */
 export const feedbackCard =
-  "grid grid-cols-[42px_minmax(0,1fr)_auto] items-center gap-3.5 max-phone:grid-cols-[36px_minmax(0,1fr)] [&>.secondary]:mt-0 [&>.secondary]:whitespace-nowrap [&>.secondary]:max-phone:col-start-2 [&>.secondary]:max-phone:justify-self-start";
+  "grid min-h-[var(--p-row-h)] grid-cols-[42px_minmax(0,1fr)_auto] items-center gap-3.5 [padding:var(--p-row-pad)] max-phone:grid-cols-[36px_minmax(0,1fr)] [&>.secondary]:mt-0 [&>.secondary]:whitespace-nowrap [&>.secondary]:max-phone:col-start-2 [&>.secondary]:max-phone:justify-self-start";
 export const feedbackIcon =
-  "flex size-[38px] items-center justify-center rounded-[10px] bg-raised text-xs font-bold text-accent";
+  "flex size-[38px] items-center justify-center rounded-[10px] bg-accent-soft text-xs font-bold [color:var(--p-accent-text)]";
 export const feedbackBody =
-  "min-w-0 [&>p]:mt-[3px] [&>p]:mb-[5px] [&>p]:text-xs [&>p]:text-muted [&_code]:block [&_code]:break-anywhere [&_code]:text-xs [&_code]:text-secondary";
-export const feedbackTitle = "font-semibold text-body";
+  "min-w-0 [&>p]:mt-[3px] [&>p]:mb-[5px] [&>p]:[font-size:var(--p-sub-fs)] [&>p]:[color:var(--p-sub)] [&_code]:block [&_code]:break-anywhere [&_code]:text-xs [&_code]:[color:var(--p-sub)]";
+export const feedbackTitle = "[font-size:var(--p-row-fs)] font-semibold [color:var(--p-text)]";
 
 // ---- the AI skin generator ----
 

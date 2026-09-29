@@ -35,16 +35,29 @@ tap() {
   [[ "$bounds" =~ ^\[([0-9]+),([0-9]+)\]\[([0-9]+),([0-9]+)\]$ ]] || { echo "Missing tap target: $1" >&2; exit 1; }
   "$adb" -s "$serial" shell input tap "$(( (BASH_REMATCH[1] + BASH_REMATCH[3]) / 2 ))" "$(( (BASH_REMATCH[2] + BASH_REMATCH[4]) / 2 ))"
 }
-# The host prepares the shipped dictionary itself on first run; there is no button to press for it
-# any more. The 键盘 tab shows the state only while preparing or after a failure, so the tab having
-# rendered with no preparation notice is what readiness looks like.
+# The host prepares the shipped dictionary itself on first run; there is no button to press for it any more. The 设置 tab shows the state only while preparing or after a failure, so the tab having rendered with no preparation notice is what readiness looks like.
+# A fresh install plays the first-launch splash and then opens onboarding over the home screen; the loop skips onboarding when it finds it, and the splash dismisses itself.
+# The 设置 tab is drawn under the splash, so 试用键盘 is in the dump while the splash still covers it, and onboarding is only started as the splash begins to fade. Readiness therefore also needs the splash gone, and has to hold on two polls a second apart so an onboarding window that is still opening gets its chance to appear and be skipped.
 "$adb" -s "$serial" shell am start -W -n app.msime.android/app.msime.client.home.HomeActivity >/dev/null
 ready=false
+settled=0
 for attempt in $(seq 1 60); do
   dump
   if [[ $(xmllint --xpath 'boolean(//node[contains(@text,"词库准备失败")])' "$xml") == true ]]; then echo "Device bootstrap failed" >&2; exit 1; fi
+  if [[ $(xmllint --xpath 'boolean(//node[contains(@resource-id,":id/onboarding_skip")])' "$xml") == true ]]; then
+    settled=0
+    tap '//node[contains(@resource-id,":id/onboarding_skip")]'
+    sleep 1
+    continue
+  fi
   if [[ $(xmllint --xpath 'boolean(//node[contains(@text,"试用键盘")])' "$xml") == true \
-     && $(xmllint --xpath 'boolean(//node[contains(@text,"正在准备词库")])' "$xml") == false ]]; then ready=true; break; fi
+     && $(xmllint --xpath 'boolean(//node[contains(@text,"正在准备词库")])' "$xml") == false \
+     && $(xmllint --xpath 'boolean(//node[contains(@resource-id,":id/home_intro")])' "$xml") == false ]]; then
+    settled=$((settled + 1))
+    if (( settled >= 2 )); then ready=true; break; fi
+  else
+    settled=0
+  fi
   sleep 1
 done
 [[ "$ready" == true ]] || { echo "Device bootstrap timed out" >&2; exit 1; }

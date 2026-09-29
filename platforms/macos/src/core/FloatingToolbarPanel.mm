@@ -10,7 +10,7 @@
 
 // The compact water-fir mark keeps the toolbar identifiable when it is detached from the settings window. It mirrors the shared MSIME app mark without loading an image resource, so it remains crisp at every toolbar scale.
 //
-// It is also the drag handle, the counterpart of the reference's ToolbarDragHandle: pressing it moves the panel through movableByWindowBackground, and the reference's IDC_SIZEALL cursor maps to the open-hand cursor, the macOS cue for a movable surface. The toolbar used to carry the reference's own handle, a #8E8CD8 bar, beside the logo; with the logo already leading the row that bar was a second mark saying the same thing, so the logo took over its job.
+// It is also the drag handle, the counterpart of the reference's ToolbarDragHandle: pressing it moves the panel through movableByWindowBackground, and the reference's IDC_SIZEALL cursor maps to the open-hand cursor, the macOS cue for a movable surface. The toolbar used to carry a grip bar beside the logo in the theme's accent, standing in for the reference's own handle; with the logo already leading the row that bar was a second mark saying the same thing, so the logo took over its job.
 @interface MetasequoiaFloatingToolbarLogoView : NSView
 @property(nonatomic) CGFloat scale;
 @end
@@ -767,15 +767,13 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     }
     const BOOL dark = MetasequoiaAppearanceIsDark(_chrome.effectiveAppearance);
     const auto tokens = _hasHostToolbarSkin ? (dark ? _darkToolbarSkin : _lightToolbarSkin)
-        : (_hasHostSkin ? (dark ? _darkSkin : _lightSkin) : MetasequoiaResolveStoredCandidateSkin(dark).tokens);
+        : (_hasHostSkin ? (dark ? _darkSkin : _lightSkin) : MetasequoiaResolveStoredTheme(dark, NO).tokens);
     _chrome.fillColor = MetasequoiaColorFromRgba(tokens.surface);
     _chrome.strokeColor = MetasequoiaColorFromRgba(tokens.border);
     NSColor *text = MetasequoiaColorFromRgba(tokens.text);
-    // The reference's native presenter constants (ApplyTheme). The skin's hover token is a candidate-row colour, opaque in the default dark skin, so it would cover the glyph.
-    NSColor *hoverFill = dark ? [NSColor colorWithSRGBRed:1.0 green:1.0 blue:1.0 alpha:0.10]
-                              : [NSColor colorWithSRGBRed:0.0 green:0.0 blue:0.0 alpha:0.08];
-    _divider.fillColor = dark ? [NSColor colorWithSRGBRed:1.0 green:1.0 blue:1.0 alpha:0.15]
-                              : [NSColor colorWithSRGBRed:0.0 green:0.0 blue:0.0 alpha:0.12];
+    // The toolbar derives from the candidate palette (THEME_CONTRACT §3): hover from the row hover and the divider from the outline. The logo is the brand mark and keeps its own colours. The hover fill is drawn under the glyph, and every theme's hover is a translucent wash of its text colour.
+    NSColor *hoverFill = MetasequoiaColorFromRgba(tokens.hover);
+    _divider.fillColor = MetasequoiaColorFromRgba(tokens.border);
     for (MetasequoiaFloatingToolbarButton *button in
          @[ _inputModeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _emojiButton, _handwritingButton, _keyboardButton, _voiceButton, _settingsButton ])
     {

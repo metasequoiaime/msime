@@ -30,7 +30,7 @@ export function mount() {
         id: "sample",
         name: "Synthetic external",
         version: "1",
-        base: "fluent",
+        base: "system",
         author: null,
         description: null,
         layouts: ["horizontal", "vertical"],

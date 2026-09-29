@@ -57,6 +57,7 @@ import {
   type LocalDictionaryKind,
   type LocalDictionaryFormat,
   type OnboardingActions,
+  type OnboardingChoices,
   type OnboardingInputScheme,
   type LinuxSetupClient,
   type LinuxSetupLine,
@@ -189,6 +190,7 @@ const client: SettingsClient = {
   readAppVersion: getVersion,
   resolveFontFamilies: (names) => invoke("resolve_font_families", { names }),
   scanSkinCatalog: () => invoke("scan_skin_catalog"),
+  resolveTheme: (request) => invoke("resolve_theme", { request }),
   readSkinToolbarCss: (id, relative) =>
     relative
       ? invoke("read_skin_stylesheet", { id, relative })
@@ -854,12 +856,15 @@ function DesktopSettings() {
         ? () => invoke("android_show_input_method_picker").then(() => undefined)
         : async () => undefined,
   };
-  const completeOnboarding = async (scheme: OnboardingInputScheme) => {
+  const completeOnboarding = async (scheme: OnboardingInputScheme, choices: OnboardingChoices) => {
     const snapshot = await client.load();
     const enabled = [...(snapshot.preferences.touch_keyboard_schemes?.enabled ?? [])];
     if (!enabled.includes(scheme)) enabled.push(scheme);
     await client.save(snapshot.revision, {
       ...snapshot.preferences,
+      ...(choices.candidateEnglishGloss === undefined
+        ? {}
+        : { candidate_english_gloss: choices.candidateEnglishGloss }),
       scheme: "quanpin",
       last_chinese_scheme: "quanpin",
       touch_keyboard_layout: scheme === "nine_key" ? "nine_key" : "twenty_six_key",
@@ -870,6 +875,8 @@ function DesktopSettings() {
       },
     });
     if (onboardingPlatform === "ios") await invoke("ios_onboarding_complete");
+    // Signing in happens on 我的, so the flow's 登录 lands there once the settings page mounts.
+    if (choices.openAccount) requestSettingsPage("account");
     setBootstrapRequired(false);
     setReplayOnboarding(false);
   };
@@ -892,7 +899,10 @@ function DesktopSettings() {
       <WelcomeFlowPage
         actions={onboardingActions}
         onComplete={completeOnboarding}
-        onSkip={onboardingPlatform === "ios" ? skipOnboarding : undefined}
+        // Android can leave too: the flow prepares the built-in dictionaries before it lets go, and those are what the next launch checks.
+        onSkip={skipOnboarding}
+        // The splash belongs to a first launch; replaying the flow from settings skips it.
+        splash={Boolean(bootstrapRequired) && !replayOnboarding}
       />
     );
   if (!settingsClient)

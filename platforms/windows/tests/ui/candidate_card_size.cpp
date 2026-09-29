@@ -28,7 +28,7 @@ int main() {
   vertical.items = {{60.0}, {120.0}, {80.0}};
   const auto stacked = candidate_card_size(vertical);
   require(near(stacked.width, 120.0 + 16.0 + 8.0 + 12.0 + 14.0));
-  require(near(stacked.height, 8.0 + 10.0 + (16.0 * 1.4 + 6.0) +
+  require(near(stacked.height, 6.0 + 6.0 + (16.0 * 1.4 + 6.0) +
                                    row16 * 3.0 + gap * 2.0));
 
   // The same candidates on one line widen the card and keep a single row.
@@ -38,7 +38,7 @@ int main() {
   require(near(inline_card.width, (60.0 + 120.0 + 80.0) + (16.0 + 8.0) * 3.0 +
                                       8.0 * 3.0 + 12.0 + 14.0));
   require(near(inline_card.height,
-               8.0 + 10.0 + (16.0 * 1.4 + 6.0) + row16));
+               6.0 + 6.0 + (16.0 * 1.4 + 6.0) + row16));
   require(inline_card.width > stacked.width &&
           inline_card.height < stacked.height);
 
@@ -67,7 +67,7 @@ int main() {
   empty.preedit_visible = false;
   const auto collapsed = candidate_card_size(empty);
   require(near(collapsed.width, 160.0));
-  require(near(collapsed.height, 8.0 + 10.0 + row16));
+  require(near(collapsed.height, 6.0 + 6.0 + row16));
   for (double font : {12.0, 24.0, 32.0}) {
     CandidateCardInput sized = empty;
     sized.font_size = font;
@@ -200,7 +200,7 @@ int main() {
     uneven.max_width = 300.0;
     const auto broken = candidate_card_size(uneven);
     require(near(broken.width, 300.0));
-    require(near(broken.height, 8.0 + 10.0 + (16.0 * 1.4 + 6.0) +
+    require(near(broken.height, 6.0 + 6.0 + (16.0 * 1.4 + 6.0) +
                                     2.0 * row16 + gap));
     const auto lines =
         candidate_page_layout(uneven.items, broken.width, metrics, true);
@@ -405,7 +405,7 @@ int main() {
   // Annotation and translation runs, spaced as the shipped presenter spaces them: the annotation 4 DIP after the text, the translation at 0.78 of the size and 0.65 of it away.
   {
     const double row = row16;
-    const double base = 8.0 + 10.0 + (16.0 * 1.4 + 6.0);
+    const double base = 6.0 + 6.0 + (16.0 * 1.4 + 6.0);
     const double translation_line = 16.0 * 0.78 * 1.25;
     require(near(metrics.translation_font, 16.0 * 0.78) &&
             near(metrics.translation_gap, 16.0 * 0.65) &&
@@ -663,29 +663,87 @@ int main() {
     require(caught);
   }
 
-  // The selection bar keeps the shipped presenter's fixed height and stays centred when the row grows, instead of stretching with it. Horizontally it is 3 DIP wide and centred on the row's left edge (itemRect.x - barWidth / 2).
+  // The Fluent selection pill: 40% of a one-line row tall, so it runs from 30% to 70% of that row, and it stays that height and centred when the row grows instead of stretching with it. Horizontally it is 3 DIP wide and centred on the row's left edge.
   {
-    const auto metrics = candidate_card_metrics(16.0, 16.0, true);
     const double row_top = 30.0, row_left = 6.0;
     const auto single = candidate_selection_bar(
-        row_left, row_top, row_top + metrics.candidate_row, 16.0);
+        row_left, row_top, row_top + metrics.candidate_row,
+        metrics.candidate_row);
     require(near(candidate_selection_bar_width, 3.0) &&
             near(single.left, row_left - 1.5) &&
             near(single.right, row_left + 1.5));
-    require(near(single.bottom - single.top, 16.0 * 0.85));
-    require(near((single.top + single.bottom) / 2.0,
-                 row_top + metrics.candidate_row / 2.0));
+    require(near(single.top, row_top + metrics.candidate_row * 0.3) &&
+            near(single.bottom, row_top + metrics.candidate_row * 0.7));
     const double wrapped_bottom = row_top + metrics.candidate_row * 3.0;
-    const auto tall = candidate_selection_bar(row_left, row_top, wrapped_bottom, 16.0);
+    const auto tall = candidate_selection_bar(row_left, row_top, wrapped_bottom,
+                                              metrics.candidate_row);
     require(near(tall.bottom - tall.top, single.bottom - single.top));
     require(near((tall.top + tall.bottom) / 2.0,
                  (row_top + wrapped_bottom) / 2.0));
-    // The height follows the font size, not the row.
-    const auto large = candidate_selection_bar(0.0, 0.0, 200.0, 32.0);
-    require(near(large.bottom - large.top, 32.0 * 0.85));
-    // A row shorter than the bar starts it at the row top, as the presenter clamps it.
-    const auto squeezed = candidate_selection_bar(0.0, 10.0, 15.0, 16.0);
+    // The height follows the line height, not the row.
+    const auto large_line = candidate_selection_bar(0.0, 0.0, 200.0, 45.2);
+    require(near(large_line.bottom - large_line.top, 45.2 * 0.4));
+    // Never shorter than twice its width, so it still reads as a pill on a tiny line.
+    const auto tiny = candidate_selection_bar(0.0, 0.0, 10.0, 5.0);
+    require(near(tiny.bottom - tiny.top, 6.0));
+    // A row shorter than the pill starts it at the row top.
+    const auto squeezed = candidate_selection_bar(0.0, 10.0, 15.0, 23.6);
     require(near(squeezed.top, 10.0) &&
-            near(squeezed.bottom - squeezed.top, 16.0 * 0.85));
+            near(squeezed.bottom - squeezed.top, 23.6 * 0.4));
+  }
+
+  // The pager shares the preedit row: the page indicator, then the previous and next arrows, right aligned to the rows' right edge. `metrics` is the 16 DIP card with its preedit row visible.
+  {
+    require(near(metrics.pager_font, 13.0) && near(metrics.pager_gap, 12.0) &&
+            near(metrics.pager_arrow, 16.0));
+    require(near(candidate_pager_width(30.0, metrics), 30.0 + 12.0 + 32.0));
+    require(near(candidate_pager_width(0.0, metrics), 0.0) &&
+            near(candidate_pager_width(std::nan(""), metrics), 0.0));
+    const auto pager = candidate_pager_layout(200.0, 30.0, metrics);
+    require(pager.has_value());
+    require(near(pager->next.right, 200.0 - 6.0) &&
+            near(pager->next.left, 200.0 - 6.0 - 16.0) &&
+            near(pager->previous.right, pager->next.left) &&
+            near(pager->previous.left, pager->next.left - 16.0) &&
+            near(pager->indicator.right, pager->previous.left - 12.0) &&
+            near(pager->indicator.left, pager->indicator.right - 30.0) &&
+            near(pager->left, pager->indicator.left));
+    require(near(pager->next.top, metrics.pad_y) &&
+            near(pager->next.bottom, metrics.pad_y + metrics.preedit_row));
+    // No indicator, no preedit row or no card draws no pager.
+    require(!candidate_pager_layout(200.0, 0.0, metrics));
+    require(!candidate_pager_layout(
+        200.0, 30.0, candidate_card_metrics(16.0, 16.0, false)));
+    require(!candidate_pager_layout(0.0, 30.0, metrics));
+
+    // The arrows are the click targets. The previous one is inert on the first page; the next one is always live, because the page count grows as the user pages.
+    const double middle = metrics.pad_y + metrics.preedit_row / 2.0;
+    const double previous_x = (pager->previous.left + pager->previous.right) / 2.0;
+    const double next_x = (pager->next.left + pager->next.right) / 2.0;
+    require(candidate_pager_hit(previous_x, middle, pager, false) == true);
+    require(!candidate_pager_hit(previous_x, middle, pager, true));
+    require(candidate_pager_hit(next_x, middle, pager, true) == false);
+    require(!candidate_pager_hit(pager->indicator.left + 1.0, middle, pager, false));
+    require(!candidate_pager_hit(next_x, metrics.pad_y + metrics.preedit_row + 1.0,
+                                 pager, false));
+    require(!candidate_pager_hit(next_x, middle, std::nullopt, false));
+
+    // Sizing makes room for the preedit, the gap and the pager, so the preedit is not clipped under the indicator.
+    CandidateCardInput paged;
+    paged.preedit_width = 120.0;
+    paged.page_width = 30.0;
+    paged.items = {{40.0}};
+    const auto card = candidate_card_size(paged);
+    require(near(card.width, 120.0 + 6.0 + 12.0 + (30.0 + 12.0 + 32.0) + 12.0 + 14.0));
+    const auto drawn = candidate_pager_layout(card.width, 30.0, metrics);
+    require(drawn && metrics.pad_x + 120.0 <= drawn->left - metrics.pager_gap);
+    // A hidden preedit row carries no pager and asks for no room.
+    paged.preedit_visible = false;
+    CandidateCardInput plain = paged;
+    plain.page_width = 0.0;
+    require(near(candidate_card_size(paged).width, candidate_card_size(plain).width));
+    // An unusable indicator measurement is refused like any other.
+    paged.page_width = -1.0;
+    require(rejected(paged));
   }
 }

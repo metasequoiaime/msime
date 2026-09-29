@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useConfirm } from "../core/confirm";
 import { errorCode } from "../core/error-code";
 import * as settings from "./settings-style";
+import { GroupList } from "../core/platform-controls";
 import { mcpFailureMessage } from "./mcp-errors";
 
 /** The assistants the host can write the entry for. */
@@ -130,93 +131,91 @@ export function McpConnectSection({
   }
 
   return (
-    <div className="section" role="group" aria-label="连接 AI 助手">
-      <div className="section-header">
-        <span className="section-title">
-          连接 AI 助手
-          <small>
-            连接后，直接告诉 AI
-            助手输入法哪里不对劲（比如卡顿、候选框不见了），它会打开诊断日志、请你把出问题的操作再做一遍，然后读日志帮你找原因。它也能读取快捷短语、设置和打字统计。通过
-            MCP（Model Context Protocol）在本机运行，不联网；除了开关诊断日志，默认不改动任何设置。
-          </small>
-        </span>
-      </div>
-      {loadFailed && <p role="alert">无法读取 MCP 服务器的状态。</p>}
-      {server && (
-        <>
-          <div className={settings.serviceRow}>
-            <span>
-              服务器程序
-              <small>
-                <code>{server.command}</code>
-                {server.installed ? "" : "（未找到，请重新安装输入法）"}
-              </small>
-            </span>
-          </div>
-          {server.config ? (
-            <>
-              <pre className={code} aria-label="MCP 配置">
-                {server.config}
-              </pre>
-              <p className="notice">
-                要让助手修改快捷短语和设置，在 args 中加入 <code>--allow-write</code>
-                ；要让它读取你的用户词库、查看编码的候选，加入 <code>--allow-dictionary-read</code>
-                ；两项都加才能增删、调整和导入词。这两项只应在你信任该助手时开启。
-              </p>
-              {copyText && (
-                <div className={settings.serviceRow}>
-                  <span>复制后粘贴到任意支持 MCP 的助手的配置中</span>
-                  <div>
-                    <button
-                      type="button"
-                      className="secondary"
-                      onClick={() =>
-                        void copyText(server.config!).then(() => {
-                          if (!mounted.current) return;
-                          setCopied(true);
-                          window.setTimeout(() => {
-                            if (mounted.current) setCopied(false);
-                          }, 1600);
-                        })
-                      }
-                    >
-                      {copied ? "已复制" : "复制配置"}
-                    </button>
-                  </div>
-                </div>
-              )}
-              {install &&
-                server.installed &&
-                server.clients.map((client) => (
-                  <div className={settings.serviceRow} key={client.id}>
-                    <span>
-                      {clientNames[client.id]}
-                      <small>
-                        <code>{client.path}</code>
-                        {client.configured ? "（已连接）" : ""}
-                      </small>
-                    </span>
+    <GroupList title="连接 AI 助手">
+      <div className={settings.managerBlock} role="group" aria-label="连接 AI 助手">
+        <p className={settings.managerNote}>
+          连接后，直接告诉 AI
+          助手输入法哪里不对劲（比如卡顿、候选框不见了），它会打开诊断日志、请你把出问题的操作再做一遍，然后读日志帮你找原因。它也能读取快捷短语、设置和打字统计。通过
+          MCP（Model Context Protocol）在本机运行，不联网；除了开关诊断日志，默认不改动任何设置。
+        </p>
+        {loadFailed && <p role="alert">无法读取 MCP 服务器的状态。</p>}
+        {server && (
+          <>
+            <div className={settings.serviceRow}>
+              <span>
+                服务器程序
+                <small>
+                  <code>{server.command}</code>
+                  {server.installed ? "" : "（未找到，请重新安装输入法）"}
+                </small>
+              </span>
+            </div>
+            {server.config ? (
+              <>
+                <pre className={code} aria-label="MCP 配置">
+                  {server.config}
+                </pre>
+                <p className="notice">
+                  要让助手修改快捷短语和设置，在 args 中加入 <code>--allow-write</code>
+                  ；要让它读取你的用户词库、查看编码的候选，加入{" "}
+                  <code>--allow-dictionary-read</code>
+                  ；两项都加才能增删、调整和导入词。这两项只应在你信任该助手时开启。
+                </p>
+                {copyText && (
+                  <div className={settings.serviceRow}>
+                    <span>复制后粘贴到任意支持 MCP 的助手的配置中</span>
                     <div>
                       <button
                         type="button"
                         className="secondary"
-                        disabled={busy !== undefined || client.configured}
-                        aria-busy={busy === client.id}
-                        onClick={() => void write(client.id)}
+                        onClick={() =>
+                          void copyText(server.config!).then(() => {
+                            if (!mounted.current) return;
+                            setCopied(true);
+                            window.setTimeout(() => {
+                              if (mounted.current) setCopied(false);
+                            }, 1600);
+                          })
+                        }
                       >
-                        {busy === client.id ? "正在写入…" : `写入 ${clientNames[client.id]}`}
+                        {copied ? "已复制" : "复制配置"}
                       </button>
                     </div>
                   </div>
-                ))}
-            </>
-          ) : (
-            <p className="notice">输入法尚未完成初始化，完成设置向导后即可连接。</p>
-          )}
-          {result && <p role="status">{result}</p>}
-        </>
-      )}
-      {confirmation}
-    </div>
+                )}
+                {install &&
+                  server.installed &&
+                  server.clients.map((client) => (
+                    <div className={settings.serviceRow} key={client.id}>
+                      <span>
+                        {clientNames[client.id]}
+                        <small>
+                          <code>{client.path}</code>
+                          {client.configured ? "（已连接）" : ""}
+                        </small>
+                      </span>
+                      <div>
+                        <button
+                          type="button"
+                          className="secondary"
+                          disabled={busy !== undefined || client.configured}
+                          aria-busy={busy === client.id}
+                          onClick={() => void write(client.id)}
+                        >
+                          {busy === client.id ? "正在写入…" : `写入 ${clientNames[client.id]}`}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+              </>
+            ) : (
+              <p className="notice">输入法尚未完成初始化，完成设置向导后即可连接。</p>
+            )}
+            {result && <p role="status">{result}</p>}
+          </>
+        )}
+        {confirmation}
+      </div>
+    </GroupList>
   );
 }

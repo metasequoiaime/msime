@@ -33,7 +33,6 @@ public:
   using Rendered = std::function<void(const CandidatePresentation &)>;
   explicit CandidateWindow(Reader reader, Click click = {}, unsigned font_size = 16,
                            unsigned preedit_font_size = 16,
-                           std::optional<COLORREF> text_color = std::nullopt,
                            std::string font_family = "Segoe UI",
                            std::vector<std::string> fallback_fonts = {},
                            std::optional<bool> dark_theme = std::nullopt,
@@ -80,6 +79,8 @@ private:
   CandidateWrapMeasure wrap_measure(const CandidatePresentation &value);
   void paint();
   std::optional<CandidateClick> hit(int x, int y);
+  // The pager arrow under a client point: true for the previous page, false for the next. None over anything else, over the previous arrow on the first page, or without a page callback.
+  std::optional<bool> pager_hit(int x, int y);
   void show_context_menu(const CandidateClick &click, POINT client_point);
   Reader reader_;
   Click click_;
@@ -91,13 +92,16 @@ private:
   std::optional<CandidatePresentation> painted_;
   // Rows as last drawn, set together with painted_. Hit testing reads these rather than recomputing, because row heights depend on text the click path should not measure again.
   std::vector<CandidateRowLayout> painted_rows_;
+  // The pager as last drawn, in card coordinates, set together with painted_. None when the preedit row drew no pager.
+  std::optional<CandidatePagerLayout> painted_pager_;
   std::optional<CandidateClick> pressed_;
+  // The pager arrow a press started on; the page turns when the release lands on the same arrow.
+  std::optional<bool> pressed_page_;
   std::optional<size_t> hovered_;
   unsigned painted_dpi_ = 0;
   bool failed_ = false;
   unsigned font_size_ = 16;
   unsigned preedit_font_size_ = 16;
-  std::optional<COLORREF> text_color_;
   // Direct2D's imaging factory is a COM server, and this thread is the Server's
   // own UI thread, which otherwise never enters an apartment.
   struct Apartment {

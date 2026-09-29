@@ -46,7 +46,7 @@ int main()
 id = "wide-card"
 name = "Wide Card"
 version = "1"
-base = "fluent"
+base = "system"
 [supports]
 layouts = ["vertical"]
 themes = ["light", "dark"]
@@ -61,7 +61,7 @@ width_dip = 0
         const char *oldHome = std::getenv("HOME");
         const std::string savedHome = oldHome == nullptr ? std::string() : std::string(oldHome);
         Require(setenv("HOME", temporary, 1) == 0, "Failed to isolate candidate panel skin root.");
-        MetasequoiaSetStoredCandidateSkin(@"fluent");
+        MetasequoiaSetStoredGlobalTheme(@"system");
         MetasequoiaCandidatePanel *panel = [MetasequoiaCandidatePanel new];
         CandidatePanelTestDelegate *delegate = [CandidatePanelTestDelegate new];
         panel.delegate = delegate;
@@ -140,9 +140,11 @@ width_dip = 0
                 "Candidate number font did not use the Windows 80% scale.");
         NSDictionary *measure = @{NSFontAttributeName : annotatedButton.font};
         NSDictionary *numberMeasure = @{NSFontAttributeName : numberFont};
-        const CGFloat needed = 8.0 + 6.0 + [@"1" sizeWithAttributes:numberMeasure].width + MSIMECandidateNumberGap +
+        // The 6pt accent-bar gutter exists only for a palette that draws the bar; the native system theme does not.
+        const CGFloat barGutter = MetasequoiaResolveStoredTheme(NO, NO).tokens.showSelectedBar ? 6.0 : 0.0;
+        const CGFloat needed = 8.0 + barGutter + [@"1" sizeWithAttributes:numberMeasure].width + MSIMECandidateNumberGap +
                                [@"水杉(Ss)" sizeWithAttributes:measure].width + 8.0;
-        Require(annotatedButton.frame.size.width + 0.5 >= needed, "Fluent layout truncated helpcode annotations.");
+        Require(annotatedButton.frame.size.width + 0.5 >= needed, "Horizontal layout truncated helpcode annotations.");
         [panel setCandidateData:[candidates subarrayWithRange:NSMakeRange(0, 5)]];
         for (NSScreen *screen in NSScreen.screens)
         {
@@ -173,7 +175,9 @@ width_dip = 0
         Require(!panel.isVisible, "An invalid caret displayed a misplaced candidate window.");
         [panel setCandidateData:@[]];
         Require(!panel.isVisible && panel.selectedCandidate == NSNotFound, "Empty data retained a visible selection.");
-        MetasequoiaSetStoredCandidateSkin(@"wide-card");
+        // A package is drawn as the custom theme's candidate skin.
+        [NSUserDefaults.standardUserDefaults setObject:@"wide-card" forKey:@"MSIMEClientCustomCandidateSkin"];
+        MetasequoiaSetStoredGlobalTheme(@"custom");
         panel.panelType = kIMKSingleColumnScrollingCandidatePanel;
         [panel setCandidateData:@[ [[NSAttributedString alloc] initWithString:@"短"] ,
                                    [[NSAttributedString alloc] initWithString:@"窄"] ]];
@@ -183,13 +187,17 @@ width_dip = 0
                 wideButton = (NSButton *)view;
         Require(wideButton != nil, "The wide-card candidate was not rendered.");
         const CGFloat cardWidth = panel.window.contentView.bounds.size.width;
-        const CGFloat contentInset = MetasequoiaResolveStoredCandidateSkin(NO).tokens.pad;
+        const CGFloat contentInset = MetasequoiaResolveStoredTheme(NO, YES).tokens.pad;
         Require(cardWidth >= 240.0 && wideButton.frame.size.width >= cardWidth - 2.0 * contentInset - 0.5,
                 "Vertical candidate highlighting did not fill the final card width.");
         Require(NSMaxX(wideButton.frame) >= cardWidth - contentInset - 0.5,
                 "Vertical candidate row did not reach the card's content edge.");
+        Require(MetasequoiaResolveStoredTheme(NO, YES).candidateSkin == "wide-card" &&
+                    MetasequoiaResolveStoredTheme(NO, NO).candidateSkin.empty(),
+                "A vertical-only package was not drawn in exactly the vertical layout.");
         [panel hide];
-        MetasequoiaSetStoredCandidateSkin(@"fluent");
+        [NSUserDefaults.standardUserDefaults removeObjectForKey:@"MSIMEClientCustomCandidateSkin"];
+        MetasequoiaSetStoredGlobalTheme(@"system");
         if (savedHome.empty()) unsetenv("HOME");
         else setenv("HOME", savedHome.c_str(), 1);
         std::filesystem::remove_all(temporary);

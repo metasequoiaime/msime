@@ -66,7 +66,7 @@ test("macOS system recognition is configurable without cloud ASR fields", async 
   fireEvent.change(screen.getByRole("combobox", { name: "结果提交策略" }), {
     target: { value: "ctrl_v" },
   });
-  expect(screen.getByRole("checkbox", { name: "启用文本润色" })).toBeTruthy();
+  expect(screen.getByRole("switch", { name: "启用文本润色" })).toBeTruthy();
   expect((screen.getByRole("combobox", { name: "识别语言" }) as HTMLInputElement).value).toBe(
     "zh-CN",
   );

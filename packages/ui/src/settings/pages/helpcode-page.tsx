@@ -1,3 +1,7 @@
+import { Fragment } from "react";
+import * as settings from "../settings-style";
+import { GroupList, Row, Select, Switch } from "../../core/platform-controls";
+
 export type HelpcodeSchema =
   | "lantian"
   | "ziranma"
@@ -12,10 +16,11 @@ export type HelpcodePreferences = {
   show_in_candidate_window?: boolean;
 };
 
-type HelpcodeKey = "quanpin_helpcode" | "shuangpin_helpcode";
+export type HelpcodeKey = "quanpin_helpcode" | "shuangpin_helpcode";
 export type HelpcodeSettings = Partial<Record<HelpcodeKey, HelpcodePreferences>>;
 
-const defaultHelpcode: Record<HelpcodeKey, HelpcodePreferences> = {
+/** The core's `default_quanpin_helpcode` / `default_shuangpin_helpcode`, used wherever a document carries no helpcode object for a scheme: this form and the candidate previews. */
+export const defaultHelpcode: Readonly<Record<HelpcodeKey, HelpcodePreferences>> = {
   quanpin_helpcode: { enabled: true, schema: "ziranma", show_in_candidate_window: false },
   shuangpin_helpcode: { enabled: true, schema: "lantian", show_in_candidate_window: true },
 };
@@ -38,7 +43,7 @@ export interface HelpcodeSettingsPageProps {
   onChange: (patch: HelpcodeSettings) => void;
 }
 
-/** The shared helper-code settings form used by desktop and mobile hosts. */
+/** The shared helper-code settings form used by desktop and mobile hosts: the 辅助码 group, shown on the 输入 page (the former `helpcode` route opens that page). */
 export function HelpcodeSettingsPage({
   value: draft,
   mobile,
@@ -49,81 +54,66 @@ export function HelpcodeSettingsPage({
 }: HelpcodeSettingsPageProps) {
   return (
     <fieldset disabled={disabled} hidden={hidden} aria-label="辅助码">
-      {showShiftEntry && (
-        <div className="section input-setting-description">
-          <p>
-            全拼或双拼组字时，按 Shift
-            再输入的字母作为辅助码交给输入引擎，用于缩小候选。五笔、日语和本地输入模式不使用辅助码。
-          </p>
-        </div>
-      )}
-      {(["shuangpin_helpcode", "quanpin_helpcode"] as const).map((key) => {
-        const label = key === "shuangpin_helpcode" ? "双拼" : "全拼";
-        const current = {
-          ...defaultHelpcode[key],
-          ...draft[key],
-        } as Required<HelpcodePreferences>;
-        return (
-          <div className="section" key={key}>
-            <label className="section-header">
-              <span className="section-title">{label}辅助码</span>
-              <input
-                className="toggle"
-                type="checkbox"
-                checked={current.enabled}
-                onChange={(event) =>
-                  onChange({
-                    [key]: { ...current, enabled: event.target.checked },
-                  })
-                }
-              />
-            </label>
-            <label className="section-header helpcode-schema">
-              <span className="section-title">{label}辅助码方案</span>
-              <select
-                disabled={!current.enabled}
-                value={current.schema}
-                onChange={(event) =>
-                  onChange({
-                    [key]: {
-                      ...current,
-                      schema: event.target.value as HelpcodeSchema,
-                    },
-                  })
-                }
-              >
-                {helpcodeSchemas.map(([schema, name]) => (
-                  <option key={schema} value={schema}>
-                    {name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="section-header">
-              {/* Each scheme has its own accessible name because both rows are visible together. */}
-              <span className="section-title">
-                {mobile ? `在候选栏中显示${label}辅助码` : `在候选窗口中显示${label}辅助码`}
-              </span>
-              <input
-                aria-label={
-                  mobile ? `在候选栏中显示${label}辅助码` : `在候选窗口中显示${label}辅助码`
-                }
-                className="toggle"
-                type="checkbox"
-                checked={current.show_in_candidate_window}
-                onChange={(event) =>
-                  onChange({
-                    [key]: {
-                      ...current,
-                      show_in_candidate_window: event.target.checked,
-                    },
-                  })
-                }
-              />
-            </label>
-          </div>
-        );
-      })}
+      <div className={settings.groups}>
+        <GroupList title="辅助码">
+          {showShiftEntry && (
+            <p className={settings.groupNote}>
+              全拼或双拼组字时，按 Shift
+              再输入的字母作为辅助码交给输入引擎，用于缩小候选。五笔、日语和本地输入模式不使用辅助码。
+            </p>
+          )}
+          {(
+            [
+              ["shuangpin_helpcode", "双拼"],
+              ["quanpin_helpcode", "全拼"],
+            ] as const
+          ).map(([key, label]) => {
+            const current = {
+              ...defaultHelpcode[key],
+              ...draft[key],
+            } as Required<HelpcodePreferences>;
+            // Named after its own scheme, the way the reference window names these: both rows are on the page at once, so one shared wording left two switches with the same accessible name and nothing to tell a screen reader -- or a test -- which one it had.
+            const display = mobile
+              ? `在候选栏中显示${label}辅助码`
+              : `在候选窗口中显示${label}辅助码`;
+            return (
+              <Fragment key={key}>
+                <Row title={`${label}辅助码`}>
+                  <Switch
+                    checked={current.enabled}
+                    onChange={(enabled) => onChange({ [key]: { ...current, enabled } })}
+                  />
+                </Row>
+                <Row title={`${label}辅助码方案`}>
+                  <Select
+                    disabled={!current.enabled}
+                    value={current.schema}
+                    onChange={(event) =>
+                      onChange({
+                        [key]: { ...current, schema: event.target.value as HelpcodeSchema },
+                      })
+                    }
+                  >
+                    {helpcodeSchemas.map(([schema, name]) => (
+                      <option key={schema} value={schema}>
+                        {name}
+                      </option>
+                    ))}
+                  </Select>
+                </Row>
+                <Row title={display}>
+                  <Switch
+                    checked={current.show_in_candidate_window}
+                    onChange={(show_in_candidate_window) =>
+                      onChange({ [key]: { ...current, show_in_candidate_window } })
+                    }
+                  />
+                </Row>
+              </Fragment>
+            );
+          })}
+        </GroupList>
+      </div>
     </fieldset>
   );
 }

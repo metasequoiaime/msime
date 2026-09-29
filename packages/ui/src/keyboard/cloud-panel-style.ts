@@ -25,7 +25,7 @@ export const clipboardButton = `rounded-md border-0 bg-[#3a3945] px-3 py-2 ${cli
 export const clipboardAddRow = "flex items-end gap-2";
 export const clipboardTextArea = `${clipboardInput} resize-y`;
 export const clipboardSubmit =
-  "rounded-md border-0 bg-[#d88bde] px-3 py-2 whitespace-nowrap text-[#241c26]";
+  "rounded-md border-0 bg-[#5fbf84] px-3 py-2 whitespace-nowrap text-[#241c26]";
 /**
  * The character counter beside the upload box. It swapped between two class names to signal the
  * over-length state and neither had a rule, so the count read the same at 3,999 and at 4,001 while

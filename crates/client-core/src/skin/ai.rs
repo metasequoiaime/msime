@@ -699,7 +699,7 @@ fn contrast(first: u32, second: u32) -> f64 {
     (first.max(second) + 0.05) / (first.min(second) + 0.05)
 }
 
-fn readable_text(background: u32) -> u32 {
+pub(crate) fn readable_text(background: u32) -> u32 {
     if luminance(background) > 0.179 {
         0
     } else {

@@ -2959,16 +2959,13 @@ void CandidateList::Render(DeviceResources &deviceResources)
             highlighted && appearance_.rowTextSelected.a > 0.001f ? appearance_.rowTextSelected : appearance_.textColor;
         ID2D1SolidColorBrush *labelBrush = deviceResources.GetSolidColorBrush(labelColor);
         ID2D1SolidColorBrush *textBrush = deviceResources.GetSolidColorBrush(textColor);
-        // 辅助码与翻译在 CSS 里都是 .text 的子节点（.cand-content / .cand-translation），
-        // 颜色继承自 .text，选中行的 `.first .text { color: ... }` 会一并覆盖它们。
-        // D2D 端分开绘制，所以这里显式跟随选中行文字色，translation 再乘 CSS 的 opacity .62。
+        // 辅助码在 CSS 里是 .text 的子节点（.cand-content），颜色继承自 .text，选中行的 `.first .text { color: ... }` 会一并覆盖它。D2D 端分开绘制，所以这里显式跟随选中行文字色。
+        // The translation is the theme's secondary colour, which the theme contract fixes to the number colour, so it draws with the label colour (rowLabelSelected on the selected row).
         const D2D1_COLOR_F &annotationColor = highlighted && appearance_.rowTextSelected.a > 0.001f
                                                   ? appearance_.rowTextSelected
                                                   : appearance_.annotationColor;
         ID2D1SolidColorBrush *annotationBrush = deviceResources.GetSolidColorBrush(annotationColor);
-        D2D1_COLOR_F translationColor = annotationColor;
-        translationColor.a *= 0.62f;
-        ID2D1SolidColorBrush *translationBrush = deviceResources.GetSolidColorBrush(translationColor);
+        ID2D1SolidColorBrush *translationBrush = labelBrush;
         if (cache.labelLayout && labelBrush)
         {
             target->DrawTextLayout(D2D1::Point2F(labelRect.x, labelRect.y), cache.labelLayout.Get(), labelBrush,

@@ -22,7 +22,7 @@ test("helper-code settings expose independent scheme updates", () => {
     />,
   );
 
-  fireEvent.click(screen.getByRole("checkbox", { name: "全拼辅助码" }));
+  fireEvent.click(screen.getByRole("switch", { name: "全拼辅助码" }));
 
   expect(onChange).toHaveBeenCalledWith({
     quanpin_helpcode: { enabled: false, schema: "ziranma", show_in_candidate_window: false },

@@ -41,7 +41,7 @@ final class KeyboardEmojiPickerView: UIView, UICollectionViewDataSource, UIColle
   private var complete = false
   private var loading = false
   private var loadGeneration: UInt64 = 0
-  private let skin = KeyboardSkinPreference.selected
+  private let skin = KeyboardTheme.current
   private let titleLabel = UILabel()
   private let letterPad = UIStackView()
   /// The letters typed so far while searching, `nil` while browsing categories.
@@ -520,7 +520,7 @@ private final class KeyboardEmojiCell: UICollectionViewCell {
 
   func show(_ item: KeyboardEmojiCatalog.Item, kaomoji: Bool = false) {
     label.font = .systemFont(ofSize: kaomoji ? 17 : 28)
-    label.textColor = KeyboardSkinPreference.selected.keyForeground
+    label.textColor = KeyboardTheme.current.keyForeground
     label.text = item.text
     accessibilityLabel = item.annotation.isEmpty ? item.text : "\(item.text)，\(item.annotation)"
   }

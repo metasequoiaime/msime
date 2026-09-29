@@ -95,7 +95,7 @@ int main() {
             [button mouseEntered:entered];
             AssertPixel(button, dark.boolValue ? 0x41434D : 0xE1E4EA);
             Press(panel, 41);
-            AssertPixel(button, dark.boolValue ? 0x535866 : 0xD7D0E0);
+            AssertPixel(button, dark.boolValue ? 0x375047 : 0xD5E4DB);
             assert([Key(panel, 56).title isEqualToString:@"Space"]);
             [button highlight:YES];
             AssertPixel(button, dark.boolValue ? 0x666A77 : 0xC7C9D0);

@@ -15,7 +15,7 @@ import androidx.core.content.ContextCompat;
 import app.msime.client.R;
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.button.MaterialButton;
-import com.google.android.material.tabs.TabLayout;
+import com.google.android.material.button.MaterialButtonToggleGroup;
 
 /**
  * 在电脑上，也用水杉：选系统，看步骤，打开发布页。
@@ -53,24 +53,33 @@ public final class DesktopDownloadActivity extends AppCompatActivity {
     private LinearLayout steps;
 
     @Override protected void onCreate(@Nullable Bundle state) {
+        AppMode.restore(this);
         super.onCreate(state);
         setContentView(R.layout.activity_desktop_download);
         MaterialToolbar bar = findViewById(R.id.desktop_bar);
         bar.setNavigationOnClickListener(ignored -> finish());
         steps = findViewById(R.id.desktop_steps);
 
-        TabLayout platforms = findViewById(R.id.desktop_platforms);
-        for (Platform value : Platform.values()) {
-            platforms.addTab(platforms.newTab().setText(value.title));
+        // The hero shows where the installers live without the scheme, the way the design prints its link.
+        ((TextView) findViewById(R.id.desktop_link)).setText(RELEASES.replaceFirst("^https://", ""));
+
+        MaterialButtonToggleGroup platforms = findViewById(R.id.desktop_platforms);
+        Platform[] values = Platform.values();
+        int[] segments = new int[values.length];
+        for (int index = 0; index < values.length; index++) {
+            MaterialButton segment = (MaterialButton) getLayoutInflater()
+                .inflate(R.layout.item_segment, platforms, false);
+            segment.setId(View.generateViewId());
+            segment.setText(values[index].title);
+            platforms.addView(segment);
+            segments[index] = segment.getId();
         }
-        platforms.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
-            @Override public void onTabSelected(TabLayout.Tab tab) {
-                showSteps(Platform.values()[tab.getPosition()]);
+        platforms.check(segments[0]);
+        platforms.addOnButtonCheckedListener((group, id, checked) -> {
+            if (!checked) return;
+            for (int index = 0; index < segments.length; index++) {
+                if (segments[index] == id) showSteps(values[index]);
             }
-
-            @Override public void onTabUnselected(TabLayout.Tab tab) {}
-
-            @Override public void onTabReselected(TabLayout.Tab tab) {}
         });
 
         MaterialButton open = findViewById(R.id.desktop_open);

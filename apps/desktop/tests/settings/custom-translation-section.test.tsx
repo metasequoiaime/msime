@@ -24,7 +24,7 @@ test("forwards endpoint, key, and enable changes", () => {
     />,
   );
 
-  fireEvent.click(screen.getByRole("checkbox", { name: "自定义翻译服务" }));
+  fireEvent.click(screen.getByRole("switch", { name: "自定义翻译服务" }));
   fireEvent.change(screen.getByLabelText("自定义翻译 Endpoint"), {
     target: { value: "https://updated.example.test" },
   });
@@ -53,6 +53,6 @@ test("shows endpoint validation and disables controls when unavailable", () => {
   expect(screen.queryByText("请填写完整的接口地址。")).toBeNull();
   expect((screen.getByLabelText("自定义翻译 Endpoint") as HTMLInputElement).disabled).toBe(true);
   expect(
-    (screen.getByRole("checkbox", { name: "自定义翻译服务" }) as HTMLInputElement).disabled,
+    (screen.getByRole("switch", { name: "自定义翻译服务" }) as HTMLInputElement).disabled,
   ).toBe(true);
 });

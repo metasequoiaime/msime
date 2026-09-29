@@ -9,8 +9,8 @@ afterEach(() => {
 });
 
 const preferences: ThemePreferences = {
-  theme: "dark",
   settings_theme: "follow",
+  screen_keyboard_theme: "follow",
   candidate_theme: "follow",
   toolbar_theme: "follow",
   menu_theme: "follow",
@@ -34,6 +34,8 @@ test("theme selectors report the changed preference key", () => {
 
   fireEvent.change(screen.getByLabelText("候选窗口主题"), { target: { value: "light" } });
   expect(onChange).toHaveBeenCalledWith("candidate_theme", "light");
+  fireEvent.change(screen.getByLabelText("屏幕键盘主题"), { target: { value: "dark" } });
+  expect(onChange).toHaveBeenCalledWith("screen_keyboard_theme", "dark");
 });
 
 test("theme selectors hide menus and voice panels on a touch host", () => {

@@ -626,7 +626,7 @@ pub async fn account_preferences_upload(
         let values = account_preferences::local_account_preferences(
             &native,
             &local.preferences,
-            &local.preferences.custom_touch_keyboard_skin,
+            local.preferences.custom_theme.keyboard.as_ref(),
         )?
         .into_iter()
         .filter(|(key, _)| schema.fields.contains_key(key))

@@ -80,6 +80,13 @@ struct FeedbackView: View {
 
   var body: some View {
     Form {
+      // 帮助 moved here from 关于 in the mobile design, so the answers people look for come before the report they would otherwise write.
+      Section {
+        NavigationLink(destination: HelpView()) {
+          SettingsRowLabel(title: "使用帮助", detail: "启用键盘、输入方案、常见问题",
+                           symbol: "questionmark.circle.fill")
+        }.accessibilityIdentifier("feedbackHelpLink")
+      }
       Section("类型") {
         Picker("类型", selection: $kind) {
           ForEach(kinds, id: \.self) { Text($0).tag($0) }
@@ -135,7 +142,7 @@ struct FeedbackView: View {
         }.accessibilityIdentifier("feedbackTelegram")
       }
     }
-    .navigationTitle("反馈")
+    .navigationTitle("帮助与反馈")
     .navigationBarTitleDisplayMode(.inline)
   }
 

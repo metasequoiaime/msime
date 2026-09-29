@@ -23,9 +23,9 @@ test("mixed input preserves the threshold while toggling independent switches", 
   fireEvent.change(threshold, { target: { value: "8" } });
   expect(onChange).toHaveBeenLastCalledWith({ ...preferences, minimum_prefix: 8 });
 
-  fireEvent.click(screen.getByRole("checkbox", { name: /^emoji 混输/ }));
+  fireEvent.click(screen.getByRole("switch", { name: /^emoji 混输/ }));
   expect(onChange).toHaveBeenLastCalledWith({ ...preferences, emoji: true });
-  fireEvent.click(screen.getByRole("checkbox", { name: /^颜文字混输/ }));
+  fireEvent.click(screen.getByRole("switch", { name: /^颜文字混输/ }));
   expect(onChange).toHaveBeenLastCalledWith({ ...preferences, kaomoji: true });
 });
 
@@ -33,7 +33,7 @@ test("disabling English mixed input disables its threshold without changing its 
   const onChange = vi.fn();
   const view = render(<MixedInputSection preferences={preferences} onChange={onChange} />);
 
-  fireEvent.click(screen.getByRole("checkbox", { name: /^中英混输/ }));
+  fireEvent.click(screen.getByRole("switch", { name: /^中英混输/ }));
 
   expect(onChange).toHaveBeenCalledWith({ ...preferences, english: false });
   view.rerender(

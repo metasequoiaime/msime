@@ -247,7 +247,7 @@ void DrawPreviewCandidates(NSRect rect, const msime::mac::ResolvedSkin &skin, BO
     NSFont *numberFont = [NSFont monospacedDigitSystemFontOfSize:MAX(10.0, fontSize - 4.0) weight:NSFontWeightRegular];
     NSDictionary *preeditAttributes = @{
         NSFontAttributeName : preeditFont,
-        NSForegroundColorAttributeName : [preferences candidateTextColorWithDefault:PreviewColor(tokens.text)] ?: PreviewColor(tokens.text),
+        NSForegroundColorAttributeName : PreviewColor(tokens.text),
     };
     const CGFloat pad = 6.0;
     const CGFloat preeditHeight = PreviewPreeditHeight(preeditFontSize, preferences);
@@ -271,11 +271,11 @@ void DrawPreviewCandidates(NSRect rect, const msime::mac::ResolvedSkin &skin, BO
         NSDictionary *numberAttributes = @{
             NSFontAttributeName : numberFont,
             NSForegroundColorAttributeName :
-                PreviewColor(selected && tokens.selected.a >= 0.85f ? tokens.selectedText : tokens.number),
+                PreviewColor(selected && tokens.selected.a >= 0.85f ? tokens.selectedNumber : tokens.number),
         };
         NSDictionary *wordAttributes = @{
             NSFontAttributeName : font,
-            NSForegroundColorAttributeName : selected ? PreviewColor(tokens.selectedText) : ([preferences candidateTextColorWithDefault:PreviewColor(tokens.text)] ?: PreviewColor(tokens.text)),
+            NSForegroundColorAttributeName : selected ? PreviewColor(tokens.selectedText) : PreviewColor(tokens.text),
         };
         NSString *number = [NSString stringWithFormat:@"%ld", static_cast<long>(index + 1)];
         NSString *word = words[index];
@@ -286,7 +286,7 @@ void DrawPreviewCandidates(NSRect rect, const msime::mac::ResolvedSkin &skin, BO
         {
             NSDictionary *ellipsisAttributes = @{
                 NSFontAttributeName : font,
-                NSForegroundColorAttributeName : [preferences candidateTextColorWithDefault:PreviewColor(tokens.text)] ?: PreviewColor(tokens.text),
+                NSForegroundColorAttributeName : PreviewColor(tokens.text),
             };
             NSSize ellipsisSize = [@"…" sizeWithAttributes:ellipsisAttributes];
             if (x + ellipsisSize.width <= maxX)
@@ -382,13 +382,10 @@ CGFloat DrawPreviewToolbar(NSRect slot, const msime::mac::SkinTokens &tokens, NS
             fraction:1.0
       respectFlipped:YES
                hints:nil];
-    // The panel picks the divider and hover colours off the effective appearance rather than the skin, because the skin's own hover token is an opaque candidate-row fill. The skin surface is what decides here: a light skin under a dark system appearance draws a light toolbar, and the hairline has to be visible on the surface it is actually drawn on.
-    const msime::mac::Rgba surface = tokens.surface;
-    const BOOL dark = 0.299 * surface.r + 0.587 * surface.g + 0.114 * surface.b < 0.5;
+    // The divider takes the candidate outline, as the panel's does (THEME_CONTRACT §3).
     if (components != 0)
     {
-        [(dark ? [NSColor colorWithSRGBRed:1.0 green:1.0 blue:1.0 alpha:0.15]
-               : [NSColor colorWithSRGBRed:0.0 green:0.0 blue:0.0 alpha:0.12]) setFill];
+        [PreviewColor(tokens.border) setFill];
         NSRectFillUsingOperation(NSMakeRect(41.0 * scale, buttonTop, 1.2 * scale, buttonHeight),
                                  NSCompositingOperationSourceOver);
     }
@@ -503,15 +500,29 @@ NSDictionary<NSAttributedStringKey, id> *PreviewCaptionAttributes()
 }
 - (void)reloadPreview
 {
-    if (_preferences && (_previewSkinId == nil || [_previewSkinId isEqual:_preferences.skinID])) {
+    if (_preferences && _previewSkinId == nil) {
         _lightSkin = [_preferences resolvedSkinForDark:NO];
         _darkSkin = [_preferences resolvedSkinForDark:YES];
     } else {
+        // A card previews one choice as it would look once chosen: a global theme id as that theme (the custom theme with what the user has made of it), and an external package id as the custom theme drawing that package over its manifest base.
         const std::filesystem::path root = _preferences.skinsRoot.fileSystemRepresentation ?: "";
-        _lightSkin = msime::mac::ResolveSkin(_previewSkinId.UTF8String ?: "willow_green", false, root);
-        _darkSkin = msime::mac::ResolveSkin(_previewSkinId.UTF8String ?: "willow_green", true, root);
+        const std::string_view layout = _preferences.vertical ? "vertical" : "horizontal";
+        const std::string id = _previewSkinId.UTF8String ?: "system";
+        std::string theme = id;
+        msime::mac::CustomTheme custom;
+        if (id == "custom" && _preferences != nil) {
+            custom = [_preferences customTheme];
+        } else if (!msime::mac::IsGlobalThemeId(id)) {
+            theme = "custom";
+            custom.candidateSkin = id;
+            if (const auto package = msime::mac::LoadSkinPackage(root, id)) custom.base = package->base;
+        }
+        _lightSkin = msime::mac::ResolveSkin(theme, custom, false, layout, root);
+        _darkSkin = msime::mac::ResolveSkin(theme, custom, true, layout, root);
     }
     self.themeButton.title = [self forcedThemeButtonTitle];
+    // A theme with a fixed mode looks the same in both, so there is nothing to preview in the other.
+    self.themeButton.hidden = _lightSkin.fixedDark.has_value();
     _heightConstraint.constant = [self previewContentHeight];
     self.needsDisplay = YES;
 }
@@ -571,6 +582,11 @@ NSDictionary<NSAttributedStringKey, id> *PreviewCaptionAttributes()
 
 - (BOOL)previewUsesDark
 {
+    // A theme that fixes its mode is drawn in it whatever the system or the preview toggle says.
+    if (_lightSkin.fixedDark)
+    {
+        return *_lightSkin.fixedDark;
+    }
     if (_forcedDark != nil)
     {
         return _forcedDark.boolValue;
@@ -596,7 +612,7 @@ NSDictionary<NSAttributedStringKey, id> *PreviewCaptionAttributes()
 
 - (NSColor *)previewTextColor
 {
-    return [self.preferences candidateTextColorWithDefault:PreviewColor([self previewSkin].tokens.text)] ?: PreviewColor([self previewSkin].tokens.text);
+    return PreviewColor([self previewSkin].tokens.text);
 }
 
 - (NSColor *)previewAccentColor
@@ -750,9 +766,12 @@ NSDictionary<NSAttributedStringKey, id> *PreviewCaptionAttributes()
     [self reloadPreview];
 }
 
-/// Dark where the toolbar itself would be dark: 悬浮工具栏主题 decides, 主题模式 decides where that is 跟随全局, and where neither names an appearance the panel follows the system — as this view does, being in a window that follows the system too. It is MetasequoiaFloatingToolbarPanel -applyThemePreferences: read back.
+/// Dark where the toolbar itself would be dark: a theme with a fixed mode decides, then 悬浮工具栏主题, 主题模式 decides where that is 跟随全局, and where neither names an appearance the panel follows the system — as this view does, being in a window that follows the system too. It is MetasequoiaFloatingToolbarPanel -applyThemePreferences: read back.
 - (BOOL)previewUsesDark
 {
+    // A theme with a mode of its own draws the toolbar in that mode, as InputController tells the panel.
+    if (self.preferences != nil)
+        if (const auto fixed = [self.preferences resolvedSkinForDark:NO].fixedDark) return *fixed;
     NSString *surface = self.preferences.toolbarTheme;
     NSString *resolved = [surface isEqual:@"dark"] || [surface isEqual:@"light"] ? surface : self.preferences.themeMode;
     if ([resolved isEqual:@"dark"]) return YES;
@@ -804,11 +823,10 @@ NSDictionary<NSAttributedStringKey, id> *PreviewCaptionAttributes()
     [canvasPath addClip];
     const ToolbarPreviewInputs toolbar = ToolbarInputs(self.preferences);
     const NSSize size = ToolbarPreviewSize(toolbar.components, toolbar.scalePercent, toolbar.fontSize);
-    const msime::mac::ResolvedSkin skin = self.preferences != nil
-                                              ? [self.preferences resolvedSkinForDark:dark]
-                                              : msime::mac::ResolveSkin("willow_green", dark, {});
+    const msime::mac::SkinTokens tokens = self.preferences != nil ? [self.preferences toolbarSkinForDark:dark]
+                                                                  : msime::mac::NativeCandidateTokens(dark);
     const CGFloat top = 14.0 + 16.0 + 4.0;
-    const CGFloat fit = DrawPreviewToolbar(NSMakeRect(14.0, top, NSWidth(self.bounds) - 28.0, size.height), skin.tokens,
+    const CGFloat fit = DrawPreviewToolbar(NSMakeRect(14.0, top, NSWidth(self.bounds) - 28.0, size.height), tokens,
                                            toolbar.components, toolbar.scalePercent, toolbar.fontSize);
     // The numbers, because they are the answer to the question this preview exists for: four scale steps and seven font sizes are 28 sizes, and several of the pairs differ by a point or two. A preview that is drawn down to fit the column says so rather than letting the user read the shrunken row as the size they picked.
     NSMutableString *caption = [NSMutableString

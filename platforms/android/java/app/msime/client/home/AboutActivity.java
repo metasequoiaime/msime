@@ -5,7 +5,6 @@ import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Bundle;
-import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -28,6 +27,7 @@ public final class AboutActivity extends AppCompatActivity {
     private static final String REPOSITORY = "https://github.com/metasequoiaime/msime";
 
     @Override protected void onCreate(@Nullable Bundle state) {
+        AppMode.restore(this);
         super.onCreate(state);
         setContentView(R.layout.activity_about);
         MaterialToolbar bar = findViewById(R.id.about_bar);
@@ -42,12 +42,9 @@ public final class AboutActivity extends AppCompatActivity {
         LinearLayout help = findViewById(R.id.about_help_rows);
         addRow(help, R.drawable.ic_about_help, "使用帮助", "启用键盘、输入方案、常见问题",
             () -> startActivity(new Intent(this, HelpActivity.class)));
-        divider(help);
         addRow(help, R.drawable.ic_about_feedback, "反馈问题与建议", "在应用内写，附带版本与设备信息",
             () -> startActivity(new Intent(this, FeedbackActivity.class)));
-        divider(help);
         addRow(help, R.drawable.ic_about_site, "官方网站", "msime.app", () -> open(SITE));
-        divider(help);
         addRow(help, R.drawable.ic_about_code, "开源代码与许可证", "GitHub", () -> open(REPOSITORY));
 
         LinearLayout privacy = findViewById(R.id.about_privacy_rows);
@@ -77,32 +74,12 @@ public final class AboutActivity extends AppCompatActivity {
         }
     }
 
+    /** A list row inside a card: the shared M3 row, brought in to the card's 16dp inset. No dividers; the card already groups them. */
     private void addRow(LinearLayout parent, @androidx.annotation.DrawableRes int icon,
             String title, String value, Runnable action) {
-        LinearLayout row = (LinearLayout) LayoutInflater.from(this)
-            .inflate(R.layout.item_setting_row, parent, false);
-        com.google.android.material.imageview.ShapeableImageView badge =
-            row.findViewById(R.id.row_badge);
-        badge.setImageResource(icon);
-        badge.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
-            androidx.core.content.ContextCompat.getColor(this, R.color.badge_field)));
-        badge.setImageTintList(android.content.res.ColorStateList.valueOf(
-            androidx.core.content.ContextCompat.getColor(this, R.color.forest)));
-        ((TextView) row.findViewById(R.id.row_title)).setText(title);
-        ((TextView) row.findViewById(R.id.row_value)).setText(value);
+        View row = ListRows.add(parent, icon, title, value, action);
+        int inset = ListRows.dp(this, 16);
+        row.setPaddingRelative(inset, row.getPaddingTop(), inset, row.getPaddingBottom());
         row.setContentDescription(title + "，" + value);
-        row.setOnClickListener(ignored -> action.run());
-        parent.addView(row);
-    }
-
-    private void divider(LinearLayout parent) {
-        View line = new View(this);
-        int height = Math.max(1, Math.round(getResources().getDisplayMetrics().density));
-        LinearLayout.LayoutParams params =
-            new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, height);
-        params.leftMargin = Math.round(16 * getResources().getDisplayMetrics().density);
-        line.setLayoutParams(params);
-        line.setBackgroundColor(androidx.core.content.ContextCompat.getColor(this, R.color.hairline));
-        parent.addView(line);
     }
 }

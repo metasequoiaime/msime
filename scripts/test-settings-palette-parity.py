@@ -14,6 +14,8 @@ the palette is most of what makes one window look like another.
 
 Whitespace differs legitimately: a long shadow is wrapped across lines here and
 written on one line there. Values are compared with their whitespace collapsed.
+
+Only the two base theme rules are guarded. The redesign's platform layer, which follows them in the same sheet and re-points the accent variables per platform, is checked against `packages/ui/src/theme/platform-tokens.ts` by a vitest instead; each base rule is therefore read from its own braces rather than to the end of the file.
 """
 import re
 import sys
@@ -46,7 +48,12 @@ def themes_of_ours(text: str) -> tuple[dict[str, str], dict[str, str]]:
     # rather than reporting the difference it exists to report.
     dark = find(text, "color-scheme: dark;", "our dark theme block")
     light = find(text, "color-scheme: light;", "our light theme block")
-    return block(text, dark, light), block(text, light, len(text))
+    return block(text, *rule_around(text, dark)), block(text, *rule_around(text, light))
+
+
+def rule_around(text: str, at: int) -> tuple[int, int]:
+    # The declaration block holding `at`: palette values carry no braces, so the nearest brace on each side bounds the rule.
+    return text.rindex("{", 0, at), text.index("}", at)
 
 
 def find(text: str, marker: str, what: str) -> int:

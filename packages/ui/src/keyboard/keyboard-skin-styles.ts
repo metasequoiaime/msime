@@ -1,22 +1,27 @@
 import type { CSSProperties } from "react";
 import { clamp } from "../core/number";
-import {
-  touchKeyboardSkinOption,
-  touchKeyboardSkinPalette,
-  type TouchKeyboardSkin,
-} from "./screen-keyboard-preview";
+import { keyboardThemeLook } from "./screen-keyboard-preview";
 import { keyboardBackgroundStyle } from "./keyboard-background";
 import { keyboardRgba, mixKeyboardColor, readableKeyboardText } from "./keyboard-colors";
-import { type TouchKeyboardSkinDesign } from "./touch-keyboard-skin-design";
+import { skinColor, type TouchKeyboardSkinDesign } from "./touch-keyboard-skin-design";
+import type { GlobalTheme } from "../theme/global-theme";
 
 export function keyboardSkinStyles(
   theme: "dark" | "light",
-  skin: TouchKeyboardSkin,
+  skin: GlobalTheme,
   customDesign?: TouchKeyboardSkinDesign,
 ): CSSProperties {
   const custom = skin === "custom" && customDesign ? customDesign : undefined;
-  const option = touchKeyboardSkinOption(skin);
-  const palette = touchKeyboardSkinPalette(theme, skin, customDesign);
+  const option = keyboardThemeLook(skin, theme);
+  const palette = custom
+    ? {
+        background: skinColor(custom.background),
+        key: skinColor(custom.keyBackground),
+        foreground: skinColor(custom.keyForeground),
+        accent: skinColor(custom.accent),
+        action: skinColor(custom.actionBackground),
+      }
+    : option.palette;
   const radius = custom?.cornerRadius ?? option.cornerRadius;
   const borderWidth = custom?.borderWidth ?? option.borderWidth;
   const shadowOpacity = custom?.shadow ?? option.shadowOpacity;
@@ -38,7 +43,7 @@ export function keyboardSkinStyles(
       ? "ui-monospace, SFMono-Regular, Consolas, monospace"
       : "inherit";
   return {
-    ...keyboardBackgroundStyle(skin, customDesign, palette),
+    ...keyboardBackgroundStyle(theme, skin, customDesign, palette),
     "--kb-background": palette.background,
     "--kb-text": palette.foreground,
     "--kb-heading": palette.accent,

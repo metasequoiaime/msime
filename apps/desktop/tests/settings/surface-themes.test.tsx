@@ -32,7 +32,8 @@ async function openAppearance(platform: string, host: Record<string, unknown> = 
       }}
     />,
   );
-  await screen.findByRole("heading", { name: "外观" });
+  // A touch host calls the same page 候选栏.
+  await screen.findByRole("heading", { name: /^候选(窗口|栏)$/ });
 }
 
 // The Android keyboard resolves both of these against its own surface setting.

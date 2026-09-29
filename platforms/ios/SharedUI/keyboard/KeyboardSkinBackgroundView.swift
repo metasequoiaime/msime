@@ -4,11 +4,10 @@ import SwiftUI
 final class KeyboardSkinBackgroundView: UIView {
   private var photoData: Data?
   private var photoImage: UIImage?
-  var designOverride: CustomKeyboardSkin?
-  var skin: KeyboardSkin = .forest {
+  var skin: KeyboardTheme = .system {
     didSet {
-      backgroundColor = skin == .custom ? CustomKeyboardSkin.color((designOverride ?? CustomKeyboardSkinStore.current).background) : skin.background
-      let data = skin == .custom ? (designOverride ?? CustomKeyboardSkinStore.current).photo : nil
+      backgroundColor = skin.background
+      let data = skin.design?.photo
       if data != photoData { photoData = data; photoImage = data.flatMap { SkinPhotoData.image(from: $0) } }
       setNeedsDisplay()
     }
@@ -25,7 +24,7 @@ final class KeyboardSkinBackgroundView: UIView {
 
   override func draw(_ rect: CGRect) {
     guard let context = UIGraphicsGetCurrentContext() else { return }
-    let design = skin == .custom ? (designOverride ?? CustomKeyboardSkinStore.current) : nil
+    let design = skin.design
     if let end = design?.gradientEnd,
        let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: [CustomKeyboardSkin.color(design!.background).cgColor, CustomKeyboardSkin.color(end).cgColor] as CFArray, locations: [0, 1]) {
       let endPoint = design?.gradientHorizontal == true ? CGPoint(x: bounds.width, y: 0) : CGPoint(x: 0, y: bounds.height)
@@ -79,13 +78,11 @@ final class KeyboardSkinBackgroundView: UIView {
 }
 
 struct KeyboardSkinBackdrop: UIViewRepresentable {
-  let skin: KeyboardSkin
-  var design: CustomKeyboardSkin? = nil
+  let skin: KeyboardTheme
   @Environment(\.colorScheme) private var colorScheme
   func makeUIView(context: Context) -> KeyboardSkinBackgroundView { KeyboardSkinBackgroundView() }
   func updateUIView(_ view: KeyboardSkinBackgroundView, context: Context) {
     view.overrideUserInterfaceStyle = colorScheme == .dark ? .dark : .light
-    view.designOverride = design
     view.skin = skin
   }
 }

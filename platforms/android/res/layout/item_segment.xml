@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One segment of an M3 segmented control; the group owning it supplies the text and the id. -->
+<com.google.android.material.button.MaterialButton
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    style="@style/Widget.MSIME.Segment"
+    android:layout_width="0dp"
+    android:layout_height="wrap_content"
+    android:layout_weight="1" />

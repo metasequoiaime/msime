@@ -77,7 +77,7 @@ final class KeyboardSymbolPanelView: UIView {
   private let loadQueue = DispatchQueue(label: "app.msime.ios.symbol-catalog", qos: .userInitiated)
   private var loadGeneration: UInt64 = 0
   private var entries: [Entry]
-  private let skin = KeyboardSkinPreference.selected
+  private let skin = KeyboardTheme.current
   private let grid = UIStackView()
   private let scroll = UIScrollView()
   private var categoryButtons: [UIButton] = []

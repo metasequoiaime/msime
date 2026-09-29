@@ -58,7 +58,7 @@ final class HandwritingInputView: UIView {
     status.textAlignment = .center
     status.numberOfLines = 2
     status.accessibilityIdentifier = "handwritingStatus"
-    status.textColor = KeyboardSkinPreference.selected.keyForeground
+    status.textColor = KeyboardTheme.current.keyForeground
     addSubview(status); status.translatesAutoresizingMaskIntoConstraints = false
     NSLayoutConstraint.activate([
       canvas.leadingAnchor.constraint(equalTo: leadingAnchor), canvas.trailingAnchor.constraint(equalTo: trailingAnchor),

@@ -27,6 +27,17 @@ fn settings_deep_link_names_a_category() {
             SettingsCategory::FloatingToolbar
         )))
     );
+    // The pages the redesigned navigation added are routable by their page ids.
+    for (argument, category) in [
+        ("settings:expression", SettingsCategory::Expression),
+        ("settings:download", SettingsCategory::Download),
+        ("settings:developer", SettingsCategory::Developer),
+    ] {
+        assert_eq!(
+            SurfaceRoute::parse(argument),
+            Ok(SurfaceRoute::Settings(Some(category)))
+        );
+    }
     assert_eq!(
         SurfaceRoute::parse("settings"),
         Ok(SurfaceRoute::Settings(None))

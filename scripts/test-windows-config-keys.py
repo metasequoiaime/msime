@@ -38,7 +38,18 @@ REFERENCE = reference_root(ROOT)
 # Keys the reference has that this repository answers somewhere other than a configuration key of
 # the same name. Each needs the reason, because "it is handled elsewhere" is exactly what someone
 # would write to make this check quiet.
-ANSWERED_ELSEWHERE: dict[str, str] = {}
+ANSWERED_ELSEWHERE: dict[str, str] = {
+    "appearance.cand_text_color": (
+        "candidate text colours come from the shared preferences global_theme / custom_theme "
+        "(custom_theme.candidate_colors), resolved through msime_client_resolve_theme and chosen "
+        "in 设置 → 主题"
+    ),
+    "appearance.candidate_skin": (
+        "the candidate window, toolbar, menu and screen keyboard skin comes from the shared "
+        "preferences global_theme / custom_theme (custom_theme.candidate_skin), resolved through "
+        "msime_client_resolve_theme and chosen in 设置 → 主题"
+    ),
+}
 
 
 def keys(text: str) -> set[str]:

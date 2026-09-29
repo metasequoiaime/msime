@@ -71,7 +71,7 @@ final class KeyboardSkinTests: XCTestCase {
     XCTAssertEqual(stored.borderWidth, 0)
     XCTAssertEqual(stored.pattern, 0)
     XCTAssertEqual(stored.keyBackground, 0x132536)
-    XCTAssertEqual(CustomKeyboardSkin.rgb(KeyboardSkin.custom.actionForeground), 0)
+    XCTAssertEqual(CustomKeyboardSkin.rgb(KeyboardTheme.designed(stored).actionForeground), 0)
     XCTAssertEqual(CustomKeyboardSkin.rgb(CustomKeyboardSkin.color(0x123456)), 0x123456)
     defaults.set(Data("invalid".utf8), forKey: CustomKeyboardSkinStore.key)
     XCTAssertEqual(CustomKeyboardSkinStore.current, CustomKeyboardSkin())
@@ -108,15 +108,9 @@ final class KeyboardSkinTests: XCTestCase {
 
   @MainActor
   func testGradientAndPhotoRenderInKeyboardBackdrop() throws {
-    let previous = KeyboardFeedbackPreference.defaults.object(forKey: CustomKeyboardSkinStore.key)
-    defer {
-      if let previous { KeyboardFeedbackPreference.defaults.set(previous, forKey: CustomKeyboardSkinStore.key) }
-      else { KeyboardFeedbackPreference.defaults.removeObject(forKey: CustomKeyboardSkinStore.key) }
-    }
     let view = KeyboardSkinBackgroundView(frame: CGRect(x: 0, y: 0, width: 320, height: 260))
     func render(_ design: CustomKeyboardSkin) -> UIImage {
-      CustomKeyboardSkinStore.save(design)
-      view.skin = .custom
+      view.skin = .designed(design)
       return UIGraphicsImageRenderer(bounds: view.bounds).image { view.layer.render(in: $0.cgContext) }
     }
     var design = CustomKeyboardSkin()
@@ -139,13 +133,8 @@ final class KeyboardSkinTests: XCTestCase {
 
   @MainActor
   func testPhotoImportBoundsAndSavedKeyboardSelection() throws {
-    let defaults = KeyboardFeedbackPreference.defaults
-    let old = defaults.object(forKey: CustomKeyboardSkinStore.key)
     let library = CustomSkinLibrary.designs
-    defer {
-      if let old { defaults.set(old, forKey: CustomKeyboardSkinStore.key) } else { defaults.removeObject(forKey: CustomKeyboardSkinStore.key) }
-      CustomSkinLibrary.save(library)
-    }
+    defer { CustomSkinLibrary.save(library) }
     let format = UIGraphicsImageRendererFormat(); format.scale = 1
     let original = UIGraphicsImageRenderer(size: CGSize(width: 2400, height: 800), format: format).image {
       UIColor.blue.setFill(); $0.fill(CGRect(x: 0, y: 0, width: 2400, height: 800))
@@ -166,14 +155,14 @@ final class KeyboardSkinTests: XCTestCase {
     design.photo = data; design.keyOpacity = 0.45
     let item = SavedKeyboardSkin(name: "照片夜色", design: design)
     CustomSkinLibrary.save([item])
-    var selection: KeyboardSkin?
-    let picker = KeyboardSkinPickerView(selected: .forest, onSelect: { selection = $0 }, onClose: {})
+    var chosen: CustomKeyboardSkin?
+    let picker = KeyboardSkinPickerView(selected: GlobalThemeCatalog.systemId, document: [:], onSelect: { _ in },
+                                        onSelectDesign: { chosen = $0 }, onClose: {})
     func descendants(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap { descendants($0) } }
     let button = try XCTUnwrap(descendants(picker).first { $0.accessibilityIdentifier == "savedSkinCard-" + item.id.uuidString } as? UIButton)
     button.sendActions(for: .primaryActionTriggered)
-    XCTAssertEqual(selection, .custom)
-    XCTAssertEqual(CustomKeyboardSkinStore.current, design)
-    XCTAssertEqual(KeyboardSkin.custom.keyBackground.cgColor.alpha, 0.45, accuracy: 0.001)
+    XCTAssertEqual(chosen, design.normalized)
+    XCTAssertEqual(KeyboardTheme.designed(design).keyBackground.cgColor.alpha, 0.45, accuracy: 0.001)
   }
 
   private func luminance(_ color: UIColor, style: UIUserInterfaceStyle) -> Double {
@@ -189,36 +178,151 @@ final class KeyboardSkinTests: XCTestCase {
 
   @MainActor
   func testChangingDesignUpdatesActualKeyboardKeys() throws {
-    let previous = KeyboardSkinPreference.selected
-    defer { KeyboardFeedbackPreference.defaults.set(previous.rawValue, forKey: KeyboardSkinPreference.key) }
+    preserveSharedTheme()
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
     controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 260 + KeyboardViewController.stripExtraHeight)
     func descendants(_ node: UIView) -> [UIView] { [node] + node.subviews.flatMap { descendants($0) } }
-    for skin in [KeyboardSkin.typewriter, .candy, .midnight, .blueprint, .forest, .custom] {
-      KeyboardFeedbackPreference.defaults.set(skin.rawValue, forKey: KeyboardSkinPreference.key)
+    let design = CustomKeyboardSkin.templates[1].1
+    for id in GlobalThemeCatalog.ids {
+      if id == GlobalThemeCatalog.customId {
+        XCTAssertTrue(GlobalThemePreference.apply(design))
+      } else {
+        XCTAssertTrue(GlobalThemePreference.save(id), id)
+      }
       controller.viewWillAppear(false)
       controller.view.layoutIfNeeded()
+      let skin = KeyboardTheme.current
+      XCTAssertEqual(skin.id, id)
       let key = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "returnKey" } as? UIButton)
-      if skin == .custom {
+      if let design = skin.design {
         let surface = try XCTUnwrap(key.configuration?.background.customView as? SkinKeySurfaceView)
-        XCTAssertEqual(surface.design, CustomKeyboardSkinStore.current)
+        XCTAssertEqual(surface.design, design)
         XCTAssertEqual(surface.fillColor, skin.actionBackground)
         continue
       }
-      XCTAssertEqual(key.configuration?.background.cornerRadius, skin.cornerRadius)
-      XCTAssertEqual(key.configuration?.background.strokeWidth, skin.borderWidth)
-      XCTAssertEqual(key.layer.shadowOpacity, skin.shadowOpacity)
+      XCTAssertEqual(key.configuration?.background.cornerRadius, skin.cornerRadius, id)
+      XCTAssertEqual(key.configuration?.background.strokeWidth, skin.borderWidth, id)
+      XCTAssertEqual(key.layer.shadowOpacity, skin.hasShadow ? 1 : 0, id)
+      // At rest return is a function key; it only takes the accent while it commits a composition (dc.html L2217).
       XCTAssertEqual(key.configuration?.background.backgroundColor?.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)),
-        skin.actionBackground.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)))
+        skin.functionKeyBackground.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)), id)
+      let shift = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "shiftButton" } as? UIButton)
+      XCTAssertEqual(shift.configuration?.background.backgroundColor?.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)),
+        skin.functionKeyBackground.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)), id)
+    }
+  }
+
+  @MainActor
+  func testReturnTakesTheAccentOnlyWhileComposing() throws {
+    preserveSharedTheme()
+    let scheme = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = scheme }
+    InputSchemePreference.scheme = .quanpin
+    XCTAssertTrue(GlobalThemePreference.save("paper"))
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 260 + KeyboardViewController.stripExtraHeight)
+    controller.viewWillAppear(false)
+    controller.view.layoutIfNeeded()
+    func descendants(_ node: UIView) -> [UIView] { [node] + node.subviews.flatMap { descendants($0) } }
+    func button(_ id: String) throws -> UIButton {
+      try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == id } as? UIButton, id)
+    }
+    let light = UITraitCollection(userInterfaceStyle: .light)
+    let skin = KeyboardTheme.current
+    func fill() throws -> UIColor? { try button("returnKey").configuration?.background.backgroundColor?.resolvedColor(with: light) }
+    XCTAssertEqual(try fill(), skin.functionKeyBackground.resolvedColor(with: light))
+    for character in "nihao" {
+      let key = try XCTUnwrap(descendants(controller.view).first {
+        $0.accessibilityLabel == "字母 \(String(character).uppercased())"
+      } as? UIButton)
+      key.sendActions(for: .primaryActionTriggered)
+    }
+    controller.view.layoutIfNeeded()
+    XCTAssertEqual(try button("returnKey").accessibilityLabel, "确认")
+    XCTAssertEqual(try fill(), skin.actionBackground.resolvedColor(with: light))
+    XCTAssertEqual(try button("returnKey").configuration?.baseForegroundColor?.resolvedColor(with: light),
+      skin.actionForeground.resolvedColor(with: light))
+    // The first candidate is the selected one: the accent, no chip.
+    let first = try button("candidate-1")
+    XCTAssertEqual(first.configuration?.baseForegroundColor?.resolvedColor(with: light), skin.accent.resolvedColor(with: light))
+    XCTAssertEqual(first.configuration?.background.backgroundColor?.cgColor.alpha ?? 0, 0)
+    XCTAssertEqual(first.configuration?.background.strokeWidth, 0)
+    XCTAssertEqual(first.layer.shadowOpacity, 0)
+    XCTAssertEqual(try button("candidate-2").configuration?.baseForegroundColor?.resolvedColor(with: light),
+      skin.keyForeground.resolvedColor(with: light))
+    // Committing ends the composition and hands return back to the function fill and the field's own label.
+    try button("returnKey").sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertNotEqual(try button("returnKey").accessibilityLabel, "确认")
+    XCTAssertEqual(try fill(), skin.functionKeyBackground.resolvedColor(with: light))
+  }
+
+  /// Hints, glosses and markers on the keyboard palette take the theme's `secondary`, in the strip and in the expanded panel alike, so they match the 候选栏 preview (THEME_CONTRACT: hints and numbers = `secondary`).
+  @MainActor
+  func testCandidateAnnotationsUseTheThemeSecondary() throws {
+    preserveSharedTheme()
+    let scheme = InputSchemePreference.scheme
+    let enabledSchemes = InputSchemePreference.enabledSchemes
+    let wubiHint = WubiCodeHintPreference.isEnabled
+    let followsDesktop = CandidatePalette.defaults.object(forKey: CandidatePalette.followsDesktopKey)
+    defer {
+      InputSchemePreference.enabledSchemes = enabledSchemes
+      InputSchemePreference.scheme = scheme
+      WubiCodeHintPreference.isEnabled = wubiHint
+      CandidatePalette.defaults.set(followsDesktop, forKey: CandidatePalette.followsDesktopKey)
+    }
+    InputSchemePreference.enabledSchemes = ChineseInputScheme.allCases
+    InputSchemePreference.scheme = .wubi
+    WubiCodeHintPreference.isEnabled = true
+    CandidatePalette.defaults.set(false, forKey: CandidatePalette.followsDesktopKey)
+    let light = UITraitCollection(userInterfaceStyle: .light)
+    func descendants(_ node: UIView) -> [UIView] { [node] + node.subviews.flatMap { descendants($0) } }
+    func annotationColors(_ button: UIButton) -> [UIColor] {
+      guard let title = button.configuration?.attributedTitle else { return [] }
+      return title.runs.compactMap { $0.uiKit.foregroundColor?.resolvedColor(with: light) }
+    }
+    let themes = GlobalThemeCatalog.ids.filter { $0 != GlobalThemeCatalog.systemId && $0 != GlobalThemeCatalog.customId }
+    XCTAssertFalse(themes.isEmpty)
+    for id in themes {
+      XCTAssertTrue(GlobalThemePreference.save(id), id)
+      let secondary = KeyboardTheme.current.secondary.resolvedColor(with: light)
+      XCTAssertNotEqual(secondary, KeyboardTheme.current.keyForeground.withAlphaComponent(0.55).resolvedColor(with: light), id)
+
+      let controller = KeyboardViewController()
+      controller.loadViewIfNeeded()
+      controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 260 + KeyboardViewController.stripExtraHeight)
+      controller.viewWillAppear(false)
+      controller.view.layoutIfNeeded()
+      let key = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 G" } as? UIButton, id)
+      key.sendActions(for: .primaryActionTriggered)
+      controller.view.layoutIfNeeded()
+      let hinted = descendants(controller.view).compactMap { $0 as? UIButton }
+        .filter { ($0.accessibilityIdentifier ?? "").hasPrefix("candidate-") && ($0.accessibilityLabel ?? "").contains("还需输入") }
+      XCTAssertFalse(hinted.isEmpty, id)
+      for button in hinted {
+        let colors = annotationColors(button)
+        XCTAssertFalse(colors.isEmpty, id)
+        XCTAssertTrue(colors.allSatisfy { $0 == secondary }, "\(id): \(colors)")
+      }
+
+      let panel = KeyboardCandidatePanelView(
+        candidates: ["你好"], preedit: "nihao",
+        annotations: [KeyboardCandidateAnnotation(text: "hello", accessibilityDescription: "释义")],
+        display: { $0 }, menuElements: { _ in [] }, onSelect: { _ in }, onClose: {})
+      panel.frame = CGRect(x: 0, y: 0, width: 390, height: 240)
+      panel.layoutIfNeeded()
+      let glossed = try XCTUnwrap(descendants(panel).first { $0.accessibilityIdentifier == "panelCandidate-1" } as? UIButton, id)
+      let colors = annotationColors(glossed)
+      XCTAssertFalse(colors.isEmpty, id)
+      XCTAssertTrue(colors.allSatisfy { $0 == secondary }, "\(id): \(colors)")
     }
   }
 
   @MainActor
   func testThemedKeySurfacesReachRealKeyboardWithoutChangingLayout() throws {
-    let defaults = KeyboardFeedbackPreference.defaults
-    let old = defaults.object(forKey: CustomKeyboardSkinStore.key)
-    let selection = KeyboardSkinPreference.selected
+    preserveSharedTheme()
     let scheme = InputSchemePreference.scheme
     let enabledSchemes = InputSchemePreference.enabledSchemes
     InputSchemePreference.enabledSchemes = ChineseInputScheme.allCases
@@ -226,18 +330,15 @@ final class KeyboardSkinTests: XCTestCase {
     defer {
       InputSchemePreference.enabledSchemes = enabledSchemes
       InputSchemePreference.scheme = scheme
-      if let old { defaults.set(old, forKey: CustomKeyboardSkinStore.key) } else { defaults.removeObject(forKey: CustomKeyboardSkinStore.key) }
-      defaults.set(selection.rawValue, forKey: KeyboardSkinPreference.key)
     }
     func descendants(_ node: UIView) -> [UIView] { [node] + node.subviews.flatMap { descendants($0) } }
-    defaults.set(KeyboardSkin.custom.rawValue, forKey: KeyboardSkinPreference.key)
     // Compare the same letter-key layout even after UI tests select nine keys. The nine-key
     // sidebar deliberately uses flat punctuation buttons without individual skin surfaces.
     var referenceFrames: [CGRect]?
     for (name, template) in CustomKeyboardSkin.templates.prefix(4) {
       var design = template
       design.monospaced = false // Typography is independent of key geometry.
-      CustomKeyboardSkinStore.save(design)
+      XCTAssertTrue(GlobalThemePreference.apply(design), name)
       let controller = KeyboardViewController()
       controller.loadViewIfNeeded()
       controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 260 + KeyboardViewController.stripExtraHeight)
@@ -261,16 +362,41 @@ final class KeyboardSkinTests: XCTestCase {
     }
   }
 
+  /// Every theme but a design's custom one, in both modes: key labels on keys and function keys, the return key's label on the accent, and the selected candidate (the accent, no fill) on the keyboard.
+  ///
+  /// The selected candidate is held to 3:1 rather than 4.5:1. It is drawn semibold, and it is the design's own pairing: the native light accent `#2C7A4B` on `#D1D4DB` measures 3.5:1 and paper's `#2C7A4B` on `#E6E1D5` 4.0:1 (dc.html L1557-1559, client-core's built-in palettes). The floor still catches a theme that loses the selection outright.
   func testSkinTextContrastInBothAppearances() {
-    for skin in KeyboardSkin.allCases where skin != .custom {
+    for id in GlobalThemeCatalog.ids {
+      let skin = KeyboardTheme.resolve(id, document: [:])
       for style in [UIUserInterfaceStyle.light, .dark] {
-        for (foreground, background) in [(skin.keyForeground, skin.keyBackground),
-          (skin.actionForeground, skin.actionBackground), (skin.accent, skin.keyBackground)] {
+        for (name, foreground, background, floor) in [("key", skin.keyForeground, skin.keyBackground, 4.5),
+          ("function", skin.keyForeground, skin.functionKeyBackground, 4.5),
+          ("action", skin.actionForeground, skin.actionBackground, 4.5), ("accent", skin.accent, skin.background, 3)] {
           let a = luminance(foreground, style: style), b = luminance(background, style: style)
-          XCTAssertGreaterThanOrEqual((max(a, b) + 0.05) / (min(a, b) + 0.05), 4.5, "\(skin) \(style)")
+          XCTAssertGreaterThanOrEqual((max(a, b) + 0.05) / (min(a, b) + 0.05), floor, "\(id) \(style.rawValue) \(name)")
         }
       }
     }
+  }
+
+  /// A switched-on tile is drawn from the platform tokens in every theme (dc.html `tileOn`: `k.accentSoft` / `k.accentText`), the same on every host; only a keyboard design tints it with its own accent.
+  func testSwitchedOnTileUsesThePlatformAccentInEveryTheme() {
+    // The built-in themes carry their own accent (ink's is white); those are the ones a theme-derived fill used to tint.
+    XCTAssertTrue(GlobalThemeCatalog.ids.contains { KeyboardTheme.resolve($0, document: [:]).palette != nil })
+    for id in GlobalThemeCatalog.ids {
+      let skin = KeyboardTheme.resolve(id, document: [:])
+      guard skin.design == nil else { continue }
+      for style in [UIUserInterfaceStyle.light, .dark] {
+        let traits = UITraitCollection(userInterfaceStyle: style)
+        XCTAssertEqual(skin.toggleBackground.resolvedColor(with: traits), NativeKeyboardTokens.accentSoft.resolvedColor(with: traits), "\(id) \(style.rawValue)")
+        XCTAssertEqual(skin.toggleForeground.resolvedColor(with: traits), NativeKeyboardTokens.accent.resolvedColor(with: traits), "\(id) \(style.rawValue)")
+      }
+    }
+    var design = CustomKeyboardSkin()
+    design.accent = 0xD4BBFF
+    let designed = KeyboardTheme.designed(design)
+    XCTAssertEqual(packed(designed.toggleForeground), 0xD4BBFF)
+    XCTAssertEqual(packed(designed.toggleBackground), 0xD4BBFF)
   }
 
   private func packed(_ color: UIColor) -> UInt32 {

@@ -19,7 +19,7 @@ struct CandidateSkinAssets {
 inline CandidateSkinAssets
 candidate_skin_assets(const nlohmann::json &catalog, const std::string &id,
                       const std::filesystem::path &root) {
-  if (!valid_candidate_skin_id(id) || candidate_builtin_skin(id))
+  if (!valid_candidate_skin_id(id))
     return {};
   return {candidate_skin_min_width(catalog, id),
           candidate_skin_decoration(catalog, id, root)};

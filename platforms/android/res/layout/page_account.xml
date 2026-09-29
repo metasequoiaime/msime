@@ -1,84 +1,121 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- The 我的 tab in the design's Android form: large title, the account card, then M3 row groups (工具, 个性化, 我的内容 and an untitled closing group) filled in by AccountFragment. -->
 <androidx.core.widget.NestedScrollView
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:clipToPadding="false"
-    android:paddingBottom="96dp">
+    android:paddingBottom="120dp">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="16dp">
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:accessibilityHeading="true"
+            android:paddingStart="16dp"
+            android:paddingTop="22dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="10dp"
+            android:text="@string/tab_account"
+            android:textColor="@color/ink"
+            android:textSize="28sp" />
 
         <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent" android:layout_height="wrap_content"
-            app:cardCornerRadius="18dp" app:cardElevation="1dp" app:cardBackgroundColor="@color/surface">
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:layout_marginTop="6dp"
+            android:layout_marginEnd="16dp"
+            app:cardBackgroundColor="@color/surface"
+            app:cardCornerRadius="20dp"
+            app:cardElevation="0dp"
+            app:strokeWidth="0dp">
 
-            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:gravity="center_vertical" android:orientation="horizontal" android:padding="18dp">
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
 
-                <com.google.android.material.imageview.ShapeableImageView
-                    android:id="@+id/account_avatar"
-                    android:layout_width="56dp" android:layout_height="56dp" android:padding="12dp"
-                    android:src="@drawable/ic_tab_account" android:backgroundTint="@color/forest"
-                    app:tint="@color/surface"
-                    app:shapeAppearanceOverlay="@style/Shape.Avatar" />
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:padding="16dp">
 
-                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
-                    android:layout_weight="1" android:layout_marginStart="14dp" android:orientation="vertical">
-                    <TextView android:id="@+id/account_title"
-                        android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="本机账号" android:textColor="@color/ink" android:textSize="19sp"
-                        android:textStyle="bold" />
-                    <TextView android:id="@+id/account_subtitle"
-                        android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:textColor="@color/text_secondary" android:textSize="13sp" />
+                    <com.google.android.material.imageview.ShapeableImageView
+                        android:id="@+id/account_avatar"
+                        android:layout_width="56dp"
+                        android:layout_height="56dp"
+                        android:backgroundTint="@color/forest"
+                        android:importantForAccessibility="no"
+                        android:padding="14dp"
+                        android:src="@drawable/ic_tab_account"
+                        app:shapeAppearanceOverlay="@style/Shape.Avatar"
+                        app:tint="@color/on_accent" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="14dp"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:id="@+id/account_title"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="本机账号"
+                            android:textColor="@color/ink"
+                            android:textSize="18sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/account_subtitle"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="14sp" />
+                    </LinearLayout>
                 </LinearLayout>
+
+                <!-- Sign-in lives on the account card: it is a property of this identity, not a tool. -->
+                <LinearLayout
+                    android:id="@+id/account_sign_in_rows"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingBottom="4dp" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
         <LinearLayout
-            android:id="@+id/account_sign_in_rows"
+            android:id="@+id/account_personal_rows"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="8dp"
+            android:orientation="vertical" />
+
+        <LinearLayout
+            android:id="@+id/account_storage_rows"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
             android:orientation="vertical" />
 
         <TextView
-            android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:layout_marginTop="24dp" android:layout_marginStart="4dp"
-            android:text="个性化" android:textColor="@color/text_secondary" android:textSize="13sp" />
-
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            app:cardCornerRadius="18dp" app:cardElevation="1dp" app:cardBackgroundColor="@color/surface">
-            <LinearLayout android:id="@+id/account_personal_rows"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:orientation="vertical" />
-        </com.google.android.material.card.MaterialCardView>
-
-        <TextView
-            android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:layout_marginTop="24dp" android:layout_marginStart="4dp"
-            android:text="关于" android:textColor="@color/text_secondary" android:textSize="13sp" />
-
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            app:cardCornerRadius="18dp" app:cardElevation="1dp" app:cardBackgroundColor="@color/surface">
-            <LinearLayout android:id="@+id/account_storage_rows"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:orientation="vertical" />
-        </com.google.android.material.card.MaterialCardView>
-
-        <TextView
             android:id="@+id/account_note"
-            android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:layout_marginTop="16dp" android:layout_marginStart="4dp"
-            android:textColor="@color/text_secondary" android:textSize="12sp" />
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:paddingStart="24dp"
+            android:paddingEnd="24dp"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp" />
     </LinearLayout>
 </androidx.core.widget.NestedScrollView>

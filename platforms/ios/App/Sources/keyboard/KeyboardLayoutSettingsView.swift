@@ -4,11 +4,10 @@ struct KeyboardLayoutSettingsView: View {
   @State private var keySpacing = KeyboardLayoutPreference.keySpacing
   @State private var rowSpacing = KeyboardLayoutPreference.rowSpacing
   @State private var height = KeyboardLayoutPreference.heightAdjustment
-  @State private var skin = KeyboardSkinPreference.selected
+  @State private var skin = KeyboardTheme.current
   @State private var nineKey = InputSchemePreference.scheme == .nineKey
   @State private var voice = KeyboardLayoutPreference.voiceShortcutEnabled
   @State private var tabletFullKeys = KeyboardLayoutPreference.tabletFullKeys
-  @State private var toolbar = TouchToolbarPreference()
   @State private var tabOpensCandidates = true
   @State private var dragBase: (height: Double, keySpacing: Double, rowSpacing: Double)?
   @State private var dragAxis: Axis?
@@ -23,7 +22,7 @@ struct KeyboardLayoutSettingsView: View {
       form
     }
     .tint(MetasequoiaTheme.accent)
-    .navigationTitle("键盘设置").navigationBarTitleDisplayMode(.inline)
+    .navigationTitle("键盘").navigationBarTitleDisplayMode(.inline)
     .onAppear { readPreferences() }
   }
 
@@ -128,29 +127,10 @@ struct KeyboardLayoutSettingsView: View {
         Toggle("顶部语音入口", isOn: $voice)
           .accessibilityIdentifier("appVoiceShortcutSwitch")
           .onChange(of: voice) { _ in save() }
-        NavigationLink(destination: ServiceSettingsView(kind: .voice)) {
-          Label("语音设置", systemImage: "waveform")
-        }.accessibilityIdentifier("voiceSettingsLink")
       } header: {
         Text("快捷入口")
       } footer: {
-        Text("语音入口用于打开已识别的语音结果。")
-      }
-      Section {
-        ForEach(TouchToolbarPreference.options, id: \.name) { option in
-          Toggle(option.title, isOn: Binding(
-            get: { toolbar[keyPath: option.keyPath] },
-            set: { enabled in
-              var next = toolbar
-              next[keyPath: option.keyPath] = enabled
-              saveToolbar(next)
-            }))
-          .accessibilityIdentifier("appToolbar_\(option.name)")
-        }
-      } header: {
-        Text("工具栏按钮")
-      } footer: {
-        Text("打开的功能显示在键盘顶部工具栏；关掉的仍在键盘的「更多」里。已经打开的键盘要重新唤出才生效。")
+        Text("语音入口用于打开已识别的语音结果。识别服务在「设置 → 语音输入」里配置，工具栏上的其他按钮在「设置 → 键盘工具栏」里。")
       }
       if UIDevice.current.userInterfaceIdiom == .pad {
         Section {
@@ -188,12 +168,6 @@ struct KeyboardLayoutSettingsView: View {
     if saveFailed { readPreferences() }
   }
 
-  /// A refused write leaves the switch where the document is, instead of showing a bar the keyboard will not draw.
-  private func saveToolbar(_ next: TouchToolbarPreference) {
-    saveFailed = !TouchToolbarPreference.save(next)
-    toolbar = saveFailed ? TouchToolbarPreference.load() : next
-  }
-
   private func saveTab(_ enabled: Bool) {
     saveFailed = !KeyboardLayoutPreference.saveTabShowsMoreCandidates(enabled)
     tabOpensCandidates = saveFailed
@@ -204,13 +178,12 @@ struct KeyboardLayoutSettingsView: View {
     keySpacing = KeyboardLayoutPreference.keySpacing
     rowSpacing = KeyboardLayoutPreference.rowSpacing
     height = KeyboardLayoutPreference.heightAdjustment
-    skin = KeyboardSkinPreference.selected
+    skin = KeyboardTheme.reload(MetasequoiaInputSessionBridge.loadSharedPreferences())
     nineKey = InputSchemePreference.scheme == .nineKey
     voice = KeyboardLayoutPreference.voiceShortcutEnabled
     tabletFullKeys = KeyboardLayoutPreference.tabletFullKeys
     // The document is what the keyboard will use, including a value synced from another device that no keyboard has mirrored into the App Group yet.
     guard let preferences = MetasequoiaInputSessionBridge.loadSharedPreferences() else { return }
-    toolbar = TouchToolbarPreference(in: preferences)
     tabOpensCandidates = KeyboardLayoutPreference.tabShowsMoreCandidates(preferences)
     if let tenths = (preferences["touch_key_spacing_tenths"] as? NSNumber)?.doubleValue {
       keySpacing = KeyboardGeometry.clamped(tenths / 10, 3, 6)

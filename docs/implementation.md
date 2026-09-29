@@ -21,7 +21,7 @@
 | `msime-client-core` | 宿主无关的客户端业务：`preferences`、`account`、`ai`、`cloud`、`community`、`credential`、`dictionary`、`skin`、`translation`、`voice`、`clipboard`、`punctuation`、`chinese_conversion`、`typing_statistics`、`resources`、`host_surface`、`panels`。不依赖 Tauri、React、Engine 或任何平台 API。 |
 | `msime-engine-bridge` | CXX 桥接到钉死的上游 C++ Engine Session API，另含 `dictionary_stage`、`dictionary_revision` 与词典回放工具 `MetasequoiaImeDictionaryReplay`；`examples/` 下是各类真实词库探针。 |
 | `msime-input-runtime` | 输入宿主的会话编排：焦点、候选翻页、代次选择、全半角转换、在线候选调度。含重排模型 `Reranker` 的接入。 |
-| `msime-host-api` | 版本化 C ABI（`msime_client_abi_version()` 返回 2），116 个 `msime_client_*` 导出，`crate-type = ["cdylib", "staticlib", "rlib"]`。`ffi/` 按 host/session/input/candidates/lifecycle/providers/translation/voice 分文件。 |
+| `msime-host-api` | 版本化 C ABI（`msime_client_abi_version()` 返回 3），132 个 `msime_client_*` 导出（头文件另有 2 个 `static inline` 辅助函数），`crate-type = ["cdylib", "staticlib", "rlib"]`。`ffi/` 按 host/session/input/candidates/lifecycle/providers/translation/voice 分文件。 |
 | `msime-host-macos` | macOS 宿主的 Objective-C++ 平台能力：键盘注入、账户、剪贴板、词库、文件选择器、卸载器、录音设备枚举，以及 `panel_session`、`cloud_clipboard`、`cloud_dictionary`。 |
 | `msime-host-windows` | Windows 平台能力的安全封装：语音控制器与输出、粘贴策略、Windows Ink 手写。桌面 shell 禁 unsafe，所以 Win32 调用集中在这里。 |
 | `msime-tauri-mobile-platform` | Tauri shell 在 Android/iOS 上的平台能力注入插件。 |

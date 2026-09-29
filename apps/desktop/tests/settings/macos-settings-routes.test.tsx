@@ -18,12 +18,13 @@ const snapshot: Snapshot = {
   },
 };
 
-test("macOS translation entry opens shared Input controls and saves NiuTrans drafts", async () => {
+// The translation controls live on the 表达 page. The macOS menu still asks for `input`, which `client-core` can route today; `expression` is the page this entry has to land on once the router accepts it.
+test("macOS translation settings open on the 表达 page and save NiuTrans drafts", async () => {
   const save = vi.fn().mockResolvedValue(snapshot);
   const probe = vi.fn().mockResolvedValue({ ok: true, message: "synthetic success" });
   render(
     <SettingsPage
-      initialPage="input"
+      initialPage="expression"
       client={{
         load: async () => snapshot,
         save,
@@ -33,7 +34,7 @@ test("macOS translation entry opens shared Input controls and saves NiuTrans dra
     />,
   );
   const appId = await screen.findByLabelText("NiuTrans App ID");
-  expect(screen.getByRole("heading", { name: "输入" })).toBeDefined();
+  expect(screen.getByRole("heading", { name: "表达" })).toBeDefined();
   expect(probe).not.toHaveBeenCalled();
   fireEvent.change(appId, { target: { value: "synthetic-edited" } });
   fireEvent.click(screen.getByRole("button", { name: "测试 NiuTrans 配置" }));

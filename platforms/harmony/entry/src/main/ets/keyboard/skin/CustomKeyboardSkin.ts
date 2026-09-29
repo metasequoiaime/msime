@@ -270,6 +270,11 @@ export class CustomKeyboardSkin {
     return luminance(this.actionBackgroundColor) > 0.179 ? "#000000" : "#FFFFFF";
   }
 
+  /** The shared `on_accent`: text on anything filled with the accent, by the same luminance rule. */
+  accentForeground(): string {
+    return luminance(this.accentColor) > 0.179 ? "#000000" : "#FFFFFF";
+  }
+
   cornerRadius(): number {
     return this.cornerRadiusValue;
   }

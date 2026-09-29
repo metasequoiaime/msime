@@ -1,43 +1,28 @@
 /**
- * Rendering values for the touch-keyboard skin preference, ported from
- * platforms/android/java/app/msime/client/KeyboardSkin.java.
+ * Rendering values for the touch keyboard, drawn from the shared global theme.
  *
- * Eight built-in skins plus the user's custom design. Every colour is derived here rather than in the
- * drawing code, so the same values reach the keyboard, the preview and the settings card.
+ * A skin is built one of two ways. A theme's keyboard palette (or, where the theme has none, the Harmony native tokens) gives a flat keyboard in that theme's colours. The user's custom keyboard design gives everything the editor can set, photo, gradient, key shape and material included, because this host draws the full design rather than the flattened palette. Every colour is derived here rather than in the drawing code, so the same values reach the keyboard, the preview and the picker card.
  */
 import { CustomKeyboardSkin } from "./CustomKeyboardSkin";
+import { GlobalTheme, KeyboardThemePalette } from "./GlobalTheme";
 import { KeyboardGeometry } from "../KeyboardGeometry";
 
 function clampChannel(value: number): number {
   return Math.round(KeyboardGeometry.bounded(value, 0, 1) * 255);
 }
 
-/** Matches the Java String.format("#%02X%02X%02X", ...) exactly, including the upper case. */
-function rgb(red: number, green: number, blue: number): string {
-  return (
-    "#" +
-    [clampChannel(red), clampChannel(green), clampChannel(blue)]
-      .map((channel: number) => channel.toString(16).toUpperCase().padStart(2, "0"))
-      .join("")
-  );
-}
-
-/** Produces #AARRGGBB: the alpha byte is prefixed to an existing #RRGGBB. */
+/** Produces #AARRGGBB: the alpha byte is prefixed to the #RRGGBB part of a colour, replacing any alpha it had. */
 function alpha(colour: string, value: number): string {
   return (
-    "#" + clampChannel(value).toString(16).toUpperCase().padStart(2, "0") + colour.substring(1)
+    "#" + clampChannel(value).toString(16).toUpperCase().padStart(2, "0") + colour.substring(colour.length - 6)
   );
 }
 
-function adaptive(dark: boolean, light: string, darkValue: string): string {
-  return dark ? darkValue : light;
-}
-
-function label(dark: boolean): string {
-  return dark ? "#FFFFFF" : "#000000";
-}
+/** The design's key radius, which a theme keyboard draws whatever its colours. */
+const THEME_KEY_RADIUS: number = 8;
 
 export class KeyboardSkin {
+  /** The global theme id this skin draws: `system`, a built-in id, or `custom`. */
   readonly id: string;
   readonly title: string;
   readonly description: string;
@@ -45,9 +30,21 @@ export class KeyboardSkin {
   readonly background: string;
   readonly keyBackground: string;
   readonly keyForeground: string;
+  /** Shift, delete, the symbol and number toggles: the design's `function_key`. */
+  readonly functionKeyBackground: string;
+  readonly functionKeyForeground: string;
+  /** Hints, spellings and the space-bar label. */
+  readonly secondary: string;
+  /** The selected candidate in the strip, drawn as text with no fill. */
   readonly accent: string;
+  /** Text on anything filled with `accent`. */
+  readonly onAccent: string;
+  /** The return key, which keeps the platform accent with white text whatever the theme. */
   readonly actionBackground: string;
   readonly actionForeground: string;
+  /** A switched-on tile, the logo button while its panel is open: the platform accent tint with the accent itself for the glyph, whatever the theme. */
+  readonly toggleBackground: string;
+  readonly toggleForeground: string;
   readonly cornerRadius: number;
   readonly borderWidth: number;
   readonly borderColor: string;
@@ -69,49 +66,40 @@ export class KeyboardSkin {
   private readonly designKey: string;
 
   /**
-   * A built-in skin passes design as null and takes the flat defaults; the custom skin passes the
-   * user's design and takes everything from it. One constructor rather than two so no field can be
-   * set on one path and forgotten on the other.
+   * A theme skin passes design as null and takes the flat defaults; the custom design passes the user's design and takes everything from it. One constructor rather than two so no field can be set on one path and forgotten on the other.
    */
   private constructor(
     id: string,
     title: string,
-    description: string,
     dark: boolean,
-    background: string,
-    keyBackground: string,
-    keyForeground: string,
-    accent: string,
-    actionBackground: string,
-    cornerRadius: number,
-    borderWidth: number,
-    shadowOpacity: number,
-    shadowRadius: number,
-    shadowOffset: number,
-    monospaced: boolean,
-    pattern: number,
-    design: CustomKeyboardSkin | null = null,
+    palette: KeyboardThemePalette,
+    design: CustomKeyboardSkin | null,
   ) {
     this.id = id;
     this.title = title;
-    this.description = description;
+    this.description = "";
     this.dark = dark;
-    this.background = background;
-    this.keyBackground = keyBackground;
-    this.keyForeground = keyForeground;
-    this.accent = accent;
-    this.actionBackground = actionBackground;
-    this.cornerRadius = cornerRadius;
-    this.borderWidth = borderWidth;
-    this.shadowOpacity = shadowOpacity;
-    this.shadowRadius = shadowRadius;
-    this.shadowOffset = shadowOffset;
-    this.monospaced = monospaced;
-    this.pattern = pattern;
+    this.background = palette.background;
+    this.keyBackground = palette.key;
+    this.keyForeground = palette.text;
+    this.functionKeyBackground = palette.function_key;
+    this.functionKeyForeground = palette.text;
+    this.secondary = palette.secondary;
+    this.accent = palette.accent;
+    this.onAccent = palette.on_accent;
+    this.actionBackground = GlobalTheme.accent(dark);
+    this.actionForeground = "#FFFFFF";
+    this.toggleBackground = GlobalTheme.accentSoft(dark);
+    this.toggleForeground = GlobalTheme.accent(dark);
+    this.shadowRadius = 2;
+    this.shadowOffset = 1;
     if (design === null) {
-      this.actionForeground = "#FFFFFF";
-      // Midnight carries a neon edge, so its border is far less transparent than the others.
-      this.borderColor = alpha(accent, id === "midnight" ? 0.65 : 0.28);
+      this.cornerRadius = THEME_KEY_RADIUS;
+      this.borderWidth = 0;
+      this.borderColor = alpha(palette.accent, 0.28);
+      this.shadowOpacity = 0;
+      this.monospaced = false;
+      this.pattern = 0;
       this.keyShape = "rounded";
       this.keyMaterial = "flat";
       this.keyOpacity = 1;
@@ -122,10 +110,16 @@ export class KeyboardSkin {
       this.photoSource = null;
       this.photoShade = 0.25;
       this.photoPosition = 0.5;
-      this.designKey = "";
+      // A theme's colours can change under the same id (a custom theme over a new base), so they are part of the identity.
+      this.designKey = [palette.background, palette.key, palette.function_key, palette.text,
+        palette.secondary, palette.accent].join(",");
     } else {
-      this.actionForeground = design.actionForeground();
+      this.cornerRadius = design.cornerRadius();
+      this.borderWidth = design.borderWidth();
       this.borderColor = design.borderColor();
+      this.shadowOpacity = design.shadow();
+      this.monospaced = design.monospaced();
+      this.pattern = design.pattern();
       this.keyShape = design.keyShape();
       this.keyMaterial = design.keyMaterial();
       this.keyOpacity = design.keyOpacity();
@@ -140,312 +134,48 @@ export class KeyboardSkin {
     }
   }
 
-  private static fromDesign(design: CustomKeyboardSkin, dark: boolean): KeyboardSkin {
-    return new KeyboardSkin(
-      "custom",
-      "我的皮肤",
-      "自由配色 · 自定义键帽",
-      dark,
-      design.background(),
-      design.keyBackground(),
-      design.keyForeground(),
-      design.accent(),
-      design.actionBackground(),
-      design.cornerRadius(),
-      design.borderWidth(),
-      design.shadow(),
-      2,
-      1,
-      design.monospaced(),
-      design.pattern(),
-      design,
-    );
+  /**
+   * A theme's keyboard. A `null` palette is what `system`, and a custom theme over `system` without a design, resolve to: the Harmony native tokens in the given mode.
+   */
+  static fromTheme(id: string, title: string, palette: KeyboardThemePalette | null,
+                   dark: boolean): KeyboardSkin {
+    return new KeyboardSkin(id, title, dark, palette ?? GlobalTheme.nativeKeyboard(dark), null);
   }
 
-  /** Keyboard theme wins, then the global theme, then whatever the system is doing. */
-  static resolveDark(keyboardTheme: string, globalTheme: string, systemDark: boolean): boolean {
-    if (keyboardTheme === "dark") {
+  /**
+   * The user's custom keyboard design, drawn in full. Its colours are flattened the way the shared `custom_keyboard` flattens them, so the function keys take the design's action colour and hints its text at 60%.
+   */
+  static fromDesign(title: string, design: CustomKeyboardSkin, dark: boolean): KeyboardSkin {
+    const palette: KeyboardThemePalette = {
+      background: design.background(),
+      key: design.keyBackground(),
+      function_key: design.actionBackground(),
+      text: design.keyForeground(),
+      secondary: alpha(design.keyForeground(), 0.6),
+      accent: design.accent(),
+      on_accent: design.accentForeground(),
+    };
+    const skin: KeyboardSkin = new KeyboardSkin("custom", title, dark, palette, design);
+    return skin;
+  }
+
+  /**
+   * A surface's own light/dark mode wins, then the app mode (the `theme` preference), then whatever the system is doing. A theme that fixes its appearance overrides all three; see GlobalTheme.surfaceDark.
+   */
+  static resolveDark(surfaceTheme: string, appMode: string, systemDark: boolean): boolean {
+    if (surfaceTheme === "dark") {
       return true;
     }
-    if (keyboardTheme === "light") {
+    if (surfaceTheme === "light") {
       return false;
     }
-    if (globalTheme === "dark") {
+    if (appMode === "dark") {
       return true;
     }
-    if (globalTheme === "light") {
+    if (appMode === "light") {
       return false;
     }
     return systemDark;
-  }
-
-  static from(
-    value: string | null,
-    dark: boolean = false,
-    design: CustomKeyboardSkin | null = null,
-  ): KeyboardSkin {
-    const id: string = value === null ? "" : value;
-    switch (id) {
-      case "custom":
-        return KeyboardSkin.fromDesign(
-          design === null ? CustomKeyboardSkin.defaults() : design,
-          dark,
-        );
-      case "ocean":
-        return new KeyboardSkin(
-          id,
-          "海盐蓝",
-          "海盐浅蓝 · 轻盈平面",
-          dark,
-          adaptive(dark, rgb(0.9, 0.94, 0.98), rgb(0.09, 0.12, 0.17)),
-          adaptive(dark, "#FFFFFF", rgb(0.18, 0.22, 0.29)),
-          label(dark),
-          adaptive(dark, rgb(0.12, 0.36, 0.64), rgb(0.5, 0.74, 0.98)),
-          adaptive(dark, rgb(0.12, 0.36, 0.64), rgb(0.16, 0.36, 0.62)),
-          8,
-          0,
-          0,
-          3,
-          2,
-          false,
-          0,
-        );
-      case "rose":
-        return new KeyboardSkin(
-          id,
-          "浅蔷薇",
-          "柔和蔷薇 · 简洁圆角",
-          dark,
-          adaptive(dark, rgb(0.98, 0.91, 0.94), rgb(0.16, 0.1, 0.13)),
-          adaptive(dark, "#FFFFFF", rgb(0.27, 0.19, 0.23)),
-          label(dark),
-          adaptive(dark, rgb(0.63, 0.25, 0.39), rgb(0.96, 0.62, 0.74)),
-          adaptive(dark, rgb(0.63, 0.25, 0.39), rgb(0.56, 0.23, 0.36)),
-          8,
-          0,
-          0,
-          3,
-          2,
-          false,
-          0,
-        );
-      case "porcelain":
-        return new KeyboardSkin(
-          id,
-          "素白瓷",
-          "细线边框 · 克制直角",
-          dark,
-          adaptive(dark, rgb(0.92, 0.93, 0.94), rgb(0.1, 0.11, 0.13)),
-          adaptive(dark, rgb(0.99, 0.99, 0.99), rgb(0.2, 0.21, 0.23)),
-          label(dark),
-          adaptive(dark, rgb(0.2, 0.24, 0.28), rgb(0.8, 0.84, 0.89)),
-          adaptive(dark, rgb(0.2, 0.24, 0.28), rgb(0.27, 0.31, 0.36)),
-          3,
-          0.5,
-          0,
-          3,
-          2,
-          false,
-          0,
-        );
-      case "typewriter":
-        return new KeyboardSkin(
-          id,
-          "纸上时光",
-          "暖纸网点 · 复古键帽",
-          dark,
-          adaptive(dark, rgb(0.89, 0.84, 0.74), rgb(0.15, 0.13, 0.1)),
-          adaptive(dark, rgb(0.99, 0.96, 0.88), rgb(0.25, 0.22, 0.17)),
-          label(dark),
-          adaptive(dark, rgb(0.37, 0.25, 0.15), rgb(0.87, 0.72, 0.51)),
-          adaptive(dark, rgb(0.37, 0.25, 0.15), rgb(0.4, 0.28, 0.18)),
-          5,
-          1,
-          0.3,
-          0,
-          3,
-          true,
-          1,
-        );
-      case "candy":
-        return new KeyboardSkin(
-          id,
-          "奶油桃桃",
-          "奶油波纹 · 饱满圆角",
-          dark,
-          adaptive(dark, rgb(0.99, 0.88, 0.82), rgb(0.19, 0.12, 0.15)),
-          adaptive(dark, rgb(1, 0.97, 0.93), rgb(0.3, 0.2, 0.24)),
-          label(dark),
-          adaptive(dark, rgb(0.58, 0.22, 0.32), rgb(1, 0.66, 0.73)),
-          adaptive(dark, rgb(0.58, 0.22, 0.32), rgb(0.58, 0.22, 0.32)),
-          18,
-          0,
-          0.16,
-          3,
-          2,
-          false,
-          3,
-        );
-      case "midnight":
-        return new KeyboardSkin(
-          id,
-          "霓虹夜航",
-          "紫色星点 · 霓虹描边",
-          dark,
-          rgb(0.075, 0.06, 0.14),
-          rgb(0.16, 0.12, 0.25),
-          "#FFFFFF",
-          rgb(0.78, 0.69, 1),
-          rgb(0.4, 0.23, 0.7),
-          10,
-          1,
-          0,
-          3,
-          2,
-          false,
-          1,
-        );
-      // The four source candidate skins, in their own colours rather than the nearest touch-keyboard
-      // palette. Values come from packages/ui/src/upstream/candidate-themes/skins/<id>/horizontal_*
-      // — the same stylesheets the Windows candidate window renders — so a skin looks like itself on
-      // both hosts. These are candidate palettes only: they are not in BUILT_IN_IDS, because the
-      // touch-keyboard picker is a different preference offering a different set.
-      case "fluent":
-        return new KeyboardSkin(
-          id,
-          "Fluent",
-          "云母白 · 靛紫高亮",
-          dark,
-          adaptive(dark, "#FFFFFF", "#2D2D2D"),
-          adaptive(dark, "#FFFFFF", "#414141"),
-          adaptive(dark, "#1A1A1A", "#E9E8E8"),
-          "#6B69D6",
-          "#6B69D6",
-          6,
-          0.5,
-          0,
-          3,
-          2,
-          false,
-          0,
-        );
-      case "wechat":
-        return new KeyboardSkin(
-          id,
-          "微信绿",
-          "浅灰面 · 微信绿高亮",
-          dark,
-          adaptive(dark, "#F7F7F7", "#151515"),
-          adaptive(dark, "#FFFFFF", "#2A2A2A"),
-          adaptive(dark, "#333333", "#B7B7B7"),
-          "#07C160",
-          "#07C160",
-          6,
-          0.5,
-          0,
-          3,
-          2,
-          false,
-          0,
-        );
-      case "graphite":
-        return new KeyboardSkin(
-          id,
-          "石墨",
-          "石板灰 · 冷调高亮",
-          dark,
-          adaptive(dark, "#F1F3F5", "#1C1F23"),
-          adaptive(dark, "#FBFBFC", "#23272C"),
-          adaptive(dark, "#1A1A1A", "#E9E8E8"),
-          adaptive(dark, "#5F6B7A", "#8993A0"),
-          adaptive(dark, "#5F6B7A", "#8993A0"),
-          6,
-          0.5,
-          0,
-          3,
-          2,
-          false,
-          0,
-        );
-      case "willow_green":
-        return new KeyboardSkin(
-          id,
-          "杨柳青",
-          "柳色面 · 柔绿高亮",
-          dark,
-          adaptive(dark, "#F4F5F3", "#343635"),
-          adaptive(dark, "#FBFCFA", "#414441"),
-          adaptive(dark, "#333333", "#B7B7B7"),
-          adaptive(dark, "#58B980", "#65C98D"),
-          adaptive(dark, "#58B980", "#65C98D"),
-          9,
-          0.5,
-          0,
-          3,
-          2,
-          false,
-          0,
-        );
-      case "blueprint":
-        return new KeyboardSkin(
-          id,
-          "工程蓝图",
-          "蓝图网格 · 等宽字形",
-          dark,
-          rgb(0.055, 0.13, 0.22),
-          rgb(0.09, 0.2, 0.32),
-          "#FFFFFF",
-          rgb(0.54, 0.84, 1),
-          rgb(0.12, 0.34, 0.54),
-          3,
-          1,
-          0,
-          3,
-          2,
-          true,
-          2,
-        );
-      default:
-        return new KeyboardSkin(
-          "forest",
-          "水杉绿",
-          "清新留白 · 经典圆角",
-          dark,
-          adaptive(dark, rgb(0.91, 0.94, 0.92), rgb(0.09, 0.13, 0.11)),
-          adaptive(dark, "#FFFFFF", rgb(0.19, 0.24, 0.21)),
-          label(dark),
-          adaptive(dark, rgb(0.094, 0.36, 0.28), rgb(0.45, 0.8, 0.65)),
-          adaptive(dark, rgb(0.094, 0.36, 0.28), rgb(0.12, 0.38, 0.29)),
-          8,
-          0,
-          0,
-          3,
-          2,
-          false,
-          0,
-        );
-    }
-  }
-
-  static readonly BUILT_IN_IDS: string[] = [
-    "forest",
-    "ocean",
-    "rose",
-    "porcelain",
-    "typewriter",
-    "candy",
-    "midnight",
-    "blueprint",
-  ];
-
-  static builtIns(dark: boolean): KeyboardSkin[] {
-    return KeyboardSkin.BUILT_IN_IDS.map((id: string) => KeyboardSkin.from(id, dark));
-  }
-
-  static choices(dark: boolean, design: CustomKeyboardSkin | null): KeyboardSkin[] {
-    const skins: KeyboardSkin[] = KeyboardSkin.builtIns(dark);
-    skins.push(KeyboardSkin.from("custom", dark, design));
-    return skins;
   }
 
   /**
@@ -473,8 +203,20 @@ export class KeyboardSkin {
   shadowColor(): string {
     return alpha("#000000", this.shadowOpacity);
   }
-  keySurfaceBackground(emphasized: boolean): string {
-    return emphasized ? this.actionBackground : alpha(this.keyBackground, this.keyOpacity);
+  /** A key's fill: the platform accent for an emphasized key, the function-key colour for a special one (shift, delete, 123, the language key, an idle return), and the key colour for the rest. */
+  keySurfaceBackground(emphasized: boolean, special: boolean = false): string {
+    if (emphasized) {
+      return this.actionBackground;
+    }
+    return alpha(special ? this.functionKeyBackground : this.keyBackground, this.keyOpacity);
+  }
+
+  /** The label colour matching keySurfaceBackground. */
+  keyLabelColor(emphasized: boolean, special: boolean = false): string {
+    if (emphasized) {
+      return this.actionForeground;
+    }
+    return special ? this.functionKeyForeground : this.keyForeground;
   }
   keyCornerRadius(): number {
     if (this.keyShape === "capsule") return 999;

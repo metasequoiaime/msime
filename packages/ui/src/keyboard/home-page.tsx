@@ -1,4 +1,5 @@
-import { ScreenKeyboardPreview, type TouchKeyboardSkin } from "./screen-keyboard-preview";
+import { ScreenKeyboardPreview } from "./screen-keyboard-preview";
+import { keyboardThemeId, themeEntry } from "../theme/global-theme";
 import { useCandidatePreviewTheme } from "../candidate/candidate-preview-theme";
 import type { Preferences, TouchKeyboardScheme } from "../index";
 import { touchKeyboardSchemeTitle } from "../settings/touch-keyboard-scheme-helpers";
@@ -133,21 +134,10 @@ export function HomePage({
   touchLayout?: boolean;
 }) {
   const theme = useCandidatePreviewTheme(preferences.theme, preferences.screen_keyboard_theme);
-  const skin = preferences.touch_keyboard_skin ?? "forest";
-  const customDesign = preferences.custom_touch_keyboard_skin;
-  const skinTitle =
-    skin === "custom"
-      ? "我的皮肤"
-      : ({
-          forest: "水杉绿",
-          ocean: "海盐蓝",
-          rose: "浅蔷薇",
-          porcelain: "素白瓷",
-          typewriter: "纸上时光",
-          candy: "奶油桃桃",
-          midnight: "霓虹夜航",
-          blueprint: "工程蓝图",
-        }[skin] ?? "水杉绿");
+  const selected = themeEntry(preferences.global_theme).id;
+  const skin = keyboardThemeId(selected, preferences.custom_theme);
+  const customDesign = preferences.custom_theme?.keyboard ?? undefined;
+  const skinTitle = selected === "custom" ? "我的皮肤" : themeEntry(selected).title;
   const invokeAction = (action?: () => Promise<void>) => {
     if (action) void action();
   };
@@ -202,7 +192,7 @@ export function HomePage({
         </div>
         <ScreenKeyboardPreview
           theme={theme}
-          skin={skin as TouchKeyboardSkin}
+          skin={skin}
           customDesign={customDesign}
           layout={touchLayout ? "touch" : "desktop"}
         />
@@ -389,32 +379,35 @@ export function HomePage({
  * a hairline between the rows, not a card per page.
  */
 export function MoreSettingsPage({
-  pages,
+  groups,
   onOpenPage,
 }: {
-  pages: readonly MoreSettingsPage[];
+  /** The design's navigation groups, each drawn as one list. */
+  groups: readonly (readonly MoreSettingsPage[])[];
   onOpenPage: (page: string) => void;
 }) {
   return (
     <section className="flex flex-col gap-3" aria-label="全部设置">
-      <div className={listGroup}>
-        {pages.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            className={listRow}
-            onClick={() => onOpenPage(item.id)}
-          >
-            <img src={item.icon} alt="" aria-hidden="true" className="size-[20px] shrink-0" />
-            <span className={rowBody}>
-              <strong className="block font-medium">{item.title}</strong>
-            </span>
-            <span className={rowChevron} aria-hidden="true">
-              ›
-            </span>
-          </button>
-        ))}
-      </div>
+      {groups.map((pages) => (
+        <div key={pages[0]?.id} className={listGroup}>
+          {pages.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={listRow}
+              onClick={() => onOpenPage(item.id)}
+            >
+              <img src={item.icon} alt="" aria-hidden="true" className="size-[20px] shrink-0" />
+              <span className={rowBody}>
+                <strong className="block font-medium">{item.title}</strong>
+              </span>
+              <span className={rowChevron} aria-hidden="true">
+                ›
+              </span>
+            </button>
+          ))}
+        </div>
+      ))}
     </section>
   );
 }

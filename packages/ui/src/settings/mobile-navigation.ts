@@ -109,44 +109,6 @@ export const mobileHeaderlessPageIds: readonly SettingsPageId[] = [
   "account",
 ];
 
-export interface InitialSettingsPageOptions {
-  initialPage?: string;
-  mobilePlatform: boolean;
-  mobileHistoryState?: unknown;
-  hasHomePage: boolean;
-}
-
-/** Resolves the first settings page from an explicit route, mobile history, or host capabilities. */
-export function initialSettingsPage({
-  initialPage,
-  mobilePlatform,
-  mobileHistoryState,
-  hasHomePage,
-}: InitialSettingsPageOptions): SettingsPageId {
-  const historyState =
-    mobileHistoryState && typeof mobileHistoryState === "object"
-      ? (mobileHistoryState as Record<string, unknown>)
-      : undefined;
-  const restoredMobilePage =
-    mobilePlatform && historyState?.msimeSettings === true && typeof historyState.page === "string"
-      ? historyState.page
-      : undefined;
-  return requestedPage(initialPage ?? restoredMobilePage ?? (hasHomePage ? "home" : undefined));
-}
-
-/** Seeds each mobile tab's remembered leaf with the current page in its owning tab. */
-export function initialMobileTabPages(
-  page: SettingsPageId,
-): Record<MobilePrimaryPageId, SettingsPageId> {
-  const initialTab = mobileTabForPage(page);
-  return {
-    home: initialTab === "home" ? page : "home",
-    community: initialTab === "community" ? page : "community",
-    "typing-statistics": initialTab === "typing-statistics" ? page : "typing-statistics",
-    account: initialTab === "account" ? page : "account",
-  };
-}
-
 export function splitMobilePages<T extends { id: string }>(
   availablePages: readonly T[],
   hiddenPageIds: readonly string[],

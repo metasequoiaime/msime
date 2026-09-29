@@ -18,20 +18,18 @@ test("punctuation controls use existing defaults and send focused preference pat
     />,
   );
 
+  expect((screen.getByRole("switch", { name: "中文标点" }) as HTMLInputElement).checked).toBe(true);
   expect(
-    (screen.getByRole("checkbox", { name: /^中文标点默认/ }) as HTMLInputElement).checked,
+    (screen.getByRole("switch", { name: /^成对标点自动补全/ }) as HTMLInputElement).checked,
   ).toBe(true);
-  expect(
-    (screen.getByRole("checkbox", { name: /^成对标点自动补全/ }) as HTMLInputElement).checked,
-  ).toBe(true);
-  expect((screen.getByRole("checkbox", { name: /^智能标点/ }) as HTMLInputElement).checked).toBe(
+  expect((screen.getByRole("switch", { name: /^智能标点/ }) as HTMLInputElement).checked).toBe(
     false,
   );
-  expect(screen.queryByRole("checkbox", { name: "全角输入" })).toBeNull();
+  expect(screen.queryByRole("switch", { name: "全角输入" })).toBeNull();
 
-  fireEvent.click(screen.getByRole("checkbox", { name: /^智能标点/ }));
+  fireEvent.click(screen.getByRole("switch", { name: /^智能标点/ }));
   expect(onChange).toHaveBeenLastCalledWith({ smart_punctuation: true });
-  fireEvent.click(screen.getByRole("checkbox", { name: /^字母后直出/ }));
+  fireEvent.click(screen.getByRole("switch", { name: /^字母后直出/ }));
   expect(onChange).toHaveBeenLastCalledWith({ smart_punctuation_direct_letter: true });
   fireEvent.change(screen.getByRole("combobox", { name: "固定标点" }), {
     target: { value: "english" },
@@ -49,7 +47,7 @@ test("fullwidth control appears only when the host supports it", () => {
     />,
   );
 
-  const fullwidth = screen.getByRole("checkbox", { name: "全角输入" }) as HTMLInputElement;
+  const fullwidth = screen.getByRole("switch", { name: "全角输入" }) as HTMLInputElement;
   expect(fullwidth.checked).toBe(true);
   fireEvent.click(fullwidth);
   expect(onChange).toHaveBeenLastCalledWith({ character_width: "halfwidth" });

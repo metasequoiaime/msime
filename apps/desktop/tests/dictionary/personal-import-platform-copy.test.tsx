@@ -43,7 +43,7 @@ async function openDictionary(platform: string) {
   );
   await screen.findByRole("button", { name: "保存设置" });
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
-  return screen.getByRole("region", { name: "个人词库文件导入" });
+  return screen.getByRole("region", { name: "个人词库文件" });
 }
 
 test("iOS is told its own keyboard drains the queue", async () => {

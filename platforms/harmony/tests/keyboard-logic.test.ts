@@ -165,6 +165,10 @@ import {
 import { ShuangpinKeyHintPolicy } from "../entry/src/main/ets/keyboard/input/ShuangpinKeyHintPolicy";
 import { EditorPolicy, EditorTraits } from "../entry/src/main/ets/keyboard/input/EditorPolicy";
 import { KeyboardSkin } from "../entry/src/main/ets/keyboard/skin/KeyboardSkin";
+import {
+  GlobalTheme,
+  KeyboardThemePalette,
+} from "../entry/src/main/ets/keyboard/skin/GlobalTheme";
 import { ToolbarSkinPolicy } from "../entry/src/main/ets/keyboard/ToolbarSkinPolicy";
 import {
   CustomKeyboardSkin,
@@ -265,10 +269,7 @@ import {
   EmojiPanelKeyPolicy,
 } from "../entry/src/main/ets/keyboard/emoji/EmojiPanelKeyPolicy";
 import { EmojiPanelTooltipPolicy } from "../entry/src/main/ets/keyboard/emoji/EmojiPanelTooltipPolicy";
-import {
-  CandidateTranslationStyle,
-  TRANSLATION_OPACITY,
-} from "../entry/src/main/ets/keyboard/candidate/CandidateTranslationStyle";
+import { CandidateTranslationStyle } from "../entry/src/main/ets/keyboard/candidate/CandidateTranslationStyle";
 import {
   CandidateContextMenuPolicy,
   PointerAction,
@@ -299,6 +300,7 @@ import {
   CandidateSkinPackage,
 } from "../entry/src/main/ets/keyboard/candidate/CandidateSkinCatalogPolicy";
 import { CandidateWidthPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidateWidthPolicy";
+import { CandidatePagerPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidatePagerPolicy";
 import { CandidatePresentationPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidatePresentationPolicy";
 import { CandidateWheelPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidateWheelPolicy";
 import {
@@ -892,6 +894,29 @@ group("a key says what it does, not what it draws", () => {
   check(KeyAccessibilityPolicy.delete() === "删除", "the delete glyph gets a word");
   check(KeyAccessibilityPolicy.language() === "切换中英文", "the language key names the action");
   check(
+    KeyAccessibilityPolicy.languageState(false) === "切换中英文，当前中文" &&
+      KeyAccessibilityPolicy.languageState(true) === "切换中英文，当前英文",
+    "a pill or tile that draws the language says which one is on",
+  );
+  check(
+    KeyAccessibilityPolicy.punctuationState(true) !== KeyAccessibilityPolicy.punctuationState(false),
+    "the punctuation pill says which punctuation is in force",
+  );
+  check(
+    KeyAccessibilityPolicy.tile("中文标点", undefined, true, true) === "中文标点，已开启" &&
+      KeyAccessibilityPolicy.tile("中文标点", undefined, false, true) === "中文标点，已关闭",
+    "a switch tile reads its state",
+  );
+  check(
+    KeyAccessibilityPolicy.tile(KeyAccessibilityPolicy.translations(), undefined, true, true) === "显示译文，已开启" &&
+      KeyAccessibilityPolicy.tile(KeyAccessibilityPolicy.translations(), undefined, false, true) === "显示译文，已关闭",
+    "the 译 pill, which draws only a glyph, reads the switch's name and state",
+  );
+  check(
+    KeyAccessibilityPolicy.tile("主题 · 水杉", KeyAccessibilityPolicy.theme(), false, false) === "选择主题",
+    "a tile with a label reads the label, not the drawn title",
+  );
+  check(
     KeyAccessibilityPolicy.layoutToggle(false) === "切换到数字和符号",
     "the layout toggle names where it goes",
   );
@@ -907,20 +932,20 @@ group("a key says what it does, not what it draws", () => {
 });
 
 group("every tool in the shortcut bar has a name", () => {
-  // The bar is drawn entirely in icons, so a button with no name is announced as nothing at all.
-  // The eighth tool is conditional, but needs a stable name when the thoughtful-reply scheme adds
-  // it to the same bar.
+  // The bar and the function panel draw icons, glyphs and one-character pills, so a button with no name is announced as nothing at all. The reply tool is conditional, but needs a stable name when the thoughtful-reply scheme adds it to the same bar.
   const names: string[] = [
     KeyAccessibilityPolicy.tools(),
     KeyAccessibilityPolicy.emoji(),
     KeyAccessibilityPolicy.voice(),
     KeyAccessibilityPolicy.reply(),
-    KeyAccessibilityPolicy.skin(),
+    KeyAccessibilityPolicy.theme(),
     KeyAccessibilityPolicy.scheme(),
     KeyAccessibilityPolicy.geometry(),
     KeyAccessibilityPolicy.dismiss(),
+    KeyAccessibilityPolicy.punctuationWidth(),
+    KeyAccessibilityPolicy.settings(),
   ];
-  check(names.length === 8, "all eight possible buttons have names");
+  check(names.length === 10, "all ten possible buttons have names");
   for (const name of names) {
     check(name.trim().length > 0, "no button is left nameless");
     check(
@@ -1937,14 +1962,6 @@ group("a negative uptime is rejected rather than treated as a fast tap", () => {
 console.log("Output and editor policies");
 
 group("maps shared candidate skins to native Harmony palettes", () => {
-  check(
-    CandidateSkinPolicy.rowDetailColor(false, "#111111", "#ffffff") === "#111111",
-    "unselected candidate details use the normal text colour",
-  );
-  check(
-    CandidateSkinPolicy.rowDetailColor(true, "#111111", "#ffffff") === "#ffffff",
-    "selected candidate details follow the selected text colour",
-  );
   // Pinned and selected are different states in the source: CandidateViewHtml wraps a
   // fixed-position item in its own #379AD3 rather than the selected-row colour. Drawing both in the
   // skin's accent made them indistinguishable on any skin whose accent is its selection colour.
@@ -1964,37 +1981,12 @@ group("maps shared candidate skins to native Harmony palettes", () => {
     CandidateSkinPolicy.rowTextColor(true, true, "#111111", "#ffffff") === "#379AD3",
     "being selected as well does not hide that a candidate is pinned",
   );
-  // Each source skin now resolves to a palette of its own, built from its own upstream stylesheet,
-  // rather than to the nearest touch-keyboard palette. The nearest-palette mapping is what put
-  // 微信绿 and 杨柳青 on the same colours.
-  check(CandidateSkinPolicy.harmonySkin("fluent") === "fluent", "Fluent keeps its own palette");
-  check(CandidateSkinPolicy.harmonySkin("wechat") === "wechat", "WeChat keeps its own palette");
-  check(
-    CandidateSkinPolicy.harmonySkin("graphite") === "graphite",
-    "Graphite keeps its own palette",
-  );
-  check(
-    CandidateSkinPolicy.harmonySkin("willow_green") === "willow_green",
-    "Willow green keeps its own palette",
-  );
-  check(CandidateSkinPolicy.harmonySkin("unknown") === "forest", "unknown ids fall back safely");
-  check(CandidateSkinPolicy.showSelectedBar("fluent"), "Fluent shows its selected bar");
-  check(!CandidateSkinPolicy.showSelectedBar("wechat"), "WeChat skin omits its selected bar");
-  check(!CandidateSkinPolicy.showSelectedBar("graphite"), "Graphite skin omits its selected bar");
-  check(
-    CandidateSkinPolicy.harmonySkin("sample", "wechat") === "wechat",
-    "external skins inherit the WeChat palette",
-  );
-  check(
-    CandidateSkinPolicy.harmonySkin("sample", "graphite") === "graphite",
-    "external skins inherit the Graphite palette",
-  );
 });
 
 group("resolves external candidate skin tokens without trusting missing fields", () => {
   const sample: CandidateSkinPackage = {
     id: "sample",
-    base: "wechat",
+    base: "paper",
     layouts: ["vertical"],
     themes: ["dark"],
     minWidthDip: 360,
@@ -2002,51 +1994,11 @@ group("resolves external candidate skin tokens without trusting missing fields",
     decorationWidthDip: 180,
     toolbarStylesheet: "toolbar.css",
     preview: "images/preview.svg",
-    candidate: {
-      dark: {
-        accent: "#123456",
-        selected: "#234567",
-        hover: "#345678",
-        surface: "#456789",
-        border: "#56789A",
-        text: "#6789AB",
-        number: "#789ABC",
-        showSelectedBar: false,
-      },
-      light: {
-        accent: null,
-        selected: null,
-        hover: null,
-        surface: null,
-        border: null,
-        text: null,
-        number: null,
-        showSelectedBar: null,
-      },
-    },
   };
   const packages: CandidateSkinPackage[] = [sample];
-  const palette = CandidateSkinCatalogPolicy.palette(packages, "sample", true);
-  check(palette !== null && palette.accent === "#123456", "external accent is selected by theme");
-  check(
-    CandidateSkinCatalogPolicy.base(packages, "sample") === "wechat",
-    "external base skin is retained",
-  );
-  check(
-    CandidateSkinCatalogPolicy.supports(packages, "sample", "vertical", "dark"),
-    "manifest compatibility accepts a declared layout and theme",
-  );
-  check(
-    !CandidateSkinCatalogPolicy.supports(packages, "sample", "horizontal", "dark"),
-    "manifest compatibility rejects an undeclared layout",
-  );
   check(
     CandidateSkinCatalogPolicy.minWidthVp(packages, "sample") === 360,
     "external minimum width is exposed to the native panel",
-  );
-  check(
-    CandidateSkinCatalogPolicy.showSelectedBar(packages, "sample", true) === false,
-    "external selected-bar override is retained",
   );
   check(
     CandidateSkinCatalogPolicy.toolbarStylesheet(packages, "sample") === "toolbar.css",
@@ -2077,34 +2029,10 @@ group("resolves external candidate skin tokens without trusting missing fields",
     ) === 2,
     "PNG dimensions preserve the decoration aspect ratio",
   );
-  check(
-    CandidateSkinCatalogPolicy.palette(packages, "missing", true) === null,
-    "unknown package does not invent a palette",
-  );
-  check(
-    CandidateSkinCatalogPolicy.color("#123456") === "#123456",
-    "hex colors remain available to ArkUI",
-  );
-  check(
-    CandidateSkinCatalogPolicy.color("rgba(1, 2, 3, 0.5)") === "rgba(1, 2, 3, 0.5)",
-    "rgba colors remain available to ArkUI",
-  );
-  check(
-    CandidateSkinCatalogPolicy.color("red;} .poison {") === null,
-    "declaration-like color tokens are rejected",
-  );
-  check(
-    CandidateSkinCatalogPolicy.color("rgb(256, 0, 0)") === null,
-    "out-of-range rgb channels are rejected",
-  );
-  check(
-    CandidateSkinPolicy.showSelectedBar("sample", false) === false,
-    "explicit external selected-bar value wins over the base default",
-  );
 });
 
 group("maps safe external toolbar CSS to ArkUI values", () => {
-  const base = KeyboardSkin.from("forest", true);
+  const base = GlobalTheme.candidateColors(null, true);
   const toolbar = ToolbarSkinPolicy.fromCss(
     base,
     `
@@ -2132,8 +2060,8 @@ group("maps safe external toolbar CSS to ArkUI values", () => {
     base,
     ".status-bar { background: url(https://example.invalid/x); } .icon { color: red; }",
   );
-  check(unsafe.backgroundColor === base.keyBackground, "resource URLs are ignored");
-  check(unsafe.buttonColor === base.accent, "unsupported colour syntax is ignored");
+  check(unsafe.backgroundColor === base.surface, "resource URLs are ignored");
+  check(unsafe.buttonColor === base.text, "unsupported colour syntax is ignored");
 });
 
 group("applies Windows toolbar scale and font-size bounds to Harmony geometry", () => {
@@ -2288,6 +2216,32 @@ group("a horizontal candidate window is as wide as its whole page", () => {
       CandidateWidthPolicy.MAX_WIDTH_VP,
     "a long page stays inside the desktop bound",
   );
+});
+
+group("a 2in1 candidate window shows which page it is on", () => {
+  // Harmony design hm2: "current / total" at 13px after the composition, then clickable arrows.
+  check(CandidatePagerPolicy.label(1, 5) === "2 / 5", "the Engine's zero-based page reads from one");
+  check(CandidatePagerPolicy.label(0, 1) === "", "a single page has no indicator");
+  check(CandidatePagerPolicy.label(9, 3) === "3 / 3", "a stale page never reads past the last");
+  check(CandidatePagerPolicy.widthVp(0, 1) === 0, "no indicator takes no room");
+  check(CandidatePagerPolicy.widthVp(0, 12) > CandidatePagerPolicy.widthVp(0, 2), "a longer count takes more room");
+  check(
+    CandidatePagerPolicy.arrowLabel(true) !== CandidatePagerPolicy.arrowLabel(false),
+    "the two arrows are told apart by a screen reader",
+  );
+  check(CandidatePagerPolicy.panelWidthVp(300, "ni", 15, 0, 1) === 300, "one page leaves the width alone");
+  const spelling = "zhonghuarenmingongheguo";
+  const line = CandidatePagerPolicy.panelWidthVp(CandidateWidthPolicy.MIN_WIDTH_VP, spelling, 15, 0, 4);
+  check(
+    line >= CandidateWidthPolicy.textWidthVp(spelling, 15) + CandidatePagerPolicy.widthVp(0, 4),
+    "a long spelling keeps its room next to the indicator",
+  );
+  check(
+    CandidatePagerPolicy.panelWidthVp(CandidateWidthPolicy.MIN_WIDTH_VP, spelling.repeat(4), 15, 0, 4) ===
+      CandidateWidthPolicy.MAX_WIDTH_VP,
+    "the indicator never pushes the window past its bound",
+  );
+  check(CandidatePagerPolicy.panelWidthVp(600, "ni", 15, 0, 4) === 600, "a wider page keeps its width");
 });
 
 group("candidate and composition rows follow their font sizes", () => {
@@ -5329,92 +5283,210 @@ group("the theme resolves keyboard first, then global, then the system", () => {
   );
 });
 
-group("an unknown skin id falls back to forest rather than failing", () => {
-  check(KeyboardSkin.from("nonsense", false).id === "forest", "an unknown id is forest");
-  check(KeyboardSkin.from("", false).id === "forest", "so is an empty one");
-  check(KeyboardSkin.from(null, false).id === "forest", "so is null");
-  check(KeyboardSkin.builtIns(false).length === 8, "eight built-in skins");
-  check(KeyboardSkin.choices(false, null).length === 9, "plus the custom one");
-  check(KeyboardSkin.choices(false, null)[8].id === "custom", "custom comes last");
+group("a theme without a keyboard palette draws the Harmony native tokens", () => {
+  const light = KeyboardSkin.fromTheme("system", "跟随系统", null, false);
+  check(light.id === "system" && light.title === "跟随系统", "the id and title come from the caller");
+  check(light.background === "#E3E5E8", "the native light keyboard background");
+  check(light.keyBackground === "#FFFFFF" && light.keyForeground === "#182431", "native keys and labels");
+  check(light.functionKeyBackground === "#C9CDD3", "the native function-key grey");
+  check(light.secondary === "#99182431", "hints are the text at 60%, alpha first for ArkUI");
+  const dark = KeyboardSkin.fromTheme("system", "跟随系统", null, true);
+  check(dark.background === "#1A1A1A" && dark.keyBackground === "#3A3A3A", "the native dark keyboard");
+  check(dark.functionKeyBackground === "#2A2A2A", "and its function keys");
+  check(light.cornerRadius === 8 && light.keyCornerRadius() === 8, "theme keys take the design's 8vp radius");
+  check(
+    light.keyShape === "rounded" && light.keyMaterial === "flat" && light.photo === null,
+    "a theme keyboard is flat and carries no photo",
+  );
+});
+
+group("a theme keyboard palette reaches every key colour", () => {
+  const palette: KeyboardThemePalette = {
+    background: "#102030",
+    key: "#203040",
+    function_key: "#304050",
+    text: "#F0F0F0",
+    secondary: "#99F0F0F0",
+    accent: "#80C0FF",
+    on_accent: "#000000",
+  };
+  const skin = KeyboardSkin.fromTheme("night", "夜色", palette, true);
+  check(skin.background === "#102030" && skin.keyBackground === "#203040", "background and keys");
+  check(skin.functionKeyBackground === "#304050", "specials take function_key");
+  check(skin.functionKeyForeground === "#F0F0F0", "and the palette text");
+  check(skin.accent === "#80C0FF" && skin.onAccent === "#000000", "the accent and its readable text");
+  check(
+    skin.actionBackground === "#5FBF84" && skin.actionForeground === "#FFFFFF",
+    "the return key keeps the platform accent with white text whatever the theme",
+  );
+  check(
+    KeyboardSkin.fromTheme("night", "夜色", palette, false).actionBackground === "#2C7A4B",
+    "and the light platform accent in light mode",
+  );
+  check(skin.borderColor === "#4780C0FF", "the edge is the accent at 0.28, alpha first");
+  check(skin.keySurfaceBackground(false) === "#FF203040", "a letter key takes the key colour");
+  check(skin.keySurfaceBackground(false, true) === "#FF304050", "a special key takes function_key");
+  check(skin.keySurfaceBackground(true, true) === "#5FBF84", "an emphasized key takes the platform accent");
+  check(skin.keyLabelColor(true) === "#FFFFFF", "with white text");
+  check(skin.keyLabelColor(false, true) === "#F0F0F0", "a special key keeps the palette text");
+  check(
+    skin.toggleBackground === "#425FBF84" && skin.toggleForeground === "#5FBF84",
+    "a switched-on tile is the platform accent tint with the accent glyph, not the theme accent",
+  );
+  check(
+    KeyboardSkin.fromTheme("night", "夜色", palette, false).toggleBackground === "#1F2C7A4B",
+    "and the light tint in light mode",
+  );
+});
+
+group("the custom design is drawn in full and flattened like the shared custom keyboard", () => {
   const design = CustomKeyboardSkin.from({
     background: 0x102030,
     keyBackground: 0x203040,
+    keyForeground: 0xf0f0f0,
     accent: 0x80c0ff,
+    actionBackground: 0x185c47,
     cornerRadius: 14,
     borderWidth: 1,
     keyOpacity: 0.8,
   });
-  const choices = KeyboardSkin.choices(false, design);
+  const skin = KeyboardSkin.fromDesign("自定义", design, false);
+  check(skin.id === "custom" && skin.title === "自定义", "the design is the custom theme");
+  check(skin.background === "#102030" && skin.keyBackground === "#203040", "its colours cross over");
+  check(skin.functionKeyBackground === "#185C47", "function keys take the design's action colour");
+  check(skin.secondary === "#99F0F0F0", "hints are its text at 60%");
+  check(skin.onAccent === "#000000", "a light accent takes black text");
   check(
-    choices[8].id === "custom" && choices[8].background === "#102030",
-    "the custom picker entry uses the shared design",
+    KeyboardSkin.fromDesign("自定义", CustomKeyboardSkin.from({ accent: 0x102030 }), false).onAccent ===
+      "#FFFFFF",
+    "a dark accent takes white text",
   );
-  check(
-    choices[8].cornerRadius === 14 && choices[8].keyOpacity === 0.8,
-    "custom geometry and opacity cross the native skin boundary",
-  );
+  check(skin.cornerRadius === 14 && skin.keyOpacity === 0.8, "custom geometry and opacity cross the native skin boundary");
 });
 
-group("colours are formatted the way the Java formats them", () => {
-  const forest = KeyboardSkin.from("forest", false);
+group("the cache key separates light from dark and carries the colours", () => {
   check(
-    /^#[0-9A-F]{6}$/.test(forest.background),
-    `six upper-case hex digits, got ${forest.background}`,
-  );
-  check(forest.keyBackground === "#FFFFFF", "the light forest key is pure white");
-  check(forest.keyForeground === "#000000", "and its label is black");
-  const dark = KeyboardSkin.from("forest", true);
-  check(dark.keyForeground === "#FFFFFF", "the dark label is white");
-  check(dark.background !== forest.background, "dark mode changes the background");
-  // rgb(.094, .36, .28) rounds to 24, 92, 71.
-  check(forest.accent === "#185C47", `forest accent rounds to #185C47, got ${forest.accent}`);
-});
-
-group("the border colour carries an alpha byte in front", () => {
-  const forest = KeyboardSkin.from("forest", false);
-  check(
-    /^#[0-9A-F]{8}$/.test(forest.borderColor),
-    `an eight-digit ARGB value, got ${forest.borderColor}`,
-  );
-  check(
-    forest.borderColor.substring(3) === forest.accent.substring(1),
-    "the RGB part is the accent",
-  );
-  // 0.28 * 255 rounds to 71, which is 0x47.
-  check(forest.borderColor.substring(1, 3) === "47", "the alpha is 0.28 of full");
-  const midnight = KeyboardSkin.from("midnight", true);
-  check(
-    midnight.borderColor.substring(1, 3) === "A6",
-    "midnight carries a neon edge at 0.65, which is 0xA6",
-  );
-});
-
-group("each built-in skin is distinct and self-consistent", () => {
-  const skins = KeyboardSkin.builtIns(false);
-  const ids = new Set(skins.map((skin) => skin.id));
-  check(ids.size === skins.length, "no duplicate ids");
-  const keys = new Set(skins.map((skin) => skin.key()));
-  check(keys.size === skins.length, "no two skins share a cache key");
-  for (const skin of skins) {
-    check(skin.title.length > 0 && skin.description.length > 0, `${skin.id} is described`);
-    check(
-      skin.keyShape === "rounded" && skin.keyMaterial === "flat",
-      `${skin.id} uses the built-in key treatment`,
-    );
-    check(skin.photo === null, `${skin.id} carries no photo`);
-  }
-  check(KeyboardSkin.from("typewriter", false).monospaced === true, "typewriter is monospaced");
-  check(KeyboardSkin.from("blueprint", false).monospaced === true, "so is blueprint");
-  check(KeyboardSkin.from("forest", false).monospaced === false, "forest is not");
-});
-
-group("the cache key separates light from dark and carries the design", () => {
-  check(
-    KeyboardSkin.from("forest", false).key() !== KeyboardSkin.from("forest", true).key(),
+    KeyboardSkin.fromTheme("system", "", null, false).key() !==
+      KeyboardSkin.fromTheme("system", "", null, true).key(),
     "light and dark are different skins to the cache",
   );
-  const custom = KeyboardSkin.from("custom", false, CustomKeyboardSkin.defaults());
+  const custom = KeyboardSkin.fromDesign("", CustomKeyboardSkin.defaults(), false);
   check(custom.key().startsWith("custom:false:"), "the custom key carries the design behind it");
+  const paper = KeyboardSkin.fromTheme("custom", "", GlobalTheme.nativeKeyboard(false), false);
+  const night = KeyboardSkin.fromTheme("custom", "", GlobalTheme.nativeKeyboard(true), false);
+  check(paper.key() !== night.key(), "a custom theme over a new base is a new skin to the cache");
+});
+
+console.log("GlobalTheme");
+
+group("shared colours are reordered for ArkUI once, at parse time", () => {
+  check(GlobalTheme.arkColor("#1a2b3c") === "#1A2B3C", "six digits pass through, upper-cased");
+  check(GlobalTheme.arkColor("#1A2B3C80") === "#801A2B3C", "the trailing alpha moves to the front");
+  check(GlobalTheme.arkColor("red") === null, "a named colour is refused");
+  check(GlobalTheme.arkColor("#12345") === null, "so is a short one");
+  check(GlobalTheme.arkColor(null) === null && GlobalTheme.arkColor(undefined) === null, "absent is null");
+});
+
+group("a fixed appearance decides every surface's mode", () => {
+  check(GlobalTheme.surfaceDark("dark", false) === true, "a dark theme is dark");
+  check(GlobalTheme.surfaceDark("light", true) === false, "a light theme is light");
+  check(GlobalTheme.surfaceDark(null, true) === true, "otherwise the surface's own rule");
+  check(GlobalTheme.surfaceDark(null, false) === false, "in both directions");
+});
+
+group("the platform accent", () => {
+  check(GlobalTheme.accent(false) === "#2C7A4B" && GlobalTheme.accent(true) === "#5FBF84", "accent");
+  check(
+    GlobalTheme.accentSoft(false) === "#1F2C7A4B" && GlobalTheme.accentSoft(true) === "#425FBF84",
+    "accentSoft is the accent at 12% light and 26% dark, alpha first",
+  );
+});
+
+group("unset candidate slots fall back to the native tokens", () => {
+  const native = GlobalTheme.candidateColors(null, false);
+  check(native.surface === "#FFFFFF" && native.selected === "#1F2C7A4B", "the native 2in1 card");
+  check(!native.showSelectedBar, "the native window marks the selection with a wash, not a bar");
+  check(GlobalTheme.candidateColors(null, true).surface === "#262626", "and its dark card");
+  const palette = GlobalTheme.candidatePalette({
+    surface: "#101820",
+    text: "#F0F0F0",
+    number: "#A0A0A0",
+    accent: "#80C0FF",
+    show_selected_bar: true,
+  });
+  check(palette !== null, "a partial palette is read");
+  const colors = GlobalTheme.candidateColors(palette, true);
+  check(colors.surface === "#101820" && colors.text === "#F0F0F0", "set slots win");
+  check(colors.secondary === "#A0A0A0", "an unset secondary follows the numbers");
+  check(colors.border === "#14FFFFFF" && colors.hover === "#14FFFFFF", "unset slots take the dark tokens");
+  check(colors.showSelectedBar, "the bar flag is carried");
+  check(GlobalTheme.candidatePalette("nope") === null, "a non-object is no palette");
+});
+
+group("the keyboard palette is all or nothing", () => {
+  const whole = {
+    background: "#102030",
+    key: "#203040",
+    function_key: "#304050",
+    text: "#F0F0F0",
+    secondary: "#F0F0F099",
+    accent: "#80C0FF",
+    on_accent: "#000000",
+  };
+  const palette = GlobalTheme.keyboardPalette(whole);
+  check(palette !== null && palette.secondary === "#99F0F0F0", "a whole palette is read in ArkUI order");
+  const broken = { ...whole, key: "blue" };
+  check(GlobalTheme.keyboardPalette(broken) === null, "one unreadable colour drops to the native palette");
+});
+
+group("resolve answers and the catalog are read defensively", () => {
+  const resolved = GlobalTheme.parseResolved(
+    JSON.stringify({
+      ok: true,
+      value: {
+        id: "night",
+        source: "builtin",
+        appearance: "dark",
+        candidate: { surface: "#101820FF", accent: "#80C0FF" },
+        keyboard: null,
+        candidate_skin: "sample",
+      },
+    }),
+  );
+  check(resolved !== null && resolved.id === "night" && resolved.appearance === "dark", "a resolved theme");
+  check(resolved !== null && resolved.candidate_skin === "sample", "the package signal is carried");
+  check(
+    resolved !== null && resolved.candidate !== null && resolved.candidate.surface === "#FF101820",
+    "and its colours are in ArkUI order",
+  );
+  check(resolved !== null && resolved.keyboard === null, "a missing keyboard palette is null");
+  check(
+    GlobalTheme.parseResolved(JSON.stringify({ ok: false, error: "unknown theme" })) === null,
+    "a refusal draws the native tokens",
+  );
+  check(
+    GlobalTheme.parseResolved(JSON.stringify({ ok: true, value: { appearance: "dark" } })) === null,
+    "an answer without an id is refused",
+  );
+  const catalog = GlobalTheme.parseCatalog(
+    JSON.stringify({
+      ok: true,
+      value: {
+        themes: [
+          { id: "system", title: "跟随系统", appearance: null, preview: null, candidate: null, keyboard: null },
+          { id: "paper", title: "纸", appearance: "light", preview: { background: "#F5F0E6", panel: "#FFFFFF", accent: "#8A5A2B", text: "#2B2B2B" } },
+          { title: "no id" },
+          "junk",
+        ],
+        default: "system",
+      },
+    }),
+  );
+  check(catalog.length === 2, "unreadable entries are skipped");
+  check(catalog[1].appearance === "light" && catalog[1].preview !== null, "an entry keeps its appearance and preview");
+  check(GlobalTheme.entry(catalog, "paper") === catalog[1], "an entry is found by id");
+  check(GlobalTheme.entry(catalog, "missing") === null, "a missing id is null");
+  check(GlobalTheme.parseCatalog(JSON.stringify({ ok: false })).length === 0, "a refused catalog is empty");
 });
 
 console.log("CustomKeyboardSkin");
@@ -5534,12 +5606,12 @@ group("only real image bytes are accepted as a photo", () => {
 });
 
 group("custom key treatments reach native surface values", () => {
-  const capsule = KeyboardSkin.from(
+  const capsule = KeyboardSkin.fromDesign(
     "custom",
-    false,
     CustomKeyboardSkin.from(
       document({ keyShape: "capsule", keyMaterial: "glass", keyOpacity: 0.45, shadow: 0.3 }),
     ),
+    false,
   );
   check(capsule.keyCornerRadius() === 999, "a capsule asks ArkUI for a pill radius");
   check(capsule.materialTop() === "#3DFFFFFF", "glass carries a visible top highlight");
@@ -6626,10 +6698,11 @@ function fullPreferenceSchema(): AccountPreferenceSchema {
       "input.shuangpin_schema",
       "input.frequency_mode",
       "platform.harmony.keyboard_layout",
-      "platform.harmony.keyboard_skin",
+      "platform.harmony.global_theme",
+      "platform.harmony.custom_theme_base",
       "platform.harmony.custom_keyboard_skin",
       "platform.harmony.theme",
-      "platform.harmony.candidate_skin",
+      "platform.harmony.custom_candidate_skin",
       "platform.harmony.haptic_strength",
     ],
     "string",
@@ -6671,16 +6744,20 @@ group("the account settings sync maps this host's document, not another's", () =
     frequency: { mode: "linear", trigger_count: 3, linear_step: 2 },
     chinese_punctuation: false,
     touch_keyboard_layout: "nine_key",
-    touch_keyboard_skin: "midnight",
-    candidate_skin: "wechat",
+    global_theme: "night",
+    custom_theme: { base: "paper", candidate_skin: "harbour", keyboard: { background: 1 } },
     touch_key_spacing_tenths: 40,
-    custom_touch_keyboard_skin: { background: 1 },
   };
   const values = localAccountPreferences(local, syncFeedback);
   check(values["input.schema"] === "shuangpin", "the input schema travels");
   check(values["input.character_set"] === "traditional", "and the character set as a word");
   check(values["input.frequency_trigger_count"] === 3, "and the frequency numbers");
-  check(values["platform.harmony.keyboard_skin"] === "midnight", "and the touch skin");
+  check(values["platform.harmony.global_theme"] === "night", "and the global theme");
+  check(values["platform.harmony.custom_theme_base"] === "paper", "and the custom theme's base");
+  check(
+    values["platform.harmony.custom_candidate_skin"] === "harbour",
+    "and the custom theme's candidate package",
+  );
   // Not platform.android: the two are separate devices with separate keyboards, and sharing the
   // namespace would let a HarmonyOS phone overwrite the skin on the user's Android keyboard.
   check(
@@ -6698,6 +6775,12 @@ group("the account settings sync maps this host's document, not another's", () =
   const sparse = localAccountPreferences({}, syncFeedback);
   check(sparse["input.schema"] === "quanpin", "an absent member takes the shared default");
   check(sparse["input.learning"] === true, "including the ones that default to on");
+  check(sparse["platform.harmony.global_theme"] === "system", "the global theme defaults to system");
+  check(sparse["platform.harmony.custom_theme_base"] === "system", "and so does the custom base");
+  check(sparse["platform.harmony.custom_keyboard_skin"] === "", "no design travels as an empty string");
+  check(sparse["platform.harmony.custom_candidate_skin"] === "", "and so does no package");
+  const retired = localAccountPreferences({ global_theme: "midnight" }, syncFeedback);
+  check(retired["platform.harmony.global_theme"] === "system", "a retired skin id is never uploaded");
 });
 
 group("uploading keeps what other devices wrote", () => {
@@ -6768,7 +6851,8 @@ group("applying writes only what the schema declares", () => {
       "input.schema": "wubi",
       "input.learning": false,
       "input.frequency_trigger_count": 5,
-      "platform.harmony.candidate_skin": "graphite",
+      "platform.harmony.global_theme": "paper",
+      "platform.harmony.custom_candidate_skin": "harbour",
     },
   };
   const applied = applyAccountPreferences(local, cloud, schema, syncFeedback);
@@ -6782,7 +6866,45 @@ group("applying writes only what the schema declares", () => {
     (applied.preferences.frequency as Record<string, unknown>).mode === "promote",
     "so a member the cloud said nothing about survives",
   );
-  check(applied.preferences.candidate_skin === "graphite", "and the candidate skin is written");
+  check(applied.preferences.global_theme === "paper", "and the global theme is written");
+  check(
+    (applied.preferences.custom_theme as Record<string, unknown>).candidate_skin === "harbour",
+    "and the package lands inside the custom theme",
+  );
+  const cleared = applyAccountPreferences(
+    { custom_theme: { base: "ink", candidate_skin: "harbour", candidate_colors: { text: "#112233" } } },
+    {
+      revision: 4,
+      settings: {
+        "platform.harmony.custom_theme_base": "system",
+        "platform.harmony.custom_candidate_skin": "",
+        "platform.harmony.custom_keyboard_skin": "",
+      },
+    },
+    schema,
+    syncFeedback,
+  );
+  const clearedTheme = cleared.preferences.custom_theme as Record<string, unknown>;
+  check(!("base" in clearedTheme), "a system base is written by omitting it, as the shared document does");
+  check(!("candidate_skin" in clearedTheme) && !("keyboard" in clearedTheme), "empty strings clear the package and the design");
+  check(
+    (clearedTheme.candidate_colors as Record<string, unknown>).text === "#112233",
+    "while the colour pickers the account does not carry are kept",
+  );
+  for (const [key, value] of [
+    ["platform.harmony.global_theme", "midnight"],
+    ["platform.harmony.custom_theme_base", "custom"],
+    ["platform.harmony.custom_candidate_skin", "ink"],
+    ["platform.harmony.custom_candidate_skin", "../escape"],
+  ]) {
+    let refused = false;
+    try {
+      applyAccountPreferences({}, { revision: 1, settings: { [key]: value } }, schema, syncFeedback);
+    } catch (error) {
+      refused = error instanceof AccountPreferenceError && error.message === "account_invalid";
+    }
+    check(refused, `${key} = ${value} is refused rather than mapped`);
+  }
   // Nothing in the cloud document mentioned the three feedback keys, so the file is left alone
   // rather than rewritten with whatever the defaults happen to be.
   check(applied.feedback === null, "an untouched feedback file is not rewritten");
@@ -7678,62 +7800,6 @@ group("an unanswerable setup query does not send anyone back to a welcome screen
   );
 });
 
-group("each source candidate skin keeps its own colours", () => {
-  const ids = ["fluent", "wechat", "graphite", "willow_green"];
-  const resolved = ids.map((id) => CandidateSkinPolicy.harmonySkin(id));
-  check(
-    new Set(resolved).size === ids.length,
-    "four source skins resolve to four palettes, not two",
-  );
-  // 微信绿 and 杨柳青 both used to land on `forest`, which made them pixel-identical. #07c160 and
-  // #58b980 are not close; one of the four skins was effectively missing.
-  const accents = ids.map(
-    (id) => KeyboardSkin.from(CandidateSkinPolicy.harmonySkin(id), false).accent,
-  );
-  check(new Set(accents).size === ids.length, "and to four different highlight colours");
-  check(
-    KeyboardSkin.from("wechat", false).accent.toLowerCase() === "#07c160",
-    "微信绿 keeps the upstream WeChat green",
-  );
-  check(
-    KeyboardSkin.from("willow_green", false).accent.toLowerCase() === "#58b980",
-    "杨柳青 keeps its own, lighter green",
-  );
-  check(
-    KeyboardSkin.from("fluent", false).accent.toLowerCase() === "#6b69d6",
-    "Fluent keeps the upstream indigo",
-  );
-});
-
-group("candidate palettes follow the upstream dark stylesheets", () => {
-  // Taken from horizontal_dark.css per skin, not derived by darkening the light values: the source
-  // picks a different hue for some skins and a mechanical transform would drift from it.
-  check(
-    KeyboardSkin.from("graphite", true).accent.toLowerCase() === "#8993a0",
-    "graphite lightens its slate in dark mode",
-  );
-  check(
-    KeyboardSkin.from("willow_green", true).accent.toLowerCase() === "#65c98d",
-    "杨柳青 lightens its green in dark mode",
-  );
-  check(
-    KeyboardSkin.from("wechat", true).accent.toLowerCase() === "#07c160",
-    "微信绿 keeps the same green in both, as upstream does",
-  );
-  check(
-    KeyboardSkin.from("fluent", true).keyForeground.toLowerCase() === "#e9e8e8",
-    "dark text comes from the dark stylesheet",
-  );
-});
-
-group("candidate skins are not offered as touch-keyboard skins", () => {
-  // Two different preferences. A candidate palette in the keyboard picker would offer the user a
-  // keyboard skin built from a candidate window's colours, which is not a skin anyone designed.
-  for (const id of ["fluent", "wechat", "graphite", "willow_green"]) {
-    check(!KeyboardSkin.BUILT_IN_IDS.includes(id), `${id} stays out of the touch-keyboard picker`);
-  }
-});
-
 group("the panel chord opens the screen keyboard", () => {
   const chord = (over: Record<string, unknown> = {}) => ({
     keyCode: 2027,
@@ -8420,12 +8486,10 @@ group("the caret is as tall as the source draws it", () => {
 });
 
 group("the offline gloss is drawn the way the source draws it", () => {
-  // .cand-translation { margin-left: 0.65em; font-size: 0.78em; opacity: 0.62 }, identical in all
-  // four skins' vertical stylesheets.
+  // .cand-translation { margin-left: 0.65em; font-size: 0.78em }, identical in all four skins' vertical stylesheets. Its opacity is left to the theme's secondary colour.
   check(CandidateTranslationStyle.fontSize(18) === 14, "0.78em of the shared default");
   check(CandidateTranslationStyle.fontSize(12) === 9, "at the smallest allowed candidate size");
   check(CandidateTranslationStyle.fontSize(32) === 25, "at the largest allowed candidate size");
-  check(TRANSLATION_OPACITY === 0.62, "and the source's transparency rather than the host's 0.7");
 });
 
 group("the gloss gap resolves against the gloss, not the candidate", () => {
@@ -8633,14 +8697,6 @@ group("AI model catalogs keep each provider's protocol and path", () => {
     "rejects remote HTTP endpoints");
   check(!TextPolicy.validSecureAuthority("http://localhost.example/api", true),
     "rejects lookalike loopback hosts");
-  check(TextPolicy.validExternalUrl("https://example.test/docs?q=synthetic"),
-    "accepts HTTPS external links");
-  check(!TextPolicy.validExternalUrl("http://example.test/docs"),
-    "rejects HTTP external links");
-  check(!TextPolicy.validExternalUrl("https://user:secret@example.test/docs"),
-    "rejects credentials in external links");
-  check(!TextPolicy.validExternalUrl("https://example.test/docs next"),
-    "rejects whitespace in external links");
   check(
     AiModelCatalogPolicy.modelsUrl("https://api.everyapi.ai/v1/chat/completions") ===
       "https://api.everyapi.ai/v1/models",

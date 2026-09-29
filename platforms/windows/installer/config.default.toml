@@ -124,16 +124,13 @@ fallback_fonts = ["Noto Sans SC", "Microsoft YaHei"]
 font_size = 18
 # 候选窗口顶部预编辑字号（px），可选：12–32
 candidate_window_preedit_font_size = 15
-# 候选文字颜色，"auto" 跟随主题，或 #RRGGBB
-cand_text_color = "auto"
 # 每页候选词数量，可选：3, 4, 5, 6, 7, 8, 9
 page_size = 6
 # 候选窗口跟随光标
 candidate_window_follow_cursor = true
 # 候选窗口排列方式，可选："vertical", "horizontal"
 candidate_window_layout = "vertical"
-# 候选窗口与悬浮工具栏皮肤，可选："fluent", "wechat"
-candidate_skin = "willow_green"
+# 候选窗口、悬浮工具栏、菜单和屏幕键盘的配色与皮肤在「设置 → 主题」中选择（共享偏好 global_theme / custom_theme），不在本文件配置。
 # 候选窗口顶部预编辑，可选："pinyin", "empty"
 #   pinyin -> 显示分词预编辑（与候选框当前行为一致）
 #   empty  -> 隐藏顶部预编辑行

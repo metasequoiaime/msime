@@ -1,4 +1,5 @@
 import { SecretInput } from "../core/secret-input";
+import { Row } from "../core/platform-controls";
 
 export interface VoiceCredentialFieldsSectionProps {
   showAppKey: boolean;
@@ -21,24 +22,13 @@ export function VoiceCredentialFieldsSection({
   return (
     <>
       {showAppKey && (
-        <div className="section">
-          <label className="section-header">
-            <span className="section-title">
-              Doubao App Key<small>旧版控制台鉴权使用</small>
-            </span>
-            <SecretInput label="Doubao App Key" value={appKey} onChange={onAppKeyChange} />
-          </label>
-        </div>
+        <Row title="Doubao App Key" description="旧版控制台鉴权使用">
+          <SecretInput label="Doubao App Key" value={appKey} onChange={onAppKeyChange} />
+        </Row>
       )}
-      <div className="section">
-        <label className="section-header">
-          <span className="section-title">
-            {tokenLabel}
-            <small>仅保存在本机设置中</small>
-          </span>
-          <SecretInput label={tokenLabel} value={token} onChange={onTokenChange} />
-        </label>
-      </div>
+      <Row title={tokenLabel} description="仅保存在本机设置中">
+        <SecretInput label={tokenLabel} value={token} onChange={onTokenChange} />
+      </Row>
     </>
   );
 }

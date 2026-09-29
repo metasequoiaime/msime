@@ -540,12 +540,7 @@ class CandidateList : public Visual
         D2D1_COLOR_F rowFillHover = D2D1::ColorF(0x343434);
         D2D1_COLOR_F rowFillPressed = D2D1::ColorF(0x353535);
         D2D1_COLOR_F rowFillSelected = D2D1::ColorF(0x3E3E3E, 0.725f);
-        // Text/label colors for the selected (and pressed) row. Alpha 0 keeps
-        // the normal textColor/labelColor; skins that fill the selected row
-        // with an opaque accent set these to the contrasting color (e.g. white
-        // on the WeChat green first row). rowTextSelected also drives the
-        // annotation (辅助码) and translation on that row, matching the CSS
-        // where both inherit the color of `.first .text`.
+        // Text/label colors for the selected (and pressed) row. Alpha 0 keeps the normal textColor/labelColor; skins that fill the selected row with an opaque accent set these to the contrasting color (e.g. white on the WeChat green first row). rowTextSelected also drives the annotation (辅助码) on that row, matching the CSS where it inherits the color of `.first .text`. The translation draws in the label color (rowLabelSelected on that row), since the theme contract fixes the secondary color to the number color.
         D2D1_COLOR_F rowTextSelected = D2D1::ColorF(0, 0.0f);
         D2D1_COLOR_F rowLabelSelected = D2D1::ColorF(0, 0.0f);
         D2D1_COLOR_F selectedBarColor = D2D1::ColorF(0x6B69D6);

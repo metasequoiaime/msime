@@ -10,8 +10,7 @@ public:
     using Stamp = std::pair<std::filesystem::file_time_type, uintmax_t>;
     std::map<std::filesystem::path, Stamp> next;
     bool complete = true;
-    if (!root.empty() && valid_candidate_skin_id(id) &&
-        !candidate_builtin_skin(id)) {
+    if (!root.empty() && valid_candidate_skin_id(id)) {
       std::error_code error;
       const auto directory = root / std::filesystem::u8path(id);
       const auto status = std::filesystem::symlink_status(directory, error);

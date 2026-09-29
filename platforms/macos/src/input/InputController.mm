@@ -42,6 +42,7 @@
 #import "../candidate/CandidateTypography.h"
 #import "../candidate/CandidateTextMetrics.h"
 #include "../candidate/CandidateSkin.h"
+#include "../settings/ShuangpinProfileNames.h"
 #include "../candidate/CandidateWheelRouting.h"
 #import "../core/ChineseTextConversion.h"
 #include "../core/FullWidthInput.h"
@@ -456,6 +457,18 @@ static NSColor *SkinColor(msime::mac::Rgba color) {
     return [NSColor colorWithSRGBRed:color.r green:color.g blue:color.b alpha:color.a];
 }
 
+// The reading in the candidate window's top row is set semibold (dc.html L1325) at the size the user picked for it. A resolved family is named by its face (Menlo-Regular), which pins the weight, so the face is swapped for the family and the fallback cascade is kept; a family whose nearest heavier face is bold draws bold, and one with no heavier face keeps its regular one.
+static NSFont *MSIMECandidatePreeditFont(MSIMEAppearancePreferences *appearance) {
+    NSFont *regular = [appearance candidateFontOfSize:appearance.preeditFontSize englishFirst:YES];
+    NSMutableDictionary *attributes = [regular.fontDescriptor.fontAttributes mutableCopy];
+    if (attributes[NSFontNameAttribute] && regular.familyName) {
+        [attributes removeObjectForKey:NSFontNameAttribute];
+        attributes[NSFontFamilyAttribute] = regular.familyName;
+    }
+    attributes[NSFontTraitsAttribute] = @{NSFontWeightTrait: @(NSFontWeightSemibold)};
+    return [NSFont fontWithDescriptor:[NSFontDescriptor fontDescriptorWithFontAttributes:attributes] size:appearance.preeditFontSize] ?: regular;
+}
+
 static BOOL MSIMEUnsignedCandidateIdentityValue(id value) {
     return [value isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)value) != CFBooleanGetTypeID() &&
            !CFNumberIsFloatType((__bridge CFNumberRef)value) && [value compare:@0] != NSOrderedAscending;
@@ -537,30 +550,6 @@ static NSDictionary *MSIMERenderedHighlightedCandidateIdentity(NSPanel *panel) {
         return [identity isKindOfClass:NSDictionary.class] ? identity : nil;
     }
     return nil;
-}
-
-// Translation replies may replace the view while leaving every actionable field unchanged.
-// Comparing the rest of the view also protects preedit, paging and candidate menu actions.
-static BOOL MSIMEOnlyCandidateTranslationsChanged(NSDictionary *before, NSDictionary *after) {
-    if (![before isKindOfClass:NSDictionary.class] || ![after isKindOfClass:NSDictionary.class]) return NO;
-    NSArray *oldCandidates = before[@"candidates"], *newCandidates = after[@"candidates"];
-    if (![oldCandidates isKindOfClass:NSArray.class] || ![newCandidates isKindOfClass:NSArray.class] ||
-        oldCandidates.count == 0 || oldCandidates.count != newCandidates.count) return NO;
-    NSMutableDictionary *oldView = [before mutableCopy], *newView = [after mutableCopy];
-    [oldView removeObjectForKey:@"candidates"];
-    [newView removeObjectForKey:@"candidates"];
-    if (![oldView isEqual:newView]) return NO;
-    BOOL changed = NO;
-    for (NSUInteger index = 0; index < oldCandidates.count; ++index) {
-        NSDictionary *oldCandidate = oldCandidates[index], *newCandidate = newCandidates[index];
-        if (![oldCandidate isKindOfClass:NSDictionary.class] || ![newCandidate isKindOfClass:NSDictionary.class]) return NO;
-        changed |= ![CandidateTranslation(oldCandidate) isEqual:CandidateTranslation(newCandidate)];
-        NSMutableDictionary *oldFields = [oldCandidate mutableCopy], *newFields = [newCandidate mutableCopy];
-        [oldFields removeObjectForKey:@"translation"];
-        [newFields removeObjectForKey:@"translation"];
-        if (![oldFields isEqual:newFields]) return NO;
-    }
-    return changed;
 }
 
 static BOOL MSIMESmartPunctuationKey(unichar character) {
@@ -813,7 +802,6 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     MSIMEPanelTextCompletion _desktopEmojiCompletion;
     double _desktopEmojiDeadline;
     NSDictionary *_view;
-    NSDictionary *_renderedCandidateView;
     // Bumped by every apply:. Writing marked text is a synchronous call into the client, and IMK services the next key inside it, so an apply: can finish after a newer one that ran nested in it.
     uint64_t _applySequence;
     // Bumped when a gloss arrival replaces the view, which can also happen inside an apply:'s marked-text write.
@@ -2486,8 +2474,8 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     [self syncPunctuation];
     [self syncCharacterWidth];
     [_toolbar applyLightSkin:[_appearance resolvedSkinForDark:NO].tokens darkSkin:[_appearance resolvedSkinForDark:YES].tokens];
-    [_toolbar applyLightToolbarSkin:msime::mac::ToolbarSkinTokens(_appearance.skinID.UTF8String, NO)
-                            darkSkin:msime::mac::ToolbarSkinTokens(_appearance.skinID.UTF8String, YES)];
+    [_toolbar applyLightToolbarSkin:[_appearance toolbarSkinForDark:NO]
+                            darkSkin:[_appearance toolbarSkinForDark:YES]];
     [self refreshFloatingToolbarState];
     if (_activeClient) [self renderCandidates];
     if (_activeClient) [_toolbar setVisible:_appearance.floatingToolbarEnabled forDelegate:self];
@@ -2564,11 +2552,21 @@ static __weak MSIMEInputController *MSIMEQueuedPreferenceSaver;
     NSDictionary *view = [_session setCharacterWidthFull:_appearance.runtimeFullWidthInput error:nil];
     if (view) [self apply:@{@"view":view}];
 }
+// The menus take the global theme's mode as the toolbar does (THEME_CONTRACT §6): a theme that fixes its own mode fixes theirs over menu_theme and the interface theme, which still decide for `system` and a custom theme over it. NSMenu has no palette of its own to recolour, so the mode is what a theme can reach.
+- (NSDictionary *)resolvedMenuThemePreferences {
+    NSDictionary *preferences = _menuThemePreferences ?: @{};
+    if (!_appearance) return preferences;
+    const auto fixed = [_appearance resolvedSkinForDark:NO].fixedDark;
+    if (!fixed) return preferences;
+    NSMutableDictionary *pinned = [preferences mutableCopy];
+    pinned[@"menu_theme"] = *fixed ? @"dark" : @"light";
+    return pinned;
+}
 - (NSMenu *)menu {
     [self ensureAppearance];
     NSMenu *menu = [[NSMenu alloc] initWithTitle:@"水杉输入法"];
     menu.autoenablesItems = NO;
-    ApplyMetasequoiaMenuTheme(menu, _menuThemePreferences ?: @{});
+    ApplyMetasequoiaMenuTheme(menu, [self resolvedMenuThemePreferences]);
     for (NSUInteger mode = 0; mode < 2; ++mode) {
         NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:mode ? @"英文输入" : @"中文输入" action:mode ? @selector(selectEnglishMode:) : @selector(selectChineseMode:) keyEquivalent:@""];
         item.target = self;
@@ -2588,6 +2586,41 @@ static __weak MSIMEInputController *MSIMEQueuedPreferenceSaver;
         [menu addItem:item];
     }
     [menu addItem:NSMenuItem.separatorItem];
+    // The three typing toggles the floating toolbar also carries, so they stay reachable with the toolbar hidden. The key equivalents are only labels for the chords handleEvent already claims (Ctrl+Shift+Space and Ctrl+.), not a second binding.
+    NSMenuItem *fullWidth = [[NSMenuItem alloc] initWithTitle:@"全角字符" action:@selector(toggleFullWidthInput:) keyEquivalent:@" "];
+    fullWidth.target = self;
+    fullWidth.keyEquivalentModifierMask = NSEventModifierFlagControl | NSEventModifierFlagShift;
+    fullWidth.state = _appearance.runtimeFullWidthInput ? NSControlStateValueOn : NSControlStateValueOff;
+    [menu addItem:fullWidth];
+    NSMenuItem *punctuation = [[NSMenuItem alloc] initWithTitle:@"中文标点" action:@selector(toggleChinesePunctuation:) keyEquivalent:@"."];
+    punctuation.target = self;
+    punctuation.keyEquivalentModifierMask = NSEventModifierFlagControl;
+    punctuation.state = _appearance.runtimeChinesePunctuation ? NSControlStateValueOn : NSControlStateValueOff;
+    // A punctuation lock pins the runtime state, so the toggle would do nothing; say so instead of offering it.
+    punctuation.enabled = !([_appearance.punctuationLock isEqual:@"chinese"] || [_appearance.punctuationLock isEqual:@"english"]);
+    [menu addItem:punctuation];
+    NSMenuItem *translations = [[NSMenuItem alloc] initWithTitle:@"显示译文" action:@selector(toggleCandidateTranslations:) keyEquivalent:@""];
+    translations.target = self;
+    translations.state = _appearance.candidateTranslations ? NSControlStateValueOn : NSControlStateValueOff;
+    [menu addItem:translations];
+    [menu addItem:NSMenuItem.separatorItem];
+    // NSMenuItem.sectionHeaderWithTitle: needs macOS 14 and this input source still runs on 13, so the section title is a disabled row.
+    NSMenuItem *schemeHeader = [[NSMenuItem alloc] initWithTitle:@"输入方案" action:nil keyEquivalent:@""];
+    schemeHeader.enabled = NO;
+    [menu addItem:schemeHeader];
+    NSString *profile = [NSString stringWithUTF8String:msime::mac::ShuangpinSchemaTitle(_appearance.shuangpinProfile.UTF8String ?: "")];
+    if ([profile hasSuffix:@"双拼"] && profile.length > 2) profile = [profile substringToIndex:profile.length - 2];
+    NSArray<NSString *> *schemes = @[@"quanpin", @"shuangpin", @"wubi", @"japanese"];
+    NSArray<NSString *> *schemeTitles = @[@"全拼", [NSString stringWithFormat:@"双拼（%@）", profile], @"五笔 86", @"日语"];
+    for (NSUInteger index = 0; index < schemes.count; ++index) {
+        NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:schemeTitles[index] action:@selector(selectInputScheme:) keyEquivalent:@""];
+        item.target = self;
+        item.representedObject = schemes[index];
+        item.indentationLevel = 1;
+        item.state = [_appearance.inputScheme isEqual:schemes[index]] ? NSControlStateValueOn : NSControlStateValueOff;
+        [menu addItem:item];
+    }
+    [menu addItem:NSMenuItem.separatorItem];
     // The floating toolbar is one click from the language bar in the reference - the first item of
     // its tray menu, with a tick showing the state. Here it could only be reached by opening the
     // settings window and finding a checkbox, which is a long way round for something the user
@@ -2597,9 +2630,7 @@ static __weak MSIMEInputController *MSIMEQueuedPreferenceSaver;
     toolbar.state = _appearance.floatingToolbarEnabled ? NSControlStateValueOn : NSControlStateValueOff;
     [menu addItem:toolbar];
 
-    // Keep the live input tools one click away. Account, dictionary, update and support destinations
-    // stay in the settings window; listing those management pages here made this menu taller than
-    // the screen, but hiding the tools behind a second submenu made the useful part too hard to reach.
+    // Keep the live input tools one click away. Account, update and support destinations stay in the settings window; listing those management pages here made this menu taller than the screen, but hiding the tools behind a second submenu made the useful part too hard to reach. The dictionary is the one management page the redesigned menu names, next to the theme below.
     NSMenuItem *emoji = [[NSMenuItem alloc] initWithTitle:@"水杉表情面板…" action:@selector(showEmoji:) keyEquivalent:@""];
     emoji.target = self;
     [menu addItem:emoji];
@@ -2614,6 +2645,27 @@ static __weak MSIMEInputController *MSIMEQueuedPreferenceSaver;
     [menu addItem:voice];
 
     [menu addItem:NSMenuItem.separatorItem];
+    // The theme is the one appearance choice worth a shortcut past the settings window. NSMenu has no trailing hint text, so the current theme's name rides in the title and the tick marks it in the submenu.
+    NSString *currentTheme = _appearance.globalTheme ?: @"system";
+    NSMenu *themes = [[NSMenu alloc] initWithTitle:@"主题"];
+    themes.autoenablesItems = NO;
+    NSString *currentThemeTitle = nil;
+    for (const auto &entry : msime::mac::ThemeCatalog()) {
+        NSString *identifier = [NSString stringWithUTF8String:entry.id.c_str()];
+        NSString *title = [NSString stringWithUTF8String:entry.title.c_str()];
+        NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:title action:@selector(selectGlobalTheme:) keyEquivalent:@""];
+        item.target = self;
+        item.representedObject = identifier;
+        item.state = [currentTheme isEqual:identifier] ? NSControlStateValueOn : NSControlStateValueOff;
+        if (item.state == NSControlStateValueOn) currentThemeTitle = title;
+        [themes addItem:item];
+    }
+    NSMenuItem *theme = [[NSMenuItem alloc] initWithTitle:currentThemeTitle ? [NSString stringWithFormat:@"主题（%@）", currentThemeTitle] : @"主题" action:nil keyEquivalent:@""];
+    theme.submenu = themes;
+    [menu addItem:theme];
+    NSMenuItem *dictionary = [[NSMenuItem alloc] initWithTitle:@"词库…" action:@selector(showDictionary:) keyEquivalent:@""];
+    dictionary.target = self;
+    [menu addItem:dictionary];
     NSMenuItem *settings = [[NSMenuItem alloc] initWithTitle:@"水杉输入法设置…" action:@selector(showAppearance:) keyEquivalent:@""];
     settings.target = self;
     [menu addItem:settings];
@@ -3678,8 +3730,8 @@ static __weak MSIMEInputController *MSIMEQueuedPreferenceSaver;
     _capsLock = ([NSEvent modifierFlags] & NSEventModifierFlagCapsLock) != 0;
     _toolbar = [MSIMEFloatingToolbarPanel sharedPanel];
     [_toolbar applyLightSkin:[_appearance resolvedSkinForDark:NO].tokens darkSkin:[_appearance resolvedSkinForDark:YES].tokens];
-    [_toolbar applyLightToolbarSkin:msime::mac::ToolbarSkinTokens(_appearance.skinID.UTF8String, NO)
-                            darkSkin:msime::mac::ToolbarSkinTokens(_appearance.skinID.UTF8String, YES)];
+    [_toolbar applyLightToolbarSkin:[_appearance toolbarSkinForDark:NO]
+                            darkSkin:[_appearance toolbarSkinForDark:YES]];
     [_toolbar activateForDelegate:self visible:_appearance.floatingToolbarEnabled];
     _activeClient = sender;
     _preferenceLoadState.reset();
@@ -4136,7 +4188,17 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     if ([shared respondsToSelector:@selector(applyHandwritingPreferences:)])
         [shared performSelector:@selector(applyHandwritingPreferences:) withObject:preferences];
     [[MSIMEScreenKeyboardPanel sharedPanel] applyThemePreferences:preferences];
-    [_toolbar applyThemePreferences:preferences];
+    // The global theme arrives with the rest of the document, so the toolbar takes the palette resolved from it here as well as on activation. A theme with a mode of its own fixes the toolbar's mode as it fixes the candidate window's.
+    NSDictionary *toolbarThemePreferences = preferences;
+    if (const auto fixed = [_appearance resolvedSkinForDark:NO].fixedDark) {
+        NSMutableDictionary *pinned = [preferences mutableCopy];
+        pinned[@"toolbar_theme"] = *fixed ? @"dark" : @"light";
+        toolbarThemePreferences = pinned;
+    }
+    [_toolbar applyLightSkin:[_appearance resolvedSkinForDark:NO].tokens darkSkin:[_appearance resolvedSkinForDark:YES].tokens];
+    [_toolbar applyLightToolbarSkin:[_appearance toolbarSkinForDark:NO]
+                            darkSkin:[_appearance toolbarSkinForDark:YES]];
+    [_toolbar applyThemePreferences:toolbarThemePreferences];
     [_toolbar applySizingPreferences:preferences];
     NSDictionary *toolbar = preferences[@"floating_toolbar"];
     id enabled = [toolbar isKindOfClass:NSDictionary.class] ? toolbar[@"enabled"] : nil;
@@ -4207,6 +4269,31 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     [self refreshFloatingToolbarState];
 }
 - (void)floatingToolbarDidRequestToggleFullWidth:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; [self toggleRuntimeFullWidthInput]; }
+// The input menu's toggles run the same paths as the floating toolbar and the chords, so all three stay one state.
+- (void)toggleFullWidthInput:(id)sender { (void)sender; [self toggleRuntimeFullWidthInput]; }
+- (void)toggleChinesePunctuation:(id)sender { (void)sender; [self floatingToolbarDidRequestTogglePunctuation:nil]; }
+- (void)toggleCandidateTranslations:(id)sender {
+    (void)sender;
+    [self ensureAppearance];
+    _appearance.candidateTranslations = !_appearance.candidateTranslations;
+}
+- (void)selectInputScheme:(id)sender {
+    [self ensureAppearance];
+    NSString *scheme = [sender respondsToSelector:@selector(representedObject)] ? [sender representedObject] : nil;
+    if (![@[@"quanpin", @"shuangpin", @"wubi", @"japanese"] containsObject:scheme] || [_appearance.inputScheme isEqual:scheme]) return;
+    // The composition was typed under the old scheme; commit it rather than reinterpret its keys.
+    if (_session && _activeClient && [_view[@"editing_text"] length]) {
+        NSDictionary *finished = [_session command:MSIME_FINISH_COMPOSITION error:nil];
+        if (!finished) return;
+        [self apply:finished];
+    }
+    _appearance.inputScheme = scheme;
+}
+- (void)selectGlobalTheme:(id)sender {
+    [self ensureAppearance];
+    NSString *theme = [sender respondsToSelector:@selector(representedObject)] ? [sender representedObject] : nil;
+    if ([theme isKindOfClass:NSString.class]) _appearance.globalTheme = theme;
+}
 - (void)toggleRuntimeFullWidthInput {
     [self ensureAppearance];
     _appearance.runtimeFullWidthInput = !_appearance.runtimeFullWidthInput;
@@ -5161,8 +5248,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         const CGFloat itemWidth = ceil(msime::mac::CandidateItemNaturalWidth(items.back(), metrics, !vertical));
         natural = vertical ? MAX(natural, itemWidth) : natural + itemWidth;
     }
-    const CGFloat pagingWidth = paging && !vertical ? 56 : 0;
-    CGFloat width = MAX(20, natural + 2 * inset + pagingWidth);
+    // The page arrows sit in the card's top row beside the reading, so they take no width from the candidate line.
+    CGFloat width = MAX(20, natural + 2 * inset);
     width = MAX(width, preeditWidth);
     const CGFloat widthCap = MAX(80, floor(visible.size.width * 0.5));
     width = MIN(width, widthCap);
@@ -5170,7 +5257,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     // At least 7em of the candidate font, raised by the skin's floor; the 7em part stays within the half-screen cap (CandidateItemLayout.h).
     width = MAX(width, msime::mac::CandidateCardMinimumWidth(font.pointSize, minimumWidth, widthCap));
     geometry.width = width;
-    geometry.lineWidth = MAX(1, width - 2 * inset - pagingWidth);
+    geometry.lineWidth = MAX(1, width - 2 * inset);
     const msime::mac::CandidatePageMeasure measure = [texts, annotations, translations, font, glossFont](std::size_t row, msime::mac::CandidateRun run, double runWidth) {
         return MSIMECandidateRunMeasure(texts[row], annotations[row], translations[row], font, glossFont)(run, runWidth);
     };
@@ -5221,7 +5308,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
             if (NSPointInRect(NSMakePoint(NSMinX(cursor), NSMidY(cursor)), candidateScreen.frame)) { screen = candidateScreen; break; }
         screen = screen ?: NSScreen.mainScreen;
         NSFont *font = [_appearance candidateFontOfSize:_appearance.fontSize englishFirst:YES];
-        NSFont *glossFont = [_appearance candidateFontOfSize:font.pointSize * 0.78 englishFirst:YES];
+        NSFont *glossFont = [_appearance candidateFontOfSize:MSIMECandidateTranslationPointSize englishFirst:YES];
         const MSIMECandidatePageGeometry geometry =
             [self candidatePageGeometry:candidates font:font glossFont:glossFont showSelectedBar:_skinShowsSelectedBar inset:12
                                  paging:[_view[@"page_count"] unsignedIntegerValue] > 1
@@ -5229,9 +5316,14 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         clearance = MAX(clearance, geometry.rowsHeight + 24);
     }
     id preedit = [_view[@"preedit"] isKindOfClass:NSString.class] ? _view[@"preedit"] : editing;
-    if (_appearance.showsCandidatePreedit && [preedit length] && [_view[@"candidates"] count]) {
-        NSFont *preeditFont = [_appearance candidateFontOfSize:_appearance.preeditFontSize englishFirst:YES];
-        clearance += MAX(22.0, MSIMECandidateTextHeight(preedit, preeditFont) + 6.0);
+    if ([_view[@"candidates"] count]) {
+        // The card's top row: the reading when it is shown, and the page indicator whenever there is more than one page.
+        CGFloat header = [_view[@"page_count"] unsignedIntegerValue] > 1 ? MSIMECandidateHeaderHeight : 0;
+        if (_appearance.showsCandidatePreedit && [preedit length]) {
+            NSFont *preeditFont = MSIMECandidatePreeditFont(_appearance);
+            header = MAX(header, MAX(22.0, MSIMECandidateTextHeight(preedit, preeditFont) + 6.0));
+        }
+        clearance += header;
     }
     [_keymapPanel showNearCaretRect:cursor candidateClearance:clearance];
 }
@@ -5253,14 +5345,12 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
 - (void)renderCandidates {
     const bool timed = msime_macos_diagnostic_enabled();
     const uint64_t buildStarted = timed ? clock_gettime_nsec_np(CLOCK_UPTIME_RAW) : 0;
-    NSDictionary *previousRenderedView = _renderedCandidateView;
     _candidateMenuToken = [NSObject new];
     [self updateKeymapPanel];
-    if (_appearance.englishMode) { _renderedCandidateView = nil; [self resetCandidateAnchor]; [self hideCandidatePanel:"english_mode"]; return; }
+    if (_appearance.englishMode) { [self resetCandidateAnchor]; [self hideCandidatePanel:"english_mode"]; return; }
     NSArray *candidates = MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view));
     if (![candidates isKindOfClass:NSArray.class] || candidates.count == 0) {
         _armedGlossColumn = 0;
-        _renderedCandidateView = nil;
         [self resetCandidateAnchor];
         [self hideCandidatePanel:"empty"];
         return;
@@ -5272,13 +5362,13 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     NSRect reportedCursor = NSZeroRect;
     [(id<IMKTextInput>)_activeClient attributesForCharacterIndex:0 lineHeightRectangle:&reportedCursor];
     NSRect cursor = [self candidateCaretForRendering:reportedCursor];
-    if (!MSIMEValidCaret(cursor)) { _renderedCandidateView = nil; [self hideCandidatePanel:"invalid_caret"]; return; }
+    if (!MSIMEValidCaret(cursor)) { [self hideCandidatePanel:"invalid_caret"]; return; }
     NSScreen *screen = nil;
     for (NSScreen *candidate in NSScreen.screens) {
         if (NSPointInRect(NSMakePoint(NSMinX(cursor), NSMidY(cursor)), candidate.frame)) { screen = candidate; break; }
     }
     screen = screen ?: NSScreen.mainScreen;
-    if (!screen) { _renderedCandidateView = nil; [self hideCandidatePanel:"no_screen"]; return; }
+    if (!screen) { [self hideCandidatePanel:"no_screen"]; return; }
     NSRect visible = screen.visibleFrame;
     [self ensureAppearance];
     NSAppearance *candidateAppearance = [_appearance candidateAppearanceOverride];
@@ -5294,17 +5384,24 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     id preeditValue = _view[@"preedit"];
     if (![preeditValue isKindOfClass:NSString.class]) preeditValue = _view[@"editing_text"];
     NSString *preedit = _appearance.showsCandidatePreedit && [preeditValue isKindOfClass:NSString.class] ? preeditValue : @"";
-    NSFont *preeditFont = [_appearance candidateFontOfSize:_appearance.preeditFontSize englishFirst:YES];
+    NSFont *preeditFont = MSIMECandidatePreeditFont(_appearance);
     CGFloat preeditHeight = preedit.length ? MAX(22.0, MSIMECandidateTextHeight(preedit, preeditFont) + 6.0) : 0;
     const NSUInteger page = [_view[@"page"] unsignedIntegerValue];
     const NSUInteger pageCount = [_view[@"page_count"] unsignedIntegerValue];
     const BOOL paging = pageCount > 1;
+    // The top row holds the reading on the left and 「1 / 3」 with ‹ › on the right; it is there whenever either has something to show.
+    NSFont *pageIndicatorFont = [NSFont monospacedDigitSystemFontOfSize:MSIMECandidatePageIndicatorPointSize weight:NSFontWeightRegular];
+    NSString *pageIndicator = paging ? [NSString stringWithFormat:@"%lu / %lu", (unsigned long)(page + 1), (unsigned long)pageCount] : @"";
+    const CGFloat pageIndicatorWidth = paging ? ceil([pageIndicator sizeWithAttributes:@{NSFontAttributeName: pageIndicatorFont}].width) : 0;
+    const CGFloat pageControlsWidth = paging ? pageIndicatorWidth + MSIMECandidatePageIndicatorGap + 2 * MSIMECandidatePageArrowWidth : 0;
+    const CGFloat headerHeight = MAX(preeditHeight, paging ? MSIMECandidateHeaderHeight : 0);
     NSFont *numberFont = MSIMECandidateNumberFont(font);
-    NSFont *glossFont = [_appearance candidateFontOfSize:font.pointSize * 0.78 englishFirst:YES];
-    const CGFloat preeditWidth = preedit.length ? ceil([preedit sizeWithAttributes:@{NSFontAttributeName:preeditFont}].width) + 2 * inset + 4 + MSIMEPreeditCaretGap : 0;
+    NSFont *glossFont = [_appearance candidateFontOfSize:MSIMECandidateTranslationPointSize englishFirst:YES];
+    const CGFloat preeditWidth = preedit.length ? ceil([preedit sizeWithAttributes:@{NSFontAttributeName:preeditFont}].width) + 4 + MSIMEPreeditCaretGap : 0;
+    const CGFloat headerWidth = preedit.length || paging ? 2 * inset + preeditWidth + (preedit.length && paging ? MSIMECandidatePageIndicatorGap : 0) + pageControlsWidth : 0;
     const MSIMECandidatePageGeometry pageGeometry =
         [self candidatePageGeometry:candidates font:font glossFont:glossFont showSelectedBar:geometry.showSelectedBar inset:inset
-                             paging:paging visible:visible preeditWidth:preeditWidth
+                             paging:paging visible:visible preeditWidth:headerWidth
                        minimumWidth:MAX(skin.minWidthDip, skin.decorationWidthDip)];
     const CGFloat width = pageGeometry.width;
     if (!_panel) {
@@ -5331,8 +5428,8 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     _panel.opaque = NO;
     _panel.backgroundColor = NSColor.clearColor;
     const CGFloat decorationHeight = skin.decorationTopDip;
-    const CGFloat height = pageGeometry.rowsHeight + 2 * inset + (paging && vertical ? 26 : 0) + decorationHeight + preeditHeight;
-
+    const CGFloat height = pageGeometry.rowsHeight + 2 * inset + decorationHeight + headerHeight;
+    const CGFloat headerBottom = height - inset - decorationHeight - headerHeight;
     // Gloss replies keep the candidate IDs and all panel structure stable. Repaint those rows in
     // place when their geometry is unchanged; a page or layout change still takes the full rebuild
     // below, which deliberately detaches every old button.
@@ -5356,13 +5453,13 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
             if (![button.candidateID isEqual:candidate[@"id"]] || ![button.title isEqual:title] ||
                 ![button.annotation isEqual:pageGeometry.annotations[index]] ||
                 button.candidateHighlighted != [candidate[@"highlighted"] boolValue] ||
-                !NSEqualRects(button.frame, NSMakeRect(inset + row.x, height - inset - decorationHeight - preeditHeight - row.y - row.height,
+                !NSEqualRects(button.frame, NSMakeRect(inset + row.x, headerBottom - row.y - row.height,
                                                        row.width, row.height))) {
                 reusable = NO;
                 break;
             }
             button.menu = [self menuForCandidate:candidate];
-            button.frame = NSMakeRect(inset + row.x, height - inset - decorationHeight - preeditHeight - row.y - row.height,
+            button.frame = NSMakeRect(inset + row.x, headerBottom - row.y - row.height,
                                       row.width, row.height);
             button.toolTip = CandidateTranslation(candidate).length ? [display stringByAppendingFormat:@"\n%@", CandidateTranslation(candidate)] : display;
             button.translation = CandidateTranslation(candidate);
@@ -5395,7 +5492,7 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     [_panel setContentSize:NSMakeSize(width, height)];
     MSIMECandidateChromeView *content = [[MSIMECandidateChromeView alloc] initWithFrame:NSMakeRect(0, 0, width, height)];
     NSUInteger slot = 0;
-    const CGFloat rowsTop = height - inset - decorationHeight - preeditHeight;
+    const CGFloat rowsTop = headerBottom;
     for (NSDictionary *candidate in candidates) {
         const msime::mac::CandidateRowLayout &row = pageGeometry.rows[slot];
         NSString *display = pageGeometry.displays[slot];
@@ -5430,10 +5527,21 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
         [content addSubview:button];
     }
     if (paging) {
+        // Right-aligned in the top row, centred on the reading when that is taller than the arrows.
+        const CGFloat controlsBottom = headerBottom + floor((headerHeight - MSIMECandidateHeaderHeight) / 2);
+        const CGFloat arrowsLeft = width - inset - 2 * MSIMECandidatePageArrowWidth;
+        NSTextField *indicator = [NSTextField labelWithString:pageIndicator];
+        indicator.identifier = @"candidate-page-indicator";
+        indicator.accessibilityLabel = [NSString stringWithFormat:@"第 %lu 页，共 %lu 页", (unsigned long)(page + 1), (unsigned long)pageCount];
+        indicator.font = pageIndicatorFont;
+        indicator.alignment = NSTextAlignmentRight;
+        const CGFloat indicatorHeight = ceil([pageIndicator sizeWithAttributes:@{NSFontAttributeName: pageIndicatorFont}].height);
+        indicator.frame = NSMakeRect(arrowsLeft - MSIMECandidatePageIndicatorGap - pageIndicatorWidth,
+                                     controlsBottom + floor((MSIMECandidateHeaderHeight - indicatorHeight) / 2), pageIndicatorWidth, indicatorHeight);
+        [content addSubview:indicator];
         for (NSUInteger direction = 0; direction < 2; ++direction) {
             MSIMECandidateButton *button = [MSIMECandidateButton buttonWithTitle:direction == 0 ? @"‹" : @"›" target:self action:@selector(changeCandidatePage:)];
-            button.frame = NSMakeRect((vertical ? inset : inset + pageGeometry.lineWidth) + direction * 28, inset, 28,
-                                      vertical ? 26 : pageGeometry.rows.back().height);
+            button.frame = NSMakeRect(arrowsLeft + direction * MSIMECandidatePageArrowWidth, controlsBottom, MSIMECandidatePageArrowWidth, MSIMECandidateHeaderHeight);
             button.bordered = NO;
             button.tag = direction == 0 ? -1 : -2;
             button.enabled = direction == 0 ? page > 0 : page < pageCount - 1;
@@ -5459,7 +5567,8 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
             label.caretIndex += phrase.length;
         }
         label.showsCaret = [_view[@"focused"] isEqual:@YES];
-        label.frame = NSMakeRect(inset, height - inset - decorationHeight - preeditHeight, width - 2 * inset, preeditHeight);
+        label.frame = NSMakeRect(inset, headerBottom + floor((headerHeight - preeditHeight) / 2),
+                                 width - 2 * inset - (paging ? pageControlsWidth + MSIMECandidatePageIndicatorGap : 0), preeditHeight);
         [content addSubview:label];
     }
     if (decorationHeight > 0 && _appearance.decorationImage) {
@@ -5471,7 +5580,6 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
         [content addSubview:decoration];
     }
     _panel.contentView = content;
-    _renderedCandidateView = [_view copy];
     content.appearanceTarget = self;
     content.appearanceAction = @selector(refreshCandidateSkin);
     [self refreshCandidateSkin];
@@ -5496,8 +5604,8 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     NSString *match = [content.effectiveAppearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
     const auto tokens = [_appearance resolvedSkinForDark:[match isEqual:NSAppearanceNameDarkAqua]].tokens;
     if (tokens.showSelectedBar != _skinShowsSelectedBar) { [self renderCandidates]; return; }
-    content.fillColor = [_appearance candidateSurfaceColorWithDefault:SkinColor(tokens.surface)];
-    content.strokeColor = [_appearance candidateBorderColorWithDefault:SkinColor(tokens.border)];
+    content.fillColor = SkinColor(tokens.surface);
+    content.strokeColor = SkinColor(tokens.border);
     content.cornerRadius = tokens.radius;
     content.lineWidth = tokens.borderWidth;
     NSArray<MSIMECandidateButton *> *candidateButtons = [content.subviews filteredArrayUsingPredicate:
@@ -5506,24 +5614,34 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
                     [view isKindOfClass:MSIMECandidatePreeditField.class]) &&
                 view.tag >= 0;
         }]];
+    // The top row's page controls take the theme's colours too: labelColor would follow the system appearance, not a theme that fixes its own mode. The design draws 「1 / 3」 and ‹ › in the secondary colour (dc.html L1324); an arrow with no page behind it fades further.
+    for (NSView *child in content.subviews) {
+        if ([child.identifier isEqual:@"candidate-page-indicator"] && [child isKindOfClass:NSTextField.class])
+            ((NSTextField *)child).textColor = SkinColor(tokens.number);
+        if (![child isKindOfClass:MSIMECandidateButton.class] || (child.tag != -1 && child.tag != -2)) continue;
+        MSIMECandidateButton *arrow = (id)child;
+        arrow.titleColor = arrow.enabled ? SkinColor(tokens.number) : [SkinColor(tokens.number) colorWithAlphaComponent:tokens.number.a * 0.4];
+        arrow.hoverColor = SkinColor(tokens.hover);
+        arrow.cornerRadius = tokens.candidateRadius;
+        arrow.needsDisplay = YES;
+    }
     for (MSIMECandidateButton *button in candidateButtons) {
         if ([button.identifier isEqual:@"candidate-preedit"] && [button isKindOfClass:NSTextField.class]) {
-            ((NSTextField *)(id)button).textColor = [_appearance candidateTextColorWithDefault:SkinColor(tokens.text)];
+            ((NSTextField *)(id)button).textColor = SkinColor(tokens.accent);
             if ([button isKindOfClass:MSIMECandidatePreeditField.class])
-                ((MSIMECandidatePreeditField *)(id)button).caretColor = [_appearance candidateAccentColorWithDefault:SkinColor(tokens.accent)];
+                ((MSIMECandidatePreeditField *)(id)button).caretColor = SkinColor(tokens.accent);
         }
         if (![button isKindOfClass:MSIMECandidateButton.class]) continue;
-        button.fillColor = [_appearance candidateSelectedColorWithDefault:SkinColor(tokens.selected)];
-        button.hoverColor = [_appearance candidateHoverColorWithDefault:SkinColor(tokens.hover)];
-        button.titleColor = button.candidateHighlighted ? SkinColor(tokens.selectedText) : [_appearance candidateTextColorWithDefault:SkinColor(tokens.text)];
+        button.fillColor = SkinColor(tokens.selected);
+        button.hoverColor = SkinColor(tokens.hover);
+        button.titleColor = button.candidateHighlighted ? SkinColor(tokens.selectedText) : SkinColor(tokens.text);
         // Windows fixed-position span overrides candidate text, not its number.
         if (button.candidateFixed) button.titleColor = [NSColor colorWithSRGBRed:55.0/255 green:154.0/255 blue:211.0/255 alpha:1];
-        // The annotation and translation are children of the candidate text in
-        // the Windows renderer, so they inherit its final color, including the
-        // fixed-position override above. Translation keeps its reduced opacity.
-        button.translationColor = [button.titleColor colorWithAlphaComponent:MSIMECandidateTranslationOpacity];
-        button.numberColor = button.candidateHighlighted ? SkinColor(tokens.selectedText) : [_appearance candidateNumberColorWithDefault:SkinColor(tokens.number)];
-        button.barColor = [_appearance candidateAccentColorWithDefault:SkinColor(tokens.accent)];
+        // The translation is the theme's secondary colour, which always equals the number colour: the design draws a plain row's gloss in cSub (dc.html L2150, L2183), the theme's kb.sub or the platform's sub, and on the selected fill in candSelTr (dc.html L1533), the selected number's colour. A fixed-position row keeps the Windows renderer's rule instead, where the translation is a child of the candidate text and takes its fixed-position colour at reduced opacity.
+        if (button.candidateFixed) button.translationColor = [button.titleColor colorWithAlphaComponent:MSIMECandidateTranslationOpacity];
+        else button.translationColor = button.candidateHighlighted ? SkinColor(tokens.selectedNumber) : SkinColor(tokens.number);
+        button.numberColor = button.candidateHighlighted ? SkinColor(tokens.selectedNumber) : SkinColor(tokens.number);
+        button.barColor = SkinColor(tokens.accent);
         button.showSelectedBar = tokens.showSelectedBar;
         const BOOL first = button == candidateButtons.firstObject;
         const BOOL last = button == candidateButtons.lastObject;
@@ -5556,13 +5674,13 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     };
     NSMenu *menu = [[NSMenu alloc] initWithTitle:@"候选操作"];
     menu.autoenablesItems = NO;
-    ApplyMetasequoiaMenuTheme(menu, _menuThemePreferences ?: @{});
+    ApplyMetasequoiaMenuTheme(menu, [self resolvedMenuThemePreferences]);
     NSString *pinTitle = MSIMECandidateIsPinned(MSIMECandidatePinCode(_view), text) ? @"取消置顶" : @"置顶";
     [menu addItem:item(pinTitle, 0)];
     NSMenuItem *fixed = [[NSMenuItem alloc] initWithTitle:@"固定排位" action:nil keyEquivalent:@""];
     NSMenu *positions = [[NSMenu alloc] initWithTitle:@"固定排位"];
     positions.autoenablesItems = NO;
-    ApplyMetasequoiaMenuTheme(positions, _menuThemePreferences ?: @{});
+    ApplyMetasequoiaMenuTheme(positions, [self resolvedMenuThemePreferences]);
     for (NSInteger position = 1; position <= 5; ++position)
         [positions addItem:item([NSString stringWithFormat:@"第 %ld 位", (long)position], 10 + position)];
     [positions addItem:NSMenuItem.separatorItem];

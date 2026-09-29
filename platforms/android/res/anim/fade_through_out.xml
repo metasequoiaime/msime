@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- M3 fade-through, outgoing half: the old screen only fades, and quicker than the new one arrives. -->
+<alpha xmlns:android="http://schemas.android.com/apk/res/android"
+    android:duration="90"
+    android:fromAlpha="1"
+    android:toAlpha="0" />

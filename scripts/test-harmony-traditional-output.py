@@ -12,6 +12,7 @@ HEADER = ROOT / "crates/host-api/include/msime_client.h"
 NATIVE = ROOT / "platforms/harmony/native/client_napi.cpp"
 TYPES = ROOT / "platforms/harmony/entry/src/main/cpp/types/libmsimeclient/index.d.ts"
 SESSION = ROOT / "platforms/harmony/entry/src/main/ets/keyboard/KeyboardSession.ets"
+VIEW = ROOT / "platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets"
 SOURCES = ROOT / "platforms/harmony/entry/src/main/ets"
 
 
@@ -29,6 +30,7 @@ def main() -> int:
     native = NATIVE.read_text(encoding="utf-8")
     types = TYPES.read_text(encoding="utf-8")
     session = SESSION.read_text(encoding="utf-8")
+    view = VIEW.read_text(encoding="utf-8")
 
     binding = body(native, "static napi_value SimplifiedToTraditional(", "\n}\n")
     convert = body(session, "  private asTraditional(text: string): string {", "\n  }\n")
@@ -47,13 +49,17 @@ def main() -> int:
         and "ChineseOutputPolicy.applies(this.englishMode, this.scheme, this.localMode)" in convert,
         # The candidate bar, the flat list it is built from and the expanded panel all show converted text.
         "candidate display converts": session.count("text: this.asTraditional(candidate.text)") == 3,
+        # The switch flips only once the store has taken the new value, then republishes at once, so a refused write leaves the output as it was.
         "switch republishes the candidates": re.search(
-            r"toggleCharacterSet\(\): void \{\s*this\.traditional = !this\.traditional;\s*"
-            r"this\.writePreference\('traditional_chinese_output', this\.traditional\);\s*"
+            r"toggleCharacterSet\(\): boolean \{\s*"
+            r"if \(!this\.writePreference\('traditional_chinese_output', !this\.traditional\)\) \{\s*return this\.traditional;\s*\}\s*"
+            r"this\.traditional = !this\.traditional;\s*"
             r"(?://[^\n]*\s*)?this\.publishCurrentCandidates\(\);",
             session,
         )
         is not None,
+        # The keyboard's 繁 tile goes through the same switch rather than writing the preference behind the session's back.
+        "keyboard tile uses the session switch": "this.traditional = KeyboardSession.shared.toggleCharacterSet();" in view,
     }
     problems = [name for name, present in required.items() if not present]
 

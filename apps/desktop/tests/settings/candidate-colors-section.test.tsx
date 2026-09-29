@@ -9,13 +9,13 @@ afterEach(() => {
 });
 
 const preferences: CandidateColorPreferences = {
-  candidate_text_color: null,
-  candidate_number_color: null,
-  candidate_accent_color: null,
-  candidate_selected_color: null,
-  candidate_hover_color: null,
-  candidate_surface_color: null,
-  candidate_border_color: null,
+  text: null,
+  number: null,
+  accent: null,
+  selected: null,
+  hover: null,
+  surface: null,
+  border: null,
 };
 
 test("candidate color controls report an override and reset it to the theme", () => {
@@ -33,11 +33,11 @@ test("candidate color controls report an override and reset it to the theme", ()
   );
 
   fireEvent.change(screen.getByLabelText("候选文字颜色"), { target: { value: "#123456" } });
-  expect(onChange).toHaveBeenCalledWith("candidate_text_color", "#123456");
+  expect(onChange).toHaveBeenCalledWith("text", "#123456");
 
   view.rerender(
     <CandidateColorsSection
-      preferences={{ ...preferences, candidate_text_color: "#123456" }}
+      preferences={{ ...preferences, text: "#123456" }}
       previewTheme="light"
       showRowColors
       showSelectionAppearance
@@ -47,7 +47,32 @@ test("candidate color controls report an override and reset it to the theme", ()
     />,
   );
   fireEvent.click(screen.getByRole("button", { name: "跟随主题" }));
-  expect(onChange).toHaveBeenLastCalledWith("candidate_text_color", null);
+  expect(onChange).toHaveBeenLastCalledWith("text", null);
+});
+
+test("candidate color resets only clear a slot the custom theme sets, except surface and border", () => {
+  const onChange = vi.fn();
+  render(
+    <CandidateColorsSection
+      preferences={preferences}
+      previewTheme="light"
+      showRowColors
+      showSelectionAppearance
+      showBorderColor
+      linux={false}
+      onChange={onChange}
+    />,
+  );
+
+  const accentReset = screen.getByRole("button", { name: "候选强调色跟随主题" });
+  expect(accentReset.getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(accentReset);
+  expect(onChange).not.toHaveBeenCalled();
+
+  const surfaceReset = screen.getByRole("button", { name: "候选表面色跟随主题" });
+  expect(surfaceReset.hasAttribute("aria-pressed")).toBe(false);
+  fireEvent.click(surfaceReset);
+  expect(onChange).toHaveBeenLastCalledWith("surface", null);
 });
 
 test("candidate color controls honor host capability limits", () => {

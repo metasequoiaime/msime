@@ -52,7 +52,7 @@ test("a host with nowhere to drop a file can still supply the overlay", async ()
   const save = vi.fn().mockResolvedValue(undefined);
   render(
     <SettingsPage
-      initialPage="input"
+      initialPage="expression"
       client={{
         load: async () => initial,
         save: vi.fn(),
@@ -76,7 +76,7 @@ test("the desktop hosts get the overlay too, where the profile directory is hidd
   const save = vi.fn().mockResolvedValue(undefined);
   render(
     <SettingsPage
-      initialPage="input"
+      initialPage="expression"
       client={{
         load: async () => initial,
         save: vi.fn(),
@@ -96,7 +96,7 @@ test("the desktop hosts get the overlay too, where the profile directory is hidd
 test("a host without the route is not offered the section", async () => {
   render(
     <SettingsPage
-      initialPage="input"
+      initialPage="expression"
       client={{
         load: async () => initial,
         save: vi.fn(),

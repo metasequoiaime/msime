@@ -1,4 +1,5 @@
-import { SettingToggle } from "./setting-toggle";
+import { Row, Select, Switch } from "../core/platform-controls";
+import * as settings from "./settings-style";
 
 export type MixedInputPreferences = {
   english: boolean;
@@ -32,26 +33,19 @@ export interface MixedInputSectionProps {
   onChange: (preferences: MixedInputPreferences) => void;
 }
 
-/** Shared mixed Chinese and English candidate controls. */
+/** Shared mixed Chinese and English candidate controls: the leading rows of the 多语言候选 group on the 表达 page. */
 export function MixedInputSection({ preferences, onChange }: MixedInputSectionProps) {
   return (
     <>
-      <div className="section" role="group" aria-label="中英混输">
-        <SettingToggle
-          label="中英混输"
-          description="中文输入时在候选项中补充英文单词"
-          ariaLabel="中英混输"
-          checked={preferences.english}
-          compact
-          onChange={(english) => onChange({ ...preferences, english })}
-        />
-        <div className="input-option-divider" />
-        <label className="section-header frequency-option-row">
-          <span className="section-title">
-            触发字符数<small>预编辑字母达到该长度后才出现英文候选项</small>
-          </span>
-          <select
-            aria-label="触发字符数"
+      <div role="group" aria-label="中英混输" className={settings.rowStack}>
+        <Row title="中英混输" description="中文输入时在候选项中补充英文单词">
+          <Switch
+            checked={preferences.english}
+            onChange={(english) => onChange({ ...preferences, english })}
+          />
+        </Row>
+        <Row title="触发字符数" description="预编辑字母达到该长度后才出现英文候选项">
+          <Select
             disabled={!preferences.english}
             value={preferences.minimum_prefix}
             onChange={(event) =>
@@ -63,17 +57,16 @@ export function MixedInputSection({ preferences, onChange }: MixedInputSectionPr
                 {value}
               </option>
             ))}
-          </select>
-        </label>
+          </Select>
+        </Row>
       </div>
       {supplementalOptions.map(([key, label, description]) => (
-        <SettingToggle
-          key={key}
-          label={label}
-          description={description}
-          checked={preferences[key]}
-          onChange={(checked) => onChange({ ...preferences, [key]: checked })}
-        />
+        <Row key={key} title={label} description={description}>
+          <Switch
+            checked={preferences[key]}
+            onChange={(checked) => onChange({ ...preferences, [key]: checked })}
+          />
+        </Row>
       ))}
     </>
   );

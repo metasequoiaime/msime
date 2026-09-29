@@ -41,6 +41,7 @@ public final class FeedbackActivity extends AppCompatActivity {
     private EditText detail;
 
     @Override protected void onCreate(@Nullable Bundle state) {
+        AppMode.restore(this);
         super.onCreate(state);
         setContentView(R.layout.activity_feedback);
         MaterialToolbar bar = findViewById(R.id.feedback_bar);

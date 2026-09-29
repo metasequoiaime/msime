@@ -63,7 +63,7 @@ int main() {
         assert(workspace.launches == 5);
         workspace.completion(NSRunningApplication.currentApplication, nil);
         assert(fallbacks == 2);
-        for (NSArray *entry in @[@[@((int)MSIMEDesktopSettingsPage::Translation), @"--route=settings:input"],
+        for (NSArray *entry in @[@[@((int)MSIMEDesktopSettingsPage::Translation), @"--route=settings:expression"],
                                  @[@((int)MSIMEDesktopSettingsPage::AI), @"--route=settings:ai"]]) {
             MSIMEOpenDesktopSettings((MSIMEDesktopSettingsPage)[entry[0] intValue], workspace, fallback);
             assert([workspace.configuration.arguments isEqual:@[entry[1]]]);

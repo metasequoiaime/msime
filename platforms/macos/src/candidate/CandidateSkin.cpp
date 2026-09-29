@@ -41,131 +41,6 @@ Rgba ContrastingText(Rgba fill, Rgba fallback)
     return RelativeLuminance(fill) < 0.45f ? Rgba{1.0f, 1.0f, 1.0f, 1.0f} : Rgba{0.1f, 0.1f, 0.1f, 1.0f};
 }
 
-SkinTokens FluentTokens(bool dark)
-{
-    SkinTokens tokens;
-    if (dark)
-    {
-        tokens.surface = Rgb(0x202020);
-        tokens.border = Rgb(0x9B9B9B, 0x2E / 255.0f);
-        tokens.text = Rgb(0xE9E8E8);
-        tokens.number = Rgb(0xE9E8E8, 0.616f);
-        tokens.selected = Rgb(0x3E3E3E, 0.725f);
-        tokens.hover = Rgb(0x414141);
-    }
-    else
-    {
-        tokens.surface = Rgb(0xFFFFFF);
-        tokens.border = Rgba{0.0f, 0.0f, 0.0f, 0.12f};
-        tokens.text = Rgb(0x1A1A1A);
-        tokens.number = Rgb(0x1A1A1A, 0.55f);
-        tokens.selected = Rgb(0xE8E8E8);
-        tokens.hover = Rgb(0xECECEC);
-    }
-    tokens.selectedText = tokens.text;
-    tokens.selectedHover = tokens.hover;
-    tokens.accent = Rgb(0x6B69D6);
-    tokens.radius = 6.0f;
-    tokens.candidateRadius = 4.0f;
-    tokens.selectedRadius = 4.0f;
-    tokens.borderWidth = 1.5f;
-    tokens.pad = 5.0f;
-    tokens.showSelectedBar = true;
-    return tokens;
-}
-
-SkinTokens WeChatTokens(bool dark)
-{
-    SkinTokens tokens = FluentTokens(dark);
-    tokens.surface = dark ? Rgb(0x151515) : Rgb(0xF7F7F7);
-    tokens.border = dark ? Rgb(0x292929) : Rgb(0xDEDEDE);
-    tokens.text = dark ? Rgb(0xB7B7B7) : Rgb(0x333333);
-    tokens.number = dark ? Rgb(0x858585) : Rgb(0x757575);
-    tokens.accent = Rgb(0x07C160);
-    tokens.selected = Rgb(0x07C160);
-    tokens.selectedText = Rgb(0xFFFFFF);
-    tokens.hover = Rgb(0x07C160, dark ? 0.32f : 0.14f);
-    tokens.selectedHover = tokens.selected;
-    tokens.radius = 5.0f;
-    // Windows candidate_presenter.cpp keeps the default 4px itemRadius for wechat and paints selected, pressed and hover rows with that one radius.
-    tokens.candidateRadius = 4.0f;
-    tokens.selectedRadius = 4.0f;
-    tokens.borderWidth = 1.0f;
-    tokens.pad = 2.0f;
-    tokens.showSelectedBar = false;
-    return tokens;
-}
-
-SkinTokens GraphiteTokens(bool dark)
-{
-    SkinTokens tokens = FluentTokens(dark);
-    if (dark)
-    {
-        tokens.surface = Rgb(0x1C1F23);
-        tokens.border = Rgb(0x30353B);
-        tokens.text = Rgb(0xAEB6C2);
-        tokens.number = Rgb(0x707987);
-        tokens.selected = Rgba{0.0f, 0.0f, 0.0f, 0.0f};
-        tokens.selectedText = Rgb(0xF1F3F5);
-        tokens.hover = Rgba{1.0f, 1.0f, 1.0f, 0.055f};
-        tokens.selectedHover = tokens.hover;
-        tokens.accent = Rgb(0x8993A0);
-    }
-    else
-    {
-        tokens.surface = Rgb(0xFBFBFC);
-        tokens.border = Rgb(0xE2E5E9);
-        tokens.text = Rgb(0x586476);
-        tokens.number = Rgb(0x8993A1);
-        tokens.selected = Rgba{0.0f, 0.0f, 0.0f, 0.0f};
-        tokens.selectedText = Rgb(0x111827);
-        tokens.hover = Rgba{31.0f / 255.0f, 41.0f / 255.0f, 55.0f / 255.0f, 0.055f};
-        tokens.selectedHover = tokens.hover;
-        tokens.accent = Rgb(0x5F6B7A);
-    }
-    tokens.radius = 3.0f;
-    tokens.candidateRadius = 2.0f;
-    tokens.selectedRadius = 2.0f;
-    tokens.borderWidth = 1.0f;
-    tokens.pad = 5.0f;
-    tokens.showSelectedBar = false;
-    return tokens;
-}
-
-SkinTokens WillowGreenTokens(bool dark)
-{
-    SkinTokens tokens = FluentTokens(dark);
-    if (dark)
-    {
-        tokens.surface = Rgb(0x2D2F2E);
-        tokens.text = Rgb(0xD8DBD8);
-        tokens.number = Rgb(0xA6ABA7);
-        tokens.accent = Rgb(0x65C98D);
-        tokens.selected = Rgb(0x65C98D);
-        tokens.hover = Rgb(0x65C98D, 0.22f);
-    }
-    else
-    {
-        tokens.surface = Rgb(0xF4F5F3);
-        tokens.text = Rgb(0x333333);
-        tokens.number = Rgb(0x757575);
-        tokens.accent = Rgb(0x58B980);
-        tokens.selected = Rgb(0x58B980);
-        tokens.hover = Rgb(0x58B980, 0.16f);
-    }
-    tokens.selectedHover = tokens.selected;
-    tokens.selectedText = Rgb(0xFFFFFF);
-    tokens.border = Rgba{0.0f, 0.0f, 0.0f, 0.0f};
-    tokens.radius = 9.0f;
-    // The willow_green CSS sets a 0 row radius and relies on the container clip-path; Windows candidate_presenter.cpp deliberately keeps a 4px itemRadius because the card does not clip its rows, and the macOS chrome view does not clip them either.
-    tokens.candidateRadius = 4.0f;
-    tokens.selectedRadius = 4.0f;
-    tokens.borderWidth = 0.0f;
-    tokens.pad = 0.0f;
-    tokens.showSelectedBar = false;
-    return tokens;
-}
-
 std::string Trim(std::string text)
 {
     while (!text.empty() && std::isspace(static_cast<unsigned char>(text.front())))
@@ -177,43 +52,6 @@ std::string Trim(std::string text)
         text.pop_back();
     }
     return text;
-}
-
-void ApplyPackageColors(const SkinColors &colors, SkinTokens &tokens)
-{
-    if (const auto parsed = ParseCssColor(colors.accent))
-    {
-        tokens.accent = *parsed;
-    }
-    if (const auto parsed = ParseCssColor(colors.selected))
-    {
-        tokens.selected = *parsed;
-    }
-    if (const auto parsed = ParseCssColor(colors.hover))
-    {
-        tokens.hover = *parsed;
-    }
-    if (const auto parsed = ParseCssColor(colors.surface))
-    {
-        tokens.surface = *parsed;
-    }
-    if (const auto parsed = ParseCssColor(colors.border))
-    {
-        tokens.border = *parsed;
-    }
-    if (const auto parsed = ParseCssColor(colors.text))
-    {
-        tokens.text = *parsed;
-    }
-    if (const auto parsed = ParseCssColor(colors.number))
-    {
-        tokens.number = *parsed;
-    }
-    if (colors.showSelectedBar.has_value())
-    {
-        tokens.showSelectedBar = *colors.showSelectedBar;
-    }
-    tokens.selectedText = ContrastingText(tokens.selected, tokens.text);
 }
 
 bool IsContained(const std::filesystem::path &root, const std::filesystem::path &resource)
@@ -233,11 +71,6 @@ void ApplyToolbarStylesheet(const std::filesystem::path &skinsRoot, const SkinPa
                             SkinTokens &tokens);
 } // namespace
 
-bool IsBuiltInSkinId(std::string_view id)
-{
-    return id == "fluent" || id == "wechat" || id == "graphite" || id == "willow_green";
-}
-
 bool IsSafeSkinId(std::string_view id)
 {
     if (id.empty() || id.size() > 64 || !std::isalnum(static_cast<unsigned char>(id.front())))
@@ -249,43 +82,46 @@ bool IsSafeSkinId(std::string_view id)
     });
 }
 
-std::string NormalizeSkinId(std::string_view id)
+SkinTokens NativeCandidateTokens(bool dark)
 {
-    if (id.empty()) return "willow_green";
-    return IsSafeSkinId(id) ? std::string(id) : std::string("fluent");
+    // design-tokens-desktop §1.2, the macOS column: a translucent system card, the brand accent as a solid selection with white text, and hairline borders and hovers drawn in the text colour's alpha.
+    SkinTokens tokens;
+    if (dark)
+    {
+        tokens.surface = Rgb(0x28282A, 0.97f);
+        tokens.border = Rgba{1.0f, 1.0f, 1.0f, 0.12f};
+        tokens.text = Rgb(0xF5F5F7);
+        tokens.number = Rgb(0x98989D);
+        tokens.accent = Rgb(0x5FBF84);
+        tokens.hover = Rgba{1.0f, 1.0f, 1.0f, 0.10f};
+    }
+    else
+    {
+        tokens.surface = Rgb(0xFFFFFF, 0.97f);
+        tokens.border = Rgba{0.0f, 0.0f, 0.0f, 0.12f};
+        tokens.text = Rgb(0x1D1D1F);
+        tokens.number = Rgb(0x6E6E73);
+        tokens.accent = Rgb(0x2C7A4B);
+        tokens.hover = Rgba{0.0f, 0.0f, 0.0f, 0.06f};
+    }
+    tokens.selected = tokens.accent;
+    tokens.selectedHover = tokens.selected;
+    tokens.selectedText = Rgb(0xFFFFFF);
+    tokens.selectedNumber = Rgb(0xFFFFFF, 0.82f);
+    return tokens;
 }
 
-const std::vector<SkinListEntry> &BuiltInSkinEntries()
+void DeriveSelectedForegrounds(SkinTokens &tokens, bool text, bool number)
 {
-    static const std::vector<SkinListEntry> entries = {
-        {"fluent", "Fluent", true},
-        {"wechat", "微信绿", true},
-        {"graphite", "石墨 Graphite", true},
-        {"willow_green", "杨柳青", true},
-    };
-    return entries;
-}
-
-SkinTokens BuiltInSkinTokens(std::string_view id, bool dark)
-{
-    if (id == "wechat")
+    if (text)
     {
-        return WeChatTokens(dark);
+        tokens.selectedText = ContrastingText(tokens.selected, tokens.text);
     }
-    if (id == "graphite")
+    if (number)
     {
-        return GraphiteTokens(dark);
+        const Rgba contrast = ContrastingText(tokens.selected, tokens.number);
+        tokens.selectedNumber = tokens.selected.a < 0.85f ? tokens.number : Rgba{contrast.r, contrast.g, contrast.b, 0.82f};
     }
-    if (id == "willow_green")
-    {
-        return WillowGreenTokens(dark);
-    }
-    return FluentTokens(dark);
-}
-
-SkinTokens ToolbarSkinTokens(std::string_view id, bool dark)
-{
-    return ToolbarSkinTokens(id, dark, DefaultSkinsRoot());
 }
 
 std::optional<Rgba> ParseCssColor(std::string_view text)
@@ -607,20 +443,15 @@ void ApplyToolbarStylesheet(const std::filesystem::path &skinsRoot, const SkinPa
 }
 } // namespace
 
-SkinTokens ToolbarSkinTokens(std::string_view id, bool dark, const std::filesystem::path &skinsRoot)
+SkinTokens ToolbarSkinTokens(const ResolvedSkin &skin, const std::filesystem::path &skinsRoot)
 {
-    const bool builtin = IsBuiltInSkinId(id);
-    SkinTokens tokens = BuiltInSkinTokens(builtin ? id : "fluent", dark);
-    // The default toolbar accent is intentionally lighter than the Fluent
-    // candidate-card accent. External packages may override this native
-    // palette only through the primitive properties understood above; CSS
-    // layout, scripts, images and effects never enter the AppKit view.
-    if (!builtin || id == "fluent") tokens.accent = Rgb(0x8E8CD8);
-    if (!builtin)
+    // The toolbar and the menus derive from the candidate palette (THEME_CONTRACT §3). A drawn package may still restyle its toolbar through the primitive properties understood above; CSS layout, scripts, images and effects never enter the AppKit view.
+    SkinTokens tokens = skin.tokens;
+    if (!skin.candidateSkin.empty())
     {
         std::string error;
-        if (const auto package = LoadSkinPackage(skinsRoot, std::string(id), &error))
-            ApplyToolbarStylesheet(skinsRoot, *package, dark, tokens);
+        if (const auto package = LoadSkinPackage(skinsRoot, skin.candidateSkin, &error))
+            ApplyToolbarStylesheet(skinsRoot, *package, skin.dark, tokens);
     }
     return tokens;
 }
@@ -635,9 +466,10 @@ bool SupportsSkin(const SkinPackage &package, std::string_view layout, std::stri
     return contains(package.layouts, layout) && contains(package.themes, theme);
 }
 
+// Only external packages: the built-in looks are global themes now, listed by ThemeCatalog().
 std::vector<SkinListEntry> ListSkins(const std::filesystem::path &skinsRoot)
 {
-    std::vector<SkinListEntry> entries = BuiltInSkinEntries();
+    std::vector<SkinListEntry> entries;
     const SkinCatalog catalog = ScanSkinCatalog(skinsRoot);
     for (const SkinPackage &package : catalog.packages)
     {
@@ -646,56 +478,7 @@ std::vector<SkinListEntry> ListSkins(const std::filesystem::path &skinsRoot)
     return entries;
 }
 
-ResolvedSkin ResolveSkin(std::string_view id, bool dark, const std::filesystem::path &skinsRoot)
-{
-    return ResolveSkin(id, dark, skinsRoot, {}, {});
-}
-
-ResolvedSkin ResolveSkin(std::string_view id, bool dark, const std::filesystem::path &skinsRoot,
-                         std::string_view layout, std::string_view theme)
-{
-    const bool defaultRequested = id.empty();
-    const std::string normalized = NormalizeSkinId(id);
-    ResolvedSkin resolved;
-    resolved.id = defaultRequested ? "willow_green" : "fluent";
-    resolved.name = defaultRequested ? "杨柳青" : "Fluent";
-    resolved.tokens = BuiltInSkinTokens(defaultRequested ? "willow_green" : "fluent", dark);
-    if (IsBuiltInSkinId(normalized))
-    {
-        resolved.id = normalized;
-        for (const SkinListEntry &entry : BuiltInSkinEntries())
-        {
-            if (entry.id == normalized)
-            {
-                resolved.name = entry.name;
-                break;
-            }
-        }
-        resolved.tokens = BuiltInSkinTokens(normalized, dark);
-        return resolved;
-    }
-    std::optional<SkinPackage> package = LoadSkinPackage(skinsRoot, normalized);
-    if (!package)
-    {
-        return resolved;
-    }
-    if ((!layout.empty() || !theme.empty()) && !SupportsSkin(*package, layout, theme))
-    {
-        return resolved;
-    }
-    resolved.id = package->id;
-    resolved.name = package->name;
-    resolved.tokens = BuiltInSkinTokens(package->base, dark);
-    ApplyPackageColors(dark ? package->dark : package->light, resolved.tokens);
-    resolved.decorationTopDip = package->decorationTopDip;
-    resolved.decorationWidthDip = package->decorationWidthDip;
-    resolved.minWidthDip = package->minWidthDip;
-    if (!package->preview.empty())
-    {
-        resolved.decorationPath = (skinsRoot / package->id / package->preview).string();
-    }
-    return resolved;
-}
+// ThemeCatalog and ResolveSkin live in SkinManifestBridge.mm as well: both are answered by the shared client-core theme module over the host C ABI.
 
 std::filesystem::path DefaultSkinsRoot()
 {

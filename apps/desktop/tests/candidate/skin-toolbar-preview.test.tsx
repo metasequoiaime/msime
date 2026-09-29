@@ -97,19 +97,13 @@ test("toolbar preview contains upstream static icons without scripts, IDs or hos
 });
 
 test.each([
-  ["fluent", "dark", "rgb(26, 26, 26)"],
-  ["fluent", "light", "rgb(255, 255, 255)"],
-  ["wechat", "dark", "rgb(21, 21, 21)"],
-  ["wechat", "light", "rgb(247, 247, 247)"],
-  ["graphite", "dark", "rgb(28, 31, 35)"],
-  ["graphite", "light", "rgb(251, 251, 252)"],
-  ["willow_green", "dark", "rgb(45, 47, 46)"],
-  ["willow_green", "light", "rgb(244, 245, 243)"],
-])("%s/%s toolbar uses the upstream palette", (skin, appearance, surface) => {
+  ["dark", "rgb(26, 26, 26)"],
+  ["light", "rgb(255, 255, 255)"],
+])("%s toolbar uses the upstream palette", (appearance, surface) => {
   const mounted = render(
     <>
       <style>{css}</style>
-      <div className={`skin-card-preview skin-${skin}`} data-preview-theme={appearance}>
+      <div className="skin-card-preview" data-preview-theme={appearance}>
         <SkinToolbarPreview />
       </div>
     </>,

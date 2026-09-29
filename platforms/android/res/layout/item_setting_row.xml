@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- A Material 3 list row: a 24dp leading glyph in the secondary text colour, the title, and the current value as a supporting line under it. No chevron and no divider: M3 lists separate groups by space, and the value line already says the row leads somewhere. row_chevron stays for the pickers that put a check mark there; it is hidden otherwise. -->
 <LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -8,22 +9,26 @@
     android:clickable="true"
     android:focusable="true"
     android:gravity="center_vertical"
+    android:minHeight="56dp"
     android:orientation="horizontal"
-    android:padding="14dp">
+    android:paddingStart="24dp"
+    android:paddingTop="8dp"
+    android:paddingEnd="24dp"
+    android:paddingBottom="8dp">
 
     <com.google.android.material.imageview.ShapeableImageView
         android:id="@+id/row_badge"
-            android:background="@drawable/bg_badge"
-        android:layout_width="36dp"
-        android:layout_height="36dp"
-        android:padding="8dp"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:importantForAccessibility="no"
+        app:tint="@color/text_secondary"
         app:shapeAppearanceOverlay="@style/Shape.Badge" />
 
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
-        android:layout_marginStart="14dp"
+        android:layout_marginStart="16dp"
         android:orientation="vertical">
 
         <TextView
@@ -37,15 +42,17 @@
             android:id="@+id/row_value"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="1dp"
             android:textColor="@color/text_secondary"
-            android:textSize="12sp" />
+            android:textSize="14sp" />
     </LinearLayout>
 
     <TextView
         android:id="@+id/row_chevron"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="›"
-        android:textColor="@color/text_secondary"
-        android:textSize="20sp" />
+        android:layout_marginStart="12dp"
+        android:textColor="@color/forest"
+        android:textSize="18sp"
+        android:visibility="gone" />
 </LinearLayout>

@@ -86,6 +86,7 @@ export function LinuxSetupPage({
       className={`${onboarding.page} ${onboarding.buttons}`}
       aria-label="首次配置"
       data-onboarding-shell=""
+      data-platform="linux"
     >
       <header className={onboarding.header}>
         <img src={new URL("./assets/msime.svg", import.meta.url).href} alt="" />

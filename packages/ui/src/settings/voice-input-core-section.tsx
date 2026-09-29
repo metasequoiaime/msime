@@ -1,4 +1,4 @@
-import { SettingToggle } from "./setting-toggle";
+import { GroupList, Row, Select, Switch } from "../core/platform-controls";
 
 export interface VoiceInputCoreSectionProps {
   enabled: boolean;
@@ -17,7 +17,7 @@ export interface VoiceInputCoreSectionProps {
   onLanguageChange: (language: string) => void;
 }
 
-/** Shared voice enablement, provider, and language controls. */
+/** Shared voice enablement, provider, and language controls: the 语音输入 page's 识别 group. */
 export function VoiceInputCoreSection({
   enabled,
   provider,
@@ -35,75 +35,65 @@ export function VoiceInputCoreSection({
   onLanguageChange,
 }: VoiceInputCoreSectionProps) {
   return (
-    <>
-      <SettingToggle
-        label="语音输入"
-        description="使用语音识别将录音转换为文字"
-        ariaLabel="启用语音输入"
-        checked={enabled}
-        onChange={onEnabledChange}
-      />
+    <GroupList title="识别">
+      <Row title="语音输入" description="使用语音识别将录音转换为文字">
+        <Switch aria-label="启用语音输入" checked={enabled} onChange={onEnabledChange} />
+      </Row>
       {showProviderSettings && (
-        <div className="section">
-          <label className="section-header">
-            <span className="section-title">识别服务</span>
-            <select
-              aria-label="识别服务"
-              value={provider}
-              onChange={(event) => onProviderChange(event.target.value)}
-            >
-              <option value="doubao">豆包</option>
-              <option value="siliconflow">SiliconFlow</option>
-              <option value="openai">OpenAI</option>
-              <option value="groq">Groq</option>
-              <option value="everyapi">EveryAPI</option>
-              <option value="mistral">Mistral · Voxtral</option>
-              {macos && <option value="system">macOS 系统识别</option>}
-              {localVoiceAvailable && <option value="local">本地模型（离线）</option>}
-              {!localVoiceAvailable && provider === "local" && (
-                <option value="local" disabled>
-                  本地模型（当前平台不可用）
-                </option>
-              )}
-              {harmony && <option value="system">HarmonyOS 系统识别</option>}
-              {android && <option value="system">Android 系统识别</option>}
-              {!nativeVoicePlatform && provider === "system" && (
-                <option value="system" disabled>
-                  系统识别（当前平台不可用）
-                </option>
-              )}
-              {harmonyUnsupportedAsr && (
-                <option value={provider} disabled>
-                  {provider}（当前 HarmonyOS 版本不可用）
-                </option>
-              )}
-            </select>
-          </label>
-        </div>
-      )}
-      <div className="section">
-        <label className="section-header">
-          <span className="section-title">
-            识别语言
-            {systemVoice && (
-              <small>选择明确的语言代码，例如 zh-CN、en-US；可用语言由系统决定</small>
+        <Row title="识别服务">
+          <Select
+            aria-label="识别服务"
+            value={provider}
+            onChange={(event) => onProviderChange(event.target.value)}
+          >
+            <option value="doubao">豆包</option>
+            <option value="siliconflow">SiliconFlow</option>
+            <option value="openai">OpenAI</option>
+            <option value="groq">Groq</option>
+            <option value="everyapi">EveryAPI</option>
+            <option value="mistral">Mistral · Voxtral</option>
+            {macos && <option value="system">macOS 系统识别</option>}
+            {localVoiceAvailable && <option value="local">本地模型（离线）</option>}
+            {!localVoiceAvailable && provider === "local" && (
+              <option value="local" disabled>
+                本地模型（当前平台不可用）
+              </option>
             )}
-          </span>
-          <input
-            aria-label="识别语言"
-            maxLength={64}
-            list="settings-voice-language-options"
-            value={language}
-            onChange={(event) => onLanguageChange(event.target.value)}
-          />
-          <datalist id="settings-voice-language-options">
-            <option value={systemVoice ? "zh-CN" : "zh-cn"}>中文（普通话）</option>
-            <option value={systemVoice ? "en-US" : "en"}>English</option>
-            <option value={systemVoice ? "ja-JP" : "ja"}>日本語</option>
-            {!systemVoice && <option value="auto">自动识别</option>}
-          </datalist>
-        </label>
-      </div>
-    </>
+            {harmony && <option value="system">HarmonyOS 系统识别</option>}
+            {android && <option value="system">Android 系统识别</option>}
+            {!nativeVoicePlatform && provider === "system" && (
+              <option value="system" disabled>
+                系统识别（当前平台不可用）
+              </option>
+            )}
+            {harmonyUnsupportedAsr && (
+              <option value={provider} disabled>
+                {provider}（当前 HarmonyOS 版本不可用）
+              </option>
+            )}
+          </Select>
+        </Row>
+      )}
+      <Row
+        title="识别语言"
+        description={
+          systemVoice ? "选择明确的语言代码，例如 zh-CN、en-US；可用语言由系统决定" : undefined
+        }
+      >
+        <input
+          aria-label="识别语言"
+          maxLength={64}
+          list="settings-voice-language-options"
+          value={language}
+          onChange={(event) => onLanguageChange(event.target.value)}
+        />
+        <datalist id="settings-voice-language-options">
+          <option value={systemVoice ? "zh-CN" : "zh-cn"}>中文（普通话）</option>
+          <option value={systemVoice ? "en-US" : "en"}>English</option>
+          <option value={systemVoice ? "ja-JP" : "ja"}>日本語</option>
+          {!systemVoice && <option value="auto">自动识别</option>}
+        </datalist>
+      </Row>
+    </GroupList>
   );
 }

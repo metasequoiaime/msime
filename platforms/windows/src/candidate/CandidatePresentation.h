@@ -43,7 +43,20 @@ struct CandidatePresentation {
   size_t preedit_caret = std::string::npos;
   std::vector<PresentationCandidate> candidates;
   bool traditional_output = false;
+  // The 0-based page on show and how many pages the Engine has so far, for the pager in the preedit row. Both zero draw no pager. The count grows as the user pages, because the Engine fetches candidates lazily.
+  size_t page = 0;
+  size_t page_count = 0;
 };
+// Copy the view's page position into `output`, dropping one that is not a page of the count rather than drawing "4 / 3".
+inline void candidate_presentation_page(CandidatePresentation &output,
+                                        const nlohmann::json &view) {
+  const auto page = view.value("page", size_t{0});
+  const auto count = view.value("page_count", size_t{0});
+  if (page < count) {
+    output.page = page;
+    output.page_count = count;
+  }
+}
 inline CandidatePresentation
 candidate_presentation_from_view(const FocusLease &lease,
                                  const nlohmann::json &view, int x, int y,
@@ -102,6 +115,7 @@ candidate_presentation_from_view(const FocusLease &lease,
   }
   if (!output.candidates.empty() && highlighted != 1)
     throw std::invalid_argument("Invalid candidate highlight");
+  candidate_presentation_page(output, view);
   output.visible = true;
   return output;
 }
@@ -161,6 +175,7 @@ candidate_presentation(const FocusLease &lease, const PendingReply &reply,
   }
   if (!output.candidates.empty() && highlighted != 1)
     throw std::invalid_argument("Invalid candidate highlight");
+  candidate_presentation_page(output, view);
   output.visible = true;
   return output;
 }

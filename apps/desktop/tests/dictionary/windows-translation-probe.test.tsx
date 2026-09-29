@@ -57,7 +57,7 @@ test.each([
     const probe = vi.fn().mockResolvedValue({ ok: true, message: "fixture complete" });
     render(
       <SettingsPage
-        initialPage="input"
+        initialPage="expression"
         client={{
           load: async () => snapshot,
           save: vi.fn(),

@@ -148,8 +148,8 @@ struct KeyboardTryoutView: View {
               HStack {
                 if message.role == "user" { Spacer(minLength: 36) }
                 Text(message.text).textSelection(.enabled).padding(13)
-                  .foregroundStyle(message.role == "user" ? Color.white : Color.primary)
-                  .background(message.role == "user" ? MetasequoiaTheme.forest : Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+                  .foregroundStyle(message.role == "user" ? MetasequoiaTheme.onAccent : Color.primary)
+                  .background(message.role == "user" ? MetasequoiaTheme.accent : Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
                 if message.role != "user" { Spacer(minLength: 36) }
               }.id(message.id)
             }

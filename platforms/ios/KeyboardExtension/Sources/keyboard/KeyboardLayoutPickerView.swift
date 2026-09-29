@@ -46,7 +46,7 @@ final class KeyboardLayoutPickerView: UIView {
     self.onCommit = onCommit
     super.init(frame: .zero)
     accessibilityIdentifier = "keyboardLayoutPicker"
-    let skin = KeyboardSkinPreference.selected
+    let skin = KeyboardTheme.current
     backgroundColor = .clear
 
     let bar = UIView()

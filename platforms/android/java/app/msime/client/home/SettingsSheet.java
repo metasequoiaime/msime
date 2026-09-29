@@ -34,15 +34,17 @@ public final class SettingsSheet {
 
         TextView heading = new TextView(context);
         heading.setText(title);
-        heading.setTextSize(20);
-        heading.setTypeface(Typeface.DEFAULT_BOLD);
+        // M3 headline small: the sheet's title is a heading, not a bold label.
+        heading.setTextSize(22);
+        heading.setTypeface(Typeface.DEFAULT);
+        heading.setAccessibilityHeading(true);
         heading.setTextColor(ContextCompat.getColor(context, R.color.ink));
         root.addView(heading);
 
         if (subtitle != null && !subtitle.isEmpty()) {
             TextView note = new TextView(context);
             note.setText(subtitle);
-            note.setTextSize(13);
+            note.setTextSize(14);
             note.setTextColor(ContextCompat.getColor(context, R.color.text_secondary));
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -65,12 +67,14 @@ public final class SettingsSheet {
     /** The column every row is added to. */
     public LinearLayout content() { return content; }
 
-    /** A small all-caps-free group heading between rows. */
+    /** An M3 group title between rows: accent colour, 14sp, medium weight. */
     public void addHeading(String text) {
         TextView heading = new TextView(context);
         heading.setText(text);
-        heading.setTextSize(13);
-        heading.setTextColor(ContextCompat.getColor(context, R.color.text_secondary));
+        heading.setTextSize(14);
+        heading.setTypeface(Typeface.create(Typeface.DEFAULT, 500, false));
+        heading.setAccessibilityHeading(true);
+        heading.setTextColor(ContextCompat.getColor(context, R.color.forest));
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         params.topMargin = dp(16);

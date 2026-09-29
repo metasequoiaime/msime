@@ -1,6 +1,6 @@
 import * as settings from "./settings-style";
 import { InputModeHudSection } from "./input-mode-hud-section";
-import { SettingToggle } from "./setting-toggle";
+import { GroupList, Row, Switch } from "../core/platform-controls";
 
 export interface InputModeShortcutPreferences {
   switch_language_shift: boolean;
@@ -39,6 +39,7 @@ export function InputModeShortcutsSection({
 }: InputModeShortcutsSectionProps) {
   if (!showModeSwitchShortcuts) return null;
 
+  // Named for the keys the user is actually looking at: macOS calls them Control and Option.
   const modeSwitchShortcutRows: [keyof InputModeShortcutPreferences, string][] = [
     ["switch_language_shift", "Shift 切换中英文"],
     ["switch_language_ctrl", macos ? "单击 Control 切换中英文" : "单击 Ctrl 切换中英文"],
@@ -53,54 +54,56 @@ export function InputModeShortcutsSection({
   ];
 
   return (
-    <div className="section" role="group" aria-label="输入模式切换快捷键">
-      <div className="section-title">输入模式切换</div>
-      <small>在当前输入上下文中切换中英文模式；关闭后快捷键会交给应用处理。</small>
-      {modeSwitchShortcutRows.map(([key, label]) => (
-        <SettingToggle
-          key={key}
-          label={label}
-          ariaLabel={label}
-          checked={keybindings[key] ?? false}
-          compact
-          onChange={(enabled) => onChange({ [key]: enabled })}
-        />
-      ))}
-      {macos && showInputModeHUD && (
-        <InputModeHudSection
-          shortcut
-          value={inputModeHUD}
-          onChange={(value) => onInputModeHUDChange?.(value)}
-        />
-      )}
-      {showFullwidthChord && (
-        <SettingToggle
-          label={`${fullwidthChord} 切换全半角`}
-          description="关掉后这个组合键交给应用处理；工具栏的全半角开关不受影响。"
-          ariaLabel={`${fullwidthChord} 切换全半角`}
-          checked={keybindings.toggle_fullwidth_option_shift_h}
-          compact
-          onChange={(enabled) => onChange({ toggle_fullwidth_option_shift_h: enabled })}
-        />
-      )}
-      {windows && (
-        <div className={settings.shortcutIntro}>
-          <div className="section-title">修改或关闭 Ctrl+Space（系统）</div>
-          <small>
-            Ctrl+Space 由 Windows 管理，此处不控制。请前往系统设置修改“输入法 /
-            非输入法切换”的按键顺序：
-          </small>
-          <ol>
-            <li>打开“设置”，进入“时间和语言” → “输入”。</li>
-            <li>选择“高级键盘设置” → “输入语言热键”。</li>
-            <li>选中“中文（简体）输入法 - 输入法 / 非输入法切换”，点击“更改按键顺序”。</li>
-            <li>关闭该按键顺序，或将 Ctrl+Space 改为其他不常用组合。</li>
-          </ol>
-          <small>
-            不同 Windows 版本的选项名称可能略有差异；修改后如未立即生效，请重新登录或重启电脑。
-          </small>
-        </div>
-      )}
-    </div>
+    <GroupList title="输入模式切换">
+      <div className={settings.rowStack} role="group" aria-label="输入模式切换快捷键">
+        <p className={settings.groupNote}>
+          在当前输入上下文中切换中英文模式；关闭后快捷键会交给应用处理。
+        </p>
+        {modeSwitchShortcutRows.map(([binding, label]) => (
+          <Row key={binding} title={label}>
+            <Switch
+              checked={keybindings[binding] ?? false}
+              onChange={(checked) => onChange({ [binding]: checked })}
+            />
+          </Row>
+        ))}
+        {macos && showInputModeHUD && (
+          <InputModeHudSection
+            shortcut
+            value={inputModeHUD}
+            onChange={(value) => onInputModeHUDChange?.(value)}
+          />
+        )}
+        {showFullwidthChord && (
+          <Row
+            title={`${fullwidthChord} 切换全半角`}
+            description="关掉后这个组合键交给应用处理；工具栏的全半角开关不受影响。"
+          >
+            <Switch
+              checked={keybindings.toggle_fullwidth_option_shift_h}
+              onChange={(checked) => onChange({ toggle_fullwidth_option_shift_h: checked })}
+            />
+          </Row>
+        )}
+        {windows && (
+          <div className={`${settings.groupBlock} ${settings.shortcutIntro}`}>
+            <div className="section-title">修改或关闭 Ctrl+Space（系统）</div>
+            <small>
+              Ctrl+Space 由 Windows 管理，此处不控制。请前往系统设置修改“输入法 /
+              非输入法切换”的按键顺序：
+            </small>
+            <ol>
+              <li>打开“设置”，进入“时间和语言” → “输入”。</li>
+              <li>选择“高级键盘设置” → “输入语言热键”。</li>
+              <li>选中“中文（简体）输入法 - 输入法 / 非输入法切换”，点击“更改按键顺序”。</li>
+              <li>关闭该按键顺序，或将 Ctrl+Space 改为其他不常用组合。</li>
+            </ol>
+            <small>
+              不同 Windows 版本的选项名称可能略有差异；修改后如未立即生效，请重新登录或重启电脑。
+            </small>
+          </div>
+        )}
+      </div>
+    </GroupList>
   );
 }

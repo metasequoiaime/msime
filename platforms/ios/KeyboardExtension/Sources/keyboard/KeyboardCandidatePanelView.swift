@@ -45,24 +45,24 @@ final class KeyboardCandidatePanelView: UIView {
     self.onSelect = onSelect
     super.init(frame: .zero)
     accessibilityIdentifier = "candidatePanel"
-    backgroundColor = KeyboardSkinPreference.selected.keyBackground.withAlphaComponent(0.98)
+    backgroundColor = KeyboardTheme.current.keyBackground.withAlphaComponent(0.98)
 
     let spelling = UILabel()
     spelling.text = preedit
     spelling.font = CandidateFontPreference.font(.subheadline, scale: preeditScale)
     spelling.adjustsFontForContentSizeCategory = true
-    spelling.textColor = KeyboardSkinPreference.selected.accent
+    spelling.textColor = KeyboardTheme.current.accent
     spelling.accessibilityIdentifier = "candidatePanelSpelling"
 
     let count = UILabel()
     count.text = "\(candidates.count) 个候选"
     count.font = .preferredFont(forTextStyle: .footnote)
     count.adjustsFontForContentSizeCategory = true
-    count.textColor = KeyboardSkinPreference.selected.keyForeground.withAlphaComponent(0.6)
+    count.textColor = KeyboardTheme.current.keyForeground.withAlphaComponent(0.6)
 
     var closeConfiguration = UIButton.Configuration.plain()
     closeConfiguration.image = UIImage(systemName: "chevron.up")
-    closeConfiguration.baseForegroundColor = KeyboardSkinPreference.selected.keyForeground
+    closeConfiguration.baseForegroundColor = KeyboardTheme.current.keyForeground
     let close = UIButton(
       configuration: closeConfiguration,
       primaryAction: UIAction { _ in onClose() })
@@ -180,7 +180,7 @@ final class KeyboardCandidatePanelView: UIView {
     let text = display(candidate)
     let annotation = annotations.indices.contains(number - 1) ? annotations[number - 1] : .none
     let marks = markers.indices.contains(number - 1) ? markers[number - 1] : []
-    let secondary = KeyboardSkinPreference.selected.keyForeground.withAlphaComponent(0.55)
+    let secondary = KeyboardTheme.current.secondary
     var configuration = UIButton.Configuration.plain()
     let paragraph = NSMutableParagraphStyle()
     paragraph.lineBreakMode = .byTruncatingTail
@@ -200,11 +200,11 @@ final class KeyboardCandidatePanelView: UIView {
     }
     configuration.attributedTitle = title
     configuration.baseForegroundColor = marks.contains { $0.symbol == "pin.fill" }
-      ? KeyboardSkinPreference.selected.accent : KeyboardSkinPreference.selected.keyForeground
+      ? KeyboardTheme.current.accent : KeyboardTheme.current.keyForeground
     configuration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 11, bottom: 6, trailing: 11)
-    configuration.background.backgroundColor = KeyboardSkinPreference.selected.keyBackground
+    configuration.background.backgroundColor = KeyboardTheme.current.keyBackground
     configuration.background.strokeColor =
-      KeyboardSkinPreference.selected.accent.withAlphaComponent(0.22)
+      KeyboardTheme.current.accent.withAlphaComponent(0.22)
     configuration.background.strokeWidth = 1
     configuration.background.cornerRadius = 9
     let index = number - 1

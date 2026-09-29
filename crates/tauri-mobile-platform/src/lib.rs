@@ -206,7 +206,9 @@ pub struct IosKeyboardPreferences {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tablet_full_keys: Option<bool>,
     pub dictionary_learning: bool,
-    pub keyboard_skin: String,
+    /// The global theme id (`Preferences::global_theme`), kept in the App Group under `globalTheme` so the keyboard extension reads it without the preferences document. Only the seven theme ids are valid.
+    pub global_theme: String,
+    /// The custom theme's keyboard design (`Preferences::custom_theme.keyboard`) as JSON; `None` when the custom theme has no design and draws its base theme's keyboard. The App Group keeps it under `customKeyboardSkin.v1`.
     pub custom_keyboard_skin: Option<String>,
 }
 
@@ -394,17 +396,10 @@ impl IosKeyboardPreferences {
                 | "handwriting"
                 | "thoughtfulReply"
         ) && matches!(self.haptic_strength.as_str(), "light" | "medium" | "strong")
+            // The ids of msime_client_core::skin::theme::GlobalTheme, which this crate does not depend on; the desktop crate's iOS account tests hold the two lists together.
             && matches!(
-                self.keyboard_skin.as_str(),
-                "forest"
-                    | "ocean"
-                    | "rose"
-                    | "porcelain"
-                    | "typewriter"
-                    | "candy"
-                    | "midnight"
-                    | "blueprint"
-                    | "custom"
+                self.global_theme.as_str(),
+                "system" | "shuishan" | "light" | "paper" | "night" | "ink" | "custom"
             )
             && self.custom_keyboard_skin.as_ref().is_none_or(|value| {
                 value.len() <= MAX_IOS_CUSTOM_KEYBOARD_SKIN_BYTES
@@ -1172,7 +1167,7 @@ mod tests {
             haptics_available: true,
             tablet_full_keys: None,
             dictionary_learning: false,
-            keyboard_skin: "custom".into(),
+            global_theme: "custom".into(),
             custom_keyboard_skin: Some(r#"{"background":15269867}"#.into()),
         }
     }
@@ -1190,7 +1185,12 @@ mod tests {
         assert!(!invalid.is_valid());
 
         let mut invalid = keyboard_preferences();
-        invalid.keyboard_skin = "../skin".into();
+        invalid.global_theme = "../skin".into();
+        assert!(!invalid.is_valid());
+
+        // The removed keyboard skins are not themes.
+        let mut invalid = keyboard_preferences();
+        invalid.global_theme = "ocean".into();
         assert!(!invalid.is_valid());
 
         let mut invalid = keyboard_preferences();

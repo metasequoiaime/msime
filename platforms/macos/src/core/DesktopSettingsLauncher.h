@@ -77,8 +77,8 @@ static inline void MSIMEOpenDesktopSettings(MSIMEDesktopSettingsPage page,
     switch (page) {
         case MSIMEDesktopSettingsPage::Appearance: break;
         case MSIMEDesktopSettingsPage::Voice: route = @"settings:voice"; break;
-        // Translation controls live in the shared Input category.
-        case MSIMEDesktopSettingsPage::Translation: route = @"settings:input"; break;
+        // Translation controls live in the shared Expression (表达) category.
+        case MSIMEDesktopSettingsPage::Translation: route = @"settings:expression"; break;
         case MSIMEDesktopSettingsPage::AI: route = @"settings:ai"; break;
         case MSIMEDesktopSettingsPage::Skin: route = @"settings:skin"; break;
     }

@@ -549,8 +549,8 @@ fn traditional_conversion_boundary_returns_text_or_null() {
 }
 
 #[test]
-fn abi_version_reports_the_surface_route_revision() {
-    assert_eq!(msime_client_abi_version(), 2);
+fn abi_version_reports_the_theme_revision() {
+    assert_eq!(msime_client_abi_version(), 3);
 }
 #[test]
 fn native_preference_save_clears_history_only_after_successful_disable() {
@@ -1232,7 +1232,7 @@ fn skin_catalog_reaches_native_presenters_without_the_settings_shell() {
     std::fs::write(
         root.join("sample/skin.toml"),
         "schema_version = 1\nid = 'sample'\nname = 'Sample'\nversion = '1.0'\n\
-         base = 'fluent'\n[supports]\nlayouts = ['vertical']\nthemes = ['light']\n\
+         base = 'system'\n[supports]\nlayouts = ['vertical']\nthemes = ['light']\n\
          [candidate_window]\nmin_width_dip = 10\n[candidate_window.decoration]\n\
          top_inset_dip = 0\nwidth_dip = 0\n",
     )
@@ -1312,7 +1312,7 @@ fn skin_package_resolves_one_manifest_with_the_catalog_loader() {
     std::fs::write(
         root.join("sample/skin.toml"),
         "schema_version = 1\nid = 'sample'\nname = 'Sample'\nversion = '1.0'\n\
-         base = 'fluent'\n[supports]\nlayouts = [\n  'vertical',\n]\nthemes = ['light']\n\
+         base = 'system'\n[supports]\nlayouts = [\n  'vertical',\n]\nthemes = ['light']\n\
          [candidate_window]\nmin_width_dip = 1_0\n\
          decoration = { top_inset_dip = 0, width_dip = 0 }\n[candidate.light]\naccent = '#123456'\n",
     )
@@ -1326,11 +1326,186 @@ fn skin_package_resolves_one_manifest_with_the_catalog_loader() {
         msime_client_skin_catalog(path.as_ptr(), path.len())
     });
     assert_eq!(package["value"], catalog["value"]["packages"][0]);
-    assert_eq!(call(&request("fluent"))["error"], "invalid skin id");
+    assert_eq!(call(&request("night"))["error"], "invalid skin id");
     std::fs::write(root.join("sample/skin.toml"), "schema_version = '1'\n").unwrap();
     assert_eq!(
         call(&request("sample"))["error"],
         "unsupported schema_version"
+    );
+}
+
+#[test]
+fn theme_catalog_lists_every_theme_in_picker_order() {
+    let catalog = read(msime_client_theme_catalog());
+    assert_eq!(catalog["ok"], true);
+    assert_eq!(catalog["value"]["default"], "system");
+    let ids: Vec<_> = catalog["value"]["themes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|theme| theme["id"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(
+        ids,
+        ["system", "shuishan", "light", "paper", "night", "ink", "custom"]
+    );
+    let night = &catalog["value"]["themes"][4];
+    assert_eq!(night["title"], "夜青");
+    assert_eq!(night["appearance"], "dark");
+    assert_eq!(night["candidate"]["accent"], "#4FD1C5");
+    assert_eq!(catalog["value"]["themes"][0]["candidate"], Value::Null);
+    assert_eq!(catalog["value"]["themes"][6]["keyboard"], Value::Null);
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
+fn resolve_theme_reads_the_package_from_either_source() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("skins");
+    std::fs::create_dir_all(root.join("sakura")).unwrap();
+    std::fs::write(
+        root.join("sakura/skin.toml"),
+        "schema_version = 1\nid = 'sakura'\nname = 'Sakura'\nversion = '1.0'\n\
+         base = 'paper'\n[supports]\nlayouts = ['vertical']\nthemes = ['light']\n\
+         [candidate_window]\nmin_width_dip = 0\n\
+         decoration = { top_inset_dip = 0, width_dip = 0 }\n[candidate.light]\naccent = '#123456'\n",
+    )
+    .unwrap();
+    let call = |request: Value| {
+        let request = request.to_string();
+        read(unsafe { msime_client_resolve_theme(request.as_ptr(), request.len()) })
+    };
+    let custom = json!({"candidate_skin": "sakura", "candidate_colors": {"text": "#010203"}});
+
+    let from_root = call(json!({
+        "global_theme": "custom", "custom_theme": custom, "dark": false, "layout": "vertical", "skins_directory": root,
+    }));
+    assert_eq!(from_root["ok"], true, "{from_root}");
+    let value = &from_root["value"];
+    assert_eq!(value["source"], "custom");
+    assert_eq!(value["appearance"], "light", "{value}");
+    assert_eq!(value["candidate_skin"], "sakura");
+    assert_eq!(value["candidate"]["accent"], "#123456");
+    assert_eq!(value["candidate"]["selected_text"], "#123456");
+    assert_eq!(value["candidate"]["text"], "#010203");
+    // Paper's own panel shows through where neither the package nor a picker says otherwise.
+    assert_eq!(value["candidate"]["surface"], "#F7F5F0");
+    assert!(value["keyboard"].is_object());
+
+    // The Linux hosts pass the entry they read from candidate_skin_catalog instead of the root.
+    let entry = msime_client_core::skin::catalog::host_candidate_catalog(
+        &msime_client_core::skin::catalog::scan(&root),
+        &root,
+        "sakura",
+    )["packages"][0]
+        .clone();
+    let from_entry = call(json!({
+        "global_theme": "custom", "custom_theme": custom, "dark": false, "layout": "vertical", "package": entry,
+    }));
+    assert_eq!(from_entry["value"], from_root["value"]);
+
+    // Paper fixes the light mode, so a dark host still draws the package's light palette.
+    let dark = call(json!({
+        "global_theme": "custom", "custom_theme": custom, "dark": true, "layout": "vertical", "skins_directory": root,
+    }));
+    assert_eq!(dark["value"], from_root["value"]);
+
+    // A missing package leaves the theme to resolve over the platform tokens.
+    let missing = call(json!({
+        "global_theme": "custom",
+        "custom_theme": {"candidate_skin": "absent"},
+        "dark": false,
+        "layout": "vertical",
+        "skins_directory": root,
+    }));
+    assert_eq!(missing["value"]["candidate"], Value::Null);
+    assert_eq!(missing["value"]["candidate_skin"], Value::Null);
+
+    let builtin = call(json!({"global_theme": "ink", "dark": false, "layout": "horizontal"}));
+    assert_eq!(builtin["value"]["source"], "builtin");
+    assert_eq!(builtin["value"]["keyboard"]["on_accent"], "#000000");
+    // A custom theme with no package and no design still draws its base, keyboard included.
+    let based = call(json!({
+        "global_theme": "custom", "custom_theme": {"base": "night"}, "dark": false, "layout": "horizontal",
+    }));
+    assert_eq!(based["value"]["appearance"], "dark");
+    assert_eq!(based["value"]["candidate"]["surface"], "#16262F");
+    assert_eq!(based["value"]["keyboard"]["background"], "#0F1B22");
+
+    // The package declares only the vertical layout, so a horizontal candidate window draws its base and the pickers without it, from either source.
+    for source in [json!({"skins_directory": root}), json!({"package": entry})] {
+        let mut request = json!({"global_theme": "custom", "custom_theme": custom, "dark": false, "layout": "horizontal"});
+        request
+            .as_object_mut()
+            .unwrap()
+            .extend(source.as_object().unwrap().clone());
+        let horizontal = call(request);
+        assert_eq!(
+            horizontal["value"]["candidate_skin"],
+            Value::Null,
+            "{horizontal}"
+        );
+        assert_eq!(horizontal["value"]["candidate"]["accent"], "#2C7A4B");
+        assert_eq!(horizontal["value"]["candidate"]["text"], "#010203");
+    }
+
+    // A SkinSummary is not a catalog entry: passing one as `package` is refused, not read without its declared modes.
+    let summary = serde_json::to_value(
+        msime_client_core::skin::catalog::load_package(&root, "sakura").unwrap(),
+    )
+    .unwrap();
+    let refused = call(json!({
+        "global_theme": "custom", "custom_theme": custom, "dark": false, "layout": "vertical", "package": summary,
+    }));
+    assert_eq!(
+        refused["error"], "invalid candidate skin catalog entry",
+        "{refused}"
+    );
+
+    for (request, error) in [
+        (json!({"global_theme": "night"}), "invalid theme request"),
+        (
+            json!({"global_theme": "night", "dark": true}),
+            "invalid theme request",
+        ),
+        (
+            json!({"global_theme": "night", "dark": true, "layout": "diagonal"}),
+            "invalid theme request",
+        ),
+        (
+            json!({"global_theme": "fluent", "dark": true, "layout": "vertical"}),
+            "invalid theme request",
+        ),
+        (
+            json!({"global_theme": "Night", "dark": true, "layout": "vertical"}),
+            "invalid theme request",
+        ),
+        (
+            json!({"global_theme": "night", "dark": true, "candidate_skin": "sakura", "layout": "vertical"}),
+            "invalid theme request",
+        ),
+        (
+            json!({"global_theme": "custom", "dark": true, "layout": "vertical", "custom_theme": {"candidate_skin": "night"}}),
+            "custom theme candidate skin identifier is invalid",
+        ),
+        (
+            json!({"global_theme": "custom", "dark": true, "layout": "vertical", "custom_theme": {"base": "custom"}}),
+            "custom theme base must be system or a built-in theme",
+        ),
+        (
+            json!({"global_theme": "custom", "dark": true, "layout": "vertical", "skins_directory": "skins"}),
+            "skin directory must be absolute",
+        ),
+        (
+            json!({"global_theme": "custom", "dark": true, "layout": "vertical", "skins_directory": root, "package": {}}),
+            "theme request names both a skins directory and a package",
+        ),
+    ] {
+        assert_eq!(call(request)["error"], error);
+    }
+    assert_eq!(
+        read(unsafe { msime_client_resolve_theme(std::ptr::null(), 0) })["ok"],
+        false
     );
 }
 
@@ -1442,12 +1617,17 @@ fn installing_a_community_skin_is_one_step_so_a_failed_import_ends_its_trial() {
     // without wearing it would make "试用" mean nothing.
     let applied = preferences.load().unwrap();
     assert_eq!(
-        applied.preferences.touch_keyboard_skin,
-        msime_client_core::preferences::TouchKeyboardSkin::Custom
+        applied.preferences.global_theme,
+        msime_client_core::skin::theme::GlobalTheme::Custom
     );
     assert_eq!(
-        applied.preferences.custom_touch_keyboard_skin.background,
-        0x102030
+        applied
+            .preferences
+            .custom_theme
+            .keyboard
+            .as_ref()
+            .map(|design| design.background),
+        Some(0x102030)
     );
 
     // Declining puts the previous skin back, which is the whole reason the trial exists.
@@ -1465,8 +1645,8 @@ fn installing_a_community_skin_is_one_step_so_a_failed_import_ends_its_trial() {
     assert_eq!(restored["ok"], true);
     let reverted = preferences.load().unwrap();
     assert_ne!(
-        reverted.preferences.touch_keyboard_skin,
-        msime_client_core::preferences::TouchKeyboardSkin::Custom
+        reverted.preferences.global_theme,
+        msime_client_core::skin::theme::GlobalTheme::Custom
     );
     // The library keeps it: declining the trial is declining to wear it now, not to own it.
     let library = json!({"directory": root}).to_string();
@@ -1768,7 +1948,7 @@ fn skin_resource_bridge_revalidates_kind_and_package_containment() {
     std::fs::write(
         skin.join("skin.toml"),
         "schema_version = 1\nid = 'sample'\nname = 'Sample'\nversion = '1.0'\n\
-         base = 'fluent'\ntoolbar_stylesheet = 'toolbar.css'\npreview = 'images/preview.png'\n\
+         base = 'system'\ntoolbar_stylesheet = 'toolbar.css'\npreview = 'images/preview.png'\n\
          [supports]\nlayouts = ['vertical']\nthemes = ['dark']\n\
          [candidate_window]\nmin_width_dip = 10\n\
          [candidate_window.decoration]\ntop_inset_dip = 1\nwidth_dip = 10\n",
@@ -1954,7 +2134,11 @@ fn a_document_holding_a_custom_skin_photo_can_still_be_saved_and_applied() {
     // base64 of a PNG signature followed by zero bytes: about 40 KiB, well past the 16 KiB other buffers are held to.
     let photo = format!("iVBORw0KGgoA{}", "AAAA".repeat(10_000));
     let mut preferences = Preferences::default();
-    preferences.custom_touch_keyboard_skin.photo = Some(photo.clone());
+    preferences.custom_theme.keyboard =
+        Some(msime_client_core::preferences::TouchKeyboardSkinDesign {
+            photo: Some(photo.clone()),
+            ..msime_client_core::preferences::TouchKeyboardSkinDesign::default()
+        });
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().to_string_lossy().into_owned();
     let snapshot = serde_json::to_string(&PreferencesSnapshot {
@@ -1976,7 +2160,11 @@ fn a_document_holding_a_custom_skin_photo_can_still_be_saved_and_applied() {
     assert_eq!(saved["ok"], true, "{saved}");
     let loaded = PreferencesStore::new(directory.path()).load().unwrap();
     assert_eq!(
-        loaded.preferences.custom_touch_keyboard_skin.photo,
+        loaded
+            .preferences
+            .custom_theme
+            .keyboard
+            .and_then(|design| design.photo),
         Some(photo)
     );
 
@@ -5801,8 +5989,11 @@ fn refresh_accepts_full_sized_options_documents() {
     let state = directory.path().join("state");
     std::fs::create_dir(&state).unwrap();
     let mut preferences = Preferences::default();
-    preferences.custom_touch_keyboard_skin.photo =
-        Some(format!("iVBORw0KGgoA{}", "AAAA".repeat(10_000)));
+    preferences.custom_theme.keyboard =
+        Some(msime_client_core::preferences::TouchKeyboardSkinDesign {
+            photo: Some(format!("iVBORw0KGgoA{}", "AAAA".repeat(10_000))),
+            ..msime_client_core::preferences::TouchKeyboardSkinDesign::default()
+        });
     preferences.validate().unwrap();
     let generation = serde_json::from_str::<ResourceSet>(include_str!(
         "../../../resources/desktop-dictionary.lock.json"

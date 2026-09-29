@@ -31,8 +31,10 @@ int main() {
   assert(revision.changed(root, "sample"));
   std::ofstream(directory / "skin.toml") << "updated manifest";
   assert(revision.changed(root, "sample"));
-  assert(revision.changed(root, "fluent"));
-  assert(!revision.changed(root, "fluent"));
+  // Switching to a package that is not on disk, or to a theme that draws none, clears the fingerprint once.
+  assert(revision.changed(root, "absent"));
+  assert(!revision.changed(root, "absent"));
+  assert(!revision.changed(root, ""));
   assert(!revision.changed(root, "../escape"));
   std::filesystem::remove(image);
   std::filesystem::remove(directory / "images");

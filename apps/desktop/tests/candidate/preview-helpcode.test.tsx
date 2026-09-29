@@ -20,7 +20,7 @@ const catalog: SkinCatalog = {
       id: "sample",
       name: "Sample",
       version: "1",
-      base: "fluent",
+      base: "system",
       author: null,
       description: null,
       layouts: ["horizontal", "vertical"],
@@ -36,11 +36,26 @@ const catalog: SkinCatalog = {
 };
 const scan = async () => catalog;
 
-test.each(["fluent", "wechat", "graphite", "willow_green", "sample"])(
+const selections: Record<string, Pick<Preferences, "global_theme" | "custom_theme">> = {
+  system: { global_theme: "system" },
+  shuishan: { global_theme: "shuishan" },
+  light: { global_theme: "light" },
+  paper: { global_theme: "paper" },
+  night: { global_theme: "night" },
+  ink: { global_theme: "ink" },
+  "custom colours": {
+    global_theme: "custom",
+    custom_theme: { candidate_colors: { text: "#112233" } },
+  },
+  "custom package": { global_theme: "custom", custom_theme: { candidate_skin: "sample" } },
+};
+
+test.each(Object.keys(selections))(
   "%s preview follows each scheme's enable and display flags",
-  async (candidate_skin) => {
+  async (name) => {
+    const selection = selections[name];
     const view = render(
-      <AppearanceCandidatePreview preferences={{ ...preferences, candidate_skin }} scan={scan} />,
+      <AppearanceCandidatePreview preferences={{ ...preferences, ...selection }} scan={scan} />,
     );
     await waitFor(() => expect(view.container.querySelectorAll(".cand")).toHaveLength(6));
     for (const candidate_layout of ["horizontal", "vertical"] as const) {
@@ -51,7 +66,7 @@ test.each(["fluent", "wechat", "graphite", "willow_green", "sample"])(
               <AppearanceCandidatePreview
                 preferences={{
                   ...preferences,
-                  candidate_skin,
+                  ...selection,
                   candidate_layout,
                   scheme,
                   quanpin_helpcode: {
@@ -83,7 +98,7 @@ test.each(["fluent", "wechat", "graphite", "willow_green", "sample"])(
         <AppearanceCandidatePreview
           preferences={{
             ...preferences,
-            candidate_skin,
+            ...selection,
             scheme,
             quanpin_helpcode: { enabled: true, schema: "ziranma", show_in_candidate_window: true },
             shuangpin_helpcode: {
@@ -97,5 +112,19 @@ test.each(["fluent", "wechat", "graphite", "willow_green", "sample"])(
       );
       expect(view.container.querySelectorAll(".cand-helpcode")).toHaveLength(0);
     }
+  },
+);
+
+test.each([
+  ["quanpin", 0],
+  ["shuangpin", 6],
+] as const)(
+  "%s preview without a stored helpcode object follows the core default",
+  async (scheme, shown) => {
+    const view = render(
+      <AppearanceCandidatePreview preferences={{ ...preferences, scheme }} scan={scan} />,
+    );
+    await waitFor(() => expect(view.container.querySelectorAll(".cand")).toHaveLength(6));
+    expect(view.container.querySelectorAll(".cand-helpcode")).toHaveLength(shown);
   },
 );

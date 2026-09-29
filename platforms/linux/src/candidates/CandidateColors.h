@@ -13,7 +13,20 @@
 
 namespace msime::linux_host {
 
-// The candidate colours both Linux frontends draw with, resolved from the shared preferences in one place: IBus turns them into text attributes and Fcitx5 into a classic UI theme, so the two cannot disagree about what a skin or a custom colour means.
+struct ThemeColor {
+  std::uint32_t rgb = 0;
+  std::uint8_t alpha = 0xFF;
+};
+
+// The candidate palette slots the floating menus derive from (THEME_CONTRACT §3: surface for the menu, text for its items, hover for the hovered item, border for its separators and outline), kept as the theme set them, alpha included, because they are composited over the menu's own surface rather than the candidate card. A slot the theme leaves null stays empty here and the menu draws its native token; `system` leaves all of them empty. Only Fcitx5 reads them: IBus menus are drawn by the desktop shell and take no colours from an input method.
+struct CandidateMenuSlots {
+  std::optional<ThemeColor> surface;
+  std::optional<ThemeColor> text;
+  std::optional<ThemeColor> hover;
+  std::optional<ThemeColor> border;
+};
+
+// The candidate colours both Linux frontends draw with, mapped from one resolved global theme in one place: IBus turns them into text attributes and Fcitx5 into a classic UI theme, so the two cannot disagree about what a theme, a package or a custom colour means.
 struct CandidateColors {
   std::optional<std::uint32_t> text;
   std::optional<std::uint32_t> number;
@@ -25,6 +38,7 @@ struct CandidateColors {
   // The card's outline, already composited over the background: Fcitx5's classic UI paints the border with the SOURCE operator, so a translucent one would show the desktop through the panel rather than tint the surface the way it does on Windows. Only Fcitx5 draws it; IBus text attributes have no way to outline the panel.
   std::optional<std::uint32_t> border;
   int border_width = 0;
+  CandidateMenuSlots menu;
 };
 
 inline std::optional<std::uint32_t> palette_color(const nlohmann::json &value) {
@@ -44,36 +58,19 @@ inline std::optional<std::uint32_t> palette_color(const nlohmann::json &value) {
   return color;
 }
 
-struct CandidateBorderColor {
-  std::uint32_t rgb = 0;
-  std::uint8_t alpha = 0xFF;
-};
-
-// The border as a user preference (#rrggbb) or a skin package (#rrggbb, #rrggbbaa or transparent) writes it. Anything else, including the rgba() form a package may carry for its web card, is not understood here and keeps the skin's own border, as an unparsable value does on Windows.
-inline std::optional<CandidateBorderColor> candidate_border_color(const nlohmann::json &value) {
+// One colour of a resolved theme: the shared layer normalizes every slot to #RRGGBB or #RRGGBBAA (alpha last) before it reaches a host, so nothing else is read here, and anything else reads as unset, which draws the native token.
+inline std::optional<ThemeColor> theme_color(const nlohmann::json &value) {
   if (!value.is_string()) return std::nullopt;
   const auto text = value.get<std::string>();
-  if (text == "transparent") return CandidateBorderColor{0, 0};
   if (text.size() == 7) {
-    if (const auto rgb = palette_color(value)) return CandidateBorderColor{*rgb, 0xFF};
+    if (const auto rgb = palette_color(value)) return ThemeColor{*rgb, 0xFF};
     return std::nullopt;
   }
   if (text.size() != 9) return std::nullopt;
   const auto rgb = palette_color(nlohmann::json(text.substr(0, 7)));
   const auto alpha = palette_color(nlohmann::json("#0000" + text.substr(7)));
   if (!rgb || !alpha) return std::nullopt;
-  return CandidateBorderColor{*rgb, static_cast<std::uint8_t>(*alpha)};
-}
-
-// Source-over of one colour at the given alpha on an opaque background.
-inline std::uint32_t composite_color(std::uint32_t color, std::uint8_t alpha, std::uint32_t background) {
-  std::uint32_t result = 0;
-  for (const int shift : {16, 8, 0}) {
-    const auto top = (color >> shift) & 0xffu;
-    const auto bottom = (background >> shift) & 0xffu;
-    result |= ((top * alpha + bottom * (255u - alpha) + 127u) / 255u) << shift;
-  }
-  return result;
+  return ThemeColor{*rgb, static_cast<std::uint8_t>(*alpha)};
 }
 
 inline std::optional<std::uint32_t> contrasting_color(std::optional<std::uint32_t> background) {
@@ -98,85 +95,96 @@ inline bool candidate_dark_theme(const nlohmann::json &preferences, bool system_
   return global == "system" ? system_dark : global != "light";
 }
 
-// Resolve "follow" (candidate_dark_theme), then fill the colours an installed (external) skin supplies for that appearance. Colours the user set explicitly always win over the skin's.
-inline nlohmann::json candidate_display_preferences(nlohmann::json preferences, bool system_dark,
-                                                    const std::vector<CandidateSkin> &builtin_skins,
-                                                    const std::string &default_skin,
-                                                    const nlohmann::json &catalog) {
-  using Json = nlohmann::json;
-  if (preferences.value("candidate_theme", "follow") == "follow")
-    preferences["candidate_theme"] = candidate_dark_theme(preferences, system_dark) ? "dark" : "light";
-  const auto selected = preferences.value("candidate_skin", default_skin);
-  if (candidate_skin_title(builtin_skins, selected) != "外部：" + selected) return preferences;
-  if (!catalog.is_object()) return preferences;
-  const auto packages = catalog.find("packages");
-  if (packages == catalog.end() || !packages->is_array()) return preferences;
-  for (const auto &package : *packages) {
-    if (!package.is_object() || package.value("id", std::string{}) != selected) continue;
-    const auto candidate = package.value("candidate", Json::object());
-    if (!candidate.is_object()) break;
-    const auto theme = preferences.value("candidate_theme", "follow") == "dark" ? "dark" : "light";
-    const auto palette = candidate.value(theme, Json::object());
-    if (!palette.is_object()) break;
-    if (!preferences.value("candidate_text_color", Json(nullptr)).is_string() && palette.contains("text"))
-      preferences["candidate_text_color"] = palette["text"];
-    if (!preferences.value("candidate_number_color", Json(nullptr)).is_string() && palette.contains("number"))
-      preferences["candidate_number_color"] = palette["number"];
-    if (!preferences.value("candidate_accent_color", Json(nullptr)).is_string() && palette.contains("accent"))
-      preferences["candidate_accent_color"] = palette["accent"];
-    if (!preferences.value("candidate_selected_color", Json(nullptr)).is_string() && palette.contains("selected"))
-      preferences["candidate_selected_color"] = palette["selected"];
-    const bool custom_surface = preferences.value("candidate_background_color", Json(nullptr)).is_string() ||
-                                preferences.value("candidate_surface_color", Json(nullptr)).is_string();
-    if (!custom_surface && palette.contains("surface"))
-      preferences["candidate_background_color"] = palette["surface"];
-    if (!preferences.value("candidate_border_color", Json(nullptr)).is_string() && palette.contains("border"))
-      preferences["candidate_border_color"] = palette["border"];
-    break;
-  }
-  return preferences;
+// The candidate window being drawn, as msime_client_resolve_theme takes it: a package may declare only one of the two layouts.
+inline std::string candidate_layout_id(const nlohmann::json &preferences) {
+  return preferences.value("candidate_layout", std::string{}) == "horizontal" ? "horizontal" : "vertical";
 }
 
-// Takes preferences already passed through candidate_display_preferences.
-inline CandidateColors resolve_candidate_colors(const nlohmann::json &preferences,
-                                                const std::string &default_skin) {
+// The msime_client_resolve_theme request for the candidate window: the global theme and the custom theme exactly as stored, the mode candidate_dark_theme settles on, the layout being drawn and, when the custom theme names an installed package, that package's catalogue entry unchanged. The shared layer uses the package only for `custom` and only when its id equals custom_theme.candidate_skin, so it is sent only then. The caller does the FFI call; this header stays free of it so the palette tests need no engine.
+inline nlohmann::json candidate_theme_request(const nlohmann::json &preferences, bool dark,
+                                              const nlohmann::json &catalog) {
   using Json = nlohmann::json;
-  const auto custom = [&](const char *key) { return palette_color(preferences.value(key, Json(nullptr))); };
-  const auto skin = preferences.value("candidate_skin", default_skin);
-  const auto theme = preferences.value("candidate_theme", "follow");
-  const bool dark = theme == "dark";
-  const bool builtin = candidate_builtin_skin(skin);
-  const auto palette = candidate_builtin_palette(skin, dark);
+  const auto theme = preferences.find("global_theme");
+  Json request{{"global_theme", theme != preferences.end() && theme->is_string() ? *theme : Json("system")},
+               {"dark", dark},
+               {"layout", candidate_layout_id(preferences)}};
+  const auto custom = preferences.find("custom_theme");
+  if (custom == preferences.end() || !custom->is_object()) return request;
+  request["custom_theme"] = *custom;
+  const auto skin = custom->find("candidate_skin");
+  if (request["global_theme"] != "custom" || skin == custom->end() || !skin->is_string()) return request;
+  if (const auto *package = candidate_skin_package(catalog, skin->get<std::string>()))
+    request["package"] = *package;
+  return request;
+}
+
+// What both frontends draw for one resolved theme.
+struct CandidateTheme {
   CandidateColors colors;
-  if (auto value = custom("candidate_background_color")) colors.background = value;
-  else if (auto surface = custom("candidate_surface_color")) colors.background = surface;
-  else if (builtin) colors.background = palette.surface;
-  else if (theme == "dark") colors.background = 0x202124u;
-  else if (theme == "light") colors.background = 0xffffffu;
-  if (auto value = custom("candidate_text_color")) colors.text = value;
-  else if (builtin) colors.text = palette.text;
-  else colors.text = contrasting_color(colors.background);
-  if (auto value = custom("candidate_number_color")) colors.number = value;
-  else if (builtin) colors.number = palette.number;
-  if (auto value = custom("candidate_accent_color")) colors.accent = value;
-  else if (builtin) colors.accent = palette.accent;
-  if (auto value = custom("candidate_selected_color")) colors.selected = value;
-  else if (builtin) colors.selected = palette.selected;
-  // A custom text colour applies to the selected row as well; otherwise the skin may give the selected row its own text colour.
-  if (auto value = custom("candidate_text_color")) colors.selected_text = value;
-  else if (builtin && palette.selected_text) colors.selected_text = palette.selected_text;
-  else colors.selected_text = colors.text;
-  if (auto value = custom("candidate_number_color")) colors.selected_number = value;
-  else if (builtin && palette.selected_number) colors.selected_number = palette.selected_number;
-  else colors.selected_number = colors.number;
-  // An installed skin is drawn on fluent's card on Windows, so it has fluent's outline unless it names its own colour, and a custom colour keeps the skin's width: willow_green draws no outline for any colour.
-  auto border = CandidateBorderColor{palette.border, palette.border_alpha};
-  if (auto value = candidate_border_color(preferences.value("candidate_border_color", Json(nullptr)))) border = *value;
-  if (colors.background && palette.border_width > 0 && border.alpha > 0) {
-    colors.border = composite_color(border.rgb, border.alpha, *colors.background);
-    colors.border_width = palette.border_width;
+  // The mode the surfaces are drawn in: a theme with a fixed appearance overrides the host's.
+  bool dark = false;
+  // The package whose colours were drawn, the only signal for its decoration; empty when none.
+  std::string candidate_skin;
+};
+
+// Map a ResolvedTheme (the `value` of msime_client_resolve_theme) onto the colours the frontends draw. Every null slot, or a null palette as `system` resolves to, takes the Adwaita token from candidate_native_palette in the mode drawn. The frontends paint opaque colours only, so translucent slots are composited: the surface over the native surface, everything else over the surface. The hover slot has no counterpart on the card (neither IBus attributes nor the classic UI theme track the pointer over candidates) and reaches only the Fcitx5 menu highlight, through `menu`; show_selected_bar is not read, because neither frontend draws a selection bar that a package could hide. An empty object resolves to the native tokens, which is also what a host draws when the call fails.
+inline CandidateTheme candidate_theme_colors(const nlohmann::json &resolved, bool dark) {
+  using Json = nlohmann::json;
+  CandidateTheme theme;
+  const auto appearance = resolved.find("appearance");
+  theme.dark = appearance != resolved.end() && appearance->is_string() ? *appearance == "dark" : dark;
+  const auto skin = resolved.find("candidate_skin");
+  if (skin != resolved.end() && skin->is_string()) theme.candidate_skin = skin->get<std::string>();
+  const auto native = candidate_native_palette(theme.dark);
+  const auto candidate = resolved.find("candidate");
+  const Json palette = candidate != resolved.end() && candidate->is_object() ? *candidate : Json::object();
+  const auto slot = [&](const char *key) { return theme_color(palette.value(key, Json(nullptr))); };
+  const auto surface_slot = slot("surface");
+  const auto surface = surface_slot ? composite_color(surface_slot->rgb, surface_slot->alpha, native.surface)
+                                    : native.surface;
+  const auto over_surface = [&](const char *key) -> std::optional<std::uint32_t> {
+    if (const auto value = slot(key)) return composite_color(value->rgb, value->alpha, surface);
+    return std::nullopt;
+  };
+  auto &colors = theme.colors;
+  colors.menu = CandidateMenuSlots{surface_slot, slot("text"), slot("hover"), slot("border")};
+  colors.background = surface;
+  colors.text = over_surface("text").value_or(native.text);
+  colors.number = over_surface("number").value_or(native.number);
+  colors.accent = over_surface("accent").value_or(native.accent);
+  // The selected row: a theme's own fill with its own foregrounds, an accent without a fill drawn solid as the design's Linux selection is, or the native solid #3584E4 with white text.
+  const auto selected = over_surface("selected");
+  const auto accent = over_surface("accent");
+  const auto selected_text = over_surface("selected_text");
+  const auto selected_number = over_surface("selected_number");
+  if (selected) {
+    colors.selected = selected;
+    colors.selected_text = selected_text ? selected_text
+                           : slot("text") ? colors.text
+                                          : contrasting_color(selected);
+    colors.selected_number = selected_number ? selected_number
+                             : slot("number") ? colors.number
+                                              : colors.selected_text;
+  } else if (accent) {
+    colors.selected = accent;
+    colors.selected_text = selected_text ? selected_text : contrasting_color(accent);
+    colors.selected_number = selected_number ? selected_number : colors.selected_text;
+  } else {
+    colors.selected = native.selected;
+    colors.selected_text = native.selected_text;
+    colors.selected_number = native.selected_number;
   }
-  return colors;
+  // The outline, composited because Fcitx5's classic UI paints the border with the SOURCE operator: a translucent one would show the desktop through the panel. A fully transparent border means none.
+  if (const auto border = slot("border")) {
+    if (border->alpha > 0) {
+      colors.border = composite_color(border->rgb, border->alpha, surface);
+      colors.border_width = 1;
+    }
+  } else {
+    colors.border = native.border;
+    colors.border_width = 1;
+  }
+  return theme;
 }
 
 }  // namespace msime::linux_host

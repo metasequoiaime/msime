@@ -2,7 +2,6 @@ package app.msime.client.home;
 
 import android.content.Context;
 import android.graphics.Canvas;
-import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.RectF;
 import android.util.AttributeSet;
@@ -24,16 +23,22 @@ import java.util.Locale;
  *
  * <p>Drawn rather than charted, for the same reason the trend line is: three small charts are not
  * worth a charting dependency.
+ *
+ * <p>Styled after the design's Android statistics: the donut is a 168dp ring about a seventh of its diameter thick over a track, with the total in its hole, and each legend row is a 15sp label and share over a 6dp bar in the category's colour, so the bar itself is the key between chart and name. Every category is the accent at its own opacity, as the design draws them (1, .7, .45, .25 down the list, dc.html L1712), rather than a second hue.
  */
 public final class DistributionView extends View {
     /** 这一块用哪种图。 */
     public enum Style { PIE, DONUT, RANK }
 
     private static final int MAX_ROWS = 16;
-    /** 梯度的档数，和 Apple 的 `chartRamp(8)` 一致。 */
-    private static final int RAMP_STEPS = 8;
+    /** The design's four opacities, one per row in list order. */
+    private static final float[] OPACITY = {1f, .7f, .45f, .25f};
+    /** The faintest step; longer lists spread evenly from full accent down to it. */
+    private static final float FAINTEST = .25f;
 
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint ring = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint share = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint track = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint title = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint value = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -41,8 +46,7 @@ public final class DistributionView extends View {
     private final Paint caption = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint empty = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF box = new RectF();
-    private final int[] ramp = new int[RAMP_STEPS];
-    private final int surface;
+    private final int accent;
     private List<TypingStatisticsModel.Slice> slices = List.of();
     private List<TypingStatisticsModel.Slice> ranked = List.of();
     private Style style = Style.RANK;
@@ -50,19 +54,19 @@ public final class DistributionView extends View {
 
     public DistributionView(Context context, AttributeSet attributes) {
         super(context, attributes);
-        surface = ContextCompat.getColor(context, R.color.surface);
-        int from = ContextCompat.getColor(context, R.color.forest);
-        int to = ContextCompat.getColor(context, R.color.chart_ramp_end);
-        for (int step = 0; step < RAMP_STEPS; step++) {
-            ramp[step] = blend(from, to, step / (float) (RAMP_STEPS - 1));
-        }
-        track.setColor(ContextCompat.getColor(context, R.color.mist));
+        accent = ContextCompat.getColor(context, R.color.forest);
+        track.setColor(ContextCompat.getColor(context, R.color.hairline));
+        ring.setStyle(Paint.Style.STROKE);
+        ring.setStrokeCap(Paint.Cap.BUTT);
         title.setColor(ContextCompat.getColor(context, R.color.ink));
-        title.setTextSize(dp(13f));
+        title.setTextSize(dp(15f));
+        share.setColor(ContextCompat.getColor(context, R.color.ink));
+        share.setTextSize(dp(15f));
+        share.setFakeBoldText(true);
         value.setColor(ContextCompat.getColor(context, R.color.text_secondary));
         value.setTextSize(dp(12f));
         centre.setColor(ContextCompat.getColor(context, R.color.ink));
-        centre.setTextSize(dp(24f));
+        centre.setTextSize(dp(22f));
         centre.setFakeBoldText(true);
         caption.setColor(ContextCompat.getColor(context, R.color.text_secondary));
         caption.setTextSize(dp(11f));
@@ -74,7 +78,7 @@ public final class DistributionView extends View {
      * Show one distribution.
      *
      * <p>The legend keeps the order the categories are declared in, so a category stays the same
-     * colour whatever it counts this week; only the ranked bars re-order, which is their point. An
+     * opacity of the accent whatever it counts this week; only the ranked bars re-order, which is their point. An
      * empty 历史未分类 is the one row dropped -- it is an artefact of older versions, and printing it
      * at zero explains nothing.
      */
@@ -120,13 +124,15 @@ public final class DistributionView extends View {
 
     private float dp(float value) { return value * getResources().getDisplayMetrics().density; }
 
-    private float rowHeight() { return dp(34f); }
+    private float rowHeight() { return dp(46f); }
+
+    private float diameter() { return dp(168f); }
 
     /** The chart above the legend: a fixed square for the two round ones, a row each for the bars. */
     private float chartHeight() {
         if (total <= 0 && style != Style.RANK) return dp(28f);
         return switch (style) {
-            case PIE, DONUT -> dp(190f);
+            case PIE, DONUT -> diameter();
             case RANK -> ranked.isEmpty() ? dp(28f) : ranked.size() * dp(30f) + dp(20f);
         };
     }
@@ -151,50 +157,72 @@ public final class DistributionView extends View {
         for (int index = 0; index < slices.size(); index++) {
             TypingStatisticsModel.Slice slice = slices.get(index);
             float rowTop = top + index * rowHeight();
-            float middle = rowTop + rowHeight() / 2f;
-            float baseline = middle + dp(4.5f);
-            int colour = ramp[index % RAMP_STEPS];
-            // 图例左边那块色是图和名字之间唯一的连线，所以它必须和扇区同色、同顺序。
-            float tile = dp(22f);
-            box.set(0, middle - tile / 2f, tile, middle + tile / 2f);
-            fill.setColor(fade(colour, .18f));
-            canvas.drawRoundRect(box, dp(7f), dp(7f), fill);
-            box.set(dp(6f), middle - dp(5f), dp(16f), middle + dp(5f));
-            fill.setColor(colour);
-            canvas.drawRoundRect(box, dp(3f), dp(3f), fill);
-            canvas.drawText(slice.title(), tile + dp(10f), baseline, title);
-            String share = total <= 0 ? "—"
+            float baseline = rowTop + dp(20f);
+            int colour = colour(index);
+            canvas.drawText(slice.title(), 0, baseline, title);
+            String percent = total <= 0 ? "—"
                 : String.format(Locale.ROOT, "%.1f%%", 100.0 * slice.count() / total);
-            float shareWidth = value.measureText(share);
-            canvas.drawText(share, getWidth() - shareWidth, baseline, value);
+            float percentWidth = share.measureText(percent);
+            canvas.drawText(percent, getWidth() - percentWidth, baseline, share);
             String count = String.valueOf(slice.count());
-            canvas.drawText(count, getWidth() - shareWidth - dp(10f) - value.measureText(count),
+            canvas.drawText(count, getWidth() - percentWidth - dp(10f) - value.measureText(count),
                 baseline, value);
+            // 名字下面那根条是图和名字之间唯一的连线，所以它必须和扇区同色、同顺序。
+            float barTop = rowTop + dp(29f);
+            box.set(0, barTop, getWidth(), barTop + dp(6f));
+            canvas.drawRoundRect(box, dp(3f), dp(3f), track);
+            if (total > 0 && slice.count() > 0) {
+                float width = Math.max(dp(6f), getWidth() * slice.count() / (float) total);
+                box.set(0, barTop, width, barTop + dp(6f));
+                fill.setColor(colour);
+                canvas.drawRoundRect(box, dp(3f), dp(3f), fill);
+            }
         }
     }
 
     /** A pie, or a donut when `hole` is more than zero, in declaration order from twelve o'clock. */
     private void drawSectors(Canvas canvas, float hole) {
-        float height = dp(190f);
         if (total <= 0) return;
-        float diameter = Math.min(height, getWidth());
+        float diameter = Math.min(diameter(), getWidth());
         float left = (getWidth() - diameter) / 2f;
+        if (hole > 0) {
+            drawRing(canvas, left, diameter);
+            return;
+        }
         box.set(left, 0, left + diameter, diameter);
         float start = -90f;
         for (int index = 0; index < slices.size(); index++) {
             TypingStatisticsModel.Slice slice = slices.get(index);
             if (slice.count() <= 0) continue;
             float sweep = 360f * slice.count() / total;
-            fill.setColor(ramp[index % RAMP_STEPS]);
-            // 相邻扇区之间留一线：贴在一起时，梯度里相邻的两档几乎看不出分界。
+            fill.setColor(colour(index));
+            // 相邻扇区之间留一线：贴在一起时，相邻两档透明度几乎看不出分界。
             float inset = Math.min(1.5f, sweep / 4f);
             canvas.drawArc(box, start + inset, Math.max(0f, sweep - inset * 2f), true, fill);
             start += sweep;
         }
-        if (hole <= 0) return;
-        float radius = diameter / 2f * hole;
-        fill.setColor(surface);
-        canvas.drawCircle(left + diameter / 2f, diameter / 2f, radius, fill);
+    }
+
+    /** The donut as the design draws it: a stroked ring rather than a pie with a hole punched in the surface colour. */
+    private void drawRing(Canvas canvas, float left, float diameter) {
+        float thickness = diameter * 5f / 36f;
+        ring.setStrokeWidth(thickness);
+        box.set(left + thickness / 2f, thickness / 2f, left + diameter - thickness / 2f,
+            diameter - thickness / 2f);
+        // The design lays the segments over a full track ring, so their opacity reads against the track rather than the card.
+        ring.setColor(track.getColor());
+        canvas.drawArc(box, 0f, 360f, false, ring);
+        float start = -90f;
+        for (int index = 0; index < slices.size(); index++) {
+            TypingStatisticsModel.Slice slice = slices.get(index);
+            if (slice.count() <= 0) continue;
+            float sweep = 360f * slice.count() / total;
+            ring.setColor(colour(index));
+            // 相邻两段之间留一线，理由同扇形。
+            float inset = Math.min(1f, sweep / 4f);
+            canvas.drawArc(box, start + inset, Math.max(0f, sweep - inset * 2f), false, ring);
+            start += sweep;
+        }
         // 环心放总数：这一块要回答的是「一共多少、谁占大头」，总数就在图里，不用往上找。
         String amount = String.valueOf(total);
         canvas.drawText(amount, left + diameter / 2f - centre.measureText(amount) / 2f,
@@ -219,7 +247,7 @@ public final class DistributionView extends View {
             canvas.drawRoundRect(box, radius, radius, track);
             float width = peak <= 0 ? 0 : (right) * slice.count() / (float) peak;
             box.set(0, middle - dp(9f), Math.max(width, dp(6f)), middle + dp(9f));
-            fill.setColor(ramp[position(slice) % RAMP_STEPS]);
+            fill.setColor(colour(position(slice)));
             canvas.drawRoundRect(box, radius, radius, fill);
             canvas.drawText(slice.title(), dp(8f), middle + dp(4.5f), title);
             canvas.drawText(count, getWidth() - value.measureText(count), middle + dp(4f), value);
@@ -234,15 +262,13 @@ public final class DistributionView extends View {
         return 0;
     }
 
-    private static int blend(int from, int to, float amount) {
-        return Color.rgb(
-            Math.round(Color.red(from) + (Color.red(to) - Color.red(from)) * amount),
-            Math.round(Color.green(from) + (Color.green(to) - Color.green(from)) * amount),
-            Math.round(Color.blue(from) + (Color.blue(to) - Color.blue(from)) * amount));
-    }
-
-    private static int fade(int colour, float alpha) {
-        return Color.argb(Math.round(255 * alpha), Color.red(colour), Color.green(colour),
-            Color.blue(colour));
+    /**
+     * The accent at the opacity of the category's place in the declared list: the design's four steps when there are four rows or fewer, otherwise an even spread over the same range, so a sixteen-scheme list still runs from full accent to the faintest step instead of repeating.
+     */
+    private int colour(int index) {
+        int count = slices.size();
+        float opacity = count <= OPACITY.length ? OPACITY[Math.min(index, OPACITY.length - 1)]
+            : 1f - (1f - FAINTEST) * index / (float) (count - 1);
+        return (Math.round(opacity * ((accent >>> 24) & 0xFF)) << 24) | (accent & 0x00FFFFFF);
     }
 }

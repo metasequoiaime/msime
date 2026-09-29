@@ -1,4 +1,5 @@
 import app.msime.client.CandidateAppearance;
+import app.msime.client.KeyboardSkin;
 import java.util.List;
 
 public final class CandidateAppearanceSmoke {
@@ -12,51 +13,46 @@ public final class CandidateAppearanceSmoke {
         check(CandidateAppearance.fontSize(32) == 32);
         check(CandidateAppearance.fontSize(11) == 16);
         check(CandidateAppearance.fontSize(33) == 16);
-        for (String skin : new String[] {"fluent", "wechat", "graphite", "willow_green"}) {
-            CandidateAppearance.Palette light = CandidateAppearance.fromValues(
-                skin, "light", "system", true, "", "", "", "", "", "", "");
-            CandidateAppearance.Palette dark = CandidateAppearance.fromValues(
-                skin, "dark", "system", false, "", "", "", "", "", "", "");
-            check(light.surface() != dark.surface());
-            check(skin.equals(light.id()));
-        }
-        check(CandidateAppearance.fromValues(
-            "untrusted", "light", "system", false, "", "", "", "", "", "", "")
-            .id().equals("willow_green"));
-        check(CandidateAppearance.fromValues(
-            "willow_green", "untrusted", "system", true, "", "", "", "", "", "", "")
-            .surface() == CandidateAppearance.fromValues(
-                "willow_green", "dark", "system", false, "", "", "", "", "", "", "")
-                .surface());
-        CandidateAppearance.Palette palette = CandidateAppearance.fromValues(
-            "wechat", "light", "system", true, "#123456", "", "#abcdef", "#010203",
-            "#040506", "#070809", "#0a0b0c");
-        check(palette.text() == 0xff123456);
-        check(palette.number() == 0x9d123456);
-        check(palette.accent() == 0xffabcdef);
-        check(palette.selected() == 0xff010203);
-        check(palette.hover() == 0xff040506);
-        check(palette.surface() == 0xff070809);
-        check(palette.border() == 0xff0a0b0c);
-        check(CandidateAppearance.fromValues(
-            "willow_green", "light", "system", false, "bad", "", "", "", "", "", "")
-            .text() != 0xffbadbad);
-        check((CandidateAppearance.fromValues(
-            "graphite", "light", "system", false, "", "", "", "", "", "", "")
-            .selected() >>> 24) == 0);
-        CandidateAppearance.Palette fonts = CandidateAppearance.fromValues(
-            "fluent", "light", "system", false, "", "", "", "", "", "", "",
+
+        // The touch strip takes the keyboard palette: its background, the key text, the secondary
+        // colour for numbers and translations, and the accent for the selected candidate's text,
+        // which the design draws with no fill.
+        CandidateAppearance.Palette system = CandidateAppearance.fromSkin(KeyboardSkin.system(false));
+        check("system".equals(system.id()));
+        check(system.surface() == 0xffe6eae2);
+        check(system.text() == 0xff191c19);
+        check(system.number() == 0xff414941);
+        check(system.accent() == 0xff2c7a4b);
+        check(system.selected() == 0 && system.border() == 0);
+        check(system.hover() == 0x0f191c19);
+        check(system.textFor(true) == 0xff2c7a4b && system.textFor(false) == 0xff191c19);
+        CandidateAppearance.Palette dark = CandidateAppearance.fromSkin(KeyboardSkin.system(true));
+        check(dark.surface() == 0xff1d201d && dark.accent() == 0xff8fd5a6);
+        check(!dark.key().equals(system.key()));
+
+        CandidateAppearance.Palette night = CandidateAppearance.fromSkin(KeyboardSkin.palette(
+            "night", "夜青", true, "#0F1B22", "#1D3340", "#15252E", "#E6F1F4", "#86A6B0",
+            "#4FD1C5", "#000000"));
+        check("night".equals(night.id()));
+        check(night.surface() == 0xff0f1b22 && night.text() == 0xffe6f1f4);
+        check(night.number() == 0xff86a6b0 && night.accent() == 0xff4fd1c5);
+        // An alpha-last hint colour from the contract reaches the strip with its alpha intact.
+        CandidateAppearance.Palette translucent = CandidateAppearance.fromSkin(KeyboardSkin.palette(
+            "custom", "自定义", false, null, null, null, "#123456", "#12345699", null, null));
+        check(translucent.number() == 0x99123456 && translucent.text() == 0xff123456);
+
+        CandidateAppearance.Palette fonts = CandidateAppearance.fromSkin(KeyboardSkin.system(false),
             "Noto Sans CJK", "Noto Sans Mono", List.of("Microsoft YaHei", "Noto Sans SC"));
         check("Noto Sans CJK".equals(fonts.fontFamily()));
         check("Noto Sans Mono".equals(fonts.englishFont()));
         check("Noto Sans Mono".equals(fonts.preferredFont()));
         check(fonts.fallbackFonts().equals(List.of("Microsoft YaHei", "Noto Sans SC")));
-        CandidateAppearance.Palette invalidFonts = CandidateAppearance.fromValues(
-            "fluent", "light", "system", false, "", "", "", "", "", "", "",
-            "", "bad\nfont", List.of("", "x".repeat(129)));
+        CandidateAppearance.Palette invalidFonts = CandidateAppearance.fromSkin(
+            KeyboardSkin.system(false), "", "bad\nfont", List.of("", "x".repeat(129)));
         check("Noto Sans SC".equals(invalidFonts.fontFamily()));
         check(invalidFonts.englishFont().isEmpty());
         check(invalidFonts.fallbackFonts().equals(List.of("Noto Sans SC", "Microsoft YaHei")));
-        System.out.println("Android candidate appearance: skins, themes, overrides, alpha and fallback passed");
+        System.out.println("Android candidate appearance: keyboard-palette strip, accent-only selection, "
+            + "alpha-last hints and font fallback passed");
     }
 }

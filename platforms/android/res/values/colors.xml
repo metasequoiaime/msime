@@ -1,21 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The Apple app's MetasequoiaTheme, so the two platforms read as one product. -->
+<!-- Material 3 tokens of the all-platform design (Android column). Every name here has a dark twin in values-night/colors.xml; the pages read these through R.color and the theme roles, so switching the system to dark mode repaints the whole host without a line of Java knowing about it. The IME itself draws from the keyboard theme and never reads these. -->
 <resources>
-    <color name="forest">#185C48</color>
+    <!-- The one accent. It used to be #185C48; the design moved every platform to this green. -->
+    <color name="forest">#2C7A4B</color>
+    <!-- Text and icons that sit on the accent fill: white in light, deep green in dark. -->
+    <color name="on_accent">#FFFFFF</color>
     <color name="needle">#4D8A72</color>
-    <color name="mist">#F3F7F5</color>
-    <!-- 占比图的梯度末端；起点是 forest。同一条品牌绿的明度梯度，不是八个互不相干的色相。 -->
-    <color name="chart_ramp_end">#A8D2C0</color>
+    <!-- Page background. -->
+    <color name="mist">#F7FBF3</color>
     <color name="cone">#A7673B</color>
-    <color name="ink">#14231D</color>
-    <color name="surface">#FFFFFF</color>
-    <color name="text_secondary">#707C76</color>
-    <color name="hairline">#E4EAE7</color>
-    <!-- Material 的 surface variant 角色。留着原来的值，只是不再叫 tile。 -->
-    <color name="surface_variant">#E2ECE7</color>
-    <!-- 图标那块底：强调色压到一成多。Apple 那边整套界面只有这一支绿，六个互不相干的粉彩色
-         除了「彼此不同」之外什么都没说，何况它们从来就没画出来过。 -->
-    <color name="badge_field">#22185C48</color>
+    <!-- Primary text. -->
+    <color name="ink">#191C19</color>
+    <!-- Card and grouped-container fill; the bottom bar uses the same tone. -->
+    <color name="surface">#EBEFE7</color>
+    <!-- Secondary text and inactive icons. -->
+    <color name="text_secondary">#414941</color>
+    <color name="outline">#717970</color>
+    <color name="hairline">#DDE5DB</color>
+    <!-- accentSoft: the active indicator, tonal buttons, the status card and every glyph box. -->
+    <color name="surface_variant">#CFE9D6</color>
+    <!-- 图标那块底，与 surface_variant 同一个 accentSoft；另起名字是因为读的人不同。 -->
+    <color name="badge_field">#CFE9D6</color>
+    <color name="nav_bar">#EBEFE7</color>
+    <color name="search_field">#E6EAE2</color>
+    <!-- 「尚未完成」那一项的警示色，与 Apple 端的 systemOrange 同值。 -->
+    <color name="attention">#FF9500</color>
+    <!-- 开屏动画的底，深浅模式同一块近黑：那一屏是品牌时刻，不跟着系统换。 -->
+    <color name="splash_field">#0E100E</color>
+    <color name="splash_glow">#477FE08E</color>
     <!-- 图标那块深色场，自适应图标的背景层取它，于是遮罩切出来的永远是这块底而不是灰板。 -->
     <color name="app_icon_field">#252525</color>
 </resources>

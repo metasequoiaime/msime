@@ -48,6 +48,7 @@ struct Observation {
   bool forbidden_gloss_seen = false;
   guint first_candidate_color = 0;
   guint first_candidate_background = 0;
+  guint second_candidate_background = 0;
   guint first_candidate_number_color = 0;
   std::string first_candidate_fix_name;
   std::string first_candidate_clear_name;
@@ -56,6 +57,9 @@ struct Observation {
   std::string clipboard_clear_name;
   bool desktop_help = false;
   bool desktop_feedback = false;
+  bool desktop_dictionary = false;
+  // Keys of the last RegisterProperties, top level only, in menu order.
+  std::vector<std::string> registered_keys;
   bool lookup_visible = false;
   bool preedit_visible = false;
   guint cursor = 0;
@@ -64,7 +68,7 @@ struct Observation {
   bool input_enabled = false;
   bool english_mode = false;
   bool emoji_candidates = false;
-  std::string candidate_skin;
+  std::string global_theme;
   bool traditional_output = false;
   // The CharacterMode menu item, which shows the host's width flag.
   bool character_width = false;
@@ -153,6 +157,7 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
     }
     if (key == "DesktopTools/Help") seen.desktop_help = true;
     if (key == "DesktopTools/Feedback") seen.desktop_feedback = true;
+    if (key == "DesktopTools/Dictionary") seen.desktop_dictionary = true;
     if (seen.first_candidate_fix_name.empty() &&
         (key == "CandidateFix1" || key.rfind("CandidateFix1/", 0) == 0))
       seen.first_candidate_fix_name = key;
@@ -180,9 +185,9 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
       seen.english_mode = ibus_property_get_state(property) == PROP_STATE_CHECKED;
     if (key == "EmojiCandidates")
       seen.emoji_candidates = ibus_property_get_state(property) == PROP_STATE_CHECKED;
-    if (key.rfind("CandidateSkin/", 0) == 0 &&
+    if (key.rfind("GlobalTheme/", 0) == 0 &&
         ibus_property_get_state(property) == PROP_STATE_CHECKED)
-      seen.candidate_skin = key.substr(std::string("CandidateSkin/").size());
+      seen.global_theme = key.substr(std::string("GlobalTheme/").size());
     if (key == "TraditionalOutput")
       seen.traditional_output = ibus_property_get_state(property) == PROP_STATE_CHECKED;
     if (key == "CharacterMode")
@@ -206,7 +211,9 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
   };
   if (std::string(name) == "RegisterProperties") {
     auto properties = IBUS_PROP_LIST(object);
+    seen.registered_keys.clear();
     for (guint i = 0; auto property = ibus_prop_list_get(properties, i); ++i) {
+      seen.registered_keys.push_back(ibus_property_get_key(property));
       observe_property(observe_property, property);
       if (std::string(ibus_property_get_key(property)) == "InputMode")
         seen.mode_registered = true;
@@ -251,6 +258,10 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
         seen.first_candidate_color = ibus_attribute_get_value(attribute);
       if (auto attribute = ibus_attr_list_get(attributes, 1))
         seen.first_candidate_background = ibus_attribute_get_value(attribute);
+      if (ibus_lookup_table_get_number_of_candidates(table) > 1)
+        if (auto second = ibus_text_get_attributes(ibus_lookup_table_get_candidate(table, 1)))
+          if (auto attribute = ibus_attr_list_get(second, 1))
+            seen.second_candidate_background = ibus_attribute_get_value(attribute);
       auto label = ibus_lookup_table_get_label(table, 0);
       if (auto label_attributes = ibus_text_get_attributes(label))
         if (auto attribute = ibus_attr_list_get(label_attributes, 0))
@@ -345,10 +356,9 @@ int main(int argc, char **argv) {
     // A stored commit strategy, which the Linux settings page does not offer and the hosts ignore: the streaming voice preedit asserted below must still appear.
     options["preferences"]["voice_input"]["commit_mode"] = "ctrl_v";
     options["preferences"]["voice_input"]["hotkey_rctrl_ralt"] = true;
-    options["preferences"]["candidate_text_color"] = "#123456";
-    options["preferences"]["candidate_surface_color"] = "#654321";
-    options["preferences"]["candidate_number_color"] = "#abcdef";
-    options["preferences"]["candidate_selected_color"] = "#fedcba";
+    options["preferences"]["global_theme"] = "custom";
+    options["preferences"]["custom_theme"]["candidate_colors"] = {
+        {"text", "#123456"}, {"surface", "#654321"}, {"number", "#abcdef"}, {"selected", "#fedcba"}};
     options["preferences"]["candidate_page_size"] = 2;
     options["preferences"]["default_ime_mode"] = "chinese";
     options["preferences"]["smart_punctuation_space_convert"] = true;
@@ -387,7 +397,7 @@ int main(int argc, char **argv) {
     Observation seen;
     auto missing_emoji_options = options;
     missing_emoji_options["preferences"].erase("mixed_input");
-    missing_emoji_options["preferences"].erase("candidate_skin");
+    missing_emoji_options["preferences"].erase("global_theme");
     // What this case is about is the absent mixed_input object: the default it
     // falls back to, and the menu still being able to flip it. With a shared
     // preferences directory configured the menu flips it by saving a revision in
@@ -464,8 +474,8 @@ int main(int argc, char **argv) {
     invoke("FocusIn");
     require(!seen.emoji_candidates,
             "Missing mixed Emoji preference did not default to disabled");
-    require(seen.candidate_skin == "willow_green",
-            "Missing candidate skin preference did not use Windows default");
+    require(seen.global_theme == "system",
+            "Missing global theme preference did not use the shared default");
     IBUS_ENGINE_GET_CLASS(engine)->property_activate(
         IBUS_ENGINE(engine), "EmojiCandidates", PROP_STATE_CHECKED);
     // property_activate is a direct call, so unlike invoke() it makes no round
@@ -1586,8 +1596,22 @@ int main(int argc, char **argv) {
     require(seen.mode_registered && seen.input_enabled && seen.mode_sensitive &&
                 seen.clipboard_toggle_sensitive,
             "Initial input and clipboard properties were not available");
-    require(seen.desktop_help && seen.desktop_feedback,
-            "Linux desktop tools did not publish help and feedback routes");
+    require(seen.desktop_help && seen.desktop_feedback && seen.desktop_dictionary,
+            "Linux desktop tools did not publish help, feedback and dictionary routes");
+    {
+      // The top of the menu follows the design order: 中文/英文; 全角/标点/译文; 输入方案; 主题/词库…/设置…/关于.
+      const std::vector<std::string> design{
+          "InputMode", "Separator/Mode", "CharacterMode", "Punctuation",
+          "CandidateTranslations", "Separator/Switches", "Scheme", "Separator/Scheme", "GlobalTheme",
+          "DesktopTools/Dictionary", "DesktopTools/Settings", "DesktopTools/About", "Separator/Design"};
+      require(seen.registered_keys.size() > design.size() &&
+                  std::equal(design.begin(), design.end(), seen.registered_keys.begin()),
+              "IBus properties were not registered in the design menu order");
+      // 中文/英文 is the Shift toggle alone; the Engine's dedicated English mode is nested in 输入选项.
+      require(std::find(seen.registered_keys.begin(), seen.registered_keys.end(), "EnglishMode") ==
+                  seen.registered_keys.end(),
+              "Dedicated English mode was registered beside the design menu's 中文/英文");
+    }
     {
       const auto panel_marker = root / "panel-launches.log";
       const auto panel_launcher = root / "panel-launcher";
@@ -1648,11 +1672,14 @@ int main(int argc, char **argv) {
              g_variant_new("(su)", "DesktopTools/Help", PROP_STATE_UNCHECKED));
       invoke("PropertyActivate",
              g_variant_new("(su)", "DesktopTools/Feedback", PROP_STATE_UNCHECKED));
-      require(wait_panel([&] { return panel_routes().size() == 3; }),
-              "Desktop help and feedback actions did not launch settings routes");
+      invoke("PropertyActivate",
+             g_variant_new("(su)", "DesktopTools/Dictionary", PROP_STATE_UNCHECKED));
+      require(wait_panel([&] { return panel_routes().size() == 4; }),
+              "Desktop help, feedback and dictionary actions did not launch settings routes");
       const auto routes = panel_routes();
-      require(routes[1] == "settings:help" && routes[2] == "settings:feedback",
-              "Desktop help and feedback actions used incorrect settings routes");
+      require(routes[1] == "settings:help" && routes[2] == "settings:feedback" &&
+                  routes[3] == "settings:dictionary",
+              "Desktop help, feedback and dictionary actions used incorrect settings routes");
       // Ctrl+Shift+Super+K opens the screen keyboard whether the client reports Super as MOD4, as the virtual SUPER bit, or as both (GTK3).
       for (guint super_bits : {guint(IBUS_MOD4_MASK), guint(IBUS_MOD4_MASK | IBUS_SUPER_MASK),
                                guint(IBUS_SUPER_MASK)}) {
@@ -2425,6 +2452,13 @@ int main(int argc, char **argv) {
             "Selected candidate color attribute missing");
     require(seen.first_candidate_number_color == 0xabcdef,
             "Candidate number color attribute missing");
+    // The host publishes the candidate menu on a 400ms timer after the page changes, so wait for it rather than reading it in the turn that drew the page.
+    const auto candidate_actions_deadline = g_get_monotonic_time() + 2 * G_USEC_PER_SEC;
+    while ((seen.first_candidate_fix_name.empty() || seen.first_candidate_clear_name.empty()) &&
+           g_get_monotonic_time() < candidate_actions_deadline) {
+      while (g_main_context_iteration(nullptr, FALSE)) {}
+      g_usleep(1000);
+    }
     require(!seen.first_candidate_fix_name.empty() &&
                 !seen.first_candidate_clear_name.empty(),
             "Candidate position actions were not published");
@@ -3034,7 +3068,7 @@ int main(int argc, char **argv) {
       preferences["frequency"]["mode"] = "pin";
       preferences["frequency"]["trigger_count"] = 1;
       preferences["mixed_input"]["emoji"] = false;
-      preferences["candidate_text_color"] = "#abcdef";
+      preferences["custom_theme"]["candidate_colors"]["text"] = "#abcdef";
       auto snapshot = nlohmann::json{{"format_version", 1},
                                      {"revision", revision},
                                      {"preferences", preferences}};
@@ -3387,20 +3421,26 @@ int main(int argc, char **argv) {
     external_skin["candidate_skin_catalog"] = {
         {"scanned", true},
         {"packages",
-         {{{"id", "custom"},
-           {"candidate", {{"light", {{"surface", "#654321"}}}}}}}}};
-    external_skin["preferences"]["candidate_skin"] = "custom";
+         {{{"id", "sakura"},
+           {"title", "樱花"},
+           {"base", "system"},
+           {"layouts", {"horizontal", "vertical"}},
+           {"candidate", {{"light", {{"surface", "#654321"}, {"selected", "#fedcba"}}}}}}}}};
     external_skin["preferences"]["candidate_theme"] = "light";
-    external_skin["preferences"]["candidate_surface_color"] = "#123456";
-    external_skin["preferences"].erase("candidate_selected_color");
+    external_skin["preferences"]["custom_theme"] = {
+        {"candidate_skin", "sakura"}, {"candidate_colors", {{"surface", "#123456"}}}};
     msime_ibus_configure(external_skin.dump());
     engine = create_engine();
     seen = Observation{};
     invoke("FocusIn");
     phrase();
     require(
-        seen.first_candidate_background == 0x123456,
+        seen.second_candidate_background == 0x123456,
         "Custom candidate surface color was overwritten by an external skin");
+    require(seen.first_candidate_background == 0xfedcba,
+            "External skin selected color was not drawn");
+    require(seen.global_theme == "sakura",
+            "Theme menu did not show the external skin drawn");
     // Screen keyboard keys arrive over panel-input.sock and go through the engine before the editor, the way SendInput passes through the IME on Windows. Text from handwriting, emoji and voice is still committed as it is.
     {
       require(key(IBUS_Escape), "Screen keyboard fixture could not cancel the composition");

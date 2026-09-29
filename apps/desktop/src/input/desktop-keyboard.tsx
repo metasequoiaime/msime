@@ -4,8 +4,8 @@ import {
   type PanelClient,
   type SettingsClient,
   type Snapshot,
-  type TouchKeyboardSkin,
   type TouchKeyboardSkinDesign,
+  keyboardThemeId,
 } from "@msime/ui";
 import { useCandidatePreviewTheme } from "../../../../packages/ui/src/candidate/candidate-preview-theme";
 import { invoke, isTauri } from "@tauri-apps/api/core";
@@ -83,8 +83,11 @@ export function DesktopKeyboard({
     snapshot?.preferences.touch_keyboard_layout === "nine_key" ? "nine_key" : "twenty_six_key";
   const keySpacingTenths = snapshot?.preferences.touch_key_spacing_tenths ?? 60;
   const rowSpacingTenths = snapshot?.preferences.touch_row_spacing_tenths ?? 70;
-  const skin = snapshot?.preferences.touch_keyboard_skin ?? "forest";
-  const customDesign = snapshot?.preferences.custom_touch_keyboard_skin;
+  const skin = keyboardThemeId(
+    snapshot?.preferences.global_theme,
+    snapshot?.preferences.custom_theme,
+  );
+  const customDesign = snapshot?.preferences.custom_theme?.keyboard ?? undefined;
   // macOS voice submission belongs to the native IMK session. A standalone
   // Tauri keyboard does not own that session, so exposing this button would
   // only lead to an unusable voice panel; the native input-method toolbar and
@@ -102,7 +105,7 @@ export function DesktopKeyboard({
       keySpacingTenths={keySpacingTenths}
       rowSpacingTenths={rowSpacingTenths}
       voiceShortcut={voiceShortcut}
-      skin={skin as TouchKeyboardSkin}
+      skin={skin}
       customDesign={customDesign as TouchKeyboardSkinDesign | undefined}
     />
   );

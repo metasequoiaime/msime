@@ -1,5 +1,6 @@
 #pragma once
 #include <cctype>
+#include <cmath>
 #include <cstdint>
 #include <optional>
 #include <sstream>
@@ -83,50 +84,39 @@ inline CandidateColor parse_css_color(const std::string &text,
             channel(4, 2) / 255.0f, channel(6, 2) / 255.0f};
   return fallback;
 }
-// Optional overrides as they arrive from the shared skin catalog. An absent
-// or unparsable entry keeps the built-in value.
+// The candidate slots of a resolved global theme (msime_client_resolve_theme). An absent slot is one the theme leaves to the platform, and keeps the native token; an unparsable one is treated the same way.
 struct CandidatePaletteOverrides {
   std::optional<std::string> accent, selected, hover, surface, border, text,
-      number;
+      number, selected_text, selected_number;
   std::optional<bool> show_selected_bar;
 };
+// The card, flyout, toolbar and tray colours. The defaults are the Windows 11 (Fluent) dark tokens the `system` theme draws; candidate_light_palette() holds the light ones.
 struct CandidatePalette {
-  CandidateColor surface = candidate_rgb(0x202020);
-  CandidateColor border = candidate_rgb(0x9B9B9B, 0.18f);
-  CandidateColor text = candidate_rgb(0xE9E8E8);
-  CandidateColor number = candidate_rgb(0xE9E8E8, 0.616f);
-  CandidateColor selected = candidate_rgb(0x3E3E3E, 0.725f);
-  CandidateColor hover = candidate_rgb(0x414141);
-  CandidateColor accent = candidate_rgb(0x6B69D6);
-  // Row colours while the row is the selected one. Alpha 0 is the sentinel for
-  // "keep the unselected colour", matching the shipped presenter. Skins that
-  // fill the selected row with an opaque accent need these: fluent's selection
-  // is a tint the normal text still reads against, but wechat's solid green is
-  // not, and without a selected colour the row's text would vanish into it.
-  CandidateColor selected_text{0.0f, 0.0f, 0.0f, 0.0f};
-  CandidateColor selected_number{0.0f, 0.0f, 0.0f, 0.0f};
-  // The candidate right-click flyout. Separate from the card's own colours
-  // because the shipped skins give it its own, and because the OS popup the
-  // client used instead took whatever the Windows theme happened to be - a
-  // light system menu over a dark card.
-  CandidateColor menu_fill = candidate_rgb(0x2D2D2D);
-  CandidateColor menu_border = candidate_rgb(0x9B9B9B, 0.18f);
-  CandidateColor menu_text = candidate_rgb(0xE9E8E8);
-  CandidateColor menu_hover = candidate_rgb(0x414141);
-  // The native composition surface matches the two offset box-shadow layers
-  // used by the built-in WebView skins. Geometry is shared by every skin;
-  // light and dark palettes only change layer opacity.
-  float shadow_outer_alpha = 0.34f;
-  float shadow_inner_alpha = 0.22f;
-  float radius = 6.0f;
-  float border_width = 1.5f;
-  float container_padding = 5.0f;
+  CandidateColor surface = candidate_rgb(0x2C2C2C);
+  CandidateColor border = {1.0f, 1.0f, 1.0f, 0.08f};
+  CandidateColor text = candidate_rgb(0xFFFFFF);
+  CandidateColor number = {1.0f, 1.0f, 1.0f, 0.72f};
+  // Fluent selects a row with the hover fill and marks it with the accent text and the 3px pill, so the two fills are the same token.
+  CandidateColor selected = {1.0f, 1.0f, 1.0f, 0.07f};
+  CandidateColor hover = {1.0f, 1.0f, 1.0f, 0.07f};
+  CandidateColor accent = candidate_rgb(0x60CDFF);
+  // Row colours while the row is the selected one. Alpha 0 is the sentinel for "keep the unselected colour", which a theme can still ask for with a transparent slot.
+  CandidateColor selected_text = candidate_rgb(0x60CDFF);
+  CandidateColor selected_number = {1.0f, 1.0f, 1.0f, 0.72f};
+  // The candidate right-click flyout. Natively this is the Fluent menu material; a theme that sets the surface draws its menus in it too.
+  CandidateColor menu_fill = candidate_rgb(0x2C2C2C, 0.97f);
+  CandidateColor menu_border = {1.0f, 1.0f, 1.0f, 0.08f};
+  CandidateColor menu_text = candidate_rgb(0xFFFFFF);
+  CandidateColor menu_hover = {1.0f, 1.0f, 1.0f, 0.07f};
+  // One Fluent flyout shadow, 0 8px 16px rgba(0,0,0,.14), in both modes and for every theme.
+  float shadow_alpha = 0.14f;
+  float radius = 8.0f;
+  float border_width = 1.0f;
+  float container_padding = 6.0f;
   float item_radius = 4.0f;
   bool show_selected_bar = true;
 };
-// Resolve the candidate label as one row. The shipped presenter lets selected
-// text win for every highlighted entry; the fixed-position accent is only an
-// unselected-row treatment.
+// Resolve the candidate label as one row. The selected text wins for every highlighted entry; the fixed-position accent is only an unselected-row treatment.
 inline CandidateColor candidate_row_text_color(const CandidatePalette &palette,
                                                CandidateColor normal,
                                                bool highlighted,
@@ -135,213 +125,107 @@ inline CandidateColor candidate_row_text_color(const CandidatePalette &palette,
     return palette.selected_text.a > 0.0f ? palette.selected_text : normal;
   return fixed_position ? palette.accent : normal;
 }
-// Built-in tokens. The defaults above are the shipped fluent dark values; the
-// light branch replaces only the colors the shipped presenter overrides.
+// Resolve the row's secondary colour: the index number and the translation. The theme contract's `secondary` always equals `number`, so both draw in number, or selected_number on the selected row; alpha 0 in selected_number keeps number.
+inline CandidateColor candidate_row_number_color(const CandidatePalette &palette,
+                                                 bool highlighted) {
+  return highlighted && palette.selected_number.a > 0.0f
+             ? palette.selected_number
+             : palette.number;
+}
+// The Fluent light tokens; geometry and the shadow are shared with the dark defaults.
 inline CandidatePalette candidate_light_palette() {
   CandidatePalette palette;
   palette.surface = candidate_rgb(0xFFFFFF);
-  palette.border = {0.0f, 0.0f, 0.0f, 0.12f};
-  palette.text = candidate_rgb(0x1A1A1A);
-  palette.number = candidate_rgb(0x1A1A1A, 0.55f);
-  palette.selected = candidate_rgb(0xE8E8E8);
-  palette.hover = candidate_rgb(0xECECEC);
-  palette.menu_fill = candidate_rgb(0xFFFFFF);
-  palette.menu_border = {0.0f, 0.0f, 0.0f, 0.12f};
-  palette.menu_text = candidate_rgb(0x1A1A1A);
-  palette.menu_hover = candidate_rgb(0xECECEC);
-  palette.shadow_outer_alpha = 0.18f;
-  palette.shadow_inner_alpha = 0.10f;
+  palette.border = {0.0f, 0.0f, 0.0f, 0.08f};
+  palette.text = candidate_rgb(0x1B1B1B);
+  palette.number = candidate_rgb(0x5E5E5E);
+  palette.selected = {0.0f, 0.0f, 0.0f, 0.045f};
+  palette.hover = {0.0f, 0.0f, 0.0f, 0.045f};
+  palette.accent = candidate_rgb(0x005FB8);
+  palette.selected_text = candidate_rgb(0x005FB8);
+  palette.selected_number = candidate_rgb(0x5E5E5E);
+  palette.menu_fill = candidate_rgb(0xF9F9F9, 0.97f);
+  palette.menu_border = {0.0f, 0.0f, 0.0f, 0.08f};
+  palette.menu_text = candidate_rgb(0x1B1B1B);
+  palette.menu_hover = {0.0f, 0.0f, 0.0f, 0.045f};
   return palette;
 }
-// Is this one of the ids the product ships? The shared catalog refuses to load
-// a package under these names, so they are resolved here instead of on disk.
-inline bool candidate_builtin_skin(const std::string &id) {
-  return id == "fluent" || id == "wechat" || id == "graphite" ||
-         id == "willow_green";
+// The native tokens the `system` theme draws, and every other theme draws beneath the slots it sets.
+inline CandidatePalette candidate_native_palette(bool dark) {
+  return dark ? CandidatePalette{} : candidate_light_palette();
 }
-// Built-in skin tokens, ported from the shipped presenter's own table so the
-// native card matches ui-html/webview2/candwnd/skins/<skin>/ rather than
-// approximating it. An unknown id keeps fluent.
-inline CandidatePalette candidate_builtin_palette(const std::string &id,
-                                                  bool dark) {
-  CandidatePalette palette = dark ? CandidatePalette{}
-                                  : candidate_light_palette();
-  if (id == "wechat") {
-    palette.border_width = 1.0f;
-    palette.radius = 5.0f;
-    palette.container_padding = 2.0f;
-    palette.accent = candidate_rgb(0x07C160);
-    palette.selected = candidate_rgb(0x07C160);
-    palette.show_selected_bar = false;
-    palette.selected_text = candidate_rgb(0xFFFFFF);
-    palette.selected_number = candidate_rgb(0xFFFFFF);
-    if (dark) {
-      palette.surface = candidate_rgb(0x151515);
-      palette.border = candidate_rgb(0x292929);
-      palette.hover = candidate_rgb(0x07C160, 0.32f);
-      palette.text = candidate_rgb(0xB7B7B7);
-      palette.number = candidate_rgb(0x858585);
-      palette.menu_fill = candidate_rgb(0x1F1F1F);
-      palette.menu_border = candidate_rgb(0x343434);
-      palette.menu_text = candidate_rgb(0xD0D0D0);
-      palette.menu_hover = candidate_rgb(0x2A2A2A);
-    } else {
-      palette.surface = candidate_rgb(0xF7F7F7);
-      palette.border = candidate_rgb(0xDEDEDE);
-      palette.hover = candidate_rgb(0x07C160, 0.14f);
-      palette.text = candidate_rgb(0x333333);
-      palette.number = candidate_rgb(0x757575);
-      palette.menu_fill = candidate_rgb(0xFFFFFF);
-      palette.menu_border = candidate_rgb(0xD9D9D9);
-      palette.menu_text = candidate_rgb(0x333333);
-      palette.menu_hover = candidate_rgb(0xEEEEEE);
-    }
-  } else if (id == "willow_green") {
-    palette.border_width = 0.0f;
-    palette.radius = 9.0f;
-    palette.container_padding = 0.0f;
-    // The CSS sets the row radius to 0 and clips the window corners with
-    // clip-path, but this card does not clip its rows, so a 0 radius would let
-    // the green selection square off the rounded window. The shipped presenter
-    // deliberately diverges here and keeps 4px; match that, not the CSS.
-    palette.item_radius = 4.0f;
-    palette.border = {0.0f, 0.0f, 0.0f, 0.0f};
-    palette.show_selected_bar = false;
-    palette.selected_text = candidate_rgb(0xFFFFFF);
-    palette.selected_number = candidate_rgb(0xFFFFFF);
-    if (dark) {
-      palette.surface = candidate_rgb(0x2D2F2E);
-      palette.accent = candidate_rgb(0x65C98D);
-      palette.selected = candidate_rgb(0x65C98D);
-      palette.hover = candidate_rgb(0x65C98D, 0.22f);
-      palette.text = candidate_rgb(0xD8DBD8);
-      palette.number = candidate_rgb(0xA6ABA7);
-      palette.menu_fill = candidate_rgb(0x343635);
-      palette.menu_border = candidate_rgb(0x454845);
-      palette.menu_text = candidate_rgb(0xE0E2DF);
-      palette.menu_hover = candidate_rgb(0x414441);
-    } else {
-      palette.surface = candidate_rgb(0xF4F5F3);
-      palette.accent = candidate_rgb(0x58B980);
-      palette.selected = candidate_rgb(0x58B980);
-      palette.hover = candidate_rgb(0x58B980, 0.16f);
-      palette.text = candidate_rgb(0x343936);
-      palette.number = candidate_rgb(0x686F6A);
-      palette.menu_fill = candidate_rgb(0xFBFCFA);
-      palette.menu_border = candidate_rgb(0xD8DED9);
-      palette.menu_text = candidate_rgb(0x343936);
-      palette.menu_hover = candidate_rgb(0xE9EEEA);
-    }
-  } else if (id == "graphite") {
-    palette.border_width = 1.0f;
-    palette.radius = 3.0f;
-    palette.container_padding = 5.0f;
-    palette.item_radius = 2.0f;
-    // Graphite marks the selected row with text colour alone; the fill stays
-    // fully transparent.
-    palette.selected = {0.0f, 0.0f, 0.0f, 0.0f};
-    palette.show_selected_bar = false;
-    if (dark) {
-      palette.surface = candidate_rgb(0x1C1F23);
-      palette.border = candidate_rgb(0x30353B);
-      palette.accent = candidate_rgb(0x8993A0);
-      palette.hover = {1.0f, 1.0f, 1.0f, 0.055f};
-      palette.text = candidate_rgb(0xAEB6C2);
-      palette.number = candidate_rgb(0x707987);
-      palette.selected_text = candidate_rgb(0xF1F3F5);
-      palette.selected_number = candidate_rgb(0xF1F3F5);
-      palette.menu_fill = candidate_rgb(0x23272C);
-      palette.menu_border = candidate_rgb(0x3A4047);
-      palette.menu_text = candidate_rgb(0xC7CDD5);
-      palette.menu_hover = candidate_rgb(0x30353B);
-    } else {
-      palette.surface = candidate_rgb(0xFBFBFC);
-      palette.border = candidate_rgb(0xE2E5E9);
-      palette.accent = candidate_rgb(0x5F6B7A);
-      palette.hover = {31.0f / 255.0f, 41.0f / 255.0f, 55.0f / 255.0f, 0.055f};
-      palette.text = candidate_rgb(0x586476);
-      palette.number = candidate_rgb(0x8993A1);
-      palette.selected_text = candidate_rgb(0x111827);
-      palette.selected_number = candidate_rgb(0x111827);
-      palette.menu_fill = candidate_rgb(0xFFFFFF);
-      palette.menu_border = candidate_rgb(0xDFE3E8);
-      palette.menu_text = candidate_rgb(0x374151);
-      palette.menu_hover = candidate_rgb(0xF1F3F5);
-    }
-  }
-  return palette;
-}
-// The floating toolbar's own palette.
-//
-// The shipped toolbar is native by default (UiBackendPolicy resolves to Native unless a WebView2 toolbar is configured), and its native presenter draws fixed neutral colours from FloatingToolbarPresenter::ApplyTheme rather than anything from the candidate skin: only the light/dark choice, resolved from the toolbar's own preference, changes it. Taking the card's skin here tinted the default willow_green toolbar green. The drag handle is always 0x8E8CD8, the divider shares the border colour, and a pressed button keeps the hover fill, as ToolbarIconButton::Render draws both states the same way.
-inline CandidatePalette toolbar_palette(bool dark) {
-  CandidatePalette palette = dark ? CandidatePalette{}
-                                  : candidate_light_palette();
-  palette.accent = candidate_rgb(0x8E8CD8);
-  palette.radius = 8.0f;
-  palette.border_width = 1.4f;
-  palette.item_radius = 6.5f;
-  if (dark) {
-    palette.surface = candidate_rgb(0x1A1A1A);
-    palette.border = {1.0f, 1.0f, 1.0f, 0.15f};
-    palette.text = candidate_rgb(0xFFFFFF);
-    palette.number = {1.0f, 1.0f, 1.0f, 0.45f};
-    palette.hover = {1.0f, 1.0f, 1.0f, 0.10f};
-  } else {
-    palette.surface = candidate_rgb(0xFFFFFF);
-    palette.border = {0.0f, 0.0f, 0.0f, 0.12f};
-    palette.text = candidate_rgb(0x1A1A1A);
-    palette.number = candidate_rgb(0x1A1A1A, 0.45f);
-    palette.hover = {0.0f, 0.0f, 0.0f, 0.08f};
-  }
-  palette.selected = palette.hover;
-  return palette;
-}
-// The tray menu's own palette.
-//
-// Like the toolbar, the shipped tray menu is native and takes fixed neutral colours from TrayMenuPresenter::ApplyTheme, switched only by the menu's light/dark preference; the candidate skin never reaches it. Its switches are MenuFlyoutItem's: 0x8E8CD8 when on, and when off 0x555555 over a light-text (dark) menu or 0xC8C8C8 otherwise, with a white thumb in both states. The number token is the dimmed text of a row whose capability is missing, which the shipped menu never has, so it is the text colour at reduced opacity.
-inline CandidatePalette tray_menu_palette(bool dark) {
-  CandidatePalette palette = dark ? CandidatePalette{}
-                                  : candidate_light_palette();
-  palette.accent = candidate_rgb(0x8E8CD8);
-  palette.border_width = 1.0f;
-  if (dark) {
-    palette.surface = candidate_rgb(0x2B2B2B);
-    palette.border = candidate_rgb(0x3A3A3A);
-    palette.text = candidate_rgb(0xE0E0E0);
-    palette.number = candidate_rgb(0xE0E0E0, 0.45f);
-    palette.hover = candidate_rgb(0x3B3B3B);
-  } else {
-    palette.surface = candidate_rgb(0xFFFFFF);
-    palette.border = {0.0f, 0.0f, 0.0f, 0.10f};
-    palette.text = candidate_rgb(0x1A1A1A);
-    palette.number = candidate_rgb(0x1A1A1A, 0.45f);
-    palette.hover = candidate_rgb(0xF0F0F0);
-  }
-  return palette;
-}
-// The off-state track of a tray switch, chosen from the text colour exactly as MenuFlyoutItem does: a light text colour means a dark menu.
-inline CandidateColor tray_toggle_off_color(const CandidatePalette &palette) {
-  return palette.text.r > 0.5f ? candidate_rgb(0x555555)
-                               : candidate_rgb(0xC8C8C8);
-}
+// Apply a resolved theme's candidate slots over a palette. A slot the theme sets is drawn as given. A derived slot it leaves to the platform follows the Fluent rule from the final values: the selection fill is the hover fill, the selected text is the accent and the selected numbers are the secondary colour. The menus take the card's surface, text, hover and border, so a theme colours them too; with no surface set they keep the native menu material.
 inline CandidatePalette
 candidate_palette(const CandidatePaletteOverrides &overrides,
                   CandidatePalette palette = {}) {
-  auto apply = [](const std::optional<std::string> &value,
-                  CandidateColor &target) {
-    if (value && !value->empty())
+  auto set = [](const std::optional<std::string> &value) {
+    return value && !value->empty();
+  };
+  auto apply = [&set](const std::optional<std::string> &value,
+                      CandidateColor &target) {
+    if (set(value))
       target = parse_css_color(*value, target);
   };
   apply(overrides.accent, palette.accent);
-  apply(overrides.selected, palette.selected);
   apply(overrides.hover, palette.hover);
   apply(overrides.surface, palette.surface);
   apply(overrides.border, palette.border);
   apply(overrides.text, palette.text);
   apply(overrides.number, palette.number);
+  if (set(overrides.selected))
+    apply(overrides.selected, palette.selected);
+  else
+    palette.selected = palette.hover;
+  if (set(overrides.selected_text))
+    apply(overrides.selected_text, palette.selected_text);
+  else
+    palette.selected_text = palette.accent;
+  if (set(overrides.selected_number))
+    apply(overrides.selected_number, palette.selected_number);
+  else
+    palette.selected_number = palette.number;
+  if (set(overrides.surface))
+    palette.menu_fill = palette.surface;
+  palette.menu_text = palette.text;
+  palette.menu_hover = palette.hover;
+  palette.menu_border = palette.border;
   if (overrides.show_selected_bar)
     palette.show_selected_bar = *overrides.show_selected_bar;
   return palette;
+}
+// The floating toolbar derives from the candidate palette (surface, text, hover, border, and the selected fill with the selected text for a pressed button), so it follows the global theme. Its geometry stays the toolbar's own.
+inline CandidatePalette toolbar_palette(CandidatePalette palette) {
+  palette.radius = 8.0f;
+  palette.border_width = 1.4f;
+  palette.item_radius = 6.5f;
+  return palette;
+}
+// The tray menu is drawn like the candidate flyout: the menu slots of the candidate palette, the accent for a switch that is on and the secondary colour for a row whose capability is missing.
+inline CandidatePalette tray_menu_palette(CandidatePalette palette) {
+  palette.surface = palette.menu_fill;
+  palette.border = palette.menu_border;
+  palette.text = palette.menu_text;
+  palette.hover = palette.menu_hover;
+  palette.border_width = 1.0f;
+  return palette;
+}
+// A Fluent switch that is off is an outline, not a fill: the ring and the thumb are the text colour at reduced opacity, so they read on any theme's surface.
+inline CandidateColor tray_toggle_off_color(const CandidatePalette &palette) {
+  return {palette.text.r, palette.text.g, palette.text.b, 0.6f};
+}
+// Secondary text of the tray menu: shortcut hints, group captions and tool captions, drawn as the design's 60% of the row text rather than a colour of their own, so they follow any theme.
+inline CandidateColor tray_menu_secondary_color(const CandidatePalette &palette) {
+  return {palette.text.r, palette.text.g, palette.text.b, palette.text.a * 0.6f};
+}
+// The thumb of a switch that is on, drawn over the accent: black over a light accent and white over a dark one, with the same luminance threshold as the shared layer's readable_text, so an accent such as ink's white keeps a visible thumb.
+inline CandidateColor candidate_on_accent(const CandidateColor &accent) {
+  auto linear = [](float value) {
+    return value <= 0.04045f ? value / 12.92f
+                             : std::pow((value + 0.055f) / 1.055f, 2.4f);
+  };
+  const float luminance = 0.2126f * linear(accent.r) +
+                          0.7152f * linear(accent.g) +
+                          0.0722f * linear(accent.b);
+  return luminance > 0.179f ? candidate_rgb(0x000000) : candidate_rgb(0xFFFFFF);
 }
 } // namespace msime::windows

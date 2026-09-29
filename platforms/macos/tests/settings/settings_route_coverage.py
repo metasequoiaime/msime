@@ -7,7 +7,9 @@ own bundled window instead of the page every other platform shows - which is the
 shared UI in one place.
 
 A page here is one entry of the settings navigation. A category is one `settings:<id>` a launcher can emit.
-The two lists have to agree, except for the entries named below with the reason they differ.
+The two lists have to agree, except for the entries named below with the reason they differ, and for
+former page ids the shared UI resolves through `settingsPageAliases` to a page that still exists: hosts
+keep sending those, and the UI opens the page that now holds their contents.
 
 Usage: settings_route_coverage.py <repository root>
 """
@@ -37,6 +39,15 @@ def main() -> int:
         print("could not read the settings navigation from packages/ui/src/index.tsx", file=sys.stderr)
         return 1
 
+    # Former page ids the shared UI still accepts, each mapped to the page that now holds its contents.
+    # Without the table there are no aliases, and a category that relied on one fails below by name.
+    alias_table = re.search(r"const settingsPageAliases:[^=]*=\s*\{([^}]*)\}", ui)
+    alias_body = alias_table.group(1) if alias_table else ""
+    aliases = dict(re.findall(r'"?([a-z-]+)"?\s*:\s*"([a-z-]+)"', alias_body))
+    if alias_body.strip() and not aliases:
+        print("settingsPageAliases parsed to no entries", file=sys.stderr)
+        return 1
+
     surface = (root / "crates/client-core/src/host_surface.rs").read_text(encoding="utf-8")
     # There is more than one as_str in the file, so match the arms themselves rather than a method body.
     categories = set(re.findall(r'SettingsCategory::\w+ => "([a-z-]+)"', surface))
@@ -52,8 +63,21 @@ def main() -> int:
             f"the settings page {page!r} has no route: add a SettingsCategory for it, or say here why a "
             f"host would never open it"
         )
+    routed_aliases = {}
+    for alias, target in sorted(aliases.items()):
+        if alias in pages:
+            failures.append(
+                f"settingsPageAliases maps {alias!r}, which is itself a settings page; the alias hides it"
+            )
+        elif target not in pages:
+            failures.append(
+                f"settingsPageAliases maps {alias!r} to {target!r}, which is not a settings page; a host "
+                f"routing to settings:{alias} would open the default page instead"
+            )
+        elif alias in categories:
+            routed_aliases[alias] = target
     for category in sorted(categories):
-        if category not in pages:
+        if category not in pages and category not in routed_aliases:
             failures.append(
                 f"settings:{category} names a page the shared UI does not have; a host routing to it "
                 f"would open the default page instead"
@@ -66,7 +90,12 @@ def main() -> int:
         for failure in failures:
             print(failure, file=sys.stderr)
         return 1
-    print(f"{len(pages)} settings pages, {len(categories)} routable; the rest are accounted for.")
+    summary = f"{len(pages)} settings pages, {len(categories)} routable; the rest are accounted for."
+    if routed_aliases:
+        summary += " Aliases: " + ", ".join(
+            f"settings:{alias} -> {target}" for alias, target in sorted(routed_aliases.items())
+        ) + "."
+    print(summary)
     return 0
 
 

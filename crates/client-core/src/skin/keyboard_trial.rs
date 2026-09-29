@@ -4,9 +4,9 @@
 
 use crate::file_lock;
 use crate::preferences::{
-    PreferencesError, PreferencesSnapshot, PreferencesStore, TouchKeyboardSkin,
-    TouchKeyboardSkinDesign,
+    PreferencesError, PreferencesSnapshot, PreferencesStore, TouchKeyboardSkinDesign,
 };
+use crate::skin::theme::GlobalTheme;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::io::Write;
@@ -30,8 +30,11 @@ pub struct KeyboardSkinTrial {
 struct TrialRecord {
     id: Uuid,
     name: String,
-    previous_skin: TouchKeyboardSkin,
-    previous_design: TouchKeyboardSkinDesign,
+    previous_theme: GlobalTheme,
+    /// The custom theme's base and package before the trial. When another theme was on screen the trial rebases the custom theme onto it and drops the package, so declining puts both back.
+    previous_base: GlobalTheme,
+    previous_candidate_skin: Option<String>,
+    previous_design: Option<TouchKeyboardSkinDesign>,
     design: TouchKeyboardSkinDesign,
 }
 
@@ -77,14 +80,21 @@ impl KeyboardSkinTrialStore {
         let record = TrialRecord {
             id: Uuid::new_v4(),
             name: name.clone(),
-            previous_skin: snapshot.preferences.touch_keyboard_skin,
-            previous_design: snapshot.preferences.custom_touch_keyboard_skin.clone(),
+            previous_theme: snapshot.preferences.global_theme,
+            previous_base: snapshot.preferences.custom_theme.base,
+            previous_candidate_skin: snapshot.preferences.custom_theme.candidate_skin.clone(),
+            previous_design: snapshot.preferences.custom_theme.keyboard.clone(),
             design: design.clone(),
         };
         self.write_record(&record)?;
         let mut preferences = snapshot.preferences;
-        preferences.touch_keyboard_skin = TouchKeyboardSkin::Custom;
-        preferences.custom_touch_keyboard_skin = design;
+        // Applying a keyboard design from another theme keeps that theme under the candidate window: it becomes the custom theme's base and any package left in the custom theme is dropped. While `custom` is already selected only the keyboard changes.
+        if preferences.global_theme != GlobalTheme::Custom {
+            preferences.custom_theme.base = preferences.global_theme;
+            preferences.custom_theme.candidate_skin = None;
+        }
+        preferences.global_theme = GlobalTheme::Custom;
+        preferences.custom_theme.keyboard = Some(design);
         let applied = match self.preferences.save(snapshot.revision, preferences) {
             Ok(applied) => applied,
             Err(error) => {
@@ -137,15 +147,19 @@ impl KeyboardSkinTrialStore {
         record: TrialRecord,
     ) -> Result<PreferencesSnapshot, KeyboardSkinTrialError> {
         let snapshot = self.preferences.load()?;
-        if snapshot.preferences.touch_keyboard_skin != TouchKeyboardSkin::Custom
-            || snapshot.preferences.custom_touch_keyboard_skin != record.design
+        if snapshot.preferences.global_theme != GlobalTheme::Custom
+            || snapshot.preferences.custom_theme.keyboard.as_ref() != Some(&record.design)
         {
             self.remove_record()?;
             return Ok(snapshot);
         }
         let mut preferences = snapshot.preferences;
-        preferences.touch_keyboard_skin = record.previous_skin;
-        preferences.custom_touch_keyboard_skin = record.previous_design;
+        if record.previous_theme != GlobalTheme::Custom {
+            preferences.custom_theme.base = record.previous_base;
+            preferences.custom_theme.candidate_skin = record.previous_candidate_skin;
+        }
+        preferences.global_theme = record.previous_theme;
+        preferences.custom_theme.keyboard = record.previous_design;
         let restored = self.preferences.save(snapshot.revision, preferences)?;
         self.remove_record()?;
         Ok(restored)
@@ -180,9 +194,13 @@ impl KeyboardSkinTrialStore {
         )?;
         let record: TrialRecord = serde_json::from_slice(&bytes)?;
         if record.id.is_nil()
+            || record.previous_base == GlobalTheme::Custom
             || normalized_name(&record.name)? != record.name
             || !record.design.validate()
-            || !record.previous_design.validate()
+            || !record
+                .previous_design
+                .as_ref()
+                .is_none_or(TouchKeyboardSkinDesign::validate)
         {
             return Err(KeyboardSkinTrialError::Invalid);
         }
@@ -247,21 +265,67 @@ mod tests {
             ..TouchKeyboardSkinDesign::default()
         };
         let (trial, applied) = trials.begin("社区皮肤", design.clone()).unwrap();
+        assert_eq!(applied.preferences.global_theme, GlobalTheme::Custom);
         assert_eq!(
-            applied.preferences.touch_keyboard_skin,
-            TouchKeyboardSkin::Custom
+            applied.preferences.custom_theme.keyboard,
+            Some(design.clone())
         );
-        assert_eq!(applied.preferences.custom_touch_keyboard_skin, design);
         let restored = trials.finish(trial.id, false).unwrap();
         assert_eq!(restored.preferences, original.preferences);
 
         let (trial, _) = trials.begin("保留皮肤", design.clone()).unwrap();
         let kept = trials.finish(trial.id, true).unwrap();
+        assert_eq!(kept.preferences.global_theme, GlobalTheme::Custom);
+        assert_eq!(kept.preferences.custom_theme.keyboard, Some(design));
+    }
+
+    #[test]
+    fn a_trial_from_another_theme_rebases_the_custom_theme_and_declining_restores_it() {
+        let (_root, preferences, trials) = stores();
+        let loaded = preferences.load().unwrap();
+        let mut night = loaded.preferences;
+        night.global_theme = GlobalTheme::Night;
+        night.custom_theme.candidate_skin = Some("sakura".into());
+        let original = preferences.save(loaded.revision, night).unwrap();
+        let design = TouchKeyboardSkinDesign {
+            background: 0x0F1E2D,
+            ..TouchKeyboardSkinDesign::default()
+        };
+
+        let (trial, applied) = trials.begin("夜间试用", design.clone()).unwrap();
+        assert_eq!(applied.preferences.global_theme, GlobalTheme::Custom);
+        assert_eq!(applied.preferences.custom_theme.base, GlobalTheme::Night);
+        assert_eq!(applied.preferences.custom_theme.candidate_skin, None);
+        assert_eq!(applied.preferences.custom_theme.keyboard, Some(design));
+
+        let restored = trials.finish(trial.id, false).unwrap();
+        assert_eq!(restored.preferences, original.preferences);
+    }
+
+    #[test]
+    fn a_trial_while_custom_is_selected_changes_only_the_keyboard() {
+        let (_root, preferences, trials) = stores();
+        let loaded = preferences.load().unwrap();
+        let mut custom = loaded.preferences;
+        custom.global_theme = GlobalTheme::Custom;
+        custom.custom_theme.base = GlobalTheme::Paper;
+        custom.custom_theme.candidate_skin = Some("sakura".into());
+        let original = preferences.save(loaded.revision, custom).unwrap();
+        let design = TouchKeyboardSkinDesign {
+            background: 0x2D1E0F,
+            ..TouchKeyboardSkinDesign::default()
+        };
+
+        let (trial, applied) = trials.begin("自定义试用", design.clone()).unwrap();
+        assert_eq!(applied.preferences.custom_theme.base, GlobalTheme::Paper);
         assert_eq!(
-            kept.preferences.touch_keyboard_skin,
-            TouchKeyboardSkin::Custom
+            applied.preferences.custom_theme.candidate_skin.as_deref(),
+            Some("sakura")
         );
-        assert_eq!(kept.preferences.custom_touch_keyboard_skin, design);
+        assert_eq!(applied.preferences.custom_theme.keyboard, Some(design));
+
+        let restored = trials.finish(trial.id, false).unwrap();
+        assert_eq!(restored.preferences, original.preferences);
     }
 
     #[test]
@@ -274,17 +338,14 @@ mod tests {
         trials.begin("待恢复", design.clone()).unwrap();
         let recovered = KeyboardSkinTrialStore::new(root.path(), Arc::clone(&preferences));
         let restored = recovered.restore_pending().unwrap();
-        assert_ne!(restored.preferences.custom_touch_keyboard_skin, design);
+        assert_eq!(restored.preferences.custom_theme.keyboard, None);
 
         let (trial, applied) = trials.begin("不覆盖后续选择", design).unwrap();
         let mut later = applied.preferences;
-        later.touch_keyboard_skin = TouchKeyboardSkin::Ocean;
+        later.global_theme = GlobalTheme::Night;
         preferences.save(applied.revision, later).unwrap();
         let current = trials.finish(trial.id, false).unwrap();
-        assert_eq!(
-            current.preferences.touch_keyboard_skin,
-            TouchKeyboardSkin::Ocean
-        );
+        assert_eq!(current.preferences.global_theme, GlobalTheme::Night);
     }
 
     #[test]
@@ -308,8 +369,10 @@ mod tests {
         let record = TrialRecord {
             id: Uuid::nil(),
             name: "合成试用".into(),
-            previous_skin: TouchKeyboardSkin::Forest,
-            previous_design: TouchKeyboardSkinDesign::default(),
+            previous_theme: GlobalTheme::System,
+            previous_base: GlobalTheme::System,
+            previous_candidate_skin: None,
+            previous_design: None,
             design: TouchKeyboardSkinDesign::default(),
         };
         fs::write(

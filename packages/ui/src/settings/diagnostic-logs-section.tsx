@@ -1,19 +1,9 @@
 import * as settings from "./settings-style";
-import { SettingToggle } from "./setting-toggle";
+import { GroupList, Row, Switch } from "../core/platform-controls";
 
 export interface DiagnosticLogPreferences {
   server: boolean;
   tsf: boolean;
-}
-
-/** Fills missing diagnostic-log switches with their disabled defaults. */
-export function diagnosticLogPreferences(
-  value?: Partial<DiagnosticLogPreferences> | null,
-): DiagnosticLogPreferences {
-  return {
-    server: value?.server ?? false,
-    tsf: value?.tsf ?? false,
-  };
 }
 
 export interface DiagnosticLogsSectionProps {
@@ -62,46 +52,34 @@ export function DiagnosticLogsSection({
   }
 
   return (
-    <div className="section" role="group" aria-label="诊断日志">
-      <SettingToggle
-        label={title}
-        description={description}
-        ariaLabel={title}
-        checked={values.server}
-        compact
-        onChange={(enabled) => onChange({ server: enabled })}
-      />
-      {openDirectory && (
-        <>
-          <div className="input-option-divider" />
-          <div className="section-header">
-            <span className="section-title">
-              日志文件
-              <small>
-                {macos
-                  ? "在 Finder 中选中 diagnostic.log；还没有写入时打开它所在的目录。"
-                  : "打开日志文件所在的目录。"}
-              </small>
-            </span>
+    <GroupList title="诊断日志">
+      <div className={settings.rowStack} role="group" aria-label="诊断日志">
+        <Row title={title} description={description}>
+          <Switch checked={values.server} onChange={(server) => onChange({ server })} />
+        </Row>
+        {openDirectory && (
+          <Row
+            title="日志文件"
+            description={
+              macos
+                ? "在 Finder 中选中 diagnostic.log；还没有写入时打开它所在的目录。"
+                : "打开日志文件所在的目录。"
+            }
+          >
             <button type="button" className="secondary" onClick={() => void revealDirectory()}>
               {macos ? "在 Finder 中显示" : "打开日志目录"}
             </button>
-          </div>
-        </>
-      )}
-      {!linux && windows && (
-        <>
-          <div className="input-option-divider" />
-          <SettingToggle
-            label="TSF 端日志"
+          </Row>
+        )}
+        {!linux && windows && (
+          <Row
+            title="TSF 端日志"
             description="排查应用内预编辑和输入延迟时开启。日志在内存中限量缓冲，并通过独立管道批量汇总，不记录按键、输入内容或候选文本。"
-            ariaLabel="TSF 端日志"
-            checked={values.tsf}
-            compact
-            onChange={(enabled) => onChange({ tsf: enabled })}
-          />
-        </>
-      )}
-    </div>
+          >
+            <Switch checked={values.tsf} onChange={(tsf) => onChange({ tsf })} />
+          </Row>
+        )}
+      </div>
+    </GroupList>
   );
 }

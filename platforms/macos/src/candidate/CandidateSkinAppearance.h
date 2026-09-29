@@ -9,7 +9,11 @@ FOUNDATION_EXPORT NSNotificationName const MetasequoiaCandidateSkinDidChangeNoti
 NSColor *MetasequoiaColorFromRgba(metasequoia::mac::Rgba color);
 BOOL MetasequoiaAppearanceIsDark(NSAppearance *appearance);
 NSURL *MetasequoiaCandidateSkinsDirectoryURL(void);
-NSString *MetasequoiaStoredCandidateSkin(void);
-void MetasequoiaSetStoredCandidateSkin(NSString *skinId);
-metasequoia::mac::ResolvedSkin MetasequoiaResolveCandidateSkin(NSString *skinId, BOOL dark);
-metasequoia::mac::ResolvedSkin MetasequoiaResolveStoredCandidateSkin(BOOL dark);
+/// The global theme id stored in the standard defaults under the key the settings window writes (`MSIMEClientGlobalTheme`). An id outside the catalog reads as `system`.
+NSString *MetasequoiaStoredGlobalTheme(void);
+/// Stores a global theme id and posts MetasequoiaCandidateSkinDidChangeNotification. An id outside the catalog is ignored.
+void MetasequoiaSetStoredGlobalTheme(NSString *themeId);
+/// The `custom_theme` the settings window stored: its base, its candidate skin and the seven picker colours.
+metasequoia::mac::CustomTheme MetasequoiaStoredCustomTheme(void);
+/// The stored global theme resolved for one mode and one candidate layout: a package is drawn only in the layouts its manifest declares.
+metasequoia::mac::ResolvedSkin MetasequoiaResolveStoredTheme(BOOL dark, BOOL vertical);

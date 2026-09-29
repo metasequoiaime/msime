@@ -60,20 +60,21 @@ struct CustomSkinEditorView: View {
   }
 
   private func writeDocument() {
-    if !KeyboardSkinPreference.writeDocument(nil, design: design) {
+    guard let mapping = GlobalThemePreference.storingDesign(design), GlobalThemePreference.update(mapping) else {
       message = "这次修改没能交给键盘，请稍后再改一次。"
+      return
     }
   }
 
   private func useCustomSkin() {
     documentWrite?.cancel()
     documentWrite = nil
-    if !KeyboardSkinPreference.save(.custom, design: design) {
+    if !GlobalThemePreference.apply(design) {
       message = "没能切换到我的皮肤，请稍后重试。"
     }
   }
-  @AppStorage(KeyboardSkinPreference.key, store: KeyboardFeedbackPreference.defaults)
-  private var selected = KeyboardSkin.forest.rawValue
+  @AppStorage(GlobalThemePreference.key, store: KeyboardFeedbackPreference.defaults)
+  private var selected = GlobalThemeCatalog.systemId
 
   private func update<T>(_ path: WritableKeyPath<CustomKeyboardSkin, T>, _ value: T) {
     var next = design
@@ -111,7 +112,7 @@ struct CustomSkinEditorView: View {
             }.frame(height: 26)
             Text(title).font(.system(size: 13, weight: activeCategory == title ? .semibold : .regular))
           }.frame(maxWidth: .infinity).frame(height: 64)
-            .foregroundStyle(activeCategory == title ? MetasequoiaTheme.forest : Color.secondary)
+            .foregroundStyle(activeCategory == title ? MetasequoiaTheme.accent : Color.secondary)
             .contentShape(Rectangle())
         }.buttonStyle(.plain).accessibilityIdentifier("skinEditorTab_" + title)
           .accessibilityAddTraits(activeCategory == title ? .isSelected : [])
@@ -136,11 +137,11 @@ struct CustomSkinEditorView: View {
         }.pickerStyle(.segmented).frame(width: 124).accessibilityIdentifier("skinEditorPreviewLayout")
         Spacer(minLength: 0)
         Button { useCustomSkin() } label: {
-          Label(selected == KeyboardSkin.custom.rawValue ? "正在使用" : "使用皮肤", systemImage: "checkmark.circle.fill")
+          Label(selected == GlobalThemeCatalog.customId ? "正在使用" : "使用皮肤", systemImage: "checkmark.circle.fill")
             .font(.caption.weight(.semibold))
         }.accessibilityIdentifier("applyCustomSkin")
       }.padding(.horizontal, 12).background(Color(uiColor: .systemBackground))
-      KeyboardSkinPreview(skin: .custom, nineKey: nineKey).id(design)
+      KeyboardSkinPreview(skin: .designed(design), nineKey: nineKey).id(design)
         .accessibilityIdentifier("fullKeyboardSkinPreview")
     }
   }
@@ -159,7 +160,7 @@ struct CustomSkinEditorView: View {
         Button { showPhotos = true } label: {
           Label("相册", systemImage: "photo.badge.plus").frame(maxWidth: .infinity).frame(height: 44)
         }.accessibilityIdentifier("skinEditorAlbum")
-      }.buttonStyle(.bordered).tint(MetasequoiaTheme.forest)
+      }.buttonStyle(.bordered).tint(MetasequoiaTheme.accent)
       LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
         ForEach(Array(backgroundPresets.enumerated()), id: \.offset) { index, preset in
           let active = design.photo == nil && design.background == preset.0 && design.gradientEnd == preset.1
@@ -171,9 +172,9 @@ struct CustomSkinEditorView: View {
             RoundedRectangle(cornerRadius: 10)
               .fill(LinearGradient(colors: [Color(uiColor: CustomKeyboardSkin.color(preset.0)), Color(uiColor: CustomKeyboardSkin.color(preset.1 ?? preset.0))], startPoint: .topLeading, endPoint: .bottomTrailing))
               .frame(height: 74)
-              .overlay(RoundedRectangle(cornerRadius: 10).stroke(active ? MetasequoiaTheme.forest : Color.primary.opacity(0.08), lineWidth: active ? 2 : 1))
+              .overlay(RoundedRectangle(cornerRadius: 10).stroke(active ? MetasequoiaTheme.accent : Color.primary.opacity(0.08), lineWidth: active ? 2 : 1))
               .overlay(alignment: .bottomTrailing) {
-                if active { Image(systemName: "checkmark.circle.fill").foregroundStyle(.white, MetasequoiaTheme.forest).padding(6) }
+                if active { Image(systemName: "checkmark.circle.fill").foregroundStyle(MetasequoiaTheme.onAccent, MetasequoiaTheme.accent).padding(6) }
               }
           }.buttonStyle(.plain).accessibilityLabel(preset.2)
             .accessibilityIdentifier("skinBackgroundPreset_\(index)")
@@ -386,7 +387,7 @@ if section == "我的" {
             .accessibilityIdentifier("skinEditorTools")
           Button { renaming = nil; name = "我的设计 \(saved.count + 1)"; showSave = true } label: {
             Text("保存").font(.subheadline.weight(.semibold)).padding(.horizontal, 14).padding(.vertical, 7)
-              .foregroundStyle(.white).background(MetasequoiaTheme.forest, in: Capsule())
+              .foregroundStyle(MetasequoiaTheme.onAccent).background(MetasequoiaTheme.accent, in: Capsule())
           }.accessibilityIdentifier("saveCustomSkin")
         }
       }

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
-import type { Snapshot } from "@msime/ui";
+import { themeEntry, type Snapshot } from "@msime/ui";
 import { DesktopKeyboard } from "../../src/input/desktop-keyboard";
 
 afterEach(() => {
@@ -149,7 +149,7 @@ test("keyboard applies selected built-in and custom skin preferences", async () 
     monospaced: true,
   };
   const first = snapshot(1, "dark");
-  first.preferences.touch_keyboard_skin = "blueprint";
+  first.preferences.global_theme = "night";
   const preferences = {
     load: async () => first,
     onPreferencesChanged: async (listener: (value: Snapshot) => void) => {
@@ -160,25 +160,28 @@ test("keyboard applies selected built-in and custom skin preferences", async () 
   render(<DesktopKeyboard client={panel} preferences={preferences} />);
   await waitFor(() =>
     expect(screen.getByRole("main", { name: "屏幕键盘" }).getAttribute("data-keyboard-skin")).toBe(
-      "blueprint",
+      "night",
     ),
   );
   const main = screen.getByRole("main", { name: "屏幕键盘" });
-  expect(main.style.getPropertyValue("--kb-background")).toBe("#0e2138");
-  expect(main.style.getPropertyValue("--kb-font-family")).toContain("ui-monospace");
+  expect(main.style.getPropertyValue("--kb-background")).toBe(
+    themeEntry("night").keyboard!.background,
+  );
+  expect(main.style.getPropertyValue("--kb-font-family")).toBe("inherit");
   act(() =>
     emit({
       ...first,
       revision: 2,
       preferences: {
         ...first.preferences,
-        touch_keyboard_skin: "custom",
-        custom_touch_keyboard_skin: custom,
+        global_theme: "custom",
+        custom_theme: { keyboard: custom },
       },
     }),
   );
   await waitFor(() => expect(main.getAttribute("data-keyboard-skin")).toBe("custom"));
   expect(main.style.getPropertyValue("--kb-background")).toBe("#102438");
+  expect(main.style.getPropertyValue("--kb-font-family")).toContain("ui-monospace");
   expect(main.style.getPropertyValue("--kb-key-radius")).toContain("42%");
   expect(main.style.getPropertyValue("--kb-border-width")).toBe("1px");
   expect(main.style.getPropertyValue("--kb-action")).toBe("#285d84");
@@ -191,6 +194,22 @@ test("keyboard applies selected built-in and custom skin preferences", async () 
   expect(main.style.getPropertyValue("background-image")).toContain("data:image/jpeg;base64,");
   expect(main.style.getPropertyValue("background-image")).toContain("linear-gradient");
   expect(main.style.getPropertyValue("background-position")).toContain("75% 75%");
+  act(() =>
+    emit({
+      ...first,
+      revision: 3,
+      preferences: {
+        ...first.preferences,
+        global_theme: "custom",
+        custom_theme: { base: "paper", keyboard: null },
+      },
+    }),
+  );
+  // A custom theme without a keyboard design draws its base's keyboard.
+  await waitFor(() => expect(main.getAttribute("data-keyboard-skin")).toBe("paper"));
+  expect(main.style.getPropertyValue("--kb-background")).toBe(
+    themeEntry("paper").keyboard!.background,
+  );
 });
 
 test("macOS standalone keyboard does not expose an unauthenticated voice panel", async () => {

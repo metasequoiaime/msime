@@ -3,6 +3,7 @@
 #include "VoiceTheme.h"
 #include "CandidateAppearance.h"
 #include "CandidateSkin.h"
+#include "CandidateThemeSettings.h"
 #include "SkinResourceRevision.h"
 #include "CandidateWindow.h"
 #include "ClipboardHistory.h"
@@ -27,6 +28,7 @@
 #include "ShellLauncher.h"
 #include "StateRootLease.h"
 #include "SystemAudioMuter.h"
+#include "ToolbarModeCommand.h"
 #include "TrayMenuDispatch.h"
 #include "TrayMenuWindow.h"
 #include "VoiceControllerListener.h"
@@ -39,6 +41,7 @@
 #include "ipc_negotiation.h"
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <cstdlib>
@@ -85,54 +88,56 @@ std::wstring configured_shell_command() {
   return length && length < value.size() ? std::wstring(value.data(), length)
                                          : std::wstring{};
 }
-// Resolve the configured skin through the shared catalog. Appearance is not
-// worth failing a running Server over, so an unreadable root or an unknown
-// package leaves the built-in theme in place.
-msime::windows::CandidatePalette
-resolve_palette(const msime::windows::PreviewConfig &config) {
-  const bool dark = config.dark_theme;
-  auto builtin = msime::windows::candidate_builtin_palette(config.skin_id, dark);
-  if (config.skin_directory.empty() || config.skin_id.empty())
-    return builtin;
-  // The shipped skins are resolved from the table above, never from disk - the
-  // shared catalog refuses to load a package under one of their names, so
-  // asking it would only ever come back empty and fall through to fluent.
-  if (msime::windows::candidate_builtin_skin(config.skin_id))
-    return builtin;
+// Resolve the global theme for one surface through the shared layer. Appearance is not worth failing a running Server over, so a refused request or an unreadable answer draws the native tokens.
+msime::windows::CandidateThemeResolution
+resolve_theme(const nlohmann::json &request) {
   try {
-    const auto root = config.skin_directory.u8string();
+    const auto body = request.dump();
     std::unique_ptr<char, decltype(&msime_client_string_free)> owned(
-        msime_client_skin_catalog(
-            reinterpret_cast<const uint8_t *>(root.data()), root.size()),
+        msime_client_resolve_theme(
+            reinterpret_cast<const uint8_t *>(body.data()), body.size()),
         msime_client_string_free);
     if (!owned)
-      return builtin;
+      return {};
     const auto document = nlohmann::json::parse(owned.get(), nullptr, false);
-    if (document.is_discarded() || !document.value("ok", false))
-      return builtin;
-    // Compatibility is checked against the layout actually being rendered.
-    return msime::windows::candidate_skin_palette(
-        document.at("value"), config.skin_id, dark,
-        config.horizontal_candidates ? "horizontal" : "vertical");
+    if (document.is_discarded() || !document.is_object() ||
+        !document.value("ok", false) || !document.contains("value"))
+      return {};
+    if (auto theme =
+            msime::windows::candidate_theme_resolution(document.at("value")))
+      return *theme;
   } catch (const std::exception &) {
-    return builtin;
   }
+  return {};
 }
+// The global theme picker's ids and titles. The catalog is built into the shared layer and cannot change while the Server runs, so it is read once; an unreadable answer leaves the tray's 主题 row without a title.
+nlohmann::json theme_catalog() {
+  try {
+    std::unique_ptr<char, decltype(&msime_client_string_free)> owned(
+        msime_client_theme_catalog(), msime_client_string_free);
+    if (owned)
+      return nlohmann::json::parse(owned.get(), nullptr, false);
+  } catch (const std::exception &) {
+  }
+  return nlohmann::json();
+}
+// The artwork and minimum width of the package a resolved theme draws. The theme names the package only when it is drawn in this layout and mode, so there is no gate here.
 msime::windows::CandidateSkinAssets
-resolve_skin_assets(const msime::windows::PreviewConfig &config) {
-  if (config.skin_directory.empty() || config.skin_id.empty() ||
-      msime::windows::candidate_builtin_skin(config.skin_id))
+resolve_skin_assets(const std::filesystem::path &root, const std::string &id) {
+  if (root.empty() || id.empty())
     return {};
   try {
-    const auto root = config.skin_directory.u8string();
+    const auto directory = root.u8string();
     std::unique_ptr<char, decltype(&msime_client_string_free)> owned(
-        msime_client_skin_catalog(reinterpret_cast<const uint8_t *>(root.data()),
-                                  root.size()), msime_client_string_free);
+        msime_client_skin_catalog(
+            reinterpret_cast<const uint8_t *>(directory.data()),
+            directory.size()),
+        msime_client_string_free);
     if (owned) {
       const auto catalog = nlohmann::json::parse(owned.get(), nullptr, false);
       if (!catalog.is_discarded() && catalog.value("ok", false))
-        return msime::windows::candidate_skin_assets(
-            catalog.at("value"), config.skin_id, config.skin_directory);
+        return msime::windows::candidate_skin_assets(catalog.at("value"), id,
+                                                     root);
     }
   } catch (const std::exception &) {
   }
@@ -343,6 +348,69 @@ bool toggle_stored_flag(const std::filesystem::path &directory,
   } catch (...) {
     return false;
   }
+}
+// Select an input scheme through the revisioned store, keeping last_chinese_scheme the way the settings page does: a Chinese scheme is also the one Japanese returns to, and choosing Japanese remembers the scheme it replaces.
+bool store_input_scheme(const std::filesystem::path &directory,
+                        const std::string &scheme) {
+  try {
+    const auto root = directory.u8string();
+    std::unique_ptr<char, decltype(&msime_client_string_free)> loaded(
+        msime_client_load_preferences(
+            reinterpret_cast<const uint8_t *>(root.data()), root.size()),
+        msime_client_string_free);
+    if (!loaded)
+      return false;
+    const auto response = nlohmann::json::parse(loaded.get());
+    if (!response.value("ok", false) || !response.at("value").is_object())
+      return false;
+    auto snapshot = response.at("value");
+    const auto revision = snapshot.at("revision").get<uint64_t>();
+    auto &preferences = snapshot.at("preferences");
+    const auto current =
+        preferences.contains("scheme") && preferences.at("scheme").is_string()
+            ? preferences.at("scheme").get<std::string>()
+            : std::string("quanpin");
+    if (current == scheme)
+      return true;
+    preferences["last_chinese_scheme"] = scheme == "japanese" ? current : scheme;
+    preferences["scheme"] = scheme;
+    const auto serialized = snapshot.dump();
+    std::unique_ptr<char, decltype(&msime_client_string_free)> saved(
+        msime_client_save_preferences(
+            reinterpret_cast<const uint8_t *>(root.data()), root.size(),
+            revision, reinterpret_cast<const uint8_t *>(serialized.data()),
+            serialized.size()),
+        msime_client_string_free);
+    if (!saved)
+      return false;
+    const auto saved_response = nlohmann::json::parse(saved.get());
+    return saved_response.value("ok", false) &&
+           saved_response.at("value").is_object();
+  } catch (...) {
+    return false;
+  }
+}
+// The stored preferences the tray card shows. The preference monitor publishes them and the UI thread reads them whenever the card is built.
+struct TrayMenuPreferences {
+  bool translations = true;
+  std::string scheme = "quanpin";
+  std::string shuangpin_profile = "xiaohe";
+  std::string language_hint;
+};
+TrayMenuPreferences tray_menu_preferences(const nlohmann::json &preferences) {
+  TrayMenuPreferences result;
+  result.translations = preferences.value("candidate_translations", true);
+  result.scheme = preferences.value("scheme", std::string("quanpin"));
+  result.shuangpin_profile =
+      preferences.value("shuangpin_profile", std::string("xiaohe"));
+  // The same defaults publish_switch_language_keybindings writes for the TIP.
+  const auto bindings =
+      preferences.value("keybindings", nlohmann::json::object());
+  result.language_hint = msime::windows::tray_menu_language_hint(
+      bindings.value("switch_language_shift", true),
+      bindings.value("switch_language_ctrl", false),
+      bindings.value("switch_language_ctrl_alt_space", true));
+  return result;
 }
 // Map the shared preferences onto the settings the TIP keeps in its own
 // globals. The TIP consumes every one of these, but nothing ever sent them, so
@@ -619,6 +687,9 @@ int wmain(int argc, wchar_t **argv) {
     auto tsf_config = std::make_shared<msime::windows::TsfLocalConfig>(
         tsf_local_config(prepared.at("value").at("preferences")));
     auto tsf_config_mutex = std::make_shared<std::mutex>();
+    auto tray_preferences = std::make_shared<TrayMenuPreferences>(
+        tray_menu_preferences(prepared.at("value").at("preferences")));
+    auto tray_preferences_mutex = std::make_shared<std::mutex>();
     // Set on every publication and on each focus session, so a TIP that
     // registers later is not left holding compiled defaults.
     auto tsf_config_dirty = std::make_shared<std::atomic<bool>>(true);
@@ -699,7 +770,7 @@ int wmain(int argc, wchar_t **argv) {
         [&, voice_config, voice_config_mutex, voice_host_options, traditional_output,
          toolbar_enabled, follow_cursor, voice_theme, candidate_fonts,
          toolbar_theme, menu_theme, mode_scope_global, tsf_config, candidate_layout,
-         tsf_config_mutex,
+         tsf_config_mutex, tray_preferences, tray_preferences_mutex,
          tsf_config_dirty, candidate_theme, toolbar_settings](const PreferenceSnapshot &snapshot) {
           const auto preferences =
               nlohmann::json::parse(snapshot.serialized()).at("preferences");
@@ -749,6 +820,11 @@ int wmain(int argc, wchar_t **argv) {
             std::lock_guard<std::mutex> lock(*tsf_config_mutex);
             *tsf_config = tsf_local_config(preferences);
             tsf_config_dirty->store(true, std::memory_order_release);
+          }
+          {
+            auto menu = tray_menu_preferences(preferences);
+            std::lock_guard<std::mutex> lock(*tray_preferences_mutex);
+            *tray_preferences = std::move(menu);
           }
           voice_theme->store(
               surface_theme_mode(
@@ -957,14 +1033,6 @@ int wmain(int argc, wchar_t **argv) {
         english.stop();
       }
     } click_shutdown{server, clicks, pages, mode_clicks, character_set_clicks, english_reads};
-    std::optional<COLORREF> candidate_text_color;
-    if (!config.candidate_text_color.empty() && config.candidate_text_color != "auto" &&
-        config.candidate_text_color != "none") {
-      const auto color = parse_css_color(config.candidate_text_color, {});
-      candidate_text_color = RGB(static_cast<BYTE>(color.r * 255.0f),
-                                 static_cast<BYTE>(color.g * 255.0f),
-                                 static_cast<BYTE>(color.b * 255.0f));
-    }
     CandidateWindow candidates(
         [&] {
           auto view = server.candidate_view();
@@ -977,7 +1045,7 @@ int wmain(int argc, wchar_t **argv) {
         },
         [&](const CandidateClick &click) { (void)clicks.submit(click); },
         static_cast<unsigned>(config.candidate_font_size),
-        static_cast<unsigned>(config.candidate_preedit_font_size), candidate_text_color,
+        static_cast<unsigned>(config.candidate_preedit_font_size),
         config.candidate_font, config.candidate_fallback_fonts, config.dark_theme,
         config.horizontal_candidates, config.candidate_show_preedit,
         [&](const CandidatePage &page) { (void)pages.submit(page); },
@@ -985,56 +1053,61 @@ int wmain(int argc, wchar_t **argv) {
           server.candidate_rendered(value.lease, value.render_serial);
         },
         config.navigation.mouse_wheel);
-    const auto palette = resolve_palette(config);
-    // An external package may ask for a wider card than the font implies; the
-    // artwork is drawn against that width.
-    const auto skin_assets = resolve_skin_assets(config);
-    const double skin_min_width = skin_assets.min_width;
-    const auto &skin_decoration = skin_assets.decoration;
-    auto resolved_palette = palette;
-    if (!config.candidate_number_color.empty() && config.candidate_number_color != "auto" &&
-        config.candidate_number_color != "none")
-      resolved_palette.number = parse_css_color(config.candidate_number_color, resolved_palette.number);
-    if (!config.candidate_surface_color.empty() && config.candidate_surface_color != "auto" &&
-        config.candidate_surface_color != "none")
-      resolved_palette.surface = parse_css_color(config.candidate_surface_color, resolved_palette.surface);
-    if (!config.candidate_border_color.empty() && config.candidate_border_color != "auto" &&
-        config.candidate_border_color != "none")
-      resolved_palette.border = parse_css_color(config.candidate_border_color, resolved_palette.border);
-    if (!config.candidate_selected_color.empty() && config.candidate_selected_color != "auto" &&
-        config.candidate_selected_color != "none")
-      resolved_palette.selected = parse_css_color(config.candidate_selected_color, resolved_palette.selected);
-    if (!config.candidate_hover_color.empty() && config.candidate_hover_color != "auto" &&
-        config.candidate_hover_color != "none")
-      resolved_palette.hover = parse_css_color(config.candidate_hover_color, resolved_palette.hover);
-    if (!config.candidate_accent_color.empty() && config.candidate_accent_color != "auto" &&
-        config.candidate_accent_color != "none")
-      resolved_palette.accent = parse_css_color(config.candidate_accent_color, resolved_palette.accent);
-    if (config.candidate_selected_bar)
-      resolved_palette.show_selected_bar = *config.candidate_selected_bar;
-    candidates.set_palette(resolved_palette);
-    candidates.set_skin_min_width(skin_min_width);
-    candidates.set_follow_cursor(follow_cursor->load(std::memory_order_acquire));
-    candidates.set_skin_decoration(skin_decoration.image, skin_decoration.top_dip,
-                                   skin_decoration.width_dip);
+    // The global theme colours the card, the toolbar and the menus. Each surface resolves it in its own mode, and the answers are kept until the theme, the layout or the package on disk changes, so the shared layer's disk read never runs inside a draw.
     auto current_candidate_theme = candidate_theme_values(
         prepared.at("value").at("preferences"));
+    std::map<std::string, CandidateThemeResolution> resolved_themes;
+    auto resolved_theme = [&](bool dark,
+                              bool horizontal) -> const CandidateThemeResolution & {
+      const auto request = candidate_theme_request(
+          current_candidate_theme, dark, horizontal, config.skin_directory);
+      auto key = request.dump();
+      auto found = resolved_themes.find(key);
+      if (found == resolved_themes.end())
+        found = resolved_themes.emplace(std::move(key), resolve_theme(request))
+                    .first;
+      return found->second;
+    };
     bool candidate_theme_dirty = true;
     bool candidate_dark_applied = config.dark_theme;
     bool candidate_horizontal_applied = config.horizontal_candidates;
-    std::string candidate_skin_applied = config.skin_id;
+    std::string candidate_skin_applied;
+    // Bumped whenever the card's theme is re-resolved, so the toolbar and the menu follow it.
+    uint64_t candidate_theme_generation = 0;
     uint64_t candidate_theme_check_at = 0;
     bool system_dark = system_prefers_dark();
     SkinResourceRevision candidate_skin_revision;
+    {
+      const auto &theme =
+          resolved_theme(config.dark_theme, config.horizontal_candidates);
+      auto palette = candidate_theme_palette(theme, config.dark_theme);
+      if (config.candidate_selected_bar)
+        palette.show_selected_bar = *config.candidate_selected_bar;
+      candidates.set_palette(palette);
+      // An external package may ask for a wider card than the font implies; the artwork is drawn against that width.
+      const auto assets =
+          resolve_skin_assets(config.skin_directory, theme.candidate_skin);
+      candidates.set_skin_min_width(assets.min_width);
+      candidates.set_skin_decoration(assets.decoration.image,
+                                     assets.decoration.top_dip,
+                                     assets.decoration.width_dip);
+      candidate_skin_applied = theme.candidate_skin;
+    }
+    candidates.set_follow_cursor(follow_cursor->load(std::memory_order_acquire));
+    // The toolbar and the menus draw the card's theme in their own light/dark mode, with the card's layout deciding whether a package is drawn.
+    auto surface_palette = [&](bool dark) {
+      return candidate_theme_palette(
+          resolved_theme(dark, candidate_horizontal_applied), dark);
+    };
     bool toolbar_visible = toolbar_enabled->load(std::memory_order_acquire);
     FloatingToolbarWindow toolbar(
         [&] { return server.mode_view(); },
         [&](const ModeClick &click) { (void)mode_clicks.submit(click); });
-    // The toolbar draws the shipped native presenter's fixed neutral colours; only its own light/dark preference changes them.
+    // The toolbar follows the global theme in its own light/dark mode.
     bool toolbar_dark_applied = !surface_theme_is_light(
         toolbar_theme->load(std::memory_order_acquire), system_dark);
-    std::string toolbar_skin_applied = config.skin_id;
-    toolbar.set_palette(toolbar_palette(toolbar_dark_applied));
+    uint64_t toolbar_theme_applied = candidate_theme_generation;
+    toolbar.set_palette(toolbar_palette(surface_palette(toolbar_dark_applied)));
     toolbar.set_scale(config.floating_toolbar_scale);
     toolbar.set_font_size(config.floating_toolbar_font_size);
     toolbar.set_items(config.floating_toolbar_items);
@@ -1106,9 +1179,47 @@ int wmain(int argc, wchar_t **argv) {
     menu_capabilities.keyboard_panel = preview_shell.has_value();
     menu_capabilities.voice_input = true;
     menu_capabilities.settings = settings_shell.has_value();
+    const auto themes = theme_catalog();
     TrayMenuWindow tray(
         menu_capabilities,
         [&](TrayMenuCommand command) {
+          // The mode rows send what the toolbar button for the same mode sends, to the focused TIP, through the same worker. The card never takes focus, so the session the rows were drawn for is still the focused one.
+          if (tray_menu_mode_row(command)) {
+            const auto view = server.mode_view();
+            if (!view)
+              return false;
+            const auto request = tray_menu_mode_command(
+                command, view->chinese, view->fullwidth,
+                view->chinese_punctuation,
+                english_state.snapshot(view->lease).value_or(false));
+            if (!request.known)
+              return false;
+            if (!request.mode)
+              return true;
+            return mode_clicks.submit(ModeClick{view->lease, *request.mode});
+          }
+          // Stored preferences go through the revisioned store the settings app uses, and are published here at once, as the toolbar row does, so a card reopened before the file monitor reports the change does not show the old value.
+          if (command == TrayMenuCommand::ToggleTranslations) {
+            bool current = true;
+            {
+              std::lock_guard<std::mutex> lock(*tray_preferences_mutex);
+              current = tray_preferences->translations;
+            }
+            bool next = !current;
+            if (!toggle_stored_flag(config.state_root, nullptr,
+                                    "candidate_translations", current, next))
+              return false;
+            std::lock_guard<std::mutex> lock(*tray_preferences_mutex);
+            tray_preferences->translations = next;
+            return true;
+          }
+          if (const char *scheme = tray_menu_scheme(command)) {
+            if (!store_input_scheme(config.state_root, scheme))
+              return false;
+            std::lock_guard<std::mutex> lock(*tray_preferences_mutex);
+            tray_preferences->scheme = scheme;
+            return true;
+          }
           if (command == TrayMenuCommand::ToggleFloatingToolbar) {
             // Write it back, so the choice survives a restart and the settings
             // page and this row cannot disagree. A store that refuses the write
@@ -1135,12 +1246,34 @@ int wmain(int argc, wchar_t **argv) {
           // shell stays unhandled, so the menu does not close on a promise.
           return request && launch_shell(*request);
         },
-        [&] { return toolbar_visible; });
-    // The menu follows its own theme with the shipped native presenter's fixed neutral colours, like the toolbar; the candidate skin does not reach it.
+        [&] {
+          TrayMenuState state;
+          state.floating_toolbar = toolbar_visible;
+          if (const auto view = server.mode_view()) {
+            state.chinese = view->chinese;
+            state.fullwidth = view->fullwidth;
+            state.chinese_punctuation = view->chinese_punctuation;
+            state.dedicated_english =
+                english_state.snapshot(view->lease).value_or(false);
+          }
+          {
+            std::lock_guard<std::mutex> lock(*tray_preferences_mutex);
+            state.translations = tray_preferences->translations;
+            state.scheme = tray_preferences->scheme;
+            state.shuangpin_profile = tray_preferences->shuangpin_profile;
+            state.language_hint = tray_preferences->language_hint;
+          }
+          // candidate_theme_values keeps global_theme only when it is a string.
+          state.theme_title = theme_catalog_title(
+              themes,
+              current_candidate_theme.value("global_theme", std::string("system")));
+          return state;
+        });
+    // The menu follows the global theme in its own light/dark mode, like the toolbar.
     bool menu_dark_applied = !surface_theme_is_light(
         menu_theme->load(std::memory_order_acquire), system_dark);
-    std::string menu_skin_applied = config.skin_id;
-    tray.set_palette(tray_menu_palette(menu_dark_applied));
+    uint64_t menu_theme_applied = candidate_theme_generation;
+    tray.set_palette(tray_menu_palette(surface_palette(menu_dark_applied)));
     // The Server is the Caps Lock authority: the TIP only sampled GetKeyState
     // at activation, so pressing Caps mid-session left its indicator stale.
     ModeAuthorityState mode_authority;
@@ -1332,6 +1465,7 @@ int wmain(int argc, wchar_t **argv) {
       if (auto theme = candidate_theme->take()) {
         if (*theme != current_candidate_theme) {
           current_candidate_theme = std::move(*theme);
+          resolved_themes.clear();
           candidate_theme_dirty = true;
         }
       }
@@ -1341,35 +1475,34 @@ int wmain(int argc, wchar_t **argv) {
           theme_now >= candidate_theme_check_at) {
         candidate_theme_check_at = theme_now + 500;
         system_dark = system_prefers_dark();
-        const auto selected_skin = current_candidate_theme.value(
-            "candidate_skin", candidate_skin_applied);
+        // An edited package is resolved again: its colours through the shared layer and its artwork from the catalog.
         const bool skin_resources_changed = candidate_skin_revision.changed(
-            config.skin_directory, selected_skin);
+            config.skin_directory,
+            candidate_theme_package(current_candidate_theme));
+        if (skin_resources_changed)
+          resolved_themes.clear();
         const bool dark =
             candidate_theme_dark(current_candidate_theme, system_dark);
         if (candidate_theme_dirty || skin_resources_changed || dark != candidate_dark_applied ||
             candidate_horizontal != candidate_horizontal_applied) {
-          auto theme_config = config;
-          theme_config.skin_id = current_candidate_theme.value(
-              "candidate_skin", candidate_skin_applied);
-          theme_config.dark_theme = dark;
-          theme_config.horizontal_candidates = candidate_horizontal;
-          auto next_palette = candidate_theme_palette(resolve_palette(theme_config),
-                                                        current_candidate_theme);
+          const auto &theme = resolved_theme(dark, candidate_horizontal);
+          auto next_palette = candidate_theme_palette(theme, dark);
           if (config.candidate_selected_bar)
             next_palette.show_selected_bar = *config.candidate_selected_bar;
           candidates.set_theme_palette(next_palette);
-          if (skin_resources_changed || theme_config.skin_id != candidate_skin_applied) {
-            const auto assets = resolve_skin_assets(theme_config);
+          if (skin_resources_changed || theme.candidate_skin != candidate_skin_applied) {
+            const auto assets =
+                resolve_skin_assets(config.skin_directory, theme.candidate_skin);
             candidates.invalidate_skin_images();
             candidates.set_skin_min_width(assets.min_width);
             candidates.set_skin_decoration(assets.decoration.image,
                 assets.decoration.top_dip, assets.decoration.width_dip);
-            candidate_skin_applied = theme_config.skin_id;
+            candidate_skin_applied = theme.candidate_skin;
           }
           candidate_dark_applied = dark;
           candidate_horizontal_applied = candidate_horizontal;
           candidate_theme_dirty = false;
+          ++candidate_theme_generation;
         }
       }
       candidates.refresh();
@@ -1381,17 +1514,17 @@ int wmain(int argc, wchar_t **argv) {
           voice_theme->load(std::memory_order_acquire), system_dark));
       if (const bool dark = !surface_theme_is_light(
               menu_theme->load(std::memory_order_acquire), system_dark);
-          dark != menu_dark_applied || menu_skin_applied != candidate_skin_applied) {
+          dark != menu_dark_applied || menu_theme_applied != candidate_theme_generation) {
         menu_dark_applied = dark;
-        menu_skin_applied = candidate_skin_applied;
-        tray.set_palette(tray_menu_palette(dark));
+        menu_theme_applied = candidate_theme_generation;
+        tray.set_palette(tray_menu_palette(surface_palette(dark)));
       }
       if (const bool dark = !surface_theme_is_light(
               toolbar_theme->load(std::memory_order_acquire), system_dark);
-          dark != toolbar_dark_applied || toolbar_skin_applied != candidate_skin_applied) {
+          dark != toolbar_dark_applied || toolbar_theme_applied != candidate_theme_generation) {
         toolbar_dark_applied = dark;
-        toolbar_skin_applied = candidate_skin_applied;
-        toolbar.set_palette(toolbar_palette(dark));
+        toolbar_theme_applied = candidate_theme_generation;
+        toolbar.set_palette(toolbar_palette(surface_palette(dark)));
       }
       // The toolbar is topmost, so without this it floats over full-screen
       // video and presentations. ShouldShowFloatingToolbar was ported long ago
@@ -1475,10 +1608,10 @@ int wmain(int argc, wchar_t **argv) {
               menu_theme->load(std::memory_order_acquire),
               system_prefers_dark());
           if (dark != menu_dark_applied ||
-              menu_skin_applied != candidate_skin_applied) {
+              menu_theme_applied != candidate_theme_generation) {
             menu_dark_applied = dark;
-            menu_skin_applied = candidate_skin_applied;
-            tray.set_palette(tray_menu_palette(dark));
+            menu_theme_applied = candidate_theme_generation;
+            tray.set_palette(tray_menu_palette(surface_palette(dark)));
           }
           if (tray.open(anchor->center_x, anchor->top)) {
             tray_shown_at = now;

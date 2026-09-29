@@ -118,7 +118,7 @@ Swift 后端客户端。鸿蒙不跑 Swift，这些的契约都在 client-core�
 | `EnglishMixedCandidatesPreference`、`EnglishSuggestionsPreference` | 共享 `mixed_input` / `english_suggestions`；`EnglishSuggestionPolicy.ts` |
 | `FuzzyPinyinPreference`、`InputSchemePreference` | 共享 `fuzzy_pinyin` / `scheme`；`KeyboardScheme.ts` |
 | `KeyboardFeedbackPreference` | `KeyboardFeedback.ts` + `KeyboardFeedbackBridge.ts` |
-| `KeyboardLayoutPreference`、`KeyboardSkinPreference`、`KeyboardSkinCollection` | `touch_keyboard_layout` / `touch_keyboard_skin`；`skin/KeyboardSkin.ts` |
+| `KeyboardLayoutPreference`、`KeyboardSkinPreference`、`KeyboardSkinCollection` | `touch_keyboard_layout` / `global_theme`（键盘配色由 `msime_client_resolve_theme` 给出）；`skin/KeyboardSkin.ts` |
 | `WubiCodeHintPreference`、`WubiMixedPinyinPreference` | `WubiCodeHintPolicy.ts`；共享 `wubi_mixed_pinyin` |
 | `CustomKeyboardSkin`、`GeneratedKeyboardSkin` | `skin/CustomKeyboardSkin.ts`（含 photo/shade/position） |
 | `KeyboardSkinTrial` | `msime_client_keyboard_skin_trial`（#3336） |

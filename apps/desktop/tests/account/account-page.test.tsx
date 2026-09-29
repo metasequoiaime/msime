@@ -445,8 +445,8 @@ test("mobile settings return to My after replaying and skipping onboarding", asy
   render(<ReplayHarness />);
   const mobileTabs = within(screen.getByRole("navigation", { name: "主要功能" }));
   fireEvent.click(mobileTabs.getByRole("button", { name: "我的" }));
-  fireEvent.click(await screen.findByRole("button", { name: "重新查看新手引导" }));
-  fireEvent.click(await screen.findByRole("button", { name: "稍后设置" }));
+  fireEvent.click(await screen.findByRole("button", { name: "新手引导" }));
+  fireEvent.click(await screen.findByRole("button", { name: "跳过" }));
 
   expect(
     within(await screen.findByRole("navigation", { name: "主要功能" })).getByRole("button", {
@@ -460,13 +460,12 @@ test("mobile accounts group published and saved community resources", async () =
   const openCommunity = vi.fn();
   const client = account({ status: vi.fn().mockResolvedValue({ user }) });
   render(<AccountPage client={client} platform="ios" onOpenCommunity={openCommunity} />);
-  expect(await screen.findByRole("heading", { name: "我发布的" })).not.toBeNull();
-  expect(screen.getByRole("heading", { name: "我收藏的" })).not.toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "我发布的皮肤" }));
-  fireEvent.click(screen.getByRole("button", { name: "我发布的词库" }));
-  fireEvent.click(screen.getByRole("button", { name: "我发布的回复" }));
-  fireEvent.click(screen.getByRole("button", { name: "收藏的词库" }));
-  fireEvent.click(screen.getByRole("button", { name: "收藏的回复" }));
+  const content = within(await screen.findByRole("region", { name: "我的内容" }));
+  fireEvent.click(content.getByRole("button", { name: "我发布的皮肤" }));
+  fireEvent.click(content.getByRole("button", { name: "我发布的词库" }));
+  fireEvent.click(content.getByRole("button", { name: "我发布的回复" }));
+  fireEvent.click(content.getByRole("button", { name: "收藏的词库" }));
+  fireEvent.click(content.getByRole("button", { name: "收藏的回复" }));
   expect(openCommunity.mock.calls).toEqual([
     ["published-skins"],
     ["published-dictionary"],
@@ -475,6 +474,65 @@ test("mobile accounts group published and saved community resources", async () =
     ["saved-reply"],
   ]);
 });
+
+test("mobile 我的 follows the design's groups: tools, content, then the walkthrough, help and about", async () => {
+  const calls: string[] = [];
+  const record = (name: string) => () => void calls.push(name);
+  const client = account({ status: vi.fn().mockResolvedValue({ user }) });
+  render(
+    <AccountPage
+      client={client}
+      mobile
+      onOpenCloudClipboard={record("clipboard")}
+      onOpenCloudDictionary={record("dictionary")}
+      onOpenDesktopDownload={record("download")}
+      onOpenLocalDesigns={record("designs")}
+      onReplayOnboarding={record("onboarding")}
+      onOpenFeedback={record("feedback")}
+      onOpenAbout={record("about")}
+    />,
+  );
+  const tools = within(await screen.findByRole("region", { name: "工具" }));
+  expect(tools.getAllByRole("button").map((button) => button.textContent)).toEqual([
+    "云剪贴板›",
+    "云词库›",
+    "其他平台下载›",
+  ]);
+  fireEvent.click(tools.getByRole("button", { name: "云剪贴板" }));
+  fireEvent.click(tools.getByRole("button", { name: "云词库" }));
+  fireEvent.click(tools.getByRole("button", { name: "其他平台下载" }));
+  fireEvent.click(
+    within(screen.getByRole("region", { name: "我的内容" })).getByRole("button", {
+      name: "我的设计",
+    }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "新手引导" }));
+  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  expect(calls).toEqual([
+    "clipboard",
+    "dictionary",
+    "download",
+    "designs",
+    "onboarding",
+    "feedback",
+    "about",
+  ]);
+  // The desktop sections this replaces are gone, not doubled.
+  expect(screen.queryByRole("button", { name: "打开设计器" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "重新查看新手引导" })).toBeNull();
+});
+
+test("a touch host without an account client still reaches help and about from 我的", () => {
+  const openFeedback = vi.fn();
+  const openAbout = vi.fn();
+  render(<AccountPage platform="android" onOpenFeedback={openFeedback} onOpenAbout={openAbout} />);
+  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  expect(openFeedback).toHaveBeenCalledOnce();
+  expect(openAbout).toHaveBeenCalledOnce();
+});
+
 test("local designs remain available without an account", async () => {
   const openLocalDesigns = vi.fn();
   render(<AccountPage client={account()} onOpenLocalDesigns={openLocalDesigns} />);
@@ -615,7 +673,7 @@ test("settings expose My only with a personal capability and omit preference act
     <SettingsPage client={{ load: async () => preferences, save: vi.fn() }} />,
   );
   await screen.findByRole("button", { name: "保存设置" });
-  expect(screen.queryByRole("button", { name: "我的" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "账户与同步" })).toBeNull();
   without.unmount();
 
   render(
@@ -624,7 +682,7 @@ test("settings expose My only with a personal capability and omit preference act
       initialPage="account"
     />,
   );
-  expect(await screen.findByRole("heading", { name: "我的" })).not.toBeNull();
+  expect(await screen.findByRole("heading", { name: "账户与同步" })).not.toBeNull();
   await screen.findByText("欢迎来到水杉");
   expect(screen.queryByRole("button", { name: "保存设置" })).toBeNull();
   expect(screen.queryByRole("button", { name: "重新读取" })).toBeNull();

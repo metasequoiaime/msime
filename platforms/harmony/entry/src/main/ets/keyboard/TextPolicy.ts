@@ -32,12 +32,6 @@ export class TextPolicy {
     return authority === "[::1]" || authority.startsWith("[::1]:");
   }
 
-  /** Validates a link that leaves the application through the system browser. */
-  static validExternalUrl(value: string): boolean {
-    return TextPolicy.validAuthority(value, ["https://"], 4096)
-      && !Array.from(value).some((character: string): boolean => /\s/.test(character));
-  }
-
   /** Rejects the C0 and C1 control ranges while leaving printable Unicode untouched. */
   static hasControl(value: string): boolean {
     return Array.from(value).some((character: string): boolean => {

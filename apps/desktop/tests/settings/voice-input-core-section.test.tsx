@@ -35,7 +35,7 @@ test("updates voice enablement, provider, and language", () => {
     />,
   );
 
-  fireEvent.click(screen.getByRole("checkbox", { name: "启用语音输入" }));
+  fireEvent.click(screen.getByRole("switch", { name: "启用语音输入" }));
   expect(onEnabledChange).toHaveBeenCalledWith(false);
   fireEvent.change(screen.getByRole("combobox", { name: "识别服务" }), {
     target: { value: "openai" },

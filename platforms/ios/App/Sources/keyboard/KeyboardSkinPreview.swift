@@ -2,7 +2,7 @@ import SwiftUI
 
 // A display-only keyboard: no Engine session, document access, or input side effects.
 struct KeyboardSkinPreview: View {
-  let skin: KeyboardSkin
+  let skin: KeyboardTheme
   let nineKey: Bool
   var layout: KeyboardGeometry = KeyboardLayoutPreference.geometry
   var heightAdjustment: Double = 0
@@ -90,19 +90,19 @@ struct KeyboardSkinPreview: View {
   }
   @ViewBuilder
   private func keySurface(emphasized: Bool = false) -> some View {
-    if skin == .custom {
-      SkinKeySurface(design: CustomKeyboardSkinStore.current, action: emphasized)
+    if let design = skin.design {
+      SkinKeySurface(design: design, action: emphasized)
     } else {
     RoundedRectangle(cornerRadius: skin.cornerRadius)
       .fill(color(emphasized ? skin.actionBackground : skin.keyBackground))
       .overlay(RoundedRectangle(cornerRadius: skin.cornerRadius).stroke(color(skin.borderColor), lineWidth: skin.borderWidth))
-      .shadow(color: .black.opacity(Double(skin.shadowOpacity)), radius: skin.shadowRadius, y: skin.shadowOffset)
+      .shadow(color: skin.hasShadow ? color(skin.shadowColor) : .clear, radius: skin.shadowRadius, y: skin.shadowOffset)
     }
   }
 }
 
 struct SkinDesignThumbnail: View {
-  let skin: KeyboardSkin
+  let skin: KeyboardTheme
   var body: some View {
     HStack(spacing: 4) {
       ForEach(["A", "S", "↵"], id: \.self) { title in
@@ -110,14 +110,14 @@ struct SkinDesignThumbnail: View {
           .foregroundStyle(Color(uiColor: title == "↵" ? skin.actionForeground : skin.keyForeground))
           .frame(width: 23, height: 32)
           .background {
-            if skin == .custom {
-              SkinKeySurface(design: CustomKeyboardSkinStore.current, action: title == "↵", scale: 0.6)
+            if let design = skin.design {
+              SkinKeySurface(design: design, action: title == "↵", scale: 0.6)
             } else {
             RoundedRectangle(cornerRadius: skin.cornerRadius * 0.6)
               .fill(Color(uiColor: title == "↵" ? skin.actionBackground : skin.keyBackground))
               .overlay(RoundedRectangle(cornerRadius: skin.cornerRadius * 0.6)
                 .stroke(Color(uiColor: skin.borderColor), lineWidth: skin.borderWidth))
-              .shadow(color: .black.opacity(Double(skin.shadowOpacity)), radius: skin.shadowRadius, y: skin.shadowOffset)
+              .shadow(color: skin.hasShadow ? Color(uiColor: skin.shadowColor) : .clear, radius: skin.shadowRadius, y: skin.shadowOffset)
             }
           }
       }

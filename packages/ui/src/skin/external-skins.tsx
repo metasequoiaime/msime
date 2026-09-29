@@ -6,15 +6,20 @@ import type { SkinFontReader } from "./skin-font";
 import { installSkinPalette } from "./skin-palette";
 import { useToolbarCss, type ToolbarCssReader } from "./use-toolbar-css";
 import * as settings from "../settings/settings-style";
+import {
+  customCandidateStyle,
+  themeEntry,
+  type GlobalTheme,
+  type PackageCandidatePalette,
+} from "../theme/global-theme";
 
-type Palette = Partial<
-  Record<"accent" | "selected" | "hover" | "surface" | "border" | "text" | "number", string | null>
-> & { showSelectedBar?: boolean | null };
+type Palette = PackageCandidatePalette;
 export type ExternalSkin = {
   id: string;
   name: string;
   version: string;
-  base: string;
+  /** The global theme under the package's own colours; `system` for none. The manifest parser never gives `custom`. */
+  base: Exclude<GlobalTheme, "custom">;
   author: string | null;
   description: string | null;
   layouts: string[];
@@ -38,62 +43,19 @@ export function dimension(value: number, maximum: number): number {
     : 0;
 }
 
-// Same plain colour notations as the fixed Windows upstream. Never interpolate
-// arbitrary manifest strings into stylesheet rules or load URLs from a palette.
-const colorPattern =
-  /^(#[0-9a-f]{3,4}|#[0-9a-f]{6}|#[0-9a-f]{8}|rgb\(\s*\d{1,3}\s*(,|\s)\s*\d{1,3}\s*(,|\s)\s*\d{1,3}\s*\)|rgba\(\s*\d{1,3}\s*(,|\s)\s*\d{1,3}\s*(,|\s)\s*\d{1,3}\s*(,|\/)\s*(0|1|0?\.\d+|\d{1,3}%)\s*\))$/i;
-export function paletteCss(scope: string, palette: Palette): string[] {
-  const rules: [keyof Palette, string, string][] = [
-    ["accent", ".cursor", "background"],
-    ["accent", ".first::before", "background"],
-    ["selected", ".first", "background-color"],
-    ["hover", ".cand:not(.first):hover", "background-color"],
-    ["surface", ".container", "background"],
-    ["border", ".container", "border-color"],
-    ["text", ".container", "color"],
-  ];
-  const css = rules
-    .map(([key, selector, property]) => {
-      const value = palette[key];
-      return typeof value === "string" && colorPattern.test(value.trim())
-        ? `.${scope} ${selector}{${property}:${value.trim()} !important}`
-        : "";
-    })
-    .filter(Boolean);
-  if (palette.showSelectedBar === false)
-    css.push(`.${scope} .first::before{display:none !important}`);
-  return css;
+/** The package palette `resolve()` draws for `theme`: the declared one, or none, in which case the base is drawn alone. A package is never layered over its other mode. */
+export function drawnPackagePalette(
+  skin: Pick<ExternalSkin, "themes" | "candidate">,
+  theme: "dark" | "light",
+): Palette | null {
+  return skin.themes.includes(theme) ? skin.candidate[theme] : null;
 }
 
-// Match the upstream settings preview cascade: dark base, then sparse light overrides.
-// Keep this shared by skin cards and the selected appearance preview.
-export function previewPaletteCss(
-  scope: string,
-  candidate: ExternalSkin["candidate"],
-  theme: "dark" | "light",
-): string[] {
-  return [
-    ...paletteCss(scope, candidate.dark),
-    ...(theme === "light" ? paletteCss(scope, candidate.light) : []),
-  ];
-}
-
-export function useExternalSkinPalette(
-  scope: string,
-  candidate: ExternalSkin["candidate"],
-  theme: "dark" | "light",
-): boolean {
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    try {
-      const remove = installSkinPalette(previewPaletteCss(scope, candidate, theme));
-      setFailed(false);
-      return remove;
-    } catch {
-      setFailed(true);
-    }
-  }, [scope, candidate, theme]);
-  return failed;
+/** The one package switch the `--cand-*` properties cannot carry: hiding the selection bar. Colours are never written as rules; they go through `customCandidateStyle`, layered as `resolve()` layers them. */
+export function selectedBarCss(scope: string, palette: Palette | null): string[] {
+  return palette?.showSelectedBar === false
+    ? [`.${scope} .first::before{display:none !important}`]
+    : [];
 }
 
 function ExternalSkinCard({
@@ -111,7 +73,8 @@ function ExternalSkinCard({
   skin: ExternalSkin;
   selected: string;
   layout: string;
-  onSelect: (id: string) => void;
+  /** Choosing a package passes its manifest base, which the custom theme is then drawn over. */
+  onSelect: (id: string, base: ExternalSkin["base"]) => void;
   readImage?: SkinImageReader;
   readFont?: SkinFontReader;
   readToolbarCss?: ToolbarCssReader;
@@ -121,7 +84,10 @@ function ExternalSkinCard({
 }) {
   const [override, setOverride] = useState<"dark" | "light" | null>(null);
   useEffect(() => setOverride(null), [activeTheme]);
+  // A built-in base fixes the mode whatever the host draws in, as `resolve()` does: the package palette for that mode is used when the package declares it, and the base alone is drawn when it does not.
+  const fixed = themeEntry(skin.base).appearance;
   const theme =
+    fixed ??
     override ??
     (skin.themes.includes(activeTheme)
       ? activeTheme
@@ -138,12 +104,25 @@ function ExternalSkinCard({
     readImage,
     readFont,
   );
-  const paletteFailed = useExternalSkinPalette(scope, skin.candidate, theme);
-  // Card-only overrides must not change runtime compatibility or selection.
-  const compatible = skin.layouts.includes(layout) && skin.themes.includes(activeTheme);
-  const base = ["fluent", "wechat", "graphite", "willow_green"].includes(skin.base)
-    ? skin.base
-    : "fluent";
+  const [paletteFailed, setPaletteFailed] = useState(false);
+  const palette = drawnPackagePalette(skin, theme);
+  const hideBar = palette?.showSelectedBar === false;
+  useEffect(() => {
+    if (!hideBar) {
+      setPaletteFailed(false);
+      return;
+    }
+    try {
+      const remove = installSkinPalette(selectedBarCss(scope, { showSelectedBar: false }));
+      setPaletteFailed(false);
+      return remove;
+    } catch {
+      setPaletteFailed(true);
+    }
+  }, [hideBar, scope]);
+  // Card-only overrides must not change runtime compatibility or selection. A package over a built-in base is drawn in that base's mode, so the host mode does not rule it out.
+  const compatible =
+    skin.layouts.includes(layout) && (fixed !== null || skin.themes.includes(activeTheme));
   const top = dimension(skin.decorationTopDip, 500);
   const width = dimension(skin.decorationWidthDip, 1000);
   const decorated = top > 0 && width > 0;
@@ -151,6 +130,8 @@ function ExternalSkinCard({
   const [decodeFailed, setDecodeFailed] = useState(false);
   useEffect(() => setDecodeFailed(false), [image]);
   const geometry = {
+    // The package drawn over its base theme, as `resolve()` layers them; a card has no pickers.
+    ...customCandidateStyle(skin.base, undefined, palette),
     "--msime-skin-min-width": `${dimension(skin.minWidthDip, 1000)}px`,
     "--msime-skin-decoration-top": `${decorated ? top : 0}px`,
     "--msime-skin-decoration-width": `${decorated ? width : 0}px`,
@@ -168,7 +149,7 @@ function ExternalSkinCard({
           </span>
           <span className="skin-card-description">
             {compatible
-              ? skin.description || `基于 ${skin.base}`
+              ? skin.description || `基于 ${themeEntry(skin.base).title}`
               : `当前布局或明暗模式不受支持（${skin.layouts.join("/")}，${skin.themes.join("/")}）`}
           </span>
         </div>
@@ -180,22 +161,24 @@ function ExternalSkinCard({
             aria-checked={selected === skin.id}
             disabled={!compatible}
             className="skin-selection-switch"
-            onClick={() => onSelect(skin.id)}
+            onClick={() => onSelect(skin.id, skin.base)}
           >
             <span />
           </button>
-          <button
-            type="button"
-            className="skin-preview-switch"
-            onClick={() => setOverride(theme === "dark" ? "light" : "dark")}
-          >
-            {theme === "dark" ? "预览浅色" : "预览深色"}
-          </button>
+          {fixed === null && (
+            <button
+              type="button"
+              className="skin-preview-switch"
+              onClick={() => setOverride(theme === "dark" ? "light" : "dark")}
+            >
+              {theme === "dark" ? "预览浅色" : "预览深色"}
+            </button>
+          )}
         </div>
       </div>
       <div
         data-skin-preview=""
-        className={`${settings.skinCardPreview} skin-${base} ${scope}${theme === "light" ? " theme-light" : ""}`}
+        className={`${settings.skinCardPreview} ${scope}${theme === "light" ? " theme-light" : ""}`}
         style={geometry}
         data-preview-theme={theme}
         aria-hidden="true"
@@ -224,7 +207,7 @@ function ExternalSkinCard({
       </div>
       {paletteFailed && (
         <p role="status" className="skin-card-description external-skin-resource-note">
-          当前浏览器无法应用皮肤配色，保留基础预览。
+          当前浏览器无法隐藏皮肤的选中条，其余配色照常预览。
         </p>
       )}
       {(image?.failed || decodeFailed) && (
@@ -278,7 +261,8 @@ export function ExternalSkins({
   readToolbarCss?: ToolbarCssReader;
   selected: string;
   layout: string;
-  onSelect: (id: string) => void;
+  /** Choosing a package passes its manifest base, which the custom theme is then drawn over. */
+  onSelect: (id: string, base: ExternalSkin["base"]) => void;
   activeTheme?: "dark" | "light";
   /** The host draws a floating toolbar the skin styles. The Linux hosts present the toolbar as an input method menu, so their cards preview only the candidate window. */
   toolbarPreview?: boolean;

@@ -7,10 +7,8 @@
 
 // ---- the scheme list on the input page ----
 
-export const schemeRow =
-  "flex min-h-8 items-center justify-between gap-4 [&>.toggle:disabled]:cursor-not-allowed [&>.toggle:disabled]:opacity-55";
 export const schemeSelect = (chosen: boolean) =>
-  `flex min-w-0 flex-1 items-center justify-between gap-3 rounded-md border-0 bg-transparent px-1 py-1.5 text-left font-[inherit] not-disabled:hover:bg-[var(--button-secondary-bg)] focus-visible:bg-[var(--button-secondary-bg)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent-soft-border disabled:cursor-not-allowed disabled:text-muted disabled:opacity-58 ${
+  `flex w-full min-w-0 items-center justify-between gap-3 rounded-md border-0 bg-transparent px-1 py-1.5 text-left font-[inherit] not-disabled:hover:bg-[var(--button-secondary-bg)] focus-visible:bg-[var(--button-secondary-bg)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent-soft-border disabled:cursor-not-allowed disabled:text-muted disabled:opacity-58 ${
     chosen ? "font-semibold text-accent" : "text-body"
   }`;
 

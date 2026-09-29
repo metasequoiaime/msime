@@ -47,6 +47,23 @@ int main() {
     const auto about = shell_surface_request(TrayMenuCommand::OpenAbout);
     require(about && about->panel.empty() && about->page == "about");
     require(!shell_surface_request(TrayMenuCommand::ToggleFloatingToolbar));
+    // 主题 and 词库… open their pages of the settings app, by ids its navigation and the shared SettingsCategory both know.
+    const auto theme = shell_surface_request(TrayMenuCommand::OpenTheme);
+    require(theme && theme->panel.empty() && theme->page == "skin");
+    require(shell_route_argument(*theme) == L"settings:skin");
+    const auto dictionary = shell_surface_request(TrayMenuCommand::OpenDictionary);
+    require(dictionary && dictionary->panel.empty() &&
+            dictionary->page == "dictionary");
+    require(shell_route_argument(*dictionary) == L"settings:dictionary");
+    // Modes and stored switches are this process's own and never start the shell.
+    for (auto command :
+         {TrayMenuCommand::SelectChinese, TrayMenuCommand::SelectEnglish,
+          TrayMenuCommand::ToggleFullwidth,
+          TrayMenuCommand::ToggleChinesePunctuation,
+          TrayMenuCommand::ToggleTranslations, TrayMenuCommand::SelectQuanpin,
+          TrayMenuCommand::SelectShuangpin, TrayMenuCommand::SelectWubi,
+          TrayMenuCommand::SelectJapanese})
+      require(!shell_surface_request(command));
     require(shell_route_argument(*settings) == L"settings");
     require(shell_route_argument(*about) == L"settings:about");
     require(shell_route_argument(*shell_surface_request(

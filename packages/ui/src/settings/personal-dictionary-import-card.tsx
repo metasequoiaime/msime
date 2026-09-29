@@ -5,6 +5,7 @@ import {
   readDictionaryFile,
   type PersonalDictionaryImportEntry,
 } from "../dictionary/dictionary-file";
+import { GroupList } from "../core/platform-controls";
 import { personalDictionaryKindTitle } from "../dictionary/dictionary-messages";
 import * as settings from "./settings-style";
 
@@ -108,21 +109,14 @@ export function PersonalDictionaryImportCard({
     : "";
 
   return (
-    <div
-      className={`section ${settings.importSection}`}
-      role="region"
-      aria-label="个人词库文件导入"
-    >
-      <div className="section-header">
-        <span className="section-title">
-          个人词库文件
-          <small>
-            导入 Apple 兼容的 JSON 词条，确认后加入
-            {platform === "ios" ? " iOS " : platform === "android" ? " Android " : ""}
-            键盘同步队列；文件内容不会上传。
-          </small>
-        </span>
-        <span>
+    <GroupList title="个人词库文件">
+      <p className={settings.groupNote}>
+        导入 Apple 兼容的 JSON 词条，确认后加入
+        {platform === "ios" ? " iOS " : platform === "android" ? " Android " : ""}
+        键盘同步队列；文件内容不会上传。
+      </p>
+      <div className={settings.managerBlock}>
+        <div className={settings.managerActions}>
           <button
             type="button"
             className="secondary"
@@ -130,7 +124,7 @@ export function PersonalDictionaryImportCard({
             onClick={() => input.current?.click()}
           >
             选择 JSON 文件
-          </button>{" "}
+          </button>
           <button type="button" className="secondary" disabled={busy} onClick={saveExample}>
             保存示例文件
           </button>
@@ -145,45 +139,45 @@ export function PersonalDictionaryImportCard({
               event.currentTarget.value = "";
             }}
           />
-        </span>
-      </div>
-      {busy && <p role="status">正在读取或加入同步队列…</p>}
-      {fileName && entries && (
-        <div className={settings.importPreview}>
-          <strong>{fileName}</strong>
-          <span>
-            已校验 {entries.length} 条（{countByKind}），确认后逐条同步。
-          </span>
-          {entries.map((entry, index) => (
-            <div key={`${entry.kind}-${entry.key}-${index}`}>
-              <span>{entry.value}</span>
-              <code>
-                {personalDictionaryKindTitle(entry.kind)} · {entry.key}
-              </code>
-            </div>
-          ))}
         </div>
-      )}
-      {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
-      {notice && (
-        <p role="status" className="notice">
-          {notice}
-        </p>
-      )}
-      {entries && (
-        <button
-          type="button"
-          className="primary"
-          disabled={busy}
-          onClick={() => void importEntries()}
-        >
-          确认导入
-        </button>
-      )}
-    </div>
+        {busy && <p role="status">正在读取或加入同步队列…</p>}
+        {fileName && entries && (
+          <div className={settings.importPreview}>
+            <strong>{fileName}</strong>
+            <span>
+              已校验 {entries.length} 条（{countByKind}），确认后逐条同步。
+            </span>
+            {entries.map((entry, index) => (
+              <div key={`${entry.kind}-${entry.key}-${index}`}>
+                <span>{entry.value}</span>
+                <code>
+                  {personalDictionaryKindTitle(entry.kind)} · {entry.key}
+                </code>
+              </div>
+            ))}
+          </div>
+        )}
+        {error && (
+          <p role="alert" className="error">
+            {error}
+          </p>
+        )}
+        {notice && (
+          <p role="status" className="notice">
+            {notice}
+          </p>
+        )}
+        {entries && (
+          <button
+            type="button"
+            className="primary"
+            disabled={busy}
+            onClick={() => void importEntries()}
+          >
+            确认导入
+          </button>
+        )}
+      </div>
+    </GroupList>
   );
 }

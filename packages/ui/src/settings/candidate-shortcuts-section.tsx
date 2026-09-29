@@ -1,5 +1,5 @@
 import * as settings from "./settings-style";
-import { SettingToggle } from "./setting-toggle";
+import { GroupList, Row, Switch } from "../core/platform-controls";
 import type { NavigationPreferences } from "./word-character-section";
 
 export interface CandidateShortcutsSectionProps {
@@ -10,6 +10,8 @@ export interface CandidateShortcutsSectionProps {
   onNumberRowSelectionChange: (value: boolean) => void;
 }
 
+const key = (chord: string) => <kbd className={settings.shortcutKey}>{chord}</kbd>;
+
 /** Candidate selection and navigation shortcut summary shared by host settings pages. */
 export function CandidateShortcutsSection({
   navigation,
@@ -19,73 +21,25 @@ export function CandidateShortcutsSection({
   onNumberRowSelectionChange,
 }: CandidateShortcutsSectionProps) {
   return (
-    <div className={`section ${settings.shortcutSectionTitle}`}>
-      <div className="section-title">候选操作</div>
-      <small>输入和选取候选词时使用</small>
+    <GroupList title="候选操作">
+      <p className={settings.groupNote}>输入和选取候选词时使用</p>
       {showNumberRowSelection && (
-        <SettingToggle
-          label="数字键选词"
-          description="关闭后，候选窗口显示时数字键仍交给当前应用。"
-          ariaLabel="数字键选词"
-          checked={numberRowSelection}
-          compact
-          onChange={onNumberRowSelectionChange}
-        />
+        <Row title="数字键选词" description="关闭后，候选窗口显示时数字键仍交给当前应用。">
+          <Switch checked={numberRowSelection} onChange={onNumberRowSelectionChange} />
+        </Row>
       )}
-      <div className={settings.shortcutList}>
-        <div className={settings.shortcutRow}>
-          <span>选择候选</span>
-          <kbd>Space{numberRowSelection ? " 或 1–9" : ""}</kbd>
-        </div>
-        {navigation.minus_equal && (
-          <div className={settings.shortcutRow}>
-            <span>向前 / 向后翻页</span>
-            <kbd>- / =</kbd>
-          </div>
-        )}
-        {navigation.comma_period && (
-          <div className={settings.shortcutRow}>
-            <span>向前 / 向后翻页</span>
-            <kbd>, / .</kbd>
-          </div>
-        )}
-        {navigation.tab && (
-          <div className={settings.shortcutRow}>
-            <span>向前 / 向后翻页</span>
-            <kbd>Shift+Tab / Tab</kbd>
-          </div>
-        )}
-        {navigation.page_up_down && (
-          <div className={settings.shortcutRow}>
-            <span>向前 / 向后翻页</span>
-            <kbd>Page Up / Page Down</kbd>
-          </div>
-        )}
-        {navigation.mouse_wheel && (
-          <div className={settings.shortcutRow}>
-            <span>{mobile ? "候选栏翻页" : "候选窗口翻页"}</span>
-            <kbd>鼠标滚轮</kbd>
-          </div>
-        )}
-        {navigation.arrows && (
-          <div className={settings.shortcutRow}>
-            <span>移动候选项</span>
-            <kbd>↑ / ↓</kbd>
-          </div>
-        )}
-        <div className={settings.shortcutRow}>
-          <span>移动到候选列表首项 / 末项（页码随之切换）</span>
-          <kbd>Home / End</kbd>
-        </div>
-        <div className={settings.shortcutRow}>
-          <span>编辑输入串</span>
-          <kbd>← / → / Backspace</kbd>
-        </div>
-        <div className={settings.shortcutRow}>
-          <span>提交原始输入 / 取消输入</span>
-          <kbd>Enter / Esc</kbd>
-        </div>
-      </div>
-    </div>
+      <Row title="选择候选">{key(`Space${numberRowSelection ? " 或 1–9" : ""}`)}</Row>
+      {navigation.minus_equal && <Row title="向前 / 向后翻页">{key("- / =")}</Row>}
+      {navigation.comma_period && <Row title="向前 / 向后翻页">{key(", / .")}</Row>}
+      {navigation.tab && <Row title="向前 / 向后翻页">{key("Shift+Tab / Tab")}</Row>}
+      {navigation.page_up_down && <Row title="向前 / 向后翻页">{key("Page Up / Page Down")}</Row>}
+      {navigation.mouse_wheel && (
+        <Row title={mobile ? "候选栏翻页" : "候选窗口翻页"}>{key("鼠标滚轮")}</Row>
+      )}
+      {navigation.arrows && <Row title="移动候选项">{key("↑ / ↓")}</Row>}
+      <Row title="移动到候选列表首项 / 末项（页码随之切换）">{key("Home / End")}</Row>
+      <Row title="编辑输入串">{key("← / → / Backspace")}</Row>
+      <Row title="提交原始输入 / 取消输入">{key("Enter / Esc")}</Row>
+    </GroupList>
   );
 }

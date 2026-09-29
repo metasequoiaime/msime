@@ -1,4 +1,5 @@
-import { SettingToggle } from "./setting-toggle";
+import { GroupList, Row, Switch } from "../core/platform-controls";
+import { iosLocalModeEntry } from "./local-mode-text";
 
 export type LocalModeKey =
   | "unicode"
@@ -88,20 +89,22 @@ export interface LocalModesSectionProps {
   onChange: (preferences: LocalModePreferences) => void;
 }
 
-/** Shared local input mode switches for desktop and touch settings hosts. */
+/** Shared local input mode switches for desktop and touch settings hosts: the 实用功能 group. */
 export function LocalModesSection({ preferences, ios, onChange }: LocalModesSectionProps) {
   return (
-    <>
+    <GroupList title="实用功能">
       {localModeRows.map(([key, label, description]) => (
-        <SettingToggle
+        <Row
           key={key}
-          label={label}
+          title={label}
           description={ios ? iosLocalModeDescriptions[key] : description}
-          checked={preferences[key]}
-          onChange={(checked) => onChange({ ...preferences, [key]: checked })}
-        />
+        >
+          <Switch
+            checked={preferences[key]}
+            onChange={(checked) => onChange({ ...preferences, [key]: checked })}
+          />
+        </Row>
       ))}
-    </>
+    </GroupList>
   );
 }
-import { iosLocalModeEntry } from "./local-mode-text";

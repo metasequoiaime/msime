@@ -1,3 +1,5 @@
+import { Row, Segmented, Switch } from "../core/platform-controls";
+
 export type WordCharacterPreferences = {
   enabled: boolean;
   keys: "brackets" | "minus_equal";
@@ -25,69 +27,52 @@ export interface WordCharacterSectionProps {
   }) => void;
 }
 
-/** Shared 以词定字 controls and their mutual exclusion with paging shortcuts. */
+const wordCharacterKeyOptions = [
+  { value: "brackets", label: "[ / ]" },
+  { value: "minus_equal", label: "- / =" },
+] as const satisfies readonly { value: WordCharacterPreferences["keys"]; label: string }[];
+
+/** Shared 以词定字 controls and their mutual exclusion with paging shortcuts: rows of the 选词 group. */
 export function WordCharacterSection({
   preferences,
   navigation,
   ios,
   onChange,
 }: WordCharacterSectionProps) {
-  const updateWordCharacter = (wordCharacter: WordCharacterPreferences) =>
-    onChange({ wordCharacter, navigation });
-
   return (
-    <div className="section">
-      <SettingToggle
-        label="以词定字"
+    <>
+      <Row
+        title="以词定字"
         description={
           ios
             ? "开启后，长按两个字以上的候选，可以只上屏它的首字或末字"
             : "开启后，按所选键组的左键上屏高亮候选的首个汉字，右键上屏末个汉字"
         }
-        ariaLabel="以词定字"
-        checked={preferences.enabled}
-        compact
-        onChange={(enabled) =>
-          onChange({
-            wordCharacter: { ...preferences, enabled },
-            navigation: enabled ? { ...navigation, [preferences.keys]: false } : navigation,
-          })
-        }
-      />
+      >
+        <Switch
+          checked={preferences.enabled}
+          onChange={(enabled) =>
+            onChange({
+              wordCharacter: { ...preferences, enabled },
+              navigation: enabled ? { ...navigation, [preferences.keys]: false } : navigation,
+            })
+          }
+        />
+      </Row>
+      {/* An iOS keyboard extension never receives hardware keys; its candidates offer the first and last character on a long press instead. */}
       {!ios && (
-        <div className="word-to-character-keys-row">
-          <div className="section-title" id="word-character-title">
-            以词定字快捷键
-          </div>
-          <div
-            className="input-option-content"
-            role="radiogroup"
-            aria-labelledby="word-character-title"
-          >
-            {(
-              [
-                ["brackets", "[ / ]"],
-                ["minus_equal", "- / ="],
-              ] as const
-            ).map(([keys, label], index) => (
-              <div className="input-option-item" key={keys}>
-                {index > 0 && <div className="input-option-divider" />}
-                <label className="radio-option">
-                  <input
-                    type="radio"
-                    name="word-character-keys"
-                    checked={preferences.keys === keys}
-                    disabled={navigation[keys]}
-                    onChange={() => updateWordCharacter({ ...preferences, keys })}
-                  />
-                  <span>{label}</span>
-                </label>
-              </div>
-            ))}
-          </div>
-        </div>
+        <Row title="以词定字快捷键">
+          <Segmented
+            options={wordCharacterKeyOptions.map((option) => ({
+              ...option,
+              disabled: navigation[option.value],
+            }))}
+            value={preferences.keys}
+            onChange={(keys) => onChange({ wordCharacter: { ...preferences, keys }, navigation })}
+          />
+        </Row>
       )}
-    </div>
+    </>
   );
 }
 import { SettingToggle } from "./setting-toggle";

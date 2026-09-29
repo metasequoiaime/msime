@@ -36,7 +36,7 @@ public final class HandwritingCanvas extends View {
         stroke.setStrokeWidth(3 * getResources().getDisplayMetrics().density);
         guide.setStyle(Paint.Style.STROKE);
         guide.setStrokeWidth(getResources().getDisplayMetrics().density);
-        applySkin(KeyboardSkin.from("forest"));
+        applySkin(KeyboardSkin.system(false));
     }
 
     public void setListener(Listener value) { listener = value; }

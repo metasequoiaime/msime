@@ -90,6 +90,18 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_loadPreferencesR
     env->ReleaseByteArrayElements(directory, bytes, JNI_ABORT);
     return response(env, result);
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_themeCatalogRaw(JNIEnv *env, jclass) {
+    return response(env, msime_client_theme_catalog());
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_resolveThemeRaw(JNIEnv *env, jclass, jbyteArray request) {
+    if (!request) return response(env, msime_client_resolve_theme(nullptr, 0));
+    jsize length = env->GetArrayLength(request);
+    jbyte *bytes = env->GetByteArrayElements(request, nullptr);
+    if (!bytes) return nullptr;
+    char *result = msime_client_resolve_theme(reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
+    env->ReleaseByteArrayElements(request, bytes, JNI_ABORT);
+    return response(env, result);
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_client_NativeClient_typingStatisticsRaw(JNIEnv *env, jclass, jbyteArray request) {
     if (!request) return response(env, msime_client_typing_statistics(nullptr, 0));
     jsize length = env->GetArrayLength(request);

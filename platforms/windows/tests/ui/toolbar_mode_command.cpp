@@ -31,4 +31,66 @@ int main() {
   }
   for (int button : {-1, 3, 4, 5, 6, 7, 8, 9, 10, 99})
     assert(!toolbar_mode_command(button, true, true, true));
+
+  // Tray language rows name a state: a row already in it sends nothing and still succeeds, and any command sent is the toolbar's own.
+  {
+    const std::optional<bool> unknown;
+    auto tray = [](TrayMenuCommand command, std::optional<bool> chinese,
+                   std::optional<bool> fullwidth, std::optional<bool> punctuation,
+                   bool dedicated) {
+      return tray_menu_mode_command(command, chinese, fullwidth, punctuation,
+                                    dedicated);
+    };
+    auto sends = [](const TrayMenuModeRequest &request, WorkerMode mode) {
+      return request.known && request.mode && *request.mode == mode;
+    };
+    auto idle = [](const TrayMenuModeRequest &request) {
+      return request.known && !request.mode;
+    };
+    assert(sends(tray(TrayMenuCommand::SelectChinese, false, unknown, unknown, false),
+                 WorkerMode::Chinese));
+    assert(idle(tray(TrayMenuCommand::SelectChinese, true, unknown, unknown, false)));
+    assert(sends(tray(TrayMenuCommand::SelectEnglish, true, unknown, unknown, false),
+                 WorkerMode::English));
+    assert(idle(tray(TrayMenuCommand::SelectEnglish, false, unknown, unknown, false)));
+    // The Engine's English mode: the TIP reports Chinese, the row shows English, and the Chinese row sends what the toolbar sends, English, which the mode worker turns into leaving that mode.
+    assert(sends(tray(TrayMenuCommand::SelectChinese, true, unknown, unknown, true),
+                 WorkerMode::English));
+    assert(idle(tray(TrayMenuCommand::SelectEnglish, true, unknown, unknown, true)));
+    assert(sends(tray(TrayMenuCommand::SelectChinese, false, unknown, unknown, true),
+                 WorkerMode::Chinese));
+    // Switches flip the reported state.
+    assert(sends(tray(TrayMenuCommand::ToggleFullwidth, unknown, false, unknown, false),
+                 WorkerMode::Fullwidth));
+    assert(sends(tray(TrayMenuCommand::ToggleFullwidth, unknown, true, unknown, false),
+                 WorkerMode::Halfwidth));
+    assert(sends(tray(TrayMenuCommand::ToggleChinesePunctuation, unknown, unknown,
+                      false, false),
+                 WorkerMode::ChinesePunctuation));
+    assert(sends(tray(TrayMenuCommand::ToggleChinesePunctuation, unknown, unknown,
+                      true, false),
+                 WorkerMode::AsciiPunctuation));
+    // Unknown is not false: nothing is sent and the row reports failure.
+    for (auto command : {TrayMenuCommand::SelectChinese, TrayMenuCommand::SelectEnglish})
+      assert(!tray(command, unknown, true, true, false).known);
+    assert(!tray(TrayMenuCommand::ToggleFullwidth, true, unknown, true, false).known);
+    assert(!tray(TrayMenuCommand::ToggleChinesePunctuation, true, true, unknown, false)
+                .known);
+    // Rows that are not modes never reach the worker.
+    for (auto command :
+         {TrayMenuCommand::ToggleFloatingToolbar, TrayMenuCommand::OpenEmojiPanel,
+          TrayMenuCommand::OpenHandwritingPanel, TrayMenuCommand::OpenKeyboardPanel,
+          TrayMenuCommand::ToggleVoiceInput, TrayMenuCommand::OpenSettings,
+          TrayMenuCommand::OpenAbout, TrayMenuCommand::ToggleTranslations,
+          TrayMenuCommand::SelectQuanpin, TrayMenuCommand::SelectShuangpin,
+          TrayMenuCommand::SelectWubi, TrayMenuCommand::SelectJapanese,
+          TrayMenuCommand::OpenTheme, TrayMenuCommand::OpenDictionary}) {
+      assert(!tray(command, true, true, true, false).known);
+      assert(!tray_menu_mode_row(command));
+    }
+    for (auto command : {TrayMenuCommand::SelectChinese, TrayMenuCommand::SelectEnglish,
+                         TrayMenuCommand::ToggleFullwidth,
+                         TrayMenuCommand::ToggleChinesePunctuation})
+      assert(tray_menu_mode_row(command));
+  }
 }

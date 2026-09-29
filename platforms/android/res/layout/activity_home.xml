@@ -13,28 +13,6 @@
         android:layout_height="match_parent"
         app:layout_behavior="@string/appbar_scrolling_view_behavior" />
 
-    <!--
-      开场动画盖在内容之上，底色与窗口背景相同，所以从系统那一帧过渡过来看不出接缝。
-      系统的启动画面属性（values-v31）试过，这台设备上不生效：把背景色换成纯红之后，100 帧录像
-      里一帧红都没有，说明那个窗口根本没被用上。自己画就不必再猜系统什么时候肯画。
-    -->
-    <FrameLayout
-        android:id="@+id/home_intro"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:background="@color/mist"
-        android:clickable="true"
-        android:focusable="true">
-
-        <ImageView
-            android:id="@+id/home_intro_mark"
-            android:layout_width="128dp"
-            android:layout_height="128dp"
-            android:layout_gravity="center"
-            android:contentDescription="@string/app_name"
-            android:src="@drawable/splash_mark_animated" />
-    </FrameLayout>
-
     <com.google.android.material.bottomnavigation.BottomNavigationView
         android:id="@+id/home_tabs"
         android:layout_width="match_parent"
@@ -42,4 +20,77 @@
         android:layout_gravity="bottom"
         app:labelVisibilityMode="labeled"
         app:menu="@menu/bottom_tabs" />
+
+    <!-- 开场动画盖在内容之上，自己画而不靠系统的启动画面：values-v31 的启动画面属性试过，这台设备上不生效，把背景色换成纯红之后 100 帧录像里一帧红都没有。The design's splash: a near-black field, a breathing green halo, the mark writing itself, the name and 轻点跳过 rising in after it. It is full-bleed under the system bars; HomeActivity pads only its bottom so 轻点跳过 clears the gesture area. Last child and raised so it covers the tab bar, which carries an elevation of its own. Hidden until HomeActivity decides this launch plays it. -->
+    <FrameLayout
+        android:id="@+id/home_intro"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/splash_field"
+        android:clickable="true"
+        android:elevation="24dp"
+        android:focusable="true"
+        android:visibility="gone">
+
+        <View
+            android:id="@+id/home_intro_glow"
+            android:layout_width="320dp"
+            android:layout_height="320dp"
+            android:layout_gravity="center"
+            android:alpha="0"
+            android:background="@drawable/splash_glow"
+            android:importantForAccessibility="no" />
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:gravity="center_horizontal"
+            android:orientation="vertical">
+
+            <ImageView
+                android:id="@+id/home_intro_mark"
+                android:layout_width="124dp"
+                android:layout_height="124dp"
+                android:alpha="0"
+                android:contentDescription="@string/app_name"
+                android:src="@drawable/splash_mark_animated" />
+
+            <TextView
+                android:id="@+id/home_intro_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="18dp"
+                android:alpha="0"
+                android:letterSpacing="0.06"
+                android:text="@string/app_name"
+                android:textColor="#FFFFFF"
+                android:textFontWeight="700"
+                android:textSize="24sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/home_intro_latin"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="18dp"
+                android:alpha="0"
+                android:importantForAccessibility="no"
+                android:letterSpacing="0.18"
+                android:text="@string/splash_latin"
+                android:textColor="#9EFFFFFF"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/home_intro_skip"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|center_horizontal"
+            android:layout_marginBottom="36dp"
+            android:alpha="0"
+            android:text="@string/splash_skip"
+            android:textColor="#66FFFFFF"
+            android:textSize="12sp" />
+    </FrameLayout>
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

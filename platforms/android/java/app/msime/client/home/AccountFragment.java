@@ -1,13 +1,11 @@
 package app.msime.client.home;
 
-import android.content.res.ColorStateList;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-import androidx.annotation.ColorRes;
 import androidx.annotation.DrawableRes;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -15,7 +13,6 @@ import androidx.core.content.ContextCompat;
 import app.msime.client.AccountIdentity;
 import app.msime.client.AppIconStyle;
 import app.msime.client.BackendAccount;
-import app.msime.client.GoogleSignInFlow;
 import app.msime.client.R;
 import com.google.android.material.imageview.ShapeableImageView;
 import com.google.android.material.snackbar.Snackbar;
@@ -23,9 +20,7 @@ import com.google.android.material.snackbar.Snackbar;
 /**
  * The 我的 tab: who this device is to the backend, what the app looks like, and where content is.
  *
- * 这台设备的身份是自己生成的，不存在登录这一步，所以这一页也不提登录。What it shows is the
- * device's own anonymous identity -- the one the community catalogue is read with -- and the rows
- * are the things this host can actually do with it.
+ * 这台设备的身份是自己生成的，日常使用不需要登录。What it shows first is the device's own anonymous identity -- the one the community catalogue is read with -- then Google sign-in when the backend offers it and this build carries a client ID (see {@link SignIn}), and rows for the things this host can actually do.
  */
 public final class AccountFragment extends HomeTabFragment {
     @Override public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup parent,
@@ -64,83 +59,37 @@ public final class AccountFragment extends HomeTabFragment {
     /**
      * 登录那一块。
      *
-     * <p>Three states and they are not the same sentence: signed in, offered, and absent. The offer
-     * only appears when the backend says it accepts Google and this build carries a client ID --
-     * `/v1/auth/providers` answers false for a provider with no client ID configured, and a button
-     * that is certain to fail is worse than no button.
+     * <p>Three states and they are not the same sentence: signed in, offered, and absent. {@link SignIn#state} decides which; absent draws nothing.
      */
     private void bindSignIn() {
         View view = getView();
         if (view == null) return;
         LinearLayout rows = view.findViewById(R.id.account_sign_in_rows);
         rows.removeAllViews();
-        String clientId = getString(R.string.google_server_client_id);
-        HostTask.run(this, context -> {
-            BackendAccount account = new BackendAccount(context);
-            if (account.signedIn()) return "signed-in";
-            return clientId.isEmpty() || !account.supports("google") ? "" : "offer";
-        }, state -> {
+        HostTask.run(this, SignIn::state, state -> {
             View current = getView();
-            if (current == null || state == null || state.isEmpty()) return;
+            if (current == null || state == null || state == SignIn.State.ABSENT) return;
             LinearLayout list = current.findViewById(R.id.account_sign_in_rows);
             list.removeAllViews();
-            if ("signed-in".equals(state)) {
-                addRow(list, R.drawable.ic_tab_account, R.color.badge_field,
+            View row = state == SignIn.State.SIGNED_IN
+                ? ListRows.add(list, R.drawable.ic_tab_account,
                     getString(R.string.account_signed_in), getString(R.string.account_sign_out),
-                    this::signOut);
-            } else {
-                addRow(list, R.drawable.ic_tab_account, R.color.badge_field,
+                    this::signOut)
+                : ListRows.add(list, R.drawable.ic_tab_account,
                     getString(R.string.account_sign_in_google),
                     getString(R.string.account_sign_in_hint), this::signIn);
-            }
+            // Inside the account card the row keeps the card's 16dp inset, so its glyph lines up with the avatar above it.
+            int inset = ListRows.dp(requireContext(), 16);
+            row.setPaddingRelative(inset, row.getPaddingTop(), inset, row.getPaddingBottom());
         });
     }
 
-    /** Challenge, Google, exchange -- each step off the main thread, the chooser on it. */
     private void signIn() {
-        String clientId = getString(R.string.google_server_client_id);
-        HostTask.run(this, context -> {
-            try {
-                return new BackendAccount(context).challenge("google", null);
-            } catch (Exception | LinkageError error) {
-                return null;
-            }
-        }, challenge -> {
-            if (challenge == null) {
-                note("现在无法开始 Google 登录，请稍后再试。");
-                return;
-            }
-            GoogleSignInFlow.start(requireActivity(), clientId, challenge.nonce(),
-                // Credential Manager only dispatches the result; use the activity's lifecycle
-                // executor instead of creating a thread per sign-in attempt that is never shut
-                // down after the callback completes.
-                ContextCompat.getMainExecutor(requireActivity()),
-                new GoogleSignInFlow.Listener() {
-                    @Override public void onToken(String idToken) {
-                        HostTask.run(AccountFragment.this, context -> {
-                            try {
-                                new BackendAccount(context).login(challenge, idToken);
-                                return "";
-                            } catch (Exception | LinkageError error) {
-                                return "登录没有完成：" + error.getMessage();
-                            }
-                        }, failure -> {
-                            if (failure == null || failure.isEmpty()) render();
-                            else note(failure);
-                        });
-                    }
-
-                    @Override public void onFailure(String message) {
-                        // Credential Manager may finish after the user has left this tab. A
-                        // detached fragment cannot resolve requireActivity(), and turning a
-                        // cancelled chooser into an IllegalStateException would crash the app.
-                        android.app.Activity activity = getActivity();
-                        if (activity == null || !isAdded()) return;
-                        activity.runOnUiThread(() -> {
-                            if (isAdded() && getView() != null) note(message);
-                        });
-                    }
-                });
+        SignIn.start(requireActivity(), failure -> {
+            // Credential Manager may finish after the user has left this tab; a detached fragment has no view to report into.
+            if (!isAdded() || getView() == null) return;
+            if (failure.isEmpty()) render();
+            else note(failure);
         });
     }
 
@@ -156,20 +105,33 @@ public final class AccountFragment extends HomeTabFragment {
         if (view != null) Snackbar.make(view, message, Snackbar.LENGTH_LONG).show();
     }
 
+    /**
+     * The design's 工具, 个性化 and 我的内容 groups, holding what this host can open today.
+     *
+     * <p>The design's 同步 group (a cloud-sync switch and a device list) is left out: this host has no sync backend behind either, and a switch that changes nothing is worse than its absence. 我的内容 keeps only 社区作品 for the same reason -- skins, community dictionaries and phrases a user has collected are not tracked anywhere this host can read.
+     */
     private void bindIcons() {
         View view = getView();
         if (view == null) return;
         LinearLayout rows = view.findViewById(R.id.account_personal_rows);
         rows.removeAllViews();
-        AppIconStyle current = AppIcons.selected(requireContext());
-        addRow(rows, R.drawable.ic_feature_skin, R.color.badge_field, "App 图标",
-            current.title() + " · " + current.description(), this::showIcons);
-        addRow(rows, R.drawable.ic_feature_dictionary, R.color.badge_field, "云剪贴板",
+        ListRows.heading(rows, "工具");
+        ListRows.add(rows, R.drawable.ic_feature_dictionary, "云剪贴板",
             "在设备之间同步你明确添加的内容", () -> startActivity(new android.content.Intent(
                 requireContext(), CloudClipboardActivity.class)));
-        addRow(rows, R.drawable.ic_feature_dictionary, R.color.badge_field, "云词库",
+        ListRows.add(rows, R.drawable.ic_feature_dictionary, "云词库",
             "管理云端词条、个人候选和词库快照", this::openCloudDictionary);
-        addRow(rows, R.drawable.ic_feature_ai, R.color.badge_field, "社区作品",
+        ListRows.add(rows, R.drawable.ic_about_desktop, "其他平台下载",
+            "macOS、Windows、Linux 的安装包与指南", () -> startActivity(
+                new android.content.Intent(requireContext(), DesktopDownloadActivity.class)));
+
+        ListRows.heading(rows, "个性化");
+        AppIconStyle current = AppIcons.selected(requireContext());
+        ListRows.add(rows, R.drawable.ic_feature_skin, "App 图标",
+            current.title() + " · " + current.description(), this::showIcons);
+
+        ListRows.heading(rows, "我的内容");
+        ListRows.add(rows, R.drawable.ic_feature_ai, "社区作品",
             "发布、收藏皮肤、词库和回复", this::openCommunityAccount);
     }
 
@@ -197,30 +159,37 @@ public final class AccountFragment extends HomeTabFragment {
     }
 
     /**
-     * 最后一段：电脑版下载和关于，和母版 `AccountSettingsView` 的末段一样。
+     * The design's closing group, which has no title: the guide, the splash, help and about.
      *
-     * <p>词包与回复模板、社区皮肤、打字统计三行去掉了——它们只是跳到底部那三个 tab 里已有的地方；
-     * 设置与词库位置说的是一个路径，没人会从这一页找它。Apple 那边这四行一个都没有，这一页要放的是
-     * 别处没有的东西。
-     *
-     * <p>母版那一段还有第三行「重新查看新手引导」。Android 没有可重看的引导——启动时那段动画是个
-     * 700ms 的标，不是一趟流程，所以这一行没有对应物，空着比放一个点了没反应的入口好。
+     * <p>「开屏动画」 replays the splash on the home screen. A replay is only the animation: it never leads on into onboarding, whatever the first-run state is -- the prototype did, and a user who asked to watch a logo draw itself did not ask to be walked through setup again. The design's 隐私 row is not repeated here; the privacy statement sits in 关于, which this group already opens.
      */
     private void bindContent() {
         View view = getView();
         if (view == null) return;
         LinearLayout rows = view.findViewById(R.id.account_storage_rows);
         rows.removeAllViews();
-        addRow(rows, R.drawable.ic_about_desktop, R.color.badge_field, "电脑版下载",
-            "macOS、Windows、Linux 的安装包与指南", () -> startActivity(
-                new android.content.Intent(requireContext(), DesktopDownloadActivity.class)));
-        divider(rows);
-        addRow(rows, R.drawable.ic_feature_system, R.color.badge_field, "关于水杉",
-            "版本、开源与隐私", this::openAbout);
-        divider(rows);
-        addRow(rows, R.drawable.ic_feature_ai, R.color.badge_field, "重新查看新手引导",
+        ListRows.gap(rows);
+        ListRows.add(rows, R.drawable.ic_feature_keys, "新手引导",
             "四步走完键盘的启用和设置", () -> startActivity(
                 new android.content.Intent(requireContext(), OnboardingActivity.class)));
+        ListRows.add(rows, R.drawable.ic_feature_skin, "开屏动画", "播放", () -> {
+            if (getActivity() instanceof HomeActivity home) home.replaySplash();
+        });
+        ListRows.add(rows, R.drawable.ic_about_help, "帮助与反馈",
+            "启用键盘、常见问题，或告诉我们哪里不好用", () -> startActivity(
+                new android.content.Intent(requireContext(), HelpActivity.class)));
+        ListRows.add(rows, R.drawable.ic_feature_system, "关于", version(), this::openAbout);
+    }
+
+    /** The installed version name, or a dash when the package manager will not say. */
+    private String version() {
+        try {
+            String name = requireContext().getPackageManager()
+                .getPackageInfo(requireContext().getPackageName(), 0).versionName;
+            return name == null ? "—" : name;
+        } catch (android.content.pm.PackageManager.NameNotFoundException error) {
+            return "—";
+        }
     }
 
     /** Keep Android's public about/help/feedback surface in the shared Tauri UI. */
@@ -255,12 +224,14 @@ public final class AccountFragment extends HomeTabFragment {
             ShapeableImageView badge = row.findViewById(R.id.row_badge);
             // 这一行画的是图标本身，不是字形：不着色，也不要那块底。
             badge.setImageResource(icon(style));
-            badge.setBackground(null);
-            badge.setPadding(0, 0, 0, 0);
+            badge.setImageTintList(null);
+            badge.getLayoutParams().width = ListRows.dp(requireContext(), 40);
+            badge.getLayoutParams().height = ListRows.dp(requireContext(), 40);
             ((TextView) row.findViewById(R.id.row_title)).setText(style.title());
             ((TextView) row.findViewById(R.id.row_value)).setText(style.description());
             TextView chevron = row.findViewById(R.id.row_chevron);
             chevron.setText(style == current ? "✓" : "");
+            chevron.setVisibility(View.VISIBLE);
             chevron.setTextColor(ContextCompat.getColor(requireContext(), R.color.forest));
             row.setOnClickListener(ignored -> {
                 boolean changed = AppIcons.select(requireContext(), style);
@@ -286,32 +257,5 @@ public final class AccountFragment extends HomeTabFragment {
             case VERMILION -> R.drawable.app_icon_vermilion;
             case CLASSIC -> R.drawable.app_icon_classic;
         };
-    }
-
-    private void addRow(LinearLayout parent, @DrawableRes int icon, @ColorRes int tint,
-            String title, String value, Runnable action) {
-        LinearLayout row = (LinearLayout) LayoutInflater.from(requireContext())
-            .inflate(R.layout.item_setting_row, parent, false);
-        ShapeableImageView badge = row.findViewById(R.id.row_badge);
-        badge.setImageResource(icon);
-        badge.setBackgroundTintList(
-            ColorStateList.valueOf(ContextCompat.getColor(requireContext(), tint)));
-        badge.setImageTintList(ColorStateList.valueOf(
-            ContextCompat.getColor(requireContext(), R.color.forest)));
-        ((TextView) row.findViewById(R.id.row_title)).setText(title);
-        ((TextView) row.findViewById(R.id.row_value)).setText(value);
-        row.setOnClickListener(ignored -> action.run());
-        parent.addView(row);
-    }
-
-    private void divider(LinearLayout parent) {
-        View line = new View(requireContext());
-        int height = Math.max(1, Math.round(
-            getResources().getDisplayMetrics().density));
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, height);
-        params.setMarginStart(Math.round(64 * getResources().getDisplayMetrics().density));
-        line.setBackgroundColor(ContextCompat.getColor(requireContext(), R.color.hairline));
-        parent.addView(line, params);
     }
 }

@@ -1,5 +1,6 @@
 #include "CandidateSkin.h"
-#include <cmath>
+#include <chrono>
+#include <fstream>
 #include <stdexcept>
 
 using namespace msime::windows;
@@ -8,83 +9,68 @@ void require(bool value) {
   if (!value)
     throw std::runtime_error("Candidate skin validation failed");
 }
-bool same(CandidateColor color, float r, float g, float b, float a) {
-  auto near = [](float value, float expected) {
-    return std::fabs(value - expected) < 0.002f;
-  };
-  return near(color.r, r) && near(color.g, g) && near(color.b, b) &&
-         near(color.a, a);
-}
-Json package(const char *id, Json layouts, Json themes) {
+// One msime_client_skin_catalog entry. SkinSummary is serialized in camelCase, and its colours are not read here: they reach the card through msime_client_resolve_theme.
+Json package(const char *id, Json min_width, Json top, Json width) {
   return Json{{"id", id},
               {"name", "Sample"},
               {"version", "1.0"},
-              {"base", "fluent"},
-              {"layouts", std::move(layouts)},
-              {"themes", std::move(themes)},
-              {"minWidthDip", 10.0},
-              {"candidate",
-               {{"dark",
-                 {{"surface", "#101010"},
-                  {"text", "#fafafa"},
-                  {"accent", "rgb(7, 193, 96)"},
-                  {"showSelectedBar", false}}},
-                {"light", {{"surface", "#f7f7f7"}, {"text", "#333333"}}}}}};
+              {"base", "system"},
+              {"layouts", Json::array({"vertical", "horizontal"})},
+              {"themes", Json::array({"dark", "light"})},
+              {"preview", "preview.png"},
+              {"minWidthDip", std::move(min_width)},
+              {"decorationTopDip", std::move(top)},
+              {"decorationWidthDip", std::move(width)}};
 }
 int main() {
+  const auto root =
+      std::filesystem::temp_directory_path() /
+      ("msime-candidate-skin-" +
+       std::to_string(
+           std::chrono::steady_clock::now().time_since_epoch().count()));
+  for (const char *id : {"mascot", "wide", "hostile"}) {
+    std::filesystem::create_directories(root / id);
+    // A synthetic file is enough: the reader only checks that the preview exists.
+    std::ofstream(root / id / "preview.png") << "synthetic";
+  }
   const Json catalog{
-      {"packages",
-       Json::array({package("wechat", Json::array({"vertical", "horizontal"}),
-                            Json::array({"dark", "light"})),
-                    package("partial", Json::array({"vertical"}),
-                            Json::array({"light"}))})},
+      {"packages", Json::array({package("mascot", 320.0, 50.0, 180.0),
+                                package("wide", 2400.0, 600.0, 180.0),
+                                package("hostile", "320", -1.0, 0.0)})},
       {"issues", Json::array()}};
 
-  // A package that claims the layout and theme replaces only its own tokens.
-  const auto dark = candidate_skin_palette(catalog, "wechat", true, "vertical");
-  require(same(dark.surface, 16 / 255.0f, 16 / 255.0f, 16 / 255.0f, 1.0f));
-  require(same(dark.text, 250 / 255.0f, 250 / 255.0f, 250 / 255.0f, 1.0f));
-  require(same(dark.accent, 7 / 255.0f, 193 / 255.0f, 96 / 255.0f, 1.0f));
-  require(!dark.show_selected_bar);
-  require(dark.selected == CandidatePalette{}.selected);
-  const auto light = candidate_skin_palette(catalog, "wechat", false, "vertical");
-  require(same(light.surface, 247 / 255.0f, 247 / 255.0f, 247 / 255.0f, 1.0f));
-  require(light.show_selected_bar); // The light palette never declared it.
+  // A package that declares artwork is drawn with it, against its own minimum width.
+  require(candidate_skin_min_width(catalog, "mascot") == 320.0);
+  const auto mascot = candidate_skin_decoration(catalog, "mascot", root);
+  require(mascot.image == (root / "mascot" / "preview.png").wstring());
+  require(mascot.top_dip == 50.0 && mascot.width_dip == 180.0);
 
-  // Compatibility comes from the manifest: an unclaimed layout or theme keeps
-  // the built-ins rather than applying half a skin.
-  const auto unsupported =
-      candidate_skin_palette(catalog, "partial", true, "vertical");
-  require(unsupported.surface == CandidatePalette{}.surface &&
-          unsupported.text == CandidatePalette{}.text);
-  require(candidate_skin_palette(catalog, "partial", false, "horizontal")
-              .surface == candidate_light_palette().surface);
-  require(candidate_skin_palette(catalog, "partial", false, "vertical")
-              .surface != candidate_light_palette().surface);
+  // Values this card cannot use are refused rather than propagated into the geometry.
+  require(candidate_skin_min_width(catalog, "wide") == 0.0);
+  require(candidate_skin_decoration(catalog, "wide", root).image.empty());
+  require(candidate_skin_min_width(catalog, "hostile") == 0.0);
+  const auto hostile = candidate_skin_decoration(catalog, "hostile", root);
+  require(hostile.image.empty() && hostile.top_dip == 0.0 &&
+          hostile.width_dip == 0.0);
 
-  // Unknown, unnamed and malformed catalogs fall back to the built-in tokens.
-  for (const auto &missing :
-       {candidate_skin_overrides(catalog, "absent", true, "vertical"),
-        candidate_skin_overrides(catalog, "", true, "vertical"),
-        candidate_skin_overrides(Json::object(), "wechat", true, "vertical"),
-        candidate_skin_overrides(Json{{"packages", 7}}, "wechat", true,
-                                 "vertical"),
-        candidate_skin_overrides(Json::array(), "wechat", true, "vertical")})
-    require(!missing.surface && !missing.text && !missing.show_selected_bar);
+  // Unknown, unnamed and malformed catalogs draw no package.
+  for (const auto &missing : {Json::object(), Json{{"packages", 7}},
+                              Json::array(), catalog}) {
+    require(candidate_skin_min_width(missing, "absent") == 0.0);
+    require(candidate_skin_decoration(missing, "absent", root).image.empty());
+  }
+  require(candidate_skin_min_width(catalog, "") == 0.0);
+  require(candidate_skin_decoration(catalog, "", root).image.empty());
 
-  // Entries that are not strings, are empty or exceed the catalog's own bound
-  // are dropped instead of reaching the color parser.
-  Json hostile = catalog;
-  hostile["packages"][0]["candidate"]["dark"]["surface"] = 42;
-  hostile["packages"][0]["candidate"]["dark"]["text"] = "";
-  hostile["packages"][0]["candidate"]["dark"]["accent"] = std::string(81, 'a');
-  hostile["packages"][0]["candidate"]["dark"]["showSelectedBar"] = "yes";
-  const auto guarded =
-      candidate_skin_overrides(hostile, "wechat", true, "vertical");
-  require(!guarded.surface && !guarded.text && !guarded.accent &&
-          !guarded.show_selected_bar);
-  const auto fallback =
-      candidate_skin_palette(hostile, "wechat", true, "vertical");
-  require(fallback.surface == CandidatePalette{}.surface &&
-          fallback.show_selected_bar);
+  // A preview that is missing on disk, empty or over-long is not drawn.
+  Json unsafe = catalog;
+  unsafe["packages"][0]["preview"] = "absent.png";
+  require(candidate_skin_decoration(unsafe, "mascot", root).image.empty());
+  unsafe["packages"][0]["preview"] = "";
+  require(candidate_skin_decoration(unsafe, "mascot", root).image.empty());
+  unsafe["packages"][0]["preview"] = std::string(300, 'p');
+  require(candidate_skin_decoration(unsafe, "mascot", root).image.empty());
+
+  std::error_code error;
+  std::filesystem::remove_all(root, error);
 }

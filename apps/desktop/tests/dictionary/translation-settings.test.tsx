@@ -35,7 +35,7 @@ async function mount(preferences: Record<string, unknown> = {}) {
   await screen.findByRole("button", { name: "保存设置" });
   // The translation controls live on the 输入 page; other pages are hidden, and
   // hidden subtrees are absent from the accessibility tree.
-  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  fireEvent.click(screen.getByRole("button", { name: "表达" }));
   return mounted;
 }
 
@@ -78,7 +78,7 @@ test("translation credentials are disabled while candidate translation is off", 
   expect((screen.getByLabelText("自定义翻译 API Key") as HTMLInputElement).disabled).toBe(true);
   // The group and its switch share the label, so select the switch by role.
   expect(
-    (screen.getByRole("checkbox", { name: "自定义翻译服务" }) as HTMLInputElement).disabled,
+    (screen.getByRole("switch", { name: "自定义翻译服务" }) as HTMLInputElement).disabled,
   ).toBe(true);
   // A disabled field must not shout about its contents.
   expect(screen.queryByRole("status")).toBeNull();
@@ -99,10 +99,10 @@ test("the API key can be revealed to check a pasted value", async () => {
 
 test("NiuTrans provider is mutually exclusive and exposes synthetic credential fields", async () => {
   await mount();
-  fireEvent.click(screen.getByRole("checkbox", { name: "小牛翻译（NiuTrans）" }));
-  expect(
-    (screen.getByRole("checkbox", { name: "自定义翻译服务" }) as HTMLInputElement).checked,
-  ).toBe(false);
+  fireEvent.click(screen.getByRole("switch", { name: "小牛翻译（NiuTrans）" }));
+  expect((screen.getByRole("switch", { name: "自定义翻译服务" }) as HTMLInputElement).checked).toBe(
+    false,
+  );
   const appId = screen.getByLabelText("NiuTrans App ID") as HTMLInputElement;
   const apiKey = screen.getByLabelText("NiuTrans API Key") as HTMLInputElement;
   expect(appId.disabled).toBe(false);
@@ -123,7 +123,7 @@ describe("the MSIME account translation is an explicit choice", () => {
     }));
     render(
       <SettingsPage
-        initialPage="input"
+        initialPage="expression"
         client={{
           load: async () => snapshot,
           save,
@@ -203,7 +203,7 @@ describe("the MSIME account translation is an explicit choice", () => {
       tencent_tmt: { enabled: false, secret_id: "", secret_key: "", region: "ap-guangzhou" },
     });
     expect(serviceSelect().value).toBe("account");
-    fireEvent.click(screen.getByRole("checkbox", { name: "腾讯云机器翻译" }));
+    fireEvent.click(screen.getByRole("switch", { name: "腾讯云机器翻译" }));
     expect(serviceSelect().value).toBe("tencent");
     // Unusable secrets must not leave the account quietly receiving candidates behind the Tencent selection.
     const saved = await saveAndRead(save, 0);
@@ -217,7 +217,7 @@ describe("the MSIME account translation is an explicit choice", () => {
       custom_translation: { enabled: false, endpoint: "", api_key: "" },
       tencent_tmt: { enabled: false, secret_id: "", secret_key: "", region: "ap-guangzhou" },
     });
-    const custom = screen.getByRole("checkbox", { name: "自定义翻译服务" });
+    const custom = screen.getByRole("switch", { name: "自定义翻译服务" });
     fireEvent.click(custom);
     fireEvent.click(custom);
     expect(serviceSelect().value).toBe("none");
@@ -228,7 +228,7 @@ describe("the MSIME account translation is an explicit choice", () => {
 
   test("Android shows the account as an unticked opt-in switch", async () => {
     const save = await mountOn("android");
-    const account = screen.getByRole("checkbox", {
+    const account = screen.getByRole("switch", {
       name: "使用水杉账号翻译候选词",
     }) as HTMLInputElement;
     expect(account.checked).toBe(false);
@@ -244,8 +244,7 @@ describe("the MSIME account translation is an explicit choice", () => {
   test("the Android switch follows candidate translation", async () => {
     await mountOn("android", { candidate_translations: false });
     expect(
-      (screen.getByRole("checkbox", { name: "使用水杉账号翻译候选词" }) as HTMLInputElement)
-        .disabled,
+      (screen.getByRole("switch", { name: "使用水杉账号翻译候选词" }) as HTMLInputElement).disabled,
     ).toBe(true);
   });
 });
@@ -262,7 +261,7 @@ describe("macOS points at undownloaded Apple translation languages", () => {
     const downloadableLanguages = vi.fn(async () => downloadable);
     render(
       <SettingsPage
-        initialPage="input"
+        initialPage="expression"
         client={{
           load: async () => snapshot,
           save: vi.fn(),

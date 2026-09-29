@@ -24,8 +24,7 @@ struct ShellLaunchContext {
   std::filesystem::path state_root;
   std::filesystem::path host_options;
 };
-// The floating toolbar belongs to this process, so it is the one row the shell
-// never hears about.
+// The floating toolbar, the input modes and the stored switches belong to this process, so they are the rows the shell never hears about. 主题 and 词库… open their pages of the settings app by the ids it already routes.
 inline std::optional<ShellSurfaceRequest>
 shell_surface_request(TrayMenuCommand command) {
   switch (command) {
@@ -41,7 +40,20 @@ shell_surface_request(TrayMenuCommand command) {
     return ShellSurfaceRequest{{}, {}};
   case TrayMenuCommand::OpenAbout:
     return ShellSurfaceRequest{{}, "about"};
+  case TrayMenuCommand::OpenTheme:
+    return ShellSurfaceRequest{{}, "skin"};
+  case TrayMenuCommand::OpenDictionary:
+    return ShellSurfaceRequest{{}, "dictionary"};
   case TrayMenuCommand::ToggleFloatingToolbar:
+  case TrayMenuCommand::SelectChinese:
+  case TrayMenuCommand::SelectEnglish:
+  case TrayMenuCommand::ToggleFullwidth:
+  case TrayMenuCommand::ToggleChinesePunctuation:
+  case TrayMenuCommand::ToggleTranslations:
+  case TrayMenuCommand::SelectQuanpin:
+  case TrayMenuCommand::SelectShuangpin:
+  case TrayMenuCommand::SelectWubi:
+  case TrayMenuCommand::SelectJapanese:
     break;
   }
   return std::nullopt;

@@ -2,12 +2,15 @@ package app.msime.client.home;
 
 import android.content.ClipData;
 import android.content.ClipboardManager;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.util.TypedValue;
 import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
@@ -33,6 +36,7 @@ public final class CloudClipboardActivity extends AppCompatActivity {
     private boolean busy;
 
     @Override protected void onCreate(@Nullable Bundle state) {
+        AppMode.restore(this);
         super.onCreate(state);
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         setContentView(R.layout.activity_cloud_clipboard);
@@ -83,14 +87,41 @@ public final class CloudClipboardActivity extends AppCompatActivity {
             TextView empty = new TextView(this);
             empty.setText(search.getText() == null || search.getText().length() == 0
                 ? "还没有保存任何内容" : "没有匹配的内容");
-            empty.setPadding(0, 16, 0, 16);
+            empty.setPadding(0, dp(16), 0, dp(16));
+            empty.setTextColor(ContextCompat.getColor(this, R.color.text_secondary));
             items.addView(empty);
         }
-        for (BackendAccount.ClipboardItem item : page.items()) {
-            MaterialButton row = new MaterialButton(this);
+        int count = page.items().size();
+        for (int index = 0; index < count; index++) {
+            BackendAccount.ClipboardItem item = page.items().get(index);
+            // The design's record rows: 15sp text in one grouped surface card, a hairline between rows, rather than a stack of filled accent buttons.
+            if (index > 0) {
+                View divider = new View(this);
+                divider.setBackgroundColor(ContextCompat.getColor(this, R.color.hairline));
+                LinearLayout.LayoutParams line =
+                    new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(1));
+                divider.setLayoutParams(line);
+                // The divider sits on the card's colour so the group reads as one piece.
+                LinearLayout holder = new LinearLayout(this);
+                holder.setBackgroundColor(ContextCompat.getColor(this, R.color.surface));
+                holder.setPaddingRelative(dp(16), 0, 0, 0);
+                holder.addView(divider);
+                items.addView(holder);
+            }
+            TextView row = new TextView(this);
             row.setText(item.text());
-            row.setGravity(android.view.Gravity.START | android.view.Gravity.CENTER_VERTICAL);
+            row.setTextSize(15);
+            row.setTextColor(ContextCompat.getColor(this, R.color.ink));
             row.setMaxLines(3);
+            row.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            row.setMinHeight(dp(52));
+            row.setGravity(android.view.Gravity.START | android.view.Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(16), dp(12), dp(16), dp(12));
+            row.setBackground(group(index == 0, index == count - 1));
+            TypedValue ripple = new TypedValue();
+            getTheme().resolveAttribute(android.R.attr.selectableItemBackground, ripple, true);
+            row.setForeground(ContextCompat.getDrawable(this, ripple.resourceId));
+            row.setContentDescription(item.text() + "，点按复制，长按删除");
             row.setOnClickListener(ignored -> {
                 ClipboardManager clipboard = getSystemService(ClipboardManager.class);
                 if (clipboard != null) clipboard.setPrimaryClip(ClipData.newPlainText("水杉云剪贴板", item.text()));
@@ -105,12 +136,31 @@ public final class CloudClipboardActivity extends AppCompatActivity {
         if (!page.items().isEmpty()) {
             MaterialButton clear = new MaterialButton(this);
             clear.setText("清空历史");
+            LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            gap.topMargin = dp(12);
+            clear.setLayoutParams(gap);
             clear.setOnClickListener(ignored -> run(
                 () -> { new BackendAccount(this).deleteClipboard(null); return null; },
                 ignored2 -> reload()));
             items.addView(clear);
         }
         status.setText("最多保存 50 条；点按复制，长按删除");
+    }
+
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    /** The slice of the grouped card behind one record: rounded where the group starts and ends. */
+    private GradientDrawable group(boolean first, boolean last) {
+        float radius = dp(20);
+        float top = first ? radius : 0f;
+        float bottom = last ? radius : 0f;
+        GradientDrawable card = new GradientDrawable();
+        card.setColor(ContextCompat.getColor(this, R.color.surface));
+        card.setCornerRadii(new float[] {top, top, top, top, bottom, bottom, bottom, bottom});
+        return card;
     }
 
     private interface Work<T> { T run() throws Exception; }

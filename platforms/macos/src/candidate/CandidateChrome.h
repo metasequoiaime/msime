@@ -5,6 +5,14 @@
 #include "CandidateItemLayout.h"
 // Drawing adapted from MSIME-Apple b637828e15eafcb5e459edd270a962dd14517285.
 static const CGFloat MSIMECandidateTranslationOpacity = 0.62;
+// The translation under or beside a candidate is a fixed 12pt run at every candidate size (design-input-surfaces §2.1), so a large candidate font does not grow a gloss the eye only glances at.
+static const CGFloat MSIMECandidateTranslationPointSize = 12.0;
+// The top row of the card: the reading on the left, then 「1 / 3」 and the two page arrows on the right.
+static const CGFloat MSIMECandidateHeaderHeight = 26.0;
+// 「1 / 3」 is set at the design's 13pt in the secondary colour (dc.html L1324), a point above the translation run.
+static const CGFloat MSIMECandidatePageIndicatorPointSize = 13.0;
+static const CGFloat MSIMECandidatePageArrowWidth = 28.0;
+static const CGFloat MSIMECandidatePageIndicatorGap = 4.0;
 // A row keeps 6 points above and below its text, and a gloss under the text 2 points on each side of its lines.
 static const CGFloat MSIMECandidateRowPadding = 12.0;
 static const CGFloat MSIMECandidateGlossPadding = 4.0;
@@ -215,7 +223,7 @@ static inline msime::mac::CandidateRunMeasure MSIMECandidateRunMeasure(NSString 
     NSString *translation = self.translation ?: @"";
     const NSSize numberSize = [number sizeWithAttributes:numberAttributes];
     const NSSize wordSize = [word sizeWithAttributes:titleAttributes];
-    NSFont *glossFont = self.translationFont ?: [NSFont systemFontOfSize:self.font.pointSize * 0.78];
+    NSFont *glossFont = self.translationFont ?: [NSFont systemFontOfSize:MSIMECandidateTranslationPointSize];
     const CGFloat contentLeft = self.contentLeft > 0.0 ? self.contentLeft : textLeft + numberSize.width + MSIMECandidateNumberGap;
     msime::mac::CandidateItemLayout layout = self.itemLayout;
     if (!self.hasItemLayout)

@@ -140,7 +140,7 @@ final class HandwritingCanvas: UIView {
   }
   override func draw(_ rect: CGRect) {
     guard let context = UIGraphicsGetCurrentContext() else { return }
-    let skin = KeyboardSkinPreference.selected
+    let skin = KeyboardTheme.current
     let card = cardRect.isEmpty ? bounds : cardRect
     UIBezierPath(roundedRect: card, cornerRadius: 10).addClip()
     skin.keyBackground.setFill(); context.fill(card)
@@ -309,7 +309,7 @@ final class HandwritingInputView: UIView {
     statusCentred?.isActive = !sharesTheCanvas
   }
   private func showStatus(_ text: String) {
-    status.text = text; status.textColor = KeyboardSkinPreference.selected.keyForeground
+    status.text = text; status.textColor = KeyboardTheme.current.keyForeground
     status.isHidden = text.isEmpty
     placeStatus()
   }

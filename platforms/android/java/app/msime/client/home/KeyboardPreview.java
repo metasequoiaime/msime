@@ -106,10 +106,13 @@ public final class KeyboardPreview extends View {
     }
 
     private int accentLabel() {
-        return skin == null ? Color.WHITE : parse(skin.actionForeground());
+        return skin == null ? Color.WHITE : parse(skin.onAccent());
     }
 
-    private int secondary() { return ContextCompat.getColor(getContext(), R.color.text_secondary); }
+    private int secondary() {
+        return skin == null ? ContextCompat.getColor(getContext(), R.color.text_secondary)
+            : parse(skin.secondary());
+    }
 
     @Override protected void onDraw(Canvas canvas) {
         float pad = dp(8);

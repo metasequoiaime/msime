@@ -7,25 +7,26 @@ use msime_client_core::account::{
 };
 use msime_client_core::preferences::{
     ChineseScheme, FrequencyMode, InputScheme, Preferences, ShuangpinProfile, TouchKeyboardLayout,
-    TouchKeyboardScheme, TouchKeyboardSkin, TouchKeyboardSkinDesign,
+    TouchKeyboardScheme, TouchKeyboardSkinDesign,
 };
+use msime_client_core::skin::theme::GlobalTheme;
 use msime_tauri_mobile_platform::IosKeyboardPreferences;
 use std::collections::BTreeMap;
 
 fn decoded_custom_skin(
     value: Option<&str>,
-    fallback: &TouchKeyboardSkinDesign,
-) -> TouchKeyboardSkinDesign {
+    fallback: Option<&TouchKeyboardSkinDesign>,
+) -> Option<TouchKeyboardSkinDesign> {
     value
         .and_then(|value| serde_json::from_str::<TouchKeyboardSkinDesign>(value).ok())
         .map(TouchKeyboardSkinDesign::normalized)
-        .unwrap_or_else(|| fallback.clone())
+        .or_else(|| fallback.cloned())
 }
 
 pub(crate) fn local_account_preferences(
     native: &IosKeyboardPreferences,
     shared: &Preferences,
-    fallback_custom_skin: &TouchKeyboardSkinDesign,
+    fallback_custom_skin: Option<&TouchKeyboardSkinDesign>,
 ) -> Result<BTreeMap<String, AccountPreferenceValue>, AccountError> {
     if !native.is_valid() {
         return Err(AccountError::Storage);
@@ -80,12 +81,21 @@ pub(crate) fn local_account_preferences(
     settings.extend(frequency_account_preferences(&shared.frequency));
     insert_string(
         &mut settings,
-        "platform.ios.keyboard_skin",
-        &native.keyboard_skin,
+        "platform.ios.global_theme",
+        &native.global_theme,
     );
-    let custom = decoded_custom_skin(native.custom_keyboard_skin.as_deref(), fallback_custom_skin);
-    let custom = serde_json::to_string(&custom).map_err(|_| AccountError::Invalid)?;
-    insert_string(&mut settings, "platform.ios.custom_keyboard_skin", &custom);
+    insert_string(
+        &mut settings,
+        "platform.ios.custom_theme_base",
+        shared.custom_theme.base.id(),
+    );
+    // A custom theme without a keyboard design draws its base's keyboard; there is no design to upload then, and the cloud keeps whatever design it has.
+    if let Some(custom) =
+        decoded_custom_skin(native.custom_keyboard_skin.as_deref(), fallback_custom_skin)
+    {
+        let custom = serde_json::to_string(&custom).map_err(|_| AccountError::Invalid)?;
+        insert_string(&mut settings, "platform.ios.custom_keyboard_skin", &custom);
+    }
     Ok(settings)
 }
 
@@ -138,7 +148,8 @@ pub(crate) struct IosPreferencePlan {
     frequency_mode: Option<FrequencyMode>,
     frequency_trigger_count: Option<u8>,
     frequency_linear_step: Option<u8>,
-    keyboard_skin: Option<String>,
+    global_theme: Option<String>,
+    custom_theme_base: Option<GlobalTheme>,
     custom_keyboard_skin: Option<TouchKeyboardSkinDesign>,
 }
 
@@ -202,23 +213,20 @@ impl IosPreferencePlan {
         {
             return Err(AccountError::Invalid);
         }
-        let keyboard_skin = string_setting(values, "platform.ios.keyboard_skin")?;
-        if keyboard_skin.as_deref().is_some_and(|value| {
-            !matches!(
-                value,
-                "forest"
-                    | "ocean"
-                    | "rose"
-                    | "porcelain"
-                    | "typewriter"
-                    | "candy"
-                    | "midnight"
-                    | "blueprint"
-                    | "custom"
-            )
-        }) {
+        let global_theme = string_setting(values, "platform.ios.global_theme")?;
+        if global_theme
+            .as_deref()
+            .is_some_and(|value| GlobalTheme::from_id(value).is_none())
+        {
             return Err(AccountError::Invalid);
         }
+        let custom_theme_base = string_setting(values, "platform.ios.custom_theme_base")?
+            .map(|value| {
+                GlobalTheme::from_id(&value)
+                    .filter(|base| base.is_base())
+                    .ok_or(AccountError::Invalid)
+            })
+            .transpose()?;
         let custom_keyboard_skin = string_setting(values, "platform.ios.custom_keyboard_skin")?
             .map(|value| {
                 serde_json::from_str::<TouchKeyboardSkinDesign>(&value)
@@ -252,7 +260,8 @@ impl IosPreferencePlan {
             frequency_mode,
             frequency_trigger_count,
             frequency_linear_step,
-            keyboard_skin,
+            global_theme,
+            custom_theme_base,
             custom_keyboard_skin,
         })
     }
@@ -283,8 +292,8 @@ impl IosPreferencePlan {
         if let Some(value) = self.dictionary_learning {
             requested.dictionary_learning = value;
         }
-        if let Some(value) = &self.keyboard_skin {
-            requested.keyboard_skin.clone_from(value);
+        if let Some(value) = &self.global_theme {
+            requested.global_theme.clone_from(value);
         }
         if let Some(value) = &self.custom_keyboard_skin {
             requested.custom_keyboard_skin =
@@ -313,11 +322,15 @@ impl IosPreferencePlan {
         if self.dictionary_learning.is_some() {
             preferences.learning = native.dictionary_learning;
         }
-        if self.keyboard_skin.is_some() {
-            preferences.touch_keyboard_skin = touch_skin(&native.keyboard_skin)?;
+        if self.global_theme.is_some() {
+            preferences.global_theme =
+                GlobalTheme::from_id(&native.global_theme).ok_or(AccountError::Invalid)?;
+        }
+        if let Some(value) = self.custom_theme_base {
+            preferences.custom_theme.base = value;
         }
         if let Some(value) = &self.custom_keyboard_skin {
-            preferences.custom_touch_keyboard_skin = value.clone();
+            preferences.custom_theme.keyboard = Some(value.clone());
         }
         if let Some(value) = self.frequency_mode {
             preferences.frequency.mode = value;
@@ -345,21 +358,6 @@ fn touch_scheme(value: &str) -> Result<TouchKeyboardScheme, AccountError> {
         "japanese" => Ok(TouchKeyboardScheme::Japanese),
         "handwriting" => Ok(TouchKeyboardScheme::Handwriting),
         "thoughtfulReply" => Ok(TouchKeyboardScheme::ThoughtfulReply),
-        _ => Err(AccountError::Invalid),
-    }
-}
-
-fn touch_skin(value: &str) -> Result<TouchKeyboardSkin, AccountError> {
-    match value {
-        "forest" => Ok(TouchKeyboardSkin::Forest),
-        "ocean" => Ok(TouchKeyboardSkin::Ocean),
-        "rose" => Ok(TouchKeyboardSkin::Rose),
-        "porcelain" => Ok(TouchKeyboardSkin::Porcelain),
-        "typewriter" => Ok(TouchKeyboardSkin::Typewriter),
-        "candy" => Ok(TouchKeyboardSkin::Candy),
-        "midnight" => Ok(TouchKeyboardSkin::Midnight),
-        "blueprint" => Ok(TouchKeyboardSkin::Blueprint),
-        "custom" => Ok(TouchKeyboardSkin::Custom),
         _ => Err(AccountError::Invalid),
     }
 }
@@ -437,8 +435,8 @@ mod tests {
     use msime_client_core::account::{AccountError, AccountPreferenceValue, AccountPreferences};
     use msime_client_core::preferences::{
         InputScheme, Preferences, ShuangpinProfile, TouchKeyboardLayout, TouchKeyboardScheme,
-        TouchKeyboardSkin,
     };
+    use msime_client_core::skin::theme::GlobalTheme;
     use msime_tauri_mobile_platform::IosKeyboardPreferences;
     use std::collections::BTreeMap;
 
@@ -455,16 +453,26 @@ mod tests {
             haptics_available: true,
             tablet_full_keys: None,
             dictionary_learning: false,
-            keyboard_skin: "custom".into(),
+            global_theme: "custom".into(),
             custom_keyboard_skin: None,
         }
     }
 
     #[test]
+    fn the_native_theme_allowlist_is_the_global_theme_ids() {
+        for theme in GlobalTheme::ALL {
+            let mut native = native();
+            native.global_theme = theme.id().into();
+            assert!(native.is_valid(), "{}", theme.id());
+        }
+        let mut native = native();
+        native.global_theme = "midnight".into();
+        assert!(!native.is_valid());
+    }
+
+    #[test]
     fn upload_maps_the_complete_apple_ios_preference_surface() {
-        let settings =
-            local_account_preferences(&native(), &Preferences::default(), &Default::default())
-                .unwrap();
+        let settings = local_account_preferences(&native(), &Preferences::default(), None).unwrap();
         assert_eq!(
             settings["input.schema"],
             AccountPreferenceValue::String("japanese".into())
@@ -482,11 +490,20 @@ mod tests {
             "platform.ios.haptics_enabled",
             "platform.ios.haptic_strength",
             "platform.ios.dictionary_learning",
-            "platform.ios.keyboard_skin",
-            "platform.ios.custom_keyboard_skin",
+            "platform.ios.global_theme",
+            "platform.ios.custom_theme_base",
         ] {
             assert!(settings.contains_key(key), "missing {key}");
         }
+        // No design anywhere: the key is left out rather than uploading a design nobody made.
+        assert!(!settings.contains_key("platform.ios.custom_keyboard_skin"));
+        let design = msime_client_core::preferences::TouchKeyboardSkinDesign::default();
+        let settings =
+            local_account_preferences(&native(), &Preferences::default(), Some(&design)).unwrap();
+        assert_eq!(
+            settings["platform.ios.custom_keyboard_skin"],
+            AccountPreferenceValue::String(serde_json::to_string(&design).unwrap())
+        );
         for key in [
             "input.frequency_mode",
             "input.frequency_trigger_count",
@@ -535,6 +552,20 @@ mod tests {
                 Err(AccountError::Invalid)
             );
         }
+        for base in ["custom", "fluent"] {
+            let invalid = AccountPreferences {
+                revision: 7,
+                settings: BTreeMap::from([(
+                    "platform.ios.custom_theme_base".into(),
+                    AccountPreferenceValue::String(base.into()),
+                )]),
+            };
+            assert_eq!(
+                IosPreferencePlan::from_cloud(&invalid),
+                Err(AccountError::Invalid),
+                "{base}"
+            );
+        }
     }
 
     #[test]
@@ -559,8 +590,12 @@ mod tests {
                     AccountPreferenceValue::Boolean(false),
                 ),
                 (
-                    "platform.ios.keyboard_skin".into(),
-                    AccountPreferenceValue::String("ocean".into()),
+                    "platform.ios.global_theme".into(),
+                    AccountPreferenceValue::String("night".into()),
+                ),
+                (
+                    "platform.ios.custom_theme_base".into(),
+                    AccountPreferenceValue::String("paper".into()),
                 ),
                 (
                     "input.frequency_mode".into(),
@@ -579,7 +614,7 @@ mod tests {
         let plan = IosPreferencePlan::from_cloud(&cloud).unwrap();
         let mut native = native();
         native.input_scheme = "japaneseNineKey".into();
-        native.keyboard_skin = "ocean".into();
+        native.global_theme = "night".into();
         let mut preferences = Preferences::default();
         preferences.clipboard_history = true;
         plan.apply_shared(&native, &mut preferences).unwrap();
@@ -594,7 +629,9 @@ mod tests {
         );
         assert!(preferences.traditional_chinese_output);
         assert!(!preferences.learning);
-        assert_eq!(preferences.touch_keyboard_skin, TouchKeyboardSkin::Ocean);
+        assert_eq!(preferences.global_theme, GlobalTheme::Night);
+        assert_eq!(preferences.custom_theme.base, GlobalTheme::Paper);
+        assert_eq!(preferences.custom_theme.keyboard, None);
         assert_eq!(preferences.frequency.mode.as_str(), "linear");
         assert_eq!(preferences.frequency.trigger_count, 7);
         assert_eq!(preferences.frequency.linear_step, 4);

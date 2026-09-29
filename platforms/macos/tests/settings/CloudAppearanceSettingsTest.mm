@@ -10,7 +10,11 @@ int main() {
     assert([initial[@"platform.macos.candidate_page_size"] isEqual:@9]);
     assert([initial[@"platform.macos.candidate_panel_style"] isEqual:@0]);
     assert(MSIMEValidateCloudAppearance(initial));
-    assert(initial.count == 23);
+    assert(initial.count == 25);
+    // A fresh install is on the system theme with no custom base or package.
+    assert([initial[@"platform.macos.global_theme"] isEqual:@"system"]);
+    assert([initial[@"platform.macos.custom_theme_base"] isEqual:@"system"]);
+    assert([initial[@"platform.macos.custom_candidate_skin"] isEqual:@""]);
     assert([initial[@"platform.macos.quanpin_helpcode_schema"] isEqual:@1]);
     assert([initial[@"platform.macos.shuangpin_helpcode_schema"] isEqual:@0]);
     assert([initial[@"platform.macos.local_input_modes"] isEqual:@YES]);
@@ -24,6 +28,9 @@ int main() {
     assert([japaneseNativeSnapshot[@"platform.macos.input_scheme"] isEqual:@0]);
     assert(MSIMEValidateCloudAppearance(japaneseNativeSnapshot));
     NSMutableDictionary *values = [initial mutableCopy];
+    values[@"platform.macos.global_theme"] = @"custom";
+    values[@"platform.macos.custom_theme_base"] = @"night";
+    values[@"platform.macos.custom_candidate_skin"] = @"wide-card";
     values[@"platform.macos.candidate_panel_style"] = @1;
     values[@"platform.macos.candidate_font_size"] = @20;
     values[@"platform.macos.candidate_page_size"] = @7;
@@ -122,8 +129,29 @@ int main() {
     [defaults setObject:@{@"quanpin": @{@"schema": @"invalid"}} forKey:@"MSIMEClientHelpcodeOptions"];
     assert([MSIMECloudAppearanceSnapshot(defaults)[@"platform.macos.quanpin_helpcode_schema"] isEqual:@1]);
     assert(MSIMEApplyCloudAppearance(saved, defaults));
-    values = [saved mutableCopy]; values[@"platform.macos.candidate_skin"] = @"../unsafe";
+    // The retired per-host skin key is an unexpected field now, and the three theme keys accept only their own values.
+    values = [saved mutableCopy]; values[@"platform.macos.candidate_skin"] = @"wechat";
     assert(!MSIMEApplyCloudAppearance(values, defaults));
+    NSDictionary *invalidThemes = @{@"platform.macos.global_theme": @[@"fluent", @"", @"../unsafe", @1, NSNull.null],
+                                    @"platform.macos.custom_theme_base": @[@"custom", @"fluent", @"", @1, NSNull.null],
+                                    @"platform.macos.custom_candidate_skin": @[@"../unsafe", @"shuishan", @"custom", @1, NSNull.null]};
+    for (NSString *key in invalidThemes) {
+      for (id invalid in invalidThemes[key]) {
+        NSMutableDictionary *bad = [saved mutableCopy]; bad[key] = invalid;
+        assert(!MSIMEApplyCloudAppearance(bad, defaults));
+        assert([MSIMECloudAppearanceSnapshot(defaults) isEqual:saved]);
+      }
+    }
+    // A stored value outside the catalog exports as the default rather than poisoning the upload.
+    [defaults setObject:@"fluent" forKey:@"MSIMEClientGlobalTheme"];
+    [defaults setObject:@"custom" forKey:@"MSIMEClientCustomThemeBase"];
+    [defaults setObject:@"../unsafe" forKey:@"MSIMEClientCustomCandidateSkin"];
+    NSDictionary *sanitized = MSIMECloudAppearanceSnapshot(defaults);
+    assert([sanitized[@"platform.macos.global_theme"] isEqual:@"system"]);
+    assert([sanitized[@"platform.macos.custom_theme_base"] isEqual:@"system"]);
+    assert([sanitized[@"platform.macos.custom_candidate_skin"] isEqual:@""]);
+    assert(MSIMEValidateCloudAppearance(sanitized));
+    assert(MSIMEApplyCloudAppearance(saved, defaults));
     values = [saved mutableCopy]; values[@"unexpected"] = @1;
     assert(!MSIMEApplyCloudAppearance(values, defaults));
     MSIMERemoveTestPreferenceSuite(defaults, suite);

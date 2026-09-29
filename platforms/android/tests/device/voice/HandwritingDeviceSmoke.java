@@ -171,7 +171,8 @@ public final class HandwritingDeviceSmoke extends DeviceSmoke {
             if (!equalsText(PREVIEW_PACKAGE, node.getPackageName()) || node.getText() == null)
                 return false;
             String text = node.getText().toString();
-            return "换行".equals(text) || "前往".equals(text) || "搜索".equals(text)
+            // 确认 is the return key while a composition is open.
+            return "换行".equals(text) || "确认".equals(text) || "前往".equals(text) || "搜索".equals(text)
                 || "发送".equals(text) || "下一项".equals(text) || "完成".equals(text)
                 || "上一项".equals(text);
         };

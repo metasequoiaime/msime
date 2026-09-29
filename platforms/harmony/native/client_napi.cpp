@@ -191,6 +191,7 @@ static napi_value invalid(napi_env env, const char *message) {
 
 TEXT_ENTRY(LoadPreferences, msime_client_load_preferences)
 TEXT_ENTRY(SkinCatalog, msime_client_skin_catalog)
+TEXT_ENTRY(ResolveTheme, msime_client_resolve_theme)
 TEXT_ENTRY(DictionaryManifest, msime_client_dictionary_manifest)
 TEXT_ENTRY(SkinResource, msime_client_skin_resource)
 TEXT_ENTRY(SkinToolbarStylesheet, msime_client_skin_toolbar_stylesheet)
@@ -794,6 +795,11 @@ static napi_value AbiVersion(napi_env env, napi_callback_info) {
     return output;
 }
 
+// The global theme picker takes no argument: the ids, titles and palettes all come from the shared catalog.
+static napi_value ThemeCatalog(napi_env env, napi_callback_info) {
+    return response(env, msime_client_theme_catalog());
+}
+
 static napi_value HostCapabilities(napi_env env, napi_callback_info info) {
     std::vector<napi_value> argv;
     std::string platform;
@@ -908,6 +914,8 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("simplifiedToTraditional", SimplifiedToTraditional),
         ENTRY("loadPreferences", LoadPreferences),
         ENTRY("skinCatalog", SkinCatalog),
+        ENTRY("themeCatalog", ThemeCatalog),
+        ENTRY("resolveTheme", ResolveTheme),
         ENTRY("dictionaryManifest", DictionaryManifest),
         ENTRY("skinResource", SkinResource),
         ENTRY("skinToolbarStylesheet", SkinToolbarStylesheet),

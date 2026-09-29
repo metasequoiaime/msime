@@ -13,7 +13,7 @@ final class KeyboardFormFactorTests: XCTestCase {
     XCTAssertEqual(KeyboardFormFactor.resolve(idiom: .phone, horizontalSizeClass: .compact), .phone)
   }
 
-  /// 手机高度保持原值;平板更高,而且横屏比竖屏高,与系统键盘一致。
+  /// 手机高度保持原值;平板竖屏按设计稿的 54pt 键高定(见 testDesignKeyHeights),横屏更高,与系统键盘一致。
   func testHeights() {
     XCTAssertEqual(KeyboardFormFactor.phone.baseHeight(landscape: false, handwriting: false), 260)
     XCTAssertEqual(KeyboardFormFactor.phone.baseHeight(landscape: false, handwriting: true), 260)
@@ -28,6 +28,36 @@ final class KeyboardFormFactorTests: XCTestCase {
     XCTAssertGreaterThan(KeyboardFormFactor.tablet.baseHeight(landscape: true, handwriting: false, numberRow: true), landscape + 40)
     XCTAssertTrue(KeyboardFormFactor.tablet.canShowFullKeys)
     XCTAssertFalse(KeyboardFormFactor.phone.canShowFullKeys)
+  }
+
+  /// The drawn key heights at the default row spacing. The iPad keys are the design's 54pt (dc.html L1559 `keyH`), with or without the digit row. The phone keeps its 260pt keyboard, which leaves its keys above the 44pt touch target the layout tests hold them to, rather than the design's 42pt.
+  @MainActor
+  func testDesignKeyHeights() throws {
+    let defaults = KeyboardLayoutPreference.defaults
+    let keys = [KeyboardLayoutPreference.rowSpacingKey, KeyboardLayoutPreference.heightAdjustmentKey, KeyboardLayoutPreference.tabletFullKeysKey]
+    let stored = keys.map { defaults.object(forKey: $0) }
+    defer { for (key, value) in zip(keys, stored) { defaults.set(value, forKey: key) } }
+    keys.forEach { defaults.removeObject(forKey: $0) }
+    KeyboardLayoutPreference.rowSpacing = 7
+
+    func letterHeight(tablet: Bool, width: CGFloat, height: CGFloat) throws -> CGFloat {
+      let controller = KeyboardViewController()
+      if tablet {
+        controller.traitOverrides.userInterfaceIdiom = .pad
+        controller.traitOverrides.horizontalSizeClass = .regular
+      }
+      controller.loadViewIfNeeded()
+      controller.view.frame = CGRect(x: 0, y: 0, width: width, height: height + KeyboardViewController.stripExtraHeight)
+      controller.view.layoutIfNeeded()
+      return try key("letterDeleteKey", in: controller).bounds.height
+    }
+    let phone = try letterHeight(tablet: false, width: 393, height: KeyboardFormFactor.phone.baseHeight(landscape: false, handwriting: false))
+    XCTAssertGreaterThanOrEqual(phone, 44)
+    let withRow = try letterHeight(tablet: true, width: 820, height: KeyboardFormFactor.tablet.baseHeight(landscape: false, handwriting: false, numberRow: true))
+    XCTAssertEqual(withRow, 54, accuracy: 0.5)
+    KeyboardLayoutPreference.tabletFullKeys = false
+    let plain = try letterHeight(tablet: true, width: 820, height: KeyboardFormFactor.tablet.baseHeight(landscape: false, handwriting: false))
+    XCTAssertEqual(plain, 54, accuracy: 0.5)
   }
 
   /// iPad 全尺寸键盘有数字行和 Tab 键，可以在设置里关掉；手机（以及 iPad 的窄键盘）始终没有。

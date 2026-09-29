@@ -1,5 +1,5 @@
-import { SettingCheck } from "./setting-check";
-import { SettingToggle } from "./setting-toggle";
+import { Checks, GroupList, Row, Slider, Switch } from "../core/platform-controls";
+import * as settings from "./settings-style";
 
 export type TouchToolbarPreferences = {
   layout: boolean;
@@ -23,6 +23,7 @@ const defaultTouchToolbar: TouchToolbarPreferences = {
   punctuation: false,
 };
 
+/// In the order the buttons sit on the touch keyboard's toolbar, after the voice entry.
 const touchToolbarOptions: readonly [keyof TouchToolbarPreferences, string][] = [
   ["layout", "键盘设置"],
   ["emoji", "表情"],
@@ -52,7 +53,7 @@ export interface TouchKeyboardGeometrySectionProps {
   onReset: () => void;
 }
 
-/** Shared touch keyboard size, toolbar, and reset controls. */
+/** Shared touch keyboard size, toolbar, and reset controls: the 触屏键盘尺寸 group. */
 export function TouchKeyboardGeometrySection({
   heightAdjustment,
   keySpacingTenths,
@@ -73,111 +74,74 @@ export function TouchKeyboardGeometrySection({
   const toolbarValues = { ...defaultTouchToolbar, ...toolbar };
 
   return (
-    <div className="section" role="group" aria-labelledby="touch-keyboard-geometry-title">
-      <div className="section-title" id="touch-keyboard-geometry-title">
-        触屏键盘尺寸
-        <small>
-          与 Apple 键盘一致，只改变触屏键位外观，不改变输入方案或 Engine
-          组合状态；也可以直接在下方预览上左右拖动调节键距、上下拖动调节行距。
-        </small>
-      </div>
-      <label className="section-header">
-        <span className="section-title">
-          键盘高度{" "}
-          <small>
-            {heightAdjustment > 0 ? "+" : ""}
-            {heightAdjustment} dp
-          </small>
+    <GroupList title="触屏键盘尺寸">
+      <p className={settings.groupNote}>
+        与 Apple 键盘一致，只改变触屏键位外观，不改变输入方案或 Engine
+        组合状态；也可以直接在下方预览上左右拖动调节键距、上下拖动调节行距。
+      </p>
+      <Row
+        title="键盘高度"
+        description={`${heightAdjustment > 0 ? "+" : ""}${heightAdjustment} dp`}
+      >
+        <span className={settings.sliderControl}>
+          <Slider min={-12} max={48} value={heightAdjustment} onChange={onHeightAdjustmentChange} />
         </span>
-        <input
-          aria-label="键盘高度"
-          type="range"
-          min="-12"
-          max="48"
-          step="1"
-          value={heightAdjustment}
-          onChange={(event) => onHeightAdjustmentChange(Number(event.target.value))}
-        />
-      </label>
-      <div className="input-option-divider" />
-      <label className="section-header">
-        <span className="section-title">
-          按键间距 <small>{(keySpacingTenths / 10).toFixed(1)} dp</small>
+      </Row>
+      <Row title="按键间距" description={`${(keySpacingTenths / 10).toFixed(1)} dp`}>
+        <span className={settings.sliderControl}>
+          <Slider min={30} max={60} value={keySpacingTenths} onChange={onKeySpacingChange} />
         </span>
-        <input
-          aria-label="按键间距"
-          type="range"
-          min="30"
-          max="60"
-          step="1"
-          value={keySpacingTenths}
-          onChange={(event) => onKeySpacingChange(Number(event.target.value))}
-        />
-      </label>
-      <div className="input-option-divider" />
-      <label className="section-header">
-        <span className="section-title">
-          行间距 <small>{(rowSpacingTenths / 10).toFixed(1)} dp</small>
+      </Row>
+      <Row title="行间距" description={`${(rowSpacingTenths / 10).toFixed(1)} dp`}>
+        <span className={settings.sliderControl}>
+          <Slider min={40} max={100} value={rowSpacingTenths} onChange={onRowSpacingChange} />
         </span>
-        <input
-          aria-label="行间距"
-          type="range"
-          min="40"
-          max="100"
-          step="1"
-          value={rowSpacingTenths}
-          onChange={(event) => onRowSpacingChange(Number(event.target.value))}
-        />
-      </label>
-      <div className="input-option-divider" />
-      <SettingToggle
-        label="顶部语音入口"
-        description="在触屏键盘工具栏直接打开最近一次语音结果"
-        ariaLabel="顶部语音入口"
-        checked={touchVoiceShortcut}
-        compact
-        onChange={onTouchVoiceShortcutChange}
-      />
+      </Row>
+      <Row title="顶部语音入口" description="在触屏键盘工具栏直接打开最近一次语音结果">
+        <Switch checked={touchVoiceShortcut} onChange={onTouchVoiceShortcutChange} />
+      </Row>
       {toolbarComponents && (
-        <>
-          <div className="input-option-divider" />
-          <div className="section-title">
-            工具栏按钮
-            <small>勾选要显示在键盘顶部工具栏的功能；未勾选的仍在「更多」里</small>
-          </div>
-          {touchToolbarOptions.map(([key, label]) => (
-            <SettingCheck
-              key={key}
-              label={label}
-              ariaLabel={`工具栏：${label}`}
-              checked={toolbarValues[key]}
-              onChange={(enabled) => onToolbarChange({ ...toolbarValues, [key]: enabled })}
-            />
-          ))}
-        </>
+        <div className={settings.groupBlock}>
+          <Checks
+            legend="工具栏按钮"
+            description="勾选要显示在键盘顶部工具栏的功能；未勾选的仍在「更多」里"
+            items={touchToolbarOptions.map(([key, label]) => ({
+              value: key,
+              // The hidden prefix keeps each box named "工具栏：…" for assistive technology, as the old per-box label did.
+              label: (
+                <>
+                  <span className="sr-only">工具栏：</span>
+                  {label}
+                </>
+              ),
+              checked: toolbarValues[key],
+            }))}
+            onChange={(key, checked) => onToolbarChange({ ...toolbarValues, [key]: checked })}
+          />
+        </div>
       )}
       {tabletFullKeys !== undefined && (
-        <>
-          <div className="input-option-divider" />
-          <SettingToggle
-            label="数字行与 Tab 键"
-            description="iPad 全宽键盘在字母上方显示数字行，并在 Q 左侧显示 Tab 键；浮动键盘和窄窗口没有空间，不显示。"
-            ariaLabel="数字行与 Tab 键"
+        <Row
+          title="数字行与 Tab 键"
+          description="iPad 全宽键盘在字母上方显示数字行，并在 Q 左侧显示 Tab 键；浮动键盘和窄窗口没有空间，不显示。"
+        >
+          <Switch
             disabled={tabletFullKeysBusy}
             checked={tabletFullKeys}
-            compact
             onChange={onTabletFullKeysChange}
           />
-        </>
+        </Row>
       )}
-      <button
-        type="button"
-        className="danger-text"
-        aria-label="恢复屏幕键盘默认设置"
-        onClick={onReset}
-      >
-        恢复默认
-      </button>
-    </div>
+      <Row title="恢复默认" description="高度、间距、顶部语音入口和工具栏按钮回到默认">
+        <button
+          type="button"
+          className="danger-text"
+          aria-label="恢复屏幕键盘默认设置"
+          onClick={onReset}
+        >
+          恢复默认
+        </button>
+      </Row>
+    </GroupList>
   );
 }

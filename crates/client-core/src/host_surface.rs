@@ -539,9 +539,14 @@ pub enum SettingsCategory {
     Account,
     Chat,
     Community,
+    /// 其他平台下载: where to get the client for the user's other devices.
+    Download,
     Appearance,
     Input,
+    /// 表达, the parent of the AI assistant and AI conversation pages.
+    Expression,
     TypingStatistics,
+    /// No longer a page of its own: the helper-code settings are a group of 输入, and the shared UI opens that page for this id (`settingsPageAliases`). Hosts keep sending it.
     Helpcode,
     Shortcuts,
     Dictionary,
@@ -555,6 +560,8 @@ pub enum SettingsCategory {
     Ai,
     Tools,
     FloatingToolbar,
+    /// 开发者选项, which holds the local MCP server.
+    Developer,
     Help,
     About,
     Feedback,
@@ -567,8 +574,10 @@ impl SettingsCategory {
             SettingsCategory::Account => "account",
             SettingsCategory::Chat => "chat",
             SettingsCategory::Community => "community",
+            SettingsCategory::Download => "download",
             SettingsCategory::Appearance => "appearance",
             SettingsCategory::Input => "input",
+            SettingsCategory::Expression => "expression",
             SettingsCategory::TypingStatistics => "typing-statistics",
             SettingsCategory::Helpcode => "helpcode",
             SettingsCategory::Shortcuts => "shortcuts",
@@ -581,6 +590,7 @@ impl SettingsCategory {
             SettingsCategory::Ai => "ai",
             SettingsCategory::Tools => "tools",
             SettingsCategory::FloatingToolbar => "floating-toolbar",
+            SettingsCategory::Developer => "developer",
             SettingsCategory::Help => "help",
             SettingsCategory::About => "about",
             SettingsCategory::Feedback => "feedback",
@@ -592,8 +602,10 @@ impl SettingsCategory {
             "account" => Ok(SettingsCategory::Account),
             "chat" => Ok(SettingsCategory::Chat),
             "community" => Ok(SettingsCategory::Community),
+            "download" => Ok(SettingsCategory::Download),
             "appearance" => Ok(SettingsCategory::Appearance),
             "input" => Ok(SettingsCategory::Input),
+            "expression" => Ok(SettingsCategory::Expression),
             "typing-statistics" => Ok(SettingsCategory::TypingStatistics),
             "helpcode" => Ok(SettingsCategory::Helpcode),
             "shortcuts" => Ok(SettingsCategory::Shortcuts),
@@ -606,6 +618,7 @@ impl SettingsCategory {
             "ai" => Ok(SettingsCategory::Ai),
             "tools" => Ok(SettingsCategory::Tools),
             "floating-toolbar" => Ok(SettingsCategory::FloatingToolbar),
+            "developer" => Ok(SettingsCategory::Developer),
             "help" => Ok(SettingsCategory::Help),
             "about" => Ok(SettingsCategory::About),
             "feedback" => Ok(SettingsCategory::Feedback),
@@ -614,12 +627,14 @@ impl SettingsCategory {
         }
     }
 
-    pub const ALL: [SettingsCategory; 20] = [
+    pub const ALL: [SettingsCategory; 23] = [
         SettingsCategory::Account,
         SettingsCategory::Chat,
         SettingsCategory::Community,
+        SettingsCategory::Download,
         SettingsCategory::Appearance,
         SettingsCategory::Input,
+        SettingsCategory::Expression,
         SettingsCategory::TypingStatistics,
         SettingsCategory::Helpcode,
         SettingsCategory::Shortcuts,
@@ -632,6 +647,7 @@ impl SettingsCategory {
         SettingsCategory::Ai,
         SettingsCategory::Tools,
         SettingsCategory::FloatingToolbar,
+        SettingsCategory::Developer,
         SettingsCategory::Help,
         SettingsCategory::About,
         SettingsCategory::Feedback,

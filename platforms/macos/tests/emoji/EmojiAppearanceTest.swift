@@ -7,8 +7,8 @@ import SwiftUI
     for light in [false, true] {
       let palette = MacEmojiPalette(light: light)
       let expected: [UInt32] = light
-        ? [0xF7F7FA, 0x202027, 0x686873, 0xE0D7E5, 0xD3C7D9, 0x9A62AD]
-        : [0x202027, 0xF5F5F7, 0xAFAFB7, 0x3B3B44, 0x555560, 0xD88BDE]
+        ? [0xF7F7FA, 0x202027, 0x686873, 0xDFE8E5, 0xCEDED7, 0x2C7A4B]
+        : [0x202027, 0xF5F5F7, 0xAFAFB7, 0x3B3B44, 0x555560, 0x5FBF84]
       assert([palette.background, palette.text, palette.muted, palette.selected, palette.pressed, palette.accent] == expected)
       for rgb in expected {
         let renderer = ImageRenderer(content: Rectangle().fill(MacEmojiPalette.color(rgb)).frame(width: 8, height: 8))

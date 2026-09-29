@@ -152,7 +152,7 @@ mod tests {
         let files = tempfile::tempdir().unwrap();
         let state = tempfile::tempdir().unwrap();
         let root = state.path().join("skins");
-        for name in ["Sakura", "willow_green", "樱花"] {
+        for name in ["Sakura", "night", "custom", "樱花"] {
             assert_eq!(import(&picked(files.path(), name), &root), Err("skin_name"));
         }
         let bare = files.path().join("bare");

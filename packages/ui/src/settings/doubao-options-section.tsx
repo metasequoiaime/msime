@@ -1,3 +1,6 @@
+import { GroupList, Row, Switch } from "../core/platform-controls";
+import * as settings from "./settings-style";
+
 export interface DoubaoOptionsSectionProps {
   linux: boolean;
   enableItn: boolean;
@@ -23,41 +26,27 @@ export function DoubaoOptionsSection({
   onBoostingTableIdChange,
 }: DoubaoOptionsSectionProps) {
   return (
-    <div className="section">
-      <div className="section-title">
-        豆包识别选项
-        <small>{linux ? "由 provider 服务应用" : "随识别请求发送给豆包"}</small>
-      </div>
-      <SettingToggle
-        label="数字格式化"
-        ariaLabel="数字格式化"
-        checked={enableItn}
-        compact
-        onChange={onEnableItnChange}
-      />
-      <SettingToggle
-        label="标点预测"
-        ariaLabel="标点预测"
-        checked={enablePunc}
-        compact
-        onChange={onEnablePuncChange}
-      />
-      <SettingToggle
-        label="语义顺滑"
-        ariaLabel="语义顺滑"
-        checked={enableDdc}
-        compact
-        onChange={onEnableDdcChange}
-      />
-      <label className="section-header">
-        <span className="section-title">热词表 ID</span>
+    <GroupList title="豆包识别选项">
+      <p className={settings.groupNote}>
+        {linux ? "由 provider 服务应用" : "随识别请求发送给豆包"}
+      </p>
+      <Row title="数字格式化">
+        <Switch aria-label="数字格式化" checked={enableItn} onChange={onEnableItnChange} />
+      </Row>
+      <Row title="标点预测">
+        <Switch aria-label="标点预测" checked={enablePunc} onChange={onEnablePuncChange} />
+      </Row>
+      <Row title="语义顺滑">
+        <Switch aria-label="语义顺滑" checked={enableDdc} onChange={onEnableDdcChange} />
+      </Row>
+      <Row title="热词表 ID">
         <input
           aria-label="热词表 ID"
           value={boostingTableId}
           onChange={(event) => onBoostingTableIdChange(event.target.value)}
         />
-      </label>
-    </div>
+      </Row>
+    </GroupList>
   );
 }
 import { SettingToggle } from "./setting-toggle";

@@ -1,130 +1,69 @@
 import SwiftUI
 import UIKit
 
-private struct CardPressStyle: ButtonStyle {
-  func makeBody(configuration: Configuration) -> some View {
-    configuration.label
-      .scaleEffect(configuration.isPressed ? 0.96 : 1)
-      .opacity(configuration.isPressed ? 0.88 : 1)
-      .animation(.spring(response: 0.28, dampingFraction: 0.7), value: configuration.isPressed)
-  }
-}
-
+/// The 设置 tab on a phone: the keyboard status card, then the settings pages in the grouped list of the mobile design. The rows come from SettingsPage, which the iPad sidebar reads as well.
 struct SettingsView: View {
   @Environment(\.scenePhase) private var scenePhase
   @State private var scheme = InputSchemePreference.scheme
-  @State private var skin = KeyboardSkinPreference.selected
-  @State private var layout = KeyboardLayoutPreference.geometry
-  @State private var design = CustomKeyboardSkinStore.current
+  @State private var skin = KeyboardTheme.current
+  /// The candidate font size the keyboard draws (dc.html NAV_VAL: 候选栏 shows it as "18px").
+  @State private var candidateSize = CandidateFontPreference.defaultCandidateSize
+  @State private var query = ""
+
   private var skinName: String {
-    skin == .custom ? (CustomSkinLibrary.designs.first { $0.design == design }?.name ?? "自定义皮肤") : skin.title
+    guard let design = skin.design else { return skin.title }
+    return CustomSkinLibrary.designs.first { $0.design == design }?.name ?? skin.title
   }
+
   var body: some View {
-      ScrollView {
-        VStack(alignment: .leading, spacing: 20) {
-          VStack(alignment: .leading, spacing: 5) {
-            Text("让输入，更像你").font(.system(size: 27, weight: .bold))
-            Text("从一次顺手的表达开始").font(.subheadline).foregroundStyle(.secondary)
-          }.padding(.top, 5)
-          keyboardCard
-          HStack(spacing: 10) {
-            NavigationLink(destination: SkinSettingsView()) {
-              quickEntry("皮肤", subtitle: skinName, symbol: "paintpalette.fill")
-            }.accessibilityIdentifier("skinSettingsLink")
-            NavigationLink(destination: InputSettingsView()) {
-              quickEntry("输入方案", subtitle: scheme.title, symbol: "keyboard.fill")
-            }.accessibilityIdentifier("inputSettingsLink")
-            NavigationLink(destination: KeyboardLayoutSettingsView()) {
-              quickEntry("按键", subtitle: "间距与语音", symbol: "slider.horizontal.3")
-            }.accessibilityIdentifier("keyboardLayoutLink")
-          }.buttonStyle(CardPressStyle())
-          HStack(spacing: 10) {
-            NavigationLink(destination: DictionarySettingsView()) {
-              quickEntry("词库", subtitle: "个人词与同步", symbol: "books.vertical.fill")
-            }.accessibilityIdentifier("dictionarySettingsLink")
-            NavigationLink(destination: ServiceSettingsView(kind: .ai)) {
-              quickEntry("AI", subtitle: "回复与润色", symbol: "sparkles")
-            }.accessibilityIdentifier("aiSettingsLink")
-            Button {
-              guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
-              UIApplication.shared.open(url)
-            } label: {
-              quickEntry("系统设置", subtitle: "启用与完全访问", symbol: "gearshape.fill")
-            }.accessibilityIdentifier("openKeyboardSettingsButton")
-          }.buttonStyle(CardPressStyle())
-        }.padding(.horizontal, 16).padding(.bottom, 20)
-      }.background(MetasequoiaTheme.canvas)
-        .navigationTitle("").navigationBarTitleDisplayMode(.inline)
-        .onAppear { refresh() }
-        .onChange(of: scenePhase) { if $0 == .active { refresh() } }
-      .tint(MetasequoiaTheme.accent)
-  }
-  private var keyboardCard: some View {
-    NavigationLink(destination: KeyboardTryoutView(focusOnAppear: true)) {
-      VStack(alignment: .leading, spacing: 13) {
-        HStack {
-          VStack(alignment: .leading, spacing: 4) {
-            Text("我的键盘").font(.headline).foregroundStyle(.primary)
-            Text("\(skinName) · \(scheme.title)").font(.caption).foregroundStyle(.secondary).lineLimit(1)
-          }
-          Spacer(minLength: 5)
-          Text("当前外观").font(.system(size: 10, weight: .medium)).foregroundStyle(MetasequoiaTheme.accent)
-            .padding(.horizontal, 9).padding(.vertical, 5).background(MetasequoiaTheme.forest.opacity(0.08), in: Capsule())
+    let groups = SettingsPage.matching(query)
+    List {
+      if query.isEmpty {
+        Section {
+          KeyboardStatusCard(scheme: scheme)
+          NavigationLink(destination: KeyboardTryoutView(focusOnAppear: true)) {
+            SettingsNavLabel(title: "试用键盘", symbol: "text.cursor")
+          }.accessibilityIdentifier("keyboardTryoutLink")
         }
-        Group {
-          if scheme == .thoughtfulReply { replyPreview }
-          else if scheme == .handwriting {
-            KeyboardPreviewCanvas {
-              VStack(spacing: 12) {
-                Text("手写输入").font(.headline)
-                Image(systemName: "hand.draw").font(.system(size: 48)).foregroundStyle(MetasequoiaTheme.forest)
-                Text("在键盘上书写，停笔后选择候选文字").font(.subheadline)
-                Text("撤销一笔 · 清空 · 选字上屏").font(.caption).foregroundStyle(.secondary)
-              }.frame(maxWidth: .infinity, maxHeight: .infinity).background(MetasequoiaTheme.canvas)
+      }
+      ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
+        Section {
+          ForEach(group) { page in
+            NavigationLink(destination: page.destination) {
+              SettingsNavLabel(title: page.title, symbol: page.symbol, value: value(for: page))
             }
-          }
-          else { KeyboardSkinPreview(skin: skin, nineKey: scheme == .nineKey, layout: layout).id(design) }
-        }.clipShape(RoundedRectangle(cornerRadius: 13)).allowsHitTesting(false).accessibilityHidden(true)
-        HStack(spacing: 7) {
-          Image(systemName: "keyboard")
-          Text("试用键盘").fontWeight(.semibold)
-          Spacer()
-          Image(systemName: "arrow.right")
-        }.font(.subheadline).foregroundStyle(.white).padding(.horizontal, 14).frame(height: 44)
-          .background(MetasequoiaTheme.forest, in: RoundedRectangle(cornerRadius: 12))
-      }.padding(14).background(MetasequoiaTheme.surface, in: RoundedRectangle(cornerRadius: 22))
-    }.buttonStyle(.plain).accessibilityIdentifier("keyboardTryoutLink")
-  }
-  private var replyPreview: some View {
-    KeyboardPreviewCanvas {
-    VStack(spacing: 5) {
-      Text("帮你回 · 帮润色").font(.caption.weight(.medium)).frame(maxWidth: .infinity, alignment: .leading).padding(6)
-      ForEach([["专属回复", "暖心关怀", "捧场王"], ["恋人", "幽默风趣", "成熟稳重"], ["土味情话", "高情商", "委婉拒绝"]], id: \.self) { row in
-        HStack(spacing: 5) {
-          ForEach(row, id: \.self) { text in
-            Text(text).font(.system(size: 11, weight: .medium)).frame(maxWidth: .infinity).frame(maxHeight: .infinity)
-              .background(Color(uiColor: skin.keyBackground), in: RoundedRectangle(cornerRadius: 7))
+            .accessibilityIdentifier(page.linkIdentifier)
+            .accessibilityValue(value(for: page) ?? "")
           }
         }
       }
-    }.padding(8).foregroundStyle(Color(uiColor: skin.keyForeground)).background(Color(uiColor: skin.background))
+    }
+    .listStyle(.insetGrouped)
+    .environment(\.defaultMinListRowHeight, 52)
+    .overlay {
+      if groups.isEmpty { ContentUnavailableView.search(text: query) }
+    }
+    .navigationTitle("设置")
+    .navigationBarTitleDisplayMode(.large)
+    .searchable(text: $query, prompt: "搜索设置")
+    .onAppear { refresh() }
+    .onChange(of: scenePhase) { if $0 == .active { refresh() } }
+    .tint(MetasequoiaTheme.accent)
+  }
+
+  private func value(for page: SettingsPage) -> String? {
+    switch page {
+    case .skin: return skinName
+    case .input: return scheme.title
+    case .candidate: return "\(candidateSize)px"
+    default: return nil
     }
   }
-  private func quickEntry(_ title: String, subtitle: String, symbol: String) -> some View {
-    VStack(alignment: .leading, spacing: 7) {
-      Image(systemName: symbol)
-        .font(.system(size: 17, weight: .semibold))
-        .foregroundStyle(Color.accentColor)
-        .frame(width: 34, height: 34)
-        .background(Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 11))
-      Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
-      Text(subtitle).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
-    }.frame(maxWidth: .infinity, alignment: .leading).padding(12)
-      .background(MetasequoiaTheme.surface, in: RoundedRectangle(cornerRadius: 17))
-  }
+
   private func refresh() {
-    scheme = InputSchemePreference.scheme; skin = KeyboardSkinPreference.selected
-    design = CustomKeyboardSkinStore.current
-    layout = KeyboardLayoutPreference.geometry
+    scheme = InputSchemePreference.scheme
+    let preferences = MetasequoiaInputSessionBridge.loadSharedPreferences()
+    skin = KeyboardTheme.reload(preferences)
+    candidateSize = CandidateFontPreference.candidateSize(in: preferences, tablet: UIDevice.current.userInterfaceIdiom == .pad)
   }
 }

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:id="@+id/tab_keyboard" android:icon="@drawable/ic_tab_keyboard" android:title="@string/tab_keyboard" />
+    <item android:id="@+id/tab_settings" android:icon="@drawable/ic_tab_settings" android:title="@string/tab_settings" />
     <item android:id="@+id/tab_community" android:icon="@drawable/ic_tab_community" android:title="@string/tab_community" />
     <item android:id="@+id/tab_statistics" android:icon="@drawable/ic_tab_statistics" android:title="@string/tab_statistics" />
     <item android:id="@+id/tab_account" android:icon="@drawable/ic_tab_account" android:title="@string/tab_account" />

@@ -52,7 +52,8 @@ struct SkinCommunityView: View {
       }
     }
     .navigationTitle(onlyMine ? "我发布的皮肤" : (embedded ? "社区" : "皮肤社区"))
-    .navigationBarTitleDisplayMode(.inline)
+    // Embedded is the 社区 tab's own list, which carries the tab's large title.
+    .navigationBarTitleDisplayMode(embedded ? .large : .inline)
     .refreshable { do { try await load() } catch { message = error.localizedDescription } }
     .task {
       signedIn = (try? await api.signedIn()) ?? false
@@ -104,8 +105,8 @@ private struct CommunitySkinCard: View {
         Spacer(minLength: 2)
         Label(skin.rating_count == 0 ? "暂无评分" : String(format: "%.1f", skin.rating_average), systemImage: "star")
       }.font(.system(size: 10)).foregroundStyle(.secondary)
-    }.padding(10).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 19))
-      .overlay(RoundedRectangle(cornerRadius: 19).strokeBorder(Color.primary.opacity(0.035), lineWidth: 1))
+    }.padding(10).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: MetasequoiaTheme.cardRadius, style: .continuous))
+      .overlay(RoundedRectangle(cornerRadius: MetasequoiaTheme.cardRadius, style: .continuous).strokeBorder(Color.primary.opacity(0.035), lineWidth: 1))
   }
 
 }
@@ -276,7 +277,7 @@ struct CommunityDesignPreview: View {
       }
       HStack(spacing: 3) { key("123"); key("，"); key("空格").frame(minWidth: 100); key("↵") }.frame(height: 44)
     }.padding(10).background {
-      KeyboardSkinBackdrop(skin: .custom, design: design)
+      KeyboardSkinBackdrop(skin: .designed(design))
     }.clipShape(RoundedRectangle(cornerRadius: 12)).accessibilityHidden(true)
   }
   private func key(_ text: String) -> some View {

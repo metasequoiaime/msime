@@ -56,7 +56,7 @@ import SwiftUI
     }
     let selectedRect = cells[3].rect
     let pixel = (Int((selectedRect.minY + 12) * 3) * image.width + Int((selectedRect.minX + 12) * 3)) * 4
-    for (channel, expected) in [224, 215, 229].enumerated() {
+    for (channel, expected) in [223, 232, 229].enumerated() {
       assert(abs(Int(pixels[pixel + channel]) - expected) <= 2)
     }
     print("Emoji flow geometry, fitting, wrapping, navigation and native rendering passed")

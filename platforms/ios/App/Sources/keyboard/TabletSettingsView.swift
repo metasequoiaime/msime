@@ -1,73 +1,84 @@
 import SwiftUI
 import UIKit
 
-/// The keyboard tab at regular width (iPad full screen or a wide Split View pane).
+/// The 设置 tab at regular width (iPad full screen or a wide Split View pane).
 ///
-/// A phone walks one stack from the card dashboard. On an iPad the same stack stretches a column of cards across the whole screen and every page replaces the dashboard, so the sections live in a sidebar instead and each one opens beside it. The dashboard stays as the first section because it carries the keyboard preview and the try-out entry.
+/// A phone walks one stack from the grouped list. On an iPad that list would stretch across the whole screen and every page would replace it, so the design splits it: a 320pt sidebar with the status card, search and the same groups as the phone, and the selected page beside it in a column no wider than 720pt.
 struct TabletSettingsView: View {
-  enum Page: String, Hashable, CaseIterable, Identifiable {
-    case home, skin, input, layout, dictionary, ai
-    var id: Self { self }
-    var title: String {
+  enum Destination: Hashable {
+    case tryout
+    case page(SettingsPage)
+
+    var identifier: String {
       switch self {
-      case .home: return "我的键盘"
-      case .skin: return "皮肤"
-      case .input: return "输入方案"
-      case .layout: return "按键"
-      case .dictionary: return "词库"
-      case .ai: return "AI"
-      }
-    }
-    var symbol: String {
-      switch self {
-      case .home: return "keyboard"
-      case .skin: return "paintpalette.fill"
-      case .input: return "keyboard.fill"
-      case .layout: return "slider.horizontal.3"
-      case .dictionary: return "books.vertical.fill"
-      case .ai: return "sparkles"
+      case .tryout: return "tabletSettings.tryout"
+      case .page(let page): return "tabletSettings.\(page.rawValue)"
       }
     }
   }
 
-  @State private var selection: Page? = .home
+  @Environment(\.scenePhase) private var scenePhase
+  @State private var selection: Destination? = .page(.skin)
   @State private var columns = NavigationSplitViewVisibility.all
+  @State private var scheme = InputSchemePreference.scheme
+  @State private var query = ""
 
   var body: some View {
     NavigationSplitView(columnVisibility: $columns) {
-      List(selection: $selection) {
-        ForEach(Page.allCases) { page in
-          Label(page.title, systemImage: page.symbol).tag(page)
-            .accessibilityIdentifier("tabletSettings.\(page.rawValue)")
-        }
-        Section {
-          Button {
-            guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
-            UIApplication.shared.open(url)
-          } label: {
-            Label("系统设置", systemImage: "gearshape.fill")
-          }.accessibilityIdentifier("tabletSettings.system")
-        } footer: {
-          Text("在系统设置中启用水杉输入法并开启完全访问。")
-        }
-      }
-      .navigationTitle("键盘")
+      sidebar
+        .navigationSplitViewColumnWidth(320)
     } detail: {
       // A fresh stack per section, so switching sections never leaves a page from the previous one on top.
-      NavigationStack { page(selection ?? .home) }.id(selection)
+      NavigationStack {
+        detail(selection ?? .page(.skin))
+          .frame(maxWidth: 720)
+          .frame(maxWidth: .infinity)
+          .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+      }.id(selection)
     }
     .navigationSplitViewStyle(.balanced)
     .tint(MetasequoiaTheme.accent)
+    .onAppear { scheme = InputSchemePreference.scheme }
+    .onChange(of: scenePhase) { if $0 == .active { scheme = InputSchemePreference.scheme } }
   }
 
-  @ViewBuilder private func page(_ page: Page) -> some View {
-    switch page {
-    case .home: SettingsView()
-    case .skin: SkinSettingsView()
-    case .input: InputSettingsView()
-    case .layout: KeyboardLayoutSettingsView()
-    case .dictionary: DictionarySettingsView()
-    case .ai: ServiceSettingsView(kind: .ai)
+  private var sidebar: some View {
+    let groups = SettingsPage.matching(query)
+    return List(selection: $selection) {
+      if query.isEmpty {
+        Section {
+          KeyboardStatusCard(scheme: scheme)
+          row("试用键盘", symbol: "text.cursor", destination: .tryout)
+        }
+      }
+      ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
+        Section {
+          ForEach(group) { page in row(page.title, symbol: page.symbol, destination: .page(page)) }
+        }
+      }
+    }
+    .listStyle(.insetGrouped)
+    .environment(\.defaultMinListRowHeight, 44)
+    .overlay {
+      if groups.isEmpty { ContentUnavailableView.search(text: query) }
+    }
+    .searchable(text: $query, placement: .sidebar, prompt: "搜索设置")
+    .navigationTitle("设置")
+  }
+
+  private func row(_ title: String, symbol: String, destination: Destination) -> some View {
+    // A selection list's cell swallows identifiers set inside its row, so the row is made one element that carries the identifier itself.
+    SettingsNavLabel(title: title, symbol: symbol)
+      .accessibilityElement(children: .combine)
+      .accessibilityAddTraits(.isButton)
+      .accessibilityIdentifier(destination.identifier)
+      .tag(destination)
+  }
+
+  @ViewBuilder private func detail(_ destination: Destination) -> some View {
+    switch destination {
+    case .tryout: KeyboardTryoutView(focusOnAppear: true)
+    case .page(let page): page.destination
     }
   }
 }

@@ -4,7 +4,7 @@ private enum IOSCloudSettings {
   static func snapshot() throws -> [String: BackendPreferenceValue] {
     let scheme = InputSchemePreference.scheme
     let name = scheme.isJapanese ? "japanese" : scheme.shuangpinProfile != nil ? "shuangpin" : ((scheme == .nineKey || scheme == .thoughtfulReply || scheme == .handwriting) ? "quanpin" : scheme.rawValue)
-    let skinData = try JSONEncoder().encode(CustomKeyboardSkinStore.current)
+    let document = MetasequoiaInputSessionBridge.loadSharedPreferences()
     var settings: [String: BackendPreferenceValue] = [
       "input.schema": .string(name),
       "input.character_set": .string(ChineseOutputPreference.usesTraditional ? "traditional" : "simplified"),
@@ -13,31 +13,43 @@ private enum IOSCloudSettings {
       "platform.ios.haptics_enabled": .boolean(KeyboardFeedbackPreference.hapticsEnabled),
       "platform.ios.haptic_strength": .string(KeyboardFeedbackPreference.hapticStrength.rawValue),
       "platform.ios.dictionary_learning": .boolean(
-        InputHabitPreference.settings(in: MetasequoiaInputSessionBridge.loadSharedPreferences()).learning),
-      "platform.ios.keyboard_skin": .string(KeyboardSkinPreference.selected.rawValue),
-      "platform.ios.custom_keyboard_skin": .string(String(decoding: skinData, as: UTF8.self))
+        InputHabitPreference.settings(in: document).learning),
+      "platform.ios.global_theme": .string(document.map(GlobalThemePreference.theme(in:)) ?? GlobalThemePreference.selected),
+      "platform.ios.custom_theme_base": .string(GlobalThemePreference.base(in: document))
     ]
+    // A custom theme without a keyboard design draws its base's keyboard; there is no design to upload then, and the cloud keeps whatever design it has (as the Tauri plugin does).
+    if let design = document == nil ? CustomKeyboardSkinStore.stored : GlobalThemePreference.design(in: document) {
+      settings["platform.ios.custom_keyboard_skin"] = .string(String(decoding: try JSONEncoder().encode(design), as: UTF8.self))
+    }
     if let profile = scheme.shuangpinProfile { settings["input.shuangpin_schema"] = .string(profile) }
     return settings
   }
   static func apply(_ values: [String: BackendPreferenceValue]) throws {
-    let plan = try IOSPreferencePlan(values)
+    let plan = try IOSPreferencePlan(values, themes: Set(GlobalThemeCatalog.ids))
     let custom = try plan.customSkinJSON.map { try JSONDecoder().decode(CustomKeyboardSkin.self, from: Data($0.utf8)).normalized }
+    let design = try custom.map { skin -> [String: Any] in
+      guard let value = CustomKeyboardSkin.documentValue(skin) else { throw CocoaError(.fileWriteUnknown) }
+      return value
+    }
     // Validate everything before writing. Unknown platforms' values stay in the
     // cloud and are never assigned to local defaults.
-    // Learning, the skin, the scheme and the output form live in the shared document, which the keyboard copies over the App Group on every reload. Those are the writes that can fail, so they go first and a failure leaves every App Group setting unchanged.
+    // Learning, the theme, the scheme and the output form live in the shared document, which the keyboard copies over the App Group on every reload. Those are the writes that can fail, so they go first and a failure leaves every App Group setting unchanged.
     if let learning = plan.learning, InputHabitPreference.update({ $0.learning = learning }) == nil {
       throw CocoaError(.fileWriteUnknown)
     }
-    let skin = plan.skin.flatMap(KeyboardSkin.init(rawValue:))
     let scheme = plan.scheme.flatMap(ChineseInputScheme.init(rawValue:))
     let enabled = InputSchemePreference.enabledSchemes
-    guard let skinFields = KeyboardSkinPreference.documentMapping(skin, design: custom) else {
-      throw CocoaError(.fileWriteUnknown)
-    }
     let schemeFields = scheme.flatMap { MetasequoiaInputSessionBridge.schemeMapping($0, enabledSchemes: enabled) }
     let written = MetasequoiaInputSessionBridge.updateSharedPreferences { document in
-      skinFields(&document)
+      if let theme = plan.globalTheme { document["global_theme"] = theme }
+      if plan.customThemeBase != nil || design != nil {
+        var customTheme = GlobalThemePreference.customTheme(in: document)
+        if let base = plan.customThemeBase {
+          if base == GlobalThemeCatalog.systemId { customTheme.removeValue(forKey: "base") } else { customTheme["base"] = base }
+        }
+        if let design { customTheme["keyboard"] = design }
+        document["custom_theme"] = customTheme
+      }
       schemeFields?(&document)
       if let traditional = plan.traditional { document[ChineseOutputPreference.documentKey] = traditional }
     }
@@ -48,8 +60,7 @@ private enum IOSCloudSettings {
     if let sound = plan.sound { defaults.set(sound, forKey: KeyboardFeedbackPreference.soundKey) }
     if let haptics = plan.haptics { defaults.set(haptics, forKey: KeyboardFeedbackPreference.hapticsKey) }
     if let strength = plan.strength { defaults.set(strength, forKey: KeyboardFeedbackPreference.strengthKey) }
-    if let custom { CustomKeyboardSkinStore.save(custom) }
-    if let skin { defaults.set(skin.rawValue, forKey: KeyboardSkinPreference.key) }
+    if let document = MetasequoiaInputSessionBridge.loadSharedPreferences() { GlobalThemePreference.mirror(document) }
   }
 }
 

@@ -35,6 +35,7 @@
 #include "../src/candidates/CandidateTranslationPolicy.h"
 #include "../src/candidates/PairedPunctuation.h"
 #include "../src/core/CandidateSkinCatalog.h"
+#include "../src/core/GlobalTheme.h"
 #include "../src/core/DictionaryQuiesceLease.h"
 #include "../src/core/RuntimeOptionsRefresh.h"
 #include "../src/core/FirstRunGuidance.h"
@@ -71,6 +72,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <initializer_list>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -79,6 +81,7 @@
 #include <cmath>
 #include <spawn.h>
 #include <unistd.h>
+#include <utility>
 #include <vector>
 #include <cstring>
 #include <cctype>
@@ -117,6 +120,8 @@ struct PendingPreferenceSave {
   std::string section;
   std::string key;
   Json value;
+  // The value is a 主题 menu change (theme_choice_change): it writes global_theme and custom_theme together rather than one key.
+  bool theme_choice = false;
 };
 
 // ABI buffers and errors never escape into diagnostics or the panel.
@@ -142,7 +147,8 @@ Json savePreference(const PendingPreferenceSave &request) {
   if (!snapshot.is_object() || !snapshot.contains("revision") ||
       !snapshot.contains("preferences") || !snapshot.at("preferences").is_object())
     return Json::object();
-  if (request.section.empty()) snapshot["preferences"][request.key] = request.value;
+  if (request.theme_choice) msime::linux_host::apply_theme_choice(snapshot["preferences"], request.value);
+  else if (request.section.empty()) snapshot["preferences"][request.key] = request.value;
   else snapshot["preferences"][request.section][request.key] = request.value;
   const auto encoded = snapshot.dump();
   return response(msime_client_save_preferences(
@@ -272,27 +278,35 @@ CandidateSkinCatalog parseCandidateSkinCatalog(const Json &options) {
   return msime::linux_host::parse_configured_skins(options);
 }
 
-// 内置皮肤与默认皮肤来自共享层，宿主不留副本。ABI 的答案在进程内不变，取一次即可；
-// 取不到时保持空列表，让当前皮肤按「外部」显示，而不是在这里补一份会漂的内置表。
-const Json &builtinSkinDocument() {
+// 主题目录来自共享层，宿主不留 id 或标题的副本。ABI 的答案在进程内不变，取一次即可；取不到时主题菜单只剩外部皮肤，而不是在这里补一份会漂的表。
+const Json &themeCatalog() {
   static const Json document = [] {
     try {
-      return response(msime_client_builtin_skins());
-    } catch (...) {
+      return response(msime_client_theme_catalog());
+    } catch (const std::exception &) {
       return Json::object();
     }
   }();
   return document;
 }
 
-const std::vector<msime::linux_host::CandidateSkin> &builtinSkins() {
-  static const auto skins = msime::linux_host::parse_builtin_skins(builtinSkinDocument());
-  return skins;
-}
-
-std::string defaultSkin() {
-  static const auto value = msime::linux_host::default_skin(builtinSkinDocument());
-  return value;
+// The candidate colours for one preferences document, resolved by the shared layer (msime_client_resolve_theme) in the mode candidate_theme settles on. The package is a catalogue entry the shared layer reads strictly, and one it refuses fails the whole call, so that costs only the package: the theme is resolved again without it. A call that still fails draws the native tokens.
+msime::linux_host::CandidateTheme resolveCandidateTheme(const Json &preferences, bool system_dark,
+                                                        const Json &catalog) {
+  const bool dark = msime::linux_host::candidate_dark_theme(preferences, system_dark);
+  auto request = msime::linux_host::candidate_theme_request(preferences, dark, catalog);
+  while (true) {
+    try {
+      const auto encoded = request.dump();
+      return msime::linux_host::candidate_theme_colors(
+          response(msime_client_resolve_theme(reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())),
+          dark);
+    } catch (const std::exception &) {
+      if (!request.contains("package")) break;
+      request.erase("package");
+    }
+  }
+  return msime::linux_host::candidate_theme_colors(Json::object(), dark);
 }
 
 std::string providerSocket(const Json &options, const char *option,
@@ -330,11 +344,12 @@ bool launchDesktopPanel(const char *panel) {
   if (!panel || !*panel) return false;
   const char *command = std::getenv("MSIME_CLIENT_SETTINGS_COMMAND");
   if (!command || !*command) command = "msime-linux-settings";
-  // About, help and feedback are settings sections, not desktop surfaces, so each travels as "settings:<category>" exactly as the IBus host sends it; the bare name is not a route head and the shared parser would reject it, leaving the window on its home page.
-  const char *page = std::strcmp(panel, "about") == 0      ? "about"
-                     : std::strcmp(panel, "help") == 0     ? "help"
-                     : std::strcmp(panel, "feedback") == 0 ? "feedback"
-                                                           : nullptr;
+  // About, help, feedback and the local dictionary are settings sections, not desktop surfaces, so each travels as "settings:<category>" exactly as the IBus host sends it; the bare name is not a route head and the shared parser would reject it, leaving the window on its home page.
+  const char *page = std::strcmp(panel, "about") == 0        ? "about"
+                     : std::strcmp(panel, "help") == 0       ? "help"
+                     : std::strcmp(panel, "feedback") == 0   ? "feedback"
+                     : std::strcmp(panel, "dictionary") == 0 ? "dictionary"
+                                                             : nullptr;
   const std::string route = page ? std::string("settings:") + page : panel;
   const std::string panelValue = page ? "settings" : panel;
   std::vector<std::string> environment;
@@ -554,12 +569,15 @@ public:
     render();
     return true;
   }
+  // The schemes in the order of the view's scheme index, which is also the order the status action steps through them.
+  static constexpr std::array<const char *, 4> kSchemes = {"quanpin", "shuangpin", "wubi", "japanese"};
   bool cycleScheme() {
     if (!session_ || restricted() || privateInput()) return false;
-    static constexpr std::array<const char *, 4> schemes = {
-        "quanpin", "shuangpin", "wubi", "japanese"};
     const auto current = view_.value("scheme", 0u);
-    const auto next = schemes[(current + 1) % schemes.size()];
+    return selectScheme(kSchemes[(current + 1) % kSchemes.size()]);
+  }
+  bool selectScheme(const char *next) {
+    if (!session_ || restricted() || privateInput()) return false;
     if (!view_.value("editing_text", std::string{}).empty())
       command(MSIME_FINISH_COMPOSITION);
     // The shared settings page and the IBus host both offer "中文" as a way back
@@ -860,6 +878,7 @@ public:
     return true;
   }
   void refreshToolbar();
+  void refreshThemeMenu();
   void syncCandidatePanelFont();
   void syncCandidatePanelTheme();
   void syncVoiceAction();
@@ -1161,20 +1180,35 @@ public:
     render();
     return true;
   }
-  bool cycleCandidateSkin() {
+  std::vector<msime::linux_host::ThemeChoice> themeChoices() const {
+    return msime::linux_host::theme_choices(themeCatalog(), candidate_skin_catalog_);
+  }
+  std::string currentThemeChoice() const {
+    return msime::linux_host::current_theme_choice(preferences_, themeChoices());
+  }
+  // Choose one 主题 menu entry: the session takes the new theme at once and the store is written behind it, as the other status-bar choices are.
+  bool setThemeChoice(const std::string &id) {
     if (!session_ || restricted() || privateInput()) return false;
-    const auto current = preferences_.value("candidate_skin", defaultSkin());
-    const auto skins =
-        msime::linux_host::candidate_skin_list(builtinSkins(), candidate_skin_catalog_, current);
-    const auto next = msime::linux_host::next_candidate_skin(skins, current);
-    if (!view_.value("editing_text", std::string{}).empty())
-      command(MSIME_FINISH_COMPOSITION);
-    saveStringPreference("candidate_skin", next);
-    waitForPreferenceSave();
-    skin_override_ = next;
-    close();
-    if (!ensure()) return false;
-    view_ = response(msime_client_focus(session_, true)).at("view");
+    const auto choices = themeChoices();
+    if (msime::linux_host::current_theme_choice(preferences_, choices) == id) return false;
+    const auto change = msime::linux_host::theme_choice_change(choices, id);
+    if (!change) return false;
+    auto snapshot = preferences_snapshot_;
+    if (!snapshot.is_object() || !snapshot.contains("revision") ||
+        !snapshot.contains("preferences")) return false;
+    // 自定义 while the custom theme is drawn over a listed package changes no preference, and nothing is written.
+    const auto before = snapshot["preferences"];
+    msime::linux_host::apply_theme_choice(snapshot["preferences"], *change);
+    if (snapshot["preferences"] == before) return false;
+    const auto encoded = effectiveContextSnapshot(snapshot).dump();
+    view_ = response(msime_client_update_preferences(
+        session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
+    preferences_ = snapshot.at("preferences");
+    applyContextOverrides(preferences_);
+    preferences_snapshot_ = std::move(snapshot);
+    if (!options_path_.empty() && !private_)
+      startPreferenceSave({options_path_, {}, {}, *change, true});
+    syncCandidatePanelTheme();
     render();
     return true;
   }
@@ -1276,7 +1310,6 @@ public:
           ? "shuangpin_helpcode" : "quanpin_helpcode";
       preferences[section]["schema"] = *helpcode_schema_override_;
     }
-    if (skin_override_) preferences["candidate_skin"] = *skin_override_;
   }
   // A status-bar save that has not landed: its retry is still pending for this very key.
   bool unsavedChoice(const char *section, const char *key) const {
@@ -1388,6 +1421,7 @@ public:
     if (msime::linux_host::dictionary_quiesced(dictionary_user_data_)) return false;
     candidate_skin_catalog_ = parseCandidateSkinCatalog(options);
     candidate_skin_document_ = options.value("candidate_skin_catalog", Json());
+    refreshThemeMenu();
     // The skin catalogue is for this host's own menu; the Host API rejects an
     // options document carrying a field it does not know, so leaving it in
     // means no session can ever open on a deployment that installed skins.
@@ -1642,6 +1676,7 @@ public:
       }
       candidate_skin_catalog_ = parseCandidateSkinCatalog(options);
       candidate_skin_document_ = options.value("candidate_skin_catalog", Json());
+      refreshThemeMenu();
       syncCandidatePanelTheme();
       // Runtime options can move the shared clipboard history while this
       // input context remains focused. Keep the same path precedence as the
@@ -2973,7 +3008,6 @@ public:
   bool scheme_unsaved_ = false;
   bool shuangpin_profile_unsaved_ = false;
   bool helpcode_schema_unsaved_ = false;
-  std::optional<std::string> skin_override_;
   CandidateSkinCatalog candidate_skin_catalog_;
   // The catalogue as runtime-options.json carries it, palettes included: an installed skin's colours are read from here when the classic UI theme is built.
   Json candidate_skin_document_;
@@ -3318,7 +3352,7 @@ public:
   FcitxModeAction(fcitx::FactoryFor<FcitxState> *factory, Mode mode)
       : factory_(factory), mode_(mode) { setCheckable(true); }
   std::string shortText(fcitx::InputContext *) const override {
-    return mode_ == Mode::EnglishCandidates ? "英文输入模式" : "全角";
+    return mode_ == Mode::EnglishCandidates ? "英文输入模式" : "全角字符";
   }
   std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
   bool isChecked(fcitx::InputContext *ic) const override {
@@ -3355,7 +3389,7 @@ public:
   explicit FcitxInputModeAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
     setCheckable(true);
   }
-  std::string shortText(fcitx::InputContext *) const override { return "中文输入"; }
+  std::string shortText(fcitx::InputContext *) const override { return "中文"; }
   std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
   bool isChecked(fcitx::InputContext *ic) const override {
     return ic && ic->propertyFor(factory_)->session_ && ic->propertyFor(factory_)->input_enabled_;
@@ -3385,6 +3419,8 @@ public:
     }
   }
   std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  void setMenu(fcitx::Menu *menu) { fcitx::SimpleAction::setMenu(menu); }
+  // Front ends open the scheme menu instead of activating an action that has one; stepping stays for a caller that activates it directly.
   void activate(fcitx::InputContext *ic) override {
     if (!ic || !ic->hasFocus()) return;
     try {
@@ -3397,6 +3433,36 @@ public:
   }
 private:
   fcitx::FactoryFor<FcitxState> *factory_;
+};
+
+// One scheme in the 输入方案 menu, checked while the session types with it.
+class FcitxSchemeItemAction : public fcitx::Action {
+public:
+  FcitxSchemeItemAction(fcitx::FactoryFor<FcitxState> *factory, unsigned index, const char *label)
+      : factory_(factory), index_(index), label_(label) {
+    setCheckable(true);
+  }
+  std::string shortText(fcitx::InputContext *) const override { return label_; }
+  std::string icon(fcitx::InputContext *) const override { return ""; }
+  bool isChecked(fcitx::InputContext *ic) const override {
+    if (!ic) return false;
+    const auto *state = ic->propertyFor(factory_);
+    return state->session_ && state->view_.value("scheme", 0u) == index_;
+  }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus() || isChecked(ic)) return;
+    try {
+      auto *state = ic->propertyFor(factory_);
+      if (state->selectScheme(FcitxState::kSchemes[index_])) update(ic);
+    } catch (...) {
+      ic->propertyFor(factory_)->close();
+      ic->propertyFor(factory_)->clearPanel();
+    }
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+  unsigned index_;
+  const char *label_;
 };
 
 class FcitxShuangpinProfileAction : public fcitx::SimpleAction {
@@ -3904,29 +3970,49 @@ private:
   fcitx::FactoryFor<FcitxState> *factory_;
 };
 
-class FcitxCandidateSkinAction : public fcitx::SimpleAction {
+// One entry of the 主题 menu: a global theme from the shared catalogue, which does not change while the process runs, or an installed skin package, which selects the custom theme drawn over it; the package entries are rebuilt when the catalogue changes (FcitxEngine::rebuildThemeMenu).
+class FcitxGlobalThemeItemAction : public fcitx::Action {
 public:
-  explicit FcitxCandidateSkinAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {}
-  std::string shortText(fcitx::InputContext *ic) const override {
-    if (!ic) return "候选皮肤";
-    const auto *state = ic->propertyFor(factory_);
-    const auto skin = state->preferences_.value("candidate_skin", defaultSkin());
-    return "候选皮肤：" + msime::linux_host::candidate_skin_title(
-        msime::linux_host::candidate_skin_list(builtinSkins(), state->candidate_skin_catalog_,
-                                               skin),
-        skin);
+  FcitxGlobalThemeItemAction(fcitx::FactoryFor<FcitxState> *factory, std::string id, std::string title)
+      : factory_(factory), id_(std::move(id)), title_(std::move(title)) {
+    setCheckable(true);
   }
-  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  std::string shortText(fcitx::InputContext *) const override { return title_; }
+  std::string icon(fcitx::InputContext *) const override { return ""; }
+  bool isChecked(fcitx::InputContext *ic) const override {
+    return ic && ic->propertyFor(factory_)->currentThemeChoice() == id_;
+  }
   void activate(fcitx::InputContext *ic) override {
     if (!ic || !ic->hasFocus()) return;
     try {
       auto *state = ic->propertyFor(factory_);
-      if (state->cycleCandidateSkin()) update(ic);
+      if (state->setThemeChoice(id_)) update(ic);
     } catch (...) {
       ic->propertyFor(factory_)->close();
       ic->propertyFor(factory_)->clearPanel();
     }
   }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+  std::string id_;
+  std::string title_;
+};
+
+class FcitxGlobalThemeAction : public fcitx::SimpleAction {
+public:
+  explicit FcitxGlobalThemeAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
+    setLongText("选择候选窗口、菜单与工具栏的主题");
+  }
+  std::string shortText(fcitx::InputContext *ic) const override {
+    if (!ic) return "主题";
+    const auto *state = ic->propertyFor(factory_);
+    const auto choices = state->themeChoices();
+    const auto *current = msime::linux_host::find_theme_choice(choices, state->currentThemeChoice());
+    return current ? "主题：" + current->title : "主题";
+  }
+  std::string icon(fcitx::InputContext *) const override { return "preferences-desktop-theme"; }
+  void setMenu(fcitx::Menu *menu) { fcitx::SimpleAction::setMenu(menu); }
+  void activate(fcitx::InputContext *) override {}
 private:
   fcitx::FactoryFor<FcitxState> *factory_;
 };
@@ -4082,7 +4168,7 @@ class FcitxCandidateTranslationAction : public fcitx::Action {
 public:
   explicit FcitxCandidateTranslationAction(fcitx::FactoryFor<FcitxState> *factory)
       : factory_(factory) { setCheckable(true); }
-  std::string shortText(fcitx::InputContext *) const override { return "候选翻译"; }
+  std::string shortText(fcitx::InputContext *) const override { return "显示译文"; }
   std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
   bool isChecked(fcitx::InputContext *ic) const override {
     if (!ic) return false;
@@ -4369,10 +4455,27 @@ class FcitxDesktopToolsAction : public fcitx::SimpleAction {
 public:
   FcitxDesktopToolsAction() {
     setShortText("桌面工具");
-    setLongText("打开手写、Emoji、剪贴板和设置等桌面工具");
+    setLongText("打开手写、Emoji、剪贴板和帮助等桌面工具");
   }
   void setMenu(fcitx::Menu *menu) { fcitx::SimpleAction::setMenu(menu); }
   void activate(fcitx::InputContext *) override {}
+};
+
+// A status entry that only opens a menu of existing actions: the option groups of the design menu. The actions inside are the same objects the status area used to list, so each keeps its registered name and behaviour.
+class FcitxMenuGroupAction : public fcitx::SimpleAction {
+public:
+  FcitxMenuGroupAction(const char *text, const char *description) {
+    setShortText(text);
+    setLongText(description);
+  }
+  void setMenu(fcitx::Menu *menu) { fcitx::SimpleAction::setMenu(menu); }
+  void activate(fcitx::InputContext *) override {}
+};
+
+// A rule between parts of a menu. classicui and the StatusNotifierItem menu draw it; kimpanel leaves it out.
+class FcitxMenuSeparatorAction : public fcitx::SimpleAction {
+public:
+  FcitxMenuSeparatorAction() { setSeparator(true); }
 };
 
 class FcitxPreferenceSaveRetryAction : public fcitx::SimpleAction {
@@ -4754,13 +4857,11 @@ public:
   // The candidate colours reach the classic UI as a theme named "msime" in the user's Fcitx5 data directory (see candidates/CandidateFcitxTheme.h). The addon is pointed at it only while it shows one of Fcitx5's stock themes or MSIME's own; a theme the user chose is left in place and MSIME's colours simply don't apply. Setting the configuration also makes the addon read the theme file again, which is how a changed palette appears without a restart.
   void applyCandidatePanelTheme(const Json &preferences, bool system_dark, const Json &catalog) {
     namespace host = msime::linux_host;
-    const auto display =
-        host::candidate_display_preferences(preferences, system_dark, builtinSkins(), defaultSkin(), catalog);
-    const auto colors = host::resolve_candidate_colors(display, defaultSkin());
-    const auto decoration = host::candidate_skin_decoration(
-        catalog, display.value("candidate_skin", defaultSkin()), builtinSkins());
+    const auto resolved = resolveCandidateTheme(preferences, system_dark, catalog);
+    const auto &colors = resolved.colors;
+    const auto decoration = host::candidate_skin_decoration(catalog, resolved.candidate_skin);
     // The decoration's stamp stands in for its image, so an unchanged skin costs a stat per refresh, not a copy.
-    auto theme = host::fcitx_candidate_theme(colors) + host::fcitx_overlay_stamp(decoration);
+    auto theme = host::fcitx_candidate_theme(colors, resolved.dark) + host::fcitx_overlay_stamp(decoration);
     if (theme == candidate_theme_applied_) return;
     auto *classicui = instance_->addonManager().addon("classicui", true);
     if (!classicui || !classicui->getConfig()) return;
@@ -4770,7 +4871,7 @@ public:
     const auto *selected_dark = current.valueByPath("DarkTheme");
     if (!host::fcitx_theme_replaceable(selected ? *selected : std::string{})) return;
     const auto file = host::fcitx_theme_file(std::getenv("XDG_DATA_HOME"), std::getenv("HOME"));
-    if (!file || !host::write_fcitx_candidate_theme(*file, colors, decoration)) return;
+    if (!file || !host::write_fcitx_candidate_theme(*file, colors, resolved.dark, decoration)) return;
     fcitx::RawConfig config;
     config.setValueByPath("Theme", std::string(host::kFcitxCandidateTheme));
     // Fcitx5 releases with a separate dark-mode theme would otherwise switch to their stock dark theme; MSIME already resolves "follow" against the system appearance itself.
@@ -4921,7 +5022,19 @@ public:
     smart_punctuation_repeat_action_.registerAction("msime-smart-punctuation-repeat", &instance->userInterfaceManager());
     candidate_layout_action_.registerAction("msime-candidate-layout", &instance->userInterfaceManager());
     candidate_theme_action_.registerAction("msime-candidate-theme", &instance->userInterfaceManager());
-    candidate_skin_action_.registerAction("msime-candidate-skin", &instance->userInterfaceManager());
+    global_theme_action_.registerAction("msime-global-theme", &instance->userInterfaceManager());
+    global_theme_action_.setMenu(&global_theme_menu_);
+    if (const auto themes = themeCatalog().find("themes"); themes != themeCatalog().end() && themes->is_array())
+      for (const auto &theme : *themes) {
+        if (!theme.is_object() || !theme.value("id", Json()).is_string() || !theme.value("title", Json()).is_string())
+          continue;
+        const auto id = theme.at("id").get<std::string>();
+        global_theme_items_.push_back(
+            std::make_unique<FcitxGlobalThemeItemAction>(&factory_, id, theme.at("title").get<std::string>()));
+        // Registered so the D-Bus menus (StatusNotifierItem, kimpanel), which address items by their registered id, can trigger them too.
+        global_theme_items_.back()->registerAction("msime-global-theme-" + id, &instance->userInterfaceManager());
+        global_theme_menu_.addAction(global_theme_items_.back().get());
+      }
     candidate_page_size_action_.registerAction("msime-candidate-page-size", &instance->userInterfaceManager());
     candidate_page_size_action_.setMenu(&candidate_page_size_menu_);
     candidate_page_size_menu_.addAction(&candidate_page_size1_);
@@ -4971,14 +5084,69 @@ public:
     desktop_tools_menu_.addAction(&desktop_voice_action_);
     desktop_tools_menu_.addAction(&cloud_dictionary_action_);
     desktop_tools_menu_.addAction(&desktop_cloud_clipboard_action_);
-    desktop_tools_menu_.addAction(&settings_action_);
-    desktop_tools_menu_.addAction(&about_action_);
     desktop_tools_menu_.addAction(&help_action_);
     desktop_tools_menu_.addAction(&feedback_action_);
     desktop_tools_menu_.addAction(&reload_service_action_);
     desktop_tools_menu_.addAction(&toolbar_enabled_action_);
     desktop_tools_menu_.addAction(&voice_enabled_action_);
     desktop_tools_menu_.addAction(&preference_save_retry_action_);
+    // The D-Bus menus (StatusNotifierItem, kimpanel) address entries by their registered name and skip an unregistered one, so every entry of the menus below is registered, separators included.
+    for (auto [action, name] : std::initializer_list<std::pair<fcitx::Action *, const char *>>{
+             {&handwriting_action_, "msime-desktop-handwriting"},
+             {&keyboard_action_, "msime-desktop-keyboard"},
+             {&desktop_emoji_action_, "msime-desktop-emoji"},
+             {&desktop_clipboard_action_, "msime-desktop-clipboard"},
+             {&desktop_voice_action_, "msime-desktop-voice"},
+             {&cloud_dictionary_action_, "msime-desktop-cloud-dictionary"},
+             {&desktop_cloud_clipboard_action_, "msime-desktop-cloud-clipboard"},
+             {&help_action_, "msime-desktop-help"},
+             {&feedback_action_, "msime-desktop-feedback"},
+             {&reload_service_action_, "msime-reload-service"},
+             {&toolbar_enabled_action_, "msime-toolbar-enabled"},
+             {&voice_enabled_action_, "msime-voice-enabled"},
+             {&preference_save_retry_action_, "msime-preference-save-retry"},
+             {&dictionary_action_, "msime-dictionary"},
+             {&settings_action_, "msime-settings"},
+             {&about_action_, "msime-about"},
+             {&scheme_quanpin_action_, "msime-scheme-quanpin"},
+             {&scheme_shuangpin_action_, "msime-scheme-shuangpin"},
+             {&scheme_wubi_action_, "msime-scheme-wubi"},
+             {&scheme_japanese_action_, "msime-scheme-japanese"},
+             {&input_group_action_, "msime-group-input"},
+             {&input_group_separator_, "msime-group-input-separator"},
+             {&punctuation_group_action_, "msime-group-punctuation"},
+             {&punctuation_group_separator_, "msime-group-punctuation-separator"},
+             {&candidate_group_action_, "msime-group-candidate"},
+             {&candidate_group_separator_, "msime-group-candidate-separator"}})
+      action->registerAction(name, &instance->userInterfaceManager());
+    // 输入方案 lists the schemes rather than stepping through them on each click.
+    scheme_action_.setMenu(&scheme_menu_);
+    scheme_menu_.addAction(&scheme_quanpin_action_);
+    scheme_menu_.addAction(&scheme_shuangpin_action_);
+    scheme_menu_.addAction(&scheme_wubi_action_);
+    scheme_menu_.addAction(&scheme_japanese_action_);
+    // The design menu keeps 中文/英文, 全角/标点/译文, 输入方案 and 主题/词库…/设置…/关于 at the top; every other switch the status area listed moves, as the same action, into one of three groups.
+    input_group_action_.setMenu(&input_group_menu_);
+    for (auto *action : std::initializer_list<fcitx::Action *>{
+             &shuangpin_profile_action_, &helpcode_action_, &helpcode_schema_action_, &traditional_action_,
+             &mixed_english_action_, &english_action_, &mixed_emoji_action_, &mixed_kaomoji_action_, &english_gloss_action_,
+             &cloud_candidates_action_, &ai_candidates_action_, &number_row_action_, &word_character_action_,
+             &mode_scope_action_, &clipboard_history_action_, &input_group_separator_, &local_unicode_action_,
+             &local_date_time_action_, &local_quick_phrase_action_, &local_emoji_action_, &local_kaomoji_action_,
+             &local_super_jianpin_action_, &local_temporary_english_action_, &local_temporary_japanese_action_})
+      input_group_menu_.addAction(action);
+    punctuation_group_action_.setMenu(&punctuation_group_menu_);
+    for (auto *action : std::initializer_list<fcitx::Action *>{
+             &paired_punctuation_action_, &smart_punctuation_action_, &smart_punctuation_repeat_action_,
+             &punctuation_lock_action_, &punctuation_group_separator_, &sentence_translation_action_,
+             &translation_language_action_})
+      punctuation_group_menu_.addAction(action);
+    candidate_group_action_.setMenu(&candidate_group_menu_);
+    for (auto *action : std::initializer_list<fcitx::Action *>{
+             &candidate_layout_action_, &candidate_page_size_action_, &candidate_theme_action_,
+             &shuangpin_preedit_action_, &wubi_code_hint_action_, &candidate_group_separator_, &learning_action_,
+             &frequency_action_, &frequency_trigger_action_, &frequency_step_action_})
+      candidate_group_menu_.addAction(action);
     emoji_action_.setMenu(&emoji_menu_);
     emoji_menu_.addAction(&emoji_item1_);
     emoji_menu_.addAction(&emoji_item2_);
@@ -5158,65 +5326,24 @@ public:
   }
   void activate(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
     auto *state = event.inputContext()->propertyFor(&factory_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &english_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &input_mode_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &scheme_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &shuangpin_profile_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &width_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &nine_key_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &helpcode_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &mixed_english_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &mixed_emoji_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &mixed_kaomoji_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &local_unicode_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &local_date_time_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &local_quick_phrase_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &local_emoji_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &local_kaomoji_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &local_super_jianpin_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &local_temporary_english_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &local_temporary_japanese_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &english_gloss_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &word_character_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &number_row_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &shuangpin_preedit_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &wubi_code_hint_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &helpcode_schema_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &maintenance_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &clipboard_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &clipboard_history_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &cloud_clipboard_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &emoji_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &emoji_search_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &emoji_category_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &emoji_group_action_);
-    // Added after preferences load so a disabled voice input has no dead action.
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &voice_cancel_action_);
+    auto &status = event.inputContext()->statusArea();
+    // The design menu: 中文/英文; 全角/标点/译文; 输入方案; 主题/词库…/设置…/关于. 中文/英文 is the input-mode toggle Shift flips; the Engine's dedicated English mode is a different feature and sits in 输入选项. kimpanel lists status actions as they are, separators included, so the parts are not divided by rules here.
+    for (auto *action : std::initializer_list<fcitx::Action *>{
+             &input_mode_action_, &width_action_, &chinese_punctuation_action_,
+             &candidate_translation_action_, &scheme_action_, &global_theme_action_, &dictionary_action_,
+             &settings_action_, &about_action_})
+      status.addAction(fcitx::StatusGroup::InputMethod, action);
+    // Tools that depend on the moment: an active recording, the highlighted candidate, nine-key spellings, clipboard and emoji pickers.
+    for (auto *action : std::initializer_list<fcitx::Action *>{
+             &voice_cancel_action_, &maintenance_action_, &nine_key_action_, &clipboard_action_,
+             &cloud_clipboard_action_, &emoji_action_, &emoji_search_action_, &emoji_category_action_,
+             &emoji_group_action_, &input_group_action_, &punctuation_group_action_, &candidate_group_action_})
+      status.addAction(fcitx::StatusGroup::InputMethod, action);
     // Rebuilt from the current preferences rather than assembled once: the
     // switches are a shared document that can change while a context is focused,
     // and the menu is shared too, so there is one place for it to follow.
     event.inputContext()->propertyFor(&factory_)->refreshToolbar();
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &desktop_tools_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &traditional_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &chinese_punctuation_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &paired_punctuation_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &smart_punctuation_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &smart_punctuation_repeat_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &candidate_layout_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &candidate_theme_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &candidate_skin_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &candidate_page_size_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &learning_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &frequency_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &frequency_trigger_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &frequency_step_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &mode_scope_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &candidate_translation_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &sentence_translation_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &punctuation_lock_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &translation_language_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &cloud_candidates_action_);
-    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &ai_candidates_action_);
+    status.addAction(fcitx::StatusGroup::InputMethod, &desktop_tools_action_);
     try {
       if (state->ensure()) {
         if (state->voice_enabled_)
@@ -5230,62 +5357,15 @@ public:
   }
   void deactivate(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
     auto *state = event.inputContext()->propertyFor(&factory_);
-    event.inputContext()->statusArea().removeAction(&english_action_);
-    event.inputContext()->statusArea().removeAction(&input_mode_action_);
-    event.inputContext()->statusArea().removeAction(&scheme_action_);
-    event.inputContext()->statusArea().removeAction(&shuangpin_profile_action_);
-    event.inputContext()->statusArea().removeAction(&width_action_);
-    event.inputContext()->statusArea().removeAction(&nine_key_action_);
-    event.inputContext()->statusArea().removeAction(&helpcode_action_);
-    event.inputContext()->statusArea().removeAction(&mixed_english_action_);
-    event.inputContext()->statusArea().removeAction(&mixed_emoji_action_);
-    event.inputContext()->statusArea().removeAction(&mixed_kaomoji_action_);
-    event.inputContext()->statusArea().removeAction(&local_unicode_action_);
-    event.inputContext()->statusArea().removeAction(&local_date_time_action_);
-    event.inputContext()->statusArea().removeAction(&local_quick_phrase_action_);
-    event.inputContext()->statusArea().removeAction(&local_emoji_action_);
-    event.inputContext()->statusArea().removeAction(&local_kaomoji_action_);
-    event.inputContext()->statusArea().removeAction(&local_super_jianpin_action_);
-    event.inputContext()->statusArea().removeAction(&local_temporary_english_action_);
-    event.inputContext()->statusArea().removeAction(&local_temporary_japanese_action_);
-    event.inputContext()->statusArea().removeAction(&english_gloss_action_);
-    event.inputContext()->statusArea().removeAction(&word_character_action_);
-    event.inputContext()->statusArea().removeAction(&number_row_action_);
-    event.inputContext()->statusArea().removeAction(&shuangpin_preedit_action_);
-    event.inputContext()->statusArea().removeAction(&wubi_code_hint_action_);
-    event.inputContext()->statusArea().removeAction(&helpcode_schema_action_);
-    event.inputContext()->statusArea().removeAction(&maintenance_action_);
-    event.inputContext()->statusArea().removeAction(&clipboard_action_);
-    event.inputContext()->statusArea().removeAction(&clipboard_history_action_);
-    event.inputContext()->statusArea().removeAction(&cloud_clipboard_action_);
-    event.inputContext()->statusArea().removeAction(&emoji_action_);
-    event.inputContext()->statusArea().removeAction(&emoji_search_action_);
-    event.inputContext()->statusArea().removeAction(&emoji_category_action_);
-    event.inputContext()->statusArea().removeAction(&emoji_group_action_);
-    event.inputContext()->statusArea().removeAction(&voice_action_);
-    event.inputContext()->statusArea().removeAction(&voice_cancel_action_);
-    event.inputContext()->statusArea().removeAction(&toolbar_action_);
-    event.inputContext()->statusArea().removeAction(&desktop_tools_action_);
-    event.inputContext()->statusArea().removeAction(&traditional_action_);
-    event.inputContext()->statusArea().removeAction(&chinese_punctuation_action_);
-    event.inputContext()->statusArea().removeAction(&paired_punctuation_action_);
-    event.inputContext()->statusArea().removeAction(&smart_punctuation_action_);
-    event.inputContext()->statusArea().removeAction(&smart_punctuation_repeat_action_);
-    event.inputContext()->statusArea().removeAction(&candidate_layout_action_);
-    event.inputContext()->statusArea().removeAction(&candidate_theme_action_);
-    event.inputContext()->statusArea().removeAction(&candidate_skin_action_);
-    event.inputContext()->statusArea().removeAction(&candidate_page_size_action_);
-    event.inputContext()->statusArea().removeAction(&learning_action_);
-    event.inputContext()->statusArea().removeAction(&frequency_action_);
-    event.inputContext()->statusArea().removeAction(&frequency_trigger_action_);
-    event.inputContext()->statusArea().removeAction(&frequency_step_action_);
-    event.inputContext()->statusArea().removeAction(&mode_scope_action_);
-    event.inputContext()->statusArea().removeAction(&candidate_translation_action_);
-    event.inputContext()->statusArea().removeAction(&sentence_translation_action_);
-    event.inputContext()->statusArea().removeAction(&punctuation_lock_action_);
-    event.inputContext()->statusArea().removeAction(&translation_language_action_);
-    event.inputContext()->statusArea().removeAction(&cloud_candidates_action_);
-    event.inputContext()->statusArea().removeAction(&ai_candidates_action_);
+    // Everything activate() or a later voice or toolbar refresh may have added.
+    for (auto *action : std::initializer_list<fcitx::Action *>{
+             &input_mode_action_, &width_action_, &chinese_punctuation_action_,
+             &candidate_translation_action_, &scheme_action_, &global_theme_action_, &dictionary_action_,
+             &settings_action_, &about_action_, &voice_cancel_action_, &maintenance_action_, &nine_key_action_,
+             &clipboard_action_, &cloud_clipboard_action_, &emoji_action_, &emoji_search_action_,
+             &emoji_category_action_, &emoji_group_action_, &input_group_action_, &punctuation_group_action_,
+             &candidate_group_action_, &voice_action_, &toolbar_action_, &desktop_tools_action_})
+      event.inputContext()->statusArea().removeAction(action);
     state->close(); state->clearPanel();
   }
   void reset(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
@@ -5371,6 +5451,11 @@ public:
   FcitxModeAction english_action_{&factory_, FcitxModeAction::Mode::EnglishCandidates};
   FcitxInputModeAction input_mode_action_{&factory_};
   FcitxSchemeAction scheme_action_{&factory_};
+  fcitx::Menu scheme_menu_;
+  FcitxSchemeItemAction scheme_quanpin_action_{&factory_, 0, "全拼"};
+  FcitxSchemeItemAction scheme_shuangpin_action_{&factory_, 1, "双拼"};
+  FcitxSchemeItemAction scheme_wubi_action_{&factory_, 2, "五笔"};
+  FcitxSchemeItemAction scheme_japanese_action_{&factory_, 3, "日文"};
   FcitxShuangpinProfileAction shuangpin_profile_action_{&factory_};
   FcitxModeAction width_action_{&factory_, FcitxModeAction::Mode::Fullwidth};
   fcitx::Menu nine_key_menu_;
@@ -5424,7 +5509,13 @@ public:
   FcitxSmartPunctuationAction smart_punctuation_repeat_action_{&factory_, FcitxSmartPunctuationAction::Mode::Repeat};
   FcitxCandidateLayoutAction candidate_layout_action_{&factory_};
   FcitxCandidateThemeAction candidate_theme_action_{&factory_};
-  FcitxCandidateSkinAction candidate_skin_action_{&factory_};
+  FcitxGlobalThemeAction global_theme_action_{&factory_};
+  fcitx::Menu global_theme_menu_;
+  std::vector<std::unique_ptr<FcitxGlobalThemeItemAction>> global_theme_items_;
+  // One entry per installed skin package after the global themes, as IBus lists them, and the catalogue they were built from.
+  std::vector<std::unique_ptr<FcitxGlobalThemeItemAction>> global_theme_package_items_;
+  std::vector<std::pair<std::string, std::string>> global_theme_packages_;
+  void rebuildThemeMenu(fcitx::InputContext *ic);
   fcitx::Menu candidate_page_size_menu_;
   FcitxCandidatePageSizeAction candidate_page_size_action_;
   FcitxCandidatePageSizeItemAction candidate_page_size1_{&factory_, 1};
@@ -5481,19 +5572,29 @@ public:
   FcitxDesktopPanelAction desktop_voice_action_{&factory_, "voice", "语音面板"};
   FcitxDesktopPanelAction cloud_dictionary_action_{&factory_, "cloud-dictionary", "云词典"};
   FcitxDesktopPanelAction desktop_cloud_clipboard_action_{&factory_, "cloud-clipboard", "云剪贴板"};
-  FcitxDesktopPanelAction settings_action_{&factory_, "settings", "设置"};
+  FcitxDesktopPanelAction dictionary_action_{&factory_, "dictionary", "词库…"};
+  FcitxDesktopPanelAction settings_action_{&factory_, "settings", "设置…"};
   FcitxToolbarAction toolbar_action_;
   fcitx::Menu toolbar_menu_;
   // What is currently in the submenu, so a rebuild removes exactly what it added.
   std::vector<fcitx::Action *> toolbar_entries_;
   bool toolbarEnabled(fcitx::InputContext *ic);
   void rebuildToolbarMenu(fcitx::InputContext *ic);
-  FcitxDesktopPanelAction about_action_{&factory_, "about", "关于"};
+  FcitxDesktopPanelAction about_action_{&factory_, "about", "关于水杉输入法"};
   FcitxDesktopPanelAction help_action_{&factory_, "help", "帮助"};
   FcitxDesktopPanelAction feedback_action_{&factory_, "feedback", "反馈"};
   FcitxToolbarEnabledAction toolbar_enabled_action_{&factory_};
   FcitxVoiceEnabledAction voice_enabled_action_{&factory_};
   FcitxPreferenceSaveRetryAction preference_save_retry_action_{&factory_};
+  fcitx::Menu input_group_menu_;
+  FcitxMenuGroupAction input_group_action_{"输入选项", "方案细节、混合候选、本地模式与按键选项"};
+  FcitxMenuSeparatorAction input_group_separator_;
+  fcitx::Menu punctuation_group_menu_;
+  FcitxMenuGroupAction punctuation_group_action_{"标点与翻译", "标点细节与候选翻译"};
+  FcitxMenuSeparatorAction punctuation_group_separator_;
+  fcitx::Menu candidate_group_menu_;
+  FcitxMenuGroupAction candidate_group_action_{"候选与词频", "候选窗口、编码显示与词频学习"};
+  FcitxMenuSeparatorAction candidate_group_separator_;
   fcitx::Menu emoji_menu_;
   FcitxEmojiItemAction emoji_item1_{&factory_, 0};
   FcitxEmojiItemAction emoji_item2_{&factory_, 1};
@@ -5530,6 +5631,10 @@ void FcitxState::syncCandidatePanelFont() {
 void FcitxState::syncCandidatePanelTheme() {
   if (engine_ && session_) engine_->applyCandidatePanelTheme(preferences_, system_dark_, candidate_skin_document_);
   if (engine_) engine_->publishCandidatePanelStatus();
+}
+
+void FcitxState::refreshThemeMenu() {
+  if (engine_) engine_->rebuildThemeMenu(&ic_);
 }
 
 void FcitxState::refreshToolbar() {
@@ -5629,9 +5734,9 @@ void FcitxState::maintenance(int operation) {
   }
 }
 
-// The badge takes the candidate panel's appearance: candidate_theme "follow" (跟随全局) defers to the global theme, whose "system" (跟随系统) default follows the desktop, so a light desktop gets a light badge.
-bool fcitx_mode_badge_light_theme(const Json &preferences, bool system_dark) {
-  return !msime::linux_host::candidate_dark_theme(preferences, system_dark);
+// The badge takes the candidate panel's appearance: a global theme with a fixed appearance (水杉 is dark, 纸白 light) decides it; otherwise candidate_theme "follow" (跟随全局) defers to the mode, whose "system" (跟随系统) default follows the desktop, so a light desktop gets a light badge.
+bool fcitx_mode_badge_light_theme(const Json &preferences, bool system_dark, const Json &catalog) {
+  return !resolveCandidateTheme(preferences, system_dark, catalog).dark;
 }
 
 void FcitxState::showInputModeHud() {
@@ -5652,7 +5757,7 @@ void FcitxState::showInputModeHud() {
   // 两个提示各补一半：面板那个由合成器按光标矩形定位，跟着输入点走，但只能显示文字；
   // 自绘徽章带得了 logo，却只能用屏幕坐标固定在一个角上。两者同时发是所有者的选择。
   if (mode_badge_ &&
-      mode_badge_->show(label, MSIME_MODE_BADGE_ICON, fcitx_mode_badge_light_theme(preferences_, system_dark_)))
+      mode_badge_->show(label, MSIME_MODE_BADGE_ICON, fcitx_mode_badge_light_theme(preferences_, system_dark_, candidate_skin_document_)))
     scheduleModeBadgeHide();
 #endif
   if (auto *instance = engine_->instance())
@@ -6306,6 +6411,26 @@ bool FcitxEngine::toolbarEnabled(fcitx::InputContext *ic) {
   return state->session_ &&
          state->preferences_.value("floating_toolbar", Json::object())
              .value("enabled", true);
+}
+
+// The package entries of the 主题 menu follow the skin catalogue in the runtime options, which can change while the process runs; the menu is shared by every context, so it follows the context that last read the catalogue, as the toolbar menu does. Nothing is rebuilt while the packages and their titles stay the same, so an entry is never replaced under a menu that shows it.
+void FcitxEngine::rebuildThemeMenu(fcitx::InputContext *ic) {
+  if (!ic) return;
+  std::vector<std::pair<std::string, std::string>> packages;
+  for (const auto &choice : ic->propertyFor(&factory_)->themeChoices())
+    if (choice.package_base) packages.emplace_back(choice.id, choice.title);
+  if (packages == global_theme_packages_) return;
+  for (const auto &item : global_theme_package_items_) global_theme_menu_.removeAction(item.get());
+  global_theme_package_items_.clear();
+  for (const auto &[id, title] : packages) {
+    global_theme_package_items_.push_back(std::make_unique<FcitxGlobalThemeItemAction>(&factory_, id, title));
+    // Registered under their own prefix, so a package can never take a global theme's name, and reachable from the D-Bus menus like every other entry.
+    global_theme_package_items_.back()->registerAction("msime-global-theme-package-" + id,
+                                                       &instance_->userInterfaceManager());
+    global_theme_menu_.addAction(global_theme_package_items_.back().get());
+  }
+  global_theme_packages_ = std::move(packages);
+  ic->updateUserInterface(fcitx::UserInterfaceComponent::StatusArea);
 }
 
 void FcitxEngine::rebuildToolbarMenu(fcitx::InputContext *ic) {

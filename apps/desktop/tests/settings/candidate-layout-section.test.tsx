@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { CandidateLayoutSection } from "@msime/ui";
 
 afterEach(() => {
@@ -12,7 +12,11 @@ test("candidate layout reports the selected orientation", () => {
   const onChange = vi.fn();
   render(<CandidateLayoutSection value="vertical" fixed={false} onChange={onChange} />);
 
-  fireEvent.change(screen.getByLabelText("候选项排列方式"), { target: { value: "horizontal" } });
+  const layout = screen.getByRole("radiogroup", { name: "候选项排列方式" });
+  expect((within(layout).getByRole("radio", { name: "纵向" }) as HTMLInputElement).checked).toBe(
+    true,
+  );
+  fireEvent.click(within(layout).getByRole("radio", { name: "横向" }));
   expect(onChange).toHaveBeenCalledWith("horizontal");
 });
 

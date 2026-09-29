@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within, waitFor } from "@testing-library/react";
-import { ExternalSkins, paletteCss } from "../../../../packages/ui/src/skin/external-skins";
+import { ExternalSkins, selectedBarCss } from "../../../../packages/ui/src/skin/external-skins";
 import { SettingsPage, type SkinCatalog, type Snapshot } from "@msime/ui";
 import { utilityCss } from "../support/utility-css";
 
@@ -20,6 +20,10 @@ beforeEach(() =>
     value: [],
   }),
 );
+// Package colours are `--cand-*` properties on the card preview; only a hidden selection bar needs a stylesheet.
+function drawn(card: HTMLElement, property: string): string {
+  return card.querySelector<HTMLElement>("[data-skin-preview]")!.style.getPropertyValue(property);
+}
 function previewCss(card: HTMLElement): string {
   const scope = Array.from(card.querySelector("[data-skin-preview]")!.classList).find((value) =>
     value.startsWith("external-preview-"),
@@ -38,7 +42,7 @@ const catalog: SkinCatalog = {
       id: "sample",
       name: "Sample skin",
       version: "1",
-      base: "fluent",
+      base: "system",
       author: "Example",
       description: "Sample description",
       layouts: ["horizontal"],
@@ -64,13 +68,14 @@ const initial: Snapshot = {
     chinese_punctuation: true,
   },
 };
-const props = { selected: "fluent", layout: "horizontal", onSelect: vi.fn() };
+const props = { selected: "", layout: "horizontal", onSelect: vi.fn() };
 
 test("external skin selected-bar flag emits a scoped hide rule", () => {
-  expect(paletteCss("scope", { showSelectedBar: false })).toContain(
+  expect(selectedBarCss("scope", { showSelectedBar: false })).toEqual([
     ".scope .first::before{display:none !important}",
-  );
-  expect(paletteCss("scope", { showSelectedBar: true })).not.toContain("display:none");
+  ]);
+  expect(selectedBarCss("scope", { showSelectedBar: true })).toEqual([]);
+  expect(selectedBarCss("scope", null)).toEqual([]);
 });
 function refresh() {
   fireEvent.click(screen.getByRole("button", { name: "刷新皮肤" }));
@@ -91,7 +96,7 @@ test("settings forwards the declared toolbar reader using only package id", asyn
       }}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "皮肤" }));
+  fireEvent.click(await screen.findByRole("button", { name: "主题" }));
   refresh();
   await waitFor(() => expect(readSkinToolbarCss).toHaveBeenCalledExactlyOnceWith("sample"));
 });
@@ -118,7 +123,7 @@ test("settings forwards the font reader with package id and relative name", asyn
         }}
       />,
     );
-    fireEvent.click(await screen.findByRole("button", { name: "皮肤" }));
+    fireEvent.click(await screen.findByRole("button", { name: "主题" }));
     refresh();
     await waitFor(() =>
       expect(readSkinFont).toHaveBeenCalledExactlyOnceWith("sample", "fonts/test.woff2"),
@@ -128,25 +133,56 @@ test("settings forwards the font reader with package id and relative name", asyn
   }
 });
 
-test("palette sheets replace on theme change and disappear when cards unmount", async () => {
-  const mounted = render(<ExternalSkins {...props} scan={async () => catalog} />);
+test("the selection bar sheet follows the drawn mode and disappears when cards unmount", async () => {
+  const mounted = render(
+    <ExternalSkins
+      {...props}
+      scan={async () => ({
+        ...catalog,
+        packages: [
+          {
+            ...catalog.packages[0],
+            candidate: {
+              dark: { surface: "#123456", showSelectedBar: false },
+              light: { surface: "#abcdef" },
+            },
+          },
+        ],
+      })}
+    />,
+  );
   refresh();
   const card = await screen.findByRole("article");
   expect(card.querySelector("style")).toBeNull();
   await waitFor(() => expect(document.adoptedStyleSheets).toHaveLength(1));
-  const previous = document.adoptedStyleSheets[0];
+  expect(drawn(card, "--cand-bg")).toBe("#123456");
   fireEvent.click(within(card).getByRole("button", { name: "预览浅色" }));
+  expect(document.adoptedStyleSheets).toHaveLength(0);
+  expect(drawn(card, "--cand-bg")).toBe("#ABCDEF");
+  fireEvent.click(within(card).getByRole("button", { name: "预览深色" }));
   expect(document.adoptedStyleSheets).toHaveLength(1);
-  expect(document.adoptedStyleSheets[0]).not.toBe(previous);
   mounted.unmount();
   expect(document.adoptedStyleSheets).toHaveLength(0);
 });
 
 test("missing adopted stylesheets reports fallback without injecting inline styles", async () => {
   Reflect.deleteProperty(document, "adoptedStyleSheets");
-  render(<ExternalSkins {...props} scan={async () => catalog} />);
+  render(
+    <ExternalSkins
+      {...props}
+      scan={async () => ({
+        ...catalog,
+        packages: [
+          {
+            ...catalog.packages[0],
+            candidate: { dark: { showSelectedBar: false }, light: {} },
+          },
+        ],
+      })}
+    />,
+  );
   refresh();
-  await screen.findByText("当前浏览器无法应用皮肤配色，保留基础预览。");
+  await screen.findByText("当前浏览器无法隐藏皮肤的选中条，其余配色照常预览。");
   expect(screen.getByRole("article").querySelector("style")).toBeNull();
 });
 
@@ -210,7 +246,7 @@ test("settings forwards image reader and existing CSP permits image data without
       }}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "皮肤" }));
+  fireEvent.click(await screen.findByRole("button", { name: "主题" }));
   refresh();
   await waitFor(() =>
     expect(readSkinImage).toHaveBeenCalledExactlyOnceWith("sample", "images/top.png"),
@@ -403,7 +439,7 @@ test("geometry stylesheet retains upstream stacking, dimensions and candidate-on
   }
 });
 
-test("light preview inherits dark palette fields before applying its sparse overrides", async () => {
+test("a card draws one declared mode over its base, never the other mode beneath it", async () => {
   render(
     <ExternalSkins
       {...props}
@@ -412,9 +448,11 @@ test("light preview inherits dark palette fields before applying its sparse over
         packages: [
           {
             ...catalog.packages[0],
+            base: "paper",
+            themes: ["light"],
             candidate: {
-              dark: { surface: "#123456", text: "#112233", showSelectedBar: false },
-              light: { surface: "#abcdef" },
+              dark: { surface: "#123456", text: "#112233" },
+              light: { accent: "#aa0000" },
             },
           },
         ],
@@ -423,13 +461,12 @@ test("light preview inherits dark palette fields before applying its sparse over
   );
   refresh();
   const card = await screen.findByRole("article");
-  fireEvent.click(within(card).getByRole("button", { name: "预览浅色" }));
-  const css = previewCss(card);
-  expect(css).toContain("rgb(17,34,51)");
-  expect(css).toContain("display:none");
-  expect(css.indexOf("rgb(171,205,239)")).toBeGreaterThan(css.indexOf("rgb(18,52,86)"));
-  fireEvent.click(within(card).getByRole("button", { name: "预览深色" }));
-  expect(previewCss(card)).not.toContain("rgb(171,205,239)");
+  // Paper fixes the light mode; its surface and text show through where the light palette is silent.
+  expect(drawn(card, "--cand-bg")).toBe("#F7F5F0");
+  expect(drawn(card, "--cand-text")).toBe("#1A1E1B");
+  expect(drawn(card, "--accent-strong")).toBe("#AA0000");
+  expect(drawn(card, "--cand-selected")).toBe("#AA000024");
+  expect(previewCss(card)).toBe("");
 });
 
 test("open directory is explicit, path-free and independent of scanning and selection", async () => {
@@ -451,7 +488,7 @@ test("settings forwards the open directory capability", async () => {
   const openSkinDirectory = vi.fn().mockResolvedValue(undefined);
   const save = vi.fn();
   render(<SettingsPage client={{ load: async () => initial, save, openSkinDirectory }} />);
-  fireEvent.click(await screen.findByRole("button", { name: "皮肤" }));
+  fireEvent.click(await screen.findByRole("button", { name: "主题" }));
   fireEvent.click(screen.getByRole("button", { name: "打开目录" }));
   await screen.findByRole("button", { name: "打开目录" });
   expect(openSkinDirectory).toHaveBeenCalledWith();
@@ -525,19 +562,25 @@ test("external selection enters the revisioned draft; preview toggles never save
       client={{ load: async () => initial, save, scanSkinCatalog: async () => catalog }}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "皮肤" }));
+  fireEvent.click(await screen.findByRole("button", { name: "主题" }));
   refresh();
   const card = await screen.findByRole("article", { name: "Sample skin" });
   fireEvent.click(within(card).getByRole("button", { name: "预览浅色" }));
   expect(within(card).getByRole("switch").getAttribute("aria-checked")).toBe("false");
-  expect(previewCss(card)).toContain("rgb(171,205,239)");
+  expect(drawn(card, "--cand-bg")).toBe("#ABCDEF");
   expect(save).not.toHaveBeenCalled();
   fireEvent.click(within(card).getByRole("switch"));
   fireEvent.click(within(card).getByRole("switch"));
   expect(within(card).getByRole("switch").getAttribute("aria-checked")).toBe("true");
   expect(save).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
-  expect(save).toHaveBeenCalledWith(3, expect.objectContaining({ candidate_skin: "sample" }));
+  expect(save).toHaveBeenCalledWith(
+    3,
+    expect.objectContaining({
+      global_theme: "custom",
+      custom_theme: expect.objectContaining({ base: "system", candidate_skin: "sample" }),
+    }),
+  );
 });
 
 test("light-only skin compatibility follows actual theme, not card override", async () => {
@@ -556,7 +599,7 @@ test("light-only skin compatibility follows actual theme, not card override", as
   fireEvent.click(screen.getByRole("button", { name: "预览深色" }));
   expect((toggle as HTMLButtonElement).disabled).toBe(false);
   fireEvent.click(toggle);
-  expect(onSelect).toHaveBeenCalledExactlyOnceWith("sample");
+  expect(onSelect).toHaveBeenCalledExactlyOnceWith("sample", "system");
   view.rerender(<ExternalSkins {...props} onSelect={onSelect} scan={scan} activeTheme="dark" />);
   expect((toggle as HTMLButtonElement).disabled).toBe(true);
   expect(
@@ -565,17 +608,59 @@ test("light-only skin compatibility follows actual theme, not card override", as
   expect(scan).toHaveBeenCalledTimes(1);
 });
 
+test("a package over a built-in base is drawn in that base's mode whatever the host mode", async () => {
+  const night = { ...catalog.packages[0], base: "night" as const, themes: ["light"] };
+  const onSelect = vi.fn();
+  const view = render(
+    <ExternalSkins
+      {...props}
+      onSelect={onSelect}
+      scan={async () => ({ ...catalog, packages: [night] })}
+      activeTheme="light"
+    />,
+  );
+  refresh();
+  const card = await screen.findByRole("article", { name: "Sample skin" });
+  // Night fixes the dark mode, so there is no mode to switch the preview to.
+  expect(card.querySelector("[data-skin-preview]")?.getAttribute("data-preview-theme")).toBe(
+    "dark",
+  );
+  expect(within(card).queryByRole("button", { name: /预览/ })).toBeNull();
+  // The package declares only light, so over its dark base it adds no colours and night is drawn alone.
+  expect(previewCss(card)).toBe("");
+  // The host mode does not rule the package out: resolve() draws it the same in either mode.
+  const toggle = within(card).getByRole("switch") as HTMLButtonElement;
+  expect(toggle.disabled).toBe(false);
+  fireEvent.click(toggle);
+  expect(onSelect).toHaveBeenCalledExactlyOnceWith("sample", "night");
+  view.rerender(
+    <ExternalSkins
+      {...props}
+      onSelect={onSelect}
+      scan={async () => ({ ...catalog, packages: [night] })}
+      activeTheme="dark"
+    />,
+  );
+  expect(toggle.disabled).toBe(false);
+});
+
 test("settings synchronize all cards and reset local overrides on candidate theme changes", async () => {
   const save = vi.fn(),
     scan = vi.fn().mockResolvedValue(catalog);
   render(<SettingsPage client={{ load: async () => initial, save, scanSkinCatalog: scan }} />);
-  await screen.findByLabelText("主题模式");
-  fireEvent.change(screen.getByLabelText("主题模式"), { target: { value: "light" } });
-  fireEvent.click(screen.getByRole("button", { name: "皮肤" }));
+  const mode = (name: string) =>
+    fireEvent.click(
+      within(screen.getByRole("radiogroup", { name: "颜色模式" })).getByRole("radio", { name }),
+    );
+  fireEvent.click(await screen.findByRole("button", { name: "主题" }));
+  mode("浅色");
   refresh();
   await screen.findByRole("article", { name: "Sample skin" });
-  const cards = screen.getAllByRole("article");
-  expect(cards).toHaveLength(5);
+  expect(screen.getAllByRole("article")).toHaveLength(8);
+  // The built-in themes are fixed palettes with no preview switch; the system card, the custom card over the system base and the external package follow the mode.
+  const cards = ["跟随系统", "自定义", "Sample skin"].map((name) =>
+    screen.getByRole("article", { name }),
+  );
   for (const card of cards) {
     expect(card.querySelector("[data-skin-preview]")?.getAttribute("data-preview-theme")).toBe(
       "light",
@@ -585,10 +670,8 @@ test("settings synchronize all cards and reset local overrides on candidate them
       "dark",
     );
   }
-  fireEvent.click(screen.getByRole("button", { name: "外观" }));
-  fireEvent.change(screen.getByLabelText("主题模式"), { target: { value: "dark" } });
-  fireEvent.change(screen.getByLabelText("主题模式"), { target: { value: "light" } });
-  fireEvent.click(screen.getByRole("button", { name: "皮肤" }));
+  mode("深色");
+  mode("浅色");
   for (const card of cards)
     expect(card.querySelector("[data-skin-preview]")?.getAttribute("data-preview-theme")).toBe(
       "light",
@@ -633,7 +716,7 @@ test("settings without a layout use the same vertical default for skin compatibi
       }}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "皮肤" }));
+  fireEvent.click(await screen.findByRole("button", { name: "主题" }));
   refresh();
   expect(
     ((await screen.findByRole("switch", { name: "Sample skin" })) as HTMLButtonElement).disabled,
@@ -728,8 +811,11 @@ test("manifest text is escaped and palette cannot inject CSS or resource URLs", 
   refresh();
   const card = await screen.findByRole("article", { name: hostile });
   expect(card.querySelector("img[src=x]")).toBeNull();
+  // Colours reach the preview only as normalized `--cand-*` values; anything else is dropped, never written into a rule.
+  expect(drawn(card, "--accent-strong")).toBe("#123456");
+  expect(drawn(card, "--cand-bg")).toBe("");
+  expect(drawn(card, "--cand-text")).toBe("");
   const css = previewCss(card);
-  expect(css).toContain("rgb(18,52,86)");
   expect(css).toContain("display:none");
   expect(css).not.toContain("body");
   expect(css).not.toContain("url(");
@@ -842,8 +928,8 @@ test("the Linux skin page describes the candidate window only", async () => {
   ).toBeTruthy();
   // Every page is mounted at once; the toolbar page itself still names the toolbar.
   expect(within(external.closest("fieldset")!).queryByText(/悬浮工具栏/)).toBeNull();
-  expect(screen.getByText("微信绿候选窗")).toBeTruthy();
-  const builtin = screen.getByRole("article", { name: "微信绿" });
+  const builtin = screen.getByRole("article", { name: "夜青" });
+  expect(within(builtin).getByText("深色候选窗与键盘")).toBeTruthy();
   expect(builtin.querySelectorAll("[data-skin-stage]")).toHaveLength(2);
   expect(external.querySelectorAll("[data-skin-stage]")).toHaveLength(2);
   expect(readSkinToolbarCss).not.toHaveBeenCalled();
@@ -860,8 +946,7 @@ test("the Windows skin page keeps the toolbar preview", async () => {
   expect(
     screen.getByText("选择候选窗和悬浮工具栏使用的主题；明暗预览仅影响当前卡片，不修改设置。"),
   ).toBeTruthy();
-  expect(screen.getByText("微信绿候选窗与悬浮工具栏")).toBeTruthy();
-  expect(
-    screen.getByRole("article", { name: "微信绿" }).querySelectorAll("[data-skin-stage]"),
-  ).toHaveLength(3);
+  const builtin = screen.getByRole("article", { name: "夜青" });
+  expect(within(builtin).getByText("深色候选窗、悬浮工具栏与键盘")).toBeTruthy();
+  expect(builtin.querySelectorAll("[data-skin-stage]")).toHaveLength(3);
 });

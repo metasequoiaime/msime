@@ -7,79 +7,45 @@
 
 namespace msime::linux_host {
 
-// IBus candidate attributes carry RGB values, not alpha or geometry. Keep the
-// RGB tokens aligned with the native presenters and let the Linux renderer
-// apply only the properties the host protocol can represent.
-struct CandidateBuiltinPalette {
+// Source-over of one colour at the given alpha on an opaque background.
+inline std::uint32_t composite_color(std::uint32_t color, std::uint8_t alpha, std::uint32_t background) {
+  std::uint32_t result = 0;
+  for (const int shift : {16, 8, 0}) {
+    const auto top = (color >> shift) & 0xffu;
+    const auto bottom = (background >> shift) & 0xffu;
+    result |= ((top * alpha + bottom * (255u - alpha) + 127u) / 255u) << shift;
+  }
+  return result;
+}
+
+// The Linux platform tokens, drawn wherever the resolved global theme leaves a slot null: the whole palette for the `system` theme, and the unset slots of a custom theme over `system`. They are the design's Adwaita tokens (tok('linux') in the design canvas): a white or #303030 card, text at 82% and secondary text at 55% of black or white, the GNOME accent #3584E4 as a solid selection with white text and numbers at 85%, and a hairline at 10% black or 8% white. Neither IBus text attributes nor the Fcitx5 classic UI theme carry alpha on these slots, so each translucent token is composited here over the surface it is drawn on.
+struct CandidateNativePalette {
   std::uint32_t surface;
   std::uint32_t text;
   std::uint32_t number;
+  // The accent as a text colour on the card (pinned candidates): GNOME's darker accent text on light, its lighter one on dark, so it stays readable where the fill accent would not.
   std::uint32_t accent;
-  std::optional<std::uint32_t> selected;
-  std::optional<std::uint32_t> selected_text;
-  std::optional<std::uint32_t> selected_number;
-  // The card's outline, from the same Windows skin tokens (platforms/windows/src/candidate/CandidatePalette.h): RGB, the alpha the skin draws it at, and a width in whole pixels. The Windows card strokes fluent with a 1.5 DIP antialiased Direct2D outline (wechat and graphite at 1), while Fcitx5 classic UI's BorderWidth only takes whole pixels, so every outlined skin is 1 here as the closest width that keeps the layout unchanged; willow_green draws none.
-  std::uint32_t border = 0;
-  std::uint8_t border_alpha = 0;
-  int border_width = 0;
+  std::uint32_t selected;
+  std::uint32_t selected_text;
+  std::uint32_t selected_number;
+  std::uint32_t border;
 };
 
-inline bool candidate_builtin_skin(std::string_view skin) {
-  return skin == "fluent" || skin == "wechat" || skin == "graphite" ||
-         skin == "willow_green";
-}
+inline constexpr std::uint32_t kLinuxAccent = 0x3584E4u;
 
-inline CandidateBuiltinPalette candidate_builtin_palette(std::string_view skin,
-                                                         bool dark) {
-  // Fluent is the fallback for unknown ids. IBus cannot carry fluent's alpha
-  // on the selected row, so selected stores the same RGB token without alpha.
-  CandidateBuiltinPalette palette =
-      dark ? CandidateBuiltinPalette{0x202020, 0xE9E8E8, 0xE9E8E8, 0x6B69D6,
-                                     0x3E3E3E, std::nullopt, std::nullopt}
-           : CandidateBuiltinPalette{0xFFFFFF, 0x1A1A1A, 0x1A1A1A, 0x6B69D6,
-                                     0xE8E8E8, std::nullopt, std::nullopt};
-  // Fluent outlines the card with a translucent line: black at 0.12 on light, #9B9B9B at 0.18 on dark.
-  palette.border = dark ? 0x9B9B9B : 0x000000;
-  palette.border_alpha = dark ? 0x2E : 0x1F;
-  palette.border_width = 1;
-  if (skin == "wechat") {
-    palette.surface = dark ? 0x151515 : 0xF7F7F7;
-    palette.text = dark ? 0xB7B7B7 : 0x333333;
-    palette.number = dark ? 0x858585 : 0x757575;
-    palette.accent = 0x07C160;
-    palette.selected = palette.accent;
-    palette.selected_text = palette.selected_number = 0xFFFFFF;
-    palette.border = dark ? 0x292929 : 0xDEDEDE;
-    palette.border_alpha = 0xFF;
-  } else if (skin == "graphite") {
-    palette.surface = dark ? 0x1C1F23 : 0xFBFBFC;
-    palette.text = dark ? 0xAEB6C2 : 0x586476;
-    palette.number = dark ? 0x707987 : 0x8993A1;
-    palette.accent = dark ? 0x8993A0 : 0x5F6B7A;
-    // The native skin uses a transparent selected fill and distinguishes the
-    // row by text alone. IBus can express that text distinction directly.
-    palette.selected = std::nullopt;
-    palette.selected_text = dark ? 0xF1F3F5 : 0x111827;
-    palette.selected_number = palette.selected_text;
-    palette.border = dark ? 0x30353B : 0xE2E5E9;
-    palette.border_alpha = 0xFF;
-  } else if (skin == "willow_green") {
-    palette.surface = dark ? 0x2D2F2E : 0xF4F5F3;
-    palette.text = dark ? 0xD8DBD8 : 0x343936;
-    palette.number = dark ? 0xA6ABA7 : 0x686F6A;
-    palette.accent = dark ? 0x65C98D : 0x58B980;
-    palette.selected = palette.accent;
-    palette.selected_text = palette.selected_number = 0xFFFFFF;
-    palette.border = 0;
-    palette.border_alpha = 0;
-    palette.border_width = 0;
-  }
-  return palette;
-}
-
-inline std::uint32_t candidate_builtin_accent(std::string_view skin,
-                                              bool dark) {
-  return candidate_builtin_palette(skin, dark).accent;
+inline CandidateNativePalette candidate_native_palette(bool dark) {
+  const std::uint32_t surface = dark ? 0x303030u : 0xFFFFFFu;
+  const std::uint32_t ink = dark ? 0xFFFFFFu : 0x000000u;
+  return CandidateNativePalette{
+      surface,
+      dark ? 0xFFFFFFu : composite_color(ink, 0xD1, surface),
+      composite_color(ink, 0x8C, surface),
+      dark ? 0x78AEEDu : 0x1C71D8u,
+      kLinuxAccent,
+      0xFFFFFFu,
+      composite_color(0xFFFFFFu, 0xD9, kLinuxAccent),
+      composite_color(ink, dark ? 0x14 : 0x1A, surface),
+  };
 }
 
 // IBus auxiliary text has no native caret geometry. When the displayed

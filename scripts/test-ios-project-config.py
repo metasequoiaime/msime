@@ -319,14 +319,21 @@ class IOSProjectConfigTests(unittest.TestCase):
             "keyboardHapticsEnabled",
             "keyboardHapticStrength",
             "dictionaryLearningEnabled",
-            "keyboardSkin",
+            "globalTheme",
             "customKeyboardSkin.v1",
         ]:
             self.assertIn(key, swift)
+        # IosKeyboardPreferences is camelCase serde, so the plugin must read and write the same field names; a leftover retired key would fail every load and save.
+        self.assertIn("pub global_theme: String", rust)
+        self.assertIn("let globalTheme: String", swift)
+        self.assertNotIn('"keyboardSkin"', swift)
+        for theme in ["system", "shuishan", "light", "paper", "night", "ink", "custom"]:
+            self.assertIn(f'"{theme}"', swift)
         self.assertIn("merge_account_preferences", account)
         self.assertIn("platform.save_keyboard_preferences(&previous_native)", account)
         self.assertIn('"platform.ios.nine_key"', mapping)
         self.assertIn('"platform.ios.custom_keyboard_skin"', mapping)
+        self.assertIn('"platform.ios.custom_theme_base"', mapping)
         self.assertIn("createMobileHostServices", desktop_entry)
         self.assertIn("settingsSync: accountSettingsSync", mobile_services)
 

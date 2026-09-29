@@ -28,10 +28,10 @@ test("updates sound, haptics, and strength", () => {
     />,
   );
 
-  fireEvent.click(screen.getByRole("checkbox", { name: "按键音" }));
+  fireEvent.click(screen.getByRole("switch", { name: "按键音" }));
   expect(onChange).toHaveBeenLastCalledWith({ ...value, soundEnabled: false });
 
-  fireEvent.click(screen.getByRole("checkbox", { name: "按键振动" }));
+  fireEvent.click(screen.getByRole("switch", { name: "按键振动" }));
   expect(onChange).toHaveBeenLastCalledWith({ ...value, hapticsEnabled: false });
 
   fireEvent.change(screen.getByRole("combobox", { name: "振动强度" }), {
@@ -56,7 +56,7 @@ test("offers preview and iOS English suggestions", () => {
 
   fireEvent.click(screen.getByRole("button", { name: "试一下振动" }));
   expect(onPreview).toHaveBeenCalledOnce();
-  fireEvent.click(screen.getByRole("checkbox", { name: "英文建议" }));
+  fireEvent.click(screen.getByRole("switch", { name: "英文建议" }));
   expect(onChange).toHaveBeenLastCalledWith({ ...value, englishSuggestions: false });
 });
 
@@ -72,6 +72,6 @@ test("hides vibration controls when unavailable", () => {
     />,
   );
 
-  expect(screen.queryByRole("checkbox", { name: "按键振动" })).toBeNull();
+  expect(screen.queryByRole("switch", { name: "按键振动" })).toBeNull();
   expect(screen.queryByRole("combobox", { name: "振动强度" })).toBeNull();
 });

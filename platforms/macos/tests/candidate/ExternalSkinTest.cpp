@@ -35,29 +35,13 @@ void WriteFile(const std::filesystem::path &path, const std::string &text)
 
 int main()
 {
-    Require(msime::mac::IsBuiltInSkinId("fluent") && msime::mac::IsBuiltInSkinId("wechat") &&
-                msime::mac::IsBuiltInSkinId("graphite") && msime::mac::IsBuiltInSkinId("willow_green") &&
-                !msime::mac::IsBuiltInSkinId("niya-demo"),
-            "Built-in skin ids did not match the Windows catalog.");
+    // The built-in looks are global themes now: their ids are never package ids, and the palettes are tested in CandidateSkinTest against the shared catalog.
     Require(msime::mac::IsSafeSkinId("niya-demo") && !msime::mac::IsSafeSkinId("Fluent") &&
-                !msime::mac::IsSafeSkinId("../x") && msime::mac::NormalizeSkinId("") == "willow_green" &&
-                    msime::mac::NormalizeSkinId("nope!") == "fluent",
-            "Skin id validation did not match the Windows catalog.");
-    Require(msime::mac::BuiltInSkinEntries().size() == 4, "The built-in skin list was incomplete.");
-
-    const auto fluentDark = msime::mac::BuiltInSkinTokens("fluent", true);
-    const auto fluentLight = msime::mac::BuiltInSkinTokens("fluent", false);
-    Require(fluentDark.showSelectedBar && fluentLight.showSelectedBar && fluentDark.accent.b > fluentDark.accent.r,
-            "Fluent tokens lost the accent bar.");
-    const auto wechatDark = msime::mac::BuiltInSkinTokens("wechat", true);
-    Require(!wechatDark.showSelectedBar && wechatDark.selected.g > 0.6f && wechatDark.selectedText.r > 0.9f,
-            "WeChat tokens did not use a filled green selection.");
-    const auto graphiteDark = msime::mac::BuiltInSkinTokens("graphite", true);
-    Require(!graphiteDark.showSelectedBar && graphiteDark.selected.a < 0.01f,
-            "Graphite tokens did not keep a transparent selection.");
-    const auto willowDark = msime::mac::BuiltInSkinTokens("willow_green", true);
-    Require(willowDark.borderWidth == 0.0f && willowDark.radius >= 8.0f,
-            "Willow green tokens did not keep the full-bleed card.");
+                !msime::mac::IsSafeSkinId("../x"),
+            "Skin id validation did not match the shared catalog.");
+    Require(!msime::mac::IsGlobalThemeId("niya-demo") && msime::mac::IsGlobalThemeId("shuishan") &&
+                !msime::mac::IsGlobalThemeId("fluent"),
+            "Package ids and theme ids overlapped.");
 
     const auto hex = msime::mac::ParseCssColor("#07c160");
     const auto rgba = msime::mac::ParseCssColor("rgba(224, 138, 168, 0.28)");
@@ -78,7 +62,7 @@ name = "Niya Demo"
 version = "0.1.1"
 author = "Metasequoia IME contributors"
 description = "demo"
-base = "fluent"
+base = "system"
 preview = "assets/character.png"
 
 [supports]
@@ -115,30 +99,83 @@ border = "rgba(176, 80, 110, 0.22)"
     Require(!msime::mac::LoadSkinPackage(root, "broken", &error) &&
                 error.find("schema_version") != std::string::npos,
             "An invalid external skin was accepted.");
-    Require(!msime::mac::LoadSkinPackage(root, "fluent", &error),
-            "A built-in id was treated as an external package.");
+    WriteFile(root / "shuishan" / "skin.toml", "schema_version = 1\nid = \"shuishan\"\n");
+    Require(!msime::mac::LoadSkinPackage(root, "shuishan", &error),
+            "A global theme id was treated as an external package.");
+    std::filesystem::remove_all(root / "shuishan");
 
     const auto catalog = msime::mac::ScanSkinCatalog(root);
     Require(catalog.packages.size() == 1 && catalog.issues.size() == 1 && catalog.packages[0].id == "niya-demo",
             "Catalog scanning did not separate valid packages from issues.");
 
-    const auto resolved = msime::mac::ResolveSkin("niya-demo", true, root);
-    Require(resolved.id == "niya-demo" && resolved.tokens.accent.r > 0.8f && resolved.decorationTopDip == 88.0 &&
+    // A package is drawn as the custom theme's candidate skin, never as a global theme of its own.
+    const auto withSkin = [](std::string id, std::string base = "system") {
+        msime::mac::CustomTheme custom;
+        custom.base = std::move(base);
+        custom.candidateSkin = std::move(id);
+        return custom;
+    };
+    const auto resolved = msime::mac::ResolveSkin("custom", withSkin("niya-demo"), true, "horizontal", root);
+    Require(resolved.id == "custom" && resolved.candidateSkin == "niya-demo" && resolved.name == "Niya Demo" &&
+                !resolved.fixedDark && resolved.tokens.accent.r > 0.8f && resolved.decorationTopDip == 88.0 &&
                 resolved.decorationPath.find("character.png") != std::string::npos,
-            "External skin colors were not applied on top of Fluent.");
-    const auto missing = msime::mac::ResolveSkin("missing-skin", true, root);
-    Require(missing.id == "fluent", "An unknown skin id did not fall back to Fluent.");
+            "External skin colors were not applied on top of the system tokens.");
+    // The package's translucent selection over a system base cannot carry the native white: the selected word and number keep the row's own colours.
+    const auto resolvedLight = msime::mac::ResolveSkin("custom", withSkin("niya-demo"), false, "horizontal", root);
+    Require(resolvedLight.tokens.selected.a < 0.2f &&
+                resolvedLight.tokens.selectedText.r == resolvedLight.tokens.text.r &&
+                resolvedLight.tokens.selectedText.g == resolvedLight.tokens.text.g &&
+                resolvedLight.tokens.selectedText.a == resolvedLight.tokens.text.a &&
+                resolvedLight.tokens.selectedNumber.g == resolvedLight.tokens.number.g &&
+                resolvedLight.tokens.selectedNumber.a == resolvedLight.tokens.number.a,
+            "A translucent package selection kept the native white foregrounds.");
+    const auto missing = msime::mac::ResolveSkin("custom", withSkin("missing-skin"), true, "horizontal", root);
+    Require(missing.id == "custom" && missing.candidateSkin.empty() && missing.decorationPath.empty(),
+            "A missing package was drawn.");
+    Require(msime::mac::ResolveSkin("system", withSkin("niya-demo"), true, "horizontal", root).candidateSkin.empty(),
+            "A package was drawn while another global theme was selected.");
 
     const auto listed = msime::mac::ListSkins(root);
-    Require(listed.size() == 5 && listed[0].id == "fluent" && listed.back().id == "niya-demo",
-            "The settings list did not keep built-in skins ahead of external packages.");
+    Require(listed.size() == 1 && listed[0].id == "niya-demo" && !listed[0].builtin,
+            "The settings list did not list only the external packages.");
+
+    WriteFile(root / "night-based" / "skin.toml", R"toml(
+schema_version = 1
+id = "night-based"
+name = "Night Based"
+version = "1.0"
+base = "night"
+
+[supports]
+layouts = ["horizontal", "vertical"]
+themes = ["dark", "light"]
+
+[candidate_window]
+min_width_dip = 0
+
+[candidate_window.decoration]
+top_inset_dip = 0
+width_dip = 0
+
+[candidate.dark]
+accent = "#ff0000"
+)toml");
+    auto nightBased = msime::mac::LoadSkinPackage(root, "night-based", &error);
+    Require(nightBased.has_value() && nightBased->base == "night", "A night-based skin was rejected.");
+    // The manifest base wins over the stored one and fixes the mode: a dark base draws the dark palette in a light system.
+    const auto resolvedNight = msime::mac::ResolveSkin("custom", withSkin("night-based"), false, "horizontal", root);
+    Require(resolvedNight.candidateSkin == "night-based" && resolvedNight.fixedDark == true && resolvedNight.dark &&
+                !resolvedNight.tokens.showSelectedBar && resolvedNight.tokens.accent.r > 0.9f &&
+                resolvedNight.tokens.selected.r > 0.9f && resolvedNight.tokens.selected.a < 0.2f &&
+                resolvedNight.tokens.surface.b > resolvedNight.tokens.surface.r,
+            "External skin tokens did not inherit the declared base theme.");
 
     WriteFile(root / "wechat-based" / "skin.toml", R"toml(
 schema_version = 1
 id = "wechat-based"
 name = "WeChat Based"
 version = "1.0"
-base = "wechat"
+base = "system"
 toolbar_stylesheet = "toolbar.css"
 
 [supports]
@@ -172,19 +209,22 @@ html[data-theme="light"] {
 }
 )css");
     auto wechatBased = msime::mac::LoadSkinPackage(root, "wechat-based", &error);
-    Require(wechatBased.has_value() && wechatBased->base == "wechat",
-            "A wechat-based skin with a valid toolbar stylesheet was rejected.");
-    const auto resolvedWechat = msime::mac::ResolveSkin("wechat-based", true, root);
-    Require(resolvedWechat.id == "wechat-based" && !resolvedWechat.tokens.showSelectedBar &&
-                resolvedWechat.tokens.selected.g > 0.6f && resolvedWechat.tokens.accent.r > 0.9f,
-            "External skin tokens did not inherit the declared base skin.");
-    const auto toolbarDark = msime::mac::ToolbarSkinTokens("wechat-based", true, root);
+    Require(wechatBased.has_value() && wechatBased->base == "system",
+            "A skin with a valid toolbar stylesheet was rejected.");
+    const auto resolvedWechat = msime::mac::ResolveSkin("custom", withSkin("wechat-based"), true, "horizontal", root);
+    // Over `system` a null `selected` is the native solid fill of the drawn accent.
+    Require(resolvedWechat.candidateSkin == "wechat-based" && !resolvedWechat.fixedDark &&
+                !resolvedWechat.tokens.showSelectedBar && resolvedWechat.tokens.accent.r > 0.9f &&
+                resolvedWechat.tokens.selected.r > 0.9f && resolvedWechat.tokens.selected.a > 0.99f,
+            "External skin tokens did not sit on the native tokens.");
+    const auto toolbarDark = msime::mac::ToolbarSkinTokens(resolvedWechat, root);
     Require(toolbarDark.surface.r < 0.1f && toolbarDark.surface.g < 0.1f && toolbarDark.surface.b < 0.1f &&
                 toolbarDark.border.a > 0.2f && toolbarDark.text.r > 0.9f && toolbarDark.accent.r > 0.9f &&
                 toolbarDark.radius == 12.0f && toolbarDark.borderWidth == 2.0f && toolbarDark.pad == 7.0f &&
                 toolbarDark.hover.r > 0.1f,
             "The native toolbar did not apply the supported external CSS palette.");
-    const auto toolbarLight = msime::mac::ToolbarSkinTokens("wechat-based", false, root);
+    const auto toolbarLight = msime::mac::ToolbarSkinTokens(
+        msime::mac::ResolveSkin("custom", withSkin("wechat-based"), false, "horizontal", root), root);
     Require(toolbarLight.surface.r > 0.9f && toolbarLight.surface.g > 0.9f && toolbarLight.text.r < 0.3f,
             "Theme-scoped toolbar CSS did not apply to the light palette.");
     Require(msime::mac::SupportsSkin(*wechatBased, "horizontal", "dark") &&
@@ -195,16 +235,17 @@ html[data-theme="light"] {
                 error.find("toolbar_stylesheet") != std::string::npos,
             "A skin with a missing toolbar stylesheet was accepted.");
     WriteFile(root / "wechat-based" / "toolbar.css", ".toolbar { color: red; }\n");
-    Require(msime::mac::ResolveSkin("wechat-based", false, root, "vertical", "dark").id == "fluent" &&
-                msime::mac::ResolveSkin("wechat-based", false, root, "horizontal", "light").id == "wechat-based",
-            "Incompatible external skins did not fall back to Fluent.");
+    Require(msime::mac::ResolveSkin("custom", withSkin("wechat-based"), false, "vertical", root).candidateSkin.empty() &&
+                msime::mac::ResolveSkin("custom", withSkin("wechat-based"), false, "horizontal", root).candidateSkin ==
+                    "wechat-based",
+            "An external skin was drawn in a layout it does not support.");
 
-    // Windows reads skin.toml with toml++, and the settings page with the shared loader: literal strings, a multi-line array, an inline table, a digit separator, a unicode escape and a `#` inside a literal string are all ordinary TOML the candidate window must draw rather than fall back to Fluent.
+    // Windows reads skin.toml with toml++, and the settings page with the shared loader: literal strings, a multi-line array, an inline table, a digit separator, a unicode escape and a `#` inside a literal string are all ordinary TOML the candidate window must draw rather than drop.
     WriteFile(root / "full-toml" / "skin.toml", R"toml(schema_version = 1
 id = 'full-toml'
 name = "\u6768\u67f3 Full"
 version = '1.0'
-base = 'fluent'
+base = 'system'
 description = 'hash # inside a literal'
 toolbar_stylesheet = 'toolbar.css'
 
@@ -231,20 +272,19 @@ show_selected_bar = false
                 full->light.accent == "#ff0000" && full->light.showSelectedBar == false &&
                 !full->dark.showSelectedBar.has_value() && full->toolbarStylesheet == "toolbar.css",
             "A full TOML 1.0 manifest was rejected or misread.");
-    const auto resolvedFull = msime::mac::ResolveSkin("full-toml", false, root, "vertical", "light");
-    Require(resolvedFull.id == "full-toml" && resolvedFull.minWidthDip == 10.0 && resolvedFull.tokens.accent.r > 0.99f &&
+    const auto resolvedFull = msime::mac::ResolveSkin("custom", withSkin("full-toml"), false, "vertical", root);
+    Require(resolvedFull.candidateSkin == "full-toml" && resolvedFull.minWidthDip == 10.0 && resolvedFull.tokens.accent.r > 0.99f &&
                 resolvedFull.tokens.accent.g < 0.01f && resolvedFull.tokens.surface.r > 0.99f &&
                 !resolvedFull.tokens.showSelectedBar,
-            "The candidate window drew Fluent for a full TOML manifest.");
-    const auto toolbarFull = msime::mac::ToolbarSkinTokens("full-toml", false, root);
+            "The candidate window dropped a full TOML manifest.");
+    const auto toolbarFull = msime::mac::ToolbarSkinTokens(resolvedFull, root);
     Require(toolbarFull.radius == 11.0f && toolbarFull.surface.b > 0.3f && toolbarFull.surface.r < 0.1f,
             "The toolbar did not pick up a full TOML manifest's stylesheet.");
     WriteFile(root / "full-toml" / "toolbar.css", std::string(65537, 'x'));
-    const auto oversizedToolbar = msime::mac::ToolbarSkinTokens("full-toml", false, root);
-    const auto fluentToolbar = msime::mac::ToolbarSkinTokens("fluent", false, root);
-    Require(oversizedToolbar.radius == fluentToolbar.radius,
+    const auto oversizedToolbar = msime::mac::ToolbarSkinTokens(resolvedFull, root);
+    Require(oversizedToolbar.radius == resolvedFull.tokens.radius,
             "An oversized toolbar stylesheet was not ignored.");
-    Require(msime::mac::ListSkins(root).size() == 7, "The settings list lost the full TOML manifest.");
+    Require(msime::mac::ListSkins(root).size() == 4, "The settings list lost the full TOML manifest.");
     std::filesystem::remove_all(root / "full-toml");
 
     // Manifest/resource paths cannot escape through a package or resource symlink.
@@ -261,7 +301,7 @@ show_selected_bar = false
     std::filesystem::create_directory(root / "pipe");
     Require(mkfifo((root / "pipe" / "skin.toml").c_str(), 0600) == 0, "FIFO fixture failed.");
     Require(!msime::mac::LoadSkinPackage(root, "pipe"), "Nonregular manifest accepted.");
-    Require(msime::mac::ListSkins({}).size() == 4, "Empty root searched the working directory.");
+    Require(msime::mac::ListSkins({}).empty(), "Empty root searched the working directory.");
     WriteFile(root / "oversized" / "skin.toml", std::string(65537, 'x'));
     Require(!msime::mac::LoadSkinPackage(root, "oversized"), "Oversized manifest accepted.");
     std::filesystem::remove_all(outside);

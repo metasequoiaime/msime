@@ -8,6 +8,9 @@ import { DictionaryMaintenancePolicy } from './DictionaryMaintenancePolicy';
 import { TypingStatisticsPolicy } from './TypingStatisticsPolicy';
 import { KeyboardSkin } from './skin/KeyboardSkin';
 import { CustomKeyboardSkin, CustomSkinDocument } from './skin/CustomKeyboardSkin';
+import {
+  CandidateColors, CustomThemeDocument, GlobalTheme, ResolvedTheme, ResolveThemeRequest, ThemeCatalogEntry
+} from './skin/GlobalTheme';
 import { KeyboardFormFactor } from './KeyboardFormFactor';
 import { KeyboardScheme, PreferenceMapping, SchemeDefinition } from './KeyboardScheme';
 import { EditorPolicy, EditorTraits } from './input/EditorPolicy';
@@ -47,9 +50,10 @@ import {
 } from './candidate/CandidateGlossLayoutPolicy';
 import { CandidatePresentationPolicy } from './candidate/CandidatePresentationPolicy';
 import {
-  CandidateSkinCatalogPolicy, CandidateSkinPackage, CandidateSkinPaletteTokens, CandidateSkinDecoration
+  CandidateSkinCatalogPolicy, CandidateSkinPackage, CandidateSkinDecoration
 } from './candidate/CandidateSkinCatalogPolicy';
 import { CandidateWidthPolicy } from './candidate/CandidateWidthPolicy';
+import { CandidatePagerPolicy } from './candidate/CandidatePagerPolicy';
 import { CandidateNumberFontPolicy } from './candidate/CandidateNumberFontPolicy';
 import { KeyboardMetrics } from './KeyboardMetrics';
 import { OnlineCandidatePolicy, OnlineQuery } from './candidate/OnlineCandidatePolicy';
@@ -146,6 +150,9 @@ interface EngineView {
   phrase_prefix?: string;
   /** Byte offset into `editing_text`, which for this ASCII text is also the character index. */
   caret_position: number;
+  /** The candidate page on screen, from zero, and how many pages the whole list makes. */
+  page: number;
+  page_count: number;
   generation: number;
   /** Which spellings the digits typed so far could be, offered while the nine-key grid is up. */
   nine_key_spellings: string[];
@@ -442,6 +449,9 @@ export interface KeyboardState {
   readonly localMode: string;
   readonly english: boolean;
   readonly diagnostic: string;
+  /** The candidate page on screen, from zero, and how many there are; a translation page is always the one page of one. */
+  readonly page: number;
+  readonly pageCount: number;
 }
 
 interface EngineValue {
@@ -598,8 +608,10 @@ interface PreparedPreferences {
   english_suggestions?: boolean;
   shuangpin_profile: string;
   touch_keyboard_layout: string;
-  touch_keyboard_skin: string;
-  candidate_skin: string;
+  /** The shared global theme id; the ids and their palettes come from the theme catalog. */
+  global_theme: string;
+  /** What the `custom` theme is made of. Absent means the shared default: over `system`, with nothing set. */
+  custom_theme?: CustomThemeDocument;
   candidate_theme: string;
   candidate_selected_bar: boolean | null;
   candidate_follow_cursor: boolean;
@@ -615,25 +627,19 @@ interface PreparedPreferences {
   /** Named first so Latin comes from it and Han falls through; absent means one family answers. */
   candidate_english_font?: string | null;
   candidate_fallback_fonts: string[];
-  candidate_text_color: string | null;
-  candidate_accent_color: string | null;
-  candidate_number_color: string | null;
-  candidate_selected_color: string | null;
-  candidate_hover_color: string | null;
-  candidate_surface_color: string | null;
-  candidate_border_color: string | null;
-  // 'follow', 'dark' or 'light' for the keyboard specifically; theme is the global one it falls
-  // back to, and only if both defer does the system decide.
+  // 'follow', 'dark' or 'light' for the keyboard specifically; theme is the app mode it falls back
+  // to, and only if both defer does the system decide. A global theme with a fixed appearance
+  // overrides all of them.
   screen_keyboard_theme: string;
-  /** 'follow', 'dark' or 'light' for the floating toolbar; it falls back to the global theme. */
+  /** 'follow', 'dark' or 'light' for the floating toolbar; it falls back to the app mode. */
   toolbar_theme?: string;
-  /** 'follow', 'dark' or 'light' for the voice panel; it falls back to the global theme. */
+  /** 'follow', 'dark' or 'light' for the voice panel; it falls back to the app mode. */
   voice_theme?: string;
-  /** 'follow', 'dark' or 'light' for the emoji panel; it falls back to the global theme. */
+  /** 'follow', 'dark' or 'light' for the emoji panel; it falls back to the app mode. */
   emoji_theme?: string;
-  /** 'follow', 'dark' or 'light' for the handwriting panel; it falls back to the global theme. */
+  /** 'follow', 'dark' or 'light' for the handwriting panel; it falls back to the app mode. */
   handwriting_theme?: string;
-  /** 'follow', 'dark' or 'light' for the candidate context menu; it falls back to the global theme. */
+  /** 'follow', 'dark' or 'light' for the candidate context menu; it falls back to the app mode. */
   menu_theme?: string;
   theme: string;
   traditional_chinese_output: boolean;
@@ -647,6 +653,8 @@ interface PreparedPreferences {
   floating_toolbar: PreparedFloatingToolbar;
   candidate_english_gloss: boolean;
   candidate_translations: boolean;
+  /** Always written by the shared store; optional so a hand-edited document without it still prepares. */
+  fuzzy_pinyin?: PreparedFuzzyPinyin;
   translation_target_language: string;
   translation_secondary_language?: string | null;
   custom_translation: TranslationProviderConfig;
@@ -661,12 +669,18 @@ interface PreparedPreferences {
   touch_voice_shortcut: boolean;
   /** Shared privacy switch for the private clipboard history file and keyboard entry point. */
   clipboard_history: boolean;
-  /** Shared custom touch-keyboard design; nested fields use the shared camelCase JSON shape. */
-  custom_touch_keyboard_skin?: CustomSkinDocument;
   voice_input: VoiceInputConfiguration;
   ai_assistant: PreparedAiAssistant;
   touch_keyboard_schemes: PreparedTouchKeyboardSchemes;
   keybindings: PreparedKeybindings;
+}
+
+/** The shared fuzzy pinyin record. Turning it off keeps the rules, so the next on restores the same set. */
+interface PreparedFuzzyPinyin {
+  enabled: boolean;
+  rules: string[];
+  /** The store's marker that the first enable already opted every rule in; never shown. */
+  seeded?: boolean;
 }
 
 /** The shared touch-scheme record: which schemes the picker offers, and which one is current. */
@@ -719,12 +733,11 @@ interface PreparedKeybindings {
 
 /** What the view needs to draw itself, resolved once from the prepared preferences. */
 export interface KeyboardPreferences {
+  /** The keyboard's mode: its own theme, the app mode and the system, unless the global theme fixes it. */
   readonly dark: boolean;
-  readonly skinId: string;
-  readonly candidateSkinId: string;
-  /** Base palette used by an external candidate skin, when its manifest is available. */
-  readonly candidateSkinBase: string;
-  /** Manifest minimum width, clamped to the same bounds as the native estimate. */
+  /** The shared global theme id the keyboard and candidate window are drawn in. */
+  readonly globalThemeId: string;
+  /** Manifest minimum width of the drawn external package, clamped to the same bounds as the native estimate. */
   readonly candidateMinWidthVp: number;
   /** Image-only data URL for a compatible external candidate decoration. */
   readonly candidateDecorationImage: string | null;
@@ -732,7 +745,8 @@ export interface KeyboardPreferences {
   readonly candidateDecorationWidthVp: number;
   readonly candidateDecorationAspectRatio: number;
   readonly candidateDark: boolean;
-  readonly candidateSelectedBar: boolean | null;
+  /** The shared switch when it is set, otherwise what the theme says; the Harmony window marks the row with a fill, not a bar. */
+  readonly candidateSelectedBar: boolean;
   readonly pairedPunctuation: boolean;
   readonly keyboardTheme: string;
   readonly toolbarTheme: string;
@@ -740,7 +754,8 @@ export interface KeyboardPreferences {
   readonly emojiTheme: string;
   readonly handwritingTheme: string;
   readonly menuTheme: string;
-  readonly globalTheme: string;
+  /** The `theme` preference: the light/dark app mode, which is not the global theme. */
+  readonly appMode: string;
   readonly scheme: string;
   readonly shuangpinProfile: string;
   readonly layout: string;
@@ -764,13 +779,8 @@ export interface KeyboardPreferences {
   readonly candidateFontFamily: string;
   readonly candidateEnglishFont: string | null;
   readonly candidateFallbackFonts: string[];
-  readonly candidateTextColor: string | null;
-  readonly candidateAccentColor: string | null;
-  readonly candidateNumberColor: string | null;
-  readonly candidateSelectedColor: string | null;
-  readonly candidateHoverColor: string | null;
-  readonly candidateSurfaceColor: string | null;
-  readonly candidateBorderColor: string | null;
+  /** The 2in1 candidate window's colours in its mode, from the resolved theme with the native tokens behind it. */
+  readonly candidateColors: CandidateColors;
   readonly keySpacingTenths: number;
   readonly rowSpacingTenths: number;
   readonly heightAdjustment: number;
@@ -916,6 +926,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   private candidateEnglishGloss: boolean = false;
   private candidateGlossEnabled: boolean = false;
   private candidateGlossRows: number = 0;
+  // Mirrored for the function panel's 模糊音 tile; the rules themselves stay in the document.
+  private fuzzyPinyin: boolean = false;
   // Read before the panels are built, so a badge the user turned off is never created at all.
   private modeBadge: boolean = true;
   private resourceDirectory: string = '';
@@ -931,20 +943,18 @@ export class KeyboardSession implements HardwareKeyTarget {
   private capitalization: CapitalizationMode = CapitalizationMode.NONE;
   private appearance: KeyboardPreferences = {
     dark: false,
-    skinId: 'forest',
-    candidateSkinId: 'willow_green',
-    candidateSkinBase: 'willow_green',
+    globalThemeId: 'system',
     candidateMinWidthVp: CandidateWidthPolicy.MIN_WIDTH_VP,
     candidateDecorationImage: null,
     candidateDecorationTopVp: 0,
     candidateDecorationWidthVp: 0,
     candidateDecorationAspectRatio: 1,
     candidateDark: false,
-    candidateSelectedBar: null,
+    candidateSelectedBar: false,
     pairedPunctuation: true,
     keyboardTheme: 'follow',
     toolbarTheme: 'follow',
-    globalTheme: 'system',
+    appMode: 'system',
     emojiTheme: 'follow',
     handwritingTheme: 'follow',
     menuTheme: 'follow',
@@ -969,13 +979,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     candidateFontFamily: 'Noto Sans SC',
     candidateEnglishFont: null,
     candidateFallbackFonts: ['Noto Sans SC', 'Microsoft YaHei'],
-    candidateTextColor: null,
-    candidateAccentColor: null,
-    candidateNumberColor: null,
-    candidateSelectedColor: null,
-    candidateHoverColor: null,
-    candidateSurfaceColor: null,
-    candidateBorderColor: null,
+    candidateColors: GlobalTheme.candidateColors(null, false),
     keySpacingTenths: KeyboardGeometry.DEFAULT_KEY_SPACING_TENTHS,
     rowSpacingTenths: KeyboardGeometry.DEFAULT_ROW_SPACING_TENTHS,
     heightAdjustment: KeyboardGeometry.DEFAULT_HEIGHT_ADJUSTMENT_VP,
@@ -1026,11 +1030,11 @@ export class KeyboardSession implements HardwareKeyTarget {
    * onChanged; this is the same news for the other reader, and fires only when the answer changes.
    */
   onComposition: ((active: boolean) => void) | undefined = undefined;
-  /** The mode badge's face, set by whichever window is currently drawing it. */
-  onModeBadge: ((english: boolean, dark: boolean) => void) | undefined = undefined;
+  /** The mode badge's face, set by whichever window is currently drawing it: the mode, the fill and the ink that reads on it. */
+  onModeBadge: ((english: boolean, fill: string, ink: string) => void) | undefined = undefined;
   /** The toolbar's face, set by whichever window is currently drawing it. */
   onToolbar: ((state: ToolbarState, buttons: ToolbarButton[], fontSize: number, scale: number,
-               skin: KeyboardSkin, toolbarSkin: ToolbarSkin) => void) | undefined = undefined;
+               toolbarSkin: ToolbarSkin) => void) | undefined = undefined;
   /** The status-bar panel owns the window; the ArkUI handle only reports its pan gesture. */
   onToolbarDragStart: (() => void) | undefined = undefined;
   onToolbarDrag: ((offsetX: number, offsetY: number) => void) | undefined = undefined;
@@ -1118,6 +1122,152 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
   }
 
+  /**
+   * Resolves the global theme for both modes and draws every surface's appearance from the answer.
+   *
+   * The resolve reads the skin root, so it runs when the preferences are read or the theme is chosen, never while drawing. Both modes are resolved up front because each surface keeps its own light/dark rule: the keyboard, the candidate window and the toolbar can sit in different modes at once, and a theme over `system` (a package, say) answers differently in each.
+   */
+  private applyAppearance(preferences: PreparedPreferences): void {
+    if (this.themeCatalog.length === 0) {
+      this.themeCatalog = this.readThemeCatalog();
+    }
+    this.globalThemeId = preferences.global_theme;
+    this.customThemeBase = preferences.custom_theme?.base ?? 'system';
+    const design: CustomSkinDocument | undefined = preferences.custom_theme?.keyboard;
+    this.customDesign = design === undefined ? null : CustomKeyboardSkin.from(design);
+    this.themeLight = this.resolveTheme(preferences, false);
+    this.themeDark = this.resolveTheme(preferences, true);
+    const keyboardDark: boolean = this.themeDarkFor(preferences.screen_keyboard_theme, preferences.theme);
+    const candidateDark: boolean = this.themeDarkFor(preferences.candidate_theme, preferences.theme);
+    const candidateTheme: ResolvedTheme | null = candidateDark ? this.themeDark : this.themeLight;
+    const candidateColors: CandidateColors = GlobalTheme.candidateColors(
+      candidateTheme === null ? null : candidateTheme.candidate, candidateDark);
+    const toolbarDark: boolean = this.themeDarkFor(preferences.toolbar_theme ?? 'follow', preferences.theme);
+    const toolbarTheme: ResolvedTheme | null = toolbarDark ? this.themeDark : this.themeLight;
+    // `candidate_skin` is the one signal that a package was drawn in this layout and mode; the package catalog is only read for what the theme does not carry.
+    const packageId: string | null = candidateTheme === null ? null : candidateTheme.candidate_skin;
+    const toolbarPackageId: string | null = toolbarTheme === null ? null : toolbarTheme.candidate_skin;
+    const skinPackages: CandidateSkinPackage[] = packageId === null && toolbarPackageId === null
+      ? [] : this.readCandidateSkinCatalog(this.stateDirectory);
+    const skinMinWidth: number | null = packageId === null
+      ? null : CandidateSkinCatalogPolicy.minWidthVp(skinPackages, packageId);
+    const skinDecoration: CandidateSkinDecoration | null = packageId === null
+      ? null : CandidateSkinCatalogPolicy.decoration(skinPackages, packageId);
+    const skinToolbar: string | null = toolbarPackageId === null ? null
+      : this.readCandidateSkinToolbar(this.stateDirectory, toolbarPackageId,
+        CandidateSkinCatalogPolicy.toolbarStylesheet(skinPackages, toolbarPackageId));
+    const skinImage: CandidateSkinImage = KeyboardFormFactor.isDesktop() && packageId !== null
+      ? this.readCandidateSkinImage(this.stateDirectory, packageId, skinDecoration)
+      : NO_CANDIDATE_SKIN_IMAGE;
+    this.appearance = {
+      dark: keyboardDark,
+      globalThemeId: preferences.global_theme,
+      candidateMinWidthVp: skinMinWidth === null
+        ? CandidateWidthPolicy.MIN_WIDTH_VP
+        : Math.max(CandidateWidthPolicy.MIN_WIDTH_VP,
+          Math.min(CandidateWidthPolicy.MAX_WIDTH_VP, skinMinWidth)),
+      candidateDecorationImage: skinImage.image,
+      candidateDecorationTopVp: skinImage.image === null ? 0 : (skinDecoration?.topVp ?? 0),
+      candidateDecorationWidthVp: skinImage.image === null ? 0 : (skinDecoration?.widthVp ?? 0),
+      candidateDecorationAspectRatio: skinImage.aspectRatio,
+      candidateDark: candidateDark,
+      candidateSelectedBar: preferences.candidate_selected_bar ?? candidateColors.showSelectedBar,
+      pairedPunctuation: preferences.paired_punctuation !== false,
+      keyboardTheme: preferences.screen_keyboard_theme,
+      toolbarTheme: preferences.toolbar_theme ?? 'follow',
+      voiceTheme: preferences.voice_theme ?? 'follow',
+      emojiTheme: preferences.emoji_theme ?? 'follow',
+      handwritingTheme: preferences.handwriting_theme ?? 'follow',
+      menuTheme: preferences.menu_theme ?? 'follow',
+      appMode: preferences.theme,
+      scheme: preferences.scheme,
+      shuangpinProfile: preferences.shuangpin_profile,
+      layout: preferences.touch_keyboard_layout,
+      selectedScheme: preferences.touch_keyboard_schemes?.selected ?? null,
+      enabledSchemes: preferences.touch_keyboard_schemes?.enabled === undefined
+        ? KeyboardScheme.SCHEMES.map((candidate: SchemeDefinition): string => candidate.preferenceId)
+        : KeyboardScheme.enabledFromPreferenceIds(preferences.touch_keyboard_schemes.enabled)
+          .map((candidate: SchemeDefinition): string => candidate.preferenceId),
+      candidateFollowCursor: preferences.candidate_follow_cursor,
+      numberRowSelection: preferences.number_row_selection,
+      candidateShowPreedit: preferences.candidate_preedit_style !== 'empty',
+      candidateLayout: preferences.candidate_layout === 'horizontal' ? 'horizontal' : 'vertical',
+      navigation: {
+        minusEqual: preferences.navigation?.minus_equal ?? true,
+        commaPeriod: preferences.navigation?.comma_period ?? true,
+        brackets: preferences.navigation?.brackets ?? false,
+        tab: preferences.navigation?.tab ?? true,
+        pageUpDown: preferences.navigation?.page_up_down ?? true,
+        mouseWheel: preferences.navigation?.mouse_wheel ?? false,
+        arrows: preferences.navigation?.arrows ?? true
+      },
+      // The shared store validates these to 12..32 and strips control
+      // characters from family names. Clamp again at the host boundary so
+      // an older staged document cannot produce an unusable panel.
+      candidateFontSize: Math.max(12, Math.min(32, preferences.candidate_font_size)),
+      candidatePreeditFontSize:
+        Math.max(12, Math.min(32, preferences.candidate_preedit_font_size)),
+      candidateFontFamily: preferences.candidate_font_family.trim().length > 0
+        ? preferences.candidate_font_family : 'Noto Sans SC',
+      candidateEnglishFont: preferences.candidate_english_font ?? null,
+      candidateFallbackFonts: preferences.candidate_fallback_fonts.filter(
+        (font: string): boolean => font.trim().length > 0),
+      candidateColors: candidateColors,
+      // Clamped rather than trusted: the store validates, but an older document or a host that
+      // never learned the bounds would otherwise draw a keyboard nobody can hit.
+      keySpacingTenths: KeyboardGeometry.keySpacing(preferences.touch_key_spacing_tenths),
+      rowSpacingTenths: KeyboardGeometry.rowSpacing(preferences.touch_row_spacing_tenths),
+      heightAdjustment:
+        KeyboardGeometry.heightAdjustment(preferences.touch_keyboard_height_adjustment),
+      voiceShortcut: preferences.touch_voice_shortcut,
+      thoughtfulReply: preferences.touch_keyboard_schemes?.selected === 'thoughtful_reply'
+    };
+    this.toolbarSkin = ToolbarSkinPolicy.fromCss(GlobalTheme.candidateColors(
+      toolbarTheme === null ? null : toolbarTheme.candidate, toolbarDark), skinToolbar);
+  }
+
+  /** A surface's mode: fixed by a theme with an appearance, otherwise its own setting, then the app mode, then the system. */
+  private themeDarkFor(surfaceTheme: string, appMode: string): boolean {
+    return GlobalTheme.surfaceDark(this.fixedAppearance(),
+      KeyboardSkin.resolveDark(surfaceTheme, appMode, this.systemDark));
+  }
+
+  /** `light` or `dark` when the global theme fixes the mode; the answer is the same for both requested modes. */
+  private fixedAppearance(): string | null {
+    return this.themeLight === null ? null : this.themeLight.appearance;
+  }
+
+  private readThemeCatalog(): ThemeCatalogEntry[] {
+    try {
+      return GlobalTheme.parseCatalog(client.themeCatalog());
+    } catch (error) {
+      KeyboardLog.error(`theme catalog unavailable: ${describeError(error)}`);
+      return [];
+    }
+  }
+
+  /** One mode of the global theme. A refused request draws the native tokens rather than failing the session. */
+  private resolveTheme(preferences: PreparedPreferences, dark: boolean): ResolvedTheme | null {
+    const request: ResolveThemeRequest = {
+      global_theme: preferences.global_theme,
+      custom_theme: preferences.custom_theme,
+      dark: dark,
+      layout: preferences.candidate_layout === 'horizontal' ? 'horizontal' : 'vertical',
+      skins_directory: `${this.stateDirectory}/skins`
+    };
+    try {
+      const resolved: ResolvedTheme | null =
+        GlobalTheme.parseResolved(client.resolveTheme(JSON.stringify(request)));
+      if (resolved === null) {
+        KeyboardLog.error(`theme ${preferences.global_theme} refused; drawing the native tokens`);
+      }
+      return resolved;
+    } catch (error) {
+      KeyboardLog.error(`theme unavailable: ${describeError(error)}`);
+      return null;
+    }
+  }
+
   start(resources: string, stateRoot: string, systemDark: boolean): boolean {
     let abi: number;
     try {
@@ -1126,8 +1276,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       KeyboardLog.error(`native module unavailable: ${describeError(error)}`);
       return false;
     }
-    if (abi !== 2) {
-      KeyboardLog.error(`native ABI is ${abi}, expected 2`);
+    if (abi !== 3) {
+      KeyboardLog.error(`native ABI is ${abi}, expected 3`);
       return false;
     }
     this.resourceDirectory = resources;
@@ -1157,27 +1307,8 @@ export class KeyboardSession implements HardwareKeyTarget {
         preferences.wubi_code_hint);
       this.candidateEnglishGloss = CandidateAnnotationPreferencePolicy.englishGloss(
         preferences.candidate_english_gloss);
-      this.candidateGlossEnabled = CandidateGlossLayoutPolicy.displays(
-        this.candidateEnglishGloss, preferences.candidate_translations);
-      const glossTargets: string[] = [preferences.translation_target_language];
-      if (preferences.translation_secondary_language !== undefined
-          && preferences.translation_secondary_language !== null
-          && !glossTargets.includes(preferences.translation_secondary_language)) {
-        glossTargets.push(preferences.translation_secondary_language);
-      }
-      const glossProviders: CandidateGlossProviderState = {
-        customEnabled: preferences.custom_translation.enabled,
-        customEndpoint: preferences.custom_translation.endpoint,
-        niuTransEnabled: preferences.niutrans.enabled,
-        niuTransAppId: preferences.niutrans.app_id,
-        niuTransApiKey: preferences.niutrans.apikey,
-        tencentEnabled: preferences.tencent_tmt.enabled,
-        tencentSecretId: preferences.tencent_tmt.secret_id,
-        tencentSecretKey: preferences.tencent_tmt.secret_key
-      };
-      this.candidateGlossRows = CandidateGlossLayoutPolicy.rows(this.candidateEnglishGloss,
-        glossTargets, preferences.candidate_translations, glossProviders,
-        this.installedOfflineGlosses(glossTargets));
+      this.applyCandidateGloss(preferences);
+      this.fuzzyPinyin = preferences.fuzzy_pinyin !== undefined && preferences.fuzzy_pinyin.enabled;
       this.modeBadge = InputModeHudPolicy.enabled(preferences.input_mode_hud);
       this.englishSuggestionsEnabled = preferences.english_suggestions !== false;
       if (ClipboardHistoryPreferencePolicy.shouldClearHistory(this.clipboardHistoryEnabled)) {
@@ -1186,31 +1317,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       if (this.onClipboardHistoryChanged !== undefined) {
         this.onClipboardHistoryChanged(this.clipboardHistoryEnabled);
       }
-      const skinPackages: CandidateSkinPackage[] = this.readCandidateSkinCatalog(stateRoot);
-      const candidateDark: boolean = KeyboardSkin.resolveDark(preferences.candidate_theme,
-        preferences.theme, systemDark);
-      const candidateTheme: string = candidateDark ? 'dark' : 'light';
-      const skinSupported: boolean = CandidateSkinCatalogPolicy.supports(
-        skinPackages, preferences.candidate_skin, preferences.candidate_layout, candidateTheme);
-      const skinPalette: CandidateSkinPaletteTokens | null = CandidateSkinCatalogPolicy.palette(
-        skinSupported ? skinPackages : [], preferences.candidate_skin, candidateDark);
-      const skinBase: string | null = CandidateSkinCatalogPolicy.base(
-        skinSupported ? skinPackages : [], preferences.candidate_skin);
-      const skinMinWidth: number | null = CandidateSkinCatalogPolicy.minWidthVp(
-        skinSupported ? skinPackages : [], preferences.candidate_skin);
-      const skinSelectedBar: boolean | null = CandidateSkinCatalogPolicy.showSelectedBar(
-        skinSupported ? skinPackages : [], preferences.candidate_skin, candidateDark);
-      const skinDecoration: CandidateSkinDecoration | null = CandidateSkinCatalogPolicy.decoration(
-        skinSupported ? skinPackages : [], preferences.candidate_skin);
-      const skinToolbar: string | null = this.readCandidateSkinToolbar(stateRoot,
-        preferences.candidate_skin, CandidateSkinCatalogPolicy.toolbarStylesheet(
-          skinSupported ? skinPackages : [], preferences.candidate_skin));
-      const skinImage: CandidateSkinImage = KeyboardFormFactor.isDesktop()
-        ? this.readCandidateSkinImage(stateRoot, preferences.candidate_skin, skinDecoration)
-        : NO_CANDIDATE_SKIN_IMAGE;
       this.voiceInput = preferences.voice_input;
       this.voiceHotkeys.use(KeyboardSession.hotkeyBindings(preferences.voice_input));
-      this.customSkinDesign = CustomKeyboardSkin.from(preferences.custom_touch_keyboard_skin ?? null);
       if (this.onVoiceInputChanged !== undefined) {
         this.onVoiceInputChanged(this.voiceInputEnabled());
       }
@@ -1224,84 +1332,8 @@ export class KeyboardSession implements HardwareKeyTarget {
         switchLanguageCtrlAltSpace: preferences.keybindings.switch_language_ctrl_alt_space,
         toggleCharacterSetCtrlShiftF: preferences.keybindings.toggle_character_set_ctrl_shift_f
       };
-      this.appearance = {
-        // The keyboard's own theme wins, then the global one, and only if both defer does the
-        // system decide. resolveDark is the ported rule every other host already follows.
-        dark: KeyboardSkin.resolveDark(preferences.screen_keyboard_theme, preferences.theme,
-          systemDark),
-        skinId: preferences.touch_keyboard_skin,
-        candidateSkinId: preferences.candidate_skin,
-        candidateSkinBase: skinBase ?? preferences.candidate_skin,
-        candidateMinWidthVp: skinMinWidth === null
-          ? CandidateWidthPolicy.MIN_WIDTH_VP
-          : Math.max(CandidateWidthPolicy.MIN_WIDTH_VP,
-            Math.min(CandidateWidthPolicy.MAX_WIDTH_VP, skinMinWidth)),
-        candidateDecorationImage: skinImage.image,
-        candidateDecorationTopVp: skinImage.image === null ? 0 : (skinDecoration?.topVp ?? 0),
-        candidateDecorationWidthVp: skinImage.image === null ? 0 : (skinDecoration?.widthVp ?? 0),
-        candidateDecorationAspectRatio: skinImage.aspectRatio,
-        candidateDark: candidateDark,
-        candidateSelectedBar: preferences.candidate_selected_bar ?? skinSelectedBar,
-        pairedPunctuation: preferences.paired_punctuation !== false,
-        keyboardTheme: preferences.screen_keyboard_theme,
-        toolbarTheme: preferences.toolbar_theme ?? 'follow',
-        voiceTheme: preferences.voice_theme ?? 'follow',
-        emojiTheme: preferences.emoji_theme ?? 'follow',
-        handwritingTheme: preferences.handwriting_theme ?? 'follow',
-        menuTheme: preferences.menu_theme ?? 'follow',
-        globalTheme: preferences.theme,
-        scheme: preferences.scheme,
-        shuangpinProfile: preferences.shuangpin_profile,
-        layout: preferences.touch_keyboard_layout,
-        selectedScheme: preferences.touch_keyboard_schemes?.selected ?? null,
-        enabledSchemes: preferences.touch_keyboard_schemes?.enabled === undefined
-          ? KeyboardScheme.SCHEMES.map((candidate: SchemeDefinition): string => candidate.preferenceId)
-          : KeyboardScheme.enabledFromPreferenceIds(preferences.touch_keyboard_schemes.enabled)
-            .map((candidate: SchemeDefinition): string => candidate.preferenceId),
-        candidateFollowCursor: preferences.candidate_follow_cursor,
-        numberRowSelection: preferences.number_row_selection,
-        candidateShowPreedit: preferences.candidate_preedit_style !== 'empty',
-        candidateLayout: preferences.candidate_layout === 'horizontal' ? 'horizontal' : 'vertical',
-        navigation: {
-          minusEqual: preferences.navigation?.minus_equal ?? true,
-          commaPeriod: preferences.navigation?.comma_period ?? true,
-          brackets: preferences.navigation?.brackets ?? false,
-          tab: preferences.navigation?.tab ?? true,
-          pageUpDown: preferences.navigation?.page_up_down ?? true,
-          mouseWheel: preferences.navigation?.mouse_wheel ?? false,
-          arrows: preferences.navigation?.arrows ?? true
-        },
-        // The shared store validates these to 12..32 and strips control
-        // characters from family names. Clamp again at the host boundary so
-        // an older staged document cannot produce an unusable panel.
-        candidateFontSize: KeyboardGeometry.bounded(preferences.candidate_font_size, 12, 32),
-        candidatePreeditFontSize:
-          KeyboardGeometry.bounded(preferences.candidate_preedit_font_size, 12, 32),
-        candidateFontFamily: preferences.candidate_font_family.trim().length > 0
-          ? preferences.candidate_font_family : 'Noto Sans SC',
-        candidateEnglishFont: preferences.candidate_english_font ?? null,
-        candidateFallbackFonts: preferences.candidate_fallback_fonts.filter(
-          (font: string): boolean => font.trim().length > 0),
-        candidateTextColor: preferences.candidate_text_color ?? skinPalette?.text ?? null,
-        candidateAccentColor: preferences.candidate_accent_color ?? skinPalette?.accent ?? null,
-        candidateNumberColor: preferences.candidate_number_color ?? skinPalette?.number ?? null,
-        candidateSelectedColor: preferences.candidate_selected_color ?? skinPalette?.selected ?? null,
-        candidateHoverColor: preferences.candidate_hover_color ?? skinPalette?.hover ?? null,
-        candidateSurfaceColor: preferences.candidate_surface_color ?? skinPalette?.surface ?? null,
-        candidateBorderColor: preferences.candidate_border_color ?? skinPalette?.border ?? null,
-        // Clamped rather than trusted: the store validates, but an older document or a host that
-        // never learned the bounds would otherwise draw a keyboard nobody can hit.
-        keySpacingTenths: KeyboardGeometry.keySpacing(preferences.touch_key_spacing_tenths),
-        rowSpacingTenths: KeyboardGeometry.rowSpacing(preferences.touch_row_spacing_tenths),
-        heightAdjustment:
-          KeyboardGeometry.heightAdjustment(preferences.touch_keyboard_height_adjustment),
-        voiceShortcut: preferences.touch_voice_shortcut,
-        thoughtfulReply: preferences.touch_keyboard_schemes?.selected === 'thoughtful_reply'
-      };
-      this.toolbarSkin = ToolbarSkinPolicy.fromCss(
-        this.skin(this.appearance.skinId,
-          KeyboardSkin.resolveDark(this.appearance.toolbarTheme, this.appearance.globalTheme,
-            systemDark)), skinToolbar);
+      this.preparedPreferences = preferences;
+      this.applyAppearance(preferences);
       this.schemeName = preferences.scheme;
       this.profileName = preferences.shuangpin_profile;
       this.traditional = preferences.traditional_chinese_output;
@@ -1452,12 +1484,17 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     // Any rebuild reads the document afresh, whatever it was for, so the surfaces follow whenever the stored preferences moved underneath it.
     if (this.preferencesRevision !== revision) {
-      if (this.onViewPreferencesReloaded !== undefined) {
-        this.onViewPreferencesReloaded();
-      }
-      if (this.onPreferencesReloaded !== undefined) {
-        this.onPreferencesReloaded();
-      }
+      this.announcePreferencesReloaded();
+    }
+  }
+
+  /** Tell the view and the ability that what they derive from the preferences has to be read again. */
+  private announcePreferencesReloaded(): void {
+    if (this.onViewPreferencesReloaded !== undefined) {
+      this.onViewPreferencesReloaded();
+    }
+    if (this.onPreferencesReloaded !== undefined) {
+      this.onPreferencesReloaded();
     }
   }
 
@@ -1499,14 +1536,182 @@ export class KeyboardSession implements HardwareKeyTarget {
     return this.appearance;
   }
 
-  /** Resolve a touch-keyboard skin with the shared custom design when selected. */
-  skin(id: string, dark: boolean): KeyboardSkin {
-    return KeyboardSkin.from(id, dark, id === 'custom' ? this.customSkinDesign : null);
+  /** The keyboard palette of the global theme in one mode: the custom design when the custom theme carries one, else the resolved palette, else the native tokens. */
+  keyboardSkin(dark: boolean): KeyboardSkin {
+    const title: string = this.themeTitle(this.globalThemeId);
+    if (this.globalThemeId === 'custom' && this.customDesign !== null) {
+      return KeyboardSkin.fromDesign(title, this.customDesign, dark);
+    }
+    const theme: ResolvedTheme | null = dark ? this.themeDark : this.themeLight;
+    return KeyboardSkin.fromTheme(this.globalThemeId, title, theme === null ? null : theme.keyboard, dark);
   }
 
-  /** The built-ins plus the current shared custom design for the native picker. */
-  keyboardSkins(dark: boolean): KeyboardSkin[] {
-    return KeyboardSkin.choices(dark, this.customSkinDesign);
+  /** The skin a keyboard-side surface (voice, emoji, handwriting, menus) wears: its own setting, then the app mode, then whatever the keyboard is in; a theme with a fixed appearance overrides all three. */
+  surfaceSkin(surfaceTheme: string): KeyboardSkin {
+    return this.keyboardSkin(GlobalTheme.surfaceDark(this.fixedAppearance(),
+      KeyboardSkin.resolveDark(surfaceTheme, this.appearance.appMode, this.appearance.dark)));
+  }
+
+  /** The 2in1 candidate context menu's colours. Menus derive from the candidate palette rather than the keyboard's, in the mode `menu_theme` picks the way `surfaceSkin` resolves the keyboard-side surfaces. */
+  menuColors(): CandidateColors {
+    const dark: boolean = GlobalTheme.surfaceDark(this.fixedAppearance(),
+      KeyboardSkin.resolveDark(this.appearance.menuTheme, this.appearance.appMode, this.appearance.dark));
+    const theme: ResolvedTheme | null = dark ? this.themeDark : this.themeLight;
+    return GlobalTheme.candidateColors(theme === null ? null : theme.candidate, dark);
+  }
+
+  /**
+   * One card per global theme for the native picker, in the shared catalog order.
+   *
+   * A built-in theme is shown in the mode it fixes, `system` in the current mode, and `custom` as the user's design, or its base when there is no design. Ids, titles and colours all come from the catalog; nothing here keeps a copy.
+   */
+  themeSkins(dark: boolean): KeyboardSkin[] {
+    if (this.themeCatalog.length === 0) {
+      return [this.keyboardSkin(dark)];
+    }
+    return this.themeCatalog.map((entry: ThemeCatalogEntry): KeyboardSkin => {
+      if (entry.id === this.globalThemeId) {
+        return this.keyboardSkin(GlobalTheme.surfaceDark(entry.appearance, dark));
+      }
+      if (entry.id === 'custom') {
+        if (this.customDesign !== null) {
+          return KeyboardSkin.fromDesign(entry.title, this.customDesign, dark);
+        }
+        const base: ThemeCatalogEntry | null = GlobalTheme.entry(this.themeCatalog, this.customThemeBase);
+        return base === null ? KeyboardSkin.fromTheme(entry.id, entry.title, null, dark)
+          : KeyboardSkin.fromTheme(entry.id, entry.title, base.keyboard,
+            GlobalTheme.surfaceDark(base.appearance, dark));
+      }
+      return KeyboardSkin.fromTheme(entry.id, entry.title, entry.keyboard,
+        GlobalTheme.surfaceDark(entry.appearance, dark));
+    });
+  }
+
+  /** Store a global theme picked on the keyboard and redraw every surface from it. */
+  selectGlobalTheme(id: string): boolean {
+    const changes: Map<string, Object> = new Map<string, Object>();
+    changes.set('global_theme', id);
+    if (!this.changePreferences(changes)) {
+      return false;
+    }
+    if (this.preparedPreferences !== undefined) {
+      this.preparedPreferences.global_theme = id;
+      this.applyAppearance(this.preparedPreferences);
+    }
+    this.refreshToolbar();
+    return true;
+  }
+
+  /** Whether candidates carry translations, which the function panel's 译 tile and the strip's 译 pill show as a switch. */
+  showsCandidateTranslations(): boolean {
+    return this.preparedPreferences !== undefined && this.preparedPreferences.candidate_translations;
+  }
+
+  /**
+   * Candidate translations on or off from the keyboard, through the same document the settings page writes.
+   *
+   * The session takes the change at once, since the translation query reads its preferences. What the host derived from the switch is derived again here: whether a gloss is drawn, and the line reserved for it, which moves the keyboard's height, so the view and the ability are told the way a settings reload tells them.
+   */
+  toggleCandidateTranslations(): boolean {
+    const prepared: PreparedPreferences | undefined = this.preparedPreferences;
+    if (prepared === undefined) {
+      return false;
+    }
+    const changes: Map<string, Object> = new Map<string, Object>();
+    changes.set('candidate_translations', !prepared.candidate_translations);
+    if (!this.changePreferences(changes)) {
+      return prepared.candidate_translations;
+    }
+    prepared.candidate_translations = !prepared.candidate_translations;
+    this.applyCandidateGloss(prepared);
+    this.publishCurrentCandidates();
+    this.announcePreferencesReloaded();
+    return prepared.candidate_translations;
+  }
+
+  /** Whether fuzzy pinyin is on, which the function panel's 模糊音 tile shows as a switch. */
+  usesFuzzyPinyin(): boolean {
+    return this.fuzzyPinyin;
+  }
+
+  /**
+   * Fuzzy pinyin on or off from the keyboard, with the selected rules kept.
+   *
+   * Saved before it is applied, the reverse of changePreferences: the store opts every rule in on the first enable, and the session has to be given that seeded set rather than the empty one that was sent, or the switch would read on while matching exactly until the next rebuild. The saved snapshot carries the revision the session is then given, so the two never disagree about what that revision holds.
+   */
+  toggleFuzzyPinyin(): boolean {
+    if (this.handle === 0) {
+      return this.fuzzyPinyin;
+    }
+    try {
+      const loaded: SnapshotResponse =
+        JSON.parse(client.loadPreferences(this.stateDirectory)) as SnapshotResponse;
+      if (!loaded.ok) {
+        KeyboardLog.error(`preferences unreadable: ${loaded.error}`);
+        return this.fuzzyPinyin;
+      }
+      const snapshot: PreferencesSnapshot = loaded.value;
+      const expected: number = snapshot.revision;
+      const stored: Object | undefined = snapshot.preferences['fuzzy_pinyin'];
+      const absent: PreparedFuzzyPinyin = { enabled: false, rules: [] };
+      const current: PreparedFuzzyPinyin = stored === undefined ? absent : stored as PreparedFuzzyPinyin;
+      // The record just parsed from disk with only the switch flipped: the rules and the seeding marker go back as they were read.
+      current.enabled = !current.enabled;
+      snapshot.preferences['fuzzy_pinyin'] = current;
+      snapshot.revision = expected + 1;
+      const saved: SnapshotResponse = JSON.parse(client.savePreferences(this.stateDirectory, expected,
+        JSON.stringify(snapshot))) as SnapshotResponse;
+      if (!saved.ok) {
+        KeyboardLog.error(`preferences not persisted: ${saved.error}`);
+        return this.fuzzyPinyin;
+      }
+      const applied: PrepareResponse =
+        JSON.parse(client.updatePreferences(this.handle, JSON.stringify(saved.value))) as PrepareResponse;
+      if (!applied.ok) {
+        // On disk but not in the session: leaving the revision behind makes the next focus rebuild from the document.
+        KeyboardLog.error(`preferences refused: ${applied.error}`);
+      } else {
+        this.preferencesRevision = saved.value.revision;
+      }
+      const fuzzy: PreparedFuzzyPinyin = saved.value.preferences['fuzzy_pinyin'] as PreparedFuzzyPinyin;
+      this.fuzzyPinyin = fuzzy.enabled;
+      if (this.preparedPreferences !== undefined) {
+        this.preparedPreferences.fuzzy_pinyin = fuzzy;
+      }
+    } catch (error) {
+      KeyboardLog.error(`preferences failed: ${describeError(error)}`);
+    }
+    return this.fuzzyPinyin;
+  }
+
+  /** Whether a gloss is drawn under the candidates and how many lines are kept for it, from the two switches and the providers that can answer. */
+  private applyCandidateGloss(preferences: PreparedPreferences): void {
+    this.candidateGlossEnabled = CandidateGlossLayoutPolicy.displays(
+      this.candidateEnglishGloss, preferences.candidate_translations);
+    const glossTargets: string[] = [preferences.translation_target_language];
+    if (preferences.translation_secondary_language !== undefined
+        && preferences.translation_secondary_language !== null
+        && !glossTargets.includes(preferences.translation_secondary_language)) {
+      glossTargets.push(preferences.translation_secondary_language);
+    }
+    const glossProviders: CandidateGlossProviderState = {
+      customEnabled: preferences.custom_translation.enabled,
+      customEndpoint: preferences.custom_translation.endpoint,
+      niuTransEnabled: preferences.niutrans.enabled,
+      niuTransAppId: preferences.niutrans.app_id,
+      niuTransApiKey: preferences.niutrans.apikey,
+      tencentEnabled: preferences.tencent_tmt.enabled,
+      tencentSecretId: preferences.tencent_tmt.secret_id,
+      tencentSecretKey: preferences.tencent_tmt.secret_key
+    };
+    this.candidateGlossRows = CandidateGlossLayoutPolicy.rows(this.candidateEnglishGloss,
+      glossTargets, preferences.candidate_translations, glossProviders,
+      this.installedOfflineGlosses(glossTargets));
+  }
+
+  private themeTitle(id: string): string {
+    const entry: ThemeCatalogEntry | null = GlobalTheme.entry(this.themeCatalog, id);
+    return entry === null ? id : entry.title;
   }
 
   /** Whether the shared privacy preference permits this host's private history file. */
@@ -1695,17 +1900,24 @@ export class KeyboardSession implements HardwareKeyTarget {
     return this.wordCharacter;
   }
 
+  /** Whether punctuation keys write Chinese punctuation, which the touch strip and the function panel show as a switch. */
+  usesChinesePunctuation(): boolean {
+    return this.chinesePunctuation;
+  }
+
   /**
    * Chinese punctuation or ASCII, which the toolbar button and the Windows Ctrl+. binding share.
    *
-   * Written as a preference rather than as a live session mode because that is how this host has
-   * always changed it: the same value drives the toolbar face and the settings page, and two
-   * mechanisms for one switch is how they come to disagree.
+   * Written as a preference rather than as a live session mode because that is how this host has always changed it: the same value drives the toolbar face and the settings page, and two mechanisms for one switch is how they come to disagree.
+   *
+   * The switch moves only once the store has taken the write: the reload that follows skips this session's own revision, so a refused write that still flipped the flag would write punctuation the settings page says is off. Returns the state now in effect.
    */
   togglePunctuation(): boolean {
+    if (!this.writePreference('chinese_punctuation', !this.chinesePunctuation)) {
+      return this.chinesePunctuation;
+    }
     this.chinesePunctuation = !this.chinesePunctuation;
     this.clearSmartPunctuationRepeat();
-    this.writePreference('chinese_punctuation', this.chinesePunctuation);
     return this.chinesePunctuation;
   }
 
@@ -1787,8 +1999,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       fullWidth: this.fullWidth, traditional: this.traditional
     };
     this.onToolbar(state, FloatingToolbarLayout.buttons(this.toolbarComponents()),
-      this.toolbarFontSize(), this.toolbarScale(),
-      this.skin(this.appearance.skinId, this.appearance.dark), this.toolbarSkin);
+      this.toolbarFontSize(), this.toolbarScale(), this.toolbarSkin);
   }
 
   beginToolbarDrag(): void {
@@ -1851,19 +2062,26 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.refreshToolbar();
   }
 
-  /** Simplified output becomes traditional and back, saved as the preference the settings page shows. */
-  toggleCharacterSet(): void {
+  /**
+   * Simplified output becomes traditional and back, saved as the preference the settings page shows. Shared by the toolbar button, Ctrl+Shift+F and the function panel's 繁 tile.
+   *
+   * The switch moves only once the store has taken the write: the reload that follows skips this session's own revision, so a refused write that still flipped the flag would convert output the settings page says is off. Returns the state now in effect.
+   */
+  toggleCharacterSet(): boolean {
+    if (!this.writePreference('traditional_chinese_output', !this.traditional)) {
+      return this.traditional;
+    }
     this.traditional = !this.traditional;
-    this.writePreference('traditional_chinese_output', this.traditional);
     // The candidate bar shows converted text, so the list on screen follows the switch at once.
     this.publishCurrentCandidates();
+    return this.traditional;
   }
 
-  /** One value, through the same store the settings page writes, revision check and all. */
-  private writePreference(key: string, value: Object): void {
+  /** One value, through the same store the settings page writes, revision check and all. False when the store refused it. */
+  private writePreference(key: string, value: Object): boolean {
     const changes: Map<string, Object> = new Map<string, Object>();
     changes.set(key, value);
-    this.changePreferences(changes);
+    return this.changePreferences(changes);
   }
 
   /**
@@ -1913,10 +2131,11 @@ export class KeyboardSession implements HardwareKeyTarget {
     return this.onPanelKey(key);
   }
 
-  /** Tell whichever window is drawing the mode badge what to put on it. */
+  /** Tell whichever window is drawing the mode badge what to put on it, in the global theme's accent and the ink the theme pairs with it, as the keyboard wears them. */
   setModeBadge(english: boolean): void {
     if (this.onModeBadge !== undefined) {
-      this.onModeBadge(english, this.appearance.dark);
+      const skin: KeyboardSkin = this.keyboardSkin(this.appearance.dark);
+      this.onModeBadge(english, skin.accent, skin.onAccent);
     }
   }
 
@@ -2974,7 +3193,14 @@ export class KeyboardSession implements HardwareKeyTarget {
   private fullWidth: boolean = false;
   private bindings: ModeBindings = DEFAULT_MODE_BINDINGS;
   private feedbackSettings: FeedbackSettings = KeyboardFeedback.DEFAULTS;
-  private customSkinDesign: CustomKeyboardSkin = CustomKeyboardSkin.defaults();
+  // The global theme as last resolved, one answer per mode; null draws the native tokens.
+  private preparedPreferences: PreparedPreferences | undefined = undefined;
+  private themeCatalog: ThemeCatalogEntry[] = [];
+  private themeLight: ResolvedTheme | null = null;
+  private themeDark: ResolvedTheme | null = null;
+  private globalThemeId: string = 'system';
+  private customThemeBase: string = 'system';
+  private customDesign: CustomKeyboardSkin | null = null;
   private vibratorFailed: boolean = false;
   private traditional: boolean = false;
   private chinesePunctuation: boolean = true;
@@ -2991,7 +3217,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     enabled: true, english_mode: true, punctuation: true, fullwidth: true, character_set: true,
     emoji: true, screen_keyboard: false, scale_percent: 100, font_size: 20
   };
-  private toolbarSkin: ToolbarSkin = ToolbarSkinPolicy.base(KeyboardSkin.from('forest', false));
+  private toolbarSkin: ToolbarSkin = ToolbarSkinPolicy.base(GlobalTheme.candidateColors(null, false));
   private onlineTimer: number = -1;
   private onlineEpoch: number = 0;
   private readonly onlineRequests: Set<http.HttpRequest> = new Set<http.HttpRequest>();
@@ -3077,11 +3303,13 @@ export class KeyboardSession implements HardwareKeyTarget {
         shuangpinProfile: view.shuangpin_profile,
         localMode: view.local_mode,
         english: view.dedicated_english,
-        diagnostic: this.diagnostic
+        diagnostic: this.diagnostic,
+        page: view.page,
+        pageCount: view.page_count
       });
     }
     if (this.onCandidateWidth !== undefined) {
-      this.onCandidateWidth(this.candidateWidthVp(entries, view.editing_text));
+      this.onCandidateWidth(this.candidateWidthVp(entries, view.editing_text, view.page, view.page_count));
     }
     if (this.onCandidateCount !== undefined) {
       this.onCandidateCount(entries.length);
@@ -3119,24 +3347,31 @@ export class KeyboardSession implements HardwareKeyTarget {
       phrasePrefix: view.phrase_prefix ?? '',
       spellings: view.nine_key_spellings,
       scheme: view.scheme, shuangpinProfile: view.shuangpin_profile, localMode: view.local_mode,
-      english: view.dedicated_english, diagnostic: this.diagnostic
+      english: view.dedicated_english, diagnostic: this.diagnostic,
+      page: view.page, pageCount: view.page_count
     });
     if (this.onCandidateWidth !== undefined) {
-      this.onCandidateWidth(this.candidateWidthVp(entries, view.editing_text));
+      this.onCandidateWidth(this.candidateWidthVp(entries, view.editing_text, view.page, view.page_count));
     }
     if (this.onCandidateCount !== undefined) this.onCandidateCount(entries.length);
   }
 
-  /** A horizontal candidate window on a machine with its own keys is as wide as its whole page; a vertical list is as wide as its widest row. */
-  private candidateWidthVp(entries: CandidateEntry[], editing: string): number {
+  /** A horizontal candidate window on a machine with its own keys is as wide as its whole page; a vertical list is as wide as its widest row. A 2in1 window that shows the composition line also makes room on it for the page indicator. */
+  private candidateWidthVp(entries: CandidateEntry[], editing: string, page: number, pageCount: number): number {
     const settings: KeyboardPreferences = this.preferences();
-    if (KeyboardFormFactor.isDesktop() && settings.candidateLayout !== 'vertical') {
-      return CandidateWidthPolicy.rowWidthVp(entries, editing, settings.candidateFontSize,
-        settings.candidatePreeditFontSize, KeyboardMetrics.CANDIDATE_PADDING_VP,
-        CandidateNumberFontPolicy.size(settings.candidateFontSize), settings.candidateMinWidthVp);
+    if (!KeyboardFormFactor.isDesktop()) {
+      return CandidateWidthPolicy.widthVp(entries, editing, settings.candidateFontSize,
+        settings.candidatePreeditFontSize, settings.candidateMinWidthVp);
     }
-    return CandidateWidthPolicy.widthVp(entries, editing, settings.candidateFontSize,
-      settings.candidatePreeditFontSize, settings.candidateMinWidthVp);
+    const base: number = settings.candidateLayout !== 'vertical'
+      ? CandidateWidthPolicy.rowWidthVp(entries, editing, settings.candidateFontSize,
+        settings.candidatePreeditFontSize, KeyboardMetrics.CANDIDATE_PADDING_VP,
+        CandidateNumberFontPolicy.size(settings.candidateFontSize), settings.candidateMinWidthVp)
+      : CandidateWidthPolicy.widthVp(entries, editing, settings.candidateFontSize,
+        settings.candidatePreeditFontSize, settings.candidateMinWidthVp);
+    return settings.candidateShowPreedit
+      ? CandidatePagerPolicy.panelWidthVp(base, editing, settings.candidatePreeditFontSize, page, pageCount)
+      : base;
   }
 
   private publishTranslationPage(): void {
@@ -3154,10 +3389,11 @@ export class KeyboardSession implements HardwareKeyTarget {
       editingCaret: view?.caret_position ?? this.editingCaret, phrasePrefix: '', spellings: [],
       scheme: view?.scheme ?? this.scheme, shuangpinProfile: view?.shuangpin_profile ?? this.profileName,
       localMode: view?.local_mode ?? this.localMode,
-      english: view?.dedicated_english ?? this.englishMode, diagnostic: this.diagnostic
+      english: view?.dedicated_english ?? this.englishMode, diagnostic: this.diagnostic,
+      page: 0, pageCount: 1
     });
     if (this.onCandidateWidth !== undefined) {
-      this.onCandidateWidth(this.candidateWidthVp(entries, view?.editing_text ?? this.editing));
+      this.onCandidateWidth(this.candidateWidthVp(entries, view?.editing_text ?? this.editing, 0, 1));
     }
     if (this.onCandidateCount !== undefined) this.onCandidateCount(translations.length);
   }

@@ -5,10 +5,7 @@
  *
  *   .cand-translation { margin-left: 0.65em; font-size: 0.78em; opacity: 0.62; }
  *
- * A ratio, a gap and a transparency — none of which this host had. It drew the translation with the
- * same fixed subtraction the rest of the secondary text uses, which is not a ratio and diverges
- * from the source at every size, and with no transparency at all, so a gloss carried the same
- * weight on the row as the candidate it is glossing.
+ * The ratio and the gap are kept here. The transparency is not: the global theme's `secondary` colour, which translations are drawn in, already carries the dimming (the native tokens are the text colour at 60%), and stacking 0.62 on top of it drew a gloss at about a third of the text's weight.
  *
  * The Engine's own annotation shares this slot here but has no rule in either the horizontal or the
  * vertical stylesheet, so it keeps what it had. Styling it from this rule would be assuming the
@@ -17,8 +14,6 @@
 
 /** `.cand-translation { font-size: 0.78em }`. */
 const TRANSLATION_RATIO: number = 0.78;
-/** `.cand-translation { opacity: 0.62 }`. */
-export const TRANSLATION_OPACITY: number = 0.62;
 /** `.cand-translation { margin-left: 0.65em }`, in units of the candidate size. */
 const TRANSLATION_GAP_RATIO: number = 0.65;
 

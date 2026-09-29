@@ -24,7 +24,7 @@ test("forwards the toggle and credential edits", () => {
     />,
   );
 
-  fireEvent.click(screen.getByRole("checkbox", { name: "小牛翻译（NiuTrans）" }));
+  fireEvent.click(screen.getByRole("switch", { name: "小牛翻译（NiuTrans）" }));
   fireEvent.change(screen.getByLabelText("NiuTrans App ID"), {
     target: { value: "updated-app" },
   });
@@ -50,7 +50,7 @@ test("disables fields when candidate translations are unavailable", () => {
   );
 
   expect(
-    (screen.getByRole("checkbox", { name: "小牛翻译（NiuTrans）" }) as HTMLInputElement).disabled,
+    (screen.getByRole("switch", { name: "小牛翻译（NiuTrans）" }) as HTMLInputElement).disabled,
   ).toBe(true);
   expect((screen.getByLabelText("NiuTrans App ID") as HTMLInputElement).disabled).toBe(true);
 });

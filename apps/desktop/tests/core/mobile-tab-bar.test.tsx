@@ -14,7 +14,7 @@ const initial: Snapshot = {
   preferences: {
     scheme: "quanpin",
     shuangpin_profile: "xiaohe",
-    touch_keyboard_skin: "forest",
+    global_theme: "shuishan",
     candidate_page_size: 5,
     learning: true,
     chinese_punctuation: true,
@@ -41,8 +41,8 @@ function mount() {
   );
 }
 
-/** The four the source shows, in its own words: 键盘 / 社区 / 统计 / 我的. */
-const tabs = ["键盘", "社区", "统计", "我的"];
+/** The four the design shows, in its own words: 设置 / 社区 / 统计 / 我的. */
+const tabs = ["设置", "社区", "统计", "我的"];
 
 // The bar used to hold five cells, and the fifth was a `<select>` of thirteen page names — a form
 // control sitting where a tab belongs, and the only way into most of the app. The source's bar is
@@ -54,16 +54,21 @@ test("the phone tab bar is the source's four tabs, each an icon over a word", as
   const bar = screen.getByRole("navigation", { name: "主要功能" });
   const buttons = [...bar.querySelectorAll("button")];
   expect(buttons.map((button) => button.textContent)).toEqual(tabs);
-  expect(buttons.every((button) => button.querySelector("img"))).toBe(true);
+  // The glyph is a mask over the text colour rather than an `<img>`, so it takes the accent when selected; it stays out of the accessible name.
+  const icons = buttons.map((button) => button.querySelector<HTMLElement>("[data-tab-icon]"));
+  expect(icons.every((icon) => icon?.getAttribute("aria-hidden") === "true")).toBe(true);
+  expect(icons.every((icon) => icon!.style.getPropertyValue("--tab-icon").startsWith("url("))).toBe(
+    true,
+  );
   // The icons have to differ from one another, or the bar reads as four of the same thing.
-  const sources = buttons.map((button) => button.querySelector("img")!.getAttribute("src"));
+  const sources = icons.map((icon) => icon!.getAttribute("data-tab-icon"));
   expect(new Set(sources).size).toBe(tabs.length);
   expect(bar.querySelector("select")).toBeNull();
 });
 
 // The reason the `<select>` existed. Dropping it without giving those pages another door would have
 // left most of the app unreachable on a phone, so this is the condition that has to hold instead:
-// whatever the sidebar can reach, a phone can reach too, through a tab or through the 键盘 tab's own
+// whatever the sidebar can reach, a phone can reach too, through a tab or through the 设置 tab's own
 // list. Asserted against the sidebar rather than a written-out list of names so that a page added
 // later is covered without anyone remembering to come back here.
 test("every page the sidebar reaches is reachable on a phone", async () => {
@@ -88,15 +93,15 @@ test("every page the sidebar reaches is reachable on a phone", async () => {
 });
 
 // Drilling into a page that has no tab does not leave the bar blank: the page was reached from the
-// 键盘 tab, so the 键盘 tab is still where you are. The source keeps its first tab selected for
+// 设置 tab, so the 设置 tab is still where you are. The source keeps its first tab selected for
 // everything its navigation stack pushes.
-test("the 键盘 tab stays lit on the pages reached from it", async () => {
+test("the 设置 tab stays lit on the pages reached from it", async () => {
   mount();
   await screen.findByRole("button", { name: "保存设置" });
 
   const bar = screen.getByRole("navigation", { name: "主要功能" });
-  const keyboard = within(bar).getByRole("button", { name: "键盘" });
-  expect(keyboard.getAttribute("aria-current")).toBe("page");
+  const home = within(bar).getByRole("button", { name: "设置" });
+  expect(home.getAttribute("aria-current")).toBe("page");
 
   fireEvent.click(screen.getByRole("button", { name: /全部设置/ }));
   const list = screen.getByRole("region", { name: "全部设置" });
@@ -105,7 +110,7 @@ test("the 键盘 tab stays lit on the pages reached from it", async () => {
   )!;
   fireEvent.click(row);
 
-  expect(within(bar).getByRole("button", { name: "键盘" }).getAttribute("aria-current")).toBe(
+  expect(within(bar).getByRole("button", { name: "设置" }).getAttribute("aria-current")).toBe(
     "page",
   );
   expect(within(bar).getByRole("button", { name: "我的" }).getAttribute("aria-current")).toBeNull();
@@ -129,10 +134,10 @@ test("each phone tab remembers where the user left it", async () => {
   const bar = screen.getByRole("navigation", { name: "主要功能" });
   fireEvent.click(within(bar).getByRole("button", { name: "社区" }));
   expect(await screen.findByRole("heading", { name: "社区" })).toBeTruthy();
-  fireEvent.click(within(bar).getByRole("button", { name: "键盘" }));
+  fireEvent.click(within(bar).getByRole("button", { name: "设置" }));
 
   expect(screen.getByRole("heading", { name: "输入" })).toBeTruthy();
-  expect(within(bar).getByRole("button", { name: "键盘" }).getAttribute("aria-current")).toBe(
+  expect(within(bar).getByRole("button", { name: "设置" }).getAttribute("aria-current")).toBe(
     "page",
   );
 });

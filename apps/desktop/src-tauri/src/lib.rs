@@ -951,6 +951,53 @@ fn rescan_skin_catalog(root: PathBuf, runtime: &RuntimeOptionsState) -> SkinCata
     response
 }
 
+/// `SettingsClient.resolveTheme`: the page's global theme draft, resolved the way `msime_client_resolve_theme` resolves it for native hosts.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ResolveThemeRequest {
+    global_theme: msime_client_core::skin::theme::GlobalTheme,
+    #[serde(default)]
+    custom_theme: msime_client_core::preferences::CustomTheme,
+    dark: bool,
+    layout: msime_client_core::preferences::CandidateLayout,
+}
+
+/// Resolve `request` against the installed packages under `root`. A custom theme whose package is missing or unreadable resolves without it, as it does on every native host.
+fn resolve_theme_at(
+    root: &std::path::Path,
+    request: ResolveThemeRequest,
+) -> Result<msime_client_core::skin::theme::ResolvedTheme, CommandError> {
+    use msime_client_core::skin::theme::{self, GlobalTheme, ThemePackage};
+    request.custom_theme.validate()?;
+    let global_theme = request.global_theme;
+    let package = request
+        .custom_theme
+        .candidate_skin
+        .as_deref()
+        .filter(|_| global_theme == GlobalTheme::Custom)
+        .and_then(|id| msime_client_core::skin::catalog::load_package(root, id).ok())
+        .map(|summary| ThemePackage::from(&summary));
+    Ok(theme::resolve(
+        global_theme,
+        &request.custom_theme,
+        request.dark,
+        request.layout,
+        package.as_ref(),
+    ))
+}
+
+#[tauri::command]
+async fn resolve_theme(
+    directory: tauri::State<'_, SkinDirectoryState>,
+    request: ResolveThemeRequest,
+) -> Result<msime_client_core::skin::theme::ResolvedTheme, CommandError> {
+    // The host chooses the root; the webview names a package only by id.
+    let root = directory.0.clone();
+    tauri::async_runtime::spawn_blocking(move || resolve_theme_at(&root, request))
+        .await
+        .map_err(|_| CommandError { code: "storage" })?
+}
+
 #[derive(Clone)]
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 struct RuntimeOptionsState {
@@ -1642,10 +1689,10 @@ fn sync_runtime_options(
         #[cfg_attr(not(target_os = "linux"), allow(unused_mut))]
         let mut host_preferences = serde_json::to_value(preferences)
             .map_err(|error| std::io::Error::other(error.to_string()))?;
-        // The IBus and Fcitx5 hosts never draw the screen keyboard, and the settings app's own keyboard reads the preference store, so the base64 photo of a custom screen-keyboard skin stays out of their copy: a few hundred KiB of it would put the whole document past what they read.
+        // The IBus and Fcitx5 hosts never draw the screen keyboard, and the settings app's own keyboard reads the preference store, so the base64 photo of the custom theme's keyboard design stays out of their copy: a few hundred KiB of it would put the whole document past what they read.
         #[cfg(target_os = "linux")]
         if let Some(design) = host_preferences
-            .get_mut("custom_touch_keyboard_skin")
+            .pointer_mut("/custom_theme/keyboard")
             .and_then(Value::as_object_mut)
         {
             design.remove("photo");
@@ -1703,7 +1750,7 @@ fn runtime_options_with_skin_catalog(
         serde_json::to_vec_pretty(document)
             .map_err(|error| std::io::Error::other(error.to_string()))
     };
-    let selected = document["preferences"]["candidate_skin"]
+    let selected = document["preferences"]["custom_theme"]["candidate_skin"]
         .as_str()
         .unwrap_or_default()
         .to_owned();
@@ -4598,6 +4645,7 @@ pub fn run() {
             #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
             install_mcp_client,
             scan_skin_catalog,
+            resolve_theme,
             read_skin_image,
             read_skin_font,
             read_skin_stylesheet,

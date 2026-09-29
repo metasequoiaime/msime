@@ -80,7 +80,8 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="6dp" />
+                    android:paddingTop="6dp"
+                    android:paddingBottom="6dp" />
             </com.google.android.material.card.MaterialCardView>
 
             <TextView style="@style/AboutSectionFooter" android:text="@string/about_msime_footer" />
@@ -93,7 +94,8 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="6dp" />
+                    android:paddingTop="6dp"
+                    android:paddingBottom="6dp" />
             </com.google.android.material.card.MaterialCardView>
 
             <TextView style="@style/AboutSectionHeading" android:text="@string/about_section_privacy" />
@@ -104,7 +106,8 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="6dp" />
+                    android:paddingTop="6dp"
+                    android:paddingBottom="6dp" />
             </com.google.android.material.card.MaterialCardView>
 
             <TextView style="@style/AboutSectionFooter" android:text="@string/about_privacy_footer" />

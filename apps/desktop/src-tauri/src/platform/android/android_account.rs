@@ -1,3 +1,4 @@
+use super::android_theme_preferences::{apply_theme_settings, insert_theme_settings};
 use crate::platform::mobile::mobile_account_helpers::{
     account_chat as shared_account_chat, account_chat_models as shared_account_chat_models,
     account_command_error, account_delete as shared_account_delete,
@@ -32,7 +33,7 @@ use msime_client_core::cloud::snapshot_validation::{
 };
 use msime_client_core::preferences::{
     FrequencyMode, InputScheme, Preferences, PreferencesSnapshot, PreferencesStore,
-    ShuangpinProfile, ThemeMode, TouchKeyboardLayout, TouchKeyboardSkin,
+    ShuangpinProfile, ThemeMode, TouchKeyboardLayout,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -1146,28 +1147,7 @@ fn local_account_preferences(
             TouchKeyboardLayout::Handwriting => "handwriting",
         },
     );
-    insert_string(
-        &mut settings,
-        "platform.android.keyboard_skin",
-        match preferences.touch_keyboard_skin {
-            TouchKeyboardSkin::Forest => "forest",
-            TouchKeyboardSkin::Ocean => "ocean",
-            TouchKeyboardSkin::Rose => "rose",
-            TouchKeyboardSkin::Porcelain => "porcelain",
-            TouchKeyboardSkin::Typewriter => "typewriter",
-            TouchKeyboardSkin::Candy => "candy",
-            TouchKeyboardSkin::Midnight => "midnight",
-            TouchKeyboardSkin::Blueprint => "blueprint",
-            TouchKeyboardSkin::Custom => "custom",
-        },
-    );
-    let custom_skin = serde_json::to_string(&preferences.custom_touch_keyboard_skin)
-        .map_err(|_| AccountError::Invalid)?;
-    insert_string(
-        &mut settings,
-        "platform.android.custom_keyboard_skin",
-        &custom_skin,
-    );
+    insert_theme_settings(&mut settings, preferences)?;
     insert_string(
         &mut settings,
         "platform.android.theme",
@@ -1176,11 +1156,6 @@ fn local_account_preferences(
             ThemeMode::Light => "light",
             ThemeMode::System => "system",
         },
-    );
-    insert_string(
-        &mut settings,
-        "platform.android.candidate_skin",
-        &preferences.candidate_skin,
     );
     insert_integer(
         &mut settings,
@@ -1399,28 +1374,9 @@ fn apply_local_account_preferences(
             };
         }
     }
-    if let Some(value) = string_setting(values, "platform.android.keyboard_skin")? {
-        if supports_schema_field(schema, "platform.android.keyboard_skin", "string")? {
-            preferences.touch_keyboard_skin = match value.as_str() {
-                "forest" => TouchKeyboardSkin::Forest,
-                "ocean" => TouchKeyboardSkin::Ocean,
-                "rose" => TouchKeyboardSkin::Rose,
-                "porcelain" => TouchKeyboardSkin::Porcelain,
-                "typewriter" => TouchKeyboardSkin::Typewriter,
-                "candy" => TouchKeyboardSkin::Candy,
-                "midnight" => TouchKeyboardSkin::Midnight,
-                "blueprint" => TouchKeyboardSkin::Blueprint,
-                "custom" => TouchKeyboardSkin::Custom,
-                _ => return Err(AccountError::Invalid),
-            };
-        }
-    }
-    if let Some(value) = string_setting(values, "platform.android.custom_keyboard_skin")? {
-        if supports_schema_field(schema, "platform.android.custom_keyboard_skin", "string")? {
-            preferences.custom_touch_keyboard_skin =
-                serde_json::from_str(&value).map_err(|_| AccountError::Invalid)?;
-        }
-    }
+    apply_theme_settings(&mut preferences, values, |key, expected| {
+        supports_schema_field(schema, key, expected)
+    })?;
     if let Some(value) = string_setting(values, "platform.android.theme")? {
         if supports_schema_field(schema, "platform.android.theme", "string")? {
             preferences.theme = match value.as_str() {
@@ -1429,14 +1385,6 @@ fn apply_local_account_preferences(
                 "system" => ThemeMode::System,
                 _ => return Err(AccountError::Invalid),
             };
-        }
-    }
-    if let Some(value) = string_setting(values, "platform.android.candidate_skin")? {
-        if supports_schema_field(schema, "platform.android.candidate_skin", "string")? {
-            if value.is_empty() || !msime_client_core::is_bounded_text(&value, 128) {
-                return Err(AccountError::Invalid);
-            }
-            preferences.candidate_skin = value;
         }
     }
     if let Some(value) = integer_setting(values, "platform.android.touch_key_spacing_tenths")? {

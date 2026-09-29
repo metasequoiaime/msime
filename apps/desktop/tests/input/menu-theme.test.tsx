@@ -24,7 +24,7 @@ test("the menu surface has its own theme override like the others", async () => 
   const save = vi.fn(async (_revision: number, _preferences: Preferences) => snapshot);
   render(<SettingsPage client={{ load: async () => snapshot, save }} />);
   await screen.findByRole("button", { name: "保存设置" });
-  fireEvent.click(screen.getByRole("button", { name: "外观" }));
+  fireEvent.click(screen.getByRole("button", { name: "候选窗口" }));
 
   // Eight surfaces had an override and the menus did not, even though the
   // Windows host draws its own tray and candidate context menus.
@@ -40,7 +40,7 @@ test("the menu surface has its own theme override like the others", async () => 
 test("every surface override offers the same three choices", async () => {
   render(<SettingsPage client={{ load: async () => snapshot, save: vi.fn() }} />);
   await screen.findByRole("button", { name: "保存设置" });
-  fireEvent.click(screen.getByRole("button", { name: "外观" }));
+  fireEvent.click(screen.getByRole("button", { name: "候选窗口" }));
   const select = await screen.findByLabelText("菜单主题");
   const values = Array.from((select as HTMLSelectElement).options).map((option) => option.value);
   expect(values).toEqual(["follow", "dark", "light"]);
