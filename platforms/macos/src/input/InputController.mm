@@ -756,6 +756,9 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 - (MSIMECustomTranslationBatch *)aiBatchForItems:(NSArray<NSDictionary *> *)items
                                        completion:(void (^)(NSArray<NSDictionary *> *))completion;
 - (NSDictionary *)recoverPreferencesInDirectory:(NSString *)directory error:(NSError **)error;
+- (NSDictionary *)serviceSnapshotQuery;
+- (NSDictionary *)serviceSnapshotView;
+- (void)invalidateServiceSnapshots;
 @end
 
 @implementation MSIMEInputController {
@@ -909,6 +912,13 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSArray<NSDictionary *> *_accountGlossResults;
     uint64_t _accountGlossEpoch;
     NSDictionary *_onDeviceGlossRequest;
+    // Candidate services all inspect the same Engine state during one render pass. Cache each
+    // snapshot lazily for that pass; applyTranslations invalidates it before changing the state.
+    BOOL _serviceSnapshotActive;
+    BOOL _serviceSnapshotQueryLoaded;
+    BOOL _serviceSnapshotViewLoaded;
+    NSDictionary *_serviceSnapshotQuery;
+    NSDictionary *_serviceSnapshotView;
     // Each English word this controller sent to the on-device model, mapped to the English gloss request of the page that sent it: that request carries the Engine source and directory persisting needs, and the reply often lands after the page has moved on.
     NSMutableDictionary<NSString *, NSDictionary *> *_onDeviceEnglishQueries;
     uint64_t _customEpoch;
@@ -1586,10 +1596,33 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
            configuration:NSURLSessionConfiguration.ephemeralSessionConfiguration
               completion:completion];
 }
+- (NSDictionary *)serviceSnapshotQuery {
+    if (!_serviceSnapshotActive) return [_session translationQueryWithError:nil];
+    if (!_serviceSnapshotQueryLoaded) {
+        _serviceSnapshotQueryLoaded = YES;
+        _serviceSnapshotQuery = [_session translationQueryWithError:nil];
+    }
+    return _serviceSnapshotQuery;
+}
+- (NSDictionary *)serviceSnapshotView {
+    if (!_serviceSnapshotActive) return [_session viewWithError:nil];
+    if (!_serviceSnapshotViewLoaded) {
+        _serviceSnapshotViewLoaded = YES;
+        _serviceSnapshotView = [_session viewWithError:nil];
+    }
+    return _serviceSnapshotView;
+}
+- (void)invalidateServiceSnapshots {
+    _serviceSnapshotActive = NO;
+    _serviceSnapshotQueryLoaded = NO;
+    _serviceSnapshotViewLoaded = NO;
+    _serviceSnapshotQuery = nil;
+    _serviceSnapshotView = nil;
+}
 - (NSDictionary *)currentCustomTranslationRequest {
     if (!_activeClient || !_session || _focusPending || _appearance.englishMode ||
         (_appearance && !_appearance.candidateTranslations) || (_glossEnabled && !_glossEnabled.boolValue)) return nil;
-    NSDictionary *query = [_session translationQueryWithError:nil];
+    NSDictionary *query = [self serviceSnapshotQuery];
     NSDictionary *config = query[@"niutrans"];
     BOOL niuTrans = [config isKindOfClass:NSDictionary.class] && [config[@"enabled"] isEqual:@YES];
     if (!niuTrans) config = query[@"custom_translation"];
@@ -1603,7 +1636,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         (!niuTrans && !custom && ([_customTranslationConfig[@"enabled"] isEqual:@YES] ||
             (_tencentTranslationConfig && ![_tencentTranslationConfig isEqual:config]))) ||
         (_glossTargetLanguages && ![_glossTargetLanguages isEqual:MSIMETranslationTargets(query)])) return nil;
-    NSDictionary *view = [_session viewWithError:nil];
+    NSDictionary *view = [self serviceSnapshotView];
     if ([view[@"scheme"] isEqual:@3] || [view[@"local_mode"] isEqual:@"temporary_japanese"] ||
         ![view[@"generation"] isEqual:query[@"generation"]]) return nil;
     NSDictionary *gloss = [self currentGlossRequest];
@@ -1682,8 +1715,11 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
             }
         }
     }
-    NSDictionary *view = [_session viewWithError:nil];
+    NSDictionary *view = [self serviceSnapshotView];
     if (!view) return;
+    // Applying translations advances the Engine snapshot. Any enclosing service pass must
+    // fetch the new query/view before it asks another provider to synchronize.
+    [self invalidateServiceSnapshots];
     NSDictionary *applied = [_session applyTranslations:results generation:[view[@"generation"] unsignedLongLongValue] error:nil];
     if (![applied[@"applied"] boolValue]) return;
     // A gloss changes what the card shows, never the composition, so only the card is redrawn. Going through apply: re-sent the marked text on every arrival, and IMK services the next key inside that synchronous setMarkedText: call - the whole keystroke, reranking included, ran nested in it, after which the outer apply: wrote the older view back over the newer one.
@@ -1709,7 +1745,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 - (NSDictionary *)currentAccountGlossRequest {
     if (!_activeClient || !_session || _focusPending || _appearance.englishMode || !_appearance.candidateTranslations)
         return nil;
-    NSDictionary *query = [_session translationQueryWithError:nil];
+    NSDictionary *query = [self serviceSnapshotQuery];
     if (![query isKindOfClass:NSDictionary.class] || !query[@"generation"] ||
         ![query[@"target_languages"] isKindOfClass:NSArray.class]) return nil;
     // The account endpoint (api.msime.app) is used only when the user explicitly chose it in settings. The shared core already folds in candidate_translations and the precedence of the user's own services, so this flag is the whole decision.
@@ -1804,7 +1840,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 - (NSDictionary *)currentOnDeviceGlossRequest {
     if (!_activeClient || !_session || _focusPending || _appearance.englishMode || !_appearance.candidateTranslations ||
         (_glossEnabled && !_glossEnabled.boolValue)) return nil;
-    NSDictionary *query = [_session translationQueryWithError:nil];
+    NSDictionary *query = [self serviceSnapshotQuery];
     if (![query isKindOfClass:NSDictionary.class] || !query[@"generation"] || [query[@"translation_account"] isEqual:@YES]) return nil;
     for (NSString *service in @[@"niutrans", @"custom_translation", @"tencent_tmt"]) {
         NSDictionary *config = query[service];
@@ -1812,7 +1848,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     }
     NSArray *targets = MSIMETranslationTargets(query);
     if (!targets.count || (_glossTargetLanguages && ![_glossTargetLanguages isEqual:targets])) return nil;
-    NSDictionary *view = [_session viewWithError:nil];
+    NSDictionary *view = [self serviceSnapshotView];
     if ([view[@"scheme"] isEqual:@3] || [view[@"local_mode"] isEqual:@"temporary_japanese"] ||
         ![view[@"generation"] isEqual:query[@"generation"]]) return nil;
     NSMutableArray *candidates = [NSMutableArray array];
@@ -2062,11 +2098,11 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (!_activeClient || !_session || _focusPending || _appearance.englishMode ||
         (_appearance && !_appearance.candidateTranslations && !_appearance.candidateEnglishGloss) ||
         (_glossEnabled && !_glossEnabled.boolValue && !_appearance.candidateEnglishGloss)) return nil;
-    NSDictionary *query = [_session translationQueryWithError:nil];
+    NSDictionary *query = [self serviceSnapshotQuery];
     NSArray *targets = MSIMETranslationTargets(query);
     if (!query || ![targets containsObject:@"en"]) return nil;
     if (_glossTargetLanguages && ![_glossTargetLanguages isEqual:targets]) return nil;
-    NSDictionary *view = [_session viewWithError:nil];
+    NSDictionary *view = [self serviceSnapshotView];
     // Windows suppresses candidate translations in Japanese, including a
     // temporary Japanese composition whose view retains its original scheme.
     if ([view[@"scheme"] isEqual:@3] || [view[@"local_mode"] isEqual:@"temporary_japanese"]) return nil;
@@ -2213,7 +2249,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (!_activeClient || !_session || _focusPending || _appearance.englishMode ||
         (_appearance && !_appearance.candidateTranslations && !_appearance.candidateEnglishGloss) ||
         (_glossEnabled && !_glossEnabled.boolValue && !_appearance.candidateEnglishGloss)) return nil;
-    NSDictionary *query = [_session translationQueryWithError:nil];
+    NSDictionary *query = [self serviceSnapshotQuery];
     NSArray *targets = MSIMETranslationTargets(query);
     if (_glossTargetLanguages && ![_glossTargetLanguages isEqual:targets]) return nil;
     NSArray *installed = [query[@"offline_gloss_languages"] isKindOfClass:NSArray.class] ? query[@"offline_gloss_languages"] : @[];
@@ -2221,7 +2257,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     for (NSString *target in targets)
         if (![target isEqual:@"en"] && [installed containsObject:target]) [languages addObject:target];
     if (!languages.count) return nil;
-    NSDictionary *view = [_session viewWithError:nil];
+    NSDictionary *view = [self serviceSnapshotView];
     if ([view[@"scheme"] isEqual:@3] || [view[@"local_mode"] isEqual:@"temporary_japanese"]) return nil;
     if (![view[@"generation"] isEqual:query[@"generation"]]) return nil;
     NSMutableArray *candidates = [NSMutableArray array];
@@ -5195,6 +5231,14 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
 
 // Everything that follows the candidates on screen. Each one returns at once when its request has not changed.
 - (void)synchronizeCandidateServices {
+    const BOOL nested = _serviceSnapshotActive;
+    if (!nested) {
+        _serviceSnapshotActive = YES;
+        _serviceSnapshotQueryLoaded = NO;
+        _serviceSnapshotViewLoaded = NO;
+        _serviceSnapshotQuery = nil;
+        _serviceSnapshotView = nil;
+    }
     [self synchronizeCloudCandidates];
     [self scheduleSettledRerank];
     [self synchronizeCandidateGloss];
@@ -5203,6 +5247,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     [self synchronizeAccountGloss:[self currentAccountGlossRequest]];
     [self synchronizeCustomTranslations];
     [self synchronizeAITranslations];
+    if (!nested) [self invalidateServiceSnapshots];
 }
 
 // The card is at most half the screen's visible width, as the Windows card is at most half its work area, and at least seven times the candidate font size, as the Windows card and the source skins' `min-width: 7em` are. Every row is laid out at the width it then gets: text, 辅助码 and gloss wider than their column wrap inside it and the row takes their height (CandidateItemLayout.h).

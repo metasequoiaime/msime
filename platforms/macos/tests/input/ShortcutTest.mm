@@ -4468,6 +4468,42 @@ static void TestCloudCandidateConsent() {
     return @{@"applied":@YES, @"view":[self viewWithError:nil]};
 }
 @end
+
+@interface ServiceSnapshotSession : GlossSession
+@property(nonatomic) NSUInteger translationQueryCalls;
+@property(nonatomic) NSUInteger viewCalls;
+@end
+@implementation ServiceSnapshotSession
+- (NSDictionary *)translationQueryWithError:(NSError **)error {
+    ++self.translationQueryCalls;
+    (void)error;
+    return @{ @"generation": @1, @"target_language": @"en", @"target_languages": @[ @"en" ],
+        @"translation_account": @NO };
+}
+- (NSDictionary *)viewWithError:(NSError **)error {
+    ++self.viewCalls;
+    return [super viewWithError:error];
+}
+- (NSDictionary *)hostOptions { return @{}; }
+@end
+
+static void TestCandidateServiceSnapshotsAreReused() {
+    NSString *suite = [@"msime.service-snapshot." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    appearance.candidateTranslations = YES;
+    appearance.candidateEnglishGloss = YES;
+    MSIMEInputController *controller = [MSIMEInputController alloc];
+    ServiceSnapshotSession *session = [ServiceSnapshotSession new];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+    [controller setValue:@NO forKey:@"glossEnabled"];
+    [controller synchronizeCandidateServices];
+    assert(session.translationQueryCalls == 1 && session.viewCalls == 1);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
 @interface GlossController : CloudShortcutController
 @property(nonatomic, strong) dispatch_semaphore_t started;
 @property(nonatomic, strong) dispatch_semaphore_t released;
@@ -5861,6 +5897,7 @@ int main(int argc, char **argv) {
     @autoreleasepool {
         [NSApplication sharedApplication];
         if (argc == 2 && std::string(argv[1]) == "--translations") {
+            TestCandidateServiceSnapshotsAreReused();
             TestGlossScheduling();
             TestAccountGlossSkipsNonChineseCandidates();
             TestAccountGlossRequiresExplicitChoice();
