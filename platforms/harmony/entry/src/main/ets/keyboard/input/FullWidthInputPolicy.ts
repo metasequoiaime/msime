@@ -1,6 +1,6 @@
 /**
  * Converts direct printable ASCII input to Unicode fullwidth forms, ported from
- * platforms/android/java/app/msime/client/FullWidthInputPolicy.java.
+ * platforms/android/java/app/msime/android/FullWidthInputPolicy.java.
  *
  * Space maps to the ideographic space rather than to fullwidth space, which is the convention the
  * other hosts follow.

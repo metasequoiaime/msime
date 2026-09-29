@@ -1,6 +1,6 @@
 /**
  * Bounds transient Engine diagnostics before they reach the keyboard surface, ported from
- * platforms/android/java/app/msime/client/InputDiagnosticPolicy.java.
+ * platforms/android/java/app/msime/android/InputDiagnosticPolicy.java.
  */
 export class InputDiagnosticPolicy {
   static readonly DISMISS_DELAY_MILLIS: number = 4000;

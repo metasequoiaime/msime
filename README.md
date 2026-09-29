@@ -39,7 +39,7 @@
 
 | 平台 | 入口目录 | 宿主形态与集成方式 |
 | --- | --- | --- |
-| [Android](platforms/android/README.md) | `platforms/android/` | 输入法服务 `app.msime.client.MSIMEInputService` 跑在 `:ime` 独立进程，Java 宿主经 `platforms/android/native/client_jni.cpp` 调 host-api；Tauri/React 设置与输入法同包不同进程，共享私有 files/bootstrap/state；手写走 ML Kit Digital Ink |
+| [Android](platforms/android/README.md) | `platforms/android/` | 输入法服务 `app.msime.android.MSIMEInputService` 跑在 `:ime` 独立进程，Java 宿主经 `platforms/android/native/client_jni.cpp` 调 host-api；Tauri/React 设置与输入法同包不同进程，共享私有 files/bootstrap/state；手写走 ML Kit Digital Ink |
 | [iOS](platforms/ios/README.md) | `platforms/ios/` | XcodeGen 从 `project.yml` 生成的原生 App 内嵌键盘扩展 `MSIMEKeyboardExtension`，两者通过 App Group `group.app.msime.ios` 共享状态；Swift 键盘直接调 host-api，手写走 ML Kit Digital Ink |
 | [macOS](platforms/macos/README.md) | `platforms/macos/` | InputMethodKit bundle（产物名 `水杉输入法.app`，bundle id `app.msime.inputmethod.MetasequoiaIME`），Swift 后端编成 `MSIMEBackend.dylib` 随 bundle 分发，Sparkle 负责自动更新 |
 | [Linux](platforms/linux/README.md) | `platforms/linux/` | IBus 与 Fcitx5 是两个并列的系统入口，链同一份 host-api ABI；在线联想、语音、剪贴板等能力由独立 provider 进程加 systemd 用户单元承载；CPack 出 TGZ 与 DEB |

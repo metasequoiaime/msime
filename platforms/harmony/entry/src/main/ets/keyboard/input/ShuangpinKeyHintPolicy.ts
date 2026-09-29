@@ -1,6 +1,6 @@
 /**
  * Display-only double-pinyin key hints derived from the Engine profile tables, ported from
- * platforms/android/java/app/msime/client/ShuangpinKeyHintPolicy.java.
+ * platforms/android/java/app/msime/android/ShuangpinKeyHintPolicy.java.
  *
  * These are labels, not behaviour: which unit a key actually produces is the Engine's business. The
  * tables are transcribed from the Java so both hosts print the same thing.

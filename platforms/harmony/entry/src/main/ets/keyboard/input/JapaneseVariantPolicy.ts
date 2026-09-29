@@ -1,6 +1,6 @@
 /**
  * Availability of the Japanese post-kana variant key, ported from
- * platforms/android/java/app/msime/client/JapaneseVariantPolicy.java.
+ * platforms/android/java/app/msime/android/JapaneseVariantPolicy.java.
  */
 export class JapaneseVariantPolicy {
   static enabled(japaneseNineKey: boolean, symbols: boolean, composing: boolean): boolean {

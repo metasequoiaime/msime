@@ -1,6 +1,6 @@
 /**
  * Kana labels and Engine romanization strokes, ported from
- * platforms/android/java/app/msime/client/JapaneseNineKeyLayout.java.
+ * platforms/android/java/app/msime/android/JapaneseNineKeyLayout.java.
  *
  * Each key carries five directions in the order centre, left, up, right, down — the same indices the
  * Apple host uses, so a flick means the same thing on every platform. An empty stroke marks a label

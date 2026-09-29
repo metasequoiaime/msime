@@ -1,6 +1,6 @@
 /**
  * Bounded view of the user's custom touch-keyboard design, ported from
- * platforms/android/java/app/msime/client/CustomKeyboardSkin.java.
+ * platforms/android/java/app/msime/android/CustomKeyboardSkin.java.
  *
  * Every field arrives from a shared preference document that the host does not control, so each one
  * is clamped or rejected rather than trusted. Photos are decoded here with a small runtime-neutral

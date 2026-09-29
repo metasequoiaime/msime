@@ -1,6 +1,6 @@
 /**
  * Japanese side-key labels, ported from
- * platforms/android/java/app/msime/client/JapaneseNineKeyActions.java.
+ * platforms/android/java/app/msime/android/JapaneseNineKeyActions.java.
  *
  * Composition and conversion stay owned by the Engine; these are only what the two side keys print
  * depending on whether something is being composed.

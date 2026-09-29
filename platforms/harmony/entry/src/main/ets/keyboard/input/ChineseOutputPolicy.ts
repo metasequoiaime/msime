@@ -1,6 +1,6 @@
 /**
  * Simplified/Traditional output boundary, ported from
- * platforms/android/java/app/msime/client/ChineseOutputPolicy.java.
+ * platforms/android/java/app/msime/android/ChineseOutputPolicy.java.
  *
  * Scheme 3 is Japanese, which has nothing to convert. A converter that fails must not lose the text,
  * so any error falls back to the original.

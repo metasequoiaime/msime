@@ -1,5 +1,5 @@
 /**
- * Touch-keyboard spacing contract, ported from platforms/android/java/app/msime/client/KeyboardGeometry.java.
+ * Touch-keyboard spacing contract, ported from platforms/android/java/app/msime/android/KeyboardGeometry.java.
  * The numbers are the same; only the unit name changes, since HarmonyOS measures in vp where Android
  * measures in dp and both are density-independent.
  *

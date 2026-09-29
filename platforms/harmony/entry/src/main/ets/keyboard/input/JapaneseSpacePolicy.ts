@@ -1,5 +1,5 @@
 /**
- * Whether Japanese Space converts the composition or commits it, ported from platforms/android/java/app/msime/client/policy/JapaneseSpacePolicy.java.
+ * Whether Japanese Space converts the composition or commits it, ported from platforms/android/java/app/msime/android/policy/JapaneseSpacePolicy.java.
  *
  * Space normally starts a conversion and later presses step through the candidates. A lone Fallback row is the raw composition the Engine shows when there is nothing to convert (a bare Shift+R prefix, or romaji it cannot read); Windows commits it on the first Space, so Space takes the normal commit path instead.
  */

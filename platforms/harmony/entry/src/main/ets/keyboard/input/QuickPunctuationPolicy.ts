@@ -1,6 +1,6 @@
 /**
  * The quick punctuation menu for the alphabetic keyboard, ported from
- * platforms/android/java/app/msime/client/QuickPunctuationPolicy.java.
+ * platforms/android/java/app/msime/android/QuickPunctuationPolicy.java.
  *
  * Each entry prints one face and sends a different ASCII character: the Engine decides the shape from
  * the current scheme, so the host must send the key rather than the glyph.

@@ -1,6 +1,6 @@
 /**
  * Host-side gate for sending an uppercase letter to the Engine as composition helpcode, ported from
- * platforms/android/java/app/msime/client/ChineseHelpcodePolicy.java.
+ * platforms/android/java/app/msime/android/ChineseHelpcodePolicy.java.
  *
  * Scheme 0 and 1 are quanpin and shuangpin; helpcode means nothing in the others.
  */

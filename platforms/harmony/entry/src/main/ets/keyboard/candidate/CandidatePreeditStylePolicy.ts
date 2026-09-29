@@ -1,7 +1,7 @@
 import { LocalInputMode, LocalInputModeDefinition } from "../input/LocalInputMode";
 
 /**
- * What the phone's composition line shows under 「候选栏预编辑」, ported from platforms/android/java/app/msime/client/CandidatePreeditStylePolicy.java.
+ * What the phone's composition line shows under 「候选栏预编辑」, ported from platforms/android/java/app/msime/android/CandidatePreeditStylePolicy.java.
  *
  * `pinyin` shows the spelling; `empty` leaves the line without it, which is the Windows `candidate_window_preedit_style = "empty"` (`preeditVisible=false`). A 2in1 candidate window takes the whole row away, because it only exists while something is composed. The phone line stays reserved and names the keyboard when idle, so there only the spelling goes and the line keeps its height.
  *

@@ -1,6 +1,6 @@
 /**
  * Automatic capitalization rules, ported from
- * platforms/android/java/app/msime/client/EnglishCapitalizationPolicy.java.
+ * platforms/android/java/app/msime/android/EnglishCapitalizationPolicy.java.
  *
  * Java asks Character.isLetterOrDigit and Character.isWhitespace || isSpaceChar. The equivalents here
  * are Unicode property escapes: \p{L}\p{N} for the first, and \s for the second, which covers the

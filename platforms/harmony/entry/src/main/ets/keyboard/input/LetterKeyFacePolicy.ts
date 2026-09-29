@@ -1,6 +1,6 @@
 /**
  * Keeps the visible letter face separate from the case sent to the Engine, ported from
- * platforms/android/java/app/msime/client/LetterKeyFacePolicy.java.
+ * platforms/android/java/app/msime/android/LetterKeyFacePolicy.java.
  *
  * Chinese mode prints uppercase faces while still sending lowercase, which is why the face and the
  * engine input are decided separately.

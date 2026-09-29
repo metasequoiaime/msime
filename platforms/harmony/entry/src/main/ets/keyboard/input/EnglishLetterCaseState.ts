@@ -1,6 +1,6 @@
 /**
  * One-shot Shift, automatic Shift and double-tap Caps Lock, ported from
- * platforms/android/java/app/msime/client/EnglishLetterCaseState.java.
+ * platforms/android/java/app/msime/android/EnglishLetterCaseState.java.
  *
  * The distinction that matters: a Shift the user pressed is consumed by the next letter, a Shift the
  * capitalization policy applied is not sticky either, and Caps Lock survives both.

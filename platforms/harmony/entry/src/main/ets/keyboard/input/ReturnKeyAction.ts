@@ -1,6 +1,6 @@
 /**
  * Editor-action labels shared by return-key rendering and dispatch, ported from
- * platforms/android/java/app/msime/client/ReturnKeyAction.java.
+ * platforms/android/java/app/msime/android/ReturnKeyAction.java.
  *
  * The numbers are the editor action constants the host receives; they are kept rather than renamed so
  * the mapping stays checkable against what the framework sends.

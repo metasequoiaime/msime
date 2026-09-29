@@ -1,6 +1,6 @@
 /**
  * Display labels and Engine inputs for the quanpin nine-key grid, ported from
- * platforms/android/java/app/msime/client/NineKeyLayout.java.
+ * platforms/android/java/app/msime/android/NineKeyLayout.java.
  *
  * The grid is data, not behaviour: which character each key sends is the Engine's contract, and the
  * labels are what the Apple hosts print for the same keys.

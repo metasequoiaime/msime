@@ -1,6 +1,6 @@
 /**
  * Lifecycle and presentation rules for optional offline candidate glosses, ported from
- * platforms/android/java/app/msime/client/CandidateGlossPolicy.java.
+ * platforms/android/java/app/msime/android/CandidateGlossPolicy.java.
  *
  * A gloss arrives asynchronously, so the token says which session, generation and epoch asked for it.
  * Anything stale is dropped rather than painted onto whatever is on screen now.

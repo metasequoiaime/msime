@@ -1,7 +1,7 @@
 /**
  * Text boundaries for direct English completion, ported from
- * platforms/android/java/app/msime/client/keyboard/EnglishSuggestionPolicy.java and
- * platforms/android/java/app/msime/client/candidate/EnglishSuggestionModel.java.
+ * platforms/android/java/app/msime/android/keyboard/EnglishSuggestionPolicy.java and
+ * platforms/android/java/app/msime/android/candidate/EnglishSuggestionModel.java.
  *
  * Nothing here talks to the editor or the dictionary. The host reads the text before the cursor and
  * hands it over; what counts as the word being typed, whether it is worth asking about, and what

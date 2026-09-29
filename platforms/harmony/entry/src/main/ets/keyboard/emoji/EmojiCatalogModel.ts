@@ -2,7 +2,7 @@ import { utf8Length } from "../Utf8";
 
 /**
  * Paging and recent-selection policy for the Engine-owned emoji catalog, ported from
- * platforms/android/java/app/msime/client/EmojiCatalogModel.java.
+ * platforms/android/java/app/msime/android/EmojiCatalogModel.java.
  *
  * Lengths are counted in code points, not UTF-16 units: an emoji is routinely several units long and
  * a sequence with a skin tone or a zero-width joiner is longer still.

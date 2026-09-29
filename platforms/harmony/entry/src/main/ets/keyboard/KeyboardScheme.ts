@@ -1,6 +1,6 @@
 /**
  * Keyboard schemes the host exposes, ported from
- * platforms/android/java/app/msime/client/KeyboardScheme.java.
+ * platforms/android/java/app/msime/android/KeyboardScheme.java.
  *
  * Java spells this as an enum carrying fields. ArkTS enums hold only a value, so each scheme is a
  * frozen record and SCHEMES preserves the declaration order the Apple hosts also rely on.

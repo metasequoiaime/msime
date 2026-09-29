@@ -1,6 +1,6 @@
 /**
  * Privacy and size bounds for text-only clipboard history entries, ported from
- * platforms/android/java/app/msime/client/ClipboardHistoryPolicy.java.
+ * platforms/android/java/app/msime/android/ClipboardHistoryPolicy.java.
  *
  * The byte bound is measured in UTF-8, which is what the store writes.
  */

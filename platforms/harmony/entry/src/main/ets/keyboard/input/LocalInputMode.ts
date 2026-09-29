@@ -1,6 +1,6 @@
 /**
  * Local input mode shortcuts the shared Engine exposes, ported from
- * platforms/android/java/app/msime/client/LocalInputMode.java.
+ * platforms/android/java/app/msime/android/LocalInputMode.java.
  *
  * The trigger is the uppercase letter that enters the mode; the preference key is what the shared
  * settings store spells it as.

@@ -1,6 +1,6 @@
 /**
  * What the keyboard may do for a given editor, reworked from
- * platforms/android/java/app/msime/client/EditorPolicy.java.
+ * platforms/android/java/app/msime/android/EditorPolicy.java.
  *
  * This one is not a transcription. Android describes an editor with an InputType bitmask — a class,
  * a variation and flags, all packed into one int — while HarmonyOS hands over a single inputPattern
