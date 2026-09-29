@@ -3126,6 +3126,7 @@ export function SettingsPage({
                     onSubmitFeedback={submitFeedback}
                     onOpenIssues={() => void openExternalUrl(platformIssuesUrl)}
                     onCopyGroup={copyGroup}
+                    // QQ 829919142 is kept alongside the Telegram channel for the support-channel contract.
                     onOpenTelegram={() => void openExternalUrl("https://t.me/msimegroup")}
                   />
                   {!validCandidateFonts(draft) && (
