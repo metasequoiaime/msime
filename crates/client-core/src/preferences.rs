@@ -438,31 +438,6 @@ pub enum CharacterWidthPreference {
     Fullwidth,
 }
 
-/// Whole-sentence candidate sources exposed to the Engine. The dictionary and
-/// Google sources retain their defaults; neural rerankers are opt-in because
-/// they add model work while typing or after a settling delay.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct SentenceAssociationPreferences {
-    pub word_lattice: bool,
-    pub google: bool,
-    pub neural_desktop: bool,
-    pub neural_keyboard: bool,
-    pub show_next_on_duplicate: bool,
-}
-
-impl Default for SentenceAssociationPreferences {
-    fn default() -> Self {
-        Self {
-            word_lattice: true,
-            google: true,
-            neural_desktop: false,
-            neural_keyboard: false,
-            show_next_on_duplicate: false,
-        }
-    }
-}
-
 /// Candidate sentence-association sources. Dictionary and Google sources keep their historical
 /// defaults; neural rerankers are opt-in because they add model work while typing or settling.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
