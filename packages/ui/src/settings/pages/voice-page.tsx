@@ -33,6 +33,7 @@ import { VoiceCommitModeSection } from "../voice-commit-mode-section";
 import { VoiceCaptureDevicesSection } from "../voice-capture-devices-section";
 import { VoiceRecordingBehaviorSection } from "../voice-recording-behavior-section";
 import { DoubaoOptionsSection } from "../doubao-options-section";
+import { VoiceCredentialControl } from "../voice-credential-control";
 
 /** The 语音输入 page of the settings form. */
 export function VoiceSettingsPage() {
@@ -68,7 +69,12 @@ export function VoiceSettingsPage() {
     harmonyUnsupportedAsr,
     doubaoAuthMode,
     updateVoice,
-    voiceCredentialControls,
+    providerCredentials,
+    voiceCredentialInput,
+    setVoiceCredentialInput,
+    providerCredentialBusy,
+    providerCredentialMessages,
+    runVoiceCredential,
     credentialTestControl,
     providerPresetControls,
   } = useSettingsForm();
@@ -214,7 +220,18 @@ export function VoiceSettingsPage() {
           ["openai", "siliconflow", "groq", "everyapi", "mistral", "doubao"].includes(
             voiceInput.asr_provider ?? "doubao",
           ) &&
-          voiceCredentialControls("asr")}
+          <VoiceCredentialControl
+            available={Boolean(client.providerCredentials)}
+            kind="asr"
+            voiceInput={voiceInput}
+            doubaoAuthMode={doubaoAuthMode}
+            providerCredentials={providerCredentials}
+            voiceCredentialInput={voiceCredentialInput}
+            setVoiceCredentialInput={setVoiceCredentialInput}
+            providerCredentialBusy={providerCredentialBusy}
+            providerCredentialMessages={providerCredentialMessages}
+            runVoiceCredential={runVoiceCredential}
+          />}
         {linuxPlatform && client.testApiCredential && (
           <GroupList title="检查识别配置">
             <div className={settings.groupBlock}>
@@ -469,7 +486,20 @@ export function VoiceSettingsPage() {
             </div>
           </GroupList>
         )}
-        {showVoiceProviderSettings && linuxPlatform && voiceCredentialControls("polish")}
+        {showVoiceProviderSettings && linuxPlatform && (
+          <VoiceCredentialControl
+            available={Boolean(client.providerCredentials)}
+            kind="polish"
+            voiceInput={voiceInput}
+            doubaoAuthMode={doubaoAuthMode}
+            providerCredentials={providerCredentials}
+            voiceCredentialInput={voiceCredentialInput}
+            setVoiceCredentialInput={setVoiceCredentialInput}
+            providerCredentialBusy={providerCredentialBusy}
+            providerCredentialMessages={providerCredentialMessages}
+            runVoiceCredential={runVoiceCredential}
+          />
+        )}
         {showVoiceProviderSettings && linuxPlatform && client.testApiCredential && (
           <GroupList title="检查润色配置">
             <div className={settings.groupBlock}>

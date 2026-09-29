@@ -430,10 +430,7 @@ import { defaultKeybindings } from "./settings/keybinding-defaults";
 import type { SurfaceTheme, ThemeMode } from "./settings/theme-settings-section";
 import type { TouchToolbarPreferences } from "./settings/touch-keyboard-geometry-section";
 import { HelpSettingsPage } from "./settings/help-settings-page";
-import {
-  VoiceCredentialSection,
-  type VoiceCredentialSaveInput,
-} from "./settings/voice-credential-section";
+import { VoiceCredentialControl } from "./settings/voice-credential-control";
 import type { MobileKeyboardFeedbackClient } from "./settings/mobile-keyboard-feedback-section";
 import { HandwritingSettingsPage } from "./settings/pages/handwriting-page";
 import { FeedbackSettingsPage } from "./settings/pages/feedback-page";
@@ -744,6 +741,10 @@ export {
   type TouchToolbarPreferences,
 } from "./settings/touch-keyboard-geometry-section";
 export { VoiceSettingsPanel, type VoiceSettingsPanelProps } from "./settings/voice-settings-panel";
+export {
+  VoiceCredentialControl,
+  type VoiceCredentialControlProps,
+} from "./settings/voice-credential-control";
 export {
   VoiceInputIntroSection,
   type VoiceInputIntroSectionProps,
@@ -2045,49 +2046,6 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   });
   const candidateEnglishGloss = draft?.candidate_english_gloss ?? false;
   const englishSuggestions = draft?.english_suggestions ?? true;
-  /**
-   * The Linux voice provider's credential for the recognition or polishing service selected above. The provider only uses an entry whose model matches the request's, so a save binds the current model; the endpoint is stored in the provider's file, not in the shared preferences.
-   */
-  const voiceCredentialControls = (kind: VoiceCredentialKind) => {
-    if (!client.providerCredentials) return null;
-    const provider =
-      kind === "asr"
-        ? (voiceInput.asr_provider ?? "doubao")
-        : (voiceInput.polish_provider ?? "siliconflow");
-    return (
-      <VoiceCredentialSection
-        kind={kind}
-        provider={provider}
-        model={(kind === "asr" ? voiceInput.asr_model : voiceInput.polish_model) ?? ""}
-        resourceId={kind === "asr" ? voiceInput.asr_resource_id : undefined}
-        authMode={kind === "asr" ? doubaoAuthMode : undefined}
-        credentials={providerCredentials}
-        input={voiceCredentialInput[kind]}
-        busy={providerCredentialBusy === kind}
-        message={providerCredentialMessages[kind]}
-        onChange={(patch) =>
-          setVoiceCredentialInput((current) => ({
-            ...current,
-            [kind]: { ...current[kind], ...patch },
-          }))
-        }
-        onSave={(credential: VoiceCredentialSaveInput) =>
-          void runVoiceCredential(
-            kind,
-            (credentials) => credentials.saveVoice(credential),
-            "凭据已保存，语音 provider 下次请求时生效。",
-          )
-        }
-        onClear={() =>
-          void runVoiceCredential(
-            kind,
-            (credentials) => credentials.clearVoice(kind, provider),
-            "凭据已清除。",
-          )
-        }
-      />
-    );
-  };
   const providerPresetControls = createProviderPresetControl(client.openExternalUrl);
   const inputModeHUD = draft?.input_mode_hud ?? true;
   const floatingToolbar = { ...defaultFloatingToolbar, ...draft?.floating_toolbar };
@@ -2320,7 +2278,11 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     setAiCredentialInput,
     tencentCredentialInput,
     setTencentCredentialInput,
+    voiceCredentialInput,
+    setVoiceCredentialInput,
     providerCredentialBusy,
+    providerCredentialMessages,
+    runVoiceCredential,
     supportDiagnostics: diagnosticsText,
     feedbackReport,
     submitFeedback,
@@ -2395,8 +2357,6 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     onDeviceMissingLanguages,
     setTranslationProvider,
     runProviderCredential,
-    voiceCredentialControls,
-    providerCredentialMessages,
     credentialTestControl,
     providerPresetControls,
     inputModeHUD,

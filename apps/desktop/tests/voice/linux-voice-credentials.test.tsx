@@ -3,6 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import {
   SettingsPage,
+  VoiceCredentialControl,
   type HostCapabilities,
   type ProviderCredentialClient,
   type ProviderCredentialStatus,
@@ -68,6 +69,25 @@ function credentialClient(initial: ProviderCredentialStatus) {
     clearVoice: vi.fn(async () => ({ status: initial, serviceUpdated: true })),
   } satisfies ProviderCredentialClient;
 }
+
+test("voice credential control projects the selected ASR provider", () => {
+  render(
+    <VoiceCredentialControl
+      available
+      kind="asr"
+      voiceInput={{ enabled: true, language: "zh-CN", asr_provider: "doubao" }}
+      doubaoAuthMode="legacy"
+      providerCredentials={empty}
+      voiceCredentialInput={{ asr: { token: "", appKey: "" }, polish: { token: "", appKey: "" } }}
+      setVoiceCredentialInput={vi.fn()}
+      providerCredentialBusy={undefined}
+      providerCredentialMessages={{}}
+      runVoiceCredential={vi.fn()}
+    />,
+  );
+  expect(screen.getByRole("group", { name: "语音识别凭据" })).toBeTruthy();
+  expect(screen.getByLabelText("Doubao App Key")).toBeTruthy();
+});
 
 async function openVoice(credentials: ProviderCredentialClient) {
   render(
