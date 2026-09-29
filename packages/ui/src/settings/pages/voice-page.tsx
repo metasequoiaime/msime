@@ -2,6 +2,7 @@ import * as settings from "../settings-style";
 import {
   asrProviderUpdate,
   ASR_PROVIDER_DEFAULTS,
+  ASR_SERVICE_PROVIDER_IDS,
   polishProviderUpdate,
   POLISH_PROVIDER_DEFAULTS,
   providerSettingValue,
@@ -218,9 +219,7 @@ export function VoiceSettingsPage() {
           </GroupList>
         )}
         {linuxPlatform &&
-          ["openai", "siliconflow", "groq", "everyapi", "mistral", "doubao"].includes(
-            voiceInput.asr_provider ?? "doubao",
-          ) &&
+          ASR_SERVICE_PROVIDER_IDS.includes(voiceInput.asr_provider ?? "doubao") &&
           <VoiceCredentialControl
             available={Boolean(client.providerCredentials)}
             kind="asr"
@@ -250,9 +249,7 @@ export function VoiceSettingsPage() {
         )}
         {/* Doubao belongs in this list, not in a HarmonyOS-only arm: the probe is the shared one, and Windows and macOS have had it since it was added. Gating it on HarmonyOS alone silently dropped the button on the two hosts whose tests cover it. */}
         {(windowsPlatform || macosPlatform || harmonyPlatform) &&
-          ["openai", "siliconflow", "groq", "everyapi", "mistral", "doubao"].includes(
-            voiceInput.asr_provider ?? "",
-          ) && (
+          ASR_SERVICE_PROVIDER_IDS.includes(voiceInput.asr_provider ?? "") && (
             <GroupList title="检查识别配置">
               <p className={settings.groupNote}>
                 测试会向当前服务发送一秒合成静音，不使用麦克风；服务可能计入 API 用量。

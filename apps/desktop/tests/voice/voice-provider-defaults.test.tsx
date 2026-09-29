@@ -2,6 +2,7 @@
 import { expect, test } from "vitest";
 import {
   ASR_PROVIDER_DEFAULTS,
+  ASR_SERVICE_PROVIDER_IDS,
   POLISH_PROVIDER_DEFAULTS,
   asrProviderUpdate,
   providerSettingValue,
@@ -9,6 +10,17 @@ import {
 } from "@msime/ui";
 
 const doubaoEndpoint = ASR_PROVIDER_DEFAULTS.doubao.endpoint;
+
+test("shared ASR service provider ids cover the credential-backed providers", () => {
+  expect(ASR_SERVICE_PROVIDER_IDS).toEqual([
+    "openai",
+    "siliconflow",
+    "groq",
+    "everyapi",
+    "mistral",
+    "doubao",
+  ]);
+});
 
 test("provider setting values prefer edits and fall back to known defaults", () => {
   expect(

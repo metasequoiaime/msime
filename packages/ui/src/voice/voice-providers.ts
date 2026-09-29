@@ -22,6 +22,16 @@ export type ProviderDefaults = {
   documentation?: string;
 };
 
+/** ASR providers that use the shared service credential and test configuration. */
+export const ASR_SERVICE_PROVIDER_IDS: readonly string[] = [
+  "openai",
+  "siliconflow",
+  "groq",
+  "everyapi",
+  "mistral",
+  "doubao",
+];
+
 /** Resolve an editable provider setting, falling back to its shipped default. */
 export function providerSettingValue(
   value: string | undefined,

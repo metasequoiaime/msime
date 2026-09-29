@@ -13,6 +13,7 @@ import {
   asrProviderUpdate,
   polishProviderUpdate,
   ASR_PROVIDER_DEFAULTS,
+  ASR_SERVICE_PROVIDER_IDS,
   POLISH_PROVIDER_DEFAULTS,
   providerSettingValue,
 } from "../voice/voice-providers";
@@ -272,9 +273,7 @@ export function VoiceSettingsPanel({
         />
       )}
       {linuxPlatform &&
-        ["openai", "siliconflow", "groq", "everyapi", "mistral", "doubao"].includes(
-          voiceInput.asr_provider ?? "doubao",
-        ) &&
+        ASR_SERVICE_PROVIDER_IDS.includes(voiceInput.asr_provider ?? "doubao") &&
         <VoiceCredentialControl
           available={Boolean(client.providerCredentials)}
           kind="asr"
@@ -304,9 +303,7 @@ export function VoiceSettingsPanel({
        * cover it.
        */}
       {(windowsPlatform || macosPlatform || harmonyPlatform) &&
-        ["openai", "siliconflow", "groq", "everyapi", "mistral", "doubao"].includes(
-          voiceInput.asr_provider ?? "",
-        ) && (
+        ASR_SERVICE_PROVIDER_IDS.includes(voiceInput.asr_provider ?? "") && (
           <>
             <VoiceSyntheticSilenceNotice />
             {credentialTestControl(
