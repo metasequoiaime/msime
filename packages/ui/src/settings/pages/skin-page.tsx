@@ -20,6 +20,7 @@ import { ThemeSettingsSection } from "../theme-settings-section";
 import { ScreenKeyboardSkinsSection } from "../screen-keyboard-skins-section";
 import { useSettingsForm } from "../settings-form-context";
 import { CandidatePanelLimitSection } from "../candidate-panel-limit-section";
+import { CandidatePaletteFallbackNotice } from "../candidate-palette-fallback-notice";
 
 const themeModeOptions = [
   { value: "system", label: "跟随系统" },
@@ -205,9 +206,7 @@ export function SkinSettingsPage() {
             </Row>
           )}
           {mobileKeyboardFeedback?.candidatePaletteFollowsDesktop === false && (
-            <p className={settings.groupNote}>
-              候选栏正在使用键盘皮肤的颜色，下面的候选颜色要打开「使用桌面候选皮肤」后才生效。
-            </p>
+            <CandidatePaletteFallbackNotice />
           )}
           {/* Choosing a colour makes the theme custom, over whatever theme was on screen (see `setCandidateColor`). */}
           <CandidateColorsSection
