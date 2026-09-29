@@ -482,7 +482,7 @@ java -cp "$output_dir" ReplyKeyboardSmoke
 java -cp "$output_dir" app.msime.client.KeyboardSkinSmoke
 java -cp "$output_dir" CloudClipboardTextPolicySmoke
 java -cp "$output_dir" KeyboardFeedbackSmoke
-java -cp "$output_dir" app.msime.client.KeyboardFeedbackStoreSmoke
+java -cp "$output_dir:$android_jar" app.msime.client.KeyboardFeedbackStoreSmoke
 java -cp "$output_dir" KeyboardShortcutIconPolicySmoke
 java -cp "$output_dir" TypingSourceSmoke
 java -cp "$output_dir" EmojiCatalogModelSmoke

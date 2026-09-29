@@ -1,6 +1,7 @@
 package app.msime.client;
 
 import app.msime.client.KeyboardFeedbackPreferences.HapticStrength;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -19,6 +20,30 @@ public final class KeyboardFeedbackStoreSmoke {
         check(defaults.soundEnabled());
         check(!defaults.hapticsEnabled());
         check(defaults.hapticStrength() == HapticStrength.MEDIUM);
+        try {
+            Path root = Files.createTempDirectory("keyboard-feedback-root");
+            Path outside = Files.createTempDirectory("keyboard-feedback-outside");
+            try {
+                Files.createDirectories(outside.resolve("state"));
+                Files.createSymbolicLink(root.resolve("bootstrap"), outside);
+                boolean rejected = false;
+                try {
+                    KeyboardFeedbackStore.ensureSafeDirectory(root.resolve("bootstrap/state"));
+                } catch (IOException expected) {
+                    rejected = true;
+                }
+                check(rejected);
+                check(!Files.exists(outside.resolve("state/keyboard-feedback.json")));
+            } finally {
+                Files.deleteIfExists(root.resolve("bootstrap"));
+                Files.deleteIfExists(root);
+                Files.deleteIfExists(outside.resolve("state/keyboard-feedback.json"));
+                Files.deleteIfExists(outside.resolve("state"));
+                Files.deleteIfExists(outside);
+            }
+        } catch (IOException error) {
+            throw new AssertionError(error);
+        }
         try {
             Path exact = Files.createTempFile("keyboard-feedback", ".json");
             Path oversized = Files.createTempFile("keyboard-feedback", ".json");
