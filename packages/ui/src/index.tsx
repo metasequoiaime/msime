@@ -115,6 +115,11 @@ export {
 } from "./settings/settings-content-intro";
 import { SettingsUtilityPages } from "./settings/settings-utility-pages";
 export { SettingsUtilityPages, type SettingsUtilityPagesProps } from "./settings/settings-utility-pages";
+import { SettingsFeedbackPage } from "./settings/settings-feedback-page";
+export {
+  SettingsFeedbackPage,
+  type SettingsFeedbackPageProps,
+} from "./settings/settings-feedback-page";
 import { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
 export { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
 import { useTranslationSettings } from "./settings/use-translation-settings";
@@ -2920,7 +2925,7 @@ export function SettingsPage({
                     runProviderCredential={runProviderCredential}
                     credentialTestControl={credentialTestControl}
                   />
-                  <FeedbackPageSection
+                  <SettingsFeedbackPage
                     disabled={busy}
                     hidden={page !== "feedback"}
                     hero={doc.hero}
