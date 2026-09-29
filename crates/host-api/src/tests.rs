@@ -2744,6 +2744,51 @@ fn mobile_clipboard_preserves_invalid_legacy_and_existing_shared_history() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn mobile_clipboard_rejects_symlinked_legacy_ancestors() {
+    use std::os::unix::fs::symlink;
+
+    let root = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let outside_history = outside.path().join("history.json");
+    let fixture = br#"[{"text":"synthetic outside","date":0.0,"id":"00000000-0000-0000-0000-000000000001","pinned":false}]"#;
+    std::fs::write(&outside_history, fixture).unwrap();
+    symlink(outside.path(), root.path().join("Clipboard")).unwrap();
+    let request = serde_json::to_vec(&json!({
+        "directory": root.path(),
+        "action": {"operation": "load"}
+    }))
+    .unwrap();
+    let response =
+        read(unsafe { msime_client_mobile_clipboard_history(request.as_ptr(), request.len()) });
+    assert_eq!(response["ok"], false);
+    assert_eq!(std::fs::read(&outside_history).unwrap(), fixture);
+
+    let clear = serde_json::to_vec(&json!({
+        "directory": root.path(),
+        "action": {"operation": "clear"}
+    }))
+    .unwrap();
+    let response =
+        read(unsafe { msime_client_mobile_clipboard_history(clear.as_ptr(), clear.len()) });
+    assert_eq!(response["ok"], false);
+    assert_eq!(std::fs::read(&outside_history).unwrap(), fixture);
+
+    std::fs::remove_file(root.path().join("Clipboard")).unwrap();
+    symlink(outside.path(), root.path().join("state")).unwrap();
+    let harmony_request = serde_json::to_vec(&json!({
+        "directory": root.path(),
+        "legacy": "harmony_state",
+        "action": {"operation": "load"}
+    }))
+    .unwrap();
+    let response = read(unsafe {
+        msime_client_mobile_clipboard_history(harmony_request.as_ptr(), harmony_request.len())
+    });
+    assert_eq!(response["ok"], false);
+}
+
 #[test]
 fn history_removal_is_exact_idempotent_and_respects_disabled_setting() {
     let directory = tempfile::tempdir().unwrap();

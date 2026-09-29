@@ -1272,7 +1272,32 @@ fn apple_date_to_unix_ms(value: f64) -> Option<u64> {
         .then(|| milliseconds.round() as u64)
 }
 
+/// Check every existing component before a migration opens or removes a path. The mobile root is
+/// supplied by a host and legacy subdirectories can be replaced independently, so checking only
+/// the final directory entry still lets `File::open` follow a symlinked ancestor.
+fn reject_symlinked_path(path: &std::path::Path) -> Result<(), String> {
+    let mut current = path;
+    loop {
+        match std::fs::symlink_metadata(current) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err("clipboard migration path is a symbolic link".into());
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return Err("clipboard migration path unavailable".into()),
+        }
+        let parent = current
+            .parent()
+            .ok_or_else(|| "clipboard migration path unavailable".to_owned())?;
+        if parent == current {
+            return Ok(());
+        }
+        current = parent;
+    }
+}
+
 fn apple_clipboard_migration_lock(root: &std::path::Path) -> Result<std::fs::File, String> {
+    reject_symlinked_path(root)?;
     std::fs::create_dir_all(root).map_err(|_| "clipboard migration unavailable")?;
     let lock_path = root.join(".msime-clipboard-history-migration.lock");
     let lock = msime_client_core::file_lock::open_private_lock_file(lock_path)
@@ -1300,6 +1325,7 @@ pub fn migrate_apple_clipboard_history(root: &std::path::Path) -> Result<bool, S
     }
 
     let legacy_path = root.join("Clipboard").join("history.json");
+    reject_symlinked_path(&legacy_path)?;
     let metadata = match std::fs::symlink_metadata(&legacy_path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
@@ -1368,6 +1394,7 @@ fn migrate_harmony_clipboard_history(root: &std::path::Path) -> Result<bool, Str
     }
 
     let legacy_path = root.join("state").join("clipboard-history.json");
+    reject_symlinked_path(&legacy_path)?;
     let metadata = match std::fs::symlink_metadata(&legacy_path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
@@ -1425,6 +1452,7 @@ fn clear_mobile_clipboard_history_with_legacy(
 ) -> Result<(), String> {
     let _lock = apple_clipboard_migration_lock(root)?;
     let legacy_path = root.join("Clipboard").join("history.json");
+    reject_symlinked_path(&legacy_path)?;
     match std::fs::symlink_metadata(&legacy_path) {
         Ok(metadata) if metadata.file_type().is_file() => {
             std::fs::remove_file(&legacy_path).map_err(|_| "mobile clipboard clear failed")?;
@@ -1435,6 +1463,7 @@ fn clear_mobile_clipboard_history_with_legacy(
     }
     if matches!(legacy, Some(MobileClipboardLegacy::HarmonyState)) {
         let harmony_path = root.join("state").join("clipboard-history.json");
+        reject_symlinked_path(&harmony_path)?;
         match std::fs::symlink_metadata(&harmony_path) {
             Ok(metadata) if metadata.file_type().is_file() => {
                 std::fs::remove_file(harmony_path).map_err(|_| "mobile clipboard clear failed")?;
