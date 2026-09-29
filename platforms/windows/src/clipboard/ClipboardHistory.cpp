@@ -81,18 +81,27 @@ bool write_store(const std::filesystem::path &path, const std::vector<std::strin
   const auto payload = nlohmann::json(items).dump();
 #ifdef _WIN32
   auto temporary = path;
-  temporary += ".tmp";
-  temporary += std::to_string(GetCurrentProcessId());
-  std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
-  if (!output) return false;
-  output.write(payload.data(), static_cast<std::streamsize>(payload.size()));
-  output.close();
-  if (!output) {
+  wchar_t temporary_name[MAX_PATH] = {};
+  if (!GetTempFileNameW(path.parent_path().c_str(), L"msi", 0, temporary_name))
+    return false;
+  temporary = temporary_name;
+  HANDLE handle = CreateFileW(temporary.c_str(), GENERIC_WRITE, 0, nullptr,
+                              OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (handle == INVALID_HANDLE_VALUE) {
     std::filesystem::remove(temporary, error);
     return false;
   }
-  if (!MoveFileExW(temporary.c_str(), path.c_str(),
-                   MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+  DWORD written = 0;
+  const bool complete = payload.size() <= MAXDWORD &&
+                        WriteFile(handle, payload.data(),
+                                  static_cast<DWORD>(payload.size()), &written,
+                                  nullptr) &&
+                        written == static_cast<DWORD>(payload.size()) &&
+                        FlushFileBuffers(handle);
+  CloseHandle(handle);
+  if (!complete || !MoveFileExW(temporary.c_str(), path.c_str(),
+                                MOVEFILE_REPLACE_EXISTING |
+                                    MOVEFILE_WRITE_THROUGH)) {
     std::filesystem::remove(temporary, error);
     return false;
   }
