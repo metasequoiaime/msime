@@ -122,10 +122,10 @@ static void TestAIRejectsPlainHTTP() {
     assert(![request valueForKey:@"translationRequest"]);
     [request start];
     assert(![request valueForKey:@"session"]);
-    descriptor = [descriptor mutableCopy];
-    descriptor[@"url"] = @"http://localhost:8765/chat";
+    NSMutableDictionary *loopback = [descriptor mutableCopy];
+    loopback[@"url"] = @"http://localhost:8765/chat";
     request = [[MSIMECloudCandidateRequest alloc]
-        initWithAITranslationDescriptor:descriptor
+        initWithAITranslationDescriptor:loopback
         configuration:NSURLSessionConfiguration.ephemeralSessionConfiguration
         completion:^(NSData *body) { assert(!body); }];
     assert([[(NSURLRequest *)[request valueForKey:@"translationRequest"] URL].host isEqual:@"localhost"]);
