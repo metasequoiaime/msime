@@ -39,6 +39,25 @@ public final class DictionarySnapshotQueueSmoke {
             fails(DictionarySnapshotQueue.Reason.UNAVAILABLE, nestedQueue::read);
             check(!Files.exists(outside.resolve("state/queue")));
             Files.delete(linkedAncestor);
+            Path sourceRoot = root.resolve("files");
+            Path sourceQueue = sourceRoot.resolve("bootstrap/state/dictionary-snapshots");
+            Files.createDirectories(sourceQueue);
+            Path sourceOutside = Files.createDirectory(root.resolve("source-outside"));
+            Files.createSymbolicLink(sourceQueue.resolve("linked"), sourceOutside);
+            Path sourcePath = sourceQueue.resolve("linked/fixture.ndjson");
+            boolean sourceRejected = false;
+            try {
+                java.lang.reflect.Method policy = Class.forName(
+                    "app.msime.client.DictionarySnapshotPathPolicy")
+                    .getDeclaredMethod("privateSource", Path.class, Path.class, String.class);
+                policy.setAccessible(true);
+                policy.invoke(null, sourceRoot, sourceQueue, sourcePath.toString());
+            } catch (java.lang.reflect.InvocationTargetException expected) {
+                check(expected.getCause() instanceof java.io.IOException);
+                sourceRejected = true;
+            }
+            check(sourceRejected);
+            check(!Files.exists(sourceOutside.resolve("fixture.ndjson")));
             Path stagingOutside = Files.createDirectory(root.resolve("staging-outside"));
             Path stagingLink = root.resolve("staging-link");
             Files.createSymbolicLink(stagingLink, stagingOutside);

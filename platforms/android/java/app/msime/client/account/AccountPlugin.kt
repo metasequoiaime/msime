@@ -19,7 +19,6 @@ import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 import java.io.File
-import java.nio.file.LinkOption
 import java.nio.file.Path
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -101,13 +100,8 @@ class AccountPlugin(activity: Activity) : Plugin(activity) {
     }
 
     private fun privateSnapshotSource(value: String): Path {
-        // `Path.of` is API 34; `Paths.get` is the same resolution and has been there since 26.
-        val source = java.nio.file.Paths.get(value).toAbsolutePath().normalize()
-        val root = snapshotQueueRoot()
-        if (!source.startsWith(root) || !java.nio.file.Files.isRegularFile(source, LinkOption.NOFOLLOW_LINKS)) {
-            throw IllegalArgumentException("invalid snapshot source")
-        }
-        return source
+        return DictionarySnapshotPathPolicy.privateSource(
+            hostActivity.filesDir.toPath(), snapshotQueueRoot(), value)
     }
 
     private fun snapshotStateResponse(): JSObject {
