@@ -70,6 +70,11 @@ type AuthorizedReply = { response?: AccountTransportResponse; token?: string; er
  * envelope would have refused a resource the server would have accepted, on this host only.
  */
 const MAX_ACTION_BYTES = 512 * 1024;
+/** JSON responses use the same one-megabyte envelope as the shared account client. */
+const MAX_JSON_RESPONSE_BYTES = 1024 * 1024;
+/** Resource pages and details carry published dictionary content, so use their shared limits. */
+const MAX_COMMUNITY_RESOURCE_PAGE_BYTES = 48 * 1024 * 1024;
+const MAX_COMMUNITY_RESOURCE_DETAIL_BYTES = 3 * 1024 * 1024;
 const MAX_SESSION_SECONDS = 86_400 * 30;
 const MAX_SESSION_MILLISECONDS = MAX_SESSION_SECONDS * 1000;
 const MAX_CLIPBOARD_TEXT = 4000;
@@ -201,6 +206,12 @@ function communityStatus(status: number): string {
   return "community_unavailable";
 }
 
+function communityResponseLimit(path: string): number {
+  if (path.startsWith("/v1/community/resources?")) return MAX_COMMUNITY_RESOURCE_PAGE_BYTES;
+  if (path.startsWith("/v1/community/resources/")) return MAX_COMMUNITY_RESOURCE_DETAIL_BYTES;
+  return MAX_JSON_RESPONSE_BYTES;
+}
+
 function error(code: string): string {
   return JSON.stringify({ ok: false, error: code });
 }
@@ -255,7 +266,8 @@ function mapStatus(status: number): string {
   return "account_unavailable";
 }
 
-function parseJson(body: string): Action | null {
+function parseJson(body: string, maximumBytes: number = MAX_JSON_RESPONSE_BYTES): Action | null {
+  if (utf8Length(body) > maximumBytes) return null;
   try {
     const value: unknown = JSON.parse(body);
     return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -969,7 +981,7 @@ export class AccountCloudBridge {
     if (response.status < 200 || response.status >= 300) {
       return error(communityStatus(response.status));
     }
-    const value = parseJson(response.body);
+    const value = parseJson(response.body, communityResponseLimit(path));
     if (value === null && response.body.length > 0) return error("community_unavailable");
     return success(value ?? {});
   }
