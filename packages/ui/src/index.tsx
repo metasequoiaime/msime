@@ -251,6 +251,7 @@ import { createUtilitiesSettingsActions } from "./settings/utilities-settings-ac
 import { createSettingsNavigationActions } from "./settings/settings-navigation-actions";
 import { createSettingsReloadAction } from "./settings/settings-reload-action";
 import { createSettingsStatusActions } from "./settings/settings-status-actions";
+import { createSettingsPageSelection } from "./settings/settings-page-selection";
 import { useAppVersion } from "./settings/use-app-version";
 import { supportDiagnostics } from "./settings/support-diagnostics";
 import { useMountedRef } from "./settings/use-mounted-ref";
@@ -460,6 +461,10 @@ export {
   createSettingsStatusActions,
   type CreateSettingsStatusActionsOptions,
 } from "./settings/settings-status-actions";
+export {
+  createSettingsPageSelection,
+  type CreateSettingsPageSelectionOptions,
+} from "./settings/settings-page-selection";
 import { SettingsSidebar } from "./settings/settings-sidebar";
 export {
   SettingsSidebar,
@@ -2411,6 +2416,7 @@ export function SettingsPage({
     inputSourceStartup: client.inputSourceStartup,
     setInputSourceStartup,
   });
+  const settingsPageSelection = createSettingsPageSelection({ selectPage });
   const communityView = communityDestinationView(communityDestination);
   return (
     <div
@@ -2489,7 +2495,7 @@ export function SettingsPage({
               <HomePage
                 preferences={draft}
                 actions={client.home}
-                onOpenPage={(value) => selectPage(value as SettingsPageId)}
+                {...settingsPageSelection}
                 onSelectScheme={selectHomeScheme}
                 onOpenChat={settingsNavigationActions.onOpenChat}
                 touchLayout={mobilePlatform}
@@ -2502,7 +2508,7 @@ export function SettingsPage({
                   title: item.title,
                   icon: item.icon,
                 }))}
-                onOpenPage={(value) => selectPage(value as SettingsPageId)}
+                {...settingsPageSelection}
               />
             )}
             {(client.account || client.appIcon) && page === "account" && (
