@@ -13,7 +13,7 @@ import {
   asrProviderUpdate,
   polishProviderUpdate,
   ASR_PROVIDER_DEFAULTS,
-  ASR_SERVICE_PROVIDER_IDS,
+  isAsrServiceProvider,
   POLISH_PROVIDER_DEFAULTS,
 } from "../voice/voice-providers";
 import { VoiceInputIntroSection } from "./voice-input-intro-section";
@@ -278,7 +278,7 @@ export function VoiceSettingsPanel({
         />
       )}
       {linuxPlatform &&
-        ASR_SERVICE_PROVIDER_IDS.includes(voiceInput.asr_provider ?? "doubao") &&
+        isAsrServiceProvider(voiceInput.asr_provider ?? "doubao") &&
         <VoiceCredentialControl
           available={Boolean(client.providerCredentials)}
           kind="asr"
@@ -304,7 +304,7 @@ export function VoiceSettingsPanel({
        * cover it.
        */}
       {(windowsPlatform || macosPlatform || harmonyPlatform) &&
-        ASR_SERVICE_PROVIDER_IDS.includes(voiceInput.asr_provider ?? "") && (
+        isAsrServiceProvider(voiceInput.asr_provider ?? "") && (
           <>
             <VoiceSyntheticSilenceNotice />
             {credentialTestControl(

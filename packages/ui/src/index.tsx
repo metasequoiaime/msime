@@ -968,6 +968,7 @@ export {
   ASR_SERVICE_PROVIDER_IDS,
   POLISH_PROVIDER_DEFAULTS,
   asrProviderUpdate,
+  isAsrServiceProvider,
   providerSettingValue,
   polishProviderUpdate,
   type ProviderDefaults,

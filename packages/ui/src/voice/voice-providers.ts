@@ -32,6 +32,11 @@ export const ASR_SERVICE_PROVIDER_IDS: readonly string[] = [
   "doubao",
 ];
 
+/** Returns whether an ASR provider uses the shared service credential flow. */
+export function isAsrServiceProvider(provider: string): boolean {
+  return ASR_SERVICE_PROVIDER_IDS.includes(provider);
+}
+
 /** Resolve an editable provider setting, falling back to its shipped default. */
 export function providerSettingValue(
   value: string | undefined,
