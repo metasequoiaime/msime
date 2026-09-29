@@ -454,10 +454,15 @@ export {
   type CreateFloatingToolbarActionsOptions,
 } from "./settings/floating-toolbar-actions";
 import { SkinSettingsSection } from "./settings/skin-settings-section";
+import { createSkinSettingsActions } from "./settings/skin-settings-actions";
 export {
   SkinSettingsSection,
   type SkinSettingsSectionProps,
 } from "./settings/skin-settings-section";
+export {
+  createSkinSettingsActions,
+  type CreateSkinSettingsActionsOptions,
+} from "./settings/skin-settings-actions";
 import { availableSettingsPages } from "./settings/available-pages";
 export { availableSettingsPages, type AvailablePageCapabilities } from "./settings/available-pages";
 import * as surface from "./keyboard/panel-surface-style";
@@ -2203,6 +2208,14 @@ export function SettingsPage({
       screenKeyboardTheme: draft?.screen_keyboard_theme,
       setSkinPreviewThemes,
     });
+  const skinSettingsActions = createSkinSettingsActions({
+    draft,
+    candidatePreviewTheme,
+    mobileKeyboardFeedback,
+    saveMobileKeyboardFeedback,
+    setDraft,
+    setSkinPreviewThemes,
+  });
   const installerTrust = availableUpdate
     ? describeInstallerTrust(availableUpdate, releasePlatform)
     : null;
@@ -2547,24 +2560,11 @@ export function SettingsPage({
                     candidatePanelLimit={host?.candidate_panel_limit}
                     mobileKeyboardFeedback={mobileKeyboardFeedback}
                     mobileKeyboardFeedbackBusy={mobileKeyboardFeedbackBusy}
-                    onCandidatePaletteChange={(candidatePaletteFollowsDesktop) =>
-                      mobileKeyboardFeedback &&
-                      void saveMobileKeyboardFeedback({
-                        ...mobileKeyboardFeedback,
-                        candidatePaletteFollowsDesktop,
-                      })
-                    }
+                    {...skinSettingsActions}
                     candidateSkinCatalog={snapshot?.candidate_skin_catalog}
                     selected={draft.candidate_skin ?? "willow_green"}
                     previewThemes={skinPreviewThemes}
                     defaultTheme={candidatePreviewTheme}
-                    onSelect={(id) => setDraft({ ...draft, candidate_skin: id })}
-                    onTogglePreview={(id) =>
-                      setSkinPreviewThemes((current) => ({
-                        ...current,
-                        [id]: (current[id] ?? candidatePreviewTheme) === "dark" ? "light" : "dark",
-                      }))
-                    }
                     activeTheme={candidatePreviewTheme}
                     scan={client.scanSkinCatalog}
                     openDirectory={client.openSkinDirectory}
