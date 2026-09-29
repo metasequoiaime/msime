@@ -1902,9 +1902,8 @@ class SettingsBridge {
   }
 
   openExternalUrl(url: string): void {
-    // Only the two schemes a settings page has any business opening; anything else is not a link the
-    // page should be able to make this application follow.
-    if (!url.startsWith('https://') && !url.startsWith('http://')) {
+    // External links leave the application; keep them HTTPS-only and reject credentials/fragments.
+    if (!TextPolicy.validExternalUrl(url)) {
       KeyboardLog.error('refused to open a non-web link');
       return;
     }

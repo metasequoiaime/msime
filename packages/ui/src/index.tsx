@@ -242,7 +242,11 @@ export {
   type TouchKeyboardSettingsResetConfirmOptions,
   type UseTouchKeyboardSettingsResetOptions,
 } from "./settings/use-touch-keyboard-settings-reset";
-export { useExternalUrl, type UseExternalUrlOptions } from "./settings/use-external-url";
+export {
+  isSafeExternalUrl,
+  useExternalUrl,
+  type UseExternalUrlOptions,
+} from "./settings/use-external-url";
 export { useUpdateCheck, type UseUpdateCheckOptions } from "./settings/use-update-check";
 export { useOpenPanel, type UseOpenPanelOptions } from "./settings/use-open-panel";
 export {

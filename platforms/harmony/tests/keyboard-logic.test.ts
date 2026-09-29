@@ -8633,6 +8633,14 @@ group("AI model catalogs keep each provider's protocol and path", () => {
     "rejects remote HTTP endpoints");
   check(!TextPolicy.validSecureAuthority("http://localhost.example/api", true),
     "rejects lookalike loopback hosts");
+  check(TextPolicy.validExternalUrl("https://example.test/docs?q=synthetic"),
+    "accepts HTTPS external links");
+  check(!TextPolicy.validExternalUrl("http://example.test/docs"),
+    "rejects HTTP external links");
+  check(!TextPolicy.validExternalUrl("https://user:secret@example.test/docs"),
+    "rejects credentials in external links");
+  check(!TextPolicy.validExternalUrl("https://example.test/docs next"),
+    "rejects whitespace in external links");
   check(
     AiModelCatalogPolicy.modelsUrl("https://api.everyapi.ai/v1/chat/completions") ===
       "https://api.everyapi.ai/v1/models",
