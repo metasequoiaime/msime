@@ -312,6 +312,11 @@ export {
 } from "./settings/settings-capabilities";
 import { useAiAssistant } from "./settings/use-ai-assistant";
 export { useAiAssistant, type UseAiAssistantOptions } from "./settings/use-ai-assistant";
+import { aiSettingsPreferences } from "./settings/ai-settings-preferences";
+export {
+  aiSettingsPreferences,
+  type AiSettingsPreferences,
+} from "./settings/ai-settings-preferences";
 import {
   VoiceCredentialSection,
   type VoiceCredentialSaveInput,
@@ -2002,7 +2007,10 @@ export function SettingsPage({
     macosWubiAutoCommitUnique,
     savedMacosWubiAutoCommitUnique,
   });
-  const ai = draft?.ai_assistant ?? defaultAiAssistant;
+  const { ai, storedAiCredential } = aiSettingsPreferences(
+    draft?.ai_assistant,
+    providerCredentials,
+  );
   const {
     origin: aiOrigin,
     token: aiToken,
@@ -2032,9 +2040,6 @@ export function SettingsPage({
           : current,
       ),
   });
-  const storedAiCredential = providerCredentials?.ai.find(
-    (entry) => entry.provider === ai.provider,
-  );
   const {
     wordCharacter,
     keybindings,
