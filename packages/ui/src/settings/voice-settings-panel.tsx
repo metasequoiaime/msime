@@ -49,6 +49,7 @@ import {
   asrServiceCredentialTestDisabled,
   polishProviderCredentialTestConfig,
   polishServiceCredentialTestConfig,
+  polishServiceCredentialTestDisabled,
 } from "./voice-credential-test-config";
 import { PolishPromptSection } from "./polish-prompt-section";
 import type { ProviderPresetControlFactory } from "./provider-preset-control";
@@ -432,7 +433,7 @@ export function VoiceSettingsPanel({
               "voice.polish",
               "测试语音润色配置",
               polishServiceCredentialTestConfig(voiceInput),
-              !voiceInput.polish_token?.trim(),
+              polishServiceCredentialTestDisabled(voiceInput),
             )}
         </VoicePolishSection>
       )}

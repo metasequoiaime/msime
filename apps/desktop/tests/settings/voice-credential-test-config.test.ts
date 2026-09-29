@@ -1,5 +1,8 @@
 import { expect, test } from "vitest";
-import { asrServiceCredentialTestDisabled } from "../../../../packages/ui/src/settings/voice-credential-test-config";
+import {
+  asrServiceCredentialTestDisabled,
+  polishServiceCredentialTestDisabled,
+} from "../../../../packages/ui/src/settings/voice-credential-test-config";
 
 const baseVoice = {
   enabled: true,
@@ -29,4 +32,11 @@ test("requires a legacy Doubao app key in addition to its token", () => {
   expect(
     asrServiceCredentialTestDisabled({ ...baseVoice, asr_provider: "doubao" }, "api_key"),
   ).toBe(false);
+});
+
+test("requires a polish token before testing the remote service", () => {
+  expect(polishServiceCredentialTestDisabled({ ...baseVoice, polish_token: "" })).toBe(true);
+  expect(polishServiceCredentialTestDisabled({ ...baseVoice, polish_token: "synthetic-token" })).toBe(
+    false,
+  );
 });

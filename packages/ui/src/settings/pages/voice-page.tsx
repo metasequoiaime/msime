@@ -45,6 +45,7 @@ import {
   asrServiceCredentialTestDisabled,
   polishProviderCredentialTestConfig,
   polishServiceCredentialTestConfig,
+  polishServiceCredentialTestDisabled,
 } from "../voice-credential-test-config";
 
 /** The 语音输入 page of the settings form. */
@@ -442,7 +443,7 @@ export function VoiceSettingsPage() {
                     "voice.polish",
                     "测试语音润色配置",
                     polishServiceCredentialTestConfig(voiceInput),
-                    !voiceInput.polish_token?.trim(),
+                    polishServiceCredentialTestDisabled(voiceInput),
                   )}
               </div>
             </div>

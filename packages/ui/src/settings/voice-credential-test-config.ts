@@ -97,3 +97,8 @@ export function polishServiceCredentialTestConfig(
     token: voiceInput.polish_token ?? "",
   };
 }
+
+/** Whether the remote polish credential test lacks its API token. */
+export function polishServiceCredentialTestDisabled(voiceInput: VoiceInputPreferences): boolean {
+  return !voiceInput.polish_token?.trim();
+}
