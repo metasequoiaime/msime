@@ -1100,6 +1100,15 @@ export interface HostCapabilities {
 
 export { useCandidatePreviewTheme } from "./candidate/candidate-preview-theme";
 
+/** Local whole-sentence candidate sources and optional neural reranking. */
+export type SentenceAssociationPreferences = {
+  word_lattice?: boolean;
+  google?: boolean;
+  neural_desktop?: boolean;
+  neural_keyboard?: boolean;
+  show_next_on_duplicate?: boolean;
+};
+
 export type Preferences = {
   theme?: ThemeMode;
   settings_theme?: SurfaceTheme;
@@ -1111,6 +1120,7 @@ export type Preferences = {
   emoji_theme?: SurfaceTheme;
   menu_theme?: SurfaceTheme;
   ai_assistant?: AiAssistantPreferences;
+  sentence_association?: SentenceAssociationPreferences;
   custom_translation?: { enabled: boolean; endpoint: string; api_key: string };
   tencent_tmt?: { enabled: boolean; secret_id: string; secret_key: string; region: string };
   niutrans?: { enabled: boolean; app_id: string; apikey: string };

@@ -596,14 +596,17 @@ impl HostOptions {
             local_temporary_english: self.preferences.local_modes.temporary_english,
             local_temporary_japanese: self.preferences.local_modes.temporary_japanese,
             sentence_association: msime_engine_bridge::SentenceAssociationOptions {
-            word_lattice: true,
-            google: true,
-            neural_desktop: false,
-            neural_keyboard: false,
-            show_next_on_duplicate: false,
-        },
-        rescoring_context: String::new(),
-        sentence_alternatives: true,
+                word_lattice: self.preferences.sentence_association.word_lattice,
+                google: self.preferences.sentence_association.google,
+                neural_desktop: self.preferences.sentence_association.neural_desktop,
+                neural_keyboard: self.preferences.sentence_association.neural_keyboard,
+                show_next_on_duplicate: self
+                    .preferences
+                    .sentence_association
+                    .show_next_on_duplicate,
+            },
+            rescoring_context: String::new(),
+            sentence_alternatives: true,
             helpcode: helpcode.enabled,
             show_helpcode: helpcode.show_in_candidate_window,
             helpcode_schema: helpcode.schema.as_str().into(),

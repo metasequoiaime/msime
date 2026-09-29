@@ -34,6 +34,7 @@ export function InputSettingsPage() {
   const {
     client,
     iosPlatform,
+    mobilePlatform,
     macosPlatform,
     showModeScope,
     showCharacterWidth,
@@ -191,6 +192,48 @@ export function InputSettingsPage() {
             value={draft.cloud_candidates}
             onChange={(checked) => setDraft({ ...draft, cloud_candidates: checked })}
           />
+        </GroupList>
+        <GroupList title="整句联想">
+          <Row
+            title="本地整句联想"
+            description="把词库组合出的整句加入候选；关闭后仍保留单词候选。"
+          >
+            <Switch
+              checked={draft.sentence_association?.word_lattice ?? true}
+              onChange={(checked) =>
+                setDraft({
+                  ...draft,
+                  sentence_association: {
+                    ...draft.sentence_association,
+                    word_lattice: checked,
+                  },
+                })
+              }
+            />
+          </Row>
+          <Row
+            title={mobilePlatform ? "键盘神经联想" : "桌面神经联想"}
+            description="使用随包的神经模型重排整句候选；没有模型时保持现有候选。"
+          >
+            <Switch
+              checked={
+                mobilePlatform
+                  ? (draft.sentence_association?.neural_keyboard ?? false)
+                  : (draft.sentence_association?.neural_desktop ?? false)
+              }
+              onChange={(checked) =>
+                setDraft({
+                  ...draft,
+                  sentence_association: {
+                    ...draft.sentence_association,
+                    ...(mobilePlatform
+                      ? { neural_keyboard: checked }
+                      : { neural_desktop: checked }),
+                  },
+                })
+              }
+            />
+          </Row>
         </GroupList>
         <FrequencySection
           preferences={frequency}

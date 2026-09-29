@@ -438,6 +438,60 @@ pub enum CharacterWidthPreference {
     Fullwidth,
 }
 
+/// Whole-sentence candidate sources exposed to the Engine. The dictionary and
+/// Google sources retain their defaults; neural rerankers are opt-in because
+/// they add model work while typing or after a settling delay.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct SentenceAssociationPreferences {
+    pub word_lattice: bool,
+    pub google: bool,
+    pub neural_desktop: bool,
+    pub neural_keyboard: bool,
+    pub show_next_on_duplicate: bool,
+}
+
+impl Default for SentenceAssociationPreferences {
+    fn default() -> Self {
+        Self {
+            word_lattice: true,
+            google: true,
+            neural_desktop: false,
+            neural_keyboard: false,
+            show_next_on_duplicate: false,
+        }
+    }
+}
+
+/// Candidate sentence-association sources. Dictionary and Google sources keep their historical
+/// defaults; neural rerankers are opt-in because they add model work while typing or settling.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct SentenceAssociationPreferences {
+    #[serde(default = "enabled_by_default")]
+    pub word_lattice: bool,
+    #[serde(default = "enabled_by_default")]
+    pub google: bool,
+    #[serde(default)]
+    pub neural_desktop: bool,
+    #[serde(default)]
+    pub neural_keyboard: bool,
+    #[serde(default)]
+    pub show_next_on_duplicate: bool,
+}
+
+impl Default for SentenceAssociationPreferences {
+    fn default() -> Self {
+        Self {
+            word_lattice: true,
+            google: true,
+            neural_desktop: false,
+            neural_keyboard: false,
+            show_next_on_duplicate: false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Preferences {
@@ -449,6 +503,10 @@ pub struct Preferences {
     pub voice_input: VoiceInputPreferences,
     #[serde(default)]
     pub ai_assistant: AiAssistantPreferences,
+    /// Controls local whole-sentence candidate sources. Neural reranking remains opt-in until
+    /// its model is installed.
+    #[serde(default)]
+    pub sentence_association: SentenceAssociationPreferences,
     #[serde(default)]
     pub custom_translation: CustomTranslationPreferences,
     #[serde(default)]
@@ -1330,6 +1388,7 @@ impl Default for Preferences {
             default_ime_mode: DefaultImeMode::default(),
             ime_mode_scope: ImeModeScope::default(),
             ai_assistant: AiAssistantPreferences::default(),
+            sentence_association: SentenceAssociationPreferences::default(),
             custom_translation: CustomTranslationPreferences::default(),
             tencent_tmt: TencentTmtPreferences::default(),
             niutrans: NiuTransPreferences::default(),
