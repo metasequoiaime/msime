@@ -37,6 +37,8 @@ export {
   type PlatformCopyContext,
   type PlatformCopy,
 } from "./settings/platform-copy";
+import { schemeTitle } from "./settings/label-helpers";
+export { schemeTitle } from "./settings/label-helpers";
 import { isLinuxDesktop } from "./settings/platform-helpers";
 import { useSettingsTheme } from "./settings/use-settings-theme";
 export { useSettingsTheme } from "./settings/use-settings-theme";
@@ -1924,15 +1926,6 @@ function requestedPage(value: string | undefined): SettingsPageId {
   return pages.some((page) => page.id === value) ? (value as SettingsPageId) : "appearance";
 }
 
-function schemeTitle(scheme: Preferences["scheme"]): string {
-  return scheme === "quanpin"
-    ? "全拼"
-    : scheme === "shuangpin"
-      ? "双拼"
-      : scheme === "wubi"
-        ? "五笔"
-        : "日语";
-}
 export {
   tencentCredentialIssue,
   translationEndpointIssue,
