@@ -1,7 +1,7 @@
-import { SecretInput } from "../../core/secret-input";
 import { defaultAiAssistant } from "../ai-assistant-defaults";
 import { useSettingsForm } from "../settings-form-context";
 import { AiCredentialSection } from "../ai-credential-section";
+import { AiApiTokenSection } from "../ai-api-token-section";
 import { AI_PROVIDER_OPTIONS, aiProviderOption } from "../ai-provider-options";
 import { aiProviderUpdate } from "../ai-provider-update";
 import {
@@ -165,20 +165,7 @@ export function AiSettingsPage() {
           )}
         </div>
       ) : (
-        <div className="section">
-          <label className="section-header">
-            <span className="section-title">
-              API Token
-              <small>{aiOrigin ? `只用于 ${aiOrigin}` : "请先填写有效的 HTTPS 接口地址"}</small>
-            </span>
-            <SecretInput
-              label="AI API Token"
-              disabled={!aiOrigin}
-              value={aiToken}
-              onChange={updateAiToken}
-            />
-          </label>
-        </div>
+        <AiApiTokenSection origin={aiOrigin} token={aiToken} onTokenChange={updateAiToken} />
       )}
       {(windowsPlatform || macosPlatform || iosPlatform) &&
         credentialTestControl(
