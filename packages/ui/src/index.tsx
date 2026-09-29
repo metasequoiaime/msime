@@ -92,6 +92,8 @@ export {
   SettingsStandalonePages,
   type SettingsStandalonePagesProps,
 } from "./settings/settings-standalone-pages";
+import { SettingsPageStatus } from "./settings/settings-page-status";
+export { SettingsPageStatus, type SettingsPageStatusProps } from "./settings/settings-page-status";
 import { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
 export { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
 import { useTranslationSettings } from "./settings/use-translation-settings";
@@ -2472,7 +2474,8 @@ export function SettingsPage({
               title={availablePages.find((item) => item.id === page)?.title ?? "外观"}
               hiddenOnPhone={mobilePlatform && mobileHeaderlessPageIds.includes(page)}
             />
-            <SettingsStatusMessages
+            <SettingsPageStatus
+              draft={draft}
               error={error}
               notice={notice}
               busy={busy}
@@ -2481,19 +2484,11 @@ export function SettingsPage({
               onRecover={settingsStatusActions.onRecover}
               openPreferencesDirectory={client.openPreferencesDirectory}
               macos={macosPlatform}
+              inputSourceStartup={inputSourceStartup}
+              onOpenSettings={settingsStatusActions.onOpenSettings}
+              onDismiss={settingsStatusActions.onDismiss}
               onError={setError}
             />
-            {inputSourceStartup &&
-              (inputSourceStartup.action !== "up_to_date" ||
-                inputSourceStartup.enabled === false) && (
-                <InputSourceStartupNotice
-                  status={inputSourceStartup}
-                  onOpenSettings={settingsStatusActions.onOpenSettings}
-                  onDismiss={settingsStatusActions.onDismiss}
-                  onError={setError}
-                />
-              )}
-            {busy && !draft && <p role="status">正在读取设置…</p>}
             <SettingsStandalonePages
               page={page}
               draft={draft}
