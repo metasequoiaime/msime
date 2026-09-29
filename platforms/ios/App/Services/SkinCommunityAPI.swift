@@ -37,6 +37,7 @@ enum CommunityProfilePolicy {
 
 actor SkinCommunityAPI {
   static let shared = SkinCommunityAPI()
+  private static let maximumPageItems = 20
   private let client: BackendAccountClient
   private let account: BackendAccountSession
   init(client: BackendAccountClient = BackendAccountClient(), account: BackendAccountSession = .shared) {
@@ -129,7 +130,11 @@ actor SkinCommunityAPI {
     parts.path = "/v1/community/skins"
     parts.queryItems = [.init(name: "offset", value: String(offset)), .init(name: "q", value: search)]
     parts.percentEncodedQuery = parts.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
-    return try await request(parts.string!)
+    let page: CommunityPage = try await request(parts.string!)
+    guard page.skins.count <= Self.maximumPageItems && !(page.has_more && page.skins.isEmpty) else {
+      throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
+    }
+    return page
   }
   func detail(_ id: String) async throws -> CommunitySkin {
     #if DEBUG && targetEnvironment(simulator)
@@ -166,7 +171,11 @@ actor SkinCommunityAPI {
     parts.queryItems = [.init(name: "kind", value: kind.rawValue), .init(name: "scope", value: scope),
       .init(name: "q", value: search), .init(name: "offset", value: String(offset))]
     parts.percentEncodedQuery = parts.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
-    return try await request(parts.string!, maximumResponseBytes: 48 * 1024 * 1024)
+    let page: ResourcePage = try await request(parts.string!, maximumResponseBytes: 48 * 1024 * 1024)
+    guard page.items.count <= Self.maximumPageItems && !(page.has_more && page.items.isEmpty) else {
+      throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
+    }
+    return page
   }
   func resource(_ id: String) async throws -> CommunityResource {
     #if DEBUG && targetEnvironment(simulator)

@@ -137,7 +137,86 @@ private final class LargeResourceProtocol: URLProtocol {
   }
   override func stopLoading() {}
 }
+
+private final class OversizedSkinPageProtocol: URLProtocol {
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    let design: [String: Any] = [
+      "background": 15266027, "keyBackground": 16777215, "keyForeground": 1516829,
+      "accent": 1596487, "actionBackground": 1596487, "cornerRadius": 8,
+      "borderWidth": 0, "shadow": 0, "pattern": 0, "monospaced": false
+    ]
+    let skins = (0..<21).map { index in
+      ["id": String(format: "a1234567-1234-1234-1234-%012d", index), "name": "测试",
+       "description": "", "author": "作者", "design": design, "downloads": 0,
+       "rating_count": 0, "rating_average": 0, "owned": false, "my_rating": 0] as [String: Any]
+    }
+    let data = try! JSONSerialization.data(withJSONObject: ["skins": skins, "has_more": true])
+    client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200,
+      httpVersion: nil, headerFields: ["Content-Type": "application/json"])!,
+      cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: data)
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
+
+private final class OversizedResourcePageProtocol: URLProtocol {
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    let items = (0..<21).map { index in
+      ["id": String(format: "10000000-0000-4000-8000-%012d", index), "kind": "dictionary",
+       "name": "测试", "description": "", "author": "作者",
+       "content": ["entries": []], "revision": 1, "saves": 0, "saved": false,
+       "owned": false, "rating_count": 0, "rating_average": 0, "my_rating": 0] as [String: Any]
+    }
+    let data = try! JSONSerialization.data(withJSONObject: ["items": items, "has_more": true])
+    client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200,
+      httpVersion: nil, headerFields: ["Content-Type": "application/json"])!,
+      cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: data)
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
+
 extension SkinCommunityTests {
+  func testOversizedSkinPageIsRejected() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [OversizedSkinPageProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    let api = SkinCommunityAPI(client: client,
+                               account: BackendAccountSession(api: client,
+                                                              storage: CommunityMemoryCredentials()))
+    do {
+      _ = try await api.list(search: "oversized")
+      XCTFail("expected oversized page rejection")
+    } catch let failure as CommunityFailure {
+      XCTAssertEqual(failure.message, "社区暂时不可用，请稍后重试。")
+    } catch {
+      XCTFail("unexpected error: \(error)")
+    }
+  }
+
+  func testOversizedResourcePageIsRejected() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [OversizedResourcePageProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    let api = SkinCommunityAPI(client: client,
+                               account: BackendAccountSession(api: client,
+                                                              storage: CommunityMemoryCredentials()))
+    do {
+      _ = try await api.resources(.dictionary, search: "oversized")
+      XCTFail("expected oversized resource page rejection")
+    } catch let failure as CommunityFailure {
+      XCTAssertEqual(failure.message, "社区暂时不可用，请稍后重试。")
+    } catch {
+      XCTFail("unexpected error: \(error)")
+    }
+  }
+
   func testLargeResourcePageKeepsPlusSearchAndOrdinaryLimit() async throws {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [LargeResourceProtocol.self]
