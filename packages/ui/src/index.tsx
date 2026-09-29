@@ -247,6 +247,7 @@ import { createAboutSettingsActions } from "./settings/about-settings-actions";
 import { createScreenKeyboardActions } from "./settings/screen-keyboard-actions";
 import { createShortcutsSettingsActions } from "./settings/shortcuts-settings-actions";
 import { createHelpcodeSettingsActions } from "./settings/helpcode-settings-actions";
+import { createUtilitiesSettingsActions } from "./settings/utilities-settings-actions";
 import { useAppVersion } from "./settings/use-app-version";
 import { supportDiagnostics } from "./settings/support-diagnostics";
 import { useMountedRef } from "./settings/use-mounted-ref";
@@ -440,6 +441,10 @@ export {
   createHelpcodeSettingsActions,
   type CreateHelpcodeSettingsActionsOptions,
 } from "./settings/helpcode-settings-actions";
+export {
+  createUtilitiesSettingsActions,
+  type CreateUtilitiesSettingsActionsOptions,
+} from "./settings/utilities-settings-actions";
 import { SettingsSidebar } from "./settings/settings-sidebar";
 export {
   SettingsSidebar,
@@ -2377,6 +2382,7 @@ export function SettingsPage({
     setDraft,
   });
   const helpcodeSettingsActions = createHelpcodeSettingsActions({ draft, setDraft });
+  const utilitiesSettingsActions = createUtilitiesSettingsActions({ draft, setDraft });
   const communityView = communityDestinationView(communityDestination);
   return (
     <div
@@ -2770,7 +2776,7 @@ export function SettingsPage({
                     openCloudDictionary={client.openCloudDictionary}
                     onOpenPanel={openPanel}
                     localModes={localModes}
-                    onLocalModesChange={(local_modes) => setDraft({ ...draft, local_modes })}
+                    {...utilitiesSettingsActions}
                   />
                   <HelpSettingsPage
                     busy={busy}
