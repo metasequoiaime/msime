@@ -18,11 +18,27 @@ export function tencentCredentialIssue(
 
 export function translationEndpointIssue(endpoint: string): string {
   if (!endpoint) return "请填写完整的接口地址。";
-  if (endpoint.length > 2048) return "接口地址过长。";
+  if (new TextEncoder().encode(endpoint).length > 2048) return "接口地址过长。";
   // eslint-disable-next-line no-control-regex
   if (/[\u0000-\u001f\u007f]/.test(endpoint)) return "接口地址不能包含控制字符。";
-  if (!endpoint.startsWith("https://") && !endpoint.startsWith("http://")) {
+  let parsed: URL;
+  try {
+    parsed = new URL(endpoint);
+  } catch {
     return "请填写以 http:// 或 https:// 开头的完整接口地址。";
   }
-  return "";
+  if (parsed.username || parsed.password || parsed.hash || !parsed.hostname) {
+    return "接口地址不能包含凭据或片段。";
+  }
+  if (parsed.protocol === "https:") return "";
+  if (
+    parsed.protocol === "http:" &&
+    ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname)
+  ) {
+    return "";
+  }
+  if (parsed.protocol !== "http:") {
+    return "请填写以 http:// 或 https:// 开头的完整接口地址。";
+  }
+  return "远程翻译服务必须使用 HTTPS；HTTP 仅支持本机回环地址。";
 }

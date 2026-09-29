@@ -43,15 +43,21 @@ const endpointField = () => screen.getByLabelText("自定义翻译 Endpoint") as
 
 describe("translationEndpointIssue mirrors the Rust rule", () => {
   // client-core::translation::is_supported_endpoint: non-empty, <= 2048 bytes,
-  // no control characters, and an http:// or https:// scheme.
+  // no control characters, HTTPS for remote services, and loopback-only HTTP.
   test.each([
     ["", true],
     ["example.com/translate", true],
     ["ftp://example.com", true],
     ["https://example.com/translate", false],
-    ["http://example.com/translate", false],
+    ["http://example.com/translate", true],
+    ["http://localhost:1188/translate", false],
+    ["http://127.0.0.1:1188/translate", false],
+    ["http://[::1]:1188/translate", false],
+    ["http://user:secret@localhost/translate", true],
+    ["https://example.com/translate#fragment", true],
     ["https://example.com/\u0007", true],
     [`https://example.com/${"a".repeat(2048)}`, true],
+    [`https://example.com/${"合".repeat(700)}`, true],
   ])("%s", (endpoint, expectIssue) => {
     expect(translationEndpointIssue(endpoint) !== "").toBe(expectIssue);
   });
