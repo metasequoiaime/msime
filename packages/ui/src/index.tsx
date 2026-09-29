@@ -267,10 +267,7 @@ import { PolishCredentialFieldsSection } from "./settings/polish-credential-fiel
 import { VoiceStreamPreeditSection } from "./settings/voice-stream-preedit-section";
 import { VoiceCommitModeSection, type VoiceCommitMode } from "./settings/voice-commit-mode-section";
 import { VoiceCaptureDevicesSection } from "./settings/voice-capture-devices-section";
-import { voiceCaptureBackendOptions } from "./settings/voice-capture-backend-options";
-import { fullwidthShortcutChord, maintenanceShortcutChord } from "./settings/platform-shortcuts";
 import { settingsDirty } from "./settings/settings-dirty";
-import { settingsPlatformContext } from "./settings/settings-platform-context";
 import { VoiceSyntheticSilenceNotice } from "./settings/voice-synthetic-silence-notice";
 import { VoiceHotkeysSection } from "./settings/voice-hotkeys-section";
 import { VoicePolishSection } from "./settings/voice-polish-section";
@@ -403,7 +400,6 @@ export {
   providerCredentialErrorMessage,
   tencentSecretConfigured,
 } from "./settings/credential-utils";
-import { settingsCapabilities } from "./settings/settings-capabilities";
 export {
   settingsCapabilities,
   type SettingsCapabilitiesInput,
@@ -984,6 +980,8 @@ export {
   settingsPlatformContext,
   type SettingsPlatformContext,
 } from "./settings/settings-platform-context";
+import { settingsPageEnvironment } from "./settings/settings-page-environment";
+export { settingsPageEnvironment } from "./settings/settings-page-environment";
 export { VoiceSyntheticSilenceNotice } from "./settings/voice-synthetic-silence-notice";
 export {
   VoiceHotkeysSection,
@@ -1876,8 +1874,6 @@ export function SettingsPage({
     releasePlatform,
     diagnosticsFallbackPlatform,
     accountPlatform,
-  } = settingsPlatformContext(client.host);
-  const {
     nativeVoicePlatform,
     showModeScope,
     showModeSwitchShortcuts,
@@ -1909,19 +1905,7 @@ export function SettingsPage({
     showFullwidthChord,
     clientHostedPlatform,
     desktopPanels,
-  } = settingsCapabilities({
-    host,
-    linux: linuxPlatform,
-    android: androidPlatform,
-    ios: iosPlatform,
-    harmony: harmonyPlatform,
-    windows: windowsPlatform,
-    macos: macosPlatform,
-    mobile: mobilePlatform,
-    canRestartInputMethod: Boolean(client.restartInputMethod),
-    canInstallInputSource: Boolean(client.installInputSource),
-    canListVoiceCaptureDevices: Boolean(client.listVoiceCaptureDevices),
-  });
+  } = settingsPageEnvironment(client);
   const {
     fullwidthChord,
     maintenanceChord,
