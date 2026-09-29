@@ -174,6 +174,7 @@ import { VoiceCommitModeSection, type VoiceCommitMode } from "./settings/voice-c
 import { VoiceCaptureDevicesSection } from "./settings/voice-capture-devices-section";
 import { voiceCaptureBackendOptions } from "./settings/voice-capture-backend-options";
 import { fullwidthShortcutChord, maintenanceShortcutChord } from "./settings/platform-shortcuts";
+import { settingsDirty } from "./settings/settings-dirty";
 import { VoiceSyntheticSilenceNotice } from "./settings/voice-synthetic-silence-notice";
 import { VoiceHotkeysSection } from "./settings/voice-hotkeys-section";
 import { VoicePolishSection } from "./settings/voice-polish-section";
@@ -793,6 +794,7 @@ export {
   type VoiceCaptureBackendOptionsContext,
 } from "./settings/voice-capture-backend-options";
 export { fullwidthShortcutChord, maintenanceShortcutChord } from "./settings/platform-shortcuts";
+export { settingsDirty, type SettingsDirtyOptions } from "./settings/settings-dirty";
 export { VoiceSyntheticSilenceNotice } from "./settings/voice-synthetic-silence-notice";
 export {
   VoiceHotkeysSection,
@@ -1977,10 +1979,12 @@ export function SettingsPage({
 
   const openPanel = useOpenPanel({ setError });
 
-  const dirty =
-    (!!draft && !!snapshot && JSON.stringify(draft) !== JSON.stringify(snapshot.preferences)) ||
-    (macosWubiAutoCommitUnique !== undefined &&
-      macosWubiAutoCommitUnique !== savedMacosWubiAutoCommitUnique);
+  const dirty = settingsDirty({
+    draft,
+    snapshot,
+    macosWubiAutoCommitUnique,
+    savedMacosWubiAutoCommitUnique,
+  });
   const ai = draft?.ai_assistant ?? defaultAiAssistant;
   const {
     origin: aiOrigin,
