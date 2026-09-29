@@ -21,7 +21,11 @@ pub fn import(source: &Path, root: &Path) -> Result<String, &'static str> {
     if !manifest_metadata.is_file() || manifest_metadata.file_type().is_symlink() {
         return Err("skin_manifest");
     }
-    std::fs::create_dir_all(root).map_err(|_| "storage")?;
+    // A linked root would publish the import into an unrelated directory. Check before creating
+    // it because `create_dir_all` follows a final-component symlink.
+    if !crate::storage::create_directory_and_check(root).map_err(|_| "storage")? {
+        return Err("storage");
+    }
     // The leading dot keeps both helpers out of the catalog, which lists only names starting with a letter or digit.
     let staging = root.join(format!(".import-{name}"));
     let replaced = root.join(format!(".replaced-{name}"));
@@ -194,6 +198,21 @@ mod tests {
 
         assert_eq!(import(&source, &root), Err("skin_manifest"));
         assert!(!root.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn import_rejects_a_symlinked_destination_root() {
+        let files = tempfile::tempdir().unwrap();
+        let state = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let root = state.path().join("skins");
+        std::os::unix::fs::symlink(outside.path(), &root).unwrap();
+        let source = picked(files.path(), "sakura");
+
+        assert_eq!(import(&source, &root), Err("storage"));
+        assert!(!outside.path().join("sakura").exists());
+        assert!(!outside.path().join(".import-sakura").exists());
     }
 
     #[test]
