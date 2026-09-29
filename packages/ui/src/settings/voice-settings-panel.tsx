@@ -34,7 +34,7 @@ import {
   VoiceCaptureDevicesSection,
   type VoiceCaptureBackendOption,
 } from "./voice-capture-devices-section";
-import { VoiceSyntheticSilenceNotice } from "./voice-synthetic-silence-notice";
+import { VoiceAsrServiceTestSection } from "./voice-asr-service-test-section";
 import { VoiceHotkeysSection } from "./voice-hotkeys-section";
 import { VoicePolishSection } from "./voice-polish-section";
 import { DoubaoAuthModeSection } from "./doubao-auth-mode-section";
@@ -45,8 +45,6 @@ import { VoiceRecordingBehaviorSection } from "./voice-recording-behavior-sectio
 import { VoiceCredentialControl } from "./voice-credential-control";
 import {
   asrProviderCredentialTestConfig,
-  asrServiceCredentialTestConfig,
-  asrServiceCredentialTestDisabled,
   polishProviderCredentialTestConfig,
   polishServiceCredentialTestConfig,
   polishServiceCredentialTestDisabled,
@@ -305,18 +303,12 @@ export function VoiceSettingsPanel({
        * on HarmonyOS alone silently dropped the button on the two hosts whose tests
        * cover it.
        */}
-      {(windowsPlatform || macosPlatform || harmonyPlatform) &&
-        isAsrServiceProvider(voiceInput.asr_provider ?? "") && (
-          <>
-            <VoiceSyntheticSilenceNotice />
-            {credentialTestControl(
-              "voice.asr",
-              voiceInput.asr_provider === "doubao" ? "测试豆包识别配置" : "测试语音识别配置",
-              asrServiceCredentialTestConfig(voiceInput, doubaoAuthMode),
-              asrServiceCredentialTestDisabled(voiceInput, doubaoAuthMode),
-            )}
-          </>
-        )}
+      <VoiceAsrServiceTestSection
+        available={windowsPlatform || macosPlatform || harmonyPlatform}
+        voiceInput={voiceInput}
+        doubaoAuthMode={doubaoAuthMode}
+        credentialTestControl={credentialTestControl}
+      />
       {showVoiceStreamPreedit && (
         <VoiceStreamPreeditSection
           enabled={voiceInput.stream_inline_preedit === true}

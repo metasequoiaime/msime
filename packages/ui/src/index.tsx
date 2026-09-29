@@ -805,6 +805,10 @@ export {
 } from "./settings/voice-capture-devices-section";
 export { VoiceSyntheticSilenceNotice } from "./settings/voice-synthetic-silence-notice";
 export {
+  VoiceAsrServiceTestSection,
+  type VoiceAsrServiceTestSectionProps,
+} from "./settings/voice-asr-service-test-section";
+export {
   VoiceHotkeysSection,
   type VoiceHotkeysSectionProps,
   type VoiceHotkeyKey,

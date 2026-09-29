@@ -33,10 +33,9 @@ import { DoubaoOptionsSection } from "../doubao-options-section";
 import { VoiceCredentialControl } from "../voice-credential-control";
 import { VoicePolishSection } from "../voice-polish-section";
 import { PolishPromptSection } from "../polish-prompt-section";
+import { VoiceAsrServiceTestSection } from "../voice-asr-service-test-section";
 import {
   asrProviderCredentialTestConfig,
-  asrServiceCredentialTestConfig,
-  asrServiceCredentialTestDisabled,
   polishProviderCredentialTestConfig,
   polishServiceCredentialTestConfig,
   polishServiceCredentialTestDisabled,
@@ -245,24 +244,12 @@ export function VoiceSettingsPage() {
           </GroupList>
         )}
         {/* Doubao belongs in this list, not in a HarmonyOS-only arm: the probe is the shared one, and Windows and macOS have had it since it was added. Gating it on HarmonyOS alone silently dropped the button on the two hosts whose tests cover it. */}
-        {(windowsPlatform || macosPlatform || harmonyPlatform) &&
-          isAsrServiceProvider(voiceInput.asr_provider ?? "") && (
-            <GroupList title="检查识别配置">
-              <p className={settings.groupNote}>
-                测试会向当前服务发送一秒合成静音，不使用麦克风；服务可能计入 API 用量。
-              </p>
-              {client.testApiCredential && (
-                <div className={settings.groupBlock}>
-                  {credentialTestControl(
-                    "voice.asr",
-                    voiceInput.asr_provider === "doubao" ? "测试豆包识别配置" : "测试语音识别配置",
-                    asrServiceCredentialTestConfig(voiceInput, doubaoAuthMode),
-                    asrServiceCredentialTestDisabled(voiceInput, doubaoAuthMode),
-                  )}
-                </div>
-              )}
-            </GroupList>
-          )}
+        <VoiceAsrServiceTestSection
+          available={windowsPlatform || macosPlatform || harmonyPlatform}
+          voiceInput={voiceInput}
+          doubaoAuthMode={doubaoAuthMode}
+          credentialTestControl={credentialTestControl}
+        />
         {(showVoiceStreamPreedit || showVoiceCommitMode) && (
           <GroupList title="识别结果">
             {showVoiceStreamPreedit && (
