@@ -229,6 +229,7 @@ import { useTouchKeyboardSettingsReset } from "./settings/use-touch-keyboard-set
 import { useExternalUrl } from "./settings/use-external-url";
 import { useUpdateCheck } from "./settings/use-update-check";
 import { useOpenPanel } from "./settings/use-open-panel";
+import { useClipboardHistoryToggle } from "./settings/use-clipboard-history-toggle";
 export {
   useProviderCredentials,
   type ProviderCredentialBusy,
@@ -270,6 +271,10 @@ export {
 export { useExternalUrl, type UseExternalUrlOptions } from "./settings/use-external-url";
 export { useUpdateCheck, type UseUpdateCheckOptions } from "./settings/use-update-check";
 export { useOpenPanel, type UseOpenPanelOptions } from "./settings/use-open-panel";
+export {
+  useClipboardHistoryToggle,
+  type UseClipboardHistoryToggleOptions,
+} from "./settings/use-clipboard-history-toggle";
 import { ProviderPresetSection, type ProviderPreset } from "./settings/provider-preset-section";
 import { AiCredentialSection } from "./settings/ai-credential-section";
 import { AiLinuxProviderSection } from "./settings/ai-linux-provider-section";
@@ -2261,16 +2266,13 @@ export function SettingsPage({
   // turns that mode off when its resource is absent, so the trigger key inserts its capital instead of
   // being swallowed.
   const clipboardHistory = iosPlatform || (draft?.clipboard_history ?? false);
-  function toggleClipboardHistory(enabled: boolean) {
-    if (!draft) return;
-    setDraft({ ...draft, clipboard_history: enabled });
-    // Clearing on opt-out keeps the local history from lingering while the
-    // draft is unsaved. Hosts may omit this capability, so the preference
-    // still changes independently when no clear hook is available.
-    if (!enabled && clipboardHistory && client.clipboard?.clear) {
-      void client.clipboard.clear().catch(() => setError("无法清空剪贴板历史，请稍后重试。"));
-    }
-  }
+  const toggleClipboardHistory = useClipboardHistoryToggle({
+    draft,
+    enabled: clipboardHistory,
+    clear: client.clipboard?.clear,
+    setDraft,
+    setError,
+  });
   const diagnosticLog = {
     server: draft?.diagnostic_log?.server ?? false,
     tsf: draft?.diagnostic_log?.tsf ?? false,
