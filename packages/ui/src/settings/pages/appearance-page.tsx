@@ -12,6 +12,7 @@ import { PreeditSettingsSection } from "../preedit-settings-section";
 import { NavigationSection } from "../navigation-section";
 import { appearanceSettingsPreferences } from "../appearance-settings-preferences";
 import { CandidatePanelLimitSection } from "../candidate-panel-limit-section";
+import { CandidateFontUnsupportedNotice } from "../candidate-font-unsupported-notice";
 
 /** The 候选窗口 page of the settings form (route id `appearance`). */
 export function AppearanceSettingsPage() {
@@ -83,7 +84,7 @@ export function AppearanceSettingsPage() {
               />
             </>
           ) : (
-            <p className={settings.groupNote}>当前宿主的候选面板不支持自定义字体或字号。</p>
+            <CandidateFontUnsupportedNotice />
           )}
         </GroupList>
         {showWindowGroup && (
