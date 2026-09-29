@@ -26,6 +26,7 @@ import {
 } from "./settings/settings-page-registry";
 import { settingsPageProjections } from "./settings/settings-page-projections";
 import { settingsInputPreferences } from "./settings/settings-input-preferences";
+import { aiSettingsPreferences } from "./settings/ai-settings-preferences";
 import type { VoiceDeviceReader } from "./voice/voice-device-picker";
 import type { LocalVoiceModelClient } from "./voice/local-models";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
@@ -1928,7 +1929,10 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     (!!draft && !!snapshot && JSON.stringify(draft) !== JSON.stringify(snapshot.preferences)) ||
     (macosWubiAutoCommitUnique !== undefined &&
       macosWubiAutoCommitUnique !== savedMacosWubiAutoCommitUnique);
-  const ai = draft?.ai_assistant ?? defaultAiAssistant;
+  const { ai, storedAiCredential } = aiSettingsPreferences(
+    draft?.ai_assistant,
+    providerCredentials,
+  );
   const {
     origin: aiOrigin,
     token: aiToken,
@@ -1958,9 +1962,6 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
           : current,
       ),
   });
-  const storedAiCredential = providerCredentials?.ai.find(
-    (entry) => entry.provider === ai.provider,
-  );
   const { wordCharacter, keybindings, frequency, mixedInput, fuzzyPinyin, localModes } =
     settingsInputPreferences(draft);
   const touchKeyboardSchemes = draft?.touch_keyboard_schemes ?? {
