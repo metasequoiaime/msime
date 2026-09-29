@@ -28,12 +28,14 @@ export {
 } from "./settings/platform-copy";
 import { platformResourceUrls } from "./settings/platform-resource-urls";
 import {
+  mobileHeaderlessPageIds,
   mobileTabForPage,
   requestedPage,
   splitMobilePages,
   type MobilePrimaryPageId,
   type SettingsPageId,
 } from "./settings/mobile-navigation";
+export { mobileHeaderlessPageIds } from "./settings/mobile-navigation";
 import { useSettingsNavigation } from "./settings/use-settings-navigation";
 export {
   useSettingsNavigation,
@@ -2183,7 +2185,6 @@ export function SettingsPage({
   // A page without a tab of its own was reached from inside the 键盘 tab, so that is the tab still
   // standing on. Keyed off the page alone, the bar went blank the moment anyone opened one — nothing
   // lit, and no way to read where in the app you were.
-  const untitledOnPhone: readonly SettingsPageId[] = ["home", "typing-statistics", "account"];
   const { primary: mobilePrimaryPages, secondary: mobileSecondaryPages } = splitMobilePages(
     availablePages,
     mobileHiddenPageIds,
@@ -2266,7 +2267,7 @@ export function SettingsPage({
                 them. 社区 is the one that does. Hidden rather than dropped: it labels `main`. */}
             <SettingsPageHeader
               title={availablePages.find((item) => item.id === page)?.title ?? "外观"}
-              hiddenOnPhone={mobilePlatform && untitledOnPhone.includes(page)}
+              hiddenOnPhone={mobilePlatform && mobileHeaderlessPageIds.includes(page)}
             />
             <SettingsStatusMessages
               error={error}

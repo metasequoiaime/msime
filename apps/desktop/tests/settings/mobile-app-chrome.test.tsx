@@ -241,6 +241,20 @@ test("the desktop home card keeps the full keyboard", async () => {
   expect(keys).toContain("Tab");
 });
 
+test("the phone home surface hides its duplicate page heading", async () => {
+  renderSettings("android");
+  await screen.findByRole("button", { name: "保存设置" });
+
+  const heading = screen.getByRole("heading", { name: "首页" });
+  expect(heading.parentElement?.className).toContain("max-phone:sr-only");
+
+  cleanup();
+  renderSettings("windows");
+  await screen.findByRole("button", { name: "保存设置" });
+  const desktopHeading = screen.getByRole("heading", { name: "首页" });
+  expect(desktopHeading.parentElement?.className).not.toContain("max-phone:sr-only");
+});
+
 // A phone opens on the headline and carries no brand mark: the source shows none there, and the app
 // is already the thing being looked at. Desktop keeps it, and there the path still has to resolve —
 // home-page.tsx sits one directory deeper than index.tsx, and the same relative path written in both

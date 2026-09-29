@@ -102,6 +102,13 @@ export const mobilePrimaryPageIds: readonly MobilePrimaryPageId[] = [
   "account",
 ];
 
+/** Primary mobile pages whose content already supplies its own heading. */
+export const mobileHeaderlessPageIds: readonly SettingsPageId[] = [
+  "home",
+  "typing-statistics",
+  "account",
+];
+
 export function splitMobilePages<T extends { id: string }>(
   availablePages: readonly T[],
   hiddenPageIds: readonly string[],
