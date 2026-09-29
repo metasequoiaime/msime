@@ -1,4 +1,3 @@
-import type { Preferences } from "../../index";
 import * as settings from "../settings-style";
 import { useSettingsForm } from "../settings-form-context";
 import { SubPageEntries } from "./sub-page-entries";
@@ -13,6 +12,7 @@ import { TencentTranslationSection } from "../tencent-translation-section";
 import { CustomTranslationsSection } from "../custom-translations-section";
 import { CustomTranslationSection } from "../custom-translation-section";
 import { LinuxTencentCredentialsSection } from "../linux-tencent-credentials-section";
+import { CandidateTranslationOptionsSection } from "../candidate-translation-options-section";
 import { tencentCredentialIssue, translationEndpointIssue } from "../translation-validation";
 import { tencentSecretConfigured } from "../credential-utils";
 import {
@@ -61,7 +61,6 @@ export function ExpressionSettingsPage() {
     englishSuggestions,
     candidateGlossLanguagesEnabled,
     translationTargetLanguage,
-    translationSecondaryLanguage,
     visibleTranslationLanguages,
     visibleSecondaryLanguages,
     customTranslation,
@@ -120,72 +119,36 @@ export function ExpressionSettingsPage() {
           )}
         </GroupList>
         <GroupList title="候选词翻译">
-          <Row title="候选词翻译" description="为当前候选请求翻译结果并显示在候选行">
-            <Switch
-              checked={candidateTranslations}
-              onChange={(checked) => setDraft({ ...draft, candidate_translations: checked })}
-            />
-          </Row>
-          <Row title="目标语言">
-            <Select
-              aria-label="候选词翻译目标语言"
-              disabled={!candidateGlossLanguagesEnabled}
-              value={translationTargetLanguage}
-              onChange={(event) =>
-                setDraft({
-                  ...draft,
-                  translation_target_language: event.target
-                    .value as Preferences["translation_target_language"],
-                })
-              }
-            >
-              {visibleTranslationLanguages.map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </Select>
-          </Row>
-          {(androidPlatform || iosPlatform || macosPlatform || harmonyPlatform) && (
-            <Row title="第二种语言" description="候选词下方可同时显示第二种释义">
-              <Select
-                aria-label="候选词翻译第二种语言"
-                disabled={!candidateGlossLanguagesEnabled}
-                value={translationSecondaryLanguage}
-                onChange={(event) =>
-                  setDraft({
-                    ...draft,
-                    translation_secondary_language:
-                      event.target.value === ""
-                        ? null
-                        : (event.target.value as Preferences["translation_target_language"]),
-                  })
-                }
-              >
-                {visibleSecondaryLanguages.map(([value, label]) => (
-                  <option key={value || "none"} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </Select>
-            </Row>
-          )}
-          {androidPlatform && (
-            <Row
-              title="使用水杉账号翻译候选词"
-              description="当前页的中文候选词会发送到 api.msime.app；匿名账号在 Linux 安装后的用户初始化中自动注册；不开启则不联网翻译"
-            >
-              <Switch
-                disabled={translationControlsDisabled}
-                checked={draft.translation_account ?? false}
-                onChange={(checked) =>
-                  checked
-                    ? setTranslationProvider("account")
-                    : setDraft({ ...draft, translation_account: undefined })
-                }
-              />
-            </Row>
-          )}
+          <CandidateTranslationOptionsSection
+            enabled={candidateTranslations}
+            targetLanguage={translationTargetLanguage}
+            secondaryLanguage={draft.translation_secondary_language ?? ""}
+            candidateGlossLanguagesEnabled={candidateGlossLanguagesEnabled}
+            visibleLanguages={visibleTranslationLanguages}
+            visibleSecondaryLanguages={visibleSecondaryLanguages}
+            showSecondaryLanguage={
+              androidPlatform || iosPlatform || macosPlatform || harmonyPlatform
+            }
+            showAccountTranslation={androidPlatform}
+            accountTranslation={draft.translation_account ?? false}
+            onEnabledChange={(candidate_translations) =>
+              setDraft({ ...draft, candidate_translations })
+            }
+            onTargetLanguageChange={(translation_target_language) =>
+              setDraft({ ...draft, translation_target_language })
+            }
+            onSecondaryLanguageChange={(value) =>
+              setDraft({
+                ...draft,
+                translation_secondary_language: value === "" ? null : value,
+              })
+            }
+            onAccountTranslationChange={(enabled) =>
+              enabled
+                ? setTranslationProvider("account")
+                : setDraft({ ...draft, translation_account: undefined })
+            }
+          />
           {onDeviceMissingLanguages.length > 0 && (
             <div className={settings.groupBlock}>
               <div role="status" className={settings.groupNote} aria-label="系统翻译语言未下载">
