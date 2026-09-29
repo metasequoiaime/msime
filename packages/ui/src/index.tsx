@@ -233,6 +233,7 @@ import { useClipboardHistoryToggle } from "./settings/use-clipboard-history-togg
 import { useTouchKeyboardSchemeSelection } from "./settings/use-touch-keyboard-scheme-selection";
 import { useSettingsDestinationActions } from "./settings/use-settings-destination-actions";
 import { useMacosSettings } from "./settings/use-macos-settings";
+import { useWindowState } from "./settings/use-window-state";
 export {
   useProviderCredentials,
   type ProviderCredentialBusy,
@@ -287,6 +288,7 @@ export {
   type UseSettingsDestinationActionsOptions,
 } from "./settings/use-settings-destination-actions";
 export { useMacosSettings, type UseMacosSettingsOptions } from "./settings/use-macos-settings";
+export { useWindowState, type UseWindowStateOptions } from "./settings/use-window-state";
 import { createProviderPresetControl } from "./settings/provider-preset-control";
 import { AiCredentialSection } from "./settings/ai-credential-section";
 import { AiLinuxProviderSection } from "./settings/ai-linux-provider-section";
@@ -1957,7 +1959,7 @@ export function SettingsPage({
       mounted.current = false;
     };
   }, []);
-  const [windowMaximized, setWindowMaximized] = useState(false);
+  const windowMaximized = useWindowState({ client, setError });
   const [skinPreviewThemes, setSkinPreviewThemes] = useState<
     Partial<Record<NonNullable<Preferences["candidate_skin"]>, "light" | "dark">>
   >({});
@@ -2024,37 +2026,6 @@ export function SettingsPage({
     enabled: macosPlatform || linuxPlatform,
     confirm,
   });
-  useEffect(() => {
-    let active = true;
-    let unsubscribe: (() => void) | undefined;
-    setWindowMaximized(false);
-    const subscribe = client.onWindowStateChanged;
-    if (subscribe) {
-      void Promise.resolve()
-        .then(() => {
-          if (!active) return;
-          return subscribe(
-            (maximized) => {
-              if (active) setWindowMaximized(maximized);
-            },
-            () => {
-              if (active) setError("无法读取窗口状态，请重试。");
-            },
-          );
-        })
-        .then((value) => {
-          if (active) unsubscribe = value;
-          else value?.();
-        })
-        .catch(() => {
-          if (active) setError("无法读取窗口状态，请重试。");
-        });
-    }
-    return () => {
-      active = false;
-      unsubscribe?.();
-    };
-  }, [client]);
   useEffect(() => {
     let active = true;
     setCurrentAppVersion(fallbackAppVersion);
