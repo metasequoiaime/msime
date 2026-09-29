@@ -1,5 +1,5 @@
-import app.msime.client.CommunityReplyLibrary;
-import app.msime.client.ReplyKeyboardModel;
+import app.msime.android.CommunityReplyLibrary;
+import app.msime.android.ReplyKeyboardModel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;

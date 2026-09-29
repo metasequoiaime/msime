@@ -1,4 +1,4 @@
-package app.msime.client.test;
+package app.msime.android.test;
 
 import android.app.Activity;
 import android.os.Build;
@@ -11,7 +11,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.view.inputmethod.InputMethodManager;
 import android.view.WindowManager;
-import app.msime.client.WindowLayout;
+import app.msime.android.WindowLayout;
 
 /** Separate synthetic editor app: tests the system InputConnection, not a mock. */
 public final class EditorActivity extends Activity {

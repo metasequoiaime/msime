@@ -7,7 +7,7 @@ plugins { id("com.android.application") }
 val hostRoot = rootDir.parentFile
 
 android {
-    namespace = "app.msime.client"
+    namespace = "app.msime.android"
     compileSdk = 36
 
     defaultConfig {

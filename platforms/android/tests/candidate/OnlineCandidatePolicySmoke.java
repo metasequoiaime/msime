@@ -1,4 +1,4 @@
-import app.msime.client.OnlineCandidatePolicy;
+import app.msime.android.OnlineCandidatePolicy;
 import java.util.Arrays;
 import java.util.List;
 

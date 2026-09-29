@@ -1,4 +1,4 @@
-import app.msime.client.CandidateManagementAction;
+import app.msime.android.CandidateManagementAction;
 import java.util.Arrays;
 
 public final class CandidateManagementSmoke {

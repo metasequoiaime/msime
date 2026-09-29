@@ -1,4 +1,4 @@
-import app.msime.client.JapaneseVariantPolicy;
+import app.msime.android.JapaneseVariantPolicy;
 
 public final class JapaneseVariantPolicySmoke {
     public static void main(String[] args) {

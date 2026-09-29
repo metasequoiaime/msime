@@ -1,6 +1,6 @@
-import app.msime.client.EditorBridge;
-import app.msime.client.EditorPolicy;
-import app.msime.client.EnglishCapitalizationPolicy;
+import app.msime.android.EditorBridge;
+import app.msime.android.EditorPolicy;
+import app.msime.android.EnglishCapitalizationPolicy;
 import android.text.InputType;
 import java.util.ArrayList;
 import java.util.List;

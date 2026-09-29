@@ -1,5 +1,5 @@
-import app.msime.client.CandidateAppearance;
-import app.msime.client.KeyboardSkin;
+import app.msime.android.CandidateAppearance;
+import app.msime.android.KeyboardSkin;
 import java.util.List;
 
 public final class CandidateAppearanceSmoke {

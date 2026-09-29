@@ -1,4 +1,4 @@
-import app.msime.client.ChineseSymbolFaces;
+import app.msime.android.ChineseSymbolFaces;
 
 public final class ChineseSymbolFacesSmoke {
     private static void check(boolean condition, String message) {

@@ -1,4 +1,4 @@
-import app.msime.client.PreferencesReloader;
+import app.msime.android.PreferencesReloader;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;

@@ -1,4 +1,4 @@
-import app.msime.client.KeyboardGeometry;
+import app.msime.android.KeyboardGeometry;
 
 public final class KeyboardGeometrySmoke {
     static void check(boolean condition) { if (!condition) throw new AssertionError(); }

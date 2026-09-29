@@ -254,7 +254,7 @@
                         android:textColor="@color/text_secondary"
                         android:textSize="14sp" />
 
-                    <app.msime.client.home.KeyboardPreview
+                    <app.msime.android.home.KeyboardPreview
                         android:id="@+id/keyboard_preview"
                         android:layout_width="match_parent"
                         android:layout_height="210dp"

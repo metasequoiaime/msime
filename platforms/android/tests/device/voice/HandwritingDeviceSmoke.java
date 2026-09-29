@@ -1,4 +1,4 @@
-package app.msime.client.test;
+package app.msime.android.test;
 
 import android.app.Activity;
 import android.content.Intent;
@@ -28,11 +28,11 @@ public final class HandwritingDeviceSmoke extends DeviceSmoke {
 
     @Override protected void runChecks() throws Exception {
         stage = "handwriting preview wake";
-        shell("am start -W -n app.msime.android/app.msime.client.home.HomeActivity");
+        shell("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
         stage = "handwriting IME rebind";
-        shell("ime disable app.msime.android/app.msime.client.MSIMEInputService");
-        shell("ime enable app.msime.android/app.msime.client.MSIMEInputService");
-        shell("ime set app.msime.android/app.msime.client.MSIMEInputService");
+        shell("ime disable app.msime.android/app.msime.android.MSIMEInputService");
+        shell("ime enable app.msime.android/app.msime.android.MSIMEInputService");
+        shell("ime set app.msime.android/app.msime.android.MSIMEInputService");
         SystemClock.sleep(1000);
         stage = "handwriting editor launch";
         Intent intent = new Intent(getTargetContext(), EditorActivity.class);

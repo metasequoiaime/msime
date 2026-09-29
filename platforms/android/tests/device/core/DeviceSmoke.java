@@ -1,4 +1,4 @@
-package app.msime.client.test;
+package app.msime.android.test;
 
 import android.accessibilityservice.AccessibilityServiceInfo;
 import android.accessibilityservice.AccessibilityService;
@@ -110,7 +110,7 @@ public class DeviceSmoke extends Instrumentation {
                 throw new AssertionError("Hidden keyboard retained composition");
     }
     protected Predicate<AccessibilityNodeInfo> field(String description) {
-        return node -> equalsText("app.msime.client.test", node.getPackageName()) && equalsText(description, node.getContentDescription());
+        return node -> equalsText("app.msime.android.test", node.getPackageName()) && equalsText(description, node.getContentDescription());
     }
     /**
      * The key that types `text`, whatever case it is drawn in.
@@ -252,7 +252,7 @@ public class DeviceSmoke extends Instrumentation {
         // A symbol key in Chinese mode wears its Chinese face whatever the engine is configured to
         // insert -- the face follows the mode, the inserted mark follows the punctuation setting,
         // exactly as on Apple. Accept either face and let the caller assert what was inserted.
-        String chinese = app.msime.client.ChineseSymbolFaces.face(symbol, true);
+        String chinese = app.msime.android.ChineseSymbolFaces.face(symbol, true);
         tap(key(symbol).or(key(chinese)));
         tap(key("字母"));
     }

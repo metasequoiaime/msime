@@ -1,4 +1,4 @@
-package app.msime.client;
+package app.msime.android;
 
 import java.util.HashMap;
 import java.util.Map;

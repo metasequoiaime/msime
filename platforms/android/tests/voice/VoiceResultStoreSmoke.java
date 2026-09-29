@@ -1,4 +1,4 @@
-import app.msime.client.VoiceResultStore;
+import app.msime.android.VoiceResultStore;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.file.Files;

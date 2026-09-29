@@ -1,4 +1,4 @@
-import app.msime.client.JapaneseNineKeyLayout;
+import app.msime.android.JapaneseNineKeyLayout;
 import java.util.List;
 
 public final class JapaneseNineKeyLayoutSmoke {

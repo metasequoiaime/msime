@@ -1,4 +1,4 @@
-package app.msime.client.test;
+package app.msime.android.test;
 
 import android.os.ParcelFileDescriptor;
 import java.io.ByteArrayOutputStream;
@@ -11,11 +11,11 @@ public final class SettingsLifecycleSmoke extends DeviceSmoke {
         stage = "initial IME process";
         // The preceding instrumentation may force-stop its target package. Rebind
         // once before measuring; never rebind between either settings close and input.
-        shell("ime disable app.msime.android/app.msime.client.MSIMEInputService");
-        shell("ime enable app.msime.android/app.msime.client.MSIMEInputService");
-        shell("ime set app.msime.android/app.msime.client.MSIMEInputService");
+        shell("ime disable app.msime.android/app.msime.android.MSIMEInputService");
+        shell("ime enable app.msime.android/app.msime.android.MSIMEInputService");
+        shell("ime set app.msime.android/app.msime.android.MSIMEInputService");
         android.os.SystemClock.sleep(1000);
-        shell("am start -W -f 0x10008000 -n app.msime.client.test/app.msime.client.test.EditorActivity");
+        shell("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
         tap(field("msime-test-plain"));
         await(key("n"));
         String originalPid = shell("pidof app.msime.android:ime").trim();

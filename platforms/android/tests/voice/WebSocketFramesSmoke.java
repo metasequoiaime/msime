@@ -1,5 +1,5 @@
-import app.msime.client.WebSocketFrames;
-import app.msime.client.WebSocketFrames.Frame;
+import app.msime.android.WebSocketFrames;
+import app.msime.android.WebSocketFrames.Frame;
 import java.nio.charset.StandardCharsets;
 
 /** RFC 6455, only the parts the streaming recogniser uses, pinned against the RFC's own example. */

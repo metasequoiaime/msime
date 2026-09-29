@@ -1,4 +1,4 @@
-import app.msime.client.LetterKeyFacePolicy;
+import app.msime.android.LetterKeyFacePolicy;
 
 public final class LetterKeyFacePolicySmoke {
     public static void main(String[] args) {

@@ -1,4 +1,4 @@
-package app.msime.client.test;
+package app.msime.android.test;
 
 import android.app.Activity;
 import android.content.Intent;
@@ -267,11 +267,11 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
                 + ").value === '60' && (" + ROW_SPACING + ").value === '70' && !("
                 + VOICE_SHORTCUT + ").checked");
             stage = "cross-process system input uses saved preferences";
-            shell("ime disable app.msime.android/app.msime.client.MSIMEInputService");
-            shell("ime enable app.msime.android/app.msime.client.MSIMEInputService");
-            shell("ime set app.msime.android/app.msime.client.MSIMEInputService");
+            shell("ime disable app.msime.android/app.msime.android.MSIMEInputService");
+            shell("ime enable app.msime.android/app.msime.android.MSIMEInputService");
+            shell("ime set app.msime.android/app.msime.android.MSIMEInputService");
             SystemClock.sleep(1000);
-            shell("am start -W -f 0x10008000 -n app.msime.client.test/app.msime.client.test.EditorActivity");
+            shell("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
             tap(field("msime-test-plain"));
             stage = "cross-process keyboard uses saved skin";
             awaitAnyNode(node -> equalsText("app.msime.android", node.getPackageName())
@@ -284,16 +284,16 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
             stage = "cross-process scheme picker uses shared visibility";
             assertSharedSchemePicker();
             stage = "scheme visibility survives IME restart";
-            shell("am start -W -n app.msime.android/app.msime.client.home.HomeActivity");
-            shell("ime disable app.msime.android/app.msime.client.MSIMEInputService");
-            shell("ime enable app.msime.android/app.msime.client.MSIMEInputService");
-            shell("ime set app.msime.android/app.msime.client.MSIMEInputService");
+            shell("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
+            shell("ime disable app.msime.android/app.msime.android.MSIMEInputService");
+            shell("ime enable app.msime.android/app.msime.android.MSIMEInputService");
+            shell("ime set app.msime.android/app.msime.android.MSIMEInputService");
             SystemClock.sleep(1000);
-            shell("am start -W -f 0x10008000 -n app.msime.client.test/app.msime.client.test.EditorActivity");
+            shell("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
             tap(field("msime-test-plain"));
             assertSharedSchemePicker();
         } finally {
-            shell("am start -W -n app.msime.android/app.msime.client.home.HomeActivity");
+            shell("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath()); else publish(preferences, original);
             if (originalSkinLibrary == null) Files.deleteIfExists(skinLibrary.toPath());
             else { skinLibrary.getParentFile().mkdirs(); publish(skinLibrary, originalSkinLibrary); }

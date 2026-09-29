@@ -1,7 +1,7 @@
-import app.msime.client.HandwritingInk;
-import app.msime.client.HandwritingRecognizer;
-import app.msime.client.HandwritingRecognizerFactory;
-import app.msime.client.HandwritingRequestTracker;
+import app.msime.android.HandwritingInk;
+import app.msime.android.HandwritingRecognizer;
+import app.msime.android.HandwritingRecognizerFactory;
+import app.msime.android.HandwritingRequestTracker;
 import java.util.ArrayList;
 import java.util.List;
 

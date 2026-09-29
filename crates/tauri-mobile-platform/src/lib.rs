@@ -825,7 +825,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             }
             #[cfg(target_os = "android")]
             {
-                let handle = api.register_android_plugin("app.msime.client", "VoicePlugin")?;
+                let handle = api.register_android_plugin("app.msime.android", "VoicePlugin")?;
                 app.manage(AndroidVoicePlatform(handle));
             }
             #[cfg(not(any(target_os = "ios", target_os = "android")))]

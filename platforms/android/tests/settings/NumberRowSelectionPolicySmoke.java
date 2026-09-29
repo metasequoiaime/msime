@@ -1,5 +1,5 @@
 import android.view.KeyEvent;
-import app.msime.client.NumberRowSelectionPolicy;
+import app.msime.android.NumberRowSelectionPolicy;
 
 public final class NumberRowSelectionPolicySmoke {
     private static void check(boolean value, String message) {

@@ -1,6 +1,6 @@
 import android.view.KeyEvent;
-import app.msime.client.CandidateNavigationPolicy;
-import app.msime.client.CandidateNavigationPolicy.Bindings;
+import app.msime.android.CandidateNavigationPolicy;
+import app.msime.android.CandidateNavigationPolicy.Bindings;
 
 /** Which hardware keys page the candidate list, and what an unticked pair must not do. */
 public final class CandidateNavigationPolicySmoke {

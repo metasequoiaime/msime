@@ -1,4 +1,4 @@
-import app.msime.client.VoicePolishPolicy;
+import app.msime.android.VoicePolishPolicy;
 
 /** When a transcript is polished, and the exact document that asks for it. */
 public final class VoicePolishPolicySmoke {

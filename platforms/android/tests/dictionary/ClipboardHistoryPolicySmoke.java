@@ -1,4 +1,4 @@
-import app.msime.client.ClipboardHistoryPolicy;
+import app.msime.android.ClipboardHistoryPolicy;
 
 public final class ClipboardHistoryPolicySmoke {
     static void check(boolean condition, String message) {

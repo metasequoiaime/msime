@@ -1,4 +1,4 @@
-package app.msime.client.test;
+package app.msime.android.test;
 
 import android.app.Activity;
 import android.content.Intent;
@@ -58,10 +58,10 @@ public final class TypingStatisticsDeviceSmoke extends DeviceSmoke {
             stage = "controlled statistics baseline";
             publish(preferences, preferenceSnapshot.toString().getBytes(StandardCharsets.UTF_8));
             Files.deleteIfExists(statistics.toPath());
-            shell("am start -W -n app.msime.android/app.msime.client.home.HomeActivity");
-            shell("ime disable app.msime.android/app.msime.client.MSIMEInputService");
-            shell("ime enable app.msime.android/app.msime.client.MSIMEInputService");
-            shell("ime set app.msime.android/app.msime.client.MSIMEInputService");
+            shell("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
+            shell("ime disable app.msime.android/app.msime.android.MSIMEInputService");
+            shell("ime enable app.msime.android/app.msime.android.MSIMEInputService");
+            shell("ime set app.msime.android/app.msime.android.MSIMEInputService");
             SystemClock.sleep(1000);
 
             stage = "IME aggregate write";
@@ -117,7 +117,7 @@ public final class TypingStatisticsDeviceSmoke extends DeviceSmoke {
             js("(" + REFRESH + ").click(); true");
             awaitJs("(" + RANGE_TOTAL + ")?.textContent === '2'");
         } finally {
-            shell("am start -W -n app.msime.android/app.msime.client.home.HomeActivity");
+            shell("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             SystemClock.sleep(500);
             restore(preferences, originalPreferences);
             restore(statistics, originalStatistics);
@@ -125,8 +125,8 @@ public final class TypingStatisticsDeviceSmoke extends DeviceSmoke {
     }
 
     private void typeSyntheticPhrase() throws Exception {
-        shell("am force-stop app.msime.client.test");
-        shell("am start -W -f 0x10008000 -n app.msime.client.test/app.msime.client.test.EditorActivity");
+        shell("am force-stop app.msime.android.test");
+        shell("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
         tap(field("msime-test-plain"));
         for (String key : new String[] {"n", "i", "h", "a", "o"}) tap(key(key));
         tap(key("空格"));

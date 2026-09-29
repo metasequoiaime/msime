@@ -1,4 +1,4 @@
-package app.msime.client;
+package app.msime.android;
 
 import java.nio.file.Files;
 import java.nio.file.Path;

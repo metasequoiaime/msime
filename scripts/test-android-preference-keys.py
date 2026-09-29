@@ -26,7 +26,7 @@ import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-TOGGLES = ROOT / "platforms/android/java/app/msime/client/settings/InputFeatureToggle.java"
+TOGGLES = ROOT / "platforms/android/java/app/msime/android/settings/InputFeatureToggle.java"
 SCHEMA = ROOT / "crates/client-core/src/preferences.rs"
 
 # `NAME(Group.X, "key", default, "title", "description")`

@@ -1,5 +1,5 @@
-import app.msime.client.CandidatePreeditStylePolicy;
-import app.msime.client.PhrasePreeditPolicy;
+import app.msime.android.CandidatePreeditStylePolicy;
+import app.msime.android.PhrasePreeditPolicy;
 
 /** What 「候选栏预编辑」 removes from the strip, and the two things it must leave alone. */
 public final class CandidatePreeditStylePolicySmoke {

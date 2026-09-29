@@ -1,4 +1,4 @@
-import app.msime.client.LocalAsrPolicy;
+import app.msime.android.LocalAsrPolicy;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -16,7 +16,7 @@ public final class LocalAsrPolicySmoke {
     }
 
     public static void main(String[] args) throws IOException {
-        check(LocalAsrPolicy.usable("local", "/data/user/0/app.msime.client/files/models/sense-voice-small"), "an absolute model directory is usable");
+        check(LocalAsrPolicy.usable("local", "/data/user/0/app.msime.android/files/models/sense-voice-small"), "an absolute model directory is usable");
         check(!LocalAsrPolicy.usable("openai", "/models/x"), "another provider is not local recognition");
         check(!LocalAsrPolicy.usable("local", null) && !LocalAsrPolicy.usable("local", ""), "an unset model path is not usable");
         check(!LocalAsrPolicy.usable("local", "models/x"), "a relative path is refused");

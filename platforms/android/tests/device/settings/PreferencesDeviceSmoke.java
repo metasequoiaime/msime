@@ -1,4 +1,4 @@
-package app.msime.client.test;
+package app.msime.android.test;
 
 import android.os.ParcelFileDescriptor;
 import android.os.SystemClock;
@@ -28,14 +28,14 @@ public final class PreferencesDeviceSmoke extends DeviceSmoke {
             publish(preferences, snapshot.toString().getBytes(StandardCharsets.UTF_8));
             // Clear the previous editor's focus before the instrumentation-driven
             // rebind; otherwise its delayed hide request can hide the new keyboard.
-            shell("am start -W -n app.msime.android/app.msime.client.home.HomeActivity");
+            shell("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             // Instrumenting the IME package restarts its process. Rebind the system
             // service before opening the editor; this fixture runs only on the guarded AVD.
-            shell("ime disable app.msime.android/app.msime.client.MSIMEInputService");
-            shell("ime enable app.msime.android/app.msime.client.MSIMEInputService");
-            shell("ime set app.msime.android/app.msime.client.MSIMEInputService");
+            shell("ime disable app.msime.android/app.msime.android.MSIMEInputService");
+            shell("ime enable app.msime.android/app.msime.android.MSIMEInputService");
+            shell("ime set app.msime.android/app.msime.android.MSIMEInputService");
             SystemClock.sleep(1000);
-            shell("am start -W -f 0x10008000 -n app.msime.client.test/app.msime.client.test.EditorActivity");
+            shell("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
             stage = "baseline editor focus";
             tap(field("msime-test-plain"));
             stage = "baseline typing";
@@ -86,7 +86,7 @@ public final class PreferencesDeviceSmoke extends DeviceSmoke {
             throw error;
         } finally {
             // Stop editor first; the next session starts with the restored configuration.
-            shell("am start -W -n app.msime.android/app.msime.client.home.HomeActivity");
+            shell("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath()); else publish(preferences, original);
         }
     }

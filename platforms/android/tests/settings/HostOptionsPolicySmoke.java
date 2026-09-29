@@ -1,4 +1,4 @@
-import app.msime.client.policy.HostOptionsPolicy;
+import app.msime.android.policy.HostOptionsPolicy;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;

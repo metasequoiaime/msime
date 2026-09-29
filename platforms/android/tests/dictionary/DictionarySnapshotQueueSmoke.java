@@ -1,5 +1,5 @@
-import app.msime.client.DictionarySnapshotQueue;
-import app.msime.client.DictionarySnapshotWorker;
+import app.msime.android.DictionarySnapshotQueue;
+import app.msime.android.DictionarySnapshotWorker;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
@@ -48,7 +48,7 @@ public final class DictionarySnapshotQueueSmoke {
             boolean sourceRejected = false;
             try {
                 java.lang.reflect.Method policy = Class.forName(
-                    "app.msime.client.DictionarySnapshotPathPolicy")
+                    "app.msime.android.DictionarySnapshotPathPolicy")
                     .getDeclaredMethod("privateSource", Path.class, Path.class, String.class);
                 policy.setAccessible(true);
                 policy.invoke(null, sourceRoot, sourceQueue, sourcePath.toString());

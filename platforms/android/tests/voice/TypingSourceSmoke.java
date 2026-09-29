@@ -1,5 +1,5 @@
-import app.msime.client.KeyboardScheme;
-import app.msime.client.TypingSource;
+import app.msime.android.KeyboardScheme;
+import app.msime.android.TypingSource;
 
 public final class TypingSourceSmoke {
     static void check(boolean condition) { if (!condition) throw new AssertionError(); }

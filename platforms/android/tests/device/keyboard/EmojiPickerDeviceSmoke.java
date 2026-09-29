@@ -1,4 +1,4 @@
-package app.msime.client.test;
+package app.msime.android.test;
 
 import android.content.Intent;
 import android.os.ParcelFileDescriptor;
@@ -92,9 +92,9 @@ public final class EmojiPickerDeviceSmoke extends DeviceSmoke {
     }
 
     private void rebindInputMethod() throws Exception {
-        shell("ime disable app.msime.android/app.msime.client.MSIMEInputService");
-        shell("ime enable app.msime.android/app.msime.client.MSIMEInputService");
-        shell("ime set app.msime.android/app.msime.client.MSIMEInputService");
+        shell("ime disable app.msime.android/app.msime.android.MSIMEInputService");
+        shell("ime enable app.msime.android/app.msime.android.MSIMEInputService");
+        shell("ime set app.msime.android/app.msime.android.MSIMEInputService");
         SystemClock.sleep(1000);
     }
 

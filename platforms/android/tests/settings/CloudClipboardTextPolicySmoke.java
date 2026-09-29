@@ -1,4 +1,4 @@
-import app.msime.client.clipboard.CloudClipboardTextPolicy;
+import app.msime.android.clipboard.CloudClipboardTextPolicy;
 
 public final class CloudClipboardTextPolicySmoke {
     public static void main(String[] args) {

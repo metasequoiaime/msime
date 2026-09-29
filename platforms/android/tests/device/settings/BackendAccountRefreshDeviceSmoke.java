@@ -1,4 +1,4 @@
-package app.msime.client;
+package app.msime.android;
 
 import android.app.Activity;
 import android.app.Instrumentation;

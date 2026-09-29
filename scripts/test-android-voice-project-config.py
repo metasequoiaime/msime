@@ -36,14 +36,14 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
             ROOT / "apps/desktop/src-tauri/gen/android/app/src/main/AndroidManifest.xml"
         ).read_text()
         gradle = (ROOT / "apps/desktop/src-tauri/gen/android/app/build.gradle.kts").read_text()
-        plugin = (ROOT / "platforms/android/java/app/msime/client/voice/VoicePlugin.kt").read_text()
+        plugin = (ROOT / "platforms/android/java/app/msime/android/voice/VoicePlugin.kt").read_text()
         activity = (
             ROOT
-            / "platforms/android/java/app/msime/client/voice/VoiceRecognitionActivity.java"
+            / "platforms/android/java/app/msime/android/voice/VoiceRecognitionActivity.java"
         ).read_text()
 
         self.assertIn(
-            'register_android_plugin("app.msime.client", "VoicePlugin")', plugin_rust
+            'register_android_plugin("app.msime.android", "VoicePlugin")', plugin_rust
         )
         self.assertIn("pub struct AndroidVoicePlatform", plugin_rust)
         self.assertIn(
@@ -72,7 +72,7 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
         self.assertIn("cancel()", activity)
         self.assertIn("android.permission.RECORD_AUDIO", (ROOT / "platforms/android/AndroidManifest.xml").read_text())
         self.assertIn("android.permission.RECORD_AUDIO", generated_manifest)
-        self.assertIn('String requestId = "ime-"', (ROOT / "platforms/android/java/app/msime/client/core/MSIMEInputService.java").read_text())
+        self.assertIn('String requestId = "ime-"', (ROOT / "platforms/android/java/app/msime/android/core/MSIMEInputService.java").read_text())
         self.assertIn("public static void cancelActive()", activity)
 
     def test_a_configured_provider_reaches_the_host_without_taking_away_the_platform_recognizer(self):
@@ -80,10 +80,10 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
         is what compiles it, and that runs neither here nor on a runner. These assertions are what
         stands in for a compiler on the wiring between the shared request and the two engines."""
         plugin = (
-            ROOT / "platforms/android/java/app/msime/client/voice/VoicePlugin.kt"
+            ROOT / "platforms/android/java/app/msime/android/voice/VoicePlugin.kt"
         ).read_text()
         activity = (
-            ROOT / "platforms/android/java/app/msime/client/voice/VoiceRecognitionActivity.java"
+            ROOT / "platforms/android/java/app/msime/android/voice/VoiceRecognitionActivity.java"
         ).read_text()
         shared = (ROOT / "crates/tauri-mobile-platform/src/lib.rs").read_text()
         desktop = (ROOT / "apps/desktop/src-tauri/src/voice.rs").read_text()
@@ -117,10 +117,10 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
         thread that delivers SpeechRecognizer results would hang the window, and treating a failed
         rewrite as a failed recognition would throw away a sentence that was recognised fine."""
         activity = (
-            ROOT / "platforms/android/java/app/msime/client/voice/VoiceRecognitionActivity.java"
+            ROOT / "platforms/android/java/app/msime/android/voice/VoiceRecognitionActivity.java"
         ).read_text()
         polisher = (
-            ROOT / "platforms/android/java/app/msime/client/voice/VoicePolisher.java"
+            ROOT / "platforms/android/java/app/msime/android/voice/VoicePolisher.java"
         ).read_text()
         shared = (ROOT / "crates/tauri-mobile-platform/src/lib.rs").read_text()
 
@@ -138,7 +138,7 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
 
     def test_polishing_does_not_forward_bearer_tokens_across_redirects(self):
         polisher = (
-            ROOT / "platforms/android/java/app/msime/client/voice/VoicePolisher.java"
+            ROOT / "platforms/android/java/app/msime/android/voice/VoicePolisher.java"
         ).read_text()
         # HttpURLConnection follows redirects by default. The polish request carries a bearer
         # token, so following one could replay that credential to an endpoint outside the user's
@@ -148,16 +148,16 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
     def test_on_device_recognition_keeps_the_audio_on_the_device(self):
         """A user who chose provider `local` must get the installed model or an error, never the platform recognizer, and the model must run through the shared runtime rather than a copy."""
         plugin = (
-            ROOT / "platforms/android/java/app/msime/client/voice/VoicePlugin.kt"
+            ROOT / "platforms/android/java/app/msime/android/voice/VoicePlugin.kt"
         ).read_text()
         activity = (
-            ROOT / "platforms/android/java/app/msime/client/voice/VoiceRecognitionActivity.java"
+            ROOT / "platforms/android/java/app/msime/android/voice/VoiceRecognitionActivity.java"
         ).read_text()
         recognizer = (
-            ROOT / "platforms/android/java/app/msime/client/voice/LocalAsrRecognizer.java"
+            ROOT / "platforms/android/java/app/msime/android/voice/LocalAsrRecognizer.java"
         ).read_text()
         service = (
-            ROOT / "platforms/android/java/app/msime/client/core/MSIMEInputService.java"
+            ROOT / "platforms/android/java/app/msime/android/core/MSIMEInputService.java"
         ).read_text()
         jni = (ROOT / "platforms/android/native/client_jni.cpp").read_text()
         build = (ROOT / "platforms/android/build-native.sh").read_text()
@@ -182,13 +182,13 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
         it must not carry is a second copy of the protocol: the frames and the authentication
         headers are the shared implementation's, and drifting from them is silent."""
         plugin = (
-            ROOT / "platforms/android/java/app/msime/client/voice/VoicePlugin.kt"
+            ROOT / "platforms/android/java/app/msime/android/voice/VoicePlugin.kt"
         ).read_text()
         activity = (
-            ROOT / "platforms/android/java/app/msime/client/voice/VoiceRecognitionActivity.java"
+            ROOT / "platforms/android/java/app/msime/android/voice/VoiceRecognitionActivity.java"
         ).read_text()
         recognizer = (
-            ROOT / "platforms/android/java/app/msime/client/voice/DoubaoRecognizer.java"
+            ROOT / "platforms/android/java/app/msime/android/voice/DoubaoRecognizer.java"
         ).read_text()
 
         # The two protocols are chosen between, never both.
@@ -216,10 +216,10 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
         from the keyboard and another from the panel. The resolution is shared; a second copy of
         the provider rules in Java is how the two would drift apart again."""
         service = (
-            ROOT / "platforms/android/java/app/msime/client/core/MSIMEInputService.java"
+            ROOT / "platforms/android/java/app/msime/android/core/MSIMEInputService.java"
         ).read_text()
         configuration = (
-            ROOT / "platforms/android/java/app/msime/client/voice/VoiceConfiguration.java"
+            ROOT / "platforms/android/java/app/msime/android/voice/VoiceConfiguration.java"
         ).read_text()
         shared = (ROOT / "crates/host-api/src/ffi/host.rs").read_text()
         header = (ROOT / "crates/host-api/include/msime_client.h").read_text()
@@ -260,7 +260,7 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
         socket run to a sixty-second cap, and Back cancels. Without a Done button there was no way
         to end a recording and keep what was said."""
         activity = (
-            ROOT / "platforms/android/java/app/msime/client/voice/VoiceRecognitionActivity.java"
+            ROOT / "platforms/android/java/app/msime/android/voice/VoiceRecognitionActivity.java"
         ).read_text()
         self.assertIn("private void showRecordingControls()", activity)
         self.assertIn("setContentView(root)", activity)
@@ -275,7 +275,7 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
 
     def test_cancelling_an_upload_disconnects_the_in_flight_request(self):
         recognizer = (
-            ROOT / "platforms/android/java/app/msime/client/voice/HttpAsrRecognizer.java"
+            ROOT / "platforms/android/java/app/msime/android/voice/HttpAsrRecognizer.java"
         ).read_text()
         # Activity destruction can cancel after recording has handed the audio to the network.
         # Keep the connection visible to cancel() so it does not wait for the 60-second read
@@ -288,7 +288,7 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
 
     def test_upload_does_not_forward_bearer_tokens_across_redirects(self):
         recognizer = (
-            ROOT / "platforms/android/java/app/msime/client/voice/HttpAsrRecognizer.java"
+            ROOT / "platforms/android/java/app/msime/android/voice/HttpAsrRecognizer.java"
         ).read_text()
         # HttpURLConnection follows redirects by default. The upload carries a bearer token, so
         # following one could replay that credential to an endpoint outside the user's configured
@@ -297,7 +297,7 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
 
     def test_stopping_the_voice_activity_cancels_active_capture(self):
         activity = (
-            ROOT / "platforms/android/java/app/msime/client/voice/VoiceRecognitionActivity.java"
+            ROOT / "platforms/android/java/app/msime/android/voice/VoiceRecognitionActivity.java"
         ).read_text()
         stop_start = activity.index("@Override protected void onStop()")
         destroy_start = activity.index("@Override protected void onDestroy()", stop_start)

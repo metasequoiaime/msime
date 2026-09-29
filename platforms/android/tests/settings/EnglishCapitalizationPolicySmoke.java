@@ -1,4 +1,4 @@
-import app.msime.client.EnglishCapitalizationPolicy;
+import app.msime.android.EnglishCapitalizationPolicy;
 
 public final class EnglishCapitalizationPolicySmoke {
     static void expect(boolean expected, EnglishCapitalizationPolicy.Mode mode, String context) {

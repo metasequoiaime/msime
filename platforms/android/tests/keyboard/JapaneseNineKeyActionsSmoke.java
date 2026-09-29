@@ -1,4 +1,4 @@
-import app.msime.client.JapaneseNineKeyActions;
+import app.msime.android.JapaneseNineKeyActions;
 
 public final class JapaneseNineKeyActionsSmoke {
     static void check(boolean condition) { if (!condition) throw new AssertionError(); }

@@ -1,4 +1,4 @@
-import app.msime.client.DeclinedKeyPolicy;
+import app.msime.android.DeclinedKeyPolicy;
 
 public final class DeclinedKeyPolicySmoke {
     static void check(boolean condition) { if (!condition) throw new AssertionError(); }

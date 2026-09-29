@@ -1,4 +1,4 @@
-package app.msime.client.test;
+package app.msime.android.test;
 
 /** Device-only acceptance for Shift helpcode during a Chinese composition. */
 public final class ChineseHelpcodeDeviceSmoke extends DeviceSmoke {

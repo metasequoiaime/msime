@@ -5,27 +5,27 @@
     <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="35" />
     <queries><intent><action android:name="android.speech.action.RECOGNIZE_SPEECH" /></intent></queries>
     <application android:theme="@style/Theme.MSIME" android:label="@string/app_name" android:icon="@drawable/app_icon_classic" android:allowBackup="false" android:supportsRtl="true">
-        <activity android:name="app.msime.client.home.HomeActivity" android:exported="true">
+        <activity android:name="app.msime.android.home.HomeActivity" android:exported="true">
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
         </activity>
-        <activity android:name="app.msime.client.home.HelpActivity" android:exported="false" />
-        <activity android:name="app.msime.client.home.FeedbackActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
-        <activity android:name="app.msime.client.home.OnboardingActivity" android:exported="false" />
-        <activity android:name="app.msime.client.home.AboutActivity" android:exported="false" />
-        <activity android:name="app.msime.client.home.DesktopDownloadActivity" android:exported="false" />
-        <activity android:name="app.msime.client.home.KeyboardTryoutActivity" android:exported="false" android:windowSoftInputMode="adjustResize|stateVisible" />
-        <activity android:name="app.msime.client.home.CloudClipboardActivity" android:exported="false" />
-        <activity-alias android:name=".MainActivityForest" android:targetActivity="app.msime.client.home.HomeActivity" android:icon="@drawable/app_icon_forest" android:enabled="false" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity-alias>
-        <activity-alias android:name=".MainActivitySky" android:targetActivity="app.msime.client.home.HomeActivity" android:icon="@drawable/app_icon_sky" android:enabled="false" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity-alias>
-        <activity-alias android:name=".MainActivityDusk" android:targetActivity="app.msime.client.home.HomeActivity" android:icon="@drawable/app_icon_dusk" android:enabled="false" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity-alias>
-        <activity-alias android:name=".MainActivityVermilion" android:targetActivity="app.msime.client.home.HomeActivity" android:icon="@drawable/app_icon_vermilion" android:enabled="false" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity-alias>
-        <activity android:name="app.msime.client.VoiceRecognitionActivity" android:exported="false" android:excludeFromRecents="true" android:theme="@android:style/Theme.Material.Light.Dialog.NoActionBar" />
-        <service android:name="app.msime.client.MSIMEInputService" android:process=":ime" android:exported="true" android:permission="android.permission.BIND_INPUT_METHOD">
+        <activity android:name="app.msime.android.home.HelpActivity" android:exported="false" />
+        <activity android:name="app.msime.android.home.FeedbackActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name="app.msime.android.home.OnboardingActivity" android:exported="false" />
+        <activity android:name="app.msime.android.home.AboutActivity" android:exported="false" />
+        <activity android:name="app.msime.android.home.DesktopDownloadActivity" android:exported="false" />
+        <activity android:name="app.msime.android.home.KeyboardTryoutActivity" android:exported="false" android:windowSoftInputMode="adjustResize|stateVisible" />
+        <activity android:name="app.msime.android.home.CloudClipboardActivity" android:exported="false" />
+        <activity-alias android:name=".MainActivityForest" android:targetActivity="app.msime.android.home.HomeActivity" android:icon="@drawable/app_icon_forest" android:enabled="false" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity-alias>
+        <activity-alias android:name=".MainActivitySky" android:targetActivity="app.msime.android.home.HomeActivity" android:icon="@drawable/app_icon_sky" android:enabled="false" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity-alias>
+        <activity-alias android:name=".MainActivityDusk" android:targetActivity="app.msime.android.home.HomeActivity" android:icon="@drawable/app_icon_dusk" android:enabled="false" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity-alias>
+        <activity-alias android:name=".MainActivityVermilion" android:targetActivity="app.msime.android.home.HomeActivity" android:icon="@drawable/app_icon_vermilion" android:enabled="false" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity-alias>
+        <activity android:name="app.msime.android.VoiceRecognitionActivity" android:exported="false" android:excludeFromRecents="true" android:theme="@android:style/Theme.Material.Light.Dialog.NoActionBar" />
+        <service android:name="app.msime.android.MSIMEInputService" android:process=":ime" android:exported="true" android:permission="android.permission.BIND_INPUT_METHOD">
             <intent-filter><action android:name="android.view.InputMethod" /></intent-filter>
             <meta-data android:name="android.view.im" android:resource="@xml/method" />
         </service>
         <provider
-            android:name="app.msime.client.MlKitImeInitProvider"
+            android:name="app.msime.android.MlKitImeInitProvider"
             android:authorities="${applicationId}.mlkit-ime-init"
             android:exported="false"
             android:process=":ime" />

@@ -18,7 +18,7 @@ val clientRoot = rootProject.file("../../../../..")
 android {
     compileSdk = 36
     // Use the native client package for generated Tauri Kotlin and Android resources.
-    namespace = "app.msime.client"
+    namespace = "app.msime.android"
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
         // Keep the installed package stable for the Android client.

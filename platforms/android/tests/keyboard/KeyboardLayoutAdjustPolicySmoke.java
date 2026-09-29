@@ -1,5 +1,5 @@
-import app.msime.client.KeyboardGeometry;
-import app.msime.client.KeyboardLayoutAdjustPolicy;
+import app.msime.android.KeyboardGeometry;
+import app.msime.android.KeyboardLayoutAdjustPolicy;
 
 public final class KeyboardLayoutAdjustPolicySmoke {
     static void check(boolean condition) { if (!condition) throw new AssertionError(); }

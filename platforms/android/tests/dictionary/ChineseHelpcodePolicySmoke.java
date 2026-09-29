@@ -1,6 +1,6 @@
-package app.msime.client.test;
+package app.msime.android.test;
 
-import app.msime.client.ChineseHelpcodePolicy;
+import app.msime.android.ChineseHelpcodePolicy;
 
 public final class ChineseHelpcodePolicySmoke {
     private static void check(boolean value) {

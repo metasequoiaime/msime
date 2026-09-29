@@ -1,6 +1,6 @@
-import app.msime.client.KeyboardActionRow;
-import app.msime.client.KeyboardActionRow.Slot;
-import app.msime.client.KeyboardLayout;
+import app.msime.android.KeyboardActionRow;
+import app.msime.android.KeyboardActionRow.Slot;
+import app.msime.android.KeyboardLayout;
 import java.util.List;
 
 public final class KeyboardActionRowSmoke {

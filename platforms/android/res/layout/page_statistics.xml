@@ -163,7 +163,7 @@
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
                     android:padding="16dp">
-                    <app.msime.client.home.TrendChart
+                    <app.msime.android.home.TrendChart
                         android:id="@+id/statistics_trend"
                         android:layout_width="match_parent"
                         android:layout_height="170dp" />
@@ -202,7 +202,7 @@
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
                     android:padding="16dp">
-                    <app.msime.client.home.HeatmapView
+                    <app.msime.android.home.HeatmapView
                         android:id="@+id/statistics_heatmap"
                         android:layout_width="match_parent"
                         android:layout_height="176dp" />
@@ -241,7 +241,7 @@
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
                     android:padding="16dp">
-                    <app.msime.client.home.DistributionView
+                    <app.msime.android.home.DistributionView
                         android:id="@+id/statistics_distribution"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content" />

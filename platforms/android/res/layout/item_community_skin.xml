@@ -35,7 +35,7 @@
                 android:textFontWeight="600"
                 android:textSize="28sp" />
 
-            <app.msime.client.home.SkinSwatchView
+            <app.msime.android.home.SkinSwatchView
                 android:id="@+id/community_item_swatch"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"

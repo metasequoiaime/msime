@@ -1,5 +1,5 @@
-import app.msime.client.CommunityRequest;
-import app.msime.client.CommunityRequest.Kind;
+import app.msime.android.CommunityRequest;
+import app.msime.android.CommunityRequest.Kind;
 
 public final class CommunityRequestSmoke {
     public static void main(String[] args) {

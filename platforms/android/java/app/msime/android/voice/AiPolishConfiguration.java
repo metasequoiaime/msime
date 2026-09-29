@@ -1,0 +1,100 @@
+package app.msime.android;
+
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.util.Locale;
+import java.util.Objects;
+
+/** Immutable, display-safe AI text-polish configuration. Secrets are never exposed by toString(). */
+public final class AiPolishConfiguration {
+    public static final int MAXIMUM_TEXT_CODE_POINTS = 10_000;
+    public static final int MAXIMUM_RESPONSE_BYTES = 1024 * 1024;
+    public static final String DEFAULT_PROMPT = "请润色以下文字，保持原意，只返回修改后的文字。";
+
+    private final URI endpoint;
+    private final String model;
+    private final String prompt;
+    private final String token;
+    private final String credentialOrigin;
+
+    public AiPolishConfiguration(String endpoint, String model, String prompt, String token) {
+        this.endpoint = validatedEndpoint(endpoint);
+        this.model = bounded(model, 512, "模型名称无效");
+        this.prompt = bounded(prompt, 16 * 1024, "提示词无效");
+        this.token = boundedOptional(token, 4096, "API Token 无效");
+        this.credentialOrigin = credentialOrigin(this.endpoint);
+    }
+
+    public URI endpoint() { return endpoint; }
+    public String model() { return model; }
+    public String prompt() { return prompt; }
+    String token() { return token; }
+    public String credentialOrigin() { return credentialOrigin; }
+
+    public String destination() {
+        int port = endpoint.getPort();
+        return "https://" + endpoint.getHost().toLowerCase(Locale.ROOT)
+            + (port == -1 || port == 443 ? "" : ":" + port);
+    }
+
+    public AiPolishConfiguration withPrompt(String replacement) {
+        return new AiPolishConfiguration(endpoint.toString(), model, replacement, token);
+    }
+
+    public static String credentialOrigin(String endpoint) {
+        return credentialOrigin(validatedEndpoint(endpoint));
+    }
+
+    public static boolean acceptableText(String text) {
+        if (text == null || text.trim().isEmpty() || !TextPolicy.validUnicode(text)) return false;
+        return text.codePointCount(0, text.length()) <= MAXIMUM_TEXT_CODE_POINTS;
+    }
+
+    private static URI validatedEndpoint(String value) {
+        if (value == null || value.isEmpty() || value.length() > 2048 || TextPolicy.hasControl(value)) {
+            throw new IllegalArgumentException("AI 接口地址无效");
+        }
+        try {
+            URI uri = new URI(value.trim());
+            if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null
+                    || uri.getHost().isEmpty() || uri.getUserInfo() != null
+                    || uri.getFragment() != null || uri.getPort() < -1 || uri.getPort() > 65535) {
+                throw new IllegalArgumentException("AI 接口必须是完整的 HTTPS 地址");
+            }
+            return uri;
+        } catch (URISyntaxException error) {
+            throw new IllegalArgumentException("AI 接口地址无效", error);
+        }
+    }
+
+    private static String credentialOrigin(URI uri) {
+        return "https://" + uri.getHost().toLowerCase(Locale.ROOT) + ":"
+            + (uri.getPort() == -1 ? 443 : uri.getPort());
+    }
+
+    private static String bounded(String value, int maximum, String message) {
+        String result = value == null ? "" : value.trim();
+        if (result.isEmpty() || result.length() > maximum || TextPolicy.hasControlExceptWhitespace(result)
+                || !TextPolicy.validUnicode(result)) throw new IllegalArgumentException(message);
+        return result;
+    }
+
+    private static String boundedOptional(String value, int maximum, String message) {
+        String result = value == null ? "" : value.trim();
+        if (result.length() > maximum || TextPolicy.hasControl(result) || !TextPolicy.validUnicode(result))
+            throw new IllegalArgumentException(message);
+        return result;
+    }
+
+    @Override public boolean equals(Object other) {
+        if (!(other instanceof AiPolishConfiguration configuration)) return false;
+        return endpoint.equals(configuration.endpoint) && model.equals(configuration.model)
+            && prompt.equals(configuration.prompt) && token.equals(configuration.token);
+    }
+
+    @Override public int hashCode() { return Objects.hash(endpoint, model, prompt, token); }
+
+    @Override public String toString() {
+        return "AiPolishConfiguration{" + destination() + ", model=" + model + "}";
+    }
+}

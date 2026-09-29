@@ -1,4 +1,4 @@
-import app.msime.client.SymbolPanelModel;
+import app.msime.android.SymbolPanelModel;
 
 public final class SymbolPanelModelSmoke {
     public static void main(String[] args) {

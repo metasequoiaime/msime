@@ -1,4 +1,4 @@
-import app.msime.client.candidate.EnglishSuggestionModel;
+import app.msime.android.candidate.EnglishSuggestionModel;
 
 public final class EnglishSuggestionModelSmoke {
     private static void check(boolean condition, String message) {

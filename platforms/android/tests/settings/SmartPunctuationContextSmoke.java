@@ -1,4 +1,4 @@
-import app.msime.client.SmartPunctuationContext;
+import app.msime.android.SmartPunctuationContext;
 
 public final class SmartPunctuationContextSmoke {
     private static void check(boolean condition, String message) {

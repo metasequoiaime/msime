@@ -1,4 +1,4 @@
-import app.msime.client.InputDiagnosticPolicy;
+import app.msime.android.InputDiagnosticPolicy;
 
 public final class DiagnosticPolicySmoke {
     private static void check(boolean condition) {

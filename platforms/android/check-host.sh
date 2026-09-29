@@ -21,7 +21,7 @@ trap 'rm -f "$output_dir/manifest.apk" "$output_dir/resources.zip"; find "$outpu
 # Command 9 was unmapped when this guard was added; it is now Action::Finish in
 # crates/host-api/src/ffi/input.rs, and the declined-punctuation path needs it.
 # What must not come back is the literal, which is how the unmapped call got in.
-if rg -n 'NativeClient\.command\([^,]+, 9\)' "$repo_root/platforms/android/java/app/msime/client/core/MSIMEInputService.java"; then
+if rg -n 'NativeClient\.command\([^,]+, 9\)' "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
   echo "Android input service must name command 9 (FINISH_COMPOSITION_COMMAND), not inline it" >&2
   exit 1
 fi
@@ -33,7 +33,7 @@ fi
 # Japanese kana variants are Engine state, not a host-maintained lookup table. Keep the named
 # Android command and its shared FFI mapping together so a future enum change cannot silently
 # turn the visible 小゛゜ key into a no-op.
-if rg -n 'command\(10\)' "$repo_root/platforms/android/java/app/msime/client/core/MSIMEInputService.java"; then
+if rg -n 'command\(10\)' "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
   echo "Android input service must name command 10 (CYCLE_KANA_VARIANT_COMMAND), not inline it" >&2
   exit 1
 fi
@@ -43,20 +43,20 @@ if ! rg -q '^\s*10 => Action::Command\(Command::CycleKanaVariant\),' \
   exit 1
 fi
 if rg -n 'VariantGroup|showJapaneseVariants' \
-    "$repo_root/platforms/android/java/app/msime/client/keyboard/JapaneseNineKeyLayout.java" \
-    "$repo_root/platforms/android/java/app/msime/client/core/MSIMEInputService.java"; then
+    "$repo_root/platforms/android/java/app/msime/android/keyboard/JapaneseNineKeyLayout.java" \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
   echo "Android must not duplicate Engine-owned Japanese kana variant tables" >&2
   exit 1
 fi
 # Hardware navigation must use the shared command numbers through one named policy. Keep the
 # service from growing another inline key-code table that can drift from the FFI mapping.
 if ! rg -q 'HardwareKeyPolicy\.commandFor' \
-    "$repo_root/platforms/android/java/app/msime/client/core/MSIMEInputService.java"; then
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
   echo "Android hardware navigation must route through HardwareKeyPolicy" >&2
   exit 1
 fi
 if ! rg -q 'KEYCODE_FORWARD_DEL.*-> 8' \
-    "$repo_root/platforms/android/java/app/msime/client/policy/HardwareKeyPolicy.java" \
+    "$repo_root/platforms/android/java/app/msime/android/policy/HardwareKeyPolicy.java" \
     || ! rg -q '^\s*8 => Action::Command\(Command::DeleteForward\),' \
     "$repo_root/crates/host-api/src/ffi/input.rs"; then
   echo "Android forward-delete mapping no longer matches the shared Host API" >&2
@@ -65,12 +65,12 @@ fi
 # Double-pinyin labels belong to the Engine profile tables. Android may gate visibility and
 # decode the bounded response, but it must not carry a second profile keymap that can drift.
 if rg -n 'PROFILES|uai=k|ing=;' \
-    "$repo_root/platforms/android/java/app/msime/client/keyboard/ShuangpinKeyHintPolicy.java"; then
+    "$repo_root/platforms/android/java/app/msime/android/keyboard/ShuangpinKeyHintPolicy.java"; then
   echo "Android must not duplicate Engine-owned double-pinyin profile tables" >&2
   exit 1
 fi
 if ! rg -q 'shuangpinKeyHintsRaw' \
-    "$repo_root/platforms/android/java/app/msime/client/core/NativeClient.java" \
+    "$repo_root/platforms/android/java/app/msime/android/core/NativeClient.java" \
     || ! rg -q 'msime_client_shuangpin_key_hints' \
     "$repo_root/platforms/android/native/client_jni.cpp"; then
   echo "Android double-pinyin hints must cross the shared Host API through JNI" >&2
@@ -79,7 +79,7 @@ fi
 # Smart-punctuation repeat/space decisions belong to the shared Host API. Android may hold
 # editor-scoped snapshots, but must not reimplement timing or replacement rules locally.
 if ! rg -q 'smartPunctuationArmRaw|smartPunctuationDecideRaw' \
-    "$repo_root/platforms/android/java/app/msime/client/core/NativeClient.java" \
+    "$repo_root/platforms/android/java/app/msime/android/core/NativeClient.java" \
     || ! rg -q 'msime_client_smart_punctuation_(arm|decide)' \
     "$repo_root/platforms/android/native/client_jni.cpp"; then
   echo "Android smart punctuation must cross the shared Host API through JNI" >&2
@@ -90,14 +90,14 @@ fi
 # guard is the reason the first one matters - this host used to keep its own latch, and the shared
 # settings page's 全角输入 switch did nothing here at all.
 if ! rg -q 'setCharacterWidthRaw' \
-    "$repo_root/platforms/android/java/app/msime/client/core/NativeClient.java" \
+    "$repo_root/platforms/android/java/app/msime/android/core/NativeClient.java" \
   || ! rg -q 'msime_client_set_character_width' \
     "$repo_root/platforms/android/native/client_jni.cpp"; then
   echo "Android fullwidth input must cross the shared Host API through JNI" >&2
   exit 1
 fi
 if rg -n 'full-width-input|keyboardLayoutPreferences' \
-    "$repo_root/platforms/android/java/app/msime/client/core/MSIMEInputService.java"; then
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
   echo "Android must read the fullwidth state from the shared preference, not a private store" >&2
   exit 1
 fi
@@ -105,7 +105,7 @@ fi
 # one at all. This host may route the key and commit the fallback the source's host commits, but it
 # must not grow its own idea of which candidates qualify.
 if ! rg -q 'selectEdgeRaw' \
-    "$repo_root/platforms/android/java/app/msime/client/core/NativeClient.java" \
+    "$repo_root/platforms/android/java/app/msime/android/core/NativeClient.java" \
   || ! rg -q 'msime_client_select_edge' \
     "$repo_root/platforms/android/native/client_jni.cpp"; then
   echo "Android word-to-character must cross the shared Host API through JNI" >&2
@@ -115,7 +115,7 @@ fi
 # chosen and this host reads the same shared `navigation` document the desktop hosts do. Keeping
 # the routing in one named policy is what stops a second, drifting key table growing in the service.
 if ! rg -q 'CandidateNavigationPolicy\.commandFor' \
-    "$repo_root/platforms/android/java/app/msime/client/core/MSIMEInputService.java"; then
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
   echo "Android candidate paging must route through CandidateNavigationPolicy" >&2
   exit 1
 fi
@@ -124,8 +124,8 @@ fi
 # on 33, which is KEYCODE_E, while the preference is named ..._ctrl_shift_f and the settings page
 # promises Ctrl+Shift+F. Comparisons in these files name their key.
 for policy in HardwareShortcutPolicy HardwareKeyPolicy NumberRowSelectionPolicy CandidateNavigationPolicy; do
-  source_file="$repo_root/platforms/android/java/app/msime/client/policy/$policy.java"
-  [[ -f "$source_file" ]] || source_file="$repo_root/platforms/android/java/app/msime/client/keyboard/$policy.java"
+  source_file="$repo_root/platforms/android/java/app/msime/android/policy/$policy.java"
+  [[ -f "$source_file" ]] || source_file="$repo_root/platforms/android/java/app/msime/android/keyboard/$policy.java"
   if rg -q '(key|keyCode|keycode)\s*(==|>=|<=|>|<)\s*[0-9]+' "$source_file"; then
     echo "Android $policy compares a key code against a bare number; name it with KeyEvent" >&2
     exit 1
@@ -136,9 +136,9 @@ done
 if ! rg -q 'MSIME_FIRST_CANDIDATE = 104, MSIME_LAST_CANDIDATE = 105' \
     "$repo_root/crates/host-api/include/msime_client.h" \
   || ! rg -q 'FIRST_CANDIDATE = 104' \
-    "$repo_root/platforms/android/java/app/msime/client/policy/CandidateNavigationPolicy.java" \
+    "$repo_root/platforms/android/java/app/msime/android/policy/CandidateNavigationPolicy.java" \
   || ! rg -q 'LAST_CANDIDATE = 105' \
-    "$repo_root/platforms/android/java/app/msime/client/policy/CandidateNavigationPolicy.java"; then
+    "$repo_root/platforms/android/java/app/msime/android/policy/CandidateNavigationPolicy.java"; then
   echo "Android Home/End must map to the shared first/last candidate commands" >&2
   exit 1
 fi
@@ -146,9 +146,9 @@ fi
 # document at this host's request, so it must keep being drawn whatever the setting says - that is
 # the same half-state scripts/test-phrase-preedit-hosts.py guards from the other side.
 if ! rg -q 'CandidatePreeditStylePolicy\.composedText' \
-    "$repo_root/platforms/android/java/app/msime/client/core/MSIMEInputService.java" \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
   || rg -q 'CandidatePreeditStylePolicy[^;]*phrase_prefix' \
-    "$repo_root/platforms/android/java/app/msime/client/core/MSIMEInputService.java"; then
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
   echo "Android candidate preedit style must gate the spelling, never the phrase prefix" >&2
   exit 1
 fi
@@ -162,7 +162,7 @@ if ! rg -q 'msime::windows::polish_prompt_for' \
   exit 1
 fi
 # Candidate words reach api.msime.app only after an explicit account choice (PRIVACY.md). The policy smoke covers accountSelected itself; this pins the service to it: the fetch, the apply and the reserved rows read candidateTranslationAccount, and both preference paths derive it through the policy.
-account_service="$repo_root/platforms/android/java/app/msime/client/core/MSIMEInputService.java"
+account_service="$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"
 if ! rg -qU 'void scheduleCandidateTranslations\(\) \{\s*if \(!candidateTranslationAccount ' "$account_service" \
   || ! rg -qU 'void applyCandidateTranslations\(long generation\) \{\s*if \(!candidateTranslationAccount ' "$account_service" \
   || ! rg -qU 'glossLines\(\s*candidateTranslationTargets, candidateEnglishGloss, candidateTranslationAccount,\s*candidateOfflineTargets\(\)\)' "$account_service" \
@@ -171,7 +171,7 @@ if ! rg -qU 'void scheduleCandidateTranslations\(\) \{\s*if \(!candidateTranslat
   exit 1
 fi
 if ! rg -q '<asr_text>' \
-    "$repo_root/platforms/android/java/app/msime/client/voice/VoicePolishPolicy.java"; then
+    "$repo_root/platforms/android/java/app/msime/android/voice/VoicePolishPolicy.java"; then
   echo "Android polish must wrap the transcript in the boundary the presets name" >&2
   exit 1
 fi
@@ -179,7 +179,7 @@ fi
 # adds only the transport Android has no platform API for. A frame built here would be a second
 # encoder to keep in step with the provider.
 if ! rg -q 'NativeClient\.doubaoStartFrame|NativeClient\.doubaoAudioFrame' \
-    "$repo_root/platforms/android/java/app/msime/client/voice/DoubaoRecognizer.java" \
+    "$repo_root/platforms/android/java/app/msime/android/voice/DoubaoRecognizer.java" \
   || ! rg -q 'msime_client_doubao_(start|audio)_frame' \
     "$repo_root/platforms/android/native/client_jni.cpp"; then
   echo "Android streaming recognition must build its frames through the shared Host API" >&2
@@ -196,7 +196,7 @@ fi
 # The Engine decides what a punctuation key produces, so the Chinese/English state has to reach it.
 # A toggle that only changed this keyboard's key faces would show one mark and commit the other.
 if ! rg -q 'setChinesePunctuationRaw' \
-    "$repo_root/platforms/android/java/app/msime/client/core/NativeClient.java" \
+    "$repo_root/platforms/android/java/app/msime/android/core/NativeClient.java" \
   || ! rg -q 'msime_client_set_chinese_punctuation' \
     "$repo_root/platforms/android/native/client_jni.cpp"; then
   echo "Android punctuation switching must cross the shared Host API through JNI" >&2
@@ -206,14 +206,14 @@ fi
 # second implementation here is what made this keyboard and that page disagree about what the
 # history contained, so the host may render entries but must not keep its own.
 if ! rg -q 'NativeClient\.mobileClipboardHistory' \
-    "$repo_root/platforms/android/java/app/msime/client/clipboard/ClipboardHistoryStore.java" \
+    "$repo_root/platforms/android/java/app/msime/android/clipboard/ClipboardHistoryStore.java" \
   || ! rg -q 'msime_client_mobile_clipboard_history' \
     "$repo_root/platforms/android/native/client_jni.cpp"; then
   echo "Android clipboard history must go through the shared mobile store" >&2
   exit 1
 fi
 if rg -q 'putString\(ITEMS_KEY' \
-    "$repo_root/platforms/android/java/app/msime/client/clipboard/ClipboardHistoryStore.java"; then
+    "$repo_root/platforms/android/java/app/msime/android/clipboard/ClipboardHistoryStore.java"; then
   echo "Android must not write clipboard entries to its own private document" >&2
   exit 1
 fi
@@ -223,13 +223,13 @@ fi
 # Android fell back to another keyboard and the user never saw this one. The 清空 button keeps
 # `clear()` - there the user asked, and silence would be a lie.
 if ! rg -q 'clearQuietly' \
-    "$repo_root/platforms/android/java/app/msime/client/clipboard/ClipboardHistoryStore.java"; then
+    "$repo_root/platforms/android/java/app/msime/android/clipboard/ClipboardHistoryStore.java"; then
   echo "Android clipboard housekeeping needs a clear that cannot stop the caller" >&2
   exit 1
 fi
 for site in onCreateInputView applyClipboardPreference; do
   if rg -A 40 "$site\([^)]*\) \{" \
-      "$repo_root/platforms/android/java/app/msime/client/core/MSIMEInputService.java" \
+      "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
       | rg -q 'clipboardHistory\.clear\(\)'; then
     echo "Android clipboard housekeeping in $site must use clearQuietly" >&2
     exit 1
@@ -239,7 +239,7 @@ done
 # such combination to the application. Routing them through one named policy, ahead of that branch,
 # is what keeps them reachable at all on a keyboard that has no long press.
 if ! rg -q 'HardwareMaintenancePolicy\.action' \
-    "$repo_root/platforms/android/java/app/msime/client/core/MSIMEInputService.java" \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
   || ! rg -q 'msime_client_reset_cache' \
     "$repo_root/platforms/android/native/client_jni.cpp"; then
   echo "Android maintenance chords must route through HardwareMaintenancePolicy and the shared API" >&2
@@ -249,7 +249,7 @@ fi
 # conversion Windows and Linux use. This host converted one character at a time through
 # android.icu.Transliterator, which turns 头发 into 頭發 and is silently unavailable below API 29.
 if ! rg -q 'NativeClient::simplifiedToTraditional' \
-    "$repo_root/platforms/android/java/app/msime/client/core/AndroidChineseTextConversion.java" \
+    "$repo_root/platforms/android/java/app/msime/android/core/AndroidChineseTextConversion.java" \
   || rg -q '^import android\.icu\.text\.Transliterator' "$repo_root/platforms/android/java"; then
   echo "Android Simplified/Traditional output must use the shared converter" >&2
   exit 1
@@ -259,7 +259,7 @@ fi
 # what the user configured. A second copy of the provider rules in Java is how the two entries
 # would start transcribing with different services on the same device.
 if ! rg -q 'VoiceConfiguration\.read' \
-    "$repo_root/platforms/android/java/app/msime/client/core/MSIMEInputService.java" \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
   || ! rg -q 'msime_client_mobile_voice_configuration' \
     "$repo_root/platforms/android/native/client_jni.cpp"; then
   echo "Android keyboard voice must read the shared provider resolution" >&2
@@ -294,12 +294,12 @@ if rg -n 'Files\.(readString|writeString)\(' "$repo_root/platforms/android/java"
   echo "Files.readString/writeString need API 34; this host declares minSdk 28" >&2
   exit 1
 fi
-if [[ ! -f "$repo_root/platforms/android/java/app/msime/client/handwriting/MlKitHandwritingRecognizer.java" \
-      || ! -f "$repo_root/platforms/android/java/app/msime/client/handwriting/MlKitImeInitProvider.java" ]]; then
+if [[ ! -f "$repo_root/platforms/android/java/app/msime/android/handwriting/MlKitHandwritingRecognizer.java" \
+      || ! -f "$repo_root/platforms/android/java/app/msime/android/handwriting/MlKitImeInitProvider.java" ]]; then
   echo "Android handwriting implementation must live with the native host sources" >&2
   exit 1
 fi
-if ! rg -Uq 'android:name="app\.msime\.client\.MlKitImeInitProvider"[[:space:]]+android:authorities="\$\{applicationId\}\.mlkit-ime-init"[[:space:]]+android:exported="false"[[:space:]]+android:process=":ime"' \
+if ! rg -Uq 'android:name="app\.msime\.android\.MlKitImeInitProvider"[[:space:]]+android:authorities="\$\{applicationId\}\.mlkit-ime-init"[[:space:]]+android:exported="false"[[:space:]]+android:process=":ime"' \
     "$repo_root/platforms/android/AndroidManifest.xml"; then
   echo "Android native host must initialize ML Kit inside the isolated IME process" >&2
   exit 1
@@ -311,28 +311,28 @@ fi
 # Custom skin libraries are user-writable; keep the reader streaming so a file that grows after
 # inspection cannot turn the one-megabyte envelope into an unbounded allocation.
 if rg -n 'Files\.readAllBytes' \
-    "$repo_root/platforms/android/java/app/msime/client/dictionary/CustomSkinLibrary.java"; then
+    "$repo_root/platforms/android/java/app/msime/android/dictionary/CustomSkinLibrary.java"; then
   echo "Android custom skin library must use a bounded streaming read" >&2
   exit 1
 fi
 if rg -n 'Files\.readAllBytes' \
-    "$repo_root/platforms/android/java/app/msime/client/voice/CommunityReplyLibrary.java"; then
+    "$repo_root/platforms/android/java/app/msime/android/voice/CommunityReplyLibrary.java"; then
   echo "Android community reply library must use a bounded streaming read" >&2
   exit 1
 fi
 if rg -n 'Files\.readAllBytes' \
-    "$repo_root/platforms/android/java/app/msime/client/KeyboardFeedbackStore.java"; then
+    "$repo_root/platforms/android/java/app/msime/android/KeyboardFeedbackStore.java"; then
   echo "Android keyboard feedback store must use a bounded streaming read" >&2
   exit 1
 fi
 if rg -n 'Files\.readAllBytes' \
-    "$repo_root/platforms/android/java/app/msime/client/core/Bootstrap.java"; then
+    "$repo_root/platforms/android/java/app/msime/android/core/Bootstrap.java"; then
   echo "Android bootstrap marker must use a bounded streaming read" >&2
   exit 1
 fi
 for source in \
-    "$repo_root/platforms/android/java/app/msime/client/core/MSIMEInputService.java" \
-    "$repo_root/platforms/android/java/app/msime/client/voice/VoiceRecognitionActivity.java"; do
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+    "$repo_root/platforms/android/java/app/msime/android/voice/VoiceRecognitionActivity.java"; do
   if rg -n 'readAllBytes.*runtime-options|runtime-options.*readAllBytes' "$source"; then
     echo "Android runtime-options readers must use HostOptionsPolicy" >&2
     exit 1
@@ -347,11 +347,11 @@ done
 client_sources=()
 while IFS= read -r source; do
   case "${source#"$repo_root/"}" in
-    platforms/android/java/app/msime/client/home/*) continue ;;
+    platforms/android/java/app/msime/android/home/*) continue ;;
   esac
   if rg -q '^import (androidx|com\.google)\.' "$source"; then continue; fi
   client_sources+=("$source")
-done < <(find "$repo_root/platforms/android/java/app/msime/client" -name "*.java" -print)
+done < <(find "$repo_root/platforms/android/java/app/msime/android" -name "*.java" -print)
 # An empty list means the filter above ate everything; javac would then fail on the test files with
 # a wall of missing symbols rather than saying so.
 if [[ ${#client_sources[@]} -eq 0 ]]; then
@@ -446,19 +446,19 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/candidate/CandidatePreeditStylePolicySmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/SymbolPanelModelSmoke.java"
 java -cp "$output_dir" EditorSmoke
-java -cp "$output_dir:$android_jar" app.msime.client.BootstrapMarkerSmoke
+java -cp "$output_dir:$android_jar" app.msime.android.BootstrapMarkerSmoke
 java -cp "$output_dir" PhrasePreeditSmoke
 java -cp "$output_dir" InputViewRefreshPolicySmoke
 java -cp "$output_dir" EditorContextSnapshotSmoke
 java -cp "$output_dir" PreferencesSmoke
-java -cp "$output_dir" app.msime.client.InputModeStoreSmoke
+java -cp "$output_dir" app.msime.android.InputModeStoreSmoke
 java -cp "$output_dir" KeyboardLayoutSmoke
 java -cp "$output_dir" LetterKeyFacePolicySmoke
 java -cp "$output_dir" ReturnKeyActionSmoke
 java -cp "$output_dir" SpaceCursorMovementSmoke
 java -cp "$output_dir" EnglishCapitalizationPolicySmoke
 java -cp "$output_dir" EnglishLetterCaseStateSmoke
-java -cp "$output_dir" app.msime.client.test.ChineseHelpcodePolicySmoke
+java -cp "$output_dir" app.msime.android.test.ChineseHelpcodePolicySmoke
 java -cp "$output_dir" MicrosoftShuangpinKeyPolicySmoke
 java -cp "$output_dir" ChineseOutputPolicySmoke
 java -cp "$output_dir" FullWidthInputPolicySmoke
@@ -470,8 +470,8 @@ java -cp "$output_dir" KeyboardFormFactorPolicySmoke
 java -cp "$output_dir" KeyboardLayoutAdjustPolicySmoke
 java -cp "$output_dir" VoiceResultStoreSmoke
 java -cp "$output_dir" AiPolishClientSmoke
-java -cp "$output_dir:$android_jar" app.msime.client.AiPolishHttpTransportSmoke
-java -cp "$output_dir:$android_jar" app.msime.client.AiPolishModelCatalogSmoke
+java -cp "$output_dir:$android_jar" app.msime.android.AiPolishHttpTransportSmoke
+java -cp "$output_dir:$android_jar" app.msime.android.AiPolishModelCatalogSmoke
 java -cp "$output_dir" HttpAsrPolicySmoke
 java -cp "$output_dir" WebSocketFramesSmoke
 java -cp "$output_dir" DoubaoAsrPolicySmoke
@@ -479,10 +479,10 @@ java -cp "$output_dir" VoicePolishPolicySmoke
 java -cp "$output_dir:$android_jar" VoicePolisherSmoke
 java -cp "$output_dir" LocalAsrPolicySmoke
 java -cp "$output_dir" ReplyKeyboardSmoke
-java -cp "$output_dir" app.msime.client.KeyboardSkinSmoke
+java -cp "$output_dir" app.msime.android.KeyboardSkinSmoke
 java -cp "$output_dir" CloudClipboardTextPolicySmoke
 java -cp "$output_dir" KeyboardFeedbackSmoke
-java -cp "$output_dir:$android_jar" app.msime.client.KeyboardFeedbackStoreSmoke
+java -cp "$output_dir:$android_jar" app.msime.android.KeyboardFeedbackStoreSmoke
 java -cp "$output_dir" KeyboardShortcutIconPolicySmoke
 java -cp "$output_dir" TypingSourceSmoke
 java -cp "$output_dir" EmojiCatalogModelSmoke
@@ -499,7 +499,7 @@ java -cp "$output_dir" HandwritingContractSmoke
 java -cp "$output_dir" CandidateAppearanceSmoke
 java -cp "$output_dir" CandidateGlossModelSmoke
 java -cp "$output_dir" CandidateTranslationPolicySmoke
-java -cp "$output_dir" app.msime.client.CandidateTranslationStoreSmoke
+java -cp "$output_dir" app.msime.android.CandidateTranslationStoreSmoke
 java -cp "$output_dir" OnlineCandidatePolicySmoke
 java -cp "$output_dir" WubiCodeHintPolicySmoke
 java -cp "$output_dir" ChineseSymbolFacesSmoke
@@ -522,7 +522,7 @@ java -cp "$output_dir" CommunityRequestSmoke
 java -cp "$output_dir" AppIconStyleSmoke
 java -cp "$output_dir" SmartPunctuationContextSmoke
 java -cp "$output_dir" HardwareKeyPolicySmoke
-java -cp "$output_dir" app.msime.client.HardwareShortcutPolicySmoke
+java -cp "$output_dir" app.msime.android.HardwareShortcutPolicySmoke
 java -cp "$output_dir" HardwareMaintenancePolicySmoke
 java -cp "$output_dir" NumberRowSelectionPolicySmoke
 java -cp "$output_dir" WordCharacterPolicySmoke
@@ -543,7 +543,7 @@ done
 # A disabled tool card swallows the press and the 工具 section draws no state text, so the only
 # thing left to say it is unavailable is how it looks.
 if ! rg -q 'card\.setAlpha\(enabled \?' \
-    "$repo_root/platforms/android/java/app/msime/client/core/MSIMEInputService.java"; then
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
   echo "Android tool cards must look disabled when they are" >&2
   exit 1
 fi
@@ -551,7 +551,7 @@ fi
 # that fill is paired with. `accent` is that same fill in the shipped skins, and using it here made
 # 恢复默认 and 完成 invisible - dark green on dark green, three blank tiles where the controls are.
 if rg -q 'button\.setTextColor\(accent\)' \
-    "$repo_root/platforms/android/java/app/msime/client/keyboard/KeyboardLayoutAdjustView.java"; then
+    "$repo_root/platforms/android/java/app/msime/android/keyboard/KeyboardLayoutAdjustView.java"; then
   echo "Android layout bar buttons must take actionForeground, not the accent they sit on" >&2
   exit 1
 fi

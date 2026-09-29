@@ -1,4 +1,4 @@
-import app.msime.client.CandidateGlossPolicy;
+import app.msime.android.CandidateGlossPolicy;
 
 public final class CandidateGlossModelSmoke {
     public static void main(String[] args) throws Exception {

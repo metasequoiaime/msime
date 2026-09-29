@@ -1,5 +1,5 @@
-import app.msime.client.HttpAsrPolicy;
-import app.msime.client.WavAudio;
+import app.msime.android.HttpAsrPolicy;
+import app.msime.android.WavAudio;
 import java.nio.charset.StandardCharsets;
 
 /** Which providers this host can talk to, and the exact bytes it uploads. */

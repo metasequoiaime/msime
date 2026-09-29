@@ -1,21 +1,21 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="app.msime.client.test" android:versionCode="1" android:versionName="1">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="app.msime.android.test" android:versionCode="1" android:versionName="1">
     <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="35" />
-    <instrumentation android:name="app.msime.client.test.DeviceSmoke" android:targetPackage="app.msime.client.test" />
-    <instrumentation android:name="app.msime.client.test.CandidatePanelDeviceSmoke" android:targetPackage="app.msime.client.test" />
-    <instrumentation android:name="app.msime.client.test.MoreToolsDeviceSmoke" android:targetPackage="app.msime.client.test" />
-    <instrumentation android:name="app.msime.client.test.EmojiPickerDeviceSmoke" android:targetPackage="app.msime.client.test" />
-    <instrumentation android:name="app.msime.client.test.HandwritingDeviceSmoke" android:targetPackage="app.msime.client.test" />
-    <instrumentation android:name="app.msime.client.test.PreferencesDeviceSmoke" android:targetPackage="app.msime.android" />
-    <instrumentation android:name="app.msime.client.test.KeyboardHeightDeviceSmoke" android:targetPackage="app.msime.android" />
-    <instrumentation android:name="app.msime.client.test.FuzzyPinyinDeviceSmoke" android:targetPackage="app.msime.android" />
-    <instrumentation android:name="app.msime.client.test.CandidateGlossDeviceSmoke" android:targetPackage="app.msime.android" />
-    <instrumentation android:name="app.msime.client.test.NineKeyEnglishDeviceSmoke" android:targetPackage="app.msime.android" />
-    <instrumentation android:name="app.msime.client.test.SettingsDeviceSmoke" android:targetPackage="app.msime.android" />
-    <instrumentation android:name="app.msime.client.test.SettingsLifecycleSmoke" android:targetPackage="app.msime.client.test" />
-    <instrumentation android:name="app.msime.client.test.TypingStatisticsDeviceSmoke" android:targetPackage="app.msime.android" />
-    <instrumentation android:name="app.msime.client.test.AccountStorageDeviceSmoke" android:targetPackage="app.msime.client.test" />
-    <instrumentation android:name="app.msime.client.BackendAccountRefreshDeviceSmoke" android:targetPackage="app.msime.client.test" />
+    <instrumentation android:name="app.msime.android.test.DeviceSmoke" android:targetPackage="app.msime.android.test" />
+    <instrumentation android:name="app.msime.android.test.CandidatePanelDeviceSmoke" android:targetPackage="app.msime.android.test" />
+    <instrumentation android:name="app.msime.android.test.MoreToolsDeviceSmoke" android:targetPackage="app.msime.android.test" />
+    <instrumentation android:name="app.msime.android.test.EmojiPickerDeviceSmoke" android:targetPackage="app.msime.android.test" />
+    <instrumentation android:name="app.msime.android.test.HandwritingDeviceSmoke" android:targetPackage="app.msime.android.test" />
+    <instrumentation android:name="app.msime.android.test.PreferencesDeviceSmoke" android:targetPackage="app.msime.android" />
+    <instrumentation android:name="app.msime.android.test.KeyboardHeightDeviceSmoke" android:targetPackage="app.msime.android" />
+    <instrumentation android:name="app.msime.android.test.FuzzyPinyinDeviceSmoke" android:targetPackage="app.msime.android" />
+    <instrumentation android:name="app.msime.android.test.CandidateGlossDeviceSmoke" android:targetPackage="app.msime.android" />
+    <instrumentation android:name="app.msime.android.test.NineKeyEnglishDeviceSmoke" android:targetPackage="app.msime.android" />
+    <instrumentation android:name="app.msime.android.test.SettingsDeviceSmoke" android:targetPackage="app.msime.android" />
+    <instrumentation android:name="app.msime.android.test.SettingsLifecycleSmoke" android:targetPackage="app.msime.android.test" />
+    <instrumentation android:name="app.msime.android.test.TypingStatisticsDeviceSmoke" android:targetPackage="app.msime.android" />
+    <instrumentation android:name="app.msime.android.test.AccountStorageDeviceSmoke" android:targetPackage="app.msime.android.test" />
+    <instrumentation android:name="app.msime.android.BackendAccountRefreshDeviceSmoke" android:targetPackage="app.msime.android.test" />
     <application android:label="MSIME Editor Fixture" android:allowBackup="false">
-        <activity android:name="app.msime.client.test.EditorActivity" android:exported="true" android:windowSoftInputMode="adjustResize" />
+        <activity android:name="app.msime.android.test.EditorActivity" android:exported="true" android:windowSoftInputMode="adjustResize" />
     </application>
 </manifest>

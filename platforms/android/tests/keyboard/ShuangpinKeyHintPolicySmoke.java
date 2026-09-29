@@ -1,4 +1,4 @@
-import app.msime.client.ShuangpinKeyHintPolicy;
+import app.msime.android.ShuangpinKeyHintPolicy;
 import java.util.Map;
 
 public final class ShuangpinKeyHintPolicySmoke {

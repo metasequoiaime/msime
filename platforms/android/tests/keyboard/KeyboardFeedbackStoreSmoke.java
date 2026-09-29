@@ -1,6 +1,6 @@
-package app.msime.client;
+package app.msime.android;
 
-import app.msime.client.KeyboardFeedbackPreferences.HapticStrength;
+import app.msime.android.KeyboardFeedbackPreferences.HapticStrength;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;

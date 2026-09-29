@@ -1,12 +1,10 @@
-import app.msime.client.AppIconStyle;
+import app.msime.android.AppIconStyle;
 import java.util.ArrayList;
 import java.util.List;
 
 public final class AppIconStyleSmoke {
-    // The application id. Deliberately not the namespace: this host's differ, and every component
-    // bug this file now guards against came from composing a name out of the wrong one.
-    private static final String PACKAGE = "app.msime.android";
-    private static final String NAMESPACE = "app.msime.client";
+    // The namespace the manifest's relative names resolve against. It used to differ from the application id, and every component bug this file guards against came from composing a name out of the application id; both are app.msime.android now, but AppIconStyle still takes the namespace from its own package so the two can differ again without breaking.
+    private static final String NAMESPACE = "app.msime.android";
     private static final String LAUNCHER = NAMESPACE + ".home.HomeActivity";
 
     public static void main(String[] args) {
@@ -42,16 +40,11 @@ public final class AppIconStyleSmoke {
         check(LAUNCHER.equals(AppIconStyle.CLASSIC.component(LAUNCHER)),
             "classic is the launcher activity it was given");
 
-        // `.MainActivityX` in the manifest resolves against the namespace, not the application id.
-        // Composing it with the application id produced app.msime.android.MainActivitySky, which
-        // does not exist, so the package manager refused every switch. Both halves are asserted:
-        // the name it must have, and the name it must not.
+        // `.MainActivityX` in the manifest resolves against the namespace, not the application id. While the two differed, composing it with the application id produced a component that did not exist, so the package manager refused every switch.
         check(NAMESPACE.equals(AppIconStyle.namespace()),
             "this class sits at the namespace root the manifest's relative names resolve against");
         check((NAMESPACE + ".MainActivityForest").equals(AppIconStyle.FOREST.component(LAUNCHER)),
             "an alias resolves against the namespace");
-        check(!AppIconStyle.FOREST.component(LAUNCHER).startsWith(PACKAGE + "."),
-            "an alias is never composed from the application id");
         for (AppIconStyle style : all) {
             if (style == AppIconStyle.CLASSIC) continue;
             check(!style.alias().isEmpty(), "every other style has an alias: " + style.id());

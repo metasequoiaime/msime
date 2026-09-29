@@ -1,4 +1,4 @@
-import app.msime.client.EditorContextSnapshot;
+import app.msime.android.EditorContextSnapshot;
 
 public final class EditorContextSnapshotSmoke {
     static void check(boolean condition) { if (!condition) throw new AssertionError(); }

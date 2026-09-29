@@ -1,4 +1,4 @@
-import app.msime.client.CustomSkinLibrary;
+import app.msime.android.CustomSkinLibrary;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.stream.Stream;

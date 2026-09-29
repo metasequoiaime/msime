@@ -1,4 +1,4 @@
-import app.msime.client.VoicePolisher;
+import app.msime.android.VoicePolisher;
 
 /** Cancellation is checked before opening a network connection. */
 public final class VoicePolisherSmoke {

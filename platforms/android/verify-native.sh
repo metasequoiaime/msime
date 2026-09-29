@@ -34,7 +34,7 @@ for symbol in msime_client_prepare_host msime_client_create msime_client_snapsho
 done
 symbols=$("$readelf_tool" --dyn-syms --wide "$library_dir/libmsime_android.so")
 for method in prepareHostRaw snapshotVersionRaw snapshotPrepareRaw snapshotDiscardRaw snapshotActivateRaw loadPreferencesRaw savePreferencesRaw themeCatalogRaw resolveThemeRaw createRaw characterRaw punctuationWithContextRaw setNineKeyModeRaw mobileVoiceConfigurationRaw simplifiedToTraditionalRaw resetCacheRaw mobileClipboardHistoryRaw setChinesePunctuationRaw setCharacterWidthRaw selectEdgeRaw doubaoStartFrameRaw doubaoAudioFrameRaw doubaoDecodeFrameRaw chooseNineKeySpellingRaw updatePreferencesRaw pinCandidateRaw fixCandidatePositionRaw clearCandidatePositionRaw removeCandidateRaw emojiCatalogRaw candidateGlossesRaw applyTranslationsRaw onlineQueryRaw cloudRequestUrlRaw aiRequestForQueryRaw applyCloudResponseRaw applyOnlineCandidatesRaw vocabularyReviewRaw voiceHotwordsRaw voiceHotwordCorrectRaw localSpeechAvailableRaw localSpeechCreateRaw localSpeechStartRaw localSpeechAcceptRaw localSpeechFinishRaw localSpeechCancelRaw localSpeechDestroyRaw localSpeechReleaseRaw destroyRaw; do
-  grep -Eq "GLOBAL +DEFAULT +[0-9]+ +Java_app_msime_client_NativeClient_${method}$" <<< "$symbols" || { echo "Missing JNI export: $method" >&2; exit 1; }
+  grep -Eq "GLOBAL +DEFAULT +[0-9]+ +Java_app_msime_android_NativeClient_${method}$" <<< "$symbols" || { echo "Missing JNI export: $method" >&2; exit 1; }
 done
 nm_tool="${readelf_tool%/llvm-readelf}/llvm-nm"
 [[ -x "$nm_tool" ]] || { echo "llvm-nm is required beside llvm-readelf" >&2; exit 1; }

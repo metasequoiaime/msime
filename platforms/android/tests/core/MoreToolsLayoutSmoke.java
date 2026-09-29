@@ -1,4 +1,4 @@
-import app.msime.client.MoreToolsLayout;
+import app.msime.android.MoreToolsLayout;
 
 public final class MoreToolsLayoutSmoke {
     public static void main(String[] args) {

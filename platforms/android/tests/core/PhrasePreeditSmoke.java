@@ -1,4 +1,4 @@
-import app.msime.client.PhrasePreeditPolicy;
+import app.msime.android.PhrasePreeditPolicy;
 
 public final class PhrasePreeditSmoke {
     static void check(boolean condition, String what) {

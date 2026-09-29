@@ -1,5 +1,5 @@
 import android.view.KeyEvent;
-import app.msime.client.HardwareKeyPolicy;
+import app.msime.android.HardwareKeyPolicy;
 
 public final class HardwareKeyPolicySmoke {
     private static void check(boolean value, String message) {

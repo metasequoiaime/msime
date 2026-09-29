@@ -1,4 +1,4 @@
-import app.msime.client.KeyboardInputContext;
+import app.msime.android.KeyboardInputContext;
 
 public final class KeyboardInputContextSmoke {
     static void check(Boolean actual, Boolean expected) {

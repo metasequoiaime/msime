@@ -1,4 +1,4 @@
-import app.msime.client.CandidateTranslationPolicy;
+import app.msime.android.CandidateTranslationPolicy;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;

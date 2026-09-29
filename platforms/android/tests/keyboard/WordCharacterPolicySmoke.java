@@ -1,6 +1,6 @@
 import android.view.KeyEvent;
-import app.msime.client.WordCharacterPolicy;
-import app.msime.client.WordCharacterPolicy.Edge;
+import app.msime.android.WordCharacterPolicy;
+import app.msime.android.WordCharacterPolicy.Edge;
 
 /** Which key claims 以词定字, and the three conditions that stop it claiming one. */
 public final class WordCharacterPolicySmoke {

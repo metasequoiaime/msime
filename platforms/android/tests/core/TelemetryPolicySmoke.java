@@ -1,4 +1,4 @@
-import app.msime.client.core.TelemetryHttpPolicy;
+import app.msime.android.core.TelemetryHttpPolicy;
 import java.net.HttpURLConnection;
 import java.net.URL;
 

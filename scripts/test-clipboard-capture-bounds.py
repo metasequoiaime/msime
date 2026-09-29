@@ -37,7 +37,7 @@ MEASURE = re.compile(r"\.length\b|\.count\b|getBytes\(|utf8\.count|lengthOfBytes
 PENDING = {}
 
 HOSTS = [
-    "platforms/android/java/app/msime/client/clipboard",
+    "platforms/android/java/app/msime/android/clipboard",
     "platforms/ios/SharedUI/clipboard",
     "platforms/harmony/entry/src/main/ets/keyboard/clipboard",
 ]

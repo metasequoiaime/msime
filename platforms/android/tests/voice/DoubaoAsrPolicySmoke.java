@@ -1,5 +1,5 @@
-import app.msime.client.DoubaoAsrPolicy;
-import app.msime.client.HttpAsrPolicy;
+import app.msime.android.DoubaoAsrPolicy;
+import app.msime.android.HttpAsrPolicy;
 import java.util.Arrays;
 import java.util.List;
 

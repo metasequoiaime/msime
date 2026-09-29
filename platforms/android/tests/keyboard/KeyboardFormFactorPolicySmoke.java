@@ -1,4 +1,4 @@
-import app.msime.client.KeyboardFormFactorPolicy;
+import app.msime.android.KeyboardFormFactorPolicy;
 
 public final class KeyboardFormFactorPolicySmoke {
     public static void main(String[] args) {

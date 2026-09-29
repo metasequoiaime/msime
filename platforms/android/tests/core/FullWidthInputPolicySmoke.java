@@ -1,4 +1,4 @@
-import app.msime.client.FullWidthInputPolicy;
+import app.msime.android.FullWidthInputPolicy;
 
 public final class FullWidthInputPolicySmoke {
     static void check(boolean condition, String message) {

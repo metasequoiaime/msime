@@ -1,4 +1,4 @@
-import app.msime.client.InputViewRefreshPolicy;
+import app.msime.android.InputViewRefreshPolicy;
 
 public final class InputViewRefreshPolicySmoke {
     private static final class Connection {}

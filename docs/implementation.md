@@ -114,9 +114,9 @@ InputMethodKit 宿主，产物 bundle 名为 `水杉输入法.app`，`CFBundleId
 
 ### Android
 
-原生 `InputMethodService` 宿主，applicationId `app.msime.android`、namespace `app.msime.client`，minSdk 28。服务跑在 `android:process=":ime"` 独立进程：Tauri 最后一个窗口关闭会退出进程，设置页与输入法必须分开，跨进程共享的只有那份带文件锁的偏好。ML Kit 的初始化 provider 也在同一进程。四个 `activity-alias` 实现应用图标切换。
+原生 `InputMethodService` 宿主，applicationId 与 namespace 都是 `app.msime.android`，minSdk 28。服务跑在 `android:process=":ime"` 独立进程：Tauri 最后一个窗口关闭会退出进程，设置页与输入法必须分开，跨进程共享的只有那份带文件锁的偏好。ML Kit 的初始化 provider 也在同一进程。四个 `activity-alias` 实现应用图标切换。
 
-Java 侧按 `java/app/msime/client/<feature>/` 分层（core、home、keyboard、candidate、voice、account、dictionary、policy、handwriting、statistics、community、clipboard、settings），其中 `policy/` 是一批无 Android 依赖的纯模型类——键面大小写、硬件按键映射、候选导航、被拒标点、数字行选词、候选滚动、候选折行、智能标点上下文等规则都放在这里，因此可以用 JVM smoke 直接覆盖而不需要设备。`NativeClient.java` 是唯一的 JNI 声明处，对应 `native/client_jni.cpp`。
+Java 侧按 `java/app/msime/android/<feature>/` 分层（core、home、keyboard、candidate、voice、account、dictionary、policy、handwriting、statistics、community、clipboard、settings），其中 `policy/` 是一批无 Android 依赖的纯模型类——键面大小写、硬件按键映射、候选导航、被拒标点、数字行选词、候选滚动、候选折行、智能标点上下文等规则都放在这里，因此可以用 JVM smoke 直接覆盖而不需要设备。`NativeClient.java` 是唯一的 JNI 声明处，对应 `native/client_jni.cpp`。
 
 能力覆盖软键盘 26 键与符号层、全拼九键（含数字层）、日语九键、四套双拼加微软双拼分词键、86 五笔、手写、AI 回复键盘；候选条与展开面板、候选长按管理、离线英文释义、在线候选翻译、云与 AI 联想、剪贴板历史与云剪贴板、表情浏览器、八种本地输入模式、AI 润色、语音、打字统计、内置与自定义皮肤、社区资源、账号、硬件键盘快捷键与数字行选词、大屏居中外框、无障碍键盘尺寸调整。
 

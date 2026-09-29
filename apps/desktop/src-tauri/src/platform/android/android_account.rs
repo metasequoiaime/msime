@@ -154,7 +154,7 @@ impl AccountState {
 pub fn init() -> TauriPlugin<Wry> {
     Builder::new("account-storage")
         .setup(|app, api| {
-            let handle = api.register_android_plugin("app.msime.client", "AccountPlugin")?;
+            let handle = api.register_android_plugin("app.msime.android", "AccountPlugin")?;
             let platform = handle.clone();
             let feedback = handle.clone();
             let client = BackendAccountClient::new()?;

@@ -1,4 +1,4 @@
-import app.msime.client.NativeClient;
+import app.msime.android.NativeClient;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;

@@ -1,4 +1,4 @@
-package app.msime.client.test;
+package app.msime.android.test;
 
 import android.graphics.Rect;
 import android.os.Bundle;
@@ -88,28 +88,28 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
                     + standard + " -> " + resetHeight);
 
             stage = "height survives input method restart";
-            shell("am start -W -n app.msime.android/app.msime.client.home.HomeActivity");
+            shell("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             rebindInputMethod();
             openEditor();
             int restarted = keyHeight("n");
             if (Math.abs(restarted - resetHeight) > 2)
                 throw new AssertionError("Persisted height changed after restart");
         } finally {
-            shell("am start -W -n app.msime.android/app.msime.client.home.HomeActivity");
+            shell("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath());
             else publish(preferences, original);
         }
     }
 
     private void openEditor() throws Exception {
-        shell("am start -W -f 0x10008000 -n app.msime.client.test/app.msime.client.test.EditorActivity");
+        shell("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
         tap(field("msime-test-plain"));
     }
 
     private void rebindInputMethod() throws Exception {
-        shell("ime disable app.msime.android/app.msime.client.MSIMEInputService");
-        shell("ime enable app.msime.android/app.msime.client.MSIMEInputService");
-        shell("ime set app.msime.android/app.msime.client.MSIMEInputService");
+        shell("ime disable app.msime.android/app.msime.android.MSIMEInputService");
+        shell("ime enable app.msime.android/app.msime.android.MSIMEInputService");
+        shell("ime set app.msime.android/app.msime.android.MSIMEInputService");
         SystemClock.sleep(1000);
     }
 

@@ -1,11 +1,11 @@
-package app.msime.client.test;
+package app.msime.android.test;
 
 import android.app.Activity;
 import android.app.Instrumentation;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Bundle;
-import app.msime.client.AndroidAccountSessionStorage;
+import app.msime.android.AndroidAccountSessionStorage;
 
 /** Verifies encrypted session persistence inside the isolated fixture package. */
 public final class AccountStorageDeviceSmoke extends Instrumentation {

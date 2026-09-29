@@ -1,4 +1,4 @@
-import app.msime.client.WubiCodeHintPolicy;
+import app.msime.android.WubiCodeHintPolicy;
 
 public final class WubiCodeHintPolicySmoke {
     private static void check(boolean condition, String message) {

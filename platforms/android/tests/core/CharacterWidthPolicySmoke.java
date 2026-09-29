@@ -1,4 +1,4 @@
-import app.msime.client.CharacterWidthPolicy;
+import app.msime.android.CharacterWidthPolicy;
 
 /**
  * The two vocabularies this host has to read, and the one rule that arbitrates between them.

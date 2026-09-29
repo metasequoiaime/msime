@@ -1,4 +1,4 @@
-import app.msime.client.EnglishLetterCaseState;
+import app.msime.android.EnglishLetterCaseState;
 
 public final class EnglishLetterCaseStateSmoke {
     static void check(boolean condition) { if (!condition) throw new AssertionError(); }
