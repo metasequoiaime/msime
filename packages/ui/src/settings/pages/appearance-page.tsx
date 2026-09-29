@@ -11,6 +11,7 @@ import { CandidatePageSizeSection } from "../candidate-page-size-section";
 import { CandidateLayoutSection } from "../candidate-layout-section";
 import { PreeditSettingsSection } from "../preedit-settings-section";
 import { NavigationSection } from "../navigation-section";
+import { appearanceSettingsPreferences } from "../appearance-settings-preferences";
 
 /** The 候选窗口 page of the settings form (route id `appearance`). */
 export function AppearanceSettingsPage() {
@@ -40,13 +41,7 @@ export function AppearanceSettingsPage() {
   return (
     <fieldset disabled={busy} hidden={page !== "appearance"} aria-label="候选窗口">
       <AppearanceCandidatePreview
-        preferences={{
-          ...draft,
-          candidate_english_font:
-            host?.platform === "windows"
-              ? (draft.candidate_english_font ?? "Segoe UI")
-              : draft.candidate_english_font,
-        }}
+        preferences={appearanceSettingsPreferences(draft, host?.platform === "windows")}
         scan={client.scanSkinCatalog}
         readImage={client.readSkinImage}
         resolveTheme={client.resolveTheme}
