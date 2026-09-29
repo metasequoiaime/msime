@@ -56,6 +56,8 @@ export {
   useSettingsNavigation,
   type SettingsNavigationOptions,
 } from "./settings/use-settings-navigation";
+import { useSettingsContentScrollReset } from "./settings/use-settings-content-scroll-reset";
+export { useSettingsContentScrollReset } from "./settings/use-settings-content-scroll-reset";
 import { isLinuxDesktop } from "./settings/platform-helpers";
 import { useSettingsTheme } from "./settings/use-settings-theme";
 export { useSettingsTheme } from "./settings/use-settings-theme";
@@ -89,7 +91,7 @@ import {
   validModelMirror,
   type LocalVoiceModelClient,
 } from "./voice/local-models";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   DictionaryEntry,
   LocalDictionaryFormat,
@@ -1814,13 +1816,10 @@ export function SettingsPage({
   // so remember the visible leaf for each tab: leaving 输入 for 社区 and returning to 键盘 must
   // restore 输入 rather than reset the first tab to 首页.
   const mobileLastPageByTab = useRef(initialMobileTabPages(page));
-  const settingsContentRef = useRef<HTMLElement>(null);
   // Every settings category shares this one scrolling surface. Reset it after
   // the new category is committed so sidebar clicks, in-page links and mobile
   // back navigation all open the destination at its beginning.
-  useLayoutEffect(() => {
-    if (settingsContentRef.current) settingsContentRef.current.scrollTop = 0;
-  }, [page]);
+  const settingsContentRef = useSettingsContentScrollReset(page);
   const [communityDestination, setCommunityDestination] = useState<
     AccountCommunityDestination | "all"
   >("all");
