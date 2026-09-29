@@ -5,6 +5,7 @@ import { useSettingsForm } from "../settings-form-context";
 import { GroupList } from "../../core/platform-controls";
 import { LicenseUninstallSection } from "../license-uninstall-section";
 import { TelemetrySection } from "../telemetry-section";
+import { AboutHeroSection } from "../about-hero-section";
 
 const privacyUrl = "https://msime.app/privacy/";
 const androidPrivacyUrl = "https://msime.app/privacy/";
@@ -45,16 +46,7 @@ export function AboutSettingsPage() {
     <fieldset disabled={busy} hidden={page !== "about"} aria-label="关于">
       <div className={settings.groups}>
         <GroupList>
-          <div className={doc.hero}>
-            <div className={doc.mark}>
-              <img src={logo} alt="水杉 IME" />
-            </div>
-            <div>
-              <div className={doc.eyebrow}>Metasequoia IME</div>
-              <div className={doc.heroTitle}>水杉 IME</div>
-              <p>{platformAboutDescription}</p>
-            </div>
-          </div>
+          <AboutHeroSection logo={logo} description={platformAboutDescription} />
         </GroupList>
         <GroupList title="版本与条款">
           <div className={`${doc.linkRow} ${doc.versionRow}`}>
