@@ -3,6 +3,31 @@ fn snapshot_module_is_present() {
     assert_eq!(super::HANDLE_LIMIT, 8);
 }
 
+#[cfg(unix)]
+#[test]
+fn activation_receipt_does_not_follow_a_fixed_temporary_symlink() {
+    use std::fs;
+    use std::os::unix::fs::symlink;
+
+    let root = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let temporary = root
+        .path()
+        .join(format!("{}.tmp", super::ACTIVATION_RECEIPT_NAME));
+    let outside_file = outside.path().join("receipt");
+    fs::write(&outside_file, b"keep me").unwrap();
+    symlink(&outside_file, &temporary).unwrap();
+    let path = root.path().join(super::ACTIVATION_RECEIPT_NAME);
+
+    super::write_activation_receipt_at(root.path(), &path, "10000000-0000-4000-8000-000000000001")
+        .unwrap();
+    assert_eq!(fs::read(outside_file).unwrap(), b"keep me");
+    assert_eq!(
+        fs::read(path).unwrap(),
+        b"10000000-0000-4000-8000-000000000001"
+    );
+}
+
 #[test]
 fn queue_state_can_be_polled_while_an_engine_session_holds_shared_access() {
     use msime_client_core::dictionary::access::DictionaryAccess;
