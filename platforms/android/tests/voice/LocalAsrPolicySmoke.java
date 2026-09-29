@@ -27,22 +27,45 @@ public final class LocalAsrPolicySmoke {
         try {
             Path model = root.resolve("model");
             Files.createDirectories(model);
-            check(!LocalAsrPolicy.installed(model.toString()), "a directory without a manifest is not installed");
+            check(!LocalAsrPolicy.installed(model.toString(), root), "a directory without a manifest is not installed");
             Path manifest = model.resolve(LocalAsrPolicy.MANIFEST);
             Files.write(manifest, new byte[0]);
-            check(!LocalAsrPolicy.installed(model.toString()), "an empty manifest is not installed");
+            check(!LocalAsrPolicy.installed(model.toString(), root), "an empty manifest is not installed");
             Files.write(manifest, "{\"hotwords\":\"pinyin\"}".getBytes(StandardCharsets.UTF_8));
-            check(LocalAsrPolicy.installed(model.toString()), "a directory with its manifest is installed");
-            check(new String(LocalAsrPolicy.readManifest(model.toString()), StandardCharsets.UTF_8)
+            check(LocalAsrPolicy.installed(model.toString(), root), "a directory with its manifest is installed");
+            check(new String(LocalAsrPolicy.readManifest(model.toString(), root), StandardCharsets.UTF_8)
                 .equals("{\"hotwords\":\"pinyin\"}"), "the manifest is read as bounded bytes");
+            Path outsideNested = root.resolve("outside-nested");
+            Files.createDirectories(outsideNested);
+            Files.writeString(outsideNested.resolve(LocalAsrPolicy.MANIFEST), "external");
+            Path linkedParent = root.resolve("linked-parent");
+            Files.createSymbolicLink(linkedParent, outsideNested);
+            Path nestedModel = linkedParent.resolve("nested-model");
+            Files.createDirectories(nestedModel);
+            Files.writeString(nestedModel.resolve(LocalAsrPolicy.MANIFEST), "external");
+            check(!LocalAsrPolicy.installed(nestedModel.toString(), root), "a model below a symlinked parent is refused");
+            Path outsideRoot = Files.createTempDirectory("msime-local-asr-outside");
+            try {
+                Path outsidePath = outsideRoot.resolve("model");
+                Files.createDirectories(outsidePath);
+                Files.writeString(outsidePath.resolve(LocalAsrPolicy.MANIFEST), "external");
+                check(!LocalAsrPolicy.installed(outsidePath.toString(), root), "a model outside the trusted files root is refused");
+            } finally {
+                try (Stream<Path> paths = Files.walk(outsideRoot)) {
+                    paths.sorted(Comparator.reverseOrder()).forEach(path -> {
+                        try { Files.deleteIfExists(path); }
+                        catch (Exception error) { throw new IllegalStateException(error); }
+                    });
+                }
+            }
             Path externalModel = root.resolve("external-model");
             Files.createDirectories(externalModel);
             Files.writeString(externalModel.resolve(LocalAsrPolicy.MANIFEST), "synthetic");
             Path linkedModel = root.resolve("linked-model");
             Files.createSymbolicLink(linkedModel, externalModel);
-            check(!LocalAsrPolicy.installed(linkedModel.toString()), "a symlinked model directory is refused");
+            check(!LocalAsrPolicy.installed(linkedModel.toString(), root), "a symlinked model directory is refused");
             boolean linkedModelRejected = false;
-            try { LocalAsrPolicy.readManifest(linkedModel.toString()); }
+            try { LocalAsrPolicy.readManifest(linkedModel.toString(), root); }
             catch (IOException expected) { linkedModelRejected = true; }
             check(linkedModelRejected, "a symlinked model directory cannot be read");
             Files.delete(linkedModel);
@@ -50,9 +73,9 @@ public final class LocalAsrPolicySmoke {
             Files.writeString(externalManifest, "synthetic");
             Files.delete(manifest);
             Files.createSymbolicLink(manifest, externalManifest);
-            check(!LocalAsrPolicy.installed(model.toString()), "a symlinked model manifest is refused");
+            check(!LocalAsrPolicy.installed(model.toString(), root), "a symlinked model manifest is refused");
             boolean linkedManifestRejected = false;
-            try { LocalAsrPolicy.readManifest(model.toString()); }
+            try { LocalAsrPolicy.readManifest(model.toString(), root); }
             catch (IOException expected) { linkedManifestRejected = true; }
             check(linkedManifestRejected, "a symlinked model manifest cannot be read");
             Files.delete(manifest);
@@ -60,13 +83,13 @@ public final class LocalAsrPolicySmoke {
             Files.delete(externalModel.resolve(LocalAsrPolicy.MANIFEST));
             Files.delete(externalModel);
             Files.write(manifest, new byte[(int) LocalAsrPolicy.MAX_MANIFEST_BYTES + 1]);
-            check(!LocalAsrPolicy.installed(model.toString()), "an oversized manifest is refused");
+            check(!LocalAsrPolicy.installed(model.toString(), root), "an oversized manifest is refused");
             boolean rejected = false;
-            try { LocalAsrPolicy.readManifest(model.toString()); }
+            try { LocalAsrPolicy.readManifest(model.toString(), root); }
             catch (IOException expected) { rejected = true; }
             check(rejected, "an oversized manifest is rejected before allocation");
-            check(!LocalAsrPolicy.installed(manifest.toString()), "a file is not a model directory");
-            check(!LocalAsrPolicy.installed(root.resolve("missing").toString()) && !LocalAsrPolicy.installed(null), "a missing directory is not installed");
+            check(!LocalAsrPolicy.installed(manifest.toString(), root), "a file is not a model directory");
+            check(!LocalAsrPolicy.installed(root.resolve("missing").toString(), root) && !LocalAsrPolicy.installed(null, root), "a missing directory is not installed");
             Files.delete(manifest);
             Files.delete(model);
         } finally {

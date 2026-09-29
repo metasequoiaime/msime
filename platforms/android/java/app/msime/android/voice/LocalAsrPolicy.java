@@ -46,14 +46,13 @@ public final class LocalAsrPolicy {
         return modelPath.startsWith("/");
     }
 
-    /** Whether `modelPath` is an installed model directory: it exists and holds the manifest. */
-    public static boolean installed(String modelPath) {
-        if (modelPath == null || modelPath.isEmpty()) return false;
+    /** Whether `modelPath` is an installed model directory below the trusted app files root. */
+    public static boolean installed(String modelPath, Path trustedRoot) {
+        if (modelPath == null || modelPath.isEmpty() || trustedRoot == null) return false;
         try {
-            Path model = Paths.get(modelPath);
+            Path model = trustedModelPath(modelPath, trustedRoot);
             Path manifest = model.resolve(MANIFEST);
-            return !Files.isSymbolicLink(model)
-                && Files.isDirectory(model, LinkOption.NOFOLLOW_LINKS)
+            return Files.isDirectory(model, LinkOption.NOFOLLOW_LINKS)
                 && Files.isRegularFile(manifest, LinkOption.NOFOLLOW_LINKS)
                 && Files.size(manifest) > 0 && Files.size(manifest) <= MAX_MANIFEST_BYTES;
         } catch (java.nio.file.InvalidPathException | IOException | SecurityException error) {
@@ -62,15 +61,16 @@ public final class LocalAsrPolicy {
     }
 
     /** Reads the manifest with a hard cap, so a file that grows after inspection cannot cause an unbounded allocation. */
-    public static byte[] readManifest(String modelPath) throws IOException {
-        if (modelPath == null || modelPath.isEmpty()) throw new IOException("manifest unavailable");
+    public static byte[] readManifest(String modelPath, Path trustedRoot) throws IOException {
+        if (modelPath == null || modelPath.isEmpty() || trustedRoot == null)
+            throw new IOException("manifest unavailable");
         final Path model;
         try {
-            model = Paths.get(modelPath);
+            model = trustedModelPath(modelPath, trustedRoot);
         } catch (java.nio.file.InvalidPathException error) {
             throw new IOException("manifest unavailable", error);
         }
-        if (Files.isSymbolicLink(model) || !Files.isDirectory(model, LinkOption.NOFOLLOW_LINKS))
+        if (!Files.isDirectory(model, LinkOption.NOFOLLOW_LINKS))
             throw new IOException("manifest unavailable");
         Path manifest = model.resolve(MANIFEST);
         if (!Files.isRegularFile(manifest, LinkOption.NOFOLLOW_LINKS))
@@ -88,6 +88,29 @@ public final class LocalAsrPolicy {
             if (bytes.size() == 0) throw new IOException("manifest empty");
             return bytes.toByteArray();
         }
+    }
+
+    /** Resolve a model path only when every component below the app's trusted files root is a real directory. */
+    private static Path trustedModelPath(String modelPath, Path trustedRoot) throws IOException {
+        if (!trustedRoot.isAbsolute()) throw new IOException("manifest unavailable");
+        Path root = trustedRoot.normalize();
+        Path model = Paths.get(modelPath);
+        if (!model.isAbsolute()) throw new IOException("manifest unavailable");
+        model = model.normalize();
+        if (!model.startsWith(root) || model.equals(root)) throw new IOException("manifest unavailable");
+        if (Files.isSymbolicLink(root)
+                || !Files.isDirectory(root, LinkOption.NOFOLLOW_LINKS))
+            throw new IOException("manifest unavailable");
+        Path current = root;
+        for (Path component : root.relativize(model)) {
+            current = current.resolve(component);
+            if (Files.isSymbolicLink(current)
+                    || (Files.exists(current, LinkOption.NOFOLLOW_LINKS)
+                        && !Files.isDirectory(current, LinkOption.NOFOLLOW_LINKS))) {
+                throw new IOException("manifest unavailable");
+            }
+        }
+        return model;
     }
 
     /** Whether the model's manifest asks for post-correction rather than native biasing. */

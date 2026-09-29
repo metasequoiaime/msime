@@ -8,6 +8,7 @@ import android.media.AudioRecord;
 import android.media.MediaRecorder;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
@@ -105,11 +106,11 @@ public final class LocalAsrRecognizer {
      * @param hostOptions the runtime options document (HostOptions) the hotwords are read with when none are supplied; empty skips hotwords
      * @param hotwordTexts the words the shared layer already resolved (the Tauri request's `hotwords`), parallel to `hotwordPinyin`; null or empty reads them through `hostOptions` instead
      */
-    public String recognize(String modelDirectory, String language, String hostOptions,
+    public String recognize(String modelDirectory, Path trustedRoot, String language, String hostOptions,
                             String[] hotwordTexts, String[] hotwordPinyin,
                             Listener listener) throws Refused {
-        if (!LocalAsrPolicy.installed(modelDirectory)) throw new Refused(Failure.MODEL);
-        String hotwordMode = hotwordMode(modelDirectory);
+        if (!LocalAsrPolicy.installed(modelDirectory, trustedRoot)) throw new Refused(Failure.MODEL);
+        String hotwordMode = hotwordMode(modelDirectory, trustedRoot);
         if (hotwordMode == null) throw new Refused(Failure.MODEL);
         JSONArray hotwords = supplied(hotwordTexts, hotwordPinyin);
         if (hotwords.length() == 0) hotwords = hotwords(hostOptions);
@@ -244,9 +245,9 @@ public final class LocalAsrRecognizer {
     }
 
     /** The manifest's hotword mode ("native", "pinyin" or ""), or null when it is not a manifest. */
-    private static String hotwordMode(String modelDirectory) {
+    private static String hotwordMode(String modelDirectory, Path trustedRoot) {
         try {
-            byte[] bytes = LocalAsrPolicy.readManifest(modelDirectory);
+            byte[] bytes = LocalAsrPolicy.readManifest(modelDirectory, trustedRoot);
             JSONObject manifest = new JSONObject(new String(bytes, StandardCharsets.UTF_8));
             if (manifest.isNull("hotwords")) return "";
             return manifest.optString("hotwords", "");

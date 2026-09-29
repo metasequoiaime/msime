@@ -433,7 +433,7 @@ public final class VoiceRecognitionActivity extends Activity {
             String text = null;
             String message = null;
             try {
-                text = running.recognize(modelDirectory, language, runtimeOptions(files),
+                text = running.recognize(modelDirectory, files.toPath(), language, runtimeOptions(files),
                     hotwordTexts, hotwordPinyin,
                     partial -> runOnUiThread(() -> {
                         if (!finished && recordingHint != null) recordingHint.setText(partial);
