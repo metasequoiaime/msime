@@ -401,6 +401,11 @@ fn validates_public_inputs_and_tokens() {
     let mut invalid = tokens(b'a', b'b', 900);
     invalid.access_token = token(b'A');
     assert_eq!(validate_tokens(&invalid), Err(AccountError::Unavailable));
+
+    let mut unbounded = tokens(b'a', b'b', 86_400 * 30 + 1);
+    assert_eq!(validate_tokens(&unbounded), Err(AccountError::Unavailable));
+    unbounded.expires_in = 86_400 * 30;
+    assert!(validate_tokens(&unbounded).is_ok());
 }
 
 #[test]
