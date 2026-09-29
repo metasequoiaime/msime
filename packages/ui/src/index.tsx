@@ -1358,7 +1358,7 @@ export type VoiceInputPreferences = {
   doubao_boosting_table_id?: string;
   [key: string]: unknown;
 };
-export { AI_PROVIDER_OPTIONS } from "./settings/ai-provider-options";
+export { AI_PROVIDER_OPTIONS, aiProviderOption } from "./settings/ai-provider-options";
 export { aiProviderUpdate } from "./settings/ai-provider-update";
 
 export type ExternalSkinCatalog = {
