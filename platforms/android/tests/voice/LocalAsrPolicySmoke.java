@@ -6,6 +6,8 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Comparator;
+import java.util.stream.Stream;
 
 /** When this host runs on-device recognition, and the hotword list it hands the native session. */
 public final class LocalAsrPolicySmoke {
@@ -33,6 +35,30 @@ public final class LocalAsrPolicySmoke {
             check(LocalAsrPolicy.installed(model.toString()), "a directory with its manifest is installed");
             check(new String(LocalAsrPolicy.readManifest(model.toString()), StandardCharsets.UTF_8)
                 .equals("{\"hotwords\":\"pinyin\"}"), "the manifest is read as bounded bytes");
+            Path externalModel = root.resolve("external-model");
+            Files.createDirectories(externalModel);
+            Files.writeString(externalModel.resolve(LocalAsrPolicy.MANIFEST), "synthetic");
+            Path linkedModel = root.resolve("linked-model");
+            Files.createSymbolicLink(linkedModel, externalModel);
+            check(!LocalAsrPolicy.installed(linkedModel.toString()), "a symlinked model directory is refused");
+            boolean linkedModelRejected = false;
+            try { LocalAsrPolicy.readManifest(linkedModel.toString()); }
+            catch (IOException expected) { linkedModelRejected = true; }
+            check(linkedModelRejected, "a symlinked model directory cannot be read");
+            Files.delete(linkedModel);
+            Path externalManifest = root.resolve("external-manifest.json");
+            Files.writeString(externalManifest, "synthetic");
+            Files.delete(manifest);
+            Files.createSymbolicLink(manifest, externalManifest);
+            check(!LocalAsrPolicy.installed(model.toString()), "a symlinked model manifest is refused");
+            boolean linkedManifestRejected = false;
+            try { LocalAsrPolicy.readManifest(model.toString()); }
+            catch (IOException expected) { linkedManifestRejected = true; }
+            check(linkedManifestRejected, "a symlinked model manifest cannot be read");
+            Files.delete(manifest);
+            Files.delete(externalManifest);
+            Files.delete(externalModel.resolve(LocalAsrPolicy.MANIFEST));
+            Files.delete(externalModel);
             Files.write(manifest, new byte[(int) LocalAsrPolicy.MAX_MANIFEST_BYTES + 1]);
             check(!LocalAsrPolicy.installed(model.toString()), "an oversized manifest is refused");
             boolean rejected = false;
@@ -44,7 +70,12 @@ public final class LocalAsrPolicySmoke {
             Files.delete(manifest);
             Files.delete(model);
         } finally {
-            Files.delete(root);
+            try (Stream<Path> paths = Files.walk(root)) {
+                paths.sorted(Comparator.reverseOrder()).forEach(path -> {
+                    try { Files.deleteIfExists(path); }
+                    catch (Exception error) { throw new IllegalStateException(error); }
+                });
+            }
         }
 
         check(LocalAsrPolicy.correctsByPinyin("pinyin"), "pinyin mode corrects after decoding");
