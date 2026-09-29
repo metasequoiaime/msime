@@ -1878,29 +1878,6 @@ export function SettingsPage({
   useLayoutEffect(() => {
     if (settingsContentRef.current) settingsContentRef.current.scrollTop = 0;
   }, [page]);
-  // Mobile hosts use the WebView history stack for the system back gesture. The
-  // native activity can therefore dismiss a nested page without the shared UI
-  // having to know which Android/iOS navigation API is in use.
-  useEffect(() => {
-    if (!mobilePlatform || typeof window === "undefined") return;
-    const current = window.history.state;
-    if (!current || current.msimeSettings !== true) {
-      window.history.replaceState(
-        { ...(current && typeof current === "object" ? current : {}), msimeSettings: true, page },
-        "",
-      );
-    }
-    const onPopState = (event: PopStateEvent) => {
-      const state = event.state;
-      if (state?.msimeSettings === true && typeof state.page === "string") {
-        const restored = requestedPage(state.page);
-        mobileLastPageByTab.current[mobileTabForPage(restored)] = restored;
-        setPage(restored);
-      }
-    };
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
-  }, [mobilePlatform]);
   const [communityDestination, setCommunityDestination] = useState<
     AccountCommunityDestination | "all"
   >("all");
