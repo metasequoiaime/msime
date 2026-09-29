@@ -56,7 +56,6 @@ export {
   type InitialSettingsPageOptions,
   type SettingsPageId,
 } from "./settings/mobile-navigation";
-import { useSettingsNavigation } from "./settings/use-settings-navigation";
 export {
   useSettingsNavigation,
   type SettingsNavigationOptions,
@@ -315,21 +314,10 @@ export {
   type ClipboardHistoryPreferencesSource,
 } from "./settings/clipboard-history-preferences";
 import { useTouchKeyboardSchemeSelection } from "./settings/use-touch-keyboard-scheme-selection";
-import { useSettingsDestinationActions } from "./settings/use-settings-destination-actions";
 import { useMacosSettings } from "./settings/use-macos-settings";
+import { useSettingsPageActions } from "./settings/use-settings-page-actions";
 import { useWindowState } from "./settings/use-window-state";
 import { useWindowResizeCapture } from "./settings/use-window-resize-capture";
-import { useAccountPageActions } from "./settings/use-account-page-actions";
-import { createSettingsExternalActions } from "./settings/settings-external-actions";
-import { createAboutSettingsActions } from "./settings/about-settings-actions";
-import { createScreenKeyboardActions } from "./settings/screen-keyboard-actions";
-import { createShortcutsSettingsActions } from "./settings/shortcuts-settings-actions";
-import { createHelpcodeSettingsActions } from "./settings/helpcode-settings-actions";
-import { createUtilitiesSettingsActions } from "./settings/utilities-settings-actions";
-import { createSettingsNavigationActions } from "./settings/settings-navigation-actions";
-import { createSettingsReloadAction } from "./settings/settings-reload-action";
-import { createSettingsStatusActions } from "./settings/settings-status-actions";
-import { createSettingsPageSelection } from "./settings/settings-page-selection";
 import { useAppVersion } from "./settings/use-app-version";
 import { supportDiagnostics } from "./settings/support-diagnostics";
 import { useMountedRef } from "./settings/use-mounted-ref";
@@ -390,6 +378,11 @@ export {
   useSettingsDestinationActions,
   type UseSettingsDestinationActionsOptions,
 } from "./settings/use-settings-destination-actions";
+export {
+  useSettingsPageActions,
+  type UseSettingsPageActionsOptions,
+  type UseSettingsPageActionsResult,
+} from "./settings/use-settings-page-actions";
 export { useMacosSettings, type UseMacosSettingsOptions } from "./settings/use-macos-settings";
 export { useWindowState, type UseWindowStateOptions } from "./settings/use-window-state";
 export { useAppVersion, type UseAppVersionOptions } from "./settings/use-app-version";
@@ -604,7 +597,6 @@ import {
 import { ChatPage, type ChatClient } from "./chat/chat-page";
 import { HomePage, MoreSettingsPage, type HomePageActions } from "./keyboard/home-page";
 import { CommunitySkinsPage, type CommunitySkinClient } from "./community/community-skins";
-import { communityDestinationView } from "./community/community-destination";
 import {
   CommunityHomePage,
   CommunityResourcesPage,
@@ -2336,8 +2328,30 @@ export function SettingsPage({
     harmony: harmonyPlatform,
     macos: macosPlatform,
   });
-  const { mobileActiveTab, selectPage, selectMobileTab, openAccountLogin, finishAccountLogin } =
-    useSettingsNavigation({
+  const {
+    mobileActiveTab,
+    selectPage,
+    selectMobileTab,
+    openAccountLogin,
+    finishAccountLogin,
+    openAbout,
+    openCommunity,
+    openCommunityAll,
+    openLocalDesigns,
+    accountPageActions,
+    settingsExternalActions,
+    aboutSettingsActions,
+    screenKeyboardActions,
+    shortcutsSettingsActions,
+    helpcodeSettingsActions,
+    utilitiesSettingsActions,
+    settingsNavigationActions,
+    reloadSettings,
+    settingsStatusActions,
+    settingsPageSelection,
+    communityView,
+  } = useSettingsPageActions({
+    navigation: {
       mobilePlatform,
       mobileHiddenPageIds,
       availablePages,
@@ -2349,76 +2363,69 @@ export function SettingsPage({
       setCommunityDestination,
       setAccountLoginReturnPage,
       accountLoginReturnPage,
-    });
-  const { openAbout, openCommunity, openCommunityAll, openLocalDesigns } =
-    useSettingsDestinationActions({
-      selectPage,
+    },
+    destination: {
       setShowTouchSkinEditor,
       setCommunityDestination,
-    });
-  const accountPageActions = useAccountPageActions({
-    hasAccountLoginReturnPage: Boolean(accountLoginReturnPage),
-    finishAccountLogin,
-    openLocalDesigns: client.customTouchKeyboardSkins ? openLocalDesigns : undefined,
-    openCommunity: client.communitySkins && client.communityResources ? openCommunity : undefined,
-    openCloudDictionary: client.openCloudDictionary,
-    openCloudClipboard: client.openCloudClipboard,
-    mobile: mobilePlatform,
-    canOpenExternalUrl: Boolean(client.openExternalUrl),
-    openExternalUrl,
-    onReplayOnboarding,
-    openAbout,
-    setError,
+    },
+    account: {
+      openLocalDesignsAvailable: Boolean(client.customTouchKeyboardSkins),
+      openCommunityAvailable: Boolean(client.communitySkins && client.communityResources),
+      openCloudDictionary: client.openCloudDictionary,
+      openCloudClipboard: client.openCloudClipboard,
+      mobile: mobilePlatform,
+      canOpenExternalUrl: Boolean(client.openExternalUrl),
+      openExternalUrl,
+      onReplayOnboarding,
+      setError,
+    },
+    external: {
+      mobile: mobilePlatform,
+      canOpenExternalUrl: Boolean(client.openExternalUrl),
+      openExternalUrl,
+      issuesUrl: platformIssuesUrl,
+      openSystemKeyboardSettings: client.openSystemKeyboardSettings,
+    },
+    about: {
+      draft,
+      diagnosticLog,
+      checkForUpdate,
+      chooseDataDirectory,
+      confirmUninstall,
+      setDraft,
+    },
+    screenKeyboard: {
+      draft,
+      setShowTouchSkinEditor,
+      saveMobileKeyboardFeedback,
+      mobileKeyboardFeedback,
+      resetTouchKeyboardSettings,
+      openScreenKeyboard: client.openScreenKeyboard,
+      openPanel,
+      setDraft,
+    },
+    shortcuts: {
+      draft,
+      keybindings,
+      setDraft,
+    },
+    helpcode: { draft, setDraft },
+    utilities: { draft, setDraft },
+    navigationActions: {
+      chatAvailable: Boolean(client.chat),
+      openPanel,
+      openHandwriting: client.openHandwriting,
+      restoreDefaults,
+    },
+    reload: { dirty, reload, confirm },
+    status: {
+      recoverPreferences,
+      inputSourceStartup: client.inputSourceStartup,
+      setInputSourceStartup,
+    },
+    selection: {},
+    communityDestination,
   });
-  const settingsExternalActions = createSettingsExternalActions({
-    mobile: mobilePlatform,
-    canOpenExternalUrl: Boolean(client.openExternalUrl),
-    openExternalUrl,
-    issuesUrl: platformIssuesUrl,
-    openSystemKeyboardSettings: client.openSystemKeyboardSettings,
-  });
-  const aboutSettingsActions = createAboutSettingsActions({
-    draft,
-    diagnosticLog,
-    checkForUpdate,
-    chooseDataDirectory,
-    confirmUninstall,
-    selectPage,
-    setDraft,
-  });
-  const screenKeyboardActions = createScreenKeyboardActions({
-    draft,
-    openCommunity: openCommunityAll,
-    setShowTouchSkinEditor,
-    saveMobileKeyboardFeedback,
-    mobileKeyboardFeedback,
-    resetTouchKeyboardSettings,
-    openScreenKeyboard: client.openScreenKeyboard,
-    openPanel,
-    setDraft,
-  });
-  const shortcutsSettingsActions = createShortcutsSettingsActions({
-    draft,
-    keybindings,
-    setDraft,
-  });
-  const helpcodeSettingsActions = createHelpcodeSettingsActions({ draft, setDraft });
-  const utilitiesSettingsActions = createUtilitiesSettingsActions({ draft, setDraft });
-  const settingsNavigationActions = createSettingsNavigationActions({
-    selectPage,
-    chatAvailable: Boolean(client.chat),
-    openPanel,
-    openHandwriting: client.openHandwriting,
-    restoreDefaults,
-  });
-  const reloadSettings = createSettingsReloadAction({ dirty, reload, confirm });
-  const settingsStatusActions = createSettingsStatusActions({
-    recoverPreferences,
-    inputSourceStartup: client.inputSourceStartup,
-    setInputSourceStartup,
-  });
-  const settingsPageSelection = createSettingsPageSelection({ selectPage });
-  const communityView = communityDestinationView(communityDestination);
   return (
     <div
       className={settings.shell}
