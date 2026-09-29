@@ -47,7 +47,6 @@ import {
   initialMobileTabPages,
   initialSettingsPage,
   mobileHeaderlessPageIds,
-  splitMobilePages,
   type SettingsPageId,
 } from "./settings/mobile-navigation";
 export {
@@ -81,7 +80,12 @@ export {
   settingsSidebarGroups,
   type SettingsSidebarGroupsOptions,
 } from "./settings/sidebar-groups";
-import { mobileHiddenPageIds as getMobileHiddenPageIds } from "./settings/mobile-hidden-pages";
+import { settingsPageCatalog } from "./settings/settings-page-catalog";
+export {
+  settingsPageCatalog,
+  type SettingsPageCatalog,
+  type SettingsPageCatalogOptions,
+} from "./settings/settings-page-catalog";
 import { createSettingsDraftActions } from "./settings/settings-draft-actions";
 export {
   createSettingsDraftActions,
@@ -2309,7 +2313,13 @@ export function SettingsPage({
   const installerTrust = availableUpdate
     ? describeInstallerTrust(availableUpdate, releasePlatform)
     : null;
-  const availablePages = availableSettingsPages({
+  const {
+    availablePages,
+    mobileHiddenPageIds,
+    sidebarGroups,
+    mobilePrimaryPages,
+    mobileSecondaryPages,
+  } = settingsPageCatalog({
     home: Boolean(client.home),
     typingStatistics: Boolean(client.typingStatistics),
     vocabularyReview: Boolean(client.vocabularyReview),
@@ -2318,53 +2328,14 @@ export function SettingsPage({
     community: Boolean(client.communitySkins || client.communityResources),
     floatingToolbar: showFloatingToolbar,
     mobile: mobilePlatform,
-  });
-  // Physical-keyboard shortcuts and a desktop floating toolbar have no phone
-  // surface. HarmonyOS keeps those controls in the input-method panel on a 2-in-1,
-  // but its phone panel is still a touch keyboard, so the settings entry must not
-  // leak the PC key descriptions into the phone's "全部设置" list.
-  //
-  // Helper codes are per-host rather than per-form-factor. The Android keyboard
-  // sends them: Shift during a quanpin or shuangpin composition passes the next
-  // letter to the Engine as a helper code, and the Engine reads the schema and
-  // the candidate-row hint from these very preferences. Hiding the page left
-  // that shipping feature with no way to pick a schema or turn it off. The
-  // iOS keyboard extension marks a helper code the same way, so the page also
-  // follows the host's `helpcode_shift_entry`; the platform names stay for
-  // hosts that predate the capability.
-  //
-  // HarmonyOS was in the hidden list while shipping the same input: its
-  // ChineseHelpcodePolicy is the Android one, ported, and the session calls it
-  // on every shifted key. So it keeps the helper-code page, while the physical
-  // keyboard shortcut page is only available on the 2-in-1 branch where the
-  // corresponding capability projection is true.
-  // The shortcuts page carries the hardware-keyboard chords, so it is hidden where the host does
-  // not route any of them rather than where the platform happens to be a phone. Any of these
-  // devices can have a keyboard attached, and its owner has to be able to reach the switches the
-  // host already reads; hiding the page by platform name left them unreachable on Android.
-  const mobileHiddenPageIds: readonly SettingsPageId[] = getMobileHiddenPageIds({
     modeSwitchShortcuts: showModeSwitchShortcuts,
     panelShortcuts: showPanelShortcuts,
     desktopMaintenanceShortcuts: showDesktopMaintenanceShortcuts,
     helpcodeShiftEntry: showHelpcodeShiftEntry,
     android: androidPlatform,
     harmony: harmonyPlatform,
-  });
-  const sidebarGroups = settingsSidebarGroups(availablePages, {
-    mobile: mobilePlatform,
-    hiddenPageIds: mobileHiddenPageIds,
     macos: macosPlatform,
   });
-  // Walked in tab order rather than filtered out of `availablePages`, which is in the order the
-  // pages happen to be declared in — that put 我的 second, and the bar read 键盘 / 我的 / 社区 / 统计
-  // against the source's 键盘 / 社区 / 统计 / 我的.
-  // A page without a tab of its own was reached from inside the 键盘 tab, so that is the tab still
-  // standing on. Keyed off the page alone, the bar went blank the moment anyone opened one — nothing
-  // lit, and no way to read where in the app you were.
-  const { primary: mobilePrimaryPages, secondary: mobileSecondaryPages } = splitMobilePages(
-    availablePages,
-    mobileHiddenPageIds,
-  );
   const { mobileActiveTab, selectPage, selectMobileTab, openAccountLogin, finishAccountLogin } =
     useSettingsNavigation({
       mobilePlatform,
