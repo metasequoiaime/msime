@@ -422,7 +422,14 @@ enum CustomServiceClient {
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
     request.timeoutInterval = 60
-    if !token.isEmpty { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+    if !token.isEmpty {
+      if url.host?.caseInsensitiveCompare("api.anthropic.com") == .orderedSame {
+        request.setValue(token, forHTTPHeaderField: "x-api-key")
+        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+      } else {
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+      }
+    }
     if kind == .voice {
       guard let wav else { throw ServiceFailure(message: "请先录音。") }
       let multipart = try AppServicesBridge.transcriptionBody(wav, model: configuration.model, language: language)

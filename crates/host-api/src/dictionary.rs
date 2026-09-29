@@ -460,9 +460,10 @@ fn queued_import(
         truncated: false,
         swapped: false,
     });
-    let mut words = Vec::new();
-    let mut identities = std::collections::HashSet::new();
-    let mut rejected_lines = Vec::new();
+    let capacity = entries.len().min(MAX_QUEUED_IMPORT);
+    let mut words = Vec::with_capacity(capacity);
+    let mut identities = std::collections::HashSet::with_capacity(capacity);
+    let mut rejected_lines = Vec::with_capacity(entries.len());
     for (index, entry) in entries.into_iter().enumerate() {
         let Ok(word) = normalize_personal_word(PersonalWord {
             kind: personal_kind(entry.kind),
@@ -984,7 +985,7 @@ fn user_entries_page(
     }
     // The Engine pages the whole store in one sequence with no kind or prefix filter, so the selection happens here. Doing it on the client meant asking for 100 rows and discarding most of them: a user with more than a page of pinyin words who selected 五笔 saw an empty page 1 even though wubi entries existed.
     let mut selector = PageSelector::new(offset, limit);
-    let mut entries: Vec<Entry> = Vec::new();
+    let mut entries: Vec<Entry> = Vec::with_capacity(limit);
     let mut has_more = false;
     let mut scanned = 0usize;
     // Bound the work: a store with very few matches must not turn one request into an unbounded scan. Reaching the budget is reported as "there may be more" rather than silently ending the list.
@@ -1371,7 +1372,7 @@ fn parse_hans_import(
     {
         return Err("invalid dictionary import".into());
     }
-    let mut entries = Vec::new();
+    let mut entries = Vec::with_capacity(1000);
     for line in text.lines() {
         let word = line.trim();
         if word.is_empty() || word.starts_with('#') {
@@ -1499,7 +1500,7 @@ pub fn user_quick_phrases(
     .ok_or("dictionary maintenance busy")?;
     let prefix = code_prefix.trim();
     let mut selector = PageSelector::new(offset, limit);
-    let mut phrases = Vec::new();
+    let mut phrases = Vec::with_capacity(limit);
     let mut has_more = false;
     scan_user_quick_phrases(options, |entry| {
         if !entry.matches(Some(Kind::QuickPhrase), prefix) {

@@ -23,7 +23,7 @@ nlohmann::json response(char *raw) {
 } // namespace
 ServerSession::ServerSession(uint64_t client_id, const std::string &options)
     : client_(client_id) {
-  if (!client_ || options.size() > 16384 || msime_client_abi_version() != 2)
+  if (!client_ || options.size() > 16384 || msime_client_abi_version() != 3)
     throw std::invalid_argument("Invalid Windows session configuration");
   const auto document = nlohmann::json::parse(options);
   traditional_output_ = document.value("preferences", nlohmann::json::object())

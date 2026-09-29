@@ -19,6 +19,12 @@ export const simplifiedToTraditional: (text: string) => string | null;
 
 export const loadPreferences: (directory: string) => string;
 export const skinCatalog: (directory: string) => string;
+/** The global theme picker: `{themes:[{id,title,appearance,preview,candidate,keyboard}],default}` in picker order. */
+export const themeCatalog: () => string;
+/**
+ * `{global_theme,custom_theme?,dark,layout,skins_directory}` in; `{id,source,appearance,candidate,keyboard,candidate_skin}` out. `skins_directory` reads the applied package from disk, so resolve on a theme, appearance or package change and never while drawing.
+ */
+export const resolveTheme: (request: string) => string;
 /** Staged engine resources in; `{profile,sourceCommit}` from the packaged dictionary manifest out. */
 export const dictionaryManifest: (resources: string) => string;
 /** JSON resource request; returns a structured response containing contentType and byte values. */

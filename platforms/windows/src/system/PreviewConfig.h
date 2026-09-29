@@ -24,19 +24,11 @@ struct PreviewConfig {
   WordCharacterBinding word_character = WordCharacterBinding::Disabled;
   // Optional appearance. Without it the presenters keep their built-in theme.
   std::filesystem::path skin_directory;
-  std::string skin_id;
   bool dark_theme = true;
   // The shipped card lays candidates out on one row; vertical stays available.
   bool horizontal_candidates = true;
   int candidate_font_size = 16;
   int candidate_preedit_font_size = 16;
-  std::string candidate_text_color;
-  std::string candidate_number_color;
-  std::string candidate_surface_color;
-  std::string candidate_border_color;
-  std::string candidate_selected_color;
-  std::string candidate_hover_color;
-  std::string candidate_accent_color;
   std::string candidate_font = "Segoe UI";
   // Supplementary faces tried in order when the main font lacks a glyph.
   std::vector<std::string> candidate_fallback_fonts;
@@ -86,22 +78,19 @@ struct PreviewConfig {
       throw std::invalid_argument("Invalid preview preedit style");
     if (value.contains("appearance")) {
       const auto &appearance = value.at("appearance");
-      if (!appearance.is_object() || appearance.size() > 17 ||
+      if (!appearance.is_object() || appearance.size() > 9 ||
           !appearance.contains("skin_directory") ||
           !appearance.at("skin_directory").is_string())
         throw std::invalid_argument("Invalid preview appearance");
       // The envelope is strict, so appearance is too: an unknown key is far
       // more likely a typo than a future field, and silently ignoring it means
       // the user's setting never applies and nothing says why.
+      // Colours are not here: the card, toolbar and menus are coloured by the global theme in the stored preferences.
       static constexpr std::string_view known[] = {
-          "skin_directory",       "skin",
-          "layout",               "dark_theme",
-          "candidate_font_size",  "candidate_preedit_font_size",
-          "candidate_text_color", "candidate_number_color",
-          "candidate_surface_color", "candidate_border_color",
-          "candidate_selected_color", "candidate_hover_color",
-          "candidate_accent_color",  "candidate_font",
-          "candidate_selected_bar",  "candidate_fallback_fonts",
+          "skin_directory",         "layout",
+          "dark_theme",             "candidate_font_size",
+          "candidate_preedit_font_size", "candidate_font",
+          "candidate_selected_bar", "candidate_fallback_fonts",
           "candidate_preedit_style"};
       for (const auto &entry : appearance.items()) {
         bool recognized = false;
@@ -118,14 +107,6 @@ struct PreviewConfig {
       if (!result.skin_directory.is_absolute() ||
           result.skin_directory.u8string().find('\0') != std::string::npos)
         throw std::invalid_argument("Preview paths must be absolute");
-      if (appearance.contains("skin")) {
-        if (!appearance.at("skin").is_string())
-          throw std::invalid_argument("Invalid preview appearance");
-        result.skin_id = appearance.at("skin").get<std::string>();
-        // The catalog bounds identifiers; refuse anything longer here too.
-        if (result.skin_id.size() > 64)
-          throw std::invalid_argument("Invalid preview appearance");
-      }
       if (appearance.contains("layout")) {
         if (!appearance.at("layout").is_string())
           throw std::invalid_argument("Invalid preview appearance");
@@ -149,41 +130,6 @@ struct PreviewConfig {
         result.candidate_preedit_font_size = appearance.at("candidate_preedit_font_size").get<int>();
         if (result.candidate_preedit_font_size < 8 || result.candidate_preedit_font_size > 48)
           throw std::invalid_argument("Invalid candidate preedit font size");
-      }
-      if (appearance.contains("candidate_text_color")) {
-        result.candidate_text_color = appearance.at("candidate_text_color").get<std::string>();
-        if (result.candidate_text_color.size() > 32)
-          throw std::invalid_argument("Invalid candidate text color");
-      }
-      if (appearance.contains("candidate_number_color")) {
-        result.candidate_number_color = appearance.at("candidate_number_color").get<std::string>();
-        if (result.candidate_number_color.size() > 32)
-          throw std::invalid_argument("Invalid candidate number color");
-      }
-      if (appearance.contains("candidate_surface_color")) {
-        result.candidate_surface_color = appearance.at("candidate_surface_color").get<std::string>();
-        if (result.candidate_surface_color.size() > 32)
-          throw std::invalid_argument("Invalid candidate surface color");
-      }
-      if (appearance.contains("candidate_border_color")) {
-        result.candidate_border_color = appearance.at("candidate_border_color").get<std::string>();
-        if (result.candidate_border_color.size() > 32)
-          throw std::invalid_argument("Invalid candidate border color");
-      }
-      if (appearance.contains("candidate_selected_color")) {
-        result.candidate_selected_color = appearance.at("candidate_selected_color").get<std::string>();
-        if (result.candidate_selected_color.size() > 32)
-          throw std::invalid_argument("Invalid candidate selected color");
-      }
-      if (appearance.contains("candidate_hover_color")) {
-        result.candidate_hover_color = appearance.at("candidate_hover_color").get<std::string>();
-        if (result.candidate_hover_color.size() > 32)
-          throw std::invalid_argument("Invalid candidate hover color");
-      }
-      if (appearance.contains("candidate_accent_color")) {
-        result.candidate_accent_color = appearance.at("candidate_accent_color").get<std::string>();
-        if (result.candidate_accent_color.size() > 32)
-          throw std::invalid_argument("Invalid candidate accent color");
       }
       if (appearance.contains("candidate_font")) {
         result.candidate_font = appearance.at("candidate_font").get<std::string>();

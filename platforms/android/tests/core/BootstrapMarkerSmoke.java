@@ -2,6 +2,8 @@ package app.msime.client;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
+import java.util.stream.Stream;
 import java.nio.charset.StandardCharsets;
 
 public final class BootstrapMarkerSmoke {
@@ -19,6 +21,51 @@ public final class BootstrapMarkerSmoke {
         } finally {
             Files.deleteIfExists(exact);
             Files.deleteIfExists(oversized);
+        }
+        Path root = Files.createTempDirectory("bootstrap-delete-tree");
+        Path outside = Files.createTempDirectory("bootstrap-delete-outside");
+        try {
+            Path sentinel = outside.resolve("keep.txt");
+            Files.writeString(sentinel, "synthetic");
+            Path link = root.resolve("offline-glosses");
+            Files.createSymbolicLink(link, outside);
+            java.lang.reflect.Method deleteTree = Bootstrap.class.getDeclaredMethod("deleteTree", java.io.File.class);
+            deleteTree.setAccessible(true);
+            deleteTree.invoke(null, link.toFile());
+            check(Files.exists(outside));
+            check(Files.exists(sentinel));
+            check(!Files.exists(link));
+        } finally {
+            try (Stream<Path> paths = Files.walk(root)) {
+                paths.sorted(Comparator.reverseOrder()).forEach(path -> {
+                    try { Files.deleteIfExists(path); }
+                    catch (Exception error) { throw new IllegalStateException(error); }
+                });
+            }
+            try (Stream<Path> paths = Files.walk(outside)) {
+                paths.sorted(Comparator.reverseOrder()).forEach(path -> {
+                    try { Files.deleteIfExists(path); }
+                    catch (Exception error) { throw new IllegalStateException(error); }
+                });
+            }
+        }
+        Path boundaryRoot = Files.createTempDirectory("bootstrap-boundary-root");
+        Path boundaryOutside = Files.createTempDirectory("bootstrap-boundary-outside");
+        try {
+            Files.createSymbolicLink(boundaryRoot.resolve("bootstrap"), boundaryOutside);
+            boolean rejected = false;
+            try {
+                Bootstrap.ensureSafeDirectory(boundaryRoot.resolve("bootstrap/resources"));
+            } catch (java.io.IOException expected) {
+                rejected = true;
+            }
+            check(rejected);
+            check(!Files.exists(boundaryOutside.resolve("resources")));
+        } finally {
+            Files.deleteIfExists(boundaryRoot.resolve("bootstrap"));
+            Files.deleteIfExists(boundaryRoot);
+            Files.deleteIfExists(boundaryOutside.resolve("resources"));
+            Files.deleteIfExists(boundaryOutside);
         }
         System.out.println("Android bootstrap marker bounds passed");
     }

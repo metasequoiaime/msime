@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The splash's halo: the design's radial-gradient(circle, rgba(127,224,142,.28) 0%, transparent 65%) on a 320 square. A CSS circle gradient measures to the farthest corner (160 x sqrt 2), so its 65 % stop lands at about 46 % of the side, which is what the radius below reproduces. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <gradient
+        android:type="radial"
+        android:gradientRadius="46%"
+        android:startColor="@color/splash_glow"
+        android:endColor="#007FE08E" />
+</shape>

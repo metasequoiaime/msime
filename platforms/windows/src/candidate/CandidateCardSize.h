@@ -32,11 +32,10 @@ struct CandidateCardInput {
   // Work area caps. At most one pixel means the axis stays uncapped.
   double max_width = 0.0;
   double max_height = 0.0;
-  // Minimum card width asked for by an external skin package, in DIPs. Zero
-  // keeps the width derived from the font size. A mascot skin needs it: the
-  // artwork is drawn against a card of a particular width, and a narrow card
-  // makes the decoration overhang.
+  // Minimum card width asked for by an external skin package, in DIPs. Zero keeps the width derived from the font size. A mascot skin needs it: the artwork is drawn against a card of a particular width, and a narrow card makes the decoration overhang.
   double skin_min_width = 0.0;
+  // Measured width of the page indicator ("1 / 3") at CandidateCardMetrics::pager_font. Zero draws no pager; it shares the preedit row, so it is only drawn when that row is.
+  double page_width = 0.0;
 };
 struct CandidateCardSize {
   double width, height;
@@ -45,10 +44,9 @@ struct CandidateCardSize {
 struct CandidateBounds {
   int x, y, width, height;
 };
-// One source for the card's spacing, so sizing, drawing and hit testing cannot
-// drift apart. Rows are laid out from the top padding downwards.
+// One source for the card's spacing, so sizing, drawing and hit testing cannot drift apart. Rows are laid out from the top padding downwards; the Fluent card pads its rows by 6 on every side.
 struct CandidateCardMetrics {
-  double pad_x = 12.0, pad_y = 8.0, slack_x = 14.0, slack_y = 10.0;
+  double pad_x = 12.0, pad_y = 6.0, slack_x = 14.0, slack_y = 6.0;
   double number_and_bar = 0.0, preedit_row = 0.0, candidate_row = 0.0,
          min_width = 0.0;
   // Annotation and translation runs, as the shipped presenter spaces them: the annotation follows the text 4 DIP later at the same size, the translation is 0.78 of the size and 0.65 of it away. A run moved below the first line takes at least one line of its own font.
@@ -58,6 +56,8 @@ struct CandidateCardMetrics {
   double column_gap = 8.0;
   // Vertical space between two stacked rows, and between two lines of a horizontal page: the shipped presenter's CandidateList itemGap. It belongs to no row, so a click in it selects nothing, as in the shipped card.
   double item_gap = 2.0;
+  // The pager at the right of the preedit row: the page indicator and the previous and next arrows, in the secondary colour at 13 DIP, 12 DIP after the preedit and 12 DIP before the arrows. Each arrow is a square box of pager_arrow for its glyph and its click.
+  double pager_font = 13.0, pager_gap = 12.0, pager_arrow = 16.0;
 };
 inline CandidateCardMetrics candidate_card_metrics(double font_size,
                                                    double preedit_font_size,
@@ -102,7 +102,53 @@ inline CandidateRowBounds candidate_row_bounds(size_t index, size_t count,
           metrics.pad_x / 2.0 + column * static_cast<double>(index + 1),
           top + metrics.candidate_row};
 }
-// The accent bar on the selected row, as the shipped presenter draws it (CandidateList::Render with selectedBarWidth = 3 and selectedBarHeight = fontSize * 0.85): 3 DIP wide and centred on the row's left edge, a fixed height from the font size, never less than twice its width, centred in the row. A row that grows because its text or annotation wrapped keeps the same bar in its middle instead of a stretched one; a row shorter than the bar starts it at the row top. The corner radius is half the width.
+// Width of the pager for an indicator of `indicator_width`: the indicator, the gap and the two arrows. Zero without an indicator.
+inline double candidate_pager_width(double indicator_width,
+                                    const CandidateCardMetrics &metrics) {
+  if (!(indicator_width > 0.0) || !std::isfinite(indicator_width))
+    return 0.0;
+  return indicator_width + metrics.pager_gap + metrics.pager_arrow * 2.0;
+}
+// Where the pager sits in the preedit row of a card `width` wide, in card coordinates: right aligned to the rows' right edge, the arrows last. `left` is the pager's left edge, which the preedit is clipped before, less pager_gap.
+struct CandidatePagerLayout {
+  double left = 0.0;
+  CandidateRowBounds indicator{}, previous{}, next{};
+};
+inline std::optional<CandidatePagerLayout>
+candidate_pager_layout(double width, double indicator_width,
+                       const CandidateCardMetrics &metrics) {
+  const double pager = candidate_pager_width(indicator_width, metrics);
+  if (!(pager > 0.0) || metrics.preedit_row <= 0.0 || !std::isfinite(width) ||
+      width <= 0.0)
+    return std::nullopt;
+  const double top = metrics.pad_y, bottom = metrics.pad_y + metrics.preedit_row;
+  const double right = width - metrics.pad_x / 2.0;
+  CandidatePagerLayout layout;
+  layout.next = {right - metrics.pager_arrow, top, right, bottom};
+  layout.previous = {layout.next.left - metrics.pager_arrow, top,
+                     layout.next.left, bottom};
+  layout.indicator = {layout.previous.left - metrics.pager_gap - indicator_width,
+                      top, layout.previous.left - metrics.pager_gap, bottom};
+  layout.left = layout.indicator.left;
+  return layout;
+}
+// Which arrow of a drawn pager a card point falls on: true for the previous page, false for the next. The previous arrow is inert on the first page. The next one is always live, because the Engine hands candidates over lazily and the page count grows as the user pages.
+inline std::optional<bool>
+candidate_pager_hit(double x, double y,
+                    const std::optional<CandidatePagerLayout> &pager,
+                    bool first_page) {
+  if (!pager || !std::isfinite(x) || !std::isfinite(y))
+    return std::nullopt;
+  auto inside = [x, y](const CandidateRowBounds &box) {
+    return x >= box.left && x < box.right && y >= box.top && y < box.bottom;
+  };
+  if (inside(pager->previous) && !first_page)
+    return true;
+  if (inside(pager->next))
+    return false;
+  return std::nullopt;
+}
+// The Fluent selection pill on the selected row: 3 DIP wide and centred on the row's left edge, 40% of a one-line row tall (never less than twice its width) and centred in the row, so a one-line row has it from 30% to 70% of its height. A row that grows because its text or annotation wrapped keeps the same pill in its middle instead of a stretched one; a row shorter than the pill starts it at the row top. The corner radius is half the width.
 struct CandidateSelectionBar {
   double left, right, top, bottom;
 };
@@ -110,9 +156,9 @@ inline constexpr double candidate_selection_bar_width = 3.0;
 inline CandidateSelectionBar candidate_selection_bar(double row_left,
                                                      double row_top,
                                                      double row_bottom,
-                                                     double font_size) {
+                                                     double line_height) {
   const double width = candidate_selection_bar_width;
-  const double height = (std::max)(font_size * 0.85, width * 2.0);
+  const double height = (std::max)(line_height * 0.4, width * 2.0);
   const double top =
       row_top + (std::max)((row_bottom - row_top - height) * 0.5, 0.0);
   return {row_left - width * 0.5, row_left + width * 0.5, top, top + height};
@@ -289,7 +335,8 @@ inline CandidateCardSize candidate_card_size(const CandidateCardInput &input) {
     return std::isfinite(value) && value >= 0.0;
   };
   if (input.items.size() > 9 || !measured(input.preedit_width) ||
-      !measured(input.max_width) || !measured(input.max_height))
+      !measured(input.page_width) || !measured(input.max_width) ||
+      !measured(input.max_height))
     throw std::invalid_argument("Invalid candidate card measurement");
   for (const auto &item : input.items)
     if (!measured(item.text) || !measured(item.annotation) ||
@@ -313,7 +360,9 @@ inline CandidateCardSize candidate_card_size(const CandidateCardInput &input) {
   double width = 0.0;
   double height = pad_y + slack_y;
   if (input.preedit_visible) {
-    width = (std::max)(width, input.preedit_width + 6.0);
+    const double pager = candidate_pager_width(input.page_width, shape);
+    width = (std::max)(width, input.preedit_width + 6.0 +
+                                  (pager > 0.0 ? shape.pager_gap + pager : 0.0));
     height += preedit_row;
   }
   auto visible = [](const CandidateItemWidths &item) {

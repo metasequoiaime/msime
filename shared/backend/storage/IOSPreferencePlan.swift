@@ -8,10 +8,15 @@ struct IOSPreferencePlan {
   let haptics: Bool?
   let learning: Bool?
   let strength: String?
-  let skin: String?
+  /// `global_theme`, one of `themes`.
+  let globalTheme: String?
+  /// `custom_theme.base`: `system` or a built-in theme, never `custom`.
+  let customThemeBase: String?
+  /// `custom_theme.keyboard`, the keyboard design as JSON; absent when the uploading device had none, which leaves the local design alone.
   let customSkinJSON: String?
 
-  init(_ values: [String: BackendPreferenceValue]) throws {
+  /// `themes` is the global theme catalog of the client-core the app links (`msime_client_theme_catalog`); the plan does not keep its own copy of the ids.
+  init(_ values: [String: BackendPreferenceValue], themes: Set<String>) throws {
     func string(_ key: String) throws -> String? {
       guard let value = values[key] else { return nil }
       guard case .string(let text) = value else { throw BackendAccountClient.Failure(status: 400) }
@@ -48,8 +53,10 @@ struct IOSPreferencePlan {
     learning = try bool("platform.ios.dictionary_learning")
     strength = try string("platform.ios.haptic_strength")
     guard strength == nil || ["light", "medium", "strong"].contains(strength!) else { throw BackendAccountClient.Failure(status: 400) }
-    skin = try string("platform.ios.keyboard_skin")
-    guard skin == nil || ["forest", "ocean", "rose", "porcelain", "typewriter", "candy", "midnight", "blueprint", "custom"].contains(skin!) else { throw BackendAccountClient.Failure(status: 400) }
+    globalTheme = try string("platform.ios.global_theme")
+    guard globalTheme == nil || themes.contains(globalTheme!) else { throw BackendAccountClient.Failure(status: 400) }
+    customThemeBase = try string("platform.ios.custom_theme_base")
+    guard customThemeBase == nil || (themes.contains(customThemeBase!) && customThemeBase != "custom") else { throw BackendAccountClient.Failure(status: 400) }
     customSkinJSON = try string("platform.ios.custom_keyboard_skin")
   }
 }

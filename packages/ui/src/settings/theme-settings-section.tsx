@@ -1,9 +1,14 @@
+import type { ReactNode } from "react";
+import { GroupList, Row, Select } from "../core/platform-controls";
+import { ScreenKeyboardThemeSection } from "./screen-keyboard-theme-section";
+
 export type ThemeMode = "dark" | "light" | "system";
 export type SurfaceTheme = "follow" | "dark" | "light";
 
+/** The surfaces that can hold their own light or dark over the colour mode. The colour mode itself (`theme`) is the 外观 group's segmented control on the 主题 page, not one of these. */
 export type ThemePreferenceKey =
-  | "theme"
   | "settings_theme"
+  | "screen_keyboard_theme"
   | "candidate_theme"
   | "toolbar_theme"
   | "menu_theme"
@@ -11,16 +16,7 @@ export type ThemePreferenceKey =
   | "handwriting_theme"
   | "voice_theme";
 
-export interface ThemePreferences {
-  theme?: ThemeMode;
-  settings_theme?: SurfaceTheme;
-  candidate_theme?: SurfaceTheme;
-  toolbar_theme?: SurfaceTheme;
-  menu_theme?: SurfaceTheme;
-  emoji_theme?: SurfaceTheme;
-  handwriting_theme?: SurfaceTheme;
-  voice_theme?: SurfaceTheme;
-}
+export type ThemePreferences = Partial<Record<ThemePreferenceKey, SurfaceTheme>>;
 
 export interface ThemeSettingsSectionProps {
   preferences: ThemePreferences;
@@ -28,48 +24,37 @@ export interface ThemeSettingsSectionProps {
   linux: boolean;
   floatingToolbar: boolean;
   desktopPanels: boolean;
-  onChange: (key: ThemePreferenceKey, value: ThemeMode | SurfaceTheme) => void;
+  onChange: (key: ThemePreferenceKey, value: SurfaceTheme) => void;
 }
 
-type ThemeSelectProps = {
-  label: string;
-  description?: string;
-  value: ThemeMode | SurfaceTheme;
-  options: readonly { value: ThemeMode | SurfaceTheme; label: string }[];
-  onChange: (value: ThemeMode | SurfaceTheme) => void;
-};
-
-const surfaceThemeOptions = [
-  { value: "follow", label: "跟随全局" },
-  { value: "dark", label: "深色" },
-  { value: "light", label: "浅色" },
-] as const satisfies readonly { value: SurfaceTheme; label: string }[];
-
-function ThemeSelect({ label, description, value, options, onChange }: ThemeSelectProps) {
+/** One of the per-surface light/dark overrides in 高级. */
+function SurfaceThemeRow({
+  title,
+  description,
+  value,
+  onChange,
+}: {
+  title: string;
+  description: ReactNode;
+  value: SurfaceTheme | undefined;
+  onChange: (value: SurfaceTheme) => void;
+}) {
   return (
-    <div className="section">
-      <label className="section-header">
-        <span className="section-title">
-          {label}
-          {description && <small>{description}</small>}
-        </span>
-        <select
-          aria-label={label}
-          value={value}
-          onChange={(event) => onChange(event.target.value as ThemeMode | SurfaceTheme)}
-        >
-          {options.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </label>
-    </div>
+    <Row title={title} description={description}>
+      <Select
+        aria-label={title}
+        value={value ?? "follow"}
+        onChange={(event) => onChange(event.target.value as SurfaceTheme)}
+      >
+        <option value="follow">跟随全局</option>
+        <option value="dark">深色</option>
+        <option value="light">浅色</option>
+      </Select>
+    </Row>
   );
 }
 
-/** Shared appearance theme selectors for desktop and touch settings hosts. */
+/** The 主题 page's 高级 group, shared by desktop and touch settings hosts: each surface can still hold its own light or dark over the colour mode. */
 export function ThemeSettingsSection({
   preferences,
   mobile,
@@ -79,79 +64,68 @@ export function ThemeSettingsSection({
   onChange,
 }: ThemeSettingsSectionProps) {
   return (
-    <>
-      <ThemeSelect
-        label="主题模式"
-        description="设置窗口和各界面的默认明暗模式"
-        value={preferences.theme ?? "system"}
-        options={[
-          { value: "dark", label: "深色" },
-          { value: "light", label: "浅色" },
-          { value: "system", label: "跟随系统" },
-        ]}
-        onChange={(value) => onChange("theme", value)}
-      />
-      <ThemeSelect
-        label="设置界面主题"
-        description="覆盖主题模式，仅影响当前设置窗口"
-        value={preferences.settings_theme ?? "follow"}
-        options={surfaceThemeOptions}
+    <GroupList title="高级">
+      <SurfaceThemeRow
+        title="设置界面主题"
+        description="覆盖颜色模式，仅影响当前设置窗口"
+        value={preferences.settings_theme}
         onChange={(value) => onChange("settings_theme", value)}
       />
-      <ThemeSelect
-        label={mobile ? "候选栏主题" : "候选窗口主题"}
+      <ScreenKeyboardThemeSection
+        mobile={mobile}
+        value={preferences.screen_keyboard_theme ?? "follow"}
+        onChange={(value) => onChange("screen_keyboard_theme", value)}
+      />
+      <SurfaceThemeRow
+        title={mobile ? "候选栏主题" : "候选窗口主题"}
         description={
           mobile
             ? "覆盖候选栏的明暗外观；跟随时使用键盘主题"
             : linux
-              ? "预览跟随主题模式；IBus 候选窗与 Fcitx5 经典界面按此明暗着色"
-              : "预览跟随主题模式"
+              ? "预览跟随颜色模式；IBus 候选窗与 Fcitx5 经典界面按此明暗着色"
+              : "预览跟随颜色模式"
         }
-        value={preferences.candidate_theme ?? "follow"}
-        options={surfaceThemeOptions}
+        value={preferences.candidate_theme}
         onChange={(value) => onChange("candidate_theme", value)}
       />
+      {/* The Linux toolbar is the same desktop-drawn IBus property menu and Fcitx5 status menu, so no Linux host reads toolbar_theme. */}
       {floatingToolbar && !linux && (
-        <ThemeSelect
-          label="悬浮工具栏主题"
-          description="覆盖主题模式；当前影响工具栏设置预览，原生工具栏需宿主支持"
-          value={preferences.toolbar_theme ?? "follow"}
-          options={surfaceThemeOptions}
+        <SurfaceThemeRow
+          title="悬浮工具栏主题"
+          description="覆盖颜色模式；当前影响工具栏设置预览，原生工具栏需宿主支持"
+          value={preferences.toolbar_theme}
           onChange={(value) => onChange("toolbar_theme", value)}
         />
       )}
+      {/* Linux menus are the IBus property menu and the Fcitx5 status menu, drawn by the desktop panel in its own theme. */}
       {!mobile && !linux && (
-        <ThemeSelect
-          label="菜单主题"
+        <SurfaceThemeRow
+          title="菜单主题"
           description="覆盖托盘菜单与候选右键菜单的明暗外观"
-          value={preferences.menu_theme ?? "follow"}
-          options={surfaceThemeOptions}
+          value={preferences.menu_theme}
           onChange={(value) => onChange("menu_theme", value)}
         />
       )}
-      <ThemeSelect
-        label="表情面板主题"
+      <SurfaceThemeRow
+        title="表情面板主题"
         description="覆盖 Emoji、颜文字和符号面板的明暗外观"
-        value={preferences.emoji_theme ?? "follow"}
-        options={surfaceThemeOptions}
+        value={preferences.emoji_theme}
         onChange={(value) => onChange("emoji_theme", value)}
       />
-      <ThemeSelect
-        label="手写识别板主题"
+      <SurfaceThemeRow
+        title="手写识别板主题"
         description="覆盖手写识别板的明暗外观"
-        value={preferences.handwriting_theme ?? "follow"}
-        options={surfaceThemeOptions}
+        value={preferences.handwriting_theme}
         onChange={(value) => onChange("handwriting_theme", value)}
       />
       {desktopPanels && (
-        <ThemeSelect
-          label="语音输入弹出条主题"
+        <SurfaceThemeRow
+          title="语音输入弹出条主题"
           description="覆盖语音输入面板的明暗外观"
-          value={preferences.voice_theme ?? "follow"}
-          options={surfaceThemeOptions}
+          value={preferences.voice_theme}
           onChange={(value) => onChange("voice_theme", value)}
         />
       )}
-    </>
+    </GroupList>
   );
 }

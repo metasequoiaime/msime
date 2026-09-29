@@ -675,7 +675,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     nineKeyContainer.spacing = 6
     let sidebar = UIView()
     sidebar.accessibilityIdentifier = "nineKeySidebar"
-    sidebar.backgroundColor = KeyboardSkinPreference.selected.keyBackground.withAlphaComponent(0.5)
+    sidebar.backgroundColor = KeyboardTheme.current.keyBackground.withAlphaComponent(0.5)
     sidebar.layer.cornerRadius = 8
     punctuationStack.axis = .vertical
     punctuationStack.distribution = .fillEqually
@@ -727,7 +727,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           configuration.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 0, bottom: 0, trailing: 0)
           configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
             var attributes = attributes
-            attributes.font = KeyboardSkinPreference.selected.usesMonospacedFont
+            attributes.font = KeyboardTheme.current.usesMonospacedFont
               ? .monospacedSystemFont(ofSize: 21, weight: .medium) : .systemFont(ofSize: 21, weight: .medium)
             return attributes
           }
@@ -741,7 +741,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           numberHint = number
           number.text = String(digit)
           number.font = .systemFont(ofSize: 10)
-          number.textColor = KeyboardSkinPreference.selected.accent
+          number.textColor = KeyboardTheme.current.accent
           number.accessibilityIdentifier = "keyNumberHint"
           number.translatesAutoresizingMaskIntoConstraints = false
           number.isAccessibilityElement = false
@@ -810,7 +810,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func showNineKeyHoldOptions(from key: UIButton, digit: Int, letters: String) {
     dismissNineKeyHoldOptions()
     playInputClick()
-    let skin = KeyboardSkinPreference.selected
+    let skin = KeyboardTheme.current
     let backdrop = UIView()
     backdrop.accessibilityIdentifier = "nineKeyHoldBackdrop"
     backdrop.backgroundColor = .clear
@@ -880,7 +880,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let container = UIView()
     compositionContainer = container
     container.accessibilityIdentifier = "candidateStrip"
-    container.backgroundColor = KeyboardSkinPreference.selected.keyBackground.withAlphaComponent(0.82)
+    container.backgroundColor = Self.stripBackground(KeyboardTheme.current, palette: nil)
     container.layer.cornerRadius = 12
 
     // The composition gets its own line. Sharing the candidate row cost it up to 28% of the width
@@ -896,7 +896,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // Truncate the tail. The head of a spelling is what tells the typist where a long composition
     // went wrong, so dropping it is dropping the useful half.
     preeditConfiguration.titleLineBreakMode = .byTruncatingTail
-    preeditConfiguration.baseForegroundColor = KeyboardSkinPreference.selected.accent
+    preeditConfiguration.baseForegroundColor = KeyboardTheme.current.accent
     preeditConfiguration.titleTextAttributesTransformer = Self.fontTransformer(
       .subheadline, scale: preeditFontScale)
     preeditButton.configuration = preeditConfiguration
@@ -1001,7 +1001,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let brand = moreShortcut
     brand.brandImageView.image = Self.brandTemplate()
       ?? UIImage(systemName: "leaf.fill")?.withRenderingMode(.alwaysTemplate)
-    brand.brandImageView.tintColor = KeyboardSkinPreference.selected.accent
+    brand.brandImageView.tintColor = KeyboardTheme.current.accent
     shortcutBar.addArrangedSubview(brand)
     brand.widthAnchor.constraint(equalToConstant: 44).isActive = true
     let shortcuts = [layoutShortcut, scriptShortcut, emojiShortcut, skinShortcut, clipboardShortcut, aiShortcut,
@@ -1060,7 +1060,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       var configuration = UIButton.Configuration.plain()
       configuration.title = title
       configuration.image = symbol.flatMap { UIImage(systemName: $0) }
-      configuration.baseForegroundColor = KeyboardSkinPreference.selected.accent
+      configuration.baseForegroundColor = KeyboardTheme.current.accent
       configuration.contentInsets = .zero
       configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
         var attributes = attributes
@@ -1085,7 +1085,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     scriptShortcut.isHidden = inputScheme != .thoughtfulReply && !KeyboardLayoutPreference.voiceShortcutEnabled
     configure(emojiShortcut, title: nil, symbol: "face.smiling", label: "表情", id: "emojiShortcut")
     configure(skinShortcut, title: nil, symbol: "tshirt", label: "切换皮肤", id: "skinShortcut")
-    skinShortcut.accessibilityValue = KeyboardSkinPreference.selected.title
+    skinShortcut.accessibilityValue = KeyboardTheme.current.title
     configure(layoutShortcut, title: nil, symbol: "slider.horizontal.3", label: "键盘设置", id: "layoutShortcut")
     layoutShortcut.accessibilityValue = "默认键位"
     configure(moreShortcut, title: nil, symbol: nil, label: "更多快捷设置", id: "moreShortcut")
@@ -1301,7 +1301,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         attributes.font = .systemFont(ofSize: 14)
         return attributes
       }
-      configuration.baseForegroundColor = KeyboardSkinPreference.selected.accent
+      configuration.baseForegroundColor = KeyboardTheme.current.accent
       button.configuration = configuration
       button.tag = index
       button.isHidden = false
@@ -1405,7 +1405,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func attachHintLabel(to button: UIButton) -> UILabel {
     let label = UILabel()
     label.font = .systemFont(ofSize: 9, weight: .regular)
-    label.textColor = KeyboardSkinPreference.selected.accent.withAlphaComponent(0.8)
+    label.textColor = KeyboardTheme.current.accent.withAlphaComponent(0.8)
     label.textAlignment = .center
     label.numberOfLines = 1
     label.adjustsFontSizeToFitWidth = true
@@ -1444,7 +1444,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     row.distribution = .fill
     row.spacing = 6
 
-    let layoutToggle = makeKey(title: "123", accessibilityLabel: "切换到数字和符号") {
+    let layoutToggle = makeKey(title: "123", accessibilityLabel: "切换到数字和符号", function: true) {
       [weak self] in self?.toggleLayout()
     }
     if var configuration = layoutToggle.configuration {
@@ -1463,7 +1463,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     layoutToggle.titleLabel?.lineBreakMode = .byClipping
     layoutToggle.accessibilityIdentifier = "layoutToggleButton"
     layoutToggleButton = layoutToggle
-    nineKeySymbolsButton = makeKey(title: "符", accessibilityLabel: "符号") { [weak self] in
+    nineKeySymbolsButton = makeKey(title: "符", accessibilityLabel: "符号", function: true) { [weak self] in
       self?.showSymbolPanel()
     }
     nineKeySymbolsButton.configuration?.contentInsets = .zero
@@ -1509,7 +1509,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     space.addGestureRecognizer(pan)
     spaceButton = space
     row.addArrangedSubview(space)
-    let language = makeKey(title: "中/英", accessibilityLabel: "切换中英文") { [weak self] in self?.toggleInputMode() }
+    let language = makeKey(title: "中/英", accessibilityLabel: "切换中英文", function: true) { [weak self] in self?.toggleInputMode() }
     language.configuration?.contentInsets = .zero
     language.configuration?.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
       var attributes = attributes
@@ -1523,7 +1523,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     fullSymbolsWidth = nineKeySymbolsButton.widthAnchor.constraint(equalToConstant: 34)
     row.addArrangedSubview(language)
 
-    let enter = makeKey(title: "换行", accessibilityLabel: "换行", emphasized: true) { [weak self] in
+    let enter = makeKey(title: "换行", accessibilityLabel: "换行", function: true) { [weak self] in
       self?.handleReturn()
     }
     enter.accessibilityIdentifier = "returnKey"
@@ -1942,19 +1942,19 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     switch letterCaseState {
     case .lowercase:
       configuration.image = UIImage(systemName: "shift")
-      configuration.background.backgroundColor = KeyboardSkinPreference.selected.keyBackground
+      configuration.background.backgroundColor = KeyboardTheme.current.functionKeyBackground
       button.accessibilityLabel = isChineseMode ? "切换到英文大写" : "大写"
       button.accessibilityValue = "关闭"
     case .shifted:
       configuration.image = UIImage(systemName: "shift.fill")
       configuration.background.backgroundColor =
-        KeyboardSkinPreference.selected.accent.withAlphaComponent(0.22)
+        KeyboardTheme.current.accent.withAlphaComponent(0.22)
       button.accessibilityLabel = "大写"
       button.accessibilityValue = isAutomaticShift ? "自动开启" : "下一字母"
     case .capsLock:
       configuration.image = UIImage(systemName: "capslock.fill")
       configuration.background.backgroundColor =
-        KeyboardSkinPreference.selected.accent.withAlphaComponent(0.32)
+        KeyboardTheme.current.accent.withAlphaComponent(0.32)
       button.accessibilityLabel = "大写锁定"
       button.accessibilityValue = "开启"
     }
@@ -1965,12 +1965,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func updateLanguageModeButton() {
     var configuration = UIButton.Configuration.filled()
     configuration.title = isChineseMode ? (inputScheme.isJapanese ? "日" : "中") : "英"
-    configuration.baseForegroundColor = KeyboardSkinPreference.selected.actionForeground
-    configuration.baseBackgroundColor = KeyboardSkinPreference.selected.actionBackground
+    // A function key like 123 in the design (`X('中')`, dc.html L2217); only return is ever emphasized.
+    configuration.baseForegroundColor = KeyboardTheme.current.keyForeground
+    configuration.baseBackgroundColor = KeyboardTheme.current.functionKeyBackground
     configuration.contentInsets = NSDirectionalEdgeInsets(
       top: 3, leading: 5, bottom: 3, trailing: 5)
     configuration.background.cornerRadius = 8
-    configuration.background.backgroundColor = KeyboardSkinPreference.selected.actionBackground
+    configuration.background.backgroundColor = KeyboardTheme.current.functionKeyBackground
     bottomLanguageButton?.configuration = configuration
     if let button = bottomLanguageButton { decorateKey(button) }
     bottomLanguageButton?.accessibilityIdentifier = "bottomLanguageKey"
@@ -2042,6 +2043,22 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       enterButton?.configuration = configuration
     }
     enterButton?.accessibilityLabel = shownTitle
+    styleReturnKey()
+  }
+
+  /// Return is a function key at rest and fills with the accent only while it commits a composition (`X(..., hasComp)`, dc.html L2217). A keyboard design keeps its own action colour throughout.
+  private func styleReturnKey() {
+    guard let enterButton, var configuration = enterButton.configuration else { return }
+    let skin = KeyboardTheme.current
+    guard skin.design == nil else { return }
+    let emphasized = hasComposition
+    let background = emphasized ? skin.actionBackground : skin.functionKeyBackground
+    let foreground = emphasized ? skin.actionForeground : skin.keyForeground
+    guard configuration.background.backgroundColor != background || configuration.baseForegroundColor != foreground
+    else { return }
+    configuration.background.backgroundColor = background
+    configuration.baseForegroundColor = foreground
+    enterButton.configuration = configuration
   }
 
   private func applyLearningPreferences() {
@@ -2134,13 +2151,21 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private static func fontTransformer(
-    _ style: UIFont.TextStyle, scale: CGFloat, families: [String] = []
+    _ style: UIFont.TextStyle, scale: CGFloat, families: [String] = [], weight: UIFont.Weight = .regular
   ) -> UIConfigurationTextAttributesTransformer {
     UIConfigurationTextAttributesTransformer { attributes in
       var attributes = attributes
-      attributes.font = CandidateFontPreference.font(style, scale: scale, families: families)
+      attributes.font = weighted(CandidateFontPreference.font(style, scale: scale, families: families), weight)
       return attributes
     }
+  }
+
+  /// `font` at `weight`, keeping its family, cascade and size; the regular weight returns it untouched.
+  static func weighted(_ font: UIFont, _ weight: UIFont.Weight) -> UIFont {
+    guard weight != .regular else { return font }
+    var traits = font.fontDescriptor.object(forKey: .traits) as? [UIFontDescriptor.TraitKey: Any] ?? [:]
+    traits[.weight] = weight
+    return UIFont(descriptor: font.fontDescriptor.addingAttributes([.traits: traits]), size: font.pointSize)
   }
 
   private func applyInputScheme() -> MetasequoiaInputSnapshot {
@@ -2448,30 +2473,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     } else if preferences.keys.contains("translation_secondary_language") {
       CandidateTranslationPreference.secondaryIndex = -1
     }
-    var skinChanged = false
-    var customSkinChanged = false
-    let rawSkin = preferences["touch_keyboard_skin"] as? String
-    if let rawSkin,
-       let skin = KeyboardSkin(rawValue: rawSkin), skin != .custom,
-       skin != KeyboardSkinPreference.selected {
-      KeyboardFeedbackPreference.defaults.set(skin.rawValue, forKey: KeyboardSkinPreference.key)
-      skinChanged = true
-    }
-    if let design = preferences["custom_touch_keyboard_skin"] as? [String: Any],
-       JSONSerialization.isValidJSONObject(design),
-       let data = try? JSONSerialization.data(withJSONObject: design),
-       let decoded = try? JSONDecoder().decode(CustomKeyboardSkin.self, from: data) {
-      let normalized = decoded.normalized
-      if normalized != CustomKeyboardSkinStore.current {
-        CustomKeyboardSkinStore.save(normalized)
-        customSkinChanged = true
-      }
-      if rawSkin == KeyboardSkin.custom.rawValue,
-         KeyboardSkinPreference.selected != .custom {
-        KeyboardFeedbackPreference.defaults.set(KeyboardSkin.custom.rawValue, forKey: KeyboardSkinPreference.key)
-        skinChanged = true
-      }
-    }
+    GlobalThemePreference.mirror(preferences)
+    let previousTheme = KeyboardTheme.current
+    let skinChanged = KeyboardTheme.reload(preferences) != previousTheme
     if let spacing = (preferences["touch_key_spacing_tenths"] as? NSNumber)?.doubleValue {
       KeyboardLayoutPreference.keySpacing = spacing / 10
     }
@@ -2495,7 +2499,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if !hasComposition, let selectedScheme, InputSchemePreference.enabledSchemes.contains(selectedScheme) {
       selectInputScheme(selectedScheme, persistShared: false)
     }
-    if skinChanged || customSkinChanged { applyKeyboardSkin() }
+    if skinChanged { applyKeyboardSkin() }
     applyLayoutPreferences()
     updateShortcutButtons()
     updatePreferredKeyboardHeight()
@@ -2532,7 +2536,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   ) {
     var configuration = UIButton.Configuration.plain()
     configuration.image = UIImage(systemName: symbol)
-    configuration.baseForegroundColor = KeyboardSkinPreference.selected.accent
+    configuration.baseForegroundColor = KeyboardTheme.current.accent
     configuration.contentInsets = NSDirectionalEdgeInsets(
       top: 2, leading: 2, bottom: 2, trailing: 2)
     button.configuration = configuration
@@ -2708,7 +2712,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
     var configuration = UIButton.Configuration.plain()
     configuration.image = UIImage(systemName: "keyboard")
-    configuration.baseForegroundColor = KeyboardSkinPreference.selected.accent
+    configuration.baseForegroundColor = KeyboardTheme.current.accent
     configuration.contentInsets = NSDirectionalEdgeInsets(
       top: 3, leading: 4, bottom: 3, trailing: 4)
     // The scheme shortcut uses the same unboxed treatment as the other shared shortcuts. The
@@ -3287,10 +3291,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       insertOwnText(source == .japanese ? commitText : chineseOutput(commitText), source: source,
                     replacingComposition: true)
     }
+    let wasComposing = hasComposition
     hasComposition = !snapshot.preedit.isEmpty
     if !hasComposition || snapshot.commitText != nil { japaneseConversionIndex = nil }
     if inputScheme.isJapanese {
       updateSpaceKeyTitle()
+      updateReturnKey()
+    } else if hasComposition != wasComposing {
+      // With inline preedit off nothing reaches the field, so textDidChange never fires; return switches to 确认 and the accent here, when a composition starts or ends (dc.html L2217).
       updateReturnKey()
     }
     if !hasComposition { applyLearningPreferences() }
@@ -3659,12 +3667,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func makeCandidateButton(index: Int) -> KeyboardKeyButton {
     var configuration = UIButton.Configuration.plain()
     configuration.titleLineBreakMode = .byTruncatingTail
-    configuration.baseForegroundColor = KeyboardSkinPreference.selected.keyForeground
+    configuration.baseForegroundColor = KeyboardTheme.current.keyForeground
     configuration.contentInsets = NSDirectionalEdgeInsets(
       top: 4, leading: 9, bottom: 4, trailing: 9)
-    configuration.background.backgroundColor = KeyboardSkinPreference.selected.keyBackground
-    configuration.background.strokeColor = KeyboardSkinPreference.selected.accent.withAlphaComponent(0.22)
-    configuration.background.strokeWidth = 1
+    // Candidates sit on the keyboard with no chip of their own (dc.html `mobCands`); the fill only shows while converting or with the desktop palette.
+    configuration.background.backgroundColor = .clear
+    configuration.background.strokeWidth = 0
     configuration.background.cornerRadius = 9
 
     let button = KeyboardKeyButton(
@@ -3681,7 +3689,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         completion(self?.candidateMenuElements(at: index) ?? [])
       }
     ])
-    decorateKey(button)
+    // Key feedback without a key surface: a candidate is text, not a key.
+    button.addTarget(self, action: #selector(prepareKeyFeedback), for: .touchDown)
     return button
   }
 
@@ -3737,8 +3746,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   ) {
     let display = chineseOutput(candidate)
     guard var configuration = button.configuration else { return }
-    let skin = KeyboardSkinPreference.selected
-    let annotationColor = candidatePalette?.number ?? skin.keyForeground.withAlphaComponent(0.55)
+    let skin = KeyboardTheme.current
+    let annotationColor = candidatePalette?.number ?? skin.secondary
     if let palette = candidatePalette {
       // Drawn flat like the desktop candidate window: the first candidate, the one space commits, carries the skin's highlight.
       configuration.background.customView = nil
@@ -3750,21 +3759,26 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       configuration.baseForegroundColor = palette.text
       button.layer.shadowOpacity = 0
     } else {
-      configuration.background.backgroundColor = converting
-        ? skin.accent.withAlphaComponent(0.22)
-        : skin.keyBackground
+      configuration.background.customView = nil
+      configuration.background.backgroundColor = converting ? skin.accent.withAlphaComponent(0.22) : .clear
+      configuration.background.cornerRadius = 9
+      configuration.background.strokeWidth = 0
+      button.layer.shadowOpacity = 0
     }
     let annotation = hint
+    // On the keyboard's own colours the first candidate, the one space commits, is the selected one: the accent at weight 600 while the rest stay in the key text colour at 400 (dc.html `mobCands`). The desktop palette marks it with its fill instead.
+    let selected = candidatePalette == nil && number == 1
+    let weight: UIFont.Weight = selected ? .semibold : .regular
     // A pinned word takes the accent colour, as it does in the Windows candidate window; chips are reused, so every other word is set back.
     let pinned = markers.contains { $0.symbol == "pin.fill" }
-    configuration.baseForegroundColor = pinned
+    configuration.baseForegroundColor = pinned || selected
       ? candidatePalette?.accent ?? skin.accent
       : candidatePalette?.text ?? skin.keyForeground
     if annotation.isEmpty && glosses.isEmpty && markers.isEmpty {
       configuration.titleLineBreakMode = .byTruncatingTail
       configuration.attributedTitle = nil
       configuration.titleTextAttributesTransformer = Self.fontTransformer(
-        .body, scale: candidateFontScale, families: candidateFontFamilies)
+        .body, scale: candidateFontScale, families: candidateFontFamilies, weight: weight)
       configuration.title = display
     } else {
       configuration.titleLineBreakMode = .byWordWrapping
@@ -3774,7 +3788,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       paragraph.alignment = .natural
       paragraph.lineBreakMode = .byTruncatingTail
       var title = AttributedString(display, attributes: AttributeContainer([
-        .font: CandidateFontPreference.font(.body, scale: candidateFontScale, families: candidateFontFamilies),
+        .font: Self.weighted(CandidateFontPreference.font(.body, scale: candidateFontScale, families: candidateFontFamilies), weight),
         .paragraphStyle: paragraph,
       ]))
       title += Self.markerRun(markers, color: annotationColor, scale: candidateFontScale)
@@ -3980,10 +3994,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   ) -> UIButton {
     var configuration = UIButton.Configuration.plain()
     configuration.image = UIImage(systemName: symbol)
-    configuration.baseForegroundColor = KeyboardSkinPreference.selected.keyForeground
-    configuration.background.backgroundColor = KeyboardSkinPreference.selected.keyBackground
+    configuration.baseForegroundColor = KeyboardTheme.current.keyForeground
+    configuration.background.backgroundColor = KeyboardTheme.current.functionKeyBackground
     configuration.background.cornerRadius = 8
     let button = KeyboardKeyButton(configuration: configuration)
+    button.isFunctionKey = true
     if let action {
       button.addAction(UIAction { _ in action() }, for: .primaryActionTriggered)
     }
@@ -3996,26 +4011,28 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     title: String,
     accessibilityLabel: String,
     emphasized: Bool = false,
+    function: Bool = false,
     action: @escaping () -> Void
   ) -> UIButton {
     var configuration = UIButton.Configuration.plain()
     configuration.title = title
     configuration.titleLineBreakMode = .byClipping
-    configuration.baseForegroundColor = emphasized ? KeyboardSkinPreference.selected.actionForeground : KeyboardSkinPreference.selected.keyForeground
+    configuration.baseForegroundColor = emphasized ? KeyboardTheme.current.actionForeground : KeyboardTheme.current.keyForeground
     configuration.background.backgroundColor =
       emphasized
-      ? KeyboardSkinPreference.selected.actionBackground
-      : KeyboardSkinPreference.selected.keyBackground
+      ? KeyboardTheme.current.actionBackground
+      : function ? KeyboardTheme.current.functionKeyBackground : KeyboardTheme.current.keyBackground
     configuration.background.cornerRadius = 8
     configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer {
       attributes in
       var attributes = attributes
-      attributes.font = KeyboardSkinPreference.selected.usesMonospacedFont
+      attributes.font = KeyboardTheme.current.usesMonospacedFont
         ? .monospacedSystemFont(ofSize: UIFont.preferredFont(forTextStyle: .title3).pointSize, weight: .medium)
         : .preferredFont(forTextStyle: .title3)
       return attributes
     }
     let button = KeyboardKeyButton(configuration: configuration, primaryAction: UIAction { _ in action() })
+    button.isFunctionKey = function
     button.accessibilityLabel = accessibilityLabel
     decorateKey(button)
     return button
@@ -4023,11 +4040,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func decorateKey(_ button: UIButton) {
     button.addTarget(self, action: #selector(prepareKeyFeedback), for: .touchDown)
-    let skin = KeyboardSkinPreference.selected
+    let skin = KeyboardTheme.current
     guard var configuration = button.configuration else { return }
-    if skin == .custom {
+    if let design = skin.design {
       let surface = SkinKeySurfaceView()
-      surface.design = CustomKeyboardSkinStore.current
+      surface.design = design
       surface.fillColor = configuration.background.backgroundColor ?? skin.keyBackground
       configuration.background.customView = surface
       configuration.background.backgroundColor = .clear
@@ -4042,8 +4059,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     configuration.background.strokeWidth = skin.borderWidth
     configuration.background.strokeColor = skin.borderColor
     button.configuration = configuration
-    button.layer.shadowColor = UIColor.black.cgColor
-    button.layer.shadowOpacity = skin.shadowOpacity
+    button.layer.shadowColor = skin.shadowColor.resolvedColor(with: button.traitCollection).cgColor
+    button.layer.shadowOpacity = skin.hasShadow ? 1 : 0
     button.layer.shadowRadius = skin.shadowRadius
     button.layer.shadowOffset = CGSize(width: 0, height: skin.shadowOffset)
   }
@@ -4063,7 +4080,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     func updateShadows(_ node: UIView) {
       if let button = node as? UIButton, button.layer.shadowOpacity > 0 {
         button.layer.shadowPath = UIBezierPath(roundedRect: button.bounds,
-          cornerRadius: KeyboardSkinPreference.selected.cornerRadius).cgPath
+          cornerRadius: KeyboardTheme.current.cornerRadius).cgPath
       }
       node.subviews.forEach { updateShadows($0) }
     }
@@ -4298,13 +4315,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     guard skinPicker == nil else { return }
     closeKeyboardService()
     closeKeyboardPicker()
-    let picker = KeyboardSkinPickerView(selected: KeyboardSkinPreference.selected, onSelect: { [weak self] skin in
-      guard let self else { return }
-      KeyboardFeedbackPreference.defaults.set(skin.rawValue, forKey: KeyboardSkinPreference.key)
-      _ = session.setTouchKeyboardSkin(skin, design: skin == .custom ? CustomKeyboardSkinStore.current : nil)
-      closeKeyboardPicker()
-      applyKeyboardSkin()
-      playInputClick()
+    let picker = KeyboardSkinPickerView(selected: KeyboardTheme.current.id, document: session.sharedPreferences, onSelect: { [weak self] id in
+      self?.selectTheme(GlobalThemePreference.selecting(id))
+    }, onSelectDesign: { [weak self] design in
+      guard let mapping = GlobalThemePreference.applyingDesign(design) else { return }
+      self?.selectTheme(mapping)
     }, onClose: { [weak self] in self?.closeKeyboardPicker() })
     picker.accessibilityViewIsModal = true
     picker.translatesAutoresizingMaskIntoConstraints = false
@@ -4317,6 +4332,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     ])
     skinPicker = picker
     UIAccessibility.post(notification: .screenChanged, argument: picker)
+  }
+
+  /// Write a theme choice made in the keyboard to the shared document, then draw it. The App Group copy follows the document, as it does when the app writes the choice.
+  private func selectTheme(_ mapping: @escaping (inout [String: Any]) -> Void) {
+    if session.updateTheme(mapping), let document = session.sharedPreferences { GlobalThemePreference.mirror(document) }
+    KeyboardTheme.reload(session.sharedPreferences)
+    closeKeyboardPicker()
+    applyKeyboardAppearance()
+    applyKeyboardSkin()
+    playInputClick()
   }
 
   private func closeKeyboardPicker() {
@@ -4365,17 +4390,24 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
   }
 
+  /// The top row sits straight on the keyboard in the design (dc.html `mobCands`, the 48px row); the desktop palette brings its own surface, and a keyboard design keeps a veil of its key fill so the candidates stay legible over a photo or pattern.
+  static func stripBackground(_ skin: KeyboardTheme, palette: CandidatePalette?) -> UIColor {
+    if let palette { return palette.surface }
+    return skin.design == nil ? .clear : skin.keyBackground.withAlphaComponent(0.6)
+  }
+
   private func applyKeyboardSkin() {
     handwriting.canvas.setNeedsDisplay()
     replyModel.objectWillChange.send()
-    let skin = KeyboardSkinPreference.selected
+    let skin = KeyboardTheme.current
     candidatePalette = currentCandidatePalette()
     view.backgroundColor = skin.background
     skinBackdrop.skin = skin
     func recolor(_ node: UIView) {
       if let button = node as? UIButton, var configuration = button.configuration {
         if configuration.background.customView is SkinKeySurfaceView || (configuration.background.backgroundColor?.cgColor.alpha ?? 0) > 0 {
-          configuration.background.backgroundColor = skin.keyBackground
+          configuration.background.backgroundColor = (button as? KeyboardKeyButton)?.isFunctionKey == true
+            ? skin.functionKeyBackground : skin.keyBackground
           configuration.baseForegroundColor = skin.keyForeground
         }
         if configuration.background.strokeWidth > 0 {
@@ -4386,7 +4418,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       }
       if node.accessibilityIdentifier == "nineKeySidebar" || node.accessibilityIdentifier == "candidateStrip" {
         node.backgroundColor = node.accessibilityIdentifier == "candidateStrip"
-          ? candidatePalette?.surface ?? skin.keyBackground.withAlphaComponent(0.6)
+          ? Self.stripBackground(skin, palette: candidatePalette)
           : skin.keyBackground.withAlphaComponent(0.6)
       }
       if let label = node as? UILabel, label.accessibilityIdentifier == "keyNumberHint" { label.textColor = skin.accent }
@@ -4394,10 +4426,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     recolor(view)
     if var configuration = enterButton?.configuration {
-      configuration.background.backgroundColor = skin.actionBackground
-      configuration.baseForegroundColor = skin.actionForeground
+      // A design draws return in its action colour; every other theme styles it from the composition state below.
+      configuration.background.backgroundColor = skin.design == nil ? skin.functionKeyBackground : skin.actionBackground
+      configuration.baseForegroundColor = skin.design == nil ? skin.keyForeground : skin.actionForeground
       enterButton?.configuration = configuration
       if let enterButton { decorateKey(enterButton) }
+      styleReturnKey()
     }
     updateLanguageModeButton()
     updateSchemeButton()
@@ -4414,7 +4448,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// Draw the keyboard and its panels in the light or dark form the shared themes ask for (see KeyboardAppearancePreference). A changed style reaches `traitCollectionDidChange`, which redraws the skin.
   private func applyKeyboardAppearance() {
     let preferences = session.sharedPreferences
-    let keyboard = KeyboardAppearancePreference.style(KeyboardAppearancePreference.keyboardKey, in: preferences)
+    // A built-in theme draws its surfaces in its own mode (dc.html L1551-1558); only `system` and a custom theme without a base follow the keyboard's mode setting.
+    let keyboard = KeyboardTheme.current.appearance
+      ?? KeyboardAppearancePreference.style(KeyboardAppearancePreference.keyboardKey, in: preferences)
     if overrideUserInterfaceStyle != keyboard { overrideUserInterfaceStyle = keyboard }
     handwriting.overrideUserInterfaceStyle = KeyboardAppearancePreference.style(KeyboardAppearancePreference.handwritingKey, in: preferences)
     emojiPicker?.overrideUserInterfaceStyle = KeyboardAppearancePreference.style(KeyboardAppearancePreference.emojiKey, in: preferences)

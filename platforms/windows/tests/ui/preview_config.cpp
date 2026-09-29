@@ -163,15 +163,13 @@ int main() {
     reject(document);
     document.erase("key_bindings");
     // Appearance is optional; without it the presenters keep their built-ins.
-    require(good.skin_directory.empty() && good.skin_id.empty() &&
-            good.dark_theme);
+    require(good.skin_directory.empty() && good.dark_theme);
     const auto skins = (root / "skins").u8string();
     document["appearance"] = {{"skin_directory", skins},
-                              {"skin", "wechat"},
                               {"dark_theme", false}};
     const auto themed = PreviewConfig::parse(document.dump());
     require(themed.skin_directory == std::filesystem::u8path(skins) &&
-            themed.skin_id == "wechat" && !themed.dark_theme);
+            !themed.dark_theme);
     require(themed.horizontal_candidates); // The shipped default is one row.
     // Supplementary faces and the candidate preedit line are shared settings the
     // window accepts but that nothing used to fill in, so both were inert here.
@@ -218,21 +216,24 @@ int main() {
     reject(document);
     document["appearance"] = {{"skin_directory", skins}};
     const auto rooted = PreviewConfig::parse(document.dump());
-    require(rooted.skin_id.empty() && rooted.dark_theme);
+    require(rooted.dark_theme);
     // A skin root has to be absolute and named, like every other preview path.
     document["appearance"] = {{"skin_directory", "skins"}};
     reject(document);
     document["appearance"] = nlohmann::json::object();
     reject(document);
-    document["appearance"] = {{"skin_directory", skins}, {"skin", 7}};
-    reject(document);
-    document["appearance"] = {{"skin_directory", skins},
-                              {"skin", std::string(65, 'a')}};
-    reject(document);
+    // The skin selection and the per-colour overrides are gone: the global theme in the stored preferences colours the card, so a document still naming them is refused rather than silently ignored.
+    for (const char *retired :
+         {"skin", "candidate_text_color", "candidate_number_color",
+          "candidate_surface_color", "candidate_border_color",
+          "candidate_selected_color", "candidate_hover_color",
+          "candidate_accent_color"}) {
+      document["appearance"] = {{"skin_directory", skins}, {retired, "#123456"}};
+      reject(document);
+    }
     document["appearance"] = {{"skin_directory", skins}, {"dark_theme", "no"}};
     reject(document);
     document["appearance"] = {{"skin_directory", skins},
-                              {"skin", "wechat"},
                               {"dark_theme", true},
                               {"layout", "vertical"},
                               {"extra", 1}};

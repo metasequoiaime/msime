@@ -33,6 +33,9 @@ export class KeyboardMetrics {
   static readonly CANDIDATE_PREEDIT_FONT_SIZE: number = 15;
   static readonly CANDIDATE_PADDING_VP: number = 12;
   static readonly STRIP_CORNER_VP: number = 12;
+  /** The 2in1 candidate card and each candidate's fill inside it, the HarmonyOS PC window's 16 and 10. */
+  static readonly CANDIDATE_CARD_CORNER_VP: number = 16;
+  static readonly CANDIDATE_ITEM_CORNER_VP: number = 10;
 
   /**
    * Everything the view stacks vertically, including the gaps between the pieces.

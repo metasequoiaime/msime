@@ -355,6 +355,16 @@ final class CatalogFixtureProtocol: URLProtocol, @unchecked Sendable {
 }
 
 extension CustomServiceTests {
+  func testAnthropicAIRequestUsesNativeAuthenticationHeaders() throws {
+    let configuration = CustomServiceConfiguration.loadPreset(.anthropic)
+    let request = try CustomServiceClient.makeRequest(
+      kind: .ai, configuration: configuration, prompt: "Reply OK", text: "OK", wav: nil,
+      token: "fixture")
+    XCTAssertEqual(request.value(forHTTPHeaderField: "x-api-key"), "fixture")
+    XCTAssertEqual(request.value(forHTTPHeaderField: "anthropic-version"), "2023-06-01")
+    XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+  }
+
   func testModelCatalogUsesKeyWithoutRequiringAModelAndFiltersCapabilities() async throws {
     let session = URLSessionConfiguration.ephemeral
     session.protocolClasses = [CatalogFixtureProtocol.self]

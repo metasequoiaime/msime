@@ -2,16 +2,25 @@
 <resources>
     <!-- 启动器、应用信息，以及系统输入法设置里这个键盘的名字，都取自这里。 -->
     <string name="app_name">水杉输入法</string>
-    <string name="tab_keyboard">键盘</string>
+    <string name="tab_settings">设置</string>
+    <string name="splash_latin" translatable="false">METASEQUOIA IME</string>
+    <string name="splash_skip">轻点跳过</string>
     <string name="tab_community">社区</string>
     <string name="tab_statistics">统计</string>
     <string name="tab_account">我的</string>
-    <string name="keyboard_title">让输入，更像你</string>
-    <string name="keyboard_subtitle">从一次顺手的表达开始</string>
+    <!-- 设置页顶部那张状态卡：两项检查各自说清楚还差哪一步，差的那一步旁边就是去完成它的按钮。 -->
+    <string name="settings_status_ready">已启用</string>
+    <string name="settings_status_incomplete">尚未完成设置</string>
+    <string name="settings_check_enabled">已在系统中启用</string>
+    <string name="settings_check_default">设为默认输入法</string>
+    <string name="settings_action_enable">去启用</string>
+    <string name="settings_action_default">设为默认</string>
     <string name="keyboard_card_title">我的键盘</string>
     <!-- The chip reports whether the system has the keyboard enabled; this is what it reads before that answer arrives. -->
     <string name="keyboard_status_checking">检查中</string>
     <string name="keyboard_try">试用键盘</string>
+    <string name="keyboard_search_hint">搜索</string>
+    <string name="keyboard_search_empty">没有匹配的设置</string>
     <string name="tryout_back">返回</string>
     <string name="tryout_dismiss_keyboard">收起键盘</string>
     <string name="tryout_heading">边打字，边试键盘</string>
@@ -33,7 +42,7 @@
     <string name="desktop_headline">在电脑上，也用水杉</string>
     <string name="desktop_subtitle">选择你的电脑系统，获取官方安装包与使用指南。</string>
     <string name="desktop_open_release">打开官方发布页</string>
-    <string name="desktop_copy_link">复制发布页链接</string>
+    <string name="desktop_copy_link">复制链接</string>
     <string name="desktop_copied">链接已复制</string>
     <string name="help_title">使用帮助</string>
     <string name="feedback_title">反馈问题与建议</string>
@@ -57,10 +66,11 @@
     <string name="account_sign_in_hint">登录后可在皮肤社区发布、下载和评分。日常输入不需要登录。</string>
     <string name="account_sign_out">退出登录</string>
     <string name="account_signed_in">已登录水杉账号</string>
-    <string name="onboarding_skip">稍后设置</string>
+    <string name="onboarding_skip">跳过</string>
     <string name="onboarding_previous">上一步</string>
     <string name="onboarding_next">下一步</string>
     <string name="onboarding_done">开始使用</string>
-    <string name="onboarding_progress">%1$d / %2$d</string>
+    <string name="onboarding_sign_in">登录</string>
+    <string name="onboarding_later">稍后再说</string>
     <string name="onboarding_replay">重新查看新手引导</string>
 </resources>

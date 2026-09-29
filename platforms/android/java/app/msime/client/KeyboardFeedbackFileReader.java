@@ -4,6 +4,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 
 /** Reads the cross-process feedback file without trusting its size metadata. */
@@ -13,6 +14,9 @@ final class KeyboardFeedbackFileReader {
     private KeyboardFeedbackFileReader() {}
 
     static byte[] read(Path file) throws IOException {
+        if (file == null || Files.isSymbolicLink(file)
+                || !Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS))
+            throw new IOException("feedback path is not a regular file");
         try (InputStream input = Files.newInputStream(file)) {
             ByteArrayOutputStream bytes = new ByteArrayOutputStream(MAX_BYTES);
             byte[] buffer = new byte[8192];

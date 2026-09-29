@@ -1,4 +1,4 @@
-import { KeyboardSkin } from './skin/KeyboardSkin';
+import { CandidateColors } from './skin/GlobalTheme';
 import { KeyboardGeometry } from './KeyboardGeometry';
 
 /** The subset of a toolbar stylesheet that ArkUI can render without executing CSS. */
@@ -17,6 +17,8 @@ export interface ToolbarSkin {
 
 const DEFAULT_FONT_FAMILY: string = 'Noto Sans SC, Microsoft YaHei, sans-serif';
 const DEFAULT_ENGLISH_FONT_FAMILY: string = 'Segoe UI, sans-serif';
+// The Harmony key radius, which the bar shares so it reads as part of the same keyboard.
+const DEFAULT_CORNER_RADIUS_VP: number = 8;
 
 function stripImportant(value: string): string {
   return value.trim().replace(/\s*!important\s*$/i, '').trim();
@@ -86,23 +88,26 @@ function has(selector: string, name: string): boolean {
  * than interpolated into ArkUI or executed by a WebView.
  */
 export class ToolbarSkinPolicy {
-  static base(skin: KeyboardSkin): ToolbarSkin {
+  /**
+   * The bar's colours from the candidate palette, the way every host derives its toolbar: the surface and outline from `surface` and `border`, the buttons from `text`, the hovered one from `hover`, and the quieter drag handle from `secondary`.
+   */
+  static base(colors: CandidateColors): ToolbarSkin {
     return {
-      backgroundColor: skin.keyBackground,
-      borderColor: skin.borderColor,
-      dragHandleColor: skin.accent,
-      dividerColor: skin.borderColor,
-      buttonColor: skin.accent,
-      buttonHoverColor: skin.tintedAccent(0.2),
-      settingsColor: skin.keyForeground,
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      dragHandleColor: colors.secondary,
+      dividerColor: colors.border,
+      buttonColor: colors.text,
+      buttonHoverColor: colors.hover,
+      settingsColor: colors.text,
       fontFamily: DEFAULT_FONT_FAMILY,
       englishFontFamily: DEFAULT_ENGLISH_FONT_FAMILY,
-      cornerRadiusVp: KeyboardGeometry.bounded(skin.cornerRadius, 0, 32)
+      cornerRadiusVp: DEFAULT_CORNER_RADIUS_VP
     };
   }
 
-  static fromCss(skin: KeyboardSkin, source: string | null | undefined): ToolbarSkin {
-    const output: ToolbarSkin = ToolbarSkinPolicy.base(skin);
+  static fromCss(colors: CandidateColors, source: string | null | undefined): ToolbarSkin {
+    const output: ToolbarSkin = ToolbarSkinPolicy.base(colors);
     if (source === null || source === undefined || source.length === 0 || source.length > 128 * 1024) {
       return output;
     }

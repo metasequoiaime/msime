@@ -27,7 +27,7 @@ export const voiceLanguage =
 export const voiceLanguageInput = `min-w-[190px] p-2 ${panelField}`;
 export const voiceTextArea = `min-h-25 resize-y p-2.5 font-[inherit] ${panelField}`;
 const voiceAction = "min-h-[42px] rounded-lg border-0 font-semibold";
-export const voiceRecord = `${voiceAction} bg-[#d88bde] text-[#241c26]`;
+export const voiceRecord = `${voiceAction} bg-[#5fbf84] text-[#241c26]`;
 export const voiceSubmit = `${voiceAction} bg-[#3a3945] text-[#f5f5f7] group-data-[panel-theme=light]:bg-[#e4e7ed] group-data-[panel-theme=light]:text-[#202124]`;
 
 // ---- handwriting ----
@@ -41,7 +41,7 @@ export const inkSection = "min-w-0";
  * Crosshair while a stroke is in progress, hand otherwise, as the shipped panel does: with no cursor
  * at all the square gives no hint that it can be written on.
  */
-export const inkCanvas = `block aspect-square w-full cursor-grab touch-none rounded-lg border bg-[#25262d] ${panelEdge} group-data-[panel-theme=light]:bg-white data-[drawing=true]:cursor-crosshair focus-visible:outline-2 focus-visible:-outline-offset-[3px] focus-visible:outline-[#d88bde] [&_polyline]:fill-none [&_polyline]:stroke-[#f5f5f7] [&_polyline]:stroke-4 [&_polyline]:[stroke-linecap:round] [&_polyline]:[stroke-linejoin:round] group-data-[panel-theme=light]:[&_polyline]:stroke-[#202124] [&_circle]:fill-[#f5f5f7] group-data-[panel-theme=light]:[&_circle]:fill-[#202124] [&_text]:fill-[#b8b8c0] [&_text]:text-lg group-data-[panel-theme=light]:[&_text]:fill-[#6b6f78]`;
+export const inkCanvas = `block aspect-square w-full cursor-grab touch-none rounded-lg border bg-[#25262d] ${panelEdge} group-data-[panel-theme=light]:bg-white data-[drawing=true]:cursor-crosshair focus-visible:outline-2 focus-visible:-outline-offset-[3px] focus-visible:outline-[#5fbf84] [&_polyline]:fill-none [&_polyline]:stroke-[#f5f5f7] [&_polyline]:stroke-4 [&_polyline]:[stroke-linecap:round] [&_polyline]:[stroke-linejoin:round] group-data-[panel-theme=light]:[&_polyline]:stroke-[#202124] [&_circle]:fill-[#f5f5f7] group-data-[panel-theme=light]:[&_circle]:fill-[#202124] [&_text]:fill-[#b8b8c0] [&_text]:text-lg group-data-[panel-theme=light]:[&_text]:fill-[#6b6f78]`;
 
 /*
  * A tappable tile in this panel: the stroke actions and the candidate grid share one treatment.
@@ -52,11 +52,11 @@ export const inkCanvas = `block aspect-square w-full cursor-grab touch-none roun
  * the prefixed forms at all.
  */
 export const handwritingActions =
-  "mt-[18px] flex flex-wrap gap-3 [&>button]:flex-[0_0_112px] [&>button]:rounded-md [&>button]:p-2.5 [&>button]:border [&>button]:bg-[#292a31] [&>button]:border-[#45454f] [&>button]:group-data-[panel-theme=light]:border-[#c8ccd5] [&>button]:text-[#f5f5f7] [&>button]:group-data-[panel-theme=light]:text-[#202124] [&>button]:hover:border-[#d88bde] [&>button]:hover:bg-[#3b3240] [&>button]:group-data-[panel-theme=light]:bg-white [&>button]:group-data-[panel-theme=light]:hover:bg-[#edf0f5]";
+  "mt-[18px] flex flex-wrap gap-3 [&>button]:flex-[0_0_112px] [&>button]:rounded-md [&>button]:p-2.5 [&>button]:border [&>button]:bg-[#292a31] [&>button]:border-[#45454f] [&>button]:group-data-[panel-theme=light]:border-[#c8ccd5] [&>button]:text-[#f5f5f7] [&>button]:group-data-[panel-theme=light]:text-[#202124] [&>button]:hover:border-[#5fbf84] [&>button]:hover:bg-[#3b3240] [&>button]:group-data-[panel-theme=light]:bg-white [&>button]:group-data-[panel-theme=light]:hover:bg-[#edf0f5]";
 export const recognitionSection =
   "[&>h2]:mt-0 [&>h2]:mb-4 [&>h2]:text-lg [&>h2]:font-semibold [&>p]:mt-6 [&>p]:text-[13px] [&>p]:text-[#b8b8c0] group-data-[panel-theme=light]:[&>p]:text-[#6b6f78]";
 export const candidateGrid =
-  "grid grid-cols-4 gap-2 [&>button]:aspect-square [&>button]:rounded-md [&>button]:text-3xl [&>button]:border [&>button]:bg-[#292a31] [&>button]:border-[#45454f] [&>button]:group-data-[panel-theme=light]:border-[#c8ccd5] [&>button]:text-[#f5f5f7] [&>button]:group-data-[panel-theme=light]:text-[#202124] [&>button]:hover:border-[#d88bde] [&>button]:hover:bg-[#3b3240] [&>button]:group-data-[panel-theme=light]:bg-white [&>button]:group-data-[panel-theme=light]:hover:bg-[#edf0f5]";
+  "grid grid-cols-4 gap-2 [&>button]:aspect-square [&>button]:rounded-md [&>button]:text-3xl [&>button]:border [&>button]:bg-[#292a31] [&>button]:border-[#45454f] [&>button]:group-data-[panel-theme=light]:border-[#c8ccd5] [&>button]:text-[#f5f5f7] [&>button]:group-data-[panel-theme=light]:text-[#202124] [&>button]:hover:border-[#5fbf84] [&>button]:hover:bg-[#3b3240] [&>button]:group-data-[panel-theme=light]:bg-white [&>button]:group-data-[panel-theme=light]:hover:bg-[#edf0f5]";
 export const candidate = "flex min-w-0 flex-col gap-1";
 export const candidateSubmit =
   "w-full min-w-0 p-1.5 leading-tight break-anywhere whitespace-normal";
@@ -101,7 +101,8 @@ export const keyboardKey = (options: {
   [
     "min-h-0 min-w-0 flex-1 rounded-[var(--kb-key-radius)] border-[length:var(--kb-border-width)] border-solid border-[var(--kb-border-color)] p-0 font-[inherit] shadow-[var(--kb-shadow)]",
     "[--kb-current-fill:var(--kb-key-fill)] bg-[var(--kb-current-fill)] text-[var(--kb-text)]",
-    "hover:bg-[var(--kb-hover)] active:bg-[var(--kb-pressed)]",
+    // The latched fill below is `!important` so it beats hover; the pressed fill must be too, or pressing a latched modifier shows no feedback. The stylesheet this replaced had `:active` after `.active` at equal specificity, so pressed always won.
+    "hover:bg-[var(--kb-hover)] active:bg-[var(--kb-pressed)]!",
     options.wide ? "text-xs" : "text-[15px]",
     options.active ? "bg-[var(--kb-active)]!" : "",
     options.material === "raised"

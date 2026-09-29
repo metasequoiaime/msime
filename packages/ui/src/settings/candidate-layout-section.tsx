@@ -1,3 +1,5 @@
+import { Row, Segmented } from "../core/platform-controls";
+
 export type CandidateLayout = "horizontal" | "vertical";
 
 export interface CandidateLayoutSectionProps {
@@ -6,22 +8,17 @@ export interface CandidateLayoutSectionProps {
   onChange: (value: CandidateLayout) => void;
 }
 
-/** Candidate orientation selector for hosts whose candidate panel exposes a choice. */
+const candidateLayoutOptions = [
+  { value: "horizontal", label: "横向" },
+  { value: "vertical", label: "纵向" },
+] as const satisfies readonly { value: CandidateLayout; label: string }[];
+
+/** Candidate orientation selector for hosts whose candidate panel exposes a choice: one row of the 候选窗口 page's layout group. */
 export function CandidateLayoutSection({ value, fixed, onChange }: CandidateLayoutSectionProps) {
   if (fixed) return null;
   return (
-    <div className="section">
-      <label className="section-header">
-        <span className="section-title">候选项排列方式</span>
-        <select
-          aria-label="候选项排列方式"
-          value={value ?? "vertical"}
-          onChange={(event) => onChange(event.target.value as CandidateLayout)}
-        >
-          <option value="horizontal">横向</option>
-          <option value="vertical">纵向</option>
-        </select>
-      </label>
-    </div>
+    <Row title="候选项排列方式">
+      <Segmented options={candidateLayoutOptions} value={value ?? "vertical"} onChange={onChange} />
+    </Row>
   );
 }

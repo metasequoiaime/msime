@@ -70,7 +70,7 @@ fn read_bounded_line(
     response_limit: usize,
     accept_eof: bool,
 ) -> Option<String> {
-    let mut bytes = Vec::new();
+    let mut bytes = Vec::with_capacity(response_limit.min(1024));
     loop {
         let remaining = deadline.checked_duration_since(std::time::Instant::now())?;
         if remaining.is_zero() {
@@ -259,7 +259,7 @@ impl UnixSocketProvider {
         let ai_limit = query.ai_candidate_limit();
         let limits = [1, ai_limit];
         let mut source_counts = [0; 2];
-        let mut candidates = Vec::new();
+        let mut candidates = Vec::with_capacity(replies.len());
         for reply in replies {
             if reply.text.is_empty()
                 || !msime_client_core::is_bounded_text(&reply.text, 4096)
@@ -701,7 +701,7 @@ impl UnixSocketProvider {
                 query.insert("options".to_owned(), options.clone());
             }
         }
-        let mut events = Vec::new();
+        let mut events = Vec::with_capacity(2);
         if status.is_some() {
             events.push("status");
         }
@@ -722,7 +722,7 @@ impl UnixSocketProvider {
         // Up to ten minutes of capture, two sixty-second ASR attempts and
         // optional polishing. Cancellation is checked at least every 100ms.
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(730);
-        let mut pending = Vec::new();
+        let mut pending = Vec::with_capacity(16_384);
         loop {
             let line = read_voice_provider_line(&mut stream, &mut pending, deadline, cancelled)?;
             let value = serde_json::from_str::<Value>(line.trim_end()).ok()?;
@@ -923,7 +923,7 @@ pub struct OnlineProviderWorker {
 impl OnlineProviderWorker {
     pub fn spawn<F>(capacity: usize, provider: F) -> Result<Self, &'static str>
     where
-        F: Fn(OnlineQuery) -> Option<(String, u8)> + Send + 'static,
+        F: Fn(&OnlineQuery) -> Option<(String, u8)> + Send + 'static,
     {
         Self::spawn_with_debounce(capacity, std::time::Duration::ZERO, provider)
     }
@@ -936,7 +936,7 @@ impl OnlineProviderWorker {
         provider: F,
     ) -> Result<Self, &'static str>
     where
-        F: Fn(OnlineQuery) -> Option<(String, u8)> + Send + 'static,
+        F: Fn(&OnlineQuery) -> Option<(String, u8)> + Send + 'static,
     {
         if capacity == 0 {
             return Err("provider queue capacity must be positive");
@@ -978,7 +978,7 @@ impl OnlineProviderWorker {
                     let Some(query) = query else {
                         continue;
                     };
-                    if let Some((text, source)) = provider(query.clone()) {
+                    if let Some((text, source)) = provider(&query) {
                         if text.is_empty() || source > 1 {
                             continue;
                         }

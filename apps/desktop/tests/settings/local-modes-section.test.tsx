@@ -23,7 +23,7 @@ test("local mode section updates only the selected mode", () => {
   const onChange = vi.fn();
   render(<LocalModesSection preferences={preferences} ios={false} onChange={onChange} />);
 
-  fireEvent.click(screen.getByRole("checkbox", { name: /^Unicode/ }));
+  fireEvent.click(screen.getByRole("switch", { name: /^Unicode/ }));
 
   expect(onChange).toHaveBeenCalledWith({ ...preferences, unicode: false });
 });

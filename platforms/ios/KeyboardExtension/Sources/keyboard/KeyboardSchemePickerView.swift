@@ -2,7 +2,7 @@ import UIKit
 
 final class KeyboardSchemePickerView: UIView {
   private var glyphBorders: [(UILabel, Bool)] = []
-  private let skin = KeyboardSkinPreference.selected
+  private let skin = KeyboardTheme.current
   private var accent: UIColor { skin.accent }
 
   init(selected: ChineseInputScheme, isChineseMode: Bool = true,

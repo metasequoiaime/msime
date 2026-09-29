@@ -22,7 +22,7 @@ function renderSection(
 test("first enable seeds every fuzzy-pinyin rule", () => {
   const { onChange } = renderSection();
 
-  fireEvent.click(screen.getByRole("checkbox", { name: "启用模糊音" }));
+  fireEvent.click(screen.getByRole("switch", { name: "启用模糊音" }));
 
   expect(onChange).toHaveBeenCalledWith({
     enabled: true,

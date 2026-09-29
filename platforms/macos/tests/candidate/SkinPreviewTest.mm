@@ -37,6 +37,16 @@ static NSColor *TestCandidateColor(NSString *value) {
     return [NSColor colorWithSRGBRed:((rgb >> 16) & 255) / 255.0 green:((rgb >> 8) & 255) / 255.0 blue:(rgb & 255) / 255.0 alpha:1];
 }
 
+static NSDictionary *Pickers(NSDictionary *colors) {
+    return @{@"candidate_colors": colors};
+}
+
+static bool TokenIs(msime::mac::Rgba color, NSString *hex, CGFloat alpha = 1) {
+    NSColor *expected = TestCandidateColor(hex);
+    return std::abs(color.r - expected.redComponent) < .002 && std::abs(color.g - expected.greenComponent) < .002 &&
+           std::abs(color.b - expected.blueComponent) < .002 && std::abs(color.a - alpha) < .002;
+}
+
 static void TestFallbackFonts(MSIMEAppearancePreferences *preferences, NSUserDefaults *defaults) {
     NSComboBox *entry = (id)FindControl(preferences.window.contentView, @"添加补充字体");
     NSTableView *list = (id)FindControl(preferences.window.contentView, @"补充字体顺序");
@@ -124,6 +134,13 @@ static void TestCloudImportCache(MSIMEAppearancePreferences *preferences, NSUser
     assert(!preferences.chinesePunctuation && !preferences.autocorrect && !preferences.shuangpinPreeditUsesRaw && !preferences.floatingToolbarEnabled);
     NSDictionary *effective = [preferences cloudSettingsSnapshot];
     assert(MSIMEValidateCloudAppearance(effective));
+    // The theme is exported as the host draws it, which the shared document supplied and defaults never saw.
+    [preferences applySharedCandidatePreferences:@{@"global_theme": @"night", @"custom_theme": @{@"base": @"ink", @"candidate_skin": @"wide-card"}}];
+    effective = [preferences cloudSettingsSnapshot];
+    assert(MSIMEValidateCloudAppearance(effective));
+    assert([effective[@"platform.macos.global_theme"] isEqual:@"night"] && [effective[@"platform.macos.custom_theme_base"] isEqual:@"ink"]);
+    assert([effective[@"platform.macos.custom_candidate_skin"] isEqual:@"wide-card"]);
+    assert(![original[@"platform.macos.global_theme"] isEqual:@"night"] && ![original[@"platform.macos.custom_candidate_skin"] isEqual:@"wide-card"]);
     assert([effective[@"platform.macos.candidate_font_size"] isEqual:@12]);
     // One candidate a page is not a size the window offers, but it is one the shared preferences accept,
     // so the snapshot carries what the document said rather than the nine this used to be rewritten to.
@@ -134,7 +151,7 @@ static void TestCloudImportCache(MSIMEAppearancePreferences *preferences, NSUser
         assert([effective[[@"platform.macos." stringByAppendingString:key]] isEqual:@NO]);
     assert([MSIMECloudAppearanceSnapshot(defaults) isEqual:original]);
     NSMutableDictionary *imported = [original mutableCopy];
-    imported[@"platform.macos.candidate_skin"] = @"wechat";
+    imported[@"platform.macos.global_theme"] = @"shuishan";
     imported[@"platform.macos.candidate_font_size"] = @32;
     imported[@"platform.macos.candidate_page_size"] = @9;
     imported[@"platform.macos.candidate_panel_style"] = @0;
@@ -147,7 +164,7 @@ static void TestCloudImportCache(MSIMEAppearancePreferences *preferences, NSUser
     id observer = [NSNotificationCenter.defaultCenter addObserverForName:MSIMEAppearanceDidChangeNotification object:preferences queue:nil usingBlock:^(NSNotification *note) {
         (void)note; ++notifications;
         assert(preferences.fontSize == 32 && preferences.pageSize == 9 && !preferences.vertical);
-        assert([preferences resolvedSkinForDark:NO].id == "wechat");
+        assert([preferences resolvedSkinForDark:NO].id == "shuishan");
     }];
     NSMutableDictionary *invalid = [imported mutableCopy];
     invalid[@"platform.macos.candidate_font_size"] = @33;
@@ -208,6 +225,73 @@ static void TestCandidateSurfaceTheme(MSIMEAppearancePreferences *preferences) {
     assert([match isEqual:NSAppearanceNameDarkAqua]);
 }
 
+// The toolbar preview paints the divider in the candidate outline, as the panel does, so a theme change reaches it. The logo beside it is the brand mark and keeps its own colours.
+static void TestToolbarPreviewChrome(MSIMEAppearancePreferences *preferences) {
+    NSString *globalTheme = preferences.globalTheme;
+    for (NSString *skin in @[@"shuishan", @"paper"]) {
+        preferences.globalTheme = skin;
+        MSIMEToolbarPreviewView *toolbar = [[MSIMEToolbarPreviewView alloc] initWithFrame:NSMakeRect(0, 0, 580, 100)];
+        toolbar.preferences = preferences;
+        toolbar.frame = NSMakeRect(0, 0, 580, toolbar.fittingSize.height);
+        assert(NSHeight(toolbar.frame) > 48.0);
+        NSBitmapImageRep *bitmap = [toolbar bitmapImageRepForCachingDisplayInRect:toolbar.bounds];
+        [toolbar cacheDisplayInRect:toolbar.bounds toBitmapImageRep:bitmap];
+        const CGFloat pixels = bitmap.pixelsWide / NSWidth(toolbar.bounds);
+        const CGFloat scale = preferences.floatingToolbarScalePercent / 100.0;
+        const msime::mac::SkinTokens tokens = [preferences toolbarSkinForDark:toolbar.previewUsesDark];
+        assert(tokens.border.a > .01f);
+        // The divider is a 1.2pt bar 41pt into the toolbar, which sits at the canvas's 14pt inset and is centred vertically between 34pt down and 14pt above the bottom. Sampled mid-bar, it is the outline laid over the toolbar surface just left of it.
+        const CGFloat y = (34.0 + NSHeight(toolbar.bounds) - 14.0) / 2.0;
+        NSColor *divider = [[bitmap colorAtX:(NSInteger)((14.0 + 41.6 * scale) * pixels) y:(NSInteger)(y * pixels)] colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+        NSColor *surface = [[bitmap colorAtX:(NSInteger)((14.0 + 39.5 * scale) * pixels) y:(NSInteger)(y * pixels)] colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+        const CGFloat alpha = tokens.border.a;
+        assert(std::abs(divider.redComponent - (tokens.border.r * alpha + surface.redComponent * (1.0 - alpha))) < .03);
+        assert(std::abs(divider.greenComponent - (tokens.border.g * alpha + surface.greenComponent * (1.0 - alpha))) < .03);
+        assert(std::abs(divider.blueComponent - (tokens.border.b * alpha + surface.blueComponent * (1.0 - alpha))) < .03);
+    }
+    preferences.globalTheme = globalTheme;
+}
+
+// InputController saves by merging -sharedPreferencesByMerging:@{} over the document on disk with MSIMEMergePreferenceSnapshot and then reloads that document, so a clear has to survive the merge: a key the overrides leave out keeps the old value, and the reload then brings it back over the native setting.
+static void TestCustomThemeClearsSurviveSave() {
+    NSString *suite = [@"app.msime.test.preview.clears." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *preferences = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    __block NSDictionary *document = @{@"global_theme": @"custom", @"unrelated": @7,
+        @"custom_theme": @{@"base": @"night", @"candidate_skin": @"wide-card", @"keyboard": @{@"background": @1},
+                           @"candidate_colors": @{@"text": @"#112233", @"accent": @"#445566"}}};
+    void (^save)(void) = ^{
+        document = MSIMEMergePreferenceSnapshot(document, [preferences sharedPreferencesByMerging:@{}]);
+        assert(document && [NSJSONSerialization isValidJSONObject:document]);
+        [preferences applySharedCandidatePreferences:document];
+    };
+    [preferences applySharedCandidatePreferences:document];
+    assert([preferences.customCandidateSkin isEqual:@"wide-card"] && [preferences.candidateTextColor isEqual:@"#112233"]);
+    [preferences clearCustomCandidateSkin];
+    save();
+    assert(preferences.customCandidateSkin == nil && document[@"custom_theme"][@"candidate_skin"] == NSNull.null);
+    [NSApp sendAction:NSSelectorFromString(@"resetTextColor:") to:preferences from:nil];
+    save();
+    assert(preferences.candidateTextColor == nil && document[@"custom_theme"][@"candidate_colors"][@"text"] == NSNull.null);
+    // Untouched parts of the document are carried through.
+    assert([preferences.candidateAccentColor isEqual:@"#445566"] && [preferences.customThemeBase isEqual:@"night"]);
+    assert([document[@"unrelated"] isEqual:@7] && [document[@"custom_theme"][@"keyboard"] isEqual:@{@"background": @1}]);
+    // A picker set while the system theme is on screen makes system the custom theme's base, over a stored night base and package.
+    document = @{@"global_theme": @"system", @"custom_theme": @{@"base": @"night", @"candidate_skin": @"wide-card"}};
+    [preferences applySharedCandidatePreferences:document];
+    preferences.candidateNumberColor = @"#203040";
+    save();
+    assert([preferences.globalTheme isEqual:@"custom"] && [preferences.customThemeBase isEqual:@"system"]);
+    assert(preferences.customCandidateSkin == nil && [preferences.candidateNumberColor isEqual:@"#203040"]);
+    // A package whose manifest base is system replaces a stored built-in base the same way.
+    document = @{@"global_theme": @"night", @"custom_theme": @{@"base": @"night"}};
+    [preferences applySharedCandidatePreferences:document];
+    [preferences selectExternalSkin:@"wide-card" base:@"system"];
+    save();
+    assert([preferences.customThemeBase isEqual:@"system"] && [preferences.customCandidateSkin isEqual:@"wide-card"]);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
 int main(int argc, const char **argv) {
     @autoreleasepool {
         [NSApplication sharedApplication];
@@ -218,6 +302,8 @@ int main(int argc, const char **argv) {
         const std::filesystem::path root(temporary);
         MSIMEAppearancePreferences *preferences = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:[NSURL fileURLWithPath:@(root.c_str()) isDirectory:YES]];
         TestCandidateSurfaceTheme(preferences);
+        TestToolbarPreviewChrome(preferences);
+        TestCustomThemeClearsSurviveSave();
         // Match the Windows install default and the shared Tauri settings
         // fallback: a new macOS profile starts with word-to-character on for
         // the bracket key group. The bracket paging shortcut remains off by
@@ -262,8 +348,10 @@ int main(int argc, const char **argv) {
         assert([preview.accessibilityLabel isEqual:@"候选窗口预览"]);
         __block NSUInteger notifications = 0;
         id observer = [NSNotificationCenter.defaultCenter addObserverForName:MSIMEAppearanceDidChangeNotification object:preferences queue:nil usingBlock:^(NSNotification *note) { (void)note; ++notifications; }];
-        for (NSString *skin in @[@"fluent", @"wechat", @"graphite", @"willow_green"]) {
-            preferences.skinID = skin;
+        for (NSString *skin in @[@"system", @"shuishan", @"light", @"paper", @"night", @"ink", @"custom"]) {
+            preferences.globalTheme = skin;
+            // The five built-in themes fix their mode; only 跟随系统 and 自定义 have another one to preview.
+            const BOOL fixed = [skin isEqual:@"system"] || [skin isEqual:@"custom"] ? NO : YES;
             for (NSNumber *vertical in @[@NO, @YES]) {
                 preferences.vertical = vertical.boolValue;
                 for (NSNumber *size in @[@5, @7, @9]) {
@@ -285,8 +373,9 @@ int main(int argc, const char **argv) {
                         NSUInteger count = notifications;
                         BOOL originalTheme = preview.previewUsesDark;
                         Draw(preview);
+                        assert(preview.previewSkin.fixedDark.has_value() == fixed && theme.hidden == fixed);
                         [NSApp sendAction:theme.action to:theme.target from:theme];
-                        assert(preview.previewUsesDark != originalTheme);
+                        assert(preview.previewUsesDark == (fixed ? originalTheme : !originalTheme));
                         assert([theme.title isEqual:preview.forcedThemeButtonTitle]);
                         Draw(preview);
                         assert([[defaults persistentDomainForName:suite] isEqual:before] && notifications == count);
@@ -376,13 +465,14 @@ int main(int argc, const char **argv) {
         NSColorWell *colorWell = (id)FindControl(preferences.window.contentView, @"选择候选文字颜色");
         assert(colorField && colorWell);
         NSUInteger colorNotifications = notifications;
-        [preferences applySharedCandidatePreferences:@{@"candidate_text_color": @"#1234aB"}];
+        // The pickers are the custom theme's candidate_colors now, and colour the window only while it is selected.
+        [preferences applySharedCandidatePreferences:@{@"global_theme": @"custom", @"custom_theme": Pickers(@{@"text": @"#1234aB"})}];
         assert(notifications == colorNotifications && [colorField.stringValue isEqual:@"#1234aB"]);
         NSColor *custom = [NSColor colorWithSRGBRed:18/255.0 green:52/255.0 blue:171/255.0 alpha:1];
         assert([preview.previewTextColor isEqual:custom]);
         Draw(preview);
         for (id invalid in @[@"red", @"#123", @"#12345678", @"#GG0000", @YES]) {
-            [preferences applySharedCandidatePreferences:@{@"candidate_text_color": invalid}];
+            [preferences applySharedCandidatePreferences:@{@"custom_theme": Pickers(@{@"text": invalid})}];
             assert([preferences.candidateTextColor isEqual:@"#1234aB"]);
         }
         colorWell.color = [NSColor colorWithSRGBRed:1 green:0 blue:0 alpha:1];
@@ -392,37 +482,36 @@ int main(int argc, const char **argv) {
         assert([colorReloaded.candidateTextColor isEqual:@"#FF0000"]);
         colorField.stringValue = @"#112233";
         [NSApp sendAction:colorField.action to:colorField.target from:colorField];
-        assert([[preferences sharedPreferencesByMerging:@{}][@"candidate_text_color"] isEqual:@"#112233"]);
+        assert([[preferences sharedPreferencesByMerging:@{}][@"custom_theme"][@"candidate_colors"][@"text"] isEqual:@"#112233"]);
         [preferences applySharedCandidatePreferences:@{}];
         assert(preferences.candidateTextColor == nil);
-        [preferences applySharedCandidatePreferences:@{@"candidate_text_color": @"#112233"}];
-        [preferences applySharedCandidatePreferences:@{@"candidate_text_color": NSNull.null}];
+        [preferences applySharedCandidatePreferences:@{@"custom_theme": Pickers(@{@"text": @"#112233"})}];
+        [preferences applySharedCandidatePreferences:@{@"custom_theme": Pickers(@{@"text": NSNull.null})}];
         assert(preferences.candidateTextColor == nil);
-        NSDictionary *rowColors = @{@"candidate_text_color": @"#102030", @"candidate_number_color": @"#203040",
-            @"candidate_accent_color": @"#304050", @"candidate_selected_color": @"#405060",
-            @"candidate_hover_color": @"#506070", @"candidate_surface_color": @"#607080",
-            @"candidate_border_color": @"#708090"};
-        [preferences applySharedCandidatePreferences:rowColors];
-        NSArray *resolvedColors = @[[preferences candidateTextColorWithDefault:NSColor.clearColor],
-            [preferences candidateNumberColorWithDefault:NSColor.clearColor],
-            [preferences candidateAccentColorWithDefault:NSColor.clearColor],
-            [preferences candidateSelectedColorWithDefault:NSColor.clearColor],
-            [preferences candidateHoverColorWithDefault:NSColor.clearColor],
-            [preferences candidateSurfaceColorWithDefault:NSColor.clearColor],
-            [preferences candidateBorderColorWithDefault:NSColor.clearColor]];
+        NSDictionary *rowColors = @{@"text": @"#102030", @"number": @"#203040", @"accent": @"#304050", @"selected": @"#405060",
+            @"hover": @"#506070", @"surface": @"#607080", @"border": @"#708090"};
+        [preferences applySharedCandidatePreferences:@{@"global_theme": @"custom", @"custom_theme": Pickers(rowColors)}];
+        NSArray *pickedColors = @[preferences.candidateTextColor, preferences.candidateNumberColor, preferences.candidateAccentColor,
+            preferences.candidateSelectedColor, preferences.candidateHoverColor, preferences.candidateSurfaceColor,
+            preferences.candidateBorderColor];
         NSArray *expectedColors = @[@"#102030", @"#203040", @"#304050", @"#405060", @"#506070", @"#607080", @"#708090"];
-        for (NSUInteger index = 0; index < expectedColors.count; ++index)
-            assert([resolvedColors[index] isEqual:TestCandidateColor(expectedColors[index])]);
+        assert([pickedColors isEqual:expectedColors]);
+        {
+            const msime::mac::SkinTokens tokens = [preferences resolvedSkinForDark:NO].tokens;
+            const msime::mac::Rgba drawn[] = {tokens.text, tokens.number, tokens.accent, tokens.selected, tokens.hover, tokens.surface, tokens.border};
+            for (NSUInteger index = 0; index < expectedColors.count; ++index) assert(TokenIs(drawn[index], expectedColors[index]));
+        }
         for (id invalid in @[@YES, @"red", @"#123", @"#12345678", @"#GG0000"])
-            [preferences applySharedCandidatePreferences:@{@"candidate_number_color": invalid}];
-        assert([[preferences candidateNumberColorWithDefault:NSColor.clearColor] isEqual:TestCandidateColor(@"#203040")]);
-        [preferences applySharedCandidatePreferences:@{@"candidate_text_color": @"#102030"}];
-        NSColor *derivedNumber = [TestCandidateColor(@"#102030") colorWithAlphaComponent:0x9d / 255.0];
-        assert([[preferences candidateNumberColorWithDefault:NSColor.clearColor] isEqual:derivedNumber]);
-        assert([[preferences candidateAccentColorWithDefault:NSColor.redColor] isEqual:NSColor.redColor]);
+            [preferences applySharedCandidatePreferences:@{@"custom_theme": Pickers(@{@"text": @"#102030", @"number": invalid})}];
+        assert([preferences.candidateNumberColor isEqual:@"#203040"]);
+        [preferences applySharedCandidatePreferences:@{@"custom_theme": Pickers(@{@"text": @"#102030"})}];
+        // An explicit text colour also sets the numbers when the number picker is unset, about 62% opaque; an unset accent is the native one.
+        assert(preferences.candidateNumberColor == nil && preferences.candidateAccentColor == nil);
+        assert(TokenIs([preferences resolvedSkinForDark:NO].tokens.number, @"#102030", 0x9d / 255.0));
+        assert(TokenIs([preferences resolvedSkinForDark:NO].tokens.accent, @"#2C7A4B"));
         preferences.candidateTextColor = @"#112233";
         [NSApp sendAction:NSSelectorFromString(@"resetTextColor:") to:preferences from:nil];
-        assert([preferences sharedPreferencesByMerging:@{}][@"candidate_text_color"] == NSNull.null);
+        assert([preferences sharedPreferencesByMerging:@{}][@"custom_theme"][@"candidate_colors"][@"text"] == NSNull.null);
         colorReloaded = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:preferences.skinsRoot];
         assert(colorReloaded.candidateTextColor == nil);
         preferences.fontFamily = @"Helvetica";
@@ -489,10 +578,13 @@ int main(int argc, const char **argv) {
         assert(automatic.previewUsesDark);
         automatic.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
         assert(automatic.previewUsesDark);
-        [automatic setPreviewSkinId:@"wechat"];
-        assert(automatic.previewSkin.id == "wechat" && [preferences.skinID isEqual:@"willow_green"]);
+        NSString *selectedTheme = preferences.globalTheme;
+        [automatic setPreviewSkinId:@"shuishan"];
+        assert(automatic.previewSkin.id == "shuishan" && [preferences.globalTheme isEqual:selectedTheme]);
+        // A theme with a fixed mode is previewed in it, whatever the local override says.
+        assert(automatic.previewUsesDark && automatic.previewSkin.fixedDark == true);
         [automatic setPreviewSkinId:@"missing-package"];
-        assert(automatic.previewSkin.id == "fluent");
+        assert(automatic.previewSkin.id == "custom" && automatic.previewSkin.candidateSkin.empty());
         // A large external decoration increases scrollable height, not the fixed settings window.
         std::filesystem::create_directory(root / "synthetic");
         {
@@ -501,7 +593,7 @@ int main(int argc, const char **argv) {
 id = "synthetic"
 name = "Synthetic"
 version = "1"
-base = "fluent"
+base = "system"
 preview = "image.png"
 [supports]
 layouts = ["horizontal", "vertical"]
@@ -527,8 +619,8 @@ surface = "#123456"
         assert(decoration);
         assert([[decoration representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:@((root / "synthetic" / "image.png").c_str()) atomically:YES]);
         [preferences reloadSkins];
-        preferences.skinID = @"synthetic";
-        assert(preview.previewSkin.id == "synthetic" && preview.previewSkin.decorationTopDip == 180);
+        [preferences selectExternalSkin:@"synthetic" base:@"system"];
+        assert(preview.previewSkin.candidateSkin == "synthetic" && preview.previewSkin.decorationTopDip == 180);
         NSBitmapImageRep *withDecoration = Draw(preview);
         const CGFloat scale = withDecoration.pixelsWide / preview.bounds.size.width;
         if (argc == 2) assert([[withDecoration representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:@(argv[1]) atomically:YES]);

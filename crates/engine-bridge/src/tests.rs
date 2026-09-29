@@ -308,6 +308,14 @@ pub(super) fn options(root: &std::path::Path) -> EngineOptions {
         local_super_jianpin: true,
         local_temporary_english: true,
         local_temporary_japanese: true,
+        sentence_association: msime_engine_bridge::SentenceAssociationOptions {
+            word_lattice: true,
+            google: true,
+            neural_desktop: false,
+            neural_keyboard: false,
+            show_next_on_duplicate: false,
+        },
+        rescoring_context: String::new(),
         sentence_alternatives: true,
     }
 }
@@ -460,6 +468,28 @@ fn helpcode_settings_reach_the_real_engine() {
     }
     value.helpcode_schema = "unknown".into();
     assert!(Session::new(&value).is_err());
+}
+
+#[test]
+fn custom_helpcode_table_is_loaded_by_the_engine_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut value = options(dir.path());
+    let custom = std::path::Path::new(&value.resources)
+        .join("helpcodes")
+        .join("custom");
+    std::fs::create_dir_all(&custom).unwrap();
+    std::fs::write(
+        custom.join("synthetic.txt"),
+        "\u{feff}# name: Synthetic\r\n# name_en: Synthetic\r\n你=ab\r\n",
+    )
+    .unwrap();
+    value.helpcode = true;
+    value.helpcode_schema = "custom/synthetic".into();
+
+    let mut session = Session::new(&value).unwrap();
+    session.character(b'n', false).unwrap();
+    session.character(b'i', false).unwrap();
+    assert!(session.character(b'A', true).unwrap().handled);
 }
 
 /// The jiajia table this repository carries is in the shape the Engine parses.

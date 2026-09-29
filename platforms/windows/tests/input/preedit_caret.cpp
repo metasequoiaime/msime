@@ -82,6 +82,20 @@ int main() {
       require(candidate_presentation_from_view(lease, blurred, 0, 0, "")
                   .preedit_caret == std::string::npos);
     }
+    // The preedit row carries the pager: the view's page position is kept when it names a page of the count, and dropped otherwise rather than drawing "4 / 3".
+    {
+      auto paged = view("nihao", "nihao", 2);
+      paged["page"] = 1;
+      paged["page_count"] = 3;
+      const auto out = candidate_presentation_from_view(lease, paged, 0, 0, "");
+      require(out.page == 1 && out.page_count == 3);
+      paged["page"] = 3;
+      const auto past = candidate_presentation_from_view(lease, paged, 0, 0, "");
+      require(past.page == 0 && past.page_count == 0);
+      const auto unpaged =
+          candidate_presentation_from_view(lease, view("ni", "ni", 2), 0, 0, "");
+      require(unpaged.page == 0 && unpaged.page_count == 0);
+    }
 
     std::cout << "Preedit caret: placed only where the offset really means it\n";
   } catch (const std::exception &failure) {

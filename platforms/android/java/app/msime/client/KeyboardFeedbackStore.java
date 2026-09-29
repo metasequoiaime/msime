@@ -65,9 +65,23 @@ public final class KeyboardFeedbackStore {
     public static void save(Context context, Settings settings) throws IOException {
         if (settings == null) throw new IllegalArgumentException("settings");
         Path file = file(context);
+        saveFile(file, settings);
+        // Keep older APKs functional during an in-place upgrade. New code always reads the
+        // atomic file first, so a stale legacy copy cannot overwrite a newer setting.
+        context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit()
+            .putBoolean(KeyboardFeedbackPreferences.SOUND_KEY, settings.soundEnabled())
+            .putBoolean(KeyboardFeedbackPreferences.HAPTICS_KEY, settings.hapticsEnabled())
+            .putString(KeyboardFeedbackPreferences.STRENGTH_KEY,
+                settings.hapticStrength().id())
+            .apply();
+    }
+
+    static void saveFile(Path file, Settings settings) throws IOException {
+        if (file == null) throw new IllegalArgumentException("feedback file");
+        if (settings == null) throw new IllegalArgumentException("settings");
         Path parent = file.getParent();
         if (parent == null) throw new IOException("feedback directory unavailable");
-        Files.createDirectories(parent);
+        ensureSafeDirectory(parent);
         Path temporary = Files.createTempFile(parent, FILE_NAME + ".", ".tmp");
         try {
             String encoded;
@@ -87,14 +101,30 @@ public final class KeyboardFeedbackStore {
         } finally {
             Files.deleteIfExists(temporary);
         }
-        // Keep older APKs functional during an in-place upgrade. New code always reads the
-        // atomic file first, so a stale legacy copy cannot overwrite a newer setting.
-        context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit()
-            .putBoolean(KeyboardFeedbackPreferences.SOUND_KEY, settings.soundEnabled())
-            .putBoolean(KeyboardFeedbackPreferences.HAPTICS_KEY, settings.hapticsEnabled())
-            .putString(KeyboardFeedbackPreferences.STRENGTH_KEY,
-                settings.hapticStrength().id())
-            .apply();
+    }
+
+    private static void rejectSymlinkComponents(Path path) throws IOException {
+        Path absolute = path.toAbsolutePath().normalize();
+        Path current = absolute.getRoot();
+        if (current == null) throw new IOException("feedback path unavailable");
+        for (Path component : absolute) {
+            current = current.resolve(component);
+            if (Files.isSymbolicLink(current))
+                throw new IOException("feedback path contains a symbolic link");
+        }
+    }
+
+    static void ensureSafeDirectory(Path directory) throws IOException {
+        if (directory == null) throw new IOException("feedback directory unavailable");
+        rejectSymlinkComponents(directory);
+        if (Files.exists(directory, LinkOption.NOFOLLOW_LINKS)
+                && !Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS))
+            throw new IOException("feedback directory unavailable");
+        Files.createDirectories(directory);
+        rejectSymlinkComponents(directory);
+        if (!Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS)
+                || Files.isSymbolicLink(directory))
+            throw new IOException("feedback directory unavailable");
     }
 
     static Settings decode(String text) throws JSONException {

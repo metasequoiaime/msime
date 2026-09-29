@@ -7,6 +7,7 @@ import { VoiceRecognitionPolicy } from './VoiceRecognitionPolicy';
 import { HarmonyVoiceCaptureDevices } from './HarmonyVoiceCaptureDevices';
 import { VoiceOutcome, VoiceResponsePolicy } from './VoiceResponsePolicy';
 import { VoiceInputConfiguration } from './VoiceInputConfiguration';
+import { TextPolicy } from '../TextPolicy';
 
 const PCM_CHUNK_BYTES: number = 6400;
 const MAX_PCM_QUEUE_BYTES: number = 16000 * 2 * 10;
@@ -396,7 +397,7 @@ export class HarmonyDoubaoRecognizer {
   }
 
   private validConfig(config: VoiceInputConfiguration): boolean {
-    return config.asr_endpoint.startsWith('wss://') && config.asr_endpoint.length <= 2048
+    return TextPolicy.validAuthority(config.asr_endpoint, ['wss://'])
       && config.asr_token.length > 0 && config.asr_token.length <= 8192
       && config.asr_resource_id.length > 0 && config.asr_resource_id.length <= 256
       && (config.doubao_auth_mode !== 'legacy' || config.asr_app_key.length > 0);

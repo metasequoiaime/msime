@@ -218,6 +218,7 @@ targets:
     sources:
       - path: KeyboardTests
       - path: App/Services/AISkinService.swift
+      - path: App/Services/BoundedFileReader.swift
       - path: App/Services/CloudDictionaryTransfer.swift
       - path: App/Services/CommunityPreviewFixtures.swift
       - path: App/Services/DoubaoHostFrameCodec.swift
@@ -274,6 +275,7 @@ targets:
       - path: App/Services/BoundedFileReader.swift
       - path: SharedUI/core/AppServicesBridge.swift
       - path: SharedUI/core/MetasequoiaTheme.swift
+      - path: SharedUI/core/SharedNumber.swift
       - path: ../../shared/backend
         excludes:
           - Tests/**
@@ -308,6 +310,7 @@ targets:
           - build-native.sh
           - tools/**
       - path: KeyboardTests/input/InputSchemeTestSupport.swift
+      - path: App/Services/BoundedFileReader.swift
       - path: App/Services/CustomService.swift
       - path: App/Services/DoubaoHostFrameCodec.swift
       - path: App/Services/DoubaoVoiceCoordinator.swift

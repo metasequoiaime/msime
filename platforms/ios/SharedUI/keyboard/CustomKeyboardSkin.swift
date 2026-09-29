@@ -97,6 +97,10 @@ enum CustomKeyboardSkinStore {
   static let key = "customKeyboardSkin.v1"
   private static let cache = Cache()
   static var current: CustomKeyboardSkin { cache.load() }
+  /// The saved design, or nil when there is none: `current` falls back to the editor's starting design, which is not one the user applied.
+  static var stored: CustomKeyboardSkin? {
+    KeyboardFeedbackPreference.defaults.data(forKey: key) == nil ? nil : cache.load()
+  }
   static func save(_ skin: CustomKeyboardSkin) {
     guard let data = try? JSONEncoder().encode(skin.normalized) else { return }
     KeyboardFeedbackPreference.defaults.set(data, forKey: key)

@@ -11,7 +11,7 @@ const initial: Snapshot = {
   preferences: {
     scheme: "shuangpin",
     shuangpin_profile: "xiaohe",
-    touch_keyboard_skin: "ocean",
+    global_theme: "night",
     touch_keyboard_schemes: { enabled: ["xiaohe"], selected: "xiaohe" },
     candidate_page_size: 5,
     learning: true,
@@ -24,7 +24,7 @@ test("renders the keyboard home surface with the current skin and scheme", () =>
 
   expect(screen.getByRole("region", { name: "首页" })).toBeTruthy();
   expect(screen.getByText("我的键盘")).toBeTruthy();
-  expect(screen.getByText("海盐蓝 · 小鹤双拼")).toBeTruthy();
+  expect(screen.getByText("夜青 · 小鹤双拼")).toBeTruthy();
   expect(screen.getByRole("img", { name: "屏幕键盘完整布局预览" })).toBeTruthy();
   expect(screen.getByText("高情商回复")).toBeTruthy();
 });
@@ -184,7 +184,9 @@ test("opens Android on home and preserves the appearance fallback without home c
   cleanup();
   render(<SettingsPage client={{ load: async () => initial, save: vi.fn() }} />);
   await screen.findByRole("button", { name: "保存设置" });
-  expect(screen.getByRole("button", { name: "外观" }).getAttribute("aria-current")).toBe("page");
+  expect(screen.getByRole("button", { name: "候选窗口" }).getAttribute("aria-current")).toBe(
+    "page",
+  );
   expect(screen.queryByRole("region", { name: "首页" })).toBeNull();
 });
 
@@ -230,6 +232,6 @@ test("enables and selects thoughtful reply when opened from Android home", async
       .getAttribute("aria-pressed"),
   ).toBe("true");
   expect(
-    (screen.getByRole("checkbox", { name: "显示输入方案 高情商回复" }) as HTMLInputElement).checked,
+    (screen.getByRole("switch", { name: "显示输入方案 高情商回复" }) as HTMLInputElement).checked,
   ).toBe(true);
 });

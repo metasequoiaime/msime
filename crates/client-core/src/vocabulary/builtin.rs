@@ -65,7 +65,7 @@ pub fn load(resources: &Path) -> Result<Vec<Wordbook>, BuiltinWordbookError> {
     if !root.is_dir() {
         return Ok(Vec::new());
     }
-    let mut books = Vec::new();
+    let mut books = Vec::with_capacity(ORDER.len());
     for id in ORDER {
         let path = root.join(format!("{id}.json"));
         match std::fs::metadata(&path) {

@@ -81,7 +81,7 @@ struct ReplyKeyboardView: View {
   let paste: () -> Void
   let generate: (String) -> Void
   private let styles = ["😁 专属回复", "🥰 暖心关怀", "📣 捧场王", "😍 恋人", "🌪 幽默风趣", "👔 成熟稳重", "💬 土味情话", "🤩 高情商", "🙌 委婉拒绝"]
-  private var skin: KeyboardSkin { KeyboardSkinPreference.selected }
+  private var skin: KeyboardTheme { KeyboardTheme.current }
   private var radius: CGFloat { CGFloat(skin.cornerRadius) }
   private var keyGap: CGFloat { CGFloat(KeyboardLayoutPreference.keySpacing) }
   private var rowGap: CGFloat { CGFloat(KeyboardLayoutPreference.rowSpacing) }

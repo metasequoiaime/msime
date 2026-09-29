@@ -38,6 +38,8 @@ public final class DoubaoAsrPolicySmoke {
             "a plaintext endpoint is refused");
         check(!DoubaoAsrPolicy.usable("doubao", "https://openspeech.bytedance.com/x", apiKey),
             "an https endpoint is not this protocol");
+        check(!DoubaoAsrPolicy.usable("doubao", "wss:///asr", apiKey),
+            "an endpoint without an authority is refused");
         check(!DoubaoAsrPolicy.usable("doubao", endpoint + "\n", apiKey),
             "a control character is refused rather than smuggled into the handshake");
         check(!DoubaoAsrPolicy.usable("doubao", null, apiKey),

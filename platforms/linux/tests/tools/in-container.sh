@@ -37,7 +37,7 @@ for name in sorted(symbols):
     getattr(library, name)
 print("Host API header exports verified")
 PY
-cargo test -p msime-linux-core -p msime-input-runtime -p msime-host-api --locked
+cargo test -p msime-client-core -p msime-input-runtime -p msime-host-api --locked
 if [[ ${MSIME_TEST_FCITX5:-0} == 1 ]]; then
   bash platforms/linux/tests/tools/fcitx5-container.sh
   exit 0

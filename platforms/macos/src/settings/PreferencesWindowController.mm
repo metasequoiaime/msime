@@ -18,8 +18,11 @@ NSNotificationName const MSIMEStandalonePreferencesDidCloseNotification =
 + (NSNumber *)applyCloudSettingsSnapshot:(NSDictionary *)values {
     return @([[MSIMEAppearancePreferences sharedPreferences] applyCloudSettingsSnapshot:values]);
 }
-+ (NSString *)storedCandidateSkin { return MetasequoiaStoredCandidateSkin(); }
-+ (void)setStoredCandidateSkin:(NSString *)skinId { MetasequoiaSetStoredCandidateSkin(skinId); }
++ (NSString *)storedGlobalTheme { return MetasequoiaStoredGlobalTheme(); }
++ (void)setStoredGlobalTheme:(NSString *)themeId { MetasequoiaSetStoredGlobalTheme(themeId); }
++ (NSString *)themeTitleForIdentifier:(NSString *)themeId {
+    return @(metasequoia::mac::ThemeTitle(themeId.UTF8String ?: "").c_str());
+}
 + (instancetype)sharedController {
     static MSIMEPreferencesWindowController *controller;
     static dispatch_once_t once;

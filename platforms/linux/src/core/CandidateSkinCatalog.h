@@ -10,10 +10,11 @@
 
 namespace msime::linux_host {
 
-// 一款可选的候选皮肤：id 是身份，title 只用于展示。
+// 一款已安装的外部候选皮肤：id 是身份，title 只用于展示，base 是它的清单声明的底色主题（system 或某个内置主题）。选中它就是选中自定义主题，并把 custom_theme.base 换成这个 base，和设置页的皮肤卡片一样。
 struct CandidateSkin {
   std::string id;
   std::string title;
+  std::string base;
 };
 
 // 外部皮肤 id 的可用字符，与共享层 skin::catalog 的 safe_id 同一条规则。宿主不放宽
@@ -31,31 +32,7 @@ inline bool safe_skin_id(std::string_view id) {
   return true;
 }
 
-// 共享层 msime_client_builtin_skins() 的响应。解析失败返回空列表，由调用方决定如何
-// 处理——宿主不在这里补一份内置表当兜底，那正是这个函数存在的理由。
-inline std::vector<CandidateSkin> parse_builtin_skins(const nlohmann::json &parsed) {
-  std::vector<CandidateSkin> skins;
-  if (!parsed.is_object()) return skins;
-  const auto listed = parsed.find("skins");
-  if (listed == parsed.end() || !listed->is_array()) return skins;
-  for (const auto &entry : *listed) {
-    if (!entry.is_object()) continue;
-    auto id = entry.value("id", std::string{});
-    if (id.empty()) continue;
-    auto title = entry.value("title", id);
-    skins.push_back({std::move(id), std::move(title)});
-  }
-  return skins;
-}
-
-
-// 共享层发布的默认皮肤。文档给不出时返回空串，由调用方决定，宿主不另写一个默认值。
-inline std::string default_skin(const nlohmann::json &parsed) {
-  if (!parsed.is_object()) return {};
-  return parsed.value("default", std::string{});
-}
-
-// 运行配置里 candidate_skin_catalog.packages 的那些外部皮肤。
+// 运行配置里 candidate_skin_catalog.packages 的那些外部皮肤。条目原样交给 msime_client_resolve_theme 的 package，而共享层按清单严格读取它（ThemePackage::from_host_catalog_entry），所以这里只收它会接受的条目：安全的 id、非空的 title、字符串 base、只含 horizontal / vertical 的 layouts。base 是否为 system 或某个内置主题由 theme_choices 对照共享层的主题目录再筛一次，宿主不另存主题 id 表。调色板不在这里读——只声明了模式而没有任何颜色的 `{}` 同样是合法条目，由共享层决定画什么。
 inline std::vector<CandidateSkin> parse_configured_skins(const nlohmann::json &options) {
   std::vector<CandidateSkin> skins;
   const auto catalog = options.find("candidate_skin_catalog");
@@ -64,16 +41,44 @@ inline std::vector<CandidateSkin> parse_configured_skins(const nlohmann::json &o
   if (packages == catalog->end() || !packages->is_array()) return skins;
   for (const auto &package : *packages) {
     if (!package.is_object()) continue;
-    auto id = package.value("id", std::string{});
+    const auto id_value = package.find("id");
+    const auto title_value = package.find("title");
+    const auto base_value = package.find("base");
+    const auto layouts = package.find("layouts");
+    if (id_value == package.end() || !id_value->is_string() || title_value == package.end() ||
+        !title_value->is_string() || base_value == package.end() || !base_value->is_string() ||
+        layouts == package.end() || !layouts->is_array())
+      continue;
+    auto id = id_value->get<std::string>();
     if (!safe_skin_id(id)) continue;
-    auto title = package.value("title", id);
+    auto title = title_value->get<std::string>();
     if (title.empty() || title.size() > 128) continue;
+    auto base = base_value->get<std::string>();
+    if (base.empty() || base == "custom") continue;
+    bool layouts_known = true;
+    for (const auto &layout : *layouts)
+      layouts_known = layouts_known && layout.is_string() &&
+                      (layout.get<std::string>() == "horizontal" || layout.get<std::string>() == "vertical");
+    if (!layouts_known) continue;
     bool listed = false;
     for (const auto &existing : skins) listed = listed || existing.id == id;
     if (listed) continue;
-    skins.push_back({std::move(id), std::move(title)});
+    skins.push_back({std::move(id), std::move(title), std::move(base)});
   }
   return skins;
+}
+
+// The catalogue entry for one installed skin, unchanged, as msime_client_resolve_theme takes it for `package`. Null when the catalogue does not list it.
+inline const nlohmann::json *candidate_skin_package(const nlohmann::json &catalog, std::string_view id) {
+  if (id.empty() || !catalog.is_object()) return nullptr;
+  const auto packages = catalog.find("packages");
+  if (packages == catalog.end() || !packages->is_array()) return nullptr;
+  for (const auto &package : *packages) {
+    if (!package.is_object()) continue;
+    const auto value = package.find("id");
+    if (value != package.end() && value->is_string() && value->get<std::string>() == id) return &package;
+  }
+  return nullptr;
 }
 
 // The decoration an installed skin draws above its candidate list: an image, trailing-aligned in a band top_dip tall and width_dip wide on Windows (candidate_presenter.cpp). The shared host catalog (skin::catalog::host_candidate_catalog) publishes it only for a package that declares one, with the image as an absolute path inside that package. The bounds are the manifest's (0 < top <= 500, 0 < width <= 1000) and are checked again here, because the document is read as untrusted input. Only Fcitx5 draws it; IBus text attributes have no way to show an image, and IBus never reads these keys.
@@ -102,56 +107,11 @@ inline std::optional<CandidateSkinDecoration> parse_skin_decoration(const nlohma
   return CandidateSkinDecoration{std::move(path), top_dip, width_dip};
 }
 
-// The decoration of the selected skin when it is an installed one. A built-in skin never takes a package's decoration, even with a package of the same id in the catalogue, as it never takes its colours (candidate_display_preferences).
-inline std::optional<CandidateSkinDecoration> candidate_skin_decoration(
-    const nlohmann::json &catalog, std::string_view selected, const std::vector<CandidateSkin> &builtin) {
-  for (const auto &skin : builtin)
-    if (skin.id == selected) return std::nullopt;
-  if (!catalog.is_object()) return std::nullopt;
-  const auto packages = catalog.find("packages");
-  if (packages == catalog.end() || !packages->is_array()) return std::nullopt;
-  for (const auto &package : *packages)
-    if (package.is_object() && package.value("id", std::string{}) == selected) return parse_skin_decoration(package);
-  return std::nullopt;
-}
-
-// 宿主实际展示和循环的那份列表：内置在前，配置目录在后，去重。
-//
-// 当前皮肤如果两边都不在——运行配置换过、或者偏好是别处写的——它会作为一个「外部」
-// 条目补在末尾，而不是被当作不存在。这条曾经在两个宿主之间不一致：IBus 的属性菜单把
-// 它显示为「外部：<id>」并保持选中，Fcitx5 的循环动作则因为在列表里找不到它而直接跳
-// 回列表头，用户配的皮肤按一下就没了，而且它在此之前一直被标成杨柳青。
-inline std::vector<CandidateSkin> candidate_skin_list(
-    const std::vector<CandidateSkin> &builtin, const std::vector<CandidateSkin> &configured,
-    std::string_view current) {
-  std::vector<CandidateSkin> skins = builtin;
-  const auto listed = [&skins](std::string_view id) {
-    for (const auto &skin : skins)
-      if (skin.id == id) return true;
-    return false;
-  };
-  for (const auto &skin : configured)
-    if (!listed(skin.id)) skins.push_back(skin);
-  if (!current.empty() && !listed(current))
-    skins.push_back({std::string(current), "外部：" + std::string(current)});
-  return skins;
-}
-
-// 循环里的下一款，走到末尾回到开头。列表为空时保持当前不动。
-inline std::string next_candidate_skin(const std::vector<CandidateSkin> &skins,
-                                       std::string_view current) {
-  if (skins.empty()) return std::string(current);
-  for (std::size_t index = 0; index < skins.size(); ++index)
-    if (skins[index].id == current) return skins[(index + 1) % skins.size()].id;
-  return skins.front().id;
-}
-
-// 展示标题。认识的皮肤用它自己的标题，不认识的按「外部：<id>」，两个宿主同一条规则。
-inline std::string candidate_skin_title(const std::vector<CandidateSkin> &skins,
-                                        std::string_view current) {
-  for (const auto &skin : skins)
-    if (skin.id == current) return skin.title;
-  return "外部：" + std::string(current);
+// The decoration of the skin the resolved theme draws: its `candidate_skin`, which the shared layer sets only when a custom theme names an installed package whose manifest declares the layout and the mode being drawn. That is the only gate; the host keeps no layout or mode check of its own. An empty id (nothing drawn) has none.
+inline std::optional<CandidateSkinDecoration> candidate_skin_decoration(const nlohmann::json &catalog,
+                                                                        std::string_view drawn) {
+  const auto *package = candidate_skin_package(catalog, drawn);
+  return package ? parse_skin_decoration(*package) : std::nullopt;
 }
 
 }  // namespace msime::linux_host

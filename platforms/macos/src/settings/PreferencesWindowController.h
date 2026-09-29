@@ -6,8 +6,10 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEStandalonePreferencesDidCloseNot
 /// Native preferences entry point; pages are added incrementally to this controller.
 @interface MSIMEPreferencesWindowController : NSWindowController <NSWindowDelegate>
 + (instancetype)sharedController;
-+ (NSString *)storedCandidateSkin;
-+ (void)setStoredCandidateSkin:(NSString *)skinId;
++ (NSString *)storedGlobalTheme;
++ (void)setStoredGlobalTheme:(NSString *)themeId;
+/// The catalog title of a global theme id (系统, 水杉, …), or the id itself when the catalog does not know it. The account page's settings list shows theme ids through this.
++ (NSString *)themeTitleForIdentifier:(NSString *)themeId;
 - (void)showAndActivate;
 /// Presents the window on a named page — see -[MSIMEAppearancePreferences showSettingsPageWithIdentifier:]
 /// for the names. This is the entry point for a native fallback whose desktop route names a page;

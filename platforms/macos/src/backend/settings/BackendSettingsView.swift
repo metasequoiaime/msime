@@ -71,7 +71,7 @@ final class MacSettingsModel: ObservableObject {
       var values = cloud.settings.filter { before[$0.key] != nil }
       // Preserve device choices for fields added after the original snapshot format.
       // Missing original fields must still reject an incomplete restore.
-      for key in ["platform.macos.candidate_skin", "platform.macos.shuangpin_preedit_uses_raw"] where values[key] == nil {
+      for key in ["platform.macos.global_theme", "platform.macos.custom_theme_base", "platform.macos.custom_candidate_skin", "platform.macos.shuangpin_preedit_uses_raw"] where values[key] == nil {
         values[key] = before[key]
       }
       guard values.count == before.count else {
@@ -81,16 +81,21 @@ final class MacSettingsModel: ObservableObject {
       self.preview = values; self.expectedLocal = before
     }
   }
+  /// The global theme travels with the custom theme's base and package, so the three are uploaded together or not at all: a cloud copy with a theme but without its base or package would restore a different look elsewhere.
+  static let themeKeys = ["platform.macos.global_theme", "platform.macos.custom_theme_base", "platform.macos.custom_candidate_skin"]
   func upload() {
     guard let cloud, let schema else { return }
     run { token in
-      let values = try self.local.snapshot()
+      var values = try self.local.snapshot()
       try self.local.validate(values)
+      // A server that has not registered the theme fields yet rejects the whole upload over them, so the other settings are uploaded without the theme and the message says so.
+      let themeless = Self.themeKeys.contains { schema.fields[$0] == nil }
+      if themeless { for key in Self.themeKeys { values[key] = nil } }
       let merged = try BackendAccountClient.mergedPreferences(cloud, replacing: values, schema: schema)
       let saved = try await self.client.putPreferences(merged, token: token)
       _ = try await self.authorize()
       self.cloud = saved; self.preview = nil; self.expectedLocal = nil
-      self.message = "本机设置已上传，其他平台的云端设置已保留。"
+      self.message = themeless ? "本机设置已上传，其他平台的云端设置已保留。云端暂不支持主题设置，主题没有上传。" : "本机设置已上传，其他平台的云端设置已保留。"
     }
   }
   func apply() {
@@ -142,15 +147,22 @@ struct MacCloudSettingsView: View {
   }
   private func label(_ key: String) -> String {
     if key == "platform.macos.shuangpin_preedit_uses_raw" { return "双拼预编辑" }
-    let names = ["candidate_skin":"候选窗皮肤", "input_scheme":"输入方案", "quanpin_helpcode_schema":"全拼辅助码", "shuangpin_helpcode_schema":"双拼辅助码", "candidate_panel_style":"候选布局", "candidate_page_size":"每页候选数", "candidate_font_size":"候选字号", "candidate_page_shortcut":"翻页快捷键", "autocorrect":"拼音纠错", "helpcode":"辅助码", "chinese_punctuation":"中文标点", "smart_punctuation":"智能标点", "smart_punctuation_repeat":"重复标点转中文", "candidate_learning":"候选学习", "english_input_mode":"英文模式", "input_mode_shortcut":"中英切换快捷键", "full_width_input":"全角输入", "floating_toolbar":"悬浮工具栏", "traditional_chinese_output":"繁体输出", "wubi_auto_commit_unique":"五笔唯一候选自动上屏", "shuangpin_keymap":"双拼键位图", "local_input_modes":"本地扩展模式"]
+    let names = ["global_theme":"全局主题", "custom_theme_base":"自定义主题底色", "custom_candidate_skin":"自定义候选皮肤", "input_scheme":"输入方案", "quanpin_helpcode_schema":"全拼辅助码", "shuangpin_helpcode_schema":"双拼辅助码", "candidate_panel_style":"候选布局", "candidate_page_size":"每页候选数", "candidate_font_size":"候选字号", "candidate_page_shortcut":"翻页快捷键", "autocorrect":"拼音纠错", "helpcode":"辅助码", "chinese_punctuation":"中文标点", "smart_punctuation":"智能标点", "smart_punctuation_repeat":"重复标点转中文", "candidate_learning":"候选学习", "english_input_mode":"英文模式", "input_mode_shortcut":"中英切换快捷键", "full_width_input":"全角输入", "floating_toolbar":"悬浮工具栏", "traditional_chinese_output":"繁体输出", "wubi_auto_commit_unique":"五笔唯一候选自动上屏", "shuangpin_keymap":"双拼键位图", "local_input_modes":"本地扩展模式"]
     return names[String(key.dropFirst("platform.macos.".count))] ?? "桌面设置"
   }
   private func display(_ value: BackendPreferenceValue, key: String) -> String {
     if key == "platform.macos.shuangpin_preedit_uses_raw", case .boolean(let raw) = value {
       return raw ? "原始双拼显示" : "全拼显示"
     }
-    if key == "platform.macos.candidate_skin", case .string(let id) = value {
-      return ["fluent":"Fluent", "wechat":"微信绿", "graphite":"石墨 Graphite", "willow_green":"杨柳青"][id] ?? id
+    if key == "platform.macos.global_theme" || key == "platform.macos.custom_theme_base", case .string(let id) = value {
+      // The titles live in the host catalog; the settings window answers with the id itself when it cannot be asked.
+      guard let type = NSClassFromString("MSIMEPreferencesWindowController") as? NSObject.Type,
+            type.responds(to: NSSelectorFromString("themeTitleForIdentifier:")),
+            let title = type.perform(NSSelectorFromString("themeTitleForIdentifier:"), with: id)?.takeUnretainedValue() as? String else { return id }
+      return title
+    }
+    if key == "platform.macos.custom_candidate_skin", case .string(let id) = value {
+      return id.isEmpty ? "不使用外部皮肤" : id
     }
     if case .integer(let n) = value {
       let names: [String]?

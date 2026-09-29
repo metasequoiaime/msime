@@ -111,8 +111,12 @@ class CustomTranslationConfig(unittest.TestCase):
         self.assertEqual(self.calls[0][1], "Bearer synthetic-local-key")
 
     def test_unsupported_endpoint_does_not_send_http(self):
-        for endpoint in ("file:///synthetic", "ftp://127.0.0.1/translate", " "):
+        for endpoint in ("file:///synthetic", "ftp://127.0.0.1/translate", " ",
+                         "http://translate.example.test/translate",
+                         "http://localhost.example.test/translate",
+                         "http://127.0.0.2/translate"):
             self.assertEqual(self.request(endpoint, "synthetic-local-key"), [])
+            self.assertFalse(self.credential_test(endpoint, "synthetic-local-key")["ok"])
         self.assertEqual(self.calls, [])
 
 

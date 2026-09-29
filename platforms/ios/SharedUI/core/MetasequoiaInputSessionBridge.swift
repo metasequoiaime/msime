@@ -585,16 +585,10 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     return (saved["revision"] as? NSNumber)?.uint64Value ?? storedRevision.uint64Value
   }
 
-  /// Persist a touch-keyboard skin in the canonical PreferencesStore, with the custom design when one is given: the next appearance copies both back over the App Group, so a custom pick saved without its design reverted to the document's.
-  /// The native App Group value remains a compatibility mirror for old hosts.
+  /// Apply a global theme change made in this keyboard (a GlobalThemePreference mapping) to the live session and the shared document. The caller mirrors the document into the App Group afterwards.
   @discardableResult
-  func setTouchKeyboardSkin(_ skin: KeyboardSkin, design: CustomKeyboardSkin? = nil) -> Bool {
-    let value = design.map(CustomKeyboardSkin.documentValue)
-    if design != nil, value == nil { return false }
-    return updateAndPersist { preferences in
-      preferences["touch_keyboard_skin"] = skin.rawValue
-      if let value { preferences["custom_touch_keyboard_skin"] = value }
-    }
+  func updateTheme(_ mapping: (inout [String: Any]) -> Void) -> Bool {
+    updateAndPersist(mapping)
   }
 
   /// Persist the touch host's Chinese output mode in the canonical snapshot.

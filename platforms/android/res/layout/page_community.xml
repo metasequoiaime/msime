@@ -1,36 +1,53 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- The 社区 tab in the design's Android form: large title, the 皮肤/词库/短语 segmented control, a pill search field, then the listing. Skins lay out as a two-column grid of preview cards; dictionaries and replies as rows in one grouped card (see CommunityAdapter). The list is inset 10dp so the 6dp margins around each card land its outer edge on the 16dp page margin with a 12dp gutter between columns. -->
 <LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:paddingStart="16dp"
-    android:paddingEnd="16dp"
-    android:paddingTop="16dp">
+    android:orientation="vertical">
 
-    <com.google.android.material.tabs.TabLayout
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:accessibilityHeading="true"
+        android:paddingStart="16dp"
+        android:paddingTop="22dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="10dp"
+        android:text="@string/tab_community"
+        android:textColor="@color/ink"
+        android:textSize="28sp" />
+
+    <com.google.android.material.button.MaterialButtonToggleGroup
         android:id="@+id/community_kinds"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        app:tabMode="fixed"
-        app:tabIndicatorColor="@color/forest"
-        app:tabSelectedTextColor="@color/ink"
-        app:tabTextColor="@color/text_secondary" />
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="6dp"
+        android:layout_marginEnd="16dp"
+        app:selectionRequired="true"
+        app:singleSelection="true" />
 
     <com.google.android.material.textfield.TextInputLayout
         android:id="@+id/community_search_field"
+        style="@style/Widget.Material3.TextInputLayout.FilledBox"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
         android:layout_marginTop="12dp"
-        app:boxBackgroundColor="@color/surface"
-        app:boxCornerRadiusBottomEnd="16dp"
-        app:boxCornerRadiusBottomStart="16dp"
-        app:boxCornerRadiusTopEnd="16dp"
-        app:boxCornerRadiusTopStart="16dp"
+        android:layout_marginEnd="16dp"
+        app:boxBackgroundColor="@color/search_field"
+        app:boxCornerRadiusBottomEnd="28dp"
+        app:boxCornerRadiusBottomStart="28dp"
+        app:boxCornerRadiusTopEnd="28dp"
+        app:boxCornerRadiusTopStart="28dp"
+        app:boxStrokeWidth="0dp"
+        app:boxStrokeWidthFocused="0dp"
         app:endIconMode="clear_text"
-        app:startIconDrawable="@android:drawable/ic_menu_search"
-        style="@style/Widget.Material3.TextInputLayout.FilledBox">
+        app:hintEnabled="false"
+        app:startIconDrawable="@drawable/ic_search"
+        app:startIconTint="@color/text_secondary">
 
         <com.google.android.material.textfield.TextInputEditText
             android:id="@+id/community_search"
@@ -38,15 +55,21 @@
             android:layout_height="wrap_content"
             android:imeOptions="actionSearch"
             android:inputType="text"
-            android:singleLine="true" />
+            android:paddingTop="14dp"
+            android:paddingBottom="14dp"
+            android:singleLine="true"
+            android:textColor="@color/ink"
+            android:textColorHint="@color/text_secondary"
+            android:textSize="15sp" />
     </com.google.android.material.textfield.TextInputLayout>
 
     <TextView
         android:id="@+id/community_state"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_marginStart="20dp"
         android:layout_marginTop="16dp"
-        android:layout_marginStart="4dp"
+        android:layout_marginEnd="16dp"
         android:textColor="@color/text_secondary"
         android:textSize="14sp"
         android:visibility="gone" />
@@ -56,10 +79,11 @@
         style="@style/Widget.Material3.Button.TonalButton"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
         android:layout_marginTop="12dp"
         android:text="重试"
         android:visibility="gone"
-        app:cornerRadius="12dp" />
+        app:cornerRadius="20dp" />
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/community_items"
@@ -67,6 +91,8 @@
         android:layout_height="0dp"
         android:layout_weight="1"
         android:clipToPadding="false"
-        android:paddingTop="12dp"
-        android:paddingBottom="96dp" />
+        android:paddingStart="10dp"
+        android:paddingTop="10dp"
+        android:paddingEnd="10dp"
+        android:paddingBottom="120dp" />
 </LinearLayout>

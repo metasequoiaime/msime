@@ -962,6 +962,10 @@ function HarmonySettings({
   // the flow replaces the page rather than sitting somewhere inside it. Skipping is allowed: a
   // keyboard the user has decided to set up later is not a reason to withhold its settings.
   const [bootstrapRequired, setBootstrapRequired] = useState(onboarding);
+  // The splash belongs to a first launch; a flow replayed from settings opens on its first step.
+  const [replayed, setReplayed] = useState(false);
+  // 登录 at the end of the flow opens the settings on 我的, where signing in lives.
+  const [initialPage, setInitialPage] = useState<string>();
   const [cloudClipboardOpen, setCloudClipboardOpen] = useState(false);
   const [cloudDictionaryOpen, setCloudDictionaryOpen] = useState(false);
   const [cloudDictionaryPage, setCloudDictionaryPage] = useState<CloudDictionaryPage>("main");
@@ -996,10 +1000,13 @@ function HarmonySettings({
     [dictionaryClient],
   );
   if (bootstrapRequired) {
+    // A 2-in-1 reports mobile_settings false: the flow draws itself as a desktop sheet there and opens without the phone's splash.
+    const mobileSettings = client.host?.mobile_settings;
     return (
       <WelcomeFlowPage
         actions={{
           platform: "harmony",
+          mobileSettings,
           // Resources are staged by the keyboard when it starts, and there is no separate step to
           // run here; the flow expects the promise, not work.
           prepareResources: async () => {},
@@ -1008,7 +1015,7 @@ function HarmonySettings({
             native.showInputMethodPicker();
           },
         }}
-        onComplete={async (scheme) => {
+        onComplete={async (scheme, choices) => {
           // The scheme picked in the flow is the whole point of that step; dropping it would leave
           // the user with a keyboard laid out the way they had just declined. Written the same way
           // the mobile hosts write it, so a profile carried between them means the same thing.
@@ -1017,6 +1024,9 @@ function HarmonySettings({
           if (!enabled.includes(scheme)) enabled.push(scheme);
           await client.save(snapshot.revision, {
             ...snapshot.preferences,
+            ...(choices.candidateEnglishGloss === undefined
+              ? {}
+              : { candidate_english_gloss: choices.candidateEnglishGloss }),
             scheme: "quanpin",
             last_chinese_scheme: "quanpin",
             touch_keyboard_layout: scheme === "nine_key" ? "nine_key" : "twenty_six_key",
@@ -1026,15 +1036,24 @@ function HarmonySettings({
               selected: scheme,
             },
           });
+          setInitialPage(choices.openAccount ? "account" : undefined);
           setBootstrapRequired(false);
         }}
         onSkip={async () => setBootstrapRequired(false)}
+        splash={mobileSettings !== false && !replayed}
       />
     );
   }
   return (
     <>
-      <SettingsPage client={client} onReplayOnboarding={() => setBootstrapRequired(true)} />
+      <SettingsPage
+        client={client}
+        initialPage={initialPage}
+        onReplayOnboarding={() => {
+          setReplayed(true);
+          setBootstrapRequired(true);
+        }}
+      />
       {cloudClipboardOpen && <CloudClipboardPanel client={cloudClipboard} />}
       {cloudDictionaryOpen && cloudDictionaryPage === "main" && (
         <CloudDictionaryPanel client={dictionaryClient} />

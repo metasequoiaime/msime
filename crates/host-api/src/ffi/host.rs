@@ -12,7 +12,7 @@ const MAX_TRADITIONAL_CONVERSION_BYTES: usize = 1 << 20;
 
 #[no_mangle]
 pub extern "C" fn msime_client_abi_version() -> u32 {
-    2
+    3
 }
 
 /// Convert Simplified Chinese text to Traditional Chinese with the shared OpenCC `s2t` tables.
@@ -182,12 +182,6 @@ pub extern "C" fn msime_client_default_preferences() -> *mut c_char {
     })
 }
 
-/// 内置候选皮肤的 id、显示标题，以及新建偏好所用的默认皮肤。
-///
-/// 每个宿主都要把内置皮肤列出来、判断某个 id 是不是内置的、并给它一个名字，于是每个
-/// 宿主原先各写了一份表。这类副本已经漂过：Linux 的 IBus 与 Fcitx5 两个并列宿主对同
-/// 一个 `graphite` 给出的名字不同。和上面的默认偏好同理，这份契约在共享层发布一次，
-/// 宿主只消费。顺序即宿主的展示顺序和循环顺序。
 /// The transcription provider and the optional rewrite, resolved from a preferences directory.
 ///
 /// The Android keyboard has its own voice entry and never goes through the desktop shell, so the
@@ -252,17 +246,94 @@ pub unsafe extern "C" fn msime_client_mobile_voice_configuration(
     })
 }
 
+/// The global theme picker: every theme id in picker order with its title and palettes, and the default id.
+///
+/// `system` and `custom` carry no palettes here: `system` is the host's native tokens, and `custom` is only known once resolved against the user's `custom_theme`. Hosts draw the picker from this and keep no copy of the ids, titles or colours.
 #[no_mangle]
-pub extern "C" fn msime_client_builtin_skins() -> *mut c_char {
+pub extern "C" fn msime_client_theme_catalog() -> *mut c_char {
     response(|| {
-        let skins: Vec<_> = msime_client_core::skin::catalog::BUILTIN_SKINS
-            .iter()
-            .map(|(id, title)| serde_json::json!({ "id": id, "title": title }))
-            .collect();
         Ok(serde_json::json!({
-            "skins": skins,
-            "default": msime_client_core::skin::catalog::DEFAULT_SKIN,
+            "themes": msime_client_core::skin::theme::catalog(),
+            "default": msime_client_core::skin::theme::GlobalTheme::default(),
         }))
+    })
+}
+
+/// Largest resolve request. A custom keyboard design may carry a photo of up to 682,668 base64 bytes, and the rest of the request is small.
+const MAX_THEME_REQUEST_BYTES: usize = 1 << 20;
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ResolveThemeRequest {
+    global_theme: msime_client_core::skin::theme::GlobalTheme,
+    #[serde(default)]
+    custom_theme: msime_client_core::preferences::CustomTheme,
+    dark: bool,
+    layout: msime_client_core::preferences::CandidateLayout,
+    skins_directory: Option<String>,
+    package: Option<serde_json::Value>,
+}
+
+/// Resolve the colours a host draws for a global theme.
+///
+/// The request carries the two preference fields as the host read them, so this takes no preferences directory and does no preference I/O: `global_theme` (one of the seven ids; any other id, a retired skin id included, fails the request as `invalid theme request`) and `custom_theme` (optional, validated as strictly as the preference itself). `dark` is the host's effective mode for the surface being drawn, and `layout` (`horizontal` or `vertical`) its candidate layout: a package is drawn only in a layout and a mode its manifest declares, so no host keeps a gate of its own. For `custom` with a `custom_theme.candidate_skin`, the host names where that package comes from with at most one of `skins_directory` (an absolute skin root; the package is loaded and validated as `msime_client_skin_package` does; every host that scans the root, which is every host but Linux) or `package` (one entry of the published `candidate_skin_catalog`, which only the Linux hosts read). A `package` that is not such an entry, a `SkinSummary` from `msime_client_skin_catalog` included, fails the call: that is a host bug, and reading it anyway would drop its declared modes and selection bar without a word. A package that is missing from the root, invalid on disk or not the one `candidate_skin` names is left out rather than failing the call: the theme still resolves, over its base.
+/// # Safety
+/// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
+/// The returned response must be released with `msime_client_string_free`.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_resolve_theme(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if request.is_null() || length == 0 || length > MAX_THEME_REQUEST_BYTES {
+            return Err("invalid theme request".into());
+        }
+        // SAFETY: guaranteed by the documented caller contract; size checked above.
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let request: ResolveThemeRequest =
+            serde_json::from_slice(bytes).map_err(|_| "invalid theme request")?;
+        request
+            .custom_theme
+            .validate()
+            .map_err(|error| error.to_string())?;
+        if request.skins_directory.is_some() && request.package.is_some() {
+            return Err("theme request names both a skins directory and a package".into());
+        }
+        if request
+            .skins_directory
+            .as_deref()
+            .is_some_and(|directory| !Path::new(directory).is_absolute())
+        {
+            return Err("skin directory must be absolute".into());
+        }
+        let theme = request.global_theme;
+        let wanted = request
+            .custom_theme
+            .candidate_skin
+            .as_deref()
+            .filter(|_| theme == msime_client_core::skin::theme::GlobalTheme::Custom);
+        let entry = request
+            .package
+            .map(msime_client_core::skin::theme::ThemePackage::from_host_catalog_entry)
+            .transpose()?;
+        let package = match (wanted, request.skins_directory, entry) {
+            (Some(id), Some(directory), _) => {
+                msime_client_core::skin::catalog::load_package(&directory, id)
+                    .ok()
+                    .map(|summary| msime_client_core::skin::theme::ThemePackage::from(&summary))
+            }
+            (Some(_), None, entry) => entry,
+            _ => None,
+        };
+        let resolved = msime_client_core::skin::theme::resolve(
+            theme,
+            &request.custom_theme,
+            request.dark,
+            request.layout,
+            package.as_ref(),
+        );
+        serde_json::to_value(resolved).map_err(|error| error.to_string())
     })
 }
 
@@ -470,6 +541,31 @@ pub unsafe extern "C" fn msime_client_skin_catalog(
         }
         serde_json::to_value(msime_client_core::skin::catalog::scan(directory))
             .map_err(|e| e.to_string())
+    })
+}
+
+/// Scan the Engine resource directory for optional custom helper-code tables. Native settings
+/// presenters use the same metadata as the shared settings page; the Engine remains responsible
+/// for parsing and applying the table itself. An absent `helpcodes/custom` directory is an empty
+/// catalog rather than an error.
+/// # Safety
+/// `resources` points to `length` readable UTF-8 bytes naming an absolute resource directory.
+/// Null is rejected. The returned JSON must be released with `msime_client_string_free`.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_helpcode_schemas(
+    resources: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if resources.is_null() || length > 16_384 {
+            return Err("invalid helpcode resource buffer".into());
+        }
+        // SAFETY: guaranteed by the documented caller contract; size checked above.
+        let bytes = unsafe { std::slice::from_raw_parts(resources, length) };
+        let resources =
+            std::str::from_utf8(bytes).map_err(|_| "invalid helpcode resource encoding")?;
+        let schemas = crate::list_custom_helpcode_schemas(resources)?;
+        serde_json::to_value(schemas).map_err(|error| error.to_string())
     })
 }
 
@@ -1068,7 +1164,7 @@ pub unsafe extern "C" fn msime_client_dictionary_manifest(
         .map_err(|_| "dictionary_manifest_unavailable")?;
         let text = std::str::from_utf8(&bytes).map_err(|_| "dictionary_manifest_unavailable")?;
         let manifest: Manifest =
-            serde_json::from_str(&text).map_err(|_| "dictionary_manifest_unavailable")?;
+            serde_json::from_str(text).map_err(|_| "dictionary_manifest_unavailable")?;
         if manifest.profile.is_empty()
             || !is_bounded_text(&manifest.profile, 64)
             || !msime_client_core::is_ascii_hex(&manifest.source.commit, 40)

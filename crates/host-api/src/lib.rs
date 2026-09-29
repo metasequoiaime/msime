@@ -33,8 +33,8 @@ use msime_input_runtime::HandwritingQuery;
 #[cfg(unix)]
 use msime_input_runtime::UnixSocketProvider;
 use msime_input_runtime::{
-    Action, AiAssistantProviderConfig, CandidateId, CharacterWidth, NineKeySpellingId, OnlineQuery,
-    Reranker, Runtime, SentenceModel, Transition, TranslationService,
+    Action, AiAssistantProviderConfig, CandidateId, CharacterWidth, NineKeySpellingId,
+    OnlineCandidate, OnlineQuery, Reranker, Runtime, SentenceModel, Transition, TranslationService,
 };
 #[cfg(unix)]
 use msime_input_runtime::{EmojiPanelQuery, TranslationQuery};
@@ -200,6 +200,9 @@ struct HostSession {
     options: EngineOptions,
     applied: Preferences,
     requested: Option<PreferencesSnapshot>,
+    /// Whether the requested preferences still need an Engine replacement. This decision is made
+    /// when the document arrives so every keystroke does not compare the full preference tree.
+    preferences_pending: bool,
     punctuation_override: Option<bool>,
     paired_punctuation_override: Option<bool>,
     punctuation_lock_override: Option<u8>,
@@ -208,6 +211,8 @@ struct HostSession {
     nine_key_override: Option<bool>,
     /// An AI provider credential the host keeps outside the preferences (the iOS Keychain), handed over for this session only and never written back.
     ai_credential: Option<String>,
+    /// Cached copy used by every online query until preferences change.
+    ai_provider_cache: Option<AiAssistantProviderConfig>,
     voice: VoiceSessionState,
     /// Committing candidate selections counted but not yet written to typing statistics, indexed by one-based position minus one, with every position past a page in the last slot. See `SELECTION_BATCH`.
     pending_selections: [u64; RANKS + 1],
@@ -254,14 +259,16 @@ impl HostSession {
         )
     }
 
-    fn ai_provider_config(&self) -> Option<AiAssistantProviderConfig> {
-        let preferences = self
-            .requested
-            .as_ref()
-            .map(|snapshot| &snapshot.preferences)
-            .unwrap_or(&self.applied);
+    fn ai_provider_config(&self) -> Option<&AiAssistantProviderConfig> {
+        self.ai_provider_cache.as_ref()
+    }
+    fn ai_query_is_current(&self, query: &OnlineQuery) -> bool {
+        self.ai_provider_config()
+            .is_some_and(|config| query.ai_assistant.as_ref() == Some(config))
+    }
+    fn set_ai_provider_cache(&mut self, preferences: &Preferences) {
         let ai = &preferences.ai_assistant;
-        ai.enabled.then(|| AiAssistantProviderConfig {
+        self.ai_provider_cache = ai.enabled.then(|| AiAssistantProviderConfig {
             enabled: true,
             provider: ai.provider.clone(),
             model: ai.model.clone(),
@@ -272,11 +279,7 @@ impl HostSession {
             prompt_custom_1: ai.prompt_custom_1.clone(),
             prompt_custom_2: ai.prompt_custom_2.clone(),
             prompt_custom_3: ai.prompt_custom_3.clone(),
-        })
-    }
-    fn ai_query_is_current(&self, query: &OnlineQuery) -> bool {
-        self.ai_provider_config()
-            .is_some_and(|config| query.ai_assistant.as_ref() == Some(&config))
+        });
     }
     fn cloud_candidates_enabled(&self) -> bool {
         self.applied.cloud_candidates
@@ -327,7 +330,7 @@ impl HostSession {
         let Some(snapshot) = &self.requested else {
             return Ok(());
         };
-        if snapshot.preferences == self.applied || !self.runtime.is_idle() {
+        if !self.preferences_pending || !self.runtime.is_idle() {
             return Ok(());
         }
         let mut options = self.options.clone();
@@ -423,11 +426,13 @@ impl HostSession {
             .map_err(|e| e.to_string())?;
         self.options = options;
         self.applied = snapshot.preferences.clone();
+        self.preferences_pending = false;
         self.nine_key_override = next_nine_key_override;
         Ok(())
     }
 
     fn complete_transition(&mut self, mut result: Transition) -> Transition {
+        let generation = self.runtime.generation();
         if let Err(error) = self.apply_pending() {
             let prior = result.diagnostic.take().unwrap_or_default();
             result.diagnostic = Some(
@@ -453,7 +458,12 @@ impl HostSession {
                     .collect();
             }
         }
-        result.view = self.runtime.view();
+        // Dispatch already built the view for this transition. Rebuild it only
+        // when applying a deferred page-size or preference change advanced the
+        // runtime generation; otherwise cloning the page again costs every key.
+        if self.runtime.generation() != generation {
+            result.view = self.runtime.view();
+        }
         result
     }
 
@@ -469,7 +479,15 @@ impl HostSession {
                 return Err("stale or conflicting preferences revision".into());
             }
         }
+        self.preferences_pending = snapshot.preferences != self.applied;
         self.requested = Some(snapshot);
+        let requested_preferences = self
+            .requested
+            .as_ref()
+            .expect("requested snapshot exists")
+            .preferences
+            .clone();
+        self.set_ai_provider_cache(&requested_preferences);
         self.apply_pending()?;
         let snapshot = self.requested.as_ref().expect("requested snapshot exists");
         Ok(
@@ -577,6 +595,17 @@ impl HostOptions {
             local_super_jianpin: self.preferences.local_modes.super_jianpin,
             local_temporary_english: self.preferences.local_modes.temporary_english,
             local_temporary_japanese: self.preferences.local_modes.temporary_japanese,
+            sentence_association: msime_engine_bridge::SentenceAssociationOptions {
+                word_lattice: self.preferences.sentence_association.word_lattice,
+                google: self.preferences.sentence_association.google,
+                neural_desktop: self.preferences.sentence_association.neural_desktop,
+                neural_keyboard: self.preferences.sentence_association.neural_keyboard,
+                show_next_on_duplicate: self
+                    .preferences
+                    .sentence_association
+                    .show_next_on_duplicate,
+            },
+            rescoring_context: String::new(),
             sentence_alternatives: true,
             helpcode: helpcode.enabled,
             show_helpcode: helpcode.show_in_candidate_window,
@@ -675,6 +704,25 @@ fn verify_resources_once(
     specification: &ResourceSet,
     state_root: &std::path::Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    match std::fs::symlink_metadata(state_root) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "state root is a symbolic link",
+            )
+            .into());
+        }
+        Ok(metadata) if !metadata.is_dir() => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "state root is not a directory",
+            )
+            .into());
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
     let marker_path = state_root.join("verified-resources.json");
     let current = VerifiedMarker::describe(resources, specification)?;
     if let (Some(current), Some(recorded)) = (&current, VerifiedMarker::read(&marker_path)) {
@@ -1055,10 +1103,11 @@ pub fn local_symbol_catalog(resources: &str) -> Result<Vec<LocalSymbolCatalogGro
     }
     let groups = msime_engine_bridge::emoji_symbol_groups(resources)
         .map_err(|_| "local symbol catalog unavailable")?;
-    let mut result = Vec::new();
+    let mut result = Vec::with_capacity(groups.len());
     let mut remaining_pages = 256usize;
     for group in groups {
         let mut items = Vec::new();
+        let mut first_page = true;
         let mut offset = 0usize;
         loop {
             if remaining_pages == 0 {
@@ -1075,18 +1124,26 @@ pub fn local_symbol_catalog(resources: &str) -> Result<Vec<LocalSymbolCatalogGro
                 &group.parent,
             )
             .map_err(|_| "local symbol catalog unavailable")?;
+            if first_page {
+                // The engine exposes pages rather than a total count. Use the first
+                // page's actual item count as the only reliable initial capacity.
+                items = Vec::with_capacity(page.items.len());
+                first_page = false;
+            }
+            let complete = page.complete;
+            let next_offset = page.next_offset;
             items.extend(page.items.into_iter().map(|item| LocalEmojiCatalogItem {
                 text: item.text,
                 annotation: item.annotation,
                 group: item.group,
             }));
-            if page.complete {
+            if complete {
                 break;
             }
-            if page.next_offset <= offset {
+            if next_offset <= offset {
                 return Err("local symbol catalog cursor did not advance");
             }
-            offset = page.next_offset;
+            offset = next_offset;
         }
         result.push(LocalSymbolCatalogGroup {
             parent: group.parent,
@@ -1095,6 +1152,24 @@ pub fn local_symbol_catalog(resources: &str) -> Result<Vec<LocalSymbolCatalogGro
         });
     }
     Ok(result)
+}
+
+/// Discover the optional helper-code tables installed below a verified resource directory.
+///
+/// The table files are Engine-owned assets, but their display metadata belongs to the shared
+/// settings surface. Keep the path check at this host boundary so neither a native caller nor the
+/// Tauri shell can ask the client core to inspect an arbitrary relative location. An absent or
+/// unreadable `helpcodes/custom` directory is a valid empty catalog.
+pub fn list_custom_helpcode_schemas(
+    resources: &str,
+) -> Result<Vec<msime_client_core::helpcode::CustomHelpcodeSchema>, &'static str> {
+    let path = std::path::Path::new(resources);
+    if !path.is_absolute() {
+        return Err("resources path must be absolute");
+    }
+    Ok(msime_client_core::helpcode::list_custom_helpcode_schemas(
+        path,
+    ))
 }
 
 fn response(operation: impl FnOnce() -> Result<Value, String>) -> *mut c_char {

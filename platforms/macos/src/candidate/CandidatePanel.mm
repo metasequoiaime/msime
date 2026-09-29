@@ -246,7 +246,8 @@
 }
 - (void)reloadSkin
 {
-    _skin = MetasequoiaResolveStoredCandidateSkin(MetasequoiaAppearanceIsDark(_chrome.effectiveAppearance));
+    _skin = MetasequoiaResolveStoredTheme(MetasequoiaAppearanceIsDark(_chrome.effectiveAppearance),
+                                          _panelType == kIMKSingleColumnScrollingCandidatePanel);
     _decorationImage = nil;
     if (_skin.decorationTopDip > 0.0 && !_skin.decorationPath.empty())
     {
@@ -256,7 +257,14 @@
 }
 - (void)setPanelType:(IMKCandidatePanelType)type
 {
+    const BOOL wasVertical = _panelType == kIMKSingleColumnScrollingCandidatePanel;
     _panelType = type;
+    // The layout decides whether a package is drawn, so a change of layout resolves the theme again.
+    if (wasVertical != (type == kIMKSingleColumnScrollingCandidatePanel))
+    {
+        [self reloadSkin];
+        return;
+    }
     [self layoutCandidates];
 }
 - (void)setHasPreviousPage:(BOOL)value

@@ -99,19 +99,19 @@ test("typing statistics follow the injected client on any platform", async () =>
   // Previously this category was reachable only when the user agent matched Android.
   mount({ host: capabilities({ platform: "windows" }), typingStatistics: statistics });
   await screen.findByRole("button", { name: "保存设置" });
-  expect(screen.getByRole("button", { name: "打字统计" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "统计" })).toBeTruthy();
 });
 
-test("Windows and Linux hosts expose the shared fuzzy-pinyin settings", async () => {
+test("Windows and Linux hosts expose the shared fuzzy-pinyin settings on the 表达 page", async () => {
   mount({ host: capabilities({ platform: "windows", fuzzy_pinyin: true }), fuzzyPinyin: true });
   await screen.findByRole("button", { name: "保存设置" });
-  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  fireEvent.click(screen.getByRole("button", { name: "表达" }));
   expect(screen.getByRole("group", { name: "模糊音" })).toBeTruthy();
 
   cleanup();
   mount({ host: capabilities({ platform: "linux", fuzzy_pinyin: true }), fuzzyPinyin: true });
   await screen.findByRole("button", { name: "保存设置" });
-  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  fireEvent.click(screen.getByRole("button", { name: "表达" }));
   expect(screen.getByRole("group", { name: "模糊音" })).toBeTruthy();
 });
 
@@ -273,8 +273,9 @@ test("Linux offers the border colour Fcitx5 draws and says which host each colou
     "Fcitx5 经典界面中编号跟随正文颜色、固定候选不单独着色，此项仅对 IBus 生效",
   );
   expect(captions).toHaveLength(2);
-  expect(captions[0].closest(".section")?.textContent).toContain("候选强调色");
-  expect(captions[1].closest(".section")?.textContent).toContain("候选编号颜色");
+  // Each caption is the description of its colour's row, beside the row title.
+  expect(captions[0].parentElement?.textContent).toContain("候选强调色");
+  expect(captions[1].parentElement?.textContent).toContain("候选编号颜色");
 });
 
 test.each([
@@ -304,8 +305,10 @@ test.each([
     await screen.findByRole("button", { name: "保存设置" });
     const notes = screen.getAllByText(note);
     expect(notes).toHaveLength(2);
-    expect(notes[0].closest("fieldset")?.getAttribute("aria-label")).toBe("外观");
-    expect(notes[1].closest("fieldset")?.getAttribute("aria-label")).toBe("皮肤");
+    expect(notes.map((item) => item.closest("fieldset")?.getAttribute("aria-label"))).toEqual([
+      "主题",
+      "候选窗口",
+    ]);
   },
 );
 
@@ -611,7 +614,7 @@ test("a host whose skin folder is unreachable is offered an import, not a folder
     openSkinDirectory: async () => undefined,
   });
   await screen.findByRole("button", { name: "保存设置" });
-  fireEvent.click(screen.getByRole("button", { name: "皮肤" }));
+  fireEvent.click(screen.getByRole("button", { name: "主题" }));
   expect(screen.getByRole("button", { name: "导入皮肤" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "打开目录" })).toBeNull();
 });
@@ -623,6 +626,6 @@ test("a desktop host still opens its skin folder", async () => {
     openSkinDirectory: async () => undefined,
   });
   await screen.findByRole("button", { name: "保存设置" });
-  fireEvent.click(screen.getByRole("button", { name: "皮肤" }));
+  fireEvent.click(screen.getByRole("button", { name: "主题" }));
   expect(screen.getByRole("button", { name: "打开目录" })).toBeTruthy();
 });

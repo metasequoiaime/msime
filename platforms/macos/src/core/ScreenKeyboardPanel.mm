@@ -125,7 +125,8 @@ BOOL PostKey(unsigned short code, NSEventModifierFlags flags, pid_t targetPID) {
     NSColor *fill = KeyboardColor(self.effectiveAppearance, 0xFFFFFF, 0x2B2D34);
     if (self.closeButton) fill = KeyboardColor(self.effectiveAppearance, 0xECEEF2, 0x17181D);
     if (self.keyboardHovered) fill = KeyboardColor(self.effectiveAppearance, 0xE1E4EA, 0x41434D);
-    if (!self.closeButton && self.state == NSControlStateValueOn) fill = KeyboardColor(self.effectiveAppearance, 0xD7D0E0, 0x535866);
+    // A latched modifier takes a solid tint of the brand accent (#2C7A4B at 20% over white, #5FBF84 at 24% over the dark key), replacing the reference's lilac so the panel shares the global accent.
+    if (!self.closeButton && self.state == NSControlStateValueOn) fill = KeyboardColor(self.effectiveAppearance, 0xD5E4DB, 0x375047);
     if (self.cell.isHighlighted) fill = KeyboardColor(self.effectiveAppearance, self.closeButton ? 0xE1E4EA : 0xC7C9D0, self.closeButton ? 0x41434D : 0x666A77);
     [fill setFill];
     [[NSBezierPath bezierPathWithRoundedRect:self.bounds xRadius:self.closeButton ? 4 : 5 yRadius:self.closeButton ? 4 : 5] fill];

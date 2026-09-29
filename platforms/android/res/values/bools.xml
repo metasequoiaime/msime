@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Whether the transparent system bars draw dark icons; values-night flips it. -->
+    <bool name="light_bars">true</bool>
+</resources>

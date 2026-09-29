@@ -1,17 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- The 统计 tab in the design's Android form: large title with the options menu, the header card (segmented 趋势/类型/模式/方案 over a hairline, then today and the total in large accent figures), and below it either the trend line with the calendar or one distribution card. -->
 <androidx.core.widget.NestedScrollView
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:clipToPadding="false"
-    android:paddingBottom="96dp">
+    android:paddingBottom="120dp">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="16dp">
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -23,17 +25,19 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:layout_marginStart="4dp"
-                android:text="统计"
+                android:accessibilityHeading="true"
+                android:paddingTop="22dp"
+                android:paddingBottom="10dp"
+                android:text="@string/tab_statistics"
                 android:textColor="@color/ink"
-                android:textSize="19sp"
-                android:textStyle="bold" />
+                android:textSize="28sp" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/statistics_menu"
                 style="@style/Widget.Material3.Button.IconButton"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
                 android:contentDescription="统计选项"
                 app:icon="@drawable/ic_statistics_menu"
                 app:iconTint="@color/ink" />
@@ -42,30 +46,37 @@
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            app:cardCornerRadius="18dp"
-            app:cardElevation="1dp"
-            app:cardBackgroundColor="@color/surface">
+            android:layout_marginTop="6dp"
+            app:cardBackgroundColor="@color/surface"
+            app:cardCornerRadius="20dp"
+            app:cardElevation="0dp"
+            app:strokeWidth="0dp">
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="8dp">
+                android:paddingStart="16dp"
+                android:paddingTop="16dp"
+                android:paddingEnd="16dp"
+                android:paddingBottom="18dp">
 
-                <com.google.android.material.tabs.TabLayout
+                <com.google.android.material.button.MaterialButtonToggleGroup
                     android:id="@+id/statistics_ranges"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    app:tabMode="fixed"
-                    app:tabIndicatorColor="@color/forest"
-                    app:tabSelectedTextColor="@color/ink"
-                    app:tabTextColor="@color/text_secondary" />
+                    app:selectionRequired="true"
+                    app:singleSelection="true" />
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginTop="14dp"
+                    android:background="@color/hairline" />
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="16dp"
-                    android:paddingStart="8dp"
-                    android:paddingEnd="8dp"
+                    android:layout_marginTop="14dp"
                     android:orientation="horizontal">
 
                     <LinearLayout
@@ -76,8 +87,9 @@
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="今日输入" android:textColor="@color/text_secondary" android:textSize="13sp" />
                         <TextView android:id="@+id/statistics_today" android:layout_width="wrap_content"
-                            android:layout_height="wrap_content" android:textColor="@color/ink"
-                            android:textSize="30sp" android:textStyle="bold" />
+                            android:layout_height="wrap_content" android:textColor="@color/forest"
+                            android:fontFeatureSettings="tnum"
+                            android:textSize="36sp" android:textStyle="bold" />
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="字符" android:textColor="@color/text_secondary" android:textSize="12sp" />
                     </LinearLayout>
@@ -91,8 +103,9 @@
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="累计输入" android:textColor="@color/text_secondary" android:textSize="13sp" />
                         <TextView android:id="@+id/statistics_total" android:layout_width="wrap_content"
-                            android:layout_height="wrap_content" android:textColor="@color/ink"
-                            android:textSize="30sp" android:textStyle="bold" />
+                            android:layout_height="wrap_content" android:textColor="@color/forest"
+                            android:fontFeatureSettings="tnum"
+                            android:textSize="36sp" android:textStyle="bold" />
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="字符" android:textColor="@color/text_secondary" android:textSize="12sp" />
                     </LinearLayout>
@@ -103,7 +116,7 @@
                     style="@style/Widget.Material3.Button.TextButton"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="4dp"
+                    android:layout_marginStart="-12dp"
                     android:text="返回累计"
                     android:visibility="gone" />
 
@@ -112,7 +125,6 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
-                    android:padding="8dp"
                     android:textColor="@color/text_secondary"
                     android:textSize="13sp"
                     android:visibility="gone" />
@@ -130,19 +142,22 @@
                 android:id="@+id/statistics_trend_title"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
                 android:layout_marginTop="24dp"
+                android:accessibilityHeading="true"
                 android:text="每日趋势 · 近 30 天"
-                android:textColor="@color/ink"
-                android:textSize="17sp"
-                android:textStyle="bold" />
+                android:textColor="@color/forest"
+                android:textFontWeight="500"
+                android:textSize="14sp" />
 
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                app:cardCornerRadius="18dp"
-                app:cardElevation="1dp"
-                app:cardBackgroundColor="@color/surface">
+                android:layout_marginTop="10dp"
+                app:cardBackgroundColor="@color/surface"
+                app:cardCornerRadius="20dp"
+                app:cardElevation="0dp"
+                app:strokeWidth="0dp">
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -152,25 +167,36 @@
                         android:id="@+id/statistics_trend"
                         android:layout_width="match_parent"
                         android:layout_height="170dp" />
+
+                    <TextView
+                        android:id="@+id/statistics_trend_peak"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12sp" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
                 android:layout_marginTop="24dp"
+                android:accessibilityHeading="true"
                 android:text="每天一格，一列一周"
-                android:textColor="@color/ink"
-                android:textSize="17sp"
-                android:textStyle="bold" />
+                android:textColor="@color/forest"
+                android:textFontWeight="500"
+                android:textSize="14sp" />
 
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                app:cardCornerRadius="18dp"
-                app:cardElevation="1dp"
-                app:cardBackgroundColor="@color/surface">
+                android:layout_marginTop="10dp"
+                app:cardBackgroundColor="@color/surface"
+                app:cardCornerRadius="20dp"
+                app:cardElevation="0dp"
+                app:strokeWidth="0dp">
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -179,7 +205,7 @@
                     <app.msime.client.home.HeatmapView
                         android:id="@+id/statistics_heatmap"
                         android:layout_width="match_parent"
-                        android:layout_height="130dp" />
+                        android:layout_height="176dp" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
         </LinearLayout>
@@ -195,18 +221,21 @@
                 android:id="@+id/statistics_distribution_title"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
                 android:layout_marginTop="24dp"
-                android:textColor="@color/ink"
-                android:textSize="17sp"
-                android:textStyle="bold" />
+                android:accessibilityHeading="true"
+                android:textColor="@color/forest"
+                android:textFontWeight="500"
+                android:textSize="14sp" />
 
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                app:cardCornerRadius="18dp"
-                app:cardElevation="1dp"
-                app:cardBackgroundColor="@color/surface">
+                android:layout_marginTop="10dp"
+                app:cardBackgroundColor="@color/surface"
+                app:cardCornerRadius="20dp"
+                app:cardElevation="0dp"
+                app:strokeWidth="0dp">
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"

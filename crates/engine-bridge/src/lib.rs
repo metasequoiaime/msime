@@ -69,6 +69,14 @@ mod ffi {
         entries: Vec<DictionaryTableEntry>,
         has_more: bool,
     }
+    #[derive(Clone, Copy)]
+    pub struct SentenceAssociationOptions {
+        pub word_lattice: bool,
+        pub google: bool,
+        pub neural_desktop: bool,
+        pub neural_keyboard: bool,
+        pub show_next_on_duplicate: bool,
+    }
     #[derive(Clone)]
     pub struct EngineOptions {
         pub resources: String,
@@ -104,6 +112,8 @@ mod ffi {
         pub local_super_jianpin: bool,
         pub local_temporary_english: bool,
         pub local_temporary_japanese: bool,
+        pub sentence_association: SentenceAssociationOptions,
+        pub rescoring_context: String,
         /// Ask the decoder for every whole-sentence reading it found rather than only its best.
         /// The runtime reorders them and crops the list, so a host that sets this must also be the
         /// one deciding what reaches the candidate page.
@@ -269,6 +279,10 @@ mod ffi {
         fn snapshot(self: &EngineSession) -> Result<EngineSnapshot>;
         fn online_query(self: &EngineSession) -> Result<OnlineQuerySnapshot>;
         fn reset_cache(self: Pin<&mut EngineSession>);
+        fn set_caret(self: Pin<&mut EngineSession>, caret: u64);
+        fn prefix_end(self: &EngineSession) -> usize;
+        fn pending_suffix(self: &EngineSession) -> String;
+        fn reset_context(self: Pin<&mut EngineSession>);
         fn apply_online_candidate(
             self: Pin<&mut EngineSession>,
             query: &OnlineQuerySnapshot,
@@ -378,6 +392,7 @@ mod ffi {
 pub use ffi::{
     CaptureDevice, DictionaryEntry, DictionaryKind, DictionaryPage, DictionaryTableEntry,
     DictionaryTablePage, EmojiCatalogItem, EngineOptions, EngineResult, EngineSnapshot,
+    SentenceAssociationOptions,
     HandwritingPoint, OnlineQuerySnapshot,
 };
 
@@ -683,6 +698,24 @@ impl Session {
     }
     pub fn reset_cache(&mut self) {
         self.inner.pin_mut().reset_cache()
+    }
+    /// Set the composition caret used for prefix candidate decoding. `None` returns to the end.
+    pub fn set_caret(&mut self, caret: Option<usize>) {
+        self.inner
+            .pin_mut()
+            .set_caret(caret.map_or(u64::MAX, |value| value as u64));
+    }
+    pub fn prefix_end(&self) -> usize {
+        self.inner.prefix_end()
+    }
+    pub fn pending_suffix(&self) -> String {
+        self.inner.pending_suffix()
+    }
+    /// Forgets the committed words the Engine's personal context learning follows, and the recent commits learning
+    /// undo tracks. Called when the text the next word lands in is no longer the text the last one went to.
+    pub fn reset_context(&mut self) {
+        self.inner.pin_mut().reset_context()
+    }
     }
     pub fn apply_online_candidate(
         &mut self,

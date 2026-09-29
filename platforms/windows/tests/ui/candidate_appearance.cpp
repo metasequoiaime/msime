@@ -46,27 +46,27 @@ int main() {
         {"theme", "light"},
         {"candidate_layout", "horizontal"},
         {"candidate_preedit_style", "empty"},
-        {"candidate_skin", "wechat"},
+        {"global_theme", "paper"},
         {"candidate_font_size", 22},
         {"candidate_preedit_font_size", 18},
         {"candidate_font_family", "Microsoft YaHei"},
         {"candidate_english_font", "Synthetic Latin"},
         {"candidate_fallback_fonts",
-         nlohmann::json::array({"Segoe UI Emoji", "Noto Color Emoji"})},
-        {"candidate_text_color", "#ffffff"},
-        {"candidate_accent_color", "#07c160"}};
-    const auto configured = loads(candidate_appearance(state, preferences, false));
+         nlohmann::json::array({"Segoe UI Emoji", "Noto Color Emoji"})}};
+    const auto appearance = candidate_appearance(state, preferences, false);
+    const auto configured = loads(appearance);
     require(!configured.dark_theme);
     require(configured.horizontal_candidates);
     require(!configured.candidate_show_preedit);
-    require(configured.skin_id == "wechat");
     require(configured.candidate_font_size == 22);
     require(configured.candidate_preedit_font_size == 18);
     require(configured.candidate_font == "Synthetic Latin");
     require(configured.candidate_fallback_fonts.size() == 2 &&
             configured.candidate_fallback_fonts[0] == "Segoe UI Emoji");
-    require(configured.candidate_text_color == "#ffffff");
-    require(configured.candidate_accent_color == "#07c160");
+    // Colours are resolved from the global theme at run time, so the appearance block names no skin and no colour.
+    require(!appearance.contains("skin") && !appearance.contains("global_theme"));
+    for (const auto &entry : appearance.items())
+      require(entry.key().find("color") == std::string::npos);
 
     // "system" is the only value that defers to Windows, and it defers both ways.
     require(!candidate_appearance(state, {{"theme", "system"}}, false)
@@ -84,7 +84,7 @@ int main() {
                 .get<bool>());
 
     // The point of the filtering: a stored value PreviewConfig would reject is
-    // dropped, so it costs the user a colour rather than their IME.
+    // dropped, so it costs the user a font rather than their IME.
     const nlohmann::json hostile{
         {"candidate_font_size", 900},
         {"candidate_preedit_font_size", 0},

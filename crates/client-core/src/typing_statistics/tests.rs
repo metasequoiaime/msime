@@ -592,3 +592,41 @@ fn rejects_activity_axes_that_do_not_match_the_days() {
     .unwrap();
     assert_eq!(store.load().unwrap().total, 1);
 }
+
+#[cfg(unix)]
+#[test]
+fn rejects_symlinked_statistics_storage_and_record() {
+    use std::os::unix::fs::symlink;
+
+    let target = tempfile::tempdir().unwrap();
+    let parent = tempfile::tempdir().unwrap();
+    let linked_root = parent.path().join("user-data");
+    symlink(target.path(), &linked_root).unwrap();
+    let linked_store = TypingStatisticsStore::new(&linked_root);
+    assert!(matches!(
+        linked_store.load(),
+        Err(TypingStatisticsError::Io(_))
+    ));
+    assert!(!target.path().join("typing-statistics.lock").exists());
+
+    let root = tempfile::tempdir().unwrap();
+    let store = TypingStatisticsStore::new(root.path());
+    fs::write(
+        root.path().join("typing-statistics.json"),
+        r#"{"enabled":true,"total":1,"days":{"2026-09-21":1}}"#,
+    )
+    .unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let outside_record = outside.path().join("statistics.json");
+    fs::write(
+        &outside_record,
+        r#"{"enabled":true,"total":1,"days":{"2026-09-21":1}}"#,
+    )
+    .unwrap();
+    fs::remove_file(root.path().join("typing-statistics.json")).unwrap();
+    symlink(&outside_record, root.path().join("typing-statistics.json")).unwrap();
+    assert!(matches!(
+        store.load(),
+        Err(TypingStatisticsError::InvalidDocument)
+    ));
+}

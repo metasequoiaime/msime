@@ -42,7 +42,7 @@ pub fn audio_frame(sequence: i32, pcm: &[u8], final_chunk: bool) -> Vec<u8> {
 }
 
 pub fn encode_json_frame(message_type: u8, flags: u8, sequence: i32, payload: &[u8]) -> Vec<u8> {
-    let mut gzip = GzEncoder::new(Vec::new(), Compression::default());
+    let mut gzip = GzEncoder::new(Vec::with_capacity(payload.len()), Compression::default());
     gzip.write_all(payload).expect("gzip write to memory");
     let compressed = gzip.finish().expect("gzip finish");
     let mut frame = Vec::with_capacity(12 + compressed.len());

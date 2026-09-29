@@ -321,7 +321,7 @@ private final class KanaFlickPreview: UIView {
   }
 
   func show(_ kana: [String], highlighting direction: Int, over key: UIView, in host: UIView) {
-    let skin = KeyboardSkinPreference.selected
+    let skin = KeyboardTheme.current
     for (index, chip) in chips.enumerated() {
       let text = index < kana.count ? kana[index] : ""
       chip.label.text = text

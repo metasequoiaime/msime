@@ -61,9 +61,18 @@ struct InputSettingsView: View {
   @State private var schemeSaveFailed = false
   @State private var outputSaveFailed = false
   @State private var remembersImeMode = false
+  /// The shared document as last read, for the candidate preview at the top (dc.html: 输入 leads with the same card as 主题 and 候选栏).
+  @State private var document: [String: Any]?
+  @Environment(\.colorScheme) private var colorScheme
 
   var body: some View {
     Form {
+        Section {
+          CandidatePreviewCard(theme: KeyboardTheme.resolve(document: document), document: document,
+                               systemDark: colorScheme == .dark)
+        }
+        .listRowBackground(Color.clear)
+        .listRowInsets(EdgeInsets())
         Section {
           ForEach(ChineseInputScheme.allCases, id: \.self) { scheme in
             HStack {
@@ -76,7 +85,7 @@ struct InputSettingsView: View {
                   Spacer()
                   if inputScheme == scheme {
                     Image(systemName: "checkmark")
-                      .foregroundStyle(MetasequoiaTheme.forest)
+                      .foregroundStyle(MetasequoiaTheme.accent)
                       .accessibilityHidden(true)
                   }
                 }
@@ -104,12 +113,6 @@ struct InputSettingsView: View {
           Text(schemeSaveFailed
             ? "设置没有保存，键盘可能正在写入同一份设置，请再试一次。"
             : "开启的方案会显示在键盘快捷切换中，至少保留一种。点击名称设为当前方案。左右滑动空格可移动光标；滑动前会先完成当前输入。")
-        }
-
-        Section("手写输入") {
-          Text("首次在键盘中下载中文模型，需要完全访问权限。下载后可离线识别，笔迹和识别结果不会上传。Google ML Kit 会发送性能及使用统计。")
-            .font(.footnote).foregroundStyle(.secondary)
-          Link("手写 SDK 隐私说明", destination: URL(string: "https://developers.google.com/ml-kit/terms")!)
         }
 
         Section("高情商回复") {
@@ -140,9 +143,6 @@ struct InputSettingsView: View {
           NavigationLink(destination: PunctuationSettingsView()) {
             Label("标点", systemImage: "textformat.abc.dottedunderline")
           }.accessibilityIdentifier("punctuationSettingsLink")
-          NavigationLink(destination: CandidateOptionsSettingsView()) {
-            Label("候选与纠错", systemImage: "text.badge.checkmark")
-          }.accessibilityIdentifier("candidateOptionsSettingsLink")
           NavigationLink(destination: HelpcodeSettingsView()) {
             Label("辅助码", systemImage: "character.magnify")
           }.accessibilityIdentifier("helpcodeSettingsLink")
@@ -152,9 +152,6 @@ struct InputSettingsView: View {
           NavigationLink(destination: ClipboardHistorySettingsView()) {
             Label("剪贴板历史", systemImage: "doc.on.clipboard")
           }.accessibilityIdentifier("clipboardHistorySettingsLink")
-          NavigationLink(destination: VocabularyReviewSettingsView()) {
-            Label("背单词", systemImage: "character.book.closed")
-          }.accessibilityIdentifier("vocabularyReviewSettingsLink")
         }
 
         Section {
@@ -232,7 +229,7 @@ struct InputSettingsView: View {
         }
 
     }
-    .navigationTitle("输入设置")
+    .navigationTitle("输入")
     .navigationBarTitleDisplayMode(.inline)
       .onAppear(perform: reloadPreferences)
       .onChange(of: scenePhase) { phase in
@@ -253,7 +250,8 @@ struct InputSettingsView: View {
     inputScheme = InputSchemePreference.scheme
     enabledSchemes = InputSchemePreference.enabledSchemes
     usesTraditionalOutput = ChineseOutputPreference.usesTraditional
-    startsInEnglish = MetasequoiaInputSessionBridge.loadSharedPreferences()?["default_ime_mode"] as? String == "english"
+    document = MetasequoiaInputSessionBridge.loadSharedPreferences()
+    startsInEnglish = document?["default_ime_mode"] as? String == "english"
     remembersImeMode = ImeModeMemoryPreference.isEnabled()
   }
 }
@@ -286,9 +284,9 @@ struct OnboardingView: View {
             .font(.headline)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 15)
-            .foregroundStyle(.white)
+            .foregroundStyle(MetasequoiaTheme.onAccent)
             .background(
-              MetasequoiaTheme.forest, in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+              MetasequoiaTheme.accent, in: RoundedRectangle(cornerRadius: 16, style: .continuous)
             )
             .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
@@ -313,7 +311,7 @@ struct OnboardingView: View {
       .padding(.vertical, 30)
     }
     .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
-    .tint(MetasequoiaTheme.forest)
+    .tint(MetasequoiaTheme.accent)
     .navigationTitle("启用指南")
     .navigationBarTitleDisplayMode(.inline)
   }
@@ -322,7 +320,7 @@ struct OnboardingView: View {
     HStack(alignment: .center, spacing: 18) {
       MetasequoiaMark()
         .stroke(
-          MetasequoiaTheme.forest,
+          MetasequoiaTheme.accent,
           style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round)
         )
         .frame(width: 58, height: 76)

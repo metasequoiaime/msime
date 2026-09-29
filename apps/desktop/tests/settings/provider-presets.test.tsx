@@ -58,6 +58,8 @@ async function openPage(
     />,
   );
   await screen.findByRole("button", { name: "保存设置" });
+  // AI 辅助 is reached from inside the 表达 page.
+  if (page === "AI 辅助") fireEvent.click(screen.getByRole("button", { name: "表达" }));
   fireEvent.click(screen.getByRole("button", { name: page }));
 }
 

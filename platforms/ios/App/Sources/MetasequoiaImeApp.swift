@@ -86,15 +86,10 @@ struct MetasequoiaImeApp: App {
   #endif
 
   private var applicationContent: some View {
-    Group {
-      if hasCompletedOnboarding {
-        MainTabView()
-      } else {
-        NavigationView { WelcomeFlowView(onFinish: { hasCompletedOnboarding = true }) }
-          .navigationViewStyle(.stack).environmentObject(onboardingNavigation)
-      }
-    }
-    .onAppear(perform: applyAppearance)
+    FirstRunContainer(hasCompletedOnboarding: $hasCompletedOnboarding)
+      .environmentObject(onboardingNavigation)
+      .toggleStyle(GreenSwitchToggleStyle())
+      .onAppear(perform: applyAppearance)
     .onReceive(NotificationCenter.default.publisher(for: AppAppearancePreference.didChange)) { _ in applyAppearance() }
   }
 }
@@ -116,19 +111,44 @@ private struct KeyboardVoicePreviewFixture: View {
 }
 #endif
 
+/// The splash and the onboarding sit in front of the tabs until onboarding is done. A phone shows the onboarding full screen; an iPad at regular width shows the tabs with the onboarding as a modal card over them, as the design does.
+private struct FirstRunContainer: View {
+  @Binding var hasCompletedOnboarding: Bool
+  @State private var showsSplash = true
+  @Environment(\.horizontalSizeClass) private var widthClass
+
+  private var isTablet: Bool { UIDevice.current.userInterfaceIdiom == .pad && widthClass == .regular }
+
+  var body: some View {
+    if !hasCompletedOnboarding && showsSplash {
+      SplashView { showsSplash = false }
+    } else if hasCompletedOnboarding || isTablet {
+      // Hidden before the overlay is attached, so only the tabs leave the accessibility tree and the card stays in it.
+      MainTabView()
+        .accessibilityHidden(!hasCompletedOnboarding)
+        .overlay {
+          if !hasCompletedOnboarding { OnboardingModalCard { hasCompletedOnboarding = true } }
+        }
+    } else {
+      WelcomeFlowView(onFinish: { hasCompletedOnboarding = true })
+    }
+  }
+}
+
 private struct MainTabView: View {
   @StateObject private var navigation = AppNavigation()
   @Environment(\.horizontalSizeClass) private var widthClass
   var body: some View {
+    // On iOS 26 and later the system draws this as the floating glass pill; earlier releases keep the classic bar.
     TabView(selection: $navigation.tab) {
-      keyboardTab
-        .tabItem { Label("键盘", systemImage: "keyboard") }.tag(AppNavigation.Tab.keyboard)
-      NavigationView { CommunityHomeView() }.navigationViewStyle(.stack).id(navigation.communityRoot)
-        .tabItem { Label("社区", systemImage: "square.grid.2x2.fill") }.tag(AppNavigation.Tab.community)
-      NavigationView { TypingStatisticsView() }.navigationViewStyle(.stack)
-        .tabItem { Label("统计", systemImage: "chart.bar.xaxis") }.tag(AppNavigation.Tab.statistics)
-      NavigationView { AccountSettingsView() }.navigationViewStyle(.stack)
-        .tabItem { Label("我的", systemImage: "person.crop.circle") }.tag(AppNavigation.Tab.account)
+      settingsTab
+        .tabItem { Label("设置", systemImage: "gearshape.fill") }.tag(AppNavigation.Tab.settings)
+      NavigationStack { CommunityHomeView() }.id(navigation.communityRoot)
+        .tabItem { Label("社区", systemImage: "person.2.fill") }.tag(AppNavigation.Tab.community)
+      NavigationStack { TypingStatisticsView() }
+        .tabItem { Label("统计", systemImage: "chart.bar.fill") }.tag(AppNavigation.Tab.statistics)
+      NavigationStack { AccountSettingsView() }
+        .tabItem { Label("我的", systemImage: "person.crop.circle.fill") }.tag(AppNavigation.Tab.account)
     }
     .environmentObject(navigation)
     .tint(MetasequoiaTheme.accent)
@@ -136,7 +156,7 @@ private struct MainTabView: View {
     // 用户是从键盘的设置面板点过来的,落点应该是设置。
     .onOpenURL { url in
       guard url.scheme == "msime" else { return }
-      navigation.tab = .keyboard
+      navigation.tab = .settings
       if url.host == "voice" { navigation.recordsVoice = true }
     }
     .sheet(isPresented: $navigation.recordsVoice) {
@@ -150,9 +170,9 @@ private struct MainTabView: View {
   }
 
   // Both idiom and width class: a Max-size iPhone turned sideways is regular width but stays a phone, and an iPad in a narrow Split View or Slide Over pane gets the phone's stack.
-  @ViewBuilder private var keyboardTab: some View {
+  @ViewBuilder private var settingsTab: some View {
     if UIDevice.current.userInterfaceIdiom == .pad && widthClass == .regular { TabletSettingsView() }
-    else { NavigationView { SettingsView() }.navigationViewStyle(.stack) }
+    else { NavigationStack { SettingsView() } }
   }
 }
 

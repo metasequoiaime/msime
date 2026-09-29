@@ -54,16 +54,20 @@ static NSControl *PreferenceControl(MSIMEAppearancePreferences *preferences, SEL
 }
 
 static void CheckMenu(NSMenu *menu, id controller) {
+    // "" is a separator and "*" a row without a controller action: the disabled scheme header and the theme submenu, whose action AppKit sets to submenuAction:.
     NSArray<NSString *> *actions = @[
         @"selectChineseMode:", @"selectEnglishMode:", @"toggleDedicatedEnglishMode:", @"",
         @"selectSimplifiedOutput:", @"selectTraditionalOutput:", @"",
+        @"toggleFullWidthInput:", @"toggleChinesePunctuation:", @"toggleCandidateTranslations:", @"",
+        @"*", @"selectInputScheme:", @"selectInputScheme:", @"selectInputScheme:", @"selectInputScheme:", @"",
         @"toggleFloatingToolbar:", @"showEmoji:", @"showScreenKeyboard:", @"showHandwriting:",
-        @"showVoicePanel", @"", @"showAppearance:", @"showAbout:"
+        @"showVoicePanel", @"", @"*", @"showDictionary:", @"showAppearance:", @"showAbout:"
     ];
     assert(menu.numberOfItems == (NSInteger)actions.count && !menu.autoenablesItems);
     for (NSUInteger index = 0; index < actions.count; ++index) {
         NSMenuItem *item = [menu itemAtIndex:index];
         if (actions[index].length == 0) assert(item.separatorItem);
+        else if ([actions[index] isEqual:@"*"]) assert(!item.separatorItem && ((item.action == nil && item.target == nil) || item.hasSubmenu));
         else {
             assert(item.action == NSSelectorFromString(actions[index]));
             assert(item.target == controller && [controller respondsToSelector:item.action]);
@@ -3662,19 +3666,99 @@ static void TestInputMode(NSUserDefaults *defaults, MSIMEAppearancePreferences *
     CheckMenu(menu, controller);
     assert([menu itemAtIndex:0].state == NSControlStateValueOn);
     assert([menu itemAtIndex:1].state == NSControlStateValueOff);
-    assert(menu.numberOfItems == 15);
-    assert([[menu itemAtIndex:7].title isEqual:@"悬浮工具栏"]);
+    assert(menu.numberOfItems == 27);
+    assert([[menu itemAtIndex:17].title isEqual:@"悬浮工具栏"]);
     NSArray<NSString *> *toolTitles = @[@"水杉表情面板…", @"水杉屏幕键盘…", @"手写输入…", @"开始/结束语音输入"];
     NSArray<NSString *> *toolActions = @[@"showEmoji:", @"showScreenKeyboard:", @"showHandwriting:", @"showVoicePanel"];
     for (NSUInteger index = 0; index < toolTitles.count; ++index) {
-        NSMenuItem *tool = [menu itemAtIndex:8 + index];
+        NSMenuItem *tool = [menu itemAtIndex:18 + index];
         assert([tool.title isEqual:toolTitles[index]] && tool.action == NSSelectorFromString(toolActions[index]));
     }
-    assert([menu itemAtIndex:12].separatorItem);
-    assert([[menu itemAtIndex:13].title isEqual:@"水杉输入法设置…"] &&
-           [menu itemAtIndex:13].action == @selector(showAppearance:));
-    assert([[menu itemAtIndex:14].title isEqual:@"关于水杉输入法…"] &&
-           [menu itemAtIndex:14].action == @selector(showAbout:));
+    assert([menu itemAtIndex:22].separatorItem);
+    assert([[menu itemAtIndex:24].title isEqual:@"词库…"] && [menu itemAtIndex:24].action == @selector(showDictionary:));
+    assert([[menu itemAtIndex:25].title isEqual:@"水杉输入法设置…"] &&
+           [menu itemAtIndex:25].action == @selector(showAppearance:));
+    assert([[menu itemAtIndex:26].title isEqual:@"关于水杉输入法…"] &&
+           [menu itemAtIndex:26].action == @selector(showAbout:));
+    // The typing toggles mirror the toolbar's runtime state, show the chords handleEvent claims, and flip through the same paths.
+    NSMenuItem *fullWidth = [menu itemAtIndex:7], *punctuation = [menu itemAtIndex:8], *translations = [menu itemAtIndex:9];
+    assert([fullWidth.title isEqual:@"全角字符"] && [fullWidth.keyEquivalent isEqual:@" "] &&
+           fullWidth.keyEquivalentModifierMask == (NSEventModifierFlagControl | NSEventModifierFlagShift));
+    assert([punctuation.title isEqual:@"中文标点"] && [punctuation.keyEquivalent isEqual:@"."] &&
+           punctuation.keyEquivalentModifierMask == NSEventModifierFlagControl);
+    assert([translations.title isEqual:@"显示译文"]);
+    const BOOL runtimeWidth = appearance.runtimeFullWidthInput;
+    assert(fullWidth.state == (runtimeWidth ? NSControlStateValueOn : NSControlStateValueOff));
+    session.widthCalls = 0;
+    [NSApp sendAction:fullWidth.action to:fullWidth.target from:fullWidth];
+    assert(appearance.runtimeFullWidthInput == !runtimeWidth && session.widthCalls == 1 && session.fullwidth == !runtimeWidth);
+    assert([controller.menu itemAtIndex:7].state == (runtimeWidth ? NSControlStateValueOff : NSControlStateValueOn));
+    [NSApp sendAction:fullWidth.action to:fullWidth.target from:fullWidth];
+    assert(appearance.runtimeFullWidthInput == runtimeWidth);
+    NSString *lock = appearance.punctuationLock;
+    appearance.punctuationLock = @"follow";
+    const BOOL runtimePunctuation = appearance.runtimeChinesePunctuation;
+    punctuation = [controller.menu itemAtIndex:8];
+    assert(punctuation.enabled && punctuation.state == (runtimePunctuation ? NSControlStateValueOn : NSControlStateValueOff));
+    [NSApp sendAction:punctuation.action to:punctuation.target from:punctuation];
+    assert(appearance.runtimeChinesePunctuation == !runtimePunctuation && session.chinesePunctuation == !runtimePunctuation);
+    assert([controller.menu itemAtIndex:8].state == (runtimePunctuation ? NSControlStateValueOff : NSControlStateValueOn));
+    [NSApp sendAction:punctuation.action to:punctuation.target from:punctuation];
+    assert(appearance.runtimeChinesePunctuation == runtimePunctuation);
+    appearance.punctuationLock = @"english";
+    assert(![controller.menu itemAtIndex:8].enabled);
+    appearance.punctuationLock = lock;
+    const BOOL showTranslations = appearance.candidateTranslations;
+    assert(translations.state == (showTranslations ? NSControlStateValueOn : NSControlStateValueOff));
+    [NSApp sendAction:translations.action to:translations.target from:translations];
+    assert(appearance.candidateTranslations == !showTranslations);
+    assert([controller.menu itemAtIndex:9].state == (showTranslations ? NSControlStateValueOff : NSControlStateValueOn));
+    appearance.candidateTranslations = showTranslations;
+    // The scheme is a radio group under a disabled header, the 双拼 row naming the selected profile.
+    NSString *scheme = appearance.inputScheme, *profile = appearance.shuangpinProfile;
+    appearance.inputScheme = @"quanpin";
+    appearance.shuangpinProfile = @"ziranma";
+    menu = controller.menu;
+    assert([[menu itemAtIndex:11].title isEqual:@"输入方案"] && ![menu itemAtIndex:11].enabled);
+    NSArray<NSString *> *schemeTitles = @[@"全拼", @"双拼（自然码）", @"五笔 86", @"日语"];
+    NSArray<NSString *> *schemeIDs = @[@"quanpin", @"shuangpin", @"wubi", @"japanese"];
+    for (NSUInteger index = 0; index < schemeIDs.count; ++index) {
+        NSMenuItem *item = [menu itemAtIndex:12 + index];
+        assert([item.title isEqual:schemeTitles[index]] && [item.representedObject isEqual:schemeIDs[index]]);
+        assert(item.state == (index == 0 ? NSControlStateValueOn : NSControlStateValueOff));
+    }
+    [NSApp sendAction:@selector(selectInputScheme:) to:controller from:[menu itemAtIndex:14]];
+    assert([appearance.inputScheme isEqual:@"wubi"]);
+    assert([controller.menu itemAtIndex:14].state == NSControlStateValueOn && [controller.menu itemAtIndex:12].state == NSControlStateValueOff);
+    appearance.inputScheme = scheme;
+    appearance.shuangpinProfile = profile;
+    // The theme submenu is the shared catalog, ticked at the current theme, whose name the parent row carries.
+    NSString *globalTheme = appearance.globalTheme;
+    appearance.globalTheme = @"system";
+    NSMenuItem *themeItem = [controller.menu itemAtIndex:23];
+    const auto &catalog = msime::mac::ThemeCatalog();
+    assert(themeItem.submenu.numberOfItems == (NSInteger)catalog.size());
+    assert(([themeItem.title isEqual:[NSString stringWithFormat:@"主题（%@）", @(catalog[0].title.c_str())]]));
+    for (size_t index = 0; index < catalog.size(); ++index) {
+        NSMenuItem *item = [themeItem.submenu itemAtIndex:index];
+        assert([item.representedObject isEqual:@(catalog[index].id.c_str())] && item.action == @selector(selectGlobalTheme:) && item.target == controller);
+        assert(item.state == (index == 0 ? NSControlStateValueOn : NSControlStateValueOff));
+    }
+    [NSApp sendAction:@selector(selectGlobalTheme:) to:controller from:[themeItem.submenu itemAtIndex:1]];
+    assert([appearance.globalTheme isEqual:@(catalog[1].id.c_str())]);
+    themeItem = [controller.menu itemAtIndex:23];
+    assert(([themeItem.title isEqual:[NSString stringWithFormat:@"主题（%@）", @(catalog[1].title.c_str())]]));
+    assert([themeItem.submenu itemAtIndex:1].state == NSControlStateValueOn);
+    // A theme with a mode of its own fixes the menus' mode as it fixes the candidate window's and the toolbar's, over an explicit menu theme.
+    [controller setValue:@{@"theme": @"light", @"menu_theme": @"light"} forKey:@"menuThemePreferences"];
+    assert([controller.menu.appearance.name isEqual:NSAppearanceNameDarkAqua]);
+    appearance.globalTheme = @"paper";
+    assert([controller.menu.appearance.name isEqual:NSAppearanceNameAqua]);
+    appearance.globalTheme = @"system";
+    [controller setValue:@{@"theme": @"system", @"menu_theme": @"follow"} forKey:@"menuThemePreferences"];
+    assert(controller.menu.appearance == nil);
+    [controller setValue:nil forKey:@"menuThemePreferences"];
+    appearance.globalTheme = globalTheme;
     client.marked = @"ceshi";
     panel.visible = YES;
     [NSApp sendAction:[menu itemAtIndex:1].action to:controller from:[menu itemAtIndex:1]];
@@ -3764,7 +3848,7 @@ static void TestExternalSkin(MSIMEInputController *controller, HiddenCandidatePa
 id = "synthetic"
 name = "Synthetic Skin"
 version = "1.0"
-base = "fluent"
+base = "system"
 preview = "decoration.png"
 [supports]
 layouts = ["horizontal", "vertical"]
@@ -3798,11 +3882,12 @@ show_selected_bar = true
     // of skin names it replaced could not show what any of them looked like.
     MetasequoiaSkinSettingsView *picker = (id)[external skinSettingsView];
     NSArray<NSSwitch *> *pickerSwitches = [picker valueForKey:@"switches"];
-    assert(pickerSwitches.count == 5 && [pickerSwitches.lastObject.identifier isEqual:@"synthetic"]);
+    // Seven global themes, then the package.
+    assert(pickerSwitches.count == 8 && [pickerSwitches.lastObject.identifier isEqual:@"synthetic"]);
     [NSApp sendAction:pickerSwitches.lastObject.action to:pickerSwitches.lastObject.target from:pickerSwitches.lastObject];
-    assert([external.skinID isEqual:@"synthetic"] && external.decorationImage);
+    assert([external.globalTheme isEqual:@"custom"] && [external.customCandidateSkin isEqual:@"synthetic"] && external.decorationImage);
     MSIMEAppearancePreferences *loaded = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:external.skinsRoot];
-    assert([loaded.skinID isEqual:@"synthetic"] && [loaded resolvedSkinForDark:NO].id == "synthetic");
+    assert([loaded.customCandidateSkin isEqual:@"synthetic"] && [loaded resolvedSkinForDark:NO].candidateSkin == "synthetic");
     NSDictionary *before = [[controller valueForKey:@"view"] copy];
     [controller setValue:external forKey:@"appearance"];
     MSIMEFloatingToolbarPanel *toolbar = [MSIMEFloatingToolbarPanel new];
@@ -3814,9 +3899,9 @@ show_selected_bar = true
     [NSNotificationCenter.defaultCenter addObserver:controller selector:@selector(appearanceChanged:)
                                               name:MSIMEAppearanceDidChangeNotification object:external];
     [NSApp sendAction:skinSwitches.firstObject.action to:skinSwitches.firstObject.target from:skinSwitches.firstObject];
-    assert([external.skinID isEqual:@"fluent"] && !external.decorationImage);
+    assert([external.globalTheme isEqual:@"system"] && !external.decorationImage);
     [NSApp sendAction:skinSwitches.lastObject.action to:skinSwitches.lastObject.target from:skinSwitches.lastObject];
-    assert([external.skinID isEqual:@"synthetic"] && external.decorationImage);
+    assert([external.globalTheme isEqual:@"custom"] && [external.customCandidateSkin isEqual:@"synthetic"] && external.decorationImage);
     assert(skinSwitches.lastObject.state == NSControlStateValueOn);
     assert([panel.contentView.subviews.lastObject isKindOfClass:NSImageView.class]);
     assert([[controller valueForKey:@"view"] isEqual:before]);
@@ -3828,11 +3913,11 @@ show_selected_bar = true
             [controller appearanceChanged:nil];
             [toolbar applyThemePreferences:@{@"theme": [theme isEqual:NSAppearanceNameDarkAqua] ? @"dark" : @"light"}];
             NSColor *toolbarFill = [[toolbar valueForKey:@"chrome"] valueForKey:@"fillColor"];
-            // External candidate overrides must not leak into the native toolbar.
+            // The toolbar derives from the candidate palette of the theme on screen (THEME_CONTRACT §3), the package's colours included.
             const BOOL dark = [theme isEqual:NSAppearanceNameDarkAqua];
-            const auto toolbarTokens = msime::mac::ToolbarSkinTokens(external.skinID.UTF8String, dark);
+            const auto toolbarTokens = [external toolbarSkinForDark:dark];
             assert([toolbarFill isEqual:SkinColor(toolbarTokens.surface)]);
-            assert(![toolbarFill isEqual:SkinColor([external resolvedSkinForDark:dark].tokens.surface)]);
+            assert([toolbarFill isEqual:SkinColor([external resolvedSkinForDark:dark].tokens.surface)]);
             MSIMECandidateChromeView *chrome = (id)panel.contentView;
             NSImageView *decoration = (id)chrome.subviews.lastObject;
             assert([decoration isKindOfClass:NSImageView.class] && decoration.image);
@@ -3853,14 +3938,16 @@ show_selected_bar = true
     // No disk reads while typing/rendering: removal takes effect only on explicit reload.
     std::filesystem::remove_all(root / "synthetic");
     [controller renderCandidates];
-    assert([external resolvedSkinForDark:NO].id == "synthetic" && external.decorationImage);
+    assert([external resolvedSkinForDark:NO].candidateSkin == "synthetic" && external.decorationImage);
     // Rescanning is 刷新皮肤 on the skin page, which rebuilds the cards from the directory; the
     // accessor performs the same reload the button does.
     MetasequoiaSkinSettingsView *rescanned = (id)[external skinSettingsView];
-    assert([external.skinID isEqual:@"synthetic"]);
-    assert([external resolvedSkinForDark:NO].id == "fluent" && !external.decorationImage);
+    // The choice is kept for when the package comes back; meanwhile the custom theme is drawn without it.
+    assert([external.customCandidateSkin isEqual:@"synthetic"]);
+    assert([external resolvedSkinForDark:NO].id == "custom" && [external resolvedSkinForDark:NO].candidateSkin.empty() &&
+           !external.decorationImage);
     NSArray<NSSwitch *> *rescannedSwitches = [rescanned valueForKey:@"switches"];
-    assert(rescannedSwitches.count == 4 && [rescannedSwitches.firstObject.identifier isEqual:@"fluent"]);
+    assert(rescannedSwitches.count == 7 && [rescannedSwitches.firstObject.identifier isEqual:@"system"]);
     [controller appearanceChanged:nil];
     for (NSView *view in panel.contentView.subviews) assert(![view isKindOfClass:NSImageView.class]);
     panel.appearance = nil;
@@ -4403,6 +4490,113 @@ static void TestCloudCandidateConsent() {
     return @{@"applied":@YES, @"view":[self viewWithError:nil]};
 }
 @end
+
+@interface ServiceSnapshotSession : GlossSession
+@property(nonatomic) NSUInteger translationQueryCalls;
+@property(nonatomic) NSUInteger viewCalls;
+@end
+@implementation ServiceSnapshotSession
+- (NSDictionary *)translationQueryWithError:(NSError **)error {
+    ++self.translationQueryCalls;
+    (void)error;
+    return @{ @"generation": @1, @"target_language": @"en", @"target_languages": @[ @"en" ],
+        @"translation_account": @NO };
+}
+- (NSDictionary *)viewWithError:(NSError **)error {
+    ++self.viewCalls;
+    return [super viewWithError:error];
+}
+- (NSDictionary *)hostOptions { return @{}; }
+@end
+
+@interface ApplySnapshotSession : ServiceSnapshotSession
+@end
+@implementation ApplySnapshotSession
+- (NSDictionary *)applyTranslations:(NSArray *)translations generation:(uint64_t)generation error:(NSError **)error {
+    (void)translations; (void)generation; (void)error;
+    return @{ @"applied": @NO };
+}
+@end
+
+@interface PreferenceSnapshotController : ModeController
+@property(nonatomic, copy) NSDictionary *snapshot;
+@property(nonatomic) NSUInteger completions;
+@end
+@implementation PreferenceSnapshotController
+- (NSDictionary *)readPreferencesSnapshotInDirectory:(NSString *)directory error:(NSError **)error {
+    (void)directory; (void)error;
+    assert(!NSThread.isMainThread);
+    return self.snapshot;
+}
+- (void)completePreferenceLoad:(NSDictionary *)snapshot error:(NSError *)error generation:(uint64_t)generation
+                       session:(MSIMEClientSession *)session client:(id)client {
+    assert(NSThread.isMainThread);
+    [super completePreferenceLoad:snapshot error:error generation:generation session:session client:client];
+    ++self.completions;
+}
+@end
+
+static void TestPreferenceLoadReusesCandidateServiceSnapshots() {
+    NSString *suite = [@"msime.preference-service-snapshot." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    appearance.candidateTranslations = YES;
+    appearance.candidateEnglishGloss = YES;
+    ServiceSnapshotSession *session = [ServiceSnapshotSession new];
+    PreferenceSnapshotController *controller = [PreferenceSnapshotController alloc];
+    controller.snapshot = @{ @"revision": @1, @"preferences": @{} };
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+    [controller setValue:@"/synthetic-preferences" forKey:@"preferencesDirectory"];
+    [controller reloadPreferences];
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:2];
+    while (controller.completions < 1 && deadline.timeIntervalSinceNow > 0)
+        [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
+    assert(controller.completions == 1);
+    assert(session.translationQueryCalls == 1 && session.viewCalls == 3);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
+static void TestCandidateServiceSnapshotsAreReused() {
+    NSString *suite = [@"msime.service-snapshot." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    appearance.candidateTranslations = YES;
+    appearance.candidateEnglishGloss = YES;
+    MSIMEInputController *controller = [MSIMEInputController alloc];
+    ServiceSnapshotSession *session = [ServiceSnapshotSession new];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+    [controller setValue:@NO forKey:@"glossEnabled"];
+    [controller synchronizeCandidateServices];
+    assert(session.translationQueryCalls == 1 && session.viewCalls == 1);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
+static void TestApplyCandidateTranslationSnapshotsAreReused() {
+    NSString *suite = [@"msime.apply-service-snapshot." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    appearance.candidateTranslations = YES;
+    appearance.candidateEnglishGloss = YES;
+    ApplySnapshotSession *session = [ApplySnapshotSession new];
+    MSIMEInputController *controller = [MSIMEInputController alloc];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+    [controller setValue:@NO forKey:@"glossEnabled"];
+    NSDictionary *request = [controller currentGlossRequest];
+    [controller setValue:request forKey:@"glossRequest"];
+    [controller setValue:@[] forKey:@"glossResults"];
+    session.translationQueryCalls = 0;
+    session.viewCalls = 0;
+    [controller applyCandidateTranslationResults];
+    assert(session.translationQueryCalls == 1 && session.viewCalls == 1);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
 @interface GlossController : CloudShortcutController
 @property(nonatomic, strong) dispatch_semaphore_t started;
 @property(nonatomic, strong) dispatch_semaphore_t released;
@@ -5587,7 +5781,7 @@ static void TestGlossScheduling() {
 @end
 @implementation SettingsRouteWorkspace
 - (NSURL *)URLForApplicationWithBundleIdentifier:(NSString *)identifier {
-    assert([identifier isEqual:@"app.msime.client"]);
+    assert([identifier isEqual:@"app.msime.macos"]);
     return self.installed ? [NSURL fileURLWithPath:@"/synthetic/Settings.app"] : nil;
 }
 - (void)openApplicationAtURL:(NSURL *)url configuration:(NSWorkspaceOpenConfiguration *)configuration
@@ -5676,7 +5870,7 @@ static void TestCandidateTranslationPreference() {
     assert(translationEntry);
     prefs.testWorkspace.installed = YES;
     [NSApp sendAction:translationEntry.action to:translationEntry.target from:translationEntry];
-    assert([prefs.testWorkspace.configuration.arguments isEqual:@[@"--route=settings:input"]]);
+    assert([prefs.testWorkspace.configuration.arguments isEqual:@[@"--route=settings:expression"]]);
     prefs.testWorkspace.completion(NSRunningApplication.currentApplication, nil);
     assert(![prefs valueForKey:@"translationWindow"]);
     NSControl *aiEntry = PreferenceControl(prefs, @selector(showAISettings:));
@@ -5796,6 +5990,9 @@ int main(int argc, char **argv) {
     @autoreleasepool {
         [NSApplication sharedApplication];
         if (argc == 2 && std::string(argv[1]) == "--translations") {
+            TestPreferenceLoadReusesCandidateServiceSnapshots();
+            TestCandidateServiceSnapshotsAreReused();
+            TestApplyCandidateTranslationSnapshotsAreReused();
             TestGlossScheduling();
             TestAccountGlossSkipsNonChineseCandidates();
             TestAccountGlossRequiresExplicitChoice();
@@ -5861,9 +6058,12 @@ int main(int argc, char **argv) {
         // Unset is the shared default, and a number past the end is pulled to the end rather than to
         // the top of a three-value set.
         assert(appearance.pageSize == 6);
-        assert([appearance.skinID isEqual:@"willow_green"]);
-        appearance.skinID = @"../invalid";
-        assert([appearance.skinID isEqual:@"fluent"]);
+        assert([appearance.globalTheme isEqual:@"system"]);
+        // A retired or foreign id is refused rather than normalised: nothing is stored and the theme stays.
+        for (NSString *invalid in @[@"../invalid", @"fluent", @"willow_green", @""]) {
+            appearance.globalTheme = invalid;
+            assert([appearance.globalTheme isEqual:@"system"]);
+        }
         appearance.pageSize = 10;
         assert(appearance.pageSize == 9);
         appearance.pageSize = 4;
@@ -5886,16 +6086,16 @@ int main(int argc, char **argv) {
         assert([[[appearance sharedPreferencesByMerging:@{}] objectForKey:@"candidate_follow_cursor"] isEqual:@NO]);
         [appearance applySharedCandidatePreferences:@{@"candidate_follow_cursor": @YES}];
         assert(appearance.candidateFollowCursor);
-        NSArray<NSString *> *skinIDs = @[@"fluent", @"wechat", @"graphite", @"willow_green"];
+        NSArray<NSString *> *skinIDs = @[@"system", @"shuishan", @"light", @"paper", @"night", @"ink", @"custom"];
         NSArray<NSSwitch *> *skinCards = [(id)[appearance skinSettingsView] valueForKey:@"switches"];
         assert(skinCards.count == skinIDs.count);
         for (NSUInteger option = 0; option < skinIDs.count; ++option) {
             assert([skinCards[option].identifier isEqual:skinIDs[option]]);
             [NSApp sendAction:skinCards[option].action to:skinCards[option].target from:skinCards[option]];
             MSIMEAppearancePreferences *loaded = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
-            assert([loaded.skinID isEqual:skinIDs[option]]);
+            assert([loaded.globalTheme isEqual:skinIDs[option]]);
         }
-        appearance.skinID = @"fluent";
+        appearance.globalTheme = @"system";
         // The reference's set, three through nine.
         assert(sizeControl.numberOfItems == (NSInteger)msime::mac::kOfferedCandidatePageSizes);
         NSArray *pageSizes = @[@3, @4, @5, @6, @7, @8, @9];
@@ -6065,6 +6265,43 @@ int main(int argc, char **argv) {
         assert([previous.accessibilityLabel isEqual:@"上一页候选"]);
         assert([next.accessibilityLabel isEqual:@"下一页候选"]);
         assert(previous.frame.size.height == 26 && next.frame.size.width == 28);
+        // A gloss-only update keeps the candidate identity and row geometry, so the visible row can
+        // be updated in place without rebuilding its AppKit button.
+        NSMutableDictionary *glossReuseView = [@{
+            @"session": @1, @"generation": @2, @"focused": @YES, @"page": @0, @"page_count": @1,
+            @"editing_text": @"ceshi",
+            @"candidates": @[@{@"text": @"测试", @"highlighted": @YES,
+                               @"id": @{ @"session": @1, @"generation": @2, @"index": @0 }}]
+        } mutableCopy];
+        NSDictionary *beforeGlossView = [glossReuseView copy];
+        [controller setValue:beforeGlossView forKey:@"view"];
+        [controller renderCandidates];
+        MSIMECandidateButton *reusedBeforeGloss = PageButton(layoutPanel.contentView, 0);
+        NSMutableDictionary *glossReuseCandidate = [glossReuseView[@"candidates"][0] mutableCopy];
+        glossReuseCandidate[@"translation"] = @"x";
+        glossReuseView[@"candidates"] = @[glossReuseCandidate];
+        [controller setValue:[glossReuseView copy] forKey:@"view"];
+        [controller renderCandidates];
+        MSIMECandidateButton *reusedAfterGloss = PageButton(layoutPanel.contentView, 0);
+        assert(reusedAfterGloss == reusedBeforeGloss && [reusedAfterGloss.translation isEqual:@"x"] &&
+               [reusedAfterGloss.toolTip containsString:@"\nx"]);
+        [controller setValue:[pageView copy] forKey:@"view"];
+        [controller renderCandidates];
+        previous = (id)PageButton(layoutPanel.contentView, -1);
+        next = (id)PageButton(layoutPanel.contentView, -2);
+        // The arrows and 「1 / 3」 share the card's top row, right-aligned above the candidates.
+        NSTextField *pageIndicator = nil;
+        for (NSView *child in layoutPanel.contentView.subviews)
+            if ([child.identifier isEqual:@"candidate-page-indicator"]) pageIndicator = (id)child;
+        assert(pageIndicator && [pageIndicator.stringValue isEqual:@"1 / 3"]);
+        assert([pageIndicator.accessibilityLabel isEqual:@"第 1 页，共 3 页"]);
+        MSIMECandidateButton *pagedCandidate = PageButton(layoutPanel.contentView, 0);
+        assert(NSMinY(previous.frame) >= NSMaxY(pagedCandidate.frame) && NSMinY(next.frame) == NSMinY(previous.frame));
+        assert(NSMaxX(next.frame) <= layoutPanel.contentView.bounds.size.width && NSMaxX(pageIndicator.frame) <= NSMinX(previous.frame));
+        // 「1 / 3」 and ‹ › are the design's 13pt secondary run (dc.html L1324).
+        const auto pageTokens = [appearance resolvedSkinForDark:[[layoutPanel.contentView.effectiveAppearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]] isEqual:NSAppearanceNameDarkAqua]].tokens;
+        assert(next.titleColor && [next.titleColor isEqual:SkinColor(pageTokens.number)]);
+        assert([pageIndicator.textColor isEqual:SkinColor(pageTokens.number)] && pageIndicator.font.pointSize == 13);
         // A layout-only render can keep all Engine IDs unchanged. The detached
         // button must still be rejected, just like detached candidate buttons.
         MSIMECandidateButton *oldPageButton = next;
@@ -6195,16 +6432,20 @@ int main(int argc, char **argv) {
             assert(NSMinX(caretLabel.caretRect) > NSMinX(middleCaret));
             caretLabel.caretIndex = 2;
             assert([preeditLabel.font.familyName isEqual:installedFamily]);
+            // The reading is the design's semibold accent run (dc.html L1325).
+            assert([[preeditLabel.font.fontDescriptor objectForKey:NSFontTraitsAttribute][NSFontWeightTrait] doubleValue] > 0);
             const auto preeditTokens = [appearance resolvedSkinForDark:NO].tokens;
             layoutPanel.contentView.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
             [controller refreshCandidateSkin];
-            assert([preeditLabel.textColor isEqual:SkinColor(preeditTokens.text)]);
+            assert([preeditLabel.textColor isEqual:SkinColor(preeditTokens.accent)]);
             assert([caretLabel.caretColor isEqual:SkinColor(preeditTokens.accent)]);
             if (!vertical.boolValue) {
-                [appearance applySharedCandidatePreferences:@{@"candidate_text_color": @"#102030",
-                    @"candidate_number_color": @"#203040", @"candidate_accent_color": @"#304050",
-                    @"candidate_selected_color": @"#405060", @"candidate_hover_color": @"#506070",
-                    @"candidate_surface_color": @"#607080", @"candidate_border_color": @"#708090"}];
+                // The seven pickers are the custom theme's, and draw while it is selected.
+                [appearance applySharedCandidatePreferences:@{@"global_theme": @"custom", @"custom_theme": @{@"candidate_colors": @{
+                    @"text": @"#102030", @"number": @"#203040", @"accent": @"#304050", @"selected": @"#405060",
+                    @"hover": @"#506070", @"surface": @"#607080", @"border": @"#708090"}}}];
+                const auto picked = [appearance resolvedSkinForDark:NO].tokens;
+                assert([SkinColor(picked.surface) isEqual:[NSColor colorWithSRGBRed:0x60 / 255.0 green:0x70 / 255.0 blue:0x80 / 255.0 alpha:1]]);
                 NSMutableDictionary *colorView = [pageView mutableCopy];
                 colorView[@"candidates"] = @[@{@"text": @"selected", @"highlighted": @YES},
                     @{@"text": @"ordinary", @"highlighted": @NO}];
@@ -6218,17 +6459,17 @@ int main(int argc, char **argv) {
                     if ([child.identifier isEqual:@"candidate-preedit"]) preeditLabel = (id)child;
                 assert(preeditLabel && [preeditLabel isKindOfClass:MSIMECandidatePreeditField.class]);
                 caretLabel = (id)preeditLabel;
-                assert([chrome.fillColor isEqual:[appearance candidateSurfaceColorWithDefault:NSColor.clearColor]]);
-                assert([chrome.strokeColor isEqual:[appearance candidateBorderColorWithDefault:NSColor.clearColor]]);
-                assert([customButton.titleColor isEqual:[appearance candidateTextColorWithDefault:NSColor.clearColor]]);
-                assert([customButton.numberColor isEqual:[appearance candidateNumberColorWithDefault:NSColor.clearColor]]);
-                assert([selectedButton.fillColor isEqual:[appearance candidateSelectedColorWithDefault:NSColor.clearColor]]);
-                assert([selectedButton.titleColor isEqual:SkinColor(preeditTokens.selectedText)]);
-                assert([selectedButton.numberColor isEqual:SkinColor(preeditTokens.selectedText)]);
-                assert([customButton.hoverColor isEqual:[appearance candidateHoverColorWithDefault:NSColor.clearColor]]);
-                assert([customButton.barColor isEqual:[appearance candidateAccentColorWithDefault:NSColor.clearColor]]);
+                assert([chrome.fillColor isEqual:SkinColor(picked.surface)]);
+                assert([chrome.strokeColor isEqual:SkinColor(picked.border)]);
+                assert([customButton.titleColor isEqual:SkinColor(picked.text)]);
+                assert([customButton.numberColor isEqual:SkinColor(picked.number)]);
+                assert([selectedButton.fillColor isEqual:SkinColor(picked.selected)]);
+                assert([selectedButton.titleColor isEqual:SkinColor(picked.selectedText)]);
+                assert([selectedButton.numberColor isEqual:SkinColor(picked.selectedNumber)]);
+                assert([customButton.hoverColor isEqual:SkinColor(picked.hover)]);
+                assert([customButton.barColor isEqual:SkinColor(picked.accent)]);
                 assert([caretLabel.caretColor isEqual:customButton.barColor]);
-                [appearance applySharedCandidatePreferences:@{}];
+                [appearance applySharedCandidatePreferences:@{@"global_theme": @"system"}];
                 [controller setValue:pageView forKey:@"view"];
                 [controller renderCandidates];
                 preeditLabel = nil;
@@ -6492,11 +6733,11 @@ int main(int argc, char **argv) {
         appearance.fontSize = 20;
         [controller appearanceChanged:nil];
         assert(layoutPanel.frame.size.height > normalHeight);
-        // Palette and native drawing coverage: four skins, two layouts and both appearances.
+        // Palette and native drawing coverage: every global theme, two layouts and both appearances.
         NSDictionary *preservedView = [[controller valueForKey:@"view"] copy];
         session.lastCommand = UINT32_MAX;
         for (NSString *skinID in skinIDs) {
-            appearance.skinID = skinID;
+            appearance.globalTheme = skinID;
             for (NSNumber *vertical in @[@NO, @YES]) {
                 appearance.vertical = vertical.boolValue;
                 [controller appearanceChanged:nil];
@@ -6505,7 +6746,8 @@ int main(int argc, char **argv) {
                     chrome.appearance = [NSAppearance appearanceNamed:theme];
                     // Exercise the same callback AppKit uses for a system appearance change.
                     [chrome viewDidChangeEffectiveAppearance];
-                    const auto tokens = msime::mac::BuiltInSkinTokens(skinID.UTF8String, [theme isEqual:NSAppearanceNameDarkAqua]);
+                    const BOOL dark = [theme isEqual:NSAppearanceNameDarkAqua];
+                    const auto tokens = [appearance resolvedSkinForDark:dark].tokens;
                     assert([chrome.fillColor isEqual:SkinColor(tokens.surface)]);
                     assert([chrome.strokeColor isEqual:SkinColor(tokens.border)]);
                     assert(chrome.cornerRadius == tokens.radius && chrome.lineWidth == tokens.borderWidth);
@@ -6520,22 +6762,39 @@ int main(int argc, char **argv) {
                     assert([selected.fillColor isEqual:SkinColor(tokens.selected)]);
                     assert([selected.titleColor isEqual:SkinColor(tokens.selectedText)]);
                     assert([unselected.titleColor isEqual:SkinColor(tokens.text)]);
-                    assert([selected.translationColor isEqual:[SkinColor(tokens.selectedText) colorWithAlphaComponent:MSIMECandidateTranslationOpacity]]);
-                    assert([unselected.translationColor isEqual:[SkinColor(tokens.text) colorWithAlphaComponent:MSIMECandidateTranslationOpacity]]);
+                    // On the selected fill the translation is the design's candSelTr, the selected number's colour.
+                    assert([selected.translationColor isEqual:SkinColor(tokens.selectedNumber)]);
+                    // A plain row's translation is the theme's secondary colour, which is the number colour (dc.html L2150, L2183): #9FB5A3 under 水杉, the platform's sub grey under 跟随系统.
+                    assert([unselected.translationColor isEqual:SkinColor(tokens.number)]);
+                    if ([skinID isEqual:@"shuishan"] || [skinID isEqual:@"system"]) {
+                        NSColor *gloss = [unselected.translationColor colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+                        const unsigned expected = [skinID isEqual:@"shuishan"] ? 0x9FB5A3 : dark ? 0x98989D : 0x6E6E73;
+                        assert(fabs(gloss.redComponent - ((expected >> 16) & 0xFF) / 255.0) < 0.002);
+                        assert(fabs(gloss.greenComponent - ((expected >> 8) & 0xFF) / 255.0) < 0.002);
+                        assert(fabs(gloss.blueComponent - (expected & 0xFF) / 255.0) < 0.002);
+                        assert(fabs(gloss.alphaComponent - 1.0) < 0.002);
+                    }
+                    // A text picker selects the custom theme over the one on screen, so every other slot stays.
                     appearance.candidateTextColor = @"#1234AB";
                     [controller refreshCandidateSkin];
-                    NSColor *override = [appearance candidateTextColorWithDefault:NSColor.blackColor];
-                    assert([unselected.titleColor isEqual:override]);
-                    assert([selected.titleColor isEqual:SkinColor(tokens.selectedText)]);
+                    assert([appearance.globalTheme isEqual:@"custom"]);
+                    const auto picked = [appearance resolvedSkinForDark:dark].tokens;
+                    NSColor *override = [NSColor colorWithSRGBRed:0x12 / 255.0 green:0x34 / 255.0 blue:0xAB / 255.0 alpha:1];
+                    assert([SkinColor(picked.text) isEqual:override] && [unselected.titleColor isEqual:override]);
+                    assert([unselected.translationColor isEqual:SkinColor(picked.number)]);
+                    assert([selected.titleColor isEqual:SkinColor(picked.selectedText)]);
+                    assert([chrome.fillColor isEqual:SkinColor(tokens.surface)]);
                     for (NSView *child in chrome.subviews)
                         if ([child.identifier isEqual:@"candidate-preedit"]) {
-                            assert([((NSTextField *)child).textColor isEqual:override]);
+                            assert([((NSTextField *)child).textColor isEqual:SkinColor(picked.accent)]);
                             assert([((MSIMECandidatePreeditField *)child).caretColor isEqual:SkinColor(tokens.accent)]);
                         }
                     appearance.candidateTextColor = nil;
+                    appearance.globalTheme = skinID;
                     [controller refreshCandidateSkin];
                     assert([unselected.titleColor isEqual:SkinColor(tokens.text)]);
                     assert([unselected.numberColor isEqual:SkinColor(tokens.number)]);
+                    assert([unselected.translationColor isEqual:SkinColor(tokens.number)]);
                     assert(selected.showSelectedBar == tokens.showSelectedBar);
                     NSBitmapImageRep *bitmap = [chrome bitmapImageRepForCachingDisplayInRect:chrome.bounds];
                     assert(bitmap);
@@ -6550,7 +6809,7 @@ int main(int argc, char **argv) {
         TestExternalSkin(controller, layoutPanel, defaults);
         [controller setValue:appearance forKey:@"appearance"];
         appearance.vertical = NO;
-        appearance.skinID = @"fluent";
+        appearance.globalTheme = @"system";
         [controller appearanceChanged:nil];
         for (NSNumber *key in @[@123, @124, @125, @126]) {
             layoutPanel.requestedVisible = YES;
@@ -6937,7 +7196,7 @@ int main(int argc, char **argv) {
             [controller renderCandidates];
             MSIMECandidateButton *translated = PageButton(layoutPanel.contentView, 0);
             assert([translated.translation isEqual:@"synthetic glossary"] && translated.translationBelow == !vertical.boolValue);
-            assert(fabs(translated.translationFont.pointSize - translated.font.pointSize * 0.78) < 0.01);
+            assert(fabs(translated.translationFont.pointSize - MSIMECandidateTranslationPointSize) < 0.01);
             assert([translated.toolTip containsString:@"\nsynthetic glossary"] && [translated.candidateID isEqual:word[@"id"]]);
             // Vertical puts the gloss on the candidate's own line, so it costs width and never height, and the row does not jump when the debounced gloss arrives (Windows test_layout.cpp vertical_candidate_translation_stays_on_the_same_line); horizontal stacks the gloss underneath, and that height is already reserved, so the row does not change either.
             if (vertical.boolValue) assert(translated.frame.size.width > originalSize.width && fabs(translated.frame.size.height - originalSize.height) < 0.01 && fabs(layoutPanel.frame.size.height - originalPanelHeight) < 0.01);

@@ -407,7 +407,7 @@ fn publish_to_runtime_options(path: &Path, preferences: &Preferences) -> Result<
     let mut host = serde_json::to_value(preferences).map_err(|error| error.to_string())?;
     // The IBus and Fcitx5 hosts never draw the screen keyboard, so its photo stays out of their copy.
     if let Some(design) = host
-        .get_mut("custom_touch_keyboard_skin")
+        .pointer_mut("/custom_theme/keyboard")
         .and_then(Value::as_object_mut)
     {
         design.remove("photo");
@@ -579,10 +579,16 @@ mod tests {
         let options = directory.path().join("runtime-options.json");
         std::fs::write(&options, br#"{"api_version":1}"#).unwrap();
         let mut preferences = Preferences::default();
+        preferences.custom_theme.keyboard = Some(msime_client_core::preferences::TouchKeyboardSkinDesign {
+            photo: Some("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=".into()),
+            ..Default::default()
+        });
+        preferences.validate().unwrap();
         publish_to_runtime_options(&options, &preferences).unwrap();
         let document: Value = serde_json::from_slice(&std::fs::read(&options).unwrap()).unwrap();
         assert_eq!(document["api_version"], 1);
-        assert!(document["preferences"]["custom_touch_keyboard_skin"]
+        assert!(document["preferences"]["custom_theme"]["keyboard"].is_object());
+        assert!(document["preferences"]["custom_theme"]["keyboard"]
             .get("photo")
             .is_none());
 

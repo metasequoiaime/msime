@@ -19,7 +19,7 @@ import {
   type EmojiCatalogGroup,
   type EmojiCatalogItem,
 } from "../emoji/emoji-catalog";
-import { type TouchKeyboardSkin } from "./screen-keyboard-preview";
+import type { GlobalTheme } from "../theme/global-theme";
 import * as cloud from "./cloud-panel-style";
 import * as surface from "./panel-surface-style";
 import { normalizeHandwritingCandidates } from "./handwriting";
@@ -55,11 +55,7 @@ import {
   cloudResponseRequest,
   cloudResponseText,
 } from "./cloud-response";
-import {
-  skinColor,
-  skinLuminance,
-  type TouchKeyboardSkinDesign,
-} from "./touch-keyboard-skin-design";
+import type { TouchKeyboardSkinDesign } from "./touch-keyboard-skin-design";
 
 export interface KeyboardInputRequest {
   virtual_key: number;
@@ -332,7 +328,7 @@ export function KeyboardPanel({
   keySpacingTenths = 60,
   rowSpacingTenths = 70,
   voiceShortcut = false,
-  skin = "forest",
+  skin = "system",
   customDesign,
 }: {
   client: PanelClient;
@@ -342,7 +338,7 @@ export function KeyboardPanel({
   keySpacingTenths?: number;
   rowSpacingTenths?: number;
   voiceShortcut?: boolean;
-  skin?: TouchKeyboardSkin;
+  skin?: GlobalTheme;
   customDesign?: TouchKeyboardSkinDesign;
 }) {
   const [activeLayout, setActiveLayout] = useState<"twenty_six_key" | "nine_key">(() => {
@@ -4074,7 +4070,7 @@ const panelRaise =
 /** The selected state of a tab, a category chip or an activation choice. */
 const panelChosen =
   "bg-[#303038] text-[#f5f5f7] group-data-[panel-theme=light]:bg-[#eceef3] group-data-[panel-theme=light]:text-[#202124]";
-const panelAccentBorder = "border-[#d88bde] group-data-[panel-theme=light]:border-[#9a62ad]";
+const panelAccentBorder = "border-[#5fbf84] group-data-[panel-theme=light]:border-[#2c7a4b]";
 /** A quiet text button: the back link, a toolbar action, a group's trailing action. */
 const panelTextButton = `rounded-[5px] border-0 bg-transparent ${panelDim} ${panelRaise}`;
 const panelToolbar = `mb-2 flex min-h-[34px] items-center gap-[9px] border-b pb-2.5 ${panelDivider}`;
@@ -4104,8 +4100,8 @@ const panelTile = (flow: boolean) =>
       ? "max-w-full flex-[0_1_auto] min-h-12 px-3 py-2.5 text-xl whitespace-pre-wrap"
       : "min-h-[66px] p-1.5 text-[29px]"
   }`;
-const clipboardRow = `w-full flex-1 min-w-0 overflow-hidden rounded-lg px-3.5 py-3 text-left font-[inherit] text-ellipsis whitespace-nowrap ${panelField} hover:border-[#d88bde] hover:bg-[#303038] focus-visible:border-[#d88bde] focus-visible:bg-[#303038] group-data-[panel-theme=light]:hover:border-[#9a62ad] group-data-[panel-theme=light]:hover:bg-[#eceef3] group-data-[panel-theme=light]:focus-visible:border-[#9a62ad] group-data-[panel-theme=light]:focus-visible:bg-[#eceef3]`;
-const clipboardSideButton = `shrink-0 grow-0 basis-auto rounded-lg p-2 font-[inherit] ${panelField} hover:border-[#d88bde] focus-visible:border-[#d88bde] group-data-[panel-theme=light]:hover:border-[#9a62ad] group-data-[panel-theme=light]:focus-visible:border-[#9a62ad]`;
+const clipboardRow = `w-full flex-1 min-w-0 overflow-hidden rounded-lg px-3.5 py-3 text-left font-[inherit] text-ellipsis whitespace-nowrap ${panelField} hover:border-[#5fbf84] hover:bg-[#303038] focus-visible:border-[#5fbf84] focus-visible:bg-[#303038] group-data-[panel-theme=light]:hover:border-[#2c7a4b] group-data-[panel-theme=light]:hover:bg-[#eceef3] group-data-[panel-theme=light]:focus-visible:border-[#2c7a4b] group-data-[panel-theme=light]:focus-visible:bg-[#eceef3]`;
+const clipboardSideButton = `shrink-0 grow-0 basis-auto rounded-lg p-2 font-[inherit] ${panelField} hover:border-[#5fbf84] focus-visible:border-[#5fbf84] group-data-[panel-theme=light]:hover:border-[#2c7a4b] group-data-[panel-theme=light]:focus-visible:border-[#2c7a4b]`;
 
 export function EmojiPanel({
   client,
@@ -4658,7 +4654,7 @@ export function EmojiPanel({
         </button>
       </header>
       <div
-        className={`mx-6 mt-3.5 flex flex-[0_0_52px] items-center gap-2 rounded-[10px] px-3.5 max-phone:mx-3.5 ${panelField} focus-within:border-[#d88bde] focus-within:shadow-[0_0_0_1px_rgba(216,139,222,0.35)] group-data-[panel-theme=light]:focus-within:border-[#9a62ad] group-data-[panel-theme=light]:focus-within:shadow-[0_0_0_1px_rgba(154,98,173,0.28)]`}
+        className={`mx-6 mt-3.5 flex flex-[0_0_52px] items-center gap-2 rounded-[10px] px-3.5 max-phone:mx-3.5 ${panelField} focus-within:border-[#5fbf84] focus-within:shadow-[0_0_0_1px_rgba(95,191,132,0.35)] group-data-[panel-theme=light]:focus-within:border-[#2c7a4b] group-data-[panel-theme=light]:focus-within:shadow-[0_0_0_1px_rgba(154,98,173,0.28)]`}
       >
         <span className="text-[23px] leading-none" aria-hidden="true">
           ⌕
@@ -4699,7 +4695,7 @@ export function EmojiPanel({
             key={item.id}
             className={`flex min-w-0 flex-1 flex-col items-center justify-center gap-[3px] rounded-t-[7px] border-0 bg-transparent ${
               page === item.id
-                ? `${panelChosen} shadow-[inset_0_-3px_#d88bde] group-data-[panel-theme=light]:shadow-[inset_0_-3px_#9a62ad]`
+                ? `${panelChosen} shadow-[inset_0_-3px_#5fbf84] group-data-[panel-theme=light]:shadow-[inset_0_-3px_#2c7a4b]`
                 : `${panelDim} ${panelRaise}`
             }`}
             aria-label={item.label}

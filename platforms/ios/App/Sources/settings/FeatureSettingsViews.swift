@@ -7,8 +7,11 @@ struct SkinSettingsView: View {
   @Environment(\.scenePhase) private var scenePhase
   @AppStorage(CustomKeyboardSkinStore.key, store: KeyboardFeedbackPreference.defaults)
   private var customSkinData = Data()
-  @AppStorage(KeyboardSkinPreference.key, store: KeyboardFeedbackPreference.defaults)
-  private var skin = KeyboardSkin.forest.rawValue
+  @AppStorage(GlobalThemePreference.key, store: KeyboardFeedbackPreference.defaults)
+  private var skin = GlobalThemeCatalog.systemId
+  /// Every theme of the catalog as the shared document configures it, so the custom card shows the custom theme's base and design.
+  @State private var themeCards: [KeyboardTheme] = GlobalThemeCatalog.ids.map { KeyboardTheme.resolve($0, document: nil) }
+  @State private var customBase = GlobalThemeCatalog.systemId
   @State private var previewsNineKey = InputSchemePreference.scheme == .nineKey
   @State private var previewsDark = false
   @State private var savedDesigns = CustomSkinLibrary.designs.count
@@ -16,67 +19,130 @@ struct SkinSettingsView: View {
   @State private var themeSaveFailed = false
   @State private var skinSaveFailed = false
   @Environment(\.horizontalSizeClass) private var sizeClass
+  @Environment(\.colorScheme) private var colorScheme
+  /// The shared document as last read, for the candidate preview at the top.
+  @State private var document: [String: Any]?
 
   var body: some View {
     Form {
-      appearanceSection
+      Section {
+        CandidatePreviewCard(theme: selectedTheme, document: document, systemDark: colorScheme == .dark)
+      }
+      .listRowBackground(Color.clear)
+      .listRowInsets(EdgeInsets())
+      Section {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 12) {
+          ForEach(themeCards, id: \.id) { themeCard($0) }
+        }
+        .listRowBackground(Color.clear)
+        .listRowInsets(EdgeInsets())
+      } header: {
+        Text("皮肤")
+      } footer: {
+        Text(skinSaveFailed
+          ? "主题没有保存，键盘可能正在写入同一份设置，请再试一次。"
+          : "主题同时决定键盘和候选栏的配色，与电脑版同步。选择后预览立即更新，下次打开水杉键盘时应用。内置主题有固定的明暗，跟随系统和未设底色的自定义主题随「高级 · 明暗」里的键盘明暗切换。自定义主题当前以「\(GlobalThemeCatalog.title(customBase))」为底。")
+      }
       Section {
         NavigationLink(destination: CustomSkinEditorView()) {
           SettingsRowLabel(title: "设计我的皮肤",
                            detail: savedDesigns == 0 ? "还没有命名保存的方案" : "本机保存了 \(savedDesigns) 套方案",
                            symbol: "paintbrush.pointed.fill")
         }.accessibilityIdentifier("customSkinEditorLink")
-      }
-      Section {
         Button { navigation.discoverSkins() } label: { Label("去社区发现皮肤", systemImage: "square.grid.2x2") }
           .accessibilityIdentifier("skinCommunityLink")
+      } header: {
+        Text("自定义主题")
       }
+      CustomThemeCandidateSection(onThemeChange: reloadThemes)
       Section("完整键盘预览") {
         Picker("键盘布局", selection: $previewsNineKey) {
           Text("26 键").tag(false)
           Text("9 键").tag(true)
         }.pickerStyle(.segmented).accessibilityIdentifier("skinPreviewLayout")
-        KeyboardSkinPreview(skin: KeyboardSkin(rawValue: skin) ?? .forest, nineKey: previewsNineKey)
+        KeyboardSkinPreview(skin: selectedTheme, nineKey: previewsNineKey)
           .id(customSkinData)
-          .environment(\.colorScheme, previewsDark ? .dark : .light)
+          .environment(\.colorScheme, previewScheme)
           .listRowInsets(EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8))
         Toggle("预览深色外观", isOn: $previewsDark)
           .accessibilityIdentifier("skinPreviewDark")
       }
-
-      Section {
-        ForEach(KeyboardSkin.allCases, id: \.rawValue) { option in
-          Button {
-            skinSaveFailed = !KeyboardSkinPreference.save(
-              option, design: option == .custom ? CustomKeyboardSkinStore.current : nil)
-          } label: {
-            HStack(spacing: 14) {
-              SkinDesignThumbnail(skin: option)
-              VStack(alignment: .leading, spacing: 5) {
-                Text(option.title).font(.headline).foregroundStyle(.primary)
-                Text(option.designDescription).font(.caption).foregroundStyle(.secondary)
-              }
-              Spacer()
-              if skin == option.rawValue { Image(systemName: "checkmark") }
-            }.contentShape(Rectangle())
-          }
-          .buttonStyle(.plain)
-          .accessibilityIdentifier("skin_\(option.rawValue)")
-          .accessibilityValue(skin == option.rawValue ? "已选择" : "未选择")
-        }
-      } header: {
-        Text("皮肤 · \(KeyboardSkin.allCases.count) 款")
-      } footer: {
-        Text(skinSaveFailed
-          ? "皮肤没有保存，键盘可能正在写入同一份设置，请再试一次。"
-          : "选择后预览立即更新，下次打开水杉键盘时应用。霓虹夜航与工程蓝图保留深色设计，其余随系统外观切换。")
-      }
-
+      appearanceSection
     }
-    .navigationTitle("皮肤")
+    .navigationTitle("主题")
     .navigationBarTitleDisplayMode(.inline)
     .onAppear { savedDesigns = CustomSkinLibrary.designs.count; reloadThemes() }
     .onChange(of: scenePhase) { if $0 == .active { savedDesigns = CustomSkinLibrary.designs.count; reloadThemes() } }
+  }
+
+  /// One card of the design's theme grid (dc.html L769-783): a 72pt swatch holding a candidate panel, then the name and 使用中 on the selected card, which also carries the accent ring.
+  private func themeCard(_ option: KeyboardTheme) -> some View {
+    let selected = skin == option.id
+    let swatch = swatchColors(option)
+    return Button {
+      skinSaveFailed = !GlobalThemePreference.save(option.id)
+      if !skinSaveFailed { reloadThemes() }
+    } label: {
+      VStack(alignment: .leading, spacing: 8) {
+        ZStack {
+          if swatch.preview == nil {
+            KeyboardSkinBackdrop(skin: option)
+          } else {
+            Color(uiColor: swatch.background)
+          }
+          HStack(spacing: 8) {
+            Text("1 候选").foregroundStyle(Color(uiColor: swatch.accent))
+            Text("2 侯选").foregroundStyle(Color(uiColor: swatch.text))
+          }
+          .font(.system(size: 13)).lineLimit(1).fixedSize()
+          .padding(.vertical, 5).padding(.horizontal, 9)
+          .background(RoundedRectangle(cornerRadius: 4).fill(Color(uiColor: swatch.panel)))
+          .shadow(color: .black.opacity(0.2), radius: 4, y: 2)
+        }
+        .frame(height: 72).frame(maxWidth: .infinity)
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .environment(\.colorScheme, cardScheme(option))
+        HStack {
+          Text(option.title).foregroundStyle(.primary)
+          Spacer(minLength: 4)
+          if selected { Text("使用中").font(.system(size: 12)).foregroundStyle(MetasequoiaTheme.accent) }
+        }
+        .font(.system(size: 13)).padding(.horizontal, 2)
+      }
+      .padding(8)
+      .background(RoundedRectangle(cornerRadius: MetasequoiaTheme.cardRadius, style: .continuous).fill(MetasequoiaTheme.surface))
+      .overlay {
+        if selected {
+          RoundedRectangle(cornerRadius: MetasequoiaTheme.cardRadius, style: .continuous).strokeBorder(MetasequoiaTheme.accent, lineWidth: 2)
+        }
+      }
+      .contentShape(RoundedRectangle(cornerRadius: MetasequoiaTheme.cardRadius, style: .continuous))
+    }
+    .buttonStyle(.plain)
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(option.title)
+    .accessibilityHint(description(option))
+    .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+    .accessibilityIdentifier("skin_\(option.id)")
+    .accessibilityValue(selected ? "已选择" : "未选择")
+  }
+
+  /// A built-in theme shows the catalog's preview colours; `system` and the custom theme have none, so they show their keyboard colours (and the design's backdrop) in the mode they preview in.
+  private func swatchColors(_ option: KeyboardTheme) -> (preview: GlobalThemeEntry.Preview?, background: UIColor, panel: UIColor, accent: UIColor, text: UIColor) {
+    if !option.isCustom, let preview = GlobalThemeCatalog.entry(option.id)?.preview {
+      return (preview, preview.background, preview.panel, preview.accent, preview.text)
+    }
+    let traits = UITraitCollection(userInterfaceStyle: cardScheme(option) == .dark ? .dark : .light)
+    return (nil, option.background.resolvedColor(with: traits), option.keyBackground.resolvedColor(with: traits),
+            option.accent.resolvedColor(with: traits), option.keyForeground.resolvedColor(with: traits))
+  }
+
+  private func cardScheme(_ option: KeyboardTheme) -> ColorScheme {
+    switch option.appearance {
+    case .dark: .dark
+    case .light: .light
+    default: previewScheme
+    }
   }
 
   /// 「键盘明暗」 from the shared document (see KeyboardAppearancePreference). iPad lists the panels beside the keyboard; the phone folds them away, since most people only ever set the keyboard.
@@ -97,7 +163,7 @@ struct SkinSettingsView: View {
         DisclosureGroup("面板明暗") { panelPickers }.accessibilityIdentifier("keyboardPanelThemes")
       }
     } header: {
-      Text("明暗")
+      Text("高级 · 明暗")
     } footer: {
       Text(themeSaveFailed
         ? "设置没有保存，键盘可能正在写入同一份设置，请再试一次。"
@@ -126,8 +192,33 @@ struct SkinSettingsView: View {
     })
   }
 
+  private var selectedTheme: KeyboardTheme {
+    themeCards.first { $0.id == skin } ?? KeyboardTheme.resolve(skin, document: nil)
+  }
+
+  /// A theme with a fixed mode previews in it; `system` and a custom theme without a base follow the preview toggle.
+  private var previewScheme: ColorScheme {
+    switch selectedTheme.appearance {
+    case .dark: .dark
+    case .light: .light
+    default: previewsDark ? .dark : .light
+    }
+  }
+
+  private func description(_ theme: KeyboardTheme) -> String {
+    if theme.id == GlobalThemeCatalog.systemId { return "iOS 原生键盘配色，随明暗切换" }
+    if theme.isCustom {
+      let base = GlobalThemeCatalog.title(customBase)
+      return theme.design == nil ? "以「\(base)」为底，外部皮肤和候选颜色在下方「外部皮肤与候选颜色」里调整" : "我的键盘设计，以「\(base)」为底"
+    }
+    return theme.appearance == .dark ? "固定深色，键盘和候选栏同一套配色" : "固定浅色，键盘和候选栏同一套配色"
+  }
+
   private func reloadThemes() {
     guard let preferences = MetasequoiaInputSessionBridge.loadSharedPreferences() else { return }
+    document = preferences
+    themeCards = GlobalThemeCatalog.ids.map { KeyboardTheme.resolve($0, document: preferences) }
+    customBase = GlobalThemePreference.base(in: preferences)
     let keys = [AppAppearancePreference.settingsKey, KeyboardAppearancePreference.keyboardKey] + KeyboardAppearancePreference.panels.map(\.key)
     themes = keys.reduce(into: [:]) { themes, key in themes[key] = preferences[key] as? String ?? "follow" }
     themes[AppAppearancePreference.globalKey] = preferences[AppAppearancePreference.globalKey] as? String ?? "system"
@@ -202,6 +293,9 @@ struct DictionarySettingsView: View {
         NavigationLink(destination: PersonalDictionaryView()) {
           Label("个人词库", systemImage: "text.badge.plus")
         }.accessibilityIdentifier("personalDictionaryLink")
+        NavigationLink(destination: VocabularyReviewSettingsView()) {
+          Label("背单词", systemImage: "character.book.closed")
+        }.accessibilityIdentifier("vocabularyReviewSettingsLink")
       }
       Section("已安装词库") {
         Label("内置离线多方案词库", systemImage: "checkmark.circle.fill")

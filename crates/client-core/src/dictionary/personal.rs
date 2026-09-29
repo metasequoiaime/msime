@@ -249,9 +249,23 @@ impl PersonalDictionaryStore {
     }
 
     pub fn read(&self) -> Result<PersonalDictionaryState, PersonalDictionaryError> {
+        if let Some(parent) = self.directory.parent() {
+            crate::storage::reject_symlink(parent)?;
+        }
+        crate::storage::reject_symlink(&self.directory)?;
         let file = self.directory.join("sync.json");
-        if !file.exists() {
-            return Ok(PersonalDictionaryState::default());
+        match fs::symlink_metadata(&file) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(PersonalDictionaryError::InvalidState)
+            }
+            Ok(metadata) if !metadata.file_type().is_file() => {
+                return Err(PersonalDictionaryError::InvalidState)
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Ok(PersonalDictionaryState::default())
+            }
+            Err(error) => return Err(error.into()),
         }
         read_file(&file)
     }
@@ -453,17 +467,22 @@ impl PersonalDictionaryStore {
     where
         F: FnOnce(&mut PersonalDictionaryState) -> Result<(), PersonalDictionaryError>,
     {
-        fs::create_dir_all(&self.directory)?;
+        if !crate::storage::create_directory_and_check(&self.directory)? {
+            return Err(PersonalDictionaryError::InvalidState);
+        }
         let lock_path = self.directory.join("sync.lock");
         let lock = file_lock::open_lock_file(lock_path)?;
         if !file_lock::try_exclusive(&lock)? {
             return Err(PersonalDictionaryError::Busy);
         }
         let file = self.directory.join("sync.json");
-        let mut state = if file.exists() {
-            read_file(&file)?
-        } else {
-            PersonalDictionaryState::default()
+        let mut state = match fs::symlink_metadata(&file) {
+            Ok(metadata) if metadata.file_type().is_file() => read_file(&file)?,
+            Ok(_) => return Err(PersonalDictionaryError::InvalidState),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                PersonalDictionaryState::default()
+            }
+            Err(error) => return Err(error.into()),
         };
         validate_state(&state)?;
         action(&mut state)?;
@@ -545,6 +564,10 @@ fn validate_request_id(id: &str) -> Result<(), PersonalDictionaryError> {
 }
 
 fn read_file(file: &Path) -> Result<PersonalDictionaryState, PersonalDictionaryError> {
+    let metadata = fs::symlink_metadata(file)?;
+    if !metadata.file_type().is_file() {
+        return Err(PersonalDictionaryError::InvalidState);
+    }
     let file_handle = File::open(file)?;
     let bytes = crate::bounded_io::read_bounded_file(file_handle, MAX_STATE_BYTES as u64, || {
         PersonalDictionaryError::InvalidState
@@ -764,6 +787,35 @@ mod tests {
             Err(PersonalDictionaryError::InvalidState)
         ));
         assert_eq!(fs::read(directory.join("sync.json")).unwrap(), b"not-json");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_symlinked_personal_dictionary_paths() {
+        use std::os::unix::fs::symlink;
+
+        let target = tempfile::tempdir().unwrap();
+        let parent = tempfile::tempdir().unwrap();
+        let linked_root = parent.path().join("user-data");
+        symlink(target.path(), &linked_root).unwrap();
+        let linked = PersonalDictionaryStore::new(&linked_root);
+        assert!(matches!(linked.read(), Err(PersonalDictionaryError::Io(_))));
+        assert!(!target.path().join("sync.json").exists());
+
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("sync.json");
+        let outside = tempfile::tempdir().unwrap();
+        let outside_path = outside.path().join("sync.json");
+        fs::write(&outside_path, b"{}").unwrap();
+        symlink(&outside_path, &path).unwrap();
+        let store = PersonalDictionaryStore::new(root.path());
+        assert!(matches!(
+            store.read(),
+            Err(PersonalDictionaryError::InvalidState)
+        ));
+        assert!(store
+            .enqueue(None, Some(word("ni", "ni")), "synthetic-id".into())
+            .is_err());
     }
 
     #[test]

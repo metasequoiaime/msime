@@ -1,10 +1,12 @@
 package app.msime.client;
 
 import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 
 /**
@@ -47,16 +49,33 @@ public final class LocalAsrPolicy {
     /** Whether `modelPath` is an installed model directory: it exists and holds the manifest. */
     public static boolean installed(String modelPath) {
         if (modelPath == null || modelPath.isEmpty()) return false;
-        File manifest = new File(modelPath, MANIFEST);
-        return new File(modelPath).isDirectory() && manifest.isFile()
-            && manifest.length() > 0 && manifest.length() <= MAX_MANIFEST_BYTES;
+        try {
+            Path model = Paths.get(modelPath);
+            Path manifest = model.resolve(MANIFEST);
+            return !Files.isSymbolicLink(model)
+                && Files.isDirectory(model, LinkOption.NOFOLLOW_LINKS)
+                && Files.isRegularFile(manifest, LinkOption.NOFOLLOW_LINKS)
+                && Files.size(manifest) > 0 && Files.size(manifest) <= MAX_MANIFEST_BYTES;
+        } catch (java.nio.file.InvalidPathException | IOException | SecurityException error) {
+            return false;
+        }
     }
 
     /** Reads the manifest with a hard cap, so a file that grows after inspection cannot cause an unbounded allocation. */
     public static byte[] readManifest(String modelPath) throws IOException {
         if (modelPath == null || modelPath.isEmpty()) throw new IOException("manifest unavailable");
-        File manifest = new File(modelPath, MANIFEST);
-        try (InputStream input = new FileInputStream(manifest)) {
+        final Path model;
+        try {
+            model = Paths.get(modelPath);
+        } catch (java.nio.file.InvalidPathException error) {
+            throw new IOException("manifest unavailable", error);
+        }
+        if (Files.isSymbolicLink(model) || !Files.isDirectory(model, LinkOption.NOFOLLOW_LINKS))
+            throw new IOException("manifest unavailable");
+        Path manifest = model.resolve(MANIFEST);
+        if (!Files.isRegularFile(manifest, LinkOption.NOFOLLOW_LINKS))
+            throw new IOException("manifest unavailable");
+        try (InputStream input = Files.newInputStream(manifest, LinkOption.NOFOLLOW_LINKS)) {
             ByteArrayOutputStream bytes = new ByteArrayOutputStream((int) MAX_MANIFEST_BYTES);
             byte[] buffer = new byte[8192];
             int count;

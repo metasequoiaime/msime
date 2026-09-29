@@ -59,6 +59,10 @@ public final class NativeClient {
     }
     /** May block on the shared file lock. Call on a worker, without a session handle. */
     public static String loadPreferences(String directory) { return text(loadPreferencesRaw(directory.getBytes(StandardCharsets.UTF_8))); }
+    /** The global theme picker entries: ids, titles, appearance and built-in palettes, in picker order. */
+    public static String themeCatalog() { return text(themeCatalogRaw()); }
+    /** Resolves the colours of the selected global theme for one mode. Pure computation, safe on the main thread. */
+    public static String resolveTheme(String request) { return text(resolveThemeRaw(request.getBytes(StandardCharsets.UTF_8))); }
     /** Classifies committed text in native memory and persists only aggregate counts. Call on a worker. */
     public static String typingStatistics(String request) {
         return text(typingStatisticsRaw(request.getBytes(StandardCharsets.UTF_8)));
@@ -418,6 +422,8 @@ public final class NativeClient {
     private static native byte[] snapshotActivateRaw(long handle, byte[] expectedVersion);
     private static native byte[] loadPreferencesRaw(byte[] directory);
     private static native byte[] typingStatisticsRaw(byte[] request);
+    private static native byte[] themeCatalogRaw();
+    private static native byte[] resolveThemeRaw(byte[] request);
     private static native byte[] vocabularyReviewRaw(byte[] request);
     private static native byte[] emojiCatalogRaw(byte[] query, byte[] resources);
     private static native byte[] candidateGlossesRaw(byte[] request, byte[] resources);

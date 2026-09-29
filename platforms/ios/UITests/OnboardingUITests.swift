@@ -64,9 +64,9 @@ final class OnboardingUITests: XCTestCase {
     let account = app.tabBars.buttons["我的"]
     XCTAssertTrue(account.waitForExistence(timeout: 5))
     account.tap()
-    // The account page sets an empty navigation title and names itself in its content, so the
-    // tab selection plus one of its own rows is what says this screen is up.
+    // The page carries the tab's large title now, and its own rows are what say which page it is.
     XCTAssertTrue(account.isSelected)
+    XCTAssertTrue(app.navigationBars["我的"].waitForExistence(timeout: 5))
     XCTAssertTrue(app.buttons["accountAppIcon"].waitForExistence(timeout: 5))
     // 我的设计 was withdrawn from this page: the skin editor keeps one entry, on the skin page,
     // rather than the same destination under two tabs.
@@ -78,13 +78,14 @@ final class OnboardingUITests: XCTestCase {
     let app = XCUIApplication()
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]
     app.launch()
-    app.buttons["keyboardLayoutLink"].tap()
+    // The home page is a lazy list, so a row below the fold does not exist until it is scrolled to.
+    reachSettingsLink("keyboardLayoutLink", in: app)
+    settingsEntry("keyboardLayoutLink", in: app).tap()
     let keys = app.sliders["appKeySpacingSlider"]
     let rows = app.sliders["appRowSpacingSlider"]
     XCTAssertTrue(keys.waitForExistence(timeout: 5))
     XCTAssertFalse(app.buttons["layoutPreset_msime"].exists)
     let voice = app.switches["appVoiceShortcutSwitch"]
-    let originalVoice = voice.value as? String
     func position(_ slider: XCUIElement) throws -> CGFloat {
       let raw = try XCTUnwrap(slider.value as? String)
       let value = try XCTUnwrap(Double(raw.replacingOccurrences(of: "%", with: "")))
@@ -93,22 +94,63 @@ final class OnboardingUITests: XCTestCase {
       let maximum = slider.identifier == "appKeySpacingSlider" ? 6.0 : 10.0
       return CGFloat((value - minimum) / (maximum - minimum))
     }
+    // The sliders sit at the top of the form and the voice switch below the fold, where the lazy form has not built it yet, so each visit handles the sliders first and then scrolls down to the switch.
     let originalKeys = try position(keys), originalRows = try position(rows)
-    defer {
+    // The spacing and the switch live in the app group and outlive the app, so a failure part way through would hand every later test (and the keyboard unit tests sharing the group) this test's values. A teardown block runs even when `continueAfterFailure = false` stops the test, which a `defer` does not promise, so the restore lives there; the normal path below still checks that the values go back.
+    let restore = SpacingRestore()
+    addTeardownBlock { @MainActor in
+      guard !restore.done else { return }
+      app.terminate()
+      app.launch()
+      self.reachSettingsLink("keyboardLayoutLink", in: app)
+      self.settingsEntry("keyboardLayoutLink", in: app).tap()
+      guard keys.waitForExistence(timeout: 5) else { return }
       keys.adjust(toNormalizedSliderPosition: originalKeys)
       rows.adjust(toNormalizedSliderPosition: originalRows)
-      if voice.value as? String != originalVoice { voice.tap() }
+      if let originalVoice = restore.voice {
+        self.revealBelowKeyboardPreview(voice, in: app)
+        if voice.value as? String != originalVoice { voice.switches.firstMatch.tap() }
+      }
     }
     keys.adjust(toNormalizedSliderPosition: originalKeys > 0.5 ? 0 : 1)
     rows.adjust(toNormalizedSliderPosition: originalRows > 0.5 ? 0 : 1)
     let changedKeys = try position(keys), changedRows = try position(rows)
-    voice.tap()
+    revealBelowKeyboardPreview(voice, in: app)
+    let originalVoice = voice.value as? String
+    restore.voice = originalVoice
+    voice.switches.firstMatch.tap()
     let changedVoice = voice.value as? String
-    app.navigationBars.buttons.element(boundBy: 0).tap()
-    app.buttons["keyboardLayoutLink"].tap()
+    XCTAssertNotEqual(changedVoice, originalVoice)
+
+    reachSettingsLink("keyboardLayoutLink", in: app)
+    settingsEntry("keyboardLayoutLink", in: app).tap()
+    XCTAssertTrue(keys.waitForExistence(timeout: 5))
     XCTAssertEqual(try position(keys), changedKeys, accuracy: 0.01)
     XCTAssertEqual(try position(rows), changedRows, accuracy: 0.01)
+    keys.adjust(toNormalizedSliderPosition: originalKeys)
+    rows.adjust(toNormalizedSliderPosition: originalRows)
+    revealBelowKeyboardPreview(voice, in: app)
     XCTAssertEqual(voice.value as? String, changedVoice)
+    voice.switches.firstMatch.tap()
+    XCTAssertEqual(voice.value as? String, originalVoice)
+    restore.done = true
+  }
+
+  /// What testKeyboardSpacingSettingsPersist has to put back, shared with its teardown block: the switch's first value is only known once the test has scrolled to it, and `done` skips the relaunch when the test restored everything itself.
+  private final class SpacingRestore: @unchecked Sendable {
+    var voice: String?
+    var done = false
+  }
+
+  /// Scroll the 键盘 page's form until `element` is on screen. The keyboard preview above the form reads a vertical drag as a row-spacing change, so the drag runs near the left edge of the form's lower half, clear of the preview and of the slider tracks, which start further in.
+  @MainActor
+  private func revealBelowKeyboardPreview(_ element: XCUIElement, in app: XCUIApplication) {
+    for _ in 0..<6 {
+      if element.exists && element.isHittable { return }
+      let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.06, dy: 0.84))
+      start.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.06, dy: 0.6)))
+    }
+    XCTAssertTrue(element.exists && element.isHittable, "\(element) never scrolled into view: \(visible(app))")
   }
 
   @MainActor
@@ -117,7 +159,7 @@ final class OnboardingUITests: XCTestCase {
     app.launchArguments = ["-hasCompletedOnboarding", "YES", "-aiSkinPreview"]
     app.launch()
     app.buttons["skinSettingsLink"].tap()
-    app.buttons["customSkinEditorLink"].tap()
+    tapRevealed("customSkinEditorLink", in: app)
     app.buttons["openAISkinDesigner"].tap()
     XCTAssertTrue(app.navigationBars["AI 皮肤抽卡"].waitForExistence(timeout: 5))
     XCTAssertFalse(app.textViews["aiSkinPrompt"].exists)
@@ -206,27 +248,31 @@ final class OnboardingUITests: XCTestCase {
     app.launchArguments = ["-hasCompletedOnboarding", "YES", "--keyboard-chat-ui-fixture"]
     app.launch()
     XCTAssertTrue(app.buttons["keyboardTryoutLink"].waitForExistence(timeout: 5))
-    XCTAssertTrue(app.buttons["skinSettingsLink"].exists)
-    XCTAssertTrue(app.buttons["inputSettingsLink"].exists)
-    XCTAssertTrue(app.buttons["keyboardLayoutLink"].exists)
-    XCTAssertTrue(app.buttons["dictionarySettingsLink"].exists)
-    XCTAssertTrue(app.buttons["aiSettingsLink"].exists)
+    // The status card and the try-out row lead the page, with the first settings group under them.
     XCTAssertTrue(app.buttons["openKeyboardSettingsButton"].exists)
+    XCTAssertTrue(app.buttons["skinSettingsLink"].exists)
     XCTAssertFalse(app.buttons["keyboardSettingsLink"].exists)
     XCTAssertFalse(app.buttons["keyboardGuideLink"].exists)
     let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "Keyboard home"; shot.lifetime = .deleteOnSuccess; add(shot)
-    app.buttons["aiSettingsLink"].tap()
+    // The rest sit further down a lazy list, so each is scrolled to before it is looked for.
+    for identifier in ["inputSettingsLink", "dictionarySettingsLink", "keyboardLayoutLink", "aiSettingsLink"] {
+      reachSettingsLink(identifier, in: app)
+    }
+    settingsEntry("aiSettingsLink", in: app).tap()
     XCTAssertTrue(app.navigationBars["AI 设置"].waitForExistence(timeout: 5))
-    app.navigationBars.buttons.firstMatch.tap()
-    app.buttons["keyboardTryoutLink"].tap()
+    reachSettingsLink("keyboardTryoutLink", in: app)
+    settingsEntry("keyboardTryoutLink", in: app).tap()
     XCTAssertTrue(app.navigationBars["试用键盘"].waitForExistence(timeout: 5))
     XCTAssertTrue(app.textFields["keyboardTryoutField"].exists)
-    app.navigationBars.buttons.firstMatch.tap()
-    for _ in 0..<3 {
-      if app.buttons["inputSettingsLink"].isHittable { break }
-      app.swipeDown()
-    }
-    app.buttons["inputSettingsLink"].tap()
+    reachSettingsLink("inputSettingsLink", in: app)
+    settingsEntry("inputSettingsLink", in: app).tap()
+  }
+
+  /// A launch that resets onboarding opens on the splash, which leaves by itself after 2.8 seconds; tapping it gets the test to the onboarding without spending that time.
+  @MainActor
+  private func skipSplash(in app: XCUIApplication) {
+    let splash = app.buttons["splashView"]
+    if splash.waitForExistence(timeout: 5) && splash.isHittable { splash.tap() }
   }
 
   @MainActor
@@ -255,11 +301,7 @@ final class OnboardingUITests: XCTestCase {
   /// scrolled until one is hittable instead of assuming a fixed offset, in both directions -
   /// an entry can be scrolled off either edge.
   ///
-  /// 语音设置 is the exception: it is not on the home page at all. It hangs off the 按键 page,
-  /// beside the switch that puts the voice entry on the keyboard's own toolbar, because that is
-  /// the setting people are looking at when they want it. The identifier also exists on
-  /// `KeyboardSettingsView`, which nothing presents any more - reaching for it there is what made
-  /// this look like a missing entry rather than a moved one.
+  /// 语音输入 has its own row on the home page again, in the 键盘 / 语音输入 / 手写输入 group of the mobile design, so every entry is reached the same way.
   @MainActor
   private func reachSettingsLink(_ identifier: String, in app: XCUIApplication) {
     // Pop whatever the caller pushed before looking: these entries live on the tab's root, and a
@@ -270,56 +312,64 @@ final class OnboardingUITests: XCTestCase {
       guard back.exists, back.isHittable else { break }
       back.tap()
     }
-    let keyboardTab = app.tabBars.buttons["键盘"]
-    if keyboardTab.exists && !keyboardTab.isSelected { keyboardTab.tap() }
+    let settingsTab = app.tabBars.buttons["设置"]
+    if settingsTab.exists && !settingsTab.isSelected { settingsTab.tap() }
 
-    // Scroll by dragging a point that belongs to the list, not by swiping the screen.
-    //
-    // `app.swipeUp()` starts at the centre, and on 键盘设置 the centre is the keyboard preview,
-    // which reads a vertical drag as a row-spacing change: the form never moves and the setting
-    // the test is about to read gets edited on the way. Swiping the collection view has the same
-    // problem, because its frame includes the preview. So the drag starts low, below the preview
-    // and above the tab bar, where only the form is.
-    func scrollList(up: Bool) {
-      let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: up ? 0.86 : 0.52))
-      let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: up ? 0.52 : 0.86))
-      start.press(forDuration: 0.05, thenDragTo: end)
-    }
-
-    func scrollTo(_ resolve: () -> XCUIElement) -> Bool {
-      if resolve().exists && resolve().isHittable { return true }
-      for _ in 0..<4 {
-        if resolve().exists && resolve().isHittable { return true }
-        scrollList(up: false)
-      }
-      for _ in 0..<10 {
-        if resolve().exists && resolve().isHittable { return true }
-        scrollList(up: true)
-      }
-      return resolve().exists && resolve().isHittable
-    }
-
-    // A Form row does not always come through as a button: the home page's cards do, the plain
-    // NavigationLink rows on 键盘设置 come through as cells. Ask for the identifier rather than
-    // for one element type.
-    func entry(_ name: String) -> XCUIElement {
-      for candidate in [app.buttons[name], app.cells[name], app.otherElements[name],
-                        app.staticTexts[name]] where candidate.exists {
-        return candidate
-      }
-      return app.buttons[name]
-    }
-
-    if identifier == "voiceSettingsLink" {
-      XCTAssertTrue(scrollTo { entry("keyboardLayoutLink") },
-                    "keyboardLayoutLink never became reachable: \(visible(app))")
-      entry("keyboardLayoutLink").tap()
-    }
-    XCTAssertTrue(scrollTo { entry(identifier) },
+    XCTAssertTrue(scrollIntoView({ settingsEntry(identifier, in: app) }, in: app),
                   "\(identifier) never became reachable: \(visible(app))")
   }
 
-  /// The settings entry with this identifier, whichever element type it came through as.
+  /// Scroll the current page, without leaving it, until the entry is clear of the bars, then tap it. The 主题 page leads with the candidate preview and the theme grid, so its links and preview controls sit below the fold on a phone.
+  @MainActor
+  private func tapRevealed(_ identifier: String, in app: XCUIApplication) {
+    XCTAssertTrue(scrollIntoView({ settingsEntry(identifier, in: app) }, in: app),
+                  "\(identifier) never became reachable: \(visible(app))")
+    settingsEntry(identifier, in: app).tap()
+  }
+
+  /// Scroll the current page, without leaving it, until the element is clear of the bars.
+  @MainActor
+  private func reveal(_ element: XCUIElement, in app: XCUIApplication) {
+    XCTAssertTrue(scrollIntoView({ element }, in: app), "\(element) never became reachable: \(visible(app))")
+  }
+
+  /// Scroll by dragging a point that belongs to the list, not by swiping the screen.
+  ///
+  /// `app.swipeUp()` starts at the centre, and on 键盘设置 the centre is the keyboard preview, which reads a vertical drag as a row-spacing change: the form never moves and the setting the test is about to read gets edited on the way. Swiping the collection view has the same problem, because its frame includes the preview. So the drag starts low, below the preview and above the tab bar, where only the form is.
+  @MainActor
+  private func scrollList(up: Bool, in app: XCUIApplication) {
+    let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: up ? 0.86 : 0.52))
+    let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: up ? 0.52 : 0.86))
+    start.press(forDuration: 0.05, thenDragTo: end)
+  }
+
+  /// Hittable is not enough: the collapsed glass navigation bar and the floating tab bar are translucent, so a row scrolled under either still reports hittable while a tap on it lands on the bar. Only a row clear of both counts.
+  @MainActor
+  private func clearOfBars(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
+    guard element.exists, element.isHittable else { return false }
+    let bar = app.navigationBars.firstMatch
+    if bar.exists, element.frame.minY < bar.frame.maxY { return false }
+    let tabs = app.tabBars.firstMatch
+    if tabs.exists, element.frame.maxY > tabs.frame.minY { return false }
+    return true
+  }
+
+  /// Scroll toward the top first, then down, since an entry can be scrolled off either edge; `resolve` is asked again each turn because a lazy list only creates a row once it is near the screen.
+  @MainActor
+  private func scrollIntoView(_ resolve: () -> XCUIElement, in app: XCUIApplication) -> Bool {
+    if clearOfBars(resolve(), in: app) { return true }
+    for _ in 0..<4 {
+      if clearOfBars(resolve(), in: app) { return true }
+      scrollList(up: false, in: app)
+    }
+    for _ in 0..<10 {
+      if clearOfBars(resolve(), in: app) { return true }
+      scrollList(up: true, in: app)
+    }
+    return clearOfBars(resolve(), in: app)
+  }
+
+  /// The settings entry with this identifier, whichever element type it came through as. A Form row does not always come through as a button: the home page's cards do, the plain NavigationLink rows on 键盘设置 come through as cells.
   @MainActor
   private func settingsEntry(_ name: String, in app: XCUIApplication) -> XCUIElement {
     for candidate in [app.buttons[name], app.cells[name], app.otherElements[name],
@@ -352,18 +402,18 @@ final class OnboardingUITests: XCTestCase {
     let app = XCUIApplication()
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]
     app.launch()
-    XCTAssertTrue(app.tabBars.buttons["键盘"].isSelected)
+    XCTAssertTrue(app.tabBars.buttons["设置"].isSelected)
     app.buttons["inputSettingsLink"].tap()
     app.tabBars.buttons["社区"].tap()
     XCTAssertTrue(app.navigationBars["社区"].waitForExistence(timeout: 5))
     XCTAssertEqual(app.tabBars.buttons.count, 4)
     app.tabBars.buttons["统计"].tap()
-    // Same here: the statistics page carries no navigation title, only its own controls.
-    XCTAssertTrue(app.segmentedControls["statisticsTab"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.navigationBars["统计"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.segmentedControls["statisticsTab"].exists)
     app.tabBars.buttons["我的"].tap()
     XCTAssertTrue(app.buttons["accountAppIcon"].waitForExistence(timeout: 5))
-    app.tabBars.buttons["键盘"].tap()
-    XCTAssertTrue(app.navigationBars["输入设置"].exists)
+    app.tabBars.buttons["设置"].tap()
+    XCTAssertTrue(app.navigationBars["输入"].exists)
     let attachment = XCTAttachment(screenshot: app.screenshot())
     attachment.name = "Independent bottom tabs"
     attachment.lifetime = .deleteOnSuccess
@@ -378,29 +428,28 @@ final class OnboardingUITests: XCTestCase {
     app.tabBars.buttons["社区"].tap()
     app.buttons["communitySkinCard-20000000-0000-4000-8000-000000000001"].tap()
     XCTAssertTrue(app.navigationBars["皮肤详情"].waitForExistence(timeout: 5))
-    app.tabBars.buttons["键盘"].tap()
+    app.tabBars.buttons["设置"].tap()
     app.buttons["skinSettingsLink"].tap()
-    app.buttons["skinCommunityLink"].tap()
+    tapRevealed("skinCommunityLink", in: app)
     XCTAssertTrue(app.tabBars.buttons["社区"].isSelected)
     XCTAssertTrue(app.navigationBars["社区"].waitForExistence(timeout: 5))
     XCTAssertFalse(app.navigationBars["皮肤详情"].exists)
     app.buttons["communityCategory-2"].tap()
-    app.tabBars.buttons["键盘"].tap()
-    XCTAssertTrue(app.navigationBars["皮肤"].exists)
-    app.buttons["skinCommunityLink"].tap()
+    app.tabBars.buttons["设置"].tap()
+    XCTAssertTrue(app.navigationBars["主题"].exists)
+    tapRevealed("skinCommunityLink", in: app)
     XCTAssertTrue(app.buttons["communitySkinCard-20000000-0000-4000-8000-000000000001"].exists)
-    app.tabBars.buttons["键盘"].tap()
+    app.tabBars.buttons["设置"].tap()
     app.navigationBars.buttons.firstMatch.tap()
-    // The home page has no navigation title either; the tryout card is what only it has.
-    XCTAssertTrue(app.buttons["keyboardTryoutLink"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["keyboardTryoutLink"].exists)
     app.tabBars.buttons["我的"].tap()
     let replay = app.buttons["replayOnboardingLink"]
     for _ in 0..<6 { if replay.isHittable { break }; app.swipeUp() }
     replay.tap()
     XCTAssertTrue(app.buttons["skipOnboardingButton"].waitForExistence(timeout: 5))
     app.buttons["skipOnboardingButton"].tap()
-    // Replaying onboarding returns to the tab it was started from, and that page carries no
-    // navigation title - the selected tab and its own rows are what say so.
+    // Replaying onboarding returns to the tab it was started from.
     XCTAssertTrue(app.buttons["accountAppIcon"].waitForExistence(timeout: 5))
     XCTAssertTrue(app.tabBars.buttons["我的"].isSelected)
   }
@@ -420,8 +469,8 @@ final class OnboardingUITests: XCTestCase {
     app.navigationBars["登录水杉"].buttons["取消"].tap()
     XCTAssertTrue(app.navigationBars["试用键盘"].waitForExistence(timeout: 5))
     app.navigationBars.buttons.firstMatch.tap()
-    // The home page has no navigation title either; the tryout card is what only it has.
-    XCTAssertTrue(app.buttons["keyboardTryoutLink"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["keyboardTryoutLink"].exists)
   }
 
   @MainActor
@@ -459,23 +508,26 @@ final class OnboardingUITests: XCTestCase {
     let app = XCUIApplication()
     app.launchArguments = ["--reset-onboarding-for-ui-tests"]
     app.launch()
+    skipSplash(in: app)
     let next = app.buttons["nextOnboardingButton"]
     XCTAssertTrue(next.waitForExistence(timeout: 5))
-    // Tap the colored background, well outside the centered text.
-    next.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.5)).tap()
+    // The first step is adding the keyboard, so its settings button is there from the start.
     let settings = app.buttons["openKeyboardSettingsButton"]
     XCTAssertTrue(settings.waitForExistence(timeout: 5))
     settings.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
     let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.Preferences")
     XCTAssertTrue(systemSettings.wait(for: .runningForeground, timeout: 5))
     app.activate()
-    next.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+    // Tap the colored background, well outside the centered text.
+    next.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.5)).tap()
     XCTAssertTrue(app.buttons["welcomeScheme_nineKey"].waitForExistence(timeout: 5))
+    next.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+    XCTAssertTrue(app.buttons["welcomeTryoutLink"].waitForExistence(timeout: 5))
     next.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85)).tap()
     let finish = app.buttons["finishOnboardingButton"]
     XCTAssertTrue(finish.waitForExistence(timeout: 5))
     finish.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.5)).tap()
-    XCTAssertTrue(app.tabBars.buttons["键盘"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.tabBars.buttons["设置"].waitForExistence(timeout: 5))
   }
 
   @MainActor
@@ -494,8 +546,9 @@ final class OnboardingUITests: XCTestCase {
     replay.tap()
     let next = app.buttons["nextOnboardingButton"]
     XCTAssertTrue(next.waitForExistence(timeout: 5))
+    XCTAssertEqual(app.staticTexts["onboardingProgress"].label, "1 / 4")
     next.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
-    XCTAssertTrue(app.buttons["openKeyboardSettingsButton"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["welcomeScheme_nineKey"].waitForExistence(timeout: 5))
     app.buttons["skipOnboardingButton"].tap()
     XCTAssertTrue(app.tabBars.buttons["我的"].waitForExistence(timeout: 5))
   }
@@ -505,24 +558,30 @@ final class OnboardingUITests: XCTestCase {
     let app = XCUIApplication()
     app.launchArguments = ["--reset-onboarding-for-ui-tests"]
     app.launch()
-    XCTAssertTrue(app.navigationBars["欢迎使用水杉"].waitForExistence(timeout: 5))
+    // The splash plays before the first onboarding and moves on by itself.
+    XCTAssertTrue(app.buttons["splashView"].waitForExistence(timeout: 5))
+    let title = app.staticTexts["onboardingTitle"]
+    XCTAssertTrue(title.waitForExistence(timeout: 10))
+    XCTAssertEqual(title.label, "把水杉加进键盘")
+    XCTAssertEqual(app.staticTexts["onboardingProgress"].label, "1 / 4")
     let welcome = XCTAttachment(screenshot: app.screenshot())
     welcome.name = "Welcome onboarding"
     welcome.lifetime = .deleteOnSuccess
     add(welcome)
-    app.buttons["nextOnboardingButton"].coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)).tap()
-    XCTAssertTrue(app.buttons["openKeyboardSettingsButton"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["openKeyboardSettingsButton"].exists)
     app.buttons["nextOnboardingButton"].coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
     app.buttons["welcomeScheme_nineKey"].tap()
     XCTAssertEqual(app.buttons["welcomeScheme_nineKey"].value as? String, "已选择")
     app.buttons["nextOnboardingButton"].coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
-    XCTAssertTrue(app.buttons["welcomeTryoutLink"].exists)
+    XCTAssertTrue(app.buttons["welcomeTryoutLink"].waitForExistence(timeout: 5))
+    app.buttons["nextOnboardingButton"].coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)).tap()
+    XCTAssertEqual(app.staticTexts["onboardingProgress"].label, "4 / 4")
     app.buttons["finishOnboardingButton"].coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)).tap()
-    XCTAssertTrue(app.tabBars.buttons["键盘"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.tabBars.buttons["设置"].waitForExistence(timeout: 5))
     app.terminate()
     app.launchArguments = []
     app.launch()
-    XCTAssertTrue(app.tabBars.buttons["键盘"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.tabBars.buttons["设置"].waitForExistence(timeout: 5))
     XCTAssertFalse(app.buttons["nextOnboardingButton"].exists)
     app.buttons["inputSettingsLink"].tap()
     XCTAssertEqual(app.buttons["inputScheme_nineKey"].value as? String, "已选择")
@@ -720,7 +779,7 @@ final class OnboardingUITests: XCTestCase {
     app.launchArguments = ["-hasCompletedOnboarding", "YES", "-aiSkinPreview", "-skinGenerationSlowFixture"]
     app.launch()
     app.buttons["skinSettingsLink"].tap()
-    app.buttons["customSkinEditorLink"].tap()
+    tapRevealed("customSkinEditorLink", in: app)
     app.buttons["openAISkinDesigner"].tap()
     XCTAssertTrue(app.buttons["generateAISkins"].waitForExistence(timeout: 5))
     app.buttons["generateAISkins"].tap()
@@ -738,7 +797,7 @@ final class OnboardingUITests: XCTestCase {
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]
     app.launch()
     app.buttons["skinSettingsLink"].tap()
-    app.buttons["customSkinEditorLink"].tap()
+    tapRevealed("customSkinEditorLink", in: app)
     app.buttons["skinEditorTemplates"].tap()
     let gallery = app.collectionViews.firstMatch.exists ? app.collectionViews.firstMatch : app.tables.firstMatch
     // Three of the eight curated designs. Walking all of them cost four minutes and asserted the
@@ -768,7 +827,7 @@ final class OnboardingUITests: XCTestCase {
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]
     func openEditor() {
       app.buttons["skinSettingsLink"].tap()
-      app.buttons["customSkinEditorLink"].tap()
+      tapRevealed("customSkinEditorLink", in: app)
       app.buttons["skinEditorTab_按键"].tap()
     }
     app.launch()
@@ -834,7 +893,7 @@ final class OnboardingUITests: XCTestCase {
     app.launchArguments = ["-hasCompletedOnboarding", "YES", "--reset-custom-skins-for-ui-tests"]
     app.launch()
     app.buttons["skinSettingsLink"].tap()
-    app.buttons["customSkinEditorLink"].tap()
+    tapRevealed("customSkinEditorLink", in: app)
     app.buttons["skinEditorTemplates"].tap()
     app.buttons["skinTemplate_紫夜星光"].tap()
     XCTAssertTrue(app.buttons["undoSkinDesign"].isEnabled)
@@ -858,7 +917,7 @@ final class OnboardingUITests: XCTestCase {
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]
     app.launch()
     app.buttons["skinSettingsLink"].tap()
-    app.buttons["customSkinEditorLink"].tap()
+    tapRevealed("customSkinEditorLink", in: app)
     app.buttons["skinEditorTools"].tap(); app.buttons["我的皮肤"].tap()
     XCTAssertTrue(app.buttons["savedSkin_" + name].exists)
     app.buttons["skinEditorTools"].tap(); app.buttons["设计模板"].tap()
@@ -897,7 +956,7 @@ final class OnboardingUITests: XCTestCase {
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]
     app.launch()
     app.buttons["skinSettingsLink"].tap()
-    app.buttons["customSkinEditorLink"].tap()
+    tapRevealed("customSkinEditorLink", in: app)
     let preview = app.otherElements["fullKeyboardSkinPreview"]
     XCTAssertTrue(preview.waitForExistence(timeout: 5))
     XCTAssertTrue(app.buttons["skinBackgroundPreset_0"].isHittable)
@@ -928,7 +987,7 @@ final class OnboardingUITests: XCTestCase {
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]
     app.launch()
     app.buttons["skinSettingsLink"].tap()
-    app.buttons["customSkinEditorLink"].tap()
+    tapRevealed("customSkinEditorLink", in: app)
     XCUIDevice.shared.orientation = .landscapeLeft
     defer { XCUIDevice.shared.orientation = .portrait }
     let landscape = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
@@ -1054,8 +1113,10 @@ final class OnboardingUITests: XCTestCase {
     app.launchArguments = ["-hasCompletedOnboarding", "YES"]
     app.launch()
     app.buttons["skinSettingsLink"].tap()
+    XCTAssertTrue(app.navigationBars["主题"].waitForExistence(timeout: 5))
+    // The full preview sits below the candidate preview, the theme grid and 自定义主题 (dc.html L769-783), so it is scrolled to rather than expected on the first screen.
     let layout = app.segmentedControls["skinPreviewLayout"]
-    XCTAssertTrue(layout.waitForExistence(timeout: 5))
+    reveal(layout, in: app)
     layout.buttons["26 键"].tap()
     let preview = app.otherElements["fullKeyboardSkinPreview"]
     XCTAssertTrue(preview.exists)
@@ -1065,6 +1126,7 @@ final class OnboardingUITests: XCTestCase {
     light.lifetime = .deleteOnSuccess
     add(light)
     layout.buttons["9 键"].tap()
+    reveal(app.switches["skinPreviewDark"], in: app)
     app.switches["skinPreviewDark"].coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
     XCTAssertEqual(app.switches["skinPreviewDark"].value as? String, "1")
     XCTAssertTrue(preview.label.contains("9 键"))
@@ -1189,6 +1251,11 @@ final class OnboardingUITests: XCTestCase {
     screenshot.lifetime = .deleteOnSuccess
     add(screenshot)
     app.navigationBars.buttons.element(boundBy: 0).tap()
+    // 关于 closes the page, below the rows the download entry sits among.
+    for _ in 0..<6 {
+      if app.buttons["aboutSettingsLink"].isHittable { break }
+      app.swipeUp()
+    }
     app.buttons["aboutSettingsLink"].tap()
     XCTAssertTrue(app.staticTexts["aboutAppVersion"].exists)
     XCTAssertTrue(app.navigationBars["关于水杉"].exists)
@@ -1211,8 +1278,11 @@ final class OnboardingUITests: XCTestCase {
     scheme.tap()
     XCTAssertEqual(scheme.value as? String, "已选择")
     app.terminate(); app.launch()
-    XCTAssertTrue(app.staticTexts["手写输入"].waitForExistence(timeout: 5))
-    app.buttons["inputSettingsLink"].tap()
+    // The 输入 row on the home page shows the current scheme as its value.
+    let input = app.buttons["inputSettingsLink"]
+    XCTAssertTrue(input.waitForExistence(timeout: 5))
+    XCTAssertEqual(input.value as? String, "手写")
+    input.tap()
     for _ in 0..<8 { if enabled.isHittable { break }; app.swipeUp() }
     enabled.tap()
     XCTAssertFalse(scheme.isEnabled)
@@ -1262,14 +1332,14 @@ final class OnboardingUITests: XCTestCase {
     let app = XCUIApplication()
     app.launchArguments = ["--reset-onboarding-for-ui-tests"]
     app.launch()
+    skipSplash(in: app)
     let finish = app.buttons["skipOnboardingButton"]
     XCTAssertTrue(finish.waitForExistence(timeout: 10))
     if !finish.isHittable { app.swipeUp() }
     finish.tap()
     app.launchArguments = ["-service.ai.endpoint", "", "-service.ai.model", ""]
 
-    // Onboarding hands over to the home page, which names itself in neither its navigation bar
-    // nor a label - it shows the mark. Its own entries are what say the handover happened.
+    // Onboarding hands over to the 设置 home page.
     XCTAssertTrue(app.buttons["keyboardTryoutLink"].waitForExistence(timeout: 10))
     app.buttons["inputSettingsLink"].tap()
     XCTAssertTrue(app.buttons["inputScheme_quanpin"].exists)
@@ -1295,7 +1365,7 @@ final class OnboardingUITests: XCTestCase {
 
     app.navigationBars.buttons.element(boundBy: 0).tap()
     for (identifier, title) in [
-      ("skinSettingsLink", "皮肤"), ("dictionarySettingsLink", "词库"),
+      ("skinSettingsLink", "主题"), ("dictionarySettingsLink", "词库"),
       ("aiSettingsLink", "AI 设置"), ("voiceSettingsLink", "语音设置"),
     ] {
       reachSettingsLink(identifier, in: app)
@@ -1303,8 +1373,9 @@ final class OnboardingUITests: XCTestCase {
       link.tap()
       XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 5))
       if identifier == "skinSettingsLink" {
-        app.buttons["skin_ocean"].tap()
-        XCTAssertEqual(app.buttons["skin_ocean"].value as? String, "已选择")
+        reveal(app.buttons["skin_night"], in: app)
+        app.buttons["skin_night"].tap()
+        XCTAssertEqual(app.buttons["skin_night"].value as? String, "已选择")
       }
       if identifier == "aiSettingsLink" || identifier == "voiceSettingsLink" {
         XCTAssertTrue(app.textFields["serviceEndpoint"].exists)
@@ -1344,12 +1415,9 @@ final class OnboardingUITests: XCTestCase {
       add(attachment)
       app.navigationBars.buttons.element(boundBy: 0).tap()
     }
-    if !app.buttons["keyboardTryoutLink"].exists { app.navigationBars.buttons.firstMatch.tap() }
-    let tryoutLink = app.buttons["keyboardTryoutLink"]
-    for _ in 0..<5 {
-      if tryoutLink.isHittable { break }
-      app.swipeUp()
-    }
+    // The loop leaves the list scrolled down to 语音输入, and 试用键盘 sits at the top under the status card, so it is scrolled back into view (and clear of the glass bars) in either direction rather than swiped further down.
+    reachSettingsLink("keyboardTryoutLink", in: app)
+    let tryoutLink = settingsEntry("keyboardTryoutLink", in: app)
     let overview = XCTAttachment(screenshot: app.screenshot())
     overview.name = "设置分类"
     overview.lifetime = .deleteOnSuccess
@@ -1380,7 +1448,8 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertEqual(tryoutField.value as? String, "test")
     app.navigationBars.buttons.element(boundBy: 0).tap()
     XCTAssertFalse(app.buttons["keyboardGuideLink"].exists)
-    openKeyboardSettingsIfNeeded(app)
+    // 去开启 lives in the status card at the top of the lazy list, which the page left scrolled below it, so the row only exists once it is scrolled back into view.
+    reachSettingsLink("openKeyboardSettingsButton", in: app)
     XCTAssertTrue(app.buttons["openKeyboardSettingsButton"].exists)
   }
 }

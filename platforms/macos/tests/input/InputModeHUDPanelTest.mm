@@ -25,6 +25,18 @@ int main() {
                 Require(NSMinX(frame) >= NSMinX(screen) && NSMaxX(frame) <= NSMaxX(screen) && NSMinY(frame) >= NSMinY(screen) && NSMaxY(frame) <= NSMaxY(screen), "HUD escaped screen");
             }
             Require(!MSIMEInputModeHUDUsableCaretRect(NSZeroRect) && !MSIMEInputModeHUDUsableCaretRect(NSMakeRect(0, 0, 1, 0)) && MSIMEInputModeHUDUsableCaretRect(caret), "caret validation mismatch");
+            // The badge is the brand accent in each appearance, with a readable glyph colour on it.
+            for (NSString *name in @[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]) {
+                const BOOL dark = [name isEqual:NSAppearanceNameDarkAqua];
+                [[NSAppearance appearanceNamed:name] performAsCurrentDrawingAppearance:^{
+                    NSColor *fill = [MSIMEInputModeHUDForestColor() colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+                    NSColor *glyph = [MSIMEInputModeHUDOnForestColor() colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+                    const unsigned expected = dark ? 0x5FBF84 : 0x2C7A4B;
+                    Require(std::lround(fill.redComponent * 255) == ((expected >> 16) & 255) && std::lround(fill.greenComponent * 255) == ((expected >> 8) & 255) &&
+                            std::lround(fill.blueComponent * 255) == (expected & 255), "HUD badge is not the brand accent");
+                    Require(dark ? glyph.redComponent < 0.2 : glyph.redComponent > 0.99, "HUD glyph colour is not readable on the accent");
+                }];
+            }
             MSIMEInputModeHUDPanel *hud = MSIMEInputModeHUDPanel.sharedPanel;
             Require(hud == MSIMEInputModeHUDPanel.sharedPanel && hud.ignoresMouseEvents && hud.floatingPanel && !hud.opaque, "HUD panel contract mismatch");
             Require(hud.displayedText == nil, "HUD was visible before use");

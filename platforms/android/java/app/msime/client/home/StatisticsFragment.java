@@ -15,8 +15,8 @@ import app.msime.client.keyboard.KeyboardGeometry;
 import app.msime.client.TypingStatisticsModel;
 import app.msime.client.TypingStatisticsModel.Section;
 import com.google.android.material.button.MaterialButton;
+import com.google.android.material.button.MaterialButtonToggleGroup;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
-import com.google.android.material.tabs.TabLayout;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -48,17 +48,26 @@ public final class StatisticsFragment extends HomeTabFragment {
     }
 
     @Override public void onViewCreated(@NonNull View view, @Nullable Bundle state) {
-        TabLayout ranges = view.findViewById(R.id.statistics_ranges);
-        for (Section value : Section.values()) ranges.addTab(ranges.newTab().setText(value.tab()));
-        ranges.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
-            @Override public void onTabSelected(TabLayout.Tab tab) {
-                section = Section.values()[tab.getPosition()];
+        // The design's segmented control over the four views; the current one is checked before the listener goes on, so building it does not render twice.
+        MaterialButtonToggleGroup ranges = view.findViewById(R.id.statistics_ranges);
+        Section[] sections = Section.values();
+        int[] segments = new int[sections.length];
+        for (int index = 0; index < sections.length; index++) {
+            MaterialButton segment = (MaterialButton) getLayoutInflater()
+                .inflate(R.layout.item_segment, ranges, false);
+            segment.setId(View.generateViewId());
+            segment.setText(sections[index].tab());
+            ranges.addView(segment);
+            segments[index] = segment.getId();
+        }
+        ranges.check(segments[section.ordinal()]);
+        ranges.addOnButtonCheckedListener((group, id, checked) -> {
+            if (!checked) return;
+            for (int index = 0; index < segments.length; index++) {
+                if (segments[index] != id) continue;
+                section = sections[index];
                 render();
             }
-
-            @Override public void onTabUnselected(TabLayout.Tab tab) {}
-
-            @Override public void onTabReselected(TabLayout.Tab tab) {}
         });
 
         view.findViewById(R.id.statistics_menu).setOnClickListener(this::showMenu);
@@ -186,6 +195,8 @@ public final class StatisticsFragment extends HomeTabFragment {
                 .setText(days >= 360 ? "每日趋势 · 近一年" : "每日趋势 · 近 " + days + " 天");
             chart.setDaily(series);
             chart.setContentDescription("每日趋势，近 " + days + " 天，最高 " + peak(series) + " 字符");
+            ((TextView) view.findViewById(R.id.statistics_trend_peak))
+                .setText("最高 " + peak(series) + " 字符 / 天");
             HeatmapView heatmap = view.findViewById(R.id.statistics_heatmap);
             int calendarDays = TREND_DAY_LIMIT;
             heatmap.setDaily(statistics.trend(day, calendarDays));
@@ -200,10 +211,9 @@ public final class StatisticsFragment extends HomeTabFragment {
         ((TextView) view.findViewById(R.id.statistics_distribution_title))
             .setText(selectedDay == null ? section.heading()
                 : section.heading() + " · " + readableDay(selectedDay));
-        // 哪一块用哪种图，和 Apple 那边一致：类型看占比、模式的环心放总数、方案条目多所以排行。
+        // 设计稿里类型和模式都是环形图，环心放总数；方案仍按排行画，因为它能有十五行，放进环里大半是细得看不见的弧。
         DistributionView.Style chart = switch (section) {
-            case KIND -> DistributionView.Style.PIE;
-            case MODE -> DistributionView.Style.DONUT;
+            case KIND, MODE -> DistributionView.Style.DONUT;
             default -> DistributionView.Style.RANK;
         };
         ((DistributionView) view.findViewById(R.id.statistics_distribution))

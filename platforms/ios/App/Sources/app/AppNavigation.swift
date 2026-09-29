@@ -2,8 +2,8 @@ import SwiftUI
 
 // Each tab owns its stack. Cross-tab discovery always opens the community root.
 final class AppNavigation: ObservableObject {
-  enum Tab: Hashable { case keyboard, community, statistics, account }
-  @Published var tab: Tab = .keyboard
+  enum Tab: Hashable { case settings, community, statistics, account }
+  @Published var tab: Tab = .settings
   @Published var communityCategory = 0
   @Published var communityRoot = UUID()
   /// The keyboard's voice panel sends msime://voice: the keyboard cannot record, so the app opens straight onto the recording screen.

@@ -12,6 +12,8 @@ import android.view.View;
 import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
 import app.msime.client.R;
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.function.Consumer;
 
@@ -21,12 +23,17 @@ import java.util.function.Consumer;
  * A cell can be tapped to scope the page to that one day. That is the only way to read a single
  * day's mix of character kinds and schemes: the distributions below otherwise cover the whole
  * record, where one day's shape is lost in the total.
+ *
+ * <p>Drawn the way the design has it: month labels over the weeks, r3 cells in five steps (an empty day in the hairline tone, then the accent at 30, 50, 75 and 100 percent), and a 少…多 legend under the grid. Steps rather than a continuous ramp because a reader can tell four greens apart and cannot tell forty.
  */
 public final class HeatmapView extends View {
     private static final int ROWS = 7;
+    /** Accent opacity of each step above empty. */
+    private static final float[] LEVELS = {.3f, .5f, .75f, 1f};
 
     private final Paint cell = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint outline = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint label = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF box = new RectF();
     private int[] daily = new int[0];
     private List<String> days = List.of();
@@ -48,6 +55,8 @@ public final class HeatmapView extends View {
         outline.setStyle(Paint.Style.STROKE);
         outline.setStrokeWidth(dp(1.5f));
         outline.setColor(ContextCompat.getColor(context, R.color.ink));
+        label.setColor(ContextCompat.getColor(context, R.color.text_secondary));
+        label.setTextSize(dp(10f));
     }
 
     public void setDaily(int[] daily) {
@@ -74,7 +83,15 @@ public final class HeatmapView extends View {
 
     private float dp(float value) { return value * getResources().getDisplayMetrics().density; }
 
-    private float cellSize() { return (getHeight() - dp(3f) * (ROWS - 1)) / ROWS; }
+    /** The strip above the grid that carries the month labels. */
+    private float header() { return dp(16f); }
+
+    /** The strip under the grid that carries the legend. */
+    private float footer() { return dp(24f); }
+
+    private float cellSize() {
+        return (getHeight() - header() - footer() - dp(3f) * (ROWS - 1)) / ROWS;
+    }
 
     private int columns() {
         float gap = dp(3f);
@@ -107,7 +124,9 @@ public final class HeatmapView extends View {
         float size = cellSize();
         if (size <= 0) return handled;
         int column = (int) (downX / (size + gap));
-        int row = (int) (downY / (size + gap));
+        float gridY = downY - header();
+        if (gridY < 0) return handled;
+        int row = (int) (gridY / (size + gap));
         if (column < 0 || column >= columns() || row < 0 || row >= ROWS) return handled;
         int offset = offsetAt(column, row);
         onDayPicked.accept(offset >= 0 && offset < days.size() ? days.get(offset) : null);
@@ -120,6 +139,9 @@ public final class HeatmapView extends View {
         int columns = columns();
         int peak = 0;
         for (int value : daily) peak = Math.max(peak, value);
+        if (size <= 0) return;
+        float radius = dp(3f);
+        float top = header();
         int forest = ContextCompat.getColor(getContext(), R.color.forest);
         int empty = ContextCompat.getColor(getContext(), R.color.hairline);
 
@@ -127,22 +149,74 @@ public final class HeatmapView extends View {
             int column = index / ROWS;
             int row = index % ROWS;
             float x = column * (size + gap);
-            float y = row * (size + gap);
+            float y = top + row * (size + gap);
             int offset = offsetAt(column, row);
             int value = offset >= 0 ? daily[offset] : 0;
-            // The lightest step still has to be visible, or a quiet day reads as no day at all.
-            float weight = peak == 0 || value == 0 ? 0f : Math.max(0.2f, value / (float) peak);
-            cell.setColor(weight == 0f ? empty
-                : Color.argb(Math.round(255 * weight), Color.red(forest), Color.green(forest), Color.blue(forest)));
+            cell.setColor(colour(level(value, peak), forest, empty));
             box.set(x, y, x + size, y + size);
-            canvas.drawRoundRect(box, dp(2f), dp(2f), cell);
+            canvas.drawRoundRect(box, radius, radius, cell);
             if (selected != null && offset >= 0 && offset < days.size()
                     && selected.equals(days.get(offset))) {
-                // Outlined rather than recoloured: the fill is the day's own count, and replacing
-                // it would hide the one number the selection is there to read.
+                // Outlined rather than recoloured: the fill is the day's own count, and replacing it would hide the one number the selection is there to read.
                 box.inset(dp(0.75f), dp(0.75f));
-                canvas.drawRoundRect(box, dp(2f), dp(2f), outline);
+                canvas.drawRoundRect(box, radius, radius, outline);
             }
         }
+        drawMonths(canvas, columns, size, gap);
+        drawLegend(canvas, size, gap, forest, empty);
+    }
+
+    /** 0 for no record, otherwise 1 to 4 by the day's share of the busiest day; a quiet day still gets the first step so it never reads as no day at all. */
+    private static int level(int value, int peak) {
+        if (peak <= 0 || value <= 0) return 0;
+        return Math.max(1, Math.min(LEVELS.length, (int) Math.ceil(LEVELS.length * value / (double) peak)));
+    }
+
+    private static int colour(int level, int accent, int empty) {
+        if (level <= 0) return empty;
+        return Color.argb(Math.round(255 * LEVELS[level - 1]), Color.red(accent), Color.green(accent),
+            Color.blue(accent));
+    }
+
+    /** A month's label over the first week it starts in, skipped when the previous label would run into it. */
+    private void drawMonths(Canvas canvas, int columns, float size, float gap) {
+        int previous = -1;
+        float free = 0f;
+        float baseline = header() - dp(5f);
+        for (int column = 0; column < columns; column++) {
+            int offset = offsetAt(column, 0);
+            if (offset < 0 || offset >= days.size()) continue;
+            int month;
+            try {
+                month = LocalDate.parse(days.get(offset)).getMonthValue();
+            } catch (DateTimeParseException error) {
+                continue;
+            }
+            if (month == previous) continue;
+            previous = month;
+            float x = column * (size + gap);
+            if (x < free) continue;
+            String text = month + " 月";
+            canvas.drawText(text, x, baseline, label);
+            free = x + label.measureText(text) + dp(6f);
+        }
+    }
+
+    /** 少, the five steps, 多; right-aligned under the grid. */
+    private void drawLegend(Canvas canvas, float size, float gap, int accent, int empty) {
+        float swatch = Math.min(size, dp(11f));
+        float bottom = getHeight() - dp(4f);
+        float right = getWidth();
+        float more = label.measureText("多");
+        canvas.drawText("多", right - more, bottom - dp(1f), label);
+        float x = right - more - dp(6f) - swatch;
+        for (int level = LEVELS.length; level >= 0; level--) {
+            cell.setColor(colour(level, accent, empty));
+            box.set(x, bottom - swatch, x + swatch, bottom);
+            canvas.drawRoundRect(box, dp(2.5f), dp(2.5f), cell);
+            x -= swatch + gap;
+        }
+        float less = label.measureText("少");
+        canvas.drawText("少", x + swatch + gap - dp(6f) - less, bottom - dp(1f), label);
     }
 }

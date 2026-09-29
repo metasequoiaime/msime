@@ -4,6 +4,20 @@
 
 use super::*;
 
+#[cfg(unix)]
+#[test]
+fn preference_store_rejects_a_symlinked_directory_without_writing_through_it() {
+    let target = tempfile::tempdir().unwrap();
+    let parent = tempfile::tempdir().unwrap();
+    let directory = parent.path().join("preferences");
+    std::os::unix::fs::symlink(target.path(), &directory).unwrap();
+
+    let result = PreferencesStore::new(&directory).load();
+
+    assert!(matches!(result, Err(PreferencesError::Io(_))));
+    assert!(!target.path().join("preferences.lock").exists());
+}
+
 #[test]
 fn voice_commit_mode_defaults_for_legacy_documents() {
     let mut value = serde_json::to_value(Preferences::default()).unwrap();
@@ -724,7 +738,8 @@ fn appearance_preferences_legacy_defaults_and_roundtrip() {
         "settings_theme",
         "toolbar_theme",
         "screen_keyboard_theme",
-        "touch_keyboard_skin",
+        "global_theme",
+        "custom_theme",
         "ui_backend",
         "candidate_follow_cursor",
         "input_mode_hud",
@@ -847,52 +862,135 @@ fn screen_keyboard_theme_roundtrips_independently() {
 }
 
 #[test]
-fn touch_keyboard_skin_uses_apple_ordered_ids_and_is_independent() {
+fn global_theme_ids_round_trip_and_reject_unknown_ids() {
+    use crate::skin::theme::GlobalTheme;
     let dir = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(dir.path());
-    for (revision, touch_keyboard_skin) in [
-        TouchKeyboardSkin::Forest,
-        TouchKeyboardSkin::Ocean,
-        TouchKeyboardSkin::Rose,
-        TouchKeyboardSkin::Porcelain,
-        TouchKeyboardSkin::Typewriter,
-        TouchKeyboardSkin::Candy,
-        TouchKeyboardSkin::Midnight,
-        TouchKeyboardSkin::Blueprint,
-        TouchKeyboardSkin::Custom,
-    ]
-    .into_iter()
-    .enumerate()
-    {
+    assert_eq!(Preferences::default().global_theme, GlobalTheme::System);
+    for (revision, global_theme) in GlobalTheme::ALL.into_iter().enumerate() {
         let preferences = Preferences {
-            candidate_skin: "graphite".to_owned(),
-            touch_keyboard_skin,
+            global_theme,
             ..Preferences::default()
         };
         let saved = store.save(revision as u64, preferences).unwrap();
-        assert_eq!(saved.preferences.touch_keyboard_skin, touch_keyboard_skin);
-        assert_eq!(saved.preferences.candidate_skin, "graphite");
+        assert_eq!(saved.preferences.global_theme, global_theme);
         assert_eq!(store.load().unwrap(), saved);
+        let value = serde_json::to_value(&saved.preferences).unwrap();
+        assert_eq!(value["global_theme"], global_theme.id());
     }
-    let mut invalid = serde_json::to_value(Preferences::default()).unwrap();
-    invalid["touch_keyboard_skin"] = "fluent".into();
-    assert!(serde_json::from_value::<Preferences>(invalid).is_err());
+    for retired in ["willow_green", "fluent", "forest", "ocean", "Night", ""] {
+        let mut invalid = serde_json::to_value(Preferences::default()).unwrap();
+        invalid["global_theme"] = retired.into();
+        assert!(
+            serde_json::from_value::<Preferences>(invalid).is_err(),
+            "{retired}"
+        );
+    }
+    for removed in [
+        "candidate_skin",
+        "touch_keyboard_skin",
+        "custom_touch_keyboard_skin",
+        "candidate_text_color",
+        "candidate_number_color",
+        "candidate_accent_color",
+        "candidate_selected_color",
+        "candidate_hover_color",
+        "candidate_surface_color",
+        "candidate_border_color",
+    ] {
+        let mut invalid = serde_json::to_value(Preferences::default()).unwrap();
+        invalid[removed] = serde_json::Value::Null;
+        assert!(
+            serde_json::from_value::<Preferences>(invalid).is_err(),
+            "{removed} must no longer be accepted"
+        );
+    }
 }
 
 #[test]
-fn custom_touch_keyboard_skin_matches_apple_fields_and_bounds() {
+fn custom_theme_round_trips_every_part() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let default = serde_json::to_value(CustomTheme::default()).unwrap();
+    assert_eq!(
+        default.as_object().unwrap().keys().collect::<Vec<_>>(),
+        Vec::<&String>::new()
+    );
+    let custom_theme = CustomTheme {
+        base: crate::skin::theme::GlobalTheme::Paper,
+        candidate_skin: Some("sakura.v2".into()),
+        candidate_colors: CustomCandidateColors {
+            text: Some("#101010".into()),
+            number: Some("#202020".into()),
+            accent: Some("#303030".into()),
+            selected: Some("#404040".into()),
+            hover: Some("#505050".into()),
+            surface: Some("#606060".into()),
+            border: Some("#707070".into()),
+        },
+        keyboard: Some(TouchKeyboardSkinDesign {
+            background: 0x123456,
+            photo: Some("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=".into()),
+            ..TouchKeyboardSkinDesign::default()
+        }),
+    };
+    let saved = store
+        .save(
+            0,
+            Preferences {
+                global_theme: crate::skin::theme::GlobalTheme::Custom,
+                custom_theme: custom_theme.clone(),
+                ..Preferences::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(saved.preferences.custom_theme, custom_theme);
+    assert_eq!(store.load().unwrap(), saved);
+    let value = serde_json::to_value(&saved.preferences.custom_theme).unwrap();
+    assert_eq!(value["base"], "paper");
+    assert_eq!(value["candidate_skin"], "sakura.v2");
+    assert_eq!(value["candidate_colors"]["border"], "#707070");
+    assert_eq!(value["keyboard"]["background"], 0x123456);
+    assert_eq!(
+        serde_json::from_value::<CustomTheme>(value).unwrap(),
+        custom_theme
+    );
+
+    let mut unknown = serde_json::to_value(&custom_theme).unwrap();
+    unknown["candidate_colors"]["selected_text"] = "#000000".into();
+    assert!(serde_json::from_value::<CustomTheme>(unknown).is_err());
+    for base in ["fluent", "wechat", "dark"] {
+        let mut unknown = serde_json::to_value(&custom_theme).unwrap();
+        unknown["base"] = base.into();
+        assert!(
+            serde_json::from_value::<CustomTheme>(unknown).is_err(),
+            "{base} is not a theme id"
+        );
+    }
+
+    let mut preferences = saved.preferences.clone();
+    preferences.custom_theme.base = crate::skin::theme::GlobalTheme::Custom;
+    assert!(matches!(
+        store.save(saved.revision, preferences),
+        Err(PreferencesError::InvalidCustomThemeBase)
+    ));
+    assert_eq!(store.load().unwrap(), saved);
+}
+
+#[test]
+fn custom_theme_keyboard_matches_apple_fields_and_bounds() {
     let dir = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(dir.path());
     let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
     legacy["preferences"]
         .as_object_mut()
         .unwrap()
-        .remove("custom_touch_keyboard_skin");
+        .remove("custom_theme");
     let bytes = serde_json::to_vec(&legacy).unwrap();
     fs::write(store.path(), &bytes).unwrap();
     assert_eq!(
-        store.load().unwrap().preferences.custom_touch_keyboard_skin,
-        TouchKeyboardSkinDesign::default()
+        store.load().unwrap().preferences.custom_theme.keyboard,
+        None
     );
     assert_eq!(fs::read(store.path()).unwrap(), bytes);
 
@@ -919,13 +1017,16 @@ fn custom_touch_keyboard_skin_matches_apple_fields_and_bounds() {
         photo_position: Some(1.0),
     };
     let preferences = Preferences {
-        touch_keyboard_skin: TouchKeyboardSkin::Custom,
-        custom_touch_keyboard_skin: design.clone(),
+        global_theme: crate::skin::theme::GlobalTheme::Custom,
+        custom_theme: CustomTheme {
+            keyboard: Some(design.clone()),
+            ..CustomTheme::default()
+        },
         ..Preferences::default()
     };
     let saved = store.save(0, preferences).unwrap();
-    assert_eq!(saved.preferences.custom_touch_keyboard_skin, design);
-    let value = serde_json::to_value(&saved.preferences.custom_touch_keyboard_skin).unwrap();
+    assert_eq!(saved.preferences.custom_theme.keyboard, Some(design));
+    let value = serde_json::to_value(&saved.preferences.custom_theme.keyboard).unwrap();
     assert_eq!(value["keyBackground"], 0x291E40);
     assert_eq!(value["keyShape"], "pebble");
     assert!(value.get("key_background").is_none());
@@ -949,7 +1050,7 @@ fn custom_touch_keyboard_skin_matches_apple_fields_and_bounds() {
         },
     ] {
         let mut preferences = saved.preferences.clone();
-        preferences.custom_touch_keyboard_skin = invalid;
+        preferences.custom_theme.keyboard = Some(invalid);
         assert!(matches!(
             store.save(saved.revision, preferences),
             Err(PreferencesError::InvalidTouchKeyboardSkinDesign)
@@ -1442,6 +1543,28 @@ fn helpcode_legacy_defaults_and_independent_schemes_roundtrip() {
 }
 
 #[test]
+fn custom_helpcode_schema_roundtrips_and_rejects_unsafe_ids() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let preferences = Preferences {
+        quanpin_helpcode: HelpcodePreferences {
+            schema: HelpcodeSchema::Custom("custom/synthetic".into()),
+            ..default_quanpin_helpcode()
+        },
+        ..Preferences::default()
+    };
+    let saved = store.save(0, preferences).unwrap();
+    assert_eq!(saved.preferences.quanpin_helpcode.schema.as_str(), "custom/synthetic");
+
+    let document = fs::read_to_string(store.path()).unwrap();
+    for unsafe_id in ["custom/../escape", "custom/a\\b", "custom/"] {
+        let invalid = document.replace("custom/synthetic", unsafe_id);
+        fs::write(store.path(), invalid).unwrap();
+        assert!(store.load().is_err(), "accepted unsafe schema {unsafe_id}");
+    }
+}
+
+#[test]
 fn autocorrect_legacy_default_and_disabled_roundtrip() {
     let dir = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(dir.path());
@@ -1687,7 +1810,11 @@ fn candidate_font_size_bounds_are_strict() {
     assert_eq!(initial.preferences.candidate_font_size, 18);
     assert_eq!(initial.preferences.candidate_preedit_font_size, 15);
     assert_eq!(initial.preferences.candidate_page_size, 6);
-    assert_eq!(initial.preferences.candidate_skin, "willow_green");
+    assert_eq!(
+        initial.preferences.global_theme,
+        crate::skin::theme::GlobalTheme::System
+    );
+    assert_eq!(initial.preferences.custom_theme, CustomTheme::default());
     assert_eq!(initial.preferences.theme, ThemeMode::System);
     assert_eq!(initial.preferences.candidate_font_family, "Noto Sans SC");
     assert_eq!(
@@ -1700,32 +1827,46 @@ fn candidate_font_size_bounds_are_strict() {
 fn candidate_appearance_colors_accept_hex_and_reject_unsafe_values() {
     let mut preferences = Preferences::default();
     macro_rules! check {
-        ($field:ident) => {{
-            preferences.$field = Some("#12aBcD".to_owned());
+        ($field:ident, $error:ident) => {{
+            preferences.custom_theme.candidate_colors.$field = Some("#12aBcD".to_owned());
             assert!(preferences.validate().is_ok());
-            preferences.$field = Some("#12345678".to_owned());
-            assert!(preferences.validate().is_err());
-            preferences.$field = None;
+            for invalid in ["#12345678", "#123", "red", "12aBcD"] {
+                preferences.custom_theme.candidate_colors.$field = Some(invalid.to_owned());
+                assert!(matches!(
+                    preferences.validate(),
+                    Err(PreferencesError::$error)
+                ));
+            }
+            preferences.custom_theme.candidate_colors.$field = None;
         }};
     }
-    check!(candidate_text_color);
-    check!(candidate_number_color);
-    check!(candidate_accent_color);
-    check!(candidate_selected_color);
-    check!(candidate_hover_color);
-    check!(candidate_surface_color);
-    check!(candidate_border_color);
+    check!(text, InvalidCandidateTextColor);
+    check!(number, InvalidCandidateNumberColor);
+    check!(accent, InvalidCandidateAccentColor);
+    check!(selected, InvalidCandidateSelectedColor);
+    check!(hover, InvalidCandidateHoverColor);
+    check!(surface, InvalidCandidateSurfaceColor);
+    check!(border, InvalidCandidateBorderColor);
 }
 
 #[test]
-fn candidate_skin_ids_are_safe_and_bounded() {
+fn custom_theme_candidate_skin_ids_are_safe_bounded_and_not_theme_ids() {
     let mut preferences = Preferences::default();
     for skin in ["fluent", "willow_green", "external.skin-1"] {
-        preferences.candidate_skin = skin.to_owned();
+        preferences.custom_theme.candidate_skin = Some(skin.to_owned());
         assert!(preferences.validate().is_ok(), "{skin}");
     }
-    for skin in ["", "-unsafe", "Upper", "../escape", &"a".repeat(65)] {
-        preferences.candidate_skin = skin.to_owned();
+    for skin in [
+        "",
+        "-unsafe",
+        "Upper",
+        "../escape",
+        &"a".repeat(65),
+        "system",
+        "night",
+        "custom",
+    ] {
+        preferences.custom_theme.candidate_skin = Some(skin.to_owned());
         assert!(
             matches!(
                 preferences.validate(),
@@ -1995,13 +2136,13 @@ fn custom_translation_defaults_and_validation_are_stable() {
         "https://translate.example/api",
         "http://127.0.0.1:1188/translate",
         "http://[::1]:1188/translate",
-        "http://translate.example/api",
     ] {
         valid.custom_translation.endpoint = endpoint.into();
         assert!(valid.validate().is_ok());
     }
 
     for endpoint in [
+        "http://translate.example/api",
         "ftp://translate.example/api",
         "https://translate.example/\napi",
     ] {
@@ -2785,7 +2926,10 @@ fn saving_unchanged_preferences_keeps_the_revision_and_the_file() {
 
     let again = store.save(1, Preferences::default()).unwrap();
     assert_eq!(again, created);
-    assert_eq!(std::fs::metadata(&path).unwrap().modified().unwrap(), written);
+    assert_eq!(
+        std::fs::metadata(&path).unwrap().modified().unwrap(),
+        written
+    );
     // A stale revision is still a conflict, unchanged content or not.
     assert!(matches!(
         store.save(0, Preferences::default()),

@@ -698,7 +698,7 @@ fn activate(handle: u64, expected: &str) -> Result<Value, &'static str> {
         .iter()
         .map(|(_, replacement)| Path::new(replacement.as_str()))
         .collect();
-    let mut moved: Vec<(std::path::PathBuf, std::path::PathBuf)> = Vec::new();
+    let mut moved: Vec<(std::path::PathBuf, std::path::PathBuf)> = Vec::with_capacity(pairs.len());
     let rollback = |moved: &[(std::path::PathBuf, std::path::PathBuf)]| {
         for (from, to) in moved.iter().rev() {
             let _ = std::fs::rename(to, from);
@@ -717,7 +717,7 @@ fn activate(handle: u64, expected: &str) -> Result<Value, &'static str> {
         let current = Path::new(current.as_str());
         let replacement = Path::new(replacement.as_str());
         let backup = &backups[index];
-        if std::fs::create_dir_all(backup).is_err() {
+        if prepare_snapshot_backup(backup).is_err() {
             rollback(&moved);
             return Err("snapshot activation failed");
         }
@@ -790,6 +790,32 @@ fn activate(handle: u64, expected: &str) -> Result<Value, &'static str> {
 /// Leaving the directory on disk costs some space and keeps the data.
 fn discard_recovered_backup(backup: &Path) {
     let _ = std::fs::remove_dir(backup);
+}
+
+/// Create or reuse only an empty, real backup directory. A backup path is derived from a
+/// process-local handle but lives beside user state, so a pre-existing symlink must never be
+/// accepted as the destination for the old generation's files.
+fn prepare_snapshot_backup(path: &Path) -> std::io::Result<()> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            let kind = metadata.file_type();
+            if !kind.is_dir() || kind.is_symlink() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::AlreadyExists,
+                    "snapshot backup is not a real directory",
+                ));
+            }
+            if std::fs::read_dir(path)?.next().is_some() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::AlreadyExists,
+                    "snapshot backup is not empty",
+                ));
+            }
+            Ok(())
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => std::fs::create_dir(path),
+        Err(error) => Err(error),
+    }
 }
 
 fn version_without_access(options: &EngineOptions) -> Result<String, &'static str> {

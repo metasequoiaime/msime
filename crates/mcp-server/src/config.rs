@@ -95,7 +95,7 @@ fn default_options_path(env: &impl Fn(&str) -> Option<OsString>) -> Option<PathB
     if cfg!(target_os = "macos") {
         // `native_locator_root` in the desktop app.
         return env("HOME").and_then(absolute).map(|home| {
-            home.join("Library/Application Support/app.msime.client/runtime-options.json")
+            home.join("Library/Application Support/app.msime.macos/runtime-options.json")
         });
     }
     if cfg!(target_os = "linux") {
@@ -238,7 +238,7 @@ mod tests {
     fn the_platform_default_follows_the_desktop_app() {
         let env = |name: &str| (name == "HOME").then(|| "/home/someone".into());
         let expected = if cfg!(target_os = "macos") {
-            "/home/someone/Library/Application Support/app.msime.client/runtime-options.json"
+            "/home/someone/Library/Application Support/app.msime.macos/runtime-options.json"
         } else {
             "/home/someone/.config/msime-client/runtime-options.json"
         };

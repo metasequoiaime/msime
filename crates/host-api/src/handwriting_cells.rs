@@ -28,18 +28,15 @@ struct Span {
 /// Group stroke indices into character cells along the writing direction. Each cell keeps the original stroke order. Ink that is not clearly a line, or that splits into more than `MAX_CELLS` cells, comes back as a single cell holding every stroke.
 pub(crate) fn segment_handwriting_cells(strokes: &[Vec<(f32, f32)>]) -> Vec<Vec<usize>> {
     let whole = || vec![(0..strokes.len()).collect::<Vec<_>>()];
-    let boxes = strokes
-        .iter()
-        .enumerate()
-        .filter_map(|(index, stroke)| {
-            let first = stroke.first()?;
-            let init = (first.0, first.1, first.0, first.1);
-            let (min_x, min_y, max_x, max_y) = stroke.iter().fold(init, |(a, b, c, d), &(x, y)| {
-                (a.min(x), b.min(y), c.max(x), d.max(y))
-            });
-            Some((index, min_x, min_y, max_x, max_y))
-        })
-        .collect::<Vec<_>>();
+    let mut boxes = Vec::with_capacity(strokes.len());
+    boxes.extend(strokes.iter().enumerate().filter_map(|(index, stroke)| {
+        let first = stroke.first()?;
+        let init = (first.0, first.1, first.0, first.1);
+        let (min_x, min_y, max_x, max_y) = stroke.iter().fold(init, |(a, b, c, d), &(x, y)| {
+            (a.min(x), b.min(y), c.max(x), d.max(y))
+        });
+        Some((index, min_x, min_y, max_x, max_y))
+    }));
     if boxes.len() < 2 {
         return whole();
     }
@@ -59,17 +56,15 @@ pub(crate) fn segment_handwriting_cells(strokes: &[Vec<(f32, f32)>]) -> Vec<Vec<
         return whole();
     };
     let size = if horizontal { height } else { width }.max(MIN_CHARACTER_SIZE);
-    let mut spans = boxes
-        .iter()
-        .map(|&(stroke, x0, y0, x1, y1)| {
-            let (start, end) = if horizontal { (x0, x1) } else { (y0, y1) };
-            Span { stroke, start, end }
-        })
-        .collect::<Vec<_>>();
+    let mut spans = Vec::with_capacity(boxes.len());
+    spans.extend(boxes.iter().map(|&(stroke, x0, y0, x1, y1)| {
+        let (start, end) = if horizontal { (x0, x1) } else { (y0, y1) };
+        Span { stroke, start, end }
+    }));
     spans.sort_by(|a, b| a.start.total_cmp(&b.start).then(a.stroke.cmp(&b.stroke)));
 
     // Pass 1: strokes that overlap or nearly touch along the writing axis form one component.
-    let mut components: Vec<Vec<Span>> = Vec::new();
+    let mut components: Vec<Vec<Span>> = Vec::with_capacity(spans.len());
     for span in spans {
         match components.last_mut() {
             Some(component) if span.start <= extent(component).1 + JOIN_GAP * size => {
@@ -80,7 +75,7 @@ pub(crate) fn segment_handwriting_cells(strokes: &[Vec<(f32, f32)>]) -> Vec<Vec<
     }
 
     // Pass 2: neighbouring components that still fit in one character are one character.
-    let mut cells: Vec<Vec<Span>> = Vec::new();
+    let mut cells: Vec<Vec<Span>> = Vec::with_capacity(components.len());
     for component in components {
         match cells.last_mut() {
             Some(cell) => {
@@ -96,7 +91,7 @@ pub(crate) fn segment_handwriting_cells(strokes: &[Vec<(f32, f32)>]) -> Vec<Vec<
     }
 
     // Pass 3: a cell too long for one character holds touching characters.
-    let mut split = Vec::new();
+    let mut split = Vec::with_capacity(cells.len());
     for cell in cells {
         split_long_cell(cell, size, &mut split);
     }
@@ -157,7 +152,8 @@ pub(crate) fn combine_cell_candidates(cells: Vec<Vec<String>>) -> Vec<String> {
         .iter()
         .map(|cell| cell[0].as_str())
         .collect::<Vec<_>>();
-    let mut result = vec![best.concat()];
+    let mut result = Vec::with_capacity(MAX_HANDWRITING_CANDIDATES);
+    result.push(best.concat());
     let deepest = cells.iter().map(Vec::len).max().unwrap_or(0);
     'ranks: for rank in 1..deepest {
         for (index, cell) in cells.iter().enumerate() {

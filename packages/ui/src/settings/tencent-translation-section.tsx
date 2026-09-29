@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { SecretInput } from "../core/secret-input";
+import { Row, Switch } from "../core/platform-controls";
 import * as settings from "./settings-style";
 import { SettingToggle } from "./setting-toggle";
 
@@ -34,19 +35,19 @@ export function TencentTranslationSection({
   children,
 }: TencentTranslationSectionProps) {
   return (
-    <div className="section" role="group" aria-label="在线翻译服务">
-      <SettingToggle
-        label="在线翻译服务"
+    <div role="group" aria-label="在线翻译服务" className={settings.rowStack}>
+      <Row
+        title="在线翻译服务"
         description="候选词翻译默认使用腾讯云机器翻译，需要填入你自己的 API 凭据"
-        ariaLabel="腾讯云机器翻译"
-        disabled={!available}
-        checked={enabled}
-        compact
-        onChange={onToggle}
-      />
-      <div className="input-option-divider" />
-      <label className="section-header">
-        <span className="section-title">SecretId</span>
+      >
+        <Switch
+          aria-label="腾讯云机器翻译"
+          disabled={!available}
+          checked={enabled}
+          onChange={onToggle}
+        />
+      </Row>
+      <Row title="SecretId">
         <input
           aria-label="腾讯云 SecretId"
           type="text"
@@ -57,20 +58,16 @@ export function TencentTranslationSection({
           onChange={(event) => onSecretIdChange(event.target.value)}
           placeholder="AKIDxxxxxxxxxxxxxxxx"
         />
-      </label>
-      <div className="input-option-divider" />
-      <label className="section-header">
-        <span className="section-title">SecretKey</span>
+      </Row>
+      <Row title="SecretKey">
         <SecretInput
           label="腾讯云 SecretKey"
           value={secretKey}
           disabled={!available || !enabled}
           onChange={onSecretKeyChange}
         />
-      </label>
-      <div className="input-option-divider" />
-      <label className="section-header">
-        <span className="section-title">地域</span>
+      </Row>
+      <Row title="地域">
         <input
           aria-label="腾讯云地域"
           type="text"
@@ -81,18 +78,22 @@ export function TencentTranslationSection({
           onChange={(event) => onRegionChange(event.target.value)}
           placeholder="ap-guangzhou"
         />
-      </label>
-      {enabled && children}
+      </Row>
+      {enabled && children && <div className={settings.groupBlock}>{children}</div>}
       {available && enabled && credentialIssue && (
-        <p className={settings.settingsWarning} role="status">
-          {credentialIssue}
-        </p>
+        <div className={settings.groupBlock}>
+          <p className={settings.settingsWarning} role="status">
+            {credentialIssue}
+          </p>
+        </div>
       )}
       {available && enabled && !credentialIssue && showMissingCredentialsWarning && (
-        <p className={settings.settingsWarning} role="status">
-          未填写腾讯云凭据，候选词翻译不会有任何结果。请填入 SecretId 与
-          SecretKey，或改用下面的自定义翻译服务。
-        </p>
+        <div className={settings.groupBlock}>
+          <p className={settings.settingsWarning} role="status">
+            未填写腾讯云凭据，候选词翻译不会有任何结果。请填入 SecretId 与
+            SecretKey，或改用下面的自定义翻译服务。
+          </p>
+        </div>
       )}
     </div>
   );

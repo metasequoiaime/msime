@@ -89,6 +89,9 @@ final class KeyboardKeyButton: UIButton {
     }
   }
 
+  /// Shift, delete, 123, the symbol, globe, language and Tab keys: they take the theme's function-key fill (`kb.spec`) rather than the letter-key fill whenever the keyboard is recoloured.
+  var isFunctionKey = false
+
   /// How many lines the title is allowed to take, or nil to leave UIKit's own choice alone.
   ///
   /// Assigning `titleLabel?.numberOfLines` right after a configuration does not hold: UIKit

@@ -30,8 +30,10 @@ public final class HttpAsrPolicySmoke {
         // This host opens the connection, so the scheme is its responsibility: http would put the
         // user's token on the wire in clear text.
         check(!HttpAsrPolicy.usable("openai", "http://api.openai.com/v1/audio/transcriptions",
-                "whisper-1", "token"),
+            "whisper-1", "token"),
             "a plaintext endpoint is refused");
+        check(!HttpAsrPolicy.usable("openai", "https:///audio/transcriptions",
+            "whisper-1", "token"), "an endpoint without an authority is refused");
         check(!HttpAsrPolicy.usable("openai", endpoint, "", "token")
                 && !HttpAsrPolicy.usable("openai", endpoint, "   ", "token"),
             "an empty model is refused");

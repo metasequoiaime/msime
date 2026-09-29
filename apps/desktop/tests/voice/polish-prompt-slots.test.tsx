@@ -6,6 +6,8 @@ import {
   POLISH_PRESET_IDS,
   SettingsPage,
   normalizePolishSlot,
+  polishPromptFor,
+  polishSlotField,
   polishPresetPrompt,
   type Snapshot,
 } from "@msime/ui";
@@ -55,6 +57,13 @@ test("the legacy custom id maps onto the first slot", () => {
   expect(normalizePolishSlot("zh2en")).toBe("zh2en");
   expect(polishPresetPrompt("custom_1")).toBe("");
   expect(polishPresetPrompt("zh2en")).toBe(POLISH_PRESETS.zh2en);
+});
+
+test("resolves preset and custom prompt slots through shared helpers", () => {
+  expect(polishSlotField("custom_2")).toBe("polish_prompt_custom_2");
+  expect(polishSlotField("cleanup")).toBeUndefined();
+  expect(polishPromptFor("zh2en", {})).toBe(POLISH_PRESETS.zh2en);
+  expect(polishPromptFor("custom_2", { polish_prompt_custom_2: "合成提示词" })).toBe("合成提示词");
 });
 
 async function openVoice() {
@@ -111,6 +120,7 @@ test("the AI prompt slot selector is no longer Linux-only", async () => {
     />,
   );
   await screen.findByRole("button", { name: "保存设置" });
+  fireEvent.click(screen.getByRole("button", { name: "表达" }));
   fireEvent.click(screen.getByRole("button", { name: "AI 辅助" }));
   // Windows users could author three custom prompts but had no control that
   // would ever select one, so prompt_id stayed at whatever it was.

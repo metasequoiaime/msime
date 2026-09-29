@@ -1,4 +1,5 @@
 import { KeyboardSession } from './KeyboardSession';
+import { GlobalTheme } from './skin/GlobalTheme';
 
 /**
  * The badge that says which mode a switch landed in, ported from
@@ -10,13 +11,6 @@ import { KeyboardSession } from './KeyboardSession';
  * never takes a click. The host owns the window and the timing; this is only its face.
  */
 
-/** The Metasequoia forest green and the ink that reads on it, from the shared iOS theme. */
-const FOREST_LIGHT: string = '#185C48';
-const FOREST_DARK: string = '#61B491';
-// White reads 7.9:1 on the light green and 2.5:1 on the dark one, so the dark shade takes ink.
-const ON_FOREST_LIGHT: string = '#FFFFFF';
-const ON_FOREST_DARK: string = '#14231D';
-
 const CORNER_RADIUS_VP: number = 16;
 const LOGO_SIDE_VP: number = 30;
 const CONTENT_SPACING_VP: number = 6;
@@ -26,12 +20,15 @@ const MODE_FONT_SIZE: number = 26;
 @Component
 struct InputModeHud {
   @State english: boolean = false;
-  @State dark: boolean = false;
+  /** The global theme's accent and its paired ink, which the session sends with every switch; the platform accent until the first one. */
+  @State fill: string = GlobalTheme.accent(false);
+  @State ink: string = '#FFFFFF';
 
   aboutToAppear(): void {
-    KeyboardSession.shared.onModeBadge = (english: boolean, dark: boolean): void => {
+    KeyboardSession.shared.onModeBadge = (english: boolean, fill: string, ink: string): void => {
       this.english = english;
-      this.dark = dark;
+      this.fill = fill;
+      this.ink = ink;
     };
   }
 
@@ -39,25 +36,21 @@ struct InputModeHud {
     KeyboardSession.shared.onModeBadge = undefined;
   }
 
-  private ink(): string {
-    return this.dark ? ON_FOREST_DARK : ON_FOREST_LIGHT;
-  }
-
   build() {
     Row({ space: CONTENT_SPACING_VP }) {
       Image($r('app.media.keyboard_brand'))
         .width(LOGO_SIDE_VP)
         .height(LOGO_SIDE_VP)
-        .fillColor(this.ink())
+        .fillColor(this.ink)
       // 中 or 英: the state being switched to, not the pair being switched between.
       Text(this.english ? '英' : '中')
         .fontSize(MODE_FONT_SIZE)
-        .fontColor(this.ink())
+        .fontColor(this.ink)
     }
     .width('100%')
     .height('100%')
     .justifyContent(FlexAlign.Center)
-    .backgroundColor(this.dark ? FOREST_DARK : FOREST_LIGHT)
+    .backgroundColor(this.fill)
     .borderRadius(CORNER_RADIUS_VP)
   }
 }

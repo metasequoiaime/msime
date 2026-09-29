@@ -1,3 +1,6 @@
+import * as settings from "./settings-style";
+import { GroupList, Row, Select, Switch } from "../core/platform-controls";
+
 export type MobileKeyboardFeedback = {
   soundEnabled: boolean;
   hapticsEnabled: boolean;
@@ -29,7 +32,7 @@ export interface MobileKeyboardFeedbackSectionProps {
   onPreview: () => void;
 }
 
-/** Shared mobile keyboard sound, haptic, and iOS English suggestion controls. */
+/** Shared mobile keyboard sound, haptic, and iOS English suggestion controls: the 屏幕键盘 page's 按键反馈 group. */
 export function MobileKeyboardFeedbackSection({
   value,
   busy,
@@ -39,75 +42,61 @@ export function MobileKeyboardFeedbackSection({
   onPreview,
 }: MobileKeyboardFeedbackSectionProps) {
   return (
-    <div className="section" role="group" aria-label="按键反馈">
-      <div className="section-title">按键反馈</div>
-      <SettingToggle
-        label="按键音"
-        description="按键音受系统静音设置控制"
-        ariaLabel="按键音"
-        disabled={busy}
-        checked={value.soundEnabled}
-        compact
-        onChange={(enabled) => onChange({ ...value, soundEnabled: enabled })}
-      />
-      {value.hapticsAvailable !== false && (
-        <>
-          <div className="input-option-divider" />
-          <SettingToggle
-            label="按键振动"
-            description="振动效果取决于设备与系统支持"
-            ariaLabel="按键振动"
+    <GroupList title="按键反馈">
+      <div className={settings.rowStack} role="group" aria-label="按键反馈">
+        <Row title="按键音" description="按键音受系统静音设置控制">
+          <Switch
             disabled={busy}
-            checked={value.hapticsEnabled}
-            compact
-            onChange={(enabled) => onChange({ ...value, hapticsEnabled: enabled })}
+            checked={value.soundEnabled}
+            onChange={(checked) => onChange({ ...value, soundEnabled: checked })}
           />
-          {value.hapticsEnabled && (
-            <>
-              <div className="input-option-divider" />
-              <label className="section-header">
-                <span className="section-title">振动强度</span>
-                <select
-                  aria-label="振动强度"
-                  disabled={busy}
-                  value={value.hapticStrength}
-                  onChange={(event) =>
-                    onChange({
-                      ...value,
-                      hapticStrength: event.target
-                        .value as MobileKeyboardFeedback["hapticStrength"],
-                    })
-                  }
-                >
-                  <option value="light">轻</option>
-                  <option value="medium">中</option>
-                  <option value="strong">强</option>
-                </select>
-              </label>
-              {canPreview && (
-                <button type="button" className="secondary" disabled={busy} onClick={onPreview}>
-                  试一下振动
-                </button>
-              )}
-            </>
-          )}
-        </>
-      )}
-      {ios && (
-        <>
-          <div className="input-option-divider" />
-          <SettingToggle
-            label="英文建议"
+        </Row>
+        {value.hapticsAvailable !== false && (
+          <Row title="按键振动" description="振动效果取决于设备与系统支持">
+            <Switch
+              disabled={busy}
+              checked={value.hapticsEnabled}
+              onChange={(checked) => onChange({ ...value, hapticsEnabled: checked })}
+            />
+          </Row>
+        )}
+        {value.hapticsAvailable !== false && value.hapticsEnabled && (
+          <Row title="振动强度">
+            {canPreview && (
+              <button type="button" className="secondary" disabled={busy} onClick={onPreview}>
+                试一下振动
+              </button>
+            )}
+            <Select
+              disabled={busy}
+              value={value.hapticStrength}
+              onChange={(event) =>
+                onChange({
+                  ...value,
+                  hapticStrength: event.target.value as MobileKeyboardFeedback["hapticStrength"],
+                })
+              }
+            >
+              <option value="light">轻</option>
+              <option value="medium">中</option>
+              <option value="strong">强</option>
+            </Select>
+          </Row>
+        )}
+        {ios && (
+          <Row
+            title="英文建议"
             description="英文 26 键直接输入时，在候选栏显示当前单词的补全建议；关闭后仍可正常输入英文。"
-            ariaLabel="英文建议"
-            disabled={busy}
-            checked={value.englishSuggestions !== false}
-            compact
-            onChange={(enabled) => onChange({ ...value, englishSuggestions: enabled })}
-          />
-        </>
-      )}
-    </div>
+          >
+            <Switch
+              disabled={busy}
+              checked={value.englishSuggestions !== false}
+              onChange={(checked) => onChange({ ...value, englishSuggestions: checked })}
+            />
+          </Row>
+        )}
+      </div>
+    </GroupList>
   );
 }
 import { SettingToggle } from "./setting-toggle";

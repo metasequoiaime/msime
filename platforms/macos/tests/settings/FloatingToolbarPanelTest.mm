@@ -93,7 +93,7 @@ int main() {
         MSIMEFloatingToolbarPanel *panel = [[MSIMEFloatingToolbarPanel alloc] init];
         assert(panel != nil && !panel.canBecomeKeyWindow && !panel.canBecomeMainWindow);
         assert((panel.collectionBehavior & NSWindowCollectionBehaviorCanJoinAllSpaces) != 0);
-        assert((panel.collectionBehavior & NSWindowCollectionBehaviorFullScreenAuxiliary) == 0);
+        assert((panel.collectionBehavior & NSWindowCollectionBehaviorFullScreenAuxiliary) != 0);
         [panel applyThemePreferences:@{}];
         assert(panel.appearance == nil);
         [panel applyThemePreferences:@{@"theme": @"light", @"toolbar_theme": @"follow"}];
@@ -154,6 +154,8 @@ int main() {
         msime::mac::SkinTokens toolbarDark = dark;
         toolbarLight.surface = {0.2, 0.4, 0.6, 1};
         toolbarDark.surface = {0.6, 0.2, 0.4, 1};
+        toolbarLight.hover = {0.0, 0.0, 0.0, 0.06};
+        toolbarDark.hover = {1.0, 1.0, 1.0, 0.10};
         [panel applyLightToolbarSkin:toolbarLight darkSkin:toolbarDark];
         [panel applyThemePreferences:@{@"toolbar_theme": @"dark"}];
         assert([[[panel valueForKey:@"chrome"] valueForKey:@"fillColor"] isEqual:MetasequoiaColorFromRgba(toolbarDark.surface)]);
@@ -207,7 +209,7 @@ int main() {
             assert(alwaysActive);
         }
 
-        // Hover and pressed fill: the reference's ToolbarIconButton constants, white 0.10 on dark and black 0.08 on light, never the candidate-row hover token.
+        // Hover and pressed fill and the divider derive from the toolbar palette: the row hover and the outline (THEME_CONTRACT §3). The logo drag handle keeps the brand mark's own colours.
         NSEvent *entered = [NSEvent enterExitEventWithType:NSEventTypeMouseEntered location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:panel.windowNumber context:nil eventNumber:0 trackingNumber:0 userData:NULL];
         NSEvent *exited = [NSEvent enterExitEventWithType:NSEventTypeMouseExited location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:panel.windowNumber context:nil eventNumber:0 trackingNumber:0 userData:NULL];
         [inputMode mouseEntered:entered];
@@ -219,11 +221,11 @@ int main() {
         [panel orderOut:nil];
         assert(![[inputMode valueForKey:@"hovered"] boolValue]);
         [panel applyThemePreferences:@{@"toolbar_theme": @"dark"}];
-        assert([[inputMode valueForKey:@"hoverFillColor"] isEqual:[NSColor colorWithSRGBRed:1 green:1 blue:1 alpha:0.10]]);
-        assert([[divider valueForKey:@"fillColor"] isEqual:[NSColor colorWithSRGBRed:1 green:1 blue:1 alpha:0.15]]);
+        assert([[inputMode valueForKey:@"hoverFillColor"] isEqual:MetasequoiaColorFromRgba(toolbarDark.hover)]);
+        assert([[divider valueForKey:@"fillColor"] isEqual:MetasequoiaColorFromRgba(toolbarDark.border)]);
         [panel applyThemePreferences:@{@"toolbar_theme": @"light"}];
-        assert([[inputMode valueForKey:@"hoverFillColor"] isEqual:[NSColor colorWithSRGBRed:0 green:0 blue:0 alpha:0.08]]);
-        assert([[divider valueForKey:@"fillColor"] isEqual:[NSColor colorWithSRGBRed:0 green:0 blue:0 alpha:0.12]]);
+        assert([[inputMode valueForKey:@"hoverFillColor"] isEqual:MetasequoiaColorFromRgba(toolbarLight.hover)]);
+        assert([[divider valueForKey:@"fillColor"] isEqual:MetasequoiaColorFromRgba(toolbarLight.border)]);
         for (NSNumber *scale in @[@75, @100, @125, @150]) {
             for (NSNumber *size in @[@16, @18, @20, @22, @24, @26, @28]) {
                 NSDictionary *preferences = @{@"floating_toolbar": @{@"scale_percent": scale, @"font_size": size}};
@@ -436,6 +438,25 @@ int main() {
         [panel activateForDelegate:residentOwner visible:YES];
         const BOOL shownWhenActive = panel.visible;
         assert(panel.toolbarDelegate == residentOwner);
+        NSTimer *idle = [panel valueForKey:@"idleTimer"];
+        assert(idle.valid);
+        [panel noteInputForDelegate:residentOwner];
+        assert([panel valueForKey:@"idleTimer"] == idle);
+        [idle fire];
+        assert(!panel.visible && [[panel valueForKey:@"idleHidden"] boolValue]);
+        [panel setVisible:YES forDelegate:residentOwner];
+        [panel activateForDelegate:residentOwner visible:YES];
+        assert([panel valueForKey:@"idleTimer"] == nil);
+        assert([[panel valueForKey:@"idleHidden"] boolValue]);
+        [panel noteInputForDelegate:[FloatingToolbarTestDelegate new]];
+        assert(panel.toolbarDelegate == residentOwner);
+        [panel noteInputForDelegate:residentOwner];
+        assert(panel.visible == shownWhenActive && ![[panel valueForKey:@"idleHidden"] boolValue]);
+        [panel setVisible:NO forDelegate:residentOwner];
+        [panel noteInputForDelegate:residentOwner];
+        assert(!panel.visible && [panel valueForKey:@"idleTimer"] == nil);
+        [panel setVisible:YES forDelegate:residentOwner];
+        assert(panel.visible == shownWhenActive && [panel valueForKey:@"idleTimer"] != nil);
         [panel deactivateForInputSourceSwitch];
         assert(!panel.visible && panel.toolbarDelegate == nil);
         [panel setVisible:YES forDelegate:residentOwner];

@@ -2,7 +2,8 @@
 
 NSNotificationName const MetasequoiaCandidateSkinDidChangeNotification =
     @"MetasequoiaCandidateSkinDidChangeNotification";
-NSString *const kCandidateSkinPreferenceKey = @"MetasequoiaImeCandidateSkin";
+// The same key MSIMEAppearancePreferences writes, so the retained panel and the toolbar fallback draw the theme the settings window chose.
+static NSString *const kGlobalThemePreferenceKey = @"MSIMEClientGlobalTheme";
 
 NSColor *MetasequoiaColorFromRgba(metasequoia::mac::Rgba color)
 {
@@ -38,29 +39,46 @@ NSURL *MetasequoiaCandidateSkinsDirectoryURL(void)
     return [NSURL fileURLWithPath:@(path.c_str()) isDirectory:YES];
 }
 
-NSString *MetasequoiaStoredCandidateSkin(void)
+NSString *MetasequoiaStoredGlobalTheme(void)
 {
-    NSString *value = [[NSUserDefaults standardUserDefaults] stringForKey:kCandidateSkinPreferenceKey];
-    const char *utf8 = value.UTF8String;
-    return @(metasequoia::mac::NormalizeSkinId(utf8 == nullptr ? "" : utf8).c_str());
+    NSString *value = [[NSUserDefaults standardUserDefaults] stringForKey:kGlobalThemePreferenceKey];
+    return metasequoia::mac::IsGlobalThemeId(value.UTF8String ?: "") ? value : @"system";
 }
 
-void MetasequoiaSetStoredCandidateSkin(NSString *skinId)
+void MetasequoiaSetStoredGlobalTheme(NSString *themeId)
 {
-    const char *utf8 = skinId.UTF8String;
-    const std::string normalized = metasequoia::mac::NormalizeSkinId(utf8 == nullptr ? "" : utf8);
-    [[NSUserDefaults standardUserDefaults] setObject:@(normalized.c_str()) forKey:kCandidateSkinPreferenceKey];
+    if (!metasequoia::mac::IsGlobalThemeId(themeId.UTF8String ?: ""))
+    {
+        return;
+    }
+    [[NSUserDefaults standardUserDefaults] setObject:themeId forKey:kGlobalThemePreferenceKey];
     [[NSNotificationCenter defaultCenter] postNotificationName:MetasequoiaCandidateSkinDidChangeNotification
-                                                        object:@(normalized.c_str())];
+                                                        object:themeId];
 }
 
-metasequoia::mac::ResolvedSkin MetasequoiaResolveCandidateSkin(NSString *skinId, BOOL dark)
+metasequoia::mac::CustomTheme MetasequoiaStoredCustomTheme(void)
 {
-    const char *utf8 = skinId.UTF8String;
-    return metasequoia::mac::ResolveSkin(utf8 == nullptr ? "" : utf8, dark, metasequoia::mac::DefaultSkinsRoot());
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    auto read = [defaults](NSString *key) {
+        NSString *value = [defaults stringForKey:key];
+        return std::string(value.UTF8String ?: "");
+    };
+    metasequoia::mac::CustomTheme custom;
+    const std::string base = read(@"MSIMEClientCustomThemeBase");
+    custom.base = metasequoia::mac::IsThemeBaseId(base) ? base : "system";
+    custom.candidateSkin = read(@"MSIMEClientCustomCandidateSkin");
+    custom.candidateColors.text = read(@"MSIMEClientCandidateTextColor");
+    custom.candidateColors.number = read(@"MSIMEClientCandidateNumberColor");
+    custom.candidateColors.accent = read(@"MSIMEClientCandidateAccentColor");
+    custom.candidateColors.selected = read(@"MSIMEClientCandidateSelectedColor");
+    custom.candidateColors.hover = read(@"MSIMEClientCandidateHoverColor");
+    custom.candidateColors.surface = read(@"MSIMEClientCandidateSurfaceColor");
+    custom.candidateColors.border = read(@"MSIMEClientCandidateBorderColor");
+    return custom;
 }
 
-metasequoia::mac::ResolvedSkin MetasequoiaResolveStoredCandidateSkin(BOOL dark)
+metasequoia::mac::ResolvedSkin MetasequoiaResolveStoredTheme(BOOL dark, BOOL vertical)
 {
-    return MetasequoiaResolveCandidateSkin(MetasequoiaStoredCandidateSkin(), dark);
+    return metasequoia::mac::ResolveSkin(MetasequoiaStoredGlobalTheme().UTF8String, MetasequoiaStoredCustomTheme(), dark,
+                                         vertical ? "vertical" : "horizontal", metasequoia::mac::DefaultSkinsRoot());
 }

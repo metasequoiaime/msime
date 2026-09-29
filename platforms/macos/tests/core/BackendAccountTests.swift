@@ -14,6 +14,7 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
   static var failLogout = false
   static var allowDelete = false
   static var omittedPreferenceKey: String?
+  static var themeSchema = true
   private static var preferenceRevision = 1
   private static var preferences: [String: Any] = ["platform.macos.candidate_font_size": 18, "platform.macos.candidate_learning": true, "platform.ios.nine_key": true]
   private static var clipboardEnabled = false
@@ -35,7 +36,10 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     func json(_ object: Any) -> String { String(data: try! JSONSerialization.data(withJSONObject: object), encoding: .utf8)! }
     switch (request.httpMethod!, request.url!.path) {
     case ("GET", "/v1/users/me/preferences/schema"):
-      body = json(["fields": ["platform.macos.candidate_skin": ["type":"string", "maxLength":64], "platform.macos.candidate_font_size": ["type":"integer"], "platform.macos.candidate_learning": ["type":"boolean"], "platform.macos.shuangpin_preedit_uses_raw": ["type":"boolean"], "platform.ios.nine_key": ["type":"boolean"]], "maximum_bytes": 1048576, "update_mode": "replace", "revision_required": true])
+      var fields: [String: Any] = ["platform.macos.global_theme": ["type":"string", "maxLength":64], "platform.macos.candidate_font_size": ["type":"integer"], "platform.macos.candidate_learning": ["type":"boolean"], "platform.macos.shuangpin_preedit_uses_raw": ["type":"boolean"], "platform.ios.nine_key": ["type":"boolean"]]
+      // A server that has registered only part of the theme group, as one that predates the custom theme would.
+      if Self.themeSchema { fields["platform.macos.custom_theme_base"] = ["type":"string", "maxLength":64]; fields["platform.macos.custom_candidate_skin"] = ["type":"string", "maxLength":128] }
+      body = json(["fields": fields, "maximum_bytes": 1048576, "update_mode": "replace", "revision_required": true])
     case ("GET", "/v1/users/me/preferences"):
       body = json(["revision":Self.preferenceRevision, "settings":Self.preferences.filter { $0.key != Self.omittedPreferenceKey }])
     case ("PUT", "/v1/users/me/preferences"):
@@ -180,13 +184,13 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     model.logout(delete: true); try await finished(model)
     try require(model.user != nil && model.message != nil && storage.load() != nil)
     try require(windowClosures == 0)
-    var localSettings: MacSettingsAccess.Values = ["platform.macos.candidate_skin": .string("wechat"), "platform.macos.candidate_font_size": .integer(16), "platform.macos.candidate_learning": .boolean(false), "platform.macos.shuangpin_preedit_uses_raw": .boolean(false)]
+    var localSettings: MacSettingsAccess.Values = ["platform.macos.global_theme": .string("shuishan"), "platform.macos.custom_theme_base": .string("system"), "platform.macos.custom_candidate_skin": .string(""), "platform.macos.candidate_font_size": .integer(16), "platform.macos.candidate_learning": .boolean(false), "platform.macos.shuangpin_preedit_uses_raw": .boolean(false)]
     let settings = MacSettingsModel(accountID: "synthetic-user", client: client, account: session, local: .init(snapshot: { localSettings }, validate: { values in
-      guard values.count == 4 else { throw Failure() }
+      guard values.count == 6 else { throw Failure() }
     }, apply: { localSettings = $0 }))
     settings.download(); try await finished(settings)
     try require(settings.preview?["platform.macos.candidate_font_size"] == .integer(18))
-    try require(settings.preview?["platform.macos.candidate_skin"] == .string("wechat"))
+    try require(settings.preview?["platform.macos.global_theme"] == .string("shuishan"))
     try require(settings.preview?["platform.macos.shuangpin_preedit_uses_raw"] == .boolean(false))
     AccountFixture.omittedPreferenceKey = "platform.macos.candidate_font_size"
     settings.download(); try await finished(settings)
@@ -206,7 +210,9 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     let credentials = try await session.credentials()
     let savedPreferences = try await client.preferences(token: credentials.token)
     try require(savedPreferences.settings["platform.ios.nine_key"] == .boolean(true))
-    try require(savedPreferences.settings["platform.macos.candidate_skin"] == .string("wechat"))
+    try require(savedPreferences.settings["platform.macos.global_theme"] == .string("shuishan"))
+    try require(savedPreferences.settings["platform.macos.custom_theme_base"] == .string("system") && savedPreferences.settings["platform.macos.custom_candidate_skin"] == .string(""))
+    try require(settings.message == "本机设置已上传，其他平台的云端设置已保留。")
     try require(savedPreferences.settings["platform.macos.shuangpin_preedit_uses_raw"] == .boolean(true))
     localSettings["platform.macos.shuangpin_preedit_uses_raw"] = .boolean(false)
     settings.download(); try await finished(settings)
@@ -216,6 +222,16 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     _ = try await client.putPreferences(savedPreferences, token: credentials.token)
     settings.upload(); try await finished(settings)
     try require(settings.message != nil)
+    // A server without the whole theme group still takes the other settings; the theme is left out as a group and the message says so, rather than the whole upload failing.
+    AccountFixture.themeSchema = false
+    localSettings["platform.macos.global_theme"] = .string("night")
+    localSettings["platform.macos.candidate_font_size"] = .integer(22)
+    settings.download(); try await finished(settings)
+    settings.upload(); try await finished(settings)
+    try require(settings.message == "本机设置已上传，其他平台的云端设置已保留。云端暂不支持主题设置，主题没有上传。")
+    let themeless = try await client.preferences(token: credentials.token)
+    try require(themeless.settings["platform.macos.candidate_font_size"] == .integer(22) && themeless.settings["platform.macos.global_theme"] == .string("shuishan"))
+    AccountFixture.themeSchema = true
     settings.close(); try require(settings.preview == nil && settings.cloud == nil)
     let clipboard = MacClipboardModel(accountID: "synthetic-user", client: client, account: session)
     clipboard.refresh(); try await finished(clipboard)

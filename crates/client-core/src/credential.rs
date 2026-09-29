@@ -25,7 +25,13 @@ pub(crate) fn valid_https_endpoint_and_model(endpoint: &str, model: &str) -> boo
     }
     reqwest::Url::parse(endpoint).ok().is_some_and(|url| {
         url.scheme() == "https"
-            && url.host_str().is_some()
+            && endpoint.split_once("://").is_some_and(|(_, authority)| {
+                authority
+                    .as_bytes()
+                    .first()
+                    .is_some_and(|byte| *byte != b'/')
+            })
+            && url.host_str().is_some_and(|host| !host.is_empty())
             && url.username().is_empty()
             && url.password().is_none()
             && url.fragment().is_none()

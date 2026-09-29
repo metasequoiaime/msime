@@ -11,6 +11,21 @@ extension BackendAccountClient: BackendSessionAPI {}
 struct BackendSavedSession: Codable, Sendable {
   let tokens: BackendAccountClient.Tokens
   let expiresAt: Date
+
+  static func validated(_ session: BackendSavedSession, now: Date = Date()) throws -> BackendSavedSession {
+    try BackendAccountClient.validate(session.tokens)
+    guard session.expiresAt.timeIntervalSinceReferenceDate.isFinite,
+          session.expiresAt <= now.addingTimeInterval(TimeInterval(BackendAccountClient.maxSessionSeconds)) else {
+      throw BackendAccountClient.Failure(status: 0)
+    }
+    return session
+  }
+
+  static func forTokens(_ tokens: BackendAccountClient.Tokens, now: Date = Date()) throws -> BackendSavedSession {
+    try BackendAccountClient.validate(tokens)
+    return try validated(.init(tokens: tokens,
+      expiresAt: now.addingTimeInterval(TimeInterval(tokens.expires_in))), now: now)
+  }
 }
 protocol BackendSessionStorage: Sendable {
   func load() throws -> BackendSavedSession?
@@ -37,7 +52,7 @@ struct BackendKeychain: BackendSessionStorage {
     // and unreadable are the same answer to that question. Data we *can* read but cannot decode is
     // a real fault and still throws.
     guard status == errSecSuccess, let data = result as? Data else { return nil }
-    do { return try JSONDecoder().decode(BackendSavedSession.self, from: data) }
+    do { return try BackendSavedSession.validated(JSONDecoder().decode(BackendSavedSession.self, from: data)) }
     catch { throw BackendAccountClient.Failure(status: 0) }
   }
   private func migrateCommunitySession() throws -> BackendSavedSession? {
@@ -60,13 +75,15 @@ struct BackendKeychain: BackendSessionStorage {
     let tokens = BackendAccountClient.Tokens(access_token: old.access_token, refresh_token: old.refresh_token,
       token_type: "Bearer", expires_in: seconds,
       user: .init(id: old.user.id, display_name: old.user.display_name, created_at: old.user.created_at ?? ""))
-    let value = BackendSavedSession(tokens: tokens, expiresAt: (old.saved_at ?? .distantPast).addingTimeInterval(TimeInterval(seconds)))
+    let value = try BackendSavedSession.validated(.init(tokens: tokens,
+      expiresAt: (old.saved_at ?? .distantPast).addingTimeInterval(TimeInterval(seconds))))
     try save(value)
     SecItemDelete(legacy as CFDictionary)
     return value
   }
   func save(_ session: BackendSavedSession) throws {
-    let data = try JSONEncoder().encode(session)
+    let validatedSession = try BackendSavedSession.validated(session)
+    let data = try JSONEncoder().encode(validatedSession)
     let attributes: [String: Any] = [kSecValueData as String: data,
       kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly]
     var status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
@@ -106,7 +123,10 @@ actor BackendAccountSession {
     return saved?.tokens.user
   }
   private func load() throws {
-    if !loaded { saved = try storage.load(); loaded = true }
+    if !loaded {
+      saved = try storage.load().map { try BackendSavedSession.validated($0) }
+      loaded = true
+    }
   }
   func signIn(challenge: String, credential: String) async throws {
     generation += 1
@@ -118,7 +138,7 @@ actor BackendAccountSession {
     try install(tokens)
   }
   private func install(_ tokens: BackendAccountClient.Tokens) throws {
-    let value = BackendSavedSession(tokens: tokens, expiresAt: Date().addingTimeInterval(TimeInterval(tokens.expires_in)))
+    let value = try BackendSavedSession.forTokens(tokens)
     try storage.save(value)
     saved = value; loaded = true
   }
@@ -132,7 +152,8 @@ actor BackendAccountSession {
       return current.tokens.access_token
     }
     // Other actors and processes share this storage and may already have rotated (or created) the session.
-    if let stored = try? storage.load(), stored.tokens.refresh_token != saved?.tokens.refresh_token { saved = stored }
+    if let stored = try? storage.load().map({ try BackendSavedSession.validated($0) }),
+       stored.tokens.refresh_token != saved?.tokens.refresh_token { saved = stored }
     guard let current = saved else { throw BackendAccountClient.Failure(status: 401) }
     if current.expiresAt.timeIntervalSinceNow > 30 && rejectedToken != current.tokens.access_token { return current.tokens.access_token }
     let refreshToken = current.tokens.refresh_token
@@ -150,7 +171,7 @@ actor BackendAccountSession {
       if version == generation, let failure = error as? BackendAccountClient.Failure, failure.status == 401 {
         // Clear only the session that was rejected; a rotation saved meanwhile elsewhere is adopted.
         // A nil read may be an unreadable keychain rather than an absent item, so it is not cleared.
-        let stored = try? storage.load()
+        let stored = try? storage.load().map({ try BackendSavedSession.validated($0) })
         if let stored, stored.tokens.refresh_token != refreshToken {
           saved = stored
           if stored.expiresAt.timeIntervalSinceNow > 30 && rejectedToken != stored.tokens.access_token { return stored.tokens.access_token }
@@ -170,7 +191,7 @@ actor BackendAccountSession {
     let old = current.tokens
     let tokens = BackendAccountClient.Tokens(access_token: old.access_token, refresh_token: old.refresh_token,
       token_type: old.token_type, expires_in: old.expires_in, user: user)
-    let value = BackendSavedSession(tokens: tokens, expiresAt: current.expiresAt)
+    let value = try BackendSavedSession.validated(.init(tokens: tokens, expiresAt: current.expiresAt))
     try storage.save(value); saved = value
   }
   func credentials(retrying rejectedToken: String? = nil, matchingUserID expected: String? = nil) async throws -> (userID: String, token: String) {

@@ -1,3 +1,6 @@
+import { GroupList, Row, Switch } from "../core/platform-controls";
+import * as settings from "./settings-style";
+
 export interface VoiceRecordingBehaviorSectionProps {
   linux: boolean;
   soundEnabled: boolean;
@@ -23,44 +26,29 @@ export function VoiceRecordingBehaviorSection({
   onMuteSystemAudioChange,
 }: VoiceRecordingBehaviorSectionProps) {
   return (
-    <div className="section">
-      <div className="section-title">
-        {linux ? "Linux provider 行为" : "录音行为"}
-        <small>
-          {linux
-            ? "这些选项会随请求传给用户管理的语音服务，不包含凭据"
-            : "录音期间的提示音与静音由输入法在本机处理"}
-        </small>
-      </div>
-      <SettingToggle
-        label="语音提示音"
-        ariaLabel="语音提示音"
-        checked={soundEnabled}
-        compact
-        onChange={onSoundEnabledChange}
-      />
-      <SettingToggle
-        label="开始录音提示音"
-        ariaLabel="开始录音提示音"
-        checked={startSound}
-        compact
-        onChange={onStartSoundChange}
-      />
-      <SettingToggle
-        label="结束录音提示音"
-        ariaLabel="结束录音提示音"
-        checked={endSound}
-        compact
-        onChange={onEndSoundChange}
-      />
-      <SettingToggle
-        label="录音时静音其他声音"
-        ariaLabel="录音时静音其他声音"
-        checked={muteSystemAudio}
-        compact
-        onChange={onMuteSystemAudioChange}
-      />
-    </div>
+    <GroupList title={linux ? "Linux provider 行为" : "录音行为"}>
+      <p className={settings.groupNote}>
+        {linux
+          ? "这些选项会随请求传给用户管理的语音服务，不包含凭据"
+          : "录音期间的提示音与静音由输入法在本机处理"}
+      </p>
+      <Row title="语音提示音">
+        <Switch aria-label="语音提示音" checked={soundEnabled} onChange={onSoundEnabledChange} />
+      </Row>
+      <Row title="开始录音提示音">
+        <Switch aria-label="开始录音提示音" checked={startSound} onChange={onStartSoundChange} />
+      </Row>
+      <Row title="结束录音提示音">
+        <Switch aria-label="结束录音提示音" checked={endSound} onChange={onEndSoundChange} />
+      </Row>
+      <Row title="录音时静音其他声音">
+        <Switch
+          aria-label="录音时静音其他声音"
+          checked={muteSystemAudio}
+          onChange={onMuteSystemAudioChange}
+        />
+      </Row>
+    </GroupList>
   );
 }
 import { SettingToggle } from "./setting-toggle";

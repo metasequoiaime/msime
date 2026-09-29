@@ -1,0 +1,283 @@
+[
+  {
+    "base": "paper",
+    "colors": {
+      "text": "#ff0000"
+    },
+    "dark": false,
+    "expected": {
+      "accent": "#2C7A4B",
+      "border": "#0000001F",
+      "hover": "#FF00000F",
+      "number": "#FF00009D",
+      "secondary": "#FF00009D",
+      "selected": "#2C7A4B24",
+      "selected_number": "#FF00009D",
+      "selected_text": "#2C7A4B",
+      "show_selected_bar": null,
+      "surface": "#F7F5F0",
+      "text": "#FF0000"
+    },
+    "name": "a text picker beats the package text",
+    "package": {
+      "candidate": {
+        "dark": {},
+        "light": {
+          "text": "#112233"
+        }
+      },
+      "themes": ["light"]
+    }
+  },
+  {
+    "base": "paper",
+    "colors": {},
+    "dark": false,
+    "expected": {
+      "accent": "#AA0000",
+      "border": "#0000001F",
+      "hover": "#1A1E1B0F",
+      "number": "#6E6A5E",
+      "secondary": "#6E6A5E",
+      "selected": "#AA000024",
+      "selected_number": "#6E6A5E",
+      "selected_text": "#AA0000",
+      "show_selected_bar": null,
+      "surface": "#F7F5F0",
+      "text": "#1A1E1B"
+    },
+    "name": "a package accent derives the selected row over a built-in base",
+    "package": {
+      "candidate": {
+        "dark": {},
+        "light": {
+          "accent": "#AA0000"
+        }
+      },
+      "themes": ["light"]
+    }
+  },
+  {
+    "base": "night",
+    "colors": {},
+    "dark": false,
+    "expected": {
+      "accent": "#4FD1C5",
+      "border": "#0000001F",
+      "hover": "#E6F1F40F",
+      "number": "#123456",
+      "secondary": "#123456",
+      "selected": "#4FD1C524",
+      "selected_number": "#123456",
+      "selected_text": "#4FD1C5",
+      "show_selected_bar": null,
+      "surface": "#010203",
+      "text": "#E6F1F4"
+    },
+    "name": "the package number and converted notations are drawn",
+    "package": {
+      "candidate": {
+        "dark": {
+          "number": "#123456",
+          "surface": "rgb(1, 2, 3)"
+        },
+        "light": {}
+      },
+      "themes": ["dark"]
+    }
+  },
+  {
+    "base": "system",
+    "colors": {
+      "hover": "#010203"
+    },
+    "dark": true,
+    "expected": {
+      "accent": null,
+      "border": "#00000080",
+      "hover": "#010203",
+      "number": null,
+      "secondary": null,
+      "selected": null,
+      "selected_number": null,
+      "selected_text": null,
+      "show_selected_bar": false,
+      "surface": "#AABBCC",
+      "text": "#00000000"
+    },
+    "name": "a package over system draws only its own mode, with the pickers on top",
+    "package": {
+      "candidate": {
+        "dark": {
+          "border": "rgba(0, 0, 0, 0.5)",
+          "hover": "not a colour",
+          "showSelectedBar": false,
+          "surface": "#abc",
+          "text": "transparent"
+        },
+        "light": {
+          "accent": "#00ff00",
+          "surface": "#ffffff"
+        }
+      },
+      "themes": ["dark", "light"]
+    }
+  },
+  {
+    "base": "system",
+    "colors": {
+      "accent": "#2c7a4b"
+    },
+    "dark": true,
+    "expected": {
+      "accent": "#2C7A4B",
+      "border": null,
+      "hover": null,
+      "number": null,
+      "secondary": null,
+      "selected": null,
+      "selected_number": null,
+      "selected_text": null,
+      "show_selected_bar": null,
+      "surface": null,
+      "text": null
+    },
+    "name": "an undeclared mode draws the base and the pickers without the package",
+    "package": {
+      "candidate": {
+        "dark": {
+          "surface": "#102030"
+        },
+        "light": {
+          "surface": "#FFF0F5"
+        }
+      },
+      "themes": ["light"]
+    }
+  },
+  {
+    "base": "ink",
+    "colors": {},
+    "dark": false,
+    "expected": {
+      "accent": "#FFFFFF",
+      "border": "#0000001F",
+      "hover": "#9A9A9A0F",
+      "number": "#9A9A9A",
+      "secondary": "#9A9A9A",
+      "selected": "#FFFFFF24",
+      "selected_number": "#9A9A9A",
+      "selected_text": "#FFFFFF",
+      "show_selected_bar": null,
+      "surface": "#1A1A1A",
+      "text": "#9A9A9A"
+    },
+    "name": "a built-in base fixes the mode even when the package does not declare it",
+    "package": {
+      "candidate": {
+        "dark": {
+          "surface": "#102030"
+        },
+        "light": {
+          "surface": "#FFF0F5"
+        }
+      },
+      "themes": ["light"]
+    }
+  },
+  {
+    "base": "light",
+    "colors": {
+      "text": "#202020"
+    },
+    "dark": false,
+    "expected": {
+      "accent": "#005FB8",
+      "border": "#0000001F",
+      "hover": "#2020200F",
+      "number": "#2020209D",
+      "secondary": "#2020209D",
+      "selected": "#11111180",
+      "selected_number": "#2020209D",
+      "selected_text": "#005FB8",
+      "show_selected_bar": null,
+      "surface": "#FFFFFF",
+      "text": "#202020"
+    },
+    "name": "a text picker sets the numbers over the package number",
+    "package": {
+      "candidate": {
+        "dark": {},
+        "light": {
+          "number": "#010101",
+          "selected": "#11111180"
+        }
+      },
+      "themes": ["light"]
+    }
+  },
+  {
+    "base": "system",
+    "colors": {},
+    "dark": false,
+    "expected": {
+      "accent": "#FF0000FF",
+      "border": null,
+      "hover": null,
+      "number": null,
+      "secondary": null,
+      "selected": null,
+      "selected_number": null,
+      "selected_text": null,
+      "show_selected_bar": true,
+      "surface": null,
+      "text": null
+    },
+    "name": "unparseable package colours are left out",
+    "package": {
+      "candidate": {
+        "dark": {},
+        "light": {
+          "accent": "RGBA(255,0,0,1)",
+          "border": "#12345",
+          "selected": "rgb(256, 0, 0)",
+          "showSelectedBar": true,
+          "surface": "rgba(1, 2, 3, 1.5)"
+        }
+      },
+      "themes": ["light"]
+    }
+  },
+  {
+    "base": "ink",
+    "colors": {
+      "number": "#123456",
+      "surface": "#000000",
+      "text": "#abcdef"
+    },
+    "dark": false,
+    "expected": {
+      "accent": "#FFFFFF",
+      "border": "#0000001F",
+      "hover": "#ABCDEF0F",
+      "number": "#123456",
+      "secondary": "#123456",
+      "selected": "#FFFFFF24",
+      "selected_number": "#123456",
+      "selected_text": "#FFFFFF",
+      "show_selected_bar": null,
+      "surface": "#000000",
+      "text": "#ABCDEF"
+    },
+    "name": "pickers over a built-in base without a package",
+    "package": null
+  },
+  {
+    "base": "system",
+    "colors": {},
+    "dark": false,
+    "expected": null,
+    "name": "custom over system with nothing set draws the platform",
+    "package": null
+  }
+]

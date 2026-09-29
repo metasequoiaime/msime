@@ -120,3 +120,30 @@ fn an_invalid_batch_leaves_the_document_as_it_was() {
     ));
     assert_eq!(std::fs::read(&path).expect("read"), before);
 }
+
+#[test]
+fn rejects_malformed_persisted_selection_histograms() {
+    let (directory, store) = store();
+    std::fs::write(
+        directory.path().join("typing-statistics.json"),
+        r#"{"enabled":true,"total":0,"selections":{"ranks":[0,0,0,0,0,0,0,0,0,1],"beyond":0}}"#,
+    )
+    .unwrap();
+    assert!(matches!(
+        store.load(),
+        Err(TypingStatisticsError::InvalidDocument)
+    ));
+
+    std::fs::write(
+        directory.path().join("typing-statistics.json"),
+        format!(
+            r#"{{"enabled":true,"total":0,"selections":{{"ranks":[{}],"beyond":0}}}}"#,
+            MAX_COUNT + 1
+        ),
+    )
+    .unwrap();
+    assert!(matches!(
+        store.load(),
+        Err(TypingStatisticsError::InvalidDocument)
+    ));
+}

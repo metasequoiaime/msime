@@ -5,7 +5,7 @@
 use super::*;
 use tempfile::tempdir;
 fn manifest(id: &str) -> String {
-    format!("schema_version = 1\nid = '{id}'\nname = 'Sample'\nversion = '1.0'\nbase = 'fluent'\n[supports]\nlayouts = ['vertical']\nthemes = ['light']\n[candidate_window]\nmin_width_dip = 10\n[candidate_window.decoration]\ntop_inset_dip = 0\nwidth_dip = 0\n")
+    format!("schema_version = 1\nid = '{id}'\nname = 'Sample'\nversion = '1.0'\nbase = 'night'\n[supports]\nlayouts = ['vertical']\nthemes = ['light']\n[candidate_window]\nmin_width_dip = 10\n[candidate_window.decoration]\ntop_inset_dip = 0\nwidth_dip = 0\n")
 }
 
 fn resource_package(root: &Path) -> std::path::PathBuf {
@@ -24,7 +24,7 @@ fn scan_external_skin_under_non_ascii_directory() {
     let package = load(&non_ascii_root, "sample").unwrap();
     assert_eq!(package.id, "sample");
     assert_eq!(package.name, "Sample");
-    assert_eq!(package.base, "fluent");
+    assert_eq!(package.base, super::super::theme::GlobalTheme::Night);
 
     let catalog = scan(&non_ascii_root);
     assert!(catalog.issues.is_empty(), "{catalog:?}");
@@ -428,7 +428,7 @@ fn preserves_capabilities_dimensions_and_relative_resources_for_hosts() {
 fn compatibility_does_not_inherit_unlisted_base_modes() {
     let catalog = scan_manifest(&manifest("sample"));
     let package = &catalog.packages[0];
-    assert_eq!(package.base, "fluent");
+    assert_eq!(package.base, super::super::theme::GlobalTheme::Night);
     assert!(package.supports("vertical", "light"));
     assert!(!package.supports("horizontal", "light"));
     assert!(!package.supports("vertical", "dark"));
@@ -468,16 +468,18 @@ fn rejects_wrong_numeric_types_and_nonfinite_or_out_of_range_dimensions() {
 }
 
 #[test]
-fn rejects_builtin_ids_as_external_skin_folders() {
+fn rejects_theme_ids_as_external_skin_folders() {
     let root = tempdir().unwrap();
-    for id in ["fluent", "wechat", "graphite", "willow_green"] {
+    for id in [
+        "system", "shuishan", "light", "paper", "night", "ink", "custom",
+    ] {
         let skin = root.path().join(id);
         fs::create_dir(&skin).unwrap();
         fs::write(skin.join("skin.toml"), manifest(id)).unwrap();
     }
     let catalog = scan(root.path());
     assert!(catalog.packages.is_empty());
-    assert_eq!(catalog.issues.len(), 4);
+    assert_eq!(catalog.issues.len(), 7);
 }
 
 #[test]
@@ -514,7 +516,7 @@ fn scans_valid_and_rejects_unsafe_manifests() {
     let dir = tempdir().unwrap();
     let skin = dir.path().join("sample_skin");
     fs::create_dir(&skin).unwrap();
-    fs::write(skin.join("skin.toml"), "schema_version = 1\nid = 'sample_skin'\nname = 'Sample'\nversion = '1.0'\nbase = 'fluent'\nauthor = 'Test'\ndescription = 'Demo'\n[supports]\nlayouts = ['vertical']\nthemes = ['light']\n[candidate_window]\n[candidate_window.decoration]\n").unwrap();
+    fs::write(skin.join("skin.toml"), "schema_version = 1\nid = 'sample_skin'\nname = 'Sample'\nversion = '1.0'\nbase = 'system'\nauthor = 'Test'\ndescription = 'Demo'\n[supports]\nlayouts = ['vertical']\nthemes = ['light']\n[candidate_window]\n[candidate_window.decoration]\n").unwrap();
     let catalog = scan(dir.path());
     assert_eq!(
         catalog.packages,
@@ -522,7 +524,8 @@ fn scans_valid_and_rejects_unsafe_manifests() {
             id: "sample_skin".into(),
             name: "Sample".into(),
             version: "1.0".into(),
-            base: "fluent".into(),
+            // A system base draws over the platform tokens.
+            base: super::super::theme::GlobalTheme::System,
             author: Some("Test".into()),
             description: Some("Demo".into()),
             layouts: vec!["vertical".into()],
@@ -556,16 +559,16 @@ fn reports_invalid_ids_and_oversized_manifests_without_loading_them() {
 }
 
 #[test]
-fn rejects_manifest_id_mismatch_and_unsupported_base() {
+fn rejects_manifest_id_mismatch_and_missing_base() {
     let dir = tempdir().unwrap();
     for (folder, body) in [
         (
             "mismatch",
-            "schema_version = 1\nid = 'other'\nname = 'X'\nversion = '1'\nbase = 'fluent'",
+            "schema_version = 1\nid = 'other'\nname = 'X'\nversion = '1'\nbase = 'night'",
         ),
         (
-            "unsupported",
-            "schema_version = 1\nid = 'unsupported'\nname = 'X'\nversion = '1'\nbase = 'unknown'",
+            "baseless",
+            "schema_version = 1\nid = 'baseless'\nname = 'X'\nversion = '1'\n[supports]\nlayouts = ['vertical']\nthemes = ['light']\n[candidate_window]\n[candidate_window.decoration]\n",
         ),
     ] {
         let path = dir.path().join(folder);
@@ -575,11 +578,45 @@ fn rejects_manifest_id_mismatch_and_unsupported_base() {
     let catalog = scan(dir.path());
     assert!(catalog.packages.is_empty());
     assert_eq!(catalog.issues.len(), 2);
+    assert!(catalog
+        .issues
+        .iter()
+        .any(|issue| issue.folder == "baseless" && issue.reason == "base must be a string"));
+}
+
+#[test]
+fn base_names_system_or_a_builtin_theme() {
+    use super::super::theme::GlobalTheme;
+    for (base, expected) in [
+        ("system", GlobalTheme::System),
+        ("shuishan", GlobalTheme::Shuishan),
+        ("light", GlobalTheme::Light),
+        ("paper", GlobalTheme::Paper),
+        ("night", GlobalTheme::Night),
+        ("ink", GlobalTheme::Ink),
+    ] {
+        let catalog = scan_manifest(
+            &manifest("sample").replace("base = 'night'", &format!("base = '{base}'")),
+        );
+        assert!(catalog.issues.is_empty(), "{base}: {catalog:?}");
+        assert_eq!(catalog.packages[0].base, expected, "{base}");
+    }
+    // `custom` is not a base, and retired or misspelt ids are refused rather than read as system.
+    for base in ["custom", "fluent", "wechat", "Night"] {
+        let catalog = scan_manifest(
+            &manifest("sample").replace("base = 'night'", &format!("base = '{base}'")),
+        );
+        assert!(catalog.packages.is_empty(), "{base}");
+        assert_eq!(
+            catalog.issues[0].reason, "base must be system or a built-in theme",
+            "{base}"
+        );
+    }
 }
 
 #[test]
 fn host_catalog_keeps_only_what_candidate_hosts_draw() {
-    let body = "schema_version = 1\nid = 'sample'\nname = '樱花'\nversion = '1.0'\nbase = 'fluent'\ntoolbar_stylesheet = 'toolbar.css'\n[supports]\nlayouts = ['vertical']\nthemes = ['light', 'dark']\n[candidate_window]\nmin_width_dip = 10\n[candidate_window.decoration]\ntop_inset_dip = 0\nwidth_dip = 0\n[candidate.light]\nsurface = '#FFF0F5'\ntext = '#123'\nhover = '#abcdef'\nborder = 'rgba(0,0,0,0.1)'\nshow_selected_bar = true\n[candidate.dark]\nselected = '#ff69b4'\nborder = '#ff000080'\n";
+    let body = "schema_version = 1\nid = 'sample'\nname = '樱花'\nversion = '1.0'\nbase = 'paper'\ntoolbar_stylesheet = 'toolbar.css'\n[supports]\nlayouts = ['vertical']\nthemes = ['light', 'dark']\n[candidate_window]\nmin_width_dip = 10\n[candidate_window.decoration]\ntop_inset_dip = 0\nwidth_dip = 0\n[candidate.light]\nsurface = '#FFF0F5'\ntext = '#123'\nhover = '#abcdef'\nborder = 'rgba(0,0,0,0.1)'\nshow_selected_bar = true\n[candidate.dark]\nselected = '#ff69b4'\nborder = '#ff000080'\n";
     let root = tempdir().unwrap();
     let skin = root.path().join("sample");
     fs::create_dir(&skin).unwrap();
@@ -587,18 +624,70 @@ fn host_catalog_keeps_only_what_candidate_hosts_draw() {
     fs::write(skin.join("toolbar.css"), ".bar {}").unwrap();
     let catalog = scan(root.path());
     assert!(catalog.issues.is_empty(), "{catalog:?}");
-    // The title is the manifest name; paths, stylesheets, hover, the selected bar and colour forms the hosts do not parse stay out.
+    // The title is the manifest name; paths and stylesheets stay out, and every colour `theme::resolve` reads is published in the one form it emits.
+    let published = host_candidate_catalog(&catalog, root.path(), "absent");
     assert_eq!(
-        host_candidate_catalog(&catalog, root.path(), "fluent"),
+        published,
         serde_json::json!({"packages": [{
             "id": "sample",
             "title": "樱花",
+            "base": "paper",
+            "layouts": ["vertical"],
             "candidate": {
-                "light": {"surface": "#FFF0F5"},
-                "dark": {"selected": "#ff69b4", "border": "#ff000080"},
+                "light": {
+                    "surface": "#FFF0F5",
+                    "text": "#112233",
+                    "hover": "#ABCDEF",
+                    "border": "#0000001A",
+                    "show_selected_bar": true,
+                },
+                "dark": {"selected": "#FF69B4", "border": "#FF000080"},
             },
         }]})
     );
+}
+
+#[test]
+fn a_published_entry_resolves_exactly_as_the_scanned_package() {
+    use super::super::theme::{resolve, GlobalTheme, ThemePackage};
+    use crate::preferences::CandidateLayout;
+    // Every slot, each in a form the Windows presenter accepts but the contract does not emit.
+    let palette = "surface = '#fef'\nborder = 'rgba(0, 0, 0, 0.25)'\ntext = 'rgb(17, 34, 51)'\nnumber = '#abc8'\naccent = '#ff69b4'\nselected = 'transparent'\nhover = 'rgba(255,255,255,0.5)'\nshow_selected_bar = false\n";
+    let bases = ["system", "paper", "night"];
+    for base in bases {
+        let body = format!(
+            "schema_version = 1\nid = 'sample'\nname = 'S'\nversion = '1'\nbase = '{base}'\n[supports]\nlayouts = ['vertical']\nthemes = ['light', 'dark']\n[candidate_window]\n[candidate_window.decoration]\n[candidate.light]\n{palette}[candidate.dark]\n{}",
+            palette.replace("#fef", "#102030")
+        );
+        let root = tempdir().unwrap();
+        fs::create_dir(root.path().join("sample")).unwrap();
+        fs::write(root.path().join("sample/skin.toml"), body).unwrap();
+        let catalog = scan(root.path());
+        assert!(catalog.issues.is_empty(), "{catalog:?}");
+        let scanned = ThemePackage::from(&catalog.packages[0]);
+        let entry = host_candidate_catalog(&catalog, root.path(), "sample")["packages"][0].clone();
+        let published = ThemePackage::from_host_catalog_entry(entry).unwrap();
+        let custom = crate::preferences::CustomTheme {
+            candidate_skin: Some("sample".into()),
+            ..Default::default()
+        };
+        for dark in [false, true] {
+            // The package declares only the vertical layout, so the horizontal one checks that both sources carry the same gate.
+            for layout in [CandidateLayout::Vertical, CandidateLayout::Horizontal] {
+                let from_root = resolve(GlobalTheme::Custom, &custom, dark, layout, Some(&scanned));
+                assert_eq!(
+                    from_root.candidate_skin.is_some(),
+                    layout == CandidateLayout::Vertical,
+                    "{base} {dark} {layout:?}"
+                );
+                assert_eq!(
+                    resolve(GlobalTheme::Custom, &custom, dark, layout, Some(&published)),
+                    from_root,
+                    "{base} {dark} {layout:?}"
+                );
+            }
+        }
+    }
 }
 
 #[test]
@@ -643,6 +732,9 @@ fn host_catalog_carries_a_decoration_only_for_decorated_packages() {
         serde_json::json!({
             "id": "sakura",
             "title": "Sample",
+            "base": "night",
+            "layouts": ["vertical"],
+            "candidate": {"light": {}},
             "decoration_top_dip": 24.5,
             "decoration_width_dip": 180.0,
             "decoration_image": expected.to_str().unwrap(),
@@ -650,11 +742,11 @@ fn host_catalog_carries_a_decoration_only_for_decorated_packages() {
     );
     assert_eq!(
         package("plain"),
-        serde_json::json!({"id": "plain", "title": "Sample"})
+        serde_json::json!({"id": "plain", "title": "Sample", "base": "night", "layouts": ["vertical"], "candidate": {"light": {}}})
     );
     assert_eq!(
         package("styled"),
-        serde_json::json!({"id": "styled", "title": "Sample"})
+        serde_json::json!({"id": "styled", "title": "Sample", "base": "night", "layouts": ["vertical"], "candidate": {"light": {}}})
     );
     // The host opens the path as published, so a relative root publishes none.
     assert!(
@@ -676,9 +768,9 @@ fn host_catalog_drops_undeclared_themes_and_caps_its_size() {
     let catalog = scan_manifest(&body);
     assert_eq!(
         host_candidate_catalog(&catalog, Path::new("/skins"), "")["packages"][0]["candidate"],
-        serde_json::json!({"light": {"border": "transparent"}})
+        serde_json::json!({"light": {"border": "#00000000"}})
     );
-    // A package without colours for a declared theme still lists, with no candidate table at all.
+    // A package without colours for a declared theme still lists, with an empty palette for that theme so the entry still says the package may be drawn in it.
     let bare = host_candidate_catalog(
         &scan_manifest(&manifest("sample")),
         Path::new("/skins"),
@@ -686,7 +778,7 @@ fn host_catalog_drops_undeclared_themes_and_caps_its_size() {
     );
     assert_eq!(
         bare,
-        serde_json::json!({"packages": [{"id": "sample", "title": "Sample"}]})
+        serde_json::json!({"packages": [{"id": "sample", "title": "Sample", "base": "night", "layouts": ["vertical"], "candidate": {"light": {}}}]})
     );
 
     let root = tempdir().unwrap();
@@ -711,7 +803,7 @@ fn host_catalog_drops_undeclared_themes_and_caps_its_size() {
         .map(|package| package.id.clone())
         .collect();
     assert_eq!(
-        ids(host_candidate_catalog(&catalog, root.path(), "fluent")),
+        ids(host_candidate_catalog(&catalog, root.path(), "absent")),
         listed[..HOST_CATALOG_MAX_PACKAGES]
     );
     // A selected skin beyond the cap takes the last place instead of disappearing from the host's menu and colours.
@@ -736,7 +828,9 @@ fn external_ids_are_the_folder_names_the_scan_lists() {
         ".hidden",
         "-dash",
         "a b",
-        "willow_green",
+        "system",
+        "night",
+        "custom",
         &"a".repeat(65),
     ] {
         assert!(!is_external_id(id), "{id}");
@@ -748,7 +842,7 @@ const FULL_TOML_MANIFEST: &str = r#"schema_version = 1
 id = 'full-toml'
 name = "\u6768\u67f3 Full"
 version = '1.0'
-base = 'wechat'
+base = 'ink'
 description = 'hash # inside a literal'
 toolbar_stylesheet = 'toolbar.css'
 
@@ -777,6 +871,7 @@ fn load_package_accepts_full_toml_manifests() {
     fs::write(skin.join("toolbar.css"), ".toolbar {}").unwrap();
     let package = load_package(root.path(), "full-toml").unwrap();
     assert_eq!(package.name, "杨柳 Full");
+    assert_eq!(package.base, super::super::theme::GlobalTheme::Ink);
     assert_eq!(
         package.description.as_deref(),
         Some("hash # inside a literal")
@@ -795,12 +890,12 @@ fn load_package_accepts_full_toml_manifests() {
 }
 
 #[test]
-fn load_package_rejects_builtin_mismatched_missing_and_aliased_packages() {
+fn load_package_rejects_theme_mismatched_missing_and_aliased_packages() {
     let root = tempdir().unwrap();
-    fs::create_dir_all(root.path().join("fluent")).unwrap();
-    fs::write(root.path().join("fluent/skin.toml"), manifest("fluent")).unwrap();
+    fs::create_dir_all(root.path().join("ink")).unwrap();
+    fs::write(root.path().join("ink/skin.toml"), manifest("ink")).unwrap();
     assert_eq!(
-        load_package(root.path(), "fluent"),
+        load_package(root.path(), "ink"),
         Err("invalid skin id".into())
     );
     fs::create_dir_all(root.path().join("renamed")).unwrap();

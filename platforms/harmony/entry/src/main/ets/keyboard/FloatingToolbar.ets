@@ -1,6 +1,6 @@
 import { KeyboardSession } from './KeyboardSession';
 import { ToolbarState, ToolbarButton, FloatingToolbarLayout } from './FloatingToolbarLayout';
-import { KeyboardSkin } from './skin/KeyboardSkin';
+import { GlobalTheme } from './skin/GlobalTheme';
 import { ToolbarSkin, ToolbarSkinPolicy } from './ToolbarSkinPolicy';
 
 /**
@@ -24,19 +24,17 @@ struct FloatingToolbar {
   @State hoveredButton: ToolbarButton | undefined = undefined;
   @State fontSize: number = 24;
   @State toolbarScale: number = 1;
-  // The same skin the keyboard wears, so a bar floating beside it does not look like another app's.
-  @State skin: KeyboardSkin = KeyboardSkin.from('forest', false);
-  @State toolbarSkin: ToolbarSkin = ToolbarSkinPolicy.base(KeyboardSkin.from('forest', false));
+  // The candidate palette of the global theme, so a bar floating beside the candidates does not look like another app's.
+  @State toolbarSkin: ToolbarSkin = ToolbarSkinPolicy.base(GlobalTheme.candidateColors(null, false));
 
   aboutToAppear(): void {
     KeyboardSession.shared.onToolbar = (state: ToolbarState, buttons: ToolbarButton[],
-                                        fontSize: number, scale: number, skin: KeyboardSkin,
+                                        fontSize: number, scale: number,
                                         toolbarSkin: ToolbarSkin): void => {
       this.state = state;
       this.buttons = buttons;
       this.fontSize = fontSize;
       this.toolbarScale = scale;
-      this.skin = skin;
       this.toolbarSkin = toolbarSkin;
     };
   }

@@ -573,6 +573,7 @@ pub(super) fn validate_chat_request(
 pub(super) fn validate_tokens(tokens: &AccountTokens) -> Result<(), AccountError> {
     if tokens.token_type != "Bearer"
         || tokens.expires_in == 0
+        || tokens.expires_in > MAX_SESSION_SECONDS
         || !crate::text::is_lower_hex(&tokens.access_token, 64)
         || !crate::text::is_lower_hex(&tokens.refresh_token, 64)
     {

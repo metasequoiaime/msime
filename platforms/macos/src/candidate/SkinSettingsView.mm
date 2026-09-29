@@ -6,6 +6,8 @@
 
 #include "CandidateSkin.h"
 
+#include <algorithm>
+
 namespace
 {
 NSTextField *Label(NSString *text, CGFloat size, NSFontWeight weight, NSColor *color)
@@ -17,21 +19,22 @@ NSTextField *Label(NSString *text, CGFloat size, NSFontWeight weight, NSColor *c
     return label;
 }
 
-NSString *BuiltinDescription(const std::string &id)
+// The catalog carries ids, titles and a mode, not prose, so a card says what kind of theme it is rather than repeating a per-theme description kept here.
+NSString *ThemeDescription(const metasequoia::mac::ThemeCatalogEntry &entry)
 {
-    if (id == "wechat")
+    if (entry.id == "custom")
     {
-        return @"微信绿候选窗与悬浮工具栏";
+        return @"在底色上叠加自己的配色，或使用下方的外部皮肤";
     }
-    if (id == "graphite")
+    if (entry.appearance == "dark")
     {
-        return @"克制、平直的候选窗与悬浮工具栏";
+        return @"固定深色的候选窗、悬浮工具栏与菜单配色";
     }
-    if (id == "willow_green")
+    if (entry.appearance == "light")
     {
-        return @"柔和圆角与柳绿色整行高亮";
+        return @"固定浅色的候选窗、悬浮工具栏与菜单配色";
     }
-    return @"默认候选窗与悬浮状态栏";
+    return @"跟随系统明暗，使用 macOS 原生配色";
 }
 
 NSString *JoinedSkinValues(const std::vector<std::string> &values)
@@ -92,6 +95,9 @@ NSString *JoinedSkinValues(const std::vector<std::string> &values)
     NSMutableArray<NSString *> *_skinIds;
     NSMutableArray<NSString *> *_skinNames;
     NSMutableArray<NSNumber *> *_skinCompatibility;
+    /// The first _themeCardCount cards are the global themes; the rest are external packages.
+    NSUInteger _themeCardCount;
+    NSButton *_detachSkinButton;
     BOOL _didScrollToTop;
 }
 
@@ -124,7 +130,7 @@ NSString *JoinedSkinValues(const std::vector<std::string> &values)
     // 皮肤 heading that used to sit above it said what the toolbar title and the selected sidebar
     // row both already say.
     NSTextField *summary =
-        Label(@"选择内置皮肤，或从本机目录加载自定义皮肤。", 13.0, NSFontWeightRegular, [NSColor secondaryLabelColor]);
+        Label(@"选择全局主题，或从本机目录加载外部皮肤。外部皮肤会作为自定义主题使用。", 13.0, NSFontWeightRegular, [NSColor secondaryLabelColor]);
     summary.maximumNumberOfLines = 2;
 
     NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
@@ -173,13 +179,14 @@ NSString *JoinedSkinValues(const std::vector<std::string> &values)
         [scroll.bottomAnchor constraintEqualToAnchor:self.bottomAnchor],
     ]];
 
-    for (const metasequoia::mac::SkinListEntry &entry : metasequoia::mac::BuiltInSkinEntries())
+    for (const metasequoia::mac::ThemeCatalogEntry &entry : metasequoia::mac::ThemeCatalog())
     {
         [self addSection:[self makeCardForId:@(entry.id.c_str())
-                                        name:@(entry.name.c_str())
-                                 description:BuiltinDescription(entry.id)
+                                        name:@(entry.title.c_str())
+                                 description:ThemeDescription(entry)
                                 compatible:YES]];
     }
+    _themeCardCount = _skinIds.count;
 
     NSTextField *externalTitle = Label(@"外部皮肤", 13.0, NSFontWeightSemibold, [NSColor secondaryLabelColor]);
     NSTextField *externalHelp = Label(@"把包含 skin.toml 的皮肤文件夹复制到下面的目录，然后刷新。", 13.0,
@@ -194,7 +201,10 @@ NSString *JoinedSkinValues(const std::vector<std::string> &values)
     NSButton *refresh = [NSButton buttonWithTitle:@"刷新皮肤" target:self action:@selector(reload)];
     refresh.bezelStyle = NSBezelStyleRounded;
     refresh.accessibilityLabel = @"刷新皮肤";
-    NSStackView *actions = [NSStackView stackViewWithViews:@[ open, refresh ]];
+    _detachSkinButton = [NSButton buttonWithTitle:@"不使用外部皮肤" target:self action:@selector(detachExternalSkin:)];
+    _detachSkinButton.bezelStyle = NSBezelStyleRounded;
+    _detachSkinButton.accessibilityLabel = @"自定义主题不使用外部皮肤";
+    NSStackView *actions = [NSStackView stackViewWithViews:@[ open, refresh, _detachSkinButton ]];
     actions.orientation = NSUserInterfaceLayoutOrientationHorizontal;
     actions.spacing = 8.0;
     NSBox *externalHeader = [[NSBox alloc] initWithFrame:NSZeroRect];
@@ -340,7 +350,35 @@ NSString *JoinedSkinValues(const std::vector<std::string> &values)
         return;
     }
     sender.state = NSControlStateValueOn;
-    _preferences.skinID = skinId;
+    if (metasequoia::mac::IsGlobalThemeId(skinId.UTF8String))
+    {
+        // The custom card selects the custom theme as it stands, package included (THEME_CONTRACT §5); only 自定义主题不使用外部皮肤 drops the package.
+        _preferences.globalTheme = skinId;
+        return;
+    }
+    const std::filesystem::path root = _preferences.skinsRoot.fileSystemRepresentation ?: "";
+    const auto package = msime::mac::LoadSkinPackage(root, skinId.UTF8String);
+    [_preferences selectExternalSkin:skinId base:package ? @(package->base.c_str()) : @"system"];
+}
+
+- (void)detachExternalSkin:(id)sender
+{
+    (void)sender;
+    [_preferences clearCustomCandidateSkin];
+}
+
+/// Whether a package can be selected in the current layout. A package over a built-in base is drawn in that base's mode, so the host mode does not rule it out; over a system base it is drawn in the mode the candidate window resolves for a system base (the 候选窗主题 / 主题 light-dark choice, else the system's), which its manifest has to list. This is the React host's rule (external-skins.tsx) and THEME_CONTRACT §5.
+- (BOOL)packageIsCompatible:(const msime::mac::SkinPackage &)package
+{
+    const std::string layout = _preferences.vertical ? "vertical" : "horizontal";
+    for (const metasequoia::mac::ThemeCatalogEntry &entry : metasequoia::mac::ThemeCatalog())
+    {
+        if (entry.id == package.base && !entry.appearance.empty())
+            return std::find(package.layouts.begin(), package.layouts.end(), layout) != package.layouts.end();
+    }
+    NSAppearance *appearance = _preferences.systemBaseCandidateAppearanceOverride ?: self.effectiveAppearance;
+    NSString *host = MetasequoiaAppearanceIsDark(appearance) ? @"dark" : @"light";
+    return msime::mac::SupportsSkin(package, layout, host.UTF8String);
 }
 
 - (void)toggleCardTheme:(NSButton *)sender
@@ -381,26 +419,31 @@ NSString *JoinedSkinValues(const std::vector<std::string> &values)
 
 - (void)refreshCardChrome
 {
-    NSString *active = _preferences.skinID;
-    const NSUInteger builtInCount = metasequoia::mac::BuiltInSkinEntries().size();
+    NSString *active = _preferences.globalTheme;
+    NSString *activePackage = [active isEqual:@"custom"] ? _preferences.customCandidateSkin : nil;
     const std::filesystem::path root = _preferences.skinsRoot.fileSystemRepresentation ?: "";
-    NSAppearance *appearance = _preferences.candidateAppearanceOverride ?: self.effectiveAppearance;
-    NSString *theme = MetasequoiaAppearanceIsDark(appearance) ? @"dark" : @"light";
-    NSString *layout = _preferences.vertical ? @"vertical" : @"horizontal";
+    _detachSkinButton.enabled = _preferences.customCandidateSkin != nil;
     for (NSUInteger index = 0; index < _skinIds.count; ++index)
     {
         BOOL compatible = YES;
-        if (index >= builtInCount)
+        BOOL selected = NO;
+        if (index >= _themeCardCount)
         {
             auto package = msime::mac::LoadSkinPackage(root, _skinIds[index].UTF8String);
-            compatible = package.has_value() &&
-                         msime::mac::SupportsSkin(*package, layout.UTF8String, theme.UTF8String);
+            compatible = package.has_value() && [self packageIsCompatible:*package];
             _skinCompatibility[index] = @(compatible);
+            selected = [_skinIds[index] isEqualToString:activePackage ?: @""];
         }
-        const BOOL selected = [_skinIds[index] isEqualToString:active];
+        else
+        {
+            // A theme card is on while its theme is the global theme; under a package the custom card stays on beside the package's card, since the package is drawn over the custom theme.
+            selected = [_skinIds[index] isEqualToString:active];
+        }
         _switches[index].state = selected ? NSControlStateValueOn : NSControlStateValueOff;
         _switches[index].enabled = compatible;
         _themeButtons[index].title = [_previews[index] forcedThemeButtonTitle];
+        // A theme with a fixed mode looks the same in both, so there is nothing to preview in the other.
+        _themeButtons[index].hidden = [_previews[index] previewSkin].fixedDark.has_value();
         _titles[index].stringValue = [NSString
             stringWithFormat:@"%@（%@）", _skinNames[index], [_previews[index] previewUsesDark] ? @"Dark" : @"Light"];
         _previews[index].needsDisplay = YES;
@@ -409,7 +452,7 @@ NSString *JoinedSkinValues(const std::vector<std::string> &values)
 
 - (void)clearExternalCards
 {
-    while (_skinIds.count > metasequoia::mac::BuiltInSkinEntries().size())
+    while (_skinIds.count > _themeCardCount)
     {
         [_skinIds removeLastObject];
         [_skinNames removeLastObject];
@@ -442,12 +485,9 @@ NSString *JoinedSkinValues(const std::vector<std::string> &values)
     for (const metasequoia::mac::SkinPackage &package : catalog.packages)
     {
         NSString *description = package.description.empty()
-                                    ? [NSString stringWithFormat:@"基于 %s", package.base.c_str()]
+                                    ? [NSString stringWithFormat:@"基于%s", msime::mac::ThemeTitle(package.base).c_str()]
                                     : @(package.description.c_str());
-        NSAppearance *appearance = _preferences.candidateAppearanceOverride ?: self.effectiveAppearance;
-        NSString *theme = MetasequoiaAppearanceIsDark(appearance) ? @"dark" : @"light";
-        NSString *layout = _preferences.vertical ? @"vertical" : @"horizontal";
-        const BOOL compatible = msime::mac::SupportsSkin(package, layout.UTF8String, theme.UTF8String);
+        const BOOL compatible = [self packageIsCompatible:package];
         if (!compatible) {
             description = [NSString stringWithFormat:@"当前布局或明暗模式不受支持（%@，%@）",
                                                      JoinedSkinValues(package.layouts), JoinedSkinValues(package.themes)];

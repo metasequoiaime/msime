@@ -18,10 +18,10 @@
 
 | crate | 职责 |
 | --- | --- |
-| `msime-client-core` | 宿主无关的客户端业务：`preferences`、`account`、`ai`、`cloud`、`community`、`credential`、`dictionary`、`skin`、`translation`、`voice`、`clipboard`、`punctuation`、`chinese_conversion`、`typing_statistics`、`resources`、`host_surface`、`panels`。不依赖 Tauri、React、Engine 或任何平台 API。 |
+| `msime-client-core` | 宿主无关的客户端业务：`preferences`、`account`、`ai`、`cloud`、`community`、`credential`、`dictionary`、`helpcode`、`skin`、`translation`、`voice`、`clipboard`、`punctuation`、`chinese_conversion`、`typing_statistics`、`resources`、`host_surface`、`panels`。不依赖 Tauri、React、Engine 或任何平台 API。 |
 | `msime-engine-bridge` | CXX 桥接到钉死的上游 C++ Engine Session API，另含 `dictionary_stage`、`dictionary_revision` 与词典回放工具 `MetasequoiaImeDictionaryReplay`；`examples/` 下是各类真实词库探针。 |
 | `msime-input-runtime` | 输入宿主的会话编排：焦点、候选翻页、代次选择、全半角转换、在线候选调度。含重排模型 `Reranker` 的接入。 |
-| `msime-host-api` | 版本化 C ABI（`msime_client_abi_version()` 返回 2），116 个 `msime_client_*` 导出，`crate-type = ["cdylib", "staticlib", "rlib"]`。`ffi/` 按 host/session/input/candidates/lifecycle/providers/translation/voice 分文件。 |
+| `msime-host-api` | 版本化 C ABI（`msime_client_abi_version()` 返回 3），132 个 `msime_client_*` 导出（头文件另有 2 个 `static inline` 辅助函数），`crate-type = ["cdylib", "staticlib", "rlib"]`。`ffi/` 按 host/session/input/candidates/lifecycle/providers/translation/voice 分文件。 |
 | `msime-host-macos` | macOS 宿主的 Objective-C++ 平台能力：键盘注入、账户、剪贴板、词库、文件选择器、卸载器、录音设备枚举，以及 `panel_session`、`cloud_clipboard`、`cloud_dictionary`。 |
 | `msime-host-windows` | Windows 平台能力的安全封装：语音控制器与输出、粘贴策略、Windows Ink 手写。桌面 shell 禁 unsafe，所以 Win32 调用集中在这里。 |
 | `msime-tauri-mobile-platform` | Tauri shell 在 Android/iOS 上的平台能力注入插件。 |
@@ -41,7 +41,7 @@
 
 `engine-lock.json` 把 Engine 钉到具体 commit 的 tar.gz 归档（带 sha256），而不是 submodule；`patches` 为空，改动全部走 18 个 `scripts/apply_engine_*.py` overlay 脚本和 2 个 overlay asset，这样上游 bump 时冲突面清晰可见。四个嵌套依赖（Google-PinyinIME-Rev、utfcpp、miniaudio、whisper.cpp）各自带归档和摘要。
 
-`resources/desktop-dictionary.lock.json` 锁定 10 个词库 artifact（合计约 175 MB，含 `msime.db`、`dict_japanese.dat`、`bigram.bin`/`trigram.bin`、`english.db`、`others.db`、`dict_pinyin.dat`、`sentence-model.safetensors`），每项带 sha256 和长度；`resources/settled-model.lock.json` 锁定重排模型。`resources/eval/` 是四套转换质量数据集及其基线，`resources/helpcodes/` 是辅助码表与其 NOTICE。
+`resources/desktop-dictionary.lock.json` 锁定 10 个词库 artifact（合计约 175 MB，含 `msime.db`、`dict_japanese.dat`、`bigram.bin`/`trigram.bin`、`english.db`、`others.db`、`dict_pinyin.dat`、`sentence-model.safetensors`），每项带 sha256 和长度；`resources/neural-model.lock.json` 同时锁定键盘与桌面落定两个神经模型，`scripts/fetch_neural_model.py` 将它们原子下载到 `target/neural-model`；旧的 `resources/settled-model.lock.json` 和 `scripts/fetch_settled_model.py` 仍兼容只准备桌面模型的构建。`resources/eval/` 是四套转换质量数据集及其基线，`resources/helpcodes/` 是辅助码表与其 NOTICE。
 
 ## 三、共享层的最终形态
 
@@ -60,6 +60,8 @@
 ### 资源安装
 
 `ResourceStore` 读取受信任的产品锁，通过宿主注入的传输流安装平面文件集合，严格校验长度与摘要，用独立文件锁和临时目录发布防止半安装，不覆盖旧资源代次。词库升级按代次进行：宿主建会话前比对编译进库的词库锁代次，原子替换运行配置里的 `resources`/`dictionaries` 两项。
+
+`client-core::helpcode` 负责读取资源目录里的用户辅助码元数据。`helpcodes/custom/*.txt` 的文件名形成 `custom/<stem>` 标识，扫描结果按 stem 排序；可选的 `# name:`、`# name_en:` 头部只用于设置界面显示，路径校验拒绝目录穿越和平台文件名分隔符。实际码表解析与候选筛选仍由 Engine 负责，Rust 不复制输入算法。
 
 ### 账号、云与社区
 

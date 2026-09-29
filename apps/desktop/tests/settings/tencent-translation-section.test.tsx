@@ -27,7 +27,7 @@ test("forwards provider toggle and credential edits", () => {
     />,
   );
 
-  fireEvent.click(screen.getByRole("checkbox", { name: "腾讯云机器翻译" }));
+  fireEvent.click(screen.getByRole("switch", { name: "腾讯云机器翻译" }));
   fireEvent.change(screen.getByLabelText("腾讯云 SecretId"), {
     target: { value: "updated-id" },
   });
@@ -94,7 +94,7 @@ test("disables fields when candidate translations are unavailable", () => {
   );
 
   expect(
-    (screen.getByRole("checkbox", { name: "腾讯云机器翻译" }) as HTMLInputElement).disabled,
+    (screen.getByRole("switch", { name: "腾讯云机器翻译" }) as HTMLInputElement).disabled,
   ).toBe(true);
   expect((screen.getByLabelText("腾讯云 SecretId") as HTMLInputElement).disabled).toBe(true);
   expect((screen.getByLabelText("腾讯云地域") as HTMLInputElement).disabled).toBe(true);

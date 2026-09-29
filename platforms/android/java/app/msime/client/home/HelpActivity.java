@@ -4,8 +4,6 @@ import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.Settings;
-import android.view.Gravity;
-import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -29,6 +27,7 @@ public final class HelpActivity extends AppCompatActivity {
     private static final String DOCUMENTATION = "https://msime.app/docs/";
 
     @Override protected void onCreate(@Nullable Bundle state) {
+        AppMode.restore(this);
         super.onCreate(state);
         setContentView(R.layout.activity_help);
         MaterialToolbar bar = findViewById(R.id.help_bar);
@@ -59,6 +58,9 @@ public final class HelpActivity extends AppCompatActivity {
         LinearLayout more = card(column);
         action(more, "完整文档", "msime.app，在浏览器里打开", R.drawable.ic_about_site,
             () -> open(new Intent(Intent.ACTION_VIEW, Uri.parse(DOCUMENTATION))));
+        // 我的 → 帮助与反馈 lands here, so the feedback half of that row has to be here too.
+        action(more, "反馈问题与建议", "在应用内写，附带版本与设备信息", R.drawable.ic_about_feedback,
+            () -> open(new Intent(this, FeedbackActivity.class)));
     }
 
     private void open(Intent intent) {
@@ -70,26 +72,20 @@ public final class HelpActivity extends AppCompatActivity {
     }
 
     private void section(LinearLayout parent, String title) {
-        TextView heading = new TextView(this);
-        heading.setText(title);
-        heading.setTextSize(13);
-        heading.setTextColor(ContextCompat.getColor(this, R.color.text_secondary));
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        params.topMargin = pixels(20);
-        params.leftMargin = pixels(4);
-        parent.addView(heading, params);
+        TextView heading = ListRows.heading(parent, title);
+        heading.setPadding(pixels(16), pixels(20), pixels(16), 0);
     }
 
     private LinearLayout card(LinearLayout parent) {
         com.google.android.material.card.MaterialCardView card =
             new com.google.android.material.card.MaterialCardView(this);
-        card.setRadius(pixels(18));
+        card.setRadius(pixels(20));
+        card.setStrokeWidth(0);
         card.setCardElevation(0);
         card.setCardBackgroundColor(ContextCompat.getColor(this, R.color.surface));
         LinearLayout column = new LinearLayout(this);
         column.setOrientation(LinearLayout.VERTICAL);
-        column.setPadding(pixels(16), pixels(10), pixels(16), pixels(10));
+        column.setPadding(0, pixels(6), 0, pixels(6));
         card.addView(column);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -116,6 +112,7 @@ public final class HelpActivity extends AppCompatActivity {
         bodyParams.topMargin = pixels(3);
         row.addView(body, bodyParams);
         row.setContentDescription(term + "。" + detail);
+        row.setPadding(pixels(16), 0, pixels(16), 0);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         params.topMargin = pixels(10);
@@ -123,21 +120,11 @@ public final class HelpActivity extends AppCompatActivity {
         parent.addView(row, params);
     }
 
+    /** A tappable row inside a card: the shared M3 row at the card's 16dp inset. */
     private void action(LinearLayout parent, String title, String value, int icon, Runnable run) {
-        LinearLayout row = (LinearLayout) LayoutInflater.from(this)
-            .inflate(R.layout.item_setting_row, parent, false);
-        com.google.android.material.imageview.ShapeableImageView badge = row.findViewById(R.id.row_badge);
-        badge.setImageResource(icon);
-        badge.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
-            ContextCompat.getColor(this, R.color.badge_field)));
-        badge.setImageTintList(android.content.res.ColorStateList.valueOf(
-            ContextCompat.getColor(this, R.color.forest)));
-        ((TextView) row.findViewById(R.id.row_title)).setText(title);
-        ((TextView) row.findViewById(R.id.row_value)).setText(value);
-        row.setGravity(Gravity.CENTER_VERTICAL);
+        View row = ListRows.add(parent, icon, title, value, run);
+        row.setPaddingRelative(pixels(16), row.getPaddingTop(), pixels(16), row.getPaddingBottom());
         row.setContentDescription(title + "，" + value);
-        row.setOnClickListener(ignored -> run.run());
-        parent.addView(row);
     }
 
     private int pixels(int value) {

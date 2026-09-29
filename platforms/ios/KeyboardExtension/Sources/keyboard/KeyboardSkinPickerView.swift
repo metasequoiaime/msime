@@ -1,7 +1,10 @@
 import UIKit
 
+/// The keyboard's theme picker: the global themes of the catalog (the same ids the app and the desktop list), then the saved keyboard designs, which apply to the custom theme.
 final class KeyboardSkinPickerView: UIView {
-  init(selected: KeyboardSkin, showsHeader: Bool = true, onSelect: @escaping (KeyboardSkin) -> Void, onClose: @escaping () -> Void) {
+  /// `document` is the shared document the cards resolve against, so the custom card shows the custom theme as configured.
+  init(selected: String, document: [String: Any]? = MetasequoiaInputSessionBridge.loadSharedPreferences(), showsHeader: Bool = true,
+       onSelect: @escaping (String) -> Void, onSelectDesign: @escaping (CustomKeyboardSkin) -> Void, onClose: @escaping () -> Void) {
     super.init(frame: .zero)
     accessibilityIdentifier = "keyboardSkinPicker"
     backgroundColor = .secondarySystemBackground
@@ -20,6 +23,7 @@ final class KeyboardSkinPickerView: UIView {
     rows.axis = .vertical
     rows.spacing = 10
     let saved = CustomSkinLibrary.designs
+    let appliedDesign = GlobalThemePreference.design(in: document) ?? (document == nil ? CustomKeyboardSkinStore.stored : nil)
     if !saved.isEmpty {
       let label = UILabel()
       label.text = "我的设计"
@@ -42,7 +46,7 @@ final class KeyboardSkinPickerView: UIView {
           config.background.strokeColor = CustomKeyboardSkin.color(item.design.customBorderColor ?? item.design.accent)
           card.configuration = config
           card.heightAnchor.constraint(equalToConstant: 104).isActive = true
-          let miniature = KeyboardSkinMiniature(skin: .custom, design: item.design)
+          let miniature = KeyboardSkinMiniature(skin: .designed(item.design))
           miniature.isUserInteractionEnabled = false
           miniature.translatesAutoresizingMaskIntoConstraints = false
           card.addSubview(miniature)
@@ -54,33 +58,37 @@ final class KeyboardSkinPickerView: UIView {
           ])
           card.accessibilityIdentifier = "savedSkinCard-" + item.id.uuidString
           card.accessibilityLabel = item.name
-          let active = selected == .custom && item.design == CustomKeyboardSkinStore.current
+          let active = selected == GlobalThemeCatalog.customId && item.design == appliedDesign
           card.accessibilityValue = active ? "已选中" : ""
           if active { card.accessibilityTraits.insert(.selected) }
-          card.addAction(UIAction { _ in CustomKeyboardSkinStore.save(item.design); onSelect(.custom) }, for: .primaryActionTriggered)
+          card.addAction(UIAction { _ in onSelectDesign(item.design) }, for: .primaryActionTriggered)
           row.addArrangedSubview(card)
         }
         if row.arrangedSubviews.count == 1 { row.addArrangedSubview(UIView()) }
         rows.addArrangedSubview(row)
       }
     }
-    for index in stride(from: 0, to: KeyboardSkin.allCases.count, by: 2) {
+    let themes = GlobalThemeCatalog.ids.map { KeyboardTheme.resolve($0, document: document) }
+    for index in stride(from: 0, to: themes.count, by: 2) {
       let row = UIStackView()
       row.spacing = 10
       row.distribution = .fillEqually
-      for skin in KeyboardSkin.allCases[index..<min(index + 2, KeyboardSkin.allCases.count)] {
+      for skin in themes[index..<min(index + 2, themes.count)] {
+        let chosen = skin.id == selected
         let card = KeyboardKeyButton()
-        card.accessibilityIdentifier = "skinCard-\(skin.rawValue)"
+        card.accessibilityIdentifier = "skinCard-\(skin.id)"
         card.accessibilityLabel = skin.title
-        card.accessibilityValue = skin == selected ? "已选中" : ""
-        if skin == selected { card.accessibilityTraits.insert(.selected) }
+        card.accessibilityValue = chosen ? "已选中" : ""
+        if chosen { card.accessibilityTraits.insert(.selected) }
+        // A theme with a fixed mode shows it in that mode whatever the keyboard's mode is.
+        card.overrideUserInterfaceStyle = skin.appearance ?? .unspecified
         card.backgroundColor = skin.background
         card.layer.cornerRadius = 12
-        card.layer.borderWidth = skin == selected ? 2 : 1
-        card.layer.borderColor = (skin == selected ? UIColor.label : UIColor.separator).resolvedColor(with: traitCollection).cgColor
+        card.layer.borderWidth = chosen ? 2 : 1
+        card.layer.borderColor = (chosen ? UIColor.label : UIColor.separator).resolvedColor(with: traitCollection).cgColor
         card.clipsToBounds = true
         let title = UILabel()
-        title.text = skin.title + (skin == selected ? "  ✓" : "")
+        title.text = skin.title + (chosen ? "  ✓" : "")
         title.font = .systemFont(ofSize: 13, weight: .semibold)
         title.textColor = skin.keyForeground
         let preview = KeyboardSkinMiniature(skin: skin)
@@ -104,7 +112,7 @@ final class KeyboardSkinPickerView: UIView {
           preview.topAnchor.constraint(equalTo: card.topAnchor, constant: 29),
           preview.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -7),
         ])
-        card.addAction(UIAction { _ in onSelect(skin) }, for: .primaryActionTriggered)
+        card.addAction(UIAction { _ in onSelect(skin.id) }, for: .primaryActionTriggered)
         row.addArrangedSubview(card)
       }
       if row.arrangedSubviews.count == 1 { row.addArrangedSubview(UIView()) }
@@ -142,11 +150,9 @@ final class KeyboardSkinPickerView: UIView {
 final class KeyboardSkinMiniature: UIView {
   // Scale the whole four-row keyboard together, including in landscape cards.
   static let heightToWidthRatio: CGFloat = 0.6
-  let skin: KeyboardSkin
+  let skin: KeyboardTheme
   let nineKey: Bool
-  let designOverride: CustomKeyboardSkin?
-  init(skin: KeyboardSkin, nineKey: Bool = false, design: CustomKeyboardSkin? = nil) {
-    self.designOverride = design
+  init(skin: KeyboardTheme, nineKey: Bool = false) {
     self.nineKey = nineKey
     self.skin = skin
     super.init(frame: .zero)
@@ -161,9 +167,8 @@ final class KeyboardSkinMiniature: UIView {
     context.saveGState()
     defer { context.restoreGState() }
     context.scaleBy(x: bounds.width / canvas.width, y: bounds.height / canvas.height)
-    let design = skin == .custom ? (designOverride ?? CustomKeyboardSkinStore.current) : nil
+    let design = skin.design
     let backdrop = KeyboardSkinBackgroundView(frame: canvas)
-    backdrop.designOverride = design
     backdrop.skin = skin
     backdrop.overrideUserInterfaceStyle = traitCollection.userInterfaceStyle
     backdrop.draw(canvas)
@@ -191,8 +196,8 @@ final class KeyboardSkinMiniature: UIView {
           context.restoreGState()
         } else {
         let path = UIBezierPath(roundedRect: key, cornerRadius: min(skin.cornerRadius * 0.3, height * 0.4))
-        if skin.shadowOpacity > 0 {
-          UIColor.black.withAlphaComponent(CGFloat(skin.shadowOpacity)).setFill()
+        if skin.hasShadow {
+          skin.shadowColor.resolvedColor(with: traitCollection).setFill()
           UIBezierPath(roundedRect: key.offsetBy(dx: 0, dy: 2), cornerRadius: 2).fill()
         }
         (title == "↵" ? skin.actionBackground : skin.keyBackground).setFill()

@@ -478,7 +478,7 @@ pub fn send_key(virtual_key: u16, modifiers: Modifiers) -> bool {
     if virtual_key == 0 {
         return false;
     }
-    let mut held: Vec<u16> = Vec::new();
+    let mut held = Vec::with_capacity(4);
     if modifiers.ctrl {
         held.push(VK_CONTROL);
     }
@@ -513,7 +513,7 @@ pub fn send_text(text: &str) -> bool {
     if !valid_text(text) {
         return false;
     }
-    let mut inputs = Vec::new();
+    let mut inputs = Vec::with_capacity(text.encode_utf16().count() * 2);
     for unit in text.encode_utf16() {
         inputs.push(unicode_input(unit, false));
         inputs.push(unicode_input(unit, true));

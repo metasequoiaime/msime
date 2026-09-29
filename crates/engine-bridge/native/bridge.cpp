@@ -55,6 +55,7 @@ rust::Vec<float> capture_audio(std::uint32_t milliseconds) {
     std::condition_variable done;
     bool failed = false;
     std::size_t maximum = 16000u * milliseconds / 1000u;
+    samples.reserve(maximum);
     auto callback = [&](const float *input, std::size_t frames) {
         std::lock_guard lock(mutex);
         if (samples.size() + frames > maximum) frames = maximum - samples.size();
@@ -82,7 +83,9 @@ rust::Vec<float> capture_audio(std::uint32_t milliseconds) {
 rust::Vec<CaptureDevice> capture_devices() {
     rust::Vec<CaptureDevice> devices;
 #if MSIME_ENGINE_BRIDGE_AUDIO_CAPTURE
-    for (const auto &device : metasequoia::voice::AudioCapture::devices()) {
+    const auto available = metasequoia::voice::AudioCapture::devices();
+    devices.reserve(available.size());
+    for (const auto &device : available) {
         CaptureDevice value;
         value.id = device.id;
         value.label = device.label;
@@ -93,8 +96,10 @@ rust::Vec<CaptureDevice> capture_devices() {
 }
 rust::Vec<rust::String> handwriting_order_candidates(rust::Slice<const rust::String> candidates) {
     std::vector<std::string> input;
+    input.reserve(candidates.size());
     for (const auto &candidate : candidates) input.emplace_back(std::string(candidate));
     rust::Vec<rust::String> output;
+    output.reserve(candidates.size());
 #if MSIME_HAS_HANDWRITING_CANDIDATES
     for (const auto &candidate : metasequoia::handwriting::order_candidates(input))
         output.push_back(rust::String(candidate));
@@ -392,6 +397,12 @@ metasequoia::SessionOptions options_for(const EngineOptions& value) {
                            value.local_kaomoji, value.local_super_jianpin, value.local_temporary_english,
                            value.local_temporary_japanese};
     options.sentence_alternatives = value.sentence_alternatives;
+    options.sentence_association = {value.sentence_association.word_lattice,
+                                    value.sentence_association.google,
+                                    value.sentence_association.neural_desktop,
+                                    value.sentence_association.neural_keyboard,
+                                    value.sentence_association.show_next_on_duplicate};
+    options.rescoring_context = std::string(value.rescoring_context);
     return options;
 }
 EngineResult result_for(const metasequoia::KeyResult& value) {
@@ -554,6 +565,7 @@ rust::Vec<rust::String> english_completions(rust::Str resources, rust::Str prefi
     EnglishDictionary dictionary(path.u8string(), false);
     if (!dictionary.ready()) throw std::runtime_error("English dictionary unavailable");
     rust::Vec<rust::String> result;
+    result.reserve(limit);
     for (const auto &item : dictionary.query_prefix(lowered, limit))
         result.push_back(rust::String(item.word));
     return result;
@@ -621,6 +633,7 @@ void reset_learned_data(const EngineOptions& options) {
         bool published = false;
     };
     std::vector<Replacement> replacements;
+    replacements.reserve(3);
     replacements.push_back({main_target, temporary(main_target), backup(main_target)});
     replacements.push_back({english_target, temporary(english_target), backup(english_target)});
     replacements.push_back({journal, journal_temporary, journal_backup});
@@ -837,6 +850,7 @@ std::string join_shuangpin_units(std::vector<std::string> units) {
 // is not running is worse than labelling nothing.
 rust::Vec<ShuangpinKeyHint> shuangpin_key_hints(rust::Str profile) {
     rust::Vec<ShuangpinKeyHint> hints;
+    hints.reserve(29);
     const std::string name(profile);
     if (name != "xiaohe" && name != "ziranma" && name != "shoudao" && name != "microsoft") return hints;
 
@@ -867,6 +881,7 @@ EngineSnapshot EngineSession::snapshot() const {
     output.local_mode = local_mode_name(value.local_mode);
     output.dedicated_english = value.dedicated_english;
     output.nine_key = nine_key_;
+    output.nine_key_spellings.reserve(value.nine_key_spellings.size());
     for (const auto& spelling : value.nine_key_spellings)
         output.nine_key_spellings.push_back(rust::String(spelling));
     output.microsoft_shuangpin = microsoft_shuangpin_;
@@ -880,9 +895,19 @@ EngineSnapshot EngineSession::snapshot() const {
                          : std::string{};
     output.editing_text = value.editing_text;
     output.caret_position = value.caret_position;
-    for (const auto boundary : session_.segment_raw_boundaries())
+    const auto boundaries = session_.segment_raw_boundaries();
+    output.segment_raw_boundaries.reserve(boundaries.size());
+    for (const auto boundary : boundaries)
         output.segment_raw_boundaries.push_back(static_cast<std::uint64_t>(boundary));
-    for (std::size_t index = 0; index < value.candidates.size(); ++index) {
+    const auto candidate_count = value.candidates.size();
+    output.candidates.reserve(candidate_count);
+    output.candidate_codes.reserve(candidate_count);
+    output.candidate_annotations.reserve(candidate_count);
+    output.candidate_sources.reserve(candidate_count);
+    output.candidate_positions.reserve(candidate_count);
+    output.candidate_corrected.reserve(candidate_count);
+    output.candidate_answers_key.reserve(candidate_count);
+    for (std::size_t index = 0; index < candidate_count; ++index) {
         const auto &candidate = value.candidates[index];
         output.candidates.push_back(rust::String(candidate.word));
         output.candidate_codes.push_back(rust::String(candidate.pinyin));
@@ -916,6 +941,21 @@ EngineSnapshot EngineSession::snapshot() const {
 void EngineSession::reset_cache() {
     session_.reset_cache();
 }
+void EngineSession::set_caret(std::uint64_t caret) {
+    if (caret == std::numeric_limits<std::uint64_t>::max())
+        session_.set_caret(std::nullopt);
+    else
+        session_.set_caret(static_cast<std::size_t>(caret));
+}
+std::size_t EngineSession::prefix_end() const {
+    return session_.prefix_end();
+}
+rust::String EngineSession::pending_suffix() const {
+    return rust::String(session_.pending_suffix());
+}
+void EngineSession::reset_context() {
+    session_.reset_context();
+}
 OnlineQuerySnapshot EngineSession::online_query() const {
     OnlineQuerySnapshot output;
     const auto query = session_.online_query();
@@ -926,6 +966,7 @@ OnlineQuerySnapshot EngineSession::online_query() const {
     output.identity = query->identity;
     output.query_text = query->query_text;
     output.cache_key = query->cache_key;
+    output.pinyin_segments.reserve(query->pinyin_segments.size());
     for (const auto& segment : query->pinyin_segments)
         output.pinyin_segments.push_back(rust::String(segment));
     output.cloud_eligible = query->cloud_eligible;
@@ -942,6 +983,7 @@ bool EngineSession::apply_online_candidate(const OnlineQuerySnapshot& query,
     request.identity = std::string(query.identity);
     request.query_text = std::string(query.query_text);
     request.cache_key = std::string(query.cache_key);
+    request.pinyin_segments.reserve(query.pinyin_segments.size());
     for (const auto& segment : query.pinyin_segments)
         request.pinyin_segments.emplace_back(std::string(segment));
     request.cloud_eligible = query.cloud_eligible;
@@ -960,6 +1002,7 @@ bool EngineSession::apply_online_candidates(const OnlineQuerySnapshot& query,
     request.identity = std::string(query.identity);
     request.query_text = std::string(query.query_text);
     request.cache_key = std::string(query.cache_key);
+    request.pinyin_segments.reserve(query.pinyin_segments.size());
     for (const auto& segment : query.pinyin_segments)
         request.pinyin_segments.emplace_back(std::string(segment));
     request.cloud_eligible = query.cloud_eligible;
@@ -968,6 +1011,7 @@ bool EngineSession::apply_online_candidates(const OnlineQuerySnapshot& query,
     const auto kind = source == 0 ? CandidateSource::CloudSuggestion
                                   : CandidateSource::AiSuggestion;
     std::vector<std::string> words;
+    words.reserve(candidates.size());
     for (const auto& candidate : candidates) words.emplace_back(std::string(candidate));
     return session_.apply_online_candidates(request, words, kind);
 }
@@ -978,6 +1022,7 @@ static EmojiCatalogSlice read_emoji_catalog_slice(rust::Str resources, rust::Str
     result.next_offset = offset;
     if (limit == 0 || limit > 4096 || offset > static_cast<std::size_t>(std::numeric_limits<sqlite3_int64>::max()))
         throw std::invalid_argument("Invalid emoji catalog page");
+    result.items.reserve(limit);
     const auto path = std::filesystem::u8path(std::string(resources)) / "others.db";
     sqlite3 *database = nullptr;
     const int opened = sqlite3_open_v2(path.u8string().c_str(), &database,
@@ -1233,6 +1278,7 @@ rust::Vec<rust::String> handwriting_recognize(rust::Str model_path,
     metasequoia::handwriting::Recognizer recognizer{std::string(model_path)};
     const auto candidates = recognizer.recognize(strokes, width, height);
     rust::Vec<rust::String> result;
+    result.reserve(candidates.size());
     for (const auto &candidate : candidates)
         result.push_back(rust::String(candidate));
     return result;

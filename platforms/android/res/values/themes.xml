@@ -1,46 +1,127 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Material 3 rather than the framework's Theme.Material: the host uses MaterialCardView, MaterialButton and BottomNavigationView, and those resolve their own theme attributes. -->
-    <!-- 基础主题与启动画面分开：values-v31 在上面叠启动画面属性，其余一律共用这一份。 -->
+    <!-- Theme.MSIME is the name the manifest uses and Theme.MSIME.Base holds the attributes. There is no per-API overlay: the first-launch splash is the host's own home_intro view in HomeActivity, not the system splash screen, and night colours come from values-night. -->
     <style name="Theme.MSIME" parent="Theme.MSIME.Base" />
 
     <style name="Theme.MSIME.Base" parent="Theme.Material3.DayNight.NoActionBar">
         <item name="colorPrimary">@color/forest</item>
-        <item name="colorOnPrimary">@color/surface</item>
+        <item name="colorOnPrimary">@color/on_accent</item>
         <item name="colorSecondary">@color/needle</item>
         <item name="colorTertiary">@color/cone</item>
         <item name="android:colorBackground">@color/mist</item>
-        <item name="colorSurface">@color/surface</item>
+        <item name="colorOnBackground">@color/ink</item>
+        <item name="colorSurface">@color/mist</item>
         <item name="colorOnSurface">@color/ink</item>
 
-        <!-- Every role the theme leaves out is resolved from Material 3's own baseline, and that baseline is violet: the bottom bar took its background from colorSurfaceContainer and its active indicator from colorSecondaryContainer, so both rendered lilac next to the forest palette. The container and outline roles below are the ones these pages actually resolve; the surface container ramp is given in full because a role omitted here reappears as violet the moment a component reaches for it. -->
+        <!-- Every role the theme leaves out is resolved from Material 3's own baseline, and that baseline is violet: the bottom bar took its background from colorSurfaceContainer and its active indicator from colorSecondaryContainer, so both rendered lilac next to the forest palette. The container and outline roles below are the ones these pages actually resolve; the surface container ramp is given in full because a role omitted here reappears as violet the moment a component reaches for it. Each colour has a values-night twin, which is what makes the DayNight parent actually switch. -->
         <item name="colorPrimaryContainer">@color/surface_variant</item>
-        <item name="colorOnPrimaryContainer">@color/forest</item>
+        <item name="colorOnPrimaryContainer">@color/ink</item>
         <item name="colorSecondaryContainer">@color/surface_variant</item>
-        <item name="colorOnSecondaryContainer">@color/forest</item>
-        <item name="colorSurfaceVariant">@color/surface_variant</item>
+        <item name="colorOnSecondaryContainer">@color/ink</item>
+        <item name="colorSurfaceVariant">@color/search_field</item>
         <item name="colorOnSurfaceVariant">@color/text_secondary</item>
-        <item name="colorSurfaceContainerLowest">@color/surface</item>
+        <item name="colorSurfaceContainerLowest">@color/mist</item>
         <item name="colorSurfaceContainerLow">@color/surface</item>
         <item name="colorSurfaceContainer">@color/surface</item>
-        <item name="colorSurfaceContainerHigh">@color/mist</item>
-        <item name="colorSurfaceContainerHighest">@color/mist</item>
-        <item name="colorOutline">@color/hairline</item>
+        <item name="colorSurfaceContainerHigh">@color/surface</item>
+        <item name="colorSurfaceContainerHighest">@color/search_field</item>
+        <item name="colorOutline">@color/outline</item>
         <item name="colorOutlineVariant">@color/hairline</item>
 
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
+        <!-- The bars are transparent over our own background, so their icons follow the mode: dark glyphs on the light page, light ones on the dark page. -->
+        <item name="android:windowLightStatusBar">@bool/light_bars</item>
+        <item name="android:windowLightNavigationBar">@bool/light_bars</item>
+        <!-- Fade-through between activities instead of the platform slide, the same motion the tabs use. -->
+        <item name="android:windowAnimationStyle">@style/Animation.MSIME.FadeThrough</item>
+        <item name="bottomNavigationStyle">@style/Widget.MSIME.BottomNavigation</item>
+    </style>
+
+    <!-- M3 fade-through: the incoming screen fades in while growing from 94 %, the outgoing one only fades. -->
+    <style name="Animation.MSIME.FadeThrough" parent="@android:style/Animation.Activity">
+        <item name="android:activityOpenEnterAnimation">@anim/fade_through_in</item>
+        <item name="android:activityOpenExitAnimation">@anim/fade_through_out</item>
+        <item name="android:activityCloseEnterAnimation">@anim/fade_through_in</item>
+        <item name="android:activityCloseExitAnimation">@anim/fade_through_out</item>
+    </style>
+
+    <!-- The design's navigation bar: 80dp, the container tone, a 64x32 accentSoft pill behind the selected icon, 12sp labels with the selected one in the primary text colour and heavier. -->
+    <style name="Widget.MSIME.BottomNavigation" parent="Widget.Material3.BottomNavigationView">
+        <item name="android:background">@color/nav_bar</item>
+        <item name="itemActiveIndicatorStyle">@style/Widget.MSIME.BottomNavigation.Indicator</item>
+        <item name="itemIconSize">22dp</item>
+        <item name="itemIconTint">@color/nav_item</item>
+        <item name="itemTextColor">@color/nav_item</item>
+        <item name="itemTextAppearanceActive">@style/TextAppearance.MSIME.NavLabel.Active</item>
+        <item name="itemTextAppearanceInactive">@style/TextAppearance.MSIME.NavLabel</item>
+        <item name="itemPaddingTop">12dp</item>
+        <item name="labelVisibilityMode">labeled</item>
+    </style>
+
+    <style name="Widget.MSIME.BottomNavigation.Indicator" parent="Widget.Material3.BottomNavigationView.ActiveIndicator">
+        <item name="android:color">@color/surface_variant</item>
+        <item name="android:width">64dp</item>
+        <item name="android:height">32dp</item>
+    </style>
+
+    <style name="TextAppearance.MSIME.NavLabel" parent="TextAppearance.Material3.LabelMedium">
+        <item name="android:textSize">12sp</item>
+        <item name="android:textStyle">normal</item>
+        <item name="android:textFontWeight">500</item>
+    </style>
+
+    <style name="TextAppearance.MSIME.NavLabel.Active">
+        <item name="android:textStyle">bold</item>
+        <item name="android:textFontWeight">600</item>
     </style>
 
     <!-- The rounded badge behind each feature tile's glyph. -->
     <!-- 关于页那几块：段标题、段脚注、和承载行的卡片。 -->
+    <!-- Onboarding's left-hand text button: 40dp, pill-shaped, accent text; pulled 12dp left so its label lines up with the page text as the design has it. -->
+    <style name="Widget.MSIME.OnboardingText" parent="Widget.Material3.Button.TextButton">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">40dp</item>
+        <item name="android:layout_marginStart">-12dp</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:minWidth">0dp</item>
+        <item name="android:paddingStart">12dp</item>
+        <item name="android:paddingEnd">12dp</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:textColor">@color/forest</item>
+        <item name="cornerRadius">20dp</item>
+    </style>
+
+    <!-- One segment of the design's Android segmented control: a 1dp outline around a pill whose inner edges the toggle group squares off, accentSoft under the selected segment, 13sp labels. -->
+    <style name="Widget.MSIME.Segment" parent="Widget.Material3.Button.OutlinedButton">
+        <item name="android:minHeight">36dp</item>
+        <item name="android:minWidth">0dp</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:paddingStart">8dp</item>
+        <item name="android:paddingEnd">8dp</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:textColor">@color/segment_text</item>
+        <item name="backgroundTint">@color/segment_fill</item>
+        <item name="strokeColor">@color/outline</item>
+        <item name="strokeWidth">1dp</item>
+        <item name="cornerRadius">18dp</item>
+        <item name="rippleColor">@color/surface_variant</item>
+    </style>
+
+    <!-- An M3 group title over a card: accent, 14sp medium, aligned with the glyphs of the rows inside the card. -->
     <style name="AboutSectionHeading" parent="">
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">wrap_content</item>
         <item name="android:layout_marginTop">20dp</item>
-        <item name="android:layout_marginStart">4dp</item>
-        <item name="android:textColor">@color/text_secondary</item>
-        <item name="android:textSize">13sp</item>
+        <item name="android:layout_marginStart">16dp</item>
+        <item name="android:textColor">@color/forest</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:textFontWeight">500</item>
+        <item name="android:accessibilityHeading">true</item>
     </style>
 
     <style name="AboutSectionFooter" parent="">
@@ -57,8 +138,9 @@
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>
         <item name="android:layout_marginTop">8dp</item>
-        <item name="cardCornerRadius">18dp</item>
+        <item name="cardCornerRadius">20dp</item>
         <item name="cardElevation">0dp</item>
+        <item name="strokeWidth">0dp</item>
         <item name="cardBackgroundColor">@color/surface</item>
     </style>
 

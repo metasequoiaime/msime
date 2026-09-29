@@ -11,20 +11,16 @@
 #include <msimeui/DeviceResources.h>
 
 namespace msime::windows {
-// The tray menu the shipped language bar opens: a composed card of commands,
-// shown on request and dismissed as soon as it loses the pointer or focus. It
-// owns no input state and never takes focus from the application being typed
-// into.
+// The tray menu the shipped language bar opens: a composed card of commands, shown on request and dismissed as soon as it loses the pointer or focus. It owns no input state and never takes focus from the application being typed into, so the mode rows still address the focused TIP.
 class TrayMenuWindow final {
 public:
   // Runs a chosen command. Returning false leaves the menu open so a failed
   // command does not look like it was accepted.
   using Command = std::function<bool(TrayMenuCommand)>;
-  // The live floating toolbar state, so the row shows a switch rather than a
-  // guess.
-  using ToolbarState = std::function<bool()>;
+  // The live state the rows show: the toolbar switch, the focused TIP's modes and the stored preferences, so each row shows what the Server reports rather than a guess.
+  using State = std::function<TrayMenuState()>;
   TrayMenuWindow(TrayMenuCapabilities capabilities, Command command,
-                 ToolbarState toolbar_state);
+                 State state);
   ~TrayMenuWindow();
   TrayMenuWindow(const TrayMenuWindow &) = delete;
   TrayMenuWindow &operator=(const TrayMenuWindow &) = delete;
@@ -50,9 +46,13 @@ private:
   void paint();
   std::optional<size_t> hit(int x, int y) const;
   void choose(size_t index);
+  // Rebuild the rows and their geometry from the live state.
+  void refresh_items();
+  // The product mark for the header, loaded from the Server's resources at the size it is drawn. Null when the module carries no mark, as in the test executables; the header then shows its name alone.
+  ID2D1Bitmap *logo_bitmap(int pixels);
   TrayMenuCapabilities capabilities_;
   Command command_;
-  ToolbarState toolbar_state_;
+  State state_;
   // Direct2D's imaging factory is a COM server; this thread owns an apartment.
   struct Apartment {
     Apartment();
@@ -65,6 +65,9 @@ private:
   CandidatePalette palette_;
   TrayMenuMetrics metrics_;
   std::vector<TrayMenuItem> items_;
+  TrayMenuGeometry geometry_{};
+  HICON logo_ = nullptr;
+  int logo_pixels_ = 0;
   HWND window_ = nullptr;
   size_t hovered_ = static_cast<size_t>(-1);
   unsigned dpi_ = 96;

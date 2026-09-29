@@ -1,4 +1,6 @@
 import * as skin from "../keyboard/touch-skin-style";
+import * as settings from "./settings-style";
+import { Row, Switch } from "../core/platform-controls";
 
 export interface TouchKeyboardSchemesSectionProps {
   options: readonly (readonly [string, string])[];
@@ -8,7 +10,7 @@ export interface TouchKeyboardSchemesSectionProps {
   onToggle: (scheme: string, enabled: boolean) => void;
 }
 
-/** Touch keyboard scheme choices and visibility switches. */
+/** Touch keyboard scheme choices and visibility switches, as rows of the 输入 page's 方案 group. */
 export function TouchKeyboardSchemesSection({
   options,
   enabled,
@@ -17,45 +19,40 @@ export function TouchKeyboardSchemesSection({
   onToggle,
 }: TouchKeyboardSchemesSectionProps) {
   return (
-    <div className="section" role="group" aria-labelledby="touch-keyboard-schemes-title">
-      <div className="section-title" id="touch-keyboard-schemes-title">
-        输入方案
-      </div>
-      <div className="input-setting-description">
-        开启的方案会显示在键盘快捷切换中，至少保留一种。点击名称设为当前方案。
-      </div>
-      <div className="input-option-content">
-        {options.map(([scheme, label], index) => {
-          const isEnabled = enabled.includes(scheme);
-          const isSelected = selected === scheme;
-          return (
-            <div className="input-option-item" key={scheme}>
-              {index > 0 && <div className="input-option-divider" />}
-              <div className={skin.schemeRow}>
-                <button
-                  type="button"
-                  className={skin.schemeSelect(isSelected)}
-                  aria-label={`设为当前输入方案 ${label}`}
-                  aria-pressed={isSelected}
-                  disabled={!isEnabled}
-                  onClick={() => onSelect(scheme)}
-                >
-                  <span>{label}</span>
-                  {isSelected && <span aria-hidden="true">✓</span>}
-                </button>
-                <input
-                  className="toggle"
-                  type="checkbox"
-                  aria-label={`显示输入方案 ${label}`}
-                  checked={isEnabled}
-                  disabled={isEnabled && enabled.length === 1}
-                  onChange={(event) => onToggle(scheme, event.target.checked)}
-                />
-              </div>
-            </div>
-          );
-        })}
-      </div>
+    <div role="group" aria-label="输入方案" className={settings.rowStack}>
+      <Row
+        title="输入方案"
+        description="开启的方案会显示在键盘快捷切换中，至少保留一种。点击名称设为当前方案。"
+      />
+      {options.map(([scheme, label]) => {
+        const isEnabled = enabled.includes(scheme);
+        const isSelected = selected === scheme;
+        return (
+          <Row
+            key={scheme}
+            title={
+              <button
+                type="button"
+                className={skin.schemeSelect(isSelected)}
+                aria-label={`设为当前输入方案 ${label}`}
+                aria-pressed={isSelected}
+                disabled={!isEnabled}
+                onClick={() => onSelect(scheme)}
+              >
+                <span>{label}</span>
+                {isSelected && <span aria-hidden="true">✓</span>}
+              </button>
+            }
+          >
+            <Switch
+              aria-label={`显示输入方案 ${label}`}
+              checked={isEnabled}
+              disabled={isEnabled && enabled.length === 1}
+              onChange={(checked) => onToggle(scheme, checked)}
+            />
+          </Row>
+        );
+      })}
     </div>
   );
 }

@@ -18,118 +18,42 @@ public final class CandidateAppearance {
         return value >= 12 && value <= 32 ? value : 16;
     }
 
-    public static Palette from(JSONObject preferences, boolean systemDark) {
-        String theme = preferences == null ? "follow"
-            : preferences.optString("candidate_theme", "follow");
-        String globalTheme = preferences == null ? "system"
-            : preferences.optString("theme", "system");
-        String skin = preferences == null ? "willow_green"
-            : preferences.optString("candidate_skin", "willow_green");
+    /**
+     * The touch candidate strip for one resolved keyboard skin, with the font preferences.
+     *
+     * <p>The strip draws from the keyboard palette, as the shared theme contract says: background, key text, `secondary` for numbers and translations, and `accent` for the selected candidate's text, which carries no fill.
+     */
+    public static Palette from(JSONObject preferences, KeyboardSkin strip) {
         String fontFamily = preferences == null ? "Noto Sans SC"
             : preferences.optString("candidate_font_family", "Noto Sans SC");
         String englishFont = preferences == null ? ""
             : preferences.optString("candidate_english_font", "");
         JSONArray fallback = preferences == null ? null
             : preferences.optJSONArray("candidate_fallback_fonts");
-        List<String> fallbackFonts = fallbackFonts(fallback);
-        return fromValues(skin, theme, globalTheme, systemDark,
-            preferences == null ? "" : preferences.optString("candidate_text_color", ""),
-            preferences == null ? "" : preferences.optString("candidate_number_color", ""),
-            preferences == null ? "" : preferences.optString("candidate_accent_color", ""),
-            preferences == null ? "" : preferences.optString("candidate_selected_color", ""),
-            preferences == null ? "" : preferences.optString("candidate_hover_color", ""),
-            preferences == null ? "" : preferences.optString("candidate_surface_color", ""),
-            preferences == null ? "" : preferences.optString("candidate_border_color", ""),
-            fontFamily, englishFont, fallbackFonts);
+        return fromSkin(strip, fontFamily, englishFont, fallbackFonts(fallback));
     }
 
     /** Value-only resolver used by host smoke tests without an Android JSON runtime. */
-    public static Palette fromValues(String skin, String candidateTheme, String globalTheme,
-                                     boolean systemDark, String textColor, String numberColor,
-                                     String accentColor, String selectedColor, String hoverColor,
-                                     String surfaceColor, String borderColor) {
-        return fromValues(skin, candidateTheme, globalTheme, systemDark, textColor, numberColor,
-            accentColor, selectedColor, hoverColor, surfaceColor, borderColor,
-            "Noto Sans SC", "", List.of("Noto Sans SC", "Microsoft YaHei"));
+    public static Palette fromSkin(KeyboardSkin strip) {
+        return fromSkin(strip, "Noto Sans SC", "", List.of("Noto Sans SC", "Microsoft YaHei"));
     }
 
-    public static Palette fromValues(String skin, String candidateTheme, String globalTheme,
-                                     boolean systemDark, String textColor, String numberColor,
-                                     String accentColor, String selectedColor, String hoverColor,
-                                     String surfaceColor, String borderColor, String fontFamily,
-                                     String englishFont, List<String> fallbackFonts) {
-        boolean dark = resolveDark(candidateTheme, globalTheme, systemDark);
-        Palette palette = builtIn(skin, dark);
-        String primaryFont = safeFont(fontFamily, "Noto Sans SC");
-        String preferredEnglishFont = safeFont(englishFont, "");
-        List<String> safeFallbackFonts = safeFallbackFonts(fallbackFonts);
-        int text = override(textColor, palette.text);
-        int number = override(numberColor,
-            hasColor(textColor) ? withAlpha(text, 0x9d) : palette.number);
-        return palette.with(
-            text, number,
-            override(accentColor, palette.accent),
-            override(selectedColor, palette.selected),
-            override(hoverColor, palette.hover),
-            override(surfaceColor, palette.surface),
-            override(borderColor, palette.border), primaryFont, preferredEnglishFont,
-            safeFallbackFonts);
+    public static Palette fromSkin(KeyboardSkin strip, String fontFamily, String englishFont,
+                                   List<String> fallbackFonts) {
+        int text = parseColor(strip.keyForeground(), 0xff000000);
+        return new Palette(strip.id(), text,
+            parseColor(strip.secondary(), withAlpha(text, 0x9d)),
+            parseColor(strip.accent(), text), 0, withAlpha(text, 0x0f),
+            parseColor(strip.background(), 0xffffffff), 0,
+            safeFont(fontFamily, "Noto Sans SC"), safeFont(englishFont, ""),
+            safeFallbackFonts(fallbackFonts));
     }
 
-    private static boolean resolveDark(String candidateTheme, String globalTheme,
-                                       boolean systemDark) {
-        if ("dark".equals(candidateTheme)) return true;
-        if ("light".equals(candidateTheme)) return false;
-        if ("dark".equals(globalTheme)) return true;
-        if ("light".equals(globalTheme)) return false;
-        return systemDark;
-    }
-
-    private static Palette builtIn(String value, boolean dark) {
-        String id = value == null ? "willow_green" : value;
-        return switch (id) {
-            case "fluent" -> dark
-                ? palette(id, 0xffe9e8e8, 0xffe9e89d, 0x2e9b9b9b,
-                    0xb93e3e3e, 0xff414141, 0xff202020)
-                : palette(id, 0xff1a1a1a, 0x8c1a1a1a, 0x1f000000,
-                    0xffe8e8e8, 0xffececec, 0xffffffff);
-            case "wechat" -> dark
-                ? palette(id, 0xffb7b7b7, 0xff858585, 0xff292929,
-                    0xff07c160, 0x5207c160, 0xff151515)
-                : palette(id, 0xff333333, 0xff757575, 0xffdedede,
-                    0xff07c160, 0x2407c160, 0xfff7f7f7);
-            case "graphite" -> dark
-                ? palette(id, 0xffaeb6c2, 0xff707987, 0xff30353b,
-                    0x00000000, 0x0effffff, 0xff1c1f23)
-                : palette(id, 0xff586476, 0xff8993a1, 0xffe2e5e9,
-                    0x00000000, 0x0e1f2937, 0xfffbfbfc);
-            case "willow_green" -> dark
-                ? palette(id, 0xffd8dbd8, 0xffa6aba7, 0x00000000,
-                    0xff65c98d, 0x3865c98d, 0xff2d2f2e)
-                : palette(id, 0xff343936, 0xff686f6a, 0x00000000,
-                    0xff58b980, 0x2958b980, 0xfff4f5f3);
-            default -> builtIn("willow_green", dark);
-        };
-    }
-
-    private static Palette palette(String id, int text, int number, int border,
-                                   int selected, int hover, int surface) {
-        int accent = selected == 0 ? text : selected;
-        return new Palette(id, text, number, accent, selected, hover, surface, border);
-    }
-
-    private static boolean hasColor(String value) {
-        return parseColor(value, Integer.MIN_VALUE) != Integer.MIN_VALUE;
-    }
-
-    private static int override(String value, int fallback) {
-        return parseColor(value, fallback);
-    }
-
+    /** `#RRGGBB` or Android's alpha-first `#AARRGGBB`, the two forms a keyboard skin carries. */
     private static int parseColor(String value, int fallback) {
-        if (value == null || !value.matches("#[0-9a-fA-F]{6}")) return fallback;
-        try { return 0xff000000 | Integer.parseInt(value.substring(1), 16); }
-        catch (NumberFormatException ignored) { return fallback; }
+        if (value == null || !value.matches("#[0-9a-fA-F]{6}|#[0-9a-fA-F]{8}")) return fallback;
+        long parsed = Long.parseLong(value.substring(1), 16);
+        return value.length() == 7 ? 0xff000000 | (int) parsed : (int) parsed;
     }
 
     private static int withAlpha(int color, int alpha) {
@@ -182,12 +106,6 @@ public final class CandidateAppearance {
         private final List<String> fallbackFonts;
 
         private Palette(String id, int text, int number, int accent, int selected,
-                        int hover, int surface, int border) {
-            this(id, text, number, accent, selected, hover, surface, border,
-                "Noto Sans SC", "", List.of("Noto Sans SC", "Microsoft YaHei"));
-        }
-
-        private Palette(String id, int text, int number, int accent, int selected,
                         int hover, int surface, int border, String fontFamily,
                         String englishFont, List<String> fallbackFonts) {
             this.id = id;
@@ -203,13 +121,6 @@ public final class CandidateAppearance {
             this.fallbackFonts = fallbackFonts;
         }
 
-        private Palette with(int text, int number, int accent, int selected, int hover,
-                             int surface, int border, String fontFamily, String englishFont,
-                             List<String> fallbackFonts) {
-            return new Palette(id, text, number, accent, selected, hover, surface, border,
-                fontFamily, englishFont, fallbackFonts);
-        }
-
         public String id() { return id; }
         public int text() { return text; }
         public int number() { return number; }
@@ -223,9 +134,9 @@ public final class CandidateAppearance {
         public List<String> fallbackFonts() { return fallbackFonts; }
         public String preferredFont() { return englishFont.isEmpty() ? fontFamily : englishFont; }
 
+        /** The selected candidate is told apart by its accent text alone; the strip draws no fill. */
         public int textFor(boolean selected) {
-            if (!selected || alpha(this.selected) == 0) return text;
-            return contrast(this.selected);
+            return selected ? accent : text;
         }
 
         public String key() {
@@ -235,16 +146,5 @@ public final class CandidateAppearance {
                 + ":" + Integer.toHexString(border) + ":" + fontFamily + ":" + englishFont
                 + ":" + String.join(",", fallbackFonts);
         }
-
-        private static int contrast(int color) {
-            double luminance = (0.299 * red(color) + 0.587 * green(color)
-                + 0.114 * blue(color)) / 255.0;
-            return luminance > .62 ? 0xff000000 : 0xffffffff;
-        }
-
-        private static int alpha(int color) { return (color >>> 24) & 0xff; }
-        private static int red(int color) { return (color >>> 16) & 0xff; }
-        private static int green(int color) { return (color >>> 8) & 0xff; }
-        private static int blue(int color) { return color & 0xff; }
     }
 }

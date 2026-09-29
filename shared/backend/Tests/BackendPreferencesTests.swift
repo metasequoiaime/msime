@@ -22,22 +22,42 @@ final class BackendPreferencesTests: XCTestCase {
     let old = BackendAccountClient.PreferenceSchema(fields: schema.fields, maximum_bytes: 65536, update_mode: "replace", revision_required: true)
     XCTAssertThrowsError(try BackendAccountClient.mergedPreferences(base, replacing: [key: .string(json)], schema: old))
   }
+  private let themes: Set<String> = ["system", "shuishan", "light", "paper", "night", "ink", "custom"]
+
   func testUnsupportedCloudValuesFailBeforeAnApplicationPlanExists() throws {
     for settings: [String: BackendPreferenceValue] in [
       ["input.schema": .string("shuangpin"), "input.shuangpin_schema": .string("unsupported")],
       ["input.schema": .string("wubi"), "input.wubi_schema": .string("wubi98")],
       ["platform.ios.sound_enabled": .string("true")],
       ["platform.ios.haptic_strength": .string("unsafe")]
-    ] { XCTAssertThrowsError(try IOSPreferencePlan(settings)) }
-    let japanese = try IOSPreferencePlan(["input.schema": .string("japanese"), "platform.ios.nine_key": .boolean(true)])
+    ] { XCTAssertThrowsError(try IOSPreferencePlan(settings, themes: themes)) }
+    let japanese = try IOSPreferencePlan(["input.schema": .string("japanese"), "platform.ios.nine_key": .boolean(true)], themes: themes)
     XCTAssertEqual(japanese.scheme, "japaneseNineKey")
-    let roman = try IOSPreferencePlan(["input.schema": .string("japanese"), "platform.ios.nine_key": .boolean(false)])
+    let roman = try IOSPreferencePlan(["input.schema": .string("japanese"), "platform.ios.nine_key": .boolean(false)], themes: themes)
     XCTAssertEqual(roman.scheme, "japanese")
-    let nine = try IOSPreferencePlan(["input.schema": .string("quanpin"), "platform.ios.nine_key": .boolean(true)])
+    let nine = try IOSPreferencePlan(["input.schema": .string("quanpin"), "platform.ios.nine_key": .boolean(true)], themes: themes)
     XCTAssertEqual(nine.scheme, "nineKey")
     XCTAssertNil(nine.sound)
-    let shuangpin = try IOSPreferencePlan(["input.schema": .string("shuangpin"), "input.shuangpin_schema": .string("ziranma"), "input.character_set": .string("traditional")])
+    let shuangpin = try IOSPreferencePlan(["input.schema": .string("shuangpin"), "input.shuangpin_schema": .string("ziranma"), "input.character_set": .string("traditional")], themes: themes)
     XCTAssertEqual(shuangpin.scheme, "ziranma")
     XCTAssertEqual(shuangpin.traditional, true)
+  }
+
+  func testThemeValuesAreCheckedAgainstTheCatalog() throws {
+    let plan = try IOSPreferencePlan(["platform.ios.global_theme": .string("custom"), "platform.ios.custom_theme_base": .string("paper"), "platform.ios.custom_keyboard_skin": .string("{}")], themes: themes)
+    XCTAssertEqual(plan.globalTheme, "custom")
+    XCTAssertEqual(plan.customThemeBase, "paper")
+    XCTAssertEqual(plan.customSkinJSON, "{}")
+    XCTAssertEqual(try IOSPreferencePlan(["platform.ios.custom_theme_base": .string("system")], themes: themes).customThemeBase, "system")
+    for settings: [String: BackendPreferenceValue] in [
+      ["platform.ios.global_theme": .string("ocean")],
+      ["platform.ios.global_theme": .boolean(true)],
+      ["platform.ios.custom_theme_base": .string("custom")],
+      ["platform.ios.custom_theme_base": .string("midnight")]
+    ] { XCTAssertThrowsError(try IOSPreferencePlan(settings, themes: themes)) }
+    let empty = try IOSPreferencePlan([:], themes: themes)
+    XCTAssertNil(empty.globalTheme)
+    XCTAssertNil(empty.customThemeBase)
+    XCTAssertNil(empty.customSkinJSON)
   }
 }

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- M3 fade-through, incoming half: 280ms, opacity 0 to 1 and scale 0.94 to 1 on the emphasized curve. -->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:duration="280"
+    android:interpolator="@anim/emphasized"
+    android:shareInterpolator="true">
+    <alpha android:fromAlpha="0" android:toAlpha="1" />
+    <scale
+        android:fromXScale="0.94" android:toXScale="1"
+        android:fromYScale="0.94" android:toYScale="1"
+        android:pivotX="50%" android:pivotY="50%" />
+</set>

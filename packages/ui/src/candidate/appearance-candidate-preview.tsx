@@ -1,19 +1,27 @@
 import type { Preferences } from "../index";
 import { SkinCandidatePreview } from "../skin/skin-candidate-preview";
-import { candidateFontSize } from "./candidate-font-size";
-import { candidateAppearanceStyle } from "./candidate-preview-style";
+import { candidateFontSize, candidateFontStyle } from "./candidate-font-size";
+import { candidateFamilyStyle } from "./candidate-font-family";
 import { ExternalAppearancePreview } from "../skin/external-appearance-preview";
 import type { SkinCatalog } from "../skin/external-skins";
 import type { SkinImageReader } from "../skin/skin-image";
 import { useCandidatePreviewTheme } from "./candidate-preview-theme";
 import { useResolvedCandidateFonts, type FontFamilyResolver } from "./resolved-candidate-fonts";
 import * as settings from "../settings/settings-style";
-import { candidateSkinPalette } from "../skin/skin-preview-palette";
+import { defaultHelpcode } from "../settings/pages/helpcode-page";
+import {
+  customCandidateStyle,
+  themeCandidateStyle,
+  themeEntry,
+  type ResolvedTheme,
+  type ResolveThemeRequest,
+} from "../theme/global-theme";
 
 export function AppearanceCandidatePreview({
   preferences: storedPreferences,
   scan,
   readImage,
+  resolveTheme,
   resolveFonts,
   active = true,
   revision = 0,
@@ -22,6 +30,8 @@ export function AppearanceCandidatePreview({
   preferences: Preferences;
   scan?: () => Promise<SkinCatalog>;
   readImage?: SkinImageReader;
+  /** `SettingsClient.resolveTheme`: when present, a custom theme's package is previewed with the host's own `resolve()` answer. */
+  resolveTheme?: (request: ResolveThemeRequest) => Promise<ResolvedTheme>;
   resolveFonts?: FontFamilyResolver;
   active?: boolean;
   revision?: number;
@@ -31,17 +41,22 @@ export function AppearanceCandidatePreview({
     storedPreferences,
     active ? resolveFonts : undefined,
   );
-  const skin = preferences.candidate_skin ?? "willow_green";
-  const theme = useCandidatePreviewTheme(preferences.theme, preferences.candidate_theme);
-  const builtin = ["fluent", "wechat", "graphite", "willow_green"].includes(skin);
-  const schemeHelpcode =
-    preferences.scheme === "quanpin"
-      ? preferences.quanpin_helpcode
-      : preferences.shuangpin_helpcode;
+  const globalTheme = preferences.global_theme ?? "system";
+  const custom = globalTheme === "custom";
+  const colors = preferences.custom_theme?.candidate_colors;
+  const mode = useCandidatePreviewTheme(preferences.theme, preferences.candidate_theme);
+  // A built-in theme is one fixed palette, and so is a custom theme over one; only `system` and a custom theme over it follow the light/dark mode.
+  const base = custom ? (preferences.custom_theme?.base ?? "system") : globalTheme;
+  const theme = themeEntry(base).appearance ?? mode;
+  // Only a custom theme with an external package needs the package preview.
+  const builtin = !custom || !preferences.custom_theme?.candidate_skin;
+  const helpcodeKey = preferences.scheme === "quanpin" ? "quanpin_helpcode" : "shuangpin_helpcode";
+  // A missing object takes the core's per-scheme default (全拼 hides its codes, 双拼 shows them); a missing field inside a stored object is the core's serde default, which is on.
+  const schemeHelpcode = preferences[helpcodeKey] ?? defaultHelpcode[helpcodeKey];
   const helpcode =
     (preferences.scheme === "quanpin" || preferences.scheme === "shuangpin") &&
-    (schemeHelpcode?.enabled ?? true) &&
-    (schemeHelpcode?.show_in_candidate_window ?? true);
+    (schemeHelpcode.enabled ?? true) &&
+    (schemeHelpcode.show_in_candidate_window ?? true);
   const surfaceName = mobile ? "候选栏" : "候选窗口";
   return (
     <section className="section" aria-label={`${surfaceName}预览`}>
@@ -53,12 +68,15 @@ export function AppearanceCandidatePreview({
       {builtin ? (
         <div
           data-skin-preview=""
-          className={`${settings.skinCardPreview} appearance-candidate-preview skin-${skin}`}
+          className={`${settings.skinCardPreview} appearance-candidate-preview`}
+          data-global-theme={globalTheme}
           data-preview-theme={theme}
           data-font-size={candidateFontSize(preferences.candidate_font_size)}
           style={{
-            ...candidateSkinPalette(skin, theme),
-            ...candidateAppearanceStyle(preferences),
+            // The pickers belong to the custom theme and draw nowhere else.
+            ...(custom ? customCandidateStyle(base, colors) : themeCandidateStyle(globalTheme)),
+            ...candidateFontStyle(preferences),
+            ...candidateFamilyStyle(preferences),
           }}
           aria-hidden="true"
         >
@@ -77,6 +95,7 @@ export function AppearanceCandidatePreview({
           theme={theme}
           scan={scan}
           readImage={readImage}
+          resolve={resolveTheme}
           active={active}
           revision={revision}
           helpcode={helpcode}

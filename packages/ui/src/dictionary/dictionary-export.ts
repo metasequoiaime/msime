@@ -1,6 +1,7 @@
 import {
   DICTIONARY_PAGE_SIZE,
   type DictionaryEntry,
+  type LocalDictionaryFormat,
   type LocalDictionaryKind,
 } from "./dictionary-file";
 
@@ -59,14 +60,14 @@ export async function loadAllPersonalDictionaryEntries(dictionary: {
   return entries;
 }
 
-export function dictionaryExportName(kind: string): string {
-  const names: Record<string, string> = {
+export function dictionaryExportName(kind: LocalDictionaryKind): string {
+  const names: Record<LocalDictionaryKind, string> = {
     pinyin: "水杉IME-拼音用户词库.txt",
     wubi: "水杉IME-五笔用户词库.txt",
     english: "水杉IME-英文用户词库.txt",
     quick_phrase: "水杉IME-快捷短语用户词库.txt",
   };
-  return names[kind] ?? "水杉IME-用户词库.txt";
+  return names[kind];
 }
 
 export function dictionaryKindLabel(kind: string): string {
@@ -81,8 +82,8 @@ export function dictionaryKindLabel(kind: string): string {
 }
 
 export function dictionaryExportPayload(
-  kind: string,
-  format: string,
+  kind: LocalDictionaryKind,
+  format: LocalDictionaryFormat,
   text: string,
 ): { body: string; rows: number } {
   const lines = text.split("\n").filter((line) => line.trim().length > 0);

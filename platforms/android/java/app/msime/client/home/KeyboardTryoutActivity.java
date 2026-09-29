@@ -43,6 +43,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
     private boolean sending;
 
     @Override protected void onCreate(@Nullable Bundle state) {
+        AppMode.restore(this);
         super.onCreate(state);
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         setContentView(R.layout.activity_keyboard_tryout);

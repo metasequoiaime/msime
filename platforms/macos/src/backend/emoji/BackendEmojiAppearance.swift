@@ -16,9 +16,10 @@ struct MacEmojiPalette {
     background = light ? 0xF7F7FA : 0x202027
     text = light ? 0x202027 : 0xF5F5F7
     muted = light ? 0x686873 : 0xAFAFB7
-    selected = light ? 0xE0D7E5 : 0x3B3B44
-    pressed = light ? 0xD3C7D9 : 0x555560
-    accent = light ? 0x9A62AD : 0xD88BDE
+    // The accent is the brand green (#2C7A4B / #5FBF84) in place of the reference's panel purple, and the light hover and press fills are that green at 12% and 20% over the background instead of the purple's lilac tints; the dark fills were already neutral.
+    selected = light ? 0xDFE8E5 : 0x3B3B44
+    pressed = light ? 0xCEDED7 : 0x555560
+    accent = light ? 0x2C7A4B : 0x5FBF84
     searchBackground = light ? 0xFFFFFF : 0x2B2B33
     searchBorder = light ? 0xD0D0D8 : 0x3A3A44
     searchFocusOpacity = light ? 0.75 : 0.70

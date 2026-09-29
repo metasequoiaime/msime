@@ -385,6 +385,8 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/keyboard/KeyboardLayoutAdjustPolicySmoke.java" \
   "$repo_root/platforms/android/tests/voice/VoiceResultStoreSmoke.java" \
   "$repo_root/platforms/android/tests/voice/AiPolishClientSmoke.java" \
+  "$repo_root/platforms/android/tests/voice/AiPolishHttpTransportSmoke.java" \
+  "$repo_root/platforms/android/tests/voice/AiPolishModelCatalogSmoke.java" \
   "$repo_root/platforms/android/tests/voice/HttpAsrPolicySmoke.java" \
   "$repo_root/platforms/android/tests/voice/WebSocketFramesSmoke.java" \
   "$repo_root/platforms/android/tests/voice/DoubaoAsrPolicySmoke.java" \
@@ -423,6 +425,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/candidate/CandidateScrollPolicySmoke.java" \
   "$repo_root/platforms/android/tests/dictionary/ClipboardHistoryPolicySmoke.java" \
   "$repo_root/platforms/android/tests/dictionary/DictionarySnapshotQueueSmoke.java" \
+  "$repo_root/platforms/android/tests/dictionary/CustomSkinLibrarySmoke.java" \
   "$repo_root/platforms/android/tests/settings/DiagnosticPolicySmoke.java" \
   "$repo_root/platforms/android/tests/settings/HostOptionsPolicySmoke.java" \
   "$repo_root/platforms/android/tests/settings/AccountTokenPolicySmoke.java" \
@@ -443,7 +446,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/candidate/CandidatePreeditStylePolicySmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/SymbolPanelModelSmoke.java"
 java -cp "$output_dir" EditorSmoke
-java -cp "$output_dir" app.msime.client.BootstrapMarkerSmoke
+java -cp "$output_dir:$android_jar" app.msime.client.BootstrapMarkerSmoke
 java -cp "$output_dir" PhrasePreeditSmoke
 java -cp "$output_dir" InputViewRefreshPolicySmoke
 java -cp "$output_dir" EditorContextSnapshotSmoke
@@ -467,6 +470,8 @@ java -cp "$output_dir" KeyboardFormFactorPolicySmoke
 java -cp "$output_dir" KeyboardLayoutAdjustPolicySmoke
 java -cp "$output_dir" VoiceResultStoreSmoke
 java -cp "$output_dir" AiPolishClientSmoke
+java -cp "$output_dir:$android_jar" app.msime.client.AiPolishHttpTransportSmoke
+java -cp "$output_dir:$android_jar" app.msime.client.AiPolishModelCatalogSmoke
 java -cp "$output_dir" HttpAsrPolicySmoke
 java -cp "$output_dir" WebSocketFramesSmoke
 java -cp "$output_dir" DoubaoAsrPolicySmoke
@@ -477,7 +482,7 @@ java -cp "$output_dir" ReplyKeyboardSmoke
 java -cp "$output_dir" app.msime.client.KeyboardSkinSmoke
 java -cp "$output_dir" CloudClipboardTextPolicySmoke
 java -cp "$output_dir" KeyboardFeedbackSmoke
-java -cp "$output_dir" app.msime.client.KeyboardFeedbackStoreSmoke
+java -cp "$output_dir:$android_jar" app.msime.client.KeyboardFeedbackStoreSmoke
 java -cp "$output_dir" KeyboardShortcutIconPolicySmoke
 java -cp "$output_dir" TypingSourceSmoke
 java -cp "$output_dir" EmojiCatalogModelSmoke
@@ -506,6 +511,7 @@ java -cp "$output_dir" CandidateManagementSmoke
 java -cp "$output_dir" CandidateScrollPolicySmoke
 java -cp "$output_dir" ClipboardHistoryPolicySmoke
 java -cp "$output_dir" DictionarySnapshotQueueSmoke
+java -cp "$output_dir:$android_jar" CustomSkinLibrarySmoke
 java -cp "$output_dir" DiagnosticPolicySmoke
 java -cp "$output_dir" HostOptionsPolicySmoke
 java -cp "$output_dir" AccountTokenPolicySmoke

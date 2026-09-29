@@ -1,4 +1,5 @@
 #pragma once
+#include "TrayMenuCommand.h"
 #include <algorithm>
 #include <cstddef>
 #include <optional>
@@ -7,37 +8,40 @@
 #include <vector>
 
 namespace msime::windows {
-// Tray menu contents and geometry, ported from the shipped presenter. This
-// header decides what the menu offers and where each row sits; drawing and
-// window placement stay with the renderer, so the rules are testable without
-// a desktop.
-enum class TrayMenuCommand {
-  ToggleFloatingToolbar,
-  OpenEmojiPanel,
-  OpenHandwritingPanel,
-  OpenKeyboardPanel,
-  ToggleVoiceInput,
-  OpenSettings,
-  OpenAbout,
+// Tray menu contents and geometry. This header decides what the menu offers and where each row sits; drawing and window placement stay with the renderer, so the rules are testable without a desktop.
+//
+// The card follows the shared design: a header with the logo and the product name, the input language, the mode switches, the scheme as a radio group, the host tools, and the pages of the settings app. Rows carry a check mark column rather than leading icons; only the tool strip is drawn as glyphs.
+enum class TrayMenuRowKind {
+  // Logo and product name. Not a command.
+  Header,
+  // A hairline between groups.
+  Separator,
+  // A group caption such as 输入方案. Not a command.
+  Label,
+  // A command row: check mark column, label and an optional trailing hint.
+  Item,
+  // One cell of the tool strip. Consecutive tools share one row, each an equal share of the width with its glyph over a short caption.
+  Tool,
 };
 struct TrayMenuItem {
-  TrayMenuCommand command;
+  TrayMenuRowKind kind = TrayMenuRowKind::Item;
+  // Meaningful only for Item and Tool rows.
+  TrayMenuCommand command = TrayMenuCommand::OpenSettings;
   std::string label;
-  // Leading glyph, from the same icon font the toolbar uses. Zero means the
-  // row has no icon and only its label is drawn.
+  // Trailing text of an Item row: the shortcut that does the same thing, or the value the row opens (the theme name). Empty draws nothing.
+  std::string hint;
+  // Glyph of a Tool cell, from the same icon font the toolbar uses.
   wchar_t icon = 0;
-  // Text drawn when the icon font lacks the glyph, as on Windows 10 builds
-  // whose Segoe MDL2 predates it.
+  // Text drawn when the icon font lacks the glyph, as on Windows 10 builds whose Segoe MDL2 predates it.
   const wchar_t *icon_fallback = L"";
-  // Only the toolbar row carries a switch; the rest open a surface.
+  // A Tool that turns something on and off instead of opening a surface; it is drawn filled while on.
   bool toggle = false;
-  // A row whose host capability is missing is shown disabled rather than
-  // silently doing nothing when clicked.
+  // A row whose host capability or live state is missing is shown disabled rather than silently doing nothing when clicked.
   bool available = true;
+  // Item: the check mark. Tool with toggle: on.
   bool checked = false;
 };
-// Which surfaces this host can actually open. Anything absent stays visible
-// but disabled, matching how the shipped menu never hides its entries.
+// Which surfaces this host can actually open. Anything absent stays visible but disabled, matching how the shipped menu never hides its entries.
 struct TrayMenuCapabilities {
   bool floating_toolbar = true;
   bool emoji_panel = false;
@@ -46,88 +50,286 @@ struct TrayMenuCapabilities {
   bool voice_input = false;
   bool settings = false;
 };
+// What the menu shows, sampled by the Server each time the card opens or redraws after a switch.
+struct TrayMenuState {
+  bool floating_toolbar = false;
+  // The focused TIP's reported modes. Unknown (no focused session, or the Server could not read them without waiting) disables the rows instead of guessing a default.
+  std::optional<bool> chinese, fullwidth, chinese_punctuation;
+  // The Engine's own English mode: the TIP still reports Chinese, but letters are typed as English until it is left.
+  bool dedicated_english = false;
+  // Stored preferences.
+  bool translations = true;
+  std::string scheme = "quanpin";
+  std::string shuangpin_profile = "xiaohe";
+  // Title of the selected global theme, shown beside 主题. Empty draws no hint.
+  std::string theme_title;
+  // The configured CN/EN key, shown beside the language row.
+  std::string language_hint;
+};
+// The CN/EN key a user presses, in the order the TIP matches them. Empty when every binding is off, since the rows still switch.
+inline std::string tray_menu_language_hint(bool shift, bool ctrl,
+                                           bool ctrl_alt_space) {
+  if (shift)
+    return "Shift";
+  if (ctrl)
+    return "Ctrl";
+  if (ctrl_alt_space)
+    return "Ctrl + Alt + Space";
+  return {};
+}
+// The shuangpin row names the stored layout, as the design's 双拼（小鹤）does. An unknown profile keeps the plain scheme name rather than a wrong one.
+inline std::string tray_menu_shuangpin_label(const std::string &profile) {
+  if (profile == "xiaohe")
+    return "双拼（小鹤）";
+  if (profile == "ziranma")
+    return "双拼（自然码）";
+  if (profile == "microsoft")
+    return "双拼（微软）";
+  if (profile == "shoudao")
+    return "双拼（首道）";
+  return "双拼";
+}
+// The stored `scheme` value a scheme row selects, or null for every other row.
+inline const char *tray_menu_scheme(TrayMenuCommand command) {
+  if (command == TrayMenuCommand::SelectQuanpin)
+    return "quanpin";
+  if (command == TrayMenuCommand::SelectShuangpin)
+    return "shuangpin";
+  if (command == TrayMenuCommand::SelectWubi)
+    return "wubi";
+  if (command == TrayMenuCommand::SelectJapanese)
+    return "japanese";
+  return nullptr;
+}
+// Shortcuts the TIP binds itself (KeyEventSink.cpp and the preserved keys in CompositionProcessorEngine.cpp); they are fixed, unlike the CN/EN key.
+inline constexpr const char *tray_menu_fullwidth_hint = "Ctrl + Shift + Space";
+inline constexpr const char *tray_menu_punctuation_hint = "Ctrl + .";
 inline std::vector<TrayMenuItem>
 tray_menu_items(const TrayMenuCapabilities &capabilities,
-                bool floating_toolbar_visible) {
-  return {
-      {TrayMenuCommand::ToggleFloatingToolbar, "悬浮工具栏", 0xE7C4, L"栏", true,
-       capabilities.floating_toolbar, floating_toolbar_visible},
-      {TrayMenuCommand::OpenEmojiPanel, "表情/符号面板", 0xE76E, L"表", false,
-       capabilities.emoji_panel, false},
-      {TrayMenuCommand::OpenHandwritingPanel, "手写识别板", 0xE70F, L"写", false,
-       capabilities.handwriting_panel, false},
-      {TrayMenuCommand::OpenKeyboardPanel, "屏幕键盘", 0xE765, L"键", false,
-       capabilities.keyboard_panel, false},
-      {TrayMenuCommand::ToggleVoiceInput, "语音输入", 0xE720, L"音", false,
-       capabilities.voice_input, false},
-      {TrayMenuCommand::OpenSettings, "设置", 0xE713, L"设", false,
-       capabilities.settings, false},
-      {TrayMenuCommand::OpenAbout, "关于", 0xE946, L"关", false,
-       capabilities.settings, false},
+                const TrayMenuState &state) {
+  std::vector<TrayMenuItem> items;
+  auto header = [&](std::string label) {
+    TrayMenuItem item;
+    item.kind = TrayMenuRowKind::Header;
+    item.label = std::move(label);
+    item.available = false;
+    items.push_back(std::move(item));
   };
+  auto separator = [&] {
+    TrayMenuItem item;
+    item.kind = TrayMenuRowKind::Separator;
+    item.available = false;
+    items.push_back(std::move(item));
+  };
+  auto caption = [&](std::string label) {
+    TrayMenuItem item;
+    item.kind = TrayMenuRowKind::Label;
+    item.label = std::move(label);
+    item.available = false;
+    items.push_back(std::move(item));
+  };
+  auto row = [&](TrayMenuCommand command, std::string label, bool available,
+                 bool checked, std::string hint = {}) {
+    TrayMenuItem item;
+    item.command = command;
+    item.label = std::move(label);
+    item.hint = std::move(hint);
+    item.available = available;
+    item.checked = checked;
+    items.push_back(std::move(item));
+  };
+  auto tool = [&](TrayMenuCommand command, std::string label, wchar_t icon,
+                  const wchar_t *fallback, bool available, bool toggle,
+                  bool checked) {
+    TrayMenuItem item;
+    item.kind = TrayMenuRowKind::Tool;
+    item.command = command;
+    item.label = std::move(label);
+    item.icon = icon;
+    item.icon_fallback = fallback;
+    item.available = available;
+    item.toggle = toggle;
+    item.checked = checked;
+    items.push_back(std::move(item));
+  };
+  const bool japanese = state.scheme == "japanese";
+  const bool language_known = state.chinese.has_value();
+  // In the Engine's English mode the TIP may still report Chinese, and the toolbar shows English then too.
+  const bool english =
+      language_known && (!*state.chinese || state.dedicated_english);
+  header("水杉输入法");
+  separator();
+  // Japanese is the non-English language of the Japanese scheme, as the toolbar's 日 button shows.
+  row(TrayMenuCommand::SelectChinese, japanese ? "日文" : "中文",
+      language_known, language_known && !english, state.language_hint);
+  row(TrayMenuCommand::SelectEnglish, "英文", language_known, english);
+  separator();
+  row(TrayMenuCommand::ToggleFullwidth, "全角字符",
+      state.fullwidth.has_value(), state.fullwidth.value_or(false),
+      tray_menu_fullwidth_hint);
+  row(TrayMenuCommand::ToggleChinesePunctuation, "中文标点",
+      state.chinese_punctuation.has_value(),
+      state.chinese_punctuation.value_or(false), tray_menu_punctuation_hint);
+  row(TrayMenuCommand::ToggleTranslations, "显示译文", true,
+      state.translations);
+  separator();
+  caption("输入方案");
+  row(TrayMenuCommand::SelectQuanpin, "全拼", true, state.scheme == "quanpin");
+  row(TrayMenuCommand::SelectShuangpin,
+      tray_menu_shuangpin_label(state.shuangpin_profile), true,
+      state.scheme == "shuangpin");
+  row(TrayMenuCommand::SelectWubi, "五笔 86", true, state.scheme == "wubi");
+  row(TrayMenuCommand::SelectJapanese, "日文", true, japanese);
+  separator();
+  // The host tools the shipped menu offered, kept reachable as one strip so the card still fits a small work area.
+  tool(TrayMenuCommand::ToggleFloatingToolbar, "工具栏", 0xE7C4, L"栏",
+       capabilities.floating_toolbar, true, state.floating_toolbar);
+  tool(TrayMenuCommand::OpenEmojiPanel, "表情", 0xE76E, L"表",
+       capabilities.emoji_panel, false, false);
+  tool(TrayMenuCommand::OpenHandwritingPanel, "手写", 0xE70F, L"写",
+       capabilities.handwriting_panel, false, false);
+  tool(TrayMenuCommand::OpenKeyboardPanel, "键盘", 0xE765, L"键",
+       capabilities.keyboard_panel, false, false);
+  tool(TrayMenuCommand::ToggleVoiceInput, "语音", 0xE720, L"音",
+       capabilities.voice_input, false, false);
+  separator();
+  row(TrayMenuCommand::OpenTheme, "主题", capabilities.settings, false,
+      state.theme_title);
+  row(TrayMenuCommand::OpenDictionary, "词库…", capabilities.settings, false);
+  row(TrayMenuCommand::OpenSettings, "设置…", capabilities.settings, false);
+  row(TrayMenuCommand::OpenAbout, "关于水杉输入法", capabilities.settings,
+      false);
+  return items;
 }
-// Whether a row that ran closes the menu. The toolbar row is a switch: the reference flips it in place and leaves the menu open (tray_menu_presenter.cpp:175-186), while every other row opens a surface and dismisses the menu first (:188-199).
+// Whether a row that ran closes the menu. The toolbar tile is a switch: the reference flips it in place and leaves the menu open (tray_menu_presenter.cpp:175-186). Every other row either opens a surface or changes a mode the TIP applies asynchronously, and dismisses the menu as a native menu does.
 inline bool tray_menu_closes_after(TrayMenuCommand command) {
   return command != TrayMenuCommand::ToggleFloatingToolbar;
 }
+// Geometry in DIPs, from the design's Windows menu tokens (width 260, padding 4, card radius 8, row 32 with radius 4, 14px text, 12px hints and captions, 1px separators with 4px margins).
 struct TrayMenuMetrics {
-  double width = 220.0;
-  double row_height = 36.0;
-  double padding = 6.0;
+  double width = 260.0;
+  double padding = 4.0;
   double radius = 8.0;
   double border_width = 1.0;
-  // Leading icon column. The rows were plain text with no room reserved, so
-  // the card did not match the shipped visual language.
-  double icon_column = 28.0;
-  // The switch drawn on the toolbar row, in place of a bare check mark.
-  double toggle_width = 30.0;
-  double toggle_height = 16.0;
+  double row_height = 32.0;
+  double item_radius = 4.0;
+  // 18px logo inside 6px of vertical padding.
+  double header_height = 30.0;
+  double logo_size = 18.0;
+  // 12px caption with 4px above and 2px below.
+  double label_height = 22.0;
+  // A 1px line with 4px either side.
+  double separator_height = 9.0;
+  // Glyph over a 12px caption.
+  double tool_height = 52.0;
+  // Horizontal padding inside a row.
+  double inset = 10.0;
+  double mark_column = 16.0;
+  double gap = 8.0;
+  double font_size = 14.0;
+  double hint_font_size = 12.0;
+  double icon_font_size = 16.0;
 };
-// Where a row's leading icon is drawn, relative to the row's own origin.
-inline double tray_menu_icon_x(const TrayMenuMetrics &metrics) {
-  return metrics.padding + metrics.icon_column / 2.0;
+// Where the check mark column starts inside a row.
+inline double tray_menu_mark_x(const TrayMenuMetrics &metrics) {
+  return metrics.inset;
 }
-// Where a row's label starts: after the icon column, so labels line up whether
-// or not a particular row has an icon.
+// Where a row's label starts: after the mark column, so labels line up whether or not a row is checked.
 inline double tray_menu_label_x(const TrayMenuMetrics &metrics) {
-  return metrics.padding + metrics.icon_column;
+  return metrics.inset + metrics.mark_column + metrics.gap;
 }
 struct TrayMenuSize {
   double width, height;
 };
-inline TrayMenuSize tray_menu_size(size_t rows, const TrayMenuMetrics &metrics) {
-  if (rows == 0 || rows > 16 || metrics.width <= 0.0 ||
-      metrics.row_height <= 0.0 || metrics.padding < 0.0)
-    throw std::invalid_argument("Invalid tray menu metrics");
-  return {metrics.width,
-          metrics.padding * 2.0 +
-              metrics.row_height * static_cast<double>(rows)};
-}
-struct TrayMenuRow {
-  double top, bottom;
+struct TrayMenuRect {
+  double left, top, right, bottom;
 };
-inline TrayMenuRow tray_menu_row(size_t index, size_t rows,
-                                 const TrayMenuMetrics &metrics) {
-  if (index >= rows)
-    throw std::invalid_argument("Invalid tray menu row");
-  const double top =
-      metrics.padding + metrics.row_height * static_cast<double>(index);
-  return {top, top + metrics.row_height};
+struct TrayMenuGeometry {
+  TrayMenuSize size;
+  // One rectangle per item, in item order. A Tool's rectangle is its own cell of the shared strip.
+  std::vector<TrayMenuRect> rows;
+};
+inline constexpr size_t tray_menu_max_rows = 32;
+inline TrayMenuGeometry tray_menu_geometry(const std::vector<TrayMenuItem> &items,
+                                           const TrayMenuMetrics &metrics) {
+  if (items.empty() || items.size() > tray_menu_max_rows ||
+      metrics.width <= 0.0 || metrics.padding < 0.0 ||
+      metrics.width <= metrics.padding * 2.0 || metrics.row_height <= 0.0 ||
+      metrics.header_height <= 0.0 || metrics.label_height <= 0.0 ||
+      metrics.separator_height <= 0.0 || metrics.tool_height <= 0.0)
+    throw std::invalid_argument("Invalid tray menu metrics");
+  TrayMenuGeometry geometry{{metrics.width, 0.0}, {}};
+  geometry.rows.reserve(items.size());
+  const double left = metrics.padding;
+  const double right = metrics.width - metrics.padding;
+  double top = metrics.padding;
+  for (size_t index = 0; index < items.size();) {
+    const auto kind = items[index].kind;
+    if (kind == TrayMenuRowKind::Tool) {
+      size_t end = index;
+      while (end < items.size() && items[end].kind == TrayMenuRowKind::Tool)
+        ++end;
+      const double cell = (right - left) / static_cast<double>(end - index);
+      for (size_t tool = index; tool < end; ++tool) {
+        const double cell_left = left + cell * static_cast<double>(tool - index);
+        // The last cell ends exactly at the row edge, whatever the rounding.
+        const double cell_right = tool + 1 == end ? right : cell_left + cell;
+        geometry.rows.push_back(
+            {cell_left, top, cell_right, top + metrics.tool_height});
+      }
+      top += metrics.tool_height;
+      index = end;
+      continue;
+    }
+    double height = metrics.row_height;
+    switch (kind) {
+    case TrayMenuRowKind::Header:
+      height = metrics.header_height;
+      break;
+    case TrayMenuRowKind::Separator:
+      height = metrics.separator_height;
+      break;
+    case TrayMenuRowKind::Label:
+      height = metrics.label_height;
+      break;
+    case TrayMenuRowKind::Item:
+      height = metrics.row_height;
+      break;
+    case TrayMenuRowKind::Tool:
+      height = metrics.tool_height;
+      break;
+    }
+    geometry.rows.push_back({left, top, right, top + height});
+    top += height;
+    ++index;
+  }
+  geometry.size.height = top + metrics.padding;
+  return geometry;
 }
-// A click selects the row it landed on, and never a disabled one.
+inline TrayMenuSize tray_menu_size(const std::vector<TrayMenuItem> &items,
+                                   const TrayMenuMetrics &metrics) {
+  return tray_menu_geometry(items, metrics).size;
+}
+// Whether a row runs a command when clicked. Headers, captions and separators never do, and neither does a disabled row.
+inline bool tray_menu_actionable(const TrayMenuItem &item) {
+  return item.available && (item.kind == TrayMenuRowKind::Item ||
+                            item.kind == TrayMenuRowKind::Tool);
+}
+// A click selects the row it landed on, and never a disabled or decorative one.
 inline std::optional<size_t>
 tray_menu_hit(double x, double y, const std::vector<TrayMenuItem> &items,
               const TrayMenuMetrics &metrics) {
   if (items.empty())
     return std::nullopt;
-  const auto size = tray_menu_size(items.size(), metrics);
-  if (x < 0.0 || y < 0.0 || x >= size.width || y >= size.height)
+  const auto geometry = tray_menu_geometry(items, metrics);
+  if (x < 0.0 || y < 0.0 || x >= geometry.size.width ||
+      y >= geometry.size.height)
     return std::nullopt;
   for (size_t index = 0; index < items.size(); ++index) {
-    const auto row = tray_menu_row(index, items.size(), metrics);
-    if (y >= row.top && y < row.bottom)
-      return items[index].available ? std::optional<size_t>(index)
-                                    : std::nullopt;
+    const auto &row = geometry.rows[index];
+    if (x >= row.left && x < row.right && y >= row.top && y < row.bottom)
+      return tray_menu_actionable(items[index]) ? std::optional<size_t>(index)
+                                                : std::nullopt;
   }
   return std::nullopt;
 }

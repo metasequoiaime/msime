@@ -10,6 +10,7 @@
 #include "PhrasePreedit.h"
 #include "JapaneseConversion.h"
 #include "CandidateSkinCatalog.h"
+#include "GlobalTheme.h"
 #include "DictionaryQuiesceLease.h"
 #include "InputModeIndicator.h"
 #include "ReplacedProgram.h"
@@ -46,6 +47,7 @@
 #include <fstream>
 #include <fcntl.h>
 #include <glib-unix.h>
+#include <initializer_list>
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <optional>
@@ -61,11 +63,8 @@
 using Json = nlohmann::json;
 struct MsimeIbusEngine;
 namespace {
-// 内置皮肤目录、它们的标题和默认皮肤都由共享层发布，这个宿主不存副本——IBus 与
-// Fcitx5 各存一份的那段时间里，同一个 graphite 在两边的名字就不一样。
-const std::vector<msime::linux_host::CandidateSkin> &builtin_skins();
-std::string default_candidate_skin();
-bool listed_skin(const std::string &id);
+// 主题目录由共享层发布，这个宿主不存 id 或标题的副本；菜单是这份目录加上运行配置里列出的外部皮肤。
+std::vector<msime::linux_host::ThemeChoice> theme_choices();
 Json configured;
 uint64_t configuration_generation = 0;
 std::atomic<uint64_t> next_client_token{1};
@@ -153,12 +152,7 @@ void apply_candidate_panel_font(const Json &preferences) {
 }
 
 bool system_dark = false;
-Json skin_display_preferences(Json preferences) {
-  const auto catalog =
-      configured.is_object() ? configured.value("candidate_skin_catalog", Json(nullptr)) : Json(nullptr);
-  return msime::linux_host::candidate_display_preferences(std::move(preferences), system_dark, builtin_skins(),
-                                                          default_candidate_skin(), catalog);
-}
+msime::linux_host::CandidateTheme candidate_theme(const Json &preferences);
 std::optional<bool> global_input_enabled;
 // The shared preference defaults, read once from the Host API rather than
 // restated here. A nested preference object is optional as a whole but requires
@@ -207,36 +201,39 @@ Json response(char *raw) {
     throw std::runtime_error("Host operation failed");
   return document.at("value");
 }
-const Json &builtin_skin_document() {
-  static const Json document = [] {
+std::vector<msime::linux_host::ThemeChoice> theme_choices() {
+  static const Json catalog = [] {
     try {
-      return response(msime_client_builtin_skins());
-    } catch (...) {
+      return response(msime_client_theme_catalog());
+    } catch (const std::exception &) {
       return Json::object();
     }
   }();
-  return document;
+  return msime::linux_host::theme_choices(catalog, msime::linux_host::parse_configured_skins(configured));
 }
-const std::vector<msime::linux_host::CandidateSkin> &builtin_skins() {
-  static const auto skins = msime::linux_host::parse_builtin_skins(builtin_skin_document());
-  return skins;
-}
-std::string default_candidate_skin() {
-  static const auto value = msime::linux_host::default_skin(builtin_skin_document());
-  return value;
-}
-// 内置或当前运行配置列出的皮肤。两处「这个 id 还可用吗」原先各自把内置表和配置目录
-// 再展开一遍，现在共用同一份合成列表。
-bool listed_skin(const std::string &id) {
-  for (const auto &skin : msime::linux_host::candidate_skin_list(
-           builtin_skins(), msime::linux_host::parse_configured_skins(configured), std::string{}))
-    if (skin.id == id) return true;
-  return false;
+// The candidate colours for one preferences document, resolved by the shared layer (msime_client_resolve_theme) in the mode candidate_theme settles on. The package is a catalogue entry the shared layer reads strictly, and one it refuses fails the whole call, so that costs only the package: the theme is resolved again without it. A call that still fails draws the native tokens.
+msime::linux_host::CandidateTheme candidate_theme(const Json &preferences) {
+  const auto catalog =
+      configured.is_object() ? configured.value("candidate_skin_catalog", Json(nullptr)) : Json(nullptr);
+  const bool dark = msime::linux_host::candidate_dark_theme(preferences, system_dark);
+  auto request = msime::linux_host::candidate_theme_request(preferences, dark, catalog);
+  while (true) {
+    try {
+      const auto encoded = request.dump();
+      return msime::linux_host::candidate_theme_colors(
+          response(msime_client_resolve_theme(reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())),
+          dark);
+    } catch (const std::exception &) {
+      if (!request.contains("package")) break;
+      request.erase("package");
+    }
+  }
+  return msime::linux_host::candidate_theme_colors(Json::object(), dark);
 }
 IBusOrientation candidate_orientation(const Json &preferences);
 std::string preedit_style(const Json &preferences);
 bool launch_desktop_panel(const char *panel);
-enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, CandidateSkin, CandidatePageSize, FrequencyMode, FrequencyTriggerCount, FrequencyLinearStep, Learning, ShuangpinPreedit, WubiCodeHint, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock, AutocorrectTransposition, AutocorrectNeighbor, EnglishCandidates, EmojiCandidates, KaomojiCandidates, QuanpinHelpcode, ShuangpinHelpcode, QuanpinHelpcodeSchema, ShuangpinHelpcodeSchema, ShuangpinProfile, InputScheme, NineKey, LocalMode, NumberRowSelection, WordCharacter, TraditionalOutput, ChinesePunctuation, ClipboardHistoryEnabled, CharacterWidth, VoiceEnabled };
+enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, GlobalTheme, CandidatePageSize, FrequencyMode, FrequencyTriggerCount, FrequencyLinearStep, Learning, ShuangpinPreedit, WubiCodeHint, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock, AutocorrectTransposition, AutocorrectNeighbor, EnglishCandidates, EmojiCandidates, KaomojiCandidates, QuanpinHelpcode, ShuangpinHelpcode, QuanpinHelpcodeSchema, ShuangpinHelpcodeSchema, ShuangpinProfile, InputScheme, NineKey, LocalMode, NumberRowSelection, WordCharacter, TraditionalOutput, ChinesePunctuation, ClipboardHistoryEnabled, CharacterWidth, VoiceEnabled };
 void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json value);
 struct FailedMenuSave {
   MenuPreference preference;
@@ -347,7 +344,9 @@ struct State {
   std::optional<bool> shuangpin_preedit_override;
   std::optional<bool> wubi_code_hint_override;
   std::optional<std::string> layout_override, preedit_override, theme_override;
-  std::optional<std::string> skin_override, scheme_override, shuangpin_profile_override;
+  std::optional<std::string> scheme_override, shuangpin_profile_override;
+  // A 主题 menu choice being saved, as theme_choice_change writes it.
+  std::optional<Json> theme_choice_override;
   std::optional<std::string> translation_target_language_override;
   std::optional<bool> nine_key_override;
   Json local_mode_overrides = Json::object();
@@ -676,7 +675,7 @@ struct State {
     if (layout_override) preferences["candidate_layout"] = *layout_override;
     if (preedit_override) preferences["tsf_preedit_style"] = *preedit_override;
     if (theme_override) preferences["candidate_theme"] = *theme_override;
-    if (skin_override) preferences["candidate_skin"] = *skin_override;
+    if (theme_choice_override) msime::linux_host::apply_theme_choice(preferences, *theme_choice_override);
     // Default snapshots omit the empty quanpin override object.
     if (!preferences.contains("quanpin"))
       preferences["quanpin"] = Json::object();
@@ -794,9 +793,7 @@ struct State {
       chinese_punctuation = true;
     else if (punctuation_lock == "english")
       chinese_punctuation = false;
-    const auto display_preferences = skin_display_preferences(options.at("preferences"));
-    const auto colors =
-        msime::linux_host::resolve_candidate_colors(display_preferences, default_candidate_skin());
+    const auto colors = candidate_theme(options.at("preferences")).colors;
     candidate_text_color = colors.text;
     candidate_number_color = colors.number;
     candidate_accent_color = colors.accent;
@@ -918,11 +915,9 @@ struct State {
       display_preferences["candidate_layout"] = *layout_override;
     if (theme_override)
       display_preferences["candidate_theme"] = *theme_override;
-    if (skin_override)
-      display_preferences["candidate_skin"] = *skin_override;
-    display_preferences = skin_display_preferences(std::move(display_preferences));
-    const auto colors =
-        msime::linux_host::resolve_candidate_colors(display_preferences, default_candidate_skin());
+    if (theme_choice_override)
+      msime::linux_host::apply_theme_choice(display_preferences, *theme_choice_override);
+    const auto colors = candidate_theme(display_preferences).colors;
     candidate_text_color = colors.text;
     candidate_number_color = colors.number;
     candidate_accent_color = colors.accent;
@@ -1026,8 +1021,8 @@ struct State {
       preferences["tsf_preedit_style"] = *preedit_override;
     if (theme_override)
       preferences["candidate_theme"] = *theme_override;
-    if (skin_override)
-      preferences["candidate_skin"] = *skin_override;
+    if (theme_choice_override)
+      msime::linux_host::apply_theme_choice(preferences, *theme_choice_override);
     if (!preferences.contains("quanpin"))
       preferences["quanpin"] = Json::object();
     auto &quanpin = preferences["quanpin"];
@@ -1263,12 +1258,13 @@ bool launch_desktop_panel(const char *panel) {
   gchar *argv[] = {const_cast<gchar *>(command), nullptr};
   gchar **environment = g_get_environ();
   const std::string requested = panel ? panel : "";
-  const bool settings_route = requested == "about" || requested == "help" ||
-                              requested == "feedback";
+  // About, help, feedback and the local dictionary are settings sections rather than desktop surfaces.
   const char *settings_page = requested == "about" ? "about"
                               : requested == "help" ? "help"
                               : requested == "feedback" ? "feedback"
+                              : requested == "dictionary" ? "dictionary"
                               : nullptr;
+  const bool settings_route = settings_page != nullptr;
   environment = g_environ_setenv(environment, "MSIME_CLIENT_PANEL",
                                  settings_route ? "settings" : panel, TRUE);
   // A settings section travels as "settings:<category>"; the bare section name
@@ -1305,20 +1301,57 @@ struct DesktopPanelAction {
   const char *property;
   const char *panel;
   const char *label;
+  // Drawn at the top level of the design menu (主题 / 词库… / 设置… / 关于) instead of inside 桌面工具; the key is the same either way, so activation does not depend on where the entry sits.
+  bool design_menu;
 };
 constexpr DesktopPanelAction desktop_panel_actions[] = {
-    {"DesktopTools/Handwriting", "handwriting", "手写识别板"},
-    {"DesktopTools/Keyboard", "keyboard", "屏幕键盘"},
-    {"DesktopTools/Emoji", "emoji", "表情与符号"},
-    {"DesktopTools/Clipboard", "clipboard", "本地剪贴板"},
-    {"DesktopTools/Voice", "voice", "语音面板"},
-    {"DesktopTools/CloudDictionary", "cloud-dictionary", "云词典"},
-    {"DesktopTools/CloudClipboard", "cloud-clipboard", "云剪贴板"},
-    {"DesktopTools/Settings", "settings", "设置"},
-    {"DesktopTools/About", "about", "关于"},
-    {"DesktopTools/Help", "help", "帮助"},
-    {"DesktopTools/Feedback", "feedback", "反馈"},
+    {"DesktopTools/Handwriting", "handwriting", "手写识别板", false},
+    {"DesktopTools/Keyboard", "keyboard", "屏幕键盘", false},
+    {"DesktopTools/Emoji", "emoji", "表情与符号", false},
+    {"DesktopTools/Clipboard", "clipboard", "本地剪贴板", false},
+    {"DesktopTools/Voice", "voice", "语音面板", false},
+    {"DesktopTools/CloudDictionary", "cloud-dictionary", "云词典", false},
+    {"DesktopTools/CloudClipboard", "cloud-clipboard", "云剪贴板", false},
+    {"DesktopTools/Dictionary", "dictionary", "词库…", true},
+    {"DesktopTools/Settings", "settings", "设置…", true},
+    {"DesktopTools/About", "about", "关于水杉输入法", true},
+    {"DesktopTools/Help", "help", "帮助", false},
+    {"DesktopTools/Feedback", "feedback", "反馈", false},
 };
+
+// A menu separator. ibus-ui-gtk3 draws it as a rule and ends the radio group before it; keys must stay unique because panels find properties by key.
+IBusProperty *menu_separator(const char *key) {
+  return ibus_property_new(key, PROP_TYPE_SEPARATOR, ibus_text_new_from_static_string(""), "",
+                           ibus_text_new_from_static_string(""), FALSE, TRUE, PROP_STATE_UNCHECKED, nullptr);
+}
+
+// A sub-menu that only holds other properties. It is registered once and never updated as a container: every leaf inside keeps its own key and is updated by that key, which panels resolve through the nesting.
+IBusProperty *menu_group(const char *key, const char *label, const char *tooltip,
+                         std::initializer_list<IBusProperty *> items) {
+  auto list = ibus_prop_list_new();
+  for (auto *item : items) ibus_prop_list_append(list, item);
+  return ibus_property_new(key, PROP_TYPE_MENU, ibus_text_new_from_static_string(label), "",
+                           ibus_text_new_from_static_string(tooltip), TRUE, TRUE, PROP_STATE_UNCHECKED, list);
+}
+
+// Update a menu whose children are fixed, children first: IBus panels apply an update to the property with the same key and never to its sub-properties, so a radio chosen from outside the menu would otherwise stay unmarked until the next registration.
+void update_menu_property(IBusEngine *engine, IBusProperty *menu) {
+  if (auto *items = ibus_property_get_sub_props(menu))
+    for (guint index = 0; auto *item = ibus_prop_list_get(items, index); ++index)
+      if (ibus_property_get_prop_type(item) != PROP_TYPE_SEPARATOR) ibus_engine_update_property(engine, item);
+  ibus_engine_update_property(engine, menu);
+}
+
+IBusProperty *desktop_panel_property(IBusEngine *engine, const DesktopPanelAction &action) {
+  const auto &s = state(engine);
+  return ibus_property_new(
+      action.property, PROP_TYPE_NORMAL,
+      ibus_text_new_from_static_string(action.label), "",
+      ibus_text_new_from_static_string(action.label),
+      s.focused && !s.blocked &&
+          (std::string(action.property) != "DesktopTools/Voice" || s.voice_enabled),
+      TRUE, PROP_STATE_UNCHECKED, nullptr);
+}
 
 IBusProperty *desktop_tools_property(IBusEngine *engine) {
   const auto &s = state(engine);
@@ -1342,15 +1375,8 @@ IBusProperty *desktop_tools_property(IBusEngine *engine) {
       s.focused && !s.blocked && !menu_save_pending &&
           !directory.empty() && directory.front() == '/',
       TRUE, toolbar_enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr));
-  for (const auto &action : desktop_panel_actions) {
-    ibus_prop_list_append(items, ibus_property_new(
-        action.property, PROP_TYPE_NORMAL,
-        ibus_text_new_from_static_string(action.label), "",
-        ibus_text_new_from_static_string(action.label),
-        s.focused && !s.blocked &&
-            (std::string(action.property) != "DesktopTools/Voice" || s.voice_enabled),
-        TRUE, PROP_STATE_UNCHECKED, nullptr));
-  }
+  for (const auto &action : desktop_panel_actions)
+    if (!action.design_menu) ibus_prop_list_append(items, desktop_panel_property(engine, action));
   ibus_prop_list_append(items, ibus_property_new(
       "DesktopTools/VoiceEnabled", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("启用语音输入"), "",
@@ -2502,7 +2528,7 @@ IBusProperty *input_mode_property(IBusEngine *engine) {
                                    : configured.at("preferences").value("scheme", "") == "japanese";
   auto *property = ibus_property_new(
       "InputMode", PROP_TYPE_TOGGLE,
-      ibus_text_new_from_static_string("输入法模式"), "",
+      ibus_text_new_from_static_string("中文"), "",
       ibus_text_new_from_static_string(s.input_enabled ? "使用当前输入方案"
                                                        : "直接输入（不转换）"),
       s.focused && !s.blocked, TRUE,
@@ -2548,20 +2574,13 @@ void publish_mode(IBusEngine *engine, bool registration) {
     }
     return;
   }
-  if (s.skin_override) {
-    const auto selected = *s.skin_override;
-    bool available = listed_skin(selected);
-    if (!available) {
-      const auto catalog = configured.find("candidate_skin_catalog");
-      if (catalog != configured.end() && catalog->is_object()) {
-        const auto packages = catalog->find("packages");
-        if (packages != catalog->end() && packages->is_array())
-          for (const auto &package : *packages)
-            if (package.is_object() && package.value("id", std::string{}) == selected)
-              available = true;
-      }
-    }
-    if (!available) s.skin_override.reset();
+  const auto themes = theme_choices();
+  // A choice made while no store was writable lives only here; drop it once the package it draws is no longer listed.
+  if (s.theme_choice_override) {
+    const auto custom = s.theme_choice_override->value("custom_theme", Json::object());
+    const auto package = custom.value("candidate_skin", Json(nullptr));
+    if (package.is_string() && !msime::linux_host::find_theme_choice(themes, package.get<std::string>()))
+      s.theme_choice_override.reset();
   }
   clipboard_schedule(engine);
   auto toolbar = toolbar_property(engine);
@@ -2596,8 +2615,9 @@ void publish_mode(IBusEngine *engine, bool registration) {
       configured.at("preferences").value("tsf_preedit_style", "raw"));
   const auto theme = s.theme_override.value_or(
       configured.at("preferences").value("candidate_theme", "follow"));
-  const auto skin = s.skin_override.value_or(
-      configured.at("preferences").value("candidate_skin", default_candidate_skin()));
+  auto theme_preferences = configured.at("preferences");
+  if (s.theme_choice_override) msime::linux_host::apply_theme_choice(theme_preferences, *s.theme_choice_override);
+  const auto global_theme = msime::linux_host::current_theme_choice(theme_preferences, themes);
   auto property = input_mode_property(engine);
   const auto voice_label = s.voice_active
       ? (s.voice_space_locked && !s.voice_stopping
@@ -2625,7 +2645,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
       TRUE, s.cloud_candidates ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   auto translations = ibus_property_new(
       "CandidateTranslations", PROP_TYPE_TOGGLE,
-      ibus_text_new_from_static_string("候选翻译"), "",
+      ibus_text_new_from_static_string("显示译文"), "",
       ibus_text_new_from_static_string("通过用户管理的 provider 请求候选翻译"),
       s.focused && !s.blocked && s.input_enabled && s.session &&
           !s.translation_provider_socket.empty() && !menu_save_pending,
@@ -3065,32 +3085,22 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(theme_menu, item);
   }
   ibus_property_set_sub_props(theme_property, theme_menu);
-  auto skin_property = ibus_property_new(
-      "CandidateSkin", PROP_TYPE_MENU,
-      ibus_text_new_from_static_string("候选皮肤"), "",
-      ibus_text_new_from_static_string("选择候选窗口皮肤"),
+  // Named after the entry drawn, as the Fcitx5 主题 action is and as the design's 主题 shows the current theme beside it.
+  const auto *current_theme = msime::linux_host::find_theme_choice(themes, global_theme);
+  auto global_theme_property = ibus_property_new(
+      "GlobalTheme", PROP_TYPE_MENU,
+      ibus_text_new_from_string(current_theme ? ("主题：" + current_theme->title).c_str() : "主题"), "",
+      ibus_text_new_from_static_string("选择候选窗口、菜单与工具栏的主题"),
       s.focused && !s.blocked && !menu_save_pending, TRUE, PROP_STATE_UNCHECKED, nullptr);
-  auto skin_menu = ibus_prop_list_new();
-  const auto listed_skins = msime::linux_host::candidate_skin_list(
-      builtin_skins(), msime::linux_host::parse_configured_skins(configured), skin);
-  const auto builtin_count = builtin_skins().size();
-  for (std::size_t index = 0; index < listed_skins.size(); ++index) {
-    const auto &entry = listed_skins[index];
-    // 合成列表把不在目录里的当前皮肤补在末尾。它照旧不可选中——切到一个宿主拿不到
-    // 定义的皮肤没有意义——但它带着自己的名字留在菜单里，而不是消失。
-    const bool builtin = index < builtin_count;
-    const bool external_current = index >= builtin_count && entry.id == skin &&
-                                  entry.title == "外部：" + skin;
-    ibus_prop_list_append(skin_menu, ibus_property_new(
-        (std::string("CandidateSkin/") + entry.id).c_str(), PROP_TYPE_RADIO,
+  auto global_theme_menu = ibus_prop_list_new();
+  for (const auto &entry : themes)
+    ibus_prop_list_append(global_theme_menu, ibus_property_new(
+        (std::string("GlobalTheme/") + entry.id).c_str(), PROP_TYPE_RADIO,
         ibus_text_new_from_string(entry.title.c_str()), "",
-        ibus_text_new_from_static_string(
-            builtin ? "选择候选窗口皮肤"
-                    : external_current ? "当前配置的皮肤不在可用目录中" : "外部候选皮肤"),
-        external_current ? FALSE : !menu_save_pending, TRUE,
-        skin == entry.id ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr));
-  }
-  ibus_property_set_sub_props(skin_property, skin_menu);
+        ibus_text_new_from_static_string(entry.package_base ? "外部候选皮肤，使用自定义主题" : "选择主题"),
+        !menu_save_pending, TRUE,
+        global_theme == entry.id ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr));
+  ibus_property_set_sub_props(global_theme_property, global_theme_menu);
   auto scheme = ibus_property_new(
       "Scheme", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("输入方案"), "",
@@ -3109,6 +3119,8 @@ void publish_mode(IBusEngine *engine, bool registration) {
       japanese_scheme ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   ibus_prop_list_append(scheme_menu, chinese);
   ibus_prop_list_append(scheme_menu, japanese);
+  // Chinese/Japanese and the three Chinese schemes are two radio groups; without the rule ibus-ui-gtk3 joins them and marks only one of the two checked entries.
+  ibus_prop_list_append(scheme_menu, menu_separator("Scheme/Separator"));
   const auto active_chinese_scheme = s.scheme_override.value_or(
       configured.at("preferences").value("last_chinese_scheme", std::string("quanpin")));
   for (const auto &[value, label] : {std::pair{"quanpin", "全拼"},
@@ -3142,94 +3154,88 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(profile_menu, item);
   }
   ibus_property_set_sub_props(profile, profile_menu);
+  // The design menu: 中文/英文; 全角/标点/译文; 输入方案; 主题/词库…/设置…/关于, then the tools that depend on the moment (voice, candidate actions, nine-key spellings, clipboard history) and the three option groups holding every other switch. 中文/英文 is the one InputMode toggle Shift flips, labelled 中文 and checked while letters compose; the Engine's dedicated English mode (EnglishMode, Ctrl+Shift+E) is a different feature and sits in 输入选项 beside 英文候选. Nesting keeps each key, so activation and the by-key updates below do not change.
+  std::vector<IBusProperty *> design_panel_actions;
+  for (const auto &action : desktop_panel_actions)
+    if (action.design_menu) design_panel_actions.push_back(desktop_panel_property(engine, action));
   if (registration) {
     auto properties = ibus_prop_list_new();
-    ibus_prop_list_append(properties, toolbar);
-    ibus_prop_list_append(properties, desktop_tools_property(engine));
-    ibus_prop_list_append(properties, candidate_actions(engine));
     ibus_prop_list_append(properties, property);
+    ibus_prop_list_append(properties, menu_separator("Separator/Mode"));
+    ibus_prop_list_append(properties, character_mode);
+    ibus_prop_list_append(properties, punctuation);
+    ibus_prop_list_append(properties, translations);
+    ibus_prop_list_append(properties, menu_separator("Separator/Switches"));
+    ibus_prop_list_append(properties, scheme);
+    ibus_prop_list_append(properties, menu_separator("Separator/Scheme"));
+    ibus_prop_list_append(properties, global_theme_property);
+    for (auto *action : design_panel_actions) ibus_prop_list_append(properties, action);
+    ibus_prop_list_append(properties, menu_separator("Separator/Design"));
     ibus_prop_list_append(properties, voice);
     ibus_prop_list_append(properties, voice_cancel_property);
-    ibus_prop_list_append(properties, cloud);
-    ibus_prop_list_append(properties, translations);
-    ibus_prop_list_append(properties, sentence_translation);
-    ibus_prop_list_append(properties, translation_language);
-    ibus_prop_list_append(properties, punctuation);
-    ibus_prop_list_append(properties, smart_punctuation);
-    ibus_prop_list_append(properties, smart_repeat);
-    ibus_prop_list_append(properties, paired);
-    ibus_prop_list_append(properties, punctuation_lock);
-    ibus_prop_list_append(properties, character_mode);
-    ibus_prop_list_append(properties, traditional);
-    ibus_prop_list_append(properties, english);
-    ibus_prop_list_append(properties, english_mode);
-    ibus_prop_list_append(properties, helpcode_property);
-    ibus_prop_list_append(properties, helpcode_schema);
-    ibus_prop_list_append(properties, emoji);
-    ibus_prop_list_append(properties, kaomoji);
-    ibus_prop_list_append(properties, clipboard);
-    ibus_prop_list_append(properties, layout_property);
-    ibus_prop_list_append(properties, page_size_property);
-    ibus_prop_list_append(properties, frequency_property);
-    ibus_prop_list_append(properties, frequency_trigger_property);
-    ibus_prop_list_append(properties, frequency_step_property);
-    ibus_prop_list_append(properties, learning_property);
-    ibus_prop_list_append(properties, number_row_property);
-    ibus_prop_list_append(properties, nine_key_property);
+    ibus_prop_list_append(properties, candidate_actions(engine));
     ibus_prop_list_append(properties, nine_key_spellings_property);
-    ibus_prop_list_append(properties, word_character_property);
-    ibus_prop_list_append(properties, preedit_property);
-    ibus_prop_list_append(properties, shuangpin_preedit_property);
-    ibus_prop_list_append(properties, wubi_code_hint_property);
-    ibus_prop_list_append(properties, theme_property);
-    ibus_prop_list_append(properties, skin_property);
-    ibus_prop_list_append(properties, scheme);
-    ibus_prop_list_append(properties, profile);
-    ibus_prop_list_append(properties, local_modes_property);
+    ibus_prop_list_append(properties, clipboard);
+    ibus_prop_list_append(properties, menu_group(
+        "Group/Input", "输入选项", "方案细节、混合候选与按键选项",
+        {profile, helpcode_property, helpcode_schema, traditional, english, english_mode, emoji, kaomoji, cloud,
+         nine_key_property, number_row_property, word_character_property, local_modes_property}));
+    ibus_prop_list_append(properties, menu_group(
+        "Group/Punctuation", "标点与翻译", "标点细节与候选翻译",
+        {smart_punctuation, smart_repeat, paired, punctuation_lock, menu_separator("Group/Punctuation/Separator"),
+         sentence_translation, translation_language}));
+    ibus_prop_list_append(properties, menu_group(
+        "Group/Candidate", "候选与词频", "候选窗口、编码显示与词频学习",
+        {layout_property, page_size_property, theme_property, preedit_property, shuangpin_preedit_property,
+         wubi_code_hint_property, menu_separator("Group/Candidate/Separator"), learning_property,
+         frequency_property, frequency_trigger_property, frequency_step_property}));
+    ibus_prop_list_append(properties, toolbar);
+    ibus_prop_list_append(properties, desktop_tools_property(engine));
     ibus_engine_register_properties(engine, properties);
   } else {
-    ibus_engine_update_property(engine, toolbar);
-    ibus_engine_update_property(engine, desktop_tools_property(engine));
-    ibus_engine_update_property(engine, candidate_actions(engine));
     ibus_engine_update_property(engine, property);
+    ibus_engine_update_property(engine, english_mode);
+    ibus_engine_update_property(engine, character_mode);
+    ibus_engine_update_property(engine, punctuation);
+    ibus_engine_update_property(engine, translations);
+    update_menu_property(engine, scheme);
+    update_menu_property(engine, global_theme_property);
+    for (auto *action : design_panel_actions) ibus_engine_update_property(engine, action);
     ibus_engine_update_property(engine, voice);
     ibus_engine_update_property(engine, voice_cancel_property);
+    ibus_engine_update_property(engine, candidate_actions(engine));
+    ibus_engine_update_property(engine, nine_key_spellings_property);
+    ibus_engine_update_property(engine, clipboard);
+    ibus_engine_update_property(engine, profile);
+    ibus_engine_update_property(engine, helpcode_property);
+    ibus_engine_update_property(engine, helpcode_schema);
+    ibus_engine_update_property(engine, traditional);
+    ibus_engine_update_property(engine, english);
+    ibus_engine_update_property(engine, emoji);
+    ibus_engine_update_property(engine, kaomoji);
     ibus_engine_update_property(engine, cloud);
-    ibus_engine_update_property(engine, translations);
-    ibus_engine_update_property(engine, sentence_translation);
-    ibus_engine_update_property(engine, translation_language);
-    ibus_engine_update_property(engine, punctuation);
+    ibus_engine_update_property(engine, nine_key_property);
+    ibus_engine_update_property(engine, number_row_property);
+    ibus_engine_update_property(engine, word_character_property);
+    ibus_engine_update_property(engine, local_modes_property);
     ibus_engine_update_property(engine, smart_punctuation);
     ibus_engine_update_property(engine, smart_repeat);
     ibus_engine_update_property(engine, paired);
     ibus_engine_update_property(engine, punctuation_lock);
-    ibus_engine_update_property(engine, character_mode);
-    ibus_engine_update_property(engine, traditional);
-    ibus_engine_update_property(engine, english);
-    ibus_engine_update_property(engine, english_mode);
-    ibus_engine_update_property(engine, helpcode_property);
-    ibus_engine_update_property(engine, helpcode_schema);
-    ibus_engine_update_property(engine, emoji);
-    ibus_engine_update_property(engine, kaomoji);
-    ibus_engine_update_property(engine, clipboard);
+    ibus_engine_update_property(engine, sentence_translation);
+    ibus_engine_update_property(engine, translation_language);
     ibus_engine_update_property(engine, layout_property);
     ibus_engine_update_property(engine, page_size_property);
-    ibus_engine_update_property(engine, frequency_property);
-    ibus_engine_update_property(engine, frequency_trigger_property);
-    ibus_engine_update_property(engine, frequency_step_property);
-    ibus_engine_update_property(engine, learning_property);
-    ibus_engine_update_property(engine, number_row_property);
-    ibus_engine_update_property(engine, nine_key_property);
-    ibus_engine_update_property(engine, nine_key_spellings_property);
-    ibus_engine_update_property(engine, word_character_property);
+    ibus_engine_update_property(engine, theme_property);
     ibus_engine_update_property(engine, preedit_property);
     ibus_engine_update_property(engine, shuangpin_preedit_property);
     ibus_engine_update_property(engine, wubi_code_hint_property);
-    ibus_engine_update_property(engine, theme_property);
-    ibus_engine_update_property(engine, skin_property);
-    ibus_engine_update_property(engine, scheme);
-    ibus_engine_update_property(engine, profile);
-    ibus_engine_update_property(engine, local_modes_property);
+    ibus_engine_update_property(engine, learning_property);
+    ibus_engine_update_property(engine, frequency_property);
+    ibus_engine_update_property(engine, frequency_trigger_property);
+    ibus_engine_update_property(engine, frequency_step_property);
+    ibus_engine_update_property(engine, toolbar);
+    ibus_engine_update_property(engine, desktop_tools_property(engine));
   }
 }
 struct CandidateHideRequest {
@@ -4602,7 +4608,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
        std::string(name) != "KaomojiCandidates" &&
        std::string(name) != "CandidateLayout/Vertical" &&
        std::string(name) != "CandidateLayout/Horizontal" &&
-       property_name.rfind("CandidateSkin/", 0) != 0 &&
+       property_name.rfind("GlobalTheme/", 0) != 0 &&
        property_name.rfind("CandidatePageSize/", 0) != 0 &&
        property_name.rfind("FrequencyMode/", 0) != 0 &&
        std::string(name) != "NumberRowSelection" &&
@@ -5162,25 +5168,40 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       publish_mode(engine);
       return;
     }
-    if (std::string(name).rfind("CandidateSkin/", 0) == 0) {
-      const auto selected = std::string(name).substr(std::string("CandidateSkin/").size());
+    if (std::string(name).rfind("GlobalTheme/", 0) == 0) {
+      const auto selected = std::string(name).substr(std::string("GlobalTheme/").size());
       if (value != PROP_STATE_CHECKED || menu_save_pending)
         return;
-      // 菜单只列经过校验的目录项，这里原先却接受任何带 id 的 package，两边对「可用」
-      // 的判断不是同一条。共用合成列表后它们必然一致。
-      if (!listed_skin(selected)) return;
-      if (s.skin_override.value_or(
-              configured.at("preferences").value("candidate_skin", default_candidate_skin())) == selected)
+      auto preferences = configured.at("preferences");
+      if (s.theme_choice_override) msime::linux_host::apply_theme_choice(preferences, *s.theme_choice_override);
+      // Only an entry the menu lists can be chosen, and choosing the one already shown changes nothing.
+      const auto themes = theme_choices();
+      if (msime::linux_host::current_theme_choice(preferences, themes) == selected) return;
+      auto change = msime::linux_host::theme_choice_change(themes, selected);
+      if (!change) return;
+      // 自定义 while the custom theme is drawn over a listed package changes no preference; republish so the panel checks the package entry again rather than the radio just clicked.
+      auto chosen = preferences;
+      msime::linux_host::apply_theme_choice(chosen, *change);
+      if (chosen == preferences) {
+        publish_mode(engine);
         return;
+      }
       const auto directory = configured.value("preferences_directory", std::string{});
       if (!directory.empty() && directory.front() == '/') {
-        save_menu_preference(engine, MenuPreference::CandidateSkin, selected);
+        save_menu_preference(engine, MenuPreference::GlobalTheme, std::move(*change));
         return;
       }
       if (s.session)
         apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
       s.close();
-      s.skin_override = selected;
+      // Later choices stack on an unsaved one; a removal stays a null so it still removes the stored key.
+      if (s.theme_choice_override) {
+        (*s.theme_choice_override)["global_theme"] = change->at("global_theme");
+        for (const auto &[key, item] : change->value("custom_theme", Json::object()).items())
+          (*s.theme_choice_override)["custom_theme"][key] = item;
+      } else {
+        s.theme_choice_override = std::move(*change);
+      }
       s.open();
       if (s.session)
         apply(engine, msime_client_focus(s.session, true));
@@ -7091,8 +7112,8 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             self->state->preedit_override.reset();
           if (request.preference == MenuPreference::CandidateLayout)
             self->state->layout_override.reset();
-          if (request.preference == MenuPreference::CandidateSkin)
-            self->state->skin_override.reset();
+          if (request.preference == MenuPreference::GlobalTheme)
+            self->state->theme_choice_override.reset();
           if (request.preference == MenuPreference::CandidatePageSize)
             self->state->candidate_page_size_override.reset();
           if (request.preference == MenuPreference::FrequencyMode)
@@ -7193,8 +7214,8 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
           case MenuPreference::CandidateLayout:
             snapshot["preferences"]["candidate_layout"] = request.value;
             break;
-          case MenuPreference::CandidateSkin:
-            snapshot["preferences"]["candidate_skin"] = request.value;
+          case MenuPreference::GlobalTheme:
+            msime::linux_host::apply_theme_choice(snapshot["preferences"], request.value);
             break;
           case MenuPreference::CandidatePageSize:
             snapshot["preferences"]["candidate_page_size"] = request.value;
@@ -7555,7 +7576,7 @@ static void msime_ibus_engine_class_init(MsimeIbusEngineClass *klass) {
   IBUS_OBJECT_CLASS(klass)->destroy = destroy;
 }
 void msime_ibus_configure(const std::string &options) {
-  if (options.size() > 16384 || msime_client_abi_version() != 2)
+  if (options.size() > 16384 || msime_client_abi_version() != 3)
     throw std::runtime_error("Invalid host configuration");
   auto next = Json::parse(options);
   if (!next.is_object() || !next.contains("preferences") ||

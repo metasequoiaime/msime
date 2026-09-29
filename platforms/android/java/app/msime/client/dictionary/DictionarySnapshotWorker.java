@@ -8,9 +8,9 @@ import org.json.JSONObject;
 public final class DictionarySnapshotWorker {
     private DictionarySnapshotWorker() {}
 
-    public static void process(Path queueDirectory, Path stagingDirectory, String options)
+    public static void process(Path filesRoot, Path queueDirectory, Path stagingDirectory, String options)
             throws Exception {
-        DictionarySnapshotQueue queue = new DictionarySnapshotQueue(queueDirectory);
+        DictionarySnapshotQueue queue = new DictionarySnapshotQueue(filesRoot, queueDirectory);
         String current = version(options);
         queue.publishLocalVersion(current);
         try (DictionarySnapshotQueue.WorkerLease lease = queue.acquireWorkerLease()) {
@@ -18,7 +18,7 @@ public final class DictionarySnapshotWorker {
             if (request == null) return;
             long handle = 0;
             try {
-                Files.createDirectories(stagingDirectory);
+                ensureSafeDirectory(stagingDirectory);
                 String prepareRequest = new JSONObject()
                     .put("options", new JSONObject(options))
                     .put("staging_root", stagingDirectory.toAbsolutePath().normalize().toString())
@@ -53,6 +53,30 @@ public final class DictionarySnapshotWorker {
                 if (handle != 0) NativeClient.snapshotDiscard(handle);
             }
         }
+    }
+
+    static void ensureSafeDirectory(Path directory) throws java.io.IOException {
+        if (directory == null) throw new java.io.IOException("snapshot staging directory unavailable");
+        Path absolute = directory.toAbsolutePath().normalize();
+        Path current = absolute.getRoot();
+        if (current == null) throw new java.io.IOException("snapshot staging directory unavailable");
+        for (Path component : absolute) {
+            current = current.resolve(component);
+            if (Files.isSymbolicLink(current))
+                throw new java.io.IOException("snapshot staging path contains a symbolic link");
+        }
+        if (Files.exists(absolute, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+                && !Files.isDirectory(absolute, java.nio.file.LinkOption.NOFOLLOW_LINKS))
+            throw new java.io.IOException("snapshot staging directory unavailable");
+        Files.createDirectories(absolute);
+        current = absolute.getRoot();
+        for (Path component : absolute) {
+            current = current.resolve(component);
+            if (Files.isSymbolicLink(current))
+                throw new java.io.IOException("snapshot staging path contains a symbolic link");
+        }
+        if (!Files.isDirectory(absolute, java.nio.file.LinkOption.NOFOLLOW_LINKS))
+            throw new java.io.IOException("snapshot staging directory unavailable");
     }
 
     private static String version(String options) throws Exception {

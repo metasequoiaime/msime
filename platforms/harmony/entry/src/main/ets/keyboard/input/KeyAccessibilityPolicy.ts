@@ -44,6 +44,11 @@ export class KeyAccessibilityPolicy {
     return "切换中英文";
   }
 
+  /** The language switch where it draws the mode rather than a key face, as the strip pill and the tool tile do: the action first, then the mode it is in, because "已开启" would not say which of the two languages is on. */
+  static languageState(english: boolean): string {
+    return `${KeyAccessibilityPolicy.language()}，当前${english ? "英文" : "中文"}`;
+  }
+
   /** The layout toggle, in whichever direction it is pointing. */
   static layoutToggle(showingSymbols: boolean): string {
     return showingSymbols ? "切换到所选输入方案" : "切换到数字和符号";
@@ -62,8 +67,9 @@ export class KeyAccessibilityPolicy {
     return "选择输入方案";
   }
 
-  static skin(): string {
-    return "切换皮肤";
+  /** The tool that opens the global theme picker. */
+  static theme(): string {
+    return "选择主题";
   }
 
   static tools(): string {
@@ -90,6 +96,32 @@ export class KeyAccessibilityPolicy {
 
   static dismiss(): string {
     return "收起键盘";
+  }
+
+  /** The strip's punctuation pill and the panel's tile, which switch between Chinese and ASCII punctuation. */
+  static punctuationWidth(): string {
+    return "切换中英文标点";
+  }
+
+  /** The punctuation pill, which draws the mode in force, read with it. */
+  static punctuationState(chinese: boolean): string {
+    return `${KeyAccessibilityPolicy.punctuationWidth()}，当前${chinese ? "中文标点" : "英文标点"}`;
+  }
+
+  /** The candidate translation switch, named as the panel's 译 tile titles it; the strip's 译 pill reads the same name. */
+  static translations(): string {
+    return "显示译文";
+  }
+
+  /** What a screen reader says for a tool tile: its name, and for a switch whether it is on. */
+  static tile(title: string, label: string | undefined, on: boolean, toggles: boolean): string {
+    const name: string = label ?? title;
+    return toggles ? `${name}，${on ? "已开启" : "已关闭"}` : name;
+  }
+
+  /** The strip's gear and the panel's tile, which open the settings application. */
+  static settings(): string {
+    return "打开设置";
   }
 
   /**

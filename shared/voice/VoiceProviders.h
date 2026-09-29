@@ -29,6 +29,10 @@ std::string default_polish_model(std::string_view provider);
 bool is_doubao_asr_provider(std::string_view provider);
 // ws:// or wss://. Used to spot an endpoint left over from another provider.
 bool voice_endpoint_is_websocket(std::string_view endpoint);
+// Windows sends bearer credentials directly from the native host. Only the
+// provider's encrypted transport may carry them; reject userinfo, fragments,
+// whitespace and malformed authorities before libcurl/WinHTTP sees the URL.
+bool secure_voice_endpoint(std::string_view endpoint, bool websocket);
 std::string resolved_asr_endpoint(std::string_view provider,
                                   std::string_view configured_endpoint);
 // What recognize_cloud_asr throws when the request is built, sent or answered badly. what() keeps the terse English diagnostic hosts already log; user_message() is the sentence MSIME-Windows voice_input_service.cpp Recognize() shows the person dictating - the provider's own JSON message or the HTTP status, and for SiliconFlow the trace id its support asks for. It never carries the token or the request body.
@@ -81,6 +85,7 @@ using windows::default_polish_endpoint;
 using windows::default_polish_model;
 using windows::is_doubao_asr_provider;
 using windows::voice_endpoint_is_websocket;
+using windows::secure_voice_endpoint;
 using windows::resolved_asr_endpoint;
 using windows::CloudAsrError;
 using windows::cloud_asr_error_detail;

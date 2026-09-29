@@ -29,7 +29,7 @@ test("selects a visible keyboard scheme and toggles another", () => {
 
   fireEvent.click(screen.getByRole("button", { name: "设为当前输入方案 全拼 9 键" }));
   expect(onSelect).toHaveBeenCalledWith("nine_key");
-  fireEvent.click(screen.getByRole("checkbox", { name: "显示输入方案 86 五笔" }));
+  fireEvent.click(screen.getByRole("switch", { name: "显示输入方案 86 五笔" }));
   expect(onToggle).toHaveBeenCalledWith("wubi", true);
 });
 
@@ -45,8 +45,7 @@ test("prevents disabling the last enabled scheme", () => {
   );
 
   expect(
-    (screen.getByRole("checkbox", { name: "显示输入方案 全拼 26 键" }) as HTMLInputElement)
-      .disabled,
+    (screen.getByRole("switch", { name: "显示输入方案 全拼 26 键" }) as HTMLInputElement).disabled,
   ).toBe(true);
   expect(
     (screen.getByRole("button", { name: "设为当前输入方案 全拼 9 键" }) as HTMLButtonElement)

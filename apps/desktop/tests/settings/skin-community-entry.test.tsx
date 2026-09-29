@@ -35,7 +35,7 @@ function communitySkins() {
 function renderSettings(platform: string, skins: unknown = communitySkins()) {
   render(
     <SettingsPage
-      initialPage="screen-keyboard"
+      initialPage="skin"
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
@@ -47,9 +47,8 @@ function renderSettings(platform: string, skins: unknown = communitySkins()) {
   );
 }
 
-// Apple's 皮肤 page carries this jump because the community is a separate tab
-// there; the shared mobile navigation has the same shape.
-test("a mobile host can jump from the keyboard skins to the community", async () => {
+// Apple's 皮肤 page carries this jump because the community is a separate tab there; the shared mobile navigation has the same shape, and its skins now live on 主题.
+test("a mobile host can jump from the theme page to the community", async () => {
   renderSettings("android");
   await screen.findByRole("button", { name: "保存设置" });
 

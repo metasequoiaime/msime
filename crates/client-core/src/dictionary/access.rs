@@ -31,7 +31,7 @@ impl DictionaryAccess {
         let mut roots = vec![user.canonicalize()?, dictionaries.canonicalize()?];
         roots.sort();
         roots.dedup();
-        let mut files = Vec::new();
+        let mut files = Vec::with_capacity(roots.len());
         for root in roots {
             let file = crate::file_lock::open_private_lock_file(
                 root.join(".msime-dictionary-access.lock"),

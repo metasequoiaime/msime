@@ -9,16 +9,16 @@ import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
+import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import app.msime.client.CommunityCatalog;
 import app.msime.client.CommunityRequest;
 import app.msime.client.R;
 import com.google.android.material.button.MaterialButton;
+import com.google.android.material.button.MaterialButtonToggleGroup;
 import com.google.android.material.snackbar.Snackbar;
-import com.google.android.material.tabs.TabLayout;
 import com.google.android.material.textfield.TextInputEditText;
-import com.google.android.material.textfield.TextInputLayout;
 import java.nio.file.Paths;
 
 /**
@@ -62,20 +62,28 @@ public final class CommunityFragment extends Fragment {
                 if (value.id().equals(arguments.getString(ARG_KIND))) kind = value;
             }
         }
-        TabLayout kinds = view.findViewById(R.id.community_kinds);
-        for (CommunityRequest.Kind value : CommunityRequest.kinds()) {
-            kinds.addTab(kinds.newTab().setText(value.title()));
+        // The design's segmented control. The opening kind is checked before the listener is attached, so opening loads the listing once, below, rather than once per path.
+        MaterialButtonToggleGroup kinds = view.findViewById(R.id.community_kinds);
+        LayoutInflater inflater = LayoutInflater.from(requireContext());
+        java.util.List<CommunityRequest.Kind> values = CommunityRequest.kinds();
+        int[] segments = new int[values.size()];
+        for (int index = 0; index < values.size(); index++) {
+            MaterialButton segment =
+                (MaterialButton) inflater.inflate(R.layout.item_segment, kinds, false);
+            segment.setId(View.generateViewId());
+            segment.setText(values.get(index).title());
+            kinds.addView(segment);
+            segments[index] = segment.getId();
         }
-        kinds.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
-            @Override public void onTabSelected(TabLayout.Tab tab) {
-                kind = CommunityRequest.kinds().get(tab.getPosition());
+        kinds.check(segments[Math.max(0, values.indexOf(kind))]);
+        kinds.addOnButtonCheckedListener((group, id, checked) -> {
+            if (!checked) return;
+            for (int index = 0; index < segments.length; index++) {
+                if (segments[index] != id || values.get(index) == kind) continue;
+                kind = values.get(index);
                 updateSearchHint();
                 load(true);
             }
-
-            @Override public void onTabUnselected(TabLayout.Tab tab) {}
-
-            @Override public void onTabReselected(TabLayout.Tab tab) {}
         });
 
         adapter = new CommunityAdapter(this::open);
@@ -87,7 +95,11 @@ public final class CommunityFragment extends Fragment {
                 preferences.optString("touch_keyboard_layout", "twenty_six_key"));
         });
         RecyclerView items = view.findViewById(R.id.community_items);
-        items.setLayoutManager(new LinearLayoutManager(requireContext()));
+        GridLayoutManager grid = new GridLayoutManager(requireContext(), CommunityAdapter.COLUMNS);
+        grid.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
+            @Override public int getSpanSize(int position) { return adapter.span(position); }
+        });
+        items.setLayoutManager(grid);
         items.setAdapter(adapter);
         items.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override public void onScrolled(@NonNull RecyclerView list, int dx, int dy) {
@@ -117,22 +129,15 @@ public final class CommunityFragment extends Fragment {
         MaterialButton retry = view.findViewById(R.id.community_retry);
         retry.setOnClickListener(ignored -> load(true));
 
-        TabLayout.Tab opening = kinds.getTabAt(CommunityRequest.kinds().indexOf(kind));
-        if (opening != null && !opening.isSelected()) {
-            // Selecting the tab loads the listing through the listener; doing both would issue the
-            // first request twice.
-            opening.select();
-        } else {
-            load(true);
-        }
+        load(true);
         updateSearchHint();
     }
 
     private void updateSearchHint() {
         View view = getView();
         if (view == null) return;
-        ((TextInputLayout) view.findViewById(R.id.community_search_field))
-            .setHint(kind.searchHint());
+        // The pill field has no floating label, so the hint lives on the text itself.
+        ((TextInputEditText) view.findViewById(R.id.community_search)).setHint(kind.searchHint());
     }
 
     private void load(boolean fresh) {

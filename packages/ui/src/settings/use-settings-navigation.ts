@@ -11,8 +11,8 @@ import {
   mobileTabForPage,
   requestedPage,
   type MobilePrimaryPageId,
-  type SettingsPageId,
-} from "./mobile-navigation";
+} from "./settings-navigation-helpers";
+import { pages, settingsPageAliases, type SettingsPageId } from "./settings-page-registry";
 
 export interface SettingsNavigationOptions {
   mobilePlatform: boolean;
@@ -66,7 +66,7 @@ export function useSettingsNavigation({
   useEffect(() => {
     if (!route || route.nonce === handledRoute.current) return;
     handledRoute.current = route.nonce;
-    selectPage(requestedPage(route.page));
+    selectPage(requestedPage(route.page, pages, settingsPageAliases, "appearance"));
     // Route nonces intentionally provide the effect's identity; the page callback reads current state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route?.nonce]);
@@ -85,7 +85,7 @@ export function useSettingsNavigation({
     const onPopState = (event: PopStateEvent) => {
       const state = event.state;
       if (state?.msimeSettings === true && typeof state.page === "string") {
-        const restored = requestedPage(state.page);
+        const restored = requestedPage(state.page, pages, settingsPageAliases, "appearance");
         mobileLastPageByTab.current[mobileTabForPage(restored)] = restored;
         setPage(restored);
       }

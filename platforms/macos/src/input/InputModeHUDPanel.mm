@@ -19,14 +19,16 @@ CGFloat Clamp(CGFloat value, CGFloat minimum, CGFloat maximum) {
 }
 }
 
+// The HUD is a brand badge rather than a themed surface, so it takes the brand accent (#2C7A4B light, #5FBF84 dark) the native candidate selection uses, not the retired forest #185C48 / #61B491.
 NSColor *MSIMEInputModeHUDForestColor(void) {
     return [NSColor colorWithName:@"MSIMEInputModeHUDForest" dynamicProvider:^NSColor *(NSAppearance *appearance) {
         const BOOL dark = [appearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]] == NSAppearanceNameDarkAqua;
-        return dark ? [NSColor colorWithSRGBRed:97.0 / 255.0 green:180.0 / 255.0 blue:145.0 / 255.0 alpha:1.0]
-                    : [NSColor colorWithSRGBRed:24.0 / 255.0 green:92.0 / 255.0 blue:72.0 / 255.0 alpha:1.0];
+        return dark ? [NSColor colorWithSRGBRed:0x5F / 255.0 green:0xBF / 255.0 blue:0x84 / 255.0 alpha:1.0]
+                    : [NSColor colorWithSRGBRed:0x2C / 255.0 green:0x7A / 255.0 blue:0x4B / 255.0 alpha:1.0];
     }];
 }
 
+// White on the light accent; the dark accent is too light for white glyphs, so it keeps the dark ink, as the contract's readable_text(accent) would pick.
 NSColor *MSIMEInputModeHUDOnForestColor(void) {
     return [NSColor colorWithName:@"MSIMEInputModeHUDOnForest" dynamicProvider:^NSColor *(NSAppearance *appearance) {
         const BOOL dark = [appearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]] == NSAppearanceNameDarkAqua;

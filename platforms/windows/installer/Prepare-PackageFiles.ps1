@@ -352,6 +352,13 @@ if (-not $Light) {
 # 可选：25MB 换的是桌面独有的提升（收割集 top-1 0.123 → 0.613），
 # 用 scripts/fetch_settled_model.py 取。没有就不装，行为与今天一致。
 $settledSource = Join-Path $RepoRoot 'target/settled-model'
+# fetch_neural_model.py stages both presets together. Preserve the historical one-artifact path,
+# then fall back to the shared directory when it is the only prepared source.
+$neuralModelSource = Join-Path $RepoRoot 'target/neural-model'
+if (-not (Test-Path -LiteralPath (Join-Path $settledSource 'sentence-model-desktop.safetensors') -PathType Leaf) -and
+    (Test-Path -LiteralPath (Join-Path $neuralModelSource 'sentence-model-desktop.safetensors') -PathType Leaf)) {
+    $settledSource = $neuralModelSource
+}
 $settledTarget = Join-Path $targetServer 'settled-model'
 if (Test-Path -LiteralPath $settledTarget) {
     Remove-Item -LiteralPath $settledTarget -Recurse -Force

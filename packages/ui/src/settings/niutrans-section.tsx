@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { SecretInput } from "../core/secret-input";
-import { SettingToggle } from "./setting-toggle";
+import { Row, Switch } from "../core/platform-controls";
+import * as settings from "./settings-style";
 
 export interface NiuTransSectionProps {
   enabled: boolean;
@@ -25,37 +26,32 @@ export function NiuTransSection({
   children,
 }: NiuTransSectionProps) {
   return (
-    <div className="section" role="group" aria-label="小牛翻译（NiuTrans）">
-      <SettingToggle
-        label="小牛翻译（NiuTrans）"
-        description="使用 App ID 和 API Key 为候选词提供逐条翻译"
-        ariaLabel="小牛翻译（NiuTrans）"
-        disabled={!available}
-        checked={enabled}
-        compact
-        onChange={onToggle}
-      />
-      <div className="input-option-divider" />
-      <label className="section-header">
-        <span className="section-title">App ID</span>
+    <div role="group" aria-label="小牛翻译（NiuTrans）" className={settings.rowStack}>
+      <Row title="小牛翻译（NiuTrans）" description="使用 App ID 和 API Key 为候选词提供逐条翻译">
+        <Switch
+          aria-label="小牛翻译（NiuTrans）"
+          disabled={!available}
+          checked={enabled}
+          onChange={onToggle}
+        />
+      </Row>
+      <Row title="App ID">
         <input
           aria-label="NiuTrans App ID"
           value={appId}
           disabled={!available || !enabled}
           onChange={(event) => onAppIdChange(event.target.value)}
         />
-      </label>
-      <div className="input-option-divider" />
-      <label className="section-header">
-        <span className="section-title">API Key</span>
+      </Row>
+      <Row title="API Key">
         <SecretInput
           label="NiuTrans API Key"
           value={apiKey}
           disabled={!available || !enabled}
           onChange={onApiKeyChange}
         />
-      </label>
-      {enabled && children}
+      </Row>
+      {enabled && children && <div className={settings.groupBlock}>{children}</div>}
     </div>
   );
 }

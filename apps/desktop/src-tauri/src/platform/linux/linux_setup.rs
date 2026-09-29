@@ -113,7 +113,7 @@ fn setup_arguments(
 /// Split a stream into lossy, bounded lines. An overlong line is cut rather than buffered without limit.
 fn read_lines(stream: impl Read, mut emit: impl FnMut(String)) {
     let mut reader = BufReader::new(stream);
-    let mut buffer = Vec::new();
+    let mut buffer = Vec::with_capacity(MAX_LINE_BYTES);
     loop {
         buffer.clear();
         let mut limited = (&mut reader).take(MAX_LINE_BYTES as u64);

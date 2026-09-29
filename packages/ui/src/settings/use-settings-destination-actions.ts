@@ -1,9 +1,9 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { AccountCommunityDestination } from "../account/account-page";
-import type { SettingsPageId } from "./mobile-navigation";
 
 export interface UseSettingsDestinationActionsOptions {
-  selectPage: (page: SettingsPageId) => void;
+  // Only the pages these actions open, so any settings page list that has them can pass its own selector.
+  selectPage: (page: "skin" | "community" | "about") => void;
   setShowTouchSkinEditor: Dispatch<SetStateAction<boolean>>;
   setCommunityDestination: Dispatch<SetStateAction<AccountCommunityDestination | "all">>;
 }
@@ -14,8 +14,9 @@ export function useSettingsDestinationActions({
   setShowTouchSkinEditor,
   setCommunityDestination,
 }: UseSettingsDestinationActionsOptions) {
+  // Local keyboard designs are part of the theme model, so they live on the 皮肤 page.
   const openLocalDesigns = () => {
-    selectPage("appearance");
+    selectPage("skin");
     setShowTouchSkinEditor(true);
   };
 
@@ -24,5 +25,10 @@ export function useSettingsDestinationActions({
     setCommunityDestination(destination);
   };
 
-  return { openCommunity, openLocalDesigns } as const;
+  return {
+    openAbout: () => selectPage("about"),
+    openCommunity,
+    openCommunityAll: () => openCommunity("all"),
+    openLocalDesigns,
+  } as const;
 }

@@ -203,8 +203,7 @@ struct TypingStatisticsView: View {
       }
       if !errorMessage.isEmpty { Section { Text(errorMessage).foregroundStyle(.secondary) } }
     }
-    .navigationTitle("").navigationBarTitleDisplayMode(.inline)
-    .navigationBarTitleDisplayMode(.inline)
+    .navigationTitle("统计").navigationBarTitleDisplayMode(.large)
     .toolbar {
       ToolbarItem(placement: .navigationBarTrailing) {
         Menu {
@@ -251,12 +250,12 @@ struct TypingStatisticsView: View {
     return VStack(alignment: .leading, spacing: 14) {
       Text("最高 \(maximum) 字符 / 天").font(.caption).foregroundStyle(.secondary)
       StatisticsTrendChart(days: days, selected: selectedDay,
-                           accent: MetasequoiaTheme.forest, progress: revealed ? 1 : 0)
+                           accent: MetasequoiaTheme.accent, progress: revealed ? 1 : 0)
         .animation(.easeOut(duration: 0.7), value: revealed)
       // 折线看走势,热力图看「哪天在打字」—— 同一份数据的两个问题,一条线回答不了第二个。
       Text("每天一格，一列一周").font(.caption).foregroundStyle(.secondary)
       StatisticsHeatmap(count: { statistics.count(on: $0) }, selected: selectedDay,
-                        accent: MetasequoiaTheme.forest) { date in
+                        accent: MetasequoiaTheme.accent) { date in
         selectedDay = selectedDay == date ? nil : date
       }
     }.padding(.vertical, 8).accessibilityElement(children: .contain).accessibilityIdentifier("statisticsTrend")
@@ -292,7 +291,7 @@ struct TypingStatisticsView: View {
       }
     if let hours = activity.todayHours {
       Section {
-        StatisticsHourlyChart(hours: hours, accent: MetasequoiaTheme.forest, progress: revealed ? 1 : 0)
+        StatisticsHourlyChart(hours: hours, accent: MetasequoiaTheme.accent, progress: revealed ? 1 : 0)
           .animation(.easeOut(duration: 0.6), value: revealed)
           .padding(.vertical, 8)
       } header: { Text("今日时段") }
@@ -303,7 +302,7 @@ struct TypingStatisticsView: View {
     VStack(alignment: .leading, spacing: 6) {
       Text(title).font(.subheadline).foregroundStyle(.secondary)
       Text(value).font(.system(size: 26, weight: .semibold, design: .rounded))
-        .foregroundStyle(MetasequoiaTheme.forest).lineLimit(1).minimumScaleFactor(0.6)
+        .foregroundStyle(MetasequoiaTheme.accent).lineLimit(1).minimumScaleFactor(0.6)
         .accessibilityIdentifier(identifier)
       Text(unit).font(.caption).foregroundStyle(.secondary)
     }
@@ -358,8 +357,9 @@ struct TypingStatisticsView: View {
   private func metric(_ title: String, count: Int, identifier: String) -> some View {
     VStack(alignment: .leading, spacing: 6) {
       Text(title).font(.subheadline).foregroundStyle(.secondary)
-      Text("\(count)").font(.system(size: 30, weight: .semibold, design: .rounded))
-        .foregroundStyle(MetasequoiaTheme.forest).accessibilityIdentifier(identifier)
+      Text(count.formatted()).font(.system(size: 36, weight: .bold)).monospacedDigit()
+        .foregroundStyle(MetasequoiaTheme.accent).lineLimit(1).minimumScaleFactor(0.6)
+        .accessibilityIdentifier(identifier)
       Text("字符").font(.caption).foregroundStyle(.secondary)
     }
   }

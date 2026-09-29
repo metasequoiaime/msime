@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { GroupList, Row } from "../core/platform-controls";
+import * as settings from "./settings-style";
 
 export interface DictionaryManifest {
   profile: string;
@@ -30,33 +32,24 @@ export function DictionaryManifestCard({ read }: DictionaryManifestCardProps) {
 
   if (failed) {
     return (
-      <div className="section" role="region" aria-label="词库信息">
-        <div className="section-header">
-          <span className="section-title">
-            词库信息
-            <small>无法读取随应用安装的词库清单，请重新安装后再试。</small>
-          </span>
-        </div>
-      </div>
+      <GroupList title="词库信息">
+        <p className={settings.groupNote}>无法读取随应用安装的词库清单，请重新安装后再试。</p>
+      </GroupList>
     );
   }
   if (!manifest) return null;
   return (
-    <div className="section" role="region" aria-label="词库信息">
-      <div className="section-header">
-        <span className="section-title">
-          词库信息
-          <small>词库保存在设备上，日常输入不需要联网；它随应用更新，不单独下载。</small>
-        </span>
-      </div>
-      <p>
-        规格 <code>{manifest.profile}</code>
+    <GroupList title="词库信息">
+      <p className={settings.groupNote}>
+        词库保存在设备上，日常输入不需要联网；它随应用更新，不单独下载。
       </p>
-      <p>
-        {/* Twelve characters is what the source shows: enough to identify the build, short enough
-            to read back over the phone. */}
-        词库版本 <code>{manifest.sourceCommit.slice(0, 12)}</code>
-      </p>
-    </div>
+      <Row title="规格">
+        <code>{manifest.profile}</code>
+      </Row>
+      {/* Twelve characters is what the source shows: enough to identify the build, short enough to read back over the phone. */}
+      <Row title="词库版本">
+        <code>{manifest.sourceCommit.slice(0, 12)}</code>
+      </Row>
+    </GroupList>
   );
 }

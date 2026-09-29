@@ -92,7 +92,13 @@ fn request(service: &str, config: &Value, milliseconds: u64) -> Option<Request> 
             let url = reqwest::Url::parse(endpoint).ok()?;
             if !crate::text::is_bounded_text(endpoint, 2048)
                 || !matches!(url.scheme(), "http" | "https")
-                || url.host_str().is_none()
+                || !endpoint.split_once("://").is_some_and(|(_, authority)| {
+                    authority
+                        .as_bytes()
+                        .first()
+                        .is_some_and(|byte| *byte != b'/')
+                })
+                || url.host_str().is_none_or(str::is_empty)
                 || !url.username().is_empty()
                 || url.password().is_some()
                 || url.fragment().is_some()
@@ -256,6 +262,13 @@ mod tests {
             )
             .ok
         );
+    }
+
+    #[test]
+    fn custom_translation_rejects_missing_url_authority() {
+        let mut invalid = config();
+        invalid["endpoint"] = json!("https:///translate");
+        assert!(request("translation.custom", &invalid, 0).is_none());
     }
     #[test]
     fn translation_probe_validates_before_transport() {

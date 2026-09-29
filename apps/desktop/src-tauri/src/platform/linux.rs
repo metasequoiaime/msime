@@ -16,9 +16,10 @@ pub(crate) mod linux_setup;
 /// Read at most `max_bytes + 1` bytes so callers can distinguish an accepted
 /// file from one that crossed its bound after its metadata was inspected.
 pub(crate) fn read_bounded_file(path: &Path, max_bytes: u64) -> io::Result<Vec<u8>> {
-    let mut bytes = Vec::new();
-    std::fs::File::open(path)?
-        .take(max_bytes.saturating_add(1))
+    let file = std::fs::File::open(path)?;
+    let initial_size = file.metadata()?.len().min(max_bytes.saturating_add(1));
+    let mut bytes = Vec::with_capacity(usize::try_from(initial_size).unwrap_or(0));
+    file.take(max_bytes.saturating_add(1))
         .read_to_end(&mut bytes)?;
     Ok(bytes)
 }

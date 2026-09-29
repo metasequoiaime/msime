@@ -4,101 +4,114 @@
 #include <cassert>
 
 int main() {
-  using msime::linux_host::candidate_builtin_accent;
-  using msime::linux_host::candidate_builtin_palette;
-  using msime::linux_host::candidate_builtin_skin;
-  assert(candidate_builtin_accent("fluent", false) == 0x6B69D6u);
-  assert(candidate_builtin_accent("fluent", true) == 0x6B69D6u);
-  assert(candidate_builtin_accent("wechat", false) == 0x07C160u);
-  assert(candidate_builtin_accent("graphite", false) == 0x5F6B7Au);
-  assert(candidate_builtin_accent("graphite", true) == 0x8993A0u);
-  assert(candidate_builtin_accent("willow_green", false) == 0x58B980u);
-  assert(candidate_builtin_accent("willow_green", true) == 0x65C98Du);
-  assert(candidate_builtin_accent("unknown", false) == 0x6B69D6u);
+  using Json = nlohmann::json;
+  namespace host = msime::linux_host;
 
-  assert(candidate_builtin_skin("fluent"));
-  assert(candidate_builtin_skin("wechat"));
-  assert(candidate_builtin_skin("graphite"));
-  assert(candidate_builtin_skin("willow_green"));
-  assert(!candidate_builtin_skin("unknown"));
+  // The native tokens are the design's Adwaita ones (tok('linux')): the translucent ink is composited over the surface because both frontends paint opaque colours.
+  const auto light = host::candidate_native_palette(false);
+  assert(light.surface == 0xFFFFFFu && light.text == 0x2E2E2Eu && light.number == 0x737373u);
+  assert(light.accent == 0x1C71D8u && light.border == 0xE5E5E5u);
+  assert(light.selected == 0x3584E4u && light.selected_text == 0xFFFFFFu && light.selected_number == 0xE1EDFBu);
+  const auto dark = host::candidate_native_palette(true);
+  assert(dark.surface == 0x303030u && dark.text == 0xFFFFFFu && dark.number == 0xA2A2A2u);
+  assert(dark.accent == 0x78AEEDu && dark.border == 0x404040u);
+  assert(dark.selected == 0x3584E4u && dark.selected_text == 0xFFFFFFu);
 
-  const auto fluent_dark = candidate_builtin_palette("fluent", true);
-  assert(fluent_dark.surface == 0x202020u);
-  assert(fluent_dark.text == 0xE9E8E8u);
-  assert(fluent_dark.number == 0xE9E8E8u);
-  assert(fluent_dark.selected == 0x3E3E3Eu);
-  assert(!fluent_dark.selected_text && !fluent_dark.selected_number);
+  // "follow" takes the mode preference, as Windows resolves theme_cand against theme_mode: only "system" consults the desktop appearance, and an explicit candidate mode wins over both.
+  using host::candidate_dark_theme;
+  assert(!candidate_dark_theme(Json{{"candidate_theme", "follow"}}, false));
+  assert(candidate_dark_theme(Json::object(), true));
+  assert(!candidate_dark_theme(Json{{"theme", "light"}, {"candidate_theme", "follow"}}, true));
+  assert(candidate_dark_theme(Json{{"theme", "dark"}, {"candidate_theme", "follow"}}, false));
+  assert(candidate_dark_theme(Json{{"theme", "light"}, {"candidate_theme", "dark"}}, false));
+  assert(!candidate_dark_theme(Json{{"theme", "dark"}, {"candidate_theme", "light"}}, true));
 
-  const auto fluent_light = candidate_builtin_palette("fluent", false);
-  assert(fluent_light.surface == 0xFFFFFFu);
-  assert(fluent_light.text == 0x1A1A1Au);
-  assert(fluent_light.selected == 0xE8E8E8u);
+  // Slot colours: the shared layer writes #RRGGBB or #RRGGBBAA and nothing else.
+  assert(host::theme_color(Json("#FF000080"))->alpha == 0x80);
+  assert(host::theme_color(Json("#ABCDEF"))->rgb == 0xABCDEFu && host::theme_color(Json("#ABCDEF"))->alpha == 0xFF);
+  assert(!host::theme_color(Json("transparent")));
+  assert(!host::theme_color(Json("rgba(0,0,0,0.1)")));
+  assert(!host::theme_color(Json("#12345")));
+  assert(!host::theme_color(Json("#1234567g")));
+  assert(!host::theme_color(Json(nullptr)));
 
-  for (const bool dark : {false, true}) {
-    const auto wechat = candidate_builtin_palette("wechat", dark);
-    assert(wechat.surface == (dark ? 0x151515u : 0xF7F7F7u));
-    assert(wechat.accent == 0x07C160u && wechat.selected == 0x07C160u);
-    assert(wechat.selected_text == 0xFFFFFFu);
-    assert(wechat.selected_number == 0xFFFFFFu);
+  // `system` resolves to a null palette: the native tokens in the host's mode, solid #3584E4 selection with white text, a one-pixel outline, and no package decoration.
+  const Json system = Json::parse(R"({"id":"system","source":"system","appearance":null,"candidate":null,"keyboard":null,"candidate_skin":null})");
+  const auto native_light = host::candidate_theme_colors(system, false);
+  assert(!native_light.dark && native_light.candidate_skin.empty());
+  assert(native_light.colors.background == 0xFFFFFFu && native_light.colors.text == 0x2E2E2Eu);
+  assert(native_light.colors.number == 0x737373u && native_light.colors.accent == 0x1C71D8u);
+  assert(native_light.colors.selected == 0x3584E4u && native_light.colors.selected_text == 0xFFFFFFu);
+  assert(native_light.colors.selected_number == 0xE1EDFBu);
+  assert(native_light.colors.border == 0xE5E5E5u && native_light.colors.border_width == 1);
+  const auto native_dark = host::candidate_theme_colors(system, true);
+  assert(native_dark.dark && native_dark.colors.background == 0x303030u && native_dark.colors.border == 0x404040u);
+  // A failed call draws exactly the same.
+  assert(host::candidate_theme_colors(Json::object(), true).colors.background == 0x303030u);
 
-    const auto graphite = candidate_builtin_palette("graphite", dark);
-    assert(graphite.surface == (dark ? 0x1C1F23u : 0xFBFBFCu));
-    assert(!graphite.selected);
-    assert(graphite.selected_text.has_value());
-    assert(graphite.selected_number == graphite.selected_text);
+  // A built-in theme fixes its appearance whatever the host's mode, and its translucent slots are composited over its surface. 浅色 (light) as msime_client_resolve_theme answers it:
+  const Json builtin_light = Json::parse(
+      R"({"id":"light","source":"builtin","appearance":"light","candidate":{"surface":"#FFFFFF","border":"#0000001F",)"
+      R"("text":"#1A1A1A","number":"#6A6F76","secondary":"#6A6F76","accent":"#005FB8","selected":"#005FB824",)"
+      R"("selected_text":"#005FB8","selected_number":"#6A6F76","hover":"#1A1A1A0F","show_selected_bar":null},)"
+      R"("keyboard":null,"candidate_skin":null})");
+  const auto fixed = host::candidate_theme_colors(builtin_light, true);
+  assert(!fixed.dark);
+  assert(fixed.colors.background == 0xFFFFFFu && fixed.colors.text == 0x1A1A1Au && fixed.colors.number == 0x6A6F76u);
+  assert(fixed.colors.accent == 0x005FB8u);
+  assert(fixed.colors.selected == host::composite_color(0x005FB8u, 0x24, 0xFFFFFFu));
+  assert(fixed.colors.selected_text == 0x005FB8u && fixed.colors.selected_number == 0x6A6F76u);
+  assert(fixed.colors.border == host::composite_color(0x000000u, 0x1F, 0xFFFFFFu) && fixed.colors.border_width == 1);
+  // 水杉 is dark on a light desktop.
+  const Json shuishan = Json::parse(
+      R"({"id":"shuishan","source":"builtin","appearance":"dark","candidate":{"surface":"#2A2B27","border":"#0000001F",)"
+      R"("text":"#FFFFFF","number":"#9FB5A3","secondary":"#9FB5A3","accent":"#7FE08E","selected":"#7FE08E24",)"
+      R"("selected_text":"#7FE08E","selected_number":"#9FB5A3","hover":"#FFFFFF0F","show_selected_bar":null},)"
+      R"("keyboard":null,"candidate_skin":null})");
+  const auto shuishan_colors = host::candidate_theme_colors(shuishan, false);
+  assert(shuishan_colors.dark && shuishan_colors.colors.background == 0x2A2B27u);
+  assert(shuishan_colors.colors.selected_text == 0x7FE08Eu);
 
-    const auto willow = candidate_builtin_palette("willow_green", dark);
-    assert(willow.surface == (dark ? 0x2D2F2Eu : 0xF4F5F3u));
-    assert(willow.accent == willow.selected);
-    assert(willow.selected_text == 0xFFFFFFu);
-    assert(willow.selected_number == 0xFFFFFFu);
+  // A custom theme over `system` sets only some slots; the rest are native. An accent without a selected fill is drawn as the design's solid selection, with readable text.
+  const Json custom = Json::parse(
+      R"({"id":"custom","source":"custom","appearance":null,"candidate":{"surface":null,"border":null,"text":"#123456",)"
+      R"("number":"#1234569D","secondary":"#1234569D","accent":"#FFD400","selected":null,"selected_text":null,)"
+      R"("selected_number":null,"hover":null,"show_selected_bar":null},"keyboard":null,"candidate_skin":null})");
+  const auto picked = host::candidate_theme_colors(custom, true);
+  assert(picked.dark && picked.colors.background == 0x303030u && picked.colors.text == 0x123456u);
+  assert(picked.colors.number == host::composite_color(0x123456u, 0x9D, 0x303030u));
+  assert(picked.colors.selected == 0xFFD400u && picked.colors.selected_text == 0x000000u);
+  assert(picked.colors.selected_number == 0x000000u && picked.colors.border == 0x404040u);
+  // A selected fill without its own foreground takes the theme's text when the theme sets one.
+  auto filled = custom;
+  filled["candidate"]["selected"] = "#654321";
+  const auto filled_colors = host::candidate_theme_colors(filled, false);
+  assert(filled_colors.colors.selected == 0x654321u && filled_colors.colors.selected_text == 0x123456u);
+  // A package draws its decoration only when the shared layer names it, and a transparent border means no outline.
+  filled["candidate_skin"] = "sakura";
+  filled["candidate"]["border"] = "#00000000";
+  const auto package = host::candidate_theme_colors(filled, false);
+  assert(package.candidate_skin == "sakura" && !package.colors.border && package.colors.border_width == 0);
 
-    // Outlines follow the Windows skin tokens; widths are whole pixels.
-    assert(wechat.border == (dark ? 0x292929u : 0xDEDEDEu));
-    assert(wechat.border_alpha == 0xFF && wechat.border_width == 1);
-    assert(graphite.border == (dark ? 0x30353Bu : 0xE2E5E9u));
-    assert(graphite.border_alpha == 0xFF && graphite.border_width == 1);
-    assert(willow.border_width == 0 && willow.border_alpha == 0);
-  }
-  assert(fluent_light.border == 0x000000u && fluent_light.border_alpha == 0x1F && fluent_light.border_width == 1);
-  assert(fluent_dark.border == 0x9B9B9Bu && fluent_dark.border_alpha == 0x2E && fluent_dark.border_width == 1);
-  // An unknown id falls back to fluent, outline included.
-  assert(candidate_builtin_palette("unknown", true).border == 0x9B9B9Bu);
-
-  // "follow" takes the global theme mode, as Windows resolves theme_cand against theme_mode: only "system" consults the desktop appearance.
-  {
-    using Json = nlohmann::json;
-    const std::vector<msime::linux_host::CandidateSkin> builtin = {{"fluent", "Fluent"}, {"wechat", "微信绿"}};
-    const auto follow = [&](const char *global, bool system_dark) {
-      return msime::linux_host::candidate_display_preferences(
-                 Json{{"theme", global}, {"candidate_theme", "follow"}, {"candidate_skin", "wechat"}}, system_dark,
-                 builtin, "fluent", Json())
-          .value("candidate_theme", std::string{});
-    };
-    assert(follow("dark", false) == "dark");
-    assert(follow("light", true) == "light");
-    assert(follow("system", true) == "dark");
-    assert(follow("system", false) == "light");
-    // An explicit candidate theme still wins over both.
-    const auto explicit_light = msime::linux_host::candidate_display_preferences(
-        Json{{"theme", "dark"}, {"candidate_theme", "light"}}, true, builtin, "fluent", Json());
-    assert(explicit_light.value("candidate_theme", std::string{}) == "light");
-    // The bare resolver the Fcitx5 mode badge uses agrees with the panel, the shared "system" default included.
-    using msime::linux_host::candidate_dark_theme;
-    assert(!candidate_dark_theme(Json{{"candidate_theme", "follow"}}, false));
-    assert(candidate_dark_theme(Json::object(), true));
-    assert(!candidate_dark_theme(Json{{"theme", "light"}, {"candidate_theme", "follow"}}, true));
-    assert(candidate_dark_theme(Json{{"theme", "dark"}, {"candidate_theme", "follow"}}, false));
-    assert(candidate_dark_theme(Json{{"theme", "light"}, {"candidate_theme", "dark"}}, false));
-    assert(!candidate_dark_theme(Json{{"theme", "dark"}, {"candidate_theme", "light"}}, true));
-    // The resolved appearance reaches the colours: a dark global theme on a light desktop draws the dark skin.
-    const auto colors = msime::linux_host::resolve_candidate_colors(
-        msime::linux_host::candidate_display_preferences(
-            Json{{"theme", "dark"}, {"candidate_theme", "follow"}, {"candidate_skin", "wechat"}}, false, builtin,
-            "fluent", Json()),
-        "fluent");
-    assert(colors.background == 0x151515u);
-  }
+  // The request: the stored theme, the mode and the layout being drawn, and the package entry only when a custom theme names a listed one.
+  const Json catalog = Json::parse(
+      R"({"packages":[{"id":"sakura","title":"樱花","base":"light","layouts":["vertical"],"candidate":{"light":{}}}]})");
+  const auto plain = host::candidate_theme_request(Json::object(), true, catalog);
+  assert(plain == Json::parse(R"({"global_theme":"system","dark":true,"layout":"vertical"})"));
+  const auto horizontal = host::candidate_theme_request(Json{{"global_theme", "paper"}, {"candidate_layout", "horizontal"}}, false, catalog);
+  assert(horizontal.at("global_theme") == "paper" && horizontal.at("layout") == "horizontal" && !horizontal.contains("package"));
+  const Json with_package = {{"global_theme", "custom"}, {"custom_theme", {{"candidate_skin", "sakura"}, {"base", "light"}}}};
+  const auto request = host::candidate_theme_request(with_package, false, catalog);
+  assert(request.at("custom_theme") == with_package.at("custom_theme"));
+  assert(request.at("package") == catalog.at("packages").at(0));
+  // Not while another theme is selected, and not for a package the catalogue does not list.
+  auto elsewhere = with_package;
+  elsewhere["global_theme"] = "ink";
+  assert(!host::candidate_theme_request(elsewhere, false, catalog).contains("package"));
+  assert(host::candidate_theme_request(elsewhere, false, catalog).contains("custom_theme"));
+  auto unlisted = with_package;
+  unlisted["custom_theme"]["candidate_skin"] = "absent";
+  assert(!host::candidate_theme_request(unlisted, false, catalog).contains("package"));
 
   assert(msime::linux_host::candidate_preedit_with_caret("nihao", "nihao", 0) ==
          "|nihao");

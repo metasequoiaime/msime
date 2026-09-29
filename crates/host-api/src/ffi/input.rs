@@ -193,7 +193,6 @@ pub extern "C" fn msime_client_punctuation_with_context(
         let session = sessions
             .get(&handle)
             .ok_or_else(|| "unknown session or wrong thread".to_owned())?;
-        let view = session.runtime.view();
         let lock = match session.punctuation_lock_override {
             Some(1) => msime_client_core::preferences::PunctuationLock::Chinese,
             Some(2) => msime_client_core::preferences::PunctuationLock::English,
@@ -203,10 +202,9 @@ pub extern "C" fn msime_client_punctuation_with_context(
         let route = punctuation_route(PunctuationContext {
             character: ascii,
             preceding,
-            host_context_available: !session.english_mode
-                && !view.dedicated_english
-                && view.local_mode == "none"
-                && view.scheme != 3,
+            host_context_available: session
+                .runtime
+                .punctuation_host_context_available(session.english_mode),
             has_composition: !session.runtime.is_idle(),
             chinese_punctuation: session
                 .punctuation_override
@@ -381,7 +379,10 @@ pub unsafe extern "C" fn msime_client_smart_punctuation_decide(
             let session = sessions
                 .get(&handle)
                 .ok_or_else(|| "unknown session or wrong thread".to_owned())?;
-            let view = session.runtime.view();
+            let candidate_count = repeat_snapshot
+                .as_ref()
+                .map(|_| session.runtime.candidate_page_len())
+                .unwrap_or(0);
             let replace = msime_client_core::punctuation::should_replace_repeat(
                 repeat_snapshot,
                 msime_client_core::punctuation::RepeatContext {
@@ -392,7 +393,7 @@ pub unsafe extern "C" fn msime_client_smart_punctuation_decide(
                     smart_punctuation: session.applied.smart_punctuation,
                     repeat_enabled: session.applied.smart_punctuation_repeat,
                     has_composition: !session.runtime.is_idle(),
-                    candidate_count: view.candidates.len(),
+                    candidate_count,
                 },
             );
             let space = msime_client_core::punctuation::decide_space_convert(
@@ -442,16 +443,20 @@ pub extern "C" fn msime_client_punctuation_ascii(handle: u64, ascii: u8) -> *mut
 /// would have to guess. Call it when the composition has been unchanged for the pause, and not
 /// while keys are still arriving.
 ///
-/// Answers `{"moved": bool, "view": ...}`. `moved` is false when the order did not change, which
-/// is the common case and the signal to leave the candidate window alone: repainting it
-/// identically on every pause is a flicker with no explanation behind it.
+/// Answers `{"moved": false}` when the order did not change, or `{"moved": true, "view": ...}`
+/// after a reorder. The false case is common and lets hosts leave the candidate window alone
+/// without serializing a view they will discard.
 #[no_mangle]
 pub extern "C" fn msime_client_rerank_settled(handle: u64) -> *mut c_char {
     response(|| {
         with_session(handle, |session| {
             let moved = session.runtime.rerank_settled();
-            let view = session.runtime.view();
-            Ok(serde_json::json!({"moved": moved, "view": view}))
+            if moved {
+                let view = session.runtime.view();
+                Ok(serde_json::json!({"moved": true, "view": view}))
+            } else {
+                Ok(serde_json::json!({"moved": false}))
+            }
         })
     })
 }

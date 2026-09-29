@@ -7,6 +7,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use unicode_segmentation::UnicodeSegmentation;
 
 const MAX_ENTRIES: usize = 50;
+/// Keep the decoder's allocation bounded before deduplication and the visible-entry limit.
+/// Legacy migrations may contain duplicates, so this is larger than `MAX_ENTRIES` while still
+/// rejecting an unbounded JSON array of tiny strings.
+const MAX_INPUT_ENTRIES: usize = MAX_ENTRIES * 100;
 pub const MAX_TEXT_UTF16_UNITS: usize = 4000;
 pub const MAX_TEXT_BYTES: usize = MAX_TEXT_UTF16_UNITS * 3;
 pub const MAX_MOBILE_TEXT_CHARACTERS: usize = 10_000;
@@ -59,6 +63,10 @@ impl ClipboardHistoryStore {
     }
 
     pub fn load(&mut self) -> std::io::Result<()> {
+        if let Some(parent) = self.path.parent().filter(|p| !p.as_os_str().is_empty()) {
+            crate::storage::reject_symlink(parent)?;
+        }
+        crate::storage::reject_symlink(&self.path)?;
         match fs::File::open(&self.path) {
             Ok(file) => {
                 let bytes = crate::bounded_io::read_bounded_file(file, MAX_HISTORY_BYTES, || {
@@ -67,6 +75,7 @@ impl ClipboardHistoryStore {
                         "clipboard history exceeds size limit",
                     )
                 })?;
+                validate_item_count(&bytes)?;
                 let stored: StoredHistory = serde_json::from_slice(&bytes).map_err(|_| {
                     std::io::Error::new(
                         std::io::ErrorKind::InvalidData,
@@ -92,7 +101,7 @@ impl ClipboardHistoryStore {
                 };
                 values.retain(|value| valid_stored(&value.text));
                 sort_entries(&mut values);
-                let mut entries = Vec::new();
+                let mut entries = Vec::with_capacity(MAX_ENTRIES);
                 for value in values {
                     if !entries
                         .iter()
@@ -255,10 +264,18 @@ impl ClipboardHistoryStore {
     }
 
     fn lock_writer(&self) -> std::io::Result<fs::File> {
-        let parent = self.path.parent().filter(|p| !p.as_os_str().is_empty());
-        if let Some(parent) = parent {
-            fs::create_dir_all(parent)?;
+        let parent = self
+            .path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or_else(|| std::path::Path::new("."));
+        if !crate::storage::create_directory_and_check(parent)? {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "clipboard history parent is not a real directory",
+            ));
         }
+        crate::storage::reject_symlink(&self.path)?;
         // Keep this sidecar stable across atomic replacement and clear. Removing
         // it would let another process lock a different inode at the same path.
         let mut lock_path = self.path.as_os_str().to_owned();
@@ -274,7 +291,6 @@ impl ClipboardHistoryStore {
             .parent()
             .filter(|p| !p.as_os_str().is_empty())
             .unwrap_or_else(|| std::path::Path::new("."));
-        fs::create_dir_all(parent)?;
         let bytes = serde_json::to_vec(entries).expect("clipboard entries are serializable");
         // Unique temporary file (0600 on Unix); never remove the old file before replacement.
         let mut temp = tempfile::NamedTempFile::new_in(parent)?;
@@ -322,10 +338,52 @@ pub fn mobile_text_is_valid(text: &str) -> bool {
 }
 
 fn valid_stored(text: &str) -> bool {
-    !text.is_empty()
+    !text.trim().is_empty()
         && text.len() <= MAX_MOBILE_TEXT_BYTES
         && text.graphemes(true).count() <= MAX_MOBILE_TEXT_CHARACTERS
         && valid_characters(text)
+}
+
+fn validate_item_count(bytes: &[u8]) -> std::io::Result<()> {
+    struct CountVisitor;
+
+    impl<'de> serde::de::Visitor<'de> for CountVisitor {
+        type Value = ();
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("a bounded clipboard history array")
+        }
+
+        fn visit_seq<A>(self, mut sequence: A) -> Result<(), A::Error>
+        where
+            A: serde::de::SeqAccess<'de>,
+        {
+            let mut count = 0;
+            while sequence.next_element::<serde::de::IgnoredAny>()?.is_some() {
+                count += 1;
+                if count > MAX_INPUT_ENTRIES {
+                    return Err(serde::de::Error::custom(
+                        "clipboard history contains too many entries",
+                    ));
+                }
+            }
+            Ok(())
+        }
+    }
+
+    let mut deserializer = serde_json::Deserializer::from_slice(bytes);
+    serde::Deserializer::deserialize_seq(&mut deserializer, CountVisitor).map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "invalid clipboard history document",
+        )
+    })?;
+    deserializer.end().map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "invalid clipboard history document",
+        )
+    })
 }
 
 // Matches the Windows history, which keeps every control character as user content; NUL is the one exception because the source stores C strings and the native bridges rely on NUL-free text.
@@ -499,6 +557,35 @@ mod tests {
     }
 
     #[test]
+    fn load_rejects_an_unbounded_number_of_entries() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("history.json");
+        let values: Vec<_> = (0..=MAX_INPUT_ENTRIES)
+            .map(|index| format!("synthetic-{index}"))
+            .collect();
+        fs::write(&path, serde_json::to_vec(&values).unwrap()).unwrap();
+        let mut store = ClipboardHistoryStore::open(&path);
+        assert_eq!(
+            store.load().unwrap_err().kind(),
+            std::io::ErrorKind::InvalidData
+        );
+    }
+
+    #[test]
+    fn load_discards_whitespace_only_records() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("history.json");
+        fs::write(
+            &path,
+            br#"[{"text":" \n\t","timestampMs":2,"pinned":false},{"text":"synthetic","timestampMs":1,"pinned":false}]"#,
+        )
+        .unwrap();
+        let mut store = ClipboardHistoryStore::open(&path);
+        store.load().unwrap();
+        assert_eq!(texts(&store), ["synthetic"]);
+    }
+
+    #[test]
     fn failed_save_and_clear_keep_in_memory_history() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("history.json");
@@ -623,6 +710,36 @@ mod tests {
             }])
             .unwrap());
         assert_eq!(texts(&store), ["synthetic after empty"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_symlinked_history_paths() {
+        use std::os::unix::fs::symlink;
+
+        let target = tempfile::tempdir().unwrap();
+        let parent = tempfile::tempdir().unwrap();
+        let linked_root = parent.path().join("user-data");
+        symlink(target.path(), &linked_root).unwrap();
+        let mut linked = ClipboardHistoryStore::open(linked_root.join("history.json"));
+        assert_eq!(
+            linked.load().unwrap_err().kind(),
+            std::io::ErrorKind::InvalidInput
+        );
+        assert!(!target.path().join("history.json").exists());
+
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("history.json");
+        let outside = tempfile::tempdir().unwrap();
+        let outside_path = outside.path().join("history.json");
+        fs::write(&outside_path, br#"["synthetic outside"]"#).unwrap();
+        symlink(&outside_path, &path).unwrap();
+        let mut store = ClipboardHistoryStore::open(&path);
+        assert_eq!(
+            store.load().unwrap_err().kind(),
+            std::io::ErrorKind::InvalidInput
+        );
+        assert!(store.push("synthetic rejected".into()).is_err());
     }
 
     #[test]

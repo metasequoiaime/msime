@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Dark twins of values/colors.xml, taken from the design's Android dark column. Names that are not repeated here (splash_field, splash_glow, attention, app_icon_field) are the same in both modes on purpose. -->
+<resources>
+    <color name="forest">#8FD5A6</color>
+    <color name="on_accent">#003920</color>
+    <color name="needle">#7FBF9A</color>
+    <color name="mist">#111411</color>
+    <color name="cone">#E3A77C</color>
+    <color name="ink">#E1E3DE</color>
+    <color name="surface">#1D201D</color>
+    <color name="text_secondary">#C0C9BF</color>
+    <color name="outline">#8A9389</color>
+    <color name="hairline">#2A2F2A</color>
+    <color name="surface_variant">#2A4F37</color>
+    <color name="badge_field">#2A4F37</color>
+    <color name="nav_bar">#1D201D</color>
+    <color name="search_field">#1D201D</color>
+</resources>

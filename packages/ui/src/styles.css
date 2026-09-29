@@ -15,6 +15,15 @@
  * variant has to be declared rather than derived. Used where a value cannot be a theme token -- the
  * titlebar glyphs, which ship white and are inverted rather than re-coloured. */
 @custom-variant light-theme (html[data-theme="light"] &);
+/* One variant per settings platform, for the shell differences the `--p-*` token table does not carry (a sidebar width, a content padding). They match inside the element that carries `data-platform`, so the settings root styles itself with `data-[platform=…]:` instead. */
+@custom-variant win ([data-platform="win"] &);
+@custom-variant mac ([data-platform="mac"] &);
+@custom-variant linux ([data-platform="linux"] &);
+@custom-variant hm2 ([data-platform="hm2"] &);
+@custom-variant harmony ([data-platform="harmony"] &);
+@custom-variant android ([data-platform="android"] &);
+@custom-variant ios ([data-platform="ios"] &);
+@custom-variant ipad ([data-platform="ipad"] &);
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css" layer(utilities);
 
@@ -84,6 +93,13 @@
   --animate-row-reveal: row-reveal 0.42s ease-out both;
   --animate-startup-spin: startup-spin 1.05s linear infinite;
   --animate-startup-pulse: startup-pulse 1.1s ease-in-out infinite;
+  /* The phone splash (dc.html `msPop`, `msBreath`, `msDraw`, `msFadeUp`): the framed mark pops in over a breathing glow, its stroke draws, then the name, the Latin name and the hint rise in turn. All of it lands inside the 2.8s the splash stays up. */
+  --animate-splash-pop: splash-pop 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-splash-glow: splash-pop 0.8s both, splash-breath 2.4s ease-in-out 1.4s infinite;
+  --animate-splash-draw: splash-draw 1.05s cubic-bezier(0.65, 0, 0.35, 1) 0.4s both;
+  --animate-splash-name: splash-rise 0.5s 1.1s both;
+  --animate-splash-tagline: splash-rise 0.5s 1.35s both;
+  --animate-splash-hint: splash-rise 0.5s 1.6s both;
 
   @keyframes bar-reveal {
     from {
@@ -109,6 +125,45 @@
     50% {
       opacity: 1;
       transform: scale(1);
+    }
+  }
+  @keyframes splash-draw {
+    from {
+      stroke-dashoffset: 1;
+    }
+    to {
+      stroke-dashoffset: 0;
+    }
+  }
+  @keyframes splash-rise {
+    from {
+      transform: translateY(10px);
+      opacity: 0;
+    }
+    to {
+      transform: none;
+      opacity: 1;
+    }
+  }
+  @keyframes splash-pop {
+    from {
+      transform: scale(0.86);
+      opacity: 0;
+    }
+    to {
+      transform: scale(1);
+      opacity: 1;
+    }
+  }
+  @keyframes splash-breath {
+    0%,
+    100% {
+      opacity: 0.55;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 1;
+      transform: scale(1.04);
     }
   }
   @keyframes row-reveal {
@@ -309,6 +364,181 @@
 }
 
 /*
+ * The redesign's platform controls, drawn from the `--p-*` tokens the `[data-platform]` layer at the end of the base layer sets. Each keeps its native element and role (a checkbox, a range) and only restyles it, so keyboard, screen-reader and forced-colours behaviour stay the platform's; the forced-colours blocks hand the drawing back to the system the way `toggle` does. The React side is `core/platform-controls.tsx`.
+ */
+@utility platform-switch {
+  appearance: none;
+  position: relative;
+  flex: none;
+  width: var(--p-sw-w);
+  height: var(--p-sw-h);
+  margin: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--p-sw-off);
+  box-shadow: var(--p-sw-off-ring);
+  cursor: pointer;
+  transition: background-color 0.15s;
+
+  /* Material 3 draws a smaller knob when off; it stays centred where the full-size knob would sit. */
+  &::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: calc(var(--p-sw-pad) + (var(--p-sw-knob) - var(--p-sw-knob-off-size)) / 2);
+    width: var(--p-sw-knob-off-size);
+    height: var(--p-sw-knob-off-size);
+    border-radius: 50%;
+    background: var(--p-sw-knob-off);
+    box-shadow: var(--p-sw-knob-shadow);
+    transform: translateY(-50%);
+    transition:
+      left 0.15s,
+      width 0.15s,
+      height 0.15s;
+  }
+
+  &:checked {
+    background: var(--p-sw-on);
+    box-shadow: none;
+  }
+
+  &:checked::after {
+    left: calc(var(--p-sw-w) - var(--p-sw-pad) - var(--p-sw-knob));
+    width: var(--p-sw-knob);
+    height: var(--p-sw-knob);
+    background: var(--p-sw-knob-on);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+
+    &::after {
+      transition: none;
+    }
+  }
+
+  @media (forced-colors: active) {
+    appearance: auto;
+
+    &::after {
+      display: none;
+    }
+  }
+}
+@utility platform-check {
+  appearance: none;
+  position: relative;
+  flex: none;
+  width: var(--p-check-size);
+  height: var(--p-check-size);
+  margin: 0;
+  border: 1.5px solid var(--p-sub);
+  border-radius: var(--p-check-r);
+  background: transparent;
+  cursor: pointer;
+
+  &:checked {
+    border-color: transparent;
+    background: var(--accent-color);
+  }
+
+  &:checked::after {
+    content: "";
+    position: absolute;
+    top: 45%;
+    left: 50%;
+    width: 28%;
+    height: 55%;
+    border: solid var(--p-on-accent);
+    border-width: 0 2px 2px 0;
+    transform: translate(-50%, -50%) rotate(45deg);
+  }
+
+  /* A mixed group is a filled well with a dash, not an accent fill: nothing in it has been chosen as a whole. */
+  &:indeterminate {
+    border-color: transparent;
+    background: var(--p-hover);
+  }
+
+  &:indeterminate::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    right: 25%;
+    left: 25%;
+    height: 2px;
+    border: 0;
+    background: var(--p-sub);
+    transform: translateY(-50%);
+  }
+
+  @media (forced-colors: active) {
+    appearance: auto;
+
+    &::after {
+      display: none;
+    }
+  }
+}
+/* `--slider-fill` is the filled share of the track, written inline by the component. Windows sets `--p-slider-appearance: auto` and keeps the platform thumb, tinted by `accent-color`; WebKit then draws its own track too, while Chromium (WebView2) still takes the runnable-track rule, which paints the same accent fill over the token track colour. */
+@utility platform-slider {
+  appearance: var(--p-slider-appearance);
+  width: 100%;
+  height: max(var(--p-slider-knob-h), var(--p-slider-track-h));
+  margin: 0;
+  background: transparent;
+  accent-color: var(--accent-color);
+  cursor: pointer;
+
+  &::-webkit-slider-runnable-track {
+    height: var(--p-slider-track-h);
+    border-radius: 999px;
+    background: linear-gradient(
+      to right,
+      var(--accent-color) var(--slider-fill, 0%),
+      var(--p-slider-track) var(--slider-fill, 0%)
+    );
+  }
+
+  &::-webkit-slider-thumb {
+    appearance: var(--p-slider-appearance);
+    width: var(--p-slider-knob-w);
+    height: var(--p-slider-knob-h);
+    margin-top: calc((var(--p-slider-track-h) - var(--p-slider-knob-h)) / 2);
+    border: 0;
+    border-radius: var(--p-slider-knob-r);
+    background: var(--p-slider-knob);
+    box-shadow: var(--p-slider-knob-shadow);
+  }
+
+  &::-moz-range-track {
+    height: var(--p-slider-track-h);
+    border-radius: 999px;
+    background: var(--p-slider-track);
+  }
+
+  &::-moz-range-progress {
+    height: var(--p-slider-track-h);
+    border-radius: 999px;
+    background: var(--accent-color);
+  }
+
+  &::-moz-range-thumb {
+    width: var(--p-slider-knob-w);
+    height: var(--p-slider-knob-h);
+    border: 0;
+    border-radius: var(--p-slider-knob-r);
+    background: var(--p-slider-knob);
+    box-shadow: var(--p-slider-knob-shadow);
+  }
+
+  @media (forced-colors: active) {
+    appearance: auto;
+  }
+}
+
+/*
  * The last of the settings-page pieces. Utilities rather than markup-side strings for the same reason
  * as the primitives above: `input-option-divider` alone appears at 27 call sites, and the combobox and
  * its menu are a pair whose positioning only makes sense together.
@@ -318,7 +548,8 @@
  * upstream skins own. The three custom properties are what the font controls on the page write to.
  */
 @utility appearance-candidate-preview {
-  & .candidate {
+  /* The element is also a `skin-card-preview`, whose `[&_.candidate]:text-base` has the same specificity and comes later, so the chosen size needs the extra class to win. */
+  &.skin-card-preview .candidate {
     font-family: var(--appearance-font-family, sans-serif);
     font-size: var(--appearance-font-size, 16px);
   }
@@ -393,6 +624,25 @@
 }
 
 @utility skin-card-preview {
+  /* The `system` theme has no palette and a theme's unset slots keep the platform defaults, which the document declares for the settings window's own theme. A preview is drawn in its own light or dark (`data-preview-theme`, from the colour mode and the per-surface override), so it re-declares the same defaults for that mode; a theme's palette on the element's inline style still wins. */
+  &[data-preview-theme="dark"] {
+    --cand-bg: #202020;
+    --cand-border: #9b9b9b2e;
+    --cand-shadow: 5px 5px 10px rgba(0, 0, 0, 0.5);
+    --cand-text: #e9e8e8;
+    --cand-num: #e9e8e89d;
+    --cand-hover: #414141;
+    --cand-selected: #3e3e3eb9;
+  }
+  &[data-preview-theme="light"] {
+    --cand-bg: #ffffff;
+    --cand-border: rgba(0, 0, 0, 0.12);
+    --cand-shadow: 4px 4px 12px rgba(0, 0, 0, 0.12);
+    --cand-text: #1a1a1a;
+    --cand-num: rgba(26, 26, 26, 0.55);
+    --cand-hover: #ececec;
+    --cand-selected: #e8e8e8;
+  }
   /* ---- The candidate window inside the card. ---- */
   /* MSIME-Windows 04a8df56 candidate preview styles, GPL-3.0; scoped to skin cards. */
   /* Keep the row for upstream adjacent-sibling decoration selectors. */
@@ -623,160 +873,6 @@
     }
   }
 
-  /* ---- Per-skin decorations, paired with the skin-<id> class the card also carries. ---- */
-  /* MSIME-Windows 04a8df56 skin.css candidate decorations, GPL-3.0.
-     Selectors adapted to the shared card's skin and appearance attributes. */
-  &.skin-wechat .candidate .container {
-    padding: 2px;
-    border-radius: 5px;
-  }
-  &.skin-wechat .candidate .cand {
-    border-radius: 4px;
-  }
-  &.skin-wechat .candidate.wnd-v .cand {
-    padding-top: 1px;
-    padding-bottom: 1px;
-  }
-  &.skin-wechat .candidate .first {
-    border-radius: 5px;
-  }
-  &.skin-wechat .candidate .first::before {
-    display: none;
-  }
-  &.skin-wechat .candidate .cand.first:hover {
-    background-color: var(--cand-selected);
-  }
-  &.skin-wechat .candidate .first .text,
-  &.skin-wechat .candidate .first .num,
-  &.skin-wechat .candidate .first .cand-no {
-    color: #fff;
-  }
-  &.skin-graphite .candidate .container {
-    padding: 3px 5px;
-    border-radius: 3px;
-  }
-  &.skin-graphite .candidate .cand,
-  &.skin-graphite .candidate .first {
-    border-radius: 2px;
-  }
-  &.skin-graphite .candidate .first::before {
-    display: none;
-  }
-  &.skin-graphite[data-preview-theme="dark"] .candidate .first .text,
-  &.skin-graphite[data-preview-theme="dark"] .candidate .first .num,
-  &.skin-graphite[data-preview-theme="dark"] .candidate .first .cand-no {
-    color: #f1f3f5;
-  }
-  &.skin-graphite[data-preview-theme="light"] .candidate .first .text,
-  &.skin-graphite[data-preview-theme="light"] .candidate .first .num,
-  &.skin-graphite[data-preview-theme="light"] .candidate .first .cand-no {
-    color: #111827;
-  }
-  &.skin-willow_green .candidate .container {
-    --wg-surface: #2d2f2e;
-    --wg-hilite: #65c98d;
-    --wg-radius: 9px;
-    padding: 0;
-    border: none;
-    border-radius: 9px;
-    overflow: hidden;
-    isolation: isolate;
-    background-color: var(--wg-surface);
-    background-repeat: no-repeat;
-  }
-  &.skin-willow_green[data-preview-theme="light"] .candidate .container {
-    --wg-surface: #f4f5f3;
-    --wg-hilite: #58b980;
-  }
-  &.skin-willow_green
-    .candidate.wnd-v
-    .container.preedit-hidden:has(> .pinyin + .row-wrapper > .first) {
-    background-image: linear-gradient(var(--wg-hilite), var(--wg-hilite));
-    background-position: top;
-    background-size: 100% var(--wg-radius);
-  }
-  &.skin-willow_green .candidate.wnd-v .container.preedit-hidden > .pinyin + .row-wrapper > .cand {
-    padding-top: 7px;
-  }
-  &.skin-willow_green .candidate.wnd-v .container:has(> .row-wrapper:last-child > .first) {
-    background-image: linear-gradient(var(--wg-hilite), var(--wg-hilite));
-    background-position: bottom;
-    background-size: 100% var(--wg-radius);
-  }
-  &.skin-willow_green
-    .candidate.wnd-h
-    .container.preedit-hidden:has(> .pinyin + .row-wrapper > .first) {
-    background-image: linear-gradient(to right, var(--wg-hilite), var(--wg-hilite));
-    background-position: left;
-    background-size: var(--wg-radius) 100%;
-  }
-  &.skin-willow_green .candidate.wnd-h .container:has(> .row-wrapper:last-child > .first) {
-    background-image: linear-gradient(to left, var(--wg-hilite), var(--wg-hilite));
-    background-position: right;
-    background-size: var(--wg-radius) 100%;
-  }
-  &.skin-willow_green
-    .candidate
-    .container.preedit-hidden:has(> .pinyin + .row-wrapper > .first):has(
-      > .row-wrapper:last-child > .first
-    ) {
-    background-color: var(--wg-hilite);
-    background-image: none;
-  }
-  &.skin-willow_green .candidate .cand,
-  &.skin-willow_green .candidate .first {
-    border-radius: 0;
-    background-clip: padding-box;
-  }
-  &.skin-willow_green .candidate .first::before {
-    display: none;
-  }
-  &.skin-willow_green .candidate .cand.first:hover {
-    background-color: var(--wg-hilite);
-  }
-  &.skin-willow_green .candidate .first .text,
-  &.skin-willow_green .candidate .first .num,
-  &.skin-willow_green .candidate .first .cand-no {
-    color: #fff;
-  }
-  &.skin-willow_green .candidate.wnd-v .row.pinyin {
-    margin-top: 0;
-    padding: 6px 12px 4px 8px;
-  }
-  &.skin-willow_green .candidate.wnd-v .row.cand {
-    margin-top: 0;
-    padding: 4px 14px 4px 8px;
-  }
-  &.skin-willow_green .candidate.wnd-h {
-    width: fit-content;
-    max-width: 100%;
-  }
-  &.skin-willow_green .candidate.wnd-h .container {
-    width: max-content;
-    max-width: 100%;
-    letter-spacing: -0.31em;
-  }
-  &.skin-willow_green .candidate.wnd-h .row.pinyin {
-    letter-spacing: normal;
-    margin-top: 0;
-    margin-bottom: 0;
-    padding: 6px 10px 3px 8px;
-  }
-  &.skin-willow_green .candidate.wnd-h .row.cand {
-    margin-top: 0;
-    margin-bottom: 0;
-    padding: 6px 8px;
-  }
-  &.skin-willow_green .candidate.wnd-h .row-wrapper {
-    display: inline-block;
-    letter-spacing: normal;
-    margin: 0;
-    vertical-align: top;
-  }
-  &.skin-willow_green .candidate.wnd-h .first-row-wrapper {
-    margin-left: 0;
-  }
-
   /* ---- The floating-toolbar preview that shares the same card. ---- */
   /* MSIME-Windows 04a8df56 settings toolbar preview rules, GPL-3.0. */
   & .ftb-preview-host {
@@ -866,58 +962,6 @@
   &[data-preview-theme="light"] .ftb-preview-host .icon svg {
     filter: invert(1);
   }
-  &.skin-wechat[data-preview-theme="dark"] .ftb-preview-host .status-bar {
-    background-color: #151515;
-    border-color: #292929;
-    box-shadow: 0 5px 14px rgba(0, 0, 0, 0.38);
-  }
-  &.skin-wechat[data-preview-theme="light"] .ftb-preview-host .status-bar {
-    background-color: #f7f7f7;
-    border-color: #dedede;
-    box-shadow: 0 5px 14px rgba(0, 0, 0, 0.12);
-  }
-  &.skin-wechat .ftb-preview-host .drag-handle {
-    background: #07c160;
-  }
-  &.skin-graphite[data-preview-theme="dark"] .ftb-preview-host .status-bar {
-    background-color: #1c1f23;
-    border-color: #30353b;
-    border-radius: calc(4px * var(--ftb-scale));
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
-  }
-  &.skin-graphite[data-preview-theme="light"] .ftb-preview-host .status-bar {
-    background-color: #fbfbfc;
-    border-color: #e2e5e9;
-    border-radius: calc(4px * var(--ftb-scale));
-    box-shadow: 0 2px 8px rgba(17, 24, 39, 0.1);
-  }
-  &.skin-graphite[data-preview-theme="dark"] .ftb-preview-host .drag-handle {
-    background: #8993a0;
-  }
-  &.skin-graphite[data-preview-theme="light"] .ftb-preview-host .drag-handle {
-    background: #5f6b7a;
-  }
-  &.skin-graphite .ftb-preview-host .icon {
-    border-radius: calc(3px * var(--ftb-scale));
-  }
-  &.skin-willow_green[data-preview-theme="dark"] .ftb-preview-host .status-bar {
-    background-color: #2d2f2e;
-    border-color: #3b3e3c;
-    border-radius: calc(9px * var(--ftb-scale));
-    box-shadow: 0 7px 18px rgba(0, 0, 0, 0.34);
-  }
-  &.skin-willow_green[data-preview-theme="light"] .ftb-preview-host .status-bar {
-    background-color: #f4f5f3;
-    border-color: #dfe3df;
-    border-radius: calc(9px * var(--ftb-scale));
-    box-shadow: 0 7px 18px rgba(42, 55, 47, 0.16);
-  }
-  &.skin-willow_green[data-preview-theme="dark"] .ftb-preview-host .drag-handle {
-    background: #65c98d;
-  }
-  &.skin-willow_green[data-preview-theme="light"] .ftb-preview-host .drag-handle {
-    background: #58b980;
-  }
   & .ftb-preview-host {
     justify-content: flex-start;
     padding: 0;
@@ -926,15 +970,6 @@
   }
 }
 
-@utility helpcode-schema {
-  margin-top: 12px;
-}
-@utility frequency-option-content {
-  margin-top: 8px;
-}
-@utility frequency-option-row {
-  padding: 10px 0;
-}
 @utility candidate-fallback-list {
   display: flex;
   flex-direction: column;
@@ -1032,12 +1067,6 @@
   gap: 8px;
   margin-top: 12px;
 }
-@utility input-mode-options {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: center;
-  gap: 12px;
-}
 @utility input-option-item {
   display: flex;
   flex-direction: column;
@@ -1052,24 +1081,6 @@
   margin-top: 5px;
   color: var(--text-muted);
   font-size: 12px;
-}
-@utility japanese-scheme-description {
-  margin-top: 10px;
-}
-@utility word-to-character-keys-row {
-  margin-top: 18px;
-  padding-top: 16px;
-  border-top: 1px solid var(--divider-color);
-
-  & .radio-option {
-    padding: 8px 4px;
-  }
-
-  /* A disabled choice still has to be readable enough to explain why it is unavailable. */
-  & .radio-option:has(input:disabled) {
-    opacity: 0.45;
-    cursor: not-allowed;
-  }
 }
 @utility screen-keyboard-artwork {
   display: block;
@@ -1144,27 +1155,6 @@
    * at runtime. They live in the base layer rather than in `@theme` for exactly that reason: `@theme`
    * copies a value, and a copied value cannot change when the attribute does.
    */
-  /*
- * 手机上的品牌绿。
- *
- * 共享 UI 继承的是 Windows 设置里那支淡紫 `#8E8CD8`，而 Apple 和 Android 两端走的是同一支
- * `#185C48`——`platforms/android/res/values/colors.xml` 的开头就写着「The Apple app's
- * MetasequoiaTheme, so the two platforms read as one product」。鸿蒙是唯一一个走共享 Web UI 的手机
- * 宿主，于是三个手机平台里只有它是紫的。这里只改手机，桌面仍然是它自己的。
- *
- * 写在两个主题块之前，而不是文件末尾：test-settings-palette-parity.py 用两个主题各自声明的
- * color-scheme 当锚点切片，末尾那一段整个算作浅色主题，覆盖块落在那里会被判成调色板偏离了来源。
- * 放在两块之前它不在任何一段切片里，而渲染时靠特异性照样生效。（注释里也不能出现那两个锚点的
- * 字面写法——脚本是按字符串找的，写了就会把锚点抢过来。）
- */
-  [data-settings-shell][data-mobile],
-  [data-onboarding-shell][data-mobile] {
-    --accent-color: #185c48;
-    --accent-strong: #14483a;
-    --accent-soft: rgba(24, 92, 72, 0.13);
-    --accent-soft-border: rgba(24, 92, 72, 0.22);
-  }
-
   :root,
   html[data-theme="dark"] {
     color-scheme: dark;
@@ -1304,6 +1294,917 @@
     --cand-selected: #e8e8e8;
     --scrollbar-thumb: rgba(0, 0, 0, 0.28);
     --scrollbar-thumb-hover: rgba(0, 0, 0, 0.45);
+  }
+
+  /*
+   * The platform layer. Everything above is the upstream Windows palette, kept value for value with `upstream/settings-variables.css` (scripts/test-settings-palette-parity.py compares only those two rules). The rules below re-point the accent variables at the redesign's brand and platform accents and add the `--p-*` tokens the platform primitives in `core/` read. They are generated from `theme/platform-tokens.ts`, which is authoritative; `apps/desktop/tests/core/platform-tokens.test.ts` fails when the two disagree.
+   *
+   * Dark is the default because the page is dark with no `data-theme` at all; the light rule only lists what differs. Both set the variables on the platform root itself, so they beat the palette the root would otherwise inherit from <html>.
+   */
+
+  /* The welcome flow is shared by the phone hosts and has no platform of its own, so it takes the brand green directly. */
+  [data-onboarding-shell][data-mobile] {
+    --accent-color: #5fbf84;
+    --accent-strong: #2c7a4b;
+    --accent-soft: rgba(95, 191, 132, 0.22);
+    --accent-soft-border: rgba(95, 191, 132, 0.25);
+  }
+
+  html[data-theme="light"] [data-onboarding-shell][data-mobile] {
+    --accent-color: #2c7a4b;
+    --accent-soft: rgba(44, 122, 75, 0.12);
+    --accent-soft-border: rgba(44, 122, 75, 0.22);
+  }
+
+  [data-platform="win"] {
+    --accent-color: #60cdff;
+    --accent-strong: #005fb8;
+    --accent-soft: rgba(96, 205, 255, 0.16);
+    --accent-soft-border: rgba(96, 205, 255, 0.25);
+    --dropdown-item-hover-bg: rgba(96, 205, 255, 0.2);
+    --p-font:
+      "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Noto Sans SC", sans-serif;
+    --p-accent-text: #60cdff;
+    --p-on-accent: #000000;
+    --p-text: #ffffff;
+    --p-sub: rgba(255, 255, 255, 0.72);
+    --p-bg: #202020;
+    --p-chrome: #202020;
+    --p-hair: rgba(255, 255, 255, 0.08);
+    --p-hover: rgba(255, 255, 255, 0.07);
+    --p-r-ctl: 4px;
+    --p-sw-w: 40px;
+    --p-sw-h: 20px;
+    --p-sw-knob: 12px;
+    --p-sw-knob-off-size: 12px;
+    --p-sw-pad: 4px;
+    --p-sw-on: #60cdff;
+    --p-sw-off: transparent;
+    --p-sw-off-ring: inset 0 0 0 1px rgba(255, 255, 255, 0.6);
+    --p-sw-knob-on: #000000;
+    --p-sw-knob-off: rgba(255, 255, 255, 0.8);
+    --p-sw-knob-shadow: none;
+    --p-sw-label: inline;
+    --p-seg-bg: rgba(0, 0, 0, 0.12);
+    --p-seg-border: 1px solid rgba(255, 255, 255, 0.08);
+    --p-seg-r: 5px;
+    --p-seg-item-r: 4px;
+    --p-seg-on: rgba(255, 255, 255, 0.0837);
+    --p-seg-on-fg: #ffffff;
+    --p-seg-on-shadow: none;
+    --p-seg-indicator: 16px;
+    --p-g-title-fs: 14px;
+    --p-g-title-w: 600;
+    --p-g-title-fg: #ffffff;
+    --p-g-title-pad: 8px 2px 2px;
+    --p-g-title-gap: 4px;
+    --p-group-bg: transparent;
+    --p-group-r: 0;
+    --p-group-shadow: none;
+    --p-row-gap: 4px;
+    --p-row-bg: rgba(255, 255, 255, 0.0512);
+    --p-row-shadow: 0 0 0 1px rgba(0, 0, 0, 0.1);
+    --p-row-r: 4px;
+    --p-row-h: 62px;
+    --p-row-pad: 10px 20px;
+    --p-row-fs: 14px;
+    --p-sub-fs: 12px;
+    --p-row-divider: transparent;
+    --p-row-icon: flex;
+    --p-sel-bg: rgba(255, 255, 255, 0.06);
+    --p-sel-fg: #ffffff;
+    --p-sel-border: 1px solid rgba(255, 255, 255, 0.08);
+    --p-sel-pad: 5px 11px;
+    --p-sel-fs: 14px;
+    --p-btn-bg: rgba(255, 255, 255, 0.06);
+    --p-btn-fg: #ffffff;
+    --p-btn-border: 1px solid rgba(255, 255, 255, 0.08);
+    --p-title-fs: 28px;
+    --p-title-w: 600;
+    --p-groups-gap: 8px;
+    --p-slider-appearance: auto;
+    --p-slider-track-h: 4px;
+    --p-slider-track: rgba(120, 120, 128, 0.36);
+    --p-slider-knob-w: 22px;
+    --p-slider-knob-h: 22px;
+    --p-slider-knob-r: 50%;
+    --p-slider-knob: #ffffff;
+    --p-slider-knob-shadow:
+      0 0 0 0.5px rgba(0, 0, 0, 0.04), 0 3px 8px rgba(0, 0, 0, 0.15), 0 3px 1px rgba(0, 0, 0, 0.06);
+    --p-nav-h: 36px;
+    --p-nav-r: 4px;
+    --p-nav-pad: 0 12px;
+    --p-nav-selected-bg: rgba(255, 255, 255, 0.07);
+    --p-nav-pill: 3px;
+    --p-check-size: 20px;
+    --p-check-r: 4px;
+  }
+
+  html[data-theme="light"] [data-platform="win"] {
+    --accent-color: #005fb8;
+    --accent-soft: rgba(0, 95, 184, 0.1);
+    --accent-soft-border: rgba(0, 95, 184, 0.22);
+    --dropdown-item-hover-bg: rgba(0, 95, 184, 0.12);
+    --p-accent-text: #005fb8;
+    --p-on-accent: #ffffff;
+    --p-text: #1b1b1b;
+    --p-sub: #5e5e5e;
+    --p-bg: #f3f3f3;
+    --p-chrome: #f3f3f3;
+    --p-hair: rgba(0, 0, 0, 0.08);
+    --p-hover: rgba(0, 0, 0, 0.045);
+    --p-sw-on: #005fb8;
+    --p-sw-off-ring: inset 0 0 0 1px rgba(0, 0, 0, 0.6);
+    --p-sw-knob-on: #ffffff;
+    --p-sw-knob-off: rgba(0, 0, 0, 0.62);
+    --p-seg-bg: rgba(0, 0, 0, 0.04);
+    --p-seg-border: 1px solid rgba(0, 0, 0, 0.08);
+    --p-seg-on: rgba(0, 0, 0, 0.0578);
+    --p-seg-on-fg: #1b1b1b;
+    --p-g-title-fg: #1b1b1b;
+    --p-row-bg: rgba(255, 255, 255, 0.7);
+    --p-row-shadow: 0 0 0 1px rgba(0, 0, 0, 0.0578);
+    --p-sel-bg: #ffffff;
+    --p-sel-fg: #1b1b1b;
+    --p-sel-border: 1px solid rgba(0, 0, 0, 0.08);
+    --p-btn-bg: #ffffff;
+    --p-btn-fg: #1b1b1b;
+    --p-btn-border: 1px solid rgba(0, 0, 0, 0.08);
+    --p-slider-track: rgba(120, 120, 128, 0.2);
+    --p-nav-selected-bg: rgba(0, 0, 0, 0.045);
+  }
+
+  [data-platform="mac"] {
+    --accent-color: #5fbf84;
+    --accent-strong: #2c7a4b;
+    --accent-soft: rgba(95, 191, 132, 0.22);
+    --accent-soft-border: rgba(95, 191, 132, 0.25);
+    --dropdown-item-hover-bg: rgba(95, 191, 132, 0.2);
+    --p-font:
+      -apple-system, BlinkMacSystemFont, "PingFang SC", "SF Pro Text", "Noto Sans SC", sans-serif;
+    --p-accent-text: #5fbf84;
+    --p-on-accent: #ffffff;
+    --p-text: #f5f5f7;
+    --p-sub: #98989d;
+    --p-bg: #1e1e1e;
+    --p-chrome: #2a2a2a;
+    --p-hair: rgba(255, 255, 255, 0.1);
+    --p-hover: rgba(255, 255, 255, 0.1);
+    --p-r-ctl: 6px;
+    --p-sw-w: 38px;
+    --p-sw-h: 22px;
+    --p-sw-knob: 20px;
+    --p-sw-knob-off-size: 20px;
+    --p-sw-pad: 1px;
+    --p-sw-on: #5fbf84;
+    --p-sw-off: rgba(255, 255, 255, 0.16);
+    --p-sw-off-ring: none;
+    --p-sw-knob-on: #ffffff;
+    --p-sw-knob-off: #ffffff;
+    --p-sw-knob-shadow: 0 0.5px 1.5px rgba(0, 0, 0, 0.35), 0 0 0 0.5px rgba(0, 0, 0, 0.06);
+    --p-sw-label: none;
+    --p-seg-bg: rgba(255, 255, 255, 0.08);
+    --p-seg-border: none;
+    --p-seg-r: 6px;
+    --p-seg-item-r: 5px;
+    --p-seg-on: #5a5a5e;
+    --p-seg-on-fg: #f5f5f7;
+    --p-seg-on-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.1), 0 1px 1.5px rgba(0, 0, 0, 0.14);
+    --p-seg-indicator: 0;
+    --p-g-title-fs: 14px;
+    --p-g-title-w: 600;
+    --p-g-title-fg: #f5f5f7;
+    --p-g-title-pad: 0 8px;
+    --p-g-title-gap: 8px;
+    --p-group-bg: rgba(255, 255, 255, 0.045);
+    --p-group-r: 10px;
+    --p-group-shadow: 0 0 0 1px rgba(255, 255, 255, 0.07);
+    --p-row-gap: 0;
+    --p-row-bg: transparent;
+    --p-row-shadow: none;
+    --p-row-r: 0;
+    --p-row-h: 56px;
+    --p-row-pad: 10px 16px;
+    --p-row-fs: 14px;
+    --p-sub-fs: 12px;
+    --p-row-divider: rgba(255, 255, 255, 0.1);
+    --p-row-icon: none;
+    --p-sel-bg: transparent;
+    --p-sel-fg: #f5f5f7;
+    --p-sel-border: none;
+    --p-sel-pad: 1px 2px;
+    --p-sel-fs: 14px;
+    --p-btn-bg: rgba(255, 255, 255, 0.14);
+    --p-btn-fg: #f5f5f7;
+    --p-btn-border: 0.5px solid rgba(255, 255, 255, 0.1);
+    --p-title-fs: 26px;
+    --p-title-w: 700;
+    --p-groups-gap: 24px;
+    --p-slider-appearance: none;
+    --p-slider-track-h: 4px;
+    --p-slider-track: rgba(255, 255, 255, 0.18);
+    --p-slider-knob-w: 20px;
+    --p-slider-knob-h: 20px;
+    --p-slider-knob-r: 50%;
+    --p-slider-knob: #ffffff;
+    --p-slider-knob-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.2), 0 1px 2px rgba(0, 0, 0, 0.3);
+    --p-nav-h: 36px;
+    --p-nav-r: 8px;
+    --p-nav-pad: 0 10px;
+    --p-nav-selected-bg: rgba(255, 255, 255, 0.1);
+    --p-nav-pill: 0;
+    --p-check-size: 18px;
+    --p-check-r: 4px;
+  }
+
+  html[data-theme="light"] [data-platform="mac"] {
+    --accent-color: #2c7a4b;
+    --accent-soft: rgba(44, 122, 75, 0.12);
+    --accent-soft-border: rgba(44, 122, 75, 0.22);
+    --dropdown-item-hover-bg: rgba(44, 122, 75, 0.12);
+    --p-accent-text: #2c7a4b;
+    --p-text: #1d1d1f;
+    --p-sub: #6e6e73;
+    --p-bg: #ffffff;
+    --p-chrome: #f6f6f6;
+    --p-hair: rgba(0, 0, 0, 0.09);
+    --p-hover: rgba(0, 0, 0, 0.06);
+    --p-sw-on: #2c7a4b;
+    --p-sw-off: rgba(0, 0, 0, 0.09);
+    --p-sw-off-ring: inset 0 0 0 0.5px rgba(0, 0, 0, 0.12);
+    --p-seg-bg: rgba(0, 0, 0, 0.055);
+    --p-seg-on: #ffffff;
+    --p-seg-on-fg: #1d1d1f;
+    --p-g-title-fg: #1d1d1f;
+    --p-group-bg: #ffffff;
+    --p-group-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06);
+    --p-row-divider: rgba(0, 0, 0, 0.09);
+    --p-sel-fg: #1d1d1f;
+    --p-btn-bg: #ffffff;
+    --p-btn-fg: #1d1d1f;
+    --p-btn-border: 0.5px solid rgba(0, 0, 0, 0.2);
+    --p-slider-track: rgba(0, 0, 0, 0.1);
+    --p-nav-selected-bg: rgba(0, 0, 0, 0.06);
+  }
+
+  [data-platform="linux"] {
+    --accent-color: #3584e4;
+    --accent-strong: #3584e4;
+    --accent-soft: rgba(120, 174, 237, 0.2);
+    --accent-soft-border: rgba(53, 132, 228, 0.25);
+    --dropdown-item-hover-bg: rgba(53, 132, 228, 0.2);
+    --p-font: Cantarell, "Noto Sans", "Noto Sans SC", sans-serif;
+    --p-accent-text: #78aeed;
+    --p-on-accent: #ffffff;
+    --p-text: #ffffff;
+    --p-sub: rgba(255, 255, 255, 0.55);
+    --p-bg: #242424;
+    --p-chrome: #303030;
+    --p-hair: rgba(0, 0, 0, 0.36);
+    --p-hover: rgba(255, 255, 255, 0.08);
+    --p-r-ctl: 6px;
+    --p-sw-w: 48px;
+    --p-sw-h: 26px;
+    --p-sw-knob: 20px;
+    --p-sw-knob-off-size: 20px;
+    --p-sw-pad: 3px;
+    --p-sw-on: #3584e4;
+    --p-sw-off: rgba(255, 255, 255, 0.15);
+    --p-sw-off-ring: none;
+    --p-sw-knob-on: #ffffff;
+    --p-sw-knob-off: #ffffff;
+    --p-sw-knob-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    --p-sw-label: none;
+    --p-seg-bg: rgba(255, 255, 255, 0.1);
+    --p-seg-border: none;
+    --p-seg-r: 8px;
+    --p-seg-item-r: 6px;
+    --p-seg-on: rgba(255, 255, 255, 0.18);
+    --p-seg-on-fg: #ffffff;
+    --p-seg-on-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+    --p-seg-indicator: 0;
+    --p-g-title-fs: 15px;
+    --p-g-title-w: 700;
+    --p-g-title-fg: #ffffff;
+    --p-g-title-pad: 0 2px;
+    --p-g-title-gap: 10px;
+    --p-group-bg: rgba(255, 255, 255, 0.08);
+    --p-group-r: 12px;
+    --p-group-shadow: 0 0 0 1px rgba(0, 0, 0, 0.36), 0 1px 3px rgba(0, 0, 0, 0.07);
+    --p-row-gap: 0;
+    --p-row-bg: transparent;
+    --p-row-shadow: none;
+    --p-row-r: 0;
+    --p-row-h: 54px;
+    --p-row-pad: 8px 14px;
+    --p-row-fs: 15px;
+    --p-sub-fs: 13px;
+    --p-row-divider: rgba(0, 0, 0, 0.36);
+    --p-row-icon: none;
+    --p-sel-bg: rgba(255, 255, 255, 0.1);
+    --p-sel-fg: #ffffff;
+    --p-sel-border: none;
+    --p-sel-pad: 6px 12px;
+    --p-sel-fs: 14px;
+    --p-btn-bg: rgba(255, 255, 255, 0.1);
+    --p-btn-fg: #ffffff;
+    --p-btn-border: none;
+    --p-title-fs: 22px;
+    --p-title-w: 800;
+    --p-groups-gap: 24px;
+    --p-slider-appearance: none;
+    --p-slider-track-h: 6px;
+    --p-slider-track: rgba(255, 255, 255, 0.15);
+    --p-slider-knob-w: 20px;
+    --p-slider-knob-h: 20px;
+    --p-slider-knob-r: 50%;
+    --p-slider-knob: #ffffff;
+    --p-slider-knob-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    --p-nav-h: 40px;
+    --p-nav-r: 6px;
+    --p-nav-pad: 0 12px;
+    --p-nav-selected-bg: rgba(255, 255, 255, 0.08);
+    --p-nav-pill: 0;
+    --p-check-size: 18px;
+    --p-check-r: 6px;
+  }
+
+  html[data-theme="light"] [data-platform="linux"] {
+    --accent-soft: rgba(53, 132, 228, 0.14);
+    --accent-soft-border: rgba(53, 132, 228, 0.22);
+    --dropdown-item-hover-bg: rgba(53, 132, 228, 0.12);
+    --p-accent-text: #1c71d8;
+    --p-text: rgba(0, 0, 0, 0.82);
+    --p-sub: rgba(0, 0, 0, 0.55);
+    --p-bg: #fafafa;
+    --p-chrome: #ebebeb;
+    --p-hair: rgba(0, 0, 0, 0.1);
+    --p-hover: rgba(0, 0, 0, 0.06);
+    --p-sw-off: rgba(0, 0, 0, 0.15);
+    --p-seg-bg: rgba(0, 0, 0, 0.08);
+    --p-seg-on: #ffffff;
+    --p-seg-on-fg: rgba(0, 0, 0, 0.82);
+    --p-g-title-fg: rgba(0, 0, 0, 0.82);
+    --p-group-bg: #ffffff;
+    --p-group-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.07);
+    --p-row-divider: rgba(0, 0, 0, 0.1);
+    --p-sel-bg: rgba(0, 0, 0, 0.06);
+    --p-sel-fg: rgba(0, 0, 0, 0.82);
+    --p-btn-bg: rgba(0, 0, 0, 0.08);
+    --p-btn-fg: rgba(0, 0, 0, 0.82);
+    --p-slider-track: rgba(0, 0, 0, 0.15);
+    --p-nav-selected-bg: rgba(0, 0, 0, 0.06);
+  }
+
+  [data-platform="hm2"] {
+    --accent-color: #5fbf84;
+    --accent-strong: #2c7a4b;
+    --accent-soft: rgba(95, 191, 132, 0.26);
+    --accent-soft-border: rgba(95, 191, 132, 0.25);
+    --dropdown-item-hover-bg: rgba(95, 191, 132, 0.2);
+    --p-font: "HarmonyOS Sans SC", "HarmonyOS Sans", "Noto Sans SC", sans-serif;
+    --p-accent-text: #5fbf84;
+    --p-on-accent: #ffffff;
+    --p-text: #e5e5e5;
+    --p-sub: rgba(255, 255, 255, 0.6);
+    --p-bg: #121212;
+    --p-chrome: #1a1a1a;
+    --p-hair: rgba(255, 255, 255, 0.1);
+    --p-hover: rgba(255, 255, 255, 0.08);
+    --p-r-ctl: 20px;
+    --p-sw-w: 36px;
+    --p-sw-h: 20px;
+    --p-sw-knob: 16px;
+    --p-sw-knob-off-size: 16px;
+    --p-sw-pad: 2px;
+    --p-sw-on: #5fbf84;
+    --p-sw-off: rgba(255, 255, 255, 0.2);
+    --p-sw-off-ring: none;
+    --p-sw-knob-on: #ffffff;
+    --p-sw-knob-off: #ffffff;
+    --p-sw-knob-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+    --p-sw-label: none;
+    --p-seg-bg: rgba(255, 255, 255, 0.1);
+    --p-seg-border: none;
+    --p-seg-r: 999px;
+    --p-seg-item-r: 999px;
+    --p-seg-on: #3a3a3a;
+    --p-seg-on-fg: #e5e5e5;
+    --p-seg-on-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+    --p-seg-indicator: 0;
+    --p-g-title-fs: 14px;
+    --p-g-title-w: 500;
+    --p-g-title-fg: rgba(255, 255, 255, 0.6);
+    --p-g-title-pad: 0 12px;
+    --p-g-title-gap: 8px;
+    --p-group-bg: #1f1f1f;
+    --p-group-r: 20px;
+    --p-group-shadow: none;
+    --p-row-gap: 0;
+    --p-row-bg: transparent;
+    --p-row-shadow: none;
+    --p-row-r: 0;
+    --p-row-h: 52px;
+    --p-row-pad: 8px 16px;
+    --p-row-fs: 15px;
+    --p-sub-fs: 12px;
+    --p-row-divider: rgba(255, 255, 255, 0.1);
+    --p-row-icon: none;
+    --p-sel-bg: rgba(255, 255, 255, 0.1);
+    --p-sel-fg: #e5e5e5;
+    --p-sel-border: none;
+    --p-sel-pad: 6px 12px;
+    --p-sel-fs: 14px;
+    --p-btn-bg: rgba(255, 255, 255, 0.1);
+    --p-btn-fg: #8fb6ff;
+    --p-btn-border: none;
+    --p-title-fs: 22px;
+    --p-title-w: 700;
+    --p-groups-gap: 20px;
+    --p-slider-appearance: none;
+    --p-slider-track-h: 4px;
+    --p-slider-track: rgba(120, 120, 128, 0.36);
+    --p-slider-knob-w: 22px;
+    --p-slider-knob-h: 22px;
+    --p-slider-knob-r: 50%;
+    --p-slider-knob: #ffffff;
+    --p-slider-knob-shadow:
+      0 0 0 0.5px rgba(0, 0, 0, 0.04), 0 3px 8px rgba(0, 0, 0, 0.15), 0 3px 1px rgba(0, 0, 0, 0.06);
+    --p-nav-h: 40px;
+    --p-nav-r: 12px;
+    --p-nav-pad: 0 10px;
+    --p-nav-selected-bg: rgba(255, 255, 255, 0.08);
+    --p-nav-pill: 0;
+    --p-check-size: 18px;
+    --p-check-r: 4px;
+  }
+
+  html[data-theme="light"] [data-platform="hm2"] {
+    --accent-color: #2c7a4b;
+    --accent-soft: rgba(44, 122, 75, 0.12);
+    --accent-soft-border: rgba(44, 122, 75, 0.22);
+    --dropdown-item-hover-bg: rgba(44, 122, 75, 0.12);
+    --p-accent-text: #2c7a4b;
+    --p-text: #182431;
+    --p-sub: rgba(24, 36, 49, 0.6);
+    --p-bg: #ffffff;
+    --p-chrome: #f1f3f5;
+    --p-hair: rgba(0, 0, 0, 0.06);
+    --p-hover: rgba(0, 0, 0, 0.05);
+    --p-sw-on: #2c7a4b;
+    --p-sw-off: rgba(0, 0, 0, 0.1);
+    --p-seg-bg: rgba(0, 0, 0, 0.05);
+    --p-seg-on: #ffffff;
+    --p-seg-on-fg: #182431;
+    --p-g-title-fg: rgba(24, 36, 49, 0.6);
+    --p-group-bg: #ffffff;
+    --p-row-divider: rgba(0, 0, 0, 0.06);
+    --p-sel-bg: rgba(0, 0, 0, 0.05);
+    --p-sel-fg: #182431;
+    --p-btn-bg: rgba(0, 0, 0, 0.05);
+    --p-btn-fg: #2c7a4b;
+    --p-slider-track: rgba(120, 120, 128, 0.2);
+    --p-nav-selected-bg: rgba(0, 0, 0, 0.05);
+  }
+
+  [data-platform="harmony"] {
+    --accent-color: #5fbf84;
+    --accent-strong: #2c7a4b;
+    --accent-soft: rgba(95, 191, 132, 0.26);
+    --accent-soft-border: rgba(95, 191, 132, 0.25);
+    --dropdown-item-hover-bg: rgba(95, 191, 132, 0.2);
+    --p-font: "HarmonyOS Sans SC", "HarmonyOS Sans", "Noto Sans SC", sans-serif;
+    --p-accent-text: #5fbf84;
+    --p-on-accent: #ffffff;
+    --p-text: #e5e5e5;
+    --p-sub: rgba(255, 255, 255, 0.6);
+    --p-bg: #000000;
+    --p-chrome: #000000;
+    --p-hair: rgba(255, 255, 255, 0.1);
+    --p-hover: rgba(255, 255, 255, 0.08);
+    --p-r-ctl: 20px;
+    --p-sw-w: 36px;
+    --p-sw-h: 20px;
+    --p-sw-knob: 16px;
+    --p-sw-knob-off-size: 16px;
+    --p-sw-pad: 2px;
+    --p-sw-on: #5fbf84;
+    --p-sw-off: rgba(255, 255, 255, 0.2);
+    --p-sw-off-ring: none;
+    --p-sw-knob-on: #ffffff;
+    --p-sw-knob-off: #ffffff;
+    --p-sw-knob-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+    --p-sw-label: none;
+    --p-seg-bg: rgba(255, 255, 255, 0.1);
+    --p-seg-border: none;
+    --p-seg-r: 999px;
+    --p-seg-item-r: 999px;
+    --p-seg-on: #3a3a3a;
+    --p-seg-on-fg: #e5e5e5;
+    --p-seg-on-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+    --p-seg-indicator: 0;
+    --p-g-title-fs: 14px;
+    --p-g-title-w: 500;
+    --p-g-title-fg: rgba(255, 255, 255, 0.6);
+    --p-g-title-pad: 0 16px;
+    --p-g-title-gap: 8px;
+    --p-group-bg: #1f1f1f;
+    --p-group-r: 20px;
+    --p-group-shadow: none;
+    --p-row-gap: 0;
+    --p-row-bg: transparent;
+    --p-row-shadow: none;
+    --p-row-r: 0;
+    --p-row-h: 56px;
+    --p-row-pad: 8px 16px;
+    --p-row-fs: 16px;
+    --p-sub-fs: 14px;
+    --p-row-divider: rgba(255, 255, 255, 0.1);
+    --p-row-icon: none;
+    --p-sel-bg: transparent;
+    --p-sel-fg: rgba(255, 255, 255, 0.6);
+    --p-sel-border: none;
+    --p-sel-pad: 0;
+    --p-sel-fs: 14px;
+    --p-btn-bg: rgba(255, 255, 255, 0.1);
+    --p-btn-fg: #5fbf84;
+    --p-btn-border: none;
+    --p-title-fs: 30px;
+    --p-title-w: 700;
+    --p-groups-gap: 20px;
+    --p-slider-appearance: none;
+    --p-slider-track-h: 4px;
+    --p-slider-track: rgba(120, 120, 128, 0.36);
+    --p-slider-knob-w: 22px;
+    --p-slider-knob-h: 22px;
+    --p-slider-knob-r: 50%;
+    --p-slider-knob: #ffffff;
+    --p-slider-knob-shadow:
+      0 0 0 0.5px rgba(0, 0, 0, 0.04), 0 3px 8px rgba(0, 0, 0, 0.15), 0 3px 1px rgba(0, 0, 0, 0.06);
+    --p-nav-h: 52px;
+    --p-nav-r: 0;
+    --p-nav-pad: 0 14px;
+    --p-nav-selected-bg: rgba(255, 255, 255, 0.08);
+    --p-nav-pill: 0;
+    --p-check-size: 18px;
+    --p-check-r: 4px;
+  }
+
+  html[data-theme="light"] [data-platform="harmony"] {
+    --accent-color: #2c7a4b;
+    --accent-soft: rgba(44, 122, 75, 0.12);
+    --accent-soft-border: rgba(44, 122, 75, 0.22);
+    --dropdown-item-hover-bg: rgba(44, 122, 75, 0.12);
+    --p-accent-text: #2c7a4b;
+    --p-text: #182431;
+    --p-sub: rgba(24, 36, 49, 0.6);
+    --p-bg: #f1f3f5;
+    --p-chrome: #f1f3f5;
+    --p-hair: rgba(0, 0, 0, 0.06);
+    --p-hover: rgba(0, 0, 0, 0.05);
+    --p-sw-on: #2c7a4b;
+    --p-sw-off: rgba(0, 0, 0, 0.1);
+    --p-seg-bg: rgba(0, 0, 0, 0.05);
+    --p-seg-on: #ffffff;
+    --p-seg-on-fg: #182431;
+    --p-g-title-fg: rgba(24, 36, 49, 0.6);
+    --p-group-bg: #ffffff;
+    --p-row-divider: rgba(0, 0, 0, 0.06);
+    --p-sel-fg: rgba(24, 36, 49, 0.6);
+    --p-btn-bg: rgba(0, 0, 0, 0.05);
+    --p-btn-fg: #2c7a4b;
+    --p-slider-track: rgba(120, 120, 128, 0.2);
+    --p-nav-selected-bg: rgba(0, 0, 0, 0.05);
+  }
+
+  [data-platform="android"] {
+    --accent-color: #8fd5a6;
+    --accent-strong: #2c7a4b;
+    --accent-soft: #2a4f37;
+    --accent-soft-border: rgba(143, 213, 166, 0.25);
+    --dropdown-item-hover-bg: rgba(143, 213, 166, 0.2);
+    --p-font: Roboto, "Noto Sans SC", "Noto Sans", sans-serif;
+    --p-accent-text: #8fd5a6;
+    --p-on-accent: #003920;
+    --p-text: #e1e3de;
+    --p-sub: #c0c9bf;
+    --p-bg: #111411;
+    --p-chrome: #111411;
+    --p-hair: #2a2f2a;
+    --p-hover: rgba(255, 255, 255, 0.06);
+    --p-r-ctl: 20px;
+    --p-sw-w: 52px;
+    --p-sw-h: 32px;
+    --p-sw-knob: 24px;
+    --p-sw-knob-off-size: 16px;
+    --p-sw-pad: 4px;
+    --p-sw-on: #8fd5a6;
+    --p-sw-off: #323532;
+    --p-sw-off-ring: inset 0 0 0 2px #8a9389;
+    --p-sw-knob-on: #003920;
+    --p-sw-knob-off: #8a9389;
+    --p-sw-knob-shadow: none;
+    --p-sw-label: none;
+    --p-seg-bg: transparent;
+    --p-seg-border: 1px solid #8a9389;
+    --p-seg-r: 999px;
+    --p-seg-item-r: 999px;
+    --p-seg-on: #2a4f37;
+    --p-seg-on-fg: #e1e3de;
+    --p-seg-on-shadow: none;
+    --p-seg-indicator: 0;
+    --p-g-title-fs: 14px;
+    --p-g-title-w: 500;
+    --p-g-title-fg: #8fd5a6;
+    --p-g-title-pad: 0 24px;
+    --p-g-title-gap: 2px;
+    --p-group-bg: transparent;
+    --p-group-r: 0;
+    --p-group-shadow: none;
+    --p-row-gap: 0;
+    --p-row-bg: transparent;
+    --p-row-shadow: none;
+    --p-row-r: 0;
+    --p-row-h: 64px;
+    --p-row-pad: 8px 24px;
+    --p-row-fs: 16px;
+    --p-sub-fs: 14px;
+    --p-row-divider: transparent;
+    --p-row-icon: none;
+    --p-sel-bg: transparent;
+    --p-sel-fg: #c0c9bf;
+    --p-sel-border: none;
+    --p-sel-pad: 0;
+    --p-sel-fs: 14px;
+    --p-btn-bg: #2a4f37;
+    --p-btn-fg: #e1e3de;
+    --p-btn-border: none;
+    --p-title-fs: 28px;
+    --p-title-w: 400;
+    --p-groups-gap: 20px;
+    --p-slider-appearance: none;
+    --p-slider-track-h: 6px;
+    --p-slider-track: #2a4f37;
+    --p-slider-knob-w: 4px;
+    --p-slider-knob-h: 28px;
+    --p-slider-knob-r: 2px;
+    --p-slider-knob: #8fd5a6;
+    --p-slider-knob-shadow: none;
+    --p-nav-h: 56px;
+    --p-nav-r: 28px;
+    --p-nav-pad: 0 24px;
+    --p-nav-selected-bg: #2a4f37;
+    --p-nav-pill: 0;
+    --p-check-size: 18px;
+    --p-check-r: 2px;
+  }
+
+  html[data-theme="light"] [data-platform="android"] {
+    --accent-color: #2c7a4b;
+    --accent-soft: #cfe9d6;
+    --accent-soft-border: rgba(44, 122, 75, 0.22);
+    --dropdown-item-hover-bg: rgba(44, 122, 75, 0.12);
+    --p-accent-text: #2c7a4b;
+    --p-on-accent: #ffffff;
+    --p-text: #191c19;
+    --p-sub: #414941;
+    --p-bg: #f7fbf3;
+    --p-chrome: #f7fbf3;
+    --p-hair: #dde5db;
+    --p-hover: rgba(0, 0, 0, 0.05);
+    --p-sw-on: #2c7a4b;
+    --p-sw-off: #dfe4db;
+    --p-sw-off-ring: inset 0 0 0 2px #717970;
+    --p-sw-knob-on: #ffffff;
+    --p-sw-knob-off: #717970;
+    --p-seg-border: 1px solid #717970;
+    --p-seg-on: #cfe9d6;
+    --p-seg-on-fg: #191c19;
+    --p-g-title-fg: #2c7a4b;
+    --p-sel-fg: #414941;
+    --p-btn-bg: #cfe9d6;
+    --p-btn-fg: #191c19;
+    --p-slider-track: #cfe9d6;
+    --p-slider-knob: #2c7a4b;
+    --p-nav-selected-bg: #cfe9d6;
+  }
+
+  [data-platform="ios"] {
+    --accent-color: #5fbf84;
+    --accent-strong: #2c7a4b;
+    --accent-soft: rgba(95, 191, 132, 0.26);
+    --accent-soft-border: rgba(95, 191, 132, 0.25);
+    --dropdown-item-hover-bg: rgba(95, 191, 132, 0.2);
+    --p-font:
+      -apple-system, BlinkMacSystemFont, "PingFang SC", "SF Pro Text", "Noto Sans SC", sans-serif;
+    --p-accent-text: #5fbf84;
+    --p-on-accent: #ffffff;
+    --p-text: #ffffff;
+    --p-sub: #8e8e93;
+    --p-bg: #000000;
+    --p-chrome: #000000;
+    --p-hair: rgba(84, 84, 88, 0.6);
+    --p-hover: rgba(255, 255, 255, 0.08);
+    --p-r-ctl: 999px;
+    --p-sw-w: 63px;
+    --p-sw-h: 28px;
+    --p-sw-knob: 24px;
+    --p-sw-knob-off-size: 24px;
+    --p-sw-pad: 2px;
+    --p-sw-on: #34c759;
+    --p-sw-off: #39393d;
+    --p-sw-off-ring: none;
+    --p-sw-knob-on: #ffffff;
+    --p-sw-knob-off: #ffffff;
+    --p-sw-knob-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    --p-sw-label: none;
+    --p-seg-bg: rgba(118, 118, 128, 0.24);
+    --p-seg-border: none;
+    --p-seg-r: 999px;
+    --p-seg-item-r: 999px;
+    --p-seg-on: #636366;
+    --p-seg-on-fg: #ffffff;
+    --p-seg-on-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+    --p-seg-indicator: 0;
+    --p-g-title-fs: 13px;
+    --p-g-title-w: 400;
+    --p-g-title-fg: #8e8e93;
+    --p-g-title-pad: 0 20px;
+    --p-g-title-gap: 7px;
+    --p-group-bg: #1c1c1e;
+    --p-group-r: 26px;
+    --p-group-shadow: none;
+    --p-row-gap: 0;
+    --p-row-bg: transparent;
+    --p-row-shadow: none;
+    --p-row-r: 0;
+    --p-row-h: 52px;
+    --p-row-pad: 8px 20px;
+    --p-row-fs: 17px;
+    --p-sub-fs: 13px;
+    --p-row-divider: rgba(84, 84, 88, 0.6);
+    --p-row-icon: none;
+    --p-sel-bg: transparent;
+    --p-sel-fg: #8e8e93;
+    --p-sel-border: none;
+    --p-sel-pad: 0;
+    --p-sel-fs: 17px;
+    --p-btn-bg: transparent;
+    --p-btn-fg: #5fbf84;
+    --p-btn-border: none;
+    --p-title-fs: 34px;
+    --p-title-w: 700;
+    --p-groups-gap: 28px;
+    --p-slider-appearance: none;
+    --p-slider-track-h: 4px;
+    --p-slider-track: rgba(120, 120, 128, 0.36);
+    --p-slider-knob-w: 28px;
+    --p-slider-knob-h: 28px;
+    --p-slider-knob-r: 50%;
+    --p-slider-knob: #ffffff;
+    --p-slider-knob-shadow:
+      0 0 0 0.5px rgba(0, 0, 0, 0.04), 0 3px 8px rgba(0, 0, 0, 0.15), 0 3px 1px rgba(0, 0, 0, 0.06);
+    --p-nav-h: 52px;
+    --p-nav-r: 0;
+    --p-nav-pad: 0 20px;
+    --p-nav-selected-bg: rgba(255, 255, 255, 0.08);
+    --p-nav-pill: 0;
+    --p-check-size: 18px;
+    --p-check-r: 4px;
+  }
+
+  html[data-theme="light"] [data-platform="ios"] {
+    --accent-color: #2c7a4b;
+    --accent-soft: rgba(44, 122, 75, 0.14);
+    --accent-soft-border: rgba(44, 122, 75, 0.22);
+    --dropdown-item-hover-bg: rgba(44, 122, 75, 0.12);
+    --p-accent-text: #2c7a4b;
+    --p-text: #000000;
+    --p-sub: #8a8a8e;
+    --p-bg: #f2f2f7;
+    --p-chrome: #f2f2f7;
+    --p-hair: rgba(60, 60, 67, 0.22);
+    --p-hover: rgba(0, 0, 0, 0.05);
+    --p-sw-off: #e9e9ea;
+    --p-seg-bg: rgba(118, 118, 128, 0.12);
+    --p-seg-on: #ffffff;
+    --p-seg-on-fg: #000000;
+    --p-g-title-fg: #6d6d72;
+    --p-group-bg: #ffffff;
+    --p-row-divider: rgba(60, 60, 67, 0.22);
+    --p-sel-fg: #8a8a8e;
+    --p-btn-fg: #2c7a4b;
+    --p-slider-track: rgba(120, 120, 128, 0.2);
+    --p-nav-selected-bg: rgba(0, 0, 0, 0.05);
+  }
+
+  [data-platform="ipad"] {
+    --accent-color: #5fbf84;
+    --accent-strong: #2c7a4b;
+    --accent-soft: rgba(95, 191, 132, 0.26);
+    --accent-soft-border: rgba(95, 191, 132, 0.25);
+    --dropdown-item-hover-bg: rgba(95, 191, 132, 0.2);
+    --p-font:
+      -apple-system, BlinkMacSystemFont, "PingFang SC", "SF Pro Text", "Noto Sans SC", sans-serif;
+    --p-accent-text: #5fbf84;
+    --p-on-accent: #ffffff;
+    --p-text: #ffffff;
+    --p-sub: #8e8e93;
+    --p-bg: #000000;
+    --p-chrome: #000000;
+    --p-hair: rgba(84, 84, 88, 0.6);
+    --p-hover: rgba(255, 255, 255, 0.08);
+    --p-r-ctl: 999px;
+    --p-sw-w: 63px;
+    --p-sw-h: 28px;
+    --p-sw-knob: 24px;
+    --p-sw-knob-off-size: 24px;
+    --p-sw-pad: 2px;
+    --p-sw-on: #34c759;
+    --p-sw-off: #39393d;
+    --p-sw-off-ring: none;
+    --p-sw-knob-on: #ffffff;
+    --p-sw-knob-off: #ffffff;
+    --p-sw-knob-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    --p-sw-label: none;
+    --p-seg-bg: rgba(118, 118, 128, 0.24);
+    --p-seg-border: none;
+    --p-seg-r: 999px;
+    --p-seg-item-r: 999px;
+    --p-seg-on: #636366;
+    --p-seg-on-fg: #ffffff;
+    --p-seg-on-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+    --p-seg-indicator: 0;
+    --p-g-title-fs: 13px;
+    --p-g-title-w: 400;
+    --p-g-title-fg: #8e8e93;
+    --p-g-title-pad: 0 20px;
+    --p-g-title-gap: 7px;
+    --p-group-bg: #1c1c1e;
+    --p-group-r: 26px;
+    --p-group-shadow: none;
+    --p-row-gap: 0;
+    --p-row-bg: transparent;
+    --p-row-shadow: none;
+    --p-row-r: 0;
+    --p-row-h: 52px;
+    --p-row-pad: 8px 20px;
+    --p-row-fs: 17px;
+    --p-sub-fs: 13px;
+    --p-row-divider: rgba(84, 84, 88, 0.6);
+    --p-row-icon: none;
+    --p-sel-bg: transparent;
+    --p-sel-fg: #8e8e93;
+    --p-sel-border: none;
+    --p-sel-pad: 0;
+    --p-sel-fs: 17px;
+    --p-btn-bg: transparent;
+    --p-btn-fg: #5fbf84;
+    --p-btn-border: none;
+    --p-title-fs: 30px;
+    --p-title-w: 700;
+    --p-groups-gap: 28px;
+    --p-slider-appearance: none;
+    --p-slider-track-h: 4px;
+    --p-slider-track: rgba(120, 120, 128, 0.36);
+    --p-slider-knob-w: 28px;
+    --p-slider-knob-h: 28px;
+    --p-slider-knob-r: 50%;
+    --p-slider-knob: #ffffff;
+    --p-slider-knob-shadow:
+      0 0 0 0.5px rgba(0, 0, 0, 0.04), 0 3px 8px rgba(0, 0, 0, 0.15), 0 3px 1px rgba(0, 0, 0, 0.06);
+    --p-nav-h: 44px;
+    --p-nav-r: 0;
+    --p-nav-pad: 0 14px;
+    --p-nav-selected-bg: rgba(255, 255, 255, 0.08);
+    --p-nav-pill: 0;
+    --p-check-size: 18px;
+    --p-check-r: 4px;
+  }
+
+  html[data-theme="light"] [data-platform="ipad"] {
+    --accent-color: #2c7a4b;
+    --accent-soft: rgba(44, 122, 75, 0.14);
+    --accent-soft-border: rgba(44, 122, 75, 0.22);
+    --dropdown-item-hover-bg: rgba(44, 122, 75, 0.12);
+    --p-accent-text: #2c7a4b;
+    --p-text: #000000;
+    --p-sub: #8a8a8e;
+    --p-bg: #f2f2f7;
+    --p-chrome: #f2f2f7;
+    --p-hair: rgba(60, 60, 67, 0.22);
+    --p-hover: rgba(0, 0, 0, 0.05);
+    --p-sw-off: #e9e9ea;
+    --p-seg-bg: rgba(118, 118, 128, 0.12);
+    --p-seg-on: #ffffff;
+    --p-seg-on-fg: #000000;
+    --p-g-title-fg: #6d6d72;
+    --p-group-bg: #ffffff;
+    --p-row-divider: rgba(60, 60, 67, 0.22);
+    --p-sel-fg: #8a8a8e;
+    --p-btn-fg: #2c7a4b;
+    --p-slider-track: rgba(120, 120, 128, 0.2);
+    --p-nav-selected-bg: rgba(0, 0, 0, 0.05);
   }
 
   * {

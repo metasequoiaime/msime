@@ -83,7 +83,7 @@ constexpr VoiceStartVerdict voice_start_verdict(const VoiceStartConfig &config) 
   // MSIME-Windows hands an incomplete Doubao configuration to the streaming client, whose Start() refuses it; a batch provider's gaps surface in Recognize().
   if (config.doubao && (config.endpoint.empty() || config.resource_id.empty()))
     return {VoiceStartCheck::Rejected, voice_doubao_start_message};
-  if (config.endpoint.empty())
+  if (!secure_voice_endpoint(config.endpoint, config.doubao))
     return {VoiceStartCheck::Rejected, voice_missing_endpoint_message};
   if (!config.doubao && config.model.empty())
     return {VoiceStartCheck::Rejected, voice_missing_model_message};

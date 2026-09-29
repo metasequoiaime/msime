@@ -1,5 +1,12 @@
 import * as doc from "./document-style";
+import * as settings from "./settings-style";
+import { GroupList, Row } from "../core/platform-controls";
 
+/**
+ * The macOS help page. The reference window answers the three questions a new user actually has --
+ * how do I type, why is there English next to the candidates, and why is it not in my input menu --
+ * as term/description rows rather than prose, so each answer is findable without reading the page.
+ */
 const macosHelpCards = [
   {
     title: "开始输入",
@@ -11,7 +18,7 @@ const macosHelpCards = [
       { term: "数字键 1–9", text: "选中候选栏里对应位置的词，空格上屏第一个。" },
       {
         term: "翻页",
-        text: "默认是减号和等号（- / =）。在快捷键页可以换成逗号句号（, / .）或方括号（[ / ]）。",
+        text: "默认是减号和等号（- / =）。在候选窗口页的翻页方式里可以换成逗号句号（, / .）或方括号（[ / ]）。",
       },
       { term: "Option+Shift+H", text: "切换全角与半角。" },
     ],
@@ -27,7 +34,7 @@ const macosHelpCards = [
         term: "在线释义",
         text: "默认不联网。只有在「翻译服务」里选了腾讯云、小牛翻译、自定义服务或「水杉账号」后，才会把当前页的中文候选词发给所选服务；选「水杉账号」会发到 api.msime.app，首次使用时创建一个匿名账号。",
       },
-      { term: "两种语言", text: "可以同时显示两种语言的释义，在输入页的候选词翻译里设置。" },
+      { term: "两种语言", text: "可以同时显示两种语言的释义，在表达页的候选词翻译里设置。" },
       {
         term: "Tab",
         text: "在候选词和它的释义之间切换要上屏的那一列，Shift+Tab 反向。切到哪一列，那一列就会加下划线，数字键、空格和点击上屏的都是它。",
@@ -47,7 +54,7 @@ const macosHelpCards = [
       },
       {
         term: "候选旁没有释义",
-        text: "先确认输入页的候选词翻译是开着的。词典没收录的词要联网查询，断网时只会显示词典里有的那些。",
+        text: "先确认表达页的候选词翻译是开着的。词典没收录的词要联网查询，断网时只会显示词典里有的那些。",
       },
       { term: "词库没有更新", text: "词库更新随版本发布。在「关于」页检查更新。" },
     ],
@@ -68,7 +75,7 @@ export interface HelpSettingsPageProps {
   onOpenSystemKeyboardSettings?: () => void;
 }
 
-/** Shared help page content for desktop and mobile settings hosts. */
+/** The 帮助 page, shared by desktop and mobile settings hosts; it opens from a row on 反馈. */
 export function HelpSettingsPage({
   busy,
   hidden,
@@ -84,86 +91,92 @@ export function HelpSettingsPage({
 }: HelpSettingsPageProps) {
   return (
     <fieldset disabled={busy} hidden={hidden} aria-label="帮助">
-      {macos &&
-        macosHelpCards.map((card) => (
-          <div
-            key={card.title}
-            className={`section ${doc.guide}`}
-            role="group"
-            aria-label={card.title}
-          >
-            <div className="section-title">{card.title}</div>
-            {card.rows.map((row, index) => (
+      <div className={settings.groups}>
+        {macos &&
+          macosHelpCards.map((card) => (
+            <GroupList key={card.title} title={card.title}>
               <div
-                key={row.term}
-                className={`${doc.guideRow}${index === 0 && card.rows.length > 1 ? ` ${doc.guideLead}` : ""}`}
+                className={`${settings.groupBlock} ${doc.guide}`}
+                role="group"
+                aria-label={card.title}
               >
-                <span className={doc.guideTerm}>{row.term}</span>
-                <p className={doc.guideText}>{row.text}</p>
+                {card.rows.map((row, index) => (
+                  <div
+                    key={row.term}
+                    className={`${doc.guideRow}${index === 0 && card.rows.length > 1 ? ` ${doc.guideLead}` : ""}`}
+                  >
+                    <span className={doc.guideTerm}>{row.term}</span>
+                    <p className={doc.guideText}>{row.text}</p>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        ))}
-      {macos && onOpenDocumentation && (
-        <div className="section" role="group" aria-label="更多">
-          <div className="section-header">
-            <span className="section-title">
-              更多<small>更完整的说明、词库来源和更新记录在官网上。</small>
-            </span>
-            <button type="button" className="secondary" onClick={onOpenDocumentation}>
-              打开官网
-            </button>
-          </div>
-        </div>
-      )}
-      {!macos && (
-        <div className={`section ${doc.page}`}>
-          <p>{platformHelpIntro}</p>
-          <div className={doc.subsection}>
-            <div className="section-title">快速上手</div>
-            <p>{platformQuickStart}</p>
-            {mobile && onOpenSystemKeyboardSettings && (
-              <button type="button" className="secondary" onClick={onOpenSystemKeyboardSettings}>
-                {ios ? "打开系统键盘设置" : "打开系统输入法设置"}
-              </button>
+            </GroupList>
+          ))}
+        {macos && onOpenDocumentation && (
+          <GroupList>
+            <div className={settings.rowStack} role="group" aria-label="更多">
+              <Row title="更多" description="更完整的说明、词库来源和更新记录在官网上。">
+                <button type="button" className="secondary" onClick={onOpenDocumentation}>
+                  打开官网
+                </button>
+              </Row>
+            </div>
+          </GroupList>
+        )}
+        {!macos && (
+          <>
+            <p className={settings.groupNote}>{platformHelpIntro}</p>
+            <GroupList title="快速上手">
+              <div className={`${settings.groupBlock} ${doc.page}`}>
+                <p>{platformQuickStart}</p>
+                {mobile && onOpenSystemKeyboardSettings && (
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={onOpenSystemKeyboardSettings}
+                  >
+                    {ios ? "打开系统键盘设置" : "打开系统输入法设置"}
+                  </button>
+                )}
+              </div>
+            </GroupList>
+            {ios && (
+              <GroupList title="允许完全访问">
+                <p className={settings.groupNote}>
+                  打字统计保存本机字数、手写首次下载识别模型时需要在系统键盘设置中开启“允许完全访问”。不开启也可以正常打字；键盘默认离线，不会因为未开启而上传输入内容。
+                </p>
+              </GroupList>
             )}
-          </div>
-          {ios && (
-            <div className={doc.subsection}>
-              <div className="section-title">允许完全访问</div>
-              <p>
-                打字统计保存本机字数、手写首次下载识别模型时需要在系统键盘设置中开启“允许完全访问”。不开启也可以正常打字；键盘默认离线，不会因为未开启而上传输入内容。
-              </p>
-            </div>
-          )}
-          {android && (
-            <div className={doc.subsection}>
-              <div className="section-title">输入权限</div>
-              <p>
-                Android
-                的输入法服务只在当前编辑器请求时接收文本。云功能、语音和社区按你主动启用的功能联网，日常拼音输入无需联网。
-              </p>
-            </div>
-          )}
-          <div className={doc.subsection}>
-            <div className="section-title">基本功能</div>
-            <p>
-              支持全拼、双拼和五笔。可以在设置窗口下的输入功能分区进行切换。全拼和双拼均支持辅助码，辅助码方案目前支持自然码辅助码、蓝天小雨点、首右
-              2.0、首右 plus 和小鹤。
-            </p>
-            <p>{platformNetworkDescription}</p>
-            <p>更多功能欢迎自由探索～</p>
-          </div>
-          {onOpenDocumentation && (
-            <div className={doc.subsection}>
-              <div className="section-title">更多</div>
-              <button type="button" className="secondary" onClick={onOpenDocumentation}>
-                完整文档（网页）
-              </button>
-            </div>
-          )}
-        </div>
-      )}
+            {android && (
+              <GroupList title="输入权限">
+                <p className={settings.groupNote}>
+                  Android
+                  的输入法服务只在当前编辑器请求时接收文本。云功能、语音和社区按你主动启用的功能联网，日常拼音输入无需联网。
+                </p>
+              </GroupList>
+            )}
+            <GroupList title="基本功能">
+              <div className={`${settings.groupBlock} ${doc.page}`}>
+                <p>
+                  支持全拼、双拼和五笔。可以在设置窗口下的输入功能分区进行切换。全拼和双拼均支持辅助码，辅助码方案目前支持自然码辅助码、蓝天小雨点、首右
+                  2.0、首右 plus 和小鹤。
+                </p>
+                <p>{platformNetworkDescription}</p>
+                <p>更多功能欢迎自由探索～</p>
+              </div>
+            </GroupList>
+            {onOpenDocumentation && (
+              <GroupList title="更多">
+                <Row title="完整文档">
+                  <button type="button" className="secondary" onClick={onOpenDocumentation}>
+                    完整文档（网页）
+                  </button>
+                </Row>
+              </GroupList>
+            )}
+          </>
+        )}
+      </div>
     </fieldset>
   );
 }

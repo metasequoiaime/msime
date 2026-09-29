@@ -65,17 +65,17 @@ void candidateThemeDecoration() {
   }
   const Json catalog = {{"packages", Json::array({{{"id", "sakura"},
                                                    {"title", "樱花"},
+                                                   {"base", "system"},
+                                                   {"layouts", Json::array({"horizontal", "vertical"})},
+                                                   {"candidate", {{"light", Json::object()}}},
                                                    {"decoration_top_dip", 24.5},
                                                    {"decoration_width_dip", 180},
                                                    {"decoration_image", image.string()}}})}};
-  const auto themeFor = [&](const std::string &skin) {
-    const auto display = host::candidate_display_preferences(Json{{"candidate_skin", skin}}, false, builtinSkins(),
-                                                             defaultSkin(), catalog);
-    const auto colors = host::resolve_candidate_colors(display, defaultSkin());
-    const auto decoration =
-        host::candidate_skin_decoration(catalog, display.value("candidate_skin", defaultSkin()), builtinSkins());
+  const auto themeFor = [&](const Json &preferences) {
+    const auto theme = resolveCandidateTheme(preferences, false, catalog);
+    const auto decoration = host::candidate_skin_decoration(catalog, theme.candidate_skin);
     const auto file = host::fcitx_theme_file((root / "data").c_str(), nullptr);
-    require(file && host::write_fcitx_candidate_theme(*file, colors, decoration), "candidate theme written");
+    require(file && host::write_fcitx_candidate_theme(*file, theme.colors, theme.dark, decoration), "candidate theme written");
     std::ifstream in(*file, std::ios::binary);
     return std::string(std::istreambuf_iterator<char>(in), {});
   };
@@ -86,36 +86,44 @@ void candidateThemeDecoration() {
       if (entry.path().filename().string().rfind("decoration-", 0) == 0) names.push_back(entry.path().filename().string());
     return names;
   };
-  require(!builtinSkins().empty() && !defaultSkin().empty(), "shared layer publishes the built-in skins");
-  const auto decorated = themeFor("sakura");
+  // The shared layer reports the package as drawn (candidate_skin) only because the manifest declares this layout and mode; that is what brings its decoration.
+  const auto decorated = themeFor(Json{{"global_theme", "custom"}, {"custom_theme", {{"candidate_skin", "sakura"}}}});
   const auto named = decorated.find("\nOverlay=decoration-");
   require(named != std::string::npos, "decorated skin names its overlay");
   const auto copy = decorated.substr(named + 9, decorated.find('\n', named + 1) - named - 9);
   require(copies() == std::vector<std::string>{copy}, "overlay image staged beside theme.conf");
   require(std::filesystem::file_size(themeDirectory / copy) == std::filesystem::file_size(image), "overlay is the skin's image");
-  require(decorated.find("Gravity=Top Right\nOverlayOffsetX=1\nOverlayOffsetY=8\nHideOverlayIfOversize=False\n") !=
+  require(decorated.find("Gravity=Top Right\nOverlayOffsetX=13\nOverlayOffsetY=15\nHideOverlayIfOversize=False\n") !=
               std::string::npos,
-          "overlay pinned top right and centred in the band");
-  require(decorated.find("[InputPanel/ContentMargin]\nLeft=2\nRight=2\nTop=27\n") != std::string::npos,
+          "overlay pinned top right inside the card and centred in the band");
+  require(decorated.find("[InputPanel/ContentMargin]\nLeft=19\nRight=19\nTop=40\n") != std::string::npos,
           "band reserved above the candidates");
-  const auto plain = themeFor(defaultSkin());
-  require(plain.find("Overlay") == std::string::npos, "built-in skin has no overlay");
+  // The rounded card is an image generated beside theme.conf.
+  const auto card = decorated.find("[InputPanel/Background]\nImage=shape-");
+  require(card != std::string::npos, "card drawn from a generated image");
+  const auto cardImage = decorated.substr(card + 30, decorated.find('\n', card + 30) - card - 30);
+  require(std::filesystem::is_regular_file(themeDirectory / cardImage), "card image written beside theme.conf");
+  const auto plain = themeFor(Json{{"global_theme", "paper"}});
+  require(plain.find("Overlay") == std::string::npos, "built-in theme has no overlay");
   require(copies().empty(), "previous skin's overlay removed");
   std::filesystem::remove_all(root);
 }
 // The mode badge draws in the candidate panel's appearance. The default candidate_theme "follow" and global "system" on a light desktop used to give a dark badge, because only an explicit "light" counted. Runs before the resource fixture.
 void modeBadgeTheme() {
-  require(fcitx_mode_badge_light_theme(Json{{"candidate_theme", "follow"}}, false),
+  require(fcitx_mode_badge_light_theme(Json{{"candidate_theme", "follow"}}, false, Json()),
           "follow on a light desktop gives a light badge");
-  require(!fcitx_mode_badge_light_theme(Json{{"candidate_theme", "follow"}}, true),
+  require(!fcitx_mode_badge_light_theme(Json{{"candidate_theme", "follow"}}, true, Json()),
           "follow on a dark desktop gives a dark badge");
-  require(fcitx_mode_badge_light_theme(Json::object(), false), "absent keys follow a light desktop");
-  require(!fcitx_mode_badge_light_theme(Json{{"theme", "dark"}, {"candidate_theme", "follow"}}, false),
+  require(fcitx_mode_badge_light_theme(Json::object(), false, Json()), "absent keys follow a light desktop");
+  require(!fcitx_mode_badge_light_theme(Json{{"theme", "dark"}, {"candidate_theme", "follow"}}, false, Json()),
           "follow defers to a dark global theme");
-  require(fcitx_mode_badge_light_theme(Json{{"theme", "dark"}, {"candidate_theme", "light"}}, true),
+  require(fcitx_mode_badge_light_theme(Json{{"theme", "dark"}, {"candidate_theme", "light"}}, true, Json()),
           "an explicit light candidate theme wins");
-  require(!fcitx_mode_badge_light_theme(Json{{"theme", "light"}, {"candidate_theme", "dark"}}, false),
+  require(!fcitx_mode_badge_light_theme(Json{{"theme", "light"}, {"candidate_theme", "dark"}}, false, Json()),
           "an explicit dark candidate theme wins");
+  // A global theme with a fixed appearance draws the panel in it, so the badge follows it too.
+  require(!fcitx_mode_badge_light_theme(Json{{"global_theme", "ink"}}, false, Json()), "a dark global theme gives a dark badge");
+  require(fcitx_mode_badge_light_theme(Json{{"global_theme", "paper"}}, true, Json()), "a light global theme gives a light badge");
 }
 // classicui's options belong to every input method, so the first takeover records what it replaced for msime-linux-setup --unregister, and a later write keeps that value while the option still holds MSIME's. Runs against a scratch XDG_STATE_HOME before the resource fixture; the fixture instance does not load classicui, so this drives the recording step the addon's writes go through.
 void classicuiTakeoverRecord() {
@@ -201,8 +209,9 @@ int main(int argc, char **argv) {
     options["preferences"]["ai_assistant"]["model"] = "synthetic";
     options["preferences"]["ai_assistant"]["token"] = "synthetic-token";
     options["candidate_skin_catalog"] = Json{{"packages", Json::array({
-        Json{{"id", "solarized"}, {"title", "Solarized"}},
-        Json{{"id", "unsafe/id"}, {"title", "Ignored"}},
+        Json{{"id", "solarized"}, {"title", "Solarized"}, {"base", "system"}, {"layouts", Json::array({"horizontal", "vertical"})}},
+        Json{{"id", "unsafe/id"}, {"title", "Ignored"}, {"base", "system"}, {"layouts", Json::array({"vertical"})}},
+        Json{{"id", "kite"}, {"title", "纸鸢"}, {"base", "paper"}, {"layouts", Json::array({"horizontal", "vertical"})}},
     })}};
     const auto socketPath = std::string(directory) + "/online.sock";
     const int providerServer = socket(AF_UNIX, SOCK_STREAM, 0);
@@ -581,7 +590,7 @@ int main(int argc, char **argv) {
     // One per addAction() in activate(), plus the toolbar entry the host adds
     // once it has a session. Adding or removing a status action changes this on
     // purpose; the count is here so one going missing is noticed.
-    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 57,
+    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 24,
             ("native status actions attached: " +
              std::to_string(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size()))
                 .c_str());
@@ -616,29 +625,53 @@ int main(int argc, char **argv) {
     engine.candidate_theme_action_.activate(&ic);
     require(state->preferences_.value("candidate_theme", std::string{}) == "light",
             "candidate theme action updates the active session");
-    require(engine.candidate_skin_action_.shortText(&ic) == "候选皮肤：杨柳青",
-            "candidate skin action starts at the built-in preference");
-    // 每按一次前进一格，按满一圈回到原处：内置四款加配置目录里的一款，共五格。此处
-    // 原先按 5 次却期望停在 solarized，那只有当前皮肤还不在列表里（首按落到表头）时
-    // 才成立；共享偏好基线把新建偏好种成杨柳青之后，这个期望就一直是错的，而这两个
-    // 原生测试要真实词库才注册，容器门禁不带词库，于是一直没人看见。顺序本身现在由
-    // linux-candidate-skin-catalog 覆盖，这里钉的是宿主确实走在那条共享路径上。
-    for (int i = 0; i < 5; ++i) engine.candidate_skin_action_.activate(&ic);
-    require(state->preferences_.value("candidate_skin", std::string{}) == "willow_green",
-            "candidate skin action returns to the start after a full cycle");
-    engine.candidate_skin_action_.activate(&ic);
-    require(state->preferences_.value("candidate_skin", std::string{}) == "solarized",
-            "candidate skin action cycles into the configured catalog");
-    require(engine.candidate_skin_action_.shortText(&ic) == "候选皮肤：Solarized",
-            "candidate skin action labels catalog entries");
+    // 主题 lists the shared catalogue's themes and then each installed package as its own entry, as IBus does; choosing an entry writes the same preferences the settings page does.
+    const auto themeItem = [&](const std::string &title) -> FcitxGlobalThemeItemAction & {
+      for (const auto *items : {&engine.global_theme_items_, &engine.global_theme_package_items_})
+        for (const auto &item : *items)
+          if (item->shortText(&ic) == title) return *item;
+      throw std::runtime_error("theme menu lists " + title);
+    };
+    require(engine.global_theme_items_.size() == 7, "theme menu lists every shared global theme");
+    require(engine.global_theme_package_items_.size() == 2 && engine.global_theme_menu_.actions().size() == 9,
+            "theme menu lists each installed package after the global themes");
+    for (auto *action : engine.global_theme_menu_.actions())
+      require(!action->name().empty(), "every theme menu entry is registered");
+    require(engine.global_theme_action_.shortText(&ic) == "主题：跟随系统", "theme action starts at the shared default");
+    require(themeItem("跟随系统").isChecked(&ic) && !themeItem("夜青").isChecked(&ic), "theme menu checks the current theme");
+    themeItem("夜青").activate(&ic);
+    require(state->preferences_.value("global_theme", std::string{}) == "night", "theme item selects its global theme");
+    require(themeItem("夜青").isChecked(&ic) && !themeItem("跟随系统").isChecked(&ic), "theme menu follows the choice");
+    // Any package is one activation away, not a walk through the ones before it.
+    themeItem("纸鸢").activate(&ic);
+    require(state->preferences_.value("global_theme", std::string{}) == "custom" &&
+                state->preferences_.at("custom_theme").value("candidate_skin", std::string{}) == "kite" &&
+                state->preferences_.at("custom_theme").value("base", std::string{}) == "paper",
+            "a package entry draws the custom theme over that package and its base");
+    require(themeItem("纸鸢").isChecked(&ic) && !themeItem("Solarized").isChecked(&ic) && !themeItem("夜青").isChecked(&ic),
+            "theme menu checks the package drawn");
+    themeItem("Solarized").activate(&ic);
+    require(state->preferences_.at("custom_theme").value("candidate_skin", std::string{}) == "solarized" &&
+                state->preferences_.at("custom_theme").value("base", std::string{}) == "system",
+            "another package entry switches to that package");
+    require(themeItem("Solarized").isChecked(&ic) && !themeItem("纸鸢").isChecked(&ic) && !themeItem("自定义").isChecked(&ic),
+            "theme menu moves the check to the package drawn");
+    require(engine.global_theme_action_.shortText(&ic) == "主题：Solarized", "theme action names the package drawn");
     options["candidate_skin_catalog"]["packages"][0]["title"] = "Solarized 更新";
     std::ofstream(path) << options.dump();
     state->refreshProviderSockets();
-    require(engine.candidate_skin_action_.shortText(&ic) == "候选皮肤：Solarized 更新",
-            "candidate skin catalog refreshes with runtime options");
-    engine.candidate_skin_action_.activate(&ic);
-    require(state->preferences_.value("candidate_skin", std::string{}) == "fluent",
-            "candidate skin action wraps to the built-in catalog");
+    require(engine.global_theme_package_items_.size() == 2 && themeItem("Solarized 更新").isChecked(&ic),
+            "package entries follow the runtime options");
+    // 自定义 selects the custom theme as it stands, as the settings page's 自定义 card does, so the package it is drawn over stays and stays checked.
+    themeItem("自定义").activate(&ic);
+    require(state->preferences_.value("global_theme", std::string{}) == "custom" &&
+                state->preferences_.at("custom_theme").value("candidate_skin", std::string{}) == "solarized" &&
+                state->preferences_.at("custom_theme").value("base", std::string{}) == "system",
+            "自定义 leaves the stored custom theme unchanged");
+    require(!themeItem("自定义").isChecked(&ic) && themeItem("Solarized 更新").isChecked(&ic),
+            "theme menu checks the package the custom theme is drawn over");
+    themeItem("跟随系统").activate(&ic);
+    require(state->preferences_.value("global_theme", std::string{}) == "system", "theme menu returns to the default");
     require(engine.mode_scope_action_.shortText(&ic) == "模式：应用",
             "mode scope action starts at application scope");
     engine.mode_scope_action_.activate(&ic);
@@ -668,8 +701,8 @@ int main(int argc, char **argv) {
       require(!engine.cloud_candidates_action_.isChecked(&ic),
               "cloud candidates status action reflects disabled preference");
     }
-    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 57,
-            ("AI status action attached: " +
+    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 24,
+            ("status actions unchanged by the option toggles: " +
              std::to_string(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size()))
                 .c_str());
     require(engine.emoji_category_action_.shortText(&ic) == "表情：Emoji",
@@ -777,8 +810,42 @@ int main(int argc, char **argv) {
             "clipboard history management menu attached");
     require(engine.cloud_clipboard_menu_.actions().size() == 5,
             "cloud clipboard menu attached");
-    require(engine.desktop_tools_menu_.actions().size() == 15,
+    require(engine.desktop_tools_menu_.actions().size() == 13,
             "desktop tools menu attached");
+    // The status area opens with the design menu: 中文/英文; 全角/标点/译文; 输入方案; 主题/词库…/设置…/关于.
+    {
+      const auto status = ic.statusArea().actions(fcitx::StatusGroup::InputMethod);
+      const std::vector<fcitx::Action *> design{
+          &engine.input_mode_action_, &engine.width_action_,
+          &engine.chinese_punctuation_action_, &engine.candidate_translation_action_, &engine.scheme_action_,
+          &engine.global_theme_action_, &engine.dictionary_action_, &engine.settings_action_, &engine.about_action_};
+      require(status.size() > design.size() && std::equal(design.begin(), design.end(), status.begin()),
+              "status area starts with the design menu");
+      require(engine.input_mode_action_.shortText(&ic) == "中文" && engine.width_action_.shortText(&ic) == "全角字符" &&
+                  engine.candidate_translation_action_.shortText(&ic) == "显示译文" &&
+                  engine.dictionary_action_.shortText(&ic) == "词库…" && engine.settings_action_.shortText(&ic) == "设置…" &&
+                  engine.about_action_.shortText(&ic) == "关于水杉输入法",
+              "design menu entries use the design labels");
+      // The Engine's dedicated English mode is not the design's 英文 (that is the 中文 toggle unchecked); it stays reachable in 输入选项, next to 混合英文.
+      const auto input = engine.input_group_menu_.actions();
+      const auto mixed = std::find(input.begin(), input.end(), &engine.mixed_english_action_);
+      require(std::find(status.begin(), status.end(), &engine.english_action_) == status.end() &&
+                  mixed != input.end() && std::next(mixed) != input.end() && *std::next(mixed) == &engine.english_action_,
+              "dedicated English mode moves into 输入选项");
+    }
+    // Nothing the status area listed before is lost: each moved action sits in one of the option groups, and every entry of those menus is registered so the D-Bus menus can reach it.
+    {
+      std::size_t grouped = 0;
+      for (auto *menu : {&engine.input_group_menu_, &engine.punctuation_group_menu_, &engine.candidate_group_menu_})
+        for (auto *action : menu->actions()) {
+          require(!action->name().empty(), "every option group entry is registered");
+          if (!action->isSeparator()) ++grouped;
+        }
+      require(grouped == 38, ("option groups hold the moved status actions: " + std::to_string(grouped)).c_str());
+      for (auto *menu : {&engine.scheme_menu_, &engine.desktop_tools_menu_})
+        for (auto *action : menu->actions())
+          require(!action->name().empty(), "scheme and desktop tools entries are registered");
+    }
     require(engine.candidate_page_size_menu_.actions().size() == 9,
             "candidate page-size menu attached");
     engine.candidate_page_size3_.activate(&ic);
@@ -833,11 +900,12 @@ int main(int argc, char **argv) {
     require(launchedRoute(engine.handwriting_action_, "handwriting") ==
                 std::array<std::string, 3>{"handwriting", "handwriting", ""},
             "desktop route environment propagated");
-    // About, help and feedback are settings sections: each opens its own page, as the IBus host and Windows do, rather than the settings home page.
-    for (auto *action : {&engine.about_action_, &engine.help_action_, &engine.feedback_action_}) {
-      const auto page = action == &engine.about_action_  ? std::string("about")
-                        : action == &engine.help_action_ ? std::string("help")
-                                                         : std::string("feedback");
+    // About, help, feedback and the local dictionary are settings sections: each opens its own page, as the IBus host and Windows do, rather than the settings home page.
+    for (auto *action : {&engine.about_action_, &engine.help_action_, &engine.feedback_action_, &engine.dictionary_action_}) {
+      const auto page = action == &engine.about_action_      ? std::string("about")
+                        : action == &engine.help_action_     ? std::string("help")
+                        : action == &engine.feedback_action_ ? std::string("feedback")
+                                                             : std::string("dictionary");
       require(launchedRoute(*action, page) ==
                   std::array<std::string, 3>{"settings:" + page, "settings", page},
               (page + " menu opens its settings section").c_str());
@@ -1742,6 +1810,19 @@ int main(int argc, char **argv) {
       require(state->cycleScheme() && savedSchemeBecomes("scheme", "japanese") &&
                   savedSchemeBecomes("last_chinese_scheme", "wubi"),
               "Japanese leaves the last Chinese scheme alone");
+      // The 输入方案 menu picks a scheme directly and marks the one in use.
+      require(engine.scheme_menu_.actions().size() == 4, "scheme menu lists the four schemes");
+      require(engine.scheme_japanese_action_.isChecked(&ic) && !engine.scheme_quanpin_action_.isChecked(&ic),
+              "scheme menu marks the scheme in use");
+      engine.scheme_shuangpin_action_.activate(&ic);
+      require(state->view_.value("scheme", 0u) == 1 && savedSchemeBecomes("scheme", "shuangpin") &&
+                  savedSchemeBecomes("last_chinese_scheme", "shuangpin"),
+              "scheme menu selects shuangpin directly");
+      require(engine.scheme_shuangpin_action_.isChecked(&ic) && !engine.scheme_japanese_action_.isChecked(&ic),
+              "scheme menu follows the choice");
+      engine.scheme_quanpin_action_.activate(&ic);
+      require(state->view_.value("scheme", 0u) == 0 && savedSchemeBecomes("scheme", "quanpin"),
+              "scheme menu returns to quanpin");
       state->close();
       state->clearPanel();
     }

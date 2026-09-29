@@ -8,7 +8,7 @@ import java.util.function.Predicate;
 /** Device-only acceptance for the full-surface Apple-style tools panel. */
 public final class MoreToolsDeviceSmoke extends DeviceSmoke {
     @Override protected String successDescription() {
-        return "two-column tools and settings, local-input subpanel and keyboard return";
+        return "four-column tool and setting tiles, local-input subpanel and keyboard return";
     }
 
     @Override protected void runChecks() throws Exception {
@@ -38,16 +38,16 @@ public final class MoreToolsDeviceSmoke extends DeviceSmoke {
             primaryCards[index] = card;
             Rect cardBounds = new Rect();
             card.getBoundsInScreen(cardBounds);
-            if (cardBounds.width() <= panelBounds.width() / 3
-                    || cardBounds.width() >= panelBounds.width() * 3 / 4)
-                throw new AssertionError("Primary tool is not a two-column card");
-            int expectedHeight = Math.round(48 * getTargetContext()
+            if (cardBounds.width() <= panelBounds.width() / 6
+                    || cardBounds.width() >= panelBounds.width() / 3)
+                throw new AssertionError("Primary tool is not a four-column tile");
+            int expectedHeight = Math.round(52 * getTargetContext()
                 .getResources().getDisplayMetrics().density);
             if (Math.abs(cardBounds.height() - expectedHeight) > 2)
                 throw new AssertionError("Primary card height mismatch");
         }
         assertSameRow(primaryCards[0], primaryCards[1], "first primary row");
-        assertSameRow(primaryCards[2], primaryCards[3], "second primary row");
+        assertSameRow(primaryCards[0], primaryCards[3], "first primary row end");
         stage = "more tools settings cards";
         AccessibilityNodeInfo traditional = await(tool("繁体输出"));
         AccessibilityNodeInfo sound = await(tool("按键音"));

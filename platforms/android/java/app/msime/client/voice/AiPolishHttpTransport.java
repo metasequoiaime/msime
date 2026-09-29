@@ -5,7 +5,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import javax.net.ssl.HttpsURLConnection;
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -35,8 +38,10 @@ public final class AiPolishHttpTransport implements AiPolishClient.Transport {
             connection.setFixedLengthStreamingMode(bytes.length);
             connection.setRequestProperty("Content-Type", "application/json");
             connection.setRequestProperty("Accept", "application/json");
-            if (!configuration.token().isEmpty())
-                connection.setRequestProperty("Authorization", "Bearer " + configuration.token());
+            for (Map.Entry<String, String> header : authenticationHeaders(
+                    configuration.endpoint(), configuration.token()).entrySet()) {
+                connection.setRequestProperty(header.getKey(), header.getValue());
+            }
             try (OutputStream output = connection.getOutputStream()) { output.write(bytes); }
             int status = connection.getResponseCode();
             if (status < 200 || status >= 300)
@@ -58,6 +63,18 @@ public final class AiPolishHttpTransport implements AiPolishClient.Transport {
             cancellation.detach();
             if (connection != null) connection.disconnect();
         }
+    }
+
+    static Map<String, String> authenticationHeaders(URI endpoint, String token) {
+        Map<String, String> headers = new LinkedHashMap<>();
+        if (token == null || token.isEmpty()) return headers;
+        if ("api.anthropic.com".equalsIgnoreCase(endpoint.getHost())) {
+            headers.put("x-api-key", token);
+            headers.put("anthropic-version", "2023-06-01");
+        } else {
+            headers.put("Authorization", "Bearer " + token);
+        }
+        return headers;
     }
 
     private static byte[] readBounded(InputStream input, AiPolishClient.Cancellation cancellation)

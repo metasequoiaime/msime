@@ -24,6 +24,8 @@ FOUNDATION_EXPORT NSString *const MSIMEAppearanceInputModeOnlyKey;
 /// Applies only settings owned by this window to an existing shared Preferences object.
 - (NSDictionary<NSString *, id> *)sharedPreferencesByMerging:(NSDictionary<NSString *, id> *)snapshot;
 - (msime::mac::ResolvedSkin)resolvedSkinForDark:(BOOL)dark;
+/// The floating toolbar's palette for one mode: the resolved candidate palette (surface, text, hover, border, selected), with the applied package's toolbar stylesheet over it.
+- (msime::mac::SkinTokens)toolbarSkinForDark:(BOOL)dark;
 @property(nonatomic, readonly) NSImage *decorationImage;
 @property(nonatomic, readonly) NSURL *skinsRoot;
 @property(nonatomic) BOOL vertical;
@@ -49,9 +51,7 @@ FOUNDATION_EXPORT NSString *const MSIMEAppearanceInputModeOnlyKey;
 @property(nonatomic) NSUInteger preeditFontSize;
 @property(nonatomic) BOOL showsCandidatePreedit;
 @property(nonatomic, copy) NSString *candidateTextColor;
-/// The six other candidate colours, as the same 「#rrggbb」 strings, or nil while the skin's own
-/// colour is in use. The resolved forms below are what the candidate window draws with; these are
-/// what the settings window sets and what the shared document carries.
+/// The six other candidate pickers of `custom_theme.candidate_colors`, as the same 「#rrggbb」 strings, or nil while the theme's own colour is in use. Setting one selects the custom theme (a theme that was on screen becomes its base); setting nil clears only that slot. The candidate window draws with -resolvedSkinForDark:, which already has them applied.
 @property(nonatomic, copy) NSString *candidateNumberColor;
 @property(nonatomic, copy) NSString *candidateAccentColor;
 @property(nonatomic, copy) NSString *candidateSelectedColor;
@@ -63,15 +63,19 @@ FOUNDATION_EXPORT NSString *const MSIMEAppearanceInputModeOnlyKey;
 @property(nonatomic, copy) NSString *themeMode;
 @property(nonatomic, copy) NSString *candidateTheme;
 @property(nonatomic, copy) NSString *toolbarTheme;
-- (NSColor *)candidateTextColorWithDefault:(NSColor *)color;
-- (NSColor *)candidateNumberColorWithDefault:(NSColor *)color;
-- (NSColor *)candidateAccentColorWithDefault:(NSColor *)color;
-- (NSColor *)candidateSelectedColorWithDefault:(NSColor *)color;
-- (NSColor *)candidateHoverColorWithDefault:(NSColor *)color;
-- (NSColor *)candidateSurfaceColorWithDefault:(NSColor *)color;
-- (NSColor *)candidateBorderColorWithDefault:(NSColor *)color;
+/// The global theme: system, shuishan, light, paper, night, ink or custom (the ids of msime_client_theme_catalog). An id outside the catalog is ignored when set and reads as system.
+@property(nonatomic, copy) NSString *globalTheme;
+/// `custom_theme.base`: system or a built-in theme id, the palette the custom theme starts from.
+@property(nonatomic, readonly, copy) NSString *customThemeBase;
+/// `custom_theme.candidate_skin`: the external package the custom theme draws, or nil for none.
+@property(nonatomic, readonly, copy) NSString *customCandidateSkin;
+/// Applies an external package: the custom theme, drawing that package, over the base its manifest names.
+- (void)selectExternalSkin:(NSString *)skinId base:(NSString *)base;
+/// 自定义主题不使用外部皮肤: drops the package and keeps the rest of the custom theme.
+- (void)clearCustomCandidateSkin;
+/// The custom theme as stored here (base, package and the seven pickers), as the host resolver takes it.
+- (msime::mac::CustomTheme)customTheme;
 @property(nonatomic) NSUInteger pageSize;
-@property(nonatomic, copy) NSString *skinID;
 // Native routing preferences; English passes keys through without preparing Engine.
 @property(nonatomic) BOOL englishMode;
 @property(nonatomic, copy) NSString *defaultImeMode;
@@ -178,6 +182,8 @@ FOUNDATION_EXPORT NSString *const MSIMEAppearanceInputModeOnlyKey;
 - (void)applySharedCandidatePreferences:(NSDictionary *)preferences;
 /// The native candidate panel appearance override. A nil value means AppKit follows the system.
 @property(nonatomic, readonly) NSAppearance *candidateAppearanceOverride;
+/// The same override for a theme drawn over the system base, whose mode comes from the light/dark choices alone rather than from the theme on screen: the mode an external package over a system base is drawn in once it is selected. A nil value means the system's mode.
+@property(nonatomic, readonly) NSAppearance *systemBaseCandidateAppearanceOverride;
 @property(nonatomic, readonly) BOOL candidateAppearanceOverrideConfigured;
 /// The paging key group as one of the three presets the menu offers: 0 for -/= (the default), 1 for [/], 2 for Page Up/Page Down. It is read back out of the navigation bindings rather than out of a stored number of its own, so it is -1 when those bindings are in a state no preset names; setting it to anything else is setting it to 0.
 @property(nonatomic) NSInteger pageShortcut;

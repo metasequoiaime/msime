@@ -238,7 +238,8 @@ int main() {
     }
     {
       TrayMenuWindow tray(
-          {}, [](TrayMenuCommand) { return true; }, [] { return true; });
+          {}, [](TrayMenuCommand) { return true; },
+          [] { return TrayMenuState{}; });
       for (const auto &[message, wparam] : {
                std::pair<UINT, WPARAM>{WM_DPICHANGED, 0},
                std::pair<UINT, WPARAM>{WM_DISPLAYCHANGE, 0},

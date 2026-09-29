@@ -6,7 +6,7 @@ final class KeyboardMorePickerView: UIView {
   init(sections: [KeyboardToolSection], title: String = "工具", onClose: @escaping () -> Void) {
     super.init(frame: .zero)
     accessibilityIdentifier = "keyboardMorePicker"
-    let skin = KeyboardSkinPreference.selected
+    let skin = KeyboardTheme.current
     // 这个面板和方案选择器都盖在同一块键盘上,所以底色取当前皮肤,不是主题里那个固定值 —— 里面的按键早就走皮肤了,只有外面这一层没有。
     backgroundColor = skin.background
     let header = UILabel()
@@ -66,7 +66,7 @@ final class KeyboardMorePickerView: UIView {
   }
 
   private func append(_ section: KeyboardToolSection) {
-    let skin = KeyboardSkinPreference.selected
+    let skin = KeyboardTheme.current
     if let title = section.title {
       let label = UILabel()
       label.text = title
@@ -90,7 +90,7 @@ final class KeyboardMorePickerView: UIView {
 
   private func makeCard(_ tool: KeyboardTool, in section: KeyboardToolSection,
                         fullWidth: Bool) -> UIButton {
-    let skin = KeyboardSkinPreference.selected
+    let skin = KeyboardTheme.current
     let caption = section.caption(for: tool)
     let card = KeyboardKeyButton()
     var configuration = UIButton.Configuration.filled()
@@ -103,9 +103,10 @@ final class KeyboardMorePickerView: UIView {
     configuration.contentInsets = .init(top: 6, leading: 12, bottom: 6, trailing: fullWidth ? 32 : 12)
     configuration.titleLineBreakMode = .byTruncatingTail
     configuration.titleAlignment = .leading
-    configuration.baseForegroundColor = skin.keyForeground
-    configuration.baseBackgroundColor = tool.selected ? skin.accent.withAlphaComponent(0.12) : skin.keyBackground
-    configuration.background.cornerRadius = 10
+    // The design's more-panel tiles: a switched-on tool fills with the platform `accentSoft` and writes in the platform accent, the rest sit on the key fill, all at the iOS tile radius (dc.html L1446, `tileOn`).
+    configuration.baseForegroundColor = tool.selected ? skin.toggleForeground : skin.keyForeground
+    configuration.baseBackgroundColor = tool.selected ? skin.toggleBackground : skin.keyBackground
+    configuration.background.cornerRadius = 14
     configuration.background.strokeWidth = 0
     configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { value in
       var value = value; value.font = .systemFont(ofSize: 14, weight: .medium); return value

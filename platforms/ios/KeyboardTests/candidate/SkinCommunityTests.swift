@@ -108,13 +108,11 @@ final class SkinCommunityTests: XCTestCase {
     let backdrop = KeyboardSkinBackgroundView(frame: CGRect(x: 0, y: 0, width: 320, height: 240))
     var design = CustomKeyboardSkin.templates[2].1
     design.pattern = 2
-    backdrop.designOverride = design
-    backdrop.skin = .custom
+    backdrop.skin = .designed(design)
     let before = UIGraphicsImageRenderer(bounds: backdrop.bounds).image { backdrop.layer.render(in: $0.cgContext) }.pngData()
     design.background = 0xEEFFFF
     design.gradientEnd = nil
-    backdrop.designOverride = design
-    backdrop.skin = .custom
+    backdrop.skin = .designed(design)
     let after = UIGraphicsImageRenderer(bounds: backdrop.bounds).image { backdrop.layer.render(in: $0.cgContext) }.pngData()
     XCTAssertNotEqual(before, after)
     XCTAssertEqual(CustomKeyboardSkinStore.current, previous)

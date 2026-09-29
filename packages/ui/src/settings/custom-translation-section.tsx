@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { SecretInput } from "../core/secret-input";
+import { Row, Switch } from "../core/platform-controls";
 import * as settings from "./settings-style";
 import { SettingToggle } from "./setting-toggle";
 
@@ -28,19 +29,19 @@ export function CustomTranslationSection({
   children,
 }: CustomTranslationSectionProps) {
   return (
-    <div className="section" role="group" aria-label="自定义翻译服务">
-      <SettingToggle
-        label="自定义翻译服务"
+    <div role="group" aria-label="自定义翻译服务" className={settings.rowStack}>
+      <Row
+        title="自定义翻译服务"
         description="改用自建的兼容 DeepLX 的 HTTPS 服务；关闭后候选词翻译使用上面选择的在线服务"
-        ariaLabel="自定义翻译服务"
-        disabled={!available}
-        checked={enabled}
-        compact
-        onChange={onToggle}
-      />
-      <div className="input-option-divider" />
-      <label className="section-header">
-        <span className="section-title">翻译 Endpoint</span>
+      >
+        <Switch
+          aria-label="自定义翻译服务"
+          disabled={!available}
+          checked={enabled}
+          onChange={onToggle}
+        />
+      </Row>
+      <Row title="翻译 Endpoint">
         <input
           aria-label="自定义翻译 Endpoint"
           type="url"
@@ -49,23 +50,23 @@ export function CustomTranslationSection({
           onChange={(event) => onEndpointChange(event.target.value)}
           placeholder="https://example.com/translate"
         />
-      </label>
+      </Row>
       {available && enabled && endpointIssue && (
-        <p className={settings.settingsWarning} role="status">
-          {endpointIssue}
-        </p>
+        <div className={settings.groupBlock}>
+          <p className={settings.settingsWarning} role="status">
+            {endpointIssue}
+          </p>
+        </div>
       )}
-      <div className="input-option-divider" />
-      <label className="section-header">
-        <span className="section-title">API Key</span>
+      <Row title="API Key">
         <SecretInput
           label="自定义翻译 API Key"
           value={apiKey}
           disabled={!available || !enabled}
           onChange={onApiKeyChange}
         />
-      </label>
-      {enabled && children}
+      </Row>
+      {enabled && children && <div className={settings.groupBlock}>{children}</div>}
     </div>
   );
 }

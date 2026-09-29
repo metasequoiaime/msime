@@ -4,7 +4,15 @@ use std::fs::File;
 use std::io::{self, Read};
 
 pub(crate) fn read_bounded(mut reader: impl Read, maximum: u64) -> io::Result<Vec<u8>> {
-    let mut bytes = Vec::new();
+    read_bounded_with_capacity(&mut reader, maximum, 0)
+}
+
+fn read_bounded_with_capacity(
+    mut reader: impl Read,
+    maximum: u64,
+    capacity: usize,
+) -> io::Result<Vec<u8>> {
+    let mut bytes = Vec::with_capacity(capacity);
     reader
         .by_ref()
         .take(maximum.saturating_add(1))
@@ -37,10 +45,12 @@ pub(crate) fn read_bounded_file_with<E>(
     too_large: impl FnOnce() -> E,
     io_error: impl FnOnce(io::Error) -> E + Copy,
 ) -> Result<Vec<u8>, E> {
-    if file.metadata().map_err(io_error)?.len() > maximum {
+    let file_size = file.metadata().map_err(io_error)?.len();
+    if file_size > maximum {
         return Err(too_large());
     }
-    match read_bounded(file, maximum) {
+    let capacity = usize::try_from(file_size).unwrap_or(0);
+    match read_bounded_with_capacity(file, maximum, capacity) {
         Ok(bytes) => Ok(bytes),
         Err(error) if error.kind() == io::ErrorKind::InvalidData => Err(too_large()),
         Err(error) => Err(io_error(error)),

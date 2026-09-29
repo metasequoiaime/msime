@@ -85,28 +85,47 @@ impl WordbookLibrary {
     }
 
     fn lock(&self) -> Result<File, WordbookLibraryError> {
-        fs::create_dir_all(&self.directory)?;
+        if let Some(parent) = self.directory.parent() {
+            crate::storage::reject_symlink(parent)?;
+        }
+        if !crate::storage::create_directory_and_check(&self.directory)? {
+            return Err(WordbookLibraryError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "vocabulary wordbook directory is not a real directory",
+            )));
+        }
         let lock = crate::file_lock::open_lock_file(self.directory.join("wordbooks.lock"))?;
         crate::file_lock::exclusive(&lock)?;
         Ok(lock)
     }
 
     fn read_index_locked(&self) -> Result<LibraryIndex, WordbookLibraryError> {
-        let bytes = match File::open(self.index_path()) {
-            Ok(file) => crate::bounded_io::read_bounded_file(file, MAX_INDEX_BYTES, || {
-                WordbookLibraryError::InvalidWordbook
-            })?,
+        let path = self.index_path();
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 return Ok(LibraryIndex::default());
             }
             Err(error) => return Err(error.into()),
         };
+        if !metadata.file_type().is_file() {
+            return Err(WordbookLibraryError::InvalidWordbook);
+        }
+        let bytes = match File::open(path) {
+            Ok(file) => crate::bounded_io::read_bounded_file(file, MAX_INDEX_BYTES, || {
+                WordbookLibraryError::InvalidWordbook
+            })?,
+            Err(error) => return Err(error.into()),
+        };
         let index: LibraryIndex = serde_json::from_slice(&bytes)?;
         if index.books.len() > MAX_BOOKS
-            || !index
-                .books
-                .iter()
-                .all(|book| wordbook::id_is_well_formed(&book.id))
+            || !index.books.iter().all(|book| {
+                wordbook::id_is_well_formed(&book.id)
+                    && !book.name.is_empty()
+                    && crate::text::is_bounded_chars(&book.name, wordbook::MAX_NAME_CHARS)
+                    && book.total > 0
+                    && book.total <= wordbook::MAX_ENTRIES
+            })
         {
             return Err(WordbookLibraryError::InvalidWordbook);
         }
@@ -133,7 +152,10 @@ impl WordbookLibrary {
         Ok(index
             .books
             .into_iter()
-            .filter(|book| self.book_path(&book.id).is_file())
+            .filter(|book| {
+                fs::symlink_metadata(self.book_path(&book.id))
+                    .is_ok_and(|metadata| metadata.file_type().is_file())
+            })
             .collect())
     }
 
@@ -143,11 +165,19 @@ impl WordbookLibrary {
             return Err(WordbookLibraryError::InvalidWordbook);
         }
         let _lock = self.lock()?;
-        let bytes = match File::open(self.book_path(id)) {
+        let path = self.book_path(id);
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
+        if !metadata.file_type().is_file() {
+            return Err(WordbookLibraryError::InvalidWordbook);
+        }
+        let bytes = match File::open(path) {
             Ok(file) => crate::bounded_io::read_bounded_file(file, MAX_BOOK_BYTES, || {
                 WordbookLibraryError::InvalidWordbook
             })?,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(error.into()),
         };
         let book: Wordbook = serde_json::from_slice(&bytes)?;
@@ -434,5 +464,58 @@ mod tests {
         ));
         // An existing book may still be replaced when the library is full.
         assert!(library.import("书", entries(&["a", "b"]), "user-0").is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_symlinked_library_storage_and_book() {
+        use std::os::unix::fs::symlink;
+
+        let target = tempfile::tempdir().unwrap();
+        let parent = tempfile::tempdir().unwrap();
+        let linked_root = parent.path().join("user-data");
+        symlink(target.path(), &linked_root).unwrap();
+        let linked_library = WordbookLibrary::new(&linked_root);
+        assert!(matches!(
+            linked_library.list(),
+            Err(WordbookLibraryError::Io(_))
+        ));
+        assert!(!target.path().join(DIRECTORY).exists());
+
+        let (_directory, library) = library();
+        library.import("甲", entries(&["a"]), "user-1").unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let outside_book = outside.path().join("book.json");
+        fs::write(
+            &outside_book,
+            fs::read(library.book_path("user-1")).unwrap(),
+        )
+        .unwrap();
+        fs::remove_file(library.book_path("user-1")).unwrap();
+        symlink(&outside_book, library.book_path("user-1")).unwrap();
+        assert!(matches!(
+            library.load("user-1"),
+            Err(WordbookLibraryError::InvalidWordbook)
+        ));
+        assert!(library
+            .list()
+            .unwrap()
+            .iter()
+            .all(|summary| summary.id != "user-1"));
+    }
+
+    #[test]
+    fn rejects_malformed_index_summaries() {
+        let (_directory, library) = library();
+        library.import("甲", entries(&["a"]), "user-1").unwrap();
+        fs::write(
+            library.index_path(),
+            br#"{"books":[{"id":"user-1","name":"","total":20001,"builtin":false}]}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            library.list(),
+            Err(WordbookLibraryError::InvalidWordbook)
+        ));
     }
 }

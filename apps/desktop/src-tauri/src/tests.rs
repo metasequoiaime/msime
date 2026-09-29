@@ -17,6 +17,7 @@ fn ai_endpoint_validation_accepts_http_api_urls_and_rejects_unsafe_urls() {
     }
     for endpoint in [
         "file:///tmp/models",
+        "https:///v1/chat/completions",
         "https://user:password@example.test/v1/chat/completions",
         "https://example.test/v1/chat/completions#fragment",
         "https://example.test/v1/chat/\ncompletions",
@@ -100,6 +101,37 @@ fn runtime_options_reader_rejects_oversized_documents_without_allocating_them() 
 }
 
 #[test]
+fn helpcode_catalog_reads_only_the_host_resource_directory() {
+    let directory = tempfile::tempdir().unwrap();
+    let resources = directory.path().join("resources");
+    let custom = resources.join("helpcodes/custom");
+    std::fs::create_dir_all(&custom).unwrap();
+    std::fs::write(
+        custom.join("synthetic.txt"),
+        "# name: Synthetic helper\n# name_en: Synthetic\nword=ab\n",
+    )
+    .unwrap();
+    let document = serde_json::json!({"resources": resources});
+
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    let options = {
+        let path = directory.path().join("runtime-options.json");
+        std::fs::write(&path, serde_json::to_vec(&document).unwrap()).unwrap();
+        super::DictionaryHostOptions { path }
+    };
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    let options = super::DictionaryHostOptions {
+        document: std::sync::Arc::new(document),
+    };
+
+    let schemas = super::list_helpcode_schemas_at(&options).unwrap();
+    assert_eq!(schemas.len(), 1);
+    assert_eq!(schemas[0].schema, "custom/synthetic");
+    assert_eq!(schemas[0].name, "Synthetic helper");
+    assert_eq!(schemas[0].name_en, "Synthetic");
+}
+
+#[test]
 fn candidate_panel_status_reader_rejects_oversized_documents() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("candidate-panel.json");
@@ -177,6 +209,8 @@ fn external_links_require_clean_https_urls() {
         "https:///path",
         "http://example.com",
         "https://example.com/help path",
+        "https://user:secret@example.com/help",
+        "https://example.com:bad/help",
         "https://example.com/a&b",
         "https://example.com/\"quoted\"",
         "https://example.com/\\escape",
@@ -1016,7 +1050,7 @@ fn skin_image_command_contract_filters_non_images_and_paths() {
     let root = state.path().join("skins");
     let folder = root.join("sample");
     std::fs::create_dir_all(&folder).unwrap();
-    std::fs::write(folder.join("skin.toml"), "schema_version = 1\nid = 'sample'\nname = 'Sample'\nversion = '1'\nbase = 'fluent'\n[supports]\nlayouts = ['vertical']\nthemes = ['light']\n[candidate_window]\n[candidate_window.decoration]\n").unwrap();
+    std::fs::write(folder.join("skin.toml"), "schema_version = 1\nid = 'sample'\nname = 'Sample'\nversion = '1'\nbase = 'system'\n[supports]\nlayouts = ['vertical']\nthemes = ['light']\n[candidate_window]\n[candidate_window.decoration]\n").unwrap();
     std::fs::write(folder.join("preview.png"), [0, 1, 255]).unwrap();
     std::fs::write(folder.join("font.woff2"), [0, 1, 255]).unwrap();
     std::fs::write(folder.join("toolbar.css"), b".sample {}").unwrap();
@@ -1079,7 +1113,7 @@ fn skin_catalog_response_uses_host_root_and_preserves_scan_results() {
 id = 'sample'
 name = 'Sample'
 version = '1'
-base = 'fluent'
+base = 'system'
 [supports]
 layouts = ['vertical']
 themes = ['light']
@@ -1346,9 +1380,129 @@ fn write_candidate_skin(skins: &std::path::Path, id: &str, name: &str) {
     std::fs::create_dir_all(&package).unwrap();
     std::fs::write(
         package.join("skin.toml"),
-        format!("schema_version = 1\nid = '{id}'\nname = '{name}'\nversion = '1.0'\nbase = 'fluent'\n[supports]\nlayouts = ['vertical', 'horizontal']\nthemes = ['light', 'dark']\n[candidate_window]\nmin_width_dip = 10\n[candidate_window.decoration]\ntop_inset_dip = 0\nwidth_dip = 0\n[candidate.light]\nsurface = '#fff0f5'\nselected = '#ff69b4'\ntext = '#301020'\n[candidate.dark]\nsurface = '#301020'\ntext = '#ffe4e1'\nborder = '#ff000080'\n"),
+        format!("schema_version = 1\nid = '{id}'\nname = '{name}'\nversion = '1.0'\nbase = 'paper'\n[supports]\nlayouts = ['vertical', 'horizontal']\nthemes = ['light', 'dark']\n[candidate_window]\nmin_width_dip = 10\n[candidate_window.decoration]\ntop_inset_dip = 0\nwidth_dip = 0\n[candidate.light]\nsurface = '#fff0f5'\nselected = '#ff69b4'\ntext = '#301020'\n[candidate.dark]\nsurface = '#301020'\ntext = '#ffe4e1'\nborder = '#ff000080'\n"),
     )
     .unwrap();
+}
+
+#[test]
+fn resolve_theme_reads_the_custom_package_from_the_host_skin_root() {
+    use super::{resolve_theme_at, ResolveThemeRequest};
+    use msime_client_core::skin::theme::{GlobalTheme, ThemeSource};
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let package = directory.path().join("sakura");
+    std::fs::create_dir_all(&package).unwrap();
+    std::fs::write(
+        package.join("skin.toml"),
+        "schema_version = 1\nid = 'sakura'\nname = '樱花'\nversion = '1.0'\nbase = 'paper'\n[supports]\nlayouts = ['vertical', 'horizontal']\nthemes = ['light', 'dark']\n[candidate_window]\nmin_width_dip = 10\n[candidate_window.decoration]\ntop_inset_dip = 0\nwidth_dip = 0\n[candidate.light]\nsurface = '#fff0f5'\n[candidate.dark]\nsurface = '#301020'\n",
+    )
+    .unwrap();
+    let request =
+        |value: serde_json::Value| serde_json::from_value::<ResolveThemeRequest>(value).unwrap();
+    let resolved = resolve_theme_at(
+        directory.path(),
+        request(serde_json::json!({
+            "global_theme": "custom",
+            "custom_theme": { "candidate_skin": "sakura", "candidate_colors": { "text": "#123456" } },
+            "dark": true,
+            "layout": "vertical",
+        })),
+    )
+    .unwrap();
+    assert_eq!(resolved.source, ThemeSource::Custom);
+    assert_eq!(resolved.candidate_skin.as_deref(), Some("sakura"));
+    let candidate = resolved.candidate.expect("custom candidate palette");
+    // The package's paper base fixes the light mode, so a dark host still gets the light palette.
+    assert_eq!(
+        resolved.appearance,
+        Some(msime_client_core::skin::theme::ThemeAppearance::Light)
+    );
+    assert_eq!(candidate.surface.as_deref(), Some("#FFF0F5"));
+    assert_eq!(candidate.text.as_deref(), Some("#123456"));
+
+    // The layout is required: without it the page could not ask for the surface it previews.
+    assert!(
+        serde_json::from_value::<ResolveThemeRequest>(serde_json::json!({
+            "global_theme": "custom",
+            "dark": false,
+        }))
+        .is_err()
+    );
+
+    // A package that is not installed resolves without it, and a built-in theme ignores the custom one.
+    let missing = resolve_theme_at(
+        directory.path(),
+        request(serde_json::json!({
+            "global_theme": "custom",
+            "custom_theme": { "candidate_skin": "gone" },
+            "dark": false,
+            "layout": "vertical",
+        })),
+    )
+    .unwrap();
+    assert_eq!(missing.candidate_skin, None);
+    let builtin = resolve_theme_at(
+        directory.path(),
+        request(serde_json::json!({
+            "global_theme": "night",
+            "custom_theme": { "candidate_skin": "sakura" },
+            "dark": false,
+            "layout": "vertical",
+        })),
+    )
+    .unwrap();
+    assert_eq!(builtin.id, GlobalTheme::Night);
+    assert_eq!(builtin.candidate_skin, None);
+
+    // A custom theme over a built-in base keeps that base's fixed mode when no package applies.
+    let based = resolve_theme_at(
+        directory.path(),
+        request(serde_json::json!({
+            "global_theme": "custom",
+            "custom_theme": { "base": "night" },
+            "dark": false,
+            "layout": "vertical",
+        })),
+    )
+    .unwrap();
+    assert_eq!(
+        based.appearance,
+        Some(msime_client_core::skin::theme::ThemeAppearance::Dark)
+    );
+    assert!(based.keyboard.is_some());
+    // Retired and misspelt ids are refused, not read as system.
+    for id in ["fluent", "forest", "Night"] {
+        assert!(
+            serde_json::from_value::<ResolveThemeRequest>(serde_json::json!({
+                "global_theme": id,
+                "dark": false,
+                "layout": "vertical",
+            }))
+            .is_err(),
+            "{id}"
+        );
+    }
+
+    // The custom theme is validated like a saved preference; unknown fields are refused.
+    assert!(resolve_theme_at(
+        directory.path(),
+        request(serde_json::json!({
+            "global_theme": "custom",
+            "custom_theme": { "candidate_colors": { "text": "red" } },
+            "dark": false,
+            "layout": "vertical",
+        })),
+    )
+    .is_err());
+    assert!(
+        serde_json::from_value::<ResolveThemeRequest>(serde_json::json!({
+            "global_theme": "custom",
+            "dark": false,
+            "layout": "vertical",
+            "skins_directory": "/etc",
+        }))
+        .is_err()
+    );
 }
 
 #[cfg(target_os = "linux")]
@@ -1374,9 +1528,11 @@ fn runtime_options_sync_publishes_the_installed_skin_catalog() {
         serde_json::json!({"packages": [{
             "id": "sakura",
             "title": "樱花",
+            "base": "paper",
+            "layouts": ["vertical", "horizontal"],
             "candidate": {
-                "light": {"surface": "#fff0f5", "selected": "#ff69b4", "text": "#301020"},
-                "dark": {"surface": "#301020", "text": "#ffe4e1", "border": "#ff000080"},
+                "light": {"surface": "#FFF0F5", "selected": "#FF69B4", "text": "#301020"},
+                "dark": {"surface": "#301020", "text": "#FFE4E1", "border": "#FF000080"},
             },
         }]})
     );
@@ -1421,7 +1577,7 @@ fn runtime_options_skin_catalog_stays_within_what_the_hosts_read() {
     let catalog = msime_client_core::skin::catalog::scan(&skins);
     let mut preferences = serde_json::to_value(Preferences::default()).unwrap();
     // The last package by name: beyond the package cap and the first to go when trimming, were the selection not protected in both.
-    preferences["candidate_skin"] = "skin39".into();
+    preferences["custom_theme"]["candidate_skin"] = "skin39".into();
     let mut document = serde_json::json!({"api_version": 1, "preferences": preferences});
     let bytes = runtime_options_with_skin_catalog(&mut document, &skins, &catalog).unwrap();
     assert!(
@@ -1459,7 +1615,7 @@ fn screen_keyboard_photo() -> String {
 fn runtime_options_fixture(directory: &std::path::Path) -> (PathBuf, PathBuf) {
     let path = directory.join("runtime-options.json");
     let skins = directory.join("skins");
-    for (id, name) in [("sakura", "樱花"), ("bamboo", "竹"), ("ink", "墨")] {
+    for (id, name) in [("sakura", "樱花"), ("bamboo", "竹"), ("sumi", "墨")] {
         write_candidate_skin(&skins, id, name);
     }
     let document = serde_json::json!({
@@ -1485,8 +1641,12 @@ fn runtime_options_sync_keeps_the_screen_keyboard_photo_out_of_the_host_copy() {
         candidate_page_size: 9,
         ..Preferences::default()
     };
-    preferences.custom_touch_keyboard_skin.photo = Some(screen_keyboard_photo());
-    preferences.custom_touch_keyboard_skin.photo_shade = Some(0.5);
+    preferences.custom_theme.keyboard =
+        Some(msime_client_core::preferences::TouchKeyboardSkinDesign {
+            photo: Some(screen_keyboard_photo()),
+            photo_shade: Some(0.5),
+            ..Default::default()
+        });
     sync_runtime_options(&state, &preferences).unwrap();
 
     let bytes = std::fs::read(&path).unwrap();
@@ -1498,7 +1658,7 @@ fn runtime_options_sync_keeps_the_screen_keyboard_photo_out_of_the_host_copy() {
     let updated: Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(updated["resources"], "/resources");
     assert_eq!(updated["preferences"]["candidate_page_size"], 9);
-    let design = updated["preferences"]["custom_touch_keyboard_skin"]
+    let design = updated["preferences"]["custom_theme"]["keyboard"]
         .as_object()
         .unwrap();
     assert!(!design.contains_key("photo"));
@@ -1512,7 +1672,10 @@ fn runtime_options_sync_keeps_the_screen_keyboard_photo_out_of_the_host_copy() {
     );
     // The host copy is still a whole Preferences document to the Host API, which reads the missing photo as none.
     let host: Preferences = serde_json::from_value(updated["preferences"].clone()).unwrap();
-    assert_eq!(host.custom_touch_keyboard_skin.photo, None);
+    assert_eq!(
+        host.custom_theme.keyboard.and_then(|design| design.photo),
+        None
+    );
     assert_eq!(host.candidate_page_size, 9);
 }
 
@@ -1579,16 +1742,15 @@ fn a_save_the_hosts_could_not_read_is_refused_and_the_store_keeps_its_preference
 
     // Picking a photo for the screen keyboard saves: the store keeps it, and the hosts get a copy they can still read.
     let mut photographed = store.load().unwrap().preferences;
-    photographed.custom_touch_keyboard_skin.photo = Some(screen_keyboard_photo());
+    photographed.custom_theme.keyboard =
+        Some(msime_client_core::preferences::TouchKeyboardSkinDesign {
+            photo: Some(screen_keyboard_photo()),
+            ..Default::default()
+        });
     let saved = save(store.load().unwrap().revision, photographed.clone()).unwrap();
     assert_eq!(
-        store
-            .load()
-            .unwrap()
-            .preferences
-            .custom_touch_keyboard_skin
-            .photo,
-        photographed.custom_touch_keyboard_skin.photo
+        store.load().unwrap().preferences.custom_theme.keyboard,
+        photographed.custom_theme.keyboard
     );
     let published = std::fs::read(&path).unwrap();
     assert!(

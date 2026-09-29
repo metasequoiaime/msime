@@ -59,8 +59,14 @@ assert 'msime-frequency-trigger' in source
 assert 'msime-frequency-step' in source
 assert 'msime-candidate-theme' in source
 assert 'cycleCandidateTheme' in source
-assert 'msime-candidate-skin' in source
-assert 'cycleCandidateSkin' in source
+assert 'msime-global-theme' in source
+assert 'setThemeChoice' in source
+assert 'msime_client_resolve_theme' in source
+# The classic UI draws the ‹ › page buttons only when the theme names both images; a theme without them drops the buttons the stock theme has.
+candidate_theme = (root / "src/candidates/CandidateFcitxTheme.h").read_text()
+assert '"[InputPanel/PrevPage]\\n"' in candidate_theme
+assert '"[InputPanel/NextPage]\\n"' in candidate_theme
+assert 'msime_client_builtin_skins' not in source
 assert 'candidate_skin_catalog' in source
 assert 'msime_client_load_preferences' in source
 assert 'applyContextOverrides' in source

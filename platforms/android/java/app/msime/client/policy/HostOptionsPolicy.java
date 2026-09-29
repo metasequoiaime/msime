@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 
 /** Bounded access to the small runtime-options document shared by the Android processes. */
 public final class HostOptionsPolicy {
@@ -16,9 +17,9 @@ public final class HostOptionsPolicy {
 
     /** Returns UTF-8 contents, or an empty string when the file is missing, unreadable or too large. */
     public static String read(File file) throws IOException {
-        if (file == null || !file.isFile()) return "";
+        if (file == null || !Files.isRegularFile(file.toPath(), LinkOption.NOFOLLOW_LINKS)) return "";
         if (Files.size(file.toPath()) > MAX_BYTES) return "";
-        try (InputStream input = Files.newInputStream(file.toPath())) {
+        try (InputStream input = Files.newInputStream(file.toPath(), LinkOption.NOFOLLOW_LINKS)) {
             ByteArrayOutputStream bytes = new ByteArrayOutputStream(MAX_BYTES);
             byte[] buffer = new byte[4096];
             int count;

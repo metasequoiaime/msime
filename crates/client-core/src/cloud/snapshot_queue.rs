@@ -160,7 +160,14 @@ impl DictionarySnapshotQueue {
     }
 
     fn root(&self) -> Result<PathBuf, SnapshotQueueError> {
-        fs::create_dir_all(&self.directory).map_err(|_| SnapshotQueueError::Unavailable)?;
+        if let Some(parent) = self.directory.parent() {
+            crate::storage::reject_symlink(parent).map_err(|_| SnapshotQueueError::Unavailable)?;
+        }
+        if !crate::storage::create_directory_and_check(&self.directory)
+            .map_err(|_| SnapshotQueueError::Unavailable)?
+        {
+            return Err(SnapshotQueueError::Invalid);
+        }
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -589,6 +596,23 @@ mod tests {
         assert!(!restored.file_path(id).unwrap().exists());
         assert_eq!(restored.take_state().unwrap().request.unwrap().id, id);
         assert!(restored.read().unwrap().request.is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_symlinked_queue_root_before_changing_target_permissions() {
+        use std::os::unix::fs::symlink;
+
+        let target = tempfile::tempdir().unwrap();
+        let parent = tempfile::tempdir().unwrap();
+        let linked_root = parent.path().join("queue");
+        symlink(target.path(), &linked_root).unwrap();
+        let queue = DictionarySnapshotQueue::new(&linked_root).unwrap();
+        assert!(matches!(
+            queue.file_path(Uuid::new_v4()),
+            Err(SnapshotQueueError::Unavailable | SnapshotQueueError::Invalid)
+        ));
+        assert!(!target.path().join(STATE_NAME).exists());
     }
 
     #[test]

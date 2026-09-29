@@ -24,6 +24,13 @@ public final class VoiceResultStoreSmoke {
         try {
             VoiceResultStore store = new VoiceResultStore(directory);
             long now = 1_000_000L;
+            Path outside = Files.createDirectory(directory.resolve("outside"));
+            Path linkedParent = directory.resolve("linked-parent");
+            Files.createSymbolicLink(linkedParent, outside);
+            VoiceResultStore linkedStore = new VoiceResultStore(linkedParent.resolve("nested"));
+            fails(VoiceResultStore.Reason.UNAVAILABLE, () -> linkedStore.save("synthetic", now));
+            check(!Files.exists(outside.resolve("nested")));
+            Files.delete(linkedParent);
             fails(VoiceResultStore.Reason.INVALID, () -> store.read(-1));
             fails(VoiceResultStore.Reason.INVALID, () -> store.save("   ", now));
             fails(VoiceResultStore.Reason.INVALID, () -> store.save("\ud800", now));

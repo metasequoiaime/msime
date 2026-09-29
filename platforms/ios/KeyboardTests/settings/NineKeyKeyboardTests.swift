@@ -151,15 +151,25 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertEqual(schemes["selected"] as? String, "microsoft")
   }
 
-  func testTouchSkinWritesCanonicalPreference() throws {
+  func testKeyboardThemeWritesCanonicalPreference() throws {
     let state = FileManager.default.temporaryDirectory
       .appendingPathComponent("msime-touch-skin-\(UUID().uuidString)", isDirectory: true)
     defer { try? FileManager.default.removeItem(at: state) }
     let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
 
-    XCTAssertTrue(bridge.setTouchKeyboardSkin(.midnight))
-    let preferences = try XCTUnwrap(bridge.sharedPreferences)
-    XCTAssertEqual(preferences["touch_keyboard_skin"] as? String, "midnight")
+    XCTAssertTrue(bridge.updateTheme(GlobalThemePreference.selecting("night")))
+    var preferences = try XCTUnwrap(bridge.sharedPreferences)
+    XCTAssertEqual(preferences["global_theme"] as? String, "night")
+    // A design picked on the keyboard moves to the custom theme over the theme it replaces.
+    let design = CustomKeyboardSkin.templates[2].1
+    XCTAssertTrue(bridge.updateTheme(try XCTUnwrap(GlobalThemePreference.applyingDesign(design))))
+    preferences = try XCTUnwrap(bridge.sharedPreferences)
+    XCTAssertEqual(preferences["global_theme"] as? String, "custom")
+    XCTAssertEqual(GlobalThemePreference.base(in: preferences), "night")
+    XCTAssertEqual(GlobalThemePreference.design(in: preferences), design.normalized)
+    // An id the catalog does not list is refused and changes nothing.
+    XCTAssertFalse(bridge.updateTheme(GlobalThemePreference.selecting("midnight")))
+    XCTAssertEqual(try XCTUnwrap(bridge.sharedPreferences)["global_theme"] as? String, "custom")
   }
 
   func testTraditionalOutputWritesCanonicalPreference() throws {
@@ -413,8 +423,7 @@ final class NineKeyKeyboardTests: XCTestCase {
   }
 
   func testSkinCardsPreviewAndApplyWithoutChangingKeyboardHeight() throws {
-    let previous = KeyboardSkinPreference.selected
-    defer { KeyboardFeedbackPreference.defaults.set(previous.rawValue, forKey: KeyboardSkinPreference.key) }
+    preserveSharedTheme()
     for width in [320.0, 414.0] {
       let controller = KeyboardViewController()
       controller.loadViewIfNeeded()
@@ -424,8 +433,8 @@ final class NineKeyKeyboardTests: XCTestCase {
       controller.view.layoutIfNeeded()
       let picker = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardSkinPicker" })
       XCTAssertEqual(picker.bounds.height, 260 + KeyboardViewController.stripExtraHeight)
-      for skin in KeyboardSkin.allCases {
-        let card = try button("skinCard-\(skin.rawValue)", in: controller)
+      for id in GlobalThemeCatalog.ids {
+        let card = try button("skinCard-\(id)", in: controller)
         XCTAssertGreaterThan(card.bounds.width, 140)
         let miniature = try XCTUnwrap(descendants(card).compactMap { $0 as? KeyboardSkinMiniature }.first)
         XCTAssertGreaterThan(miniature.bounds.height, 75)
@@ -438,12 +447,13 @@ final class NineKeyKeyboardTests: XCTestCase {
       attachment.name = "Skin cards \(Int(width))pt"
       attachment.lifetime = .keepAlways
       add(attachment)
-      try button("skinCard-ocean", in: controller).sendActions(for: .primaryActionTriggered)
-      XCTAssertEqual(KeyboardSkinPreference.selected, .ocean)
+      try button("skinCard-night", in: controller).sendActions(for: .primaryActionTriggered)
+      XCTAssertEqual(GlobalThemePreference.selected, "night")
+      XCTAssertEqual(MetasequoiaInputSessionBridge.loadSharedPreferences()?["global_theme"] as? String, "night")
       XCTAssertNil(picker.superview)
       XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, 260 + KeyboardViewController.stripExtraHeight)
       try button("skinShortcut", in: controller).sendActions(for: .primaryActionTriggered)
-      XCTAssertEqual(try button("skinCard-ocean", in: controller).accessibilityValue, "已选中")
+      XCTAssertEqual(try button("skinCard-night", in: controller).accessibilityValue, "已选中")
       try button("closeSkinPicker", in: controller).sendActions(for: .primaryActionTriggered)
       XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier == "keyboardSkinPicker" })
     }
@@ -762,10 +772,11 @@ final class NineKeyKeyboardTests: XCTestCase {
   }
 
   func testSchemePickerUsesCurrentSkinPalette() throws {
-    let previous = KeyboardSkinPreference.selected
-    defer { KeyboardFeedbackPreference.defaults.set(previous.rawValue, forKey: KeyboardSkinPreference.key) }
-    for skin in [KeyboardSkin.forest, .ocean, .midnight] {
-      KeyboardFeedbackPreference.defaults.set(skin.rawValue, forKey: KeyboardSkinPreference.key)
+    preserveSharedTheme()
+    for id in ["system", "paper", "night"] {
+      XCTAssertTrue(GlobalThemePreference.save(id), id)
+      let skin = KeyboardTheme.current
+      XCTAssertEqual(skin.id, id)
       for style in [UIUserInterfaceStyle.light, .dark] {
         let traits = UITraitCollection(userInterfaceStyle: style)
         let picker = KeyboardSchemePickerView(selected: .nineKey, onSelect: { _ in }, onClose: {})
@@ -1177,7 +1188,15 @@ final class NineKeyKeyboardTests: XCTestCase {
 
   func testSymbolKeyOpensAPanelInsteadOfAMenu() throws {
     let previous = InputSchemePreference.scheme
-    defer { InputSchemePreference.scheme = previous }
+    // The panel leads with 最近 once anything was picked, which shifts every category index; this test itself records `@`, so a second run on the same device would otherwise start from its own leftovers.
+    let defaults = KeyboardFeedbackPreference.defaults
+    let previousRecents = defaults.stringArray(forKey: KeyboardSymbolRecents.key)
+    defer {
+      InputSchemePreference.scheme = previous
+      if let previousRecents { defaults.set(previousRecents, forKey: KeyboardSymbolRecents.key) }
+      else { defaults.removeObject(forKey: KeyboardSymbolRecents.key) }
+    }
+    defaults.removeObject(forKey: KeyboardSymbolRecents.key)
     InputSchemePreference.scheme = .nineKey
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
@@ -1526,7 +1545,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     defer { try? FileManager.default.removeItem(at: state) }
     var first: MetasequoiaInputSessionBridge? = MetasequoiaInputSessionBridge(stateRoot: state)
     let bridge = try XCTUnwrap(first)
-    XCTAssertTrue(bridge.setTouchKeyboardSkin(.midnight))
+    XCTAssertTrue(bridge.updateTheme(GlobalThemePreference.selecting("night")))
     XCTAssertTrue(bridge.setTraditionalChineseOutput(true))
     XCTAssertTrue(bridge.persistTouchKeyboardGeometry(
       keySpacing: 5, rowSpacing: 9, heightAdjustment: 12, voiceEnabled: true))
@@ -1538,7 +1557,7 @@ final class NineKeyKeyboardTests: XCTestCase {
 
     let next = MetasequoiaInputSessionBridge(stateRoot: state)
     let preferences = try XCTUnwrap(next.sharedPreferences)
-    XCTAssertEqual(preferences["touch_keyboard_skin"] as? String, "midnight")
+    XCTAssertEqual(preferences["global_theme"] as? String, "night")
     XCTAssertEqual(preferences["traditional_chinese_output"] as? Bool, true)
     XCTAssertEqual(preferences["touch_key_spacing_tenths"] as? Int, 50)
     XCTAssertEqual(preferences["touch_row_spacing_tenths"] as? Int, 90)

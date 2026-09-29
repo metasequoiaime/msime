@@ -14,6 +14,7 @@ import android.graphics.Paint;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.InsetDrawable;
 import android.graphics.drawable.StateListDrawable;
 import android.media.AudioManager;
 import android.os.Handler;
@@ -184,17 +185,22 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean candidateHorizontal;
     private int candidateFontSize = 16;
     private int candidatePreeditFontSize = 16;
-    private CandidateAppearance.Palette candidateAppearance = CandidateAppearance.from(null, false);
+    private CandidateAppearance.Palette candidateAppearance =
+        CandidateAppearance.fromSkin(KeyboardSkin.system(false));
     private int touchKeySpacingTenths = KeyboardGeometry.DEFAULT_KEY_SPACING_TENTHS;
     private int touchRowSpacingTenths = KeyboardGeometry.DEFAULT_ROW_SPACING_TENTHS;
     private int touchKeyboardHeightAdjustment = KeyboardGeometry.DEFAULT_HEIGHT_ADJUSTMENT_DP;
     private boolean touchVoiceShortcutEnabled;
     private boolean voiceInputEnabled = true;
     private String voiceLanguage = "zh-CN";
-    private KeyboardSkin skin = KeyboardSkin.from("forest", false);
+    private KeyboardSkin skin = KeyboardSkin.system(false);
     /** 表情面板有自己的明暗设置，跟随时才继承键盘皮肤解析出的明暗。 */
-    private KeyboardSkin emojiSkin = KeyboardSkin.from("forest", false);
-    private KeyboardSkin handwritingSkin = KeyboardSkin.from("forest", false);
+    private KeyboardSkin emojiSkin = KeyboardSkin.system(false);
+    private KeyboardSkin handwritingSkin = KeyboardSkin.system(false);
+    /** The shared theme catalog (`msime_client_theme_catalog`), read once: ids, titles and palettes are fixed per build. */
+    private JSONArray themeCatalog;
+    /** Resolved keyboards by request, so the four surfaces of one snapshot cost at most two native calls. */
+    private final java.util.Map<String, KeyboardSkin> resolvedThemes = new java.util.HashMap<>();
     private JSONObject localModes = new JSONObject();
     private Button moreButton;
     private Button schemeButton;
@@ -1023,18 +1029,20 @@ public final class MSIMEInputService extends InputMethodService {
     private void scheduleDictionarySnapshotProcessing() {
         if (runtimeOptionsForSnapshot.isEmpty()) return;
         String options = runtimeOptionsForSnapshot;
-        Path root = new File(getFilesDir(), "bootstrap/state/dictionary-snapshots").toPath();
+        Path filesRoot = getFilesDir().toPath();
+        Path root = filesRoot.resolve("bootstrap/state/dictionary-snapshots");
         Path staging = root.resolve("staging");
         try {
             preferencesWorker.execute(() -> {
-                try { DictionarySnapshotWorker.process(root, staging, options); }
+                try { DictionarySnapshotWorker.process(filesRoot, root, staging, options); }
                 catch (Exception | LinkageError ignored) { /* Retry at the next idle boundary. */ }
             });
         } catch (RuntimeException ignored) { /* Service shutdown owns the final worker state. */ }
     }
 
     private void applyCandidateAppearance(JSONObject preferences) {
-        candidateAppearance = CandidateAppearance.from(preferences, systemDark());
+        candidateAppearance = CandidateAppearance.from(preferences,
+            surfaceSkin(preferences, "candidate_theme"));
         if (preferences == null) {
             candidateHorizontal = false;
             candidateFontSize = 16;
@@ -1274,7 +1282,7 @@ public final class MSIMEInputService extends InputMethodService {
         String nextLayout = preferences.optString("candidate_layout",
             preferences.optString("candidate_orientation", "vertical"));
         CandidateAppearance.Palette nextCandidateAppearance = CandidateAppearance.from(
-            preferences, systemDark());
+            preferences, surfaceSkin(preferences, "candidate_theme"));
         boolean nextHorizontal = CandidateAppearance.isHorizontal(nextLayout);
         int nextFontSize = CandidateAppearance.fontSize(preferences.optInt("candidate_font_size", 16));
         int nextPreeditFontSize = CandidateAppearance.fontSize(
@@ -2421,6 +2429,12 @@ public final class MSIMEInputService extends InputMethodService {
         commitText("\n");
     }
 
+    /** The return key's face: accent-filled 确认 while composing, the function tint otherwise. */
+    private KeyboardKeyRole returnKeyRole() {
+        boolean composing = view != null && !view.optString("editing_text", "").isEmpty();
+        return composing ? KeyboardKeyRole.RETURN : KeyboardKeyRole.ACCENT;
+    }
+
     private void updateReturnKey() {
         EditorInfo info = getCurrentInputEditorInfo();
         int action = info == null ? EditorInfo.IME_ACTION_NONE
@@ -2429,10 +2443,17 @@ public final class MSIMEInputService extends InputMethodService {
                 || (info.imeOptions & EditorInfo.IME_FLAG_NO_ENTER_ACTION) != 0;
         boolean composing = view != null && !view.optString("editing_text", "").isEmpty();
         String title = ReturnKeyAction.title(action, disabled);
-        String shownTitle = japaneseSchemeActive() && composing ? "確定" : title;
+        // The shared design turns 换行 into an accent-filled 确认 while a composition is open,
+        // because that is what the key does then: it commits the reading instead of a newline.
+        String shownTitle = composing ? (japaneseSchemeActive() ? "確定" : "确认") : title;
         if (enterButton != null) {
             enterButton.setText(shownTitle);
             enterButton.setContentDescription(shownTitle);
+            KeyboardKeyRole role = returnKeyRole();
+            if (enterButton instanceof KeyboardPressButton press && press.keyboardRole() != role) {
+                press.setKeyboardRole(role);
+                styleButton(enterButton, role, skin);
+            }
         }
         if (japaneseReturnKey != null) {
             String japaneseTitle = JapaneseNineKeyActions.returnTitle(composing);
@@ -2773,6 +2794,23 @@ public final class MSIMEInputService extends InputMethodService {
         return button;
     }
 
+    /** The idle top row's scheme pill (the design's 全拼). */
+    private Button pillButton(LinearLayout row, String label, Runnable action) {
+        KeyboardPressButton button = new KeyboardPressButton(this);
+        button.setKeyboardRole(KeyboardKeyRole.PILL);
+        button.setAllCaps(false);
+        button.setText(label);
+        button.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        styleButton(button, KeyboardKeyRole.PILL, skin);
+        button.setOnClickListener(ignored -> {
+            playFeedback(button);
+            action.run();
+        });
+        row.addView(button, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        return button;
+    }
+
     private Button borderlessButton(LinearLayout row, String label, Runnable action) {
         Button button = new KeyboardBorderlessButton(this);
         button.setAllCaps(false);
@@ -3023,7 +3061,21 @@ public final class MSIMEInputService extends InputMethodService {
         boolean selected = button.isSelected();
         // A selected control is the one thing that always wears the filled face: that is how the
         // case key and the script toggle show they are on, whatever role they carry otherwise.
-        KeyboardKeyRole face = selected ? KeyboardKeyRole.ACCENT : role;
+        // 确认 and the function-panel tiles draw their own on state, so they keep their role.
+        KeyboardKeyRole face = selected && role != KeyboardKeyRole.RETURN
+            && role != KeyboardKeyRole.TILE ? KeyboardKeyRole.ACCENT : role;
+        if (face == KeyboardKeyRole.PILL) {
+            // The pill is a label on the strip rather than a key, so it keeps a plain rounded face even over a designed skin, inset so the 44dp target stays.
+            GradientDrawable pill = new GradientDrawable();
+            pill.setColor(Color.parseColor(target.keyBackground()));
+            pill.setCornerRadius(pixels(14));
+            button.setBackground(new InsetDrawable(pill,
+                pixels(2), pixels(8), pixels(2), pixels(8)));
+            button.setTextColor(Color.parseColor(target.keyForeground()));
+            button.setTypeface(target.monospaced() ? Typeface.MONOSPACE : Typeface.DEFAULT);
+            button.setElevation(0);
+            return;
+        }
         if (!face.drawsCap()) {
             button.setBackground(null);
             button.setTextColor(Color.parseColor(
@@ -3033,16 +3085,24 @@ public final class MSIMEInputService extends InputMethodService {
             return;
         }
         boolean action = face == KeyboardKeyRole.ACCENT;
-        String background = selected ? target.accent() : action ? target.actionBackground() : target.keyBackground();
-        String foreground = selected ? target.actionForeground() : action ? target.actionForeground() : target.keyForeground();
-        if ("custom".equals(target.id())) {
+        boolean confirm = face == KeyboardKeyRole.RETURN;
+        boolean tile = face == KeyboardKeyRole.TILE;
+        String background = confirm ? target.returnBackground()
+            : tile ? (selected ? target.accentSoft() : target.keyBackground())
+            : selected ? target.accent()
+            : action ? target.functionBackground() : target.keyBackground();
+        String foreground = confirm ? target.returnForeground()
+            : tile ? (selected ? target.accentText() : target.keyForeground())
+            : selected ? target.onAccent()
+            : action ? target.actionForeground() : target.keyForeground();
+        if (target.designed()) {
             button.setBackground(new KeyboardSkinKeyDrawable(target,
-                Color.parseColor(background), selected || action,
+                Color.parseColor(background), selected || action || confirm,
                 getResources().getDisplayMetrics().density));
         } else {
             GradientDrawable drawable = new GradientDrawable();
             drawable.setColor(Color.parseColor(background));
-            drawable.setCornerRadius(pixels(target.cornerRadius()));
+            drawable.setCornerRadius(pixels(tile ? MoreToolsLayout.TILE_RADIUS_DP : target.cornerRadius()));
             int borderWidth = pixels(target.borderWidth());
             if (borderWidth > 0)
                 drawable.setStroke(borderWidth, Color.parseColor(target.borderColor()));
@@ -3110,7 +3170,8 @@ public final class MSIMEInputService extends InputMethodService {
         button.setTextColor(new ColorStateList(
             new int[][] {{android.R.attr.state_selected}, {}},
             new int[] {candidateAppearance.textFor(true), candidateAppearance.text()}));
-        button.setTypeface(candidateTypeface());
+        // The design marks the highlighted candidate with bold accent text and no fill.
+        button.setTypeface(candidateTypeface(), button.isSelected() ? Typeface.BOLD : Typeface.NORMAL);
         button.setElevation(0);
     }
 
@@ -3189,10 +3250,9 @@ public final class MSIMEInputService extends InputMethodService {
         if (handwritingActive() && keyRows != null) applySkinToView(keyRows, handwritingSkin);
         applySidebarRail();
         if (preedit != null) {
-            // Idle, this is the brand badge the shared design draws as an outlined pill; composing,
-            // it is the reading itself and takes the candidate strip's own type and colour.
+            // Idle, this is the brand badge the shared design draws as an outlined pill; composing, it is the reading itself, set in the strip's typeface and its secondary colour above the candidates.
             preedit.setTextColor(brandPillVisible
-                ? Color.parseColor(skin.accent()) : candidateAppearance.text());
+                ? Color.parseColor(skin.accent()) : candidateAppearance.number());
             preedit.setTypeface(candidateTypeface());
             preedit.setTextSize(TypedValue.COMPLEX_UNIT_SP,
                 brandPillVisible ? 12 : candidatePreeditFontSize);
@@ -3227,16 +3287,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private KeyboardSkin keyboardSkin(JSONObject preferences) {
-        String keyboardTheme = preferences == null ? "follow"
-            : preferences.optString("screen_keyboard_theme", "follow");
-        String globalTheme = preferences == null ? "system"
-            : preferences.optString("theme", "system");
-        boolean dark = KeyboardSkin.resolveDark(keyboardTheme, globalTheme, systemDark());
-        String identifier = preferences == null ? "forest"
-            : preferences.optString("touch_keyboard_skin", "forest");
-        JSONObject customDesign = preferences == null ? null
-            : preferences.optJSONObject("custom_touch_keyboard_skin");
-        return KeyboardSkin.from(identifier, dark, customDesign);
+        return surfaceSkin(preferences, "screen_keyboard_theme");
     }
 
     /** Keep phone keys edge-to-edge while a tablet or two-in-one gets a bounded, centred surface. */
@@ -3253,22 +3304,61 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     /**
-     * The same keyboard skin resolved for one panel's own light/dark setting.
+     * The global theme's keyboard resolved for one panel's own light/dark setting.
      *
-     * <p>An explicit `dark` or `light` on the surface wins; `follow` inherits the global theme, and
-     * a global `system` follows the Android night mode. A missing or unknown value is `follow`, so
-     * an older snapshot keeps the keyboard's appearance rather than jumping to light.
+     * <p>An explicit `dark` or `light` on the surface wins; `follow` inherits the app mode (`theme`), and a `system` app mode follows the Android night mode. A missing or unknown value is `follow`, so an older snapshot keeps the keyboard's appearance rather than jumping to light. A theme with a fixed appearance then overrides that mode, which is what the shared resolver's `appearance` says.
      */
     private KeyboardSkin surfaceSkin(JSONObject preferences, String key) {
-        String surfaceTheme = preferences == null ? "follow" : preferences.optString(key, "follow");
-        String globalTheme = preferences == null ? "system"
+        String surfaceMode = preferences == null ? "follow" : preferences.optString(key, "follow");
+        String appMode = preferences == null ? "system"
             : preferences.optString("theme", "system");
-        boolean dark = KeyboardSkin.resolveDark(surfaceTheme, globalTheme, systemDark());
-        String identifier = preferences == null ? "forest"
-            : preferences.optString("touch_keyboard_skin", "forest");
-        JSONObject customDesign = preferences == null ? null
-            : preferences.optJSONObject("custom_touch_keyboard_skin");
-        return KeyboardSkin.from(identifier, dark, customDesign);
+        boolean dark = KeyboardSkin.resolveDark(surfaceMode, appMode, systemDark());
+        String globalTheme = preferences == null ? "system"
+            : preferences.optString("global_theme", "system");
+        JSONObject customTheme = preferences == null ? null
+            : preferences.optJSONObject("custom_theme");
+        return themeSkin(globalTheme, customTheme, dark);
+    }
+
+    /**
+     * One global theme's keyboard in one host mode, through `msime_client_resolve_theme` (see {@link KeyboardSkin#themeRequest}). Anything the resolver refuses draws the Material 3 keyboard rather than a stale theme.
+     */
+    private KeyboardSkin themeSkin(String globalTheme, JSONObject customTheme, boolean dark) {
+        JSONObject design = customTheme == null ? null : customTheme.optJSONObject("keyboard");
+        String request;
+        try {
+            request = KeyboardSkin.themeRequest(globalTheme, customTheme, dark);
+        } catch (JSONException error) {
+            return KeyboardSkin.system(dark);
+        }
+        String cacheKey = request + (design == null ? "" : ":" + design.toString().hashCode());
+        KeyboardSkin cached = resolvedThemes.get(cacheKey);
+        if (cached != null) return cached;
+        KeyboardSkin resolved;
+        try {
+            resolved = KeyboardSkin.resolved(value(NativeClient.resolveTheme(request)),
+                themeTitle(globalTheme), dark, design);
+        } catch (JSONException | LinkageError error) {
+            return KeyboardSkin.system(dark);
+        }
+        if (resolvedThemes.size() >= 8) resolvedThemes.clear();
+        resolvedThemes.put(cacheKey, resolved);
+        return resolved;
+    }
+
+    /** The picker entries in the shared order: system, the built-ins, then custom. */
+    private JSONArray themeCatalog() {
+        if (themeCatalog != null) return themeCatalog;
+        try {
+            themeCatalog = value(NativeClient.themeCatalog()).getJSONArray("themes");
+        } catch (JSONException | LinkageError error) {
+            return new JSONArray();
+        }
+        return themeCatalog;
+    }
+
+    private String themeTitle(String id) {
+        return KeyboardSkin.themeTitle(themeCatalog(), id);
     }
 
     private void loadFeedbackPreferences() {
@@ -3909,31 +3999,47 @@ public final class MSIMEInputService extends InputMethodService {
         skinPanel.addView(header);
 
         java.util.List<SkinChoice> saved = new java.util.ArrayList<>();
+        JSONObject preferences = preferencesSnapshot == null ? null
+            : preferencesSnapshot.optJSONObject("preferences");
+        boolean hostDark = KeyboardSkin.resolveDark(
+            preferences == null ? "follow" : preferences.optString("screen_keyboard_theme", "follow"),
+            preferences == null ? "system" : preferences.optString("theme", "system"), systemDark());
         try {
             for (CustomSkinLibrary.Item item : CustomSkinLibrary.read(java.nio.file.Paths.get(preferencesDirectory))) {
                 JSONObject design = item.design();
-                saved.add(new SkinChoice("custom", item.name(),
-                    KeyboardSkin.customFixture(CustomKeyboardSkin.from(design), skin.dark()), design));
+                saved.add(new SkinChoice("custom", item.name(), KeyboardSkin.custom(design, hostDark), design));
             }
         } catch (Exception ignored) {
-            // A partially written library must not hide built-in skins.
+            // A partially written library must not hide the themes.
         }
         if (!saved.isEmpty()) addSkinSection(skinPanel, "我的设计", saved);
 
+        // The global themes in the shared catalog's order. A built-in card draws its catalog palette in the theme's own fixed mode; 跟随系统 draws the Material 3 tokens in this keyboard's mode; the custom card draws the custom theme as it stands, which is 我的皮肤 once a keyboard design exists.
         java.util.List<SkinChoice> builtIns = new java.util.ArrayList<>();
-        JSONObject preferences = preferencesSnapshot == null ? null
-            : preferencesSnapshot.optJSONObject("preferences");
-        JSONObject customDesign = preferences == null ? null
-            : preferences.optJSONObject("custom_touch_keyboard_skin");
-        for (KeyboardSkin choice : KeyboardSkin.builtIns(skin.dark()))
-            builtIns.add(new SkinChoice(choice.id(), choice.title(), choice, null));
-        KeyboardSkin custom = KeyboardSkin.from("custom", skin.dark(), customDesign);
-        builtIns.add(new SkinChoice("custom", custom.title(), custom, customDesign));
+        JSONObject customTheme = preferences == null ? null : preferences.optJSONObject("custom_theme");
+        JSONArray themes = themeCatalog();
+        for (int index = 0; index < themes.length(); index++) {
+            JSONObject entry = themes.optJSONObject(index);
+            if (entry == null) continue;
+            String id = entry.optString("id", "");
+            if (id.isEmpty()) continue;
+            String themeName = entry.optString("title", id);
+            KeyboardSkin choice = "custom".equals(id) ? themeSkin(id, customTheme, hostDark)
+                : KeyboardSkin.resolved(entry, themeName, hostDark, null);
+            builtIns.add(new SkinChoice(id, choice.title(), choice, null));
+        }
+        if (builtIns.isEmpty()) {
+            KeyboardSkin system = KeyboardSkin.system(hostDark);
+            builtIns.add(new SkinChoice(system.id(), system.title(), system, null));
+        }
         addSkinSection(skinPanel, null, builtIns);
         applySkin();
     }
 
     private void addSkinSection(LinearLayout parent, String heading, java.util.List<SkinChoice> choices) {
+        JSONObject stored = preferencesSnapshot == null ? null
+            : preferencesSnapshot.optJSONObject("preferences");
+        String globalTheme = stored == null ? "system" : stored.optString("global_theme", "system");
         if (heading != null) {
             TextView label = new TextView(this);
             label.setText(heading);
@@ -3954,8 +4060,9 @@ public final class MSIMEInputService extends InputMethodService {
                 }
                 SkinChoice choice = choices.get(index);
                 KeyboardSkinCard card = new KeyboardSkinCard(this, choice.skin(), choice.title());
-                card.setSelected(skin.id().equals(choice.id())
-                    && skin.key().equals(choice.skin().key()));
+                // A theme card is selected by the stored global theme; a saved design only while the custom theme draws exactly that design.
+                card.setSelected(choice.design() == null ? choice.id().equals(globalTheme)
+                    : "custom".equals(globalTheme) && skin.key().equals(choice.skin().key()));
                 card.setContentDescription("屏幕键盘皮肤 " + choice.title());
                 if (Build.VERSION.SDK_INT >= 30)
                     card.setStateDescription(card.isSelected() ? "已选中" : "未选中");
@@ -3982,34 +4089,48 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
-    private void saveKeyboardSkin(String identifier) {
-        JSONObject currentPreferences = preferencesSnapshot == null ? null
-            : preferencesSnapshot.optJSONObject("preferences");
-        JSONObject customDesign = currentPreferences == null ? null
-            : currentPreferences.optJSONObject("custom_touch_keyboard_skin");
-        saveKeyboardSkin(identifier, customDesign);
-    }
-
-    private void saveKeyboardSkin(String identifier, JSONObject customDesign) {
-        KeyboardSkin next = KeyboardSkin.from(identifier, skin.dark(), customDesign);
-        if (skin.key().equals(next.key()) || skinSaving || traditionalOutputSaving || session == 0
+    /**
+     * Select one global theme from the keyboard's picker, or, with a `design`, store it as `custom_theme.keyboard` and select `custom`.
+     *
+     * <p>This copies the settings page: when another theme was on screen it becomes `custom_theme.base` and `custom_theme.candidate_skin` is cleared, so the candidate strip keeps the theme the user was looking at; while `custom` is already selected only the keyboard changes.
+     */
+    private void saveKeyboardSkin(String identifier, JSONObject design) {
+        if (skinSaving || traditionalOutputSaving || session == 0
                 || preferencesSnapshot == null || preferencesDirectory.isEmpty()) return;
         final long targetSession = session;
         final String targetDirectory = preferencesDirectory;
         final JSONObject pending;
         final long expectedRevision;
+        final JSONObject preferences;
         try {
             pending = new JSONObject(preferencesSnapshot.toString());
             expectedRevision = pending.getLong("revision");
-            JSONObject preferences = pending.getJSONObject("preferences");
-            preferences.put("touch_keyboard_skin", next.id());
-            if ("custom".equals(identifier) && customDesign != null)
-                preferences.put("custom_touch_keyboard_skin", new JSONObject(customDesign.toString()));
+            preferences = pending.getJSONObject("preferences");
+            String current = preferences.optString("global_theme", "system");
+            if (design == null) {
+                if (identifier.equals(current)) return;
+                preferences.put("global_theme", identifier);
+            } else {
+                JSONObject customTheme = preferences.optJSONObject("custom_theme");
+                if (customTheme == null) customTheme = new JSONObject();
+                JSONObject stored = customTheme.optJSONObject("keyboard");
+                if ("custom".equals(current) && stored != null
+                        && stored.toString().equals(design.toString())) return;
+                if (!"custom".equals(current)) {
+                    customTheme.put("base", current);
+                    customTheme.remove("candidate_skin");
+                }
+                customTheme.put("keyboard", new JSONObject(design.toString()));
+                preferences.put("custom_theme", customTheme);
+                preferences.put("global_theme", "custom");
+            }
         } catch (JSONException error) {
             showKeyboardSkinStatus("皮肤切换失败，保留当前皮肤");
             return;
         }
-        skin = next;
+        skin = keyboardSkin(preferences);
+        emojiSkin = surfaceSkin(preferences, "emoji_theme");
+        handwritingSkin = surfaceSkin(preferences, "handwriting_theme");
         skinSaving = true;
         final long operation = ++preferenceSaveGeneration;
         applySkin();
@@ -5256,16 +5377,22 @@ public final class MSIMEInputService extends InputMethodService {
         card.setAllCaps(false);
         String state = enabled ? MoreToolsLayout.state(section, active) : "不可用";
         String label = MoreToolsLayout.icon(title) + "  " + title;
-        boolean navigates = section == MoreToolsLayout.Section.TOOLS
-            || section == MoreToolsLayout.Section.LOCAL_INPUT_BACK;
-        if (navigates) card.setText(label + "  ›");
-        else if (section == MoreToolsLayout.Section.SETTINGS) {
-            card.setText(label + "\n" + (caption == null ? state : caption));
-        } else card.setText(label);
-        card.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        boolean tile = section.tiles();
+        boolean navigates = section == MoreToolsLayout.Section.LOCAL_INPUT_BACK;
+        // The design's function panel is a grid of icon-over-title tiles; an on setting is told by the tile's tint and its state description, and a caption (振动强度's level) follows the title.
+        if (tile) card.setText(MoreToolsLayout.icon(title) + "\n" + title
+            + (caption == null ? "" : " " + caption));
+        else if (navigates) card.setText(label + "  ›");
+        else card.setText(label);
+        card.setTextSize(TypedValue.COMPLEX_UNIT_SP, tile ? 12 : 14);
         card.setGravity(navigates
             ? Gravity.CENTER_VERTICAL | Gravity.START : Gravity.CENTER);
-        card.setPadding(pixels(12), pixels(5), pixels(12), pixels(5));
+        card.setPadding(pixels(tile ? 4 : 12), pixels(tile ? 4 : 5), pixels(tile ? 4 : 12),
+            pixels(tile ? 4 : 5));
+        if (tile) {
+            card.setMaxLines(2);
+            card.setLineSpacing(0, .95f);
+        }
         card.setContentDescription(title);
         card.setSelected(active);
         card.setEnabled(enabled);
@@ -5274,7 +5401,9 @@ public final class MSIMEInputService extends InputMethodService {
         // pressed. A screen reader was told "不可用"; nobody else was.
         card.setAlpha(enabled ? 1f : .45f);
         if (Build.VERSION.SDK_INT >= 30) card.setStateDescription(state);
-        styleButton(card, true);
+        if (tile && card instanceof KeyboardPressButton press)
+            press.setKeyboardRole(KeyboardKeyRole.TILE);
+        styleButton(card, tile ? KeyboardKeyRole.TILE : KeyboardKeyRole.ACCENT, skin);
         card.setOnClickListener(ignored -> {
             if (playBeforeAction) playFeedback(card);
             action.run();
@@ -5299,12 +5428,12 @@ public final class MSIMEInputService extends InputMethodService {
                 int index = start + column;
                 View child = index < cards.length ? cards[index] : new View(this);
                 LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                    0, pixels(MoreToolsLayout.CARD_HEIGHT_DP), 1);
+                    0, pixels(section.height()), 1);
                 if (column > 0) params.setMarginStart(pixels(MoreToolsLayout.CARD_SPACING_DP));
                 row.addView(child, params);
             }
             LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, pixels(MoreToolsLayout.CARD_HEIGHT_DP));
+                LinearLayout.LayoutParams.MATCH_PARENT, pixels(section.height()));
             rowParams.bottomMargin = pixels(MoreToolsLayout.ROW_SPACING_DP);
             moreToolsPanel.addView(row, rowParams);
         }
@@ -5312,11 +5441,9 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void installShortcutBar(Button dismissButton) {
         shortcutBar.removeAllViews();
-        // Keep the Apple shortcut order: more/brand, keyboard settings, reply, emoji, skin,
-        // scheme and dismiss. Android keeps its optional voice-result entry as a platform-specific
-        // extra beside the content tools rather than moving the deliberate scheme switch forward.
-        Button[] buttons = {moreButton, layoutSettingsButton, replyShortcutButton,
-            emojiShortcutButton, voiceShortcutButton, skinButton, schemeButton, dismissButton};
+        // The design's idle row: the brand mark first, then the scheme pill, the content tools and 收起, with ⚙ at the far end.
+        Button[] buttons = {moreButton, schemeButton, replyShortcutButton, emojiShortcutButton,
+            voiceShortcutButton, skinButton, dismissButton, layoutSettingsButton};
         for (Button button : buttons) {
             if (button.getParent() instanceof LinearLayout parent) parent.removeView(button);
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
@@ -5371,11 +5498,13 @@ public final class MSIMEInputService extends InputMethodService {
             Button key = actionRowKey(entry.slot());
             if (key == null) continue;
             if (key.getParent() instanceof android.view.ViewGroup parent) parent.removeView(key);
-            // 中 and 换行 are the two the shared design fills; the rest wear key caps.
-            boolean emphasized = entry.slot() == KeyboardActionRow.Slot.LANGUAGE
-                || entry.slot() == KeyboardActionRow.Slot.RETURN;
-            if (key instanceof KeyboardPressButton press)
-                press.setKeyboardRole(emphasized ? KeyboardKeyRole.ACCENT : KeyboardKeyRole.KEY);
+            // The shared design tints every function key in this row (123, 中, 换行 and the
+            // symbol and globe keys); only the punctuation and space keys wear plain key caps.
+            boolean function = entry.slot() != KeyboardActionRow.Slot.SPACE
+                && entry.slot() != KeyboardActionRow.Slot.PUNCTUATION;
+            KeyboardKeyRole role = entry.slot() == KeyboardActionRow.Slot.RETURN ? returnKeyRole()
+                : function ? KeyboardKeyRole.ACCENT : KeyboardKeyRole.KEY;
+            if (key instanceof KeyboardPressButton press) press.setKeyboardRole(role);
             key.setVisibility(View.VISIBLE);
             actionRow.addView(key, new LinearLayout.LayoutParams(0,
                 LinearLayout.LayoutParams.MATCH_PARENT, entry.weight()));
@@ -6429,8 +6558,9 @@ public final class MSIMEInputService extends InputMethodService {
     private void addLetterRowEdgeKey(LinearLayout row, Button key, int index, float weight) {
         if (key == null) return;
         if (key.getParent() instanceof android.view.ViewGroup parent) parent.removeView(key);
+        // ⇧ and ⌫ are function keys: the design tints them like 123 and 中.
         if (key instanceof KeyboardPressButton press)
-            press.setKeyboardRole(KeyboardKeyRole.KEY);
+            press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         key.setVisibility(View.VISIBLE);
         row.addView(key, index, new LinearLayout.LayoutParams(0,
             LinearLayout.LayoutParams.MATCH_PARENT, weight));
@@ -7124,7 +7254,7 @@ public final class MSIMEInputService extends InputMethodService {
         globeButton = shortcutButton(controls, "切换",
             KeyboardShortcutIconPolicy.Icon.GLOBE, this::switchToNextInputMethodAfterCommit);
         globeButton.setContentDescription("切换到下一个输入法");
-        schemeButton = borderlessButton(controls, "方案", this::showSchemePicker);
+        schemeButton = pillButton(controls, "方案", this::showSchemePicker);
         schemeButton.setContentDescription("选择输入方案");
         skinButton = shortcutButton(controls, "皮肤",
             KeyboardShortcutIconPolicy.Icon.SKIN, () -> showSkinMenu(skinButton));
@@ -7592,8 +7722,8 @@ public final class MSIMEInputService extends InputMethodService {
             shiftButton.setText(letterCase.keyText());
             shiftButton.setSelected(letterCase.usesUppercase());
             shiftButton.setActivated(letterCase.mode() == EnglishLetterCaseState.Mode.CAPS_LOCK);
-            // A key cap in the letter row, and the filled face only while it is on.
-            styleButton(shiftButton, KeyboardKeyRole.KEY, skin);
+            // The tinted function face in the letter row, and the filled accent only while it is on.
+            styleButton(shiftButton, KeyboardKeyRole.ACCENT, skin);
             String caseLabel = letterCase.accessibilityLabel(dedicatedEnglish || session == 0);
             String caseValue = letterCase.accessibilityValue();
             shiftButton.setContentDescription(Build.VERSION.SDK_INT >= 30

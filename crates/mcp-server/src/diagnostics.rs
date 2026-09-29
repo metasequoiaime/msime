@@ -190,7 +190,7 @@ fn read_tail(path: &Path) -> Result<Option<String>, String> {
     let start = length.saturating_sub(READ_LIMIT);
     file.seek(SeekFrom::Start(start))
         .map_err(|_| "cannot read the diagnostic log")?;
-    let mut bytes = Vec::new();
+    let mut bytes = Vec::with_capacity(usize::try_from(length - start).unwrap_or(0));
     file.take(READ_LIMIT)
         .read_to_end(&mut bytes)
         .map_err(|_| "cannot read the diagnostic log")?;

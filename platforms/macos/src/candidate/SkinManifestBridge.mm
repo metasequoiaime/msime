@@ -148,7 +148,8 @@ std::optional<SkinPackage> PackageFromJSON(id value)
         package.dark = ColorsFromJSON(candidate[@"dark"]);
         package.light = ColorsFromJSON(candidate[@"light"]);
     }
-    if (package.id.empty() || package.name.empty() || !IsBuiltInSkinId(package.base))
+    // The loader has already refused a base that is not `system` or a built-in theme; an empty one means the reply is not a package at all.
+    if (package.id.empty() || package.name.empty() || package.base.empty())
     {
         return std::nullopt;
     }
@@ -200,6 +201,10 @@ std::string LocalizedReason(const std::string &reason)
     {
         return "manifest 的基本信息无效";
     }
+    if (reason == "base must be system or a built-in theme")
+    {
+        return "base 必须是 system 或内置主题（shuishan、light、paper、night、ink）";
+    }
     for (std::string_view key : {"id ", "name ", "version ", "base ", "author ", "description "})
     {
         if (StartsWith(reason, key))
@@ -234,6 +239,22 @@ std::string LocalizedReason(const std::string &reason)
     return "无法加载该皮肤包";
 }
 
+// Theme colours are `#RRGGBB` or `#RRGGBBAA`; a null or unreadable slot keeps the native token.
+bool ApplyThemeColor(NSDictionary *palette, NSString *key, Rgba &slot)
+{
+    if (const auto color = ParseCssColor(StringField(palette, key)))
+    {
+        slot = *color;
+        return true;
+    }
+    return false;
+}
+
+Rgba ThemeColor(NSDictionary *object, NSString *key)
+{
+    return ParseCssColor(StringField(object, key)).value_or(Rgba{});
+}
+
 void SetError(std::string *error, std::string message)
 {
     if (error != nullptr)
@@ -248,7 +269,7 @@ std::optional<SkinPackage> LoadSkinPackage(const std::filesystem::path &skinsRoo
 {
     @autoreleasepool
     {
-        if (!IsSafeSkinId(id) || IsBuiltInSkinId(id))
+        if (!IsSafeSkinId(id) || IsGlobalThemeId(id))
         {
             SetError(error, LocalizedReason("invalid skin id"));
             return std::nullopt;
@@ -319,6 +340,197 @@ SkinCatalog ScanSkinCatalog(const std::filesystem::path &skinsRoot)
             }
         }
         return result;
+    }
+}
+const std::vector<ThemeCatalogEntry> &ThemeCatalog()
+{
+    // The catalog is compiled into the host library, so one read serves the process.
+    static const std::vector<ThemeCatalogEntry> entries = [] {
+        std::vector<ThemeCatalogEntry> result;
+        @autoreleasepool
+        {
+            char *raw = msime_client_theme_catalog();
+            if (raw == nullptr)
+            {
+                return result;
+            }
+            NSData *data = [NSData dataWithBytes:raw length:std::char_traits<char>::length(raw)];
+            msime_client_string_free(raw);
+            NSDictionary *envelope = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+            NSDictionary *value = [envelope isKindOfClass:NSDictionary.class] && [envelope[@"ok"] isEqual:@YES]
+                                      ? envelope[@"value"]
+                                      : nil;
+            NSArray *themes = [value isKindOfClass:NSDictionary.class] ? value[@"themes"] : nil;
+            if (![themes isKindOfClass:NSArray.class])
+            {
+                return result;
+            }
+            for (NSDictionary *theme in themes)
+            {
+                if (![theme isKindOfClass:NSDictionary.class])
+                {
+                    continue;
+                }
+                ThemeCatalogEntry entry;
+                entry.id = StringField(theme, @"id");
+                entry.title = StringField(theme, @"title");
+                entry.appearance = StringField(theme, @"appearance");
+                NSDictionary *preview = theme[@"preview"];
+                if ([preview isKindOfClass:NSDictionary.class])
+                {
+                    entry.hasPreview = true;
+                    entry.previewBackground = ThemeColor(preview, @"background");
+                    entry.previewPanel = ThemeColor(preview, @"panel");
+                    entry.previewAccent = ThemeColor(preview, @"accent");
+                    entry.previewText = ThemeColor(preview, @"text");
+                }
+                if (!entry.id.empty())
+                {
+                    result.push_back(std::move(entry));
+                }
+            }
+        }
+        return result;
+    }();
+    return entries;
+}
+
+bool IsGlobalThemeId(std::string_view id)
+{
+    for (const ThemeCatalogEntry &entry : ThemeCatalog())
+    {
+        if (entry.id == id)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool IsThemeBaseId(std::string_view id)
+{
+    return id != "custom" && IsGlobalThemeId(id);
+}
+
+std::string ThemeTitle(std::string_view id)
+{
+    for (const ThemeCatalogEntry &entry : ThemeCatalog())
+    {
+        if (entry.id == id)
+        {
+            return entry.title;
+        }
+    }
+    return std::string(id);
+}
+
+ResolvedSkin ResolveSkin(std::string_view globalTheme, const CustomTheme &custom, bool dark, std::string_view layout,
+                         const std::filesystem::path &skinsRoot)
+{
+    @autoreleasepool
+    {
+        ResolvedSkin resolved;
+        // Nothing turns an unknown id into `system` in storage; this only decides what is drawn meanwhile.
+        resolved.id = IsGlobalThemeId(globalTheme) ? std::string(globalTheme) : std::string("system");
+        resolved.name = ThemeTitle(resolved.id);
+        resolved.dark = dark;
+        resolved.tokens = NativeCandidateTokens(dark);
+
+        NSMutableDictionary *customTheme = [NSMutableDictionary dictionary];
+        if (IsThemeBaseId(custom.base) && custom.base != "system")
+        {
+            customTheme[@"base"] = @(custom.base.c_str());
+        }
+        if (!custom.candidateSkin.empty() && IsSafeSkinId(custom.candidateSkin) && !IsGlobalThemeId(custom.candidateSkin))
+        {
+            customTheme[@"candidate_skin"] = @(custom.candidateSkin.c_str());
+        }
+        NSMutableDictionary *colors = [NSMutableDictionary dictionary];
+        const std::pair<NSString *, const std::string *> pickers[] = {
+            {@"text", &custom.candidateColors.text},       {@"number", &custom.candidateColors.number},
+            {@"accent", &custom.candidateColors.accent},   {@"selected", &custom.candidateColors.selected},
+            {@"hover", &custom.candidateColors.hover},     {@"surface", &custom.candidateColors.surface},
+            {@"border", &custom.candidateColors.border},
+        };
+        for (const auto &[key, value] : pickers)
+        {
+            // The shared validator takes exactly `#RRGGBB`; anything else would fail the whole request.
+            if (value->size() == 7 && value->front() == '#' && ParseCssColor(*value))
+            {
+                colors[key] = @(value->c_str());
+            }
+        }
+        if (colors.count > 0)
+        {
+            customTheme[@"candidate_colors"] = colors;
+        }
+        NSMutableDictionary *requestObject = [@{
+            @"global_theme" : @(resolved.id.c_str()),
+            @"custom_theme" : customTheme,
+            @"dark" : @(dark),
+            @"layout" : layout == "vertical" ? @"vertical" : @"horizontal",
+        } mutableCopy];
+        NSString *root = RootString(skinsRoot);
+        if (root != nil)
+        {
+            requestObject[@"skins_directory"] = root;
+        }
+        NSData *request = [NSJSONSerialization dataWithJSONObject:requestObject options:0 error:nil];
+        const HostReply reply = CallHost(msime_client_resolve_theme, request);
+        NSDictionary *value = reply.value;
+        if (![value isKindOfClass:NSDictionary.class])
+        {
+            return resolved;
+        }
+        NSString *appearance = value[@"appearance"];
+        if ([appearance isKindOfClass:NSString.class])
+        {
+            resolved.fixedDark = [appearance isEqualToString:@"dark"];
+            resolved.dark = *resolved.fixedDark;
+            resolved.tokens = NativeCandidateTokens(resolved.dark);
+        }
+        NSDictionary *palette = value[@"candidate"];
+        if ([palette isKindOfClass:NSDictionary.class])
+        {
+            SkinTokens &tokens = resolved.tokens;
+            ApplyThemeColor(palette, @"surface", tokens.surface);
+            ApplyThemeColor(palette, @"border", tokens.border);
+            ApplyThemeColor(palette, @"text", tokens.text);
+            ApplyThemeColor(palette, @"number", tokens.number);
+            ApplyThemeColor(palette, @"accent", tokens.accent);
+            // The native selection is a solid fill of the accent, so a null `selected` follows whatever accent was drawn (a picked one included) rather than the native green.
+            tokens.selected = tokens.accent;
+            ApplyThemeColor(palette, @"selected", tokens.selected);
+            const bool selectedText = ApplyThemeColor(palette, @"selected_text", tokens.selectedText);
+            const bool selectedNumber = ApplyThemeColor(palette, @"selected_number", tokens.selectedNumber);
+            // Over a system base the shared resolver leaves these two to the platform, and the native white is only readable on the native solid accent: a package's translucent `selected` or a light picked colour needs them from the fill that is actually drawn.
+            DeriveSelectedForegrounds(tokens, !selectedText, !selectedNumber);
+            ApplyThemeColor(palette, @"hover", tokens.hover);
+            tokens.selectedHover = tokens.selected;
+            NSNumber *bar = palette[@"show_selected_bar"];
+            if ([bar isKindOfClass:NSNumber.class])
+            {
+                tokens.showSelectedBar = bar.boolValue;
+            }
+        }
+        NSString *drawn = value[@"candidate_skin"];
+        if ([drawn isKindOfClass:NSString.class] && drawn.length > 0)
+        {
+            resolved.candidateSkin = drawn.UTF8String ?: "";
+            // The decoration and the minimum width still come from the package itself; the theme only says whether it is drawn.
+            if (const auto package = LoadSkinPackage(skinsRoot, resolved.candidateSkin))
+            {
+                resolved.name = package->name;
+                resolved.decorationTopDip = package->decorationTopDip;
+                resolved.decorationWidthDip = package->decorationWidthDip;
+                resolved.minWidthDip = package->minWidthDip;
+                if (!package->preview.empty())
+                {
+                    resolved.decorationPath = (skinsRoot / package->id / package->preview).string();
+                }
+            }
+        }
+        return resolved;
     }
 }
 } // namespace msime::mac

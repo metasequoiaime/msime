@@ -496,7 +496,7 @@ private struct SaveKeyboardPreferencesArgs: Decodable {
   /// Absent unless the page offered the iPad switch, so a phone never writes it.
   let tabletFullKeys: Bool?
   let dictionaryLearning: Bool
-  let keyboardSkin: String
+  let globalTheme: String
   let customKeyboardSkin: String?
 }
 
@@ -613,10 +613,8 @@ private struct IOSKeyboardPreferenceStore {
     "quanpin", "nineKey", "shuangpin", "ziranma", "microsoft", "shoudao", "wubi",
     "japaneseNineKey", "japanese", "handwriting", "thoughtfulReply",
   ]
-  static let skinOrder = [
-    "forest", "ocean", "rose", "porcelain", "typewriter", "candy", "midnight",
-    "blueprint", "custom",
-  ]
+  /// The global theme ids (`GlobalTheme::ALL` in client-core), the only values `globalTheme` may hold.
+  static let themeOrder = ["system", "shuishan", "light", "paper", "night", "ink", "custom"]
   static let hapticStrengths = ["light", "medium", "strong"]
 
   private var defaults: UserDefaults {
@@ -665,7 +663,7 @@ private struct IOSKeyboardPreferenceStore {
 
   func snapshot() -> [String: Any] {
     let strength = defaults.string(forKey: "keyboardHapticStrength") ?? "medium"
-    let skin = defaults.string(forKey: "keyboardSkin") ?? "forest"
+    let theme = defaults.string(forKey: "globalTheme") ?? "system"
     return [
       "inputScheme": selectedScheme(),
       "traditionalChineseOutput": defaults.bool(forKey: "chineseOutputUsesTraditional"),
@@ -677,7 +675,7 @@ private struct IOSKeyboardPreferenceStore {
       "inlinePreedit": defaults.bool(forKey: "keyboard.inline_preedit"),
       "tabletFullKeys": defaults.object(forKey: "keyboard.tablet.fullKeys") as? Bool ?? true,
       "dictionaryLearning": defaults.bool(forKey: "dictionaryLearningEnabled"),
-      "keyboardSkin": Self.skinOrder.contains(skin) ? skin : "forest",
+      "globalTheme": Self.themeOrder.contains(theme) ? theme : "system",
       "customKeyboardSkin": customSkinJSON() as Any? ?? NSNull(),
     ]
   }
@@ -685,7 +683,7 @@ private struct IOSKeyboardPreferenceStore {
   func save(_ args: SaveKeyboardPreferencesArgs) throws -> [String: Any] {
     guard Self.schemeOrder.contains(args.inputScheme),
           Self.hapticStrengths.contains(args.hapticStrength),
-          Self.skinOrder.contains(args.keyboardSkin) else {
+          Self.themeOrder.contains(args.globalTheme) else {
       throw NSError(domain: "keyboard_preferences", code: 1)
     }
     if let custom = args.customKeyboardSkin {
@@ -711,7 +709,7 @@ private struct IOSKeyboardPreferenceStore {
     defaults.set(args.inlinePreedit, forKey: "keyboard.inline_preedit")
     if let fullKeys = args.tabletFullKeys { defaults.set(fullKeys, forKey: "keyboard.tablet.fullKeys") }
     defaults.set(args.dictionaryLearning, forKey: "dictionaryLearningEnabled")
-    defaults.set(args.keyboardSkin, forKey: "keyboardSkin")
+    defaults.set(args.globalTheme, forKey: "globalTheme")
     if let custom = args.customKeyboardSkin {
       defaults.set(Data(custom.utf8), forKey: "customKeyboardSkin.v1")
     } else {

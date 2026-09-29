@@ -6,8 +6,11 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 const MAX_OPTIONS_BYTES: u64 = 1024 * 1024;
-const APPLICATION_ID: &str = "app.msime.client";
-const LEGACY_APPLICATION_IDS: [&str; 2] = [
+// The macOS bundle identifier in tauri.macos.conf.json, and therefore the default state directory `app_data_dir` resolves to.
+const APPLICATION_ID: &str = "app.msime.macos";
+// Earlier identifiers whose default state is copied to APPLICATION_ID on first launch; app.msime.client is the identifier macOS shared with the other desktop platforms until it got its own.
+const LEGACY_APPLICATION_IDS: [&str; 3] = [
+    "app.msime.client",
     "app.msime.client.preview",
     "app.msime.inputmethod.MetasequoiaIME.settings",
 ];
@@ -536,8 +539,8 @@ mod tests {
     #[test]
     fn legacy_external_state_keeps_its_location_but_moves_the_locator() {
         let root = tempfile::tempdir().unwrap();
-        let application = root.path().join("app.msime.client");
-        let legacy = root.path().join("app.msime.client.preview");
+        let application = root.path().join("app.msime.macos");
+        let legacy = root.path().join("app.msime.client");
         let external = root.path().join("external-state");
         replace_options(
             &legacy.join("runtime-options.json"),
@@ -568,8 +571,8 @@ mod tests {
     #[test]
     fn legacy_default_copy_preserves_state_but_drops_stale_locator() {
         let root = tempfile::tempdir().unwrap();
-        let legacy = root.path().join("app.msime.client.preview");
-        let application = root.path().join("app.msime.client");
+        let legacy = root.path().join("app.msime.client");
+        let application = root.path().join("app.msime.macos");
         fs::create_dir_all(legacy.join("skins/sample")).unwrap();
         fs::write(legacy.join("preferences.json"), b"synthetic-preferences").unwrap();
         fs::write(legacy.join("skins/sample/skin.toml"), b"schema = 1").unwrap();

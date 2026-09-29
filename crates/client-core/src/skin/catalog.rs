@@ -77,7 +77,8 @@ pub struct SkinSummary {
     pub id: String,
     pub name: String,
     pub version: String,
-    pub base: String,
+    /// The global theme the package's colours are drawn over: `system` (the host's native tokens) or a built-in theme. A manifest `base` that names anything else, `custom` included, is a manifest error and the package is not listed.
+    pub base: super::theme::GlobalTheme,
     pub author: Option<String>,
     pub description: Option<String>,
     pub layouts: Vec<String>,
@@ -113,30 +114,14 @@ pub struct SkinCatalog {
     pub issues: Vec<SkinIssue>,
 }
 
-/// 内置候选皮肤，以及它们各自的显示标题。
-///
-/// 每个宿主都要渲染这四款，也都要判断某个 id 是不是内置的，于是每个宿主原先各存了一
-/// 份。这种副本不会安静地待着：Linux 的两个并列宿主曾经对同一个 `graphite` 给出不同
-/// 的名字，一个显示 Graphite、一个显示石墨，而文档记的是后者。标题和 id 在这里发布
-/// 一次，宿主只消费。
-pub const BUILTIN_SKINS: [(&str, &str); 4] = [
-    ("fluent", "Fluent"),
-    ("wechat", "微信绿"),
-    ("graphite", "石墨"),
-    ("willow_green", "杨柳青"),
-];
-
-/// 新建偏好所选的内置皮肤，与 Windows 的候选外观基线一致。
-pub const DEFAULT_SKIN: &str = "willow_green";
-
-/// 该 id 是否属于内置皮肤。外部皮肤不得占用这些 id。
-pub fn is_builtin(id: &str) -> bool {
-    BUILTIN_SKINS.iter().any(|(builtin, _)| *builtin == id)
+/// Whether `id` is taken by a global theme. External packages may not use these ids, so a theme id and a package folder can never be confused.
+pub fn is_reserved(id: &str) -> bool {
+    super::theme::GlobalTheme::from_id(id).is_some()
 }
 
 /// 该名字能否作为外部皮肤的文件夹名。目录扫描只列出这样的文件夹，导入时按同一规则把关，免得拷进来一个扫描随后拒绝的皮肤。
 pub fn is_external_id(id: &str) -> bool {
-    safe_id(id) && !is_builtin(id)
+    safe_id(id) && !is_reserved(id)
 }
 
 fn safe_id(id: &str) -> bool {
@@ -223,7 +208,7 @@ fn enum_array(
 }
 
 fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
-    if !safe_id(folder) || is_builtin(folder) {
+    if !safe_id(folder) || is_reserved(folder) {
         return Err("invalid skin id".into());
     }
     let dir = root.join(folder);
@@ -268,9 +253,9 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
     let base = required_string(table, "base", 32)?;
     let author = optional_string(table, "author", 120)?;
     let description = optional_string(table, "description", 500)?;
-    if !is_builtin(&base) {
-        return Err("unsupported base skin".into());
-    }
+    let base = super::theme::GlobalTheme::from_id(&base)
+        .filter(|theme| theme.is_base())
+        .ok_or("base must be system or a built-in theme")?;
     let supports = table
         .get("supports")
         .and_then(Value::as_table)
@@ -493,7 +478,7 @@ pub fn read_resource(
 /// Validate one installed package with the same rules `scan` applies, without reading the rest of the root. Native presenters use this to resolve the selected skin, so a package the settings page lists as valid is the one they draw. Like `scan`, a symlinked package directory is not a package.
 pub fn load_package(root: impl AsRef<Path>, id: &str) -> Result<SkinSummary, String> {
     let root = root.as_ref();
-    if !safe_id(id) || is_builtin(id) {
+    if !safe_id(id) || is_reserved(id) {
         return Err("invalid skin id".into());
     }
     if !fs::symlink_metadata(root.join(id))
@@ -532,9 +517,9 @@ pub fn scan(root: impl AsRef<Path>) -> SkinCatalog {
 /// Most installed skins published to hosts that draw the candidate panel from `candidate_skin_catalog` (the Linux IBus and Fcitx5 hosts). Beyond this a skin menu is no longer usable, and every entry costs the document those hosts read whole.
 pub const HOST_CATALOG_MAX_PACKAGES: usize = 32;
 
-/// The installed skins in the shape a native candidate host reads (`candidate_skin_catalog` in the Linux runtime options): the id, the manifest name as `title`, per theme only the colours such a host draws, in the forms it parses, and for a package that declares a decoration its size and the absolute path of the image drawn there (`decoration_top_dip`, `decoration_width_dip`, `decoration_image`). `root` is the directory `catalog` was scanned from.
+/// The installed skins in the shape a native candidate host reads (`candidate_skin_catalog` in the Linux runtime options): the id, the manifest name as `title`, the `base` global theme id, the declared `layouts`, per declared theme (an empty object when it sets no colour) every candidate colour `theme::resolve` reads (surface, border, text, number, accent, selected, hover, each normalized by `theme::normalized_color`) and `show_selected_bar`, and for a package that declares a decoration its size and the absolute path of the image drawn there (`decoration_top_dip`, `decoration_width_dip`, `decoration_image`). `root` is the directory `catalog` was scanned from. Passing an entry to `msime_client_resolve_theme` as `package` therefore resolves exactly as reading the same package from the skin root does.
 ///
-/// Everything else in a package - other paths, stylesheets, hover and the selected bar - stays out: the host has no use for it and every byte counts against the size limit of the document it reads, which is also why an undecorated package carries no decoration keys at all. A palette is kept only for a theme the package declares, since Windows drops an external skin for a theme it does not support rather than drawing its colours there. Ids and names are already bounded by `scan`; the hosts re-check both, and the decoration's bounds.
+/// Everything else in a package - other paths and stylesheets - stays out: the host has no use for it and every byte counts against the size limit of the document it reads, which is also why an undecorated package carries no decoration keys at all. A colour `normalized_color` cannot read is left out, as `resolve` ignores it. A palette is kept only for a theme the package declares, since every host drops an external skin for a layout or theme it does not support rather than drawing its colours there, and `resolve` does the same with the published `layouts` and themes. Ids and names are already bounded by `scan`; the hosts re-check both, and the decoration's bounds.
 ///
 /// At most `HOST_CATALOG_MAX_PACKAGES` are listed, in the catalog's order. The `selected` skin is always among them when installed, taking the last place if it falls beyond the cap, because its colours are the ones on screen.
 pub fn host_candidate_catalog(
@@ -555,7 +540,7 @@ pub fn host_candidate_catalog(
     let packages = listed
         .into_iter()
         .map(|package| {
-            let mut entry = serde_json::json!({ "id": package.id, "title": package.name });
+            let mut entry = serde_json::json!({ "id": package.id, "title": package.name, "base": package.base, "layouts": package.layouts });
             let mut candidate = serde_json::Map::new();
             for (theme, palette) in [
                 ("light", &package.candidate.light),
@@ -564,10 +549,11 @@ pub fn host_candidate_catalog(
                 if !package.supports_theme(theme) {
                     continue;
                 }
-                let colors = host_palette(palette);
-                if !colors.is_empty() {
-                    candidate.insert(theme.to_owned(), serde_json::Value::Object(colors));
-                }
+                // A declared mode is published even with no colour, so the entry still says the package may be drawn in it.
+                candidate.insert(
+                    theme.to_owned(),
+                    serde_json::Value::Object(host_palette(palette)),
+                );
             }
             if !candidate.is_empty() {
                 entry["candidate"] = serde_json::Value::Object(candidate);
@@ -602,26 +588,20 @@ fn host_decoration_image(root: &Path, package: &SkinSummary) -> Option<String> {
 fn host_palette(palette: &CandidatePalette) -> serde_json::Map<String, serde_json::Value> {
     let mut colors = serde_json::Map::new();
     for (key, value) in [
+        ("surface", &palette.surface),
+        ("border", &palette.border),
         ("text", &palette.text),
         ("number", &palette.number),
         ("accent", &palette.accent),
         ("selected", &palette.selected),
-        ("surface", &palette.surface),
+        ("hover", &palette.hover),
     ] {
-        if let Some(value) = value
-            .as_deref()
-            .filter(|value| crate::is_hex_color(value, &[6]))
-        {
+        if let Some(value) = value.as_deref().and_then(super::theme::normalized_color) {
             colors.insert(key.to_owned(), value.into());
         }
     }
-    // A border may also carry alpha or be transparent (CandidateColors.h candidate_border_color).
-    if let Some(value) = palette
-        .border
-        .as_deref()
-        .filter(|value| *value == "transparent" || crate::is_hex_color(value, &[6, 8]))
-    {
-        colors.insert("border".to_owned(), value.into());
+    if let Some(value) = palette.show_selected_bar {
+        colors.insert("show_selected_bar".to_owned(), value.into());
     }
     colors
 }

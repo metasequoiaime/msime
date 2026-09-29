@@ -15,7 +15,7 @@ await build({
     emptyOutDir: false,
     lib: {
       entry: Object.fromEntries(["skin-palette", "skin-toolbar-css", "toolbar-images", "toolbar-fonts"].map(name =>
-        [name, fileURLToPath(new URL("../packages/ui/src/" + name + ".ts", import.meta.url))])),
+        [name, fileURLToPath(new URL("../packages/ui/src/skin/" + name + ".ts", import.meta.url))])),
       formats: ["es"],
     },
     rollupOptions: { output: { entryFileNames: "[name].js" } },

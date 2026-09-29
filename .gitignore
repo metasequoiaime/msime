@@ -57,6 +57,10 @@ local.properties
 # fail outright, because the path exists and is not a directory.
 /vendor/
 
+# Downloaded neural sentence weights are reproducible build output; their lock and attribution
+# stay tracked in resources/neural-model.lock.json and docs/third-party.md.
+/target/neural-model/*.safetensors
+
 # The native host's Gradle project: its build directories and daemon caches are per-machine, and the
 # .gradle caches hold absolute paths and lock files that mean nothing on another checkout.
 /platforms/android/gradle-app/.gradle/

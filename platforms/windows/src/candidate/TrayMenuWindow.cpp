@@ -1,11 +1,16 @@
 #include "TrayMenuWindow.h"
 #include "IconFont.h"
+#include "ServerResources.h"
+#include <cmath>
 #include <stdexcept>
+#include <string>
 
 namespace msime::windows {
 namespace {
 constexpr wchar_t class_name[] = L"MSIME.Client.Preview.TrayMenu";
 constexpr size_t no_row = static_cast<size_t>(-1);
+// Segoe Fluent Icons / MDL2 CheckMark, the mark native Windows menus draw.
+constexpr wchar_t check_mark_glyph = 0xE73E;
 // Affect only this UI operation; restore the caller's thread context even on
 // failure.
 struct DpiScope {
@@ -58,10 +63,10 @@ TrayMenuWindow::Apartment::~Apartment() {
 }
 
 TrayMenuWindow::TrayMenuWindow(TrayMenuCapabilities capabilities,
-                               Command command, ToolbarState toolbar_state)
+                               Command command, State state)
     : capabilities_(capabilities), command_(std::move(command)),
-      toolbar_state_(std::move(toolbar_state)) {
-  if (!command_ || !toolbar_state_)
+      state_(std::move(state)) {
+  if (!command_ || !state_)
     throw std::invalid_argument("Missing tray menu callback");
   DpiScope dpi_scope;
   WNDCLASSEXW descriptor{};
@@ -86,6 +91,30 @@ TrayMenuWindow::TrayMenuWindow(TrayMenuCapabilities capabilities,
 TrayMenuWindow::~TrayMenuWindow() {
   if (window_)
     DestroyWindow(window_);
+  if (logo_)
+    DestroyIcon(logo_);
+}
+ID2D1Bitmap *TrayMenuWindow::logo_bitmap(int pixels) {
+  if (pixels <= 0)
+    return nullptr;
+  if (!logo_ || logo_pixels_ != pixels) {
+    // Loaded at the drawn size rather than LR_SHARED's cached standard size, as the floating toolbar does, so the mark is not resampled.
+    const HANDLE loaded =
+        LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_MSIME_LOGO),
+                   IMAGE_ICON, pixels, pixels, LR_DEFAULTCOLOR);
+    if (!loaded)
+      return nullptr;
+    if (logo_)
+      DestroyIcon(logo_);
+    logo_ = static_cast<HICON>(loaded);
+    logo_pixels_ = pixels;
+  }
+  return device_.GetBitmapFromIcon(logo_, L"icon:tray-logo:" +
+                                              std::to_wstring(pixels));
+}
+void TrayMenuWindow::refresh_items() {
+  items_ = tray_menu_items(capabilities_, state_());
+  geometry_ = tray_menu_geometry(items_, metrics_);
 }
 void TrayMenuWindow::set_palette(CandidatePalette palette) {
   palette_ = std::move(palette);
@@ -98,6 +127,7 @@ bool TrayMenuWindow::visible() const {
 void TrayMenuWindow::hide() {
   hovered_ = no_row;
   items_.clear();
+  geometry_ = {};
   if (window_)
     ShowWindow(window_, SW_HIDE);
 }
@@ -130,15 +160,14 @@ void TrayMenuWindow::show(int icon_center_x, int icon_top) {
                                         MONITOR_DEFAULTTONEAREST),
                        &monitor))
     throw std::runtime_error("Tray menu monitor unavailable");
-  // Read the toolbar state once per opening: the row shows what the Server
-  // reports now, not what a click later assumed.
-  items_ = tray_menu_items(capabilities_, toolbar_state_());
+  // Read the state once per opening: the rows show what the Server reports now, not what a click later assumed.
+  refresh_items();
   hovered_ = no_row;
   const auto &work = monitor.rcWork;
   dpi_ = GetDpiForWindow(window_);
   const auto bounds =
       tray_menu_bounds(icon_center_x, icon_top, work.left, work.top, work.right,
-                       work.bottom, dpi_, tray_menu_size(items_.size(), metrics_));
+                       work.bottom, dpi_, geometry_.size);
   if (!SetWindowPos(window_, HWND_TOPMOST, bounds.x, bounds.y, bounds.width,
                     bounds.height, SWP_NOACTIVATE | SWP_SHOWWINDOW))
     throw std::runtime_error("Tray menu positioning failed");
@@ -151,7 +180,7 @@ std::optional<size_t> TrayMenuWindow::hit(int x, int y) const {
   return tray_menu_hit(x / scale, y / scale, items_, metrics_);
 }
 void TrayMenuWindow::choose(size_t index) {
-  if (index >= items_.size() || !items_[index].available)
+  if (index >= items_.size() || !tray_menu_actionable(items_[index]))
     return;
   const auto command = items_[index].command;
   // A command that could not run leaves the menu open, so a failure is not mistaken for an applied action.
@@ -160,7 +189,7 @@ void TrayMenuWindow::choose(size_t index) {
     return;
   }
   // A switch that stays open redraws from the live state, so the row shows what the Server now reports rather than what the click assumed.
-  items_ = tray_menu_items(capabilities_, toolbar_state_());
+  refresh_items();
   if (window_)
     InvalidateRect(window_, nullptr, FALSE);
 }
@@ -169,7 +198,7 @@ void TrayMenuWindow::paint() {
   Painting painting(window_);
   if (!painting.dc)
     throw std::runtime_error("Tray menu painting unavailable");
-  if (items_.empty()) {
+  if (items_.empty() || geometry_.rows.size() != items_.size()) {
     hide();
     return;
   }
@@ -185,24 +214,66 @@ void TrayMenuWindow::paint() {
       throw std::runtime_error("Tray menu brush unavailable");
     return created;
   };
-  auto *label_format = device_.GetTextFormat(
-      L"Segoe UI", 14.0f, DWRITE_FONT_WEIGHT_NORMAL,
-      DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
-      DWRITE_WORD_WRAPPING_NO_WRAP);
-  auto *state_format = device_.GetTextFormat(
-      L"Segoe UI", 14.0f, DWRITE_FONT_WEIGHT_NORMAL,
-      DWRITE_TEXT_ALIGNMENT_TRAILING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
-      DWRITE_WORD_WRAPPING_NO_WRAP);
-  if (!label_format || !state_format)
-    throw std::runtime_error("Tray menu text format unavailable");
-  icon_text_format_ = device_.GetTextFormat(
-      L"Segoe UI", 14.0f, DWRITE_FONT_WEIGHT_NORMAL,
-      DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
-      DWRITE_WORD_WRAPPING_NO_WRAP);
+  auto text_format = [&](const wchar_t *family, double size,
+                         DWRITE_FONT_WEIGHT weight,
+                         DWRITE_TEXT_ALIGNMENT alignment) {
+    auto *format = device_.GetTextFormat(
+        family, static_cast<float>(size), weight, alignment,
+        DWRITE_PARAGRAPH_ALIGNMENT_CENTER, DWRITE_WORD_WRAPPING_NO_WRAP);
+    if (!format)
+      throw std::runtime_error("Tray menu text format unavailable");
+    return format;
+  };
+  auto *label_format =
+      text_format(L"Segoe UI", metrics_.font_size, DWRITE_FONT_WEIGHT_NORMAL,
+                  DWRITE_TEXT_ALIGNMENT_LEADING);
+  auto *title_format =
+      text_format(L"Segoe UI", metrics_.font_size, DWRITE_FONT_WEIGHT_SEMI_BOLD,
+                  DWRITE_TEXT_ALIGNMENT_LEADING);
+  auto *hint_format =
+      text_format(L"Segoe UI", metrics_.hint_font_size,
+                  DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_TRAILING);
+  auto *caption_format =
+      text_format(L"Segoe UI", metrics_.hint_font_size,
+                  DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_LEADING);
+  auto *tool_caption_format =
+      text_format(L"Segoe UI", metrics_.hint_font_size,
+                  DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER);
+  icon_text_format_ =
+      text_format(L"Segoe UI", metrics_.font_size, DWRITE_FONT_WEIGHT_NORMAL,
+                  DWRITE_TEXT_ALIGNMENT_CENTER);
   if (!icon_family_)
     icon_family_ = icon_font_family(device_.GetDWriteFactory());
+  // A glyph from the toolbar's icon font, or its text fallback when this Windows build's font lacks it: a missing glyph would otherwise draw a blank box.
+  auto draw_glyph = [&](wchar_t glyph, const wchar_t *fallback,
+                        const D2D1_RECT_F &rect, ID2D1Brush *fill) {
+    const bool has_glyph =
+        glyph && icon_family_ &&
+        icon_font_has(device_.GetDWriteFactory(), icon_family_, glyph);
+    const wchar_t single[] = {glyph, L'\0'};
+    const wchar_t *text = has_glyph ? single : fallback;
+    if (!text || !*text)
+      return;
+    auto *format = has_glyph ? text_format(icon_family_, metrics_.icon_font_size,
+                                           DWRITE_FONT_WEIGHT_NORMAL,
+                                           DWRITE_TEXT_ALIGNMENT_CENTER)
+                             : icon_text_format_;
+    target->DrawText(text, static_cast<UINT32>(wcslen(text)), format, rect,
+                     fill);
+  };
+  auto draw_text = [&](const std::string &value, IDWriteTextFormat *format,
+                       const D2D1_RECT_F &rect, ID2D1Brush *fill) {
+    if (value.empty())
+      return;
+    const auto text = wide(value);
+    target->DrawText(text.c_str(), static_cast<UINT32>(text.size()), format,
+                     rect, fill);
+  };
   const auto size = target->GetSize();
   const float inset = palette_.border_width / 2.0f;
+  const float row_inset = static_cast<float>(metrics_.inset);
+  const float item_radius = static_cast<float>(metrics_.item_radius);
+  const auto secondary = tray_menu_secondary_color(palette_);
   target->BeginDraw();
   // Clear to nothing: only the rounded card is opaque, so the corners stay
   // transparent rather than showing a square window edge.
@@ -214,71 +285,98 @@ void TrayMenuWindow::paint() {
   target->DrawRoundedRectangle(card, brush(palette_.border),
                                palette_.border_width);
   for (size_t index = 0; index < items_.size(); ++index) {
-    const auto row = tray_menu_row(index, items_.size(), metrics_);
-    const D2D1_RECT_F rect{static_cast<float>(metrics_.padding),
+    const auto &item = items_[index];
+    const auto &row = geometry_.rows[index];
+    const D2D1_RECT_F rect{static_cast<float>(row.left),
                            static_cast<float>(row.top),
-                           size.width - static_cast<float>(metrics_.padding),
+                           static_cast<float>(row.right),
                            static_cast<float>(row.bottom)};
-    if (index == hovered_ && items_[index].available)
-      target->FillRoundedRectangle({rect, palette_.item_radius,
-                                    palette_.item_radius},
-                                   brush(palette_.hover));
-    auto *row_brush = brush(items_[index].available ? palette_.text
-                                                    : palette_.number);
-    // Leading icon, from the same font and with the same text fallback the
-    // toolbar uses: the glyph fonts are not on every Windows build, and a
-    // missing glyph would otherwise draw a blank box.
-    if (items_[index].icon) {
-      const bool glyph =
-          icon_family_ && icon_font_has(device_.GetDWriteFactory(), icon_family_,
-                                        items_[index].icon);
-      const wchar_t single[] = {items_[index].icon, L'\0'};
-      const wchar_t *text = glyph ? single : items_[index].icon_fallback;
-      auto *format = glyph
-                         ? device_.GetTextFormat(
-                               icon_family_, 15.0f, DWRITE_FONT_WEIGHT_NORMAL,
-                               DWRITE_TEXT_ALIGNMENT_CENTER,
-                               DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
-                               DWRITE_WORD_WRAPPING_NO_WRAP)
-                         : icon_text_format_;
-      if (format && text && *text)
-        target->DrawText(text, static_cast<UINT32>(wcslen(text)), format,
-                         D2D1_RECT_F{rect.left, rect.top,
-                                     rect.left +
-                                         static_cast<float>(metrics_.icon_column),
-                                     rect.bottom},
-                         row_brush);
+    const bool hovered = index == hovered_ && tray_menu_actionable(item);
+    switch (item.kind) {
+    case TrayMenuRowKind::Header: {
+      // The design's head: the 18px product mark and the name in semibold.
+      const float logo = static_cast<float>(metrics_.logo_size);
+      const float centre = (rect.top + rect.bottom) / 2.0f;
+      const D2D1_RECT_F mark{rect.left + row_inset, centre - logo / 2.0f,
+                             rect.left + row_inset + logo,
+                             centre + logo / 2.0f};
+      float text_left = rect.left + row_inset;
+      const int pixels = static_cast<int>(
+          std::lround(metrics_.logo_size * static_cast<double>(dpi_) / 96.0));
+      if (auto *bitmap = logo_bitmap(pixels)) {
+        target->DrawBitmap(bitmap, mark, 1.0f,
+                           D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+        text_left = mark.right + static_cast<float>(metrics_.gap);
+      }
+      draw_text(item.label, title_format,
+                {text_left, rect.top, rect.right - row_inset, rect.bottom},
+                brush(palette_.text));
+      break;
     }
-    const auto label = wide(items_[index].label);
-    // An unavailable row is dimmed with the muted token instead of hidden.
-    // Labels start after the icon column so they line up across rows.
-    target->DrawText(label.c_str(), static_cast<UINT32>(label.size()),
-                     label_format,
-                     D2D1_RECT_F{rect.left +
-                                     static_cast<float>(metrics_.icon_column),
-                                 rect.top, rect.right, rect.bottom},
-                     row_brush);
-    if (!items_[index].toggle)
-      continue;
-    // A switch, not a check mark: the row turns something on and off, and a
-    // bare tick says nothing about the off state.
-    const float track_right = rect.right - 8.0f;
-    const float track_left =
-        track_right - static_cast<float>(metrics_.toggle_width);
-    const float centre = (rect.top + rect.bottom) / 2.0f;
-    const float half = static_cast<float>(metrics_.toggle_height) / 2.0f;
-    const D2D1_ROUNDED_RECT track{
-        {track_left, centre - half, track_right, centre + half}, half, half};
-    // Filled in both states with a white thumb, as the shipped MenuFlyoutItem draws it; only the track colour says on or off.
-    target->FillRoundedRectangle(track,
-                                 brush(items_[index].checked
-                                           ? palette_.accent
-                                           : tray_toggle_off_color(palette_)));
-    const float knob = half - 3.0f;
-    const float knob_x =
-        items_[index].checked ? track_right - half : track_left + half;
-    target->FillEllipse({{knob_x, centre}, knob, knob},
-                        brush(candidate_rgb(0xFFFFFF)));
+    case TrayMenuRowKind::Separator: {
+      // A 1px hairline across the card's content width, centred in its margins.
+      const float centre = (rect.top + rect.bottom) / 2.0f;
+      target->FillRectangle({rect.left, centre - 0.5f, rect.right, centre + 0.5f},
+                            brush(palette_.border));
+      break;
+    }
+    case TrayMenuRowKind::Label:
+      // A group caption: 12px secondary text, 4px above and 2px below.
+      draw_text(item.label, caption_format,
+                {rect.left + row_inset, rect.top + 4.0f, rect.right - row_inset,
+                 rect.bottom - 2.0f},
+                brush(secondary));
+      break;
+    case TrayMenuRowKind::Item: {
+      if (hovered)
+        target->FillRoundedRectangle({rect, item_radius, item_radius},
+                                     brush(palette_.hover));
+      // An unavailable row is dimmed with the muted token instead of hidden.
+      auto *text_brush =
+          brush(item.available ? palette_.text : palette_.number);
+      auto *hint_brush = brush(item.available ? secondary : palette_.number);
+      const float mark_left =
+          rect.left + static_cast<float>(tray_menu_mark_x(metrics_));
+      if (item.checked)
+        draw_glyph(check_mark_glyph, L"✓",
+                   {mark_left, rect.top,
+                    mark_left + static_cast<float>(metrics_.mark_column),
+                    rect.bottom},
+                   text_brush);
+      // Labels start after the mark column so they line up across rows; the hint is right-aligned in the same span, as the design's flex row puts it.
+      const D2D1_RECT_F text{
+          rect.left + static_cast<float>(tray_menu_label_x(metrics_)), rect.top,
+          rect.right - row_inset, rect.bottom};
+      draw_text(item.label, label_format, text, text_brush);
+      draw_text(item.hint, hint_format, text, hint_brush);
+      break;
+    }
+    case TrayMenuRowKind::Tool: {
+      // A tool that is on is filled with the accent, the switch the old row drew; the rest take the hover fill like any row.
+      const bool on = item.toggle && item.checked && item.available;
+      const D2D1_ROUNDED_RECT cell{
+          {rect.left + 1.0f, rect.top, rect.right - 1.0f, rect.bottom},
+          item_radius, item_radius};
+      if (on)
+        target->FillRoundedRectangle(cell, brush(palette_.accent));
+      else if (hovered)
+        target->FillRoundedRectangle(cell, brush(palette_.hover));
+      const auto glyph_color =
+          on ? candidate_on_accent(palette_.accent)
+             : item.available ? palette_.text : palette_.number;
+      const auto caption_color =
+          on ? candidate_on_accent(palette_.accent)
+             : item.available ? secondary : palette_.number;
+      draw_glyph(item.icon, item.icon_fallback,
+                 {rect.left, rect.top + 6.0f, rect.right, rect.top + 28.0f},
+                 brush(glyph_color));
+      draw_text(item.label, tool_caption_format,
+                {rect.left + 2.0f, rect.top + 30.0f, rect.right - 2.0f,
+                 rect.bottom - 6.0f},
+                brush(caption_color));
+      break;
+    }
+    }
   }
   const HRESULT drawn = target->EndDraw();
   // A composition swap chain only reaches the screen once it is presented.

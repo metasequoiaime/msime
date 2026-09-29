@@ -9,11 +9,7 @@
 //! leap-year algorithm is exactly the kind of duplication that drifts silently: the copies stay
 //! equal right up until one of them is fixed.
 
-/// A stored day is exactly `YYYY-MM-DD`, ASCII digits with the month and date in range.
-///
-/// The date is not checked against the month's real length. A document is rejected for being
-/// unparseable, not for naming 31 February, and the shift below is total over anything this
-/// accepts.
+/// A stored day is exactly `YYYY-MM-DD`, ASCII digits naming a real proleptic Gregorian date.
 pub fn is_valid_day(day: &str) -> bool {
     let bytes = day.as_bytes();
     bytes.len() == 10
@@ -23,12 +19,27 @@ pub fn is_valid_day(day: &str) -> bool {
             .iter()
             .enumerate()
             .all(|(index, byte)| index == 4 || index == 7 || byte.is_ascii_digit())
-        && day[5..7]
-            .parse::<u8>()
-            .is_ok_and(|month| (1..=12).contains(&month))
-        && day[8..10]
-            .parse::<u8>()
-            .is_ok_and(|date| (1..=31).contains(&date))
+        && day[0..4]
+            .parse::<u32>()
+            .ok()
+            .zip(day[5..7].parse::<u32>().ok())
+            .zip(day[8..10].parse::<u32>().ok())
+            .is_some_and(|((year, month), date)| {
+                (1..=12).contains(&month) && (1..=days_in_month(year, month)).contains(&date)
+            })
+}
+
+fn days_in_month(year: u32, month: u32) -> u32 {
+    match month {
+        2 if is_leap_year(year) => 29,
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
+    }
+}
+
+fn is_leap_year(year: u32) -> bool {
+    year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
 }
 
 /// `day` moved by `days`, negative for earlier. `None` when `day` is not a day.
@@ -106,5 +117,9 @@ mod tests {
         assert!(!is_valid_day("2026-9-21"));
         assert!(!is_valid_day("2026/09/21"));
         assert!(!is_valid_day(""));
+        assert!(!is_valid_day("2026-02-29"));
+        assert!(!is_valid_day("2026-02-31"));
+        assert!(is_valid_day("2028-02-29"));
+        assert!(!is_valid_day("2026-04-31"));
     }
 }

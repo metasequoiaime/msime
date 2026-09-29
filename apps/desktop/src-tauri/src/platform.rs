@@ -3,7 +3,7 @@
 //! Each child mirrors a directory under `src/platform/` and is gated on the targets it speaks to (one OS, or a family such as `desktop` and `mobile`), so the crate root can name a module without repeating the platform condition at every use site.
 
 pub(crate) mod account_helpers;
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", test))]
 pub(crate) mod android;
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", test))]
 pub(crate) mod desktop;

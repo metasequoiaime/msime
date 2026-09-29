@@ -1,3 +1,5 @@
+import { Row, Select } from "../core/platform-controls";
+
 export type VoiceCommitMode = "tsf" | "sendinput" | "ctrl_v";
 
 export interface VoiceCommitModeSectionProps {
@@ -9,26 +11,23 @@ export interface VoiceCommitModeSectionProps {
 /** Result delivery strategy for desktop voice recognition. */
 export function VoiceCommitModeSection({ macos, value, onChange }: VoiceCommitModeSectionProps) {
   return (
-    <div className="section">
-      <label className="section-header">
-        <span className="section-title">
-          结果提交策略
-          <small>
-            {macos
-              ? "系统按键和 Command-V 粘贴需要系统事件权限；不可用时回退到输入法会话，粘贴会替换剪贴板内容"
-              : "由当前桌面宿主决定如何把识别结果交给前台窗口"}
-          </small>
-        </span>
-        <select
-          aria-label="结果提交策略"
-          value={value}
-          onChange={(event) => onChange(event.target.value as VoiceCommitMode)}
-        >
-          <option value="tsf">输入法会话</option>
-          <option value="sendinput">系统按键</option>
-          <option value="ctrl_v">剪贴板粘贴</option>
-        </select>
-      </label>
-    </div>
+    <Row
+      title="结果提交策略"
+      description={
+        macos
+          ? "系统按键和 Command-V 粘贴需要系统事件权限；不可用时回退到输入法会话，粘贴会替换剪贴板内容"
+          : "由当前桌面宿主决定如何把识别结果交给前台窗口"
+      }
+    >
+      <Select
+        aria-label="结果提交策略"
+        value={value}
+        onChange={(event) => onChange(event.target.value as VoiceCommitMode)}
+      >
+        <option value="tsf">输入法会话</option>
+        <option value="sendinput">系统按键</option>
+        <option value="ctrl_v">剪贴板粘贴</option>
+      </Select>
+    </Row>
   );
 }

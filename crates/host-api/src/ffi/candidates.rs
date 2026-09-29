@@ -37,7 +37,7 @@ pub unsafe extern "C" fn msime_client_apply_online_candidate(
             }
             let applied = session
                 .runtime
-                .apply_online_candidate(&query, candidate, source)
+                .apply_online_candidate_owned(query, candidate, source)
                 .map_err(|e| e.to_string())?;
             Ok(json!({ "applied": applied, "view": session.runtime.view() }))
         })
@@ -71,9 +71,14 @@ pub unsafe extern "C" fn msime_client_apply_cloud_response(
         with_session(handle, |session| {
             let applied = if session.cloud_candidates_enabled() {
                 if let Some(candidate) = candidate {
+                    let OnlineCandidate {
+                        query,
+                        text,
+                        source,
+                    } = candidate;
                     session
                         .runtime
-                        .apply_online_candidate(&candidate.query, &candidate.text, candidate.source)
+                        .apply_online_candidate_owned(query, &text, source)
                         .map_err(|e| e.to_string())?
                 } else {
                     false
@@ -122,7 +127,7 @@ pub unsafe extern "C" fn msime_client_apply_online_candidates(
             }
             let applied = session
                 .runtime
-                .apply_online_candidates(&query, &candidates, source)
+                .apply_online_candidates_owned(query, &candidates, source)
                 .map_err(|e| e.to_string())?;
             Ok(json!({ "applied": applied, "view": session.runtime.view() }))
         })

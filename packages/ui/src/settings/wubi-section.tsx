@@ -1,3 +1,5 @@
+import { Row, Switch } from "../core/platform-controls";
+
 export interface WubiPreferences {
   wubi_mixed_pinyin?: boolean;
   wubi_code_hint?: boolean;
@@ -10,7 +12,7 @@ export interface WubiSectionProps {
   onAutoCommitUniqueChange?: (value: boolean) => void;
 }
 
-/** Shared Wubi fallback and completion controls for hosts that expose them. */
+/** Shared Wubi fallback and completion controls for hosts that expose them: rows of the 方案 group while Wubi is in use. */
 export function WubiSection({
   preferences,
   autoCommitUnique,
@@ -18,34 +20,37 @@ export function WubiSection({
   onAutoCommitUniqueChange,
 }: WubiSectionProps) {
   return (
-    <div className="section" role="group" aria-label="五笔">
-      <SettingToggle
-        label="编码打不出时用拼音候选"
+    <>
+      <Row
+        title="编码打不出时用拼音候选"
         description="五笔词库无法回答当前编码时，用同一串字母查询全拼；词库能回答时不影响。"
-        ariaLabel="编码打不出时用拼音候选"
-        checked={preferences.wubi_mixed_pinyin ?? false}
-        compact
-        onChange={(enabled) => onChange({ wubi_mixed_pinyin: enabled })}
-      />
-      <SettingToggle
-        label="候选显示剩余编码"
-        description="在候选后面标出还要再打哪几个字母才能单独打出它。已经打完整码的候选不标。"
-        ariaLabel="候选显示剩余编码"
-        checked={preferences.wubi_code_hint ?? true}
-        compact
-        onChange={(enabled) => onChange({ wubi_code_hint: enabled })}
-      />
-      {autoCommitUnique !== undefined && (
-        <SettingToggle
-          label="五笔四码唯一候选自动上屏"
-          description="五笔输入达到四码且只有一个候选时，自动提交该候选。"
-          ariaLabel="五笔四码唯一候选自动上屏"
-          checked={autoCommitUnique}
-          compact
-          onChange={(enabled) => onAutoCommitUniqueChange?.(enabled)}
+      >
+        <Switch
+          checked={preferences.wubi_mixed_pinyin ?? false}
+          onChange={(checked) => onChange({ wubi_mixed_pinyin: checked })}
         />
+      </Row>
+      <Row
+        title="候选显示剩余编码"
+        description="在候选后面标出还要再打哪几个字母才能单独打出它。已经打完整码的候选不标。"
+      >
+        <Switch
+          checked={preferences.wubi_code_hint ?? true}
+          onChange={(checked) => onChange({ wubi_code_hint: checked })}
+        />
+      </Row>
+      {autoCommitUnique !== undefined && (
+        <Row
+          title="五笔四码唯一候选自动上屏"
+          description="五笔输入达到四码且只有一个候选时，自动提交该候选。"
+        >
+          <Switch
+            checked={autoCommitUnique}
+            onChange={(checked) => onAutoCommitUniqueChange?.(checked)}
+          />
+        </Row>
       )}
-    </div>
+    </>
   );
 }
 import { SettingToggle } from "./setting-toggle";

@@ -51,7 +51,13 @@ fn valid_endpoint(endpoint: &str) -> Result<reqwest::Url, Error> {
     }
     let url = reqwest::Url::parse(value).map_err(|_| Error::Invalid)?;
     if url.scheme() != "https"
-        || url.host_str().is_none()
+        || !value.split_once("://").is_some_and(|(_, authority)| {
+            authority
+                .as_bytes()
+                .first()
+                .is_some_and(|byte| *byte != b'/')
+        })
+        || url.host_str().is_none_or(str::is_empty)
         || url.username() != ""
         || url.password().is_some()
         || url.fragment().is_some()
@@ -287,6 +293,7 @@ mod tests {
     #[test]
     fn endpoint_and_text_boundaries_match_the_mobile_contract() {
         assert!(valid_endpoint("https://fixture.invalid/api").is_ok());
+        assert!(valid_endpoint("https:///api").is_err());
         assert!(valid_endpoint("http://fixture.invalid/api").is_err());
         assert!(valid_endpoint("https://user:pass@fixture.invalid/api").is_err());
         assert!(valid_text("合成文本", 10_000, true));

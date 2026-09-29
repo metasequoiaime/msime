@@ -28,11 +28,13 @@ export {
   longestStreak,
 } from "./typing-statistics-helpers";
 
-const heading = "m-0 text-[15px] font-semibold text-body";
-const metric = "flex min-w-0 flex-col gap-1";
-const metricValue = "text-[30px] font-[650] leading-tight break-anywhere tabular-nums text-accent";
-const footerNote = "mt-3.5 mb-0 text-xs leading-relaxed text-muted";
-const privacy = "mt-4 mb-0 text-xs leading-[1.7] text-muted";
+const heading = "m-0 [font-size:var(--p-row-fs)] font-semibold [color:var(--p-text)]";
+const metric =
+  "flex min-w-0 flex-col gap-1 [&>span]:[font-size:var(--p-sub-fs)] [&>span]:[color:var(--p-sub)]";
+const metricValue =
+  "text-[30px] font-[650] leading-tight break-anywhere tabular-nums [color:var(--p-accent-text)]";
+const footerNote = "mt-3.5 mb-0 text-xs leading-relaxed [color:var(--p-sub)]";
+const privacy = "mt-4 mb-0 text-xs leading-[1.7] [color:var(--p-sub)]";
 const overviewPollMs = 5_000;
 const overviewMinIntervalMs = 1_000;
 const overviewStaleMs = 15_000;

@@ -36,7 +36,7 @@ function renderSection(
 test("enabling word-to-character disables its selected paging key", () => {
   const onChange = renderSection({ enabled: false, keys: "brackets" });
 
-  fireEvent.click(screen.getByRole("checkbox", { name: "以词定字" }));
+  fireEvent.click(screen.getByRole("switch", { name: "以词定字" }));
 
   expect(onChange).toHaveBeenCalledWith({
     wordCharacter: { enabled: true, keys: "brackets" },

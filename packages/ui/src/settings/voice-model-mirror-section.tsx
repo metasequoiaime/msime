@@ -1,22 +1,19 @@
 import { validModelMirror } from "../voice/local-models";
+import { GroupList, Row } from "../core/platform-controls";
 
 export interface VoiceModelMirrorSectionProps {
   value: string;
   onChange: (value: string) => void;
 }
 
-/** Optional mirror prefix used when downloading local voice models. */
+/** Optional mirror prefix used when downloading local voice models: the 模型下载 group. */
 export function VoiceModelMirrorSection({ value, onChange }: VoiceModelMirrorSectionProps) {
   return (
-    <div className="section">
-      <label className="section-header">
-        <span className="section-title">
-          模型下载镜像
-          <small>
-            可选。以 https:// 开头的加速前缀，下载地址为“镜像/原始地址”；留空直接从 GitHub
-            下载。保存设置后生效
-          </small>
-        </span>
+    <GroupList title="模型下载">
+      <Row
+        title="模型下载镜像"
+        description="可选。以 https:// 开头的加速前缀，下载地址为“镜像/原始地址”；留空直接从 GitHub 下载。保存设置后生效"
+      >
         <input
           aria-label="模型下载镜像"
           maxLength={2048}
@@ -25,7 +22,7 @@ export function VoiceModelMirrorSection({ value, onChange }: VoiceModelMirrorSec
           aria-invalid={!validModelMirror(value.trim())}
           onChange={(event) => onChange(event.target.value)}
         />
-      </label>
-    </div>
+      </Row>
+    </GroupList>
   );
 }

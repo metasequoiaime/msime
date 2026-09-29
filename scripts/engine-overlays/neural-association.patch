@@ -1,0 +1,3295 @@
+diff --git a/.gitignore b/.gitignore
+index 79fefc3..f2ae53c 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -8,3 +8,4 @@ log.*
+ **/__pycache__/
+ *.pyc
+ .venv/
++/neural-model/*.safetensors
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 383e783..6b93681 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -51,6 +51,9 @@ set(METASEQUOIA_IME_ENGINE_SOURCES
+     local_modes/local_database.cpp
+     local_modes/quick_phrase_query.cpp
+     local_modes/unicode_query.cpp
++    neural/sentence_model.cpp
++    neural/neural_decoder.cpp
++    neural/rescore_worker.cpp
+     providers/japanese_candidate_provider.cpp
+     providers/pinyin_candidate_provider.cpp
+     providers/provider_registry.cpp
+@@ -60,6 +63,7 @@ set(METASEQUOIA_IME_ENGINE_SOURCES
+     quanpin/quanpin_query.cpp
+     quanpin/quanpin_utils.cpp
+     quanpin/ngram_table.cpp
++    quanpin/lattice_rerank.cpp
+     quanpin/word_lattice.cpp
+     schemes/japanese_romaji_scheme.cpp
+     schemes/quanpin_scheme.cpp
+@@ -187,6 +191,10 @@ if(BUILD_TESTING)
+     endif()
+     add_test(NAME ngram_table COMMAND test_ngram_table)
+ 
++    add_executable(test_neural_sentence tests/src/test_neural_sentence.cpp)
++    target_link_libraries(test_neural_sentence PRIVATE MetasequoiaIme::Engine)
++    add_test(NAME neural_sentence COMMAND test_neural_sentence)
++
+     # Measures conversion accuracy against a frozen eval set instead of asserting one behaviour, so it
+     # needs a dictionary and a set on the command line; see tests/scripts/build_eval_set.py.
+     add_executable(eval_sentences tests/src/eval_sentences.cpp)
+diff --git a/contracts/assets/assets.h b/contracts/assets/assets.h
+index c6da49e..af200bf 100644
+--- a/contracts/assets/assets.h
++++ b/contracts/assets/assets.h
+@@ -12,6 +12,9 @@ inline constexpr char other_dictionary[] = "others.db";
+ inline constexpr char japanese_model[] = "dict_japanese.dat";
+ inline constexpr char japanese_notice[] = "mozc_dictionary_oss_README.txt";
+ inline constexpr char dictionary_manifest[] = "dictionary-manifest.json";
++inline constexpr char neural_model_desktop[] = "sentence-model-desktop.safetensors";
++inline constexpr char neural_model_keyboard[] = "sentence-model.safetensors";
++inline constexpr char notice_19[] = "licenses/chinese-ime-lm-NOTICE.md";
+ inline constexpr char pinyin_model[] = "dict_pinyin.dat";
+ inline constexpr char translations[] = "custom_translations.txt";
+ inline constexpr char helpcode_lantian[] = "helpcodes/helpcode.txt";
+diff --git a/contracts/assets/assets.json b/contracts/assets/assets.json
+index b21e55f..26047c2 100644
+--- a/contracts/assets/assets.json
++++ b/contracts/assets/assets.json
+@@ -75,6 +75,33 @@
+         "desktop"
+       ]
+     },
++    {
++      "id": "neural_model_desktop",
++      "path": "sentence-model-desktop.safetensors",
++      "role": "resource",
++      "source": "neural-model/sentence-model-desktop.safetensors",
++      "profiles": [
++        "desktop"
++      ]
++    },
++    {
++      "id": "neural_model_keyboard",
++      "path": "sentence-model.safetensors",
++      "role": "resource",
++      "source": "neural-model/sentence-model.safetensors",
++      "profiles": [
++        "desktop"
++      ]
++    },
++    {
++      "id": "notice_19",
++      "path": "licenses/chinese-ime-lm-NOTICE.md",
++      "role": "notice",
++      "source": "neural-model/NOTICE.md",
++      "profiles": [
++        "desktop"
++      ]
++    },
+     {
+       "id": "pinyin_model",
+       "path": "dict_pinyin.dat",
+diff --git a/core/ime_session.cpp b/core/ime_session.cpp
+index 01a37cd..b6fca91 100644
+--- a/core/ime_session.cpp
++++ b/core/ime_session.cpp
+@@ -352,6 +352,18 @@ void ImeSession::refresh_candidates()
+     }
+ }
+ 
++void ImeSession::apply_request_options(QueryRequest &request) const
++{
++    request.enable_shuangpin_helpcode = enable_shuangpin_helpcode_;
++    request.enable_quanpin_helpcode = enable_quanpin_helpcode_;
++    request.sentence_alternatives = sentence_alternatives_;
++    request.enable_quanpin_autocorrect_transposition =
++        (quanpin_autocorrect_types_ & quanpin::kAutocorrectTransposition) != 0;
++    request.enable_quanpin_autocorrect_neighbor = (quanpin_autocorrect_types_ & quanpin::kAutocorrectNeighbor) != 0;
++    request.fuzzy_pinyin = fuzzy_pinyin_;
++    request.sentence_association = sentence_association_;
++    request.rescoring_context = rescoring_context_;
++}
+ std::unique_ptr<IInputScheme> ImeSession::create_scheme(SchemeType scheme_type) const
+ {
+     switch (scheme_type)
+diff --git a/core/ime_session.h b/core/ime_session.h
+index 9effcde..f05b4b2 100644
+--- a/core/ime_session.h
++++ b/core/ime_session.h
+@@ -3,6 +3,7 @@
+ #include "composition_state.h"
+ #include "input_session_types.h"
+ #include "scheme_type.h"
++#include "sentence_association_options.h"
+ #include "../providers/provider_registry.h"
+ #include "../schemes/input_scheme.h"
+ #include "../schemes/wubi_scheme.h"
+@@ -26,6 +27,14 @@ class ImeSession
+     {
+         fuzzy_pinyin_ = options;
+     }
++    void set_sentence_association(const SentenceAssociationOptions &options)
++    {
++        sentence_association_ = options;
++    }
++    void set_rescoring_context(std::string context)
++    {
++        rescoring_context_ = std::move(context);
++    }
+     void set_wubi_input_options(metasequoia::WubiInputOptions options);
+     void replace_shuangpin_raw_input(const std::string &raw_input, const std::string &raw_input_with_cases);
+     void replace_quanpin_raw_input(const std::string &raw_input, const std::string &raw_input_with_cases);
+@@ -85,6 +94,8 @@ class ImeSession
+     bool sentence_alternatives_ = false;
+     unsigned quanpin_autocorrect_types_ = 0;
+     metasequoia::FuzzyPinyinOptions fuzzy_pinyin_;
++    SentenceAssociationOptions sentence_association_;
++    std::string rescoring_context_;
+     metasequoia::WubiInputOptions wubi_options_;
+     // Resolved when the scheme changes rather than on every keystroke.
+     WubiScheme *wubi_scheme_ = nullptr;
+diff --git a/core/input_session.cpp b/core/input_session.cpp
+index f1f28c3..48b4453 100644
+--- a/core/input_session.cpp
++++ b/core/input_session.cpp
+@@ -960,6 +960,8 @@ std::optional<std::string> InputSession::learn_candidate(std::size_t index)
+     // adjustment has nowhere to persist them. Store the selected sentence as a user phrase instead.
+     // This applies even at index zero and is independent of the frequency-adjustment mode.
+     if (selected.source == CandidateSource::Generated || selected.source == CandidateSource::Fallback ||
++        selected.source == CandidateSource::NeuralDesktop || selected.source == CandidateSource::NeuralKeyboard ||
++        selected.source == CandidateSource::CloudSuggestion || selected.source == CandidateSource::AiSuggestion)
+         selected.source == CandidateSource::CloudSuggestion || selected.source == CandidateSource::AiSuggestion)
+     {
+         return learn_sentence_candidate(selected);
+diff --git a/core/input_session.h b/core/input_session.h
+index f350520..4b0e5b1 100644
+--- a/core/input_session.h
++++ b/core/input_session.h
+@@ -72,6 +72,14 @@ class InputSession
+     const EnglishInputOptions &english_input_options() const;
+     void set_mixed_expressive_options(MixedExpressiveOptions options);
+     void set_wubi_input_options(metasequoia::WubiInputOptions options);
++    void set_sentence_association(const SentenceAssociationOptions &options)
++    {
++        engine_.set_sentence_association(options);
++    }
++    void set_rescoring_context(std::string context)
++    {
++        engine_.set_rescoring_context(std::move(context));
++    }
+     const MixedExpressiveOptions &mixed_expressive_options() const;
+     void set_dedicated_english_mode(bool enabled);
+     bool dedicated_english_mode() const;
+diff --git a/core/query_request.h b/core/query_request.h
+index 4b04b1e..1b320ed 100644
+--- a/core/query_request.h
++++ b/core/query_request.h
+@@ -3,6 +3,7 @@
+ #include "key_event.h"
+ #include "fuzzy_pinyin_options.h"
+ #include "scheme_type.h"
++#include "sentence_association_options.h"
+ #include <string>
+ #include <vector>
+ 
+@@ -34,5 +35,7 @@ struct QueryRequest
+     // this when it reorders the readings itself and crops the list before display; see
+     // quanpin::make_sentence_lattice_options for why the default answers with one.
+     bool sentence_alternatives = false;
++    SentenceAssociationOptions sentence_association;
++    std::string rescoring_context;
+     bool valid = false;
+ };
+diff --git a/core/sentence_association_options.h b/core/sentence_association_options.h
+new file mode 100644
+index 0000000..44b5535
+--- /dev/null
++++ b/core/sentence_association_options.h
+@@ -0,0 +1,30 @@
++#pragma once
++
++// 整句联想的开关。现有词格和 Google 来源默认保持启用；神经来源由宿主显式开启。
++//
++// 整句候选最多四行：词格首选、Google 解码器，以及两个神经模型的首选各一条。
++//
++// 前两个各是一条独立来源的整句。
++//
++// 后两个不一样。神经模型不再自己造句，它只在词格内部解出的最多 12 条 n-best 里挑一条（见
++// engine/neural/neural_decoder.h）。它们不依赖 word_lattice 的显示开关：只开神经时词格仍会在内部
++// 生成备选，但只显示神经选中的句子；同时开 word_lattice 时才额外保留词格首选作对照。两个神经
++// 开关都开时各自独立打分，各出一条首选；两边选中相同文本时合并成一条。
++struct SentenceAssociationOptions
++{
++    bool word_lattice = true;            // kenlm 词格整句，CandidateSource::Generated
++    bool google = true;                  // Google 解码器整句，CandidateSource::Fallback
++    bool neural_desktop = false;         // 用高精度档的神经模型重排词格整句
++    bool neural_keyboard = false;        // 用快速档的神经模型重排词格整句
++    bool show_next_on_duplicate = false; // 某来源首选被去重时，显示该来源下一条不同结果
++
++    bool operator==(const SentenceAssociationOptions &other) const
++    {
++        return word_lattice == other.word_lattice && google == other.google && neural_desktop == other.neural_desktop &&
++               neural_keyboard == other.neural_keyboard && show_next_on_duplicate == other.show_next_on_duplicate;
++    }
++    bool operator!=(const SentenceAssociationOptions &other) const
++    {
++        return !(*this == other);
++    }
++};
+diff --git a/core/session.cpp b/core/session.cpp
+index 6c1c8b9..1bd34f6 100644
+--- a/core/session.cpp
++++ b/core/session.cpp
+@@ -16,6 +16,8 @@ class Session::Impl
+         session.set_shuangpin_preedit_uses_raw(options.shuangpin_preedit_uses_raw);
+         session.set_quanpin_autocorrect_types(options.autocorrect_types);
+         session.set_fuzzy_pinyin_options(options.fuzzy_pinyin);
++        session.set_sentence_association(options.sentence_association);
++        session.set_rescoring_context(options.rescoring_context);
+         session.set_quanpin_helpcode_enabled(options.helpcode);
+         session.set_shuangpin_helpcode_enabled(options.helpcode);
+         if (!session.set_helpcode_schema(options.helpcode_schema) ||
+@@ -200,12 +202,20 @@ void Session::reset_cache()
+ bool Session::expand_initial_candidates()
+ {
+     // Nine-key candidates come from the spelling session rather than a dictionary query,
+-    // so there is nothing withheld to hand over. Local modes need no guard here: the
+-    // expansion itself only answers single-letter database queries.
++    // so asking for more is a no-op there.
+     if (impl_->nine_key.active())
+         return false;
+     return impl_->session.expand_initial_candidates();
+ }
++void Session::set_sentence_association(SentenceAssociationOptions options)
++{
++    impl_->session.set_sentence_association(options);
++}
++void Session::set_rescoring_context(std::string context)
++{
++    impl_->session.set_rescoring_context(std::move(context));
++}
++}
+ SessionSnapshot Session::snapshot() const
+ {
+     if (impl_->nine_key.active())
+diff --git a/core/word_item.h b/core/word_item.h
+index 5ec80bc..aa5a94d 100644
+--- a/core/word_item.h
++++ b/core/word_item.h
+@@ -16,6 +16,8 @@ enum class CandidateSource
+     Kaomoji,
+     Generated,
+     Fallback,
++    NeuralDesktop,
++    NeuralKeyboard,
+ };
+ 
+ struct WordItem
+diff --git a/include/metasequoia/session.h b/include/metasequoia/session.h
+index 6b4e0f8..f46c581 100644
+--- a/include/metasequoia/session.h
++++ b/include/metasequoia/session.h
+@@ -4,6 +4,7 @@
+ #include "../../core/runtime_paths.h"
+ #include "../../shuangpin/shuangpin_profile.h"
+ #include "../../core/fuzzy_pinyin_options.h"
++#include "../../core/sentence_association_options.h"
+ #include "personal_dictionary.h"
+ #include <memory>
+ 
+@@ -28,6 +29,10 @@ struct SessionOptions
+     // default: a host that does not reorder and crop the readings itself would put several near
+     // duplicate sentences on the first page of candidates.
+     bool sentence_alternatives = false;
++    // Whole-sentence sources. Google and the lattice remain enabled by default;
++    // neural modes rerank the lattice n-best only when explicitly enabled.
++    SentenceAssociationOptions sentence_association;
++    std::string rescoring_context;
+     FuzzyPinyinOptions fuzzy_pinyin;
+     FrequencyAdjustmentOptions frequency;
+     LocalModeOptions local_modes;
+@@ -123,9 +128,11 @@ class Session
+     // Answer an unmatched wubi code with quanpin candidates for the same letters.
+     void set_wubi_mixed_pinyin(bool enabled);
+     void reset_cache();
+-    // Hand over the candidates withheld from a single-letter query, reporting whether the
++// Hand over the candidates withheld from a single-letter query, reporting whether the
+     // list grew. Hosts call this when paging reaches the end of what the first answer held.
+     bool expand_initial_candidates();
++    void set_sentence_association(SentenceAssociationOptions options);
++    void set_rescoring_context(std::string context);
+     SessionSnapshot snapshot() const;
+     // Authoritative offsets in snapshot().editing_text for pinyin-unit editing.
+     // Empty for idle, local modes, non-pinyin schemes and active nine-key input.
+diff --git a/neural-model/NOTICE.md b/neural-model/NOTICE.md
+new file mode 100644
+index 0000000..a2b5e86
+--- /dev/null
++++ b/neural-model/NOTICE.md
+@@ -0,0 +1,17 @@
++# chinese-ime-lm sentence models
++
++The two neural sentence models shipped here are from the **chinese-ime-lm** project
++(<https://github.com/metasequoiaime/chinese-ime-lm>), release `model-v1`:
++
++- `sentence-model.safetensors` — keyboard preset.
++- `sentence-model-desktop.safetensors` — desktop preset.
++
++Both are character-level Transformer language models used to rerank pinyin whole-sentence candidates.
++
++## License
++
++The model weights and the C++ inference code in `neural/` are licensed under Apache-2.0.
++
++## Attribution
++
++The models were trained on the Chinese portion of C4 (ODC-BY) and LCCC (MIT).
+diff --git a/neural-model/lock.json b/neural-model/lock.json
+new file mode 100644
+index 0000000..b2a248d
+--- /dev/null
++++ b/neural-model/lock.json
+@@ -0,0 +1,21 @@
++{
++  "source": "https://github.com/metasequoiaime/chinese-ime-lm/releases/tag/model-v1",
++  "release_tag": "model-v1",
++  "license": "Apache-2.0",
++  "models": [
++    {
++      "file": "sentence-model.safetensors",
++      "preset": "keyboard",
++      "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/model-v1/sentence-model.safetensors",
++      "sha256": "86ac529510cb3b4968a5e6ade83ec8080f5b34a0a681e75c362accbbd387d1c1",
++      "size": 4486280
++    },
++    {
++      "file": "sentence-model-desktop.safetensors",
++      "preset": "desktop",
++      "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/model-v1/sentence-model-desktop.safetensors",
++      "sha256": "0a6ecba69bf1d39c7eb49549c716477dd6c03fdf05757773e1f50435262fb469",
++      "size": 25480184
++    }
++  ]
++}
+diff --git a/neural/json.h b/neural/json.h
+new file mode 100644
+index 0000000..42e84f9
+--- /dev/null
++++ b/neural/json.h
+@@ -0,0 +1,464 @@
++#pragma once
++
++// Minimal, self-contained JSON parser for the safetensors header.
++//
++// The core engine target does not depend on a JSON library (nlohmann is only pulled in by the
++// optional `voice` feature), and the safetensors header is small and regular. Rather than add a
++// build-wide dependency, this parses the handful of shapes the loader needs: the flat object of
++// tensor descriptors, plus the `__metadata__` block whose `config` and `vocab` values are
++// themselves JSON strings parsed a second time.
++//
++// It is a straightforward recursive-descent parser over UTF-8 text. serde_json (which writes the
++// files) emits raw UTF-8 for non-ASCII, but `\uXXXX` escapes are handled anyway so a re-encoded
++// file still loads.
++
++#include <cstdint>
++#include <stdexcept>
++#include <string>
++#include <utility>
++#include <vector>
++
++namespace neural::json
++{
++
++struct Value
++{
++    enum class Type
++    {
++        Null,
++        Bool,
++        Number,
++        String,
++        Array,
++        Object,
++    };
++
++    Type type = Type::Null;
++    bool boolean = false;
++    double number = 0.0;
++    std::string string;
++    std::vector<Value> array;
++    std::vector<std::pair<std::string, Value>> object;
++
++    bool is_object() const
++    {
++        return type == Type::Object;
++    }
++    bool is_array() const
++    {
++        return type == Type::Array;
++    }
++    bool is_string() const
++    {
++        return type == Type::String;
++    }
++    bool is_number() const
++    {
++        return type == Type::Number;
++    }
++
++    // Linear lookup: objects here have at most a few dozen keys, and the tensor table is read once.
++    const Value *find(const std::string &key) const
++    {
++        for (const auto &entry : object)
++        {
++            if (entry.first == key)
++            {
++                return &entry.second;
++            }
++        }
++        return nullptr;
++    }
++};
++
++class ParseError : public std::runtime_error
++{
++  public:
++    explicit ParseError(const std::string &message) : std::runtime_error(message)
++    {
++    }
++};
++
++namespace detail
++{
++
++class Parser
++{
++  public:
++    explicit Parser(const std::string &text) : text_(text)
++    {
++    }
++
++    Value parse()
++    {
++        skip_whitespace();
++        Value value = parse_value();
++        skip_whitespace();
++        if (position_ != text_.size())
++        {
++            fail("trailing characters after JSON value");
++        }
++        return value;
++    }
++
++  private:
++    const std::string &text_;
++    size_t position_ = 0;
++
++    [[noreturn]] void fail(const std::string &message) const
++    {
++        throw ParseError("json: " + message + " at offset " + std::to_string(position_));
++    }
++
++    char peek() const
++    {
++        if (position_ >= text_.size())
++        {
++            fail("unexpected end of input");
++        }
++        return text_[position_];
++    }
++
++    char next()
++    {
++        char c = peek();
++        ++position_;
++        return c;
++    }
++
++    void expect(char c)
++    {
++        if (next() != c)
++        {
++            fail(std::string("expected '") + c + "'");
++        }
++    }
++
++    void skip_whitespace()
++    {
++        while (position_ < text_.size())
++        {
++            char c = text_[position_];
++            if (c == ' ' || c == '\t' || c == '\n' || c == '\r')
++            {
++                ++position_;
++            }
++            else
++            {
++                break;
++            }
++        }
++    }
++
++    Value parse_value()
++    {
++        skip_whitespace();
++        char c = peek();
++        switch (c)
++        {
++        case '{':
++            return parse_object();
++        case '[':
++            return parse_array();
++        case '"': {
++            Value value;
++            value.type = Value::Type::String;
++            value.string = parse_string();
++            return value;
++        }
++        case 't':
++        case 'f':
++            return parse_bool();
++        case 'n':
++            return parse_null();
++        default:
++            return parse_number();
++        }
++    }
++
++    Value parse_object()
++    {
++        Value value;
++        value.type = Value::Type::Object;
++        expect('{');
++        skip_whitespace();
++        if (peek() == '}')
++        {
++            ++position_;
++            return value;
++        }
++        while (true)
++        {
++            skip_whitespace();
++            std::string key = parse_string();
++            skip_whitespace();
++            expect(':');
++            Value child = parse_value();
++            value.object.emplace_back(std::move(key), std::move(child));
++            skip_whitespace();
++            char c = next();
++            if (c == ',')
++            {
++                continue;
++            }
++            if (c == '}')
++            {
++                break;
++            }
++            fail("expected ',' or '}' in object");
++        }
++        return value;
++    }
++
++    Value parse_array()
++    {
++        Value value;
++        value.type = Value::Type::Array;
++        expect('[');
++        skip_whitespace();
++        if (peek() == ']')
++        {
++            ++position_;
++            return value;
++        }
++        while (true)
++        {
++            value.array.push_back(parse_value());
++            skip_whitespace();
++            char c = next();
++            if (c == ',')
++            {
++                continue;
++            }
++            if (c == ']')
++            {
++                break;
++            }
++            fail("expected ',' or ']' in array");
++        }
++        return value;
++    }
++
++    Value parse_bool()
++    {
++        Value value;
++        value.type = Value::Type::Bool;
++        if (text_.compare(position_, 4, "true") == 0)
++        {
++            position_ += 4;
++            value.boolean = true;
++        }
++        else if (text_.compare(position_, 5, "false") == 0)
++        {
++            position_ += 5;
++            value.boolean = false;
++        }
++        else
++        {
++            fail("invalid literal");
++        }
++        return value;
++    }
++
++    Value parse_null()
++    {
++        Value value;
++        value.type = Value::Type::Null;
++        if (text_.compare(position_, 4, "null") == 0)
++        {
++            position_ += 4;
++        }
++        else
++        {
++            fail("invalid literal");
++        }
++        return value;
++    }
++
++    Value parse_number()
++    {
++        size_t start = position_;
++        if (position_ < text_.size() && (text_[position_] == '-' || text_[position_] == '+'))
++        {
++            ++position_;
++        }
++        while (position_ < text_.size())
++        {
++            char c = text_[position_];
++            if ((c >= '0' && c <= '9') || c == '.' || c == 'e' || c == 'E' || c == '+' || c == '-')
++            {
++                ++position_;
++            }
++            else
++            {
++                break;
++            }
++        }
++        if (position_ == start)
++        {
++            fail("invalid number");
++        }
++        Value value;
++        value.type = Value::Type::Number;
++        try
++        {
++            value.number = std::stod(text_.substr(start, position_ - start));
++        }
++        catch (const std::exception &)
++        {
++            fail("invalid number");
++        }
++        return value;
++    }
++
++    std::string parse_string()
++    {
++        expect('"');
++        std::string out;
++        while (true)
++        {
++            if (position_ >= text_.size())
++            {
++                fail("unterminated string");
++            }
++            char c = text_[position_++];
++            if (c == '"')
++            {
++                break;
++            }
++            if (c == '\\')
++            {
++                if (position_ >= text_.size())
++                {
++                    fail("unterminated escape");
++                }
++                char escape = text_[position_++];
++                switch (escape)
++                {
++                case '"':
++                    out.push_back('"');
++                    break;
++                case '\\':
++                    out.push_back('\\');
++                    break;
++                case '/':
++                    out.push_back('/');
++                    break;
++                case 'b':
++                    out.push_back('\b');
++                    break;
++                case 'f':
++                    out.push_back('\f');
++                    break;
++                case 'n':
++                    out.push_back('\n');
++                    break;
++                case 'r':
++                    out.push_back('\r');
++                    break;
++                case 't':
++                    out.push_back('\t');
++                    break;
++                case 'u':
++                    append_unicode(out);
++                    break;
++                default:
++                    fail("invalid escape");
++                }
++            }
++            else
++            {
++                out.push_back(c);
++            }
++        }
++        return out;
++    }
++
++    unsigned read_hex4()
++    {
++        if (position_ + 4 > text_.size())
++        {
++            fail("truncated \\u escape");
++        }
++        unsigned code = 0;
++        for (int i = 0; i < 4; ++i)
++        {
++            char c = text_[position_++];
++            code <<= 4;
++            if (c >= '0' && c <= '9')
++            {
++                code |= static_cast<unsigned>(c - '0');
++            }
++            else if (c >= 'a' && c <= 'f')
++            {
++                code |= static_cast<unsigned>(c - 'a' + 10);
++            }
++            else if (c >= 'A' && c <= 'F')
++            {
++                code |= static_cast<unsigned>(c - 'A' + 10);
++            }
++            else
++            {
++                fail("invalid hex digit in \\u escape");
++            }
++        }
++        return code;
++    }
++
++    void append_unicode(std::string &out)
++    {
++        unsigned code = read_hex4();
++        if (code >= 0xD800 && code <= 0xDBFF)
++        {
++            // High surrogate: a low surrogate must follow to form a code point above the BMP.
++            if (position_ + 2 > text_.size() || text_[position_] != '\\' || text_[position_ + 1] != 'u')
++            {
++                fail("lone high surrogate in \\u escape");
++            }
++            position_ += 2;
++            unsigned low = read_hex4();
++            if (low < 0xDC00 || low > 0xDFFF)
++            {
++                fail("invalid low surrogate in \\u escape");
++            }
++            code = 0x10000 + ((code - 0xD800) << 10) + (low - 0xDC00);
++        }
++        append_utf8(out, code);
++    }
++
++    static void append_utf8(std::string &out, unsigned code)
++    {
++        if (code <= 0x7F)
++        {
++            out.push_back(static_cast<char>(code));
++        }
++        else if (code <= 0x7FF)
++        {
++            out.push_back(static_cast<char>(0xC0 | (code >> 6)));
++            out.push_back(static_cast<char>(0x80 | (code & 0x3F)));
++        }
++        else if (code <= 0xFFFF)
++        {
++            out.push_back(static_cast<char>(0xE0 | (code >> 12)));
++            out.push_back(static_cast<char>(0x80 | ((code >> 6) & 0x3F)));
++            out.push_back(static_cast<char>(0x80 | (code & 0x3F)));
++        }
++        else
++        {
++            out.push_back(static_cast<char>(0xF0 | (code >> 18)));
++            out.push_back(static_cast<char>(0x80 | ((code >> 12) & 0x3F)));
++            out.push_back(static_cast<char>(0x80 | ((code >> 6) & 0x3F)));
++            out.push_back(static_cast<char>(0x80 | (code & 0x3F)));
++        }
++    }
++};
++
++} // namespace detail
++
++// Parses `text` as JSON. Throws ParseError on malformed input.
++inline Value parse(const std::string &text)
++{
++    return detail::Parser(text).parse();
++}
++
++} // namespace neural::json
+diff --git a/neural/neural_decoder.cpp b/neural/neural_decoder.cpp
+new file mode 100644
+index 0000000..13b7e3d
+--- /dev/null
++++ b/neural/neural_decoder.cpp
+@@ -0,0 +1,103 @@
++#include "neural_decoder.h"
++
++#include "sentence_model.h"
++
++#include <algorithm>
++#include <cmath>
++#include <map>
++#include <memory>
++#include <mutex>
++#include <numeric>
++
++namespace neural
++{
++namespace
++{
++
++// The lattice reports log10 (kenlm's unit); the model reports natural log. Interpolating the two
++// without this would silently scale lambda by 2.3.
++constexpr double kLog10ToNats = 2.302585092994046;
++
++} // namespace
++
++std::string last_characters(const std::string &text, std::size_t count)
++{
++    if (count == 0)
++    {
++        return {};
++    }
++    std::size_t seen = 0;
++    std::size_t start = text.size();
++    for (std::size_t i = text.size(); i-- > 0;)
++    {
++        if ((static_cast<unsigned char>(text[i]) & 0xC0) == 0x80)
++        {
++            continue; // continuation byte
++        }
++        start = i;
++        if (++seen == count)
++        {
++            break;
++        }
++    }
++    return text.substr(start);
++}
++
++const SentenceModel *shared_sentence_model(const std::string &path)
++{
++    static std::mutex mutex;
++    // Value may be null: an entry records that loading `path` was attempted, so a missing file is
++    // not re-read on every keystroke.
++    static std::map<std::string, std::unique_ptr<SentenceModel>> cache;
++
++    std::lock_guard<std::mutex> lock(mutex);
++    auto it = cache.find(path);
++    if (it == cache.end())
++    {
++        it = cache.emplace(path, SentenceModel::load_file(path)).first;
++    }
++    return it->second.get();
++}
++
++std::vector<std::size_t> rerank_order(const SentenceModel &model, const std::string &context,
++                                      const std::vector<std::string> &sentences,
++                                      const std::vector<double> &static_scores, const RerankOptions &options)
++{
++    if (sentences.size() < 2 || sentences.size() != static_scores.size() || options.lambda == 0.0)
++    {
++        return {};
++    }
++
++    const std::size_t scored_count = std::min(sentences.size(), options.max_paths);
++    if (scored_count < 2)
++    {
++        return {};
++    }
++
++    const std::vector<std::string> texts(sentences.begin(),
++                                         sentences.begin() + static_cast<std::ptrdiff_t>(scored_count));
++    const std::vector<double> neural = model.score_sentences(last_characters(context, options.context_chars), texts);
++    if (neural.size() != scored_count)
++    {
++        // The model failed or was inconsistent. Half a reranking is worse than none, so the caller
++        // keeps its own order.
++        return {};
++    }
++
++    std::vector<double> combined(scored_count, 0.0);
++    for (std::size_t i = 0; i < scored_count; ++i)
++    {
++        const double statik = static_scores[i] * kLog10ToNats;
++        combined[i] = statik + options.lambda * (neural[i] - statik);
++    }
++
++    std::vector<std::size_t> order(sentences.size());
++    std::iota(order.begin(), order.end(), std::size_t{0});
++    // Stable so that sentences the two models score identically keep the lattice's ordering, and so
++    // that the unscored tail past max_paths stays as it was.
++    std::stable_sort(order.begin(), order.begin() + static_cast<std::ptrdiff_t>(scored_count),
++                     [&](std::size_t a, std::size_t b) { return combined[a] > combined[b]; });
++    return order;
++}
++
++} // namespace neural
+diff --git a/neural/neural_decoder.h b/neural/neural_decoder.h
+new file mode 100644
+index 0000000..5f5822c
+--- /dev/null
++++ b/neural/neural_decoder.h
+@@ -0,0 +1,77 @@
++#pragma once
++
++// Neural reranking of whole-sentence candidates.
++//
++// The model does not produce sentences. The word lattice (engine/quanpin/word_lattice.*) already
++// decodes the typed pinyin into its n-best sentences with a kenlm trigram; this layer asks the
++// character-level Transformer how likely each of those sentences is given what the user has already
++// committed, and reorders them by
++//
++//     score = static + lambda * (neural - static)
++//
++// both terms in nats. That is a log-linear interpolation of the two language models, with lambda
++// controlling how much the neural model is allowed to override the lattice. It cannot invent a
++// sentence the lattice did not propose, which is the point: the lattice is good at coverage and bad
++// at long-range choices, and the Transformer is the reverse.
++//
++// This replaces an earlier design that ran a per-syllable beam search over the model to generate
++// sentences directly. That needed one full forward pass per beam per syllable with no K/V reuse --
++// on the order of 10^10 multiply-accumulates for a dozen syllables, seconds of wall clock on the
++// typing path. Scoring a small batch of finished sentences against a cached context is far less work, because
++// the sentences come from the lattice for free and the batch streams the weights once.
++//
++// The word lattice always supplies the paths when neural reranking is enabled. Its own candidate
++// does not have to be enabled for display: in that mode the lattice is only an internal candidate
++// generator and the user sees the neural model's pick.
++
++#include <cstddef>
++#include <string>
++#include <vector>
++
++namespace neural
++{
++
++class SentenceModel;
++
++struct RerankOptions
++{
++    // How much of the model's opinion to apply. 0 leaves the lattice order untouched; 1 replaces
++    // the lattice score outright. 0.5 keeps the lattice's own evidence (user dictionary weights,
++    // reading priors) in play, which matters because the neural model has never seen them.
++    double lambda = 0.5;
++    // Paths to rescore. The lattice's own ordering past the first handful is already noise, and
++    // every extra path is another row in the batch.
++    std::size_t max_paths = 12;
++    // Characters of committed text shown to the model as context. Bounded by the model's own
++    // window; 64 matches what the model was trained to use.
++    std::size_t context_chars = 64;
++};
++
++// Last `count` Unicode characters of `text`, not bytes: the context bound is in characters because
++// the model's window is in characters. Exposed so a caller that caches results keyed by context can
++// trim to exactly what will be scored -- two histories with the same tail are the same context, and
++// keying on the untrimmed text would miss the cache on every commit.
++std::string last_characters(const std::string &text, std::size_t count);
++
++// Loads (once, process-wide) and returns the model at `path`, or nullptr if it is missing or
++// invalid. The returned pointer is owned by the cache and lives for the process; a failed load is
++// remembered so it is not retried on every keystroke.
++const SentenceModel *shared_sentence_model(const std::string &path);
++
++// The order `sentences` should be shown in, as indices into it.
++//
++// `static_scores` are the lattice's own path scores in log10, as LatticePath::log_prob reports
++// them; they are converted to nats here. `context` is the text already committed before the
++// composition, and is truncated to the last `options.context_chars` characters.
++//
++// Returns an empty vector when the model could not be consulted at all (fewer than two sentences,
++// lambda of zero, mismatched inputs). The caller must then leave its own order alone: a partial
++// reorder is worse than none, because it mixes two incomparable rankings.
++//
++// Only the first `options.max_paths` sentences are rescored; any beyond that keep their relative
++// order at the end.
++std::vector<std::size_t> rerank_order(const SentenceModel &model, const std::string &context,
++                                      const std::vector<std::string> &sentences,
++                                      const std::vector<double> &static_scores, const RerankOptions &options = {});
++
++} // namespace neural
+diff --git a/neural/rescore_worker.cpp b/neural/rescore_worker.cpp
+new file mode 100644
+index 0000000..e8a21d7
+--- /dev/null
++++ b/neural/rescore_worker.cpp
+@@ -0,0 +1,166 @@
++#include "rescore_worker.h"
++
++#include <algorithm>
++#include <cstdint>
++#include <cstdlib>
++#include <utility>
++
++namespace neural
++{
++namespace
++{
++// 结果表只是给「同一次输入被重查一遍」兜底的，不是长期缓存：装满就整张丢掉，比维护 LRU 简单，
++// 代价也只是重算一次。
++constexpr std::size_t kMaxResults = 128;
++constexpr std::size_t kWorkerCount = 2;
++
++std::string make_key(const SentenceModel &model, const std::string &context, const std::vector<std::string> &sentences)
++{
++    // \x01 不会出现在 UTF-8 文本里，拿它当分隔符就不会把两批不同的候选拼成同一个键。
++    std::string key = std::to_string(reinterpret_cast<std::uintptr_t>(&model));
++    key.push_back('\x01');
++    key += context;
++    for (const std::string &sentence : sentences)
++    {
++        key.push_back('\x01');
++        key += sentence;
++    }
++    return key;
++}
++} // namespace
++
++RescoreWorker &RescoreWorker::instance()
++{
++    // 故意泄漏：后台线程只碰这个对象的成员，而静态对象的析构发生在退出时线程可能已被系统干掉之
++    // 后，join 会挂、detach 会悬空。永不析构把这道选择题去掉，进程退出时操作系统收走就是了。
++    static RescoreWorker *worker = new RescoreWorker();
++    return *worker;
++}
++
++void RescoreWorker::set_ready_callback(Ready ready)
++{
++    std::lock_guard<std::mutex> lock(mutex_);
++    ready_ = std::move(ready);
++}
++
++void RescoreWorker::clear()
++{
++    std::lock_guard<std::mutex> lock(mutex_);
++    done_.clear();
++    pending_.clear();
++}
++
++std::optional<std::vector<std::size_t>> RescoreWorker::order_for(const SentenceModel &model, const std::string &context,
++                                                                 const std::vector<std::string> &sentences,
++                                                                 const std::vector<double> &static_scores,
++                                                                 const RerankOptions &options)
++{
++    std::string key = make_key(model, context, sentences);
++    {
++        std::lock_guard<std::mutex> lock(mutex_);
++        if (stopping_)
++        {
++            return std::nullopt;
++        }
++        const auto found = done_.find(key);
++        if (found != done_.end())
++        {
++            return found->second;
++        }
++        Job job;
++        job.model = &model;
++        job.key = std::move(key);
++        job.context = context;
++        job.sentences = sentences;
++        job.static_scores = static_scores;
++        job.options = options;
++        pending_[&model] = std::move(job);
++        ensure_threads();
++    }
++    wake_.notify_one();
++    return std::nullopt;
++}
++
++void RescoreWorker::shutdown()
++{
++    std::unique_lock<std::mutex> lock(mutex_);
++    stopping_ = true;
++    ready_ = nullptr; // 目标很可能已经析构了，这之后一律不再回调
++    pending_.clear(); // 排着队还没开始的，直接不要了
++    wake_.notify_all();
++    idle_.wait(lock, [this] { return busy_workers_ == 0; });
++}
++
++void RescoreWorker::ensure_threads()
++{
++    // 调用方持有 mutex_。两个执行槽让速度优先模型不必等效果优先模型打完分。
++    // 线程只在第一次真有活干时才起，没开神经重排的用户不会平白多线程。
++    if (threads_started_)
++    {
++        return;
++    }
++    threads_started_ = true;
++    for (std::size_t i = 0; i < kWorkerCount; ++i)
++        std::thread([this] { run(); }).detach();
++    std::atexit([] { instance().shutdown(); });
++}
++
++void RescoreWorker::run()
++{
++    for (;;)
++    {
++        Job job;
++        {
++            std::unique_lock<std::mutex> lock(mutex_);
++            wake_.wait(lock, [this] {
++                return stopping_ || std::any_of(pending_.begin(), pending_.end(), [this](const auto &item) {
++                           return active_models_.find(item.first) == active_models_.end();
++                       });
++            });
++            if (stopping_)
++            {
++                return;
++            }
++            auto next = std::find_if(pending_.begin(), pending_.end(), [this](const auto &item) {
++                return active_models_.find(item.first) == active_models_.end();
++            });
++            job = std::move(next->second);
++            pending_.erase(next);
++            active_models_.insert(job.model);
++            ++busy_workers_;
++        }
++
++        // 打分在锁外做：它是这里最慢的一步，占着锁会让按键路径上的 order_for 跟着等。
++        std::vector<std::size_t> order =
++            rerank_order(*job.model, job.context, job.sentences, job.static_scores, job.options);
++
++        Ready ready;
++        {
++            std::lock_guard<std::mutex> lock(mutex_);
++            // 期间可能又来了新请求，说明用户还在打字，这一份存下来留给「他退回来」的情况。
++            if (done_.size() >= kMaxResults)
++            {
++                done_.clear();
++            }
++            done_.emplace(std::move(job.key), std::move(order));
++            ready = ready_; // shutdown 已经清过就是空的，那就不叫了
++        }
++
++        // 回调在锁外发：它会一路走到重查，重查又会调 order_for，在锁内发就是自锁。busy_ 要压到回
++        // 调之后才放，否则 shutdown 会在回调正往已析构的目标里走的时候就返回。
++        if (ready)
++        {
++            ready();
++        }
++
++        {
++            std::lock_guard<std::mutex> lock(mutex_);
++            active_models_.erase(job.model);
++            --busy_workers_;
++        }
++        wake_.notify_all();
++        idle_.notify_all();
++    }
++}
++
++} // namespace neural
+diff --git a/neural/rescore_worker.h b/neural/rescore_worker.h
+new file mode 100644
+index 0000000..28ffffb
+--- /dev/null
++++ b/neural/rescore_worker.h
+@@ -0,0 +1,91 @@
++#pragma once
++// 神经整句重排的后台线程。
++//
++// 给十二条候选打一次分要几十毫秒——比一次按键的预算大一个数量级，所以它不能长在按键路径上。这里
++// 把它挪开：查询照旧同步返回词格的静态顺序，同时把这一批候选交给后台线程；线程算完把顺序存进结
++// 果表，再叫醒调用方，调用方丢掉候选缓存重查一次，这次就能在表里查到顺序了。第一次查询按原顺序
++// 出，几十毫秒后原地重排——用户看到的是候选先出来、再自己理顺，而不是按键卡住。
++//
++// 「每个模型最新的赢」：用户还在打字时，同一模型前几次请求的结果已经没人要，所以新请求直接盖掉
++// 该模型的旧待办。不同模型各有一个待办位和独立执行槽，速度优先不会排在效果优先后面等待。
++//
++// 结果表按 (模型, 前文, 候选列表) 做键，不含静态分：同一批候选的静态分来自同一次词格解码，
++// 必然相同。模型必须入键，否则两个模型会误读彼此的排序结果。
++
++#include "neural_decoder.h"
++#include "sentence_model.h"
++
++#include <condition_variable>
++#include <cstddef>
++#include <functional>
++#include <map>
++#include <mutex>
++#include <optional>
++#include <set>
++#include <string>
++#include <thread>
++#include <vector>
++
++namespace neural
++{
++
++class RescoreWorker
++{
++  public:
++    using Ready = std::function<void()>;
++
++    // 进程唯一，且故意不析构（见 .cpp）。
++    static RescoreWorker &instance();
++
++    // 把「算完了」的通知接出去，调用方据此重查。不设也行：结果照样算、照样进表，只是要等下一次
++    // 按键才被取走。
++    void set_ready_callback(Ready ready);
++
++    // 有现成结果就返回；没有就把这一批排上队并返回空，调用方这一次照静态顺序走。
++    std::optional<std::vector<std::size_t>> order_for(const SentenceModel &model, const std::string &context,
++                                                      const std::vector<std::string> &sentences,
++                                                      const std::vector<double> &static_scores,
++                                                      const RerankOptions &options);
++
++    // 上屏、换方案、换前文：存着的顺序对新语境没有意义了。
++    void clear();
++
++    // 停工，并等当前这一批算完。
++    //
++    // 必须有：进程退出时先跑静态析构、再终止别的线程，中间这一段里后台线程还活着，手上却握着已
++    // 经析构掉的模型表和回调目标（回调一路通到服务端的任务队列）。第一次起线程时用 atexit 挂上
++    // 它——atexit 是后注册先执行，而模型表、任务队列都是更早注册的，正好排在它后面。
++    void shutdown();
++
++  private:
++    RescoreWorker() = default;
++    ~RescoreWorker() = delete;
++    RescoreWorker(const RescoreWorker &) = delete;
++    RescoreWorker &operator=(const RescoreWorker &) = delete;
++
++    struct Job
++    {
++        const SentenceModel *model = nullptr;
++        std::string key;
++        std::string context;
++        std::vector<std::string> sentences;
++        std::vector<double> static_scores;
++        RerankOptions options;
++    };
++
++    void ensure_threads();
++    void run();
++
++    std::mutex mutex_;
++    std::condition_variable wake_; // 有活干了，或者该收工了
++    std::condition_variable idle_; // 手上这一批算完了
++    bool threads_started_ = false;
++    std::size_t busy_workers_ = 0;
++    bool stopping_ = false;
++    std::map<const SentenceModel *, Job> pending_;
++    std::set<const SentenceModel *> active_models_;
++    std::map<std::string, std::vector<std::size_t>> done_;
++    Ready ready_;
++};
++
++} // namespace neural
+diff --git a/neural/sentence_model.cpp b/neural/sentence_model.cpp
+new file mode 100644
+index 0000000..921289c
+--- /dev/null
++++ b/neural/sentence_model.cpp
+@@ -0,0 +1,1007 @@
++#include "sentence_model.h"
++
++#include "json.h"
++
++#include <algorithm>
++#include <cmath>
++#include <cstring>
++#include <fstream>
++#include <limits>
++#include <stdexcept>
++
++namespace neural
++{
++namespace
++{
++
++// The exact GELU, matching torch.nn.functional.gelu with its default settings. The tanh
++// approximation is a different function and the model was not trained with it.
++float erf_approx(float x)
++{
++    // Abramowitz and Stegun 7.1.26; error stays below 1.5e-7 across the range.
++    float sign = x < 0.0f ? -1.0f : 1.0f;
++    x = std::fabs(x);
++    float t = 1.0f / (1.0f + 0.327591100f * x);
++    float poly = t * (0.254829600f + t * (-0.284496740f + t * (1.421413700f + t * (-1.453152000f + t * 1.061405400f))));
++    return sign * (1.0f - poly * std::exp(-x * x));
++}
++
++float gelu(float x)
++{
++    constexpr float kInvSqrt2 = 0.70710678118654752440f;
++    return 0.5f * x * (1.0f + erf_approx(x * kInvSqrt2));
++}
++
++// Four independent accumulators, not one.
++//
++// This is where essentially all of the model's time goes, so the shape of the loop matters. A single
++// running sum makes every iteration wait on the previous add: the FP unit has a ~4-cycle add latency
++// but can start one per cycle, so a serial chain leaves it idle three cycles out of four, and the
++// compiler cannot fix it — reassociating floating-point addition changes the result, which /fp:precise
++// forbids it from doing on its own. Splitting the sum into four lanes that only meet at the end is
++// that same reassociation, written out in the source where it is allowed, and it also gives the
++// vectorizer a shape it can fold into packed adds.
++//
++// The trade is that the result differs from a strict left-to-right sum in the last bits. That is fine
++// here — these are log probabilities compared against each other, and the parity test against the
++// per-character reference path has room to spare — but it does mean this is not bit-identical to a
++// naive reference implementation.
++float dot(const float *a, const float *b, std::size_t n)
++{
++    float s0 = 0.0f;
++    float s1 = 0.0f;
++    float s2 = 0.0f;
++    float s3 = 0.0f;
++    std::size_t i = 0;
++    for (; i + 4 <= n; i += 4)
++    {
++        s0 += a[i] * b[i];
++        s1 += a[i + 1] * b[i + 1];
++        s2 += a[i + 2] * b[i + 2];
++        s3 += a[i + 3] * b[i + 3];
++    }
++    float total = (s0 + s1) + (s2 + s3);
++    for (; i < n; ++i)
++    {
++        total += a[i] * b[i];
++    }
++    return total;
++}
++
++float dot_i8(const float *a, const std::int8_t *b, std::size_t n)
++{
++    float total = 0.0f;
++    for (std::size_t i = 0; i < n; ++i)
++    {
++        total += a[i] * static_cast<float>(b[i]);
++    }
++    return total;
++}
++
++// out[m][o] = dot(x[m], w[o]) + bias[o], both operands row-major.
++//
++// Output-major on purpose: the weights are far larger than cache (the desktop model's are ~25 MB
++// total), so with the rows on the outside every input row restreams the entire matrix from memory
++// and the whole forward pass runs at DRAM bandwidth. Hoisting the output loop reads each weight row
++// once and reuses it across the batch, which is the reason a batch of candidates costs barely more
++// than one.
++std::vector<float> linear(const std::vector<float> &x, const Matrix &w, const std::vector<float> &bias,
++                          std::size_t inputs, std::size_t outputs)
++{
++    std::size_t rows = inputs == 0 ? 0 : x.size() / inputs;
++    std::vector<float> out(rows * outputs, 0.0f);
++    std::vector<float> scratch(w.quantized ? inputs : 0, 0.0f);
++    for (std::size_t o = 0; o < outputs; ++o)
++    {
++        // Widen the row's int8 once per output row instead of once per (output row, input row).
++        // The conversion is what keeps the inner product from vectorizing, and across a batch it
++        // would otherwise be repeated for every row of the batch.
++        //
++        // The per-row scale still multiplies the finished dot product rather than the weights, the
++        // same way Matrix::dot_row does it: widening an int8 is exact, but folding the scale into
++        // each weight beforehand would round every element.
++        const float *weights;
++        float scale = 1.0f;
++        if (w.quantized)
++        {
++            const std::int8_t *source = &w.ints[o * inputs];
++            for (std::size_t i = 0; i < inputs; ++i)
++            {
++                scratch[i] = static_cast<float>(source[i]);
++            }
++            weights = scratch.data();
++            scale = w.scales[o];
++        }
++        else
++        {
++            weights = &w.floats[o * inputs];
++        }
++
++        const float b = bias.empty() ? 0.0f : bias[o];
++        for (std::size_t row = 0; row < rows; ++row)
++        {
++            out[row * outputs + o] = dot(&x[row * inputs], weights, inputs) * scale + b;
++        }
++    }
++    return out;
++}
++
++std::vector<float> layer_norm(const float *x, std::size_t rows, const std::vector<float> &weight,
++                              const std::vector<float> &bias, std::size_t width)
++{
++    std::vector<float> out(rows * width, 0.0f);
++    for (std::size_t row = 0; row < rows; ++row)
++    {
++        const float *source = &x[row * width];
++        float *target = &out[row * width];
++        float mean = 0.0f;
++        for (std::size_t i = 0; i < width; ++i)
++        {
++            mean += source[i];
++        }
++        mean /= static_cast<float>(width);
++        float variance = 0.0f;
++        for (std::size_t i = 0; i < width; ++i)
++        {
++            float d = source[i] - mean;
++            variance += d * d;
++        }
++        variance /= static_cast<float>(width);
++        float inverse = 1.0f / std::sqrt(variance + 1e-5f);
++        for (std::size_t i = 0; i < width; ++i)
++        {
++            target[i] = (source[i] - mean) * inverse * weight[i] + bias[i];
++        }
++    }
++    return out;
++}
++
++void split_qkv(const std::vector<float> &qkv, std::size_t rows, std::size_t n_embd, std::vector<float> &q,
++               std::vector<float> &k, std::vector<float> &v)
++{
++    q.assign(rows * n_embd, 0.0f);
++    k.assign(rows * n_embd, 0.0f);
++    v.assign(rows * n_embd, 0.0f);
++    for (std::size_t row = 0; row < rows; ++row)
++    {
++        const float *source = &qkv[row * 3 * n_embd];
++        std::memcpy(&q[row * n_embd], source, n_embd * sizeof(float));
++        std::memcpy(&k[row * n_embd], source + n_embd, n_embd * sizeof(float));
++        std::memcpy(&v[row * n_embd], source + 2 * n_embd, n_embd * sizeof(float));
++    }
++}
++
++// IEEE 754 binary16 to binary32, with subnormal handling rather than flush-to-zero.
++float half_to_f32(std::uint16_t bits)
++{
++    std::uint32_t sign = static_cast<std::uint32_t>(bits & 0x8000u) << 16;
++    std::uint32_t exponent = static_cast<std::uint32_t>((bits >> 10) & 0x1fu);
++    std::uint32_t mantissa = static_cast<std::uint32_t>(bits & 0x03ffu);
++    std::uint32_t out;
++    if (exponent == 0)
++    {
++        if (mantissa == 0)
++        {
++            out = sign;
++        }
++        else
++        {
++            unsigned leading = 0;
++            std::uint32_t m = mantissa;
++            // Count leading zeros of a 32-bit value.
++            while ((m & 0x80000000u) == 0)
++            {
++                m <<= 1;
++                ++leading;
++            }
++            std::uint32_t exp = 134u - leading;
++            std::uint32_t mant = (mantissa << (leading - 8)) & 0x007fffffu;
++            out = sign | (exp << 23) | mant;
++        }
++    }
++    else if (exponent == 0x1f)
++    {
++        out = sign | 0x7f800000u | (mantissa << 13);
++    }
++    else
++    {
++        out = sign | ((exponent + 127u - 15u) << 23) | (mantissa << 13);
++    }
++    float result;
++    std::memcpy(&result, &out, sizeof(result));
++    return result;
++}
++
++// Decodes UTF-8 text into Unicode code points. Malformed bytes map to U+FFFD.
++std::vector<char32_t> decode_utf8(const std::string &text)
++{
++    std::vector<char32_t> out;
++    std::size_t i = 0;
++    const std::size_t n = text.size();
++    while (i < n)
++    {
++        unsigned char c = static_cast<unsigned char>(text[i]);
++        char32_t code;
++        std::size_t extra;
++        if (c < 0x80)
++        {
++            code = c;
++            extra = 0;
++        }
++        else if ((c & 0xE0) == 0xC0)
++        {
++            code = c & 0x1F;
++            extra = 1;
++        }
++        else if ((c & 0xF0) == 0xE0)
++        {
++            code = c & 0x0F;
++            extra = 2;
++        }
++        else if ((c & 0xF8) == 0xF0)
++        {
++            code = c & 0x07;
++            extra = 3;
++        }
++        else
++        {
++            out.push_back(0xFFFD);
++            ++i;
++            continue;
++        }
++        if (i + extra >= n)
++        {
++            out.push_back(0xFFFD);
++            break;
++        }
++        bool ok = true;
++        for (std::size_t j = 1; j <= extra; ++j)
++        {
++            unsigned char cc = static_cast<unsigned char>(text[i + j]);
++            if ((cc & 0xC0) != 0x80)
++            {
++                ok = false;
++                break;
++            }
++            code = (code << 6) | (cc & 0x3F);
++        }
++        if (!ok)
++        {
++            out.push_back(0xFFFD);
++            ++i;
++            continue;
++        }
++        out.push_back(code);
++        i += extra + 1;
++    }
++    return out;
++}
++
++// A tensor descriptor from the safetensors header.
++struct Entry
++{
++    std::string dtype;
++    std::vector<std::size_t> shape;
++    std::size_t off0 = 0;
++    std::size_t off1 = 0;
++};
++
++std::vector<float> read_f32(const std::uint8_t *data, std::size_t data_len, const Entry &entry)
++{
++    if (entry.off1 > data_len || entry.off0 > entry.off1)
++    {
++        throw std::runtime_error("tensor offsets out of range");
++    }
++    std::size_t bytes = entry.off1 - entry.off0;
++    std::size_t count = bytes / 4;
++    std::vector<float> out(count);
++    const std::uint8_t *p = data + entry.off0;
++    for (std::size_t i = 0; i < count; ++i)
++    {
++        std::memcpy(&out[i], p + i * 4, 4);
++    }
++    return out;
++}
++
++std::vector<float> read_f16(const std::uint8_t *data, std::size_t data_len, const Entry &entry)
++{
++    if (entry.off1 > data_len || entry.off0 > entry.off1)
++    {
++        throw std::runtime_error("tensor offsets out of range");
++    }
++    std::size_t bytes = entry.off1 - entry.off0;
++    std::size_t count = bytes / 2;
++    std::vector<float> out(count);
++    const std::uint8_t *p = data + entry.off0;
++    for (std::size_t i = 0; i < count; ++i)
++    {
++        std::uint16_t bits;
++        std::memcpy(&bits, p + i * 2, 2);
++        out[i] = half_to_f32(bits);
++    }
++    return out;
++}
++
++std::size_t product(const std::vector<std::size_t> &shape)
++{
++    std::size_t total = 1;
++    for (std::size_t d : shape)
++    {
++        total *= d;
++    }
++    return total;
++}
++
++} // namespace
++
++float Matrix::dot_row(const float *x, std::size_t row, std::size_t width) const
++{
++    if (quantized)
++    {
++        return dot_i8(x, &ints[row * width], width) * scales[row];
++    }
++    return dot(x, &floats[row * width], width);
++}
++
++void Matrix::row_into(std::size_t index, std::size_t width, float *out) const
++{
++    if (quantized)
++    {
++        float scale = scales[index];
++        const std::int8_t *p = &ints[index * width];
++        for (std::size_t i = 0; i < width; ++i)
++        {
++            out[i] = static_cast<float>(p[i]) * scale;
++        }
++    }
++    else
++    {
++        std::memcpy(out, &floats[index * width], width * sizeof(float));
++    }
++}
++
++std::unique_ptr<SentenceModel> SentenceModel::load(const std::vector<std::uint8_t> &bytes)
++{
++    try
++    {
++        if (bytes.size() < 8)
++        {
++            return nullptr;
++        }
++        std::uint64_t header_len = 0;
++        std::memcpy(&header_len, bytes.data(), 8);
++        std::size_t header_end = 8 + static_cast<std::size_t>(header_len);
++        if (header_len == 0 || header_end > bytes.size())
++        {
++            return nullptr;
++        }
++        std::string header_text(reinterpret_cast<const char *>(bytes.data() + 8), static_cast<std::size_t>(header_len));
++        json::Value header = json::parse(header_text);
++        if (!header.is_object())
++        {
++            return nullptr;
++        }
++        const std::uint8_t *data = bytes.data() + header_end;
++        std::size_t data_len = bytes.size() - header_end;
++
++        // Metadata.
++        const json::Value *metadata = header.find("__metadata__");
++        if (metadata == nullptr || !metadata->is_object())
++        {
++            return nullptr;
++        }
++        auto metadata_string = [&](const std::string &key) -> const std::string * {
++            const json::Value *value = metadata->find(key);
++            if (value == nullptr || !value->is_string())
++            {
++                return nullptr;
++            }
++            return &value->string;
++        };
++        const std::string *config_text = metadata_string("config");
++        const std::string *vocab_text = metadata_string("vocab");
++        if (config_text == nullptr || vocab_text == nullptr)
++        {
++            return nullptr;
++        }
++
++        auto model = std::unique_ptr<SentenceModel>(new SentenceModel());
++
++        json::Value config_json = json::parse(*config_text);
++        auto config_uint = [&](const std::string &key) -> std::size_t {
++            const json::Value *value = config_json.find(key);
++            if (value == nullptr || !value->is_number())
++            {
++                throw std::runtime_error("config missing " + key);
++            }
++            return static_cast<std::size_t>(value->number);
++        };
++        model->config_.vocab = config_uint("vocab");
++        model->config_.n_layer = config_uint("n_layer");
++        model->config_.n_head = config_uint("n_head");
++        model->config_.n_embd = config_uint("n_embd");
++        model->config_.context = config_uint("context");
++        const Config &config = model->config_;
++        if (config.n_head == 0 || config.n_embd == 0 || config.n_embd % config.n_head != 0 || config.vocab == 0 ||
++            config.n_layer == 0 || config.context == 0)
++        {
++            return nullptr;
++        }
++
++        json::Value vocab_json = json::parse(*vocab_text);
++        if (!vocab_json.is_array() || vocab_json.array.size() != config.vocab)
++        {
++            return nullptr;
++        }
++        for (std::size_t id = 0; id < vocab_json.array.size(); ++id)
++        {
++            const json::Value &item = vocab_json.array[id];
++            if (!item.is_string())
++            {
++                continue;
++            }
++            std::vector<char32_t> chars = decode_utf8(item.string);
++            // Reserved tokens (<pad> etc.) are addressed by constant, not by text; single code
++            // points are the character vocabulary.
++            if (chars.size() == 1)
++            {
++                model->index_[chars[0]] = static_cast<std::uint32_t>(id);
++            }
++        }
++
++        if (const std::string *attribution = metadata_string("attribution"))
++        {
++            model->attribution_ = *attribution;
++        }
++        if (const std::string *license = metadata_string("license"))
++        {
++            model->license_ = *license;
++        }
++
++        // Collect every tensor descriptor (including the .scale companions).
++        std::unordered_map<std::string, Entry> entries;
++        for (const auto &field : header.object)
++        {
++            if (field.first == "__metadata__")
++            {
++                continue;
++            }
++            const json::Value &desc = field.second;
++            if (!desc.is_object())
++            {
++                continue;
++            }
++            Entry entry;
++            const json::Value *dtype = desc.find("dtype");
++            const json::Value *shape = desc.find("shape");
++            const json::Value *offsets = desc.find("data_offsets");
++            if (dtype == nullptr || !dtype->is_string() || offsets == nullptr || !offsets->is_array() ||
++                offsets->array.size() != 2)
++            {
++                return nullptr;
++            }
++            entry.dtype = dtype->string;
++            if (shape != nullptr && shape->is_array())
++            {
++                for (const json::Value &dim : shape->array)
++                {
++                    entry.shape.push_back(static_cast<std::size_t>(dim.number));
++                }
++            }
++            entry.off0 = static_cast<std::size_t>(offsets->array[0].number);
++            entry.off1 = static_cast<std::size_t>(offsets->array[1].number);
++            entries.emplace(field.first, std::move(entry));
++        }
++
++        auto materialize = [&](const std::string &name) -> Matrix {
++            auto it = entries.find(name);
++            if (it == entries.end())
++            {
++                throw std::runtime_error("missing tensor " + name);
++            }
++            const Entry &entry = it->second;
++            Matrix matrix;
++            std::size_t expected = product(entry.shape);
++            if (entry.dtype == "F32")
++            {
++                matrix.floats = read_f32(data, data_len, entry);
++                matrix.quantized = false;
++                if (matrix.floats.size() != expected)
++                {
++                    throw std::runtime_error(name + ": shape does not match data");
++                }
++            }
++            else if (entry.dtype == "F16")
++            {
++                matrix.floats = read_f16(data, data_len, entry);
++                matrix.quantized = false;
++                if (matrix.floats.size() != expected)
++                {
++                    throw std::runtime_error(name + ": shape does not match data");
++                }
++            }
++            else if (entry.dtype == "I8")
++            {
++                auto scale_it = entries.find(name + ".scale");
++                if (scale_it == entries.end())
++                {
++                    throw std::runtime_error(name + ": missing scale");
++                }
++                matrix.scales = read_f32(data, data_len, scale_it->second);
++                std::size_t rows = entry.shape.empty() ? 1 : entry.shape.front();
++                if (rows == 0 || matrix.scales.size() != rows)
++                {
++                    throw std::runtime_error(name + ": scale length does not match rows");
++                }
++                if (entry.off1 > data_len || entry.off0 > entry.off1)
++                {
++                    throw std::runtime_error(name + ": offsets out of range");
++                }
++                std::size_t count = entry.off1 - entry.off0;
++                matrix.ints.resize(count);
++                std::memcpy(matrix.ints.data(), data + entry.off0, count);
++                matrix.quantized = true;
++                if (matrix.ints.size() != expected)
++                {
++                    throw std::runtime_error(name + ": shape does not match data");
++                }
++            }
++            else
++            {
++                throw std::runtime_error(name + ": unsupported dtype " + entry.dtype);
++            }
++            return matrix;
++        };
++
++        auto materialize_floats = [&](const std::string &name) -> std::vector<float> {
++            Matrix matrix = materialize(name);
++            if (matrix.quantized)
++            {
++                throw std::runtime_error(name + " is quantized but must be float");
++            }
++            return std::move(matrix.floats);
++        };
++
++        model->token_ = materialize("tok.weight");
++        model->position_ = materialize_floats("pos.weight");
++        model->blocks_.reserve(config.n_layer);
++        for (std::size_t layer = 0; layer < config.n_layer; ++layer)
++        {
++            std::string prefix = "blocks." + std::to_string(layer) + ".";
++            Block block;
++            block.ln1_weight = materialize_floats(prefix + "ln1.weight");
++            block.ln1_bias = materialize_floats(prefix + "ln1.bias");
++            block.qkv_weight = materialize(prefix + "qkv.weight");
++            block.qkv_bias = materialize_floats(prefix + "qkv.bias");
++            block.proj_weight = materialize(prefix + "proj.weight");
++            block.proj_bias = materialize_floats(prefix + "proj.bias");
++            block.ln2_weight = materialize_floats(prefix + "ln2.weight");
++            block.ln2_bias = materialize_floats(prefix + "ln2.bias");
++            block.fc_weight = materialize(prefix + "fc.weight");
++            block.fc_bias = materialize_floats(prefix + "fc.bias");
++            block.out_weight = materialize(prefix + "out.weight");
++            block.out_bias = materialize_floats(prefix + "out.bias");
++            model->blocks_.push_back(std::move(block));
++        }
++        model->final_weight_ = materialize_floats("ln_f.weight");
++        model->final_bias_ = materialize_floats("ln_f.bias");
++
++        // Geometry checks: any mismatch means a malformed file, so refuse it.
++        const std::size_t n_embd = config.n_embd;
++        if (model->token_.len() != config.vocab * n_embd || model->position_.size() != config.context * n_embd ||
++            model->final_weight_.size() != n_embd || model->final_bias_.size() != n_embd)
++        {
++            return nullptr;
++        }
++        for (const Block &block : model->blocks_)
++        {
++            if (block.qkv_weight.len() != 3 * n_embd * n_embd || block.proj_weight.len() != n_embd * n_embd ||
++                block.fc_weight.len() != 4 * n_embd * n_embd || block.out_weight.len() != 4 * n_embd * n_embd)
++            {
++                return nullptr;
++            }
++        }
++        return model;
++    }
++    catch (const std::exception &)
++    {
++        return nullptr;
++    }
++}
++
++std::unique_ptr<SentenceModel> SentenceModel::load_file(const std::string &path)
++{
++    std::ifstream file(path, std::ios::binary);
++    if (!file)
++    {
++        return nullptr;
++    }
++    file.seekg(0, std::ios::end);
++    std::streamoff size = file.tellg();
++    if (size <= 0)
++    {
++        return nullptr;
++    }
++    file.seekg(0, std::ios::beg);
++    std::vector<std::uint8_t> bytes(static_cast<std::size_t>(size));
++    if (!file.read(reinterpret_cast<char *>(bytes.data()), size))
++    {
++        return nullptr;
++    }
++    return load(bytes);
++}
++
++std::optional<std::uint32_t> SentenceModel::token(char32_t character) const
++{
++    auto it = index_.find(character);
++    if (it == index_.end())
++    {
++        return std::nullopt;
++    }
++    return it->second;
++}
++
++std::vector<std::uint32_t> SentenceModel::encode(const std::string &text) const
++{
++    std::vector<char32_t> chars = decode_utf8(text);
++    std::vector<std::uint32_t> out;
++    out.reserve(chars.size());
++    for (char32_t ch : chars)
++    {
++        auto it = index_.find(ch);
++        out.push_back(it == index_.end() ? kUnk : it->second);
++    }
++    return out;
++}
++
++std::vector<float> SentenceModel::embed(const std::vector<std::uint32_t> &tokens, std::size_t width,
++                                        std::size_t offset) const
++{
++    const std::size_t n_embd = config_.n_embd;
++    std::vector<float> x(tokens.size() * n_embd, 0.0f);
++    std::vector<float> token_row(n_embd, 0.0f);
++    for (std::size_t step = 0; step < tokens.size(); ++step)
++    {
++        std::size_t token = std::min<std::size_t>(tokens[step], config_.vocab - 1);
++        // Position restarts at `offset` on every batch row: each row is a separate continuation of
++        // the same cached prefix, not a continuation of the row before it.
++        std::size_t within = width == 0 ? step : step % width;
++        std::size_t position = std::min<std::size_t>(offset + within, config_.context - 1);
++        token_.row_into(token, n_embd, token_row.data());
++        const float *position_row = &position_[position * n_embd];
++        float *row = &x[step * n_embd];
++        for (std::size_t i = 0; i < n_embd; ++i)
++        {
++            row[i] = token_row[i] + position_row[i];
++        }
++    }
++    return x;
++}
++
++void SentenceModel::attention(const std::vector<float> &q, const std::vector<float> &k, const std::vector<float> &v,
++                              std::size_t batch, std::size_t width, const std::vector<float> *past_k,
++                              const std::vector<float> *past_v, std::size_t past_len, std::vector<float> &out) const
++{
++    const std::size_t n_embd = config_.n_embd;
++    const std::size_t heads = config_.n_head;
++    const std::size_t head_width = n_embd / heads;
++    const float scale = 1.0f / std::sqrt(static_cast<float>(head_width));
++    if (past_k == nullptr || past_v == nullptr)
++    {
++        past_len = 0;
++    }
++    out.assign(batch * width * n_embd, 0.0f);
++    std::vector<float> scores(past_len + width, 0.0f);
++    for (std::size_t row = 0; row < batch; ++row)
++    {
++        const std::size_t base_row = row * width;
++        for (std::size_t step = 0; step < width; ++step)
++        {
++            // Causal, in two runs: the whole shared prefix, then this row's own tokens up to and
++            // including `step`. Rows never see each other.
++            const std::size_t visible_self = step + 1;
++            const std::size_t visible = past_len + visible_self;
++            for (std::size_t head = 0; head < heads; ++head)
++            {
++                const std::size_t base = head * head_width;
++                const float *query = &q[(base_row + step) * n_embd + base];
++                float highest = -std::numeric_limits<float>::infinity();
++                for (std::size_t j = 0; j < past_len; ++j)
++                {
++                    float s = dot(query, &(*past_k)[j * n_embd + base], head_width) * scale;
++                    scores[j] = s;
++                    highest = std::max(highest, s);
++                }
++                for (std::size_t j = 0; j < visible_self; ++j)
++                {
++                    float s = dot(query, &k[(base_row + j) * n_embd + base], head_width) * scale;
++                    scores[past_len + j] = s;
++                    highest = std::max(highest, s);
++                }
++                float sum = 0.0f;
++                for (std::size_t j = 0; j < visible; ++j)
++                {
++                    scores[j] = std::exp(scores[j] - highest);
++                    sum += scores[j];
++                }
++                float *target = &out[(base_row + step) * n_embd + base];
++                for (std::size_t j = 0; j < past_len; ++j)
++                {
++                    float weight = scores[j] / sum;
++                    const float *value = &(*past_v)[j * n_embd + base];
++                    for (std::size_t i = 0; i < head_width; ++i)
++                    {
++                        target[i] += weight * value[i];
++                    }
++                }
++                for (std::size_t j = 0; j < visible_self; ++j)
++                {
++                    float weight = scores[past_len + j] / sum;
++                    const float *value = &v[(base_row + j) * n_embd + base];
++                    for (std::size_t i = 0; i < head_width; ++i)
++                    {
++                        target[i] += weight * value[i];
++                    }
++                }
++            }
++        }
++    }
++}
++
++void SentenceModel::feed_forward(std::vector<float> &x, const Block &block) const
++{
++    const std::size_t n_embd = config_.n_embd;
++    std::size_t rows = x.size() / n_embd;
++    std::vector<float> normed = layer_norm(x.data(), rows, block.ln2_weight, block.ln2_bias, n_embd);
++    std::vector<float> hidden = linear(normed, block.fc_weight, block.fc_bias, n_embd, 4 * n_embd);
++    for (float &value : hidden)
++    {
++        value = gelu(value);
++    }
++    std::vector<float> out = linear(hidden, block.out_weight, block.out_bias, 4 * n_embd, n_embd);
++    for (std::size_t i = 0; i < x.size(); ++i)
++    {
++        x[i] += out[i];
++    }
++}
++
++std::vector<float> SentenceModel::forward(const std::vector<std::uint32_t> &tokens, std::size_t batch,
++                                          std::size_t width, const PrefixCache *past, PrefixCache *record) const
++{
++    const std::size_t n_embd = config_.n_embd;
++    const std::size_t rows = batch * width;
++    const std::size_t past_len = past == nullptr ? 0 : past->length;
++    std::vector<float> x = embed(tokens, width, past_len);
++    std::vector<float> q;
++    std::vector<float> k;
++    std::vector<float> v;
++    std::vector<float> attended;
++    if (record != nullptr)
++    {
++        // A cache is shared by every row that later attends to it, so it can only ever describe one
++        // sequence. build_prefix is the only caller and always passes batch == 1 from position 0.
++        record->keys.assign(blocks_.size(), {});
++        record->values.assign(blocks_.size(), {});
++        record->length = past_len + width;
++    }
++    for (std::size_t layer = 0; layer < blocks_.size(); ++layer)
++    {
++        const Block &block = blocks_[layer];
++        std::vector<float> normed = layer_norm(x.data(), rows, block.ln1_weight, block.ln1_bias, n_embd);
++        std::vector<float> qkv = linear(normed, block.qkv_weight, block.qkv_bias, n_embd, 3 * n_embd);
++        split_qkv(qkv, rows, n_embd, q, k, v);
++        const std::vector<float> *past_k = past_len == 0 ? nullptr : &past->keys[layer];
++        const std::vector<float> *past_v = past_len == 0 ? nullptr : &past->values[layer];
++        attention(q, k, v, batch, width, past_k, past_v, past_len, attended);
++        std::vector<float> projected = linear(attended, block.proj_weight, block.proj_bias, n_embd, n_embd);
++        for (std::size_t i = 0; i < x.size(); ++i)
++        {
++            x[i] += projected[i];
++        }
++        feed_forward(x, block);
++        if (record != nullptr)
++        {
++            record->keys[layer] = k;
++            record->values[layer] = v;
++        }
++    }
++    return layer_norm(x.data(), rows, final_weight_, final_bias_, n_embd);
++}
++
++PrefixCache SentenceModel::build_prefix(const std::vector<std::uint32_t> &tokens) const
++{
++    PrefixCache cache;
++    if (tokens.empty())
++    {
++        return cache;
++    }
++    forward(tokens, 1, tokens.size(), nullptr, &cache);
++    return cache;
++}
++
++std::vector<float> SentenceModel::distribution(const std::vector<float> &hidden) const
++{
++    const std::size_t n_embd = config_.n_embd;
++    const std::size_t vocab = config_.vocab;
++    std::vector<float> logits(vocab, 0.0f);
++    float highest = -std::numeric_limits<float>::infinity();
++    for (std::size_t row = 0; row < vocab; ++row)
++    {
++        float logit = token_.dot_row(hidden.data(), row, n_embd);
++        logits[row] = logit;
++        highest = std::max(highest, logit);
++    }
++    float sum = 0.0f;
++    for (float logit : logits)
++    {
++        sum += std::exp(logit - highest);
++    }
++    float offset = highest + std::log(sum);
++    for (float &logit : logits)
++    {
++        logit -= offset;
++    }
++    return logits;
++}
++
++std::vector<float> SentenceModel::target_log_probs(const std::vector<float> &hidden, std::size_t rows,
++                                                   const std::vector<std::uint32_t> &targets) const
++{
++    const std::size_t n_embd = config_.n_embd;
++    const std::size_t vocab = config_.vocab;
++    std::vector<float> logits(rows * vocab, 0.0f);
++    // Output-major over the vocabulary, and widening each row's int8 once, for the same reasons as
++    // linear(): the tied embedding table is the single largest matrix in the model.
++    std::vector<float> scratch(token_.quantized ? n_embd : 0, 0.0f);
++    for (std::size_t id = 0; id < vocab; ++id)
++    {
++        const float *weights;
++        float scale = 1.0f;
++        if (token_.quantized)
++        {
++            const std::int8_t *source = &token_.ints[id * n_embd];
++            for (std::size_t i = 0; i < n_embd; ++i)
++            {
++                scratch[i] = static_cast<float>(source[i]);
++            }
++            weights = scratch.data();
++            scale = token_.scales[id];
++        }
++        else
++        {
++            weights = &token_.floats[id * n_embd];
++        }
++        for (std::size_t row = 0; row < rows; ++row)
++        {
++            logits[row * vocab + id] = dot(&hidden[row * n_embd], weights, n_embd) * scale;
++        }
++    }
++
++    std::vector<float> out(rows, 0.0f);
++    for (std::size_t row = 0; row < rows; ++row)
++    {
++        if (targets[row] == kNoTarget)
++        {
++            continue;
++        }
++        const float *source = &logits[row * vocab];
++        float highest = -std::numeric_limits<float>::infinity();
++        for (std::size_t id = 0; id < vocab; ++id)
++        {
++            highest = std::max(highest, source[id]);
++        }
++        float sum = 0.0f;
++        for (std::size_t id = 0; id < vocab; ++id)
++        {
++            sum += std::exp(source[id] - highest);
++        }
++        out[row] = source[targets[row]] - (highest + std::log(sum));
++    }
++    return out;
++}
++
++std::vector<float> SentenceModel::next_log_probabilities(const std::string &text) const
++{
++    std::vector<std::uint32_t> tokens;
++    tokens.push_back(kBos);
++    std::vector<std::uint32_t> encoded = encode(text);
++    std::size_t room = config_.context - 1;
++    std::size_t start = encoded.size() > room ? encoded.size() - room : 0;
++    tokens.insert(tokens.end(), encoded.begin() + static_cast<std::ptrdiff_t>(start), encoded.end());
++    std::vector<float> hidden = forward(tokens, 1, tokens.size(), nullptr, nullptr);
++    const std::size_t n_embd = config_.n_embd;
++    std::vector<float> last(hidden.end() - static_cast<std::ptrdiff_t>(n_embd), hidden.end());
++    return distribution(last);
++}
++
++std::vector<double> SentenceModel::score_sentences(const std::string &context,
++                                                   const std::vector<std::string> &texts) const
++{
++    if (texts.empty())
++    {
++        return {};
++    }
++    const std::size_t limit = config_.context;
++    if (limit < 2)
++    {
++        return std::vector<double>(texts.size(), 0.0);
++    }
++
++    // The sequence each candidate is scored under is <bos> + context + candidate. Every candidate
++    // shares all of that but its own tail, so the shared part is split at its last token: that token
++    // leads each batch row, because the distribution it produces is what scores the candidate's
++    // first character. Only what precedes it goes in the cache, since only that stays fixed.
++    std::vector<std::uint32_t> full;
++    full.push_back(kBos);
++    for (std::uint32_t id : encode(context))
++    {
++        full.push_back(id);
++    }
++
++    std::vector<std::vector<std::uint32_t>> tails;
++    tails.reserve(texts.size());
++    std::size_t longest = 0;
++    for (const std::string &text : texts)
++    {
++        std::vector<std::uint32_t> ids = encode(text);
++        // A candidate longer than the window minus the leading token keeps its tail, which is the
++        // part the remaining context can still inform.
++        if (ids.size() > limit - 1)
++        {
++            ids.erase(ids.begin(), ids.begin() + static_cast<std::ptrdiff_t>(ids.size() - (limit - 1)));
++        }
++        longest = std::max(longest, ids.size());
++        tails.push_back(std::move(ids));
++    }
++    const std::size_t width = longest + 1; // the shared leading token, then the longest candidate
++
++    const std::uint32_t last = full.back();
++    std::vector<std::uint32_t> head(full.begin(), full.end() - 1);
++    // Head plus the widest row must fit the position table; the oldest context goes first.
++    const std::size_t room = limit > width ? limit - width : 0;
++    if (head.size() > room)
++    {
++        head.erase(head.begin(), head.begin() + static_cast<std::ptrdiff_t>(head.size() - room));
++    }
++
++    const std::size_t batch = tails.size();
++    // Short rows are padded with token 0; their positions get kNoTarget and are never read.
++    std::vector<std::uint32_t> flat(batch * width, 0u);
++    std::vector<std::uint32_t> targets(batch * width, kNoTarget);
++    for (std::size_t row = 0; row < batch; ++row)
++    {
++        flat[row * width] = last;
++        for (std::size_t i = 0; i < tails[row].size(); ++i)
++        {
++            flat[row * width + 1 + i] = tails[row][i];
++            // Position i predicts token i+1, so the leading token's slot carries the first character.
++            targets[row * width + i] = tails[row][i];
++        }
++    }
++
++    std::vector<float> scored;
++    {
++        std::lock_guard<std::mutex> lock(cache_mutex_);
++        if (cached_tokens_ != head)
++        {
++            cached_prefix_ = build_prefix(head);
++            cached_tokens_ = head;
++        }
++        std::vector<float> hidden = forward(flat, batch, width, &cached_prefix_, nullptr);
++        scored = target_log_probs(hidden, batch * width, targets);
++    }
++
++    std::vector<double> out(batch, 0.0);
++    for (std::size_t row = 0; row < batch; ++row)
++    {
++        double total = 0.0;
++        for (std::size_t i = 0; i < tails[row].size(); ++i)
++        {
++            total += static_cast<double>(scored[row * width + i]);
++        }
++        out[row] = total;
++    }
++    return out;
++}
++
++} // namespace neural
+diff --git a/neural/sentence_model.h b/neural/sentence_model.h
+new file mode 100644
+index 0000000..41b2dd3
+--- /dev/null
++++ b/neural/sentence_model.h
+@@ -0,0 +1,185 @@
++#pragma once
++
++// Character-level Transformer "sentence model" from the chinese-ime-lm project, ported to C++.
++//
++// This is a faithful port of the Apache-2.0 Rust reference implementation
++// (chinese-ime-lm/reference/src/{weights.rs,lib.rs}) and the format spec (docs/format.md). The
++// model is a decoder-only Pre-LN Transformer with tied input/output embeddings; given some
++// committed context it produces a log-probability distribution over the next character.
++//
++// The primitive the IME actually uses is score_sentences: log P(sentence | context) for a handful
++// of already-formed sentences at once, which neural_decoder.* turns into a reranking of the word
++// lattice's n-best paths. next_log_probabilities remains as the single-step reference API that the
++// parity tests check against the Rust implementation.
++//
++// Two things make the scorer fast enough to run on the typing path, and both matter far more than
++// the arithmetic itself. The weights are ~25 MB, which does not fit in cache, so a forward pass is
++// memory-bandwidth bound: every matmul must stream the whole matrix. Therefore (1) the context's
++// per-layer K/V is cached (PrefixCache) so an unchanged context is never recomputed, and (2) all
++// candidates are run as one batch through each layer, so each weight matrix is streamed once for
++// the whole batch instead of once per candidate per token.
++//
++// Numerical details that MUST match the reference or results are garbage: exact erf-based GELU
++// (not the tanh approximation), LayerNorm eps 1e-5, attention scale 1/sqrt(n_embd/n_head), int8
++// per-output-row symmetric dequant (scale applied once after the dot product), and the rule that
++// position i predicts token i+1.
++
++#include <cstdint>
++#include <memory>
++#include <mutex>
++#include <optional>
++#include <string>
++#include <unordered_map>
++#include <vector>
++
++namespace neural
++{
++
++// A weight matrix kept in whatever precision the file stored it in. Quantized matrices are not
++// expanded on load: the per-output-row scale is a constant factor for the whole row, so it lifts
++// out of the dot product and multiplies the result once.
++struct Matrix
++{
++    bool quantized = false;
++    std::vector<float> floats;     // used when !quantized
++    std::vector<std::int8_t> ints; // used when quantized
++    std::vector<float> scales;     // per output row, used when quantized
++
++    std::size_t len() const
++    {
++        return quantized ? ints.size() : floats.size();
++    }
++
++    // dot(x, row) * scale[row], where the scale is 1 for an unquantized matrix.
++    float dot_row(const float *x, std::size_t row, std::size_t width) const;
++
++    // One row as f32, for the token table read as an embedding as well as an output projection.
++    void row_into(std::size_t index, std::size_t width, float *out) const;
++};
++
++struct Config
++{
++    std::size_t vocab = 0;
++    std::size_t n_layer = 0;
++    std::size_t n_head = 0;
++    std::size_t n_embd = 0;
++    std::size_t context = 0;
++};
++
++struct Block
++{
++    std::vector<float> ln1_weight;
++    std::vector<float> ln1_bias;
++    Matrix qkv_weight;
++    std::vector<float> qkv_bias;
++    Matrix proj_weight;
++    std::vector<float> proj_bias;
++    std::vector<float> ln2_weight;
++    std::vector<float> ln2_bias;
++    Matrix fc_weight;
++    std::vector<float> fc_bias;
++    Matrix out_weight;
++    std::vector<float> out_bias;
++};
++
++// Per-layer keys and values for a fixed run of leading tokens, each [length, n_embd] row-major.
++// Every batch row of a later segment attends to the same cache, so a context shared by all the
++// candidates is paid for once.
++struct PrefixCache
++{
++    std::vector<std::vector<float>> keys;   // one entry per layer
++    std::vector<std::vector<float>> values; // one entry per layer
++    std::size_t length = 0;                 // tokens covered, i.e. the position the next token takes
++};
++
++class SentenceModel
++{
++  public:
++    // Loads a model from an in-memory safetensors file. Returns nullptr on any malformed input
++    // rather than throwing, so a missing or corrupt model leaves the IME working without it.
++    static std::unique_ptr<SentenceModel> load(const std::vector<std::uint8_t> &bytes);
++
++    // Loads a model from disk. Returns nullptr when the file is absent or unreadable/invalid.
++    static std::unique_ptr<SentenceModel> load_file(const std::string &path);
++
++    std::size_t context_length() const
++    {
++        return config_.context;
++    }
++    const std::string &attribution() const
++    {
++        return attribution_;
++    }
++    const std::string &license() const
++    {
++        return license_;
++    }
++
++    // The token id this model uses for a character (a Unicode code point), if any.
++    std::optional<std::uint32_t> token(char32_t character) const;
++
++    // log P(next character | text), over the whole vocabulary. Index by token id.
++    std::vector<float> next_log_probabilities(const std::string &text) const;
++
++    // Sum over characters of log P(character | context and everything before it in the text), one
++    // entry per text. Characters outside the vocabulary score as <unk>, so a text is never dropped.
++    //
++    // The whole batch is one pass: `context` (minus its last token) becomes a PrefixCache reused
++    // across calls while the context is unchanged, and the texts are padded to equal length and run
++    // together. An empty `texts` returns empty. A text longer than the model's context window is
++    // truncated from the left, as is the context when the two together do not fit.
++    //
++    // Thread-safe: the prefix cache is guarded, and concurrent callers with different contexts are
++    // correct but will evict each other.
++    std::vector<double> score_sentences(const std::string &context, const std::vector<std::string> &texts) const;
++
++  private:
++    static constexpr std::uint32_t kUnk = 1;
++    static constexpr std::uint32_t kBos = 2;
++
++    Config config_;
++    std::unordered_map<char32_t, std::uint32_t> index_;
++    Matrix token_;
++    std::vector<float> position_;
++    std::vector<Block> blocks_;
++    std::vector<float> final_weight_;
++    std::vector<float> final_bias_;
++    std::string attribution_;
++    std::string license_;
++
++    // Guards the cached prefix below. mutable so scoring stays const.
++    mutable std::mutex cache_mutex_;
++    mutable std::vector<std::uint32_t> cached_tokens_;
++    mutable PrefixCache cached_prefix_;
++
++    std::vector<std::uint32_t> encode(const std::string &text) const;
++    std::vector<float> embed(const std::vector<std::uint32_t> &tokens, std::size_t width, std::size_t offset) const;
++
++    // Runs `batch` rows of `width` tokens (row-major in `tokens`, padded to equal length by the
++    // caller) at positions [past_len, past_len + width), where every row additionally attends to
++    // `past`. Returns the final-LayerNorm'd hidden states, [batch * width, n_embd].
++    //
++    // When `record` is non-null the K/V produced here is stored into it, which requires batch == 1
++    // (a cache is shared by later rows, so it may only ever describe one sequence).
++    std::vector<float> forward(const std::vector<std::uint32_t> &tokens, std::size_t batch, std::size_t width,
++                               const PrefixCache *past, PrefixCache *record) const;
++
++    // Builds the K/V cache for `tokens`, which are taken to start at position 0.
++    PrefixCache build_prefix(const std::vector<std::uint32_t> &tokens) const;
++
++    // log-softmax over the vocabulary for one hidden state.
++    std::vector<float> distribution(const std::vector<float> &hidden) const;
++
++    // For each of `rows` hidden states, log P(targets[row]) under that state's distribution. Rows
++    // with target kNoTarget are skipped and report 0.
++    static constexpr std::uint32_t kNoTarget = 0xFFFFFFFFu;
++    std::vector<float> target_log_probs(const std::vector<float> &hidden, std::size_t rows,
++                                        const std::vector<std::uint32_t> &targets) const;
++
++    void attention(const std::vector<float> &q, const std::vector<float> &k, const std::vector<float> &v,
++                   std::size_t batch, std::size_t width, const std::vector<float> *past_k,
++                   const std::vector<float> *past_v, std::size_t past_len, std::vector<float> &out) const;
++    void feed_forward(std::vector<float> &x, const Block &block) const;
++};
++
++} // namespace neural
+diff --git a/quanpin/engine.cpp b/quanpin/engine.cpp
+index ea30cf8..b706bc4 100644
+--- a/quanpin/engine.cpp
++++ b/quanpin/engine.cpp
+@@ -41,6 +41,8 @@ std::vector<WordItem> QuanpinEngine::query(const QueryRequest &request)
+     // The setter is a no-op when the value is unchanged, so this costs nothing per keystroke and
+     // clears the cached lists exactly once, on the keystroke where the host's answer changes.
+     dictionary_.set_sentence_alternatives(request.sentence_alternatives);
++    dictionary_.set_sentence_association(request.sentence_association);
++    dictionary_.set_rescoring_context(request.rescoring_context);
+ 
+     const size_t helpcode_length =
+         request.enable_quanpin_helpcode
+diff --git a/quanpin/lattice_rerank.cpp b/quanpin/lattice_rerank.cpp
+new file mode 100644
+index 0000000..3bc00f5
+--- /dev/null
++++ b/quanpin/lattice_rerank.cpp
+@@ -0,0 +1,56 @@
++#include "lattice_rerank.h"
++
++#include "../neural/rescore_worker.h"
++
++#include <optional>
++#include <vector>
++
++namespace quanpin
++{
++
++LatticeReranker make_neural_reranker(const neural::SentenceModel *model, const std::string &context,
++                                     const neural::RerankOptions &options)
++{
++    if (model == nullptr)
++    {
++        return {};
++    }
++    // 在这里就把前文裁到模型真正会看的那几十个字：后台重排的结果表以「前文 + 候选句」为键，
++    // 拿没裁过的整段历史当键的话，每上屏一个字键就变了，缓存永远打不中。
++    const std::string trimmed = neural::last_characters(context, options.context_chars);
++    return [model, context = trimmed, options](std::vector<LatticePath> &paths) -> bool {
++        if (paths.size() < 2)
++        {
++            return false;
++        }
++        std::vector<std::string> sentences;
++        std::vector<double> scores;
++        sentences.reserve(paths.size());
++        scores.reserve(paths.size());
++        for (const LatticePath &path : paths)
++        {
++            sentences.push_back(path.sentence);
++            scores.push_back(path.log_prob);
++        }
++
++        // 不在这里打分：交给后台线程，第一次必然落空，按词格的静态顺序先出候选。线程算完会叫
++        // 醒会话重查一次，那一次才在结果表里拿到顺序。
++        const std::optional<std::vector<std::size_t>> order =
++            neural::RescoreWorker::instance().order_for(*model, context, sentences, scores, options);
++        if (!order || order->size() != paths.size())
++        {
++            return false; // 还没算出来，或者模型自己弃权了：词格的顺序原样留着
++        }
++
++        std::vector<LatticePath> reordered;
++        reordered.reserve(paths.size());
++        for (std::size_t index : *order)
++        {
++            reordered.push_back(paths[index]);
++        }
++        paths = std::move(reordered);
++        return true;
++    };
++}
++
++} // namespace quanpin
+diff --git a/quanpin/lattice_rerank.h b/quanpin/lattice_rerank.h
+new file mode 100644
+index 0000000..197fde4
+--- /dev/null
++++ b/quanpin/lattice_rerank.h
+@@ -0,0 +1,27 @@
++#pragma once
++
++// Bridges the word lattice's n-best paths to the neural sentence model.
++//
++// word_lattice.* knows nothing about the model and engine/neural knows nothing about lattices; this
++// is the one place that speaks both. Quanpin and shuangpin share it because their sentence pipelines
++// are the same lattice over the same syllables.
++
++#include "../neural/neural_decoder.h"
++#include "word_lattice.h"
++
++#include <string>
++
++namespace quanpin
++{
++
++// A reranker for merge_lattice_candidates that reorders paths by the neural model, or an empty
++// std::function when `model` is null (the model file is absent, or the feature is switched off).
++// An empty reranker is not an error: the lattice's own order stands.
++//
++// `context` is the text already committed before the composition, used as the model's conditioning
++// prefix. Empty is fine and simply scores each sentence on its own. Pass the whole history: it is
++// trimmed here to the last `options.context_chars` characters, which is what actually gets scored.
++LatticeReranker make_neural_reranker(const neural::SentenceModel *model, const std::string &context,
++                                     const neural::RerankOptions &options = {});
++
++} // namespace quanpin
+diff --git a/quanpin/quanpin_dictionary.cpp b/quanpin/quanpin_dictionary.cpp
+index 08214de..ddb4008 100644
+--- a/quanpin/quanpin_dictionary.cpp
++++ b/quanpin/quanpin_dictionary.cpp
+@@ -6,6 +6,8 @@
+ #include "../common/helpcode_utils.h"
+ #include "quanpin_query.h"
+ #include "quanpin_utils.h"
++#include "lattice_rerank.h"
++#include "../neural/neural_decoder.h"
+ #include "../shuangpin/shuangpin_utils.h"
+ #include <algorithm>
+ #include <climits>
+@@ -246,6 +248,10 @@ QuanpinDictionary::QuanpinDictionary(std::string db_path, metasequoia::RuntimePa
+     : cache_(128), series_cache_(128), segmentation_cache_(128), resolution_cache_(128), paths_(std::move(paths)),
+       decoder_(paths_.resource(metasequoia::assets::pinyin_model),
+                paths_.user(metasequoia::assets::pinyin_user_dictionary)),
++      neural_desktop_model_(neural::shared_sentence_model(
++          metasequoia::path_to_utf8(paths_.resource(metasequoia::assets::neural_model_desktop)))),
++      neural_keyboard_model_(neural::shared_sentence_model(
++          metasequoia::path_to_utf8(paths_.resource(metasequoia::assets::neural_model_keyboard)))),
+       db_path_(db_path.empty() ? metasequoia::path_to_utf8(paths_.dictionary(metasequoia::assets::main_dictionary))
+                                : std::move(db_path))
+ {
+@@ -300,6 +306,22 @@ void QuanpinDictionary::set_sentence_alternatives(bool enabled)
+     series_cache_.clear();
+ }
+ 
++void QuanpinDictionary::set_sentence_association(const SentenceAssociationOptions &options)
++{
++    if (sentence_association_ == options)
++        return;
++    sentence_association_ = options;
++    reset_cache();
++}
++
++void QuanpinDictionary::set_rescoring_context(const std::string &context)
++{
++    if (rescoring_context_ == context)
++        return;
++    rescoring_context_ = context;
++    reset_cache();
++}
++
+ std::vector<WordItem> QuanpinDictionary::query_exact(const std::string &raw_input, const std::string &segmentation,
+                                                      unsigned autocorrect_types)
+ {
+@@ -349,7 +371,9 @@ std::vector<WordItem> QuanpinDictionary::query_exact(const std::string &raw_inpu
+ 
+     // Autocorrected results get their own cache slot so they never leak the
+     // fallback tail into plain (correct) spellings sharing the same key.
+-    if (series_cache_.contains(resolution.cache_key))
++    const bool neural_enabled = (sentence_association_.neural_keyboard && neural_keyboard_model_ != nullptr) ||
++                                (sentence_association_.neural_desktop && neural_desktop_model_ != nullptr);
++    if (!neural_enabled && series_cache_.contains(resolution.cache_key))
+     {
+         reset_cache_if_database_changed();
+         if (auto cached = series_cache_.get(resolution.cache_key))
+@@ -443,7 +467,8 @@ std::vector<WordItem> QuanpinDictionary::query_exact(const std::string &raw_inpu
+                                                      alternative_segmentations, std::move(result));
+         }
+     }
+-    series_cache_.insert(resolution.cache_key, result);
++    if (!neural_enabled)
++        series_cache_.insert(resolution.cache_key, result);
+     return result;
+ }
+ 
+@@ -577,13 +602,15 @@ std::vector<WordItem> QuanpinDictionary::query_series(const std::string &raw_inp
+         // whole_sentence_insert_position computes.  This used to insert at
+         // index 0 unconditionally: an assembled sentence displaced the exact
+         // word, turning 百依百顺 into 白一百顺 and 颁布实施 into 版不是是.
+-        // A manual apostrophe is explicit segmentation and must reach the decoder unchanged
+-        // (nu'e is not nue). Automatic cuts may be flattened after rewriting each syllable.
+-        const std::string google_input =
+-            raw_input.find('\'') != std::string::npos
+-                ? quanpin::to_google_spelling(raw_input)
+-                : remove_delimiters(quanpin::to_google_spelling(segmentation.empty() ? raw_input : segmentation));
+-        const std::string google_sentence = search_sentence_from_ime_engine(google_input);
++        std::string google_sentence;
++        if (sentence_association_.google)
++        {
++            // A manual apostrophe is explicit segmentation and must reach the decoder unchanged
++            // (nu'e is not nue). Automatic cuts may be flattened after rewriting each syllable.
++            const std::string google_input =
++                segmentation.empty() ? raw_input : to_google_spelling_preserving_delimiters(segmentation);
++            google_sentence = search_sentence_from_ime_engine(google_input);
++        }
+         if (!google_sentence.empty())
+         {
+             const auto duplicate = std::find_if(result.begin(), result.end(),
+@@ -601,12 +628,30 @@ std::vector<WordItem> QuanpinDictionary::query_series(const std::string &raw_inp
+             }
+         }
+ 
++        std::vector<quanpin::SourcedLatticeReranker> rerankers;
++        if (sentence_association_.neural_keyboard && neural_keyboard_model_ != nullptr)
++            rerankers.push_back({quanpin::make_neural_reranker(neural_keyboard_model_, rescoring_context_),
++                                 CandidateSource::NeuralKeyboard});
++        if (sentence_association_.neural_desktop && neural_desktop_model_ != nullptr)
++            rerankers.push_back({quanpin::make_neural_reranker(neural_desktop_model_, rescoring_context_),
++                                 CandidateSource::NeuralDesktop});
++        const bool need_lattice = sentence_association_.word_lattice || !rerankers.empty();
+         const auto lattice_options = quanpin::make_sentence_lattice_options(paths_, sentence_alternatives_);
+         quanpin::WholeSentenceComparison sentences;
+-        quanpin::merge_lattice_candidates(
+-            result, segments,
+-            quanpin::make_lattice_db_lookup(db_, statement_cache_, lattice_options.span_limit),
+-            segmentation.empty() ? raw_input : segmentation, lattice_options, google_sentence, &sentences);
++        if (need_lattice)
++        {
++            auto options = lattice_options;
++            options.nbest =
++                rerankers.empty() ? lattice_options.nbest : static_cast<int>(neural::RerankOptions{}.max_paths);
++            options.include_lattice_best = sentence_association_.word_lattice;
++            options.show_next_on_duplicate = sentence_association_.show_next_on_duplicate;
++            quanpin::merge_lattice_candidates(
++                result, segments,
++                quanpin::make_lattice_db_lookup(db_, statement_cache_, quanpin::QuerySource::Quanpin,
++                                                options.span_limit),
++                segmentation.empty() ? raw_input : segmentation, options, google_sentence,
++                sentence_association_.google ? &sentences : nullptr, rerankers);
++        }
+         // A sentence neither source produced on its own, assembled from one source's frame and the
+         // other's disputed span. It only exists when it outscored both, so it goes in front of them.
+         if (sentences.hybrid_leads(lattice_options.repair_margin) &&
+@@ -626,7 +671,8 @@ std::vector<WordItem> QuanpinDictionary::query_series(const std::string &raw_inp
+         // including the ones where the lattice read the sentence correctly and it did not. Now both
+         // are scored on the same terms and the better one leads; a fallback the dictionary cannot
+         // spell has no score, and keeps the seat it always had.
+-        if (!google_sentence.empty() && !sentences.lattice_outranks_fallback(lattice_options.fallback_margin) &&
++        if (sentence_association_.google && !google_sentence.empty() &&
++            !sentences.lattice_outranks_fallback(lattice_options.fallback_margin) &&
+             !sentences.hybrid_leads(lattice_options.repair_margin))
+         {
+             const auto google = std::find_if(result.begin(), result.end(), [&](const WordItem &item) {
+@@ -876,6 +922,8 @@ std::vector<WordItem> QuanpinDictionary::append_ime_fallback(const std::string &
+         return result;
+     }
+ 
++    if (!sentence_association_.google)
++        return result;
+     const std::string normalized = remove_delimiters(segmentation.empty() ? raw_input : segmentation);
+     const std::string sentence = search_sentence_from_ime_engine(normalized);
+     if (sentence.empty())
+diff --git a/quanpin/quanpin_dictionary.h b/quanpin/quanpin_dictionary.h
+index b8c2ef6..a6996f7 100644
+--- a/quanpin/quanpin_dictionary.h
++++ b/quanpin/quanpin_dictionary.h
+@@ -8,6 +8,9 @@
+ #include "../core/key_event.h"
+ #include "../core/word_item.h"
+ #include "quanpin_query.h"
++#include "lattice_rerank.h"
++#include "../core/sentence_association_options.h"
++#include "../neural/neural_decoder.h"
+ #include "../core/fuzzy_pinyin_options.h"
+ #include <sqlite3.h>
+ #include <string>
+@@ -58,6 +61,8 @@ class QuanpinDictionary
+     // the list, which does not change between keystrokes. Changing it clears the cached lists,
+     // which were built under the previous answer.
+     void set_sentence_alternatives(bool enabled);
++    void set_sentence_association(const SentenceAssociationOptions &options);
++    void set_rescoring_context(const std::string &context);
+ 
+     int create_word(std::string pinyin, std::string word);
+     int create_word_from_canonical_pinyin(std::string pinyin, std::string word);
+@@ -151,7 +156,11 @@ class QuanpinDictionary
+     sqlite3_int64 data_version_ = -1;
+     metasequoia::RuntimePaths paths_;
+     bool sentence_alternatives_ = false;
++    SentenceAssociationOptions sentence_association_;
++    std::string rescoring_context_;
+     metasequoia::PinyinDecoder decoder_;
++    const neural::SentenceModel *neural_desktop_model_ = nullptr;
++    const neural::SentenceModel *neural_keyboard_model_ = nullptr;
+     std::unordered_map<std::string, sqlite3_stmt *> statement_cache_;
+     std::string db_path_;
+ 
+diff --git a/quanpin/word_lattice.cpp b/quanpin/word_lattice.cpp
+index 90061de..b8af10b 100644
+--- a/quanpin/word_lattice.cpp
++++ b/quanpin/word_lattice.cpp
+@@ -411,7 +411,7 @@ std::vector<LatticePath> decode_word_lattice(const Segments &syllables, const Wo
+ void merge_lattice_candidates(std::vector<WordItem> &candidates, const Segments &syllables,
+                               const WordLatticeLookup &lookup, const std::string &typed_pinyin,
+                               const WordLatticeOptions &options, const std::string &fallback_sentence,
+-                              WholeSentenceComparison *comparison)
++                              WholeSentenceComparison *comparison, const std::vector<SourcedLatticeReranker> &rerankers)
+ {
+     if (!lookup || syllables.size() < 2)
+         return;
+@@ -457,15 +457,115 @@ void merge_lattice_candidates(std::vector<WordItem> &candidates, const Segments
+             }
+         }
+     }
++    std::unordered_set<std::string> already;
++    for (const auto &item : candidates)
++        already.insert(item.word);
++
++    if (!rerankers.empty())
++    {
++        std::optional<std::vector<LatticePath>> desktop_paths;
++        std::optional<std::vector<LatticePath>> keyboard_paths;
++        bool keyboard_enabled = false;
++        for (const SourcedLatticeReranker &entry : rerankers)
++        {
++            if (entry.source == CandidateSource::NeuralKeyboard)
++                keyboard_enabled = true;
++            if (!entry.rerank)
++                continue;
++            std::vector<LatticePath> reranked = paths;
++            if (!entry.rerank(reranked))
++                continue;
++            if (entry.source == CandidateSource::NeuralDesktop)
++                desktop_paths = std::move(reranked);
++            else if (entry.source == CandidateSource::NeuralKeyboard)
++                keyboard_paths = std::move(reranked);
++        }
++
++        const auto first_distinct = [&](const std::vector<LatticePath> &ranked) -> const LatticePath * {
++            for (const LatticePath &path : ranked)
++            {
++                if (already.find(path.sentence) != already.end())
++                {
++                    if (options.show_next_on_duplicate)
++                        continue;
++                    break;
++                }
++                return &path;
++            }
++            return nullptr;
++        };
++        const auto take = [&](const std::vector<LatticePath> &ranked, CandidateSource source) {
++            const LatticePath *path = first_distinct(ranked);
++            if (path == nullptr)
++                return std::optional<WordItem>{};
++            already.insert(path->sentence);
++            WordItem item(typed_pinyin, path->sentence, static_cast<std::int64_t>(path->log_prob * 1000.0), source,
++                          path->key);
++            item.sentence_association = true;
++            return std::optional<WordItem>(std::move(item));
++        };
++
++        std::optional<WordItem> lattice_item;
++        if (options.include_lattice_best)
++            lattice_item = take(paths, CandidateSource::Generated);
++        std::optional<WordItem> keyboard_item;
++        std::optional<WordItem> desktop_item;
++        bool keyboard_before_desktop = false;
++        if (keyboard_paths && desktop_paths)
++        {
++            const LatticePath *keyboard_best = first_distinct(*keyboard_paths);
++            const LatticePath *desktop_best = first_distinct(*desktop_paths);
++            keyboard_before_desktop = keyboard_best != nullptr && desktop_best != nullptr &&
++                                      keyboard_best->sentence == desktop_best->sentence;
++            if (keyboard_before_desktop)
++            {
++                keyboard_item = take(*keyboard_paths, CandidateSource::NeuralKeyboard);
++                desktop_item = take(*desktop_paths, CandidateSource::NeuralDesktop);
++            }
++            else
++            {
++                desktop_item = take(*desktop_paths, CandidateSource::NeuralDesktop);
++                keyboard_item = take(*keyboard_paths, CandidateSource::NeuralKeyboard);
++            }
++        }
++        else if (keyboard_paths)
++        {
++            keyboard_item = take(*keyboard_paths, CandidateSource::NeuralKeyboard);
++        }
++        else if (desktop_paths && !keyboard_enabled)
++        {
++            desktop_item = take(*desktop_paths, CandidateSource::NeuralDesktop);
++        }
++
++        std::vector<WordItem> extra;
++        if (lattice_item)
++            extra.push_back(std::move(*lattice_item));
++        if (keyboard_before_desktop)
++        {
++            if (keyboard_item)
++                extra.push_back(std::move(*keyboard_item));
++            if (desktop_item)
++                extra.push_back(std::move(*desktop_item));
++        }
++        else
++        {
++            if (desktop_item)
++                extra.push_back(std::move(*desktop_item));
++            if (keyboard_item)
++                extra.push_back(std::move(*keyboard_item));
++        }
++        if (extra.empty())
++            return;
++        const size_t insert_at = whole_sentence_insert_position(candidates, syllables.size());
++        candidates.insert(candidates.begin() + static_cast<std::ptrdiff_t>(insert_at), extra.begin(), extra.end());
++        return;
++    }
++
+     // Searching several paths and showing one is the point of `emit`: the alternatives exist so the trigram has
+     // something to reorder, not so the candidate page fills with near-duplicate sentences.
+     if (options.emit > 0 && paths.size() > static_cast<size_t>(options.emit))
+         paths.resize(static_cast<size_t>(options.emit));
+ 
+-    std::unordered_set<std::string> already;
+-    for (const auto &item : candidates)
+-        already.insert(item.word);
+-
+     std::vector<WordItem> extra;
+     for (const auto &path : paths)
+     {
+diff --git a/quanpin/word_lattice.h b/quanpin/word_lattice.h
+index b3dff57..ce2ea41 100644
+--- a/quanpin/word_lattice.h
++++ b/quanpin/word_lattice.h
+@@ -70,6 +70,8 @@ struct WordLatticeOptions
+ {
+     int beam = 32;
+     int nbest = 5;
++    bool include_lattice_best = true;
++    bool show_next_on_duplicate = false;
+     // Cap on lexemes per span (injected lookups). DB lookup already applies
+     // the same cap in query_segments_keyed_flat.
+     int span_limit = 32;
+@@ -118,6 +120,14 @@ struct WordLatticeOptions
+ 
+ using WordLatticeLookup = std::function<std::vector<LatticeLexeme>(const Segments &span)>;
+ 
++using LatticeReranker = std::function<bool(std::vector<LatticePath> &paths)>;
++
++struct SourcedLatticeReranker
++{
++    LatticeReranker rerank;
++    CandidateSource source = CandidateSource::Generated;
++};
++
+ std::vector<LatticePath> decode_word_lattice(const Segments &syllables, const WordLatticeLookup &lookup,
+                                              const WordLatticeOptions &options = {});
+ 
+@@ -167,7 +177,8 @@ void merge_lattice_candidates(std::vector<WordItem> &candidates, const Segments
+                               const WordLatticeLookup &lookup, const std::string &typed_pinyin,
+                               const WordLatticeOptions &options = {},
+                               // Scored against the decoded paths on the same terms when given.
+-                              const std::string &fallback_sentence = {}, WholeSentenceComparison *comparison = nullptr);
++                              const std::string &fallback_sentence = {}, WholeSentenceComparison *comparison = nullptr,
++                              const std::vector<SourcedLatticeReranker> &rerankers = {});
+ 
+ // Index of the first row a synthesised whole sentence may take, which is after the leading run of
+ // exact full-cover Database/UserDatabase hits. Both whole-sentence sources share it so neither can
+diff --git a/scripts/fetch-neural-model.ps1 b/scripts/fetch-neural-model.ps1
+new file mode 100644
+index 0000000..bf0e4c5
+--- /dev/null
++++ b/scripts/fetch-neural-model.ps1
+@@ -0,0 +1,25 @@
++[CmdletBinding()]
++param([switch]$Force)
++
++$ErrorActionPreference = 'Stop'
++Set-StrictMode -Version Latest
++$root = Split-Path -Parent $PSScriptRoot
++$modelDir = Join-Path $root 'neural-model'
++$lock = Get-Content (Join-Path $modelDir 'lock.json') -Raw | ConvertFrom-Json
++
++foreach ($model in $lock.models) {
++    $destination = Join-Path $modelDir $model.file
++    if ((Test-Path $destination) -and -not $Force) {
++        $hash = (Get-FileHash $destination -Algorithm SHA256).Hash.ToLowerInvariant()
++        if ($hash -eq $model.sha256.ToLowerInvariant()) {
++            Write-Host "Validated $($model.file)"
++            continue
++        }
++    }
++    Invoke-WebRequest -Uri $model.url -OutFile $destination
++    $hash = (Get-FileHash $destination -Algorithm SHA256).Hash.ToLowerInvariant()
++    if ($hash -ne $model.sha256.ToLowerInvariant()) {
++        throw "SHA-256 mismatch for $($model.file): expected $($model.sha256), got $hash"
++    }
++}
++Write-Host 'Neural sentence models are ready.'
+diff --git a/shuangpin/engine.cpp b/shuangpin/engine.cpp
+index 17f4fc5..ec96433 100644
+--- a/shuangpin/engine.cpp
++++ b/shuangpin/engine.cpp
+@@ -127,6 +127,8 @@ std::vector<WordItem> ShuangpinEngine::query(const QueryRequest &request)
+     }
+ 
+     set_sentence_alternatives(request.sentence_alternatives);
++    set_sentence_association(request.sentence_association);
++    set_rescoring_context(request.rescoring_context);
+ 
+     const std::string &raw_input = request.raw_input;
+     const std::string &raw_input_with_cases =
+diff --git a/shuangpin/engine.h b/shuangpin/engine.h
+index 475e0b7..f71ffd8 100644
+--- a/shuangpin/engine.h
++++ b/shuangpin/engine.h
+@@ -42,6 +42,18 @@ class ShuangpinEngine
+         if (fuzzy_dictionary_)
+             fuzzy_dictionary_->set_sentence_alternatives(enabled);
+     }
++    void set_sentence_association(const SentenceAssociationOptions &options)
++    {
++        dictionary_.set_sentence_association(options);
++        if (fuzzy_dictionary_)
++            fuzzy_dictionary_->set_sentence_association(options);
++    }
++    void set_rescoring_context(const std::string &context)
++    {
++        dictionary_.set_rescoring_context(context);
++        if (fuzzy_dictionary_)
++            fuzzy_dictionary_->set_rescoring_context(context);
++    }
+ 
+   private:
+     const ShuangpinProfile profile_;
+diff --git a/shuangpin/shuangpin_dictionary.cpp b/shuangpin/shuangpin_dictionary.cpp
+index 039d0f9..0d6a5ee 100644
+--- a/shuangpin/shuangpin_dictionary.cpp
++++ b/shuangpin/shuangpin_dictionary.cpp
+@@ -6,6 +6,7 @@
+ #include "../quanpin/quanpin_utils.h"
+ #include "shuangpin_query.h"
+ #include "shuangpin_utils.h"
++#include "../neural/neural_decoder.h"
+ #include <algorithm>
+ #include <mutex>
+ #include <shared_mutex>
+@@ -53,6 +54,10 @@ std::string escape_sql_text(std::string text)
+ ShuangpinDictionary::ShuangpinDictionary(const ShuangpinProfile &profile, metasequoia::RuntimePaths paths)
+     : profile_(profile), paths_(std::move(paths)), decoder_(paths_.resource(metasequoia::assets::pinyin_model),
+                                                             paths_.user(metasequoia::assets::pinyin_user_dictionary)),
++      neural_desktop_model_(neural::shared_sentence_model(
++          metasequoia::path_to_utf8(paths_.resource(metasequoia::assets::neural_model_desktop)))),
++      neural_keyboard_model_(neural::shared_sentence_model(
++          metasequoia::path_to_utf8(paths_.resource(metasequoia::assets::neural_model_keyboard)))),
+       helpcodes_(HelpcodeUtils::load_helpcode_keymap(paths_.resources, HelpcodeUtils::selected_helpcode_schema())),
+       _kb_input_sequence(100), _cached_buffer(128), _cached_buffer_sgl(128), _cached_buffer_sgl_reversed(128),
+       _cached_buffer_dbl(128), _cached_buffer_series(128)
+@@ -81,6 +86,22 @@ ShuangpinDictionary::ShuangpinDictionary(const ShuangpinProfile &profile, metase
+     }
+ }
+ 
++void ShuangpinDictionary::set_sentence_association(const SentenceAssociationOptions &options)
++{
++    if (sentence_association_ == options)
++        return;
++    sentence_association_ = options;
++    reset_cache();
++}
++
++void ShuangpinDictionary::set_rescoring_context(const std::string &context)
++{
++    if (rescoring_context_ == context)
++        return;
++    rescoring_context_ = context;
++    reset_cache();
++}
++
+ /**
+  * @brief Generate candidate list when not in help mode
+  *
+@@ -159,8 +180,10 @@ vector<ShuangpinDictionary::WordItem> ShuangpinDictionary::generateSeries( //
+     else
+     {
+         const std::string effective_cache_key = cache_key.empty() ? pinyin_sequence : cache_key;
++        const bool neural_enabled = (sentence_association_.neural_keyboard && neural_keyboard_model_ != nullptr) ||
++                                    (sentence_association_.neural_desktop && neural_desktop_model_ != nullptr);
+         // 先看一下缓存里有没有
+-        if (_cached_buffer_series.contains(effective_cache_key))
++        if (!neural_enabled && _cached_buffer_series.contains(effective_cache_key))
+         {
+             reset_cache_if_database_changed();
+             if (const auto cached = _cached_buffer_series.get(effective_cache_key))
+@@ -178,7 +201,7 @@ vector<ShuangpinDictionary::WordItem> ShuangpinDictionary::generateSeries( //
+         }
+         else
+         { /* 可能数据库查询的结果是空，这时就需要联想，这个只适合在此处联想 */
+-            if (candidate_list.size() == 0)
++            if (candidate_list.size() == 0 && sentence_association_.google)
+             {
+                 string quanpin_str =
+                     ShuangpinUtil::convert_seg_shuangpin_to_seg_complete_pinyin(pinyin_segmentation, profile_);
+@@ -225,7 +248,8 @@ vector<ShuangpinDictionary::WordItem> ShuangpinDictionary::generateSeries( //
+         // this; this one kept inserting at index 0, so an assembled sentence
+         // displaced the exact word, turning 筚路蓝缕 into 笔录蓝绿.
+         std::string google_sentence;
+-        if (quanpin_segments.size() >= 2 && quanpin_segmentation.find('\'') != std::string::npos)
++        if (sentence_association_.google && quanpin_segments.size() >= 2 &&
++            quanpin_segmentation.find('\'') != std::string::npos)
+         {
+             google_sentence = search_sentence_from_ime_engine(quanpin::to_google_spelling(quanpin_segmentation));
+             const bool duplicate = std::any_of(candidate_list.begin(), candidate_list.end(),
+@@ -240,11 +264,27 @@ vector<ShuangpinDictionary::WordItem> ShuangpinDictionary::generateSeries( //
+                 candidate_list.insert(candidate_list.begin() + at, std::move(sentence));
+             }
+         }
+-        const auto lattice_options = quanpin::make_sentence_lattice_options(paths_, sentence_alternatives_);
+-        quanpin::merge_lattice_candidates(candidate_list, quanpin_segments,
+-                                          quanpin::make_lattice_db_lookup(quanpin_db_, quanpin_statement_cache_,
+-                                                                          lattice_options.span_limit),
+-                                          pinyin_sequence, lattice_options);
++        std::vector<quanpin::SourcedLatticeReranker> rerankers;
++        if (sentence_association_.neural_keyboard && neural_keyboard_model_ != nullptr)
++            rerankers.push_back({quanpin::make_neural_reranker(neural_keyboard_model_, rescoring_context_),
++                                 CandidateSource::NeuralKeyboard});
++        if (sentence_association_.neural_desktop && neural_desktop_model_ != nullptr)
++            rerankers.push_back({quanpin::make_neural_reranker(neural_desktop_model_, rescoring_context_),
++                                 CandidateSource::NeuralDesktop});
++        const bool need_lattice = sentence_association_.word_lattice || !rerankers.empty();
++        auto lattice_options = quanpin::make_sentence_lattice_options(paths_, sentence_alternatives_);
++        lattice_options.nbest =
++            rerankers.empty() ? lattice_options.nbest : static_cast<int>(neural::RerankOptions{}.max_paths);
++        lattice_options.include_lattice_best = sentence_association_.word_lattice;
++        lattice_options.show_next_on_duplicate = sentence_association_.show_next_on_duplicate;
++        if (need_lattice)
++        {
++            quanpin::merge_lattice_candidates(candidate_list, quanpin_segments,
++                                              quanpin::make_lattice_db_lookup(quanpin_db_, quanpin_statement_cache_,
++                                                                              quanpin::QuerySource::Shuangpin,
++                                                                              lattice_options.span_limit),
++                                              pinyin_sequence, lattice_options, {}, nullptr, rerankers);
++        }
+         if (!google_sentence.empty())
+         {
+             const auto google = std::find_if(candidate_list.begin(), candidate_list.end(), [&](const WordItem &item) {
+@@ -263,7 +303,8 @@ vector<ShuangpinDictionary::WordItem> ShuangpinDictionary::generateSeries( //
+         }
+ 
+         /* 缓存起来 */
+-        _cached_buffer_series.insert(effective_cache_key, candidate_list);
++        if (!neural_enabled)
++            _cached_buffer_series.insert(effective_cache_key, candidate_list);
+     }
+ 
+     return candidate_list;
+diff --git a/shuangpin/shuangpin_dictionary.h b/shuangpin/shuangpin_dictionary.h
+index 9aca94f..fde50f6 100644
+--- a/shuangpin/shuangpin_dictionary.h
++++ b/shuangpin/shuangpin_dictionary.h
+@@ -10,6 +10,9 @@
+ #include "../core/word_item.h"
+ #include "../quanpin/quanpin_query.h"
+ #include "shuangpin_profile.h"
++#include "../core/sentence_association_options.h"
++#include "../neural/neural_decoder.h"
++#include "../quanpin/lattice_rerank.h"
+ #include <shared_mutex>
+ #include <array>
+ #include <vector>
+@@ -73,6 +76,8 @@ class ShuangpinDictionary
+     explicit ShuangpinDictionary(const ShuangpinProfile &profile = GetXiaoheShuangpinProfile(),
+                                  metasequoia::RuntimePaths paths = metasequoia::RuntimePaths::legacy());
+     ~ShuangpinDictionary();
++    void set_sentence_association(const SentenceAssociationOptions &options);
++    void set_rescoring_context(const std::string &context);
+ 
+     const ShuangpinProfile &profile() const
+     {
+@@ -86,7 +91,11 @@ class ShuangpinDictionary
+     sqlite3_int64 data_version_ = -1;
+     metasequoia::RuntimePaths paths_;
+     bool sentence_alternatives_ = false;
++    SentenceAssociationOptions sentence_association_;
++    std::string rescoring_context_;
+     metasequoia::PinyinDecoder decoder_;
++    const neural::SentenceModel *neural_desktop_model_ = nullptr;
++    const neural::SentenceModel *neural_keyboard_model_ = nullptr;
+     HelpcodeUtils::SharedKeymap helpcodes_;
+     std::unordered_map<std::string, sqlite3_stmt *> quanpin_statement_cache_;
+     void reset_cache_if_database_changed();
+diff --git a/tests/src/test_neural_sentence.cpp b/tests/src/test_neural_sentence.cpp
+new file mode 100644
+index 0000000..ecb4cbd
+--- /dev/null
++++ b/tests/src/test_neural_sentence.cpp
+@@ -0,0 +1,50 @@
++#include "core/sentence_association_options.h"
++#include "neural/neural_decoder.h"
++#include "neural/sentence_model.h"
++
++#include <iostream>
++
++int main(int argc, char **argv)
++{
++    if (neural::last_characters("a\xE4\xBD\xA0\xE5\xA5\xBD", 2) != "\xE4\xBD\xA0\xE5\xA5\xBD")
++    {
++        std::cerr << "last_characters must count Unicode characters\n";
++        return 1;
++    }
++    if (!neural::last_characters("你好", 0).empty())
++    {
++        std::cerr << "zero context must be empty\n";
++        return 1;
++    }
++    if (neural::SentenceModel::load({}) != nullptr)
++    {
++        std::cerr << "an empty model must be rejected\n";
++        return 1;
++    }
++    SentenceAssociationOptions defaults;
++    if (!defaults.word_lattice || !defaults.google || defaults.neural_desktop || defaults.neural_keyboard)
++    {
++        std::cerr << "sentence association defaults changed unexpectedly\n";
++        return 1;
++    }
++    auto neural_only = defaults;
++    neural_only.word_lattice = false;
++    neural_only.google = false;
++    neural_only.neural_keyboard = true;
++    if (neural_only == defaults || neural_only != neural_only)
++    {
++        std::cerr << "sentence association equality is inconsistent\n";
++        return 1;
++    }
++    if (argc > 1)
++    {
++        auto model = neural::SentenceModel::load_file(argv[1]);
++        if (!model || model->context_length() == 0 || model->score_sentences("", {"你好", "你号"}).size() != 2)
++        {
++            std::cerr << "a released model must load and score a sentence batch\n";
++            return 1;
++        }
++    }
++    std::cout << "neural sentence helpers ok\n";
++    return 0;
++}
+diff --git a/tests/src/test_ngram_table.cpp b/tests/src/test_ngram_table.cpp
+index cdd2d5c..6d05538 100644
+--- a/tests/src/test_ngram_table.cpp
++++ b/tests/src/test_ngram_table.cpp
+@@ -242,6 +242,34 @@ void test_trigram_reorders_the_paths()
+     check(all.nbest == 6 && all.emit == 0, "asking for alternatives searches the same six and shows them");
+ }
+ 
++void test_lattice_reranker_sources_one_path_each()
++{
++    std::unordered_map<std::string, std::vector<quanpin::LatticeLexeme>> rows;
++    rows["ni'hao'xue"] = {{"ni'hao'xue", "你好学", 20000}};
++    rows["ni'hao"] = {{"ni'hao", "你好", 20000}};
++    rows["ni"] = {{"ni", "你", 20000}, {"ni", "泥", 19000}};
++    rows["hao"] = {{"hao", "好", 20000}};
++    rows["xue"] = {{"xue", "学", 20000}};
++    const quanpin::Segments syllables = {"ni", "hao", "xue"};
++    std::vector<WordItem> candidates;
++    quanpin::WordLatticeOptions options;
++    options.nbest = 2;
++    options.include_lattice_best = false;
++    options.emit = 0;
++    const quanpin::SourcedLatticeReranker reranker{[](std::vector<quanpin::LatticePath> &paths) {
++                                                       if (paths.size() < 2)
++                                                           return false;
++                                                       std::reverse(paths.begin(), paths.end());
++                                                       return true;
++                                                   },
++                                                   CandidateSource::NeuralKeyboard};
++    quanpin::merge_lattice_candidates(candidates, syllables, table_lookup(rows), "nihaoxue", options, {}, nullptr,
++                                      {reranker});
++    check(candidates.size() == 1, "a completed reranker contributes one sentence");
++    check(!candidates.empty() && candidates.front().source == CandidateSource::NeuralKeyboard,
++          "the reranked sentence records its source");
++}
++
+ } // namespace
+ 
+ int main()
+@@ -250,6 +278,7 @@ int main()
+     test_rejects_bad_files();
+     test_lattice_uses_the_transition();
+     test_trigram_reorders_the_paths();
++    test_lattice_reranker_sources_one_path_each();
+     std::filesystem::remove_all(scratch_dir());
+     if (failures)
+     {

@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { GroupList } from "../core/platform-controls";
+import * as doc from "../settings/document-style";
 import * as account from "./account-style";
 import { accountProviderName, preferredAccountName } from "./account-labels";
 import { accountMessage, isAccountCancellation } from "./account-errors";
@@ -648,6 +650,48 @@ function SettingsSyncCard({ client, userId }: { client: SettingsSyncClient; user
   );
 }
 
+/** One row of a 我的 group on a touch host: it opens a page, a panel or a link. */
+function MeRow({
+  title,
+  disabled,
+  onClick,
+}: {
+  title: string;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button type="button" className={doc.linkRow} disabled={disabled} onClick={onClick}>
+      <span className={doc.linkTitle}>{title}</span>
+      <span aria-hidden="true">›</span>
+    </button>
+  );
+}
+
+/** The last, untitled group of 我的 on a touch host (dc.html `meGroups`): the walkthrough again, 帮助与反馈 and 关于. It does not depend on the account, so a host without one still reaches them. */
+function MeSupportGroup({
+  disabled,
+  onReplayOnboarding,
+  onOpenFeedback,
+  onOpenAbout,
+}: {
+  disabled?: boolean;
+  onReplayOnboarding?: () => void;
+  onOpenFeedback?: () => void;
+  onOpenAbout?: () => void;
+}) {
+  if (!onReplayOnboarding && !onOpenFeedback && !onOpenAbout) return null;
+  return (
+    <GroupList>
+      {onReplayOnboarding && (
+        <MeRow title="新手引导" disabled={disabled} onClick={onReplayOnboarding} />
+      )}
+      {onOpenFeedback && <MeRow title="帮助与反馈" disabled={disabled} onClick={onOpenFeedback} />}
+      {onOpenAbout && <MeRow title="关于" disabled={disabled} onClick={onOpenAbout} />}
+    </GroupList>
+  );
+}
+
 export function AccountPage({
   client,
   appIcon,
@@ -661,6 +705,7 @@ export function AccountPage({
   onOpenCloudDictionary,
   onOpenCloudClipboard,
   onOpenAbout,
+  onOpenFeedback,
   onOpenDesktopDownload,
   onReplayOnboarding,
 }: {
@@ -677,6 +722,8 @@ export function AccountPage({
   onOpenCloudDictionary?: () => void;
   onOpenCloudClipboard?: () => void;
   onOpenAbout?: () => void;
+  /** Opens 反馈 (with 使用帮助 under it). A touch host passes it: 我的 is where the design keeps 帮助与反馈. */
+  onOpenFeedback?: () => void;
   onOpenDesktopDownload?: () => void;
   onReplayOnboarding?: () => void;
 }) {
@@ -690,6 +737,11 @@ export function AccountPage({
             platform={platform === "harmony" ? undefined : platform}
           />
         )}
+        <MeSupportGroup
+          onReplayOnboarding={onReplayOnboarding}
+          onOpenFeedback={onOpenFeedback}
+          onOpenAbout={onOpenAbout}
+        />
       </div>
     );
   }
@@ -707,6 +759,7 @@ export function AccountPage({
       onOpenCloudDictionary={onOpenCloudDictionary}
       onOpenCloudClipboard={onOpenCloudClipboard}
       onOpenAbout={onOpenAbout}
+      onOpenFeedback={onOpenFeedback}
       onOpenDesktopDownload={onOpenDesktopDownload}
       onReplayOnboarding={onReplayOnboarding}
     />
@@ -726,6 +779,7 @@ function AccountDetailsPage({
   onOpenCloudDictionary,
   onOpenCloudClipboard,
   onOpenAbout,
+  onOpenFeedback,
   onOpenDesktopDownload,
   onReplayOnboarding,
 }: {
@@ -741,6 +795,8 @@ function AccountDetailsPage({
   onOpenCloudDictionary?: () => void;
   onOpenCloudClipboard?: () => void;
   onOpenAbout?: () => void;
+  /** Opens 反馈 (with 使用帮助 under it). A touch host passes it: 我的 is where the design keeps 帮助与反馈. */
+  onOpenFeedback?: () => void;
   onOpenDesktopDownload?: () => void;
   onReplayOnboarding?: () => void;
 }) {
@@ -1054,7 +1110,7 @@ function AccountDetailsPage({
           platform={platform === "harmony" ? undefined : platform}
         />
       )}
-      {onOpenLocalDesigns && (
+      {!mobile && onOpenLocalDesigns && (
         <section className={`${account.section} ${account.communityActions}`}>
           <div>
             <h2 className={account.heading}>我的设计</h2>
@@ -1253,10 +1309,10 @@ function AccountDetailsPage({
               )}
             </section>
           )}
-          {client.settingsSync && (
+          {!mobile && client.settingsSync && (
             <SettingsSyncCard client={client.settingsSync} userId={user.id} />
           )}
-          {(onOpenCloudDictionary || onOpenCloudClipboard) && (
+          {!mobile && (onOpenCloudDictionary || onOpenCloudClipboard) && (
             <section className={`${account.section} ${account.communityActions}`}>
               <div>
                 <h2 className={account.heading}>云端</h2>
@@ -1284,129 +1340,60 @@ function AccountDetailsPage({
               )}
             </section>
           )}
-          {(openPublishedSkins || onOpenCommunity) &&
-            (mobile ? (
-              <>
-                <section className={`${account.section} ${account.communityGroup}`}>
-                  <div>
-                    <h2 className={account.heading}>我发布的</h2>
-                    <p className={account.note}>管理你公开发布的社区作品。</p>
-                  </div>
-                  {openPublishedSkins && (
-                    <button
-                      type="button"
-                      className="secondary"
-                      aria-label="我发布的皮肤"
-                      disabled={busy}
-                      onClick={openPublishedSkins}
-                    >
-                      皮肤
-                    </button>
-                  )}
-                  {onOpenCommunity && (
-                    <>
-                      <button
-                        type="button"
-                        className="secondary"
-                        aria-label="我发布的词库"
-                        disabled={busy}
-                        onClick={() => onOpenCommunity("published-dictionary")}
-                      >
-                        词库
-                      </button>
-                      <button
-                        type="button"
-                        className="secondary"
-                        aria-label="我发布的回复"
-                        disabled={busy}
-                        onClick={() => onOpenCommunity("published-reply")}
-                      >
-                        回复
-                      </button>
-                    </>
-                  )}
-                </section>
-                {onOpenCommunity && (
-                  <section className={`${account.section} ${account.communityGroup}`}>
-                    <div>
-                      <h2 className={account.heading}>我收藏的</h2>
-                      <p className={account.note}>管理你收藏的社区资源。</p>
-                    </div>
-                    <button
-                      type="button"
-                      className="secondary"
-                      aria-label="收藏的词库"
-                      disabled={busy}
-                      onClick={() => onOpenCommunity("saved-dictionary")}
-                    >
-                      词库
-                    </button>
-                    <button
-                      type="button"
-                      className="secondary"
-                      aria-label="收藏的回复"
-                      disabled={busy}
-                      onClick={() => onOpenCommunity("saved-reply")}
-                    >
-                      回复
-                    </button>
-                  </section>
-                )}
-              </>
-            ) : (
-              <section className={`${account.section} ${account.communityActions}`}>
-                <div>
-                  <h2 className={account.heading}>我的社区作品</h2>
-                  <p className={account.note}>管理你公开发布或收藏的社区作品。</p>
-                </div>
-                {openPublishedSkins && (
+          {!mobile && (openPublishedSkins || onOpenCommunity) && (
+            <section className={`${account.section} ${account.communityActions}`}>
+              <div>
+                <h2 className={account.heading}>我的社区作品</h2>
+                <p className={account.note}>管理你公开发布或收藏的社区作品。</p>
+              </div>
+              {openPublishedSkins && (
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={busy}
+                  onClick={openPublishedSkins}
+                >
+                  我发布的皮肤
+                </button>
+              )}
+              {onOpenCommunity && (
+                <>
                   <button
                     type="button"
                     className="secondary"
                     disabled={busy}
-                    onClick={openPublishedSkins}
+                    onClick={() => onOpenCommunity("published-dictionary")}
                   >
-                    我发布的皮肤
+                    我发布的词库
                   </button>
-                )}
-                {onOpenCommunity && (
-                  <>
-                    <button
-                      type="button"
-                      className="secondary"
-                      disabled={busy}
-                      onClick={() => onOpenCommunity("published-dictionary")}
-                    >
-                      我发布的词库
-                    </button>
-                    <button
-                      type="button"
-                      className="secondary"
-                      disabled={busy}
-                      onClick={() => onOpenCommunity("published-reply")}
-                    >
-                      我发布的回复
-                    </button>
-                    <button
-                      type="button"
-                      className="secondary"
-                      disabled={busy}
-                      onClick={() => onOpenCommunity("saved-dictionary")}
-                    >
-                      收藏的词库
-                    </button>
-                    <button
-                      type="button"
-                      className="secondary"
-                      disabled={busy}
-                      onClick={() => onOpenCommunity("saved-reply")}
-                    >
-                      收藏的回复
-                    </button>
-                  </>
-                )}
-              </section>
-            ))}
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={busy}
+                    onClick={() => onOpenCommunity("published-reply")}
+                  >
+                    我发布的回复
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={busy}
+                    onClick={() => onOpenCommunity("saved-dictionary")}
+                  >
+                    收藏的词库
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={busy}
+                    onClick={() => onOpenCommunity("saved-reply")}
+                  >
+                    收藏的回复
+                  </button>
+                </>
+              )}
+            </section>
+          )}
         </>
       ) : (
         <section className={`${account.section} ${account.stack}`}>
@@ -1529,7 +1516,68 @@ function AccountDetailsPage({
           )}
         </section>
       )}
-      {(onOpenAbout || onOpenDesktopDownload) && (
+      {mobile && (
+        // The design's 我的 groups (dc.html `meGroups`), less the rows with nothing behind them (我的设备, 隐私, 开屏动画) and the ones the 设置 list already holds (词库, 自造词). The account's own settings stay on the profile page behind the card above.
+        <>
+          {((user && (onOpenCloudClipboard || onOpenCloudDictionary)) || onOpenDesktopDownload) && (
+            <GroupList title="工具">
+              {user && onOpenCloudClipboard && (
+                <MeRow title="云剪贴板" disabled={busy} onClick={onOpenCloudClipboard} />
+              )}
+              {user && onOpenCloudDictionary && (
+                <MeRow title="云词库" disabled={busy} onClick={onOpenCloudDictionary} />
+              )}
+              {onOpenDesktopDownload && (
+                <MeRow title="其他平台下载" disabled={busy} onClick={onOpenDesktopDownload} />
+              )}
+            </GroupList>
+          )}
+          {user && client.settingsSync && (
+            <SettingsSyncCard client={client.settingsSync} userId={user.id} />
+          )}
+          {(onOpenLocalDesigns || (user && (openPublishedSkins || onOpenCommunity))) && (
+            <GroupList title="我的内容">
+              {onOpenLocalDesigns && (
+                <MeRow title="我的设计" disabled={busy} onClick={onOpenLocalDesigns} />
+              )}
+              {user && openPublishedSkins && (
+                <MeRow title="我发布的皮肤" disabled={busy} onClick={openPublishedSkins} />
+              )}
+              {user && onOpenCommunity && (
+                <>
+                  <MeRow
+                    title="我发布的词库"
+                    disabled={busy}
+                    onClick={() => onOpenCommunity("published-dictionary")}
+                  />
+                  <MeRow
+                    title="我发布的回复"
+                    disabled={busy}
+                    onClick={() => onOpenCommunity("published-reply")}
+                  />
+                  <MeRow
+                    title="收藏的词库"
+                    disabled={busy}
+                    onClick={() => onOpenCommunity("saved-dictionary")}
+                  />
+                  <MeRow
+                    title="收藏的回复"
+                    disabled={busy}
+                    onClick={() => onOpenCommunity("saved-reply")}
+                  />
+                </>
+              )}
+            </GroupList>
+          )}
+          <MeSupportGroup
+            disabled={busy}
+            onReplayOnboarding={onReplayOnboarding}
+            onOpenFeedback={onOpenFeedback}
+            onOpenAbout={onOpenAbout}
+          />
+        </>
+      )}
+      {!mobile && (onOpenAbout || onOpenDesktopDownload) && (
         <section className={`${account.section} ${account.communityActions}`}>
           <div>
             <h2 className={account.heading}>关于</h2>
@@ -1554,7 +1602,7 @@ function AccountDetailsPage({
           </div>
         </section>
       )}
-      {onReplayOnboarding && (
+      {!mobile && onReplayOnboarding && (
         <section className={`${account.section} ${account.actionRow}`}>
           <button type="button" className="secondary" disabled={busy} onClick={onReplayOnboarding}>
             重新查看新手引导

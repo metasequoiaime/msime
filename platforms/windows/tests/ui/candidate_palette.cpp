@@ -50,210 +50,179 @@ int main() {
         "rgb(255 128 0", "var(--accent)", "#"})
     require(parse_css_color(unsupported, fallback) == fallback);
 
-  // Defaults match the shipped dark tokens.
+  // Defaults are the Fluent dark tokens the system theme draws.
   const CandidatePalette defaults;
-  require(same(defaults.surface, 32 / 255.0f, 32 / 255.0f, 32 / 255.0f, 1.0f));
-  require(same(defaults.accent, 107 / 255.0f, 105 / 255.0f, 214 / 255.0f,
+  require(same(defaults.surface, 0x2C / 255.0f, 0x2C / 255.0f, 0x2C / 255.0f,
                1.0f));
-  require(defaults.show_selected_bar && defaults.radius == 6.0f &&
-          defaults.border_width == 1.5f && defaults.item_radius == 4.0f);
-  require(std::fabs(defaults.shadow_outer_alpha - 0.34f) < 0.002f &&
-          std::fabs(defaults.shadow_inner_alpha - 0.22f) < 0.002f);
+  require(same(defaults.text, 1.0f, 1.0f, 1.0f, 1.0f));
+  require(same(defaults.border, 1.0f, 1.0f, 1.0f, 0.08f));
+  require(same(defaults.hover, 1.0f, 1.0f, 1.0f, 0.07f));
+  require(same(defaults.number, 1.0f, 1.0f, 1.0f, 0.72f));
+  require(same(defaults.accent, 0x60 / 255.0f, 0xCD / 255.0f, 0xFF / 255.0f,
+               1.0f));
+  // Fluent selects with the hover fill, the accent text and the pill.
+  require(defaults.selected == defaults.hover &&
+          defaults.selected_text == defaults.accent &&
+          defaults.selected_number == defaults.number);
+  require(defaults.show_selected_bar && defaults.radius == 8.0f &&
+          defaults.border_width == 1.0f && defaults.item_radius == 4.0f &&
+          defaults.container_padding == 6.0f);
+  require(std::fabs(defaults.shadow_alpha - 0.14f) < 0.002f);
+  require(same(defaults.menu_fill, 0x2C / 255.0f, 0x2C / 255.0f,
+               0x2C / 255.0f, 0.97f));
 
-  // The light branch replaces only the colors the shipped presenter overrides.
+  // The light tokens, with the geometry and the shadow shared.
   const auto light_defaults = candidate_light_palette();
   require(same(light_defaults.surface, 1.0f, 1.0f, 1.0f, 1.0f));
-  require(same(light_defaults.border, 0.0f, 0.0f, 0.0f, 0.12f));
-  require(same(light_defaults.number, 26 / 255.0f, 26 / 255.0f, 26 / 255.0f,
-               0.55f));
-  require(light_defaults.accent == defaults.accent &&
-          light_defaults.radius == defaults.radius &&
+  require(same(light_defaults.border, 0.0f, 0.0f, 0.0f, 0.08f));
+  require(same(light_defaults.text, 0x1B / 255.0f, 0x1B / 255.0f,
+               0x1B / 255.0f, 1.0f));
+  require(same(light_defaults.number, 0x5E / 255.0f, 0x5E / 255.0f,
+               0x5E / 255.0f, 1.0f));
+  require(same(light_defaults.hover, 0.0f, 0.0f, 0.0f, 0.045f));
+  require(same(light_defaults.accent, 0.0f, 0x5F / 255.0f, 0xB8 / 255.0f,
+               1.0f));
+  require(light_defaults.selected == light_defaults.hover &&
+          light_defaults.selected_text == light_defaults.accent);
+  require(same(light_defaults.menu_fill, 0xF9 / 255.0f, 0xF9 / 255.0f,
+               0xF9 / 255.0f, 0.97f));
+  require(light_defaults.radius == defaults.radius &&
+          light_defaults.shadow_alpha == defaults.shadow_alpha &&
           light_defaults.show_selected_bar == defaults.show_selected_bar);
-  require(std::fabs(light_defaults.shadow_outer_alpha - 0.18f) < 0.002f &&
-          std::fabs(light_defaults.shadow_inner_alpha - 0.10f) < 0.002f);
+  require(candidate_native_palette(true).surface == defaults.surface &&
+          candidate_native_palette(false).surface == light_defaults.surface);
 
-  // A package overrides only what it declares.
+  // A theme overrides only the slots it sets; the rest keep the native tokens.
   CandidatePaletteOverrides overrides;
-  overrides.accent = "#00ff00";
+  overrides.text = "#101010";
   overrides.show_selected_bar = false;
   const auto skinned = candidate_palette(overrides);
-  require(same(skinned.accent, 0.0f, 1.0f, 0.0f, 1.0f));
+  require(same(skinned.text, 0x10 / 255.0f, 0x10 / 255.0f, 0x10 / 255.0f,
+               1.0f));
   require(!skinned.show_selected_bar);
   require(skinned.surface == defaults.surface &&
-          skinned.selected == defaults.selected);
+          skinned.accent == defaults.accent);
 
-  // Empty and unparsable declarations fall back to the value being replaced.
+  // Derived slots a theme leaves to the platform follow the final values: the selection fill is the hover fill, the selected text the accent and the selected numbers the secondary colour.
+  CandidatePaletteOverrides derived;
+  derived.accent = "#00FF00";
+  derived.hover = "#11223344";
+  derived.number = "#445566";
+  const auto follow = candidate_palette(derived, light_defaults);
+  require(same(follow.accent, 0.0f, 1.0f, 0.0f, 1.0f));
+  require(follow.selected == follow.hover && follow.selected_text == follow.accent &&
+          follow.selected_number == follow.number);
+  require(same(follow.hover, 0x11 / 255.0f, 0x22 / 255.0f, 0x33 / 255.0f,
+               0x44 / 255.0f));
+  // A slot the theme sets is drawn as given, even where Fluent would derive it.
+  CandidatePaletteOverrides fixed = derived;
+  fixed.selected = "#0000FF";
+  fixed.selected_text = "#FFFFFF";
+  fixed.selected_number = "#FFFFFFCC";
+  const auto explicit_slots = candidate_palette(fixed, light_defaults);
+  require(same(explicit_slots.selected, 0.0f, 0.0f, 1.0f, 1.0f));
+  require(same(explicit_slots.selected_text, 1.0f, 1.0f, 1.0f, 1.0f));
+  require(same(explicit_slots.selected_number, 1.0f, 1.0f, 1.0f,
+               0xCC / 255.0f));
+
+  // Empty and unparsable slots keep the value being replaced.
   CandidatePaletteOverrides blank;
   blank.surface = "";
   blank.text = "definitely not a color";
   const auto unchanged = candidate_palette(blank);
   require(unchanged.surface == defaults.surface &&
-          unchanged.text == defaults.text);
+          unchanged.text == defaults.text &&
+          unchanged.menu_fill == defaults.menu_fill);
 
-  // Overrides compose onto a caller-supplied base, so a light theme can start
-  // from its own tokens.
-  CandidatePalette light;
-  light.surface = candidate_rgb(0xFFFFFF);
-  light.text = candidate_rgb(0x1A1A1A);
-  CandidatePaletteOverrides tint;
-  tint.border = "rgba(0, 0, 0, 0.1)";
-  const auto themed = candidate_palette(tint, light);
-  require(themed.surface == light.surface && themed.text == light.text);
-  require(same(themed.border, 0.0f, 0.0f, 0.0f, 0.1f));
+  // The menus take the theme's surface, text, hover and border; with no surface set they keep the native menu material.
+  CandidatePaletteOverrides paper;
+  paper.surface = "#F7F1E3";
+  paper.text = "#2B2B2B";
+  paper.hover = "#0000000F";
+  paper.border = "#00000014";
+  const auto papered = candidate_palette(paper, light_defaults);
+  require(papered.menu_fill == papered.surface &&
+          papered.menu_text == papered.text &&
+          papered.menu_hover == papered.hover &&
+          papered.menu_border == papered.border);
+  require(skinned.menu_fill == defaults.menu_fill &&
+          skinned.menu_text == skinned.text);
 
-  // The four shipped ids are resolved from the built-in table, never from a
-  // package on disk: the shared catalog refuses to load one under these names.
-  require(candidate_builtin_skin("fluent") &&
-          candidate_builtin_skin("wechat") &&
-          candidate_builtin_skin("graphite") &&
-          candidate_builtin_skin("willow_green"));
-  require(!candidate_builtin_skin("") && !candidate_builtin_skin("nord") &&
-          !candidate_builtin_skin("Fluent"));
-
-  // fluent is the baseline, so it must come back byte-for-byte as the defaults.
-  const auto fluent_dark = candidate_builtin_palette("fluent", true);
-  require(fluent_dark.surface == defaults.surface &&
-          fluent_dark.selected == defaults.selected &&
-          fluent_dark.show_selected_bar && fluent_dark.radius == 6.0f);
-  require(candidate_builtin_palette("fluent", false).surface ==
-          candidate_light_palette().surface);
-  // An unknown id keeps fluent rather than rendering something invented.
-  require(candidate_builtin_palette("nord", true).surface == defaults.surface);
-
-  // Each shipped skin has to be visibly its own, not a relabelled fluent -
-  // that identity was the whole defect. Values mirror the shipped presenter.
-  for (const bool dark : {false, true}) {
-    const auto wechat = candidate_builtin_palette("wechat", dark);
-    require(same(wechat.selected, 0x07 / 255.0f, 0xC1 / 255.0f, 0x60 / 255.0f, 1.0f));
-    require(wechat.accent == wechat.selected);
-    require(!wechat.show_selected_bar);
-    require(wechat.radius == 5.0f && wechat.border_width == 1.0f &&
-            wechat.container_padding == 2.0f);
-    // Opaque green fill, so the selected row needs its own white text.
-    require(same(wechat.selected_text, 1.0f, 1.0f, 1.0f, 1.0f));
-    require(same(wechat.selected_number, 1.0f, 1.0f, 1.0f, 1.0f));
-    require(wechat.surface != defaults.surface);
-
-    const auto willow = candidate_builtin_palette("willow_green", dark);
-    require(willow.radius == 9.0f && willow.border_width == 0.0f &&
-            willow.container_padding == 0.0f);
-    // Deliberate divergence from the CSS, which uses 0 plus a clip-path.
-    require(willow.item_radius == 4.0f);
-    require(willow.border.a == 0.0f); // Borderless card.
-    require(same(willow.selected_text, 1.0f, 1.0f, 1.0f, 1.0f));
-    require(!willow.show_selected_bar);
-
-    const auto graphite = candidate_builtin_palette("graphite", dark);
-    require(graphite.radius == 3.0f && graphite.item_radius == 2.0f &&
-            graphite.container_padding == 5.0f);
-    // Graphite marks selection by text colour alone; the fill is transparent.
-    require(graphite.selected.a == 0.0f);
-    require(!graphite.show_selected_bar);
-    // So a selected colour is mandatory here, or the row would not change.
-    require(graphite.selected_text.a > 0.0f &&
-            graphite.selected_number.a > 0.0f);
-    require(graphite.selected_text != graphite.text);
-  }
-  // Light and dark are genuinely different tokens, not one table reused.
-  require(candidate_builtin_palette("graphite", true).surface !=
-          candidate_builtin_palette("graphite", false).surface);
-  require(candidate_builtin_palette("willow_green", true).accent !=
-          candidate_builtin_palette("willow_green", false).accent);
-  // fluent names no selected colour, so rows keep their normal one.
-  require(fluent_dark.selected_text.a == 0.0f &&
-          fluent_dark.selected_number.a == 0.0f);
-
-  // A fixed candidate uses the accent only until it becomes the selected row.
-  // Opaque selected text wins there, while fluent's transparent sentinel keeps
-  // the normal text instead of falling back to the fixed accent.
+  // A fixed candidate uses the accent only until it becomes the selected row, where the selected text wins; a transparent selected text keeps the normal colour.
   const auto normal_text = candidate_rgb(0x123456);
-  require(candidate_row_text_color(fluent_dark, normal_text, false, false) ==
+  require(candidate_row_text_color(defaults, normal_text, false, false) ==
           normal_text);
-  require(candidate_row_text_color(fluent_dark, normal_text, false, true) ==
-          fluent_dark.accent);
-  require(candidate_row_text_color(fluent_dark, normal_text, true, true) ==
+  require(candidate_row_text_color(defaults, normal_text, false, true) ==
+          defaults.accent);
+  require(candidate_row_text_color(defaults, normal_text, true, false) ==
+          defaults.selected_text);
+  CandidatePaletteOverrides keep;
+  keep.selected_text = "transparent";
+  const auto kept = candidate_palette(keep);
+  require(candidate_row_text_color(kept, normal_text, true, true) ==
           normal_text);
-  const auto wechat_dark = candidate_builtin_palette("wechat", true);
-  require(candidate_row_text_color(wechat_dark, normal_text, true, false) ==
-          wechat_dark.selected_text);
-  require(candidate_row_text_color(wechat_dark, normal_text, true, true) ==
-          wechat_dark.selected_text);
 
-  // The toolbar and the tray menu are native in the shipped product and draw fixed neutral colours from their presenters' ApplyTheme; the candidate skin never reaches them. Before, both took the skin, so the default willow_green tinted them green.
-  const auto toolbar_dark = toolbar_palette(true);
-  const auto toolbar_light = toolbar_palette(false);
-  require(same(toolbar_dark.surface, 0x1A / 255.0f, 0x1A / 255.0f,
-               0x1A / 255.0f, 1.0f));
-  require(same(toolbar_dark.border, 1.0f, 1.0f, 1.0f, 0.15f));
-  require(same(toolbar_dark.text, 1.0f, 1.0f, 1.0f, 1.0f));
-  require(same(toolbar_dark.hover, 1.0f, 1.0f, 1.0f, 0.10f));
-  require(same(toolbar_light.surface, 1.0f, 1.0f, 1.0f, 1.0f));
-  require(same(toolbar_light.border, 0.0f, 0.0f, 0.0f, 0.12f));
-  require(same(toolbar_light.text, 0x1A / 255.0f, 0x1A / 255.0f,
-               0x1A / 255.0f, 1.0f));
-  require(same(toolbar_light.hover, 0.0f, 0.0f, 0.0f, 0.08f));
-  for (const bool dark : {false, true}) {
-    const auto toolbar = toolbar_palette(dark);
-    // The drag handle is 0x8E8CD8 in both themes, and a pressed button keeps the hover fill.
-    require(same(toolbar.accent, 0x8E / 255.0f, 0x8C / 255.0f, 0xD8 / 255.0f,
-                 1.0f));
-    require(toolbar.selected == toolbar.hover);
-    require(toolbar.border_width > 0.0f);
-    // Nothing of the default skin's green survives.
-    require(toolbar.accent != candidate_builtin_palette("willow_green", dark).accent);
-    require(toolbar.hover != candidate_builtin_palette("willow_green", dark).hover);
-    require(toolbar.surface != candidate_builtin_palette("willow_green", dark).surface);
-  }
-  const auto tray_dark = tray_menu_palette(true);
-  const auto tray_light = tray_menu_palette(false);
-  require(same(tray_dark.surface, 0x2B / 255.0f, 0x2B / 255.0f, 0x2B / 255.0f,
-               1.0f));
-  require(same(tray_dark.border, 0x3A / 255.0f, 0x3A / 255.0f, 0x3A / 255.0f,
-               1.0f));
-  require(same(tray_dark.text, 0xE0 / 255.0f, 0xE0 / 255.0f, 0xE0 / 255.0f,
-               1.0f));
-  require(same(tray_dark.hover, 0x3B / 255.0f, 0x3B / 255.0f, 0x3B / 255.0f,
-               1.0f));
-  require(same(tray_light.surface, 1.0f, 1.0f, 1.0f, 1.0f));
-  require(same(tray_light.border, 0.0f, 0.0f, 0.0f, 0.10f));
-  require(same(tray_light.text, 0x1A / 255.0f, 0x1A / 255.0f, 0x1A / 255.0f,
-               1.0f));
-  require(same(tray_light.hover, 0xF0 / 255.0f, 0xF0 / 255.0f, 0xF0 / 255.0f,
-               1.0f));
-  // Switches: 0x8E8CD8 on; off is 0x555555 on the dark menu and 0xC8C8C8 on the light one.
-  require(same(tray_dark.accent, 0x8E / 255.0f, 0x8C / 255.0f, 0xD8 / 255.0f,
-               1.0f));
-  require(tray_light.accent == tray_dark.accent);
-  require(same(tray_toggle_off_color(tray_dark), 0x55 / 255.0f, 0x55 / 255.0f,
-               0x55 / 255.0f, 1.0f));
-  require(same(tray_toggle_off_color(tray_light), 0xC8 / 255.0f,
-               0xC8 / 255.0f, 0xC8 / 255.0f, 1.0f));
-  // A dimmed row stays distinct from a live one without disappearing.
-  for (const auto &tray : {tray_dark, tray_light}) {
-    require(tray.number != tray.text);
-    require(tray.number.a > 0.0f);
+  // The translation is the theme's secondary colour, which the contract fixes to number: number on a plain row, selected_number on the selected one, and number again when selected_number is transparent. It never derives from the text colour.
+  CandidatePaletteOverrides numbered;
+  numbered.text = "#101010";
+  numbered.number = "#7A7A7A";
+  numbered.selected_text = "#2C7A4B";
+  numbered.selected_number = "#5FBF84";
+  const auto secondary = candidate_palette(numbered);
+  require(candidate_row_number_color(secondary, false) == secondary.number);
+  require(candidate_row_number_color(secondary, true) ==
+          secondary.selected_number);
+  require(!(candidate_row_number_color(secondary, false) == secondary.text));
+  require(!(candidate_row_number_color(secondary, true) ==
+            secondary.selected_text));
+  CandidatePaletteOverrides keep_number = numbered;
+  keep_number.selected_number = "transparent";
+  const auto kept_number = candidate_palette(keep_number);
+  require(candidate_row_number_color(kept_number, true) == kept_number.number);
+
+  // The toolbar is the candidate palette in the toolbar's own geometry, so it follows the theme.
+  for (const auto &base : {defaults, light_defaults, papered}) {
+    const auto toolbar = toolbar_palette(base);
+    require(toolbar.surface == base.surface && toolbar.text == base.text &&
+            toolbar.hover == base.hover && toolbar.border == base.border &&
+            toolbar.selected == base.selected &&
+            toolbar.selected_text == base.selected_text &&
+            toolbar.accent == base.accent);
+    require(toolbar.radius == 8.0f && toolbar.border_width > 0.0f);
   }
 
-  // The right-click flyout has its own colours per skin and per theme. The
-  // client used a plain OS popup, so a light system menu appeared over a dark
-  // card and no skin reached it.
-  for (const char *id : {"fluent", "wechat", "graphite", "willow_green"}) {
-    for (const bool dark : {false, true}) {
-      const auto skin = candidate_builtin_palette(id, dark);
-      // Readable: the menu text must not be the menu fill.
-      require(skin.menu_text != skin.menu_fill);
-      // The hover state has to be visible against the fill as well.
-      require(skin.menu_hover != skin.menu_fill);
-      // Fully transparent menu colours would draw nothing at all.
-      require(skin.menu_fill.a > 0.0f);
-      require(skin.menu_text.a > 0.0f);
-    }
-    // Light and dark are genuinely different menus, not one reused.
-    require(candidate_builtin_palette(id, true).menu_fill !=
-            candidate_builtin_palette(id, false).menu_fill);
+  // The tray menu draws the menu slots of the same palette.
+  for (const auto &base : {defaults, light_defaults, papered}) {
+    const auto tray = tray_menu_palette(base);
+    require(tray.surface == base.menu_fill && tray.text == base.menu_text &&
+            tray.hover == base.menu_hover && tray.border == base.menu_border &&
+            tray.accent == base.accent);
+    require(tray.border_width == 1.0f);
+    // A dimmed row stays distinct from a live one without disappearing.
+    require(tray.number != tray.text && tray.number.a > 0.0f);
+    // The menu stays readable and its hover visible.
+    require(tray.text != tray.surface && tray.hover != tray.surface &&
+            tray.surface.a > 0.0f);
+    // A switch that is off is an outline in the text colour at 60%.
+    const auto off = tray_toggle_off_color(tray);
+    require(off.r == tray.text.r && off.g == tray.text.g &&
+            off.b == tray.text.b && std::fabs(off.a - 0.6f) < 0.002f);
+    // Hints and captions are the row text at 60% of its own opacity, so they stay subordinate to the label and never outshine it.
+    const auto secondary = tray_menu_secondary_color(tray);
+    require(secondary.r == tray.text.r && secondary.g == tray.text.g &&
+            secondary.b == tray.text.b &&
+            std::fabs(secondary.a - tray.text.a * 0.6f) < 0.002f &&
+            secondary.a > 0.0f && secondary.a < tray.text.a);
   }
-  // Each shipped skin dresses its menu differently from the default one.
-  for (const char *id : {"wechat", "graphite", "willow_green"})
-    require(candidate_builtin_palette(id, true).menu_fill !=
-            candidate_builtin_palette("fluent", true).menu_fill);
+  // Light and dark are genuinely different menus.
+  require(tray_menu_palette(defaults).surface !=
+          tray_menu_palette(light_defaults).surface);
+
+  // The thumb of a switch that is on reads on the accent: white on the light accent #005FB8, black on the dark #60CDFF and on a white accent.
+  require(candidate_on_accent(light_defaults.accent) == candidate_rgb(0xFFFFFF));
+  require(candidate_on_accent(defaults.accent) == candidate_rgb(0x000000));
+  require(candidate_on_accent(candidate_rgb(0xFFFFFF)) ==
+          candidate_rgb(0x000000));
+  require(candidate_on_accent(candidate_rgb(0x000000)) ==
+          candidate_rgb(0xFFFFFF));
 }

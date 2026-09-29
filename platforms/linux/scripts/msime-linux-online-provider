@@ -558,6 +558,22 @@ def custom_translation(config, text, source, target, timeout):
     return None
 
 
+def secure_custom_endpoint(endpoint):
+    if (not isinstance(endpoint, str) or not endpoint or len(endpoint) > 2048 or
+            any(ord(character) < 32 or ord(character) == 127 for character in endpoint)):
+        return False
+    try:
+        url = urllib.parse.urlsplit(endpoint)
+        # Reading port also rejects malformed port syntax before a request is built.
+        _ = url.port
+        return (url.hostname is not None and url.username is None and
+                url.password is None and not url.fragment and
+                (url.scheme == "https" or
+                 (url.scheme == "http" and url.hostname in ("localhost", "127.0.0.1", "::1"))))
+    except ValueError:
+        return False
+
+
 def niutrans_translation(config, text, source, target, timeout):
     app_id = config.get("app_id", "")
     apikey = config.get("apikey", "")
@@ -657,8 +673,7 @@ def translations(query, server):
         if not isinstance(endpoint, str) or len(endpoint) > 2048:
             return []
         endpoint = endpoint.strip(" \t\r\n")
-        url = urllib.parse.urlsplit(endpoint)
-        if url.scheme not in ("http", "https") or not url.hostname or url.username or url.password:
+        if not secure_custom_endpoint(endpoint):
             return []
         token = custom.get("api_key", "")
         if not isinstance(token, str) or len(token) > 4096:
@@ -776,14 +791,21 @@ def select_ai_profile(config, path):
 def ai_models_url(endpoint):
     """The model catalogue beside the configured chat endpoint.
 
-    Reuses the API prefix the endpoint already carries rather than assuming one,
-    matching `ai_models_url` in the desktop shell: an endpoint of
-    `https://host/openai/v1/chat/completions` lists at `https://host/openai/v1/models`.
+    Remove a known operation suffix and append ``/models`` under the same API
+    prefix, matching the desktop and mobile hosts. An endpoint of
+    ``https://host/openai/v1/chat/completions`` lists at
+    ``https://host/openai/v1/models``; a provider whose endpoint is
+    ``https://host/chat/completions`` lists at ``https://host/models``.
     """
     parts = urllib.parse.urlsplit(endpoint)
-    index = parts.path.find("/v1/")
-    base = parts.path[:index] if index >= 0 else ""
-    return urllib.parse.urlunsplit((parts.scheme, parts.netloc, base + "/v1/models", "", ""))
+    path = parts.path.rstrip("/")
+    for suffix in ("/chat/completions", "/audio/transcriptions"):
+        if path.endswith(suffix):
+            path = path[: -len(suffix)]
+            break
+    if not path.endswith("/"):
+        path += "/"
+    return urllib.parse.urlunsplit((parts.scheme, parts.netloc, path + "models", "", ""))
 
 
 def ai_models(query, server):
@@ -862,10 +884,8 @@ def credential_test(query, server):
                 ok = False
             else:
                 endpoint = endpoint.strip(" \t\r\n")
-                url = urllib.parse.urlsplit(endpoint)
                 normalized = {"endpoint": endpoint, "api_key": token.strip(" \t\r\n")}
-                ok = bool(url.scheme in ("http", "https") and url.hostname and
-                          not url.username and not url.password and
+                ok = bool(secure_custom_endpoint(endpoint) and
                           custom_translation(normalized, "hello", "en", "zh", 7.0))
         else:
             ok = ai_credential_test(config, server.ai_config_path)

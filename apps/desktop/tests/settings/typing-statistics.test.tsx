@@ -77,7 +77,7 @@ function deferred<T>() {
 test("desktop settings omit typing statistics without the Android capability", async () => {
   render(<SettingsPage client={baseClient()} />);
   await screen.findByRole("button", { name: "保存设置" });
-  expect(screen.queryByRole("button", { name: "打字统计" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "统计" })).toBeNull();
 });
 
 test("statistics capability provides 7 day, 30 day, cumulative and selected-day scopes", async () => {
@@ -87,7 +87,7 @@ test("statistics capability provides 7 day, 30 day, cumulative and selected-day 
     reset: vi.fn(),
   };
   render(<SettingsPage client={{ ...baseClient(), typingStatistics }} />);
-  fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
+  fireEvent.click(await screen.findByRole("button", { name: "统计" }));
   expect((await screen.findByLabelText("当前范围输入字符数")).textContent).toBe("10");
   expect(screen.queryByRole("button", { name: "保存设置" })).toBeNull();
   expect(screen.queryByRole("button", { name: "重新读取" })).toBeNull();
@@ -225,7 +225,7 @@ test("desktop statistics show a 12-month calendar heatmap with Monday-first week
       }}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
+  fireEvent.click(await screen.findByRole("button", { name: "统计" }));
   expect(await screen.findByRole("heading", { name: "日历热力图" })).toBeTruthy();
   expect(screen.getByText("近 12 个月，颜色越深输入越多")).toBeTruthy();
   const heatmap = screen.getByRole("group", { name: "每日输入热力图" });
@@ -283,7 +283,7 @@ test("desktop statistics refresh when the settings window regains focus", async 
       client={{ ...baseClient(), typingStatistics: { load, setEnabled: vi.fn(), reset: vi.fn() } }}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
+  fireEvent.click(await screen.findByRole("button", { name: "统计" }));
   await screen.findByLabelText("当前范围输入字符数");
   load.mockClear();
   let finish!: (value: TypingStatisticsStatus) => void;
@@ -350,7 +350,7 @@ test("statistics toggle refreshes immediately and reset requires confirmation wi
     reset: vi.fn().mockResolvedValue(status(cleared)),
   };
   render(<SettingsPage client={{ ...baseClient(), typingStatistics }} />);
-  fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
+  fireEvent.click(await screen.findByRole("button", { name: "统计" }));
   const toggle = await screen.findByRole("checkbox", { name: "记录打字统计" });
   fireEvent.click(toggle);
   await waitFor(() => expect(typingStatistics.setEnabled).toHaveBeenCalledWith(false));
@@ -378,7 +378,7 @@ test("never-written status explains the empty local-only data channel", async ()
     reset: vi.fn(),
   };
   render(<SettingsPage client={{ ...baseClient(), typingStatistics }} />);
-  fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
+  fireEvent.click(await screen.findByRole("button", { name: "统计" }));
   expect(await screen.findByText(/键盘从未写入过统计/)).not.toBeNull();
   expect(screen.getByText(/不保存输入内容/)).not.toBeNull();
 });
@@ -394,7 +394,7 @@ test("candidate positions show a first-candidate rate and keep rank order", asyn
     reset: vi.fn(),
   };
   render(<SettingsPage client={{ ...baseClient(), typingStatistics }} />);
-  fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
+  fireEvent.click(await screen.findByRole("button", { name: "统计" }));
 
   // 30 of 50 commits came from the first candidate.
   expect((await screen.findByLabelText("首选命中率")).textContent).toBe("60.0%");
@@ -426,7 +426,7 @@ test("statistics written before candidate positions existed render an empty stat
     reset: vi.fn(),
   };
   render(<SettingsPage client={{ ...baseClient(), typingStatistics }} />);
-  fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
+  fireEvent.click(await screen.findByRole("button", { name: "统计" }));
   expect(await screen.findByText("暂无候选记录。用水杉键盘上屏几次后再回来查看。")).not.toBeNull();
   expect(screen.queryByLabelText("候选命中位置分布")).toBeNull();
 });

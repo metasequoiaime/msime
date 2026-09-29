@@ -2,12 +2,14 @@ package app.msime.client.home;
 
 import android.content.Context;
 import androidx.annotation.Nullable;
+import app.msime.client.KeyboardSkin;
 import app.msime.client.NativeClient;
 import app.msime.client.TypingStatisticsDocument;
 import app.msime.client.TypingStatisticsModel;
 import app.msime.client.policy.HostOptionsPolicy;
 import java.io.File;
 import java.time.LocalDate;
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -98,6 +100,31 @@ public final class HostStore {
             return null;
         }
         return savePreferences(context, snapshot);
+    }
+
+    /**
+     * The shared global theme catalog's entries in picker order, or an empty list when the host cannot answer. Unlike the calls above this reads no file and takes no lock, so it may run on the main thread.
+     */
+    public static JSONArray themeCatalog() {
+        JSONObject catalog = value(call(NativeClient::themeCatalog));
+        JSONArray themes = catalog == null ? null : catalog.optJSONArray("themes");
+        return themes == null ? new JSONArray() : themes;
+    }
+
+    /**
+     * The touch keyboard the stored global theme draws, in the mode `screen_keyboard_theme` and the app mode pick (`systemDark` stands in for the Android night mode). It goes through the same resolver the input service uses and, like {@link #themeCatalog}, takes no lock. A refused answer draws the Material 3 keyboard.
+     */
+    public static KeyboardSkin keyboardSkin(JSONObject preferences, boolean systemDark) {
+        boolean dark = KeyboardSkin.resolveDark(
+            preferences.optString("screen_keyboard_theme", "follow"),
+            preferences.optString("theme", "system"), systemDark);
+        String globalTheme = preferences.optString("global_theme", "system");
+        JSONObject customTheme = preferences.optJSONObject("custom_theme");
+        JSONObject theme = value(call(() -> NativeClient.resolveTheme(
+            KeyboardSkin.themeRequest(globalTheme, customTheme, dark))));
+        if (theme == null) return KeyboardSkin.system(dark);
+        return KeyboardSkin.resolved(theme, KeyboardSkin.themeTitle(themeCatalog(), globalTheme),
+            dark, customTheme == null ? null : customTheme.optJSONObject("keyboard"));
     }
 
     @Nullable public static TypingStatisticsModel loadStatistics(Context context) {

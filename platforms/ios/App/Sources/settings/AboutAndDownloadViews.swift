@@ -33,7 +33,7 @@ struct DesktopDownloadView: View {
     ScrollView {
       VStack(alignment: .leading, spacing: 24) {
         VStack(alignment: .leading, spacing: 10) {
-          Image(systemName: "desktopcomputer").font(.system(size: 38)).foregroundStyle(MetasequoiaTheme.forest)
+          Image(systemName: "desktopcomputer").font(.system(size: 38)).foregroundStyle(MetasequoiaTheme.accent)
           Text("在电脑上，也用水杉").font(.title2.bold())
           Text("选择你的电脑系统，获取官方安装包与使用指南。").foregroundStyle(.secondary)
         }.padding(.top, 12)
@@ -44,8 +44,8 @@ struct DesktopDownloadView: View {
           Label(platform.rawValue + " 安装指南", systemImage: platform.symbol).font(.headline)
           ForEach(Array(platform.steps.enumerated()), id: \.offset) { index, step in
             HStack(alignment: .top, spacing: 12) {
-              Text(String(index + 1)).font(.subheadline.bold()).foregroundStyle(MetasequoiaTheme.forest)
-                .frame(width: 28, height: 28).background(MetasequoiaTheme.forest.opacity(0.1), in: Circle())
+              Text(String(index + 1)).font(.subheadline.bold()).foregroundStyle(MetasequoiaTheme.accent)
+                .frame(width: 28, height: 28).background(MetasequoiaTheme.accentSoft, in: Circle())
               Text(step).font(.subheadline).fixedSize(horizontal: false, vertical: true)
             }
           }
@@ -107,10 +107,6 @@ struct AboutView: View {
           SettingsRowLabel(title: "反馈问题与建议", detail: "在应用内写，附带版本与设备信息",
                            symbol: "bubble.left.and.bubble.right.fill")
         }.accessibilityIdentifier("feedbackLink")
-        NavigationLink(destination: DiagnosticLogSettingsView()) {
-          SettingsRowLabel(title: "诊断日志", detail: "记录键盘的运行事件，反馈时一起分享",
-                           symbol: "list.bullet.rectangle.fill")
-        }.accessibilityIdentifier("diagnosticLogLink")
         Link(destination: URL(string: "https://msime.app/")!) {
           SettingsRowLabel(title: "官方网站", detail: "msime.app", symbol: "globe")
         }

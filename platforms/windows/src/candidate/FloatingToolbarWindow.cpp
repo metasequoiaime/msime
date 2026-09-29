@@ -308,14 +308,13 @@ void FloatingToolbarWindow::paint() {
                              static_cast<float>(box.top) * unit,
                              static_cast<float>(box.right) * unit,
                              static_cast<float>(box.bottom) * unit};
-      // Hover and press fills, so a button looks like one. Pressed is drawn
-      // with the selected colour rather than a darker hover, matching the card.
-      // A button the shell would have to answer is drawn disabled: no hover
-      // fill and the secondary text colour, exactly as the tray draws a row
-      // whose capability is missing.
+      // Hover and press fills, so a button looks like one. Pressed is drawn like the card's selected row, the selected fill with the selected text colour on it, rather than a darker hover. A button the shell would have to answer is drawn disabled: no hover fill and the secondary text colour, exactly as the tray draws a row whose capability is missing.
       const bool usable = shell_available_ || !needs_shell(button);
+      const bool down = usable && hovered_ == i && pressed_ == i;
+      const auto &glyph_color = !usable ? palette_.number
+                                : down  ? palette_.selected_text
+                                        : palette_.text;
       if (hovered_ == i && usable) {
-        const bool down = pressed_ == i;
         const D2D1_ROUNDED_RECT fill{{cell.left + 2.0f * unit, cell.top,
                                       cell.right - 2.0f * unit, cell.bottom},
                                      palette_.item_radius * unit,
@@ -343,7 +342,7 @@ void FloatingToolbarWindow::paint() {
       if (!length)
         continue;
       target->DrawText(drawn_text, length, cell_format, cell,
-                       brush(usable ? palette_.text : palette_.number));
+                       brush(glyph_color));
       // Dedicated English underlines its "En". Upstream insets the line by a
       // twelfth of the cell and floors both the offset and the stroke, so it
       // stays a visible line rather than thinning away at small icon sizes.
@@ -352,7 +351,7 @@ void FloatingToolbarWindow::paint() {
         const float side = (cell.right - cell.left) * 0.08f;
         const float y = cell.bottom - (std::max)(2.0f * unit, size * 0.12f);
         target->DrawLine({cell.left + side, y}, {cell.right - side, y},
-                         brush(palette_.text),
+                         brush(glyph_color),
                          (std::max)(1.0f * unit, size * 0.06f));
       }
     }

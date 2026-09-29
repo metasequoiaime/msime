@@ -37,22 +37,6 @@ pub enum TouchKeyboardLayout {
     Handwriting,
 }
 
-/// Apple-compatible built-in visual styles for touch keyboard hosts.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum TouchKeyboardSkin {
-    #[default]
-    Forest,
-    Ocean,
-    Rose,
-    Porcelain,
-    Typewriter,
-    Candy,
-    Midnight,
-    Blueprint,
-    Custom,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TouchSkinKeyShape {
@@ -71,7 +55,7 @@ pub enum TouchSkinKeyMaterial {
     Paper,
 }
 
-/// Apple-compatible current custom design. Named designs live in a separate bounded library.
+/// Apple-compatible keyboard editor design: the keyboard half of the custom theme. Named designs live in a separate bounded library.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields, rename_all = "camelCase")]
 pub struct TouchKeyboardSkinDesign {
@@ -217,6 +201,111 @@ fn supported_skin_photo(bytes: &[u8]) -> bool {
         || (bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP")
 }
 
+/// What the `custom` global theme is made of. It is kept while another theme is selected, so switching back restores it.
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct CustomTheme {
+    /// The theme the custom theme is drawn over: `system` (the platform's own tokens) or one of the five built-in themes, never `custom`. It supplies the candidate colours the package and the pickers leave unset and, while there is no keyboard design, the keyboard. An applied package replaces it with the package's own manifest `base`.
+    #[serde(skip_serializing_if = "is_system_theme")]
+    pub base: crate::skin::theme::GlobalTheme,
+    /// The external candidate skin package (a folder name in the host's skin root) whose colours and decoration the custom theme uses. Never a global theme id.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub candidate_skin: Option<String>,
+    /// The candidate colour pickers, drawn over the package's colours.
+    #[serde(skip_serializing_if = "CustomCandidateColors::is_empty")]
+    pub candidate_colors: CustomCandidateColors,
+    /// The keyboard editor design; community, saved and AI-generated keyboard skins are applied by writing it here. `None` until the user designs or applies one: the custom theme then draws the base theme's keyboard.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub keyboard: Option<TouchKeyboardSkinDesign>,
+}
+
+fn is_system_theme(theme: &crate::skin::theme::GlobalTheme) -> bool {
+    *theme == crate::skin::theme::GlobalTheme::System
+}
+
+impl CustomTheme {
+    /// The same checks `Preferences::validate` applies to `custom_theme`, for hosts that receive a custom theme outside a preferences document.
+    pub fn validate(&self) -> Result<(), PreferencesError> {
+        if self.base == crate::skin::theme::GlobalTheme::Custom {
+            return Err(PreferencesError::InvalidCustomThemeBase);
+        }
+        if self
+            .keyboard
+            .as_ref()
+            .is_some_and(|design| !design.validate())
+        {
+            return Err(PreferencesError::InvalidTouchKeyboardSkinDesign);
+        }
+        let colors = &self.candidate_colors;
+        for (color, error) in [
+            (&colors.text, PreferencesError::InvalidCandidateTextColor),
+            (
+                &colors.number,
+                PreferencesError::InvalidCandidateNumberColor,
+            ),
+            (
+                &colors.accent,
+                PreferencesError::InvalidCandidateAccentColor,
+            ),
+            (
+                &colors.selected,
+                PreferencesError::InvalidCandidateSelectedColor,
+            ),
+            (&colors.hover, PreferencesError::InvalidCandidateHoverColor),
+            (
+                &colors.surface,
+                PreferencesError::InvalidCandidateSurfaceColor,
+            ),
+            (
+                &colors.border,
+                PreferencesError::InvalidCandidateBorderColor,
+            ),
+        ] {
+            if color
+                .as_deref()
+                .is_some_and(|color| !crate::is_hex_color(color, &[6]))
+            {
+                return Err(error);
+            }
+        }
+        // The same rule the skin catalog lists packages by, so a saved selection always names a folder the catalog could list.
+        if self
+            .candidate_skin
+            .as_deref()
+            .is_some_and(|skin| !crate::skin::catalog::is_external_id(skin))
+        {
+            return Err(PreferencesError::InvalidCandidateSkin);
+        }
+        Ok(())
+    }
+}
+
+/// The seven candidate colour pickers, each `#RRGGBB` or unset.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct CustomCandidateColors {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub number: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub accent: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selected: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hover: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub surface: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub border: Option<String>,
+}
+
+impl CustomCandidateColors {
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
 /// Stable Apple-compatible entries shown by touch-keyboard scheme pickers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -349,6 +438,35 @@ pub enum CharacterWidthPreference {
     Fullwidth,
 }
 
+/// Candidate sentence-association sources. Dictionary and Google sources keep their historical
+/// defaults; neural rerankers are opt-in because they add model work while typing or settling.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct SentenceAssociationPreferences {
+    #[serde(default = "enabled_by_default")]
+    pub word_lattice: bool,
+    #[serde(default = "enabled_by_default")]
+    pub google: bool,
+    #[serde(default)]
+    pub neural_desktop: bool,
+    #[serde(default)]
+    pub neural_keyboard: bool,
+    #[serde(default)]
+    pub show_next_on_duplicate: bool,
+}
+
+impl Default for SentenceAssociationPreferences {
+    fn default() -> Self {
+        Self {
+            word_lattice: true,
+            google: true,
+            neural_desktop: false,
+            neural_keyboard: false,
+            show_next_on_duplicate: false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Preferences {
@@ -360,6 +478,10 @@ pub struct Preferences {
     pub voice_input: VoiceInputPreferences,
     #[serde(default)]
     pub ai_assistant: AiAssistantPreferences,
+    /// Controls local whole-sentence candidate sources. Neural reranking remains opt-in until
+    /// its model is installed.
+    #[serde(default)]
+    pub sentence_association: SentenceAssociationPreferences,
     #[serde(default)]
     pub custom_translation: CustomTranslationPreferences,
     #[serde(default)]
@@ -390,8 +512,11 @@ pub struct Preferences {
     /// the one surface override the client was missing.
     #[serde(default)]
     pub menu_theme: SettingsTheme,
-    #[serde(default = "default_candidate_skin")]
-    pub candidate_skin: String,
+    /// The one theme that colours the candidate window, toolbar, menus and touch keyboard on every host. `theme` above stays the light/dark mode the `system` theme and the settings window follow.
+    #[serde(default)]
+    pub global_theme: crate::skin::theme::GlobalTheme,
+    #[serde(default)]
+    pub custom_theme: CustomTheme,
     #[serde(default)]
     pub candidate_layout: CandidateLayout,
     #[serde(default)]
@@ -430,11 +555,6 @@ pub struct Preferences {
     pub wubi_mixed_pinyin: bool,
     #[serde(default)]
     pub touch_keyboard_layout: TouchKeyboardLayout,
-    /// Touch-only keyboard appearance. Candidate-window skins remain independent.
-    #[serde(default)]
-    pub touch_keyboard_skin: TouchKeyboardSkin,
-    #[serde(default)]
-    pub custom_touch_keyboard_skin: TouchKeyboardSkinDesign,
     /// Touch-only picker visibility and optional host selection. Desktop hosts preserve but ignore it.
     #[serde(
         default,
@@ -473,20 +593,6 @@ pub struct Preferences {
     pub candidate_font_size: u8,
     #[serde(default = "default_candidate_preedit_font_size")]
     pub candidate_preedit_font_size: u8,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub candidate_text_color: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub candidate_number_color: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub candidate_accent_color: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub candidate_selected_color: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub candidate_hover_color: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub candidate_surface_color: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub candidate_border_color: Option<String>,
     #[serde(default = "default_candidate_font_family")]
     pub candidate_font_family: String,
     /// Optional leading face for the Windows candidate glyph fallback chain.
@@ -1240,9 +1346,6 @@ fn default_touch_row_spacing_tenths() -> u8 {
     70
 }
 
-fn default_candidate_skin() -> String {
-    crate::skin::catalog::DEFAULT_SKIN.to_owned()
-}
 fn default_candidate_font_family() -> String {
     "Noto Sans SC".to_owned()
 }
@@ -1260,6 +1363,7 @@ impl Default for Preferences {
             default_ime_mode: DefaultImeMode::default(),
             ime_mode_scope: ImeModeScope::default(),
             ai_assistant: AiAssistantPreferences::default(),
+            sentence_association: SentenceAssociationPreferences::default(),
             custom_translation: CustomTranslationPreferences::default(),
             tencent_tmt: TencentTmtPreferences::default(),
             niutrans: NiuTransPreferences::default(),
@@ -1275,7 +1379,8 @@ impl Default for Preferences {
             voice_theme: SettingsTheme::default(),
             emoji_theme: SettingsTheme::default(),
             menu_theme: SettingsTheme::default(),
-            candidate_skin: default_candidate_skin(),
+            global_theme: crate::skin::theme::GlobalTheme::default(),
+            custom_theme: CustomTheme::default(),
             candidate_layout: CandidateLayout::default(),
             candidate_preedit_style: CandidatePreeditStyle::default(),
             tsf_preedit_style: PreeditStyle::default(),
@@ -1287,8 +1392,6 @@ impl Default for Preferences {
             wubi_code_hint: None,
             wubi_mixed_pinyin: false,
             touch_keyboard_layout: TouchKeyboardLayout::default(),
-            touch_keyboard_skin: TouchKeyboardSkin::default(),
-            custom_touch_keyboard_skin: TouchKeyboardSkinDesign::default(),
             touch_keyboard_schemes: TouchKeyboardSchemePreferences::default(),
             touch_key_spacing_tenths: default_touch_key_spacing_tenths(),
             touch_row_spacing_tenths: default_touch_row_spacing_tenths(),
@@ -1302,13 +1405,6 @@ impl Default for Preferences {
             number_row_selection: true,
             candidate_font_size: default_candidate_font_size(),
             candidate_preedit_font_size: default_candidate_preedit_font_size(),
-            candidate_text_color: None,
-            candidate_number_color: None,
-            candidate_accent_color: None,
-            candidate_selected_color: None,
-            candidate_hover_color: None,
-            candidate_surface_color: None,
-            candidate_border_color: None,
             candidate_font_family: default_candidate_font_family(),
             candidate_english_font: None,
             candidate_fallback_fonts: default_candidate_fallback_fonts(),
@@ -1444,21 +1540,21 @@ pub enum ShuangpinProfile {
     Microsoft,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum HelpcodeSchema {
     Lantian,
     #[default]
     Ziranma,
-    #[serde(rename = "shouyou2_0")]
     Shouyou2,
     Shouyouplus,
     Xiaohe,
     Jiajia,
+    /// A user table under the resource set's `helpcodes/custom` directory.
+    Custom(String),
 }
 
 impl HelpcodeSchema {
-    pub fn as_str(self) -> &'static str {
+    pub fn as_str(&self) -> &str {
         match self {
             Self::Lantian => "lantian",
             Self::Ziranma => "ziranma",
@@ -1466,11 +1562,40 @@ impl HelpcodeSchema {
             Self::Shouyouplus => "shouyouplus",
             Self::Xiaohe => "xiaohe",
             Self::Jiajia => "jiajia",
+            Self::Custom(value) => value,
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+impl Serialize for HelpcodeSchema {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for HelpcodeSchema {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        match value.as_str() {
+            "lantian" => Ok(Self::Lantian),
+            "ziranma" => Ok(Self::Ziranma),
+            "shouyou2_0" => Ok(Self::Shouyou2),
+            "shouyouplus" => Ok(Self::Shouyouplus),
+            "xiaohe" => Ok(Self::Xiaohe),
+            "jiajia" => Ok(Self::Jiajia),
+            value if crate::helpcode::is_custom_schema(value) => Ok(Self::Custom(value.into())),
+            _ => Err(serde::de::Error::custom("unknown helpcode schema")),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HelpcodePreferences {
     #[serde(default = "enabled_by_default")]
@@ -1580,8 +1705,8 @@ impl Preferences {
 
     pub fn active_helpcode(&self) -> HelpcodePreferences {
         match self.scheme {
-            InputScheme::Shuangpin => self.shuangpin_helpcode,
-            InputScheme::Quanpin => self.quanpin_helpcode,
+            InputScheme::Shuangpin => self.shuangpin_helpcode.clone(),
+            InputScheme::Quanpin => self.quanpin_helpcode.clone(),
             _ => HelpcodePreferences {
                 enabled: false,
                 ..HelpcodePreferences::default()
@@ -1720,9 +1845,7 @@ impl Preferences {
         {
             return Err(PreferencesError::InvalidTouchKeyboardSpacing);
         }
-        if !self.custom_touch_keyboard_skin.validate() {
-            return Err(PreferencesError::InvalidTouchKeyboardSkinDesign);
-        }
+        self.custom_theme.validate()?;
         if self.touch_keyboard_schemes.enabled.is_empty()
             || self
                 .touch_keyboard_schemes
@@ -1737,47 +1860,6 @@ impl Preferences {
         if !(12..=32).contains(&self.candidate_preedit_font_size) {
             return Err(PreferencesError::InvalidCandidateFontSize);
         }
-        if let Some(color) = &self.candidate_text_color {
-            if !crate::is_hex_color(color, &[6]) {
-                return Err(PreferencesError::InvalidCandidateTextColor);
-            }
-        }
-        if let Some(color) = &self.candidate_number_color {
-            if !crate::is_hex_color(color, &[6]) {
-                return Err(PreferencesError::InvalidCandidateNumberColor);
-            }
-        }
-        if let Some(color) = &self.candidate_accent_color {
-            if !crate::is_hex_color(color, &[6]) {
-                return Err(PreferencesError::InvalidCandidateAccentColor);
-            }
-        }
-        if let Some(color) = &self.candidate_selected_color {
-            if !crate::is_hex_color(color, &[6]) {
-                return Err(PreferencesError::InvalidCandidateSelectedColor);
-            }
-        }
-        if let Some(color) = &self.candidate_hover_color {
-            if !crate::is_hex_color(color, &[6]) {
-                return Err(PreferencesError::InvalidCandidateHoverColor);
-            }
-        }
-        for (color, error) in [
-            (
-                &self.candidate_surface_color,
-                PreferencesError::InvalidCandidateSurfaceColor,
-            ),
-            (
-                &self.candidate_border_color,
-                PreferencesError::InvalidCandidateBorderColor,
-            ),
-        ] {
-            if let Some(color) = color {
-                if !crate::is_hex_color(color, &[6]) {
-                    return Err(error);
-                }
-            }
-        }
         // Font family names are Unicode display names, not paths or identifiers.
         // Keep the existing UTF-8 byte budget while allowing localized families.
         if !valid_font_family(&self.candidate_font_family) {
@@ -1789,13 +1871,6 @@ impl Preferences {
             .is_some_and(|font| !valid_font_family(font))
         {
             return Err(PreferencesError::InvalidCandidateFontFamily);
-        }
-        if self.candidate_skin.is_empty()
-            || self.candidate_skin.len() > 64
-            || !self.candidate_skin.as_bytes()[0].is_ascii_alphanumeric()
-            || !crate::is_ascii_lowercase_identifier_with_dots(&self.candidate_skin)
-        {
-            return Err(PreferencesError::InvalidCandidateSkin);
         }
         // Match the 32 ordered supplementary families in Windows appearance.ts.
         if self.candidate_fallback_fonts.len() > 32
@@ -1857,8 +1932,10 @@ pub enum PreferencesError {
         "at least one touch keyboard scheme must be enabled and the selection must be visible"
     )]
     InvalidTouchKeyboardSchemes,
-    #[error("custom touch keyboard skin design is invalid")]
+    #[error("custom theme keyboard design is invalid")]
     InvalidTouchKeyboardSkinDesign,
+    #[error("custom theme base must be system or a built-in theme")]
+    InvalidCustomThemeBase,
     #[error("candidate font size must be between 12 and 32")]
     InvalidCandidateFontSize,
     #[error("candidate text color must be #RRGGBB or omitted")]
@@ -1877,7 +1954,7 @@ pub enum PreferencesError {
     InvalidCandidateBorderColor,
     #[error("candidate font family must be non-empty, contain no control characters, and be at most 128 bytes")]
     InvalidCandidateFontFamily,
-    #[error("candidate skin identifier is invalid")]
+    #[error("custom theme candidate skin identifier is invalid")]
     InvalidCandidateSkin,
     #[error("word-to-character and paging cannot use the same keys")]
     ConflictingKeyBindings,
@@ -1938,7 +2015,12 @@ impl PreferencesStore {
     }
 
     fn open_lock(&self) -> Result<File, PreferencesError> {
-        fs::create_dir_all(&self.directory)?;
+        if !crate::storage::create_directory_and_check(&self.directory)? {
+            return Err(PreferencesError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "preferences directory is not a real directory",
+            )));
+        }
         let lock = crate::file_lock::open_lock_file(self.directory.join("preferences.lock"))?;
         Ok(lock)
     }

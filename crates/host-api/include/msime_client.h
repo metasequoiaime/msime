@@ -42,13 +42,7 @@ static inline bool msime_client_key_event_valid(const msime_client_key_event *ev
          (event->modifiers & ~UINT32_C(0x0f)) == 0;
 }
 
-/* ABI 2. All functions return owned, NUL-terminated UTF-8 JSON. Free exactly once
- * using msime_client_string_free, including error responses. Never use free().
- * Responses: {"ok":true,"value":...} or {"ok":false,"error":"..."}.
- * Creation returns a View; its session field is the handle. Handles are confined
- * to their creating thread. Dispatch, focus, view and destroy on that thread.
- * Text and candidate values are copied; no Engine pointers escape.
- */
+/* ABI 3 (3 replaced msime_client_builtin_skins with the global theme functions). All functions return owned, NUL-terminated UTF-8 JSON. Free exactly once using msime_client_string_free, including error responses. Never use free(). Responses: {"ok":true,"value":...} or {"ok":false,"error":"..."}. Creation returns a View; its session field is the handle. Handles are confined to their creating thread. Dispatch, focus, view and destroy on that thread. Text and candidate values are copied; no Engine pointers escape. */
 uint32_t msime_client_abi_version(void);
 /* Worker-thread bootstrap: {resources: absolute path, state_root: absolute path}.
  * Verifies pinned resources, delegates working data preparation to Engine and
@@ -163,17 +157,15 @@ char *msime_client_snapshot_activate(uint64_t handle, const uint8_t *expected_ve
  * is optional, its members are not.
  */
 char *msime_client_default_preferences(void);
-/* 内置候选皮肤，JSON 形如
- * {"skins":[{"id":"fluent","title":"Fluent"},…],"default":"willow_green"}。
- * 数组顺序就是宿主的展示与循环顺序。宿主不要另存一份 id 或标题：两个 Linux 宿主曾
- * 各存一份，于是同一个 graphite 在一边叫 Graphite、在另一边叫石墨。
- */
 /* The transcription provider and optional rewrite this device is configured for, read from an
  * absolute preferences directory. Response value: {provider:{...}|null, polish:{...}|null}; both
  * absent means nothing is configured and the host uses whatever it falls back to. Contains
  * credentials: never log the response; release with msime_client_string_free. */
 char *msime_client_mobile_voice_configuration(const uint8_t *directory, size_t length);
-char *msime_client_builtin_skins(void);
+/* The global theme picker: {themes:[{id,title,appearance,preview,candidate,keyboard},...],default:"system"}. Ids in picker order: system, shuishan, light, paper, night, ink, custom. appearance is "light"|"dark"|null; preview {background,panel,accent,text}, candidate and keyboard are the built-in palettes and are null for system and custom. Keys are snake_case. Hosts keep no copy of the ids, titles or colours. */
+char *msime_client_theme_catalog(void);
+/* Resolve the colours for the selected global theme. JSON request (<=1048576 bytes, unknown keys rejected): {global_theme:string, custom_theme?:Preferences.custom_theme, dark:bool, layout:"horizontal"|"vertical", skins_directory?:absolute skin root | package?:one candidate_skin_catalog entry}. global_theme must be one of the seven catalog ids; any other id fails the request. custom_theme is validated like the preference. dark is the host's effective mode; it only matters for custom over a system base, because a built-in base (custom_theme.base, or the applied package's manifest base) fixes the mode and its package palette is the one for that mode. layout is the candidate window being drawn: a package is drawn only in a layout and a mode its manifest declares, and candidate_skin is set only when it is, so a host draws the package decoration and minimum width exactly when candidate_skin is not null. skins_directory is for hosts that scan the skin root (every host but Linux); package is one entry of the Linux candidate_skin_catalog, and anything else there (a msime_client_skin_catalog SkinSummary included) fails the request. Response value: {id,source:"system"|"builtin"|"custom",appearance:"light"|"dark"|null, candidate:{surface,border,text,number,secondary,accent,selected,selected_text,selected_number,hover,show_selected_bar}|null, keyboard:{background,key,function_key,text,secondary,accent,on_accent}|null, candidate_skin:string|null}. appearance, when not null, is the mode the returned surfaces are in. keyboard.accent is the touch strip's selected candidate text (no fill); the return key keeps the platform accent. on_accent is black or white, readable on an accent fill. Every colour is #RRGGBB or #RRGGBBAA. A null palette or null slot means the host's own native token, never transparent. A package missing from the root, invalid on disk or not the one custom_theme.candidate_skin names is left out rather than failing the call. skins_directory reads the package: resolve on a theme, appearance or package change, never while drawing. */
+char *msime_client_resolve_theme(const uint8_t *request, size_t length);
 /* Per-key double-pinyin hint text for one profile name, as a JSON object mapping
  * an uppercase key to "initials / finals" - or to whichever side that key carries.
  * Read out of the Engine's own profile tables so a keyboard face never carries a
@@ -233,6 +225,11 @@ char *msime_client_vocabulary_review(const uint8_t *request, size_t length);
  * package supports the layout and theme before adopting its colors.
  * Keys are camelCase, the same document the settings page consumes. */
 char *msime_client_skin_catalog(const uint8_t *directory, size_t length);
+/* Scan an absolute Engine resource directory for optional custom helper-code tables. The
+ * response value is an array of {schema,file_stem,name,name_en}; missing or unreadable
+ * helpcodes/custom is an empty array. Display metadata comes from leading # name: and
+ * # name_en: comments, while the Engine remains the owner of table parsing. */
+char *msime_client_helpcode_schemas(const uint8_t *resources, size_t length);
 /* JSON {directory:absolute skin root,id:package folder}. Validates that one package with the same loader as msime_client_skin_catalog and returns one of its camelCase packages entries; an invalid, built-in, symlinked or missing package is {ok:false,error} with the loader's reason. Reads the package: resolve on a skin or appearance change, never while drawing. */
 char *msime_client_skin_package(const uint8_t *request, size_t length);
 /* JSON {directory:absolute path,id:skin id,relative:package asset,kind:"image"|"font"}.
@@ -456,9 +453,10 @@ enum MsimeCommand {
 char *msime_client_command(uint64_t session, uint32_t command);
 /* Re-rank the visible candidates with the settled model, once the host's typing pause elapses.
  * The host owns the clock: it is the only side that knows whether a keystroke arrived while the
- * pass was being decided. Answers {"moved": bool, "view": ...}; "moved" is false when the order
- * did not change, which is the signal to leave the candidate window alone rather than repaint it
- * identically. Inert, and immediately false, when no settled model is installed. */
+ * pass was being decided. Answers {"moved": false} when the order did not change, or
+ * {"moved": true, "view": ...} after a reorder. The false case lets the host leave the candidate
+ * window alone without serializing a view it will discard. Inert, and immediately false, when no
+ * settled model is installed. */
 char *msime_client_rerank_settled(uint64_t session);
 /* Pass the generation and global index from the displayed candidate's id. */
 char *msime_client_select(uint64_t session, uint64_t generation, size_t index);

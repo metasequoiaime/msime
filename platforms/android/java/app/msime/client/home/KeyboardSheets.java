@@ -1,8 +1,11 @@
 package app.msime.client.home;
 
 import android.content.Context;
+import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
 import android.text.InputType;
 import android.view.Gravity;
+import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
@@ -17,11 +20,13 @@ import app.msime.client.KeyboardScheme;
 import app.msime.client.KeyboardSkin;
 import app.msime.client.R;
 import com.google.android.material.button.MaterialButton;
+import com.google.android.material.button.MaterialButtonToggleGroup;
 import com.google.android.material.materialswitch.MaterialSwitch;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
 import java.util.List;
 import java.util.function.Consumer;
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -36,25 +41,207 @@ import org.json.JSONObject;
 public final class KeyboardSheets {
     private KeyboardSheets() {}
 
-    /** 皮肤：九种内置配色加上用户自己存的那一套。 */
+    /**
+     * 主题：颜色模式，以及共享目录里的全局主题——跟随系统、五套内置主题和自定义主题。
+     *
+     * <p>The design's 主题 page as a sheet: its 颜色模式 control and its grid of theme cards (dc.html L2003 and L771-781), each card a swatch of the theme's own background, candidate panel, accent and text. Built-in cards draw the catalog's `preview` colours, which is what the contract gives them for; 跟随系统 draws the Material 3 keyboard in the mode the keyboard is in; the custom card draws the custom theme as it stands.
+     */
     public static void showSkins(Fragment fragment, JSONObject snapshot, Runnable changed) {
         Context context = fragment.requireContext();
         JSONObject preferences = preferences(snapshot);
         if (preferences == null) return;
-        String current = preferences.optString("touch_keyboard_skin", "forest");
-        SettingsSheet sheet = new SettingsSheet(context, "键盘皮肤",
-            "配色、圆角和键帽材质。皮肤只改外观，不改输入方案。");
+        String current = preferences.optString("global_theme", "system");
+        SettingsSheet sheet = new SettingsSheet(context, "主题",
+            "全局主题同时决定键盘和候选栏的配色，只改外观，不改输入方案。");
         TextView status = sheet.addStatus();
+
+        // 颜色模式 is the `theme` preference: the keyboard's light or dark, and this app's too.
+        sheet.addHeading("颜色模式");
+        String[][] modes = {{AppMode.SYSTEM, "跟随系统"}, {AppMode.LIGHT, "浅色"}, {AppMode.DARK, "深色"}};
+        String mode = AppMode.of(preferences);
+        MaterialButtonToggleGroup group = new MaterialButtonToggleGroup(context);
+        group.setSingleSelection(true);
+        group.setSelectionRequired(true);
+        LayoutInflater inflater = LayoutInflater.from(context);
+        int[] segments = new int[modes.length];
+        for (int index = 0; index < modes.length; index++) {
+            MaterialButton segment = (MaterialButton) inflater.inflate(R.layout.item_segment, group, false);
+            segment.setId(View.generateViewId());
+            segment.setText(modes[index][1]);
+            group.addView(segment);
+            segments[index] = segment.getId();
+            if (modes[index][0].equals(mode)) group.check(segment.getId());
+        }
+        group.addOnButtonCheckedListener((ignored, id, checked) -> {
+            if (!checked) return;
+            for (int index = 0; index < segments.length; index++) {
+                if (segments[index] != id || modes[index][0].equals(mode)) continue;
+                // The sheet closes with the save: a new mode recreates the activity under it.
+                save(fragment, snapshot, "theme", modes[index][0], status, sheet, changed);
+            }
+        });
+        LinearLayout.LayoutParams groupParams = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        groupParams.topMargin = dp(context, 6);
+        sheet.content().addView(group, groupParams);
+
+        sheet.addHeading("皮肤");
         boolean dark = KeyboardSkin.resolveDark(
             preferences.optString("screen_keyboard_theme", "follow"),
-            preferences.optString("theme", "system"), false);
-        for (KeyboardSkin skin : KeyboardSkin.builtIns(dark)) {
-            sheet.add(choice(context, skin.title(), skin.description(), skin.id().equals(current),
-                () -> save(fragment, snapshot, "touch_keyboard_skin", skin.id(), status, sheet,
-                    changed)));
+            preferences.optString("theme", "system"), AppMode.dark(context));
+        JSONArray themes = HostStore.themeCatalog();
+        LinearLayout row = null;
+        int placed = 0;
+        for (int index = 0; index < themes.length(); index++) {
+            JSONObject entry = themes.optJSONObject(index);
+            if (entry == null) continue;
+            String id = entry.optString("id", "");
+            if (id.isEmpty()) continue;
+            String title = entry.optString("title", id);
+            int[] swatch = swatch(entry, preferences, dark);
+            if (placed % 2 == 0) {
+                row = new LinearLayout(context);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                row.setBaselineAligned(false);
+                LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                rowParams.topMargin = dp(context, placed == 0 ? 6 : 12);
+                sheet.content().addView(row, rowParams);
+            }
+            LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+            if (placed % 2 == 1) cardParams.setMarginStart(dp(context, 12));
+            row.addView(themeCard(context, title, swatch, id.equals(current),
+                () -> save(fragment, snapshot, "global_theme", id, status, sheet, changed)), cardParams);
+            placed++;
         }
-        sheet.addNote("自定义皮肤在键盘的皮肤面板里编辑；这里只切换。");
+        // An odd count leaves the last card half a row wide, as the design's grid does.
+        if (row != null && placed % 2 == 1) {
+            LinearLayout.LayoutParams spacer = new LinearLayout.LayoutParams(0, 0, 1);
+            spacer.setMarginStart(dp(context, 12));
+            row.addView(new View(context), spacer);
+        }
+        if (placed == 0) status.setText("主题列表不可用");
+        sheet.addNote("自定义主题的底色、候选颜色和我的皮肤在键盘的皮肤面板里编辑；这里只切换。");
         sheet.show();
+    }
+
+    /**
+     * One card's four colours -- background, candidate panel, accent, text -- as the design's themeCards reads them (dc.html L2128).
+     *
+     * <p>A built-in theme has them in the catalog's `preview`. `system` and `custom` carry no preview there, because what they look like depends on this device: 跟随系统 is the Material 3 keyboard in the keyboard's current mode, and the custom card is the custom theme resolved as it stands, the same way the keyboard resolves it.
+     */
+    private static int[] swatch(JSONObject entry, JSONObject preferences, boolean dark) {
+        JSONObject preview = entry.optJSONObject("preview");
+        KeyboardSkin fallback = KeyboardSkin.system(dark);
+        if (preview != null) {
+            return new int[] {
+                contractColor(preview, "background", fallback.background()),
+                contractColor(preview, "panel", fallback.keyBackground()),
+                contractColor(preview, "accent", fallback.accent()),
+                contractColor(preview, "text", fallback.keyForeground()),
+            };
+        }
+        KeyboardSkin skin = fallback;
+        if ("custom".equals(entry.optString("id"))) {
+            try {
+                JSONObject custom = new JSONObject(preferences.toString());
+                custom.put("global_theme", "custom");
+                skin = HostStore.keyboardSkin(custom, dark);
+            } catch (JSONException error) {
+                // The card falls back to the Material 3 swatch; selecting it still works.
+            }
+        }
+        return new int[] {
+            Color.parseColor(skin.background()), Color.parseColor(skin.keyBackground()),
+            Color.parseColor(skin.accent()), Color.parseColor(skin.keyForeground()),
+        };
+    }
+
+    /** A `#RRGGBB` or `#RRGGBBAA` catalog colour as an Android colour, or the fallback (an Android colour string) when the slot is missing or unreadable. */
+    private static int contractColor(JSONObject preview, String key, String fallback) {
+        String value = preview.isNull(key) ? null : KeyboardSkin.androidColor(preview.optString(key, null));
+        return Color.parseColor(value == null ? fallback : value);
+    }
+
+    /** The design's theme card: a 72dp swatch with a candidate panel on it, then the name and 使用中 under it, a 2dp accent ring when chosen. */
+    private static View themeCard(Context context, String title, int[] swatch, boolean selected,
+            Runnable onPick) {
+        LinearLayout card = new LinearLayout(context);
+        card.setOrientation(LinearLayout.VERTICAL);
+        int padding = dp(context, 8);
+        card.setPadding(padding, padding, padding, padding);
+        GradientDrawable face = new GradientDrawable();
+        face.setCornerRadius(dp(context, 16));
+        // The sheet itself is the surface colour, so the cards take the page colour to stand off it.
+        face.setColor(ContextCompat.getColor(context, R.color.mist));
+        if (selected) face.setStroke(dp(context, 2), ContextCompat.getColor(context, R.color.forest));
+        card.setBackground(face);
+        card.setClipToOutline(true);
+        int ripple = rippleBackground(context);
+        if (ripple != 0) card.setForeground(ContextCompat.getDrawable(context, ripple));
+        card.setClickable(true);
+        card.setFocusable(true);
+        card.setContentDescription(title + (selected ? "，使用中" : ""));
+        card.setOnClickListener(ignored -> onPick.run());
+
+        android.widget.FrameLayout field = new android.widget.FrameLayout(context);
+        GradientDrawable ground = new GradientDrawable();
+        ground.setCornerRadius(dp(context, 6));
+        ground.setColor(swatch[0]);
+        field.setBackground(ground);
+        field.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+        LinearLayout panel = new LinearLayout(context);
+        panel.setOrientation(LinearLayout.HORIZONTAL);
+        panel.setPadding(dp(context, 9), dp(context, 5), dp(context, 9), dp(context, 5));
+        GradientDrawable plate = new GradientDrawable();
+        plate.setCornerRadius(dp(context, 4));
+        plate.setColor(swatch[1]);
+        panel.setBackground(plate);
+        panel.setElevation(dp(context, 2));
+        TextView first = new TextView(context);
+        first.setText("1 候选");
+        first.setTextSize(13);
+        first.setMaxLines(1);
+        first.setTextColor(swatch[2]);
+        panel.addView(first);
+        TextView second = new TextView(context);
+        second.setText("2 侯选");
+        second.setTextSize(13);
+        second.setMaxLines(1);
+        second.setTextColor(swatch[3]);
+        LinearLayout.LayoutParams secondParams = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        secondParams.setMarginStart(dp(context, 8));
+        panel.addView(second, secondParams);
+        field.addView(panel, new android.widget.FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER));
+        card.addView(field, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(context, 72)));
+
+        LinearLayout footer = new LinearLayout(context);
+        footer.setOrientation(LinearLayout.HORIZONTAL);
+        footer.setGravity(Gravity.CENTER_VERTICAL);
+        footer.setPadding(dp(context, 2), 0, dp(context, 2), 0);
+        TextView name = new TextView(context);
+        name.setText(title);
+        name.setTextSize(13);
+        name.setMaxLines(1);
+        name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        name.setTextColor(ContextCompat.getColor(context, R.color.ink));
+        footer.addView(name, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        if (selected) {
+            TextView badge = new TextView(context);
+            badge.setText("使用中");
+            badge.setTextSize(12);
+            badge.setTextColor(ContextCompat.getColor(context, R.color.forest));
+            footer.addView(badge);
+        }
+        LinearLayout.LayoutParams footerParams = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        footerParams.topMargin = dp(context, 8);
+        card.addView(footer, footerParams);
+        return card;
     }
 
     /** 输入方案：一次切换要同时写四个键，交给共享的映射算，不在这里拼。 */
@@ -188,7 +375,7 @@ public final class KeyboardSheets {
 
     @Nullable private static JSONObject buildAi(@Nullable JSONObject previous, boolean enabled,
             String endpoint, String model, String prompt, String token) {
-        if (enabled && !endpoint.startsWith("https://")) return null;
+        if (enabled && !TextPolicy.validAuthority(endpoint, "https://", 2048)) return null;
         try {
             JSONObject next = previous == null ? new JSONObject()
                 : new JSONObject(previous.toString());
@@ -219,22 +406,53 @@ public final class KeyboardSheets {
         }
     }
 
-    private static void applyScheme(Fragment fragment, JSONObject snapshot, KeyboardScheme scheme,
-            TextView status, SettingsSheet sheet, Runnable changed) {
+    /**
+     * A copy of the preference snapshot switched to one scheme: the four keys a scheme change writes together, computed by the shared mapping rather than assembled by each caller, plus the keyboard picker's `selected` when that list exists. Also used by onboarding's scheme step, so both write the same thing.
+     *
+     * @return the edited copy, or null when the snapshot has no preferences object
+     */
+    @Nullable static JSONObject withScheme(JSONObject snapshot, KeyboardScheme scheme) {
         JSONObject preferences = preferences(snapshot);
-        if (preferences == null) return;
+        if (preferences == null) return null;
         KeyboardScheme.PreferenceMapping mapping = scheme.mapping(
             preferences.optString("last_chinese_scheme", "quanpin"),
             preferences.optString("shuangpin_profile", "xiaohe"));
-        JSONObject pending;
         try {
-            pending = new JSONObject(snapshot.toString());
+            JSONObject pending = new JSONObject(snapshot.toString());
             JSONObject values = pending.getJSONObject("preferences");
             values.put("scheme", mapping.scheme());
             values.put("last_chinese_scheme", mapping.lastChineseScheme());
             values.put("shuangpin_profile", mapping.shuangpinProfile());
             values.put("touch_keyboard_layout", mapping.touchKeyboardLayout());
+            // Once the keyboard's own picker has written its scheme list, its `selected` outranks `scheme` when the keyboard resolves what to show (KeyboardScheme.resolveEnabledSelection), so a switch made here has to move it too, and enable the scheme if the list left it out. Without the list the keyboard follows `scheme` alone; do not create one.
+            JSONObject schemes = values.optJSONObject("touch_keyboard_schemes");
+            if (schemes != null) {
+                JSONArray enabled = schemes.optJSONArray("enabled");
+                if (enabled == null) {
+                    enabled = new JSONArray();
+                    schemes.put("enabled", enabled);
+                }
+                boolean listed = false;
+                for (int index = 0; index < enabled.length(); index++) {
+                    if (scheme.preferenceId().equals(enabled.isNull(index) ? null : enabled.optString(index, null))) {
+                        listed = true;
+                        break;
+                    }
+                }
+                if (!listed) enabled.put(scheme.preferenceId());
+                schemes.put("selected", scheme.preferenceId());
+            }
+            return pending;
         } catch (JSONException error) {
+            return null;
+        }
+    }
+
+    private static void applyScheme(Fragment fragment, JSONObject snapshot, KeyboardScheme scheme,
+            TextView status, SettingsSheet sheet, Runnable changed) {
+        if (preferences(snapshot) == null) return;
+        JSONObject pending = withScheme(snapshot, scheme);
+        if (pending == null) {
             status.setText("切换失败，保留当前方案");
             return;
         }
@@ -273,6 +491,10 @@ public final class KeyboardSheets {
 
     @Nullable private static JSONObject preferences(JSONObject snapshot) {
         return snapshot == null ? null : snapshot.optJSONObject("preferences");
+    }
+
+    private static int dp(Context context, int value) {
+        return Math.round(value * context.getResources().getDisplayMetrics().density);
     }
 
     /** The theme's own press indication, resolved once so rows built in code can wear it. */

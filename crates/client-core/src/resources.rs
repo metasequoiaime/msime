@@ -144,7 +144,7 @@ impl ResourceStore {
         mut fetch: impl FnMut(&Artifact) -> Result<Box<dyn Read>, std::io::Error>,
     ) -> Result<PathBuf, ResourceError> {
         let generation = specification.generation()?;
-        fs::create_dir_all(&self.root)?;
+        crate::storage::create_directory_and_check(&self.root)?;
         let lock = crate::file_lock::open_lock_file(self.root.join("resources.lock"))?;
         crate::file_lock::exclusive(&lock)?;
         sweep_abandoned_stages(&self.root);
@@ -389,6 +389,10 @@ impl VerifiedMarker {
     /// A marker that is absent, unreadable or not the shape this version writes is simply a miss:
     /// the caller hashes, and writes a fresh one.
     pub fn read(path: &Path) -> Option<Self> {
+        let metadata = fs::symlink_metadata(path).ok()?;
+        if metadata.file_type().is_symlink() || !metadata.file_type().is_file() {
+            return None;
+        }
         let bytes = crate::bounded_io::read_bounded_file_with(
             File::open(path).ok()?,
             MAX_MARKER_BYTES,
@@ -400,6 +404,14 @@ impl VerifiedMarker {
     }
 
     pub fn write(&self, path: &Path) -> Result<(), ResourceError> {
+        if let Ok(metadata) = fs::symlink_metadata(path) {
+            if metadata.file_type().is_symlink() || !metadata.file_type().is_file() {
+                return Err(ResourceError::Io(std::io::Error::new(
+                    std::io::ErrorKind::AlreadyExists,
+                    "resource marker is not a regular file",
+                )));
+            }
+        }
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -486,6 +498,22 @@ mod tests {
             assert!(!root.path().join(spec.generation().unwrap()).exists());
             assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn install_rejects_a_symlinked_root() {
+        let parent = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let root = parent.path().join("resources");
+        std::os::unix::fs::symlink(outside.path(), &root).unwrap();
+        let store = ResourceStore::new(&root);
+
+        assert!(store
+            .install(&specification(), |_| Ok(source(b"fixture")))
+            .is_err());
+        assert!(!outside.path().join("resources.lock").exists());
+        assert!(outside.path().read_dir().unwrap().next().is_none());
     }
     #[test]
     fn stages_an_interrupted_install_left_are_swept() {
@@ -666,7 +694,20 @@ mod tests {
             .unwrap()
             .unwrap();
         marker.write(&path).unwrap();
-        assert_eq!(VerifiedMarker::read(&path), Some(marker), "round trips");
+        assert_eq!(VerifiedMarker::read(&path), Some(marker.clone()), "round trips");
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            let outside = directory.path().join("outside-marker.json");
+            fs::write(&outside, b"keep outside").unwrap();
+            fs::remove_file(&path).unwrap();
+            symlink(&outside, &path).unwrap();
+            assert_eq!(VerifiedMarker::read(&path), None, "a symlinked marker is a cache miss");
+            assert!(marker.write(&path).is_err(), "a symlinked marker is not overwritten");
+            assert_eq!(fs::read(&outside).unwrap(), b"keep outside");
+            fs::remove_file(&path).unwrap();
+        }
 
         fs::write(&path, vec![b' '; MAX_MARKER_BYTES as usize + 1]).unwrap();
         assert_eq!(

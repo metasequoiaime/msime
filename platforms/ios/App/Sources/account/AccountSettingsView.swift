@@ -11,105 +11,153 @@ private func isCancellation(_ error: Error) -> Bool {
 }
 
 struct AccountSettingsView: View {
+  @Environment(\.horizontalSizeClass) private var widthClass
   @State private var signedIn = false
-  @State private var replayOnboarding = false
+  @State private var replay: Replay?
+
+  /// What 我的 can play again. Both cover the whole window, so neither slides up as a sheet over the tab bar.
+  private enum Replay: String, Identifiable {
+    case onboarding, splash
+    var id: Self { self }
+  }
+
+  private var version: String {
+    Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "开发构建"
+  }
 
   var body: some View {
-    Form {
+    List {
       AppleAccountSection(signedIn: $signedIn)
 
-      // 皮肤编辑器的入口只留皮肤页那一个。这里原来还有一个「我的设计」指向同一个编辑器,于是同一件事在两个标签页下各有一条路。
-      Section("个性化") {
-        NavigationLink(destination: AppIconSettingsView()) {
-          entry("App 图标", detail: "给主屏幕上的水杉换个颜色", symbol: "app.badge")
-        }.accessibilityIdentifier("accountAppIcon")
+      Section {
+        if signedIn {
+          NavigationLink(destination: CloudClipboardView(session: .shared, client: BackendAccountClient())) {
+            SettingsNavLabel(title: "云剪贴板", symbol: "doc.on.clipboard")
+          }.accessibilityIdentifier("accountCloudClipboard")
+        }
+        NavigationLink(destination: DictionarySettingsView()) {
+          SettingsNavLabel(title: "词库", symbol: "books.vertical")
+        }.accessibilityIdentifier("accountDictionaryLink")
+        // Kept from this repository's own page: the desktop build is downloaded from here, and the upstream account page has no equivalent entry to inherit it from.
+        NavigationLink(destination: DesktopDownloadView()) {
+          SettingsNavLabel(title: "其他平台下载", symbol: "desktopcomputer")
+        }.accessibilityIdentifier("desktopDownloadLink")
+      } header: {
+        SettingsGroupHeader(title: "工具")
       }
 
       if signedIn {
-        Section("云端") {
+        Section {
           NavigationLink(destination: SettingsSyncView(session: .shared, client: BackendAccountClient())) {
-            entry("设置同步", symbol: "arrow.triangle.2.circlepath")
+            SettingsNavLabel(title: "设置同步", symbol: "arrow.triangle.2.circlepath")
           }.accessibilityIdentifier("accountSettingsSync")
-          NavigationLink(destination: CommunityResourcesAccountView()) {
-            entry("词包与回复模板", symbol: "books.vertical.fill")
-          }.accessibilityIdentifier("accountCommunityResources")
           NavigationLink(destination: CloudDictionaryView()) {
-            entry("云词库", symbol: "character.book.closed.fill")
+            SettingsNavLabel(title: "云词库", symbol: "icloud")
           }.accessibilityIdentifier("accountCloudDictionary")
-          NavigationLink(destination: CloudClipboardView(session: .shared, client: BackendAccountClient())) {
-            entry("云剪贴板", symbol: "doc.on.clipboard.fill")
-          }.accessibilityIdentifier("accountCloudClipboard")
-        }
-
-        // 「我发布的皮肤」「我发布的词库」「收藏的词库」…… 五行里有四个字是重复的,而重复的那部分正是分组本身要说的话。搬进标题,行里就只剩下真正在区分彼此的那两个字。
-        Section("我发布的") {
-          NavigationLink(destination: SkinCommunityView(onlyMine: true)) {
-            entry("皮肤", symbol: "paintpalette.fill")
-          }.accessibilityIdentifier("accountPublishedSkins")
-          ForEach(CommunityResourceKind.allCases) { kind in
-            NavigationLink(destination: CommunityResourcesView(kind: kind, initialScope: "mine")) {
-              entry(kind.title, symbol: kind.icon)
-            }
-          }
-        }
-        Section("我收藏的") {
-          ForEach(CommunityResourceKind.allCases) { kind in
-            NavigationLink(destination: CommunityResourcesView(kind: kind, initialScope: "saved")) {
-              entry(kind.title, symbol: "bookmark.fill")
-            }
-          }
+        } header: {
+          SettingsGroupHeader(title: "同步")
         }
       }
 
       Section {
-        // Kept from this repository's own page: the desktop build is downloaded from here, and the
-        // upstream account page has no equivalent entry to inherit it from.
-        NavigationLink(destination: DesktopDownloadView()) {
-          entry("电脑版下载", symbol: "desktopcomputer")
-        }.accessibilityIdentifier("desktopDownloadLink")
-        NavigationLink(destination: AboutView()) {
-          entry("关于水杉", symbol: "info.circle.fill")
-        }.accessibilityIdentifier("aboutSettingsLink")
-        Button { replayOnboarding = true } label: {
-          entry("重新查看新手引导", symbol: "sparkles")
+        NavigationLink(destination: PersonalDictionaryView()) {
+          SettingsNavLabel(title: "自造词", symbol: "character.book.closed")
+        }.accessibilityIdentifier("accountPersonalDictionary")
+        if signedIn {
+          NavigationLink(destination: SkinCommunityView(onlyMine: true)) {
+            SettingsNavLabel(title: "我的皮肤", symbol: "paintpalette")
+          }.accessibilityIdentifier("accountPublishedSkins")
+          NavigationLink(destination: CommunityResourcesAccountView()) {
+            SettingsNavLabel(title: "词包与回复模板", symbol: "tray.full")
+          }.accessibilityIdentifier("accountCommunityResources")
+          ForEach(CommunityResourceKind.allCases) { kind in
+            NavigationLink(destination: CommunityResourcesView(kind: kind, initialScope: "mine")) {
+              SettingsNavLabel(title: "我发布的\(kind.title)", symbol: kind.icon)
+            }
+          }
+          ForEach(CommunityResourceKind.allCases) { kind in
+            NavigationLink(destination: CommunityResourcesView(kind: kind, initialScope: "saved")) {
+              SettingsNavLabel(title: "收藏的\(kind.title)", symbol: "bookmark")
+            }
+          }
+        }
+      } header: {
+        SettingsGroupHeader(title: "我的内容")
+      }
+
+      // 皮肤编辑器的入口只留皮肤页那一个。这里原来还有一个「我的设计」指向同一个编辑器,于是同一件事在两个标签页下各有一条路。
+      Section {
+        NavigationLink(destination: AppIconSettingsView()) {
+          SettingsNavLabel(title: "App 图标", symbol: "app.badge")
+        }.accessibilityIdentifier("accountAppIcon")
+      } header: {
+        SettingsGroupHeader(title: "个性化")
+      }
+
+      Section {
+        Button { present(.onboarding) } label: {
+          SettingsNavLabel(title: "新手引导", symbol: "sparkles")
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("replayOnboardingLink")
-      } header: {
-        Text("关于")
+        Button { present(.splash) } label: {
+          SettingsNavLabel(title: "开屏动画", symbol: "play.circle", value: "播放")
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("replaySplashLink")
+        Link(destination: URL(string: "https://msime.app/privacy/")!) {
+          SettingsNavLabel(title: "隐私", symbol: "hand.raised", value: "本地优先")
+        }
+        // A plain style, or the list tints a Link's whole label in the accent like a button.
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("accountPrivacyLink")
+        NavigationLink(destination: FeedbackView()) {
+          SettingsNavLabel(title: "帮助与反馈", symbol: "questionmark.bubble")
+        }.accessibilityIdentifier("accountFeedbackLink")
+        NavigationLink(destination: AboutView()) {
+          SettingsNavLabel(title: "关于", symbol: "info.circle", value: version)
+        }.accessibilityIdentifier("aboutSettingsLink")
       } footer: {
         Text("皮肤设计和打字统计保存在本机。只有你主动发布的作品会分享至社区；Apple 登录不会自动上传本地设计或输入记录。")
       }
     }
-    // Upstream leaves this blank because its tab shows the title elsewhere; this app names the tab
-    // 我的 and the page with it.
-    .navigationTitle("").navigationBarTitleDisplayMode(.inline)
-    .background(MetasequoiaTheme.canvas)
-    .sheet(isPresented: $replayOnboarding) {
-      NavigationView { WelcomeFlowView(onFinish: { replayOnboarding = false }) }.navigationViewStyle(.stack)
+    .listStyle(.insetGrouped)
+    .environment(\.defaultMinListRowHeight, 48)
+    .navigationTitle("我的")
+    .navigationBarTitleDisplayMode(.large)
+    .tint(MetasequoiaTheme.accent)
+    .fullScreenCover(item: $replay) { replay in
+      switch replay {
+      case .onboarding:
+        if UIDevice.current.userInterfaceIdiom == .pad && widthClass == .regular {
+          OnboardingModalCard { dismissReplay() }.presentationBackground(.clear)
+        } else {
+          WelcomeFlowView(onFinish: { dismissReplay() })
+        }
+      case .splash:
+        SplashView { dismissReplay() }
+      }
     }
   }
 
-  /// 这一页原本有两种行:两行是 42 点的彩色图标块加副标题,其余十一行是 `Label` 的小符号。同一列表里两种尺寸、两种配色,读起来像两个应用拼在一起。所有行走这一个。
-  private func entry(_ title: String, detail: String? = nil, symbol: String) -> some View {
-    HStack(spacing: 12) {
-      Image(systemName: symbol).font(.system(size: 15, weight: .semibold))
-        .foregroundStyle(Color.accentColor).frame(width: 30, height: 30)
-        .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 9))
-      VStack(alignment: .leading, spacing: 2) {
-        Text(title).foregroundStyle(.primary)
-        if let detail {
-          Text(detail).font(.caption).foregroundStyle(.secondary)
-        }
-      }
-    }
-    .padding(.vertical, 2)
+  /// The covers appear and leave without the slide-up: the splash and the iPad card draw their own entrance, and a sliding scrim reads as a sheet rather than a replay.
+  private func present(_ item: Replay) {
+    var transaction = Transaction()
+    transaction.disablesAnimations = true
+    withTransaction(transaction) { replay = item }
+  }
+
+  private func dismissReplay() {
+    var transaction = Transaction()
+    transaction.disablesAnimations = true
+    withTransaction(transaction) { replay = nil }
   }
 }
 
 struct AppleAccountSection: View {
   @Binding var signedIn: Bool
   @StateObject private var codeModel = CodeLoginModel()
+  @Environment(\.colorScheme) private var colorScheme
   @State private var codeChannel: CodeLoginChannel?
   @State private var user: CommunityUser?
   @State private var needsRecovery = false
@@ -122,15 +170,20 @@ struct AppleAccountSection: View {
     user?.preferredDisplayName ?? "水杉用户"
   }
 
+  /// The account card of the design: a 56pt round avatar -- the name's first character on the accent when signed in, a question mark on grey when not -- beside the name in 18pt bold and one line of status.
   private var profileCard: some View {
     HStack(spacing: 14) {
-      Image(systemName: signedIn ? "person.crop.circle.fill" : "person.crop.circle")
-        .font(.system(size: 48)).foregroundStyle(MetasequoiaTheme.forest)
-      VStack(alignment: .leading, spacing: 5) {
-        Text(signedIn ? displayName : "欢迎来到水杉")
-          .font(.title3.bold())
-        Text(signedIn ? "水杉账号已登录" : "登录，分享你的键盘设计")
-          .font(.subheadline).foregroundStyle(.secondary)
+      Text(signedIn ? String(displayName.prefix(1)) : "?")
+        .font(.system(size: 22, weight: .semibold))
+        .foregroundStyle(signedIn ? MetasequoiaTheme.onAccent : Color.secondary)
+        .frame(width: 56, height: 56)
+        .background(signedIn ? MetasequoiaTheme.accent : Color(uiColor: .tertiarySystemFill), in: Circle())
+        .accessibilityHidden(true)
+      VStack(alignment: .leading, spacing: 4) {
+        Text(signedIn ? displayName : "未登录")
+          .font(.system(size: 18, weight: .bold))
+        Text(signedIn ? "水杉账号已登录" : "登录后同步词库、皮肤和设置")
+          .font(.system(size: 13)).foregroundStyle(.secondary)
       }
       Spacer()
     }
@@ -153,11 +206,11 @@ struct AppleAccountSection: View {
         } label: {
           profileCard
         }
-        .padding(.vertical, 10)
+        .padding(.vertical, 6)
         .accessibilityIdentifier("accountProfileCard")
       } else {
         profileCard
-          .padding(.vertical, 10)
+          .padding(.vertical, 6)
           .accessibilityIdentifier("accountProfileCard")
       }
       if !signedIn {
@@ -183,7 +236,7 @@ struct AppleAccountSection: View {
               if (error as? ASAuthorizationError)?.code != .canceled { message = error.localizedDescription }
               Task { await prepareLogin() }
             }
-          }.accessibilityIdentifier("backendAppleSignIn").signInWithAppleButtonStyle(.black).frame(height: 44).disabled(busy)
+          }.accessibilityIdentifier("backendAppleSignIn").signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black).frame(height: 44).disabled(busy)
         } else if codeModel.providers["apple"] == true {
           Button("准备 Apple 登录") { Task { await prepareLogin() } }.disabled(busy)
         }
@@ -314,7 +367,7 @@ struct AccountProfileEditor: View {
           }
           .frame(maxWidth: .infinity, alignment: .leading)
           .padding(20)
-          .background(MetasequoiaTheme.surface, in: RoundedRectangle(cornerRadius: 20))
+          .background(MetasequoiaTheme.surface, in: RoundedRectangle(cornerRadius: MetasequoiaTheme.cardRadius, style: .continuous))
           .accessibilityIdentifier("accountProfileError")
         }
       }
@@ -379,10 +432,10 @@ struct AccountProfileEditor: View {
         actionRow("重新登录", detail: "登录状态出错时清掉它再登一次", symbol: "arrow.clockwise",
                   identifier: "clearExpiredLogin") { confirmRelogin = true }
       }
-      .background(MetasequoiaTheme.surface, in: RoundedRectangle(cornerRadius: 22))
+      .background(MetasequoiaTheme.surface, in: RoundedRectangle(cornerRadius: MetasequoiaTheme.cardRadius, style: .continuous))
       actionRow("注销账号", detail: "删除云端账号数据，无法撤销", symbol: "trash",
                 identifier: "deleteAccount", destructive: true) { confirmDeleteAccount = true }
-        .background(MetasequoiaTheme.surface, in: RoundedRectangle(cornerRadius: 22))
+        .background(MetasequoiaTheme.surface, in: RoundedRectangle(cornerRadius: MetasequoiaTheme.cardRadius, style: .continuous))
         .padding(.top, 4)
     }
   }
@@ -478,9 +531,9 @@ struct AccountProfileEditor: View {
         .foregroundStyle(validName || normalizedName.isEmpty ? Color.secondary : Color.red)
       }
       .padding(20)
-      .background(MetasequoiaTheme.surface, in: RoundedRectangle(cornerRadius: 22))
+      .background(MetasequoiaTheme.surface, in: RoundedRectangle(cornerRadius: MetasequoiaTheme.cardRadius, style: .continuous))
       .overlay {
-        RoundedRectangle(cornerRadius: 22)
+        RoundedRectangle(cornerRadius: MetasequoiaTheme.cardRadius, style: .continuous)
           .strokeBorder(editingName ? MetasequoiaTheme.accent.opacity(0.5) : .clear, lineWidth: 1.5)
       }
     }
@@ -514,7 +567,7 @@ struct AccountProfileEditor: View {
           }
         }
       }
-      .background(MetasequoiaTheme.surface, in: RoundedRectangle(cornerRadius: 22))
+      .background(MetasequoiaTheme.surface, in: RoundedRectangle(cornerRadius: MetasequoiaTheme.cardRadius, style: .continuous))
       Label("轻点账号 ID 即可复制", systemImage: "lock")
         .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 4)
     }
@@ -560,12 +613,12 @@ struct AccountProfileEditor: View {
       }
       Button(action: save) {
         HStack(spacing: 10) {
-          if saving { ProgressView().tint(.white) }
+          if saving { ProgressView().tint(MetasequoiaTheme.onAccent) }
           Text(saving ? "正在保存…" : "保存修改").font(.body.weight(.semibold))
         }
-        .foregroundStyle(.white)
+        .foregroundStyle(MetasequoiaTheme.onAccent)
         .frame(maxWidth: .infinity).padding(.vertical, 17)
-        .background(MetasequoiaTheme.forest.opacity(canSave || saving ? 1 : 0.45),
+        .background(MetasequoiaTheme.accent.opacity(canSave || saving ? 1 : 0.45),
                     in: RoundedRectangle(cornerRadius: 18))
       }
       .buttonStyle(.plain)

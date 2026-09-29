@@ -21,6 +21,8 @@ enum KeyboardFormFactor: Equatable {
   ///
   /// Tablet keys are much wider than phone keys, so keeping the phone height there leaves them as flat slabs that are hard to aim at. Unlike the phone, an iPad keyboard gets taller in landscape, as the system keyboard does, because the screen gets wider there.
   ///
+  /// The portrait tablet height gives the design's 54pt iPad keys (dc.html L1559, `keyH`) with the default margins and row spacing; landscape keeps the taller keys the system keyboard has there, which the design does not draw.
+  ///
   /// The tablet digit row is a whole extra row of keys, so it adds a row's height rather than squeezing the letters.
   func baseHeight(landscape: Bool, handwriting: Bool, numberRow: Bool = false) -> CGFloat {
     switch self {
@@ -29,8 +31,8 @@ enum KeyboardFormFactor: Equatable {
       guard landscape else { return 260 }
       return handwriting ? 240 : 216
     case .tablet:
-      let base: CGFloat = landscape ? 372 : 316
-      return numberRow ? base + (landscape ? 68 : 58) : base
+      let base: CGFloat = landscape ? 372 : 296
+      return numberRow ? base + (landscape ? 68 : 61) : base
     }
   }
 

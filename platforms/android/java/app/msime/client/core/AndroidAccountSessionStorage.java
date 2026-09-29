@@ -13,7 +13,7 @@ import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 
 /** Device-bound encrypted storage for the backend account session. */
-public final class AndroidAccountSessionStorage {
+public final class AndroidAccountSessionStorage implements BackendAccount.SessionStore {
     public static final String PREFERENCES_NAME = "msime_account_session_v1";
     public static final int MAX_PAYLOAD_BYTES = 16 * 1024;
     private static final String KEY_IV = "iv";

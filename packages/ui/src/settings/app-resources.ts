@@ -21,4 +21,5 @@ export const linuxPrivacyUrl = "https://github.com/metasequoiaime/msime/blob/dev
 export const linuxLicenseUrl = "https://github.com/metasequoiaime/msime/blob/develop/LICENSE";
 export const linuxIssuesUrl = "https://github.com/metasequoiaime/msime/issues";
 export const desktopDownloadUrl = "https://msime.app/download/";
+export const documentationUrl = "https://msime.app/docs/";
 export const handwritingSdkPrivacyUrl = "https://developers.google.com/ml-kit/terms";

@@ -9,9 +9,9 @@
 
 export const page = "flex flex-col gap-3.5";
 export const section = "section m-0";
-export const heading = "m-0 text-[15px] font-semibold text-body";
-export const note = "mt-[7px] mb-0 text-secondary";
-export const muted = "text-xs text-muted";
+export const heading = "m-0 [font-size:var(--p-row-fs)] font-semibold [color:var(--p-text)]";
+export const note = "mt-[7px] mb-0 [font-size:var(--p-sub-fs)] [color:var(--p-sub)]";
+export const muted = "text-xs [color:var(--p-sub)]";
 
 export const field = "flex flex-col gap-[7px] text-xs text-secondary";
 export const input =
@@ -34,14 +34,15 @@ export const avatar = (size: "small" | "medium" | "large") =>
   }`;
 export const profileCard =
   "w-full cursor-pointer border-0 text-left disabled:cursor-default disabled:opacity-100";
-export const profileChevron = "ml-auto text-2xl leading-none text-muted";
+export const profileChevron = "ml-auto text-2xl leading-none [color:var(--p-sub)]";
 export const profilePreview = "flex items-center gap-3 text-lg";
 /** The same preview, given the whole page: centred and stacked rather than a row. */
 export const profilePreviewLarge =
   "flex flex-col items-center justify-center gap-3 p-[22px] text-center [&>h2]:m-0";
 export const profilePageHeader =
   "mb-3.5 flex items-center gap-3 [&>h2]:m-0 [&>h2]:flex-1 [&>h2]:text-center [&>h2]:text-lg [&>.secondary]:shrink-0 [&>.secondary]:grow-0 [&>.secondary]:basis-auto";
-export const copyId = "cursor-pointer border-0 bg-transparent p-0 font-[inherit] text-accent";
+export const copyId =
+  "cursor-pointer border-0 bg-transparent p-0 font-[inherit] [color:var(--p-accent-text)]";
 
 export const modalBackdrop = "fixed inset-0 z-20 grid place-items-center bg-black/42 p-5";
 export const modal =
@@ -50,15 +51,12 @@ export const modalHeading = "flex items-center justify-between gap-3 [&>h2]:m-0"
 
 /** Two columns of facts, one on a phone where a value would otherwise be squeezed to a few glyphs. */
 export const details =
-  "m-0 grid grid-cols-2 gap-3 pt-1 max-phone:grid-cols-1 [&>div]:min-w-0 [&>div]:rounded-lg [&>div]:bg-subtle [&>div]:p-3 [&_dt]:text-xs [&_dt]:text-muted [&_dd]:mt-[5px] [&_dd]:mb-0 [&_dd]:break-anywhere [&_dd]:text-body";
+  "m-0 grid grid-cols-2 gap-3 pt-1 max-phone:grid-cols-1 [&>div]:min-w-0 [&>div]:rounded-lg [&>div]:bg-subtle [&>div]:p-3 [&_dt]:text-xs [&_dt]:[color:var(--p-sub)] [&_dd]:mt-[5px] [&_dd]:mb-0 [&_dd]:break-anywhere [&_dd]:[color:var(--p-text)]";
 export const code = "flex flex-col gap-3 pt-0.5";
 export const confirmation = "rounded-lg border border-edge bg-subtle p-3.5 [&>p]:mt-0 [&>p]:mb-3";
 
 export const communityActions =
   "flex items-center justify-between gap-4 [&>div]:min-w-0 [&>.secondary]:m-0 [&>.secondary]:shrink-0 [&>.secondary]:grow-0 [&>.secondary]:basis-auto";
-/** The same row once it holds several entries: the label takes a line, the buttons share the next. */
-export const communityGroup =
-  "flex flex-wrap items-center justify-between gap-4 [&>div]:flex-[1_0_100%] [&>div]:min-w-0 [&>.secondary]:m-0 [&>.secondary]:flex-[1_1_96px]";
 
 export const mobileMenu = "flex flex-col gap-2.5";
 export const mobileMenuSummary =

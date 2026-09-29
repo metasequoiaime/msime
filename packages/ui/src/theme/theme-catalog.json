@@ -1,0 +1,183 @@
+[
+  {
+    "appearance": null,
+    "candidate": null,
+    "id": "system",
+    "keyboard": null,
+    "preview": null,
+    "title": "跟随系统"
+  },
+  {
+    "appearance": "dark",
+    "candidate": {
+      "accent": "#7FE08E",
+      "border": "#0000001F",
+      "hover": "#FFFFFF0F",
+      "number": "#9FB5A3",
+      "secondary": "#9FB5A3",
+      "selected": "#7FE08E24",
+      "selected_number": "#9FB5A3",
+      "selected_text": "#7FE08E",
+      "show_selected_bar": null,
+      "surface": "#2A2B27",
+      "text": "#FFFFFF"
+    },
+    "id": "shuishan",
+    "keyboard": {
+      "accent": "#7FE08E",
+      "background": "#1E1F1C",
+      "function_key": "#23241F",
+      "key": "#2F302C",
+      "on_accent": "#000000",
+      "secondary": "#9FB5A3",
+      "text": "#FFFFFF"
+    },
+    "preview": {
+      "accent": "#7FE08E",
+      "background": "#1E1F1C",
+      "panel": "#2A2B27",
+      "text": "#FFFFFF"
+    },
+    "title": "水杉"
+  },
+  {
+    "appearance": "light",
+    "candidate": {
+      "accent": "#005FB8",
+      "border": "#0000001F",
+      "hover": "#1A1A1A0F",
+      "number": "#6A6F76",
+      "secondary": "#6A6F76",
+      "selected": "#005FB824",
+      "selected_number": "#6A6F76",
+      "selected_text": "#005FB8",
+      "show_selected_bar": null,
+      "surface": "#FFFFFF",
+      "text": "#1A1A1A"
+    },
+    "id": "light",
+    "keyboard": {
+      "accent": "#005FB8",
+      "background": "#E4E6EA",
+      "function_key": "#C8CCD3",
+      "key": "#FFFFFF",
+      "on_accent": "#FFFFFF",
+      "secondary": "#6A6F76",
+      "text": "#1A1A1A"
+    },
+    "preview": {
+      "accent": "#005FB8",
+      "background": "#E9E9E9",
+      "panel": "#FFFFFF",
+      "text": "#1A1A1A"
+    },
+    "title": "浅色"
+  },
+  {
+    "appearance": "light",
+    "candidate": {
+      "accent": "#2C7A4B",
+      "border": "#0000001F",
+      "hover": "#1A1E1B0F",
+      "number": "#6E6A5E",
+      "secondary": "#6E6A5E",
+      "selected": "#2C7A4B24",
+      "selected_number": "#6E6A5E",
+      "selected_text": "#2C7A4B",
+      "show_selected_bar": null,
+      "surface": "#F7F5F0",
+      "text": "#1A1E1B"
+    },
+    "id": "paper",
+    "keyboard": {
+      "accent": "#2C7A4B",
+      "background": "#E6E1D5",
+      "function_key": "#D3CCBC",
+      "key": "#FBF9F4",
+      "on_accent": "#FFFFFF",
+      "secondary": "#6E6A5E",
+      "text": "#1A1E1B"
+    },
+    "preview": {
+      "accent": "#2C7A4B",
+      "background": "#E8E4DA",
+      "panel": "#F7F5F0",
+      "text": "#1A1E1B"
+    },
+    "title": "纸白"
+  },
+  {
+    "appearance": "dark",
+    "candidate": {
+      "accent": "#4FD1C5",
+      "border": "#0000001F",
+      "hover": "#E6F1F40F",
+      "number": "#86A6B0",
+      "secondary": "#86A6B0",
+      "selected": "#4FD1C524",
+      "selected_number": "#86A6B0",
+      "selected_text": "#4FD1C5",
+      "show_selected_bar": null,
+      "surface": "#16262F",
+      "text": "#E6F1F4"
+    },
+    "id": "night",
+    "keyboard": {
+      "accent": "#4FD1C5",
+      "background": "#0F1B22",
+      "function_key": "#15252E",
+      "key": "#1D3340",
+      "on_accent": "#000000",
+      "secondary": "#86A6B0",
+      "text": "#E6F1F4"
+    },
+    "preview": {
+      "accent": "#4FD1C5",
+      "background": "#0F1B22",
+      "panel": "#16262F",
+      "text": "#E6F1F4"
+    },
+    "title": "夜青"
+  },
+  {
+    "appearance": "dark",
+    "candidate": {
+      "accent": "#FFFFFF",
+      "border": "#0000001F",
+      "hover": "#9A9A9A0F",
+      "number": "#9A9A9A",
+      "secondary": "#9A9A9A",
+      "selected": "#FFFFFF24",
+      "selected_number": "#9A9A9A",
+      "selected_text": "#FFFFFF",
+      "show_selected_bar": null,
+      "surface": "#1A1A1A",
+      "text": "#9A9A9A"
+    },
+    "id": "ink",
+    "keyboard": {
+      "accent": "#FFFFFF",
+      "background": "#111111",
+      "function_key": "#1C1C1C",
+      "key": "#2A2A2A",
+      "on_accent": "#000000",
+      "secondary": "#9A9A9A",
+      "text": "#F2F2F2"
+    },
+    "preview": {
+      "accent": "#FFFFFF",
+      "background": "#0B0B0B",
+      "panel": "#1A1A1A",
+      "text": "#9A9A9A"
+    },
+    "title": "墨"
+  },
+  {
+    "appearance": null,
+    "candidate": null,
+    "id": "custom",
+    "keyboard": null,
+    "preview": null,
+    "title": "自定义"
+  }
+]

@@ -41,15 +41,27 @@ function tokens(source: string, selector: string): Map<string, string> {
   );
 }
 
-test("titlebar uses shared theme colors and upstream control dimensions", () => {
+test("titlebar uses the platform tokens and each platform's caption dimensions", () => {
   const titlebar = utilities(settings.titlebar);
-  expect(titlebar).toContain("bg-chrome");
-  expect(titlebar).toContain("text-body");
+  expect(titlebar).toContain("bg-[var(--p-chrome)]");
+  expect(titlebar).toContain("text-[var(--p-text)]");
   expect(titlebar).toContain("h-[var(--titlebar-height)]");
+  // Windows 11 captions are 48 high and GNOME headerbars 46; the upstream 32 stays the fallback.
+  expect(titlebar).toContain("win:[--titlebar-height:48px]");
+  expect(titlebar).toContain("linux:[--titlebar-height:46px]");
+  expect(titlebar).toContain("linux:border-b");
 
   const controls = utilities(settings.windowControls);
   expect(controls).toContain("[&>button]:h-[var(--titlebar-height)]");
-  expect(controls).toContain("[&>button]:w-[42px]");
+  expect(controls).toContain("[&>button]:w-[46px]");
+  // GNOME draws its window buttons as 24px circles.
+  expect(controls).toContain("linux:[&>button]:size-6");
+  expect(controls).toContain("linux:[&>button]:rounded-full");
+});
+
+test("each platform variant targets the settings root's data-platform", () => {
+  for (const platform of ["win", "mac", "linux", "hm2", "harmony", "android", "ios", "ipad"])
+    expect(styles).toContain(`@custom-variant ${platform} ([data-platform="${platform}"] &);`);
 });
 
 test("normal button interaction colors follow both themes", () => {
@@ -77,6 +89,8 @@ test("close interaction and keyboard focus keep dedicated styles", () => {
   const close = utilities(settings.windowClose);
   expect(close).toContain("hover:bg-[#c42b1c]!");
   expect(close).toContain("active:bg-[#a72216]!");
+  // GNOME's close is a grey circle like its neighbours, not the Windows red.
+  expect(close).toContain("linux:hover:bg-[var(--titlebar-btn-hover)]!");
   expect(utilities(settings.windowControls)).toContain(
     "[&>button:focus-visible]:-outline-offset-[3px]",
   );
@@ -88,8 +102,11 @@ test("window SVGs retain upstream sizing and light-theme contrast", () => {
   expect(icon).toContain("h-2.5");
   expect(icon).toContain("object-contain");
   expect(icon).toContain("[pointer-events:none]");
-  expect(icon).toContain("light-theme:invert");
-  expect(icon).toContain("light-theme:brightness-[0.2]");
+  // Invert first, then darken: the composed Tailwind utilities apply brightness before invert, which leaves the glyph light grey.
+  expect(icon).toContain("light-theme:[filter:invert(1)_brightness(0.2)]");
+  expect(utilities(settings.sidebarGlyph)).toContain(
+    "light-theme:[filter:invert(1)_brightness(0.25)]",
+  );
 
   // Close is the exception: it goes red on hover, so the white glyph must not invert there.
   const close = utilities(settings.windowClose);

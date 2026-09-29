@@ -24,6 +24,7 @@ struct Fixture {
     snapshot_fails: bool,
     balanced_openings: Vec<u8>,
     cache_resets: usize,
+    context_resets: usize,
     /// Candidates this engine holds back until asked, standing in for the Engine's cap on a
     /// single-letter query. Empty means an engine that already returns everything it has.
     withheld: Vec<String>,
@@ -551,6 +552,9 @@ fn voice_control_rejects_zero_generation_without_connecting() {
     );
 }
 impl InputEngine for Fixture {
+    fn reset_context(&mut self) {
+        self.context_resets += 1;
+    }
     fn reset_cache(&mut self) -> Result<(), RuntimeError> {
         self.cache_resets += 1;
         Ok(())
@@ -905,6 +909,7 @@ fn runtime() -> Runtime<Fixture> {
             snapshot_fails: false,
             balanced_openings: Vec::new(),
             cache_resets: 0,
+            context_resets: 0,
             withheld: Vec::new(),
             sources: Vec::new(),
             remaining_after_select: None,
@@ -957,6 +962,7 @@ fn several_candidates_from_one_provider_take_their_seat_as_a_group() {
                 snapshot_fails: false,
                 balanced_openings: Vec::new(),
                 cache_resets: 0,
+                context_resets: 0,
                 withheld: Vec::new(),
                 sources,
                 remaining_after_select: None,
@@ -1076,6 +1082,7 @@ fn promoted_english_candidate_keeps_the_first_seat_with_cloud_and_ai() {
                 snapshot_fails: false,
                 balanced_openings: Vec::new(),
                 cache_resets: 0,
+                context_resets: 0,
                 withheld: Vec::new(),
                 sources,
                 remaining_after_select: None,
@@ -1198,6 +1205,7 @@ fn a_chosen_phrase_piece_waits_for_the_rest_of_the_phrase() {
                 snapshot_fails: false,
                 balanced_openings: Vec::new(),
                 cache_resets: 0,
+                context_resets: 0,
                 withheld: Vec::new(),
                 sources: Vec::new(),
                 remaining_after_select: remaining.map(str::to_owned),
@@ -1298,6 +1306,7 @@ fn a_phrase_piece_survives_the_reading_being_deleted() {
             snapshot_fails: false,
             balanced_openings: Vec::new(),
             cache_resets: 0,
+            context_resets: 0,
             withheld: Vec::new(),
             sources: Vec::new(),
             remaining_after_select: Some("p".into()),
@@ -1664,6 +1673,7 @@ fn candidate_codes_follow_candidates_in_page_and_complete_snapshots() {
             snapshot_fails: false,
             balanced_openings: Vec::new(),
             cache_resets: 0,
+            context_resets: 0,
             withheld: Vec::new(),
             sources: Vec::new(),
             remaining_after_select: None,
@@ -1733,7 +1743,7 @@ fn online_provider_worker_keeps_only_the_latest_completed_result() {
     let observed = std::sync::Arc::clone(&calls);
     let worker = OnlineProviderWorker::spawn(1, move |query| {
         observed.fetch_add(1, Ordering::SeqCst);
-        Some((query.query_text, 0))
+        Some((query.query_text.clone(), 0))
     })
     .unwrap();
     let query = |text: &str| OnlineQuery {
@@ -2324,6 +2334,23 @@ fn dedicated_english_state_resets_highlight_without_guessing_from_text() {
 }
 
 #[test]
+fn punctuation_host_context_uses_the_applied_runtime_state() {
+    let mut runtime = runtime();
+    runtime.focus(true).unwrap();
+    assert!(runtime.punctuation_host_context_available(false));
+    assert!(!runtime.punctuation_host_context_available(true));
+
+    runtime.engine.dedicated_english = true;
+    runtime.refresh().unwrap();
+    assert!(!runtime.punctuation_host_context_available(false));
+
+    runtime.engine.dedicated_english = false;
+    runtime.engine.local_mode = "unicode".into();
+    runtime.refresh().unwrap();
+    assert!(!runtime.punctuation_host_context_available(false));
+}
+
+#[test]
 fn switching_the_language_drops_the_composition_being_spelled() {
     // The source pairs `SetEnglishInputMode` with `ClearState`, and the engine does the same inside
     // `set_dedicated_english_mode`: letters spelled for Chinese are not what the user wants sitting
@@ -2400,6 +2427,17 @@ fn stale_views_and_other_sessions_cannot_select() {
         a.dispatch(Action::Select(id)),
         Err(RuntimeError::StaleCandidate)
     ));
+}
+#[test]
+fn focus_changes_end_the_engine_context() {
+    let mut runtime = runtime();
+    runtime.focus(true).unwrap();
+    assert_eq!(runtime.engine.context_resets, 1);
+    type_key(&mut runtime);
+    runtime.focus(false).unwrap();
+    assert_eq!(runtime.engine.context_resets, 2);
+    runtime.focus(true).unwrap();
+    assert_eq!(runtime.engine.context_resets, 3);
 }
 #[test]
 fn cache_maintenance_reaches_engine_without_acquiring_focus() {
@@ -2498,6 +2536,13 @@ fn demotion_moves_flagged_items_to_the_end_and_keeps_both_orders() {
 }
 
 #[test]
+fn in_place_order_applies_candidate_permutations() {
+    let mut values = vec!["zero", "one", "two", "three", "four"];
+    apply_order(&mut values, &[2, 4, 1, 0, 3]);
+    assert_eq!(values, vec!["two", "four", "one", "zero", "three"]);
+}
+
+#[test]
 fn demotion_loses_nothing() {
     // The point of moving rather than removing: every candidate is still reachable by paging.
     let mut items: Vec<u32> = (0..9).collect();
@@ -2584,6 +2629,14 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine_bridge::EngineOpt
         local_super_jianpin: true,
         local_temporary_english: true,
         local_temporary_japanese: true,
+        sentence_association: msime_engine_bridge::SentenceAssociationOptions {
+            word_lattice: true,
+            google: true,
+            neural_desktop: false,
+            neural_keyboard: false,
+            show_next_on_duplicate: false,
+        },
+        rescoring_context: String::new(),
         sentence_alternatives: true,
     }
 }
@@ -2682,6 +2735,7 @@ fn withholding_runtime(offered: usize, withheld: usize, page_size: u8) -> Runtim
             snapshot_fails: false,
             balanced_openings: Vec::new(),
             cache_resets: 0,
+            context_resets: 0,
             withheld: (offered..offered + withheld)
                 .map(|n| format!("candidate-{n}"))
                 .collect(),
@@ -2717,6 +2771,42 @@ fn paging_reaches_candidates_the_engine_withheld() {
         fourth.candidates.first().map(|c| c.text.as_str()),
         Some("candidate-15")
     );
+}
+
+#[test]
+fn candidate_page_len_matches_the_published_page_without_building_rows() {
+    let mut short = withholding_runtime(3, 4, 5);
+    short.focus(true).unwrap();
+    type_key(&mut short);
+    assert_eq!(short.candidate_page_len(), 3);
+    short.dispatch(Action::NextPage).unwrap();
+    assert_eq!(short.candidate_page_len(), 5);
+
+    let mut runtime = withholding_runtime(12, 8, 5);
+    runtime.focus(true).unwrap();
+    type_key(&mut runtime);
+    assert_eq!(runtime.candidate_page_len(), 5);
+    runtime.dispatch(Action::NextPage).unwrap();
+    assert_eq!(runtime.candidate_page_len(), 5);
+    runtime.dispatch(Action::NextPage).unwrap();
+    assert_eq!(runtime.candidate_page_len(), 5);
+}
+
+#[test]
+fn translation_candidates_match_the_visible_page_without_full_rows() {
+    let mut runtime = withholding_runtime(12, 8, 5);
+    runtime.focus(true).unwrap();
+    type_key(&mut runtime);
+    let light = runtime.translation_candidates().unwrap();
+    let view = runtime.view();
+    assert_eq!(light.generation, view.generation);
+    assert_eq!(light.scheme, view.scheme);
+    assert_eq!(light.local_mode, view.local_mode);
+    assert_eq!(light.candidates.len(), view.candidates.len());
+    for (candidate, visible) in light.candidates.iter().zip(&view.candidates) {
+        assert_eq!(candidate.text, visible.text);
+        assert_eq!(candidate.source, visible.source);
+    }
 }
 
 #[test]
@@ -3081,7 +3171,7 @@ fn a_busy_provider_keeps_only_the_newest_completed_result() {
     let (started, first_running) = std::sync::mpsc::channel::<()>();
     let (release, gate) = std::sync::mpsc::channel::<()>();
     let gate = std::sync::Mutex::new(gate);
-    let worker = OnlineProviderWorker::spawn(1, move |query: OnlineQuery| {
+    let worker = OnlineProviderWorker::spawn(1, move |query: &OnlineQuery| {
         if query.query_text == "ni" {
             started.send(()).unwrap();
             gate.lock().unwrap().recv().unwrap();

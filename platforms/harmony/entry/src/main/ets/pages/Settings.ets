@@ -38,6 +38,7 @@ import {
 import { SettingsFormFactorCapabilities, SettingsFormFactorProjection }
   from '../keyboard/settings/SettingsFormFactorCapabilities';
 import { LocalVoiceModelAction, LocalVoiceModelPolicy } from '../keyboard/settings/LocalVoiceModelPolicy';
+import { AiAuthenticationPolicy } from '../keyboard/settings/AiAuthenticationPolicy';
 
 /** `{root}` for the list, `{root, id, mirror}` for an install, `{root, id}` for a removal, `{id}` for a cancel. */
 interface LocalVoiceModelRequest {
@@ -1396,8 +1397,7 @@ class SettingsBridge {
     try {
       const response: http.HttpResponse = await httpRequest.request(endpoint, {
         method: http.RequestMethod.POST,
-        header: { Accept: 'application/json', 'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}` },
+        header: { ...AiAuthenticationPolicy.headers(endpoint, token), 'Content-Type': 'application/json' },
         connectTimeout: 5000,
         readTimeout: 15000,
         extraData: JSON.stringify(body)
@@ -1866,8 +1866,7 @@ class SettingsBridge {
 
   private validCredentialEndpoint(value: string, allowHttp: boolean): string | null {
     const endpoint: string = value.trim();
-    const schemes: string[] = allowHttp ? ['https://', 'http://'] : ['https://'];
-    if (!TextPolicy.validAuthority(endpoint, schemes)) return null;
+    if (!TextPolicy.validSecureAuthority(endpoint, allowHttp)) return null;
     return endpoint;
   }
 
@@ -1887,7 +1886,7 @@ class SettingsBridge {
 
   private validAiEndpoint(value: string): string | null {
     const endpoint: string = value.trim();
-    if (!TextPolicy.validAuthority(endpoint, ['http://', 'https://'])) return null;
+    if (!TextPolicy.validSecureAuthority(endpoint, true)) return null;
     return endpoint;
   }
 
