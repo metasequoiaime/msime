@@ -12,14 +12,6 @@ import {
   isVoicePolishEnabled,
   voiceAsrTokenLabel,
 } from "../voice-input-defaults";
-import {
-  POLISH_PRESET_IDS,
-  POLISH_PRESET_NAMES,
-  isPolishCustomSlot,
-  normalizePolishSlot,
-  polishPromptFor,
-  polishSlotField,
-} from "../../voice/polish-presets";
 import { useSettingsForm } from "../settings-form-context";
 import { GroupList, Row, Select, Switch } from "../../core/platform-controls";
 import { VoiceInputIntroSection } from "../voice-input-intro-section";
@@ -39,6 +31,8 @@ import { VoiceCaptureDevicesSection } from "../voice-capture-devices-section";
 import { VoiceRecordingBehaviorSection } from "../voice-recording-behavior-section";
 import { DoubaoOptionsSection } from "../doubao-options-section";
 import { VoiceCredentialControl } from "../voice-credential-control";
+import { VoicePolishSection } from "../voice-polish-section";
+import { PolishPromptSection } from "../polish-prompt-section";
 import {
   asrProviderCredentialTestConfig,
   asrServiceCredentialTestConfig,
@@ -91,7 +85,6 @@ export function VoiceSettingsPage() {
     credentialTestControl,
     providerPresetControls,
   } = useSettingsForm();
-  const polishSlot = normalizePolishSlot(voiceInput.polish_prompt_id);
   const asrTokenLabel = voiceAsrTokenLabel(voiceInput.asr_provider, doubaoAuthMode);
   const polishEnabled = isVoicePolishEnabled(voiceInput);
   return (
@@ -331,45 +324,23 @@ export function VoiceSettingsPage() {
           />
         )}
         {showVoiceProviderSettings && (
-          <GroupList title="文本润色 provider">
-            <p className={settings.groupNote}>识别结果可交给用户管理的服务润色</p>
-            <Row title="启用润色">
-              <Switch
-                aria-label="启用文本润色"
-                checked={polishEnabled}
-                onChange={(checked) =>
-                  updateVoice({ polish_text: checked, polish_enabled: checked })
-                }
-              />
-            </Row>
-            <Row title="服务提供商">
-              <Select
-                aria-label="文本润色服务提供商"
-                value={voiceInput.polish_provider ?? "siliconflow"}
-                onChange={(event) =>
-                  updateVoice(polishProviderUpdate(event.target.value, voiceInput))
-                }
-              >
-                <option value="siliconflow">SiliconFlow</option>
-                <option value="openai">OpenAI</option>
-                <option value="deepseek">DeepSeek</option>
-                <option value="groq">Groq</option>
-              </Select>
-            </Row>
-            {providerPresetControls(
+          <VoicePolishSection
+            enabled={polishEnabled}
+            provider={voiceInput.polish_provider ?? "siliconflow"}
+            model={voiceInput.polish_model ?? ""}
+            providerPreset={providerPresetControls(
               "文本润色",
               POLISH_PROVIDER_DEFAULTS[voiceInput.polish_provider ?? "siliconflow"],
               voiceInput.polish_model ?? "",
               (polish_model) => updateVoice({ polish_model }),
-              settings.managerBlock,
+              "provider-preset-section",
             )}
-            <Row title="模型">
-              <input
-                aria-label="文本润色模型"
-                value={voiceInput.polish_model ?? ""}
-                onChange={(event) => updateVoice({ polish_model: event.target.value })}
-              />
-            </Row>
+            onEnabledChange={(enabled) =>
+              updateVoice({ polish_text: enabled, polish_enabled: enabled })
+            }
+            onProviderChange={(provider) => updateVoice(polishProviderUpdate(provider, voiceInput))}
+            onModelChange={(polish_model) => updateVoice({ polish_model })}
+          >
             {!linuxPlatform && (
               <PolishCredentialFieldsSection
                 endpoint={voiceInput.polish_endpoint ?? ""}
@@ -378,76 +349,33 @@ export function VoiceSettingsPage() {
                 onTokenChange={(polish_token) => updateVoice({ polish_token })}
               />
             )}
-            <Row title="润色方案">
-              <Select
-                aria-label="润色方案"
-                value={polishSlot}
-                onChange={(event) =>
-                  updateVoice({
-                    polish_prompt_id: event.target.value,
-                    polish_prompt: polishPromptFor(event.target.value, voiceInput),
-                  })
-                }
-              >
-                {POLISH_PRESET_IDS.map((id) => (
-                  <option key={id} value={id}>
-                    {POLISH_PRESET_NAMES[id]}
-                  </option>
-                ))}
-                <option value="custom_1">自定义一</option>
-                <option value="custom_2">自定义二</option>
-                <option value="custom_3">自定义三</option>
-              </Select>
-            </Row>
-            <div className={settings.managerBlock}>
-              <label className={settings.field}>
-                <span>
-                  <span data-row-title="">润色提示词</span>{" "}
-                  {isPolishCustomSlot(polishSlot)
-                    ? "这一段会保存到所选的自定义方案"
-                    : "内置方案的完整提示词，可以就地修改"}
-                </span>
-                <textarea
-                  aria-label="润色提示词"
-                  className={settings.promptInput}
-                  value={voiceInput.polish_prompt ?? ""}
-                  onChange={(event) =>
-                    updateVoice({
-                      polish_prompt: event.target.value,
-                      ...(polishSlotField(polishSlot)
-                        ? {
-                            [polishSlotField(polishSlot) as string]: event.target.value,
-                          }
-                        : {}),
-                    })
-                  }
-                />
-              </label>
-              <div className={settings.managerActions}>
-                <button
-                  type="button"
-                  className="secondary"
-                  disabled={
-                    (voiceInput.polish_prompt ?? "") === polishPromptFor(polishSlot, voiceInput)
-                  }
-                  onClick={() =>
-                    updateVoice({
-                      polish_prompt: polishPromptFor(polishSlot, voiceInput),
-                    })
-                  }
-                >
-                  恢复默认
-                </button>
-                {(windowsPlatform || macosPlatform || iosPlatform || harmonyPlatform) &&
-                  credentialTestControl(
-                    "voice.polish",
-                    "测试语音润色配置",
-                    polishServiceCredentialTestConfig(voiceInput),
-                    polishServiceCredentialTestDisabled(voiceInput),
-                  )}
-              </div>
-            </div>
-          </GroupList>
+            <PolishPromptSection
+              promptId={voiceInput.polish_prompt_id}
+              prompt={voiceInput.polish_prompt ?? ""}
+              customPrompts={{
+                custom_1: voiceInput.polish_prompt_custom_1,
+                custom_2: voiceInput.polish_prompt_custom_2,
+                custom_3: voiceInput.polish_prompt_custom_3,
+              }}
+              onSelectPrompt={(polish_prompt_id, polish_prompt) =>
+                updateVoice({ polish_prompt_id, polish_prompt })
+              }
+              onPromptChange={(polish_prompt, customSlot) =>
+                updateVoice({
+                  polish_prompt,
+                  ...(customSlot ? { [`polish_prompt_${customSlot}`]: polish_prompt } : {}),
+                })
+              }
+              onRestore={(polish_prompt) => updateVoice({ polish_prompt })}
+            />
+            {(windowsPlatform || macosPlatform || iosPlatform || harmonyPlatform) &&
+              credentialTestControl(
+                "voice.polish",
+                "测试语音润色配置",
+                polishServiceCredentialTestConfig(voiceInput),
+                polishServiceCredentialTestDisabled(voiceInput),
+              )}
+          </VoicePolishSection>
         )}
         {showVoiceProviderSettings && linuxPlatform && (
           <VoiceCredentialControl
