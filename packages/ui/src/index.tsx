@@ -444,10 +444,15 @@ export {
   type ShortcutsSettingsSectionProps,
 } from "./settings/shortcuts-settings-section";
 import { FloatingToolbarSettingsSection } from "./settings/floating-toolbar-settings-section";
+import { createFloatingToolbarActions } from "./settings/floating-toolbar-actions";
 export {
   FloatingToolbarSettingsSection,
   type FloatingToolbarSettingsSectionProps,
 } from "./settings/floating-toolbar-settings-section";
+export {
+  createFloatingToolbarActions,
+  type CreateFloatingToolbarActionsOptions,
+} from "./settings/floating-toolbar-actions";
 import { SkinSettingsSection } from "./settings/skin-settings-section";
 export {
   SkinSettingsSection,
@@ -2184,6 +2189,11 @@ export function SettingsPage({
     touchRowSpacingTenths,
     touchKeyboardHeightAdjustment,
   } = settingsVisualPreferences(draft);
+  const floatingToolbarActions = createFloatingToolbarActions({
+    draft,
+    preferences: floatingToolbar,
+    setDraft,
+  });
   useSettingsTheme(themeMode, settingsTheme);
   const { candidatePreviewTheme, toolbarPreviewTheme, keyboardPreviewTheme } =
     useSettingsPreviewThemes({
@@ -2572,12 +2582,7 @@ export function SettingsPage({
                     preferences={floatingToolbar}
                     skin={draft.candidate_skin ?? "willow_green"}
                     theme={toolbarPreviewTheme}
-                    onEnabledChange={(enabled) =>
-                      setDraft({
-                        ...draft,
-                        floating_toolbar: { ...floatingToolbar, enabled },
-                      })
-                    }
+                    {...floatingToolbarActions}
                     showAppearance={showToolbarAppearance}
                     showComponents={showToolbarComponents}
                     capabilities={
@@ -2587,24 +2592,6 @@ export function SettingsPage({
                             floating_toolbar_voice: host.floating_toolbar_voice,
                           }
                         : undefined
-                    }
-                    onScaleChange={(scale_percent) =>
-                      setDraft({
-                        ...draft,
-                        floating_toolbar: { ...floatingToolbar, scale_percent },
-                      })
-                    }
-                    onFontSizeChange={(font_size) =>
-                      setDraft({
-                        ...draft,
-                        floating_toolbar: { ...floatingToolbar, font_size },
-                      })
-                    }
-                    onComponentChange={(key, enabled) =>
-                      setDraft({
-                        ...draft,
-                        floating_toolbar: { ...floatingToolbar, [key]: enabled },
-                      })
                     }
                   />
                   <InputSettingsPanel
