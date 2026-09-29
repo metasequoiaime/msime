@@ -8,7 +8,7 @@
 
 use std::ffi::OsStr;
 use std::fs::File;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -25,27 +25,35 @@ pub const BUSY: &str = "dictionary maintenance busy";
 const MAX_LEASE_BYTES: u64 = 4096;
 
 fn reject_symlinked_path_ancestors(path: &Path) -> std::io::Result<()> {
-    let mut current = path;
-    loop {
-        match std::fs::symlink_metadata(current) {
-            Ok(metadata) if metadata.file_type().is_symlink() => {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "dictionary lease path is a symbolic link",
-                ));
+    let mut current = PathBuf::new();
+    let mut saw_prefix_alias = false;
+    let mut saw_real_component = false;
+    let components: Vec<_> = path.components().collect();
+    for (index, component) in components.iter().enumerate() {
+        match component {
+            Component::Prefix(_) | Component::RootDir => current.push(component),
+            Component::CurDir => continue,
+            Component::ParentDir => current.push(component),
+            Component::Normal(_) => {
+                current.push(component);
+                match std::fs::symlink_metadata(&current) {
+                    Ok(metadata) if metadata.file_type().is_symlink() => {
+                        if index + 1 == components.len() || saw_real_component || saw_prefix_alias {
+                            return Err(std::io::Error::new(
+                                std::io::ErrorKind::InvalidInput,
+                                "dictionary lease path is a symbolic link",
+                            ));
+                        }
+                        saw_prefix_alias = true;
+                    }
+                    Ok(_) => saw_real_component = true,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(error),
+                }
             }
-            Ok(_) => return Ok(()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error),
         }
-        let parent = current
-            .parent()
-            .ok_or_else(|| std::io::Error::other("dictionary lease path has no parent"))?;
-        if parent == current {
-            return Ok(());
-        }
-        current = parent;
     }
+    Ok(())
 }
 
 fn read_lease(path: &Path) -> Option<String> {
@@ -317,6 +325,26 @@ mod tests {
         symlink(target.path(), &linked).unwrap();
         assert!(Lease::acquire(&linked).is_err());
         assert!(!target.path().join(LEASE_NAME).exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn existing_lease_below_a_symlinked_parent_is_rejected() {
+        use std::os::unix::fs::symlink;
+
+        let target = tempfile::tempdir().unwrap();
+        let parent = tempfile::tempdir().unwrap();
+        let target_data = target.path().join("data");
+        std::fs::create_dir(&target_data).unwrap();
+        let linked = parent.path().join("linked");
+        symlink(target.path(), &linked).unwrap();
+        let user_data = linked.join("data");
+        std::fs::write(user_data.join(LEASE_NAME), b"synthetic\n").unwrap();
+        assert!(Lease::acquire(&user_data).is_err());
+        assert_eq!(
+            std::fs::read_to_string(target_data.join(LEASE_NAME)).unwrap(),
+            "synthetic\n"
+        );
     }
 
     #[test]

@@ -95,6 +95,21 @@ int main() {
   std::filesystem::remove(linked);
   std::filesystem::remove_all(link_parent);
   std::filesystem::remove_all(outside);
+
+  char existing_outside_pattern[] = "/tmp/msime-quiesce-existing-XXXXXX";
+  const std::filesystem::path existing_outside = mkdtemp(existing_outside_pattern);
+  const auto existing_data = existing_outside / "data";
+  std::filesystem::create_directory(existing_data);
+  std::ofstream(existing_data / ".msime-dictionary-quiesce") << "1005000\n";
+  char existing_link_pattern[] = "/tmp/msime-quiesce-existing-link-XXXXXX";
+  const std::filesystem::path existing_link_parent = mkdtemp(existing_link_pattern);
+  const auto existing_link = existing_link_parent / "linked";
+  std::filesystem::create_directory_symlink(existing_outside, existing_link);
+  const auto existing_user_data = existing_link / "data";
+  assert(!raise_dictionary_quiesce_lease(existing_user_data.string(), written, 1000000));
+  assert(!dictionary_quiesced(existing_user_data.string(), 1000000));
+  std::filesystem::remove_all(existing_link_parent);
+  std::filesystem::remove_all(existing_outside);
   std::filesystem::remove_all(root);
   return 0;
 }

@@ -24,5 +24,14 @@ int main() {
       linked, nlohmann::json::array({{{"id", "changed"}}})));
   std::ifstream untouched(outside);
   assert(std::string(std::istreambuf_iterator<char>(untouched), {}) == "keep");
+  const auto linked_directory = root / "linked-state";
+  std::filesystem::create_directory_symlink(root, linked_directory);
+  const auto redirected = linked_directory / "redirected.json";
+  std::ofstream(root / "redirected.json") << "keep-parent";
+  assert(!msime::telemetry::write_queue(
+      redirected, nlohmann::json::array({{{"id", "changed-parent"}}})));
+  std::ifstream parent_untouched(root / "redirected.json");
+  assert(std::string(std::istreambuf_iterator<char>(parent_untouched), {}) ==
+         "keep-parent");
   std::filesystem::remove_all(root);
 }

@@ -38,16 +38,29 @@ inline std::int64_t dictionary_quiesce_now_ms() {
 
 inline bool dictionary_lease_path_is_safe(const std::filesystem::path &path) {
   std::error_code error;
-  auto current = path;
-  while (true) {
+  auto current = path.root_path();
+  bool saw_prefix_alias = false;
+  bool saw_real_component = false;
+  const auto relative = path.relative_path();
+  const auto component_count = static_cast<std::size_t>(std::distance(relative.begin(), relative.end()));
+  std::size_t index = 0;
+  for (const auto &component : relative) {
+    current /= component;
     const auto status = std::filesystem::symlink_status(current, error);
-    if (!error) return !std::filesystem::is_symlink(status);
+    if (!error) {
+      if (std::filesystem::is_symlink(status)) {
+        const bool target = index + 1 == component_count;
+        if (target || saw_real_component || saw_prefix_alias) return false;
+        saw_prefix_alias = true;
+      } else {
+        saw_real_component = true;
+      }
+    }
     if (error && error != std::errc::no_such_file_or_directory) return false;
     error.clear();
-    const auto parent = current.parent_path();
-    if (parent == current) return true;
-    current = parent;
+    ++index;
   }
+  return true;
 }
 
 // Called from the hosts' timers and before a session opens; a missing lease costs one failed open.
