@@ -8,10 +8,10 @@ use crate::platform::mobile::mobile_account_helpers::{
     account_preferences_schema as shared_account_preferences_schema,
     account_profile as shared_account_profile, account_rename as shared_account_rename,
     account_request_code as shared_account_request_code, account_status as shared_account_status,
-    call, cleanup_stale_snapshot_previews, clear_snapshot_previews, clear_snapshot_previews_after,
-    cloud_dictionary_account_request, replace_pending_snapshot, snapshot_command_error,
-    snapshot_response_without_account, take_pending_snapshot, valid_mobile_haptic_strength,
-    validate_pending_snapshot, PendingSnapshot, SnapshotMetadata,
+    call_session, cleanup_stale_snapshot_previews, clear_snapshot_previews,
+    clear_snapshot_previews_after, cloud_dictionary_account_request, replace_pending_snapshot,
+    snapshot_command_error, snapshot_response_without_account, take_pending_snapshot,
+    valid_mobile_haptic_strength, validate_pending_snapshot, PendingSnapshot, SnapshotMetadata,
 };
 #[cfg(target_os = "ios")]
 use crate::shared::account_dto::{
@@ -186,7 +186,10 @@ pub async fn account_status(
 pub async fn account_providers(
     state: State<'_, AccountState>,
 ) -> Result<ProvidersResponse, crate::CommandError> {
-    call(state, |session| session.providers().map(providers_response)).await
+    call_session(state.session(), |session| {
+        session.providers().map(providers_response)
+    })
+    .await
 }
 
 #[cfg(target_os = "ios")]
@@ -231,7 +234,7 @@ pub async fn account_apple_login(
         .map_err(|_| crate::CommandError {
             code: "apple_sign_in",
         })?;
-    call(state, move |session| {
+    call_session(state.session(), move |session| {
         session
             .sign_in_apple(&challenge.challenge_id, &credential)
             .map(|user| StatusResponse {

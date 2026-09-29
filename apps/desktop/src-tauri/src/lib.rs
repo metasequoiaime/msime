@@ -98,6 +98,7 @@ use std::collections::HashMap;
     target_os = "linux",
     target_os = "windows",
     target_os = "android",
+    target_os = "ios",
     test
 ))]
 use std::fs;
