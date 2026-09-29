@@ -90,7 +90,6 @@ import type {
   LocalDictionaryFormat,
   LocalDictionaryKind,
 } from "./dictionary/dictionary-file";
-import { DICTIONARY_PAGE_SIZE } from "./dictionary/dictionary-file";
 export type {
   DictionaryEntry,
   LocalDictionaryFormat,
@@ -339,6 +338,7 @@ import {
 } from "./settings/mobile-keyboard-feedback-section";
 import { DictionaryManifestCard } from "./settings/dictionary-manifest-card";
 import { PersonalDictionaryImportCard } from "./settings/personal-dictionary-import-card";
+import { DictionarySettingsPanel } from "./settings/dictionary-settings-panel";
 import { validCandidateFonts } from "./candidate/candidate-font-family";
 import type { FontCatalogReader } from "./candidate/font-catalog";
 import {
@@ -964,6 +964,10 @@ export {
   type PersonalDictionaryImportCardProps,
   type PersonalDictionaryImportClient,
 } from "./settings/personal-dictionary-import-card";
+export {
+  DictionarySettingsPanel,
+  type DictionarySettingsPanelProps,
+} from "./settings/dictionary-settings-panel";
 export {
   MobileKeyboardFeedbackSection,
   type MobileKeyboardFeedback,
@@ -2567,115 +2571,47 @@ export function SettingsPage({
                       })
                     }
                   />
-                  <fieldset disabled={busy} hidden={page !== "dictionary"} aria-label="词库">
-                    {client.dictionaryManifest && (
-                      <DictionaryManifestCard read={client.dictionaryManifest} />
-                    )}
-                    {client.dictionary?.importPersonal && (
-                      <PersonalDictionaryImportCard
-                        dictionary={client.dictionary}
-                        platform={client.host?.platform}
-                      />
-                    )}
-                    {client.dictionary && (
-                      <>
-                        <DictionaryManagerHeader
-                          disabled={phraseBusy}
-                          dictionaryFormat={dictionaryFormat}
-                          onQuery={() => void loadPhrases(dictionaryKind, 0)}
-                          onAdd={() =>
-                            setPhraseForm({
-                              key: "",
-                              value: "",
-                              weight: 10,
-                              previous: null,
-                            })
-                          }
-                          onExportCurrent={() => void exportPhrases()}
-                          onExportAll={() => void exportAllPhrases()}
-                          onImport={(file) => void importPhrases(file)}
-                          onFormatChange={setDictionaryFormat}
-                        />
-                        {dictionaryPendingCount > 0 && (
-                          <p className="input-setting-description" role="status">
-                            {dictionaryPendingCount}{" "}
-                            项等待键盘同步。打开水杉键盘后会在空闲时逐条生效。
-                          </p>
-                        )}
-                        {dictionarySnapshotError && (
-                          <p role="alert" className="error">
-                            {dictionarySnapshotError}
-                          </p>
-                        )}
-                        <DictionaryFailuresNotice
-                          failures={dictionaryFailures}
-                          busy={phraseBusy}
-                          canRetry={Boolean(client.dictionary?.retry)}
-                          canDismiss={Boolean(client.dictionary?.dismissFailure)}
-                          onRetry={(requestId) => void retryDictionaryFailure(requestId)}
-                          onDismiss={(requestId) => void dismissDictionaryFailure(requestId)}
-                        />
-                        <DictionaryManagerControls
-                          kind={dictionaryKind}
-                          format={dictionaryFormat}
-                          search={phraseSearch}
-                          disabled={phraseBusy}
-                          onKindChange={(kind) => {
-                            setDictionaryKind(kind);
-                            if (kind !== "pinyin" && dictionaryFormat === "hans")
-                              setDictionaryFormat("standard");
-                            setPhrases([]);
-                            void loadPhrases(kind);
-                          }}
-                          onFormatChange={setDictionaryFormat}
-                          onSearchChange={setPhraseSearch}
-                        />
-                        {phraseError && (
-                          <p role="alert" className="error">
-                            {phraseError}
-                          </p>
-                        )}
-                        {phraseNotice && (
-                          <p role="status" className={settings.empty}>
-                            {phraseNotice}
-                          </p>
-                        )}
-                        <DictionaryEntries
-                          kind={dictionaryKind}
-                          entries={phrases}
-                          form={phraseForm}
-                          busy={phraseBusy}
-                          listRef={phraseListRef}
-                          onFormChange={setPhraseForm}
-                          onSave={() => void savePhrase()}
-                          onCancel={() => setPhraseForm(null)}
-                          onEdit={(entry) =>
-                            setPhraseForm({
-                              key: entry.key,
-                              value: entry.value,
-                              weight: entry.weight,
-                              previous: entry,
-                            })
-                          }
-                          onRemove={(entry) => void removePhrase(entry)}
-                        />
-                        <DictionaryPagination
-                          busy={phraseBusy}
-                          offset={phrasePage.offset}
-                          hasMore={phrasePage.hasMore}
-                          status={phrasePage.status}
-                          pageSize={DICTIONARY_PAGE_SIZE}
-                          onPageChange={turnPhrasePage}
-                        />
-                      </>
-                    )}
-                    {macosPlatform && client.resetLearnedData && (
-                      <LearningDataSection
-                        disabled={phraseBusy}
-                        onReset={() => void resetLearnedData()}
-                      />
-                    )}
-                  </fieldset>
+                  <DictionarySettingsPanel
+                    disabled={busy}
+                    hidden={page !== "dictionary"}
+                    dictionary={client.dictionary}
+                    dictionaryManifest={client.dictionaryManifest}
+                    platform={client.host?.platform}
+                    macos={macosPlatform}
+                    resetLearnedData={client.resetLearnedData}
+                    phraseBusy={phraseBusy}
+                    dictionaryFormat={dictionaryFormat}
+                    setDictionaryFormat={setDictionaryFormat}
+                    onQuery={() => void loadPhrases(dictionaryKind, 0)}
+                    onAdd={() => setPhraseForm({ key: "", value: "", weight: 10, previous: null })}
+                    onExportCurrent={() => void exportPhrases()}
+                    onExportAll={() => void exportAllPhrases()}
+                    onImport={(file) => void importPhrases(file)}
+                    dictionaryPendingCount={dictionaryPendingCount}
+                    dictionaryFailures={dictionaryFailures}
+                    dictionarySnapshotError={dictionarySnapshotError}
+                    canRetry={Boolean(client.dictionary?.retry)}
+                    canDismiss={Boolean(client.dictionary?.dismissFailure)}
+                    onRetry={(requestId) => void retryDictionaryFailure(requestId)}
+                    onDismiss={(requestId) => void dismissDictionaryFailure(requestId)}
+                    dictionaryKind={dictionaryKind}
+                    phraseSearch={phraseSearch}
+                    setDictionaryKind={setDictionaryKind}
+                    setPhraseSearch={setPhraseSearch}
+                    phraseError={phraseError}
+                    phraseNotice={phraseNotice}
+                    phrases={phrases}
+                    setPhrases={setPhrases}
+                    phraseForm={phraseForm}
+                    phraseListRef={phraseListRef}
+                    setPhraseForm={setPhraseForm}
+                    onSavePhrase={() => void savePhrase()}
+                    onRemovePhrase={(entry) => void removePhrase(entry)}
+                    onLoadPhrases={(kind, offset) => void loadPhrases(kind, offset)}
+                    onTurnPage={turnPhrasePage}
+                    phrasePage={phrasePage}
+                    onResetLearnedData={() => void resetLearnedData()}
+                  />
                   <SkinSettingsSection
                     disabled={busy}
                     hidden={page !== "skin"}
