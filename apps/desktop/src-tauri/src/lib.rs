@@ -400,6 +400,12 @@ async fn capture_voice_pcm(milliseconds: u32) -> Result<Vec<f32>, CommandError> 
     })?
 }
 
+/// The app data directory of `app.msime.client`, the identifier Windows and Linux shared with the other desktop shells before each got its own (`tauri.windows.conf.json`, `tauri.linux.conf.json`). Nothing but this shell ever used it, so what earlier versions left there is read where the current directory has nothing, and never moved.
+#[cfg(not(any(target_os = "android", target_os = "ios", target_os = "macos")))]
+pub(crate) fn legacy_app_data_dir(app_data: &Path) -> PathBuf {
+    app_data.with_file_name("app.msime.client")
+}
+
 #[derive(Clone)]
 struct ClipboardHistoryState(Arc<Mutex<ClipboardHistoryStore>>);
 #[derive(Clone)]
@@ -4476,6 +4482,7 @@ pub fn run() {
                     );
                     if let Ok(dir) = app.path().app_data_dir() {
                         candidates.push(dir.join("runtime-options.json"));
+                        candidates.push(legacy_app_data_dir(&dir).join("runtime-options.json"));
                     }
                     #[cfg(target_os = "windows")]
                     if let Some(local) = std::env::var_os("LOCALAPPDATA") {

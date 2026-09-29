@@ -156,7 +156,7 @@ int main(int argc, char **argv) {
       }), nullptr);
 #endif
   auto component = ibus_component_new(
-      "app.msime.client", "Metasequoia 水杉输入法", "0.1.0",
+      "app.msime.linux", "Metasequoia 水杉输入法", "0.1.0",
       "GPL-3.0-only", "MSIME contributors",
       "https://github.com/metasequoiaime/msime", "", "");
   ibus_component_add_engine(
