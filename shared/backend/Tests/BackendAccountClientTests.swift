@@ -84,6 +84,29 @@ private final class MalformedClipboardProtocol: URLProtocol {
   }
   override func stopLoading() {}
 }
+private final class MalformedDictionaryProtocol: URLProtocol {
+  override class func canInit(with request: URLRequest) -> Bool { request.url?.path == "/v1/users/me/dictionaries/pinyin" }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "q" }?.value ?? ""
+    let entry: [String: Any]
+    switch query {
+    case "bad-id": entry = ["id": "../logout", "kind": "pinyin", "code": "ni", "word": "你", "weight": 1, "revision": 1]
+    case "bad-kind": entry = ["id": String(repeating: "a", count: 64), "kind": "wubi", "code": "ni", "word": "你", "weight": 1, "revision": 1]
+    case "bad-offset": entry = ["id": String(repeating: "a", count: 64), "kind": "pinyin", "code": "ni", "word": "你", "weight": 1, "revision": 1]
+    case "bad-weight": entry = ["id": String(repeating: "a", count: 64), "kind": "pinyin", "code": "ni", "word": "你", "weight": -1, "revision": 1]
+    default: entry = ["id": String(repeating: "a", count: 64), "kind": "pinyin", "code": "ni", "word": "你", "weight": 1, "revision": 1]
+    }
+    let object: [String: Any] = ["entries": [entry], "has_more": false, "offset": query == "bad-offset" ? 100 : 0]
+    let body = try! JSONSerialization.data(withJSONObject: object)
+    let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+      headerFields: ["Content-Type": "application/json"])!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: body)
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
 
 final class BackendAccountClientTests: XCTestCase {
   func testDefaultNicknameIsStableAndPreservesChosenName() {
@@ -164,6 +187,19 @@ final class BackendAccountClientTests: XCTestCase {
       XCTFail("malformed added clipboard item accepted")
     } catch let error as BackendAccountClient.Failure {
       XCTAssertEqual(error.status, 0)
+    }
+  }
+  func testDictionaryRejectsMalformedServerEntries() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [MalformedDictionaryProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    for search in ["bad-id", "bad-kind", "bad-offset", "bad-weight"] {
+      do {
+        _ = try await client.dictionary(.pinyin, search: search, token: "session")
+        XCTFail("malformed dictionary entry accepted: \(search)")
+      } catch let error as BackendAccountClient.Failure {
+        XCTAssertEqual(error.status, 0)
+      }
     }
   }
   func testDictionarySearchCannotInjectAnotherQueryParameter() async throws {

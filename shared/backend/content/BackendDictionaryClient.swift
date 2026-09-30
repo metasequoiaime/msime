@@ -80,7 +80,12 @@ extension BackendAccountClient {
     url.path = "/v1/users/me/dictionaries/" + kind.rawValue
     url.queryItems = [.init(name: "q", value: search), .init(name: "offset", value: String(offset)), .init(name: "limit", value: "100")]
     guard let path = Self.encodedPath(url) else { throw Failure(status: 400) }
-    return try await json("GET", path, token: token)
+    let page: DictionaryPage = try await json("GET", path, token: token)
+    guard page.entries.count <= 100, page.offset == offset,
+          page.entries.allSatisfy({ entry in
+            entry.kind == kind && Self.validDictionaryEntry(entry)
+          }) else { throw Failure(status: 0) }
+    return page
   }
   func addDictionary(_ kind: DictionaryKind, value: DictionaryValue, token: String) async throws -> DictionaryChange {
     try await json("POST", "/v1/users/me/dictionaries/" + kind.rawValue, token: token, body: JSONEncoder().encode(value))
@@ -168,5 +173,17 @@ extension BackendAccountClient {
           entry.id.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else { throw Failure(status: 400) }
     return "/v1/users/me/dictionaries/" + entry.kind.rawValue + "/" + entry.id
   }
-}
 
+  private static func validDictionaryEntry(_ entry: DictionaryEntry) -> Bool {
+    entry.id.utf8.count == 64
+      && entry.id.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
+      && !entry.code.isEmpty
+      && entry.code.utf8.count <= 256
+      && !entry.code.unicodeScalars.contains { $0.properties.generalCategory == .control }
+      && !entry.word.isEmpty
+      && entry.word.utf8.count <= 1024
+      && !entry.word.unicodeScalars.contains { $0.properties.generalCategory == .control }
+      && entry.weight >= 0
+      && entry.revision > 0
+  }
+}
