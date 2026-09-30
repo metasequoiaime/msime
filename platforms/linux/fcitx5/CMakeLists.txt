@@ -17,6 +17,8 @@ endif()
 find_package(nlohmann_json 3.11 REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GIO REQUIRED IMPORTED_TARGET gio-2.0)
+# The brand mark leading the candidate card is the installed application icon, decoded with cairo, which the classic UI itself is built on.
+pkg_check_modules(CAIRO REQUIRED IMPORTED_TARGET cairo)
 set(MSIME_HOST_LIBRARY "${CMAKE_CURRENT_SOURCE_DIR}/../../../target/debug/libmsime_host_api.so" CACHE FILEPATH "Cargo-built Linux Host API")
 if(NOT EXISTS "${MSIME_HOST_LIBRARY}")
   message(FATAL_ERROR "Build msime-host-api for Linux first")
@@ -113,9 +115,9 @@ endif()
 target_compile_features(msime-fcitx5 PRIVATE cxx_std_17)
 target_compile_options(msime-fcitx5 PRIVATE -Wall -Wextra -Werror)
 target_include_directories(msime-fcitx5 PRIVATE ../../../crates/host-api/include)
-target_link_libraries(msime-fcitx5 PRIVATE Fcitx5::Core PkgConfig::GIO nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}")
+target_link_libraries(msime-fcitx5 PRIVATE Fcitx5::Core PkgConfig::GIO PkgConfig::CAIRO nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}")
 target_compile_definitions(msime-fcitx5 PRIVATE MSIME_SYSTEM_OPTIONS="${CMAKE_INSTALL_FULL_SYSCONFDIR}/msime-client/runtime-options.json"
-  MSIME_BINDIR="${CMAKE_INSTALL_FULL_BINDIR}")
+  MSIME_BINDIR="${CMAKE_INSTALL_FULL_BINDIR}" MSIME_ICON_DIR="${CMAKE_INSTALL_FULL_DATADIR}/icons/hicolor")
 if(MSIME_FCITX5_CUSTOM_IM_INFORMATION)
   target_compile_definitions(msime-fcitx5 PRIVATE MSIME_FCITX5_CUSTOM_IM_INFORMATION)
 endif()
@@ -146,11 +148,18 @@ if(BUILD_TESTING)
   target_compile_features(fcitx5-native-test PRIVATE cxx_std_17)
   target_compile_options(fcitx5-native-test PRIVATE -Wall -Wextra -Werror)
   target_include_directories(fcitx5-native-test PRIVATE ../../../crates/host-api/include)
-  target_link_libraries(fcitx5-native-test PRIVATE Fcitx5::Core PkgConfig::GIO nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}")
+  target_link_libraries(fcitx5-native-test PRIVATE Fcitx5::Core PkgConfig::GIO PkgConfig::CAIRO nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}")
   # The first-run case in tests/native.cpp needs a system options file that does not exist and a guide program it can stub, so neither may point at the installed locations.
   target_compile_definitions(fcitx5-native-test PRIVATE
     MSIME_SYSTEM_OPTIONS="${CMAKE_CURRENT_BINARY_DIR}/first-run-absent/runtime-options.json"
-    MSIME_BINDIR="${CMAKE_CURRENT_BINARY_DIR}/first-run-bin")
+    MSIME_BINDIR="${CMAKE_CURRENT_BINARY_DIR}/first-run-bin"
+    MSIME_ICON_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../data/icons/hicolor")
+  # The candidate card's brand mark, decoded from the icons the package installs.
+  add_executable(linux-candidate-fcitx-logo-test ../tests/candidate/candidate_fcitx_logo.cpp)
+  target_compile_options(linux-candidate-fcitx-logo-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+  target_link_libraries(linux-candidate-fcitx-logo-test PRIVATE PkgConfig::CAIRO nlohmann_json::nlohmann_json)
+  add_test(NAME linux-candidate-fcitx-logo
+    COMMAND linux-candidate-fcitx-logo-test "${CMAKE_CURRENT_SOURCE_DIR}/../data/icons/hicolor")
   set(MSIME_FCITX5_TEST_RESOURCES "" CACHE PATH "Verified resources directory for the native Fcitx5 test")
   if(MSIME_FCITX5_TEST_RESOURCES)
     add_test(NAME fcitx5-native-context

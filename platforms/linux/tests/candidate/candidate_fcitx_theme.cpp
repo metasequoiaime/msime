@@ -292,6 +292,63 @@ int main() {
       for (std::uint32_t x = 0; x < card2x.width; ++x) assert(card2x.alpha(x, y) == 0);
     assert(card2x.alpha(46, 66) == 255 && card2x.rgb(46, 66) == 0x292929u);
   }
+  // The brand mark: painted into the card image's top-left corner slice at the content's top-left corner and the first row's text top, with the slices grown to hold it whole, and the content moved right by the mark and its gap. Nothing else in the theme changes.
+  {
+    const auto square = [](int side, float red, float green, float blue) {
+      host::FcitxPixels pixels{side, side, {}};
+      for (int index = 0; index < side * side; ++index) pixels.rgba.insert(pixels.rgba.end(), {red, green, blue, 1.0f});
+      return pixels;
+    };
+    const host::FcitxThemeLogo logo{square(16, 1.0f, 0.0f, 0.0f), square(32, 0.0f, 0.0f, 1.0f)};
+    const auto marked = host::fcitx_candidate_theme_files(wechat_dark, true, std::nullopt, std::nullopt, logo);
+    assert(contains(marked.conf, "[InputPanel/Background/Margin]\nLeft=35\nRight=22\nTop=37\nBottom=26\n\n"
+                                 "[InputPanel/ShadowMargin]\nLeft=12\nRight=12\nTop=8\nBottom=16\n\n"
+                                 "[InputPanel/ContentMargin]\nLeft=41\nRight=19\nTop=15\nBottom=23\n\n"));
+    assert(marked.images.size() == files.images.size());
+    const auto marked_name = image_in(marked.conf, "InputPanel/Background");
+    assert(marked_name != panel_name);
+    const auto marked_image = [&](const std::string &name) {
+      for (const auto &image : marked.images)
+        if (image.file == name) return decode(image.bytes);
+      assert(false && "image generated");
+      return Decoded{};
+    };
+    const auto card = marked_image(marked_name);
+    assert(card.width == 59 && card.height == 65);
+    for (std::uint32_t y = 21; y < 37; ++y)
+      for (std::uint32_t x = 19; x < 35; ++x) assert(card.alpha(x, y) == 255 && card.rgb(x, y) == 0xFF0000u);
+    // Around the mark is the card's own fill; the outline and the shadow are where they are without it.
+    assert(card.rgb(18, 21) == 0x151515u && card.rgb(35, 21) == 0x151515u && card.rgb(19, 20) == 0x151515u && card.rgb(19, 37) == 0x151515u);
+    assert(card.alpha(23, 8) == 255 && card.rgb(23, 8) == 0x292929u && card.alpha(0, 0) == 0);
+    // The 2x image takes the 2x mark, at twice the position.
+    const auto card2x = marked_image(marked_name.substr(0, marked_name.size() - 4) + "@2x.png");
+    assert(card2x.width == 118 && card2x.height == 130);
+    assert(card2x.rgb(38, 42) == 0x0000FFu && card2x.rgb(69, 73) == 0x0000FFu && card2x.rgb(70, 42) == 0x151515u);
+    // A mark that is not opaque is composited over the card.
+    auto faint = logo;
+    for (auto *pixels : {&faint.one, &faint.two})
+      for (std::size_t at = 0; at < pixels->rgba.size(); at += 4) {
+        pixels->rgba[at] = 0.5f;
+        pixels->rgba[at + 1] = pixels->rgba[at + 2] = 0.0f;
+        pixels->rgba[at + 3] = 0.5f;
+      }
+    const auto blended = host::fcitx_candidate_theme_files(wechat_dark, true, std::nullopt, std::nullopt, faint);
+    const auto blended_name = image_in(blended.conf, "InputPanel/Background");
+    for (const auto &image : blended.images)
+      if (image.file == blended_name) {
+        const auto mixed = decode(image.bytes);
+        // Half of 0x80 red over half of the 0x15 fill: 0x8a red, and the fill's 0x0a or 0x0b in the others as the half rounds.
+        const auto mix = mixed.rgb(20, 22);
+        assert(mixed.alpha(20, 22) == 255 && (mix >> 16) == 0x8Au);
+        assert(((mix >> 8) & 0xFFu) >= 0x0Au && ((mix >> 8) & 0xFFu) <= 0x0Bu && (mix & 0xFFu) >= 0x0Au && (mix & 0xFFu) <= 0x0Bu);
+      }
+    // A decoration's band moves the mark down with the card.
+    const auto both = host::fcitx_candidate_theme_files(wechat_dark, true, host::FcitxThemeOverlay{"decoration-ab.png", 25, 15}, std::nullopt, logo);
+    assert(contains(both.conf, "[InputPanel/Background/Margin]\nLeft=35\nRight=22\nTop=62\nBottom=26\n\n"));
+    assert(contains(both.conf, "[InputPanel/ContentMargin]\nLeft=41\nRight=19\nTop=40\nBottom=23\n\n"));
+    // Without a mark the theme is the one drawn before there was one.
+    assert(host::fcitx_candidate_theme(wechat_dark, true, std::nullopt, std::nullopt, std::nullopt) == theme);
+  }
   const auto highlight = image_of(image_in(theme, "InputPanel/Highlight"));
   assert(highlight.width == 24 && highlight.height == 14);
   assert(highlight.alpha(0, 0) < 64 && highlight.alpha(12, 7) == 255 && highlight.rgb(12, 7) == 0x07C160u);

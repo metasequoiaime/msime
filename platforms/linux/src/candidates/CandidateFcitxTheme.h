@@ -80,6 +80,15 @@ struct FcitxPanelGeometry {
   static constexpr int item_right = 12;
   static constexpr int item_vertical = 6;
   static constexpr int page_button = 16;
+  // The brand mark leading the header row, at the size and gap Windows draws it (CandidateCardSize.h).
+  static constexpr int logo_side = 16;
+  static constexpr int logo_gap = 6;
+};
+
+// The brand mark as the theme draws it: the installed application icon at 1x (logo_side square) and 2x (twice that), read by load_fcitx_theme_logo.
+struct FcitxThemeLogo {
+  FcitxPixels one;
+  FcitxPixels two;
 };
 
 // The design's Linux menu: #FFFFFF or #383838 with a 12 px radius, 6 px padding and a 1 px rgba(0,0,0,.08) ring, 6 px rounded items whose hover is the platform hover (6% black, 8% white) under unchanged text, and hairline separators with 6 px above and below. The classic UI has no shadow margin for menus, so their shadow is not drawn.
@@ -160,10 +169,13 @@ inline std::string fcitx_margin(int left, int right, int top, int bottom) {
 //
 // The card, its rounded highlight and the menu are nine-slice images drawn by fcitx_add_shape; each section also keeps its flat colour, which the classic UI draws instead when it cannot load the image. Where no compositor runs on X11 the classic UI has no alpha channel, so the transparent corners and shadow show black there, as they do for any Fcitx5 theme with rounded images.
 //
+// The brand mark leads the header row as on every other host, but the classic UI lays every row out with the same content margin and has no slot for an image beside the preedit. So the mark is painted into the card image's top-left corner slice, which is never stretched, at the content's top-left corner and the text margin's top, and the content margin grows by the mark and its gap: the preedit follows the mark as the design's header does, and the candidate rows below keep the same left edge as the preedit. Without the mark the theme is unchanged.
+//
 // A decoration is drawn as the background's overlay, with the geometry every host shares: the panel is top_inset_dip (the band) taller than the card, the band is transparent, and the image sits in it with its bottom one card padding below the card's top edge, over the card, aligned left, centre or right with the same padding in from the card's side. The panel image carries the band as fully transparent rows above the card (the shadow keeps the margin above the card it has without a decoration) and counts them in the nine-slice top margin, so they are never stretched; the shadow margin and the content margin both grow by the band, so X11 places the card, not the band, at the cursor and the candidates start below the card's top edge as they do without a decoration. The classic UI paints the overlay while it paints the background, before the candidates, so the part over the card is under the preedit and the highlight; it ends where the content starts, so nothing is covered. The classic UI draws an overlay at its own pixel size and cannot scale it to width_dip the way Windows does: an image whose height is known is placed by its bottom edge, and one taller than the band is cut at the band's top; an image of unknown height starts at the band's top and is drawn at full length.
 inline FcitxThemeFiles fcitx_candidate_theme_files(const CandidateColors &colors, bool dark,
                                                    const std::optional<FcitxThemeOverlay> &overlay = std::nullopt,
-                                                   const std::optional<double> &corner_radius = std::nullopt) {
+                                                   const std::optional<double> &corner_radius = std::nullopt,
+                                                   const std::optional<FcitxThemeLogo> &logo = std::nullopt) {
   using G = FcitxPanelGeometry;
   using M = FcitxMenuGeometry;
   FcitxThemeFiles files;
@@ -180,10 +192,14 @@ inline FcitxThemeFiles fcitx_candidate_theme_files(const CandidateColors &colors
   const int radius = corner_radius ? std::clamp(static_cast<int>(std::lround(*corner_radius)), 0, 32) : G::radius;
 
   // The card: the corner slices hold the rounded corners and the part of the shadow that varies along the edge, so the stretched middle slices are exact. A decoration's band is the transparent top of the top slices.
-  const int slice_left = G::shadow_left + radius;
-  const int slice_right = G::shadow_right + radius;
   const int shadow_top = G::shadow_top + band;
-  const int slice_top = shadow_top + G::shadow_offset + radius;
+  const int content_left = G::shadow_left + inset + G::padding;
+  const int logo_top = shadow_top + inset + G::padding + G::item_vertical;
+  const int lead = logo ? G::logo_side + G::logo_gap : 0;
+  // The top-left corner slice also holds the whole mark when there is one.
+  const int slice_left = std::max(G::shadow_left + radius, logo ? content_left + G::logo_side : 0);
+  const int slice_right = G::shadow_right + radius;
+  const int slice_top = std::max(shadow_top + G::shadow_offset + radius, logo ? logo_top + G::logo_side : 0);
   const int slice_bottom = G::shadow_bottom + radius;
   const int panel_width = slice_left + 2 + slice_right;
   const int panel_height = slice_top + 2 + slice_bottom;
@@ -195,6 +211,7 @@ inline FcitxThemeFiles fcitx_candidate_theme_files(const CandidateColors &colors
     fcitx_fill_rounded(canvas, card, radius, surface);
     if (border_width > 0) fcitx_stroke_rounded(canvas, card, radius, border_width, *colors.border);
     canvas.clear_above(band);
+    if (logo) canvas.draw(canvas.scale() == 1 ? logo->one : logo->two, content_left, logo_top);
   });
   std::string highlight_image;
   if (colors.selected)
@@ -289,7 +306,7 @@ inline FcitxThemeFiles fcitx_candidate_theme_files(const CandidateColors &colors
        << "[InputPanel/ShadowMargin]\n"
        << fcitx_margin(G::shadow_left, G::shadow_right, shadow_top, G::shadow_bottom)
        << "[InputPanel/ContentMargin]\n"
-       << fcitx_margin(G::shadow_left + inset + G::padding, G::shadow_right + inset + G::padding,
+       << fcitx_margin(content_left + lead, G::shadow_right + inset + G::padding,
                        shadow_top + inset + G::padding, G::shadow_bottom + inset + G::padding)
        << "[InputPanel/TextMargin]\n" << fcitx_margin(G::item_left, G::item_right, G::item_vertical, G::item_vertical)
        << "[InputPanel/Highlight]\n";
@@ -334,8 +351,9 @@ inline FcitxThemeFiles fcitx_candidate_theme_files(const CandidateColors &colors
 
 inline std::string fcitx_candidate_theme(const CandidateColors &colors, bool dark,
                                          const std::optional<FcitxThemeOverlay> &overlay = std::nullopt,
-                                         const std::optional<double> &corner_radius = std::nullopt) {
-  return fcitx_candidate_theme_files(colors, dark, overlay, corner_radius).conf;
+                                         const std::optional<double> &corner_radius = std::nullopt,
+                                         const std::optional<FcitxThemeLogo> &logo = std::nullopt) {
+  return fcitx_candidate_theme_files(colors, dark, overlay, corner_radius, logo).conf;
 }
 
 // Where Fcitx5 looks for a user theme: $XDG_DATA_HOME/fcitx5/themes/<name>/theme.conf. A relative XDG value is ignored, as the specification requires.
@@ -443,13 +461,14 @@ inline std::string fcitx_overlay_stamp(const std::optional<CandidateSkinDecorati
 // Write the theme for these colours and decoration into `file`. The images are written before theme.conf so the theme never names a file that is not there, and the images of an earlier theme are removed once theme.conf no longer names them. A decoration that cannot be staged leaves the theme without it rather than without MSIME's colours; a shape that cannot be written leaves theme.conf unchanged. Returns whether theme.conf now holds the theme.
 inline bool write_fcitx_candidate_theme(const std::filesystem::path &file, const CandidateColors &colors, bool dark,
                                         const std::optional<CandidateSkinDecoration> &decoration,
-                                        const std::optional<double> &corner_radius = std::nullopt) {
+                                        const std::optional<double> &corner_radius = std::nullopt,
+                                        const std::optional<FcitxThemeLogo> &logo = std::nullopt) {
   const auto directory = file.parent_path();
   std::error_code error;
   std::filesystem::create_directories(directory, error);
   if (error) return false;
   const auto overlay = decoration ? stage_fcitx_overlay(directory, *decoration) : std::nullopt;
-  const auto theme = fcitx_candidate_theme_files(colors, dark, overlay, corner_radius);
+  const auto theme = fcitx_candidate_theme_files(colors, dark, overlay, corner_radius, logo);
   std::vector<std::string> shapes;
   for (const auto &image : theme.images) {
     if (!write_fcitx_theme(directory / image.file, image.bytes)) return false;

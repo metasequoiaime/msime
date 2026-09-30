@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   libasound2-dev \
   libibus-1.0-dev libxkbcommon-dev nlohmann-json3-dev \
   libwayland-dev wayland-protocols libx11-dev libxfixes-dev libxrandr-dev \
-  libfcitx5core-dev libfcitx5utils-dev libfcitx5config-dev \
+  libfcitx5core-dev libfcitx5utils-dev libfcitx5config-dev libcairo2-dev \
   dbus dbus-bin \
   && rm -rf /var/lib/apt/lists/*
 WORKDIR /source

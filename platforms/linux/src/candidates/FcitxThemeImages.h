@@ -12,6 +12,13 @@ namespace msime::linux_host {
 
 // The Fcitx5 classic UI draws a panel either as a flat colour rectangle or from a nine-slice image in the theme directory; rounded corners and a drop shadow are only possible through the image. This header draws those images and encodes them as PNG, which cairo reads natively on every Fcitx5 release, without a new dependency: the PNG is written with stored (uncompressed) deflate blocks, which every inflater accepts, and the images are a few kilobytes each. Geometry is given in logical pixels and drawn at an integer scale, so the theme can ship an @2x copy for Fcitx5 releases that load one.
 
+// A bitmap drawn onto a canvas as it is: premultiplied RGBA in [0, 1], row by row, `width` by `height` device pixels.
+struct FcitxPixels {
+  int width = 0;
+  int height = 0;
+  std::vector<float> rgba;
+};
+
 // A canvas of premultiplied RGBA in [0, 1], composited source-over.
 class FcitxCanvas {
 public:
@@ -33,6 +40,22 @@ public:
                              static_cast<float>(rgb & 0xffu) / 255.0f};
     for (int channel = 0; channel < 3; ++channel) pixel[channel] = source[channel] * alpha + pixel[channel] * (1.0f - alpha);
     pixel[3] = alpha + pixel[3] * (1.0f - alpha);
+  }
+
+  // Source-over of a premultiplied RGBA image, one image pixel per device pixel, with its top-left corner at a logical position.
+  void draw(const FcitxPixels &image, double left, double top) {
+    const int origin_x = static_cast<int>(std::lround(left * scale_));
+    const int origin_y = static_cast<int>(std::lround(top * scale_));
+    for (int y = 0; y < image.height; ++y)
+      for (int x = 0; x < image.width; ++x) {
+        const int target_x = origin_x + x;
+        const int target_y = origin_y + y;
+        if (target_x < 0 || target_y < 0 || target_x >= width_ || target_y >= height_) continue;
+        const auto *source = &image.rgba[(static_cast<std::size_t>(y) * static_cast<std::size_t>(image.width) + static_cast<std::size_t>(x)) * 4u];
+        auto *pixel = &pixels_[(static_cast<std::size_t>(target_y) * static_cast<std::size_t>(width_) + static_cast<std::size_t>(target_x)) * 4u];
+        const float keep = 1.0f - source[3];
+        for (int channel = 0; channel < 4; ++channel) pixel[channel] = source[channel] + pixel[channel] * keep;
+      }
   }
 
   // Make every pixel above `top` (logical pixels) fully transparent, whatever was drawn there.
