@@ -126,11 +126,16 @@ final class DoubaoWebSocketTransport: NSObject, URLSessionWebSocketDelegate, Dou
 
   func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask,
                   didOpenWithProtocol protocol: String?) {
+    self.session = session
+    self.task = webSocketTask
     isConnected = true
   }
 
   func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask,
                   didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
+    guard self.task === webSocketTask else { return }
+    self.task = nil
+    self.session = nil
     isConnected = false
   }
 }

@@ -21,6 +21,21 @@ final class DoubaoVoiceCoordinatorTests: XCTestCase {
     XCTAssertNil(redirected)
   }
 
+  func testTransportCanStartAgainAfterRemoteClose() async throws {
+    let transport = DoubaoWebSocketTransport()
+    let session = URLSession(configuration: .ephemeral)
+    let task = session.webSocketTask(with: URL(string: "ws://127.0.0.1:1")!)
+    transport.urlSession(session, webSocketTask: task, didOpenWithProtocol: nil)
+    transport.urlSession(session, webSocketTask: task, didCloseWith: .goingAway, reason: nil)
+
+    do {
+      try await transport.start(endpoint: URL(string: "ws://127.0.0.1:1")!)
+      XCTFail("a new connection should be attempted after the old socket closes")
+    } catch {
+      XCTAssertFalse(transport.isConnected)
+    }
+  }
+
   func testCodecRunSendsWindowsSizedAudioAndAppliesFinalTextGeneration() async throws {
     let transport = FakeTransport(incoming: [Data([0xFF])])
     let packets = PacketRecorder()
