@@ -64,7 +64,7 @@ inline bool record_panel_takeover(const std::filesystem::path &file, std::string
   if (!prepare_candidate_directory(file.parent_path())) return false;
   auto lock_path = file;
   lock_path += ".lock";
-  const int lock = open(lock_path.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+  const int lock = open(lock_path.c_str(), O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0600);
   if (lock < 0) return false;
   flock(lock, LOCK_EX);
   nlohmann::json record = nlohmann::json::object();

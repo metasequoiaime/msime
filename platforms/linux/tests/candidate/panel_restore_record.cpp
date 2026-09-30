@@ -59,6 +59,16 @@ int main() {
                              {"ibus", {{"use-custom-font", {{"prior", nullptr}, {"written", true}}}}}}));
   assert(!std::filesystem::exists(file.string() + ".new"));
   {
+    const auto outside_lock = root / "outside-record.lock";
+    std::ofstream(outside_lock) << "keep";
+    std::filesystem::remove(file.string() + ".lock");
+    std::filesystem::create_symlink(outside_lock, file.string() + ".lock");
+    assert(!record_panel_takeover(file, "fcitx5", "PointerSize", "default", "msime", "default"));
+    std::ifstream in(outside_lock);
+    assert(std::string(std::istreambuf_iterator<char>(in), {}) == "keep");
+    std::filesystem::remove(file.string() + ".lock");
+  }
+  {
     const auto outside = root / "outside-record.json";
     std::ofstream(outside) << "keep";
     std::filesystem::create_symlink(outside, file.string() + ".new");
