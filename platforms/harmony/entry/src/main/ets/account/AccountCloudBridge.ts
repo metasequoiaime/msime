@@ -410,6 +410,49 @@ function validateCommunityResourceResponse(path: string, value: unknown): boolea
   return true;
 }
 
+function validCommunityResourcePublication(value: Action, expectedId: unknown): boolean {
+  return (
+    validResourceUuid(value.id) &&
+    typeof expectedId === "string" &&
+    value.id.toLowerCase() === expectedId.toLowerCase() &&
+    safeInteger(value.revision) &&
+    value.revision > 0
+  );
+}
+
+function validCommunityResourceApplication(
+  value: Action,
+  expectedResourceRevision: unknown,
+  dictionaryRevision: unknown,
+): boolean {
+  return (
+    safeInteger(expectedResourceRevision) &&
+    expectedResourceRevision > 0 &&
+    safeInteger(dictionaryRevision) &&
+    dictionaryRevision >= 0 &&
+    safeInteger(value.revision) &&
+    safeInteger(value.imported) &&
+    value.imported >= 0 &&
+    value.imported <= 128 &&
+    safeInteger(value.resource_revision) &&
+    value.resource_revision === expectedResourceRevision &&
+    value.revision >= dictionaryRevision &&
+    value.revision - dictionaryRevision === value.imported
+  );
+}
+
+function validCommunitySaved(value: Action, expected: unknown): boolean {
+  return typeof expected === "boolean" && value.saved === expected;
+}
+
+function validCommunityRating(value: Action, expected: unknown): boolean {
+  return safeInteger(expected) && expected >= 1 && expected <= 5 && value.stars === expected;
+}
+
+function validCommunityDeletion(value: Action): boolean {
+  return value.deleted === true;
+}
+
 /** The community pages have their own wording; an `account_*` code arrives as the generic one. */
 function communityStatus(status: number): string {
   if (status === 400) return "community_invalid";
@@ -1161,6 +1204,7 @@ export class AccountCloudBridge {
     path: string,
     authenticated: boolean,
     body?: Record<string, unknown>,
+    responseValidator?: (value: Action) => boolean,
   ): Promise<string> {
     let response: AccountTransportResponse;
     if (authenticated) {
@@ -1202,6 +1246,9 @@ export class AccountCloudBridge {
     }
     if (method === "GET" && path.startsWith("/v1/community/skins") &&
         !validateCommunitySkinResponse(path, value)) {
+      return error("community_unavailable");
+    }
+    if (responseValidator !== undefined && (value === null || !responseValidator(value))) {
       return error("community_unavailable");
     }
     return success(value ?? {});
@@ -1252,23 +1299,33 @@ export class AccountCloudBridge {
       ) {
         return error("community_invalid");
       }
-      return await this.communityRequest("POST", "/v1/community/resources", true, {
-        id: action.id,
-        kind: action.kind,
-        name,
-        description,
-        content: action.content,
-        revision: action.revision,
-      });
+      return await this.communityRequest(
+        "POST",
+        "/v1/community/resources",
+        true,
+        {
+          id: action.id,
+          kind: action.kind,
+          name,
+          description,
+          content: action.content,
+          revision: action.revision,
+        },
+        (value) => validCommunityResourcePublication(value, action.id),
+      );
     }
     if (operation === "apply") return await this.applyResource(action);
     if (operation === "save") {
       if (!validUuid(action.id) || typeof action.saved !== "boolean") {
         return error("community_invalid");
       }
-      return await this.communityRequest("PUT", `/v1/community/resources/${action.id}/save`, true, {
-        saved: action.saved,
-      });
+      return await this.communityRequest(
+        "PUT",
+        `/v1/community/resources/${action.id}/save`,
+        true,
+        { saved: action.saved },
+        (value) => validCommunitySaved(value, action.saved),
+      );
     }
     if (operation === "rate") {
       if (!validUuid(action.id) || !this.boundedNumber(action.stars, 1, 5)) {
@@ -1279,11 +1336,18 @@ export class AccountCloudBridge {
         `/v1/community/resources/${action.id}/rating`,
         true,
         { stars: action.stars },
+        (value) => validCommunityRating(value, action.stars),
       );
     }
     if (operation === "unpublish") {
       if (!validUuid(action.id)) return error("community_invalid");
-      return await this.communityRequest("DELETE", `/v1/community/resources/${action.id}`, true);
+      return await this.communityRequest(
+        "DELETE",
+        `/v1/community/resources/${action.id}`,
+        true,
+        undefined,
+        validCommunityDeletion,
+      );
     }
     return error("community_invalid");
   }
@@ -1319,10 +1383,17 @@ export class AccountCloudBridge {
     } catch {
       return error("community_unavailable");
     }
-    return await this.communityRequest("POST", `/v1/community/resources/${action.id}/apply`, true, {
-      resource_revision: action.resource_revision,
-      dictionary_revision: dictionaryRevision,
-    });
+    return await this.communityRequest(
+      "POST",
+      `/v1/community/resources/${action.id}/apply`,
+      true,
+      {
+        resource_revision: action.resource_revision,
+        dictionary_revision: dictionaryRevision,
+      },
+      (value) =>
+        validCommunityResourceApplication(value, action.resource_revision, dictionaryRevision),
+    );
   }
 
   private kind(value: unknown): string | null {

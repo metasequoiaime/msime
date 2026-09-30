@@ -7498,6 +7498,19 @@ group("shared dictionaries and reply templates keep their own bounds", () => {
         };
       if (path.includes("/dictionaries/quick/catalog"))
         return { status: 200, body: '{"revision":12}' };
+      if (path.endsWith("/apply"))
+        return { status: 200, body: '{"revision":14,"imported":2,"resource_revision":3}' };
+      if (path === "/v1/community/resources")
+        return {
+          status: 200,
+          body: JSON.stringify({ id: body?.id ?? id, revision: 1 }),
+        };
+      if (path.endsWith("/save"))
+        return { status: 200, body: JSON.stringify({ saved: body?.saved ?? false }) };
+      if (path.endsWith("/rating"))
+        return { status: 200, body: JSON.stringify({ stars: body?.stars ?? 0 }) };
+      if (path.startsWith("/v1/community/resources/") && method === "DELETE")
+        return { status: 200, body: '{"deleted":true}' };
       return { status: 200, body: '{"items":[],"has_more":false}' };
     },
   };
@@ -7716,6 +7729,57 @@ group("community resource responses are checked before reaching the page", () =>
       "a malformed detail is refused",
     );
   });
+});
+
+group("community resource mutations verify the server's result", () => {
+  const id = "10000000-0000-4000-8000-000000000001";
+  const store: AccountSessionStore = {
+    load: () => null,
+    save: () => {},
+    clear: () => {},
+  };
+  const transport: AccountTransport = {
+    request: async (_method, path) => {
+      if (path === "/v1/auth/login") {
+        return {
+          status: 200,
+          body: JSON.stringify({
+            access_token: "a".repeat(64),
+            refresh_token: "b".repeat(64),
+            token_type: "Bearer",
+            expires_in: 3600,
+            user: { id: "u1", display_name: "Test", created_at: "2026-01-01" },
+          }),
+        };
+      }
+      if (path === "/v1/community/resources") {
+        return { status: 200, body: JSON.stringify({ id, revision: 0 }) };
+      }
+      return { status: 200, body: '{"saved":false}' };
+    },
+  };
+  const bridge = new AccountCloudBridge(transport, store);
+  const resources = (action: Record<string, unknown>) =>
+    bridge.handle(JSON.stringify({ operation: "community_resource", ...action }));
+
+  void bridge
+    .handle('{"operation":"login","challenge_id":"challenge","credential":"123456"}')
+    .then(() => {
+      void resources({
+        resource_operation: "publish",
+        id,
+        kind: "reply",
+        name: "模板",
+        description: "",
+        content: { prompt: "请回复" },
+        revision: 1,
+      }).then((result) => {
+        check(JSON.parse(result).error === "community_unavailable", "a bad publication is refused");
+      });
+      void resources({ resource_operation: "save", id, saved: true }).then((result) => {
+        check(JSON.parse(result).error === "community_unavailable", "a mismatched save is refused");
+      });
+    });
 });
 
 group("the skin gallery is public to browse and signed in to change", () => {
