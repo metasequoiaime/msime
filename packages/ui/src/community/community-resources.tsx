@@ -151,7 +151,7 @@ function ResourceEditor({
       setError("词条不能为空、不能重复，权重必须为非负整数，且最多 128 条。");
       return;
     }
-    setEntries([...entries, value]);
+    setEntries((current) => [...current, value]);
     setCode("");
     setWord("");
     setError("");

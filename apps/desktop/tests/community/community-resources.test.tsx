@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import {
   CommunityHomePage,
   CommunityResourcesPage,
@@ -339,4 +339,41 @@ test("publishing a reply requires explicit rights confirmation", async () => {
       0,
     ),
   );
+});
+
+test("resource editor keeps a new entry after removing an existing entry in one batch", async () => {
+  const item = {
+    ...base("dictionary"),
+    owned: true,
+    content: {
+      entries: [{ kind: "pinyin" as const, code: "jiu", word: "旧词", weight: 100 }],
+    },
+  };
+  render(
+    <CommunityResourcesPage
+      client={client({
+        list: vi.fn().mockResolvedValue({ items: [item], has_more: false }),
+        detail: vi.fn().mockResolvedValue(item),
+      })}
+      kind="dictionary"
+    />,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "查看词库 开发词包" }));
+  fireEvent.click(await screen.findByRole("button", { name: "编辑并发布新版本" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "社区词条编码" }), {
+    target: { value: "xin" },
+  });
+  fireEvent.change(screen.getByRole("textbox", { name: "社区词条文字" }), {
+    target: { value: "新词" },
+  });
+
+  act(() => {
+    fireEvent.click(screen.getByRole("button", { name: "移除" }));
+    fireEvent.click(screen.getByRole("button", { name: "添加词条" }));
+  });
+
+  const dialog = screen.getByRole("dialog", { name: "更新社区作品" });
+  expect(within(dialog).getByLabelText("待发布词条 1/128")).not.toBeNull();
+  expect(within(dialog).getByText(/新词/)).not.toBeNull();
+  expect(within(dialog).queryByText(/旧词/)).toBeNull();
 });
