@@ -13,6 +13,7 @@ import { updateCandidateColor, updateCustomKeyboard } from "./settings/theme-sel
 import { useSettingsNavigation } from "./settings/use-settings-navigation";
 import { useSettingsContentScrollReset } from "./settings/use-settings-content-scroll-reset";
 import { MobileSettingsTabs } from "./settings/mobile-settings-tabs";
+import { SettingsPageHeader } from "./settings/settings-page-header";
 import {
   mobilePrimaryPageIds,
   mobileTabForPage,
@@ -2770,15 +2771,10 @@ export function SettingsPage(props: SettingsPageProps) {
               </button>
             )}
             {!macShell && (
-              <header
-                className={`${settings.pageHeader} ${
-                  mobilePlatform && untitledOnPhone.includes(page) ? "max-phone:sr-only" : ""
-                }`}
-              >
-                <h1 className={settings.pageTitle} id="page-title">
-                  {pageTitle}
-                </h1>
-              </header>
+              <SettingsPageHeader
+                title={pageTitle}
+                hiddenOnPhone={mobilePlatform && untitledOnPhone.includes(page)}
+              />
             )}
             {error && (
               <p role="alert" className="error">
