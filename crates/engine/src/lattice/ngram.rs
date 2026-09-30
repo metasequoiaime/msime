@@ -34,6 +34,9 @@ impl NgramTable {
     /// `None` for a missing, short, wrong-magic, wrong-version, oversized or unsorted file; the decoder then runs without the table.
     #[allow(unsafe_code)]
     pub fn load(path: &Path) -> Option<NgramTable> {
+        if !std::fs::symlink_metadata(path).ok()?.file_type().is_file() {
+            return None;
+        }
         let mut file = File::open(path).ok()?;
         let size = file.metadata().ok()?.len();
         let mut header = [0u8; HEADER_BYTES];
@@ -382,6 +385,21 @@ pub(super) mod tests {
             0.0,
             "an empty table scores everything zero"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_a_symlinked_valid_table() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().unwrap();
+        let external = directory.path().join("external.bin");
+        write_table(&external, &[(1, 1.0)], MAGIC, VERSION);
+        let linked = directory.path().join("linked.bin");
+        symlink(&external, &linked).unwrap();
+
+        assert!(NgramTable::load(&external).is_some());
+        assert!(NgramTable::load(&linked).is_none());
     }
 
     #[test]
