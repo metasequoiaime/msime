@@ -415,6 +415,7 @@ import { HomePage, MoreSettingsPage, type HomePageActions } from "./keyboard/hom
 import { useSettingsPlatform } from "./theme/settings-platform";
 import { SettingsFormContext } from "./settings/settings-form-context";
 import { createSettingsReloadAction } from "./settings/settings-reload-action";
+import { createSettingsSaveAction } from "./settings/settings-save-action";
 import { VoiceSettingsPage } from "./settings/pages/voice-page";
 import { AiSettingsPage } from "./settings/pages/ai-page";
 import { InputSettingsPage } from "./settings/pages/input-page";
@@ -2531,6 +2532,7 @@ export function SettingsPage(props: SettingsPageProps) {
     initialCommunityMine,
   } = model;
   const reloadSettings = createSettingsReloadAction({ dirty, reload, confirm });
+  const saveSettings = createSettingsSaveAction({ save });
   const winShell = settingsPlatform === "win";
   const macShell = settingsPlatform === "mac";
   const linuxShell = settingsPlatform === "linux";
@@ -2853,10 +2855,7 @@ export function SettingsPage(props: SettingsPageProps) {
                 <SettingsFormFrame
                   showReload={false}
                   busy={busy}
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void save();
-                  }}
+                  onSubmit={saveSettings}
                 >
                   <SettingsFormContext.Provider value={{ ...model, draft }}>
                     <SkinSettingsPage />
