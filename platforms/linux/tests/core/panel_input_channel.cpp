@@ -151,6 +151,17 @@ void keeps_requests_in_order() {
   assert(harness.replies[0].first == 1 && harness.replies[1].first == 2);
 }
 
+void rejects_requests_beyond_pending_capacity() {
+  PanelInputBroker broker;
+  Harness harness;
+  for (std::size_t index = 0; index < msime::linux_host::kPanelInputPendingLimit; ++index)
+    assert(broker.submit(static_cast<int>(index), text("合成"), 0));
+  assert(!broker.submit(999, text("拒绝"), 0));
+  harness.pump(broker, msime::linux_host::kPanelInputWaitUs);
+  assert(harness.replies.size() == msime::linux_host::kPanelInputPendingLimit);
+  assert(broker.empty());
+}
+
 std::vector<std::string> stroke(bool press_consumed, bool release_consumed) {
   std::vector<std::string> events;
   msime::linux_host::deliver_panel_key_stroke(
@@ -186,6 +197,7 @@ int main() {
   expires_rather_than_typing_late();
   refuses_a_restricted_context_without_waiting();
   keeps_requests_in_order();
+  rejects_requests_beyond_pending_capacity();
   runs_keys_through_the_input_method_first();
   return 0;
 }

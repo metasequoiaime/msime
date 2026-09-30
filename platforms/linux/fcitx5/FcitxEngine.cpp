@@ -5275,10 +5275,12 @@ public:
         panel_input_socket_.fd(), fcitx::IOEventFlag::In,
         [this](fcitx::EventSourceIO *, int, fcitx::IOEventFlags) {
           if (auto accepted = panel_input_socket_.accept_request()) {
-            if (auto request = msime::linux_host::parse_panel_input_request(accepted->second))
-              panel_input_broker_.submit(accepted->first, std::move(*request),
-                                         msime::linux_host::panel_input_monotonic_us());
-            else
+            if (auto request = msime::linux_host::parse_panel_input_request(accepted->second)) {
+              if (!panel_input_broker_.submit(accepted->first, std::move(*request),
+                                              msime::linux_host::panel_input_monotonic_us()))
+                msime::linux_host::PanelInputSocket::reply_and_close(
+                    accepted->first, msime::linux_host::panel_input_error_reply("no_focus"));
+            } else
               msime::linux_host::PanelInputSocket::reply_and_close(
                   accepted->first, msime::linux_host::panel_input_error_reply("invalid"));
             pumpPanelInput();

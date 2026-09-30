@@ -4264,10 +4264,12 @@ void panel_input_listen() {
     return;
   g_unix_fd_add(panel_input_socket.fd(), G_IO_IN, [](gint, GIOCondition, gpointer) -> gboolean {
     if (auto accepted = panel_input_socket.accept_request()) {
-      if (auto request = msime::linux_host::parse_panel_input_request(accepted->second))
-        panel_input_broker.submit(accepted->first, std::move(*request),
-                                  msime::linux_host::panel_input_monotonic_us());
-      else
+      if (auto request = msime::linux_host::parse_panel_input_request(accepted->second)) {
+        if (!panel_input_broker.submit(accepted->first, std::move(*request),
+                                       msime::linux_host::panel_input_monotonic_us()))
+          msime::linux_host::PanelInputSocket::reply_and_close(
+              accepted->first, msime::linux_host::panel_input_error_reply("no_focus"));
+      } else
         msime::linux_host::PanelInputSocket::reply_and_close(
             accepted->first, msime::linux_host::panel_input_error_reply("invalid"));
       panel_input_pump();

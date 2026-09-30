@@ -45,6 +45,7 @@ struct PanelInputRequest {
 
 inline constexpr size_t kPanelInputLineLimit = 16384;
 inline constexpr size_t kPanelInputTextLimit = 4096;
+inline constexpr size_t kPanelInputPendingLimit = 128;
 inline constexpr int64_t kPanelInputWaitUs = 700000;
 
 inline std::optional<PanelInputRequest> parse_panel_input_request(const std::string &line) {
@@ -135,7 +136,7 @@ void deliver_panel_key_stroke(Process process, Forward forward) {
   if (!consumed) forward(true);
 }
 
-// Holds requests until a context can take them. A request that cannot be delivered within kPanelInputWaitUs is answered no_focus and dropped, so a focus that arrives later can never type it a second time after the panel has already fallen back to another route.
+// Holds requests until a context can take them. A request that cannot be delivered within kPanelInputWaitUs is answered no_focus and dropped, so a focus that arrives later can never type it a second time after the panel has already fallen back to another route. The pending count is capped so a same-user client cannot retain an arbitrary number of open request connections while focus is unavailable.
 class PanelInputBroker {
 public:
   PanelInputBroker() = default;
@@ -145,8 +146,10 @@ public:
     for (const auto &entry : pending_) ::close(entry.fd);
   }
 
-  void submit(int fd, PanelInputRequest request, int64_t now_us) {
+  bool submit(int fd, PanelInputRequest request, int64_t now_us) {
+    if (pending_.size() >= kPanelInputPendingLimit) return false;
     pending_.push_back({fd, std::move(request), now_us + kPanelInputWaitUs});
+    return true;
   }
 
   bool empty() const { return pending_.empty(); }
