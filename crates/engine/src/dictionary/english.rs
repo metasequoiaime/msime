@@ -169,6 +169,15 @@ impl EnglishDictionary {
 
 /// Create or migrate `english_words` to the composite-key, weighted shape, create the gloss tables, `user_version = 3` (english_dictionary.cpp:242-315). The golden harness calls this for fixtures without an `english.db`.
 pub fn ensure_english_schema(path: &Path) -> Result<()> {
+    if let Ok(metadata) = std::fs::symlink_metadata(path) {
+        if !metadata.file_type().is_file() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "English dictionary path is not a regular file",
+            )
+            .into());
+        }
+    }
     let mut connection = Connection::open_with_flags(
         path,
         OpenFlags::SQLITE_OPEN_READ_WRITE

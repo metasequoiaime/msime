@@ -290,6 +290,25 @@ fn learned_glosses_reject_a_symlinked_database() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn saving_learned_glosses_rejects_a_symlinked_database() {
+    use std::os::unix::fs::symlink;
+
+    let user = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let external = outside.path().join("external.db");
+    symlink(&external, user.path().join("translation-glosses.db")).unwrap();
+
+    assert!(!save_candidate_gloss(
+        user.path().to_str().unwrap(),
+        true,
+        "测试",
+        "external gloss",
+    ));
+    assert!(!external.exists());
+}
+
 #[test]
 fn unsafe_learned_glosses_fall_back_to_packaged_values() {
     let resources = tempfile::tempdir().unwrap();
