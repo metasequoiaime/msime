@@ -375,6 +375,22 @@ fn a_link_inside_the_model_is_materialised_as_a_copy() {
 }
 
 #[test]
+fn a_link_copy_is_rejected_before_writing_past_the_expansion_budget() {
+    let files = tempfile::tempdir().unwrap();
+    let source = files.path().join("source.bin");
+    let destination = files.path().join("destination.bin");
+    fs::write(&source, b"1234").unwrap();
+    let mut written = 0;
+
+    assert!(matches!(
+        copy_link_with_budget(&source, &destination, &mut written, 3),
+        Err(LocalModelError::UnsafeArchive(message)) if message == "archive expands too far"
+    ));
+    assert_eq!(written, 0);
+    assert!(!destination.exists());
+}
+
+#[test]
 fn a_missing_model_file_fails_the_install() {
     let archive = tar_bz2(&[Member::File("fixture-root/encoder.onnx", b"encoder")]);
     let root = tempfile::tempdir().unwrap();

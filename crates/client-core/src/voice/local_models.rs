@@ -651,6 +651,26 @@ struct Counting<R> {
     count: Rc<Cell<u64>>,
 }
 
+fn copy_link_with_budget(
+    source: &Path,
+    destination: &Path,
+    written: &mut u64,
+    budget: u64,
+) -> Result<(), LocalModelError> {
+    let size = fs::metadata(source)?.len();
+    let next = written
+        .checked_add(size)
+        .ok_or_else(|| LocalModelError::UnsafeArchive("archive expands too far".into()))?;
+    if next > budget {
+        return Err(LocalModelError::UnsafeArchive(
+            "archive expands too far".into(),
+        ));
+    }
+    fs::copy(source, destination)?;
+    *written = next;
+    Ok(())
+}
+
 impl<R: Read> Read for Counting<R> {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         let read = self.inner.read(buffer)?;
@@ -801,12 +821,7 @@ fn extract(
         if let Some(parent) = to.parent() {
             fs::create_dir_all(parent)?;
         }
-        written += fs::copy(&from, &to)?;
-        if written > budget {
-            return Err(LocalModelError::UnsafeArchive(
-                "archive expands too far".into(),
-            ));
-        }
+        copy_link_with_budget(&from, &to, &mut written, budget)?;
     }
     progress(InstallProgress {
         stage: "extract",
