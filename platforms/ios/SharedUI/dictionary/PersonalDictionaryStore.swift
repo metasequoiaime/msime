@@ -243,7 +243,8 @@ final class PersonalDictionaryStore: @unchecked Sendable {
     Self.processLock.lock()
     defer { Self.processLock.unlock() }
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    let descriptor = open(directory.appendingPathComponent("sync.lock").path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+    let descriptor = open(directory.appendingPathComponent("sync.lock").path,
+                          O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR)
     guard descriptor >= 0 else { throw StoreError.unavailable }
     defer { close(descriptor) }
     guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { throw StoreError.busy }
@@ -261,7 +262,8 @@ final class PersonalDictionaryStore: @unchecked Sendable {
     Self.processLock.lock()
     defer { Self.processLock.unlock() }
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    let descriptor = open(directory.appendingPathComponent("sync.lock").path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+    let descriptor = open(directory.appendingPathComponent("sync.lock").path,
+                          O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR)
     guard descriptor >= 0 else { throw StoreError.unavailable }
     defer { close(descriptor) }
     guard flock(descriptor, LOCK_SH | LOCK_NB) == 0 else { throw StoreError.busy }

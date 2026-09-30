@@ -7,6 +7,27 @@ private func letterCode(_ prefix: String, _ index: Int) -> String {
 }
 
 final class PersonalDictionaryStoreTests: XCTestCase {
+  func testQueueRejectsASymlinkedLockFile() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("msime-dictionary-lock-test-\(UUID().uuidString)")
+    let outsideDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("msime-dictionary-lock-target-\(UUID().uuidString)")
+    defer {
+      try? FileManager.default.removeItem(at: root)
+      try? FileManager.default.removeItem(at: outsideDirectory)
+    }
+    let directory = root.appendingPathComponent("PersonalDictionary", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: outsideDirectory, withIntermediateDirectories: true)
+    let outsideLock = outsideDirectory.appendingPathComponent("outside.lock")
+    try Data("synthetic-lock-target".utf8).write(to: outsideLock)
+    try FileManager.default.createSymbolicLink(
+      at: directory.appendingPathComponent("sync.lock"), withDestinationURL: outsideLock)
+
+    let store = PersonalDictionaryStore(directory: root)
+    XCTAssertThrowsError(try store.enqueue(previous: nil, replacement: .init(key: "ni", value: "拟")))
+    XCTAssertEqual(try Data(contentsOf: outsideLock), Data("synthetic-lock-target".utf8))
+    XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent("sync.json").path))
+  }
+
   func testQueueAcknowledgementFailureAndPaging() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }
