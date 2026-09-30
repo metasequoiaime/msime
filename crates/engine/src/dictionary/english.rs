@@ -241,6 +241,12 @@ fn write_gloss(path: &Path, chinese_to_english: bool, key: &str, gloss: &str) ->
 pub fn load_custom_translations(path: &Path) -> CustomTranslations {
     let mut translations = CustomTranslations::default();
     // An unreadable sidecar is the same as none (english_dictionary.cpp:189-191).
+    let Ok(metadata) = std::fs::symlink_metadata(path) else {
+        return translations;
+    };
+    if !metadata.file_type().is_file() {
+        return translations;
+    }
     let Ok(text) = std::fs::read(path) else {
         return translations;
     };
@@ -715,6 +721,24 @@ hello\tlast wins\n\
         assert_eq!(translations.zh_en.len(), 1);
         assert_eq!(
             load_custom_translations(&directory.path().join("absent.txt")),
+            CustomTranslations::default()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sidecar_loading_rejects_symlinked_files() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let external = outside.path().join("translations.txt");
+        std::fs::write(&external, "hello\t外部内容\n").unwrap();
+        let linked = directory.path().join(assets::TRANSLATIONS);
+        symlink(&external, &linked).unwrap();
+
+        assert_eq!(
+            load_custom_translations(&linked),
             CustomTranslations::default()
         );
     }
