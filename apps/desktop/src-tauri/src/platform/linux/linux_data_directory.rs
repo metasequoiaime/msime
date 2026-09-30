@@ -87,6 +87,16 @@ fn atomic_write(path: &Path, contents: &[u8]) -> io::Result<()> {
     let parent = path
         .parent()
         .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
+    crate::shared::atomic_file::check_directory_ancestors(parent)?;
+    if fs::symlink_metadata(path)
+        .map(|metadata| metadata.file_type().is_symlink())
+        .unwrap_or(false)
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "locator is a symbolic link",
+        ));
+    }
     let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
     temporary.write_all(contents)?;
     temporary.as_file().sync_all()?;
@@ -179,6 +189,15 @@ fn rebased_locator(
     written_source: &Path,
     target: &Path,
 ) -> Result<(LocatorBackup, Vec<u8>), MoveError> {
+    let parent = path.parent().ok_or(MoveError::Publish)?;
+    crate::shared::atomic_file::check_directory_ancestors(parent)
+        .map_err(|_| MoveError::Publish)?;
+    if fs::symlink_metadata(path)
+        .map(|metadata| metadata.file_type().is_symlink())
+        .unwrap_or(false)
+    {
+        return Err(MoveError::Publish);
+    }
     let file = fs::File::open(path).map_err(|_| MoveError::Publish)?;
     let mut contents =
         Vec::with_capacity((MAX_OPTIONS_BYTES as usize).min(INITIAL_OPTIONS_READ_CAPACITY));
@@ -1094,6 +1113,39 @@ mod tests {
         );
         assert_eq!(fs::read(&outside).unwrap(), b"keep");
         assert!(layout.default.join("preferences.json").is_file());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refuses_a_symlinked_locator_without_replacing_it() {
+        use std::os::unix::fs::symlink;
+
+        let layout = setup();
+        let outside = layout._root.path().join("outside-locator");
+        fs::write(&outside, fs::read(&layout.locator).unwrap()).unwrap();
+        fs::remove_file(&layout.locator).unwrap();
+        symlink(&outside, &layout.locator).unwrap();
+
+        assert_eq!(
+            relocate_state(
+                &layout.default,
+                &layout.default,
+                &layout.target,
+                &layout.default,
+                std::slice::from_ref(&layout.locator),
+            ),
+            Err(MoveError::Publish)
+        );
+        assert!(fs::symlink_metadata(&layout.locator)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(
+            fs::read(&outside).unwrap(),
+            fs::read(&layout.locator).unwrap()
+        );
+        assert!(layout.default.join("preferences.json").is_file());
+        assert!(layout.target.read_dir().unwrap().next().is_none());
     }
 
     #[test]
