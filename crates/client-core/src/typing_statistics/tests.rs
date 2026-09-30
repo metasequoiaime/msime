@@ -160,6 +160,22 @@ fn rejects_invalid_dates_and_documents_without_overwriting() {
 }
 
 #[test]
+fn rejects_days_whose_sum_exceeds_total() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("typing-statistics.json");
+    fs::write(
+        &path,
+        r#"{"enabled":true,"total":1,"days":{"2026-09-20":1,"2026-09-21":1}}"#,
+    )
+    .unwrap();
+
+    assert!(matches!(
+        TypingStatisticsStore::new(directory.path()).load(),
+        Err(TypingStatisticsError::InvalidDocument)
+    ));
+}
+
+#[test]
 fn active_time_counts_only_the_gaps_that_are_still_typing() {
     let directory = tempfile::tempdir().unwrap();
     let store = TypingStatisticsStore::new(directory.path());

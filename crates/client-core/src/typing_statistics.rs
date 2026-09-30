@@ -335,6 +335,18 @@ impl TypingStatistics {
         if self.total > MAX_COUNT {
             return Err(TypingStatisticsError::InvalidDocument);
         }
+        // A legacy document may keep a running total for days it no longer lists, so the
+        // retained days can add up to less than `total`. They can never add up to more: every
+        // recorded character increments both counters, and accepting the inverse would make a
+        // daily view report more characters than the aggregate it belongs to.
+        if self
+            .days
+            .values()
+            .try_fold(0_u64, |sum, count| sum.checked_add(*count))
+            .is_none_or(|sum| sum > self.total)
+        {
+            return Err(TypingStatisticsError::InvalidDocument);
+        }
         if self.selections.ranks.len() > RANKS
             || self.selections.beyond > MAX_COUNT
             || self.selections.ranks.iter().any(|count| *count > MAX_COUNT)
