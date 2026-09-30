@@ -418,6 +418,7 @@ import { createSettingsReloadAction } from "./settings/settings-reload-action";
 import { createSettingsSaveAction } from "./settings/settings-save-action";
 import { createSettingsPageSelection } from "./settings/settings-page-selection";
 import { createSettingsDraftActions } from "./settings/settings-draft-actions";
+import { createSettingsStatusActions } from "./settings/settings-status-actions";
 import { VoiceSettingsPage } from "./settings/pages/voice-page";
 import { AiSettingsPage } from "./settings/pages/ai-page";
 import { InputSettingsPage } from "./settings/pages/input-page";
@@ -2519,6 +2520,11 @@ export function SettingsPage(props: SettingsPageProps) {
   const reloadSettings = createSettingsReloadAction({ dirty, reload, confirm });
   const saveSettings = createSettingsSaveAction({ save });
   const { onOpenPage } = createSettingsPageSelection({ selectPage });
+  const statusActions = createSettingsStatusActions({
+    recoverPreferences,
+    inputSourceStartup: client.inputSourceStartup,
+    setInputSourceStartup,
+  });
   const winShell = settingsPlatform === "win";
   const macShell = settingsPlatform === "mac";
   const linuxShell = settingsPlatform === "linux";
@@ -2718,14 +2724,14 @@ export function SettingsPage(props: SettingsPageProps) {
               busy={busy}
               recoveredBackup={recoveredBackup}
               canRecover={Boolean(client.recoverPreferences)}
-              onRecover={() => void recoverPreferences()}
+              onRecover={statusActions.onRecover}
               openPreferencesDirectory={client.openPreferencesDirectory}
               macos={macosPlatform}
               onError={setError}
               draft={draft}
               inputSourceStartup={inputSourceStartup}
-              onOpenSettings={() => client.inputSourceStartup?.openSettings()}
-              onDismiss={() => setInputSourceStartup(null)}
+              onOpenSettings={statusActions.onOpenSettings}
+              onDismiss={statusActions.onDismiss}
             />
             {client.home && draft && page === "home" && (
               <HomePage
