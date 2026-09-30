@@ -20,6 +20,7 @@ import { FrequencySection } from "../frequency-section";
 import { LocalModesSection } from "../local-modes-section";
 import { CharacterWidthRow } from "../punctuation-section";
 import { InputModeHudSection } from "../input-mode-hud-section";
+import { createUtilitiesSettingsActions } from "../utilities-settings-actions";
 import {
   chineseInputSchemeOptions,
   japaneseInputSchemeOptions,
@@ -51,6 +52,7 @@ export function InputSettingsPage() {
     setTouchKeyboardSchemeEnabled,
     localModes,
   } = useSettingsForm();
+  const { onLocalModesChange } = createUtilitiesSettingsActions({ draft, setDraft });
   const chineseSchemes = draft.scheme !== "japanese";
   const navigation = draft.navigation ?? defaultNavigation;
   return (
@@ -239,7 +241,7 @@ export function InputSettingsPage() {
         <LocalModesSection
           preferences={localModes}
           ios={iosPlatform}
-          onChange={(next) => setDraft({ ...draft, local_modes: next })}
+          onChange={onLocalModesChange}
         />
       </div>
     </fieldset>
