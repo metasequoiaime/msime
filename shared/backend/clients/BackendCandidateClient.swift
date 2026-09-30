@@ -49,7 +49,12 @@ extension BackendAccountClient {
   struct DictionaryRevision: Decodable, Sendable { let revision: Int64 }
 
   func personalCandidates(_ query: CandidateQuery, token: String) async throws -> PersonalCandidates {
-    try await json("POST", "/v1/users/me/dictionary/candidates", token: token, body: JSONEncoder().encode(query))
+    let page: PersonalCandidates = try await json("POST", "/v1/users/me/dictionary/candidates", token: token, body: JSONEncoder().encode(query))
+    guard page.candidates.count <= query.limit,
+          page.revision >= 0,
+          Self.validCandidateText(page.context, maximum: 1024, empty: true),
+          page.candidates.allSatisfy(Self.validPersonalCandidate) else { throw Failure(status: 0) }
+    return page
   }
   func rankCandidate(_ candidate: PersonalCandidate, query: CandidateQuery, revision: Int64, mode: RankingMode, step: Int = 1, trigger: Int = 1, forceTop: Bool = false, token: String) async throws -> RankingResult {
     guard revision >= 0, (1...100).contains(step), (1...10).contains(trigger), query.kind != "quick" else { throw Failure(status: 400) }
@@ -78,5 +83,17 @@ extension BackendAccountClient {
     return try await json(position == nil ? "DELETE" : "PUT", "/v1/users/me/dictionary/positions", token: token,
       body: JSONEncoder().encode(Body(context: context, code: code, word: word, position: position, revision: revision)))
   }
-}
 
+  private static func validPersonalCandidate(_ candidate: PersonalCandidate) -> Bool {
+    validCandidateText(candidate.code, maximum: 256)
+      && validCandidateText(candidate.word, maximum: 1024)
+      && candidate.weight >= 0
+      && candidate.canonical_pinyin.map { validCandidateText($0, maximum: 256, empty: true) } ?? true
+  }
+
+  private static func validCandidateText(_ value: String, maximum: Int, empty: Bool = false) -> Bool {
+    (empty || !value.isEmpty)
+      && value.utf8.count <= maximum
+      && !value.unicodeScalars.contains { $0.properties.generalCategory == .control }
+  }
+}

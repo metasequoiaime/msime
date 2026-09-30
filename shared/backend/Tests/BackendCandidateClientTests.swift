@@ -29,6 +29,39 @@ private final class CandidateProtocol: URLProtocol {
   }
   override func stopLoading() {}
 }
+private final class MalformedCandidatesProtocol: URLProtocol {
+  override class func canInit(with request: URLRequest) -> Bool { request.url?.path == "/v1/users/me/dictionary/candidates" }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    var body = request.httpBody ?? Data()
+    if let stream = request.httpBodyStream {
+      stream.open(); defer { stream.close() }
+      var bytes = [UInt8](repeating: 0, count: 4096)
+      while true { let n = stream.read(&bytes, maxLength: bytes.count); if n <= 0 { break }; body.append(contentsOf: bytes.prefix(n)) }
+    }
+    let query = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any]
+    let text = query?["text"] as? String ?? ""
+    let candidate: [String: Any]
+    switch text {
+    case "bad-code": candidate = ["code": "", "word": "你", "weight": 1, "canonical_pinyin": NSNull()]
+    case "bad-weight": candidate = ["code": "ni", "word": "你", "weight": -1, "canonical_pinyin": NSNull()]
+    default: candidate = ["code": "ni", "word": "你", "weight": 1, "canonical_pinyin": NSNull()]
+    }
+    let candidates: [[String: Any]] = text == "too-many" ? Array(repeating: candidate, count: 2) : [candidate]
+    let object: [String: Any] = [
+      "candidates": candidates,
+      "context": text == "bad-context" ? "bad\u{0001}context" : "pinyin",
+      "revision": text == "bad-revision" ? -1 : 1,
+    ]
+    let data = try! JSONSerialization.data(withJSONObject: object)
+    let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+      headerFields: ["Content-Type": "application/json"])!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: data)
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
 final class BackendCandidateClientTests: XCTestCase {
   private func client() -> BackendAccountClient {
     let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [CandidateProtocol.self]
@@ -44,5 +77,19 @@ final class BackendCandidateClientTests: XCTestCase {
   func testUnfixPreservesServerContextAndOmitsPositionField() async throws {
     let result = try await client().setFixedPosition(context: "server:context", code: "ni'hao", word: "你好", position: nil, revision: 42, token: "session")
     XCTAssertEqual(result.revision, 43)
+  }
+  func testPersonalCandidatesRejectMalformedServerResponses() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [MalformedCandidatesProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    for text in ["bad-code", "bad-weight", "too-many", "bad-context", "bad-revision"] {
+      let query = BackendAccountClient.CandidateQuery(text: text, kind: "pinyin", scheme: "pinyin", profile: "xiaohe", limit: 1)
+      do {
+        _ = try await client.personalCandidates(query, token: "session")
+        XCTFail("malformed candidate response accepted: \(text)")
+      } catch let error as BackendAccountClient.Failure {
+        XCTAssertEqual(error.status, 0)
+      }
+    }
   }
 }
