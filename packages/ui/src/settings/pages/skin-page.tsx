@@ -295,8 +295,7 @@ export function SkinSettingsPage() {
         // An external package is part of the custom theme, so choosing one selects that theme.
         // The package's manifest base becomes the custom theme's base, which is what `resolve()` draws under the package, so the previews match and removing the package keeps that base.
         onSelect={(id, base) =>
-          setDraft({
-            ...draft,
+          onPreferencesChange({
             global_theme: "custom",
             custom_theme: { ...draft.custom_theme, base, candidate_skin: id },
           })
@@ -310,8 +309,7 @@ export function SkinSettingsPage() {
             className="secondary"
             // Removing the package keeps the rest of the custom theme and the selection: it is then drawn over its own base.
             onClick={() =>
-              setDraft({
-                ...draft,
+              onPreferencesChange({
                 custom_theme: { ...draft.custom_theme, candidate_skin: null },
               })
             }
