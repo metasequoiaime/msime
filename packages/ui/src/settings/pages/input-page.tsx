@@ -1,18 +1,19 @@
 import { touchKeyboardSchemeOptions } from "../touch-keyboard-scheme-helpers";
 import { defaultNavigation } from "../navigation-section";
-import type { Preferences, TouchKeyboardScheme } from "../../index";
+import type { TouchKeyboardScheme } from "../../index";
 import { useSettingsForm } from "../settings-form-context";
 import * as settings from "../settings-style";
-import { GroupList, Row, Segmented, Select, Switch } from "../../core/platform-controls";
+import { GroupList, Row, Segmented, Switch } from "../../core/platform-controls";
 import { InputModeSection } from "../input-mode-section";
 import { TouchKeyboardSchemesSection } from "../touch-keyboard-schemes-section";
+import { InputSchemeDetailsSection } from "../input-scheme-details-section";
 import { WubiSection } from "../wubi-section";
 import { InputSharedSettingsSection } from "../input-shared-settings-section";
 import { LocalModesSection } from "../local-modes-section";
 import { CharacterWidthRow } from "../punctuation-section";
 import { createUtilitiesSettingsActions } from "../utilities-settings-actions";
 import { createSettingsDraftActions } from "../settings-draft-actions";
-import { chineseInputSchemeOptions, japaneseInputSchemeOptions } from "../input-scheme-options";
+import { chineseInputSchemeOptions } from "../input-scheme-options";
 
 /** The 输入 page of the settings form. */
 export function InputSettingsPage() {
@@ -75,39 +76,22 @@ export function InputSettingsPage() {
               onChange={(scheme) => onPreferencesChange({ scheme, last_chinese_scheme: scheme })}
             />
           </Row>
-          <Row title="双拼方案" hidden={client.touchKeyboardSchemes || !chineseSchemes}>
-            {/* The source disables this menu unless Shuangpin is the active scheme (`_shuangpinSchemeButton.enabled = storedScheme == 1`): until then the choice changes nothing, and a live control that does nothing reads as a setting being ignored. Other hosts keep it always editable. */}
-            <Select
-              disabled={macosPlatform && draft.scheme !== "shuangpin"}
-              value={draft.shuangpin_profile}
-              onChange={(event) =>
-                onPreferencesChange({
-                  shuangpin_profile: event.target.value as Preferences["shuangpin_profile"],
-                })
-              }
-            >
-              <option value="xiaohe">小鹤双拼</option>
-              <option value="ziranma">自然码双拼</option>
-              <option value="shoudao">首道双拼</option>
-              <option value="microsoft">微软双拼</option>
-            </Select>
-          </Row>
-          {macosPlatform &&
-            client.loadMacosShuangpinKeymap &&
-            macosShuangpinKeymap !== undefined && (
-              <Row
-                title="输入时显示双拼键位提示"
-                description="双拼输入时显示当前方案的键位图，完成上屏后自动隐藏。"
-                hidden={client.touchKeyboardSchemes || draft.scheme !== "shuangpin"}
-              >
-                <Switch checked={macosShuangpinKeymap} onChange={setShuangpinKeymap} />
-              </Row>
-            )}
-          <Row title="五笔方案" hidden={client.touchKeyboardSchemes || !chineseSchemes}>
-            <Select value="wubi86" onChange={() => {}}>
-              <option value="wubi86">86 五笔</option>
-            </Select>
-          </Row>
+          <InputSchemeDetailsSection
+            grouped
+            scheme={draft.scheme}
+            shuangpinProfile={draft.shuangpin_profile}
+            macos={macosPlatform}
+            hasTouchKeyboardSchemes={client.touchKeyboardSchemes ?? false}
+            macosShuangpinKeymap={
+              macosPlatform && client.loadMacosShuangpinKeymap && macosShuangpinKeymap !== undefined
+                ? macosShuangpinKeymap
+                : undefined
+            }
+            onShuangpinProfileChange={(shuangpin_profile) =>
+              onPreferencesChange({ shuangpin_profile })
+            }
+            onMacosShuangpinKeymapChange={setShuangpinKeymap}
+          />
           {((client.touchKeyboardSchemes && touchKeyboardSchemes.enabled.includes("wubi")) ||
             draft.scheme === "wubi") && (
             <WubiSection
@@ -117,13 +101,6 @@ export function InputSettingsPage() {
               onAutoCommitUniqueChange={setWubiAutoCommitUnique}
             />
           )}
-          <Row
-            title="日语方案"
-            description="直接输入罗马音，提供平假名、片假名及日语词库候选"
-            hidden={client.touchKeyboardSchemes || chineseSchemes}
-          >
-            <Segmented options={japaneseInputSchemeOptions} value="romaji" onChange={() => {}} />
-          </Row>
         </GroupList>
         <InputSharedSettingsSection
           grouped

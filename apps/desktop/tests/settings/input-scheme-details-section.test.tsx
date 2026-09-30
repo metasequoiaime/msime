@@ -69,3 +69,35 @@ test("shows only the Japanese scheme details in Japanese mode", () => {
   expect(screen.queryByRole("combobox", { name: "双拼方案" })).toBeNull();
   expect(screen.queryByRole("combobox", { name: "五笔方案" })).toBeNull();
 });
+
+test("grouped mode renders the same scheme details with platform rows", () => {
+  const onShuangpinProfileChange = vi.fn();
+  const { rerender } = render(
+    <InputSchemeDetailsSection
+      grouped
+      scheme="quanpin"
+      shuangpinProfile="xiaohe"
+      macos
+      hasTouchKeyboardSchemes={false}
+      onShuangpinProfileChange={onShuangpinProfileChange}
+    />,
+  );
+
+  const profile = screen.getByRole("combobox", { name: "双拼方案" }) as HTMLSelectElement;
+  expect(profile.disabled).toBe(true);
+  fireEvent.change(profile, { target: { value: "microsoft" } });
+  expect(onShuangpinProfileChange).toHaveBeenCalledWith("microsoft");
+
+  rerender(
+    <InputSchemeDetailsSection
+      grouped
+      scheme="japanese"
+      shuangpinProfile="xiaohe"
+      macos={false}
+      hasTouchKeyboardSchemes={false}
+      onShuangpinProfileChange={onShuangpinProfileChange}
+    />,
+  );
+  expect(screen.getByRole("radiogroup")).toBeTruthy();
+  expect(screen.queryByRole("combobox", { name: "双拼方案" })).toBeNull();
+});
