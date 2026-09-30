@@ -282,8 +282,7 @@ export function InputSettingsPanel({
         wordCharacter={wordCharacter}
         linux={linuxPlatform}
         onChange={({ navigation, wordCharacter: nextWordCharacter }) =>
-          setDraft({
-            ...draft,
+          onPreferencesChange({
             navigation,
             word_character: nextWordCharacter,
           })
