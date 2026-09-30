@@ -19,7 +19,7 @@ export function useClipboardHistoryToggle({
 }: UseClipboardHistoryToggleOptions) {
   return (nextEnabled: boolean) => {
     if (!draft) return;
-    setDraft({ ...draft, clipboard_history: nextEnabled });
+    setDraft((current) => (current ? { ...current, clipboard_history: nextEnabled } : current));
     if (!nextEnabled && enabled && clear) {
       void clear().catch(() => setError("无法清空剪贴板历史，请稍后重试。"));
     }
