@@ -800,7 +800,7 @@ final class OnboardingUITests: XCTestCase {
     tapRevealed("customSkinEditorLink", in: app)
     app.buttons["skinEditorTemplates"].tap()
     let gallery = app.collectionViews.firstMatch.exists ? app.collectionViews.firstMatch : app.tables.firstMatch
-    // Three of the eight curated designs. Walking all of them cost four minutes and asserted the
+    // Three of the nine curated designs. Walking all of them cost four minutes and asserted the
     // same three things each time; what every design contains is checked in KeyboardSkinTests,
     // which reads them directly instead of driving a Simulator. The first is above the fold and the
     // last two need scrolling, so the gallery is still exercised in both states.

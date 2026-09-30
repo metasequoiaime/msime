@@ -3855,7 +3855,12 @@ test("Android custom skin editor applies Apple templates, undo, materials and sh
   fireEvent.click(screen.getByRole("button", { name: "设计我的皮肤" }));
   const editor = screen.getByLabelText("自定义皮肤编辑器");
   fireEvent.click(within(editor).getByRole("tab", { name: "设计" }));
-  expect(within(editor).getAllByRole("button", { name: /皮肤模板/ })).toHaveLength(14);
+  expect(within(editor).getAllByRole("button", { name: /皮肤模板/ })).toHaveLength(15);
+  expect(
+    within(editor)
+      .getAllByRole("button", { name: /皮肤模板/ })[0]
+      .getAttribute("aria-label"),
+  ).toBe("皮肤模板 薄荷晨光");
   fireEvent.click(within(editor).getByRole("button", { name: "皮肤模板 奶油桃桃" }));
   const preview = within(editor).getByRole("img", { name: "屏幕键盘完整布局预览" });
   expect(preview.getAttribute("data-key-shape")).toBe("pebble");

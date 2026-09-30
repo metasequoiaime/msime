@@ -3107,3 +3107,36 @@ fn saving_unchanged_preferences_keeps_the_revision_and_the_file() {
     changed.telemetry_enabled = !changed.telemetry_enabled;
     assert_eq!(store.save(1, changed).unwrap().revision, 2);
 }
+
+#[test]
+fn mint_morning_is_the_community_design_and_a_valid_custom_theme() {
+    let design = TouchKeyboardSkinDesign::mint_morning();
+    assert!(design.validate());
+    // The 水杉精选 design of the same name as the skin community serves it (camelCase, as the Apple editor writes it).
+    let expected = serde_json::json!({
+        "accent": 0x245A43, "shadow": 0.08, "pattern": 0, "background": 0xD8F0E4,
+        "monospaced": false, "borderWidth": 0.5, "gradientEnd": 0xEEF6DD, "cornerRadius": 14.0,
+        "keyBackground": 0xFAFFF9, "keyForeground": 0x173D30, "actionBackground": 0x245A43,
+        "customBorderColor": 0xB6D8C5,
+    });
+    let written = serde_json::to_value(&design).unwrap();
+    for (key, value) in expected.as_object().unwrap() {
+        assert_eq!(&written[key], value, "{key}");
+    }
+    let preferences = Preferences {
+        global_theme: crate::skin::theme::GlobalTheme::Custom,
+        custom_theme: CustomTheme {
+            keyboard: Some(design),
+            ..CustomTheme::default()
+        },
+        ..Preferences::default()
+    };
+    assert!(preferences.validate().is_ok());
+    // This test runs on a desktop build, where a new install still follows the system.
+    assert!(!TOUCH_KEYBOARD_BUILD);
+    assert_eq!(
+        Preferences::default().global_theme,
+        crate::skin::theme::GlobalTheme::System
+    );
+    assert_eq!(Preferences::default().custom_theme, CustomTheme::default());
+}

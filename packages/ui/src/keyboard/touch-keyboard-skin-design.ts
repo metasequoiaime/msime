@@ -95,6 +95,22 @@ const skin = (patch: Partial<TouchKeyboardSkinDesign>): TouchKeyboardSkinDesign 
 });
 
 export const touchKeyboardSkinTemplates: { title: string; design: TouchKeyboardSkinDesign }[] = [
+  // The touch keyboards' default (TouchKeyboardSkinDesign::mint_morning in client-core), first so it can be picked again after trying another.
+  {
+    title: "薄荷晨光",
+    design: skin({
+      background: 0xd8f0e4,
+      keyBackground: 0xfafff9,
+      keyForeground: 0x173d30,
+      accent: 0x245a43,
+      actionBackground: 0x245a43,
+      cornerRadius: 14,
+      borderWidth: 0.5,
+      shadow: 0.08,
+      gradientEnd: 0xeef6dd,
+      customBorderColor: 0xb6d8c5,
+    }),
+  },
   {
     title: "苔庭晨雾",
     design: skin({

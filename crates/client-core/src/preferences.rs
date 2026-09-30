@@ -110,6 +110,25 @@ impl Default for TouchKeyboardSkinDesign {
 }
 
 impl TouchKeyboardSkinDesign {
+    /// 薄荷晨光: a clear mint gradient under rounded white keys with deep green text. The 水杉精选 design of the same name in the skin community, and the touch keyboards' default.
+    pub fn mint_morning() -> Self {
+        Self {
+            background: 0xD8F0E4,
+            key_background: 0xFAFFF9,
+            key_foreground: 0x173D30,
+            accent: 0x245A43,
+            action_background: 0x245A43,
+            corner_radius: 14.0,
+            border_width: 0.5,
+            shadow: 0.08,
+            pattern: 0,
+            monospaced: false,
+            gradient_end: Some(0xEEF6DD),
+            custom_border_color: Some(0xB6D8C5),
+            ..Self::default()
+        }
+    }
+
     pub(crate) fn validate(&self) -> bool {
         let colors = [
             Some(self.background),
@@ -1371,6 +1390,30 @@ fn default_commit_mode() -> String {
     "tsf".to_owned()
 }
 
+/// Builds for a touch keyboard: iOS, Android and HarmonyOS. The desktop hosts keep their own defaults.
+const TOUCH_KEYBOARD_BUILD: bool = cfg!(any(
+    target_os = "ios",
+    target_os = "android",
+    target_env = "ohos"
+));
+
+/// A new install on a touch keyboard starts on the custom theme drawn with 薄荷晨光, the keyboard skin the phones ship as their default; on the desktop it follows the system. A saved document always carries `global_theme`, so this only decides what a device that has never saved looks like, and what 恢复默认设置 returns to.
+fn default_global_theme() -> crate::skin::theme::GlobalTheme {
+    if TOUCH_KEYBOARD_BUILD {
+        crate::skin::theme::GlobalTheme::Custom
+    } else {
+        crate::skin::theme::GlobalTheme::default()
+    }
+}
+
+/// The custom theme a new install starts with: 薄荷晨光 on a touch keyboard over the system base, so the candidate colours still follow the platform; empty on the desktop.
+fn default_custom_theme() -> CustomTheme {
+    CustomTheme {
+        keyboard: TOUCH_KEYBOARD_BUILD.then(TouchKeyboardSkinDesign::mint_morning),
+        ..CustomTheme::default()
+    }
+}
+
 impl Default for Preferences {
     fn default() -> Self {
         Self {
@@ -1393,8 +1436,8 @@ impl Default for Preferences {
             voice_theme: SettingsTheme::default(),
             emoji_theme: SettingsTheme::default(),
             menu_theme: SettingsTheme::default(),
-            global_theme: crate::skin::theme::GlobalTheme::default(),
-            custom_theme: CustomTheme::default(),
+            global_theme: default_global_theme(),
+            custom_theme: default_custom_theme(),
             candidate_layout: CandidateLayout::default(),
             candidate_preedit_style: CandidatePreeditStyle::default(),
             tsf_preedit_style: PreeditStyle::default(),

@@ -3,6 +3,23 @@ import UIKit
 extension CustomKeyboardSkin {
   static var curatedTemplates: [(String, CustomKeyboardSkin)] {
     [
+      // The touch keyboards' default (TouchKeyboardSkinDesign::mint_morning in client-core), first so it can be picked again after trying another.
+      ("薄荷晨光", {
+        var skin = Self()
+        skin.background = 0xD8F0E4
+        skin.keyBackground = 0xFAFFF9
+        skin.keyForeground = 0x173D30
+        skin.accent = 0x245A43
+        skin.actionBackground = 0x245A43
+        skin.cornerRadius = 14
+        skin.borderWidth = 0.5
+        skin.shadow = 0.08
+        skin.pattern = 0
+        skin.monospaced = false
+        skin.gradientEnd = 0xEEF6DD
+        skin.customBorderColor = 0xB6D8C5
+        return skin
+      }()),
       ("苔庭晨雾", {
         var skin = Self()
         skin.background = 0xE0E9DF
