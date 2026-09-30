@@ -417,6 +417,7 @@ import { createSettingsReloadAction } from "./settings/settings-reload-action";
 import { createSettingsSaveAction } from "./settings/settings-save-action";
 import { createSettingsPageSelection } from "./settings/settings-page-selection";
 import { createSettingsDraftActions } from "./settings/settings-draft-actions";
+import { createHelpcodeSettingsActions } from "./settings/helpcode-settings-actions";
 import { createSettingsStatusActions } from "./settings/settings-status-actions";
 import { createSettingsExternalActions } from "./settings/settings-external-actions";
 import { createSettingsNavigationActions } from "./settings/settings-navigation-actions";
@@ -2520,6 +2521,10 @@ export function SettingsPage(props: SettingsPageProps) {
     initialCommunityScope,
     initialCommunityMine,
   } = model;
+  const { onChange: onHelpcodeChange } = createHelpcodeSettingsActions({
+    draft,
+    setDraft: model.setDraft,
+  });
   const reloadSettings = createSettingsReloadAction({ dirty, reload, confirm });
   const saveSettings = createSettingsSaveAction({ save });
   const { onOpenPage } = createSettingsPageSelection({ selectPage });
@@ -2878,7 +2883,7 @@ export function SettingsPage(props: SettingsPageProps) {
                       showShiftEntry={model.showHelpcodeShiftEntry}
                       disabled={busy}
                       hidden={page !== "input" || !model.showHelpcode}
-                      onChange={(patch) => model.setDraft({ ...draft, ...patch })}
+                      onChange={onHelpcodeChange}
                     />
                     <ExpressionSettingsPage />
                     <AiSettingsPage />
