@@ -28,8 +28,7 @@ import {
 import { NiuTransSection } from "./niutrans-section";
 import { LinuxTencentCredentialsSection } from "./linux-tencent-credentials-section";
 import { TencentTranslationSection } from "./tencent-translation-section";
-import { CustomTranslationsSection } from "./custom-translations-section";
-import { CustomTranslationSection } from "./custom-translation-section";
+import { CustomTranslationSettingsSection } from "./custom-translation-settings-section";
 import { OnDeviceTranslationNotice } from "./on-device-translation-notice";
 import { WordCharacterSection, defaultWordCharacter } from "./word-character-section";
 import { FuzzyPinyinSection, defaultFuzzyPinyin } from "./fuzzy-pinyin-section";
@@ -443,46 +442,21 @@ export function InputSettingsPanel({
                 )}
             </TencentTranslationSection>
           )}
-          {client.customTranslations && (
-            <CustomTranslationsSection
-              mobile={mobilePlatform}
-              value={customTranslationsText}
-              placeholder={customTranslationsPlaceholder}
-              notice={customTranslationsNotice}
-              summary={customTranslationsSummary}
-              saveState={customTranslationsSaveState}
-              saveError={customTranslationsSaveError}
-              onChange={(value) => {
-                setCustomTranslationsText(value);
-              }}
-              onFlush={() => void flushCustomTranslations()}
-            />
-          )}
-          <CustomTranslationSection
-            enabled={customTranslation.enabled}
-            available={candidateTranslations}
-            endpoint={customTranslation.endpoint}
-            apiKey={customTranslation.api_key}
-            endpointIssue={translationEndpointIssue(customTranslation.endpoint)}
-            onToggle={(enabled) =>
-              onPreferencesChange({
-                custom_translation: { ...customTranslation, enabled },
-                // Same rule as the Tencent switch: a service of the user's own ends the account choice.
-                ...(enabled ? { translation_account: undefined } : {}),
-              })
-            }
-            onEndpointChange={(endpoint) =>
-              onPreferencesChange({
-                custom_translation: { ...customTranslation, endpoint },
-              })
-            }
-            onApiKeyChange={(api_key) =>
-              onPreferencesChange({
-                custom_translation: { ...customTranslation, api_key },
-              })
-            }
-          >
-            {credentialTestControl(
+          <CustomTranslationSettingsSection
+            mobile={mobilePlatform}
+            customTranslationsAvailable={Boolean(client.customTranslations)}
+            customTranslationsText={customTranslationsText}
+            customTranslationsPlaceholder={customTranslationsPlaceholder}
+            customTranslationsNotice={customTranslationsNotice}
+            customTranslationsSummary={customTranslationsSummary}
+            customTranslationsSaveState={customTranslationsSaveState}
+            customTranslationsSaveError={customTranslationsSaveError}
+            onCustomTranslationsChange={setCustomTranslationsText}
+            onFlushCustomTranslations={() => void flushCustomTranslations()}
+            customTranslation={customTranslation}
+            candidateTranslations={candidateTranslations}
+            onPreferencesChange={onPreferencesChange}
+            credentialTest={credentialTestControl(
               "translation.custom",
               "测试自定义翻译配置",
               customTranslationCredentialTestConfig(customTranslation),
@@ -491,7 +465,7 @@ export function InputSettingsPanel({
                 translationEndpointIssue(customTranslation.endpoint),
               ),
             )}
-          </CustomTranslationSection>
+          />
         </>
       )}
       <WordCharacterSection
