@@ -47,6 +47,9 @@ fn is_leap_year(year: u32) -> bool {
 /// Days-since-epoch arithmetic on the calendar fields, so it stays correct across months, years
 /// and leap days without pulling a timezone into a pure function.
 pub(crate) fn shift_day(day: &str, days: i64) -> Option<String> {
+    if !is_valid_day(day) {
+        return None;
+    }
     let year: i64 = day.get(0..4)?.parse().ok()?;
     let month: i64 = day.get(5..7)?.parse().ok()?;
     let date: i64 = day.get(8..10)?.parse().ok()?;
@@ -104,6 +107,8 @@ mod tests {
         assert_eq!(shift_day("2027-01-01", -365).as_deref(), Some("2026-01-01"));
         assert_eq!(shift_day("not-a-day", 30), None);
         assert_eq!(shift_day("", 1), None);
+        assert_eq!(shift_day("2026-02-31", 1), None);
+        assert_eq!(shift_day("2026-04-31", -1), None);
     }
 
     #[test]
