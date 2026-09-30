@@ -1293,15 +1293,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         continue
       }
       let spelling = spellings[index]
-      var configuration = UIButton.Configuration.tinted()
+      // Drawn as a key of the theme, like the grid beside it; the accent is kept for the reading and the chosen candidate.
+      var configuration = UIButton.Configuration.filled()
       configuration.title = spelling
+      configuration.background.backgroundColor = KeyboardTheme.current.keyBackground
       configuration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 2, bottom: 6, trailing: 2)
       configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
         var attributes = attributes
         attributes.font = .systemFont(ofSize: 14)
         return attributes
       }
-      configuration.baseForegroundColor = KeyboardTheme.current.accent
+      configuration.baseForegroundColor = KeyboardTheme.current.keyForeground
       button.configuration = configuration
       button.tag = index
       button.isHidden = false
