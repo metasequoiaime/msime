@@ -1187,6 +1187,53 @@ fn translation_sidecar_prefers_the_user_file_and_is_removed_without_one() {
     assert!(!target.exists());
 }
 
+#[cfg(unix)]
+#[test]
+fn translation_sidecar_copy_rejects_a_symlinked_user_file() {
+    use std::os::unix::fs::symlink;
+
+    let dir = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let value = options(dir.path());
+    let target = Path::new(&value.dictionaries).join("custom_translations.txt");
+    let user = Path::new(&value.user_data).join("custom_translations.txt");
+    let resource = Path::new(&value.resources).join("custom_translations.txt");
+    std::fs::write(&resource, "天\tpackaged\n").unwrap();
+    std::fs::write(
+        outside.path().join("custom_translations.txt"),
+        "天\texternal\n",
+    )
+    .unwrap();
+    symlink(outside.path().join("custom_translations.txt"), &user).unwrap();
+
+    super::options::prepare_translation_sidecar(&value).unwrap();
+    assert_eq!(std::fs::read_to_string(target).unwrap(), "天\tpackaged\n");
+}
+
+#[cfg(unix)]
+#[test]
+fn translation_sidecar_copy_rejects_a_symlinked_target() {
+    use std::os::unix::fs::symlink;
+
+    let dir = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let value = options(dir.path());
+    let target = Path::new(&value.dictionaries).join("custom_translations.txt");
+    let user = Path::new(&value.user_data).join("custom_translations.txt");
+    let external = outside.path().join("target.txt");
+    std::fs::write(&user, "天\tuser\n").unwrap();
+    std::fs::write(&external, "keep\n").unwrap();
+    symlink(&external, &target).unwrap();
+
+    assert_eq!(
+        super::options::prepare_translation_sidecar(&value)
+            .unwrap_err()
+            .to_string(),
+        "Unable to prepare custom translation sidecar"
+    );
+    assert_eq!(std::fs::read_to_string(external).unwrap(), "keep\n");
+}
+
 #[test]
 fn english_completions_validate_and_lowercase_the_prefix() {
     let dir = tempfile::tempdir().unwrap();

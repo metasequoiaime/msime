@@ -187,15 +187,21 @@ pub fn prepare_translation_sidecar(options: &EngineOptions) -> Result<()> {
     paths.validate()?;
     let target = paths.dictionary(assets::TRANSLATIONS);
     let user = paths.user(assets::TRANSLATIONS);
-    let source = if user.is_file() {
+    let source = if is_real_file(&user) {
         user
     } else {
         paths.resource(assets::TRANSLATIONS)
     };
-    if !source.is_file() {
+    if !is_real_file(&source) {
         // The C++ removed the stale sidecar with an ignored error_code (bridge.cpp:325-327): a missing target is the normal case, and a sidecar that cannot be removed only keeps glosses the user already had.
         let _ = std::fs::remove_file(&target);
         return Ok(());
+    }
+    if std::fs::symlink_metadata(&target)
+        .map(|metadata| !metadata.file_type().is_file())
+        .unwrap_or(false)
+    {
+        return Err(EngineError::failed(diagnostics::TRANSLATION_SIDECAR_FAILED));
     }
     let copied = match target.parent() {
         Some(parent) => {
@@ -206,6 +212,12 @@ pub fn prepare_translation_sidecar(options: &EngineOptions) -> Result<()> {
     copied
         .map(|_| ())
         .map_err(|_| EngineError::failed(diagnostics::TRANSLATION_SIDECAR_FAILED))
+}
+
+fn is_real_file(path: &Path) -> bool {
+    std::fs::symlink_metadata(path)
+        .map(|metadata| metadata.file_type().is_file())
+        .unwrap_or(false)
 }
 
 /// `paths_for` (bridge.cpp:112-117).
