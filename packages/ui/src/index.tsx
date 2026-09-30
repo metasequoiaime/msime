@@ -2525,7 +2525,6 @@ export function SettingsPage(props: SettingsPageProps) {
     initialCommunityMine,
   } = model;
   const { onChange: onHelpcodeChange } = createHelpcodeSettingsActions({
-    draft,
     setDraft: model.setDraft,
   });
   const reloadSettings = createSettingsReloadAction({ dirty, reload, confirm });

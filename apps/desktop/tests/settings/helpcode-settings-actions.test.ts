@@ -11,23 +11,26 @@ const draft: Preferences = {
 
 test("merges helper-code patches into the current draft", () => {
   const setDraft = vi.fn();
-  const actions = createHelpcodeSettingsActions({ draft, setDraft });
+  const actions = createHelpcodeSettingsActions({ setDraft });
 
   actions.onChange({ quanpin_helpcode: { enabled: false, schema: "ziranma" } });
 
-  expect(setDraft).toHaveBeenCalledWith(
-    expect.objectContaining({
-      quanpin_helpcode: { enabled: false, schema: "ziranma" },
-      scheme: "quanpin",
-    }),
-  );
+  const updater = setDraft.mock.calls[0][0] as (value: Preferences) => Preferences;
+  expect(updater(draft)).toMatchObject({
+    quanpin_helpcode: { enabled: false, schema: "ziranma" },
+    scheme: "quanpin",
+  });
 });
 
-test("does not update before preferences have loaded", () => {
+test("merges helper-code patches into the latest draft", () => {
   const setDraft = vi.fn();
-  const actions = createHelpcodeSettingsActions({ draft: undefined, setDraft });
+  const actions = createHelpcodeSettingsActions({ setDraft });
 
   actions.onChange({ shuangpin_helpcode: { enabled: true, schema: "lantian" } });
 
-  expect(setDraft).not.toHaveBeenCalled();
+  const updater = setDraft.mock.calls[0][0] as (value: Preferences) => Preferences;
+  expect(updater({ ...draft, candidate_page_size: 9 })).toMatchObject({
+    candidate_page_size: 9,
+    shuangpin_helpcode: { enabled: true, schema: "lantian" },
+  });
 });
