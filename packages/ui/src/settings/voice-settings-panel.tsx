@@ -298,17 +298,7 @@ export function VoiceSettingsPanel({
                   : "other"
           }
           values={draft.voice_input ?? {}}
-          onChange={(key, enabled) =>
-            setDraft({
-              ...draft,
-              voice_input: {
-                ...draft.voice_input,
-                enabled: draft.voice_input?.enabled ?? true,
-                language: draft.voice_input?.language ?? "zh-CN",
-                [key]: enabled,
-              },
-            })
-          }
+          onChange={(key, enabled) => updateVoice({ [key]: enabled })}
         />
       )}
     </fieldset>
