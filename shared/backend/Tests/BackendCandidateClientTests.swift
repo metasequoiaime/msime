@@ -62,6 +62,26 @@ private final class MalformedCandidatesProtocol: URLProtocol {
   }
   override func stopLoading() {}
 }
+private final class MalformedFixedPositionsProtocol: URLProtocol {
+  override class func canInit(with request: URLRequest) -> Bool { request.url?.path == "/v1/users/me/dictionary/positions" }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    let components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)
+    let context = components?.queryItems?.first { $0.name == "context" }?.value ?? ""
+    let position: Int = context == "bad-position" ? 0 : 1
+    let entryContext = context == "bad-context" ? "other" : context
+    let entry: [String: Any] = ["context": entryContext, "code": context == "bad-code" ? "bad\u{0001}" : "ni", "word": "你", "position": position]
+    let positions: [[String: Any]] = context == "too-many" ? Array(repeating: entry, count: 101) : [entry]
+    let object: [String: Any] = ["positions": positions, "offset": context == "bad-offset" ? 100 : 0, "has_more": false]
+    let data = try! JSONSerialization.data(withJSONObject: object)
+    let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+      headerFields: ["Content-Type": "application/json"])!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: data)
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
 final class BackendCandidateClientTests: XCTestCase {
   private func client() -> BackendAccountClient {
     let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [CandidateProtocol.self]
@@ -87,6 +107,19 @@ final class BackendCandidateClientTests: XCTestCase {
       do {
         _ = try await client.personalCandidates(query, token: "session")
         XCTFail("malformed candidate response accepted: \(text)")
+      } catch let error as BackendAccountClient.Failure {
+        XCTAssertEqual(error.status, 0)
+      }
+    }
+  }
+  func testFixedPositionsRejectMalformedServerResponses() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [MalformedFixedPositionsProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    for context in ["bad-position", "bad-context", "bad-code", "bad-offset", "too-many"] {
+      do {
+        _ = try await client.fixedPositions(context: context, token: "session")
+        XCTFail("malformed fixed-position response accepted: \(context)")
       } catch let error as BackendAccountClient.Failure {
         XCTAssertEqual(error.status, 0)
       }

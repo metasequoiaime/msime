@@ -75,7 +75,16 @@ extension BackendAccountClient {
     components.path = "/v1/users/me/dictionary/positions"
     components.queryItems = [.init(name: "context", value: context), .init(name: "offset", value: String(offset)), .init(name: "limit", value: "100")]
     guard let path = Self.encodedPath(components) else { throw Failure(status: 400) }
-    return try await json("GET", path, token: token)
+    let page: FixedPositions = try await json("GET", path, token: token)
+    guard page.positions.count <= 100, page.offset == offset,
+          page.positions.allSatisfy({ position in
+            (context.isEmpty || position.context == context)
+              && Self.validCandidateText(position.context, maximum: 1024)
+              && Self.validCandidateText(position.code, maximum: 256)
+              && Self.validCandidateText(position.word, maximum: 1024)
+              && (1...5).contains(position.position)
+          }) else { throw Failure(status: 0) }
+    return page
   }
   func setFixedPosition(context: String, code: String, word: String, position: Int?, revision: Int64, token: String) async throws -> DictionaryRevision {
     guard revision >= 0, position == nil || (1...5).contains(position!) else { throw Failure(status: 400) }
