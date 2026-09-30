@@ -195,10 +195,10 @@ export function ExpressionSettingsPage() {
                 apiKey={niutrans.apikey}
                 onToggle={(enabled) => setTranslationProvider(enabled ? "niutrans" : "none")}
                 onAppIdChange={(app_id) =>
-                  setDraft({ ...draft, niutrans: { ...niutrans, app_id } })
+                  onPreferencesChange({ niutrans: { ...niutrans, app_id } })
                 }
                 onApiKeyChange={(apikey) =>
-                  setDraft({ ...draft, niutrans: { ...niutrans, apikey } })
+                  onPreferencesChange({ niutrans: { ...niutrans, apikey } })
                 }
               >
                 {credentialTestControl(
