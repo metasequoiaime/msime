@@ -170,6 +170,13 @@ class ModelAndHotwords(LocalFixture):
         (linked / local.MANIFEST).symlink_to(self.model / local.MANIFEST)
         with self.assertRaises(OSError):
             local.model_manifest(str(linked))
+        external = self.root / "external"
+        external.mkdir()
+        (external / local.MANIFEST).write_text(json.dumps({"hotwords": "native"}))
+        linked_model = self.root / "linked-model"
+        linked_model.symlink_to(external, target_is_directory=True)
+        with self.assertRaises(ValueError):
+            local.model_manifest(str(linked_model))
         listed = self.root / "listed"
         listed.mkdir()
         (listed / local.MANIFEST).write_text("[]")

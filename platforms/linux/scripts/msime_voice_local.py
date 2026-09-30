@@ -41,7 +41,7 @@ def model_manifest(path):
     if (not isinstance(path, str) or not path or len(path.encode("utf-8", "surrogatepass")) > MAX_MODEL_PATH
             or any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in path) or not os.path.isabs(path)):
         raise ValueError("invalid local model path")
-    if not stat.S_ISDIR(os.stat(path).st_mode):
+    if not stat.S_ISDIR(os.stat(path, follow_symlinks=False).st_mode):
         raise ValueError("local model path is not a model directory")
     descriptor = os.open(os.path.join(path, MANIFEST), os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC | os.O_NOFOLLOW)
     with os.fdopen(descriptor, "rb") as source:
