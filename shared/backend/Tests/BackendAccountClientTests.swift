@@ -62,6 +62,28 @@ private final class OversizedAccountProtocol: URLProtocol {
   }
   override func stopLoading() {}
 }
+private final class MalformedClipboardProtocol: URLProtocol {
+  override class func canInit(with request: URLRequest) -> Bool { request.url?.path == "/v1/users/me/clipboard" }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    let search = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "q" }?.value ?? ""
+    let validID = String(repeating: "a", count: 64)
+    let item: [String: Any]
+    switch request.httpMethod == "POST" ? "bad-id" : search {
+    case "bad-id": item = ["id": "../logout", "text": "fixture", "updated_at": "2026-09-08"]
+    case "bad-text": item = ["id": validID, "text": "\u{0000}fixture", "updated_at": "2026-09-08"]
+    case "bad-time": item = ["id": validID, "text": "fixture", "updated_at": String(repeating: "t", count: 129)]
+    default: item = ["id": validID, "text": "fixture", "updated_at": "2026-09-08"]
+    }
+    let body = try! JSONSerialization.data(withJSONObject: ["enabled": true, "items": [item]])
+    let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+      headerFields: ["Content-Type": "application/json"])!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: body)
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
 
 final class BackendAccountClientTests: XCTestCase {
   func testDefaultNicknameIsStableAndPreservesChosenName() {
@@ -125,6 +147,25 @@ final class BackendAccountClientTests: XCTestCase {
     do { try await client().deleteClipboard(id: "../auth/logout", token: "session"); XCTFail("unsafe id") }
     catch let error as BackendAccountClient.Failure { XCTAssertEqual(error.status, 400) }
   }
+  func testClipboardRejectsMalformedServerItems() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [MalformedClipboardProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    for search in ["bad-id", "bad-text", "bad-time"] {
+      do {
+        _ = try await client.clipboard(token: "session", search: search)
+        XCTFail("malformed clipboard item accepted: \(search)")
+      } catch let error as BackendAccountClient.Failure {
+        XCTAssertEqual(error.status, 0)
+      }
+    }
+    do {
+      _ = try await client.addClipboard("fixture", token: "session")
+      XCTFail("malformed added clipboard item accepted")
+    } catch let error as BackendAccountClient.Failure {
+      XCTAssertEqual(error.status, 0)
+    }
+  }
   func testDictionarySearchCannotInjectAnotherQueryParameter() async throws {
     let text = "合成 & q=other + % #"
     let page = try await client().dictionary(.quick, search: text, token: "session")
@@ -145,4 +186,3 @@ final class BackendAccountClientTests: XCTestCase {
     }
   }
 }
-
