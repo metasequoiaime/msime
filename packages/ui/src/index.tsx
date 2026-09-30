@@ -701,6 +701,13 @@ export {
   type ShuangpinProfile,
 } from "./settings/input-scheme-details-section";
 export {
+  TranslationProviderSettingsSection,
+  type TranslationProviderSettingsSectionProps,
+  type TranslationNiuTransSettings,
+  type TranslationTencentSettings,
+  type TranslationCustomSettings,
+} from "./settings/translation-provider-settings-section";
+export {
   InputModeShortcutsSection,
   type InputModeShortcutPreferences,
   type InputModeShortcutsSectionProps,

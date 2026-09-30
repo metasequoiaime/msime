@@ -6,10 +6,8 @@ import { GroupList, Row, Switch } from "../../core/platform-controls";
 import { FuzzyPinyinSection } from "../fuzzy-pinyin-section";
 import { InputLanguageOptionsSection } from "../input-language-options-section";
 import { PunctuationSection } from "../punctuation-section";
-import { NiuTransSettingsSection } from "../niutrans-settings-section";
 import { TranslationServiceSelectorSection } from "../translation-service-selector-section";
-import { TencentTranslationSettingsSection } from "../tencent-translation-settings-section";
-import { CustomTranslationSettingsSection } from "../custom-translation-settings-section";
+import { TranslationProviderSettingsSection } from "../translation-provider-settings-section";
 import { CandidateTranslationOptionsSection } from "../candidate-translation-options-section";
 import { tencentCredentialIssue, translationEndpointIssue } from "../translation-validation";
 import { tencentSecretConfigured } from "../credential-utils";
@@ -166,117 +164,103 @@ export function ExpressionSettingsPage() {
           )}
         </GroupList>
         {!androidPlatform && (
-          <>
-            <NiuTransSettingsSection
-              grouped
-              enabled={niutrans.enabled}
-              available={candidateTranslations}
-              appId={niutrans.app_id}
-              apiKey={niutrans.apikey}
-              onToggle={(enabled) => setTranslationProvider(enabled ? "niutrans" : "none")}
-              onAppIdChange={(app_id) => onPreferencesChange({ niutrans: { ...niutrans, app_id } })}
-              onApiKeyChange={(apikey) =>
-                onPreferencesChange({ niutrans: { ...niutrans, apikey } })
-              }
-              credentialTest={credentialTestControl(
+          <TranslationProviderSettingsSection
+            grouped
+            niutrans={{
+              enabled: niutrans.enabled,
+              available: candidateTranslations,
+              appId: niutrans.app_id,
+              apiKey: niutrans.apikey,
+              onToggle: (enabled) => setTranslationProvider(enabled ? "niutrans" : "none"),
+              onAppIdChange: (app_id) => onPreferencesChange({ niutrans: { ...niutrans, app_id } }),
+              onApiKeyChange: (apikey) =>
+                onPreferencesChange({ niutrans: { ...niutrans, apikey } }),
+              credentialTest: credentialTestControl(
                 "translation.niutrans",
                 "测试 NiuTrans 配置",
                 niutransCredentialTestConfig(niutrans),
                 niutransCredentialTestDisabled(candidateTranslations, niutrans),
-              )}
-            />
-            <TencentTranslationSettingsSection
-              grouped
-              linux={linuxPlatform}
-              available={candidateTranslations}
-              linuxCredentialsAvailable={Boolean(client.providerCredentials)}
-              enabled={tencentTranslation.enabled}
-              secretId={tencentTranslation.secret_id}
-              secretKey={tencentTranslation.secret_key}
-              region={tencentTranslation.region}
-              credentialIssue={tencentIssue}
-              showMissingCredentialsWarning={
+              ),
+            }}
+            tencent={{
+              linux: linuxPlatform,
+              available: candidateTranslations,
+              linuxCredentialsAvailable: Boolean(client.providerCredentials),
+              enabled: tencentTranslation.enabled,
+              secretId: tencentTranslation.secret_id,
+              secretKey: tencentTranslation.secret_key,
+              region: tencentTranslation.region,
+              credentialIssue: tencentIssue,
+              showMissingCredentialsWarning:
                 !customTranslation.enabled &&
                 !tencentSecretConfigured(tencentTranslation.secret_id) &&
-                !tencentSecretConfigured(tencentTranslation.secret_key)
-              }
-              status={
-                providerCredentials
-                  ? {
-                      tencent: providerCredentials.tencent,
-                      tencentInvalid: providerCredentials.tencentInvalid,
-                    }
-                  : undefined
-              }
-              input={tencentCredentialInput}
-              busy={providerCredentialBusy === "tencent"}
-              message={providerCredentialMessages.tencent}
-              onToggle={(enabled) =>
+                !tencentSecretConfigured(tencentTranslation.secret_key),
+              status: providerCredentials
+                ? {
+                    tencent: providerCredentials.tencent,
+                    tencentInvalid: providerCredentials.tencentInvalid,
+                  }
+                : undefined,
+              input: tencentCredentialInput,
+              busy: providerCredentialBusy === "tencent",
+              message: providerCredentialMessages.tencent,
+              onToggle: (enabled) =>
                 onPreferencesChange({
                   tencent_tmt: { ...tencentTranslation, enabled },
                   // Turning on a service of the user's own ends the account choice, so the account never keeps receiving candidates behind a visible selection.
                   ...(enabled ? { translation_account: undefined } : {}),
-                })
-              }
-              onSecretIdChange={(secret_id) =>
-                onPreferencesChange({ tencent_tmt: { ...tencentTranslation, secret_id } })
-              }
-              onSecretKeyChange={(secret_key) =>
-                onPreferencesChange({ tencent_tmt: { ...tencentTranslation, secret_key } })
-              }
-              onRegionChange={(region) =>
-                onPreferencesChange({ tencent_tmt: { ...tencentTranslation, region } })
-              }
-              onInputChange={(patch) => updateTencentCredentialInput(patch)}
-              onSave={(credential) =>
+                }),
+              onSecretIdChange: (secret_id) =>
+                onPreferencesChange({ tencent_tmt: { ...tencentTranslation, secret_id } }),
+              onSecretKeyChange: (secret_key) =>
+                onPreferencesChange({ tencent_tmt: { ...tencentTranslation, secret_key } }),
+              onRegionChange: (region) =>
+                onPreferencesChange({ tencent_tmt: { ...tencentTranslation, region } }),
+              onInputChange: (patch) => updateTencentCredentialInput(patch),
+              onSave: (credential) =>
                 void runProviderCredential(
                   "tencent",
                   (credentials) => credentials.saveTencent(credential),
                   "凭据已保存，provider 服务下次请求时生效。",
-                )
-              }
-              onClear={() =>
+                ),
+              onClear: () =>
                 void runProviderCredential(
                   "tencent",
                   (credentials) => credentials.clearTencent(),
                   "凭据已清除。",
-                )
-              }
-              linuxCredentialTest={
+                ),
+              linuxCredentialTest:
                 translationProvider === "tencent" &&
                 credentialTestControl(
                   "translation.tencent",
                   "测试腾讯云翻译配置",
                   {},
                   translationControlsDisabled,
-                )
-              }
-              serviceCredentialTest={
+                ),
+              serviceCredentialTest:
                 (windowsPlatform || macosPlatform) &&
                 credentialTestControl(
                   "translation.tencent",
                   "测试腾讯云翻译配置",
                   tencentTranslationCredentialTestConfig(tencentTranslation),
                   tencentTranslationCredentialTestDisabled(candidateTranslations, tencentIssue),
-                )
-              }
-            />
-            <CustomTranslationSettingsSection
-              grouped
-              mobile={mobilePlatform}
-              customTranslationsAvailable={Boolean(client.customTranslations)}
-              customTranslationsText={customTranslationsText}
-              customTranslationsPlaceholder={customTranslationsPlaceholder}
-              customTranslationsNotice={customTranslationsNotice}
-              customTranslationsSummary={customTranslationsSummary}
-              customTranslationsSaveState={customTranslationsSaveState}
-              customTranslationsSaveError={customTranslationsSaveError}
-              onCustomTranslationsChange={setCustomTranslationsText}
-              onFlushCustomTranslations={() => void flushCustomTranslations()}
-              customTranslation={customTranslation}
-              candidateTranslations={candidateTranslations}
-              onPreferencesChange={onPreferencesChange}
-              credentialTest={credentialTestControl(
+                ),
+            }}
+            custom={{
+              mobile: mobilePlatform,
+              customTranslationsAvailable: Boolean(client.customTranslations),
+              customTranslationsText,
+              customTranslationsPlaceholder,
+              customTranslationsNotice,
+              customTranslationsSummary,
+              customTranslationsSaveState,
+              customTranslationsSaveError,
+              onCustomTranslationsChange: setCustomTranslationsText,
+              onFlushCustomTranslations: () => void flushCustomTranslations(),
+              customTranslation,
+              candidateTranslations,
+              onPreferencesChange,
+              credentialTest: credentialTestControl(
                 "translation.custom",
                 "测试自定义翻译配置",
                 customTranslationCredentialTestConfig(customTranslation),
@@ -284,9 +268,9 @@ export function ExpressionSettingsPage() {
                   candidateTranslations,
                   translationEndpointIssue(customTranslation.endpoint),
                 ),
-              )}
-            />
-          </>
+              ),
+            }}
+          />
         )}
         {mobilePlatform && (
           <GroupList title="高情商回复">

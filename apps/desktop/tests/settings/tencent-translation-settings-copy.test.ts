@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 
-test("expression page and input panel reuse Tencent translation settings", () => {
+test("expression page and input panel share the translation provider binding", () => {
   const page = Object.values(
     import.meta.glob<string>("../../../../packages/ui/src/settings/pages/expression-page.tsx", {
       eager: true,
@@ -17,13 +17,13 @@ test("expression page and input panel reuse Tencent translation settings", () =>
   )[0];
 
   expect(page).toContain(
-    'import { TencentTranslationSettingsSection } from "../tencent-translation-settings-section";',
+    'import { TranslationProviderSettingsSection } from "../translation-provider-settings-section";',
   );
   expect(panel).toContain(
-    'import { TencentTranslationSettingsSection } from "./tencent-translation-settings-section";',
+    'import { TranslationProviderSettingsSection } from "./translation-provider-settings-section";',
   );
-  expect(page).toContain("<TencentTranslationSettingsSection");
-  expect(panel).toContain("<TencentTranslationSettingsSection");
+  expect(page).toContain("<TranslationProviderSettingsSection");
+  expect(panel).toContain("<TranslationProviderSettingsSection");
   expect(page).not.toContain("<TencentTranslationSection");
   expect(panel).not.toContain("<TencentTranslationSection");
   expect(page).not.toContain("<LinuxTencentCredentialsSection");

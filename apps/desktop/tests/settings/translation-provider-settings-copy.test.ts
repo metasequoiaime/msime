@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 
-test("expression page and input panel share the translation provider binding", () => {
+test("expression page and input panel share translation provider settings binding", () => {
   const page = Object.values(
     import.meta.glob<string>("../../../../packages/ui/src/settings/pages/expression-page.tsx", {
       eager: true,
@@ -24,6 +24,9 @@ test("expression page and input panel share the translation provider binding", (
   );
   expect(page).toContain("<TranslationProviderSettingsSection");
   expect(panel).toContain("<TranslationProviderSettingsSection");
-  expect(page).not.toContain("<NiuTransSection");
-  expect(panel).not.toContain("<NiuTransSection");
+  for (const source of [page, panel]) {
+    expect(source).not.toContain("<NiuTransSettingsSection");
+    expect(source).not.toContain("<TencentTranslationSettingsSection");
+    expect(source).not.toContain("<CustomTranslationSettingsSection");
+  }
 });

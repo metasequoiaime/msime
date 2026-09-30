@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { expect, test } from "vitest";
 
-test("expression page and input panel reuse custom translation settings", () => {
+test("expression page and input panel share the translation provider binding", () => {
   const page = Object.values(
     import.meta.glob<string>("../../../../packages/ui/src/settings/pages/expression-page.tsx", {
       eager: true,
@@ -18,13 +18,13 @@ test("expression page and input panel reuse custom translation settings", () => 
   )[0];
 
   expect(page).toContain(
-    'import { CustomTranslationSettingsSection } from "../custom-translation-settings-section";',
+    'import { TranslationProviderSettingsSection } from "../translation-provider-settings-section";',
   );
   expect(panel).toContain(
-    'import { CustomTranslationSettingsSection } from "./custom-translation-settings-section";',
+    'import { TranslationProviderSettingsSection } from "./translation-provider-settings-section";',
   );
-  expect(page).toContain("<CustomTranslationSettingsSection");
-  expect(panel).toContain("<CustomTranslationSettingsSection");
+  expect(page).toContain("<TranslationProviderSettingsSection");
+  expect(panel).toContain("<TranslationProviderSettingsSection");
   expect(page).not.toContain("<CustomTranslationsSection");
   expect(panel).not.toContain("<CustomTranslationsSection");
 });
