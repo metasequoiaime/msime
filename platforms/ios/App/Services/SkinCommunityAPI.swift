@@ -131,7 +131,7 @@ actor SkinCommunityAPI {
     parts.queryItems = [.init(name: "offset", value: String(offset)), .init(name: "q", value: search)]
     parts.percentEncodedQuery = parts.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
     let page: CommunityPage = try await request(parts.string!)
-    guard page.skins.count <= Self.maximumPageItems && !(page.has_more && page.skins.isEmpty) else {
+    guard Self.validPage(page.skins, hasMore: page.has_more) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
     return page
@@ -172,11 +172,18 @@ actor SkinCommunityAPI {
       .init(name: "q", value: search), .init(name: "offset", value: String(offset))]
     parts.percentEncodedQuery = parts.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
     let page: ResourcePage = try await request(parts.string!, maximumResponseBytes: 48 * 1024 * 1024)
-    guard page.items.count <= Self.maximumPageItems && !(page.has_more && page.items.isEmpty) else {
+    guard Self.validPage(page.items, hasMore: page.has_more) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
     return page
   }
+
+  private static func validPage<T: Identifiable>(_ items: [T], hasMore: Bool) -> Bool {
+    guard items.count <= maximumPageItems, !(hasMore && items.isEmpty) else { return false }
+    var ids = Set<AnyHashable>()
+    return items.allSatisfy { ids.insert(AnyHashable($0.id)).inserted }
+  }
+
   func resource(_ id: String) async throws -> CommunityResource {
     #if DEBUG && targetEnvironment(simulator)
     if CommunityPreviewFixtures.enabled, let item = CommunityPreviewFixtures.items.first(where: { $0.id == id }) { return item }

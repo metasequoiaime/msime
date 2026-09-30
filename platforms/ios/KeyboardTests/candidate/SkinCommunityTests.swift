@@ -182,7 +182,69 @@ private final class OversizedResourcePageProtocol: URLProtocol {
   override func stopLoading() {}
 }
 
+private final class MalformedCommunityPageProtocol: URLProtocol {
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    let design: [String: Any] = [
+      "background": 15266027, "keyBackground": 16777215, "keyForeground": 1516829,
+      "accent": 1596487, "actionBackground": 1596487, "cornerRadius": 8,
+      "borderWidth": 0, "shadow": 0, "pattern": 0, "monospaced": false
+    ]
+    let value: [String: Any]
+    if request.url?.path == "/v1/community/skins" {
+      value = ["skins": [
+        ["id": "a1234567-1234-1234-1234-123456789abc", "name": "测试", "description": "",
+         "author": "作者", "design": design, "downloads": 0, "rating_count": 0,
+         "rating_average": 0, "owned": false, "my_rating": 0],
+        ["id": "a1234567-1234-1234-1234-123456789abc", "name": "重复", "description": "",
+         "author": "作者", "design": design, "downloads": 0, "rating_count": 0,
+         "rating_average": 0, "owned": false, "my_rating": 0]
+      ], "has_more": true]
+    } else {
+      value = ["items": [
+        ["id": "10000000-0000-4000-8000-000000000001", "kind": "dictionary", "name": "测试",
+         "description": "", "author": "作者", "content": ["entries": []], "revision": 1,
+         "saves": 0, "saved": false, "owned": false, "rating_count": 0,
+         "rating_average": 0, "my_rating": 0],
+        ["id": "10000000-0000-4000-8000-000000000001", "kind": "dictionary", "name": "重复",
+         "description": "", "author": "作者", "content": ["entries": []], "revision": 1,
+         "saves": 0, "saved": false, "owned": false, "rating_count": 0,
+         "rating_average": 0, "my_rating": 0]
+      ], "has_more": true]
+    }
+    let data = try! JSONSerialization.data(withJSONObject: value)
+    client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200,
+      httpVersion: nil, headerFields: ["Content-Type": "application/json"])!,
+      cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: data)
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
+
 extension SkinCommunityTests {
+  func testDuplicateCommunityPageIsRejected() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [MalformedCommunityPageProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    let api = SkinCommunityAPI(client: client,
+                               account: BackendAccountSession(api: client,
+                                                              storage: CommunityMemoryCredentials()))
+    do {
+      _ = try await api.list()
+      XCTFail("expected duplicate skin page rejection")
+    } catch let failure as CommunityFailure {
+      XCTAssertEqual(failure.message, "社区暂时不可用，请稍后重试。")
+    }
+    do {
+      _ = try await api.resources(.dictionary)
+      XCTFail("expected duplicate resource page rejection")
+    } catch let failure as CommunityFailure {
+      XCTAssertEqual(failure.message, "社区暂时不可用，请稍后重试。")
+    }
+  }
+
   func testOversizedSkinPageIsRejected() async throws {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [OversizedSkinPageProtocol.self]
