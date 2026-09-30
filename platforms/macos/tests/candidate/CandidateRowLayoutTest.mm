@@ -97,7 +97,7 @@ int main(void)
                                      withString:@"水杉输入法" startingAtIndex:0];
         };
 
-        // A sentence worth four fifths of the card, then eight candidates that together take far more than what is left: the page no longer fits on one line of a card capped at half the screen.
+        // A sentence worth four fifths of half the screen, then eight candidates that together take far more than a whole screen line: the card grows past half the screen towards the screen less its margins, and the page still breaks onto new lines.
         NSString *sentence = glyphs(halfScreen * 0.8 - 60);
         NSString *shortCandidate = glyphs(halfScreen * 0.24);
         NSMutableArray *page = [NSMutableArray arrayWithObject:@{@"text": sentence, @"highlighted": @YES}];
@@ -121,7 +121,7 @@ int main(void)
             NSRect frame = CandidateButton(panel.contentView, tag).frame;
             assert(NSMinX(frame) >= 0 && NSMaxX(frame) <= panel.frame.size.width + 0.5 && NSMinY(frame) >= 0);
         }
-        assert(panel.frame.size.width <= halfScreen + 0.5);
+        assert(panel.frame.size.width <= MAX(halfScreen, floor(screen.size.width - 2 * MSIMECandidateScreenMargin)) + 0.5);
 
         // A page that fits keeps every candidate at its natural width on one line.
         NSMutableDictionary *narrowView = [singleView mutableCopy];
@@ -137,14 +137,14 @@ int main(void)
         const CGFloat oneLine = shorter.frame.size.height;
 
         // One candidate wider than a whole line is narrowed to the line and wraps inside it rather than being cut off.
-        NSString *paragraph = glyphs(screen.size.width * 1.5);
+        NSString *paragraph = glyphs(screen.size.width * 3);
         NSMutableDictionary *wideView = [singleView mutableCopy];
         wideView[@"candidates"] = @[@{@"text": paragraph, @"highlighted": @YES}, @{@"text": @"测试"}];
         [controller setValue:[wideView copy] forKey:@"view"];
         [controller renderCandidates];
         MSIMECandidateButton *wrapped = CandidateButton(panel.contentView, 0);
         assert(wrapped.itemLayout.textWrapped && wrapped.frame.size.height > oneLine * 1.5);
-        assert(panel.frame.size.width <= halfScreen + 0.5 && NSMaxX(wrapped.frame) <= panel.frame.size.width + 0.5);
+        assert(panel.frame.size.width <= MAX(halfScreen, floor(screen.size.width - 2 * MSIMECandidateScreenMargin)) + 0.5 && NSMaxX(wrapped.frame) <= panel.frame.size.width + 0.5);
         assert(NSMaxY(CandidateButton(panel.contentView, 1).frame) <= NSMinY(wrapped.frame) + 0.5);
 
         // Vertical: the card is capped at half the screen, a long sentence wraps into a taller row than its neighbours, and rows stack at their own heights.
