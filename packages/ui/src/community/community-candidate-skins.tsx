@@ -215,7 +215,6 @@ export function CommunityCandidateSkinsPage({
   const requestList = async (query: string, append: boolean, mine = activeMine.current) => {
     const generation = ++listGeneration.current;
     const offset = append ? nextOffset.current : 0;
-    if (!append) activeMine.current = mine;
     setListBusy(true);
     setError("");
     setSignInRequired(false);
@@ -224,10 +223,17 @@ export function CommunityCandidateSkinsPage({
       if (generation !== listGeneration.current) return;
       setSkins((current) => (append ? appendUniqueById(current, page.skins) : page.skins));
       nextOffset.current = offset + page.skins.length;
-      if (!append) activeSearch.current = query;
+      // The search and scope become the displayed ones only with their first page, so 加载更多 always continues the list on screen.
+      if (!append) {
+        activeSearch.current = query;
+        activeMine.current = mine;
+      }
       setHasMore(page.has_more);
     } catch (requestError) {
-      if (generation === listGeneration.current) fail(requestError);
+      if (generation !== listGeneration.current) return;
+      fail(requestError);
+      // A failed switch leaves the previous page on screen, so the toggle goes back to the scope that page belongs to.
+      if (!append) setMineOnly(activeMine.current);
     } finally {
       if (generation === listGeneration.current) setListBusy(false);
     }

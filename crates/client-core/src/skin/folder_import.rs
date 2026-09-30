@@ -1,6 +1,17 @@
 //! Copying a picked skin folder into a host's skin root.
 
 use std::path::Path;
+use std::sync::{Mutex, MutexGuard};
+
+/// Serializes every write to a skin root in this process: folder import and community install share the `.replaced-<id>` backup name, and community install shares one staging folder, so two overlapping writes would otherwise delete each other's helpers or both pass the "already installed" check.
+static SKIN_ROOT_WRITES: Mutex<()> = Mutex::new(());
+
+/// Hold the skin-root write lock. A write that panicked leaves nothing the next one relies on, since each write clears its own helpers first, so a poisoned lock is taken over rather than failing every later write.
+pub(crate) fn lock_skin_root() -> MutexGuard<'static, ()> {
+    SKIN_ROOT_WRITES
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 /// Copy a skin folder the user picked into `root`, under the folder's own name, and return that name.
 ///
@@ -26,6 +37,7 @@ pub fn import(source: &Path, root: &Path) -> Result<String, &'static str> {
     if !crate::storage::create_directory_and_check(root).map_err(|_| "storage")? {
         return Err("storage");
     }
+    let _writes = lock_skin_root();
     // The leading dot keeps both helpers out of the catalog, which lists only names starting with a letter or digit.
     let staging = root.join(format!(".import-{name}"));
     let replaced = root.join(format!(".replaced-{name}"));

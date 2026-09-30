@@ -205,6 +205,28 @@ fn pack_refuses_what_the_server_would_refuse() {
 }
 
 #[test]
+fn pack_refuses_control_characters_in_the_version_and_license() {
+    let replacements = [
+        ("version = '1.0'", "version = \"1.0\\t\""),
+        ("code = 'MIT'", "code = \"MIT\\u0001\""),
+        ("assets = 'CC-BY-4.0'", "assets = \"CC-BY\\n4.0\""),
+        (
+            "assets = 'CC-BY-4.0'\n",
+            "assets = 'CC-BY-4.0'\nsource = \"\"\"line1\nline2\"\"\"\n",
+        ),
+    ];
+    for (from, to) in replacements {
+        let root = tempfile::tempdir().unwrap();
+        let skin = standard_skin(root.path(), "sakura");
+        let manifest = fs::read_to_string(skin.join("skin.toml")).unwrap();
+        assert!(manifest.contains(from), "{from}");
+        fs::write(skin.join("skin.toml"), manifest.replacen(from, to, 1)).unwrap();
+        assert!(catalog::load_package(root.path(), "sakura").is_ok(), "{to}");
+        assert_eq!(pack(root.path(), "sakura"), Err(PACKAGE), "{to}");
+    }
+}
+
+#[test]
 fn pack_enforces_the_size_limits_and_image_signatures() {
     let root = tempfile::tempdir().unwrap();
     let skin = standard_skin(root.path(), "sakura");
@@ -321,6 +343,13 @@ fn install_rejections_leave_the_previous_skin_untouched() {
         BASE64.encode(png(MAX_PACKAGE_FILE_BYTES + 1)),
     );
     cases.push((oversize, TOO_LARGE));
+    // Under the per-file cap decode_files checks, so only the preview cap applied after staging refuses it.
+    let mut oversize_preview = good.clone();
+    oversize_preview.files.insert(
+        PREVIEW.to_owned(),
+        BASE64.encode(png(MAX_PREVIEW_BYTES + 1)),
+    );
+    cases.push((oversize_preview, TOO_LARGE));
     let mut mismatch = good.clone();
     mismatch.package_id = "other".to_owned();
     cases.push((mismatch, PACKAGE));
@@ -392,6 +421,78 @@ fn install_clears_what_an_interrupted_install_left_behind() {
     );
     assert_no_helpers(&root);
     assert!(catalog::scan(&root).issues.is_empty());
+}
+
+#[test]
+fn overlapping_installs_do_not_clear_each_other() {
+    let state = tempfile::tempdir().unwrap();
+    let root = state.path().join("skins");
+    let packages: Vec<CandidateSkinPackage> = (0..8)
+        .map(|index| {
+            let source = tempfile::tempdir().unwrap();
+            let id = format!("sakura{index}");
+            standard_skin(source.path(), &id);
+            download_of(pack(source.path(), &id).unwrap())
+        })
+        .collect();
+    for _ in 0..4 {
+        let barrier = std::sync::Barrier::new(packages.len());
+        let results: Vec<_> = std::thread::scope(|scope| {
+            let handles: Vec<_> = packages
+                .iter()
+                .map(|package| {
+                    let (root, barrier) = (&root, &barrier);
+                    scope.spawn(move || {
+                        barrier.wait();
+                        install(root, package, true)
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|handle| handle.join().unwrap())
+                .collect()
+        });
+        for (package, result) in packages.iter().zip(results) {
+            assert_eq!(result, Ok(package.package_id.clone()));
+        }
+        assert_no_helpers(&root);
+        let catalog = catalog::scan(&root);
+        assert!(catalog.issues.is_empty(), "{catalog:?}");
+        assert_eq!(catalog.packages.len(), packages.len());
+    }
+}
+
+#[test]
+fn overlapping_installs_of_one_package_id_ask_before_replacing() {
+    let state = tempfile::tempdir().unwrap();
+    let root = state.path().join("skins");
+    let package = standard_download();
+    let barrier = std::sync::Barrier::new(8);
+    let results: Vec<_> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let (root, package, barrier) = (&root, &package, &barrier);
+                scope.spawn(move || {
+                    barrier.wait();
+                    install(root, package, false)
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect()
+    });
+    assert_eq!(
+        results.iter().filter(|result| result.is_ok()).count(),
+        1,
+        "{results:?}"
+    );
+    assert!(results
+        .iter()
+        .all(|result| result.is_ok() || *result == Err(EXISTS)));
+    assert_no_helpers(&root);
 }
 
 fn token(byte: u8) -> String {
@@ -821,6 +922,26 @@ fn transport_rejects_a_mismatched_echo() {
     let client = BackendAccountClient::loopback(&origin).unwrap();
     assert_eq!(
         client.download_candidate_skin(item().id, &token(b'd')),
+        Err(AccountError::Unavailable)
+    );
+}
+
+#[test]
+fn transport_rejects_a_mismatched_publish_and_detail_echo() {
+    let mut other = item();
+    other.id = Uuid::parse_str("30000000-0000-4000-8000-000000000003").unwrap();
+
+    let (origin, _received) = serve_once(serde_json::to_vec(&other).unwrap());
+    let client = BackendAccountClient::loopback(&origin).unwrap();
+    assert_eq!(
+        client.publish_candidate_skin(&publish_request(), &token(b'c')),
+        Err(AccountError::Unavailable)
+    );
+
+    let (origin, _received) = serve_once(serde_json::to_vec(&other).unwrap());
+    let client = BackendAccountClient::loopback(&origin).unwrap();
+    assert_eq!(
+        client.candidate_skin(item().id, None),
         Err(AccountError::Unavailable)
     );
 }

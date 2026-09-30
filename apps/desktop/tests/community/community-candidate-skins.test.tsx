@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import {
   CandidateSkinPublishDialog,
   CommunityCandidateSkinsPage,
@@ -84,6 +84,13 @@ function client(
   };
 }
 
+/** Let a settled request's continuation run and React commit what it scheduled, so an assertion that something did not render is not simply early. */
+async function settle() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((accept) => {
@@ -145,7 +152,8 @@ test("an older response cannot replace a newer search", async () => {
   fireEvent.click(screen.getByRole("button", { name: "搜索" }));
   expect(await screen.findByRole("button", { name: "查看候选窗皮肤 青绿" })).not.toBeNull();
   older.resolve({ skins: [first], has_more: false });
-  await Promise.resolve();
+  await settle();
+  expect(screen.getByRole("button", { name: "查看候选窗皮肤 青绿" })).not.toBeNull();
   expect(screen.queryByRole("button", { name: "查看候选窗皮肤 水墨" })).toBeNull();
 });
 
@@ -159,8 +167,30 @@ test("a replaced client cannot deliver the previous client's page", async () => 
   view.rerender(<CommunityCandidateSkinsPage client={newClient} />);
   expect(await screen.findByRole("button", { name: "查看候选窗皮肤 青绿" })).not.toBeNull();
   older.resolve({ skins: [first], has_more: false });
-  await Promise.resolve();
+  await settle();
+  expect(screen.getByRole("button", { name: "查看候选窗皮肤 青绿" })).not.toBeNull();
   expect(screen.queryByRole("button", { name: "查看候选窗皮肤 水墨" })).toBeNull();
+});
+
+test("a failed scope switch keeps the list and the toggle on the scope still shown", async () => {
+  const list = vi
+    .fn()
+    .mockResolvedValueOnce({ skins: [first, second], has_more: true })
+    .mockRejectedValueOnce({ code: "community_unauthorized" })
+    .mockResolvedValueOnce({ skins: [third], has_more: false });
+  render(<CommunityCandidateSkinsPage client={client({ list })} onLogin={vi.fn()} />);
+  expect(await screen.findByRole("button", { name: "查看候选窗皮肤 青绿" })).not.toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "我的作品" }));
+  expect(await screen.findByRole("button", { name: "去登录" })).not.toBeNull();
+  await settle();
+  expect(list).toHaveBeenLastCalledWith(0, "", true);
+  expect(screen.getByRole("button", { name: "我的作品" }).getAttribute("aria-pressed")).toBe(
+    "false",
+  );
+  expect(screen.getByRole("button", { name: "全部" }).getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(screen.getByRole("button", { name: "加载更多" }));
+  await waitFor(() => expect(list).toHaveBeenLastCalledWith(2, "", false));
+  expect(await screen.findByRole("button", { name: "查看候选窗皮肤 朱砂" })).not.toBeNull();
 });
 
 test("cards load their preview lazily and the detail reuses it", async () => {

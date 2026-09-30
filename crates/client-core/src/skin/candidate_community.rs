@@ -604,6 +604,19 @@ pub fn pack(root: &Path, id: &str) -> Result<PackedSkin, &'static str> {
                 .is_some_and(|assets| !assets.trim().is_empty())
         })
         .ok_or(LICENSE_REQUIRED)?;
+    // The catalog bounds these by length only, while a listed item carrying a control character in them fails validate_item on every client, so the server refuses such a package and so does pack.
+    if [
+        Some(&summary.version),
+        license.code.as_ref(),
+        license.assets.as_ref(),
+        license.source.as_ref(),
+    ]
+    .into_iter()
+    .flatten()
+    .any(|text| crate::text::has_disallowed_control_with_allowed(text, &[]))
+    {
+        return Err(PACKAGE);
+    }
     let referenced = referenced_images(&summary)?;
     if referenced.len() > MAX_PACKAGE_FILES {
         return Err(TOO_LARGE);
@@ -754,6 +767,8 @@ pub fn install(
         return Err(STORAGE);
     }
     let target = root.join(package_id);
+    // Held from the existence check through the swap, so an overlapping install or folder import can neither clear this one's helpers nor land a folder of the same name after the check.
+    let _writes = super::folder_import::lock_skin_root();
     if !replace && fs::symlink_metadata(&target).is_ok() {
         return Err(EXISTS);
     }

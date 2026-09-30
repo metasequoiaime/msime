@@ -1091,7 +1091,9 @@ test("the theme page opens the candidate publish dialog outside the settings fie
   expect(dialog.closest("fieldset")).toBeNull();
   await waitFor(() => expect(communityCandidateSkins.packPreview).toHaveBeenCalledWith("sample"));
   const name = await within(dialog).findByRole("textbox", { name: "发布皮肤名称" });
-  fireEvent.keyDown(name, { key: "Enter" });
+  // The dialog renders inside the settings form, and jsdom never performs implicit submission, so what keeps Enter from saving the draft in a browser is the keydown's default being prevented.
+  expect(dialog.closest("form")).not.toBeNull();
+  expect(fireEvent.keyDown(name, { key: "Enter" })).toBe(false);
   expect(save).not.toHaveBeenCalled();
   fireEvent.click(within(dialog).getByRole("button", { name: "取消" }));
   expect(screen.queryByRole("dialog", { name: "发布候选窗皮肤" })).toBeNull();
