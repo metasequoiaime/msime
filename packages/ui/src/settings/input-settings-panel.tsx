@@ -515,22 +515,22 @@ export function InputSettingsPanel({
       {client.fuzzyPinyin && (
         <FuzzyPinyinSection
           preferences={fuzzyPinyin}
-          onChange={(fuzzy_pinyin) => setDraft({ ...draft, fuzzy_pinyin })}
+          onChange={(fuzzy_pinyin) => onPreferencesChange({ fuzzy_pinyin })}
           confirm={confirm}
         />
       )}
       <LearningSection
         value={draft.learning}
-        onChange={(learning) => setDraft({ ...draft, learning })}
+        onChange={(learning) => onPreferencesChange({ learning })}
       />
       <PunctuationSection
         preferences={draft}
         showCharacterWidth={showCharacterWidth}
-        onChange={(patch) => setDraft({ ...draft, ...patch })}
+        onChange={onPreferencesChange}
       />
       <MixedInputSection
         preferences={mixedInput}
-        onChange={(mixed_input) => setDraft({ ...draft, mixed_input })}
+        onChange={(mixed_input) => onPreferencesChange({ mixed_input })}
       />
       {/* macOS keeps this with the chords that trigger it, on the shortcut page. */}
       {showInputModeHUD && !macosPlatform && (
