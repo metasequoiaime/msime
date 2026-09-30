@@ -536,29 +536,29 @@ export function InputSettingsPanel({
       {showInputModeHUD && !macosPlatform && (
         <InputModeHudSection
           value={draft.input_mode_hud}
-          onChange={(input_mode_hud) => setDraft({ ...draft, input_mode_hud })}
+          onChange={(input_mode_hud) => onPreferencesChange({ input_mode_hud })}
         />
       )}
       {client.candidateEnglishGloss && (
         <CandidateEnglishGlossSection
           value={draft.candidate_english_gloss}
-          onChange={(candidate_english_gloss) => setDraft({ ...draft, candidate_english_gloss })}
+          onChange={(candidate_english_gloss) => onPreferencesChange({ candidate_english_gloss })}
         />
       )}
       {showEnglishSuggestions && (
         <EnglishSuggestionsSection
           value={draft.english_suggestions}
-          onChange={(english_suggestions) => setDraft({ ...draft, english_suggestions })}
+          onChange={(english_suggestions) => onPreferencesChange({ english_suggestions })}
         />
       )}
       <DefaultImeModeSection
         value={draft.default_ime_mode}
-        onChange={(default_ime_mode) => setDraft({ ...draft, default_ime_mode })}
+        onChange={(default_ime_mode) => onPreferencesChange({ default_ime_mode })}
       />
       {showModeScope && (
         <ImeModeScopeSection
           value={draft.ime_mode_scope}
-          onChange={(ime_mode_scope) => setDraft({ ...draft, ime_mode_scope })}
+          onChange={(ime_mode_scope) => onPreferencesChange({ ime_mode_scope })}
         />
       )}
       <TraditionalChineseOutputSection
