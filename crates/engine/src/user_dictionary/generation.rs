@@ -53,7 +53,7 @@ pub fn prepare_runtime_paths(
 
     if result.dictionaries.join(assets::GENERATION_READY).exists() {
         for name in [assets::MAIN_DICTIONARY, assets::ENGLISH_DICTIONARY] {
-            if !result.dictionary(name).is_file() {
+            if !is_real_file(&result.dictionary(name)) {
                 return Err(EngineError::failed(
                     diagnostics::INCOMPLETE_RUNTIME_GENERATION,
                 ));
@@ -125,6 +125,13 @@ fn replay_into(paths: &RuntimePaths, generation: &Path) -> Result<()> {
 
 /// Copy through the SQLite backup API, which includes committed WAL content that a plain file copy of a live database would lose (RP:38-55).
 fn copy_database(source: &Path, target: &Path) -> Result<()> {
+    if !is_real_file(source) {
+        return Err(EngineError::failed(format!(
+            "{}{}",
+            diagnostics::RUNTIME_COPY_FAILED,
+            source.display()
+        )));
+    }
     let copied = (|| -> rusqlite::Result<StepResult> {
         let input = Connection::open_with_flags(
             source,
@@ -160,11 +167,11 @@ pub(super) fn stage_generation_copies(
 ) -> Result<()> {
     for name in GENERATION_COPIES {
         let source = resources.join(name);
-        if !source.is_file() {
+        if !is_real_file(&source) {
             continue;
         }
         let target = generation.join(name);
-        if !replace_existing && target.exists() {
+        if !replace_existing && is_real_file(&target) {
             continue;
         }
         // Rename into place rather than writing the target: a session may have the previous file mapped, and a half-written table under an mmap is a crash rather than a miss (RP:62-63).
@@ -180,6 +187,12 @@ pub(super) fn stage_generation_copies(
         fs::rename(&incoming, &target)?;
     }
     Ok(())
+}
+
+fn is_real_file(path: &Path) -> bool {
+    fs::symlink_metadata(path)
+        .map(|metadata| metadata.file_type().is_file())
+        .unwrap_or(false)
 }
 
 /// `std::filesystem::weakly_canonical`: the longest existing prefix resolved through symlinks, the rest appended with `.` and `..` folded lexically, so roots that do not exist yet compare by what they will resolve to. No crate resolves symlinks for a partly missing path, which the overlap check needs (a symlinked resource alias must still be caught).
@@ -275,6 +288,30 @@ mod tests {
             &"x".repeat(128)
         )
         .is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resource_dictionary_symlinks_are_rejected_before_staging() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let resources = resources(root.path());
+        let external = root.path().join("external-msime.db");
+        fs::rename(resources.join(assets::MAIN_DICTIONARY), &external).unwrap();
+        symlink(&external, resources.join(assets::MAIN_DICTIONARY)).unwrap();
+
+        let error = prepare_runtime_paths(
+            &resources,
+            &root.path().join("user"),
+            &root.path().join("cache"),
+            "v1",
+        )
+        .unwrap_err();
+        assert!(error
+            .to_string()
+            .starts_with(diagnostics::RUNTIME_COPY_FAILED));
+        assert!(!root.path().join("user/dictionaries/v1").exists());
     }
 
     // test_runtime_isolation.cpp:140-168.
