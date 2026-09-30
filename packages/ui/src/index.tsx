@@ -26,6 +26,10 @@ import {
   type SettingsPageId,
 } from "./settings/settings-page-registry";
 import { settingsPageProjections } from "./settings/settings-page-projections";
+import {
+  canReloadSettingsPage,
+  isSettingsFormPage,
+} from "./settings/settings-page-visibility";
 import { settingsInputPreferences } from "./settings/settings-input-preferences";
 import { aiSettingsPreferences } from "./settings/ai-settings-preferences";
 import { diagnosticLogPreferences } from "./settings/diagnostic-log-preferences";
@@ -2917,13 +2921,7 @@ export function SettingsPage(props: SettingsPageProps) {
                 openPanel={client.openVocabulary}
               />
             )}
-            {draft &&
-              page !== "typing-statistics" &&
-              page !== "vocabulary" &&
-              page !== "account" &&
-              page !== "chat" &&
-              page !== "more" &&
-              page !== "community" && (
+            {draft && isSettingsFormPage(page) && (
                 <SettingsFormFrame
                   showReload={false}
                   busy={busy}
@@ -2989,11 +2987,7 @@ export function SettingsPage(props: SettingsPageProps) {
                   />
                 </SettingsFormFrame>
               )}
-            {page !== "typing-statistics" &&
-              page !== "vocabulary" &&
-              page !== "account" &&
-              page !== "chat" &&
-              page !== "community" && (
+            {canReloadSettingsPage(page) && (
                 <button
                   className="secondary"
                   disabled={busy}
