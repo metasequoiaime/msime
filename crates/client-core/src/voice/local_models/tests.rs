@@ -499,6 +499,34 @@ fn listing_reports_installed_models_and_removal_accepts_catalog_ids_only() {
     remove(root.path(), id).unwrap();
 }
 
+#[cfg(unix)]
+#[test]
+fn listing_rejects_symlinked_model_directories_and_manifests() {
+    let root = tempfile::tempdir().unwrap();
+    let id = default_model_id();
+
+    let external = tempfile::tempdir().unwrap();
+    let external_model = external.path().join("model");
+    fs::create_dir(&external_model).unwrap();
+    fs::write(external_model.join(MANIFEST_FILE), b"{}").unwrap();
+
+    let linked_model = root.path().join(id);
+    std::os::unix::fs::symlink(&external_model, &linked_model).unwrap();
+    assert!(!list(root.path())
+        .into_iter()
+        .any(|model| model.id == id && model.installed));
+    fs::remove_file(&linked_model).unwrap();
+
+    let installed = root.path().join(id);
+    fs::create_dir(&installed).unwrap();
+    let external_manifest = external.path().join("external-manifest.json");
+    fs::write(&external_manifest, b"{}").unwrap();
+    std::os::unix::fs::symlink(&external_manifest, installed.join(MANIFEST_FILE)).unwrap();
+    assert!(!list(root.path())
+        .into_iter()
+        .any(|model| model.id == id && model.installed));
+}
+
 /// Downloads the real default model once. Not run in CI; run by hand with
 /// `MSIME_LOCAL_MODEL_ROOT=/tmp/msime-models-rs cargo test -p msime-client-core --lib real_install -- --ignored --nocapture`.
 #[test]

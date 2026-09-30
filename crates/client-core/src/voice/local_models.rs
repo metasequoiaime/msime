@@ -222,7 +222,13 @@ pub fn list(root: &Path) -> Vec<LocalModelStatus> {
                 streaming: model.streaming,
                 default: model.default,
                 desktop_only: model.desktop_only,
-                installed: root_valid && path.join(MANIFEST_FILE).is_file(),
+                installed: root_valid
+                    && fs::symlink_metadata(&path)
+                        .map(|metadata| metadata.is_dir())
+                        .unwrap_or(false)
+                    && fs::symlink_metadata(path.join(MANIFEST_FILE))
+                        .map(|metadata| metadata.is_file())
+                        .unwrap_or(false),
                 path: path.to_string_lossy().into_owned(),
                 installed_size: model.installed_size,
                 archive_size: model.archive.size,
