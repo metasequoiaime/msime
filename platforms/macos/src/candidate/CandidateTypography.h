@@ -7,6 +7,9 @@
 // family and variation axes.
 static const CGFloat MSIMECandidateNumberScale = 0.8;
 static const CGFloat MSIMECandidateNumberGap = 1.5;
+// The brand mark at the start of the top row, and the room between it and the reading.
+static const CGFloat MSIMECandidateLogoSide = 16.0;
+static const CGFloat MSIMECandidateLogoGap = 6.0;
 
 static inline NSFont *MSIMECandidateNumberFont(NSFont *font)
 {

@@ -671,6 +671,21 @@
   & .container.preedit-hidden > .pinyin {
     display: none;
   }
+  /* The brand mark at the start of the top row, then the reading; the auto margin keeps the reading beside the mark rather than centred by the row's space-between. */
+  & .candidate-brand {
+    flex: none;
+    width: 1em;
+    height: 1em;
+    margin-right: 6px;
+    pointer-events: none;
+  }
+  & .pinyin > .candidate-brand + .text {
+    margin-right: auto;
+  }
+  & .candidate-brand-row {
+    display: flex;
+    align-items: center;
+  }
   /* The manifest's `candidate_window.background`: over the surface, under the candidates, clipped to the card's rounded outline. Fit and opacity are inline. */
   & .container:has(> .skin-background-image) {
     position: relative;

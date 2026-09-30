@@ -800,6 +800,17 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 - (void)invalidateServiceSnapshots;
 @end
 
+// The full-colour brand mark the floating toolbar and the mode HUD lead with, loaded once. Nil when the bundle has no icon, and the top row then carries no mark.
+static NSImage *MSIMECandidateLogoImage() {
+    static NSImage *logo;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSString *path = [[NSBundle bundleForClass:MSIMEInputController.class] pathForResource:@"MSIMEClientInputMethod" ofType:@"icns"];
+        logo = path ? [[NSImage alloc] initWithContentsOfFile:path] : nil;
+    });
+    return logo;
+}
+
 @implementation MSIMEInputController {
     MSIMEClientSession *_session;
     MSIMEVoiceInputService *_voiceService;
@@ -5586,8 +5597,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     }
     id preedit = [_view[@"preedit"] isKindOfClass:NSString.class] ? _view[@"preedit"] : editing;
     if ([_view[@"candidates"] count]) {
-        // The card's top row: the reading when it is shown, and the page indicator whenever there is more than one page.
-        CGFloat header = [_view[@"page_count"] unsignedIntegerValue] > 1 ? MSIMECandidateHeaderHeight : 0;
+        // The card's top row: the brand mark, the reading when it is shown, and the page indicator whenever there is more than one page.
+        CGFloat header = [_view[@"page_count"] unsignedIntegerValue] > 1 || MSIMECandidateLogoImage() ? MSIMECandidateHeaderHeight : 0;
         if (_appearance.showsCandidatePreedit && [preedit length]) {
             NSFont *preeditFont = MSIMECandidatePreeditFont(_appearance);
             header = MAX(header, MAX(22.0, MSIMECandidateTextHeight(preedit, preeditFont) + 6.0));
@@ -5660,16 +5671,18 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     const NSUInteger page = [_view[@"page"] unsignedIntegerValue];
     const NSUInteger pageCount = [_view[@"page_count"] unsignedIntegerValue];
     const BOOL paging = pageCount > 1;
-    // The top row holds the reading on the left and 「1 / 3」 with ‹ › on the right; it is there whenever either has something to show.
+    // The top row leads with the brand mark, as the floating toolbar and the mode HUD do, then the reading; 「1 / 3」 with ‹ › sit on the right.
+    NSImage *logo = MSIMECandidateLogoImage();
+    const CGFloat logoWidth = logo ? MSIMECandidateLogoSide + MSIMECandidateLogoGap : 0;
     NSFont *pageIndicatorFont = [NSFont monospacedDigitSystemFontOfSize:MSIMECandidatePageIndicatorPointSize weight:NSFontWeightRegular];
     NSString *pageIndicator = paging ? [NSString stringWithFormat:@"%lu / %lu", (unsigned long)(page + 1), (unsigned long)pageCount] : @"";
     const CGFloat pageIndicatorWidth = paging ? ceil([pageIndicator sizeWithAttributes:@{NSFontAttributeName: pageIndicatorFont}].width) : 0;
     const CGFloat pageControlsWidth = paging ? pageIndicatorWidth + MSIMECandidatePageIndicatorGap + 2 * MSIMECandidatePageArrowWidth : 0;
-    const CGFloat headerHeight = MAX(preeditHeight, paging ? MSIMECandidateHeaderHeight : 0);
+    const CGFloat headerHeight = MAX(preeditHeight, paging || logo ? MSIMECandidateHeaderHeight : 0);
     NSFont *numberFont = MSIMECandidateNumberFont(font);
     NSFont *glossFont = [_appearance candidateFontOfSize:MSIMECandidateTranslationPointSize englishFirst:YES];
     const CGFloat preeditWidth = preedit.length ? ceil([preedit sizeWithAttributes:@{NSFontAttributeName:preeditFont}].width) + 4 + MSIMEPreeditCaretGap : 0;
-    const CGFloat headerWidth = preedit.length || paging ? 2 * inset + preeditWidth + (preedit.length && paging ? MSIMECandidatePageIndicatorGap : 0) + pageControlsWidth : 0;
+    const CGFloat headerWidth = preedit.length || paging || logo ? 2 * inset + logoWidth + preeditWidth + (preedit.length && paging ? MSIMECandidatePageIndicatorGap : 0) + pageControlsWidth : 0;
     const MSIMECandidatePageGeometry pageGeometry =
         [self candidatePageGeometry:candidates font:font glossFont:glossFont showSelectedBar:geometry.showSelectedBar inset:inset
                              paging:paging visible:visible preeditWidth:headerWidth
@@ -5839,9 +5852,18 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
             label.caretIndex += phrase.length;
         }
         label.showsCaret = [_view[@"focused"] isEqual:@YES];
-        label.frame = NSMakeRect(inset, headerBottom + floor((headerHeight - preeditHeight) / 2),
-                                 width - 2 * inset - (paging ? pageControlsWidth + MSIMECandidatePageIndicatorGap : 0), preeditHeight);
+        label.frame = NSMakeRect(inset + logoWidth, headerBottom + floor((headerHeight - preeditHeight) / 2),
+                                 width - 2 * inset - logoWidth - (paging ? pageControlsWidth + MSIMECandidatePageIndicatorGap : 0), preeditHeight);
         [content addSubview:label];
+    }
+    if (logo) {
+        NSImageView *mark = [NSImageView imageViewWithImage:logo];
+        mark.identifier = @"candidate-logo";
+        mark.accessibilityLabel = @"水杉输入法";
+        mark.imageScaling = NSImageScaleProportionallyUpOrDown;
+        mark.frame = NSMakeRect(inset + 2, headerBottom + floor((headerHeight - MSIMECandidateLogoSide) / 2),
+                                MSIMECandidateLogoSide, MSIMECandidateLogoSide);
+        [content addSubview:mark];
     }
     content.cardTopInset = decorationHeight;
     const NSSize decorationSize = _appearance.decorationImage.size;

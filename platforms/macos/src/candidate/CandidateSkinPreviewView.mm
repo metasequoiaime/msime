@@ -2,6 +2,7 @@
 #import "CandidateSkinPreviewView.h"
 #import "../settings/AppearancePreferences.h"
 #import "CandidateTextMetrics.h"
+#import "CandidateTypography.h"
 
 static NSColor *PreviewColor(msime::mac::Rgba color) {
     return [NSColor colorWithSRGBRed:color.r green:color.g blue:color.b alpha:color.a];
@@ -277,8 +278,26 @@ void DrawPreviewCandidates(NSRect rect, const msime::mac::ResolvedSkin &skin, BO
     NSRect preeditRow =
         NSMakeRect(NSMinX(chrome) + pad, NSMinY(chrome) + pad, NSWidth(chrome) - pad * 2.0, preeditHeight);
     if (preeditFontSize > 0) {
-        DrawAlignedString(@"nihao", preeditRow, NSMinX(preeditRow), preeditAttributes);
-        const CGFloat caretX = NSMinX(preeditRow) + [@"nihao" sizeWithAttributes:preeditAttributes].width + 2.0;
+        // The brand mark leads the reading, as the candidate window's top row draws it.
+        static NSImage *logo;
+        static dispatch_once_t once;
+        dispatch_once(&once, ^{
+            NSString *path = [[NSBundle bundleForClass:MSIMECandidatePreviewView.class] pathForResource:@"MSIMEClientInputMethod" ofType:@"icns"];
+            logo = path == nil ? nil : [[NSImage alloc] initWithContentsOfFile:path];
+        });
+        CGFloat readingX = NSMinX(preeditRow);
+        if (logo != nil) {
+            const CGFloat side = MIN(MSIMECandidateLogoSide, NSHeight(preeditRow));
+            [logo drawInRect:NSMakeRect(readingX + 2.0, NSMidY(preeditRow) - side / 2.0, side, side)
+                    fromRect:NSZeroRect
+                   operation:NSCompositingOperationSourceOver
+                    fraction:1.0
+              respectFlipped:YES
+                       hints:nil];
+            readingX += MSIMECandidateLogoSide + MSIMECandidateLogoGap;
+        }
+        DrawAlignedString(@"nihao", preeditRow, readingX, preeditAttributes);
+        const CGFloat caretX = readingX + [@"nihao" sizeWithAttributes:preeditAttributes].width + 2.0;
         NSRect caret = NSMakeRect(caretX, NSMinY(preeditRow) + 3.0, 1.5, NSHeight(preeditRow) - 6.0);
         [PreviewColor(tokens.accent) setFill];
         NSRectFill(caret);

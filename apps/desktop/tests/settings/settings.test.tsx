@@ -4394,7 +4394,13 @@ test("appearance preview follows drafts and skin selection before they are saved
   );
   fireEvent.change(screen.getByLabelText("候选窗字号"), { target: { value: "20" } });
   fireEvent.change(screen.getByLabelText("每页候选项数量"), { target: { value: "9" } });
+  // The brand mark leads the top row, ahead of the reading.
+  expect(preview.querySelector(".pinyin > .candidate-brand + .text")).not.toBeNull();
   fireEvent.change(screen.getByLabelText("候选窗预编辑"), { target: { value: "empty" } });
+  // With the reading hidden the row stays for the mark alone.
+  expect(
+    preview.querySelector(".container.preedit-hidden > .candidate-brand-row > .candidate-brand"),
+  ).not.toBeNull();
   expect(preview.querySelectorAll(".cand")).toHaveLength(9);
   expect(preview.querySelector('[data-preview-layout="horizontal"]')).not.toBeNull();
   expect(preview.querySelector('[data-font-size="20"]')).not.toBeNull();
