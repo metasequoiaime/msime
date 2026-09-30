@@ -2,12 +2,14 @@ import type { ReactNode } from "react";
 import type { Preferences } from "../index";
 import { GroupList } from "../core/platform-controls";
 import { CloudCandidatesSection } from "./cloud-candidates-section";
-import { CandidateEnglishGlossSection } from "./candidate-english-gloss-section";
 import { DefaultImeModeSection } from "./default-ime-mode-section";
-import { EnglishSuggestionsSection } from "./english-suggestions-section";
 import { FrequencySection, type FrequencyPreferences } from "./frequency-section";
 import { ImeModeScopeSection } from "./ime-mode-scope-section";
 import { InputModeHudSection } from "./input-mode-hud-section";
+import {
+  InputLanguageOptionsSection,
+  type InputLanguageOptionsSectionProps,
+} from "./input-language-options-section";
 import { LearningSection } from "./learning-section";
 import { TraditionalChineseOutputSection } from "./traditional-chinese-output-section";
 import {
@@ -25,6 +27,8 @@ export interface InputSharedSettingsSectionProps {
   ios: boolean;
   showInputModeHUD: boolean;
   showModeScope: boolean;
+  mixedInput?: InputLanguageOptionsSectionProps["mixedInput"];
+  onMixedInputChange?: InputLanguageOptionsSectionProps["onMixedInputChange"];
   showCandidateEnglishGloss?: boolean;
   showEnglishSuggestions?: boolean;
   beforeLearning?: ReactNode;
@@ -45,6 +49,8 @@ export function InputSharedSettingsSection({
   ios,
   showInputModeHUD,
   showModeScope,
+  mixedInput,
+  onMixedInputChange,
   showCandidateEnglishGloss = false,
   showEnglishSuggestions = false,
   beforeLearning,
@@ -97,24 +103,30 @@ export function InputSharedSettingsSection({
   ) : (
     <>
       {beforeLanguage}
-      {showInputModeHUD && (
-        <InputModeHudSection
-          value={preferences.input_mode_hud}
-          onChange={(input_mode_hud) => onPreferencesChange({ input_mode_hud })}
-        />
-      )}
-      {showCandidateEnglishGloss && (
-        <CandidateEnglishGlossSection
-          value={preferences.candidate_english_gloss}
-          onChange={(candidate_english_gloss) => onPreferencesChange({ candidate_english_gloss })}
-        />
-      )}
-      {showEnglishSuggestions && (
-        <EnglishSuggestionsSection
-          value={preferences.english_suggestions}
-          onChange={(english_suggestions) => onPreferencesChange({ english_suggestions })}
-        />
-      )}
+      <InputLanguageOptionsSection
+        includeMixed={Boolean(mixedInput && onMixedInputChange)}
+        mixedInput={mixedInput}
+        onMixedInputChange={onMixedInputChange}
+        betweenMixedAndCandidates={
+          showInputModeHUD ? (
+            <InputModeHudSection
+              value={preferences.input_mode_hud}
+              onChange={(input_mode_hud) => onPreferencesChange({ input_mode_hud })}
+            />
+          ) : null
+        }
+        includeCandidateControls
+        showCandidateEnglishGloss={showCandidateEnglishGloss}
+        candidateEnglishGloss={preferences.candidate_english_gloss}
+        onCandidateEnglishGlossChange={(candidate_english_gloss) =>
+          onPreferencesChange({ candidate_english_gloss })
+        }
+        showEnglishSuggestions={showEnglishSuggestions}
+        englishSuggestions={preferences.english_suggestions}
+        onEnglishSuggestionsChange={(english_suggestions) =>
+          onPreferencesChange({ english_suggestions })
+        }
+      />
       <DefaultImeModeSection
         value={preferences.default_ime_mode}
         onChange={(default_ime_mode) => onPreferencesChange({ default_ime_mode })}

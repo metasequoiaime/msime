@@ -578,6 +578,10 @@ export {
   type MixedInputPreferences,
 } from "./settings/mixed-input-section";
 export {
+  InputLanguageOptionsSection,
+  type InputLanguageOptionsSectionProps,
+} from "./settings/input-language-options-section";
+export {
   FrequencySection,
   defaultFrequency,
   type FrequencyPreferences,

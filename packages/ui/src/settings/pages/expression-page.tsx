@@ -4,9 +4,7 @@ import { createSettingsDraftActions } from "../settings-draft-actions";
 import { SubPageEntries } from "./sub-page-entries";
 import { GroupList, Row, Switch } from "../../core/platform-controls";
 import { FuzzyPinyinSection } from "../fuzzy-pinyin-section";
-import { MixedInputSection } from "../mixed-input-section";
-import { CandidateEnglishGlossSection } from "../candidate-english-gloss-section";
-import { EnglishSuggestionsSection } from "../english-suggestions-section";
+import { InputLanguageOptionsSection } from "../input-language-options-section";
 import { PunctuationSection } from "../punctuation-section";
 import { NiuTransSettingsSection } from "../niutrans-settings-section";
 import { TranslationServiceSelectorSection } from "../translation-service-selector-section";
@@ -103,26 +101,23 @@ export function ExpressionSettingsPage() {
             />
           </GroupList>
         )}
-        <GroupList title="多语言候选">
-          <MixedInputSection
-            preferences={mixedInput}
-            onChange={(mixed_input) => onPreferencesChange({ mixed_input })}
-          />
-          {client.candidateEnglishGloss && (
-            <CandidateEnglishGlossSection
-              value={candidateEnglishGloss}
-              onChange={(candidate_english_gloss) =>
-                onPreferencesChange({ candidate_english_gloss })
-              }
-            />
-          )}
-          {showEnglishSuggestions && (
-            <EnglishSuggestionsSection
-              value={englishSuggestions}
-              onChange={(english_suggestions) => onPreferencesChange({ english_suggestions })}
-            />
-          )}
-        </GroupList>
+        <InputLanguageOptionsSection
+          grouped
+          includeMixed
+          mixedInput={mixedInput}
+          onMixedInputChange={(mixed_input) => onPreferencesChange({ mixed_input })}
+          includeCandidateControls
+          showCandidateEnglishGloss={client.candidateEnglishGloss}
+          candidateEnglishGloss={candidateEnglishGloss}
+          onCandidateEnglishGlossChange={(candidate_english_gloss) =>
+            onPreferencesChange({ candidate_english_gloss })
+          }
+          showEnglishSuggestions={showEnglishSuggestions}
+          englishSuggestions={englishSuggestions}
+          onEnglishSuggestionsChange={(english_suggestions) =>
+            onPreferencesChange({ english_suggestions })
+          }
+        />
         <GroupList title="候选词翻译">
           <CandidateTranslationOptionsSection
             enabled={candidateTranslations}

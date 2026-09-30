@@ -32,7 +32,7 @@ import { OnDeviceTranslationNotice } from "./on-device-translation-notice";
 import { defaultWordCharacter } from "./word-character-section";
 import { FuzzyPinyinSection, defaultFuzzyPinyin } from "./fuzzy-pinyin-section";
 import { PunctuationSection } from "./punctuation-section";
-import { MixedInputSection, defaultMixedInput } from "./mixed-input-section";
+import { defaultMixedInput, type MixedInputPreferences } from "./mixed-input-section";
 import { defaultFrequency } from "./frequency-section";
 import { InputSharedSettingsSection } from "./input-shared-settings-section";
 import {
@@ -51,7 +51,6 @@ import {
 } from "./translation-credential-test-config";
 import type { TouchKeyboardScheme as TouchKeyboardSchemePreference } from "./touch-keyboard-scheme-helpers";
 import type { FuzzyPinyinPreferences } from "./fuzzy-pinyin-section";
-import type { MixedInputPreferences } from "./mixed-input-section";
 import type { FrequencyPreferences } from "./frequency-section";
 import type { NavigationPreferences, WordCharacterPreferences } from "./word-character-section";
 import { createSettingsDraftActions } from "./settings-draft-actions";
@@ -459,6 +458,8 @@ export function InputSettingsPanel({
         ios={iosPlatform}
         showInputModeHUD={showInputModeHUD && !macosPlatform}
         showModeScope={showModeScope}
+        mixedInput={mixedInput}
+        onMixedInputChange={(mixed_input) => onPreferencesChange({ mixed_input })}
         showCandidateEnglishGloss={Boolean(client.candidateEnglishGloss)}
         showEnglishSuggestions={showEnglishSuggestions}
         beforeLearning={
@@ -476,10 +477,6 @@ export function InputSettingsPanel({
               preferences={draft}
               showCharacterWidth={showCharacterWidth}
               onChange={onPreferencesChange}
-            />
-            <MixedInputSection
-              preferences={mixedInput}
-              onChange={(mixed_input) => onPreferencesChange({ mixed_input })}
             />
           </>
         }
