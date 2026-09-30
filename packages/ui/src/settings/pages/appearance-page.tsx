@@ -67,7 +67,9 @@ export function AppearanceSettingsPage() {
           <GroupList title="位置">
             <CandidateFollowCursorSection
               value={draft.candidate_follow_cursor}
-              onChange={(checked) => setDraft({ ...draft, candidate_follow_cursor: checked })}
+              onChange={(candidate_follow_cursor) =>
+                appearanceActions.onPreferencesChange({ candidate_follow_cursor })
+              }
             />
           </GroupList>
         )}
@@ -100,12 +102,16 @@ export function AppearanceSettingsPage() {
             <CandidatePageSizeSection
               value={draft.candidate_page_size}
               fixed={host?.fixed_candidate_page_size !== undefined}
-              onChange={(candidate_page_size) => setDraft({ ...draft, candidate_page_size })}
+              onChange={(candidate_page_size) =>
+                appearanceActions.onPreferencesChange({ candidate_page_size })
+              }
             />
             <CandidateLayoutSection
               value={draft.candidate_layout}
               fixed={host?.fixed_candidate_layout !== undefined}
-              onChange={(candidate_layout) => setDraft({ ...draft, candidate_layout })}
+              onChange={(candidate_layout) =>
+                appearanceActions.onPreferencesChange({ candidate_layout })
+              }
             />
           </GroupList>
         )}
