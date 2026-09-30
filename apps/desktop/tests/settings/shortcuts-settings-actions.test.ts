@@ -19,8 +19,6 @@ const draft: Preferences = {
 test("updates shortcut preferences while preserving existing bindings", () => {
   const setDraft = vi.fn();
   const actions = createShortcutsSettingsActions({
-    draft,
-    keybindings: draft.keybindings!,
     setDraft,
   });
 
@@ -28,18 +26,23 @@ test("updates shortcut preferences while preserving existing bindings", () => {
   actions.onInputModeHUDChange(true);
   actions.onNumberRowSelectionChange(false);
 
-  expect(setDraft).toHaveBeenNthCalledWith(
-    1,
-    expect.objectContaining({
-      keybindings: expect.objectContaining({
-        switch_language_shift: true,
-        switch_language_ctrl: true,
-      }),
-    }),
-  );
-  expect(setDraft).toHaveBeenNthCalledWith(2, expect.objectContaining({ input_mode_hud: true }));
-  expect(setDraft).toHaveBeenNthCalledWith(
-    3,
-    expect.objectContaining({ number_row_selection: false }),
-  );
+  const keybindingsUpdater = setDraft.mock.calls[0][0] as (value: Preferences) => Preferences;
+  const hudUpdater = setDraft.mock.calls[1][0] as (value: Preferences) => Preferences;
+  const numberUpdater = setDraft.mock.calls[2][0] as (value: Preferences) => Preferences;
+  expect(keybindingsUpdater(draft).keybindings).toMatchObject({
+    switch_language_shift: true,
+    switch_language_ctrl: true,
+  });
+  expect(hudUpdater(draft)).toMatchObject({ input_mode_hud: true });
+  expect(numberUpdater(draft)).toMatchObject({ number_row_selection: false });
+});
+
+test("applies shortcut patches to the latest draft", () => {
+  const setDraft = vi.fn();
+  const actions = createShortcutsSettingsActions({ setDraft });
+
+  actions.onKeybindingsChange({ switch_language_ctrl: true });
+
+  const updater = setDraft.mock.calls[0][0] as (value: Preferences) => Preferences;
+  expect(updater({ ...draft, candidate_page_size: 9 }).candidate_page_size).toBe(9);
 });

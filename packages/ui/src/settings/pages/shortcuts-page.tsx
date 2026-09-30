@@ -30,11 +30,8 @@ export function ShortcutSettingsPage() {
     inputModeHUD,
   } = useSettingsForm();
   const navigation = draft.navigation ?? defaultNavigation;
-  const {
-    onKeybindingsChange,
-    onInputModeHUDChange,
-    onNumberRowSelectionChange,
-  } = createShortcutsSettingsActions({ draft, keybindings, setDraft });
+  const { onKeybindingsChange, onInputModeHUDChange, onNumberRowSelectionChange } =
+    createShortcutsSettingsActions({ setDraft });
   return (
     <ShortcutsSettingsSection
       disabled={busy}
