@@ -165,6 +165,7 @@ platforms/ios/build-app.sh "$resource_dir" simulator
 resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources -- target/resources)"
 platforms/ios/stage-resources.sh "$resource_dir"
 platforms/ios/build-native.sh device
+python3 scripts/fetch_voice_runtime.py --platform ios
 cd platforms/ios && xcodegen generate -s project.yml -p . && pod install --deployment && cd -
 xcodebuild -workspace platforms/ios/MSIMEClient.xcworkspace -scheme MSIMEApp \
   -sdk iphoneos -configuration Release -destination 'generic/platform=iOS' \
@@ -174,7 +175,7 @@ xcrun devicectl device install app --device <udid> \
   target/ios/derived-device/Build/Products/Release-iphoneos/MSIMEApp.app
 ```
 
-`-allowProvisioningUpdates` 是必须的：键盘扩展的描述文件要由 Xcode 联网刷新，新设备也在这一步注册进去。App 与 `MSIMEKeyboardExtension` 都以 team `LXCL4Z68GU` 的 Apple Development 证书签名，扩展侧带全部已校验词库，App bundle 约 241 MB。
+`fetch_voice_runtime.py` 按 `resources/voice-runtime.lock.json` 下载并校验 sherpa-onnx 运行库到 `target/voice-runtime/ios`，`MSIMEApp` 内嵌它做本地语音识别；缺了它 `xcodebuild` 会报 `There is no XCFramework found at '…/SherpaOnnxC.xcframework'`。`-allowProvisioningUpdates` 是必须的：键盘扩展的描述文件要由 Xcode 联网刷新，新设备也在这一步注册进去。App 与 `MSIMEKeyboardExtension` 都以 team `LXCL4Z68GU` 的 Apple Development 证书签名，扩展侧带全部已校验词库，App bundle 约 241 MB。
 
 下面这条是 Tauri/React 公共组件的签名构建，不是 iOS 的产品宿主装机路径：
 
