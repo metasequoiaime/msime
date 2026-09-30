@@ -1700,6 +1700,12 @@ group("community reply templates accept only bounded reply entries", () => {
     ).length === 0,
     "rejects control text",
   );
+  check(
+    CommunityReplyLibraryPolicy.parse(
+      JSON.stringify([{ id: "one", kind: "reply", name: "x", content: { prompt: "字".repeat(2_001) } }]),
+    ).length === 0,
+    "rejects prompts beyond the community contract",
+  );
   check(CommunityReplyLibraryPolicy.parse("not-json").length === 0, "rejects malformed documents");
 });
 

@@ -12,6 +12,8 @@ export class CommunityReplyLibraryPolicy {
   static readonly MAX_BYTES: number = 4 * 1024 * 1024;
   static readonly MAX_ITEMS: number = 50;
   static readonly MAX_FIELD_BYTES: number = 64 * 1024;
+  static readonly MAX_NAME_CHARACTERS: number = 32;
+  static readonly MAX_PROMPT_CHARACTERS: number = 2_000;
 
   static parse(document: string): CommunityReplyTemplate[] {
     if (utf8Length(document) > CommunityReplyLibraryPolicy.MAX_BYTES) return [];
@@ -36,11 +38,11 @@ export class CommunityReplyLibraryPolicy {
       const name: string = typeof item.name === 'string' ? item.name : '';
       const prompt: string = content !== null && typeof content.prompt === 'string'
         ? content.prompt : '';
-      if (id.trim().length === 0 || name.trim().length === 0
+      if (id.trim().length === 0 || name.trim().length === 0 || name !== name.trim()
         || prompt.trim().length === 0 || ids.includes(id)
         || utf8Length(id) > CommunityReplyLibraryPolicy.MAX_FIELD_BYTES
-        || utf8Length(name) > CommunityReplyLibraryPolicy.MAX_FIELD_BYTES
-        || utf8Length(prompt) > CommunityReplyLibraryPolicy.MAX_FIELD_BYTES
+        || Array.from(name).length > CommunityReplyLibraryPolicy.MAX_NAME_CHARACTERS
+        || Array.from(prompt).length > CommunityReplyLibraryPolicy.MAX_PROMPT_CHARACTERS
         || TextPolicy.hasControl(id)
         || TextPolicy.hasControl(name)
         || TextPolicy.hasControl(prompt)) return [];
