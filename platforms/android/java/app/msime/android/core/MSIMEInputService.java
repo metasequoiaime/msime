@@ -113,6 +113,7 @@ public final class MSIMEInputService extends InputMethodService {
     private ScrollView expandedCandidateScroll;
     private TextView preedit;
     private TextView candidatePage;
+    private KeyboardBrandMark candidateBrandMark;
     private Button exitLocalModeButton;
     private LinearLayout nineKeySpellings;
     private HorizontalScrollView nineKeySpellingScroll;
@@ -3260,6 +3261,7 @@ public final class MSIMEInputService extends InputMethodService {
             preedit.setPadding(pixels(brandPillVisible ? 12 : 2), pixels(brandPillVisible ? 4 : 0),
                 pixels(brandPillVisible ? 12 : 2), pixels(brandPillVisible ? 4 : 0));
         }
+        if (candidateBrandMark != null) candidateBrandMark.invalidate();
         if (status != null) status.setTextColor(fade(skin.accent(), .55));
         if (candidatePage != null) {
             candidatePage.setTextColor(candidateAppearance.accent());
@@ -7069,6 +7071,12 @@ public final class MSIMEInputService extends InputMethodService {
         LinearLayout candidateHeader = new LinearLayout(this);
         candidateHeader.setGravity(Gravity.CENTER_VERTICAL);
         candidateHeader.setPadding(pixels(10), pixels(6), pixels(6), pixels(2));
+        // The brand mark leads the header the way it leads the macOS candidate window's top row: 16dp, then a 6dp gap before the reading. The header is never hidden, so the mark is always present; it is decorative, since the idle pill beside it already reads 水杉输入法.
+        candidateBrandMark = new KeyboardBrandMark(this, () -> Color.parseColor(skin.accent()));
+        LinearLayout.LayoutParams brandMarkLayout = new LinearLayout.LayoutParams(
+            pixels(16), pixels(16));
+        brandMarkLayout.setMarginEnd(pixels(6));
+        candidateHeader.addView(candidateBrandMark, brandMarkLayout);
         preedit = new TextView(this);
         preedit.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidatePreeditFontSize);
         preedit.setMaxLines(1);
