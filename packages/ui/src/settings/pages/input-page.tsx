@@ -1,14 +1,8 @@
-import { touchKeyboardSchemeOptions } from "../touch-keyboard-scheme-helpers";
 import { defaultNavigation } from "../navigation-section";
-import type { TouchKeyboardScheme } from "../../index";
 import { useSettingsForm } from "../settings-form-context";
 import * as settings from "../settings-style";
 import { GroupList, Row, Switch } from "../../core/platform-controls";
-import { InputModeSection } from "../input-mode-section";
-import { TouchKeyboardSchemesSection } from "../touch-keyboard-schemes-section";
-import { InputSchemeSelectorSection } from "../input-scheme-selector-section";
-import { InputSchemeDetailsSection } from "../input-scheme-details-section";
-import { WubiSection } from "../wubi-section";
+import { InputSchemeSettingsContent } from "../input-scheme-settings-content";
 import { InputSharedSettingsSection } from "../input-shared-settings-section";
 import { LocalModesSection } from "../local-modes-section";
 import { CharacterWidthRow } from "../punctuation-section";
@@ -43,64 +37,32 @@ export function InputSettingsPage() {
   } = useSettingsForm();
   const { onLocalModesChange } = createUtilitiesSettingsActions({ setDraft });
   const { onPreferencesChange } = createSettingsDraftActions({ setDraft });
-  const chineseSchemes = draft.scheme !== "japanese";
   const navigation = draft.navigation ?? defaultNavigation;
   return (
     <fieldset disabled={busy} hidden={page !== "input"} aria-label="输入">
       {/* The groups keep the reference window's order of these settings; each row is present whenever the reference shows it and hidden, not removed, while the chosen scheme makes it moot, as the reference does. */}
       <div className={settings.groups}>
-        <GroupList title="方案">
-          <InputModeSection
-            scheme={draft.scheme}
-            lastChineseScheme={draft.last_chinese_scheme}
-            hidden={client.touchKeyboardSchemes}
-            onChange={onPreferencesChange}
-          />
-          {client.touchKeyboardSchemes && (
-            <TouchKeyboardSchemesSection
-              options={touchKeyboardSchemeOptions}
-              enabled={touchKeyboardSchemes.enabled}
-              selected={selectedTouchKeyboardScheme}
-              onSelect={(scheme) => selectTouchKeyboardScheme(scheme as TouchKeyboardScheme)}
-              onToggle={(scheme, enabled) =>
-                setTouchKeyboardSchemeEnabled(scheme as TouchKeyboardScheme, enabled)
-              }
-            />
-          )}
-          <InputSchemeSelectorSection
-            grouped
-            hidden={client.touchKeyboardSchemes || !chineseSchemes}
-            value={
-              draft.scheme === "shuangpin" || draft.scheme === "wubi" ? draft.scheme : "quanpin"
-            }
-            onChange={(scheme) => onPreferencesChange({ scheme, last_chinese_scheme: scheme })}
-          />
-          <InputSchemeDetailsSection
-            grouped
-            scheme={draft.scheme}
-            shuangpinProfile={draft.shuangpin_profile}
-            macos={macosPlatform}
-            hasTouchKeyboardSchemes={client.touchKeyboardSchemes ?? false}
-            macosShuangpinKeymap={
-              macosPlatform && client.loadMacosShuangpinKeymap && macosShuangpinKeymap !== undefined
-                ? macosShuangpinKeymap
-                : undefined
-            }
-            onShuangpinProfileChange={(shuangpin_profile) =>
-              onPreferencesChange({ shuangpin_profile })
-            }
-            onMacosShuangpinKeymapChange={setShuangpinKeymap}
-          />
-          {((client.touchKeyboardSchemes && touchKeyboardSchemes.enabled.includes("wubi")) ||
-            draft.scheme === "wubi") && (
-            <WubiSection
-              preferences={draft}
-              autoCommitUnique={macosPlatform ? macosWubiAutoCommitUnique : undefined}
-              onChange={onPreferencesChange}
-              onAutoCommitUniqueChange={setWubiAutoCommitUnique}
-            />
-          )}
-        </GroupList>
+        <InputSchemeSettingsContent
+          grouped
+          preferences={draft}
+          hasTouchKeyboardSchemes={Boolean(client.touchKeyboardSchemes)}
+          touchKeyboardSchemes={touchKeyboardSchemes}
+          selectedTouchKeyboardScheme={selectedTouchKeyboardScheme}
+          macos={macosPlatform}
+          macosShuangpinKeymap={
+            macosPlatform && client.loadMacosShuangpinKeymap && macosShuangpinKeymap !== undefined
+              ? macosShuangpinKeymap
+              : undefined
+          }
+          macosWubiAutoCommitUnique={macosWubiAutoCommitUnique}
+          onPreferencesChange={onPreferencesChange}
+          onSelectTouchKeyboardScheme={(scheme) => selectTouchKeyboardScheme(scheme)}
+          onToggleTouchKeyboardScheme={(scheme, enabled) =>
+            setTouchKeyboardSchemeEnabled(scheme, enabled)
+          }
+          onMacosShuangpinKeymapChange={setShuangpinKeymap}
+          onMacosWubiAutoCommitUniqueChange={setWubiAutoCommitUnique}
+        />
         <InputSharedSettingsSection
           grouped
           preferences={draft}

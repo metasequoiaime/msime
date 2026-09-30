@@ -6,16 +6,9 @@ import type { useCustomTranslations } from "./use-custom-translations";
 import type { SettingsSaveState } from "./use-settings-persistence";
 import { HandwritingPlatformNotice } from "./handwriting-platform-notice";
 import { MobileInputAiNotice } from "./mobile-input-ai-notice";
-import { InputModeSection } from "./input-mode-section";
-import { TouchKeyboardSchemesSection } from "./touch-keyboard-schemes-section";
-import { touchKeyboardSchemeOptions } from "./touch-keyboard-scheme-helpers";
-import {
-  InputSchemeSelectorSection,
-  type InputSchemeSelectorValue,
-} from "./input-scheme-selector-section";
-import { InputSchemeDetailsSection, type ShuangpinProfile } from "./input-scheme-details-section";
-import { WubiSection } from "./wubi-section";
+import { InputSchemeSettingsContent } from "./input-scheme-settings-content";
 import { NavigationSection, defaultNavigation } from "./navigation-section";
+import type { TouchKeyboardScheme as TouchKeyboardSchemePreference } from "./touch-keyboard-scheme-helpers";
 import {
   type TranslationLanguage,
   type TranslationSecondaryLanguage,
@@ -33,7 +26,6 @@ import {
   MobileKeyboardFeedbackSection,
   type MobileKeyboardFeedback,
 } from "./mobile-keyboard-feedback-section";
-import type { TouchKeyboardScheme as TouchKeyboardSchemePreference } from "./touch-keyboard-scheme-helpers";
 import type { FuzzyPinyinPreferences } from "./fuzzy-pinyin-section";
 import type { FrequencyPreferences } from "./frequency-section";
 import type { NavigationPreferences, WordCharacterPreferences } from "./word-character-section";
@@ -203,56 +195,26 @@ export function InputSettingsPanel({
         />
       )}
       {mobilePlatform && <MobileInputAiNotice onOpenAi={onOpenAi} />}
-      {!client.touchKeyboardSchemes && (
-        <InputModeSection
-          scheme={draft.scheme}
-          lastChineseScheme={draft.last_chinese_scheme}
-          onChange={onPreferencesChange}
-        />
-      )}
-      {client.touchKeyboardSchemes && (
-        <TouchKeyboardSchemesSection
-          options={touchKeyboardSchemeOptions}
-          enabled={touchKeyboardSchemes.enabled}
-          selected={selectedTouchKeyboardScheme}
-          onSelect={(scheme) => selectTouchKeyboardScheme(scheme as TouchKeyboardSchemePreference)}
-          onToggle={(scheme, enabled) =>
-            setTouchKeyboardSchemeEnabled(scheme as TouchKeyboardSchemePreference, enabled)
-          }
-        />
-      )}
-      <div hidden={client.touchKeyboardSchemes || draft.scheme === "japanese"}>
-        <InputSchemeSelectorSection
-          value={draft.scheme === "japanese" ? "quanpin" : draft.scheme}
-          onChange={(scheme: InputSchemeSelectorValue) =>
-            onPreferencesChange({ scheme, last_chinese_scheme: scheme })
-          }
-        />
-      </div>
-      <InputSchemeDetailsSection
-        scheme={draft.scheme}
-        shuangpinProfile={draft.shuangpin_profile}
+      <InputSchemeSettingsContent
+        preferences={draft}
+        hasTouchKeyboardSchemes={Boolean(client.touchKeyboardSchemes)}
+        touchKeyboardSchemes={touchKeyboardSchemes}
+        selectedTouchKeyboardScheme={selectedTouchKeyboardScheme}
         macos={macosPlatform}
-        hasTouchKeyboardSchemes={client.touchKeyboardSchemes ?? false}
         macosShuangpinKeymap={
           macosPlatform && client.loadMacosShuangpinKeymap && macosShuangpinKeymap !== undefined
             ? macosShuangpinKeymap
             : undefined
         }
-        onShuangpinProfileChange={(shuangpin_profile: ShuangpinProfile) =>
-          onPreferencesChange({ shuangpin_profile })
+        macosWubiAutoCommitUnique={macosWubiAutoCommitUnique}
+        onPreferencesChange={onPreferencesChange}
+        onSelectTouchKeyboardScheme={(scheme) => selectTouchKeyboardScheme(scheme)}
+        onToggleTouchKeyboardScheme={(scheme, enabled) =>
+          setTouchKeyboardSchemeEnabled(scheme, enabled)
         }
         onMacosShuangpinKeymapChange={setShuangpinKeymap}
+        onMacosWubiAutoCommitUniqueChange={setWubiAutoCommitUnique}
       />
-      {((client.touchKeyboardSchemes && touchKeyboardSchemes.enabled.includes("wubi")) ||
-        draft.scheme === "wubi") && (
-        <WubiSection
-          preferences={draft}
-          autoCommitUnique={macosPlatform ? macosWubiAutoCommitUnique : undefined}
-          onChange={onPreferencesChange}
-          onAutoCommitUniqueChange={setWubiAutoCommitUnique}
-        />
-      )}
       <NavigationSection
         navigation={draft.navigation ?? defaultNavigation}
         wordCharacter={wordCharacter}
