@@ -514,6 +514,11 @@ export {
   type SettingsSyncClient,
 } from "./account/account-page";
 export {
+  AccountConfirmation,
+  type AccountConfirmationAction,
+  type AccountConfirmationProps,
+} from "./account/account-confirmation";
+export {
   ChatPage,
   type ChatClient,
   type ChatMessage,

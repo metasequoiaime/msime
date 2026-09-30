@@ -4,6 +4,7 @@ import * as doc from "../settings/document-style";
 import * as account from "./account-style";
 import { accountProviderName, preferredAccountName } from "./account-labels";
 import { accountMessage, isAccountCancellation } from "./account-errors";
+import { AccountConfirmation } from "./account-confirmation";
 import { pushMobileSettingsState } from "../settings/mobile-navigation";
 
 export type AccountUser = {
@@ -321,47 +322,13 @@ function MobileAccountProfilePage({
         </div>
       </section>
       {confirmation && (
-        <div
-          className={account.confirmation}
-          role="alertdialog"
-          aria-label={
-            confirmation === "delete"
-              ? "确认注销账号"
-              : confirmation === "logout-all"
-                ? "确认退出所有设备"
-                : confirmation === "relogin"
-                  ? "确认重新登录"
-                  : "确认退出登录"
-          }
-        >
-          <p className={account.note}>
-            {confirmation === "delete"
-              ? "注销账号将删除已发布皮肤、评分及其他云端账号数据，无法撤销。"
-              : confirmation === "logout-all"
-                ? "退出所有设备后，所有设备都需要重新登录。"
-                : confirmation === "relogin"
-                  ? "清除本机登录状态后需要重新登录。"
-                  : "退出登录后，社区功能需要重新登录才能使用。"}
-          </p>
-          <div>
-            <button
-              type="button"
-              className={confirmation === "delete" ? "danger-text" : "account-primary"}
-              disabled={busy}
-              onClick={confirmAction}
-            >
-              确认
-            </button>
-            <button
-              type="button"
-              className="secondary"
-              disabled={busy}
-              onClick={() => setConfirmation(null)}
-            >
-              取消
-            </button>
-          </div>
-        </div>
+        <AccountConfirmation
+          action={confirmation}
+          busy={busy}
+          confirmLabel="确认"
+          onConfirm={confirmAction}
+          onCancel={() => setConfirmation(null)}
+        />
       )}
     </div>
   );
@@ -1327,35 +1294,12 @@ function AccountDetailsPage({
                 </button>
               </div>
               {confirmation && (
-                <div
-                  className={account.confirmation}
-                  role="alertdialog"
-                  aria-label={confirmation === "delete" ? "确认注销账号" : "确认退出所有设备"}
-                >
-                  <p className={account.note}>
-                    {confirmation === "delete"
-                      ? "注销账号将删除已发布皮肤、评分及其他云端账号数据，无法撤销。"
-                      : "退出所有设备后，所有设备都需要重新登录。"}
-                  </p>
-                  <div>
-                    <button
-                      type="button"
-                      className={confirmation === "delete" ? "danger-text" : "account-primary"}
-                      disabled={busy}
-                      onClick={() => (confirmation === "delete" ? deleteAccount() : signOut(true))}
-                    >
-                      {confirmation === "delete" ? "确认注销账号" : "确认退出所有设备"}
-                    </button>
-                    <button
-                      type="button"
-                      className="secondary"
-                      disabled={busy}
-                      onClick={() => setConfirmation(null)}
-                    >
-                      取消
-                    </button>
-                  </div>
-                </div>
+                <AccountConfirmation
+                  action={confirmation}
+                  busy={busy}
+                  onConfirm={() => (confirmation === "delete" ? deleteAccount() : signOut(true))}
+                  onCancel={() => setConfirmation(null)}
+                />
               )}
             </section>
           )}
