@@ -72,9 +72,14 @@ struct BackendAccountClient: Sendable {
   }
   func challenge(provider: String, target: String = "", linkToken: String? = nil) async throws -> Challenge {
     struct Body: Encodable { let provider: String; let target: String; let purpose: String }
-    return try await json("POST", "/v1/auth/challenges", token: linkToken,
-                          body: JSONEncoder().encode(Body(provider: provider, target: target,
-                                                        purpose: linkToken == nil ? "login" : "link")))
+    let value: Challenge = try await json("POST", "/v1/auth/challenges", token: linkToken,
+                                          body: JSONEncoder().encode(Body(provider: provider, target: target,
+                                                                        purpose: linkToken == nil ? "login" : "link")))
+    guard Self.validSingleLine(value.challenge_id, maximumBytes: 256, empty: false), value.expires_in > 0,
+          value.nonce.map({ Self.validSingleLine($0, maximumBytes: 4096) }) ?? true,
+          value.authorization_url.map({ Self.validSingleLine($0, maximumBytes: 4096) }) ?? true
+    else { throw Failure(status: 0) }
+    return value
   }
   func login(challenge: String, credential: String, linkToken: String? = nil) async throws -> Tokens {
     struct Body: Encodable { let challenge_id: String; let credential: String }
@@ -89,7 +94,14 @@ struct BackendAccountClient: Sendable {
     return try validated(tokens)
   }
   func profile(token: String) async throws -> Profile {
-    try await json("GET", "/v1/users/me", token: token)
+    let value: Profile = try await json("GET", "/v1/users/me", token: token)
+    guard Self.validUser(value.user), value.identities.count <= 16,
+          value.identities.allSatisfy({ identity in
+            !identity.provider.isEmpty && identity.provider.utf8.count <= 32
+              && identity.provider.utf8.allSatisfy({ (97...122).contains($0) || $0 == 95 || $0 == 45 })
+              && Self.validSingleLine(identity.subject, maximumBytes: 512)
+          }) else { throw Failure(status: 0) }
+    return value
   }
   func rename(_ name: String, token: String) async throws {
     struct Body: Encodable { let display_name: String }
@@ -228,10 +240,20 @@ struct BackendAccountClient: Sendable {
   static func validate(_ tokens: Tokens) throws {
     let hex = CharacterSet(charactersIn: "0123456789abcdef")
     guard tokens.token_type == "Bearer", (1...maxSessionSeconds).contains(tokens.expires_in),
-          !tokens.user.id.isEmpty,
+          validUser(tokens.user),
           [tokens.access_token, tokens.refresh_token].allSatisfy({ token in
             token.utf8.count == 64 && token.unicodeScalars.allSatisfy(hex.contains)
           }) else { throw Failure(status: 0) }
+  }
+  private static func validUser(_ user: User) -> Bool {
+    validSingleLine(user.id, maximumBytes: 256, empty: false)
+      && user.display_name.unicodeScalars.count <= 64
+      && !user.display_name.unicodeScalars.contains { $0.properties.generalCategory == .control }
+      && validSingleLine(user.created_at, maximumBytes: 128)
+  }
+  private static func validSingleLine(_ value: String, maximumBytes: Int, empty: Bool = true) -> Bool {
+    (empty || !value.isEmpty) && value.utf8.count <= maximumBytes
+      && !value.unicodeScalars.contains { $0.properties.generalCategory == .control }
   }
   private func validated(_ tokens: Tokens) throws -> Tokens {
     try Self.validate(tokens)

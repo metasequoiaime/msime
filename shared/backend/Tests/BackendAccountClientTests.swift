@@ -62,6 +62,33 @@ private final class OversizedAccountProtocol: URLProtocol {
   }
   override func stopLoading() {}
 }
+private final class MalformedAccountPayloadProtocol: URLProtocol {
+  override class func canInit(with request: URLRequest) -> Bool {
+    ["/v1/auth/challenges", "/v1/auth/login", "/v1/users/me"].contains(request.url?.path)
+  }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    let path = request.url!.path
+    let object: [String: Any]
+    switch path {
+    case "/v1/auth/challenges":
+      object = ["challenge_id": "bad\u{0001}challenge", "expires_in": 300, "nonce": "server"]
+    case "/v1/auth/login":
+      let token = String(repeating: "a", count: 64)
+      object = ["access_token": token, "refresh_token": token, "token_type": "Bearer", "expires_in": 900,
+        "user": ["id": "synthetic", "display_name": String(repeating: "x", count: 65), "created_at": "2026-09-08"]]
+    default:
+      object = ["user": ["id": "synthetic", "display_name": "ok", "created_at": "2026-09-08"],
+        "identities": [["provider": "Bad Provider", "subject": "subject"]]]
+    }
+    let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+      headerFields: ["Content-Type": "application/json"])!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: try! JSONSerialization.data(withJSONObject: object))
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
 private final class MalformedClipboardProtocol: URLProtocol {
   override class func canInit(with request: URLRequest) -> Bool { request.url?.path == "/v1/users/me/clipboard" }
   override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -154,6 +181,23 @@ final class BackendAccountClientTests: XCTestCase {
     do {
       _ = try await BackendAccountClient(configuration: configuration).login(challenge: "challenge", credential: "synthetic")
       XCTFail("must reject")
+    } catch let error as BackendAccountClient.Failure { XCTAssertEqual(error.status, 0) }
+  }
+  func testMalformedChallengeProfileAndTokenUsersAreRejected() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [MalformedAccountPayloadProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    do {
+      _ = try await client.challenge(provider: "apple")
+      XCTFail("malformed challenge accepted")
+    } catch let error as BackendAccountClient.Failure { XCTAssertEqual(error.status, 0) }
+    do {
+      _ = try await client.profile(token: "session")
+      XCTFail("malformed profile accepted")
+    } catch let error as BackendAccountClient.Failure { XCTAssertEqual(error.status, 0) }
+    do {
+      _ = try await client.login(challenge: "challenge", credential: "synthetic")
+      XCTFail("malformed token user accepted")
     } catch let error as BackendAccountClient.Failure { XCTAssertEqual(error.status, 0) }
   }
   func testClipboardSearchIsEncodedAsOneQueryValue() async throws {
