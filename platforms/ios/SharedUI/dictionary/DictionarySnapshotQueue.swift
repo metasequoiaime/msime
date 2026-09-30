@@ -79,7 +79,7 @@ final class DictionarySnapshotQueue: @unchecked Sendable {
     Self.processLock.lock()
     defer { Self.processLock.unlock() }
     let root = try root()
-    let descriptor = open(root.appendingPathComponent("state.lock").path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+    let descriptor = open(root.appendingPathComponent("state.lock").path, O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR)
     guard descriptor >= 0 else { throw Failure.unavailable }
     defer { close(descriptor) }
     guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { throw Failure.busy }
@@ -111,7 +111,7 @@ final class DictionarySnapshotQueue: @unchecked Sendable {
   }
   func acquireWorkerLease() throws -> WorkerLease {
     let root = try root()
-    let descriptor = open(root.appendingPathComponent("worker.lock").path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+    let descriptor = open(root.appendingPathComponent("worker.lock").path, O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR)
     guard descriptor >= 0 else { throw Failure.unavailable }
     guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { close(descriptor); throw Failure.busy }
     return WorkerLease(descriptor, owner: root.standardizedFileURL)

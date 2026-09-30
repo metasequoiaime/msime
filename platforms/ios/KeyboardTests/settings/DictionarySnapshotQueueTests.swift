@@ -1,8 +1,69 @@
 import Foundation
 import CryptoKit
 import XCTest
+import Darwin
 
 final class DictionarySnapshotQueueTests: XCTestCase {
+  func testStateLockSymlinkFailsClosedBeforeLockingExternalTarget() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("msime-snapshot-state-lock-test-\(UUID().uuidString)")
+    let outsideDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("msime-snapshot-state-target-\(UUID().uuidString)")
+    defer {
+      try? FileManager.default.removeItem(at: root)
+      try? FileManager.default.removeItem(at: outsideDirectory)
+    }
+    let queueDirectory = root.appendingPathComponent("DictionarySnapshots", isDirectory: true)
+    try FileManager.default.createDirectory(at: queueDirectory, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: outsideDirectory, withIntermediateDirectories: true)
+    let outsideLock = outsideDirectory.appendingPathComponent("outside.lock")
+    try Data("synthetic-lock-target".utf8).write(to: outsideLock)
+    let descriptor = open(outsideLock.path, O_RDWR)
+    guard descriptor >= 0 else { throw CocoaError(.fileNoSuchFile) }
+    defer { flock(descriptor, LOCK_UN); close(descriptor) }
+    XCTAssertEqual(flock(descriptor, LOCK_EX | LOCK_NB), 0)
+    try FileManager.default.createSymbolicLink(
+      at: queueDirectory.appendingPathComponent("state.lock"), withDestinationURL: outsideLock)
+
+    do {
+      try DictionarySnapshotQueue(directory: root).publishLocalVersion(first)
+      XCTFail("a symlinked state lock must be rejected")
+    } catch DictionarySnapshotQueue.Failure.unavailable {
+      // Expected: the lock entry itself is not followed.
+    } catch {
+      XCTFail("unexpected error: \(error)")
+    }
+    XCTAssertEqual(try Data(contentsOf: outsideLock), Data("synthetic-lock-target".utf8))
+  }
+
+  func testWorkerLockSymlinkFailsClosedBeforeLockingExternalTarget() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("msime-snapshot-worker-lock-test-\(UUID().uuidString)")
+    let outsideDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("msime-snapshot-worker-target-\(UUID().uuidString)")
+    defer {
+      try? FileManager.default.removeItem(at: root)
+      try? FileManager.default.removeItem(at: outsideDirectory)
+    }
+    let queueDirectory = root.appendingPathComponent("DictionarySnapshots", isDirectory: true)
+    try FileManager.default.createDirectory(at: queueDirectory, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: outsideDirectory, withIntermediateDirectories: true)
+    let outsideLock = outsideDirectory.appendingPathComponent("outside.lock")
+    try Data("synthetic-lock-target".utf8).write(to: outsideLock)
+    let descriptor = open(outsideLock.path, O_RDWR)
+    guard descriptor >= 0 else { throw CocoaError(.fileNoSuchFile) }
+    defer { flock(descriptor, LOCK_UN); close(descriptor) }
+    XCTAssertEqual(flock(descriptor, LOCK_EX | LOCK_NB), 0)
+    try FileManager.default.createSymbolicLink(
+      at: queueDirectory.appendingPathComponent("worker.lock"), withDestinationURL: outsideLock)
+
+    do {
+      _ = try DictionarySnapshotQueue(directory: root).acquireWorkerLease()
+      XCTFail("a symlinked worker lock must be rejected")
+    } catch DictionarySnapshotQueue.Failure.unavailable {
+      // Expected: the lock entry itself is not followed.
+    } catch {
+      XCTFail("unexpected error: \(error)")
+    }
+    XCTAssertEqual(try Data(contentsOf: outsideLock), Data("synthetic-lock-target".utf8))
+  }
+
   private let first = "local-v1:legacy:" + String(repeating: "a", count: 64)
   private let second = "local-v1:legacy:" + String(repeating: "b", count: 64)
   private func fixture(_ action: (DictionarySnapshotQueue, URL, String, URL) throws -> Void) throws {
