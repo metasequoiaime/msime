@@ -516,7 +516,7 @@ fn validate_page(
     Ok(())
 }
 
-fn validate_resource(value: &CommunityResource) -> Result<(), AccountError> {
+pub(super) fn validate_resource(value: &CommunityResource) -> Result<(), AccountError> {
     if value.id.is_nil()
         || value.revision == 0
         || !valid_name(&value.name)

@@ -1,8 +1,6 @@
 //! The explicit, bounded local library shared with the Android IME process.
 
-use crate::community::resource::{
-    reply_content_has_prompt, CommunityResource, CommunityResourceKind,
-};
+use crate::community::resource::{validate_resource, CommunityResource, CommunityResourceKind};
 use crate::file_lock;
 use serde_json::from_slice;
 use std::fs::{self, File};
@@ -15,9 +13,7 @@ const MAXIMUM_BYTES: u64 = 4_000_000;
 const MAXIMUM_ITEMS: usize = 50;
 
 fn is_valid_reply(item: &CommunityResource) -> bool {
-    item.id != Uuid::nil()
-        && item.kind == CommunityResourceKind::Reply
-        && reply_content_has_prompt(&item.content)
+    item.kind == CommunityResourceKind::Reply && validate_resource(item).is_ok()
 }
 
 #[derive(Debug, Error)]
@@ -194,6 +190,46 @@ mod tests {
         )
         .unwrap();
         assert!(store.load().is_err(), "nil publication IDs are not usable");
+    }
+
+    #[test]
+    fn rejects_reply_metadata_and_prompt_outside_community_contract() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("files/CommunityLibrary.json");
+        let store = CommunityResourceLibraryStore::new(&path);
+        let mut cases = Vec::new();
+
+        let mut long_prompt = reply();
+        long_prompt.content.prompt = Some("字".repeat(2_001));
+        cases.push(long_prompt);
+
+        let mut blank_name = reply();
+        blank_name.name = " ".into();
+        cases.push(blank_name);
+
+        let mut zero_revision = reply();
+        zero_revision.revision = 0;
+        cases.push(zero_revision);
+
+        let mut invalid_rating = reply();
+        invalid_rating.rating_average = 5.0;
+        cases.push(invalid_rating);
+
+        for item in cases {
+            assert!(matches!(
+                store.save_reply(item.clone()),
+                Err(CommunityResourceLibraryError::Invalid)
+            ));
+            assert!(!path.exists());
+
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, serde_json::to_vec(&[item]).unwrap()).unwrap();
+            assert!(matches!(
+                store.load(),
+                Err(CommunityResourceLibraryError::Invalid)
+            ));
+            std::fs::remove_file(&path).unwrap();
+        }
     }
 
     #[cfg(unix)]
