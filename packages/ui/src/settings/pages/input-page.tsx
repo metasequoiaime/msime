@@ -21,6 +21,7 @@ import { LocalModesSection } from "../local-modes-section";
 import { CharacterWidthRow } from "../punctuation-section";
 import { InputModeHudSection } from "../input-mode-hud-section";
 import { createUtilitiesSettingsActions } from "../utilities-settings-actions";
+import { createSettingsDraftActions } from "../settings-draft-actions";
 import {
   chineseInputSchemeOptions,
   japaneseInputSchemeOptions,
@@ -53,6 +54,7 @@ export function InputSettingsPage() {
     localModes,
   } = useSettingsForm();
   const { onLocalModesChange } = createUtilitiesSettingsActions({ draft, setDraft });
+  const { onPreferencesChange } = createSettingsDraftActions({ setDraft });
   const chineseSchemes = draft.scheme !== "japanese";
   const navigation = draft.navigation ?? defaultNavigation;
   return (
@@ -64,7 +66,7 @@ export function InputSettingsPage() {
             scheme={draft.scheme}
             lastChineseScheme={draft.last_chinese_scheme}
             hidden={client.touchKeyboardSchemes}
-            onChange={(patch) => setDraft({ ...draft, ...patch })}
+            onChange={onPreferencesChange}
           />
           {client.touchKeyboardSchemes && (
             <TouchKeyboardSchemesSection
@@ -127,7 +129,7 @@ export function InputSettingsPage() {
             <WubiSection
               preferences={draft}
               autoCommitUnique={macosPlatform ? macosWubiAutoCommitUnique : undefined}
-              onChange={(patch) => setDraft({ ...draft, ...patch })}
+              onChange={onPreferencesChange}
               onAutoCommitUniqueChange={setWubiAutoCommitUnique}
             />
           )}
@@ -180,7 +182,7 @@ export function InputSettingsPage() {
           {showCharacterWidth && (
             <CharacterWidthRow
               preferences={draft}
-              onChange={(patch) => setDraft({ ...draft, ...patch })}
+              onChange={onPreferencesChange}
             />
           )}
           <TraditionalChineseOutputSection

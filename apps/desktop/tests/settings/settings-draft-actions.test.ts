@@ -31,3 +31,14 @@ test("replaces the draft for translation settings changes", () => {
 
   expect(setDraft).toHaveBeenCalledWith(next);
 });
+
+test("merges shared preference patches into the current draft", () => {
+  const setDraft = vi.fn();
+  const actions = createSettingsDraftActions({ setDraft });
+  const draft = { scheme: "quanpin", learning: true } as unknown as Preferences;
+
+  actions.onPreferencesChange({ learning: false });
+
+  const updater = setDraft.mock.calls[0][0] as (value: Preferences) => Preferences;
+  expect(updater(draft)).toMatchObject({ scheme: "quanpin", learning: false });
+});
