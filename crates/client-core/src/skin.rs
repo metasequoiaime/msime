@@ -3,6 +3,7 @@
 //! an AI proposes.
 
 pub mod ai;
+pub mod candidate_community;
 pub mod catalog;
 pub mod community;
 pub mod custom_library;

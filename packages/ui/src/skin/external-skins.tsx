@@ -147,6 +147,7 @@ function ExternalSkinCard({
   revision,
   activeTheme,
   toolbarPreview,
+  onPublish,
 }: {
   skin: ExternalSkin;
   selected: string;
@@ -159,6 +160,8 @@ function ExternalSkinCard({
   revision: number;
   activeTheme: "dark" | "light";
   toolbarPreview: boolean;
+  /** Offers the package to the community; absent on hosts without the candidate-skin community. */
+  onPublish?: (id: string) => void;
 }) {
   const [override, setOverride] = useState<"dark" | "light" | null>(null);
   useEffect(() => setOverride(null), [activeTheme]);
@@ -251,6 +254,15 @@ function ExternalSkinCard({
               {theme === "dark" ? "预览浅色" : "预览深色"}
             </button>
           )}
+          {onPublish && (
+            <button
+              type="button"
+              className="skin-preview-switch"
+              onClick={() => onPublish(skin.id)}
+            >
+              发布到社区
+            </button>
+          )}
         </div>
       </div>
       <div
@@ -329,6 +341,7 @@ export function ExternalSkins({
   onSelect,
   activeTheme = "dark",
   toolbarPreview = true,
+  onPublish,
 }: {
   scan?: () => Promise<SkinCatalog>;
   openDirectory?: () => Promise<void>;
@@ -348,6 +361,8 @@ export function ExternalSkins({
   activeTheme?: "dark" | "light";
   /** The host draws a floating toolbar the skin styles. The Linux hosts present the toolbar as an input method menu, so their cards preview only the candidate window. */
   toolbarPreview?: boolean;
+  /** Offers a scanned package to the candidate-skin community; each card then shows 发布到社区. */
+  onPublish?: (id: string) => void;
 }) {
   const [catalog, setCatalog] = useState<SkinCatalog | null>(null);
   const [revision, setRevision] = useState(0);
@@ -490,6 +505,7 @@ export function ExternalSkins({
             revision={revision}
             activeTheme={activeTheme}
             toolbarPreview={toolbarPreview}
+            onPublish={onPublish}
           />
         ))}
       </div>

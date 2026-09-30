@@ -78,6 +78,7 @@ import { DesktopCloudDictionary } from "./dictionary/desktop-cloud-dictionary";
 import { testDesktopApiCredential } from "./account/credential-test-client";
 import { cloudDictionaryCapabilities, isMobileHost } from "./input/mobile-host-capabilities";
 import { createMobileHostServices } from "./core/mobile-host-services";
+import { createDesktopCandidateSkinCommunity } from "./core/desktop-host-services";
 
 const dictionary: DictionaryClient = {
   // kind and query are omitted when absent so an older host still sees the
@@ -804,6 +805,7 @@ function DesktopSettings() {
                     deleteAccount: () => invoke("account_delete"),
                     clearExpired: () => invoke("account_forget"),
                   } satisfies AccountClient,
+                  communityCandidateSkins: createDesktopCandidateSkinCommunity(invoke),
                 }
               : {}),
             ...(host.platform === "ios"

@@ -40,7 +40,9 @@ use panel_input::{send_panel_key_windows, send_panel_text_windows, windows_panel
 #[cfg(target_os = "android")]
 use platform::android::android_account;
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
-use platform::desktop::{desktop_account, desktop_preferences_monitor};
+use platform::desktop::{
+    desktop_account, desktop_candidate_skin_community, desktop_preferences_monitor,
+};
 #[cfg(target_os = "ios")]
 use platform::ios::ios_account;
 #[cfg(target_os = "linux")]
@@ -4867,6 +4869,22 @@ pub fn run() {
             android_account::account_forget,
             #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
             desktop_account::account_forget,
+            #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+            desktop_candidate_skin_community::candidate_skin_community_list,
+            #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+            desktop_candidate_skin_community::candidate_skin_community_detail,
+            #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+            desktop_candidate_skin_community::candidate_skin_community_preview,
+            #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+            desktop_candidate_skin_community::candidate_skin_community_install,
+            #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+            desktop_candidate_skin_community::candidate_skin_community_pack_preview,
+            #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+            desktop_candidate_skin_community::candidate_skin_community_publish,
+            #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+            desktop_candidate_skin_community::candidate_skin_community_rate,
+            #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+            desktop_candidate_skin_community::candidate_skin_community_unpublish,
             #[cfg(target_os = "android")]
             android_account::app_icon_info,
             #[cfg(target_os = "android")]

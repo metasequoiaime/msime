@@ -3,33 +3,41 @@
 //! The nine commands, their state and the blocking-call bridge are the same on all three desktop hosts; only where the session tokens are kept differs. Each platform module owns its [`AccountSessionStorage`](msime_client_core::account::AccountSessionStorage) implementation and a thin `setup` that builds it and hands it to [`manage`]: the macOS Keychain item written by the Swift backend, the per-user Windows Credential Manager, or an owner-only file in the Linux shared state directory. The React surface only receives the same redacted DTOs as the mobile hosts; the tokens never leave this process.
 
 use crate::platform::account_helpers::call_session;
+use crate::platform::desktop::desktop_candidate_skin_community::CandidateSkinCommunityState;
 use crate::shared::account_dto::{
     providers_response, ChallengeResponse, ProfileResponse, ProvidersResponse, StatusResponse,
 };
 use msime_client_core::account::{BackendAccountClient, BackendAccountSession};
+use msime_client_core::skin::candidate_community::BackendCandidateSkinCommunityService;
 use std::sync::Arc;
 use tauri::Manager;
 
 #[cfg(target_os = "macos")]
-type Storage = crate::platform::macos::macos_account::MacosAccountStorage;
+pub(crate) type Storage = crate::platform::macos::macos_account::MacosAccountStorage;
 #[cfg(target_os = "windows")]
-type Storage = crate::platform::windows::windows_account::WindowsAccountStorage;
+pub(crate) type Storage = crate::platform::windows::windows_account::WindowsAccountStorage;
 #[cfg(target_os = "linux")]
-type Storage = crate::platform::linux::linux_account::LinuxAccountStorage;
+pub(crate) type Storage = crate::platform::linux::linux_account::LinuxAccountStorage;
 
-type Session = BackendAccountSession<BackendAccountClient, Storage>;
+pub(crate) type Session = BackendAccountSession<BackendAccountClient, Storage>;
 
 pub struct AccountState {
     pub(crate) session: Arc<Session>,
 }
 
-/// Builds the backend client and registers the account state around the platform's session storage.
+/// Builds the backend client and registers the account state around the platform's session storage, plus the candidate-skin community service that authenticates through the same session.
 pub(crate) fn manage(
     app: &tauri::AppHandle,
     storage: Storage,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let client = BackendAccountClient::new()?;
-    let session = Arc::new(BackendAccountSession::new(client, storage));
+    let session = Arc::new(BackendAccountSession::new(client.clone(), storage));
+    app.manage(CandidateSkinCommunityState {
+        service: Arc::new(BackendCandidateSkinCommunityService::new(
+            client,
+            Arc::clone(&session),
+        )),
+    });
     app.manage(AccountState { session });
     Ok(())
 }

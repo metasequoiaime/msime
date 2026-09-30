@@ -86,6 +86,7 @@ impl BackendAccountClient {
             path,
             token,
             body,
+            MAX_JSON_BYTES,
             maximum_response_bytes,
             timeout,
             "application/json",
@@ -99,6 +100,7 @@ impl BackendAccountClient {
         path: &str,
         token: Option<&str>,
         body: Option<Vec<u8>>,
+        maximum_request_bytes: usize,
         maximum_response_bytes: usize,
         timeout: Duration,
         accept: &str,
@@ -108,7 +110,7 @@ impl BackendAccountClient {
         }
         if body
             .as_ref()
-            .is_some_and(|value| value.len() > MAX_JSON_BYTES)
+            .is_some_and(|value| value.len() > maximum_request_bytes)
             || token.is_some_and(|value| value.is_empty() || value.chars().any(char::is_whitespace))
         {
             return Err(AccountError::Invalid);
@@ -193,6 +195,35 @@ impl BackendAccountClient {
             body,
             maximum_response_bytes,
             timeout,
+        )?;
+        serde_json::from_slice(&bytes).map_err(|_| AccountError::Unavailable)
+    }
+
+    /// Like [`Self::json_with_limit_timeout`], for the few requests whose body may exceed the 1 MiB every other account request is held to. The caller names the request bound explicitly, so nothing else inherits it.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn json_with_limits_timeout<T: DeserializeOwned, B: Serialize>(
+        &self,
+        method: Method,
+        path: &str,
+        token: Option<&str>,
+        body: Option<&B>,
+        maximum_request_bytes: usize,
+        maximum_response_bytes: usize,
+        timeout: Duration,
+    ) -> Result<T, AccountError> {
+        let body = body
+            .map(serde_json::to_vec)
+            .transpose()
+            .map_err(|_| AccountError::Invalid)?;
+        let bytes = self.request_with_limit_timeout_accept(
+            method,
+            path,
+            token,
+            body,
+            maximum_request_bytes,
+            maximum_response_bytes,
+            timeout,
+            "application/json",
         )?;
         serde_json::from_slice(&bytes).map_err(|_| AccountError::Unavailable)
     }
@@ -361,6 +392,7 @@ impl BackendAccountClient {
             "/v1/users/me/dictionary/snapshot",
             Some(access_token),
             None,
+            MAX_JSON_BYTES,
             MAX_DICTIONARY_SNAPSHOT_BYTES,
             Duration::from_secs(120),
             "application/x-ndjson",
@@ -888,6 +920,7 @@ impl BackendAccountClient {
             &path,
             Some(access_token),
             None,
+            MAX_JSON_BYTES,
             MAX_DICTIONARY_EXPORT_BYTES,
             Duration::from_secs(600),
             "text/plain",

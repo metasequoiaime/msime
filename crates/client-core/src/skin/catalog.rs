@@ -249,7 +249,7 @@ fn validate_string(value: &str, key: &str, max: usize) -> Result<(), String> {
     Ok(())
 }
 
-fn safe_resource(value: &str, max: usize) -> bool {
+pub(crate) fn safe_resource(value: &str, max: usize) -> bool {
     !value.is_empty()
         && value.len() <= max
         && !value.starts_with('/')
@@ -468,7 +468,7 @@ fn number_in(value: &Value, range: std::ops::RangeInclusive<f64>) -> Option<f64>
         .filter(|number| number.is_finite() && range.contains(number))
 }
 
-fn is_image(relative: &str) -> bool {
+pub(crate) fn is_image(relative: &str) -> bool {
     resource_content_type(relative).is_some_and(|kind| kind.starts_with("image/"))
 }
 

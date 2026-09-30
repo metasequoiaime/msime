@@ -456,6 +456,7 @@ import { logo } from "./settings/settings-options";
 import type { CommunitySkinClient } from "./community/community-skins";
 import { communityDestinationView } from "./community/community-destination";
 import type { CommunityResourceClient } from "./community/community-resources";
+import type { CandidateSkinCommunityClient } from "./community/community-candidate-skins";
 import { CommunityPage } from "./community/community-page";
 export { useConfirm, type ConfirmRequest } from "./core/confirm";
 export {
@@ -972,6 +973,15 @@ export {
   type CommunityResourceScope,
   type CommunitySharedWord,
 } from "./community/community-resources";
+export {
+  CommunityCandidateSkinsPage,
+  type CandidateSkinCommunityClient,
+  type CandidateSkinPackPreview,
+  type CommunityCandidateSkin,
+  type CommunityCandidateSkinLicense,
+  type CommunityCandidateSkinPage,
+} from "./community/community-candidate-skins";
+export { CandidateSkinPublishDialog } from "./community/candidate-skin-publish-dialog";
 export { CommunityPage, type CommunityPageProps } from "./community/community-page";
 export type { SkinCatalog, ExternalSkin } from "./skin/external-skins";
 import type { SkinImageReader } from "./skin/skin-image";
@@ -1503,6 +1513,8 @@ export interface SettingsClient {
   communitySkins?: CommunitySkinClient;
   /** Android community commands expose dictionaries and reply templates. */
   communityResources?: CommunityResourceClient;
+  /** Desktop community commands that publish, install and rate candidate-window skin packages. */
+  communityCandidateSkins?: CandidateSkinCommunityClient;
   listVoiceCaptureDevices?: VoiceDeviceReader;
   /**
    * The user's own candidate glosses. Windows delivers these as a file dropped in the profile
@@ -2147,7 +2159,9 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
       hasVocabularyReview: Boolean(client.vocabularyReview),
       hasAccount: Boolean(client.account || client.appIcon),
       hasChat: Boolean(client.chat),
-      hasCommunity: Boolean(client.communitySkins || client.communityResources),
+      hasCommunity: Boolean(
+        client.communitySkins || client.communityResources || client.communityCandidateSkins,
+      ),
       showFloatingToolbar,
       showDeveloperPage,
       mobileHiddenPageIds,
@@ -2842,6 +2856,10 @@ export function SettingsPage(props: SettingsPageProps) {
                 destinationKey={communityDestination}
                 skins={client.communitySkins}
                 resources={client.communityResources}
+                candidateSkins={client.communityCandidateSkins}
+                localSkins={client.scanSkinCatalog}
+                openSkinDirectory={client.openSkinDirectory}
+                onOpenSkinPage={() => selectPage("skin")}
                 theme={keyboardPreviewTheme}
                 initialMine={initialCommunityMine}
                 initialCategory={initialCommunityCategory}

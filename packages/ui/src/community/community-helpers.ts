@@ -85,6 +85,56 @@ export function communitySkinPublishMessage(error: unknown): string {
   return "暂时无法发布皮肤，请稍后重试。";
 }
 
+/**
+ * Fixed sentences for the candidate-skin gallery and its publish dialog. The host maps every server rejection to an HTTP-status code (`community_invalid`, `community_conflict`, …), so the specific wording comes from the local package codes the host checks before anything is uploaded; backend text is never shown. `publishing` picks the sentence for a `community_invalid` publish, where the server has rejected something only it can check.
+ */
+export function candidateSkinMessage(error: unknown, publishing = false): string {
+  switch (errorCode(error)) {
+    case "candidate_skin_package":
+      return "皮肤包未通过校验，无法分享或安装。";
+    case "candidate_skin_file_type":
+      return "仅支持 PNG 或 JPEG 图片，且不能包含样式表。";
+    case "candidate_skin_file_path":
+      return "皮肤文件名或数量不符合要求。";
+    case "candidate_skin_too_large":
+      return "单个图片不超过 1 MB、合计不超过 2 MB，预览图不超过 256 KB。";
+    case "candidate_skin_image_invalid":
+      return "图片已损坏或格式与扩展名不符。";
+    case "candidate_skin_license_required":
+      return "发布前请在 skin.toml 的 [license] 中填写素材授权 assets。";
+    case "candidate_skin_preview_required":
+      return "请在 skin.toml 中用 preview 指定一张 PNG/JPEG 预览图。";
+    case "candidate_skin_exists":
+      return "已存在同名皮肤，安装会整体替换它。";
+    case "storage":
+      return "无法写入皮肤目录。";
+    case "community_invalid":
+      return publishing
+        ? "服务器未接受这款皮肤：请确认图片每边不超过 2048 像素、能被正常解码，且皮肤 ID 不与内置主题重名。"
+        : "内容无效，请修改后重试。";
+    case "community_conflict":
+      return "发布信息已变更或已达到 20 款上限。";
+    case "community_rate_limited":
+      return "发布太频繁，请稍后再试。";
+    case "community_forbidden":
+      return "下载后才能评分，且不能给自己的作品评分。";
+    case "community_unauthorized":
+      return "请先登录后执行此操作。";
+    case "community_not_found":
+      return "作品不存在或已下架。";
+    case "community_cancelled":
+      return "账号状态已变化，请重新加载。";
+    case "community_storage":
+      return "无法安全读取登录状态，请检查设备安全设置。";
+  }
+  return "社区暂时不可用，请稍后重试。";
+}
+
+/** A package size in megabytes with one decimal, as the publish dialog states it against the 2 MB limit. */
+export function candidateSkinMegabytes(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export function communityNeedsSignIn(error: unknown): boolean {
   return errorCode(error) === "community_unauthorized";
 }

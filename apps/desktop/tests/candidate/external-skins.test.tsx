@@ -1040,3 +1040,60 @@ test("the geometry stylesheet aligns the decoration and clips the background to 
   );
   expect(card).toContain("--ftb-radius:var(--msime-toolbar-radius,8px)");
 });
+
+test("发布到社区 appears only when the host can publish candidate skins", async () => {
+  const scan = vi.fn().mockResolvedValue(catalog);
+  const plain = render(<ExternalSkins {...props} scan={scan} />);
+  const card = await screen.findByRole("article", { name: "Sample skin" });
+  expect(within(card).queryByRole("button", { name: "发布到社区" })).toBeNull();
+  plain.unmount();
+
+  const onPublish = vi.fn();
+  render(<ExternalSkins {...props} scan={scan} onPublish={onPublish} />);
+  const publishable = await screen.findByRole("article", { name: "Sample skin" });
+  fireEvent.click(within(publishable).getByRole("button", { name: "发布到社区" }));
+  expect(onPublish).toHaveBeenCalledExactlyOnceWith("sample");
+});
+
+test("the theme page opens the candidate publish dialog outside the settings fieldset", async () => {
+  const save = vi.fn();
+  const communityCandidateSkins = {
+    list: vi.fn().mockResolvedValue({ skins: [], has_more: false }),
+    detail: vi.fn(),
+    preview: vi.fn(),
+    install: vi.fn(),
+    packPreview: vi.fn().mockResolvedValue({
+      suggestedName: "Sample skin",
+      license: { code: null, assets: "CC0-1.0", source: null },
+      fileCount: 1,
+      size: 4096,
+    }),
+    publish: vi.fn(),
+    rate: vi.fn(),
+    unpublish: vi.fn(),
+  };
+  render(
+    <SettingsPage
+      client={{
+        load: async () => initial,
+        save,
+        scanSkinCatalog: vi.fn().mockResolvedValue(catalog),
+        communityCandidateSkins,
+      }}
+    />,
+  );
+  // A desktop host with only the candidate-skin client still lists 社区.
+  expect(await screen.findByRole("button", { name: "社区" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "主题" }));
+  const card = await screen.findByRole("article", { name: "Sample skin" });
+  fireEvent.click(within(card).getByRole("button", { name: "发布到社区" }));
+  const dialog = await screen.findByRole("dialog", { name: "发布候选窗皮肤" });
+  expect(dialog.closest("fieldset")).toBeNull();
+  await waitFor(() => expect(communityCandidateSkins.packPreview).toHaveBeenCalledWith("sample"));
+  const name = await within(dialog).findByRole("textbox", { name: "发布皮肤名称" });
+  fireEvent.keyDown(name, { key: "Enter" });
+  expect(save).not.toHaveBeenCalled();
+  fireEvent.click(within(dialog).getByRole("button", { name: "取消" }));
+  expect(screen.queryByRole("dialog", { name: "发布候选窗皮肤" })).toBeNull();
+  expect(save).not.toHaveBeenCalled();
+});

@@ -39,23 +39,32 @@ pub fn import(source: &Path, root: &Path) -> Result<String, &'static str> {
         let _ = std::fs::remove_dir_all(&staging);
         return Err("storage");
     }
-    let target = root.join(&name);
+    replace_directory(&staging, &root.join(&name), &replaced)?;
+    Ok(name)
+}
+
+/// Swap a fully written `staging` directory in as `target`, replacing any existing `target` whole. The previous directory is first moved aside to `backup` and restored if the swap fails, so a failure never leaves a half-replaced skin; `staging` is removed on failure and `backup` after success. Every error is `storage`.
+pub(crate) fn replace_directory(
+    staging: &Path,
+    target: &Path,
+    backup: &Path,
+) -> Result<(), &'static str> {
     let had_previous = target.exists();
-    if had_previous && std::fs::rename(&target, &replaced).is_err() {
-        let _ = std::fs::remove_dir_all(&staging);
+    if had_previous && std::fs::rename(target, backup).is_err() {
+        let _ = std::fs::remove_dir_all(staging);
         return Err("storage");
     }
-    if std::fs::rename(&staging, &target).is_err() {
+    if std::fs::rename(staging, target).is_err() {
         if had_previous {
-            let _ = std::fs::rename(&replaced, &target);
+            let _ = std::fs::rename(backup, target);
         }
-        let _ = std::fs::remove_dir_all(&staging);
+        let _ = std::fs::remove_dir_all(staging);
         return Err("storage");
     }
     if had_previous {
-        let _ = std::fs::remove_dir_all(&replaced);
+        let _ = std::fs::remove_dir_all(backup);
     }
-    Ok(name)
+    Ok(())
 }
 
 /// Bounds on one import, so a mistakenly picked folder (a photo library, a whole drive) fails instead of filling the device.

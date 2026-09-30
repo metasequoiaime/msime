@@ -9,10 +9,22 @@ import {
   type CommunityResourceScope,
 } from "./community-resources";
 import { CommunitySkinsPage, type CommunitySkinClient } from "./community-skins";
+import {
+  CommunityCandidateSkinsPage,
+  type CandidateSkinCommunityClient,
+} from "./community-candidate-skins";
+import type { SkinCatalog } from "../skin/external-skins";
 
 export interface CommunityPageProps {
   skins?: CommunitySkinClient;
   resources?: CommunityResourceClient;
+  /** Desktop community commands for candidate-window skin packages. */
+  candidateSkins?: CandidateSkinCommunityClient;
+  /** The installed external skins, which the candidate gallery publishes from and checks before replacing one. */
+  localSkins?: () => Promise<SkinCatalog>;
+  openSkinDirectory?: () => Promise<void>;
+  /** Opens 主题, where an installed candidate skin is enabled. */
+  onOpenSkinPage?: () => void;
   theme: "light" | "dark";
   initialMine?: boolean;
   initialCategory?: "skin" | CommunityResourceKind;
@@ -29,6 +41,10 @@ export interface CommunityPageProps {
 export function CommunityPage({
   skins,
   resources,
+  candidateSkins,
+  localSkins,
+  openSkinDirectory,
+  onOpenSkinPage,
   theme,
   initialMine = false,
   initialCategory = "skin",
@@ -78,6 +94,19 @@ export function CommunityPage({
         kind={initialCategory === "reply" ? "reply" : "dictionary"}
         initialScope={initialScope}
         mobile={mobile}
+      />
+    );
+  }
+
+  if (candidateSkins) {
+    return (
+      <CommunityCandidateSkinsPage
+        key={destinationKey}
+        client={candidateSkins}
+        localSkins={localSkins}
+        openSkinDirectory={openSkinDirectory}
+        onOpenSkinPage={onOpenSkinPage}
+        onLogin={onLogin}
       />
     );
   }
