@@ -35,7 +35,7 @@ pub fn reset_learned_data(paths: &RuntimePaths) -> Result<()> {
     }
     let main_source = paths.resource(assets::MAIN_DICTIONARY);
     let english_source = paths.resource(assets::ENGLISH_DICTIONARY);
-    if !main_source.is_file() || !english_source.is_file() {
+    if !is_real_file(&main_source) || !is_real_file(&english_source) {
         return Err(EngineError::failed(
             diagnostics::PACKAGED_DICTIONARY_UNAVAILABLE,
         ));
@@ -165,6 +165,12 @@ fn remove_ignoring_errors(path: &Path) {
     }
 }
 
+fn is_real_file(path: &Path) -> bool {
+    fs::symlink_metadata(path)
+        .map(|metadata| metadata.file_type().is_file())
+        .unwrap_or(false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -272,6 +278,31 @@ mod tests {
         let error = reset_learned_data(&paths).unwrap_err();
         assert!(matches!(error, EngineError::InvalidArgument(_)));
         assert_eq!(error.to_string(), diagnostics::RESET_IN_PLACE);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn reset_rejects_a_symlinked_packaged_dictionary() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let paths = paths(root.path());
+        sql(
+            &paths.resource(assets::ENGLISH_DICTIONARY),
+            "CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER);",
+        );
+        let external = root.path().join("external-msime.db");
+        sql(
+            &external,
+            "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);",
+        );
+        symlink(&external, paths.resource(assets::MAIN_DICTIONARY)).unwrap();
+
+        assert_eq!(
+            reset_learned_data(&paths).unwrap_err().to_string(),
+            diagnostics::PACKAGED_DICTIONARY_UNAVAILABLE
+        );
+        assert!(!paths.dictionary(assets::MAIN_DICTIONARY).exists());
     }
 
     #[test]
