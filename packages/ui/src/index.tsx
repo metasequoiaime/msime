@@ -95,7 +95,7 @@ export {
   type DictionaryConfirmOptions,
   type UseDictionaryManagerOptions,
 } from "./settings/use-dictionary-manager";
-import { SettingsActionsFooter } from "./settings/settings-actions-footer";
+import { SettingsFormFooter } from "./settings/settings-form-footer";
 import {
   InputSourceStartupNotice,
   type InputSourceStartupStatus,
@@ -333,7 +333,6 @@ export {
 } from "./settings/settings-capabilities";
 import { useAiAssistant } from "./settings/use-ai-assistant";
 export { useAiAssistant, type UseAiAssistantOptions } from "./settings/use-ai-assistant";
-import { validCandidateFonts } from "./candidate/candidate-font-family";
 import type { FontCatalogReader } from "./candidate/font-catalog";
 import {
   isPolishCustomSlot,
@@ -3016,16 +3015,10 @@ export function SettingsPage(props: SettingsPageProps) {
                     />
                     <AboutSettingsPage />
                   </SettingsFormContext.Provider>
-                  {!validCandidateFonts(draft) && (
-                    <p role="alert">
-                      请在候选窗口页修正字体：名称不能为空、不能含控制字符或超过 128 个 UTF-8
-                      字节，补充字体最多 32 项。
-                    </p>
-                  )}
-                  <SettingsActionsFooter
+                  <SettingsFormFooter
+                    draft={draft}
                     busy={busy}
                     dirty={dirty}
-                    canSave={validCandidateFonts(draft)}
                     showRestoreDefaults={Boolean(client.loadDefaultPreferences)}
                     onRestoreDefaults={() => void restoreDefaults()}
                   />
