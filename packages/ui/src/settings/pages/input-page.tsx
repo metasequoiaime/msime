@@ -3,9 +3,10 @@ import { defaultNavigation } from "../navigation-section";
 import type { TouchKeyboardScheme } from "../../index";
 import { useSettingsForm } from "../settings-form-context";
 import * as settings from "../settings-style";
-import { GroupList, Row, Segmented, Switch } from "../../core/platform-controls";
+import { GroupList, Row, Switch } from "../../core/platform-controls";
 import { InputModeSection } from "../input-mode-section";
 import { TouchKeyboardSchemesSection } from "../touch-keyboard-schemes-section";
+import { InputSchemeSelectorSection } from "../input-scheme-selector-section";
 import { InputSchemeDetailsSection } from "../input-scheme-details-section";
 import { WubiSection } from "../wubi-section";
 import { InputSharedSettingsSection } from "../input-shared-settings-section";
@@ -13,7 +14,6 @@ import { LocalModesSection } from "../local-modes-section";
 import { CharacterWidthRow } from "../punctuation-section";
 import { createUtilitiesSettingsActions } from "../utilities-settings-actions";
 import { createSettingsDraftActions } from "../settings-draft-actions";
-import { chineseInputSchemeOptions } from "../input-scheme-options";
 
 /** The 输入 page of the settings form. */
 export function InputSettingsPage() {
@@ -67,15 +67,14 @@ export function InputSettingsPage() {
               }
             />
           )}
-          <Row title="输入方案" hidden={client.touchKeyboardSchemes || !chineseSchemes}>
-            <Segmented
-              options={chineseInputSchemeOptions}
-              value={
-                draft.scheme === "shuangpin" || draft.scheme === "wubi" ? draft.scheme : "quanpin"
-              }
-              onChange={(scheme) => onPreferencesChange({ scheme, last_chinese_scheme: scheme })}
-            />
-          </Row>
+          <InputSchemeSelectorSection
+            grouped
+            hidden={client.touchKeyboardSchemes || !chineseSchemes}
+            value={
+              draft.scheme === "shuangpin" || draft.scheme === "wubi" ? draft.scheme : "quanpin"
+            }
+            onChange={(scheme) => onPreferencesChange({ scheme, last_chinese_scheme: scheme })}
+          />
           <InputSchemeDetailsSection
             grouped
             scheme={draft.scheme}

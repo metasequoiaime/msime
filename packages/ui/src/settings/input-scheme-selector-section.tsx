@@ -1,19 +1,33 @@
-import {
-  chineseInputSchemeOptions,
-  type ChineseInputScheme,
-} from "./input-scheme-options";
+import { Row, Segmented } from "../core/platform-controls";
+import { chineseInputSchemeOptions, type ChineseInputScheme } from "./input-scheme-options";
 
 export type InputSchemeSelectorValue = ChineseInputScheme;
 
 export interface InputSchemeSelectorSectionProps {
   value: InputSchemeSelectorValue;
   onChange: (value: InputSchemeSelectorValue) => void;
+  /** Uses the shared settings-page row instead of the legacy panel markup. */
+  grouped?: boolean;
+  hidden?: boolean;
 }
 
 /** Radio selector for the desktop Chinese input schemes. */
-export function InputSchemeSelectorSection({ value, onChange }: InputSchemeSelectorSectionProps) {
+export function InputSchemeSelectorSection({
+  value,
+  onChange,
+  grouped = false,
+  hidden,
+}: InputSchemeSelectorSectionProps) {
+  if (grouped) {
+    return (
+      <Row title="输入方案" hidden={hidden}>
+        <Segmented options={chineseInputSchemeOptions} value={value} onChange={onChange} />
+      </Row>
+    );
+  }
+
   return (
-    <div className="section" role="group" aria-labelledby="input-scheme-title">
+    <div className="section" role="group" aria-labelledby="input-scheme-title" hidden={hidden}>
       <div className="section-title" id="input-scheme-title">
         输入方案
       </div>
