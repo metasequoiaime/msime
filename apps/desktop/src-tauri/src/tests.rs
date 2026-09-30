@@ -25,6 +25,24 @@ fn runtime_options_fallback_reserves_all_candidate_slots() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn runtime_options_reject_a_symlinked_file() {
+    use std::os::unix::fs::symlink;
+
+    let root = tempfile::tempdir().unwrap();
+    let outside = root.path().join("outside.json");
+    let linked = root.path().join("runtime-options.json");
+    std::fs::write(&outside, br#"{"resources":"/synthetic"}"#).unwrap();
+    symlink(&outside, &linked).unwrap();
+
+    assert!(super::read_runtime_options_bytes(&linked).is_err());
+    assert_eq!(
+        std::fs::read(&outside).unwrap(),
+        br#"{"resources":"/synthetic"}"#
+    );
+}
+
 #[cfg(not(target_os = "android"))]
 #[test]
 fn ai_endpoint_validation_accepts_http_api_urls_and_rejects_unsafe_urls() {

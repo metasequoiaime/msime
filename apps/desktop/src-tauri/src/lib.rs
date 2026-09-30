@@ -1081,6 +1081,16 @@ const RUNTIME_OPTIONS_READ_LIMIT: u64 = 2 << 20;
     test
 ))]
 fn read_runtime_options_bytes(path: &Path) -> Result<Vec<u8>, std::io::Error> {
+    if let Some(parent) = path.parent() {
+        crate::shared::atomic_file::check_directory_ancestors(parent)?;
+    }
+    let metadata = std::fs::symlink_metadata(path)?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "runtime options is not a regular file",
+        ));
+    }
     let file = fs::File::open(path)?;
     match crate::shared::bounded_body::read_bounded(file, RUNTIME_OPTIONS_READ_LIMIT as usize) {
         Ok(bytes) => Ok(bytes),
