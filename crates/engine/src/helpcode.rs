@@ -85,8 +85,25 @@ pub fn helpcode_path(resources: &Path, schema: &str) -> Result<PathBuf> {
 pub fn load_helpcode_keymap(resources: &Path, schema: &str) -> Result<HelpcodeKeymap> {
     let path = helpcode_path(resources, schema)?;
     let built_in = built_in_helpcode_file(schema).is_some();
-    if !built_in && !path.is_file() {
-        return Err(EngineError::invalid(UNKNOWN_HELPCODE_SCHEMA));
+    if !built_in {
+        let Some(directory) = path.parent() else {
+            return Err(EngineError::invalid(UNKNOWN_HELPCODE_SCHEMA));
+        };
+        let directory_is_real = std::fs::symlink_metadata(directory)
+            .map(|metadata| metadata.file_type().is_dir())
+            .unwrap_or(false);
+        let file_is_real = std::fs::symlink_metadata(&path)
+            .map(|metadata| metadata.file_type().is_file())
+            .unwrap_or(false);
+        if !directory_is_real || !file_is_real {
+            return Err(EngineError::invalid(UNKNOWN_HELPCODE_SCHEMA));
+        }
+    } else if let Ok(metadata) = std::fs::symlink_metadata(&path) {
+        // Resource files are shipped assets; a link here must not make the
+        // engine read outside the verified resource generation.
+        if !metadata.file_type().is_file() {
+            return Ok(HelpcodeKeymap::default());
+        }
     }
     let bytes = match std::fs::read(&path) {
         Ok(bytes) => bytes,
@@ -418,6 +435,36 @@ mod tests {
                 .unwrap()
                 .code("你"),
             Some("ab")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn custom_tables_reject_symlinked_files_and_directories() {
+        use std::os::unix::fs::symlink;
+
+        let resources = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let custom = resources.path().join("helpcodes/custom");
+        std::fs::create_dir_all(&custom).unwrap();
+        let external = outside.path().join("mine.txt");
+        std::fs::write(&external, "你=aa\n").unwrap();
+        symlink(&external, custom.join("mine.txt")).unwrap();
+        assert_eq!(
+            load_helpcode_keymap(resources.path(), "custom/mine")
+                .unwrap_err()
+                .to_string(),
+            UNKNOWN_HELPCODE_SCHEMA
+        );
+
+        std::fs::remove_file(custom.join("mine.txt")).unwrap();
+        std::fs::remove_dir(&custom).unwrap();
+        symlink(outside.path(), &custom).unwrap();
+        assert_eq!(
+            load_helpcode_keymap(resources.path(), "custom/mine")
+                .unwrap_err()
+                .to_string(),
+            UNKNOWN_HELPCODE_SCHEMA
         );
     }
 
