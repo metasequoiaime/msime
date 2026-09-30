@@ -34,6 +34,7 @@ import {
 import { keyboardSkinStyles } from "./keyboard-skin-styles";
 import { keyboardRows, nineKeyRows } from "./panel-keyboard-layouts";
 import { CloudDictionaryEntryForm } from "./cloud-dictionary-entry-form";
+import { CloudPanelHeader } from "./cloud-panel-header";
 import {
   clipboardTooltip,
   emojiDisplayName,
@@ -1858,12 +1859,7 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
 
   return (
     <main className={`native-panel ${cloud.clipboardPanel}`} aria-label="云剪贴板">
-      <header className="native-panel-header">
-        <span>水杉云剪贴板</span>
-        <button type="button" aria-label="关闭" onClick={() => void client.close()}>
-          ×
-        </button>
-      </header>
+      <CloudPanelHeader title="水杉云剪贴板" onClose={() => void client.close()} />
       <div className={cloud.clipboardBody}>
         <p className={cloud.clipboardNote}>只上传你明确选择的文本，不自动读取本地剪贴板。</p>
         <label className={cloud.clipboardToggle}>
@@ -2184,12 +2180,7 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
   return (
     <main className={`native-panel ${cloud.dictionaryPanel}`} aria-label="云词典">
       {confirmation}
-      <header className="native-panel-header">
-        <span>水杉云词典</span>
-        <button type="button" aria-label="关闭" onClick={() => void client.close()}>
-          ×
-        </button>
-      </header>
+      <CloudPanelHeader title="水杉云词典" onClose={() => void client.close()} />
       <div className={cloud.dictionaryBody}>
         <p className={cloud.dictionaryNote}>
           管理当前账号的云端词条。修改需要 provider 提供登录态和同步服务。
@@ -2655,20 +2646,12 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
   return (
     <main className={`native-panel ${cloud.dictionaryPanel}`} aria-label="云词库文件">
       {confirmation}
-      <header className="native-panel-header">
-        <button
-          className={cloud.dictionaryButton}
-          type="button"
-          aria-label="返回云词典"
-          onClick={() => void (client.back ? client.back() : client.close())}
-        >
-          ‹
-        </button>
-        <span>导入与导出</span>
-        <button type="button" aria-label="关闭" onClick={() => void client.close()}>
-          ×
-        </button>
-      </header>
+      <CloudPanelHeader
+        title="导入与导出"
+        backClassName={cloud.dictionaryButton}
+        onBack={() => void (client.back ? client.back() : client.close())}
+        onClose={() => void client.close()}
+      />
       <div className={cloud.dictionaryBody}>
         <div className={cloud.dictionaryKindTabs} role="tablist" aria-label="云词库类型">
           {cloudDictionaryKinds.map(([value, label]) => (
@@ -2967,20 +2950,12 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
   return (
     <main className={`native-panel ${cloud.dictionaryPanel}`} aria-label="应用云词库">
       {confirmation}
-      <header className="native-panel-header">
-        <button
-          className={cloud.dictionaryButton}
-          type="button"
-          aria-label="返回云词典"
-          onClick={() => void (client.back ? client.back() : client.close())}
-        >
-          ‹
-        </button>
-        <span>应用到本机</span>
-        <button type="button" aria-label="关闭" onClick={() => void client.close()}>
-          ×
-        </button>
-      </header>
+      <CloudPanelHeader
+        title="应用到本机"
+        backClassName={cloud.dictionaryButton}
+        onBack={() => void (client.back ? client.back() : client.close())}
+        onClose={() => void client.close()}
+      />
       <div className={cloud.dictionaryBody}>
         <section className={cloud.dictionarySection} aria-label="准备本机词库">
           <h2>准备本机词库</h2>
@@ -3269,20 +3244,12 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
   return (
     <main className={`native-panel ${cloud.dictionaryPanel}`} aria-label="完整云词库目录">
       {confirmation}
-      <header className="native-panel-header">
-        <button
-          className={cloud.dictionaryButton}
-          type="button"
-          aria-label="返回云词典"
-          onClick={() => void (client.back ? client.back() : client.close())}
-        >
-          ‹
-        </button>
-        <span>完整云词库目录</span>
-        <button type="button" aria-label="关闭" onClick={() => void client.close()}>
-          ×
-        </button>
-      </header>
+      <CloudPanelHeader
+        title="完整云词库目录"
+        backClassName={cloud.dictionaryButton}
+        onBack={() => void (client.back ? client.back() : client.close())}
+        onClose={() => void client.close()}
+      />
       <div className={cloud.dictionaryBody}>
         <div className={cloud.dictionaryToolbar}>
           <label className={`${cloud.dictionaryField} ${cloud.dictionaryDesktopOnlyField}`}>
@@ -3700,19 +3667,11 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
   return (
     <main className={`native-panel ${cloud.dictionaryPanel}`} aria-label="云端候选排序">
       {confirmation}
-      <header className="native-panel-header">
-        <button
-          type="button"
-          aria-label="返回云词典"
-          onClick={() => void (client.back ? client.back() : client.close())}
-        >
-          ‹
-        </button>
-        <span>云端候选排序</span>
-        <button type="button" aria-label="关闭" onClick={() => void client.close()}>
-          ×
-        </button>
-      </header>
+      <CloudPanelHeader
+        title="云端候选排序"
+        onBack={() => void (client.back ? client.back() : client.close())}
+        onClose={() => void client.close()}
+      />
       <div className={cloud.dictionaryBody}>
         <div className={cloud.dictionaryToolbar}>
           <label className={`${cloud.dictionaryField} ${cloud.dictionaryDesktopOnlyField}`}>

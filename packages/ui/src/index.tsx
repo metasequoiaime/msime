@@ -1064,6 +1064,7 @@ export {
   type CloudDictionaryEntryFormProps,
   type CloudDictionaryEntryFormValue,
 } from "./keyboard/cloud-dictionary-entry-form";
+export { CloudPanelHeader, type CloudPanelHeaderProps } from "./keyboard/cloud-panel-header";
 export type { EmojiCatalogGroup } from "./emoji/emoji-catalog";
 export {
   customTranslationsExample,
