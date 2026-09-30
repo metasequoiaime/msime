@@ -1,6 +1,8 @@
 //! Helpcode (auxiliary code) tables and matching (schemes-lang.md §2, `R/common/helpcode_utils.*`). A keymap maps one character to its 1-2 lowercase code letters. Quanpin and shuangpin filter or reorder with it, and the session and host facade annotate candidates with it.
 
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -9,6 +11,10 @@ use crate::diagnostics::UNKNOWN_HELPCODE_SCHEMA;
 use crate::error::{EngineError, Result};
 use crate::text::{count_han_chars, first_han_char, last_han_char};
 use crate::types::WordItem;
+
+/// The shipped tables are below 150 KiB; leave room for larger compatible tables without
+/// allowing a user supplied file to make a session allocate without bound.
+const MAX_HELPCODE_BYTES: u64 = 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct HelpcodeKeymap {
@@ -105,8 +111,28 @@ pub fn load_helpcode_keymap(resources: &Path, schema: &str) -> Result<HelpcodeKe
             return Ok(HelpcodeKeymap::default());
         }
     }
-    let bytes = match std::fs::read(&path) {
-        Ok(bytes) => bytes,
+    let bytes = match File::open(&path) {
+        Ok(file) => {
+            if file
+                .metadata()
+                .map(|metadata| metadata.len())
+                .unwrap_or(MAX_HELPCODE_BYTES + 1)
+                > MAX_HELPCODE_BYTES
+            {
+                return Ok(HelpcodeKeymap::default());
+            }
+            let mut bytes = Vec::new();
+            // Bound the read again in case the file grows after the metadata check.
+            if file
+                .take(MAX_HELPCODE_BYTES + 1)
+                .read_to_end(&mut bytes)
+                .is_err()
+                || bytes.len() as u64 > MAX_HELPCODE_BYTES
+            {
+                return Ok(HelpcodeKeymap::default());
+            }
+            bytes
+        }
         // The C++ reads the table through an `ifstream` that is never checked (helpcode_utils.cpp:57-67), so any open or read failure (a resource tree without the built-in file, which fixtures and hosts rely on for the default `lantian` schema, a directory in its place, no permission, a Windows sharing violation on a custom table being edited, an I/O error) gives an empty table and the session is still created.
         Err(_) => return Ok(HelpcodeKeymap::default()),
     };
@@ -435,6 +461,25 @@ mod tests {
                 .unwrap()
                 .code("你"),
             Some("ab")
+        );
+    }
+
+    #[test]
+    fn oversized_custom_table_is_not_loaded() {
+        let resources = tempfile::tempdir().unwrap();
+        let custom = resources.path().join("helpcodes/custom");
+        std::fs::create_dir_all(&custom).unwrap();
+        std::fs::write(
+            custom.join("oversized.txt"),
+            vec![b'x'; MAX_HELPCODE_BYTES as usize + 1],
+        )
+        .unwrap();
+
+        assert_eq!(
+            load_helpcode_keymap(resources.path(), "custom/oversized")
+                .unwrap()
+                .len(),
+            0
         );
     }
 

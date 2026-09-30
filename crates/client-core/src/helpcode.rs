@@ -91,7 +91,11 @@ pub fn list_custom_helpcode_schemas(resources: &Path) -> Vec<CustomHelpcodeSchem
 }
 
 fn read_display_names(path: &Path) -> (String, String) {
-    let Ok(bytes) = std::fs::read(path) else {
+    const MAX_HELPCODE_BYTES: u64 = 1024 * 1024;
+    let Ok(file) = std::fs::File::open(path) else {
+        return (String::new(), String::new());
+    };
+    let Ok(bytes) = crate::bounded_io::read_bounded(file, MAX_HELPCODE_BYTES) else {
         return (String::new(), String::new());
     };
     let Ok(text) = std::str::from_utf8(&bytes) else {
@@ -201,6 +205,23 @@ mod tests {
             custom_helpcode_path(resources.path(), "custom/../mine"),
             None
         );
+    }
+
+    #[test]
+    fn oversized_table_has_no_display_metadata() {
+        let resources = tempfile::tempdir().unwrap();
+        let directory = custom_helpcode_directory(resources.path());
+        fs::create_dir_all(&directory).unwrap();
+        fs::write(
+            directory.join("oversized.txt"),
+            [b"# name: hidden\n".as_slice(), &vec![b'x'; 1024 * 1024 + 1]].concat(),
+        )
+        .unwrap();
+
+        let schemas = list_custom_helpcode_schemas(resources.path());
+        assert_eq!(schemas.len(), 1);
+        assert_eq!(schemas[0].name, "");
+        assert_eq!(schemas[0].name_en, "");
     }
 
     #[cfg(unix)]
