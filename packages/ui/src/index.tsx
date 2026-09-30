@@ -978,6 +978,12 @@ export {
   type CommunitySkinTrial,
 } from "./community/community-skins";
 export {
+  useCommunityGallery,
+  type CommunityGalleryClient,
+  type CommunityGalleryOptions,
+  type CommunityGalleryPage,
+} from "./community/community-gallery";
+export {
   communityDestinationView,
   type CommunityDestination,
   type CommunityDestinationCategory,

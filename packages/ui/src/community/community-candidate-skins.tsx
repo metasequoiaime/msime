@@ -1,13 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { errorCode } from "../core/error-code";
 import type { SkinCatalog } from "../skin/external-skins";
 import { CandidateSkinPublishDialog } from "./candidate-skin-publish-dialog";
-import {
-  appendUniqueById,
-  candidateSkinMessage,
-  communityNeedsSignIn,
-  communityRating,
-} from "./community-helpers";
+import { candidateSkinMessage, communityNeedsSignIn, communityRating } from "./community-helpers";
+import { useCommunityGallery, type CommunityGalleryClient } from "./community-gallery";
 import * as style from "./community-style";
 import { CommunitySearchForm } from "./community-search-form";
 import { CommunityScopeButtons } from "./community-scope-buttons";
@@ -174,34 +170,53 @@ export function CommunityCandidateSkinsPage({
   onInstalled?: () => void;
   onLogin?: () => void;
 }) {
-  const [skins, setSkins] = useState<CommunityCandidateSkin[]>([]);
-  const [hasMore, setHasMore] = useState(false);
+  const galleryClient = useMemo<CommunityGalleryClient<CommunityCandidateSkin>>(
+    () => ({
+      list: async (offset, search, mine) => {
+        const page = await client.list(offset, search, mine ?? false);
+        return { items: page.skins, has_more: page.has_more };
+      },
+      detail: client.detail,
+      rate: async (id, stars) => {
+        await client.rate(id, stars);
+      },
+      unpublish: async (id) => {
+        await client.unpublish(id);
+      },
+    }),
+    [client],
+  );
+  const gallery = useCommunityGallery({
+    client: galleryClient,
+    errorMessage: candidateSkinMessage,
+    needsSignIn: communityNeedsSignIn,
+  });
+  const {
+    items: skins,
+    hasMore,
+    listBusy,
+    detailBusy,
+    error,
+    selected,
+    actionBusy,
+    actionNotice,
+    mineOnly,
+    signInRequired,
+    confirmUnpublish,
+    activeSearch,
+    setActionNotice,
+    setMineOnly,
+    setConfirmUnpublish,
+    requestList,
+    open,
+    closeDetail: closeGalleryDetail,
+    rateSelected,
+    unpublishSelected,
+  } = gallery;
   const [search, setSearch] = useState("");
-  const [listBusy, setListBusy] = useState(true);
-  const [detailBusy, setDetailBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [signInRequired, setSignInRequired] = useState(false);
-  const [selected, setSelected] = useState<CommunityCandidateSkin | null>(null);
-  const [actionBusy, setActionBusy] = useState(false);
-  const [actionNotice, setActionNotice] = useState("");
   const [installed, setInstalled] = useState(false);
   const [confirmReplace, setConfirmReplace] = useState(false);
-  const [confirmUnpublish, setConfirmUnpublish] = useState(false);
-  const [mineOnly, setMineOnly] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
-  const listGeneration = useRef(0);
-  const detailGeneration = useRef(0);
-  const clientGeneration = useRef(0);
-  const nextOffset = useRef(0);
-  const activeSearch = useRef("");
-  const activeMine = useRef(false);
-  const mounted = useRef(true);
-
-  const fail = (failure: unknown) => {
-    if (!mounted.current) return;
-    setError(candidateSkinMessage(failure));
-    setSignInRequired(communityNeedsSignIn(failure));
-  };
 
   // One read per package per client: a card and its detail view share the image rather than fetching it twice. The cache belongs to the client, so a replaced client never answers with the previous one's image.
   const loadPreview = useMemo<PreviewLoader>(() => {
@@ -217,162 +232,56 @@ export function CommunityCandidateSkinsPage({
     };
   }, [client]);
 
-  const requestList = async (query: string, append: boolean, mine = activeMine.current) => {
-    const generation = ++listGeneration.current;
-    const offset = append ? nextOffset.current : 0;
-    setListBusy(true);
-    setError("");
-    setSignInRequired(false);
-    try {
-      const page = await client.list(offset, query, mine);
-      if (generation !== listGeneration.current) return;
-      setSkins((current) => (append ? appendUniqueById(current, page.skins) : page.skins));
-      nextOffset.current = offset + page.skins.length;
-      // The search and scope become the displayed ones only with their first page, so 加载更多 always continues the list on screen.
-      if (!append) {
-        activeSearch.current = query;
-        activeMine.current = mine;
-      }
-      setHasMore(page.has_more);
-    } catch (requestError) {
-      if (generation !== listGeneration.current) return;
-      fail(requestError);
-      // A failed switch leaves the previous page on screen, so the toggle goes back to the scope that page belongs to.
-      if (!append) setMineOnly(activeMine.current);
-    } finally {
-      if (generation === listGeneration.current) setListBusy(false);
-    }
-  };
-
-  useEffect(() => {
-    const currentClient = ++clientGeneration.current;
-    mounted.current = true;
-    setActionBusy(false);
-    void requestList("", false, activeMine.current);
-    return () => {
-      mounted.current = false;
-      if (clientGeneration.current === currentClient) clientGeneration.current++;
-      listGeneration.current += 1;
-      detailGeneration.current += 1;
-    };
-  }, [client]);
-
-  const open = (skin: CommunityCandidateSkin) => {
-    const generation = ++detailGeneration.current;
-    setSelected(skin);
-    setDetailBusy(true);
-    setError("");
-    setSignInRequired(false);
-    setActionNotice("");
-    setInstalled(false);
-    setConfirmReplace(false);
-    setConfirmUnpublish(false);
-    void client
-      .detail(skin.id)
-      .then((value) => {
-        if (generation === detailGeneration.current) setSelected(value);
-      })
-      .catch((detailError) => {
-        if (generation === detailGeneration.current) fail(detailError);
-      })
-      .finally(() => {
-        if (generation === detailGeneration.current) setDetailBusy(false);
-      });
-  };
-
   const closeDetail = () => {
     if (actionBusy) return;
-    detailGeneration.current += 1;
-    setSelected(null);
-    setDetailBusy(false);
-    setError("");
-    setSignInRequired(false);
+    closeGalleryDetail();
     setInstalled(false);
     setConfirmReplace(false);
-    setConfirmUnpublish(false);
   };
 
   const install = async (replace: boolean) => {
-    if (!selected || actionBusy) return;
-    const currentClient = clientGeneration.current;
+    if (!selected) return;
+    const currentClient = gallery.beginAction();
+    if (currentClient === null) return;
     const target = selected;
-    setActionBusy(true);
-    setError("");
-    setSignInRequired(false);
+    gallery.setError("");
     setActionNotice("");
     setInstalled(false);
     try {
       // Asking before the download spares a ~3 MB transfer the user may be about to refuse. The scan is only a courtesy: when it fails the install's own `candidate_skin_exists` still stops an overwrite.
       if (!replace && localSkins) {
         const catalog = await localSkins().catch(() => null);
-        if (!mounted.current || currentClient !== clientGeneration.current) return;
+        if (!gallery.isCurrent(currentClient)) return;
         if (catalog?.packages.some((item) => item.id === target.package_id)) {
           setConfirmReplace(true);
           return;
         }
       }
       await client.install(target.id, replace);
-      if (!mounted.current || currentClient !== clientGeneration.current) return;
+      if (!gallery.isCurrent(currentClient)) return;
       setConfirmReplace(false);
       setInstalled(true);
       onInstalled?.();
     } catch (actionError) {
-      if (currentClient !== clientGeneration.current) return;
+      if (!gallery.isCurrent(currentClient)) return;
       if (errorCode(actionError) === "candidate_skin_exists") {
-        if (mounted.current) setConfirmReplace(true);
+        setConfirmReplace(true);
         return;
       }
-      fail(actionError);
+      gallery.fail(actionError);
     } finally {
-      if (mounted.current && currentClient === clientGeneration.current) setActionBusy(false);
+      gallery.endAction(currentClient);
     }
   };
 
-  const rateSkin = async (stars: number) => {
-    if (!selected || actionBusy) return;
-    const currentClient = clientGeneration.current;
-    setActionBusy(true);
-    setError("");
-    setSignInRequired(false);
-    try {
-      await client.rate(selected.id, stars);
-      const updated = await client.detail(selected.id);
-      if (!mounted.current || currentClient !== clientGeneration.current) return;
-      setSelected(updated);
-      setActionNotice(`已评分：${stars} 星。`);
-    } catch (actionError) {
-      if (currentClient === clientGeneration.current) fail(actionError);
-    } finally {
-      if (mounted.current && currentClient === clientGeneration.current) setActionBusy(false);
-    }
-  };
-
-  const unpublish = async () => {
-    if (!selected || actionBusy) return;
-    const currentClient = clientGeneration.current;
-    setActionBusy(true);
-    setError("");
-    setSignInRequired(false);
-    try {
-      await client.unpublish(selected.id);
-      if (!mounted.current || currentClient !== clientGeneration.current) return;
-      detailGeneration.current += 1;
-      setSelected(null);
-      setConfirmUnpublish(false);
-      setActionNotice("已下架这款皮肤；其他用户将无法再下载，已安装的本地副本不会受影响。");
-      await requestList(activeSearch.current, false);
-    } catch (actionError) {
-      if (currentClient === clientGeneration.current) fail(actionError);
-    } finally {
-      if (mounted.current && currentClient === clientGeneration.current) setActionBusy(false);
-    }
+  const unpublish = () => {
+    void unpublishSelected("已下架这款皮肤；其他用户将无法再下载，已安装的本地副本不会受影响。");
   };
 
   const publishDone = async () => {
-    if (!mounted.current) return;
     setPublishOpen(false);
     setActionNotice("已发布到社区。");
-    await requestList(activeSearch.current, false);
+    await requestList(activeSearch, false);
   };
 
   const errorAlert = error && (
@@ -491,7 +400,7 @@ export function CommunityCandidateSkinsPage({
             ratingDescription="我的评分（安装后可评，可重新选择）"
             unpublishMessage={`下架后其他用户无法再下载，已安装的本地皮肤会保留。确定下架“${selected.name}”吗？`}
             confirmUnpublish={confirmUnpublish}
-            onRate={(stars) => void rateSkin(stars)}
+            onRate={(stars) => void rateSelected(stars)}
             onRequestUnpublish={() => setConfirmUnpublish(true)}
             onUnpublish={() => void unpublish()}
             onCancelUnpublish={() => setConfirmUnpublish(false)}
@@ -523,7 +432,7 @@ export function CommunityCandidateSkinsPage({
             mineLabel="我的作品"
             onMineOnlyChange={(nextMineOnly) => {
               setMineOnly(nextMineOnly);
-              void requestList(activeSearch.current, false, nextMineOnly);
+              void requestList(activeSearch, false, nextMineOnly);
             }}
           />
           {localSkins && (
@@ -559,7 +468,7 @@ export function CommunityCandidateSkinsPage({
           type="button"
           className={`secondary ${style.more}`}
           disabled={listBusy}
-          onClick={() => void requestList(activeSearch.current, true)}
+          onClick={() => void requestList(activeSearch, true)}
         >
           加载更多
         </button>

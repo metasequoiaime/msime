@@ -1,17 +1,17 @@
 // Source: MSIME-Apple@9ca823ab40018ced3cb71812503dbc3b94615ac0
 // (`SkinCommunityView.swift`, `CommunityGalleryStyle.swift`).
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { boundedGraphemes } from "../core/text";
 import { randomUuid } from "../core/random-id";
 import { pushMobileSettingsState } from "../settings/mobile-navigation";
 import { ScreenKeyboardPreview } from "../keyboard/screen-keyboard-preview";
 import {
-  appendUniqueById,
   communityNeedsSignIn,
   communityRating,
   communitySkinMessage,
   communitySkinPublishMessage,
 } from "./community-helpers";
+import { useCommunityGallery, type CommunityGalleryClient } from "./community-gallery";
 import * as style from "./community-style";
 import { CommunitySearchForm } from "./community-search-form";
 import { CommunityScopeButtons } from "./community-scope-buttons";
@@ -297,120 +297,77 @@ export function CommunitySkinsPage({
   /** Where the account page is, for a publish that failed only because nobody is signed in. */
   onLogin?: () => void;
 }) {
-  const [skins, setSkins] = useState<CommunitySkin[]>([]);
-  const [hasMore, setHasMore] = useState(false);
+  const galleryClient = useMemo<CommunityGalleryClient<CommunitySkin>>(
+    () => ({
+      list: async (offset, search) => {
+        const page = await client.list(offset, search);
+        return { items: page.skins, has_more: page.has_more };
+      },
+      detail: client.detail,
+      rate: client.rate,
+      unpublish: client.unpublish,
+    }),
+    [client],
+  );
+  const gallery = useCommunityGallery({
+    client: galleryClient,
+    initialMine,
+    errorMessage: communitySkinMessage,
+    needsSignIn: communityNeedsSignIn,
+  });
+  const {
+    items: skins,
+    hasMore,
+    listBusy,
+    detailBusy,
+    error,
+    selected,
+    actionBusy,
+    actionNotice,
+    mineOnly,
+    signInRequired,
+    confirmUnpublish,
+    activeSearch,
+    setSelected,
+    setActionNotice,
+    setMineOnly,
+    setConfirmUnpublish,
+    requestList,
+    open: openGallery,
+    closeDetail: closeGalleryDetail,
+    rateSelected,
+    unpublishSelected,
+  } = gallery;
   const [search, setSearch] = useState("");
-  const [listBusy, setListBusy] = useState(true);
-  const [detailBusy, setDetailBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [selected, setSelected] = useState<CommunitySkin | null>(null);
   const [trial, setTrial] = useState<CommunitySkinTrial | null>(null);
-  const [actionBusy, setActionBusy] = useState(false);
-  const [actionNotice, setActionNotice] = useState("");
-  const [mineOnly, setMineOnly] = useState(initialMine);
   const [publishOpen, setPublishOpen] = useState(false);
-  const [signInRequired, setSignInRequired] = useState(false);
-
-  /**
-   * One place to turn a failure into what the page shows.
-   *
-   * The sentence and whether a sign-in is worth offering are two answers to the same question, and
-   * every path that could fail needs both. Signed out, the gallery browses anonymously but a
-   * download does not, so this is the error a new user meets first — and it used to say the login
-   * had expired while giving no way to do anything about it.
-   */
-  const fail = (failure: unknown) => {
-    if (!mounted.current) return;
-    setError(communitySkinMessage(failure));
-    setSignInRequired(communityNeedsSignIn(failure));
-  };
-  const [confirmUnpublish, setConfirmUnpublish] = useState(false);
-  const listGeneration = useRef(0);
-  const detailGeneration = useRef(0);
-  const nextOffset = useRef(0);
-  const activeSearch = useRef("");
   const trialRef = useRef<CommunitySkinTrial | null>(null);
-  const mounted = useRef(true);
-  const clientGeneration = useRef(0);
-
-  const requestList = async (query: string, append: boolean) => {
-    const generation = ++listGeneration.current;
-    const offset = append ? nextOffset.current : 0;
-    setListBusy(true);
-    setError("");
-    try {
-      const page = await client.list(offset, query);
-      if (generation !== listGeneration.current) return;
-      setSkins((current) => (append ? appendUniqueById(current, page.skins) : page.skins));
-      nextOffset.current = offset + page.skins.length;
-      if (!append) activeSearch.current = query;
-      setHasMore(page.has_more);
-    } catch (requestError) {
-      if (generation === listGeneration.current) fail(requestError);
-    } finally {
-      if (generation === listGeneration.current) setListBusy(false);
-    }
-  };
-
   useEffect(() => {
-    const currentClient = ++clientGeneration.current;
-    mounted.current = true;
-    setActionBusy(false);
-    void requestList("", false);
     return () => {
-      mounted.current = false;
-      if (clientGeneration.current === currentClient) clientGeneration.current++;
-      listGeneration.current += 1;
-      detailGeneration.current += 1;
       const pending = trialRef.current;
       trialRef.current = null;
       if (pending) void client.finishTrial(pending.id, false).catch(() => undefined);
     };
   }, [client]);
 
-  const open = (skin: CommunitySkin) => {
-    if (mobile && typeof window !== "undefined") {
-      pushMobileSettingsState({
-        page: "community",
-        communityDetail: { kind: "skin", id: skin.id },
-      });
-    }
-    const generation = ++detailGeneration.current;
-    setSelected(skin);
-    setDetailBusy(true);
-    setError("");
-    void client
-      .detail(skin.id)
-      .then((value) => {
-        if (generation === detailGeneration.current) setSelected(value);
-      })
-      .catch((detailError) => {
-        if (generation === detailGeneration.current) fail(detailError);
-      })
-      .finally(() => {
-        if (generation === detailGeneration.current) setDetailBusy(false);
-      });
-  };
-
   const closeDetail = async (fromHistory = false) => {
     if (actionBusy) return;
     if (trial) {
-      setActionBusy(true);
+      const generation = gallery.beginAction();
+      if (generation === null) return;
       try {
         await client.finishTrial(trial.id, false);
+        if (!gallery.isCurrent(generation)) return;
         trialRef.current = null;
         setTrial(null);
       } catch (actionError) {
-        fail(actionError);
-        setActionBusy(false);
+        gallery.fail(actionError);
+        gallery.endAction(generation);
         return;
       }
-      setActionBusy(false);
+      gallery.endAction(generation);
     }
-    detailGeneration.current += 1;
-    setSelected(null);
-    setDetailBusy(false);
-    setError("");
+    closeGalleryDetail();
     if (
       !fromHistory &&
       mobile &&
@@ -419,6 +376,16 @@ export function CommunitySkinsPage({
     ) {
       window.history.back();
     }
+  };
+
+  const open = (skin: CommunitySkin) => {
+    if (mobile && typeof window !== "undefined") {
+      pushMobileSettingsState({
+        page: "community",
+        communityDetail: { kind: "skin", id: skin.id },
+      });
+    }
+    openGallery(skin);
   };
 
   useEffect(() => {
@@ -430,90 +397,55 @@ export function CommunitySkinsPage({
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
-  }, [mobile, selected]);
+  }, [mobile, selected, closeDetail]);
 
   const download = async () => {
-    if (!selected || actionBusy) return;
-    const currentClient = clientGeneration.current;
-    setActionBusy(true);
+    if (!selected) return;
+    const currentClient = gallery.beginAction();
+    if (currentClient === null) return;
     setActionNotice("");
-    setError("");
     try {
       const result = await client.download(selected.id, selected.name);
-      if (!mounted.current || currentClient !== clientGeneration.current) return;
+      if (!gallery.isCurrent(currentClient)) return;
       setSelected((current) => (current ? { ...current, design: result.skin.design } : current));
       trialRef.current = result.trial;
       setTrial(result.trial);
       setActionNotice("已下载并开始试用；关闭此页会恢复原皮肤。");
     } catch (actionError) {
-      if (currentClient === clientGeneration.current) fail(actionError);
+      if (gallery.isCurrent(currentClient)) {
+        gallery.fail(actionError);
+      }
     } finally {
-      if (mounted.current && currentClient === clientGeneration.current) setActionBusy(false);
+      gallery.endAction(currentClient);
     }
   };
 
   const finishTrial = async (keep: boolean) => {
-    if (!trial || actionBusy) return;
-    const currentClient = clientGeneration.current;
-    const pending = trial;
-    setActionBusy(true);
-    setError("");
+    if (!trial) return;
+    const currentClient = gallery.beginAction();
+    if (currentClient === null) return;
     try {
-      await client.finishTrial(pending.id, keep);
-      if (!mounted.current || currentClient !== clientGeneration.current) return;
+      await client.finishTrial(trial.id, keep);
+      if (!gallery.isCurrent(currentClient)) return;
       trialRef.current = null;
       setTrial(null);
       setActionNotice(keep ? "已保留这款皮肤。" : "已恢复试用前的皮肤。");
     } catch (actionError) {
-      if (currentClient === clientGeneration.current) fail(actionError);
+      if (gallery.isCurrent(currentClient)) gallery.fail(actionError);
     } finally {
-      if (mounted.current && currentClient === clientGeneration.current) setActionBusy(false);
+      gallery.endAction(currentClient);
     }
   };
 
-  const rateSkin = async (stars: number) => {
-    if (!selected || actionBusy) return;
-    const currentClient = clientGeneration.current;
-    setActionBusy(true);
-    setError("");
-    try {
-      await client.rate(selected.id, stars);
-      const updated = await client.detail(selected.id);
-      if (!mounted.current || currentClient !== clientGeneration.current) return;
-      setSelected(updated);
-      setActionNotice(`已评分：${stars} 星。`);
-    } catch (actionError) {
-      if (currentClient === clientGeneration.current) fail(actionError);
-    } finally {
-      if (mounted.current && currentClient === clientGeneration.current) setActionBusy(false);
-    }
-  };
-
-  const unpublish = async () => {
-    if (!selected || actionBusy || trial) return;
-    const currentClient = clientGeneration.current;
-    setActionBusy(true);
-    setError("");
-    try {
-      await client.unpublish(selected.id);
-      if (!mounted.current || currentClient !== clientGeneration.current) return;
-      detailGeneration.current += 1;
-      setSelected(null);
-      setConfirmUnpublish(false);
-      setActionNotice("已下架这款皮肤；其他用户将无法再下载，已有本地副本不会受影响。");
-      await requestList(activeSearch.current, false);
-    } catch (actionError) {
-      if (currentClient === clientGeneration.current) fail(actionError);
-    } finally {
-      if (mounted.current && currentClient === clientGeneration.current) setActionBusy(false);
-    }
+  const unpublish = () => {
+    if (trial) return;
+    void unpublishSelected("已下架这款皮肤；其他用户将无法再下载，已有本地副本不会受影响。");
   };
 
   const publishDone = async () => {
-    if (!mounted.current) return;
     setPublishOpen(false);
     setActionNotice("已发布到社区。");
-    await requestList(activeSearch.current, false);
+    await requestList(activeSearch, false);
   };
 
   if (selected)
@@ -610,7 +542,7 @@ export function CommunitySkinsPage({
             unpublishMessage={`下架后其他用户无法再下载，已下载的本地皮肤会保留。确定下架“${selected.name}”吗？`}
             unpublishDisabled={Boolean(trial)}
             confirmUnpublish={confirmUnpublish}
-            onRate={(stars) => void rateSkin(stars)}
+            onRate={(stars) => void rateSelected(stars)}
             onRequestUnpublish={() => setConfirmUnpublish(true)}
             onUnpublish={() => void unpublish()}
             onCancelUnpublish={() => setConfirmUnpublish(false)}
@@ -644,7 +576,7 @@ export function CommunitySkinsPage({
             mineLabel="我的作品"
             onMineOnlyChange={(nextMineOnly) => {
               setMineOnly(nextMineOnly);
-              void requestList(activeSearch.current, false);
+              void requestList(activeSearch, false);
             }}
           />
           {localSkinLibrary && (
@@ -688,7 +620,7 @@ export function CommunitySkinsPage({
           type="button"
           className={`secondary ${style.more}`}
           disabled={listBusy}
-          onClick={() => void requestList(activeSearch.current, true)}
+          onClick={() => void requestList(activeSearch, true)}
         >
           加载更多
         </button>
