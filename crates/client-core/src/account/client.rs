@@ -407,6 +407,11 @@ impl BackendAccountClient {
         if !destination.is_absolute() || !crate::text::is_lower_hex(access_token, 64) {
             return Err(AccountError::Invalid);
         }
+        let parent = destination.parent().ok_or(AccountError::Invalid)?;
+        if !parent.is_absolute() {
+            return Err(AccountError::Invalid);
+        }
+        crate::storage::reject_symlink(parent).map_err(|_| AccountError::Invalid)?;
         let url = self
             .origin
             .join("/v1/users/me/dictionary/snapshot")
@@ -427,10 +432,6 @@ impl BackendAccountClient {
             .is_some_and(|length| length > MAX_DICTIONARY_SNAPSHOT_BYTES as u64)
         {
             return Err(AccountError::Unavailable);
-        }
-        let parent = destination.parent().ok_or(AccountError::Invalid)?;
-        if !parent.is_absolute() {
-            return Err(AccountError::Invalid);
         }
         let mut temporary = tempfile::Builder::new()
             .prefix("msime-snapshot-")

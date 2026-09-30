@@ -787,6 +787,25 @@ fn streams_dictionary_snapshot_file_with_exact_body_and_media_type() {
     assert_eq!(&request[header_end + 4..], contents);
 }
 
+#[cfg(unix)]
+#[test]
+fn dictionary_snapshot_to_file_rejects_symlinked_parent() {
+    use std::os::unix::fs::symlink;
+
+    let directory = tempfile::tempdir().unwrap();
+    let target = tempfile::tempdir().unwrap();
+    let linked = directory.path().join("linked");
+    symlink(target.path(), &linked).unwrap();
+    let destination = linked.join("snapshot.ndjson");
+    let client = BackendAccountClient::loopback("http://127.0.0.1:9").unwrap();
+
+    assert_eq!(
+        client.dictionary_snapshot_to_file(&destination, &token(b'a')),
+        Err(AccountError::Invalid)
+    );
+    assert!(!target.path().join("snapshot.ndjson").exists());
+}
+
 #[test]
 fn dictionary_snapshot_file_restore_validates_file_and_revision_bounds() {
     let directory = tempfile::tempdir().unwrap();
