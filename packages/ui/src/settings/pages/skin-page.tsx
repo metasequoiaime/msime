@@ -22,6 +22,7 @@ import { useSettingsForm } from "../settings-form-context";
 import { CandidatePanelLimitSection } from "../candidate-panel-limit-section";
 import { CandidatePaletteFallbackNotice } from "../candidate-palette-fallback-notice";
 import { SkinPlatformNotice } from "../skin-platform-notice";
+import { createSettingsDraftActions } from "../settings-draft-actions";
 
 const themeModeOptions = [
   { value: "system", label: "跟随系统" },
@@ -64,6 +65,7 @@ export function SkinSettingsPage() {
     setShowTouchSkinEditor,
     openCommunity,
   } = useSettingsForm();
+  const { onPreferencesChange } = createSettingsDraftActions({ setDraft });
   return (
     <fieldset disabled={busy} hidden={page !== "skin"} aria-label="主题">
       <SkinPlatformNotice mobile={mobilePlatform} linux={linuxPlatform} />
@@ -103,7 +105,7 @@ export function SkinSettingsPage() {
                     aria-label={entry.title}
                     aria-checked={selected}
                     className={settings.skinSwitch(selected)}
-                    onClick={() => setDraft({ ...draft, global_theme: id })}
+                    onClick={() => onPreferencesChange({ global_theme: id })}
                   >
                     <span className={settings.skinSwitchKnob(selected)} />
                   </button>
@@ -174,7 +176,7 @@ export function SkinSettingsPage() {
               aria-label="颜色模式"
               options={themeModeOptions}
               value={themeMode}
-              onChange={(theme) => setDraft({ ...draft, theme })}
+              onChange={(theme) => onPreferencesChange({ theme })}
             />
           </Row>
         </GroupList>
@@ -326,7 +328,7 @@ export function SkinSettingsPage() {
           linux={linuxPlatform}
           floatingToolbar={showFloatingToolbar}
           desktopPanels={desktopPanels}
-          onChange={(key, value) => setDraft({ ...draft, [key]: value })}
+          onChange={(key, value) => onPreferencesChange({ [key]: value })}
         />
       </div>
     </fieldset>
