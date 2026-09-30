@@ -4,6 +4,7 @@
 use serde::Serialize;
 use std::ffi::{OsStr, OsString};
 use std::io::{BufRead, BufReader, Read};
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -140,6 +141,10 @@ fn run_setup(
 ) -> Result<(), LinuxSetupError> {
     let mut child = Command::new(program)
         .args(arguments)
+        // Keep the setup script and anything it launches in a private process
+        // group so a child that inherits stdout/stderr cannot outlive the
+        // setup request or hold the reader threads open.
+        .process_group(0)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -186,6 +191,9 @@ fn run_setup(
             }
         }
     };
+    if let Some(pid) = rustix::process::Pid::from_raw(child.id() as _) {
+        let _ = rustix::process::kill_process_group(pid, rustix::process::Signal::KILL);
+    }
     for reader in readers {
         let _ = reader.join();
     }
@@ -393,6 +401,20 @@ mod tests {
             run_setup(&hanging, &arguments, Duration::from_millis(200), |_| {}),
             Err(LinuxSetupError::new("setup_timeout"))
         );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_background_child_cannot_hold_the_setup_output_open() {
+        let root = scratch("background");
+        let program = script(&root, "sleep 3 &");
+        let started = Instant::now();
+
+        assert_eq!(
+            run_setup(&program, &[], Duration::from_secs(1), |_| {}),
+            Ok(())
+        );
+        assert!(started.elapsed() < Duration::from_secs(2));
         std::fs::remove_dir_all(root).unwrap();
     }
 }
