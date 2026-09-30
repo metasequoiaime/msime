@@ -11,6 +11,7 @@ import {
 import * as style from "./community-style";
 import { CommunitySearchForm } from "./community-search-form";
 import { CommunityScopeButtons } from "./community-scope-buttons";
+import { CommunitySkinModerationSection } from "./community-skin-moderation-section";
 
 /** The server's license columns; each is `""` when the manifest leaves it out. */
 export type CommunityCandidateSkinLicense = { code: string; assets: string; source: string };
@@ -484,61 +485,18 @@ export function CommunityCandidateSkinsPage({
               </div>
             </div>
           )}
-          {!selected.owned && (
-            <div
-              className={`${style.divided} [&>p]:mt-0 [&>p]:mb-2.5 [&>p]:text-xs [&>p]:text-secondary`}
-              aria-label="我的评分"
-            >
-              <p>我的评分（安装后可评，可重新选择）</p>
-              <div className="grid grid-cols-5 gap-1.5">
-                {[1, 2, 3, 4, 5].map((stars) => (
-                  <button
-                    key={stars}
-                    type="button"
-                    className="secondary min-w-0 px-[5px]"
-                    disabled={actionBusy}
-                    aria-label={`评 ${stars} 星`}
-                    onClick={() => void rateSkin(stars)}
-                  >
-                    {stars} 星
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-          {selected.owned && (
-            <button
-              type="button"
-              className="danger-text pt-0"
-              disabled={actionBusy}
-              onClick={() => setConfirmUnpublish(true)}
-            >
-              下架这款皮肤
-            </button>
-          )}
-          {confirmUnpublish && (
-            <div className={style.confirmation} role="alertdialog" aria-label="确认下架皮肤">
-              <p>下架后其他用户无法再下载，已安装的本地皮肤会保留。确定下架“{selected.name}”吗？</p>
-              <div className={style.confirmationActions}>
-                <button
-                  type="button"
-                  className="danger"
-                  disabled={actionBusy}
-                  onClick={() => void unpublish()}
-                >
-                  确认下架
-                </button>
-                <button
-                  type="button"
-                  className="secondary"
-                  disabled={actionBusy}
-                  onClick={() => setConfirmUnpublish(false)}
-                >
-                  取消
-                </button>
-              </div>
-            </div>
-          )}
+          <CommunitySkinModerationSection
+            owned={selected.owned}
+            actionBusy={actionBusy}
+            ratingDescription="我的评分（安装后可评，可重新选择）"
+            unpublishMessage={`下架后其他用户无法再下载，已安装的本地皮肤会保留。确定下架“${selected.name}”吗？`}
+            confirmUnpublish={confirmUnpublish}
+            onRate={(stars) => void rateSkin(stars)}
+            onRequestUnpublish={() => setConfirmUnpublish(true)}
+            onUnpublish={() => void unpublish()}
+            onCancelUnpublish={() => setConfirmUnpublish(false)}
+            confirmationActionsClassName={style.confirmationActions}
+          />
         </section>
       </div>
     );
