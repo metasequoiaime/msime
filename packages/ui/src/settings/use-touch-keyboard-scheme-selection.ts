@@ -22,18 +22,27 @@ export function useTouchKeyboardSchemeSelection({
 
   const setEnabled = (scheme: TouchKeyboardScheme, enabled: boolean) => {
     if (!draft) return;
-    const next = updateTouchKeyboardSchemeEnabled(draft, scheme, enabled, selected);
-    if (next) setDraft(next);
+    setDraft((current) => {
+      if (!current) return current;
+      return (
+        updateTouchKeyboardSchemeEnabled(
+          current,
+          scheme,
+          enabled,
+          inferredTouchKeyboardScheme(current),
+        ) ?? current
+      );
+    });
   };
 
   const selectHome = (scheme: TouchKeyboardScheme) => {
     if (!draft) return;
-    setDraft(selectHomeTouchKeyboardScheme(draft, scheme));
+    setDraft((current) => (current ? selectHomeTouchKeyboardScheme(current, scheme) : current));
   };
 
   const select = (scheme: TouchKeyboardScheme) => {
     if (!draft) return;
-    setDraft(selectTouchKeyboardScheme(draft, scheme));
+    setDraft((current) => (current ? selectTouchKeyboardScheme(current, scheme) : current));
   };
 
   return { select, selectHome, selected, setEnabled } as const;

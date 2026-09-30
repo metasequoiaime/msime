@@ -61,7 +61,9 @@ test("selecting a visible scheme updates the draft through the shared hook", () 
 
   act(() => result.current.select("wubi"));
 
-  expect(setDraft).toHaveBeenCalledWith(
+  const update = setDraft.mock.calls[0]?.[0];
+  const next = typeof update === "function" ? update(preferences) : update;
+  expect(next).toEqual(
     expect.objectContaining({
       scheme: "wubi",
       touch_keyboard_schemes: {
@@ -74,4 +76,32 @@ test("selecting a visible scheme updates the draft through the shared hook", () 
 
 test("the helper exposes the complete stable scheme order", () => {
   expect(allTouchKeyboardSchemes).toContain("thoughtful_reply");
+});
+
+test("applies queued scheme changes to the latest draft", () => {
+  let current: Preferences | undefined = preferences;
+  const setDraft = vi.fn(
+    (
+      update:
+        | Preferences
+        | undefined
+        | ((value: Preferences | undefined) => Preferences | undefined),
+    ) => {
+      current = typeof update === "function" ? update(current) : update;
+    },
+  );
+  const { result } = renderHook(() =>
+    useTouchKeyboardSchemeSelection({ draft: preferences, setDraft }),
+  );
+
+  act(() => {
+    result.current.select("wubi");
+    result.current.setEnabled("xiaohe", false);
+  });
+
+  expect(current?.scheme).toBe("wubi");
+  expect(current?.touch_keyboard_schemes).toEqual({
+    enabled: ["quanpin", "wubi"],
+    selected: "wubi",
+  });
 });
