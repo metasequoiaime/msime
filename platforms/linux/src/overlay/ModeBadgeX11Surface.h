@@ -18,7 +18,7 @@ class ModeBadgeX11Surface final : public ModeBadgeSurface {
 
   static std::unique_ptr<ModeBadgeX11Surface> create();
 
-  bool show(const std::string &text, const std::string &icon_path, bool light_theme) override;
+  bool show(const std::string &text, const std::string &icon_path, const ModeBadgeStyle &style) override;
   void hide() override;
 
  private:

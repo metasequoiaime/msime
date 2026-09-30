@@ -212,11 +212,10 @@ std::vector<msime::linux_host::ThemeChoice> theme_choices() {
   }();
   return msime::linux_host::theme_choices(catalog, msime::linux_host::parse_configured_skins(configured));
 }
-// The candidate colours for one preferences document, resolved by the shared layer (msime_client_resolve_theme) in the mode candidate_theme settles on. The package is a catalogue entry the shared layer reads strictly, and one it refuses fails the whole call, so that costs only the package: the theme is resolved again without it. A call that still fails draws the native tokens.
-msime::linux_host::CandidateTheme candidate_theme(const Json &preferences) {
+// The candidate colours for one preferences document, resolved by the shared layer (msime_client_resolve_theme) in the given mode. The package is a catalogue entry the shared layer reads strictly, and one it refuses fails the whole call, so that costs only the package: the theme is resolved again without it. A call that still fails draws the native tokens.
+msime::linux_host::CandidateTheme theme_in_mode(const Json &preferences, bool dark) {
   const auto catalog =
       configured.is_object() ? configured.value("candidate_skin_catalog", Json(nullptr)) : Json(nullptr);
-  const bool dark = msime::linux_host::candidate_dark_theme(preferences, system_dark);
   auto request = msime::linux_host::candidate_theme_request(preferences, dark, catalog);
   while (true) {
     try {
@@ -230,6 +229,10 @@ msime::linux_host::CandidateTheme candidate_theme(const Json &preferences) {
     }
   }
   return msime::linux_host::candidate_theme_colors(Json::object(), dark);
+}
+// The candidate window's theme, in the mode candidate_theme settles on.
+msime::linux_host::CandidateTheme candidate_theme(const Json &preferences) {
+  return theme_in_mode(preferences, msime::linux_host::candidate_dark_theme(preferences, system_dark));
 }
 IBusOrientation candidate_orientation(const Json &preferences);
 std::string preedit_style(const Json &preferences);
@@ -954,9 +957,12 @@ struct State {
     wubi_code_hint = wubi_code_hint_override.value_or(
         preferences.value("wubi_code_hint", true));
     const auto voice = preferences.value("voice_input", Json::object());
-    wave_overlay.light_theme = msime_voice_overlay_light_theme(
-        preferences.value("voice_theme", "follow"),
-        preferences.value("theme", "dark"), system_dark);
+    // The voice overlay's mode from voice_theme by its own rule, its colours from the theme the candidate window resolves (as the floating toolbar takes them), so the bar matches the panel's theme; a fixed-appearance theme overrides the mode.
+    const auto voice_theme = theme_in_mode(
+        display_preferences, !msime_voice_overlay_light_theme(preferences.value("voice_theme", "follow"),
+                                                              preferences.value("theme", "dark"), system_dark));
+    wave_overlay.light_theme = !voice_theme.dark;
+    wave_overlay.palette = msime::linux_host::floating_surface_colors(voice_theme);
     voice_enabled = voice.value("enabled", true);
     voice_language = voice.value("language", std::string("zh-cn"));
     voice_hotkey_ralt = voice.value("hotkey_ralt", true);

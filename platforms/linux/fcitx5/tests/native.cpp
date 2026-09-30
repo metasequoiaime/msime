@@ -110,22 +110,39 @@ void candidateThemeDecoration() {
   require(copies().empty(), "previous skin's overlay removed");
   std::filesystem::remove_all(root);
 }
-// The mode badge draws in the candidate panel's appearance. The default candidate_theme "follow" and global "system" on a light desktop used to give a dark badge, because only an explicit "light" counted. Runs before the resource fixture.
+// The mode badge takes the macOS badge's mode rule and the resolved theme's palette. Runs before the resource fixture.
 void modeBadgeTheme() {
-  require(fcitx_mode_badge_light_theme(Json{{"candidate_theme", "follow"}}, false, Json()),
-          "follow on a light desktop gives a light badge");
-  require(!fcitx_mode_badge_light_theme(Json{{"candidate_theme", "follow"}}, true, Json()),
-          "follow on a dark desktop gives a dark badge");
-  require(fcitx_mode_badge_light_theme(Json::object(), false, Json()), "absent keys follow a light desktop");
-  require(!fcitx_mode_badge_light_theme(Json{{"theme", "dark"}, {"candidate_theme", "follow"}}, false, Json()),
-          "follow defers to a dark global theme");
-  require(fcitx_mode_badge_light_theme(Json{{"theme", "dark"}, {"candidate_theme", "light"}}, true, Json()),
-          "an explicit light candidate theme wins");
-  require(!fcitx_mode_badge_light_theme(Json{{"theme", "light"}, {"candidate_theme", "dark"}}, false, Json()),
-          "an explicit dark candidate theme wins");
+  const auto dark = [](const Json &preferences, bool system_dark) {
+    return fcitx_mode_badge_theme(preferences, system_dark, Json()).dark;
+  };
+  // toolbar_theme "follow" defers to the global mode, whose "system" follows the desktop, so a light desktop gets a light badge.
+  require(!dark(Json{{"toolbar_theme", "follow"}, {"theme", "system"}}, false), "follow on a light desktop gives a light badge");
+  require(dark(Json{{"toolbar_theme", "follow"}, {"theme", "system"}}, true), "follow on a dark desktop gives a dark badge");
+  require(dark(Json{{"toolbar_theme", "follow"}, {"theme", "dark"}}, false), "follow defers to a dark global theme");
+  // An explicit toolbar mode wins over the global mode and over the candidate mode.
+  require(!dark(Json{{"toolbar_theme", "light"}, {"theme", "dark"}, {"candidate_theme", "dark"}}, true),
+          "an explicit light toolbar theme wins");
+  require(dark(Json{{"toolbar_theme", "dark"}, {"theme", "light"}, {"candidate_theme", "light"}}, false),
+          "an explicit dark toolbar theme wins");
+  require(!dark(Json{{"toolbar_theme", "follow"}, {"theme", "system"}, {"candidate_theme", "dark"}}, false),
+          "the candidate mode does not colour the badge when toolbar_theme is present");
+  // A document without toolbar_theme keeps the candidate panel's mode.
+  require(!dark(Json::object(), false), "absent keys follow a light desktop");
+  require(!dark(Json{{"theme", "dark"}, {"candidate_theme", "light"}}, true), "without toolbar_theme the candidate mode decides");
   // A global theme with a fixed appearance draws the panel in it, so the badge follows it too.
-  require(!fcitx_mode_badge_light_theme(Json{{"global_theme", "ink"}}, false, Json()), "a dark global theme gives a dark badge");
-  require(fcitx_mode_badge_light_theme(Json{{"global_theme", "paper"}}, true, Json()), "a light global theme gives a light badge");
+  require(dark(Json{{"global_theme", "ink"}, {"toolbar_theme", "light"}}, false), "a dark global theme gives a dark badge");
+  require(!dark(Json{{"global_theme", "paper"}, {"toolbar_theme", "dark"}}, true), "a light global theme gives a light badge");
+  // The colours are the resolved theme's card, the same the candidate panel draws in that mode.
+  for (const auto &preferences : {Json{{"global_theme", "ink"}}, Json{{"global_theme", "paper"}}, Json::object()}) {
+    const auto badge = msime::linux_host::floating_surface_colors(fcitx_mode_badge_theme(preferences, false, Json()));
+    const auto panel = resolveCandidateTheme(preferences, false, Json()).colors;
+    require(badge.surface == *panel.background && badge.text == *panel.text && badge.accent == *panel.accent,
+            "the badge draws the panel's surface, text and accent");
+    require(badge.border == (panel.border_width > 0 ? panel.border : std::nullopt), "the badge outline is the panel's");
+  }
+  // The voice overlay resolves the same theme in its own mode.
+  const auto voice = resolveVoiceOverlayTheme(Json{{"global_theme", "ink"}, {"voice_theme", "light"}}, false, Json());
+  require(voice.dark, "a fixed-appearance theme overrides the voice overlay's mode too");
 }
 // classicui's options belong to every input method, so the first takeover records what it replaced for msime-linux-setup --unregister, and a later write keeps that value while the option still holds MSIME's. Runs against a scratch XDG_STATE_HOME before the resource fixture; the fixture instance does not load classicui, so this drives the recording step the addon's writes go through.
 void classicuiTakeoverRecord() {

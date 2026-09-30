@@ -1,4 +1,5 @@
 #include "../src/overlay/WaveOverlayPlacement.h"
+#include "../src/overlay/ModeBadgeStyle.h"
 
 #include <cassert>
 #include <optional>
@@ -131,9 +132,11 @@ int main() {
   assert(oversized.x == -800);
   assert(oversized.y == 120);
 
-  // The Fcitx5 X11 mode badge: 132 x 64 logical pixels, 24 in from the right and bottom of the work area of the monitor holding focus. Monitor A is 1920 x 1080 at the origin with a 48 px bottom panel; monitor B is a 2560 x 1440 display to its left with a 64 px dock on its right edge; the work areas come from Mutter's per-monitor list.
+  // The Fcitx5 X11 mode badge at the default 24 px, 100 % toolbar size with a 22 px glyph: 74 x 44 logical pixels, 24 in from the right and bottom of the work area of the monitor holding focus. Monitor A is 1920 x 1080 at the origin with a 48 px bottom panel; monitor B is a 2560 x 1440 display to its left with a 64 px dock on its right edge; the work areas come from Mutter's per-monitor list.
   {
     using msime::linux_host::wave_overlay_bottom_right;
+    const auto badge = msime::linux_host::mode_badge_layout(msime::linux_host::ModeBadgeMetrics{}, 22.0, true);
+    assert(badge.width == 74 && badge.height == 44);
     const std::vector<WaveOverlayWorkArea> badge_work_areas = {
         {0, 0, 1920, 1032}, {-2560, 0, 2496, 1440}};
     std::vector<WaveOverlayMonitor> badge_monitors = {
@@ -148,33 +151,33 @@ int main() {
                                                    pointer, std::size_t{0});
       assert(index);
       return wave_overlay_bottom_right(
-          badge_monitors[*index].work, wave_overlay_scaled(132, badge_scale),
-          wave_overlay_scaled(64, badge_scale),
+          badge_monitors[*index].work, wave_overlay_scaled(badge.width, badge_scale),
+          wave_overlay_scaled(badge.height, badge_scale),
           wave_overlay_scaled(24, badge_scale));
     };
     // Scale 1, focus on A: above A's bottom panel, not at the corner of the whole root window.
     const auto on_a = badge_at(WaveOverlayPosition{960, 540}, std::nullopt,
                                wave_overlay_scale(96.0, std::nullopt));
-    assert(on_a.x == 1920 - 132 - 24);
-    assert(on_a.y == 1032 - 64 - 24);
+    assert(on_a.x == 1920 - 74 - 24);
+    assert(on_a.y == 1032 - 44 - 24);
     // Scale 1, focus on B: left of B's dock, at negative root coordinates.
     const auto on_b = badge_at(WaveOverlayPosition{-1280, 700}, std::nullopt,
                                wave_overlay_scale(96.0, std::nullopt));
-    assert(on_b.x == -2560 + 2496 - 132 - 24);
-    assert(on_b.y == 1440 - 64 - 24);
+    assert(on_b.x == -2560 + 2496 - 74 - 24);
+    assert(on_b.y == 1440 - 44 - 24);
     // Scale 2 (Xft.dpi 192): the badge and its margin double. With no focused window the pointer picks the monitor.
     const auto hidpi_a = badge_at(std::nullopt, WaveOverlayPosition{100, 100},
                                   wave_overlay_scale(192.0, std::nullopt));
-    assert(hidpi_a.x == 1920 - 264 - 48);
-    assert(hidpi_a.y == 1032 - 128 - 48);
+    assert(hidpi_a.x == 1920 - 148 - 48);
+    assert(hidpi_a.y == 1032 - 88 - 48);
     const auto hidpi_b =
         badge_at(std::nullopt, WaveOverlayPosition{-1, 1439},
                  wave_overlay_scale(192.0, std::nullopt));
-    assert(hidpi_b.x == -64 - 264 - 48);
-    assert(hidpi_b.y == 1440 - 128 - 48);
+    assert(hidpi_b.x == -64 - 148 - 48);
+    assert(hidpi_b.y == 1440 - 88 - 48);
     // A work area too small for the badge and its margin pins it to the area's origin rather than onto the neighbouring monitor.
     const auto cramped =
-        wave_overlay_bottom_right({-300, 50, 300, 100}, 264, 128, 48);
+        wave_overlay_bottom_right({-300, 50, 150, 100}, 148, 88, 48);
     assert(cramped.x == -300);
     assert(cramped.y == 50);
   }

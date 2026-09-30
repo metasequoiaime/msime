@@ -385,15 +385,24 @@ void WaveOverlayWaylandSurface::draw(const WaveOverlayModel &model) {
   set_input_region(model.actions_visible);
   if (!model.actions_visible)
     action_pressed_ = false;
-  const auto background = model.light_theme ? 0xE6F5F7FAu : 0xE6202124u;
-  const auto border = model.light_theme ? 0xFFE0E4EAu : 0xFF30343Bu;
-  const auto foreground = model.light_theme ? 0xFF202124u : 0xFFF5F7FAu;
-  const auto accent = model.light_theme ? 0xFF3367D6u : 0xFF73A7FFu;
+  auto background = model.light_theme ? 0xE6F5F7FAu : 0xE6202124u;
+  auto border = model.light_theme ? 0xFFE0E4EAu : 0xFF30343Bu;
+  auto foreground = model.light_theme ? 0xFF202124u : 0xFFF5F7FAu;
+  auto accent = model.light_theme ? 0xFF3367D6u : 0xFF73A7FFu;
+  auto listening_color = 0xFF73A7FFu;
+  // The resolved theme's palette when the frontend gave one: its surface (at the same translucency) for the bar, its outline (else the surface) for the frame, its text and its accent, which also colours the level bars while listening. The locked and processing colours are states, not theme colours, and stay.
+  if (model.palette) {
+    background = 0xE6000000u | model.palette->surface;
+    border = 0xFF000000u | model.palette->border.value_or(model.palette->surface);
+    foreground = 0xFF000000u | model.palette->text;
+    accent = 0xFF000000u | model.palette->accent;
+    listening_color = accent;
+  }
   std::fill(pixels, pixels + kWidth * kHeight, background);
   const auto status_color = model.locked ? 0xFFFFC857u
                            : model.compact_status == WaveOverlayModel::CompactStatus::Processing
                                ? 0xFFFF8A65u
-                               : 0xFF73A7FFu;
+                               : listening_color;
   for (int y = 12; y < 64; ++y)
     for (int x = 0; x < kWidth; ++x)
       if (y < 16 || y >= 60 || x < 12 || x >= kWidth - 12)
@@ -413,18 +422,31 @@ void WaveOverlayWaylandSurface::draw(const WaveOverlayModel &model) {
       reinterpret_cast<unsigned char *>(pixels), CAIRO_FORMAT_ARGB32,
       kWidth, kHeight, kStride);
   auto *cairo = cairo_create(image);
-  cairo_set_source_rgb(cairo, model.light_theme ? 0.96 : 0.125,
-                       model.light_theme ? 0.97 : 0.13,
-                       model.light_theme ? 0.98 : 0.145);
+  const auto set_rgb = [cairo](uint32_t rgb, double alpha) {
+    cairo_set_source_rgba(cairo, ((rgb >> 16) & 0xff) / 255.0, ((rgb >> 8) & 0xff) / 255.0, (rgb & 0xff) / 255.0,
+                          alpha);
+  };
+  if (model.palette)
+    set_rgb(model.palette->border.value_or(model.palette->surface), 1.0);
+  else
+    cairo_set_source_rgb(cairo, model.light_theme ? 0.96 : 0.125,
+                         model.light_theme ? 0.97 : 0.13,
+                         model.light_theme ? 0.98 : 0.145);
   cairo_paint(cairo);
-  cairo_set_source_rgba(cairo, model.light_theme ? 1.0 : 0.125,
-                        model.light_theme ? 1.0 : 0.13,
-                        model.light_theme ? 1.0 : 0.145, 0.9);
+  if (model.palette)
+    set_rgb(model.palette->surface, 0.9);
+  else
+    cairo_set_source_rgba(cairo, model.light_theme ? 1.0 : 0.125,
+                          model.light_theme ? 1.0 : 0.13,
+                          model.light_theme ? 1.0 : 0.145, 0.9);
   cairo_rectangle(cairo, 12, 12, kWidth - 24, 108);
   cairo_fill(cairo);
-  cairo_set_source_rgba(cairo, model.locked ? 1.0 : 0.45,
-                        model.locked ? 0.78 : 0.65,
-                        model.locked ? 0.34 : 1.0, 1.0);
+  if (model.palette && !model.locked)
+    set_rgb(model.palette->accent, 1.0);
+  else
+    cairo_set_source_rgba(cairo, model.locked ? 1.0 : 0.45,
+                          model.locked ? 0.78 : 0.65,
+                          model.locked ? 0.34 : 1.0, 1.0);
   for (std::size_t index_bar = 0; index_bar < model.levels.size(); ++index_bar) {
     const auto height = std::max(4, static_cast<int>(model.levels[index_bar] * 38.0f));
     cairo_rectangle(cairo, 24 + static_cast<int>(index_bar) * width,
@@ -441,9 +463,12 @@ void WaveOverlayWaylandSurface::draw(const WaveOverlayModel &model) {
   if (status.empty())
     status = "正在录音…";
   pango_layout_set_text(layout, status.c_str(), -1);
-  cairo_set_source_rgb(cairo, model.light_theme ? 0.125 : 0.96,
-                       model.light_theme ? 0.13 : 0.97,
-                       model.light_theme ? 0.145 : 0.98);
+  if (model.palette)
+    set_rgb(model.palette->text, 1.0);
+  else
+    cairo_set_source_rgb(cairo, model.light_theme ? 0.125 : 0.96,
+                         model.light_theme ? 0.13 : 0.97,
+                         model.light_theme ? 0.145 : 0.98);
   cairo_move_to(cairo, model.actions_visible ? 52 : 24, 70);
   pango_cairo_show_layout(cairo, layout);
   if (model.show_transcript && !model.transcript.empty()) {

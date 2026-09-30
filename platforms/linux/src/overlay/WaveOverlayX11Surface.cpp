@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <locale>
 #include <optional>
@@ -110,6 +111,9 @@ bool WaveOverlayX11Surface::ensure_window() {
   light_background_ = color(display_, screen, "#f5f7fa", WhitePixel(display_, screen));
   light_foreground_ = color(display_, screen, "#202124", BlackPixel(display_, screen));
   light_accent_ = color(display_, screen, "#3367d6", BlackPixel(display_, screen));
+  border_ = attributes.border_pixel;
+  current_border_ = border_;
+  palette_pixels_.clear();
   // Zero size makes the first place() apply the scale, resize the window and load the font set.
   scale_ = 1.0;
   width_ = 0;
@@ -281,6 +285,18 @@ void WaveOverlayX11Surface::destroy_window() {
   visible_ = false;
 }
 
+unsigned long WaveOverlayX11Surface::palette_pixel(std::uint32_t rgb, unsigned long fallback) {
+  for (const auto &[cached, pixel] : palette_pixels_)
+    if (cached == rgb) return pixel;
+  char value[8];
+  std::snprintf(value, sizeof(value), "#%06x", rgb & 0xffffffu);
+  const auto pixel = color(display_, DefaultScreen(display_), value, fallback);
+  // A theme switch brings new colours; a bounded cache keeps a long session from growing it, and TrueColor visuals allocate nothing to free.
+  if (palette_pixels_.size() >= 16) palette_pixels_.clear();
+  palette_pixels_.emplace_back(rgb, pixel);
+  return pixel;
+}
+
 void WaveOverlayX11Surface::draw(const WaveOverlayModel &model) {
   if (!display_ || !window_ || !gc_)
     return;
@@ -288,9 +304,21 @@ void WaveOverlayX11Surface::draw(const WaveOverlayModel &model) {
   set_input_region(model.actions_visible);
   if (!model.actions_visible)
     action_pressed_ = false;
-  const auto background = model.light_theme ? light_background_ : background_;
-  const auto foreground = model.light_theme ? light_foreground_ : foreground_;
-  const auto accent = model.light_theme ? light_accent_ : accent_;
+  auto background = model.light_theme ? light_background_ : background_;
+  auto foreground = model.light_theme ? light_foreground_ : foreground_;
+  auto accent = model.light_theme ? light_accent_ : accent_;
+  auto border = border_;
+  // The resolved theme's palette when the frontend gave one: its surface, text and accent, and its outline (the surface itself when the theme draws none, so the 1 px border disappears).
+  if (model.palette) {
+    background = palette_pixel(model.palette->surface, background);
+    foreground = palette_pixel(model.palette->text, foreground);
+    accent = palette_pixel(model.palette->accent, accent);
+    border = model.palette->border ? palette_pixel(*model.palette->border, border_) : background;
+  }
+  if (border != current_border_) {
+    XSetWindowBorder(display_, window_, border);
+    current_border_ = border;
+  }
   XSetForeground(display_, gc_, background);
   XFillRectangle(display_, window_, gc_, 0, 0, width_, height_);
   XSetForeground(display_, gc_, accent);

@@ -97,6 +97,14 @@ inline bool candidate_dark_theme(const nlohmann::json &preferences, bool system_
   return global == "system" ? system_dark : global != "light";
 }
 
+// Whether a floating surface with a mode preference of its own (toolbar_theme, voice_theme) draws dark, by the rule macOS gives its floating toolbar and mode badge: that preference when it names a mode, otherwise the global mode, whose "system" (also the shared default when the key is absent) follows the desktop. A resolved theme with a fixed appearance still overrides this, as it does for the candidate window.
+inline bool surface_dark_theme(const nlohmann::json &preferences, const char *surface_key, bool system_dark) {
+  const auto theme = preferences.value(surface_key, "follow");
+  if (theme == "dark" || theme == "light") return theme == "dark";
+  const auto global = preferences.value("theme", "system");
+  return global == "system" ? system_dark : global != "light";
+}
+
 // The candidate window being drawn, as msime_client_resolve_theme takes it: a package may declare only one of the two layouts.
 inline std::string candidate_layout_id(const nlohmann::json &preferences) {
   return preferences.value("candidate_layout", std::string{}) == "horizontal" ? "horizontal" : "vertical";
@@ -191,6 +199,18 @@ inline CandidateTheme candidate_theme_colors(const nlohmann::json &resolved, boo
     colors.border_width = 1;
   }
   return theme;
+}
+
+// A floating surface's palette from a resolved theme, already composited opaque by candidate_theme_colors: the card surface, its text, its accent text colour and its outline (none when the theme draws no border). Every slot is set there, so the native tokens are only the guard for a theme built by hand.
+inline FloatingSurfaceColors floating_surface_colors(const CandidateTheme &theme) {
+  const auto native = candidate_native_palette(theme.dark);
+  const auto &colors = theme.colors;
+  return FloatingSurfaceColors{
+      colors.background.value_or(native.surface),
+      colors.text.value_or(native.text),
+      colors.accent.value_or(native.accent),
+      colors.border && colors.border_width > 0 ? colors.border : std::nullopt,
+  };
 }
 
 }  // namespace msime::linux_host

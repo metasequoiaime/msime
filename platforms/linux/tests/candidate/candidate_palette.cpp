@@ -26,6 +26,24 @@ int main() {
   assert(candidate_dark_theme(Json{{"theme", "light"}, {"candidate_theme", "dark"}}, false));
   assert(!candidate_dark_theme(Json{{"theme", "dark"}, {"candidate_theme", "light"}}, true));
 
+  // A floating surface's own mode key (toolbar_theme) wins when it names a mode and otherwise defers to the global mode, whose default "system" follows the desktop; the candidate mode plays no part.
+  using host::surface_dark_theme;
+  assert(surface_dark_theme(Json{{"toolbar_theme", "dark"}, {"candidate_theme", "light"}}, "toolbar_theme", false));
+  assert(!surface_dark_theme(Json{{"toolbar_theme", "light"}, {"theme", "dark"}}, "toolbar_theme", true));
+  assert(surface_dark_theme(Json{{"toolbar_theme", "follow"}, {"theme", "dark"}}, "toolbar_theme", false));
+  assert(!surface_dark_theme(Json{{"toolbar_theme", "follow"}, {"candidate_theme", "dark"}}, "toolbar_theme", false));
+  assert(surface_dark_theme(Json::object(), "toolbar_theme", true));
+
+  // Its palette is the resolved card: surface, text and accent, and the outline only when the theme draws one.
+  const auto native_floating = host::floating_surface_colors(host::candidate_theme_colors(Json::object(), true));
+  assert(native_floating.surface == dark.surface && native_floating.text == dark.text);
+  assert(native_floating.accent == dark.accent && native_floating.border == dark.border);
+  const auto borderless = host::floating_surface_colors(host::candidate_theme_colors(
+      Json{{"candidate", {{"surface", "#102030"}, {"text", "#F0F0F0"}, {"accent", "#FF8800"}, {"border", "#00000000"}}}},
+      false));
+  assert(borderless.surface == 0x102030u && borderless.text == 0xF0F0F0u && borderless.accent == 0xFF8800u);
+  assert(!borderless.border);
+
   // Slot colours: the shared layer writes #RRGGBB or #RRGGBBAA and nothing else.
   assert(host::theme_color(Json("#FF000080"))->alpha == 0x80);
   assert(host::theme_color(Json("#ABCDEF"))->rgb == 0xABCDEFu && host::theme_color(Json("#ABCDEF"))->alpha == 0xFF);

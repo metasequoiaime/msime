@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <functional>
 #include <utility>
+#include <vector>
 
 namespace msime::linux_host {
 
@@ -34,6 +35,7 @@ class WaveOverlayX11Surface final : public WaveOverlaySurface {
   void set_input_region(bool actions_visible);
   bool hit_test_action(int x, int y, WaveOverlayModel::Action &action) const;
   void destroy_window();
+  unsigned long palette_pixel(std::uint32_t rgb, unsigned long fallback);
 
   Display *display_ = nullptr;
   Window window_ = 0;
@@ -45,6 +47,11 @@ class WaveOverlayX11Surface final : public WaveOverlaySurface {
   unsigned long light_background_ = 0;
   unsigned long light_foreground_ = 0;
   unsigned long light_accent_ = 0;
+  unsigned long border_ = 0;
+  // The window border currently set, so a palette change re-borders the window once rather than on every level update.
+  unsigned long current_border_ = 0;
+  // Pixels allocated for the resolved theme's colours, keyed by RGB: a theme has a handful, and draw() runs for every level change.
+  std::vector<std::pair<std::uint32_t, unsigned long>> palette_pixels_;
   bool visible_ = false;
   ActionHandler action_handler_;
   WaveOverlayModel::Action pressed_action_ = WaveOverlayModel::Action::Confirm;

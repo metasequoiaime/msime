@@ -16,12 +16,8 @@ namespace msime::linux_host {
 
 namespace {
 
-// Logical geometry at a scale of 1, the same as the Wayland badge's; show() multiplies it by the desktop scale.
-constexpr int kWidth = 132;
-constexpr int kHeight = 64;
+// The margin from the work area's corner in logical pixels, the same as the Wayland badge's; show() multiplies it and the badge's own size by the desktop scale.
 constexpr int kEdgeMargin = 24;
-constexpr int kIconSize = 36;
-constexpr int kIconLeft = 14;
 
 }  // namespace
 
@@ -67,8 +63,8 @@ bool ModeBadgeX11Surface::ensure_window() {
     mask |= CWColormap;
   }
   visual_ = visual;
-  // Position and size are set by show(), which knows the target monitor and scale.
-  window_ = XCreateWindow(display_, root, 0, 0, kWidth, kHeight, 0, depth, InputOutput, visual,
+  // Position and size are set by show(), which knows the target monitor, the scale and the badge's measured size.
+  window_ = XCreateWindow(display_, root, 0, 0, 1, 1, 0, depth, InputOutput, visual,
                           mask, &attributes);
   if (visuals) XFree(visuals);
   if (!window_) {
@@ -93,12 +89,13 @@ bool ModeBadgeX11Surface::ensure_window() {
 }
 
 bool ModeBadgeX11Surface::show(const std::string &text, const std::string &icon_path,
-                               bool light_theme) {
+                               const ModeBadgeStyle &style) {
   if (!ensure_window()) return false;
+  const auto layout = measure_mode_badge(style.metrics, icon_path);
   // Bottom-right with the Wayland badge's margin, but inside the work area of the monitor holding the focused window (else the pointer) and scaled by GDK_SCALE / Xft.dpi, as the voice bar is; GNOME under Xwayland comes through here too. It still does not follow the caret: the panel's text hint covers that half, which keeps both session types alike. Monitors, panels and the scale can all change between two switches, and a switch is rare enough that re-reading them on every show costs nothing.
   const auto scale = x11_overlay_scale(display_);
-  const auto width = wave_overlay_scaled(kWidth, scale);
-  const auto height = wave_overlay_scaled(kHeight, scale);
+  const auto width = wave_overlay_scaled(layout.width, scale);
+  const auto height = wave_overlay_scaled(layout.height, scale);
   const auto monitor = x11_overlay_monitor(display_, randr_monitors_);
   const auto position =
       wave_overlay_bottom_right(monitor.work, width, height, wave_overlay_scaled(kEdgeMargin, scale));
@@ -108,9 +105,9 @@ bool ModeBadgeX11Surface::show(const std::string &text, const std::string &icon_
   XMapRaised(display_, window_);
   auto *surface = cairo_xlib_surface_create(display_, window_, visual_, width, height);
   auto *cairo = cairo_create(surface);
-  // The painter works in logical pixels; scaling the context scales the plate, the logo (kIconSize, kIconLeft), the text and the outline together.
-  cairo_scale(cairo, static_cast<double>(width) / kWidth, static_cast<double>(height) / kHeight);
-  paint_mode_badge(cairo, kWidth, kHeight, text, icon_path, light_theme, kIconSize, kIconLeft);
+  // The painter works in the layout's logical pixels; scaling the context scales the plate, the logo, the glyph and the outline together.
+  cairo_scale(cairo, static_cast<double>(width) / layout.width, static_cast<double>(height) / layout.height);
+  paint_mode_badge(cairo, layout, text, icon_path, style.colors);
   cairo_destroy(cairo);
   cairo_surface_destroy(surface);
   XFlush(display_);

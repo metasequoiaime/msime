@@ -48,6 +48,14 @@ inline CandidateNativePalette candidate_native_palette(bool dark) {
   };
 }
 
+// The palette of a floating surface MSIME draws itself (the mode badge, the voice overlay), taken from the resolved theme's candidate palette as THEME_CONTRACT §3 derives the floating toolbar from it: surface for the plate, text for glyphs, accent for highlights and border for the outline, all opaque. No border means the theme draws none.
+struct FloatingSurfaceColors {
+  std::uint32_t surface;
+  std::uint32_t text;
+  std::uint32_t accent;
+  std::optional<std::uint32_t> border;
+};
+
 // IBus auxiliary text has no native caret geometry. When the displayed
 // candidate preedit is the Engine's ASCII editing text, a plain-text marker is
 // the least surprising Linux equivalent of the Windows candidate caret. Do

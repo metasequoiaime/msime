@@ -290,10 +290,8 @@ const Json &themeCatalog() {
   return document;
 }
 
-// The candidate colours for one preferences document, resolved by the shared layer (msime_client_resolve_theme) in the mode candidate_theme settles on. The package is a catalogue entry the shared layer reads strictly, and one it refuses fails the whole call, so that costs only the package: the theme is resolved again without it. A call that still fails draws the native tokens.
-msime::linux_host::CandidateTheme resolveCandidateTheme(const Json &preferences, bool system_dark,
-                                                        const Json &catalog) {
-  const bool dark = msime::linux_host::candidate_dark_theme(preferences, system_dark);
+// The candidate colours for one preferences document, resolved by the shared layer (msime_client_resolve_theme) in the given mode. The package is a catalogue entry the shared layer reads strictly, and one it refuses fails the whole call, so that costs only the package: the theme is resolved again without it. A call that still fails draws the native tokens.
+msime::linux_host::CandidateTheme resolveThemeInMode(const Json &preferences, bool dark, const Json &catalog) {
   auto request = msime::linux_host::candidate_theme_request(preferences, dark, catalog);
   while (true) {
     try {
@@ -307,6 +305,20 @@ msime::linux_host::CandidateTheme resolveCandidateTheme(const Json &preferences,
     }
   }
   return msime::linux_host::candidate_theme_colors(Json::object(), dark);
+}
+
+// The candidate window's theme, in the mode candidate_theme settles on.
+msime::linux_host::CandidateTheme resolveCandidateTheme(const Json &preferences, bool system_dark,
+                                                        const Json &catalog) {
+  return resolveThemeInMode(preferences, msime::linux_host::candidate_dark_theme(preferences, system_dark), catalog);
+}
+
+// The voice overlay's theme: its mode from voice_theme by the rule it has always used (VoiceAction.h), its colours from the resolved theme as the floating toolbar takes them, so the bar MSIME draws matches the candidate window's theme rather than fixed greys. A fixed-appearance theme overrides the mode, as it does for the panel.
+msime::linux_host::CandidateTheme resolveVoiceOverlayTheme(const Json &preferences, bool system_dark,
+                                                           const Json &catalog) {
+  const bool dark = !msime_voice_overlay_light_theme(preferences.value("voice_theme", "follow"),
+                                                     preferences.value("theme", "dark"), system_dark);
+  return resolveThemeInMode(preferences, dark, catalog);
 }
 
 std::string providerSocket(const Json &options, const char *option,
@@ -1529,9 +1541,7 @@ public:
         voicePreferences.value("hotkey_hold_space_lock", voice_hotkey_hold_space_lock_);
     voice_language_ = voicePreferences.value("language", std::string("zh-cn"));
     loadVoiceOptions();
-    wave_overlay_.light_theme = msime_voice_overlay_light_theme(
-        preferences_.value("voice_theme", "follow"),
-        preferences_.value("theme", "dark"), system_dark_);
+    syncVoiceOverlayTheme();
     online_socket_ = onlineSocket(options);
     translation_socket_ = translationSocket(options);
     if (private_) {
@@ -1638,9 +1648,7 @@ public:
                 voicePreferences.value("hotkey_hold_space_lock", voice_hotkey_hold_space_lock_);
             voice_language_ = voicePreferences.value("language", voice_language_);
             loadVoiceOptions();
-            wave_overlay_.light_theme = msime_voice_overlay_light_theme(
-                preferences_.value("voice_theme", "follow"),
-                preferences_.value("theme", "dark"), system_dark_);
+            syncVoiceOverlayTheme();
             syncVoiceAction();
             preferences_snapshot_ = std::move(snapshot);
             render();
@@ -1678,6 +1686,7 @@ public:
       candidate_skin_document_ = options.value("candidate_skin_catalog", Json());
       refreshThemeMenu();
       syncCandidatePanelTheme();
+      syncVoiceOverlayTheme();
       // Runtime options can move the shared clipboard history while this
       // input context remains focused. Keep the same path precedence as the
       // initial session setup and fence an in-flight read from the old file.
@@ -2290,13 +2299,17 @@ public:
     clearPanel();
     msime_linux_diagnostic_write("dictionary_quiesce_released");
   }
+  // The voice overlay's mode and palette, re-read wherever the preferences, the skin catalogue or the desktop appearance change.
+  void syncVoiceOverlayTheme() {
+    const auto theme = resolveVoiceOverlayTheme(preferences_, system_dark_, candidate_skin_document_);
+    wave_overlay_.light_theme = !theme.dark;
+    wave_overlay_.palette = msime::linux_host::floating_surface_colors(theme);
+  }
   // Called by FcitxEngine::applySystemTheme on the loop when its addon-wide probe sees the desktop appearance change.
   void setSystemDark(bool dark) {
     if (dark == system_dark_) return;
     system_dark_ = dark;
-    wave_overlay_.light_theme = msime_voice_overlay_light_theme(
-        preferences_.value("voice_theme", "follow"),
-        preferences_.value("theme", "dark"), system_dark_);
+    syncVoiceOverlayTheme();
     if (voice_loading_) updateVoiceOverlay();
     syncCandidatePanelTheme();
   }
@@ -5736,9 +5749,12 @@ void FcitxState::maintenance(int operation) {
   }
 }
 
-// The badge takes the candidate panel's appearance: a global theme with a fixed appearance (水杉 is dark, 纸白 light) decides it; otherwise candidate_theme "follow" (跟随全局) defers to the mode, whose "system" (跟随系统) default follows the desktop, so a light desktop gets a light badge.
-bool fcitx_mode_badge_light_theme(const Json &preferences, bool system_dark, const Json &catalog) {
-  return !resolveCandidateTheme(preferences, system_dark, catalog).dark;
+// The badge's theme, by the macOS badge's rule: its mode is toolbar_theme when that names one, otherwise the global mode, whose "system" (跟随系统) default follows the desktop; a document without toolbar_theme (older than the key) keeps the candidate panel's mode. A global theme with a fixed appearance (水杉 is dark, 纸白 light) decides it either way, and the colours are that theme's palette as the floating toolbar takes it.
+msime::linux_host::CandidateTheme fcitx_mode_badge_theme(const Json &preferences, bool system_dark, const Json &catalog) {
+  const bool dark = preferences.is_object() && preferences.contains("toolbar_theme")
+                        ? msime::linux_host::surface_dark_theme(preferences, "toolbar_theme", system_dark)
+                        : msime::linux_host::candidate_dark_theme(preferences, system_dark);
+  return resolveThemeInMode(preferences, dark, catalog);
 }
 
 void FcitxState::showInputModeHud() {
@@ -5758,9 +5774,12 @@ void FcitxState::showInputModeHud() {
   }
   // 两个提示各补一半：面板那个由合成器按光标矩形定位，跟着输入点走，但只能显示文字；
   // 自绘徽章带得了 logo，却只能用屏幕坐标固定在一个角上。两者同时发是所有者的选择。
-  if (mode_badge_ &&
-      mode_badge_->show(label, MSIME_MODE_BADGE_ICON, fcitx_mode_badge_light_theme(preferences_, system_dark_, candidate_skin_document_)))
-    scheduleModeBadgeHide();
+  // Sized by the shared floating toolbar preferences and coloured by the resolved theme, both read at every switch so a settings change shows at the next one.
+  const msime::linux_host::ModeBadgeStyle style{
+      msime::linux_host::mode_badge_metrics(preferences_),
+      msime::linux_host::floating_surface_colors(
+          fcitx_mode_badge_theme(preferences_, system_dark_, candidate_skin_document_))};
+  if (mode_badge_ && mode_badge_->show(label, MSIME_MODE_BADGE_ICON, style)) scheduleModeBadgeHide();
 #endif
   if (auto *instance = engine_->instance())
     instance->showCustomInputMethodInformation(&ic_, label);

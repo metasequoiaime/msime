@@ -3,8 +3,11 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <utility>
+
+#include "../candidates/CandidatePalette.h"
 
 namespace msime::linux_host {
 
@@ -17,14 +20,18 @@ struct WaveOverlayModel {
   bool show_transcript = true;
   bool actions_visible = false;
   bool light_theme = false;
+  // The resolved theme's colours for the surfaces MSIME draws itself (X11, Wayland); unset keeps their built-in light or dark colours. The IBus fallback shows only text and ignores it.
+  std::optional<FloatingSurfaceColors> palette;
   std::string transcript;
   std::string status;
   bool locked = false;
 
   void reset() {
     const auto theme = light_theme;
+    auto colors = palette;
     *this = WaveOverlayModel{};
     light_theme = theme;
+    palette = colors;
   }
 
   void set_transcript(std::string value) {
