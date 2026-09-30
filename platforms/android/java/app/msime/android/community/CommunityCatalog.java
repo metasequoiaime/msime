@@ -6,7 +6,9 @@ import java.io.InputStream;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import javax.net.ssl.HttpsURLConnection;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -87,18 +89,19 @@ public final class CommunityCatalog {
     private static Page parse(CommunityRequest.Kind kind, JSONObject root) {
         JSONArray values = root.optJSONArray(
             kind == CommunityRequest.Kind.SKIN ? "skins" : "items");
-        if (values == null) return new Page(List.of(), false, "");
+        if (values == null) return new Page(List.of(), false, CommunityRequest.message(null, 500));
         boolean hasMore = root.optBoolean("has_more", false);
-        if (invalidPage(values.length(), hasMore)) {
-            return new Page(List.of(), false, CommunityRequest.message(null, 500));
-        }
         List<Item> items = new ArrayList<>(values.length());
+        Set<String> ids = new HashSet<>();
         for (int index = 0; index < values.length(); index++) {
             JSONObject value = values.optJSONObject(index);
             if (value == null) continue;
             String id = value.optString("id", "");
             String name = value.optString("name", "").trim();
             if (id.isEmpty() || name.isEmpty()) continue;
+            if (!ids.add(id)) {
+                return new Page(List.of(), false, CommunityRequest.message(null, 500));
+            }
             items.add(new Item(id, kind, name, value.optString("description", "").trim(),
                 value.optString("author", "").trim(),
                 value.optInt("saves", value.optInt("downloads", 0)),
@@ -106,12 +109,17 @@ public final class CommunityCatalog {
                 kind == CommunityRequest.Kind.SKIN ? value.optJSONObject("design")
                     : value.optJSONObject("content")));
         }
+        if (invalidPage(values.length(), items.size(), hasMore)) {
+            return new Page(List.of(), false, CommunityRequest.message(null, 500));
+        }
         return new Page(List.copyOf(items), hasMore, "");
     }
 
     /** A malformed page is a backend fault, not more results to show. Kept apart from parse so the JVM smoke can check it: the smokes run against android.jar, whose org.json classes are stubs that throw. */
-    static boolean invalidPage(int length, boolean hasMore) {
-        return length > CommunityRequest.PAGE_SIZE || (hasMore && length == 0);
+    static boolean invalidPage(int rawLength, int validLength, boolean hasMore) {
+        return rawLength > CommunityRequest.PAGE_SIZE
+            || validLength != rawLength
+            || (hasMore && validLength == 0);
     }
 
     /** The backend's own name for a failure, so the reader is told the specific thing. */

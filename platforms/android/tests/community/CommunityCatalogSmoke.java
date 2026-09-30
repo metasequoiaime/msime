@@ -5,12 +5,14 @@ import java.lang.reflect.Method;
 public final class CommunityCatalogSmoke {
     public static void main(String[] arguments) throws Exception {
         // The JVM smokes run against android.jar, whose org.json classes are stubs that throw, so the policy is checked separately from parse.
-        Method invalid = CommunityCatalog.class.getDeclaredMethod("invalidPage", int.class, boolean.class);
+        Method invalid = CommunityCatalog.class.getDeclaredMethod("invalidPage", int.class, int.class, boolean.class);
         invalid.setAccessible(true);
-        check(!(boolean) invalid.invoke(null, CommunityRequest.PAGE_SIZE, true), "a full page may have more results");
-        check((boolean) invalid.invoke(null, CommunityRequest.PAGE_SIZE + 1, false), "a page larger than the shared limit must be rejected");
-        check((boolean) invalid.invoke(null, 0, true), "an empty page with more results must be rejected");
-        check(!(boolean) invalid.invoke(null, 0, false), "an empty final page must be accepted");
+        check(!(boolean) invalid.invoke(null, CommunityRequest.PAGE_SIZE, CommunityRequest.PAGE_SIZE, true), "a full page may have more results");
+        check((boolean) invalid.invoke(null, CommunityRequest.PAGE_SIZE + 1, CommunityRequest.PAGE_SIZE + 1, false), "a page larger than the shared limit must be rejected");
+        check((boolean) invalid.invoke(null, 0, 0, true), "an empty page with more results must be rejected");
+        check((boolean) invalid.invoke(null, 1, 0, true), "a page with only malformed rows must not retry the same offset");
+        check((boolean) invalid.invoke(null, 2, 1, true), "dropping any row must not shift the next offset");
+        check(!(boolean) invalid.invoke(null, 0, 0, false), "an empty final page must be accepted");
         Method responseLimit = CommunityCatalog.class.getDeclaredMethod(
             "maximumResponseBytes", CommunityRequest.Kind.class);
         responseLimit.setAccessible(true);
