@@ -47,6 +47,19 @@ final class KeyboardCandidatePanelView: UIView {
     accessibilityIdentifier = "candidatePanel"
     backgroundColor = KeyboardTheme.current.keyBackground.withAlphaComponent(0.98)
 
+    // The brand mark leads the header the way it leads the macOS candidate window's top row: 16pt, then a 6pt gap before the reading. It is decorative -- an image view takes no touches and is not an accessibility element -- and tinted with the skin accent like the shortcut bar's brand button.
+    let brandMark = UIImageView(
+      image: KeyboardViewController.brandTemplate()
+        ?? UIImage(systemName: "leaf.fill")?.withRenderingMode(.alwaysTemplate))
+    brandMark.contentMode = .scaleAspectFit
+    brandMark.tintColor = KeyboardTheme.current.accent
+    brandMark.isUserInteractionEnabled = false
+    brandMark.isAccessibilityElement = false
+    brandMark.accessibilityIdentifier = "candidatePanelBrandIcon"
+    brandMark.translatesAutoresizingMaskIntoConstraints = false
+    brandMark.setContentHuggingPriority(.required, for: .horizontal)
+    brandMark.setContentCompressionResistancePriority(.required, for: .horizontal)
+
     let spelling = UILabel()
     spelling.text = preedit
     spelling.font = CandidateFontPreference.font(.subheadline, scale: preeditScale)
@@ -70,10 +83,11 @@ final class KeyboardCandidatePanelView: UIView {
     close.accessibilityLabel = "收起候选"
     close.setContentHuggingPriority(.required, for: .horizontal)
 
-    let header = UIStackView(arrangedSubviews: [spelling, count, UIView(), close])
+    let header = UIStackView(arrangedSubviews: [brandMark, spelling, count, UIView(), close])
     header.axis = .horizontal
     header.alignment = .center
     header.spacing = 8
+    header.setCustomSpacing(6, after: brandMark)
     header.translatesAutoresizingMaskIntoConstraints = false
     addSubview(header)
 
@@ -91,6 +105,8 @@ final class KeyboardCandidatePanelView: UIView {
       header.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
       header.topAnchor.constraint(equalTo: topAnchor, constant: 6),
       header.heightAnchor.constraint(equalToConstant: 32),
+      brandMark.widthAnchor.constraint(equalToConstant: 16),
+      brandMark.heightAnchor.constraint(equalToConstant: 16),
       scrollView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
       scrollView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
       scrollView.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 4),

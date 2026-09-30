@@ -89,6 +89,26 @@ final class CandidateFontSizeTests: XCTestCase {
     XCTAssertGreaterThan(font.pointSize, UIFont.preferredFont(forTextStyle: .body).pointSize)
   }
 
+  func testTheExpandedPanelHeaderLeadsWithTheBrandMark() throws {
+    let panel = KeyboardCandidatePanelView(
+      candidates: ["水杉"], preedit: "shuishan", display: { $0 }, onSelect: { _ in }, onClose: {})
+    panel.frame = CGRect(x: 0, y: 0, width: 390, height: 300)
+    panel.layoutIfNeeded()
+    let mark = try XCTUnwrap(find("candidatePanelBrandIcon", in: panel) as? UIImageView)
+    let spelling = try XCTUnwrap(find("candidatePanelSpelling", in: panel))
+    let header = try XCTUnwrap(mark.superview as? UIStackView)
+    XCTAssertTrue(header.arrangedSubviews.first === mark, "the mark leads the header")
+    XCTAssertTrue(spelling.superview === header)
+    XCTAssertNotNil(mark.image)
+    XCTAssertEqual(mark.image?.renderingMode, .alwaysTemplate)
+    XCTAssertEqual(mark.tintColor, KeyboardTheme.current.accent)
+    XCTAssertEqual(mark.bounds.width, 16, accuracy: 0.1)
+    XCTAssertEqual(mark.bounds.height, 16, accuracy: 0.1)
+    XCTAssertEqual(spelling.frame.minX - mark.frame.maxX, 6, accuracy: 0.5)
+    XCTAssertFalse(mark.isUserInteractionEnabled)
+    XCTAssertFalse(mark.isAccessibilityElement)
+  }
+
   func testTheLiveSessionSeesASizeTheSettingsAppWrote() async {
     let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
     XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: state) {

@@ -3659,9 +3659,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
   }
 
-  /// The source logo is white-backed and has no alpha, so use its luminance as a mask before
-  /// tinting it with the current skin accent. This prevents a white square on dark skins.
-  private static func brandTemplate() -> UIImage? {
+  /// The source logo is white-backed and has no alpha, so use its luminance as a mask before tinting it with the current skin accent. This prevents a white square on dark skins. The expanded candidate panel leads its header with the same template.
+  static func brandTemplate() -> UIImage? {
     guard let path = Bundle(for: KeyboardViewController.self).path(forResource: "KeyboardBrand", ofType: "png"),
           let source = UIImage(contentsOfFile: path),
           let cgImage = source.cgImage else { return nil }
