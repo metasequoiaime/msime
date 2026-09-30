@@ -6,6 +6,7 @@ import type { useCustomTranslations } from "./use-custom-translations";
 import type { SettingsSaveState } from "./use-settings-persistence";
 import { HandwritingPlatformNotice } from "./handwriting-platform-notice";
 import { MobileInputAiNotice } from "./mobile-input-ai-notice";
+import { MobileKeyboardFeedbackSettings } from "./mobile-keyboard-feedback-settings";
 import { InputSchemeSettingsContent } from "./input-scheme-settings-content";
 import { NavigationSection, defaultNavigation } from "./navigation-section";
 import type { TouchKeyboardScheme as TouchKeyboardSchemePreference } from "./touch-keyboard-scheme-helpers";
@@ -22,10 +23,7 @@ import { PunctuationSection } from "./punctuation-section";
 import { defaultMixedInput, type MixedInputPreferences } from "./mixed-input-section";
 import { defaultFrequency } from "./frequency-section";
 import { InputSharedSettingsSection } from "./input-shared-settings-section";
-import {
-  MobileKeyboardFeedbackSection,
-  type MobileKeyboardFeedback,
-} from "./mobile-keyboard-feedback-section";
+import type { MobileKeyboardFeedback } from "./mobile-keyboard-feedback-section";
 import type { FuzzyPinyinPreferences } from "./fuzzy-pinyin-section";
 import type { FrequencyPreferences } from "./frequency-section";
 import type { NavigationPreferences, WordCharacterPreferences } from "./word-character-section";
@@ -324,16 +322,15 @@ export function InputSettingsPanel({
         }
         onPreferencesChange={onPreferencesChange}
       />
-      {mobilePlatform && client.mobileKeyboardFeedback && mobileKeyboardFeedback && (
-        <MobileKeyboardFeedbackSection
-          value={mobileKeyboardFeedback}
-          busy={mobileKeyboardFeedbackBusy}
-          ios={iosPlatform}
-          canPreview={Boolean(client.mobileKeyboardFeedback.preview)}
-          onChange={(next) => void saveMobileKeyboardFeedback(next)}
-          onPreview={() => void previewMobileKeyboardHaptics()}
-        />
-      )}
+      <MobileKeyboardFeedbackSettings
+        mobile={mobilePlatform}
+        client={client.mobileKeyboardFeedback}
+        value={mobileKeyboardFeedback}
+        busy={mobileKeyboardFeedbackBusy}
+        ios={iosPlatform}
+        onChange={(value) => void saveMobileKeyboardFeedback(value)}
+        onPreview={() => void previewMobileKeyboardHaptics()}
+      />
     </fieldset>
   );
 }

@@ -960,6 +960,10 @@ export {
   type MobileKeyboardFeedbackSectionProps,
 } from "./settings/mobile-keyboard-feedback-section";
 export {
+  MobileKeyboardFeedbackSettings,
+  type MobileKeyboardFeedbackSettingsProps,
+} from "./settings/mobile-keyboard-feedback-settings";
+export {
   PreeditSettingsSection,
   type CandidatePreeditStyle,
   type PreeditSettingsPreferences,

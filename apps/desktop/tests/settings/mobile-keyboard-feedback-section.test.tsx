@@ -1,7 +1,11 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { MobileKeyboardFeedbackSection, type MobileKeyboardFeedback } from "@msime/ui";
+import {
+  MobileKeyboardFeedbackSection,
+  MobileKeyboardFeedbackSettings,
+  type MobileKeyboardFeedback,
+} from "@msime/ui";
 
 afterEach(() => {
   cleanup();
@@ -74,4 +78,38 @@ test("hides vibration controls when unavailable", () => {
 
   expect(screen.queryByRole("switch", { name: "按键振动" })).toBeNull();
   expect(screen.queryByRole("combobox", { name: "振动强度" })).toBeNull();
+});
+
+test("only mounts the host binding when mobile feedback is available", () => {
+  const value: MobileKeyboardFeedback = {
+    soundEnabled: true,
+    hapticsEnabled: true,
+    hapticStrength: "medium",
+  };
+  const client = { load: async () => value, save: async () => value, preview: vi.fn() };
+  const { rerender } = render(
+    <MobileKeyboardFeedbackSettings
+      mobile={false}
+      client={client}
+      value={value}
+      busy={false}
+      ios={false}
+      onChange={vi.fn()}
+      onPreview={vi.fn()}
+    />,
+  );
+  expect(screen.queryByRole("group", { name: "按键反馈" })).toBeNull();
+
+  rerender(
+    <MobileKeyboardFeedbackSettings
+      mobile
+      client={client}
+      value={value}
+      busy={false}
+      ios={false}
+      onChange={vi.fn()}
+      onPreview={vi.fn()}
+    />,
+  );
+  expect(screen.getByRole("group", { name: "按键反馈" })).toBeTruthy();
 });

@@ -1,4 +1,4 @@
-import { MobileKeyboardFeedbackSection } from "../mobile-keyboard-feedback-section";
+import { MobileKeyboardFeedbackSettings } from "../mobile-keyboard-feedback-settings";
 import { keyboardThemeId } from "../../theme/global-theme";
 import { ScreenKeyboardPreview } from "../../keyboard/screen-keyboard-preview";
 import * as settings from "../settings-style";
@@ -90,16 +90,15 @@ export function ScreenKeyboardSettingsPage() {
           }}
           onReset={() => void resetTouchKeyboardSettings()}
         />
-        {mobilePlatform && client.mobileKeyboardFeedback && mobileKeyboardFeedback && (
-          <MobileKeyboardFeedbackSection
-            value={mobileKeyboardFeedback}
-            busy={mobileKeyboardFeedbackBusy}
-            ios={iosPlatform}
-            canPreview={Boolean(client.mobileKeyboardFeedback.preview)}
-            onChange={(value) => void saveMobileKeyboardFeedback(value)}
-            onPreview={() => void previewMobileKeyboardHaptics()}
-          />
-        )}
+        <MobileKeyboardFeedbackSettings
+          mobile={mobilePlatform}
+          client={client.mobileKeyboardFeedback}
+          value={mobileKeyboardFeedback}
+          busy={mobileKeyboardFeedbackBusy}
+          ios={iosPlatform}
+          onChange={(value) => void saveMobileKeyboardFeedback(value)}
+          onPreview={() => void previewMobileKeyboardHaptics()}
+        />
         <GroupList title="屏幕键盘">
           <Row title="打开屏幕键盘" description="使用鼠标或触控方式输入文字与快捷按键">
             <button
