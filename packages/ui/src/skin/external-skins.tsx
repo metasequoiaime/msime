@@ -6,6 +6,7 @@ import type { SkinFontReader } from "./skin-font";
 import { installSkinPalette } from "./skin-palette";
 import { useToolbarCss, type ToolbarCssReader } from "./use-toolbar-css";
 import * as settings from "../settings/settings-style";
+import { Row } from "../core/platform-controls";
 import {
   customCandidateStyle,
   normalizedColor,
@@ -352,7 +353,7 @@ export type SkinCatalogState = {
 };
 
 /**
- * The scanned external skin catalog and the directory actions around it, for the theme page's carousel and its 外部皮肤 row.
+ * The scanned external skin catalog and the directory actions around it, for the theme page's carousel and the 外部皮肤 row.
  *
  * `importsSkin`: the host copies a skin the user points at, instead of opening a folder for them to drop one into. Its skin folder is inside an application sandbox, so there is nothing to open, and the catalog is scanned again once the import answers.
  */
@@ -435,4 +436,97 @@ export function useSkinCatalog(
     }
   }
   return { catalog, revision, busy, failed, refresh, opening, openFailed, openFolder };
+}
+
+/** The 外部皮肤 row and its diagnostics: where external skins come from (a folder to open, or an import on a host that copies one in) and what the last scan found. It goes inside a `GroupList`. */
+export function ExternalSkinDirectoryRow({
+  skins,
+  scannable,
+  openable,
+  importsSkin,
+}: {
+  skins: SkinCatalogState;
+  /** The host has a skin scanner. */
+  scannable: boolean;
+  /** The host can open the skin directory, or import a skin. */
+  openable: boolean;
+  importsSkin: boolean;
+}) {
+  return (
+    <>
+      <Row
+        title="外部皮肤"
+        description={
+          <>
+            {importsSkin
+              ? "点“导入皮肤”，选中包含 skin.toml 的皮肤文件夹。文件夹名只能用小写字母、数字和 . _ -，同名皮肤会被替换。"
+              : "把包含 skin.toml 的皮肤文件夹复制到下面的目录，然后刷新。"}
+            <span role="status" className="block">
+              {!scannable
+                ? "当前宿主不支持扫描外部皮肤。"
+                : skins.busy
+                  ? "正在读取皮肤目录。"
+                  : !skins.catalog
+                    ? "尚未扫描。点击“刷新皮肤”读取皮肤目录。"
+                    : !skins.catalog.packages.length
+                      ? "没有发现外部皮肤。"
+                      : ""}
+            </span>
+            {skins.catalog?.directory && (
+              <code className={settings.externalDirectory}>{skins.catalog.directory}</code>
+            )}
+          </>
+        }
+      >
+        <button
+          type="button"
+          className="secondary"
+          disabled={!openable || skins.opening}
+          onClick={() => void skins.openFolder()}
+        >
+          {skins.opening
+            ? importsSkin
+              ? "正在导入…"
+              : "正在打开…"
+            : importsSkin
+              ? "导入皮肤"
+              : "打开目录"}
+        </button>
+        <button
+          type="button"
+          className="secondary"
+          disabled={!scannable || skins.busy}
+          onClick={() => void skins.refresh()}
+        >
+          {skins.busy ? "正在扫描…" : "刷新皮肤"}
+        </button>
+      </Row>
+      {(skins.openFailed || skins.failed || !!skins.catalog?.issues.length) && (
+        <div className={settings.groupBlock}>
+          {skins.openFailed && (
+            <p role="alert" className={settings.externalMeta}>
+              {importsSkin ? "导入皮肤失败，请重试。" : "无法打开皮肤目录，请重试。"}
+            </p>
+          )}
+          {skins.failed && (
+            <p role="alert" className={settings.externalMeta}>
+              读取皮肤目录失败，请重试。{skins.catalog && "仍显示上次扫描结果。"}
+            </p>
+          )}
+          {!!skins.catalog?.issues.length && (
+            <details className={settings.externalDiagnostics}>
+              <summary>已忽略 {skins.catalog.issues.length} 个无效皮肤目录</summary>
+              <ul>
+                {skins.catalog.issues.map((issue, index) => (
+                  <li key={index}>
+                    {issue.folder}：{issue.reason}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </div>
+      )}
+    </>
+  );
 }

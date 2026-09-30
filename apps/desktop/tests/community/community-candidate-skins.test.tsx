@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import {
   CandidateSkinPublishDialog,
   CommunityCandidateSkinsPage,
+  CommunityPage,
   type CandidateSkinCommunityClient,
   type CommunityCandidateSkin,
   type CommunityCandidateSkinPage,
@@ -222,6 +223,43 @@ test("一键安装 installs, reports it, and 去启用 opens the theme page", as
   expect(communityClient.install).toHaveBeenCalledWith(first.id, false);
   fireEvent.click(screen.getByRole("button", { name: "去启用" }));
   expect(onOpenSkinPage).toHaveBeenCalledOnce();
+});
+
+test("the community page carries the skin directory row and scans again after an install", async () => {
+  const localSkins = vi.fn().mockResolvedValue(catalog(["other"]));
+  const openSkinDirectory = vi.fn().mockResolvedValue(undefined);
+  render(
+    <CommunityPage
+      theme="light"
+      candidateSkins={client()}
+      localSkins={localSkins}
+      openSkinDirectory={openSkinDirectory}
+    />,
+  );
+  expect(await screen.findByText("/synthetic/skins")).not.toBeNull();
+  expect(screen.getByText("外部皮肤", { selector: "[data-row-title]" })).not.toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "打开目录" }));
+  await waitFor(() => expect(openSkinDirectory).toHaveBeenCalledOnce());
+  const scans = localSkins.mock.calls.length;
+  await openDetail();
+  fireEvent.click(screen.getByRole("button", { name: "一键安装" }));
+  expect(await screen.findByText("已安装到外部皮肤。")).not.toBeNull();
+  // The pre-install check reads the directory once; the row then lists what the install added.
+  await waitFor(() => expect(localSkins.mock.calls.length).toBe(scans + 2));
+});
+
+test("a host that imports skins offers 导入皮肤 on the community page", async () => {
+  render(
+    <CommunityPage
+      theme="light"
+      candidateSkins={client()}
+      localSkins={vi.fn().mockResolvedValue(catalog([]))}
+      openSkinDirectory={vi.fn().mockResolvedValue(undefined)}
+      importsSkin
+    />,
+  );
+  expect(await screen.findByRole("button", { name: "导入皮肤" })).not.toBeNull();
+  expect(await screen.findByText("没有发现外部皮肤。")).not.toBeNull();
 });
 
 test("an installed package id is confirmed before any download", async () => {

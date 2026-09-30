@@ -160,6 +160,7 @@ export function CommunityCandidateSkinsPage({
   localSkins,
   openSkinDirectory,
   onOpenSkinPage,
+  onInstalled,
   onLogin,
 }: {
   client: CandidateSkinCommunityClient;
@@ -168,6 +169,8 @@ export function CommunityCandidateSkinsPage({
   openSkinDirectory?: () => Promise<void>;
   /** Opens 主题, where an installed package is enabled; the community page sits outside the settings form and never writes preferences itself. */
   onOpenSkinPage?: () => void;
+  /** Called once a package lands in the external skin directory, so a listing of that directory can scan again. */
+  onInstalled?: () => void;
   onLogin?: () => void;
 }) {
   const [skins, setSkins] = useState<CommunityCandidateSkin[]>([]);
@@ -311,6 +314,7 @@ export function CommunityCandidateSkinsPage({
       if (!mounted.current || currentClient !== clientGeneration.current) return;
       setConfirmReplace(false);
       setInstalled(true);
+      onInstalled?.();
     } catch (actionError) {
       if (currentClient !== clientGeneration.current) return;
       if (errorCode(actionError) === "candidate_skin_exists") {

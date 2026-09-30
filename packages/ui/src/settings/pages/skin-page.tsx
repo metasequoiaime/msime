@@ -11,7 +11,11 @@ import {
 } from "../../theme/global-theme";
 import { SkinCandidatePreview } from "../../skin/skin-candidate-preview";
 import { SkinToolbarPreview } from "../../skin/skin-toolbar-preview";
-import { ExternalSkinCard, useSkinCatalog } from "../../skin/external-skins";
+import {
+  ExternalSkinCard,
+  ExternalSkinDirectoryRow,
+  useSkinCatalog,
+} from "../../skin/external-skins";
 import { CandidateSkinPublishDialog } from "../../community/candidate-skin-publish-dialog";
 import { ScreenKeyboardPreview } from "../../keyboard/screen-keyboard-preview";
 import { TouchKeyboardSkinEditor } from "../../keyboard/touch-keyboard-skin-editor";
@@ -75,6 +79,9 @@ export function SkinSettingsPage() {
   const candidateSkins = client.communityCandidateSkins;
   const importsSkin = host?.skin_directory_import === true;
   const skins = useSkinCatalog(client.scanSkinCatalog, client.openSkinDirectory, importsSkin);
+  const hasCommunity = Boolean(
+    client.communitySkins || client.communityResources || client.communityCandidateSkins,
+  );
   const packages = skins.catalog?.packages ?? [];
   // A package is part of the custom theme, so its card is the one in use while the custom theme draws it; the 自定义 card is then the custom theme without a package.
   const skinInUse = globalTheme === "custom" ? (draft.custom_theme?.candidate_skin ?? null) : null;
@@ -249,78 +256,14 @@ export function SkinSettingsPage() {
                 onChange={(theme) => onPreferencesChange({ theme })}
               />
             </Row>
-            <Row
-              title="外部皮肤"
-              description={
-                <>
-                  {importsSkin
-                    ? "点“导入皮肤”，选中包含 skin.toml 的皮肤文件夹。文件夹名只能用小写字母、数字和 . _ -，同名皮肤会被替换。"
-                    : "把包含 skin.toml 的皮肤文件夹复制到下面的目录，然后刷新。"}
-                  <span role="status" className="block">
-                    {!client.scanSkinCatalog
-                      ? "当前宿主不支持扫描外部皮肤。"
-                      : skins.busy
-                        ? "正在读取皮肤目录。"
-                        : !skins.catalog
-                          ? "尚未扫描。点击“刷新皮肤”读取皮肤目录。"
-                          : !skins.catalog.packages.length
-                            ? "没有发现外部皮肤。"
-                            : ""}
-                  </span>
-                  {skins.catalog?.directory && (
-                    <code className={settings.externalDirectory}>{skins.catalog.directory}</code>
-                  )}
-                </>
-              }
-            >
-              <button
-                type="button"
-                className="secondary"
-                disabled={!client.openSkinDirectory || skins.opening}
-                onClick={() => void skins.openFolder()}
-              >
-                {skins.opening
-                  ? importsSkin
-                    ? "正在导入…"
-                    : "正在打开…"
-                  : importsSkin
-                    ? "导入皮肤"
-                    : "打开目录"}
-              </button>
-              <button
-                type="button"
-                className="secondary"
-                disabled={!client.scanSkinCatalog || skins.busy}
-                onClick={() => void skins.refresh()}
-              >
-                {skins.busy ? "正在扫描…" : "刷新皮肤"}
-              </button>
-            </Row>
-            {(skins.openFailed || skins.failed || !!skins.catalog?.issues.length) && (
-              <div className={settings.groupBlock}>
-                {skins.openFailed && (
-                  <p role="alert" className={settings.externalMeta}>
-                    {importsSkin ? "导入皮肤失败，请重试。" : "无法打开皮肤目录，请重试。"}
-                  </p>
-                )}
-                {skins.failed && (
-                  <p role="alert" className={settings.externalMeta}>
-                    读取皮肤目录失败，请重试。{skins.catalog && "仍显示上次扫描结果。"}
-                  </p>
-                )}
-                {!!skins.catalog?.issues.length && (
-                  <details className={settings.externalDiagnostics}>
-                    <summary>已忽略 {skins.catalog.issues.length} 个无效皮肤目录</summary>
-                    <ul>
-                      {skins.catalog.issues.map((issue, index) => (
-                        <li key={index}>
-                          {issue.folder}：{issue.reason}
-                        </li>
-                      ))}
-                    </ul>
-                  </details>
-                )}
-              </div>
+            {/* The directory row lives on 社区 beside the gallery that installs into it; a host without a community page keeps it here so its skins can still be added. */}
+            {!hasCommunity && (
+              <ExternalSkinDirectoryRow
+                skins={skins}
+                scannable={!!client.scanSkinCatalog}
+                openable={!!client.openSkinDirectory}
+                importsSkin={importsSkin}
+              />
             )}
           </GroupList>
           <GroupList title="自定义主题">

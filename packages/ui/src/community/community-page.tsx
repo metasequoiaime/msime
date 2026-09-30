@@ -13,7 +13,9 @@ import {
   CommunityCandidateSkinsPage,
   type CandidateSkinCommunityClient,
 } from "./community-candidate-skins";
-import type { SkinCatalog } from "../skin/external-skins";
+import { ExternalSkinDirectoryRow, useSkinCatalog, type SkinCatalog } from "../skin/external-skins";
+import { GroupList } from "../core/platform-controls";
+import * as settings from "../settings/settings-style";
 
 export interface CommunityPageProps {
   skins?: CommunitySkinClient;
@@ -23,6 +25,8 @@ export interface CommunityPageProps {
   /** The installed external skins, which the candidate gallery publishes from and checks before replacing one. */
   localSkins?: () => Promise<SkinCatalog>;
   openSkinDirectory?: () => Promise<void>;
+  /** The host imports a skin the user points at instead of opening the skin directory (`HostSurface.skin_directory_import`). */
+  importsSkin?: boolean;
   /** Opens 主题, where an installed candidate skin is enabled. */
   onOpenSkinPage?: () => void;
   theme: "light" | "dark";
@@ -37,8 +41,39 @@ export interface CommunityPageProps {
   destinationKey?: string;
 }
 
+/** The community page: the external skin directory, which community installs land in, above the gallery the host supports. */
+export function CommunityPage(props: CommunityPageProps): ReactNode {
+  const {
+    skins,
+    resources,
+    candidateSkins,
+    localSkins,
+    openSkinDirectory,
+    importsSkin = false,
+  } = props;
+  const local = useSkinCatalog(localSkins, openSkinDirectory, importsSkin);
+  if (!skins && !resources && !candidateSkins) return null;
+  const gallery = <CommunityGallery {...props} onInstalled={() => void local.refresh()} />;
+  if (!localSkins && !openSkinDirectory) return gallery;
+  return (
+    <>
+      <div className={settings.groups}>
+        <GroupList title="本地皮肤">
+          <ExternalSkinDirectoryRow
+            skins={local}
+            scannable={!!localSkins}
+            openable={!!openSkinDirectory}
+            importsSkin={importsSkin}
+          />
+        </GroupList>
+      </div>
+      {gallery}
+    </>
+  );
+}
+
 /** Selects the community surface supported by the host while preserving its destination state. */
-export function CommunityPage({
+function CommunityGallery({
   skins,
   resources,
   candidateSkins,
@@ -54,7 +89,8 @@ export function CommunityPage({
   mobile = false,
   onLogin,
   destinationKey,
-}: CommunityPageProps): ReactNode {
+  onInstalled,
+}: CommunityPageProps & { onInstalled: () => void }): ReactNode {
   if (skins && resources) {
     return (
       <CommunityHomePage
@@ -106,6 +142,7 @@ export function CommunityPage({
         localSkins={localSkins}
         openSkinDirectory={openSkinDirectory}
         onOpenSkinPage={onOpenSkinPage}
+        onInstalled={onInstalled}
         onLogin={onLogin}
       />
     );

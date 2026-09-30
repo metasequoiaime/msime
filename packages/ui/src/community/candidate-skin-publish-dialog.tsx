@@ -217,7 +217,7 @@ export function CandidateSkinPublishDialog({
         {optionsLoading && <p role="status">正在读取本地皮肤…</p>}
         {!optionsLoading && options.length === 0 && (
           <p className={style.notice}>
-            还没有可发布的外部皮肤，请先把皮肤文件夹放进皮肤目录并在「主题」中刷新。
+            还没有可发布的外部皮肤，请先把皮肤文件夹放进皮肤目录，再在「社区」的本地皮肤中刷新。
           </p>
         )}
         {options.length > 0 && (
