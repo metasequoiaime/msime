@@ -7,10 +7,11 @@
 #   VERSION defaults to platforms/linux/version.txt, the version release-linux.yml tags as linux-vVERSION. It becomes both the package version and the version the desktop binary reports, so the in-app update check compares like with like.
 #   MSIME_PACKAGE_DESKTOP=0 packages without the Tauri desktop binary (no settings window); the default requires it.
 #   CARGO_BUILD_JOBS and CMAKE_BUILD_PARALLEL_LEVEL are passed through when set, to bound memory on a shared Docker VM.
+#   MSIME_PACKAGE_FORMAT=rpm builds the RPM in a Fedora container (tests/tools/Dockerfile.package-rpm) instead of the .deb and .tar.gz in the Debian one. It is a separate build, not a conversion: rpmbuild takes Requires from the libraries the binaries link, so they have to be linked against Fedora's (#2095).
 #
 # The desktop binary embeds the web frontend at compile time, so apps/desktop/dist must be built first (`pnpm install --frozen-lockfile && pnpm --filter @msime/desktop build`). It is built outside the container because the container has no Node toolchain and a bind-mounted node_modules would mix host and container binaries.
 #
-# Output: target/linux-package/dist/{*.deb,*.tar.gz,SHA256SUMS}.
+# Output: target/linux-package/dist/{*.deb,*.tar.gz,SHA256SUMS}, or target/linux-package-rpm/dist/{*.rpm,SHA256SUMS} for the RPM.
 set -euo pipefail
 
 repo_root=$(cd "$(dirname "$0")/../.." && pwd)
@@ -27,12 +28,17 @@ version="${1:-$(tr -d '[:space:]' < platforms/linux/version.txt)}"
   exit 2
 }
 desktop="${MSIME_PACKAGE_DESKTOP:-1}"
+format="${MSIME_PACKAGE_FORMAT:-deb}"
+case "$format" in
+  deb) build_root="$repo_root/target/linux-package" ;;
+  rpm) build_root="$repo_root/target/linux-package-rpm" ;;
+  *) echo "MSIME_PACKAGE_FORMAT must be deb or rpm: $format" >&2; exit 2 ;;
+esac
 if [ "$desktop" = 1 ] && [ ! -f apps/desktop/dist/index.html ]; then
   echo "apps/desktop/dist is missing; run 'pnpm install --frozen-lockfile && pnpm --filter @msime/desktop build' first, or set MSIME_PACKAGE_DESKTOP=0" >&2
   exit 2
 fi
 
-build_root="$repo_root/target/linux-package"
 mkdir -p "$build_root"
 # Third-party notices of the statically linked Rust crates and the bundled npm packages. The npm walk runs here because the container has no node_modules of its own; the crate walk runs in the container after the builds that resolve those crates. Cleared first so a desktop-less run cannot pick up an earlier frontend notice.
 rm -rf "$build_root/notices"
@@ -43,12 +49,18 @@ fi
 
 # Per-checkout tags for the same reason as the gate: parallel worktrees must not run each other's images.
 checkout_hash="$(printf %s "$repo_root" | shasum | cut -c1-12)"
-gate_image="msime-linux-build-gate:$checkout_hash"
-package_image="msime-linux-package:$checkout_hash"
-docker build -q -t "$gate_image" \
-  -f platforms/linux/tests/tools/Dockerfile.build-gate platforms/linux/tests >/dev/null
-docker build -q -t "$package_image" --build-arg MSIME_BUILD_GATE_IMAGE="$gate_image" \
-  -f platforms/linux/tests/tools/Dockerfile.package platforms/linux/tests >/dev/null
+if [ "$format" = rpm ]; then
+  package_image="msime-linux-package-rpm:$checkout_hash"
+  docker build -q -t "$package_image" \
+    -f platforms/linux/tests/tools/Dockerfile.package-rpm platforms/linux/tests >/dev/null
+else
+  gate_image="msime-linux-build-gate:$checkout_hash"
+  package_image="msime-linux-package:$checkout_hash"
+  docker build -q -t "$gate_image" \
+    -f platforms/linux/tests/tools/Dockerfile.build-gate platforms/linux/tests >/dev/null
+  docker build -q -t "$package_image" --build-arg MSIME_BUILD_GATE_IMAGE="$gate_image" \
+    -f platforms/linux/tests/tools/Dockerfile.package platforms/linux/tests >/dev/null
+fi
 echo "package image: $package_image" >&2
 
 docker run --rm --init \
@@ -58,6 +70,7 @@ docker run --rm --init \
   -e CARGO_TARGET_DIR=/build/cargo \
   -e MSIME_VERSION="$version" \
   -e MSIME_PACKAGE_DESKTOP="$desktop" \
+  -e MSIME_PACKAGE_FORMAT="$format" \
   ${CARGO_BUILD_JOBS:+-e CARGO_BUILD_JOBS="$CARGO_BUILD_JOBS"} \
   ${CMAKE_BUILD_PARALLEL_LEVEL:+-e CMAKE_BUILD_PARALLEL_LEVEL="$CMAKE_BUILD_PARALLEL_LEVEL"} \
   "$package_image" bash -euo pipefail -c '
@@ -103,9 +116,17 @@ docker run --rm --init \
       "${desktop_args[@]}" "${glosses_args[@]}"
     cmake --build /build/cmake
     ctest --test-dir /build/cmake --output-on-failure
-    cpack --config /build/cmake/CPackConfig.cmake -G "TGZ;DEB" -B /build/dist
+    if [ "$MSIME_PACKAGE_FORMAT" = rpm ]; then
+      cpack --config /build/cmake/CPackConfig.cmake -G RPM -B /build/dist
+    else
+      cpack --config /build/cmake/CPackConfig.cmake -G "TGZ;DEB" -B /build/dist
+    fi
     rm -rf /build/dist/_CPack_Packages
     cd /build/dist
-    sha256sum -- *.deb *.tar.gz > SHA256SUMS
+    if [ "$MSIME_PACKAGE_FORMAT" = rpm ]; then
+      sha256sum -- *.rpm > SHA256SUMS
+    else
+      sha256sum -- *.deb *.tar.gz > SHA256SUMS
+    fi
     cat SHA256SUMS
   '

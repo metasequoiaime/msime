@@ -28,7 +28,8 @@ set(CPACK_PACKAGE_FILE_NAME "${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION}-linu
 set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
 set(CPACK_DEBIAN_PACKAGE_SECTION "utils")
 set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
-set(CPACK_DEBIAN_PACKAGE_DEPENDS "ibus (>= 1.5.20), python3 (>= 3.9)")
+# procps provides the pgrep msime-linux-setup uses to see whether the input method is running before it switches dictionaries; a system without it fails every dictionary switch. Debian marks procps important rather than required, so a minimal install can lack it.
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "ibus (>= 1.5.20), python3 (>= 3.9), procps")
 if(MSIME_ENABLE_FCITX5)
   string(APPEND CPACK_DEBIAN_PACKAGE_DEPENDS ", fcitx5 (>= 5.0.20)")
 endif()
@@ -44,6 +45,40 @@ file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/debian/conffiles"
      CONTENT "${MSIME_XDG_AUTOSTART_DIR}/msime-linux-clipboard.desktop\n")
 set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA "${CMAKE_CURRENT_BINARY_DIR}/debian/prerm;${CMAKE_CURRENT_BINARY_DIR}/debian/postinst;${CMAKE_CURRENT_BINARY_DIR}/debian/conffiles")
 set(CPACK_DEBIAN_PACKAGE_CONTROL_STRICT_PERMISSION ON)
+
+# RPM for Fedora and other DNF systems. package-container.sh builds it in a Fedora container, never by converting the .deb: rpmbuild derives Requires from the libraries the binaries link, and a build on Debian records Debian's sonames and symbol versions (libcurl's CURL_OPENSSL_4, boost 1.83) that no Fedora package provides, which is what made the MSIME-Linux 0.9.1 rpm uninstallable (#2095).
+set(CPACK_RPM_FILE_NAME RPM-DEFAULT)
+set(CPACK_RPM_PACKAGE_LICENSE "GPL-3.0-only")
+set(CPACK_RPM_PACKAGE_GROUP "System Environment/Libraries")
+set(CPACK_RPM_PACKAGE_URL "${CPACK_PACKAGE_HOMEPAGE_URL}")
+set(CPACK_RPM_PACKAGE_REQUIRES "ibus >= 1.5.20, python3 >= 3.9, procps-ng")
+if(MSIME_ENABLE_FCITX5)
+  string(APPEND CPACK_RPM_PACKAGE_REQUIRES ", fcitx5 >= 5.0.20")
+endif()
+# The same voice runtime as the .deb Recommends, in Fedora's package names; a rich dependency expresses the alternatives.
+set(CPACK_RPM_PACKAGE_RECOMMENDS "python3-websockets >= 15, (pulseaudio-utils or pipewire-utils or alsa-utils)")
+# The host library and the sherpa-onnx runtime ship in the package's private directory, as CPACK_DEBIAN_PACKAGE_SHLIBDEPS_PRIVATE_DIRS says for the .deb: nothing may require them from the system, and the package must not advertise them as system libraries either.
+set(CPACK_RPM_SPEC_MORE_DEFINE "%global __requires_exclude ^lib(msime_host_api|sherpa-onnx-c-api|onnxruntime)\\\\.so.*$
+%global __provides_exclude_from ^${CMAKE_INSTALL_FULL_LIBDIR}/msime-client/.*$")
+# Directories the base system owns. An RPM that lists them conflicts with the filesystem package and with the desktop, IBus, Fcitx5 and systemd packages that own them.
+list(APPEND CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION
+  /etc/xdg /etc/xdg/autostart
+  /usr/libexec /usr/lib/systemd /usr/lib/systemd/user
+  /usr/share/applications /usr/share/icons /usr/share/icons/hicolor /usr/share/metainfo /usr/share/licenses
+  /usr/share/ibus /usr/share/ibus/component
+  /usr/share/fcitx5 /usr/share/fcitx5/addon /usr/share/fcitx5/inputmethod
+  "${CMAKE_INSTALL_FULL_LIBDIR}/fcitx5")
+# The autostart entry is the package's one file under /etc: the RPM counterpart of the Debian conffile above.
+set(CPACK_RPM_USER_FILELIST "%config(noreplace) ${MSIME_XDG_AUTOSTART_DIR}/msime-linux-clipboard.desktop")
+# The maintainer scripts are the Debian ones, which dispatch on dpkg's arguments. RPM passes the number of installed instances instead (%post: 1 on install, 2 or more on upgrade; %preun: 0 on removal, 1 or more on upgrade), so each script is prefixed with the translation to the dpkg call it corresponds to.
+file(READ "${CMAKE_CURRENT_BINARY_DIR}/debian/postinst" MSIME_DEB_POSTINST)
+file(READ "${CMAKE_CURRENT_BINARY_DIR}/debian/prerm" MSIME_DEB_PRERM)
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/rpm/post"
+     "if [ \"$1\" -ge 2 ]; then set -- configure upgrade; else set -- configure; fi\n${MSIME_DEB_POSTINST}")
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/rpm/preun"
+     "if [ \"$1\" = 0 ]; then set -- remove; else set -- upgrade; fi\n${MSIME_DEB_PRERM}")
+set(CPACK_RPM_POST_INSTALL_SCRIPT_FILE "${CMAKE_CURRENT_BINARY_DIR}/rpm/post")
+set(CPACK_RPM_PRE_UNINSTALL_SCRIPT_FILE "${CMAKE_CURRENT_BINARY_DIR}/rpm/preun")
 
 # The license (as copyright) and the third-party notices are installed by CMakeLists.txt for every install; configuration already failed there if any of them was missing.
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/README.md"

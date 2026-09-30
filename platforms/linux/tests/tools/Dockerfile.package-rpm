@@ -1,0 +1,26 @@
+# The release packaging image for the RPM: the counterpart of Dockerfile.package on Fedora, carrying the same development packages as Dockerfile.build-gate plus the Tauri shell's build dependencies, under Fedora's names. The RPM has to be built here rather than converted from the .deb, because rpmbuild records the sonames and symbol versions of the libraries the binaries were linked against; Debian's libcurl and boost carry versions no Fedora package provides (#2095).
+#
+# rpm-build runs rpmbuild for CPack's RPM generator and computes Requires from what the binaries link; file lets CPack find the ELF files. Rust is installed at the channel rust-toolchain.toml pins, through a rustup-init whose version and SHA-256 are pinned here the way the Debian images pin their rust image by digest.
+FROM fedora:44@sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80
+RUN dnf install -y --setopt=install_weak_deps=False \
+  gcc gcc-c++ cmake ninja-build pkgconf-pkg-config python3 git procps-ng \
+  alsa-lib-devel libcurl-devel \
+  ibus-devel libxkbcommon-devel json-devel \
+  wayland-devel wayland-protocols-devel libX11-devel libXfixes-devel libXrandr-devel libXext-devel \
+  fcitx5-devel glib2-devel pango-devel cairo-devel \
+  webkit2gtk4.1-devel gtk3-devel libsoup3-devel javascriptcoregtk4.1-devel openssl-devel \
+  rpm-build file \
+  && dnf clean all
+ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo PATH=/usr/local/cargo/bin:$PATH
+RUN set -eu; \
+  case "$(uname -m)" in \
+    x86_64) triple=x86_64-unknown-linux-gnu; sum=dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71 ;; \
+    aarch64) triple=aarch64-unknown-linux-gnu; sum=15f6e4ce9f583b929c996c91562bad6d4454f3281de858b02cdfdef615fac433 ;; \
+    *) echo "no pinned rustup-init for $(uname -m)" >&2; exit 1 ;; \
+  esac; \
+  curl --proto '=https' --tlsv1.2 -sSfo /tmp/rustup-init "https://static.rust-lang.org/rustup/archive/1.29.1/$triple/rustup-init"; \
+  echo "$sum  /tmp/rustup-init" | sha256sum -c -; \
+  chmod +x /tmp/rustup-init; \
+  /tmp/rustup-init -y --profile minimal --default-toolchain 1.97.1 --no-modify-path; \
+  rm /tmp/rustup-init
+WORKDIR /source

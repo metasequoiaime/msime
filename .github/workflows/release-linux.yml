@@ -8,7 +8,7 @@ on:
 permissions: {contents: write}
 concurrency: {group: release-linux, cancel-in-progress: false}
 jobs:
-  release:
+  deb:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
@@ -43,17 +43,64 @@ jobs:
           bash platforms/linux/tests/tools/check-deb-maintainer-scripts.sh "${debs[0]}"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: msime-linux-${{ steps.version.outputs.value }}
+          name: msime-linux-deb-${{ steps.version.outputs.value }}
           path: target/linux-package/dist/
           if-no-files-found: error
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+  # The RPM is built separately in a Fedora container rather than converted from the .deb: rpmbuild records the libraries the binaries link as Requires, and Debian's carry sonames and symbol versions no Fedora package provides (#2095).
+  rpm:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {persist-credentials: false}
+      - id: version
+        env: {REQUESTED: "${{ inputs.version }}"}
+        run: |
+          version="${REQUESTED:-$(tr -d '[:space:]' < platforms/linux/version.txt)}"; [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; echo "value=$version" >> "$GITHUB_OUTPUT"
+      - name: Build desktop frontend
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+          pnpm --filter @msime/desktop build
+      - name: Fetch the locked offline candidate glosses
+        run: python3 scripts/fetch_offline_glosses.py
+      - name: Build Linux RPM
+        env: {VERSION: "${{ steps.version.outputs.value }}", MSIME_PACKAGE_FORMAT: rpm}
+        run: bash platforms/linux/package-container.sh "$VERSION"
+      # Installs the RPM into a clean Fedora container and erases it again, which is where an unsatisfiable Requires shows up.
+      - name: Verify Linux RPM
+        run: |
+          shopt -s nullglob
+          dist=target/linux-package-rpm/dist
+          rpms=("$dist"/*.rpm)
+          [[ ${#rpms[@]} -eq 1 && -s "$dist/SHA256SUMS" ]] || { echo "expected one .rpm and SHA256SUMS in $dist" >&2; exit 1; }
+          (cd "$dist" && sha256sum -c SHA256SUMS)
+          bash platforms/linux/tests/tools/check-rpm-install.sh "${rpms[0]}"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: msime-linux-rpm-${{ steps.version.outputs.value }}
+          path: target/linux-package-rpm/dist/
+          if-no-files-found: error
+  publish:
+    needs: [deb, rpm]
+    if: ${{ inputs.publish }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with: {path: dist, merge-multiple: true}
       # workflow_dispatch runs on whatever ref it is given, so publishing has to be asked for rather than implied. Without the gate a dispatch on a feature branch cuts a real public release.
       - name: Publish independent Linux release
-        if: ${{ inputs.publish }}
-        env: {GH_TOKEN: "${{ github.token }}", VERSION: "${{ steps.version.outputs.value }}", PRERELEASE: "${{ inputs.prerelease }}"}
+        env: {GH_TOKEN: "${{ github.token }}", VERSION: "${{ needs.deb.outputs.version }}", PRERELEASE: "${{ inputs.prerelease }}"}
         run: |
-          dist=target/linux-package/dist
+          dist=dist
+          # Each build wrote a SHA256SUMS of its own; the release carries one covering every package.
+          (cd "$dist" && rm -f SHA256SUMS && sha256sum -- *.deb *.rpm *.tar.gz > SHA256SUMS)
           # --generate-notes otherwise starts from whichever tag in the repository is newest, and the six platforms interleave prefixes, so a macOS release could be described by the diff since an ios-v tag. fetch-depth: 0 above is what makes this list complete.
           start=$(git tag --list 'linux-v*' --sort=-v:refname | head -1)
           tag="linux-v${VERSION}"; flags=(); [[ "$PRERELEASE" == true ]] && flags+=(--prerelease)
           [[ -n "$start" ]] && flags+=(--notes-start-tag "$start")
-          gh release create "$tag" "$dist"/*.deb "$dist"/*.tar.gz "$dist/SHA256SUMS" --target "$GITHUB_SHA" --title "Linux ${VERSION}" --generate-notes "${flags[@]}"
+          gh release create "$tag" "$dist"/*.deb "$dist"/*.rpm "$dist"/*.tar.gz "$dist/SHA256SUMS" --target "$GITHUB_SHA" --title "Linux ${VERSION}" --generate-notes "${flags[@]}"
