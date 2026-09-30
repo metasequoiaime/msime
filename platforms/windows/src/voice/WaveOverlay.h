@@ -1,5 +1,6 @@
 #pragma once
 
+#include "VoiceTheme.h"
 #include <windows.h>
 #include <atomic>
 #include <functional>
@@ -36,7 +37,8 @@ class WaveOverlay
 
     void set_listening(bool listening);
     void set_input_level(float level);
-    void set_light_theme(bool light);
+    // The theme palette in the overlay's own light/dark mode; see voice_overlay_colors.
+    void set_palette(const msime::windows::CandidatePalette &palette);
     void set_transcript(const std::wstring &text);
     // When false, the overlay stays compact and never paints live ASR text.
     void set_show_transcript(bool show);
@@ -84,11 +86,13 @@ class WaveOverlay
     float amplitudes_[kLevelCount] = {};
     float phases_[kLevelCount] = {};
     float freqs_[kLevelCount] = {};
-    bool light_theme_ = false;
+    msime::windows::VoiceOverlayColors colors_ =
+        msime::windows::voice_overlay_colors(msime::windows::candidate_native_palette(true));
 
     struct ID2D1Factory *factory_ = nullptr;
     struct ID2D1HwndRenderTarget *render_target_ = nullptr;
     struct ID2D1SolidColorBrush *bar_brush_ = nullptr;
+    struct ID2D1SolidColorBrush *text_brush_ = nullptr;
     struct ID2D1SolidColorBrush *bg_brush_ = nullptr;
     struct ID2D1SolidColorBrush *border_brush_ = nullptr;
     struct ID2D1SolidColorBrush *action_bg_brush_ = nullptr;

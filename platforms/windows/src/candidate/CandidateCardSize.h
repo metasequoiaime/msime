@@ -36,7 +36,7 @@ struct CandidateCardInput {
   double max_single_line_width = 0.0;
   // Minimum card width asked for by an external skin package, in DIPs. Zero keeps the width derived from the font size. A mascot skin needs it: the artwork is drawn against a card of a particular width, and a narrow card makes the decoration overhang.
   double skin_min_width = 0.0;
-  // Measured width of the page indicator ("1 / 3") at CandidateCardMetrics::pager_font. Zero draws no pager; it shares the preedit row, so it is only drawn when that row is.
+  // Measured width of the page indicator ("1 / 3") at CandidateCardMetrics::pager_font. Zero draws no pager. It shares the preedit row, which is drawn even with the preedit hidden, because it carries the brand mark.
   double page_width = 0.0;
 };
 struct CandidateCardSize {
@@ -60,6 +60,8 @@ struct CandidateCardMetrics {
   double item_gap = 2.0;
   // The pager at the right of the preedit row: the page indicator and the previous and next arrows, in the secondary colour at 13 DIP, 12 DIP after the preedit and 12 DIP before the arrows. Each arrow is a square box of pager_arrow for its glyph and its click.
   double pager_font = 13.0, pager_gap = 12.0, pager_arrow = 16.0;
+  // The full-colour brand mark leading the preedit row, as the macOS card and the floating toolbar lead with it: a logo_side square at pad_x, then logo_gap before the preedit. The row is always there so the mark is, at least header_row tall when the preedit is hidden: the mark with 3 DIP above and below.
+  double logo_side = 16.0, logo_gap = 6.0, header_row = 22.0;
 };
 inline CandidateCardMetrics candidate_card_metrics(double font_size,
                                                    double preedit_font_size,
@@ -73,7 +75,9 @@ inline CandidateCardMetrics candidate_card_metrics(double font_size,
   metrics.number_and_bar = font_size * 0.8 + font_size * 0.2 + 8.0;
   // kCandidateMinWidthDip in the shipped presenter (card->SetMinWidth), independent of the font size.
   metrics.min_width = 160.0;
-  metrics.preedit_row = preedit_visible ? preedit_font_size * 1.4 + 6.0 : 0.0;
+  // The top row: the preedit's line when it is shown, never shorter than the brand mark and the pager need.
+  metrics.preedit_row = (std::max)(
+      preedit_visible ? preedit_font_size * 1.4 + 6.0 : 0.0, metrics.header_row);
   // The shipped presenter's CandidateList itemHeight: the minimum height of one candidate row.
   metrics.candidate_row = font_size * 1.35 + 2.0;
   metrics.annotation_line = font_size * 1.25;
@@ -133,6 +137,17 @@ candidate_pager_layout(double width, double indicator_width,
                       top, layout.previous.left - metrics.pager_gap, bottom};
   layout.left = layout.indicator.left;
   return layout;
+}
+// The brand mark's square in the preedit row, in card coordinates: at the row's left padding and centred in the row.
+inline CandidateRowBounds candidate_logo_bounds(const CandidateCardMetrics &metrics) {
+  const double top =
+      metrics.pad_y + (metrics.preedit_row - metrics.logo_side) / 2.0;
+  return {metrics.pad_x, top, metrics.pad_x + metrics.logo_side,
+          top + metrics.logo_side};
+}
+// Where the preedit starts in the preedit row, in card coordinates: after the brand mark and its gap.
+inline double candidate_preedit_left(const CandidateCardMetrics &metrics) {
+  return metrics.pad_x + metrics.logo_side + metrics.logo_gap;
 }
 // Which arrow of a drawn pager a card point falls on: true for the previous page, false for the next. The previous arrow is inert on the first page. The next one is always live, because the Engine hands candidates over lazily and the page count grows as the user pages.
 inline std::optional<bool>
@@ -416,9 +431,13 @@ inline CandidateCardSize candidate_card_size(const CandidateCardInput &input) {
 
   double width = 0.0;
   double height = pad_y + slack_y;
-  if (input.preedit_visible) {
+  // The preedit row is always drawn: the brand mark, the preedit when it is shown, and the pager.
+  {
     const double pager = candidate_pager_width(input.page_width, shape);
-    width = (std::max)(width, input.preedit_width + 6.0 +
+    width = (std::max)(width, shape.logo_side + shape.logo_gap +
+                                  (input.preedit_visible
+                                       ? input.preedit_width + 6.0
+                                       : 0.0) +
                                   (pager > 0.0 ? shape.pager_gap + pager : 0.0));
     height += preedit_row;
   }

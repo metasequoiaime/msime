@@ -1,4 +1,5 @@
 #pragma once
+#include "../candidate/CandidatePalette.h"
 #include <string_view>
 
 namespace msime::windows {
@@ -28,5 +29,26 @@ inline bool voice_theme_is_light(std::string_view surface,
                                  std::string_view global, bool system_dark) {
   return surface_theme_is_light(surface_theme_mode(surface, global),
                                 system_dark);
+}
+// The voice overlay's colours, from the same theme palette the floating toolbar and the tray menu draw with, resolved in the overlay's own light/dark mode above: the panel is the surface and its outline the border, the waveform is the accent, the transcript and the cancel and confirm glyphs are the text, and the two action discs are the text at 12% so they read on any theme's surface.
+struct VoiceOverlayColors {
+  CandidateColor surface, border, wave, text, action;
+  friend bool operator==(const VoiceOverlayColors &left,
+                         const VoiceOverlayColors &right) {
+    return left.surface == right.surface && left.border == right.border &&
+           left.wave == right.wave && left.text == right.text &&
+           left.action == right.action;
+  }
+  friend bool operator!=(const VoiceOverlayColors &left,
+                         const VoiceOverlayColors &right) {
+    return !(left == right);
+  }
+};
+inline VoiceOverlayColors voice_overlay_colors(const CandidatePalette &palette) {
+  return {palette.surface,
+          palette.border,
+          palette.accent,
+          palette.text,
+          {palette.text.r, palette.text.g, palette.text.b, palette.text.a * 0.12f}};
 }
 } // namespace msime::windows

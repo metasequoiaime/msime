@@ -4,6 +4,7 @@
 #include "CandidateWheel.h"
 #include "CursorResource.h"
 #include "NativeFontAlias.h"
+#include "ServerResources.h"
 #include "WindowShadow.h"
 #include <algorithm>
 #include <iterator>
@@ -271,6 +272,26 @@ CandidateWindow::Apartment::~Apartment() {
 CandidateWindow::~CandidateWindow() {
   if (window_)
     DestroyWindow(window_);
+  if (logo_)
+    DestroyIcon(logo_);
+}
+ID2D1Bitmap *CandidateWindow::logo_bitmap(int pixels) {
+  if (pixels <= 0)
+    return nullptr;
+  if (!logo_ || logo_pixels_ != pixels) {
+    // Loaded at the drawn size rather than LR_SHARED's cached standard size, as the floating toolbar does, so the mark is not resampled.
+    const HANDLE loaded =
+        LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_MSIME_LOGO),
+                   IMAGE_ICON, pixels, pixels, LR_DEFAULTCOLOR);
+    if (!loaded)
+      return nullptr;
+    if (logo_)
+      DestroyIcon(logo_);
+    logo_ = static_cast<HICON>(loaded);
+    logo_pixels_ = pixels;
+  }
+  return device_.GetBitmapFromIcon(logo_, L"icon:candidate-logo:" +
+                                              std::to_wstring(pixels));
 }
 void CandidateWindow::set_palette(CandidatePalette palette) {
   palette_ = std::move(palette);
@@ -462,16 +483,16 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
       static_cast<double>(available_width) / scale - 2.0 * 16.0;
   input.max_height = static_cast<double>(available_height) / scale / 2.0;
   input.skin_min_width = skin_min_width_;
-  if (show_preedit_) {
+  if (show_preedit_)
     input.preedit_width = measured_width(
         device_, wide(value.preedit), font_family_,
         static_cast<float>(preedit_font_size_), font_fallback_.Get(),
         DWRITE_FONT_WEIGHT_SEMI_BOLD);
-    input.page_width = measured_width(
-        device_, pager_label(value), font_family_,
-        static_cast<float>(CandidateCardMetrics{}.pager_font),
-        font_fallback_.Get());
-  }
+  // The pager shares the preedit row, which is drawn with or without the preedit because it carries the brand mark.
+  input.page_width = measured_width(
+      device_, pager_label(value), font_family_,
+      static_cast<float>(CandidateCardMetrics{}.pager_font),
+      font_fallback_.Get());
   input.items = measure_items(value);
   input.wrapped = wrap_measure(value);
   const auto card = candidate_card_size(input);
@@ -693,18 +714,44 @@ void CandidateWindow::paint() {
             1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
     }
   }
-  // The Fluent top row: the preedit in the accent colour at semibold on the left, the page indicator and the previous and next arrows in the secondary colour on the right.
-  std::optional<CandidatePagerLayout> pager;
+  // The Fluent top row: the brand mark, then the preedit in the accent colour at semibold on the left, the page indicator and the previous and next arrows in the secondary colour on the right. The row is there even with the preedit hidden, so the mark always is.
+  auto box = [&frame](const CandidateRowBounds &bounds) {
+    return D2D1_RECT_F{static_cast<float>(frame.card_left + bounds.left),
+                       static_cast<float>(frame.card_top + bounds.top),
+                       static_cast<float>(frame.card_left + bounds.right),
+                       static_cast<float>(frame.card_top + bounds.bottom)};
+  };
+  // Loaded at the size it is drawn at, in real pixels, as the floating toolbar loads it, and skipped rather than substituted if the icon will not load.
+  if (auto *logo = logo_bitmap(static_cast<int>(std::lround(
+          metrics.logo_side * GetDpiForWindow(window_) / 96.0))))
+    target->DrawBitmap(logo, box(candidate_logo_bounds(metrics)), 1.0f,
+                       D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+  const auto label = pager_label(*value);
+  const std::optional<CandidatePagerLayout> pager = candidate_pager_layout(
+      frame.card_width,
+      measured_width(device_, label, font_family_,
+                     static_cast<float>(metrics.pager_font),
+                     font_fallback_.Get()),
+      metrics);
+  if (pager) {
+    target->DrawText(label.c_str(), static_cast<UINT32>(label.size()),
+                      format(metrics.pager_font, DWRITE_TEXT_ALIGNMENT_TRAILING),
+                      box(pager->indicator), brush(palette_.number));
+    // The previous arrow is dimmed on the first page, where it does nothing. The next one never is: the Engine fetches candidates lazily, so the page count grows as the user pages and the last page counted is not known to be the last.
+    auto previous_color = palette_.number;
+    if (value->page == 0)
+      previous_color.a *= 0.4f;
+    const wchar_t previous_glyph[] = L"\u2039", next_glyph[] = L"\u203A";
+    target->DrawText(previous_glyph, 1,
+                      format(metrics.pager_font, DWRITE_TEXT_ALIGNMENT_CENTER),
+                      box(pager->previous), brush(previous_color));
+    target->DrawText(next_glyph, 1,
+                      format(metrics.pager_font, DWRITE_TEXT_ALIGNMENT_CENTER),
+                      box(pager->next), brush(palette_.number));
+  }
   if (show_preedit_) {
-    const auto label = pager_label(*value);
-    pager = candidate_pager_layout(
-        frame.card_width,
-        measured_width(device_, label, font_family_,
-                       static_cast<float>(metrics.pager_font),
-                       font_fallback_.Get()),
-        metrics);
     const D2D1_RECT_F rect{
-        static_cast<float>(frame.card_left + metrics.pad_x),
+        static_cast<float>(frame.card_left + candidate_preedit_left(metrics)),
         static_cast<float>(frame.card_top + metrics.pad_y),
         static_cast<float>(frame.card_left +
                            (pager ? pager->left - metrics.pager_gap
@@ -719,28 +766,6 @@ void CandidateWindow::paint() {
                                false, false, DWRITE_FONT_WEIGHT_SEMI_BOLD),
                         rect, brush(palette_.accent),
                         D2D1_DRAW_TEXT_OPTIONS_CLIP);
-    if (pager) {
-      auto box = [&frame](const CandidateRowBounds &bounds) {
-        return D2D1_RECT_F{static_cast<float>(frame.card_left + bounds.left),
-                           static_cast<float>(frame.card_top + bounds.top),
-                           static_cast<float>(frame.card_left + bounds.right),
-                           static_cast<float>(frame.card_top + bounds.bottom)};
-      };
-      target->DrawText(label.c_str(), static_cast<UINT32>(label.size()),
-                        format(metrics.pager_font, DWRITE_TEXT_ALIGNMENT_TRAILING),
-                        box(pager->indicator), brush(palette_.number));
-      // The previous arrow is dimmed on the first page, where it does nothing. The next one never is: the Engine fetches candidates lazily, so the page count grows as the user pages and the last page counted is not known to be the last.
-      auto previous_color = palette_.number;
-      if (value->page == 0)
-        previous_color.a *= 0.4f;
-      const wchar_t previous_glyph[] = L"\u2039", next_glyph[] = L"\u203A";
-      target->DrawText(previous_glyph, 1,
-                        format(metrics.pager_font, DWRITE_TEXT_ALIGNMENT_CENTER),
-                        box(pager->previous), brush(previous_color));
-      target->DrawText(next_glyph, 1,
-                        format(metrics.pager_font, DWRITE_TEXT_ALIGNMENT_CENTER),
-                        box(pager->next), brush(palette_.number));
-    }
     // The insertion point. Without it, moving left or right inside a long pinyin string gave no indication of where the next key would land - and the settings preview drew a caret the real window never did.
     if (value->preedit_caret != std::string::npos &&
         value->preedit_caret <= value->preedit.size()) {

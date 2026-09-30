@@ -909,9 +909,8 @@ int wmain(int argc, wchar_t **argv) {
               })
             : preview_key_handler(config),
         [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; });
+    // Its palette is applied once the theme is resolved, alongside the toolbar's.
     WaveOverlay voice_overlay;
-    voice_overlay.set_light_theme(surface_theme_is_light(
-        voice_theme->load(std::memory_order_acquire), system_prefers_dark()));
     VoiceInputSession *voice_session = nullptr;
     if (!voice_overlay.init(
             GetModuleHandleW(nullptr), [&voice_session](WaveOverlay::Action action) {
@@ -1136,6 +1135,11 @@ int wmain(int argc, wchar_t **argv) {
         toolbar_theme->load(std::memory_order_acquire), system_dark);
     uint64_t toolbar_theme_applied = candidate_theme_generation;
     toolbar.set_palette(toolbar_surface_palette(toolbar_dark_applied));
+    // The voice overlay draws the theme too, in its own light/dark mode, as the tray menu does.
+    bool voice_dark_applied = !surface_theme_is_light(
+        voice_theme->load(std::memory_order_acquire), system_dark);
+    uint64_t voice_theme_applied = candidate_theme_generation;
+    voice_overlay.set_palette(surface_palette(voice_dark_applied));
     toolbar.set_scale(config.floating_toolbar_scale);
     toolbar.set_font_size(config.floating_toolbar_font_size);
     toolbar.set_items(config.floating_toolbar_items);
@@ -1541,8 +1545,13 @@ int wmain(int argc, wchar_t **argv) {
       toolbar_visible = toolbar_enabled->load(std::memory_order_acquire);
       if (auto settings = toolbar_settings->take())
         toolbar.set_settings(*settings);
-      voice_overlay.set_light_theme(surface_theme_is_light(
-          voice_theme->load(std::memory_order_acquire), system_dark));
+      if (const bool dark = !surface_theme_is_light(
+              voice_theme->load(std::memory_order_acquire), system_dark);
+          dark != voice_dark_applied || voice_theme_applied != candidate_theme_generation) {
+        voice_dark_applied = dark;
+        voice_theme_applied = candidate_theme_generation;
+        voice_overlay.set_palette(surface_palette(dark));
+      }
       if (const bool dark = !surface_theme_is_light(
               menu_theme->load(std::memory_order_acquire), system_dark);
           dark != menu_dark_applied || menu_theme_applied != candidate_theme_generation) {

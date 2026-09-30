@@ -86,6 +86,8 @@ private:
   std::vector<CandidateItemWidths> measure_items(const CandidatePresentation &value);
   CandidateWrapMeasure wrap_measure(const CandidatePresentation &value);
   void paint();
+  // The brand mark leading the preedit row, loaded at `pixels` square. Null when the icon will not load, and the row then draws no mark.
+  ID2D1Bitmap *logo_bitmap(int pixels);
   std::optional<CandidateClick> hit(int x, int y);
   // The pager arrow under a client point: true for the previous page, false for the next. None over anything else, over the previous arrow on the first page, or without a page callback.
   std::optional<bool> pager_hit(int x, int y);
@@ -121,6 +123,8 @@ private:
   } apartment_;
   // Direct2D through the shared UI stack; no second renderer in this tree.
   msimeui::DeviceResources device_;
+  HICON logo_ = nullptr;
+  int logo_pixels_ = 0;
   CandidatePalette palette_;
   std::wstring font_family_;
   std::optional<CandidateFontSettings> font_settings_;

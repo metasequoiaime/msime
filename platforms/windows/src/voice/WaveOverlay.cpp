@@ -190,11 +190,12 @@ void WaveOverlay::set_input_level(float level)
     input_level_.store(clamped);
 }
 
-void WaveOverlay::set_light_theme(bool light)
+void WaveOverlay::set_palette(const msime::windows::CandidatePalette &palette)
 {
-    if (light == light_theme_)
+    const auto colors = msime::windows::voice_overlay_colors(palette);
+    if (colors == colors_)
         return;
-    light_theme_ = light;
+    colors_ = colors;
     release_render_target();
     if (hwnd_)
         InvalidateRect(hwnd_, nullptr, FALSE);
@@ -414,13 +415,15 @@ bool WaveOverlay::ensure_render_target()
     update_dpi_scale();
     render_target_->SetDpi(static_cast<FLOAT>(dpi_), static_cast<FLOAT>(dpi_));
 
-    const D2D1_COLOR_F background = light_theme_ ? D2D1::ColorF(0.98f, 0.98f, 0.99f, kPanelOpacity)
-                                                 : D2D1::ColorF(0.07f, 0.08f, 0.10f, kPanelOpacity);
-    const D2D1_COLOR_F bars = light_theme_ ? D2D1::ColorF(0.35f, 0.18f, 0.42f) : D2D1::ColorF(D2D1::ColorF::White);
-    const D2D1_COLOR_F border =
-        light_theme_ ? D2D1::ColorF(0.20f, 0.20f, 0.24f, 0.22f) : D2D1::ColorF(0.90f, 0.93f, 1.0f, 0.20f);
-    const D2D1_COLOR_F action_background =
-        light_theme_ ? D2D1::ColorF(0.86f, 0.87f, 0.89f) : D2D1::ColorF(0.18f, 0.19f, 0.21f);
+    auto color = [](const msime::windows::CandidateColor &value, float opacity = 1.0f) {
+        return D2D1::ColorF(value.r, value.g, value.b, value.a * opacity);
+    };
+    // The panel keeps its own translucency over whatever surface the theme gives it.
+    const D2D1_COLOR_F background = color(colors_.surface, kPanelOpacity);
+    const D2D1_COLOR_F bars = color(colors_.wave);
+    const D2D1_COLOR_F text = color(colors_.text);
+    const D2D1_COLOR_F border = color(colors_.border);
+    const D2D1_COLOR_F action_background = color(colors_.action);
 
     if (FAILED(render_target_->CreateSolidColorBrush(background, &bg_brush_)))
     {
@@ -429,6 +432,12 @@ bool WaveOverlay::ensure_render_target()
     }
 
     if (FAILED(render_target_->CreateSolidColorBrush(bars, &bar_brush_)))
+    {
+        release_render_target();
+        return false;
+    }
+
+    if (FAILED(render_target_->CreateSolidColorBrush(text, &text_brush_)))
     {
         release_render_target();
         return false;
@@ -452,6 +461,7 @@ bool WaveOverlay::ensure_render_target()
 void WaveOverlay::release_render_target()
 {
     safe_release(&bar_brush_);
+    safe_release(&text_brush_);
     safe_release(&bg_brush_);
     safe_release(&border_brush_);
     safe_release(&action_bg_brush_);
@@ -701,7 +711,7 @@ void WaveOverlay::draw()
     {
         const wchar_t *label = compact_status == CompactStatus::Recognizing ? L"识别中..." : L"处理中...";
         render_target_->DrawTextW(label, static_cast<UINT32>(wcslen(label)), processing_text_format_,
-                                  D2D1::RectF(content_left, 0.0f, content_right, h), bar_brush_);
+                                  D2D1::RectF(content_left, 0.0f, content_right, h), text_brush_);
     }
     else
     {
@@ -733,7 +743,7 @@ void WaveOverlay::draw()
         if (ensure_text_layout(transcript, text_width, text_height))
         {
             render_target_->DrawTextLayout(D2D1::Point2F(kTranscriptHorizontalPadding, kTranscriptTextTop),
-                                           text_layout_, bar_brush_, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                                           text_layout_, text_brush_, D2D1_DRAW_TEXT_OPTIONS_CLIP);
         }
     }
 
@@ -749,13 +759,13 @@ void WaveOverlay::draw()
 
         constexpr float x_half = 3.0f;
         render_target_->DrawLine(D2D1::Point2F(left_x - x_half, button_y - x_half),
-                                 D2D1::Point2F(left_x + x_half, button_y + x_half), bar_brush_, 1.7f);
+                                 D2D1::Point2F(left_x + x_half, button_y + x_half), text_brush_, 1.7f);
         render_target_->DrawLine(D2D1::Point2F(left_x + x_half, button_y - x_half),
-                                 D2D1::Point2F(left_x - x_half, button_y + x_half), bar_brush_, 1.7f);
+                                 D2D1::Point2F(left_x - x_half, button_y + x_half), text_brush_, 1.7f);
         render_target_->DrawLine(D2D1::Point2F(right_x - 3.8f, button_y),
-                                 D2D1::Point2F(right_x - 0.8f, button_y + 3.0f), bar_brush_, 1.7f);
+                                 D2D1::Point2F(right_x - 0.8f, button_y + 3.0f), text_brush_, 1.7f);
         render_target_->DrawLine(D2D1::Point2F(right_x - 0.8f, button_y + 3.0f),
-                                 D2D1::Point2F(right_x + 4.2f, button_y - 3.5f), bar_brush_, 1.7f);
+                                 D2D1::Point2F(right_x + 4.2f, button_y - 3.5f), text_brush_, 1.7f);
     }
 
     const HRESULT hr = render_target_->EndDraw();
