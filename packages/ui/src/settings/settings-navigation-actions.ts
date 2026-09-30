@@ -1,4 +1,4 @@
-import type { SettingsPageId } from "./mobile-navigation";
+import type { SettingsPageId } from "./settings-page-registry";
 
 export interface CreateSettingsNavigationActionsOptions {
   selectPage: (page: SettingsPageId) => void;

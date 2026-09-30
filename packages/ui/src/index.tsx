@@ -419,6 +419,7 @@ import { createSettingsSaveAction } from "./settings/settings-save-action";
 import { createSettingsPageSelection } from "./settings/settings-page-selection";
 import { createSettingsDraftActions } from "./settings/settings-draft-actions";
 import { createSettingsStatusActions } from "./settings/settings-status-actions";
+import { createSettingsNavigationActions } from "./settings/settings-navigation-actions";
 import { VoiceSettingsPage } from "./settings/pages/voice-page";
 import { AiSettingsPage } from "./settings/pages/ai-page";
 import { InputSettingsPage } from "./settings/pages/input-page";
@@ -2339,8 +2340,8 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     updateTouchGeometryDrag,
     endTouchGeometryDrag,
     openExternalUrl,
-    checkForUpdate,
     openPanel,
+    checkForUpdate,
     loadPhrases,
     turnPhrasePage,
     removePhrase,
@@ -2495,6 +2496,7 @@ export function SettingsPage(props: SettingsPageProps) {
     reload,
     save,
     openExternalUrl,
+    openPanel,
     restoreDefaults,
     recoverPreferences,
     dirty,
@@ -2524,6 +2526,13 @@ export function SettingsPage(props: SettingsPageProps) {
     recoverPreferences,
     inputSourceStartup: client.inputSourceStartup,
     setInputSourceStartup,
+  });
+  const { onOpenChat, onRestoreDefaults } = createSettingsNavigationActions({
+    selectPage,
+    chatAvailable: Boolean(client.chat),
+    openPanel,
+    openHandwriting: client.openHandwriting,
+    restoreDefaults,
   });
   const winShell = settingsPlatform === "win";
   const macShell = settingsPlatform === "mac";
@@ -2739,7 +2748,7 @@ export function SettingsPage(props: SettingsPageProps) {
                 actions={client.home}
                 onOpenPage={onOpenPage}
                 onSelectScheme={selectHomeScheme}
-                onOpenChat={client.chat ? () => selectPage("chat") : undefined}
+                onOpenChat={onOpenChat}
                 touchLayout={mobilePlatform}
               />
             )}
@@ -2902,7 +2911,7 @@ export function SettingsPage(props: SettingsPageProps) {
                     busy={busy}
                     dirty={dirty}
                     showRestoreDefaults={Boolean(client.loadDefaultPreferences)}
-                    onRestoreDefaults={() => void restoreDefaults()}
+                    onRestoreDefaults={onRestoreDefaults}
                   />
                 </SettingsFormFrame>
               )}
