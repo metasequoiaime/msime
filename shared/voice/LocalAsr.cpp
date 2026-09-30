@@ -779,8 +779,13 @@ bool is_local_model_dir(std::string_view path) {
   std::error_code error;
   const auto directory = fs::u8path(std::string(path));
   const auto manifest = directory / fs::u8path(std::string(local_model_manifest));
-  return fs::is_directory(directory, error) && fs::is_regular_file(manifest, error) &&
-         fs::file_size(manifest, error) <= kMaxManifestBytes && !error;
+  const auto directory_status = fs::symlink_status(directory, error);
+  if (error || !fs::is_directory(directory_status))
+    return false;
+  const auto manifest_status = fs::symlink_status(manifest, error);
+  if (error || !fs::is_regular_file(manifest_status))
+    return false;
+  return fs::file_size(manifest, error) <= kMaxManifestBytes && !error;
 }
 
 std::string recognize_local_model(const std::vector<float> &samples, const LocalAsrOptions &options,

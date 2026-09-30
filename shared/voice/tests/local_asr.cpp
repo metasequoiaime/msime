@@ -31,6 +31,21 @@ int main() {
     std::ofstream(root / "model" / std::string(local_model_manifest)) << R"({"kind":"offline_sense_voice","files":{}})";
     assert(is_local_model_dir((root / "model").u8string()));
 
+#if !defined(_WIN32)
+    const auto external = root / "external";
+    fs::create_directories(external);
+    std::ofstream(external / std::string(local_model_manifest)) << "{}";
+    fs::create_symlink(external, root / "linked-model");
+    assert(!is_local_model_dir((root / "linked-model").u8string()));
+    fs::remove(root / "linked-model");
+
+    const auto external_manifest = external / "external-manifest.json";
+    std::ofstream(external_manifest) << "{}";
+    fs::remove(root / "model" / std::string(local_model_manifest));
+    fs::create_symlink(external_manifest, root / "model" / std::string(local_model_manifest));
+    assert(!is_local_model_dir((root / "model").u8string()));
+#endif
+
     // No runtime: the session reports it rather than crashing, and names why.
     set_sherpa_library_path((root / "no-such-runtime").u8string());
     if (!sherpa_runtime_available()) {
