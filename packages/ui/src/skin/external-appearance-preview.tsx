@@ -4,13 +4,12 @@ import {
   decorationImage,
   dimension,
   drawnPackagePalette,
-  selectedBarCss,
   skinGeometryStyle,
   useSkinPreviewAssets,
   type ExternalSkin,
   type SkinCatalog,
 } from "./external-skins";
-import { installSkinPalette } from "./skin-palette";
+import { useSelectedBarPalette } from "./skin-palette";
 import {
   candidatePaletteStyle,
   customCandidatePalette,
@@ -63,7 +62,6 @@ function LoadedPreview({
   theme: "dark" | "light";
 }) {
   const scope = `appearance-external-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
-  const [paletteFailed, setPaletteFailed] = useState(false);
   const layout = preferences.candidate_layout ?? "vertical";
   // The host's `resolve()` is the authority; until it answers, and on hosts without it, the page's mirror layers the base, the package palette for the drawn mode (none when the package does not declare it) and the pickers the same way.
   const resolved = useResolvedTheme(resolve, {
@@ -80,19 +78,7 @@ function LoadedPreview({
         drawnPackagePalette(skin, theme),
       );
   const hideBar = palette?.show_selected_bar === false;
-  useEffect(() => {
-    if (!hideBar) {
-      setPaletteFailed(false);
-      return;
-    }
-    try {
-      const remove = installSkinPalette(selectedBarCss(scope, { showSelectedBar: false }));
-      setPaletteFailed(false);
-      return remove;
-    } catch {
-      setPaletteFailed(true);
-    }
-  }, [hideBar, scope]);
+  const paletteFailed = useSelectedBarPalette(scope, hideBar);
   const decorated =
     dimension(skin.decorationTopDip, 500) > 0 && dimension(skin.decorationWidthDip, 1000) > 0;
   const decoration = decorated ? decorationImage(skin) : null;

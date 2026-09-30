@@ -3,7 +3,8 @@ import { SkinCandidatePreview } from "./skin-candidate-preview";
 import { SkinToolbarPreview } from "./skin-toolbar-preview";
 import { useSkinImage, type SkinImageReader } from "./skin-image";
 import type { SkinFontReader } from "./skin-font";
-import { installSkinPalette } from "./skin-palette";
+import { selectedBarCss, useSelectedBarPalette } from "./skin-palette";
+export { selectedBarCss } from "./skin-palette";
 import { useToolbarCss, type ToolbarCssReader } from "./use-toolbar-css";
 import * as settings from "../settings/settings-style";
 import { Row } from "../core/platform-controls";
@@ -105,13 +106,6 @@ export function drawnPackagePalette(
   return skin.themes.includes(theme) ? skin.candidate[theme] : null;
 }
 
-/** The one package switch the `--cand-*` properties cannot carry: hiding the selection bar. Colours are never written as rules; they go through `customCandidateStyle`, layered as `resolve()` layers them. */
-export function selectedBarCss(scope: string, palette: Palette | null): string[] {
-  return palette?.showSelectedBar === false
-    ? [`.${scope} .first::before{display:none !important}`]
-    : [];
-}
-
 /** The package background read through the host image reader, ready for `SkinCandidatePreview`; nothing is drawn while it loads, when it fails to load or decode, or without a reader. */
 export function usePreviewBackground(
   readImage: SkinImageReader | undefined,
@@ -208,22 +202,9 @@ export function ExternalSkinCard({
     readImage,
     readFont,
   );
-  const [paletteFailed, setPaletteFailed] = useState(false);
   const palette = drawnPackagePalette(skin, theme);
   const hideBar = palette?.showSelectedBar === false;
-  useEffect(() => {
-    if (!hideBar) {
-      setPaletteFailed(false);
-      return;
-    }
-    try {
-      const remove = installSkinPalette(selectedBarCss(scope, { showSelectedBar: false }));
-      setPaletteFailed(false);
-      return remove;
-    } catch {
-      setPaletteFailed(true);
-    }
-  }, [hideBar, scope]);
+  const paletteFailed = useSelectedBarPalette(scope, hideBar);
   // Card-only overrides must not change runtime compatibility or selection. A package over a built-in base is drawn in that base's mode, so the host mode does not rule it out.
   const compatible =
     skin.layouts.includes(layout) && (fixed !== null || skin.themes.includes(activeTheme));

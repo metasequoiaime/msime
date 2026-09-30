@@ -33,6 +33,7 @@ const geometryCss = utilityCss("external-skin-decorated");
 import { skinImageUrl, type SkinImage } from "../../../../packages/ui/src/skin/skin-image";
 import desktopConfig from "../../src-tauri/tauri.conf.json";
 import * as fontPreparation from "../../../../packages/ui/src/skin/toolbar-fonts";
+import { useSelectedBarPalette } from "../../../../packages/ui/src/skin/skin-palette";
 
 afterEach(cleanup);
 // jsdom parses CSS rules but does not implement adopted stylesheet rendering.
@@ -149,6 +150,21 @@ test("external skin selected-bar flag emits a scoped hide rule", () => {
   ]);
   expect(selectedBarCss("scope", { showSelectedBar: true })).toEqual([]);
   expect(selectedBarCss("scope", null)).toEqual([]);
+});
+
+test("selected-bar palette hook installs and removes its scoped sheet", () => {
+  const { result, rerender, unmount } = renderHook(
+    ({ hideBar }) => useSelectedBarPalette("scope", hideBar),
+    { initialProps: { hideBar: true } },
+  );
+  expect(result.current).toBe(false);
+  expect(document.adoptedStyleSheets).toHaveLength(1);
+  expect(document.adoptedStyleSheets[0].cssRules[0].cssText).toContain("display: none");
+
+  rerender({ hideBar: false });
+  expect(result.current).toBe(false);
+  expect(document.adoptedStyleSheets).toHaveLength(0);
+  unmount();
 });
 
 test("shared preview assets reset decode fallback when the preview revision changes", async () => {
