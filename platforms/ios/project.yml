@@ -100,6 +100,10 @@ targets:
         ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS: YES
         # 没有这一条时 `Color.accentColor` 是系统蓝,而设置行的图标块、列表里的控件都取它。资源里的两个值就是 MetasequoiaTheme.forestUIColor 的浅色与深色两支。
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        # The app embeds SherpaOnnxC.framework (dynamic) in Frameworks/; without this runpath dyld only searches /usr/lib/swift and the app is killed at launch with "Library not loaded: @rpath/SherpaOnnxC.framework".
+        LD_RUNPATH_SEARCH_PATHS:
+          - "$(inherited)"
+          - "@executable_path/Frameworks"
         OTHER_LDFLAGS:
           - "$(inherited)"
           - "-lmsime_host_api"
