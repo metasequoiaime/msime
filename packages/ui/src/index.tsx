@@ -1058,6 +1058,11 @@ export {
   type PanelClient,
   type VoicePanelClient,
 } from "./keyboard/panels";
+export {
+  CloudDictionaryEntryForm,
+  type CloudDictionaryEntryFormProps,
+  type CloudDictionaryEntryFormValue,
+} from "./keyboard/cloud-dictionary-entry-form";
 export type { EmojiCatalogGroup } from "./emoji/emoji-catalog";
 export {
   customTranslationsExample,

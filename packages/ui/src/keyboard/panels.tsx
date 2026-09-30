@@ -33,6 +33,7 @@ import {
 } from "./keyboard-input";
 import { keyboardSkinStyles } from "./keyboard-skin-styles";
 import { keyboardRows, nineKeyRows } from "./panel-keyboard-layouts";
+import { CloudDictionaryEntryForm } from "./cloud-dictionary-entry-form";
 import {
   clipboardTooltip,
   emojiDisplayName,
@@ -2269,48 +2270,13 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
           )}
         </div>
         {form && (
-          <div className={cloud.dictionaryForm}>
-            <label className={cloud.dictionaryField}>
-              编码
-              <input
-                className={cloud.dictionaryInput}
-                disabled={busy}
-                value={form.code}
-                onChange={(event) => setForm({ ...form, code: event.target.value })}
-              />
-            </label>
-            <label className={cloud.dictionaryWordField}>
-              词条
-              <input
-                className={cloud.dictionaryInput}
-                disabled={busy}
-                value={form.word}
-                onChange={(event) => setForm({ ...form, word: event.target.value })}
-              />
-            </label>
-            <label className={cloud.dictionaryField}>
-              权重
-              <input
-                className={cloud.dictionaryInput}
-                disabled={busy}
-                type="number"
-                min="0"
-                value={form.weight}
-                onChange={(event) => setForm({ ...form, weight: Number(event.target.value) })}
-              />
-            </label>
-            <button type="button" onClick={() => void save()} disabled={busy}>
-              保存
-            </button>
-            <button
-              type="button"
-              className="secondary"
-              onClick={() => setForm(null)}
-              disabled={busy}
-            >
-              取消
-            </button>
-          </div>
+          <CloudDictionaryEntryForm
+            value={form}
+            busy={busy}
+            onChange={(patch) => setForm((current) => (current ? { ...current, ...patch } : null))}
+            onSave={() => void save()}
+            onCancel={() => setForm(null)}
+          />
         )}
         {entries.length > 0 && (
           <p className={cloud.dictionaryMobileHint}>
@@ -3446,48 +3412,13 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
           </div>
         )}
         {form && (
-          <div className={cloud.dictionaryForm}>
-            <label className={cloud.dictionaryField}>
-              编码
-              <input
-                className={cloud.dictionaryInput}
-                disabled={busy}
-                value={form.code}
-                onChange={(event) => setForm({ ...form, code: event.target.value })}
-              />
-            </label>
-            <label className={cloud.dictionaryWordField}>
-              词条
-              <input
-                className={cloud.dictionaryInput}
-                disabled={busy}
-                value={form.word}
-                onChange={(event) => setForm({ ...form, word: event.target.value })}
-              />
-            </label>
-            <label className={cloud.dictionaryField}>
-              权重
-              <input
-                className={cloud.dictionaryInput}
-                disabled={busy}
-                type="number"
-                min="0"
-                value={form.weight}
-                onChange={(event) => setForm({ ...form, weight: Number(event.target.value) })}
-              />
-            </label>
-            <button type="button" onClick={() => void save()} disabled={busy}>
-              保存
-            </button>
-            <button
-              type="button"
-              className="secondary"
-              onClick={() => setForm(null)}
-              disabled={busy}
-            >
-              取消
-            </button>
-          </div>
+          <CloudDictionaryEntryForm
+            value={form}
+            busy={busy}
+            onChange={(patch) => setForm((current) => (current ? { ...current, ...patch } : null))}
+            onSave={() => void save()}
+            onCancel={() => setForm(null)}
+          />
         )}
         {confirmed && (
           <div className={cloud.dictionaryPagination}>
