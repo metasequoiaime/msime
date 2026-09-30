@@ -165,6 +165,10 @@ pub fn usable_credential(value: &str) -> bool {
         && !trimmed.starts_with("FAKESECRET_")
 }
 
+pub fn is_valid_credential(value: &str) -> bool {
+    usable_credential(value) && crate::text::is_bounded_text(value, 4096)
+}
+
 /// NiuTrans v2 authStr is the lower-case MD5 of the lexicographically sorted
 /// request parameters plus the API key. The provider signs raw UTF-8 values;
 /// URL encoding is only applied to the eventual form body by the host.
