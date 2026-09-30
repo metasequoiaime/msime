@@ -1,6 +1,7 @@
 import app.msime.android.CommunityCatalog;
 import app.msime.android.CommunityRequest;
 import java.lang.reflect.Method;
+import java.util.UUID;
 
 public final class CommunityCatalogSmoke {
     public static void main(String[] arguments) throws Exception {
@@ -22,6 +23,18 @@ public final class CommunityCatalogSmoke {
             "dictionary pages allow the shared resource response bound");
         check((int) responseLimit.invoke(null, CommunityRequest.Kind.REPLY) == 48 * 1024 * 1024,
             "reply pages allow the shared resource response bound");
+        Method validItem = CommunityCatalog.class.getDeclaredMethod(
+            "validItem", CommunityCatalog.Item.class, CommunityRequest.Kind.class);
+        validItem.setAccessible(true);
+        CommunityCatalog.Item malformed = new CommunityCatalog.Item(
+            "not-a-uuid", CommunityRequest.Kind.SKIN, "名称", "说明", "作者", 0, 0, 0, null);
+        check(!(boolean) validItem.invoke(null, malformed, CommunityRequest.Kind.SKIN),
+            "malformed community items must be rejected");
+        CommunityCatalog.Item invalidRating = new CommunityCatalog.Item(
+            UUID.randomUUID().toString(), CommunityRequest.Kind.SKIN, "名称", "说明", "作者",
+            0, 0, 1, null);
+        check(!(boolean) validItem.invoke(null, invalidRating, CommunityRequest.Kind.SKIN),
+            "a rating average without ratings must be rejected");
         System.out.println("Android community catalogue bounds passed");
     }
 

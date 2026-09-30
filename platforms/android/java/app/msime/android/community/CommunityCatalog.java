@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import javax.net.ssl.HttpsURLConnection;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -28,10 +29,14 @@ public final class CommunityCatalog {
     private static final int MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
     private static final int MAX_RESOURCE_RESPONSE_BYTES = 48 * 1024 * 1024;
     private static final int TIMEOUT_MILLIS = 30_000;
+    private static final long MAX_JAVASCRIPT_INTEGER = 9_007_199_254_740_991L;
+    private static final int MAX_NAME_CHARACTERS = 32;
+    private static final int MAX_DESCRIPTION_CHARACTERS = 280;
+    private static final int MAX_AUTHOR_CHARACTERS = 128;
 
     /** One catalogue entry, flattened to what a list row shows. */
     public record Item(String id, CommunityRequest.Kind kind, String name, String description,
-                       String author, int saves, int ratingCount, double ratingAverage,
+                       String author, long saves, long ratingCount, double ratingAverage,
                        JSONObject payload) {}
 
     /** A page of results, or a failure the caller can show verbatim. */
@@ -95,19 +100,29 @@ public final class CommunityCatalog {
         Set<String> ids = new HashSet<>();
         for (int index = 0; index < values.length(); index++) {
             JSONObject value = values.optJSONObject(index);
-            if (value == null) continue;
+            if (value == null) {
+                return new Page(List.of(), false, CommunityRequest.message(null, 500));
+            }
             String id = value.optString("id", "");
             String name = value.optString("name", "").trim();
-            if (id.isEmpty() || name.isEmpty()) continue;
+            JSONObject payload = kind == CommunityRequest.Kind.SKIN
+                ? value.optJSONObject("design") : value.optJSONObject("content");
+            Long saves = count(value, "saves", kind == CommunityRequest.Kind.SKIN ? "downloads" : null);
+            Long ratings = count(value, "rating_count", null);
+            Double average = decimal(value, "rating_average");
+            if (saves == null || ratings == null || average == null) {
+                return new Page(List.of(), false, CommunityRequest.message(null, 500));
+            }
+            Item item = new Item(id, kind, name, value.optString("description", "").trim(),
+                value.optString("author", "").trim(),
+                saves, ratings, average, payload);
+            if (!validItem(item, kind)) {
+                return new Page(List.of(), false, CommunityRequest.message(null, 500));
+            }
             if (!ids.add(id)) {
                 return new Page(List.of(), false, CommunityRequest.message(null, 500));
             }
-            items.add(new Item(id, kind, name, value.optString("description", "").trim(),
-                value.optString("author", "").trim(),
-                value.optInt("saves", value.optInt("downloads", 0)),
-                value.optInt("rating_count", 0), value.optDouble("rating_average", 0),
-                kind == CommunityRequest.Kind.SKIN ? value.optJSONObject("design")
-                    : value.optJSONObject("content")));
+            items.add(item);
         }
         if (invalidPage(values.length(), items.size(), hasMore)) {
             return new Page(List.of(), false, CommunityRequest.message(null, 500));
@@ -120,6 +135,67 @@ public final class CommunityCatalog {
         return rawLength > CommunityRequest.PAGE_SIZE
             || validLength != rawLength
             || (hasMore && validLength == 0);
+    }
+
+    static boolean validItem(Item item, CommunityRequest.Kind kind) {
+        if (item == null || item.kind() != kind || item.payload() == null
+                || !validUuid(item.id()) || !validName(item.name(), MAX_NAME_CHARACTERS)
+                || !validDescription(item.description()) || !validName(item.author(), MAX_AUTHOR_CHARACTERS)
+                || item.saves() < 0 || item.saves() > MAX_JAVASCRIPT_INTEGER
+                || item.ratingCount() < 0 || item.ratingCount() > MAX_JAVASCRIPT_INTEGER
+                || item.ratingAverage() < 0 || item.ratingAverage() > 5
+                || Double.isNaN(item.ratingAverage()) || Double.isInfinite(item.ratingAverage())) {
+            return false;
+        }
+        return item.ratingCount() != 0 || item.ratingAverage() == 0;
+    }
+
+    private static boolean validUuid(String value) {
+        if (value == null) return false;
+        try {
+            return UUID.fromString(value).toString().equalsIgnoreCase(value);
+        } catch (IllegalArgumentException error) {
+            return false;
+        }
+    }
+
+    private static boolean validName(String value, int maximum) {
+        return value != null && !value.isEmpty() && value.trim().equals(value)
+            && value.codePointCount(0, value.length()) <= maximum && !hasDisallowedControl(value, false);
+    }
+
+    private static boolean validDescription(String value) {
+        return value != null && value.codePointCount(0, value.length()) <= MAX_DESCRIPTION_CHARACTERS
+            && !hasDisallowedControl(value, true);
+    }
+
+    private static boolean hasDisallowedControl(String value, boolean multiline) {
+        for (int index = 0; index < value.length();) {
+            int codePoint = value.codePointAt(index);
+            if (Character.isISOControl(codePoint)
+                    && !(multiline && (codePoint == '\n' || codePoint == '\t'))) return true;
+            index += Character.charCount(codePoint);
+        }
+        return false;
+    }
+
+    private static Long count(JSONObject value, String primary, String fallback) {
+        Object raw = value.opt(primary);
+        if ((raw == null || raw == JSONObject.NULL) && fallback != null) raw = value.opt(fallback);
+        if (raw == null || raw == JSONObject.NULL) return 0L;
+        if (!(raw instanceof Number number)) return null;
+        double decimal = number.doubleValue();
+        long integer = number.longValue();
+        return Double.isFinite(decimal) && decimal >= 0 && decimal == integer
+            && integer <= MAX_JAVASCRIPT_INTEGER ? integer : null;
+    }
+
+    private static Double decimal(JSONObject value, String key) {
+        Object raw = value.opt(key);
+        if (raw == null || raw == JSONObject.NULL) return 0.0;
+        if (!(raw instanceof Number number)) return null;
+        double result = number.doubleValue();
+        return Double.isFinite(result) ? result : null;
     }
 
     /** The backend's own name for a failure, so the reader is told the specific thing. */
