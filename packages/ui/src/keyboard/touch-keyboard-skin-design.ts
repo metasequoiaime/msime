@@ -44,6 +44,13 @@ export type SavedTouchKeyboardSkin = {
   design: TouchKeyboardSkinDesign;
 };
 
+export function updateSavedTouchKeyboardSkinName(
+  current: SavedTouchKeyboardSkin,
+  name: string,
+): SavedTouchKeyboardSkin {
+  return { ...current, name };
+}
+
 export type CustomSkinLibraryAction =
   | { operation: "create"; name: string; design: TouchKeyboardSkinDesign }
   | { operation: "rename"; id: string; name: string }

@@ -16,6 +16,7 @@ import {
   skinContrast,
   touchKeyboardBackgroundPresets,
   touchKeyboardSkinTemplates,
+  updateSavedTouchKeyboardSkinName,
   type AiSkinClient,
   type AiSkinProposal,
   type CustomSkinLibraryAction,
@@ -291,7 +292,13 @@ function AiSkinGeneration({
                 aria-label="AI 皮肤名称"
                 value={publishing.name}
                 maxLength={32}
-                onChange={(event) => setPublishing({ ...publishing, name: event.target.value })}
+                onChange={(event) =>
+                  setPublishing((current) =>
+                    current
+                      ? updateSavedTouchKeyboardSkinName(current, event.target.value)
+                      : current,
+                  )
+                }
               />
             </label>
             <label>
