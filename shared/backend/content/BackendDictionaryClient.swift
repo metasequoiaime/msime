@@ -147,7 +147,14 @@ extension BackendAccountClient {
     components.path = "/v1/users/me/dictionaries/" + kind.rawValue + "/catalog"
     components.queryItems = [.init(name: "q", value: code), .init(name: "offset", value: String(offset)), .init(name: "limit", value: "100"), .init(name: "scheme", value: scheme), .init(name: "profile", value: profile)]
     guard let path = Self.encodedPath(components) else { throw Failure(status: 400) }
-    return try await json("GET", path, token: token)
+    let page: DictionaryCatalog = try await json("GET", path, token: token)
+    guard page.entries.count <= 100, page.offset == offset, page.revision >= 0,
+          Self.validCatalogText(page.normalized, maximum: 256, empty: true),
+          page.entries.allSatisfy({ entry in
+            entry.kind == kind && Self.validCatalogText(entry.code, maximum: 256)
+              && Self.validCatalogText(entry.word, maximum: 1024) && entry.weight >= 0
+          }) else { throw Failure(status: 0) }
+    return page
   }
   func editCatalog(_ entry: CatalogEntry, revision: Int64, replacement: DictionaryValue?, token: String) async throws -> DictionaryChange {
     guard revision >= 0 else { throw Failure(status: 400) }
@@ -185,5 +192,11 @@ extension BackendAccountClient {
       && !entry.word.unicodeScalars.contains { $0.properties.generalCategory == .control }
       && entry.weight >= 0
       && entry.revision > 0
+  }
+
+  private static func validCatalogText(_ value: String, maximum: Int, empty: Bool = false) -> Bool {
+    (empty || !value.isEmpty)
+      && value.utf8.count <= maximum
+      && !value.unicodeScalars.contains { $0.properties.generalCategory == .control }
   }
 }

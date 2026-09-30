@@ -31,6 +31,32 @@ private final class DictionaryCatalogProtocol: URLProtocol {
   }
   override func stopLoading() {}
 }
+private final class MalformedDictionaryCatalogProtocol: URLProtocol {
+  override class func canInit(with request: URLRequest) -> Bool { request.url?.path.hasSuffix("/catalog") == true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    let components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)
+    let query = components?.queryItems?.first { $0.name == "q" }?.value ?? ""
+    let entry: [String: Any]
+    switch query {
+    case "bad-code": entry = ["kind": "pinyin", "code": "", "word": "你", "weight": 1]
+    case "bad-weight": entry = ["kind": "pinyin", "code": "ni", "word": "你", "weight": -1]
+    default: entry = ["kind": "pinyin", "code": "ni", "word": "你", "weight": 1]
+    }
+    let object: [String: Any] = [
+      "entries": [entry], "offset": query == "bad-offset" ? 100 : 0,
+      "has_more": false, "revision": query == "bad-revision" ? -1 : 1,
+      "normalized": query == "bad-normalized" ? "ni\u{0001}" : "ni",
+    ]
+    let data = try! JSONSerialization.data(withJSONObject: object)
+    let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+      headerFields: ["Content-Type": "application/json"])!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: data)
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
 final class BackendDictionaryCatalogTests: XCTestCase {
   func testBaseCatalogHasNoPersonalIDAndDeletionRequiresExplicitNull() async throws {
     let config = URLSessionConfiguration.ephemeral
@@ -58,5 +84,18 @@ final class BackendDictionaryCatalogTests: XCTestCase {
     XCTAssertTrue(path.contains("context=a%2Bb"), path)
     let decoded = URLComponents(string: path)?.queryItems
     XCTAssertEqual(decoded?.first { $0.name == "q" }?.value, "C++ x")
+  }
+  func testDictionaryCatalogRejectsMalformedServerEntries() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [MalformedDictionaryCatalogProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    for code in ["bad-code", "bad-weight", "bad-offset", "bad-revision", "bad-normalized"] {
+      do {
+        _ = try await client.dictionaryCatalog(.pinyin, code: code, token: "session")
+        XCTFail("malformed dictionary catalog accepted: \(code)")
+      } catch let error as BackendAccountClient.Failure {
+        XCTAssertEqual(error.status, 0)
+      }
+    }
   }
 }
