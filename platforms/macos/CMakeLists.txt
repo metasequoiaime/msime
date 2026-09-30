@@ -158,10 +158,12 @@ set_target_properties(MSIMEClientInputMethod PROPERTIES OUTPUT_NAME "水杉输�
 target_sources(MSIMEClientInputMethod PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethod.icns")
 set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethod.icns"
   PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
-# The input menu's own icon, a template TIFF rather than the application icon: the bundle's logo, which the switch HUD also shows, and the four input modes' badged variants of it. See the comment beside tsInputMethodIconFileKey in Info.plist.in for why the logo and the application icon cannot be the same file.
+# The input menu's own icon, a template TIFF rather than the application icon: the bundle's logo, which the switch HUD also shows, and the six input modes' badged variants of it. See the comment beside tsInputMethodIconFileKey in Info.plist.in for why the logo and the application icon cannot be the same file.
 set(MSIME_MENU_ICON_RESOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethodMenuIcon.tiff"
   "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethodMenuIconChinese.tiff"
+  "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethodMenuIconShuangpin.tiff"
+  "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethodMenuIconWubi.tiff"
   "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethodMenuIconJapanese.tiff"
   "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethodMenuIconKorean.tiff"
   "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethodMenuIconEnglish.tiff")

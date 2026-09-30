@@ -27,7 +27,11 @@ namespace {
 BOOL gEnglishModeEnabled = YES;
 BOOL gJapaneseModeEnabled = YES;
 BOOL gKoreanModeEnabled = YES;
+BOOL gShuangpinModeEnabled = YES;
+BOOL gWubiModeEnabled = YES;
 BOOL Available(NSString *identifier) {
+    if ([identifier isEqualToString:MSIMEShuangpinInputModeID]) return gShuangpinModeEnabled;
+    if ([identifier isEqualToString:MSIMEWubiInputModeID]) return gWubiModeEnabled;
     if ([identifier isEqualToString:MSIMEJapaneseInputModeID]) return gJapaneseModeEnabled;
     if ([identifier isEqualToString:MSIMEKoreanInputModeID]) return gKoreanModeEnabled;
     return [identifier isEqualToString:MSIMEChineseInputModeID] || gEnglishModeEnabled;
@@ -48,25 +52,60 @@ int main() {
                     [MSIMEInputModeID(MSIMEInputModeFor(NO, @"japanese")) isEqualToString:@"app.msime.inputmethod.MetasequoiaIME.Japanese"] &&
                     [MSIMEInputModeID(MSIMEInputModeFor(NO, @"korean")) isEqualToString:@"app.msime.inputmethod.MetasequoiaIME.Korean"],
                 "The Chinese, English, Japanese and Korean states do not map to the modes Info.plist.in declares.");
-        require(MSIMEInputModeFor(NO, @"shuangpin") == MSIMEInputMode::Chinese && MSIMEInputModeFor(NO, @"wubi") == MSIMEInputMode::Chinese &&
-                    MSIMEInputModeFor(NO, nil) == MSIMEInputMode::Chinese,
-                "A Chinese scheme did not show 中.");
-        require(MSIMEInputModeFor(YES, @"japanese") == MSIMEInputMode::English && MSIMEInputModeFor(YES, @"korean") == MSIMEInputMode::English,
-                "English mode over the japanese or korean scheme did not show 英.");
-        for (NSString *identifier in @[MSIMEChineseInputModeID, MSIMEEnglishInputModeID, MSIMEJapaneseInputModeID, MSIMEKoreanInputModeID])
+        require([MSIMEInputModeID(MSIMEInputModeFor(NO, @"shuangpin")) isEqualToString:@"app.msime.inputmethod.MetasequoiaIME.Shuangpin"] &&
+                    [MSIMEInputModeID(MSIMEInputModeFor(NO, @"wubi")) isEqualToString:@"app.msime.inputmethod.MetasequoiaIME.Wubi"],
+                "The shuangpin and wubi schemes do not map to the modes Info.plist.in declares.");
+        require(MSIMEInputModeFor(NO, @"quanpin") == MSIMEInputMode::Chinese && MSIMEInputModeFor(NO, nil) == MSIMEInputMode::Chinese,
+                "Quanpin or an unset scheme did not show 中.");
+        require(MSIMEInputModeFor(YES, @"japanese") == MSIMEInputMode::English && MSIMEInputModeFor(YES, @"korean") == MSIMEInputMode::English &&
+                    MSIMEInputModeFor(YES, @"wubi") == MSIMEInputMode::English,
+                "English mode over another scheme did not show 英.");
+        for (NSString *identifier in @[MSIMEChineseInputModeID, MSIMEShuangpinInputModeID, MSIMEWubiInputModeID, MSIMEEnglishInputModeID,
+                                       MSIMEJapaneseInputModeID, MSIMEKoreanInputModeID])
             require([MSIMEInputModeID(MSIMEInputModeForID(identifier)) isEqualToString:identifier],
                     "A mode identifier does not map back to the mode it names.");
         require(MSIMEInputModeForID(@"com.apple.keylayout.ABC") == MSIMEInputMode::Chinese,
                 "An unknown identifier did not read as the Chinese mode.");
-        require([MSIMESchemeForInputMode(MSIMEInputMode::Japanese) isEqualToString:@"japanese"] &&
+        require([MSIMESchemeForInputMode(MSIMEInputMode::Shuangpin) isEqualToString:@"shuangpin"] &&
+                    [MSIMESchemeForInputMode(MSIMEInputMode::Wubi) isEqualToString:@"wubi"] &&
+                    [MSIMESchemeForInputMode(MSIMEInputMode::Japanese) isEqualToString:@"japanese"] &&
                     [MSIMESchemeForInputMode(MSIMEInputMode::Korean) isEqualToString:@"korean"] &&
                     MSIMESchemeForInputMode(MSIMEInputMode::Chinese) == nil && MSIMESchemeForInputMode(MSIMEInputMode::English) == nil,
                 "A mode selects the wrong scheme.");
         require(MSIMEIsInputModeID(MSIMEChineseInputModeID) && MSIMEIsInputModeID(MSIMEEnglishInputModeID) &&
                     MSIMEIsInputModeID(MSIMEJapaneseInputModeID) && MSIMEIsInputModeID(MSIMEKoreanInputModeID) &&
+                    MSIMEIsInputModeID(MSIMEShuangpinInputModeID) && MSIMEIsInputModeID(MSIMEWubiInputModeID) &&
                     !MSIMEIsInputModeID(@"com.apple.keylayout.ABC") && !MSIMEIsInputModeID(@"app.msime.inputmethod.MetasequoiaIME") &&
                     !MSIMEIsInputModeID(@42) && !MSIMEIsInputModeID(nil),
-                "Something other than this bundle's four modes was taken for one of them.");
+                "Something other than this bundle's six modes was taken for one of them.");
+        require(MSIMEIsOptInInputModeID(MSIMEShuangpinInputModeID) && MSIMEIsOptInInputModeID(MSIMEWubiInputModeID) &&
+                    !MSIMEIsOptInInputModeID(MSIMEChineseInputModeID) && !MSIMEIsOptInInputModeID(MSIMEEnglishInputModeID) &&
+                    !MSIMEIsOptInInputModeID(MSIMEJapaneseInputModeID) && !MSIMEIsOptInInputModeID(MSIMEKoreanInputModeID),
+                "Only the Shuangpin and Wubi modes are left for the user to add.");
+
+        // 双, 五, 日 and 한 name their scheme and 英 leaves it alone, whatever scheme is behind them.
+        require([MSIMESchemeForReportedInputMode(MSIMEInputMode::Wubi, @"japanese", @"quanpin", Available) isEqualToString:@"wubi"] &&
+                    [MSIMESchemeForReportedInputMode(MSIMEInputMode::Shuangpin, @"quanpin", nil, Available) isEqualToString:@"shuangpin"] &&
+                    MSIMESchemeForReportedInputMode(MSIMEInputMode::English, @"wubi", nil, Available) == nil,
+                "A mode other than 中 did not select its own scheme.");
+        // 中 keeps quanpin, and returns from 日 or 한 to the Chinese scheme they were entered from.
+        require(MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"quanpin", nil, Available) == nil &&
+                    [MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"korean", @"quanpin", Available) isEqualToString:@"quanpin"],
+                "中 did not keep quanpin or return to it.");
+        // With 双 and 五 offered, 中 was picked over them and means quanpin, even when 日 was entered from shuangpin.
+        require([MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"shuangpin", nil, Available) isEqualToString:@"quanpin"] &&
+                    [MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"wubi", nil, Available) isEqualToString:@"quanpin"] &&
+                    [MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"japanese", @"shuangpin", Available) isEqualToString:@"quanpin"],
+                "中 picked over an offered 双 or 五 did not move to quanpin.");
+        // Without them, 中 is what shuangpin and wubi show, so picking it keeps the scheme or returns to it.
+        gShuangpinModeEnabled = NO;
+        gWubiModeEnabled = NO;
+        require(MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"shuangpin", nil, Available) == nil &&
+                    MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"wubi", nil, Available) == nil &&
+                    [MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"japanese", @"shuangpin", Available) isEqualToString:@"shuangpin"],
+                "中 standing in for a Shuangpin or Wubi mode the user never added moved the scheme.");
+        gShuangpinModeEnabled = YES;
+        gWubiModeEnabled = YES;
 
         MSIMESystemInputModeState state;
         InputModeRecordingClient *client = [InputModeRecordingClient new];
@@ -165,6 +204,22 @@ int main() {
         gKoreanModeEnabled = YES;
         MSIMEAdoptReportedInputMode(state, MSIMEChineseInputModeID);
 
+        // A Shuangpin or Wubi mode the user never added shows 中 for its scheme, and one they did add is selected.
+        const NSUInteger beforeShuangpin = client.selected.count;
+        gShuangpinModeEnabled = NO;
+        require(!MSIMESelectSystemInputMode(state, MSIMEShuangpinInputModeID, client, Available) && client.selected.count == beforeShuangpin &&
+                    [state.current isEqualToString:MSIMEChineseInputModeID],
+                "An unavailable Shuangpin mode did not stay on the Chinese mode.");
+        gShuangpinModeEnabled = YES;
+        require(MSIMESelectSystemInputMode(state, MSIMEShuangpinInputModeID, client, Available) &&
+                    [client.selected.lastObject isEqualToString:MSIMEShuangpinInputModeID] && client.selected.count == beforeShuangpin + 1,
+                "An added Shuangpin mode was not selected for the shuangpin scheme.");
+        gWubiModeEnabled = NO;
+        require(MSIMESelectSystemInputMode(state, MSIMEWubiInputModeID, client, Available) &&
+                    [client.selected.lastObject isEqualToString:MSIMEChineseInputModeID] && client.selected.count == beforeShuangpin + 2,
+                "An unavailable Wubi mode did not fall back to the Chinese mode.");
+        gWubiModeEnabled = YES;
+
         // Leaving the input method clears the record, so picking the entry shown before leaving is adopted on the way back instead of being taken for an echo.
         require(MSIMEAdoptReportedInputMode(state, MSIMEEnglishInputModeID) && !MSIMEAdoptReportedInputMode(state, MSIMEEnglishInputModeID),
                 "The English report before leaving was not recorded.");
@@ -181,6 +236,6 @@ int main() {
                 "A client without selectInputMode: was recorded as switched.");
         require(!MSIMESelectSystemInputMode(state, MSIMEEnglishInputModeID, nil, Available), "A missing client was asked to switch.");
     }
-    std::puts("input mode identifiers keep the menu bar mode and the Chinese/English/Japanese/Korean state in step");
+    std::puts("input mode identifiers keep the menu bar mode and the Chinese/English state and scheme in step");
     return 0;
 }

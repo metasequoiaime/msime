@@ -3203,12 +3203,12 @@ static __weak MSIMEInputController *MSIMEQueuedPreferenceSaver;
         [hud showEnglishInputMode:enabled nearCaretRect:caret];
     }
 }
-// Keeps the selected input mode - 中, 英, 日 or 한 in the input menu - in step with the Chinese/English state and the scheme. A switch the system reported is already recorded as shown, so this does not echo it back.
+// Keeps the selected input mode - 中, 双, 五, 英, 日 or 한 in the input menu - in step with the Chinese/English state and the scheme. A switch the system reported is already recorded as shown, so this does not echo it back.
 - (void)syncSystemInputModeForClient:(id)client {
     NSString *mode = MSIMEInputModeID(MSIMEInputModeFor(_appearance.englishMode, _appearance.inputScheme));
     MSIMESelectSystemInputMode(MSIMESharedSystemInputModeState(), mode, client, MSIMEInputSourceIsEnabled);
 }
-// The system reports the mode the user picked from the input menu or reached with Ctrl+Space; the controller's Chinese/English state and, for 中, 日 and 한, its scheme follow it. A report that only repeats the mode already shown, or one delivered from inside this controller's own selectInputMode:, leaves the state alone.
+// The system reports the mode the user picked from the input menu or reached with Ctrl+Space; the controller's Chinese/English state and, for every mode but 英, its scheme follow it. A report that only repeats the mode already shown, or one delivered from inside this controller's own selectInputMode:, leaves the state alone.
 - (void)setValue:(id)value forTag:(long)tag client:(id)sender {
     if (tag == kTextServiceInputModePropertyTag) [self systemDidReportInputMode:value client:sender];
     [super setValue:value forTag:tag client:sender];
@@ -3218,14 +3218,13 @@ static __weak MSIMEInputController *MSIMEQueuedPreferenceSaver;
     [self ensureAppearance];
     // The report can arrive before activateServer: or handleEvent: has named the client, and the mode is remembered per application.
     [_appearance activateInputModeForApplication:[sender respondsToSelector:@selector(bundleIdentifier)] ? [sender bundleIdentifier] : nil];
-    // Moving from 英 to 日 changes two things, and each change syncs the menu bar on its own: between them it would select 中 or 英 again and the system would report that back as a new choice. Holding `selecting` keeps both quiet, and the sync below selects the one mode they add up to. 英 leaves the scheme alone, so returning to 中, 日 or 한 afterwards finds it where it was.
+    // Moving from 英 to 日 changes two things, and each change syncs the menu bar on its own: between them it would select 中 or 英 again and the system would report that back as a new choice. Holding `selecting` keeps both quiet, and the sync below selects the one mode they add up to. 英 leaves the scheme alone, so returning to any other mode afterwards finds it where it was.
     MSIMESystemInputModeState &state = MSIMESharedSystemInputModeState();
     state.selecting = true;
     const MSIMEInputMode mode = MSIMEInputModeForID(value);
     NSString *scheme = _appearance.inputScheme;
-    NSString *target = MSIMESchemeForInputMode(mode);
-    // 中 goes back to the Chinese scheme japanese or korean was entered from; a Chinese scheme is already there.
-    if (mode == MSIMEInputMode::Chinese && [@[@"japanese", @"korean"] containsObject:scheme]) target = _appearance.lastChineseScheme;
+    NSString *target =
+        MSIMESchemeForReportedInputMode(mode, scheme, _appearance.lastChineseScheme, MSIMEInputSourceIsEnabled);
     if (target && ![target isEqualToString:scheme]) {
         // The composition was typed under the old scheme and a scheme switch discards it, so commit it first, as the scheme menu does. A Korean syllable is text the user already wrote.
         if (_session && _activeClient && [_view[@"editing_text"] length]) {

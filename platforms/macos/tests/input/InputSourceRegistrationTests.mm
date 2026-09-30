@@ -1,4 +1,5 @@
 #import "../../src/input/InputSourceRegistration.h"
+#import "../../src/input/InputModeIdentifiers.h"
 
 #include <stdexcept>
 #include <vector>
@@ -32,6 +33,9 @@ TISInputSourceRef rejectedSource = nullptr;
 TISInputSourceRef parentSource = reinterpret_cast<TISInputSourceRef>(0x101);
 TISInputSourceRef modeSource = reinterpret_cast<TISInputSourceRef>(0x102);
 TISInputSourceRef englishModeSource = reinterpret_cast<TISInputSourceRef>(0x103);
+TISInputSourceRef hansModeSource = reinterpret_cast<TISInputSourceRef>(0x104);
+TISInputSourceRef shuangpinModeSource = reinterpret_cast<TISInputSourceRef>(0x105);
+TISInputSourceRef wubiModeSource = reinterpret_cast<TISInputSourceRef>(0x106);
 
 void require(bool condition, const char *message)
 {
@@ -68,6 +72,9 @@ void *GetInputSourceProperty(TISInputSourceRef inputSource, CFStringRef property
     {
         return nullptr;
     }
+    if (inputSource == hansModeSource) return (__bridge void *)MSIMEChineseInputModeID;
+    if (inputSource == shuangpinModeSource) return (__bridge void *)MSIMEShuangpinInputModeID;
+    if (inputSource == wubiModeSource) return (__bridge void *)MSIMEWubiInputModeID;
     CFStringRef identifier = inputSource == parentSource        ? CFSTR("com.houko.inputmethod.MetasequoiaIME")
                              : inputSource == englishModeSource ? CFSTR("com.houko.inputmethod.MetasequoiaIME.Roman")
                                                                 : CFSTR("com.houko.inputmethod.MetasequoiaIME.Hans");
@@ -183,6 +190,19 @@ int main()
                 "A bundle with a Chinese and an English mode was rejected.");
         require(enabledSources.size() == 2 && enabledSources[0] == modeSource && enabledSources[1] == englishModeSource,
                 "Registration did not enable both the Chinese and the English input mode.");
+        CFRelease(sourceList);
+        sourceList = nullptr;
+
+        // Shuangpin and Wubi are opt-in: listed first, they must neither become the primary mode nor be enabled after it.
+        const void *optInSources[] = {shuangpinModeSource, wubiModeSource, hansModeSource};
+        sourceList = CFArrayCreate(nullptr, optInSources, 3, nullptr);
+        enabledSources.clear();
+        require(MSIMERegisterAndEnableInputSources(bundleURL, @"app.msime.inputmethod.MetasequoiaIME", CaptureRegistration,
+                                                         CopyInputSources, GetInputSourceProperty,
+                                                         EnableInputSource) == noErr,
+                "A bundle with opt-in Shuangpin and Wubi modes was rejected.");
+        require(enabledSources.size() == 1 && enabledSources[0] == hansModeSource,
+                "Registration enabled the opt-in Shuangpin or Wubi mode.");
         CFRelease(sourceList);
         sourceList = nullptr;
 

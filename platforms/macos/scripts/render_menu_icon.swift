@@ -160,6 +160,8 @@ func writeIcon(_ shape: CGPath, badge: String? = nil, named name: String) throws
 try writeIcon(metasequoiaStroke(), named: "MSIMEClientInputMethodMenuIcon")
 // The input modes' icons, named in Info.plist.in beside each mode.
 try writeIcon(metasequoiaStroke(), badge: "中", named: "MSIMEClientInputMethodMenuIconChinese")
+try writeIcon(metasequoiaStroke(), badge: "双", named: "MSIMEClientInputMethodMenuIconShuangpin")
+try writeIcon(metasequoiaStroke(), badge: "五", named: "MSIMEClientInputMethodMenuIconWubi")
 try writeIcon(metasequoiaStroke(), badge: "日", named: "MSIMEClientInputMethodMenuIconJapanese")
 try writeIcon(metasequoiaStroke(), badge: "한", named: "MSIMEClientInputMethodMenuIconKorean")
 try writeIcon(metasequoiaStroke(), badge: "英", named: "MSIMEClientInputMethodMenuIconEnglish")

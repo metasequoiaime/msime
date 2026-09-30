@@ -1,4 +1,5 @@
 #import "InputSourceRegistration.h"
+#import "InputModeIdentifiers.h"
 #include <cstring>
 
 @implementation MSIMEInputSourceMonitor {
@@ -95,7 +96,8 @@ OSStatus MSIMERegisterAndEnableInputSources(NSURL *bundleURL, NSString *bundleId
             TISInputSourceRef source = (TISInputSourceRef)CFArrayGetValueAtIndex(sources, i);
             void *property = propertyGetter(source, kTISPropertyInputSourceID);
             if (!property || CFGetTypeID(property) != CFStringGetTypeID() ||
-                ![(__bridge NSString *)property hasPrefix:modePrefix]) continue;
+                ![(__bridge NSString *)property hasPrefix:modePrefix] ||
+                MSIMEIsOptInInputModeID((__bridge NSString *)property)) continue;
             status = enabler(source); if (status != noErr) { CFRelease(sources); return status; }
             primary = source;
             enabled = true;
@@ -107,6 +109,8 @@ OSStatus MSIMERegisterAndEnableInputSources(NSURL *bundleURL, NSString *bundleId
         TISInputSourceRef source = (TISInputSourceRef)CFArrayGetValueAtIndex(sources, i);
         if (source == primary) continue;
         void *property = propertyGetter(source, kTISPropertyInputSourceID);
+        // Shuangpin and Wubi stay off until the user adds them; enabling every mode here would override the plist's default state on each install.
+        if (property && CFGetTypeID(property) == CFStringGetTypeID() && MSIMEIsOptInInputModeID((__bridge NSString *)property)) continue;
         if (!property || CFGetTypeID(property) != CFStringGetTypeID() ||
             ![(__bridge NSString *)property isEqualToString:bundleIdentifier]) {
             status = enabler(source); if (status != noErr) { CFRelease(sources); return status; }

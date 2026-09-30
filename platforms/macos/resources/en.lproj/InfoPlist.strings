@@ -2,6 +2,8 @@
 "CFBundleName" = "水杉输入法";
 "app.msime.inputmethod.MetasequoiaIME" = "水杉输入法";
 "app.msime.inputmethod.MetasequoiaIME.Hans" = "Metasequoia · ZH";
+"app.msime.inputmethod.MetasequoiaIME.Shuangpin" = "Metasequoia · Shuangpin";
+"app.msime.inputmethod.MetasequoiaIME.Wubi" = "Metasequoia · Wubi";
 "app.msime.inputmethod.MetasequoiaIME.Roman" = "Metasequoia · EN";
 "app.msime.inputmethod.MetasequoiaIME.Japanese" = "Metasequoia · JA";
 "app.msime.inputmethod.MetasequoiaIME.Korean" = "Metasequoia · KO";
