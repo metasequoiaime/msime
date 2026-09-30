@@ -299,13 +299,14 @@ export function InputSettingsPanel({
         showSecondaryLanguage={androidPlatform || iosPlatform || macosPlatform || harmonyPlatform}
         showAccountTranslation={androidPlatform}
         accountTranslation={draft.translation_account ?? false}
-        onEnabledChange={(candidate_translations) => setDraft({ ...draft, candidate_translations })}
+        onEnabledChange={(candidate_translations) =>
+          onPreferencesChange({ candidate_translations })
+        }
         onTargetLanguageChange={(translation_target_language: TranslationLanguage) =>
-          setDraft({ ...draft, translation_target_language })
+          onPreferencesChange({ translation_target_language })
         }
         onSecondaryLanguageChange={(value: TranslationSecondaryLanguage) =>
-          setDraft({
-            ...draft,
+          onPreferencesChange({
             translation_secondary_language: value === "" ? null : value,
           })
         }
