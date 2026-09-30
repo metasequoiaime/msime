@@ -5,6 +5,7 @@
 // `msime-voice-local --model <dir> --wav <file>` transcribes a 16 kHz mono 16-bit WAV file and prints the text, for tests and for checking an installed model by hand.
 
 #include "LocalAsr.h"
+#include "LocalAsrCommandQueue.h"
 #include "VoiceProviders.h"
 
 #include <nlohmann/json.hpp>
@@ -19,7 +20,6 @@
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
-#include <deque>
 #include <fstream>
 #include <filesystem>
 #include <iostream>
@@ -46,6 +46,7 @@ using msime::voice::LocalAsrSession;
 
 constexpr std::size_t kMaxWavBytes = 44 + msime::voice::local_asr_sample_limit * 2;
 constexpr std::size_t kMaxRequestLineBytes = 1024 * 1024;
+constexpr std::size_t kMaxQueuedRequestBytes = 8 * 1024 * 1024;
 
 std::mutex output_mutex;
 
@@ -254,9 +255,29 @@ private:
     if (message.value("op", std::string()) == "cancel") {
       std::lock_guard<std::mutex> lock(mutex_);
       if (cancelled_) cancelled_->store(true);
+      if (queue_overflowed_) {
+        overflow_cancelled_ = true;
+        ready_.notify_one();
+        return;
+      }
     }
     std::lock_guard<std::mutex> lock(mutex_);
-    queue_.push_back({std::move(message)});
+    if (queue_overflowed_) {
+      // The worker will terminate the session after the command it is
+      // currently decoding. Do not let a producer refill the queue while it
+      // is unwinding that failure; cancel remains effective through the token
+      // set above even though its response is no longer queued.
+      return;
+    }
+    if (message.value("op", std::string()) == "start")
+      queued_session_id_ = message.value("id", nlohmann::json());
+    if (!queue_.try_push({std::move(message)}, line.size())) {
+      queue_overflowed_ = true;
+      overflow_id_ = !session_id_.is_null() ? session_id_ : queued_session_id_;
+      if (cancelled_) cancelled_->store(true);
+      ready_.notify_one();
+      return;
+    }
     ready_.notify_one();
   }
 
@@ -269,7 +290,27 @@ private:
     auto last_activity = std::chrono::steady_clock::now();
     for (;;) {
       std::unique_lock<std::mutex> lock(mutex_);
-      ready_.wait_for(lock, std::chrono::seconds(5), [this] { return closed_ || !queue_.empty(); });
+      ready_.wait_for(lock, std::chrono::seconds(5), [this] { return closed_ || queue_overflowed_ || !queue_.empty(); });
+      if (queue_overflowed_) {
+        const auto error_id = overflow_id_;
+        const bool cancelled = overflow_cancelled_;
+        queue_.clear();
+        queue_overflowed_ = false;
+        overflow_cancelled_ = false;
+        overflow_id_ = nlohmann::json();
+        queued_session_id_ = nlohmann::json();
+        session_.reset();
+        session_id_ = nlohmann::json();
+        cancelled_.reset();
+        lock.unlock();
+        if (cancelled && !error_id.is_null())
+          emit({{"type", "cancelled"}, {"id", error_id}});
+        else if (error_id.is_null())
+          emit({{"type", "error"}, {"message", "request queue full"}});
+        else
+          emit({{"type", "error"}, {"id", error_id}, {"message", "request queue full"}});
+        continue;
+      }
       if (queue_.empty()) {
         if (closed_)
           return;
@@ -282,11 +323,10 @@ private:
         }
         continue;
       }
-      auto command = std::move(queue_.front());
-      queue_.pop_front();
+      auto command = queue_.pop();
       lock.unlock();
       last_activity = std::chrono::steady_clock::now();
-      handle(command.message);
+      handle(command->message);
     }
   }
 
@@ -309,8 +349,12 @@ private:
         session_.reset();
         session_ = std::make_unique<LocalAsrSession>(
             options, [id](const std::string &text) { emit({{"type", "partial"}, {"id", id}, {"text", text}}); }, cancelled);
-        session_id_ = id;
-        emit({{"type", "started"}, {"id", id}});
+        {
+          std::lock_guard<std::mutex> lock(mutex_);
+          session_id_ = id;
+          if (queued_session_id_ == id) queued_session_id_ = nlohmann::json();
+        }
+        if (!queue_overflowed()) emit({{"type", "started"}, {"id", id}});
       } else if (op == "audio") {
         if (!session_)
           return;
@@ -322,12 +366,30 @@ private:
         if (!session_)
           return;
         auto session = std::move(session_);
+        nlohmann::json id;
+        {
+          std::lock_guard<std::mutex> lock(mutex_);
+          id = session_id_;
+        }
         const auto text = session->finish();
-        emit({{"type", "final"}, {"id", session_id_}, {"text", text}});
+        if (!queue_overflowed()) emit({{"type", "final"}, {"id", id}, {"text", text}});
+        std::lock_guard<std::mutex> lock(mutex_);
+        session_id_ = nlohmann::json();
+        cancelled_.reset();
       } else if (op == "cancel") {
         if (session_) {
+          nlohmann::json id;
+          {
+            std::lock_guard<std::mutex> lock(mutex_);
+            id = session_id_;
+          }
           session_.reset();
-          emit({{"type", "cancelled"}, {"id", session_id_}});
+          {
+            std::lock_guard<std::mutex> lock(mutex_);
+            session_id_ = nlohmann::json();
+            cancelled_.reset();
+          }
+          if (!queue_overflowed()) emit({{"type", "cancelled"}, {"id", id}});
         }
       } else if (op == "release") {
         msime::voice::release_local_models();
@@ -337,16 +399,41 @@ private:
         throw std::runtime_error("unknown op");
       }
     } catch (const std::exception &error) {
-      const bool cancelled = cancelled_ && cancelled_->load();
+      std::shared_ptr<std::atomic_bool> cancelled_token;
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        cancelled_token = cancelled_;
+      }
+      const bool cancelled = cancelled_token && cancelled_token->load();
+      nlohmann::json error_id;
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        error_id = op == "start" ? id : session_id_;
+      }
       session_.reset();
-      emit({{"type", cancelled ? "cancelled" : "error"}, {"id", op == "start" ? id : session_id_}, {"message", error.what()}});
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        session_id_ = nlohmann::json();
+        cancelled_.reset();
+      }
+      if (!queue_overflowed())
+        emit({{"type", cancelled ? "cancelled" : "error"}, {"id", error_id}, {"message", error.what()}});
     }
+  }
+
+  bool queue_overflowed() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return queue_overflowed_;
   }
 
   std::chrono::seconds idle_exit_;
   std::mutex mutex_;
   std::condition_variable ready_;
-  std::deque<Command> queue_;
+  msime::voice::BoundedCommandQueue<Command> queue_{kMaxQueuedRequestBytes};
+  bool queue_overflowed_ = false;
+  bool overflow_cancelled_ = false;
+  nlohmann::json overflow_id_;
+  nlohmann::json queued_session_id_;
   bool closed_ = false;
   std::shared_ptr<std::atomic_bool> cancelled_;
   std::unique_ptr<LocalAsrSession> session_;

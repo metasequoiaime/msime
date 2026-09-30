@@ -52,7 +52,7 @@ On start the helper writes `{"type":"hello","version":1,"available":<bool>,"erro
 | `{"op":"ping","id":X}` | `{"type":"pong","id":X,"available":<bool>}`. |
 
 Any failure produces `{"type":"error","id":X,"message":"..."}` and closes the session; `id` is the request's for a failed `start` and the open session's otherwise. A line that is not JSON gets an error without `id`, and an unknown `op` gets an error too. A failure caused by `cancel` is reported as `cancelled`, so a cancelled session always ends with exactly one `cancelled`.
-Requests are limited to 1 MiB per line. An oversized line gets `{"type":"error","message":"request too large"}` and is discarded through its newline before the next request is read.
+Requests are limited to 1 MiB per line, and the helper retains at most 8 MiB of serialized requests waiting for the worker. An oversized line gets `{"type":"error","message":"request too large"}` and is discarded through its newline before the next request is read. If the queue budget is exceeded, pending requests are discarded and the active session ends with `{"type":"error","id":<session>,"message":"request queue full"}`; this keeps the input writer asynchronous while bounding helper memory.
 
 Requests are handled in order on one worker thread. A loaded model is released after 120 seconds without a session (or `--idle-exit`, if shorter and not 0), and the process exits on stdin EOF or after `--idle-exit` seconds without a request while no session is open. Hosts should respawn it on demand rather than keep it alive.
 
