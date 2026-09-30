@@ -56,6 +56,9 @@ pub fn shared_sentence_model(path: &Path) -> Option<Arc<SentenceModel>> {
 
 /// A missing, oversized or malformed model means no neural rows, never a failed session: the lattice still answers.
 fn load_model(path: &Path) -> Option<Arc<SentenceModel>> {
+    if !std::fs::symlink_metadata(path).ok()?.file_type().is_file() {
+        return None;
+    }
     let file = File::open(path).ok()?;
     if file.metadata().ok()?.len() > MAX_MODEL_BYTES {
         return None;
@@ -226,6 +229,25 @@ mod tests {
             shared_sentence_model(&garbage).is_none(),
             "a malformed model loads as nothing"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_model_is_not_loaded() {
+        use std::os::unix::fs::symlink;
+
+        let Ok(model) = test_model_path(assets::NEURAL_MODEL_KEYBOARD) else {
+            return;
+        };
+        assert!(
+            load_model(&model).is_some(),
+            "fixture must be a valid model"
+        );
+        let directory = tempfile::tempdir().unwrap();
+        let linked = directory.path().join(assets::NEURAL_MODEL_KEYBOARD);
+        symlink(&model, &linked).unwrap();
+
+        assert!(load_model(&linked).is_none());
     }
 
     /// A shipped model (`test_model_path`), or the reason the test cannot run.
