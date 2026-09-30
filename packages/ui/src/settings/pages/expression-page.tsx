@@ -137,16 +137,13 @@ export function ExpressionSettingsPage() {
             showAccountTranslation={androidPlatform}
             accountTranslation={draft.translation_account ?? false}
             onEnabledChange={(candidate_translations) =>
-              setDraft({ ...draft, candidate_translations })
+              onPreferencesChange({ candidate_translations })
             }
             onTargetLanguageChange={(translation_target_language) =>
-              setDraft({ ...draft, translation_target_language })
+              onPreferencesChange({ translation_target_language })
             }
             onSecondaryLanguageChange={(value) =>
-              setDraft({
-                ...draft,
-                translation_secondary_language: value === "" ? null : value,
-              })
+              onPreferencesChange({ translation_secondary_language: value === "" ? null : value })
             }
             onAccountTranslationChange={(enabled) =>
               enabled
