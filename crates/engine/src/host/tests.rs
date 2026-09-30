@@ -1206,6 +1206,27 @@ fn translation_sidecar_prefers_the_user_file_and_is_removed_without_one() {
     assert!(!target.exists());
 }
 
+#[test]
+fn translation_sidecar_copy_rejects_an_oversized_source() {
+    let dir = tempfile::tempdir().unwrap();
+    let value = options(dir.path());
+    let resource = Path::new(&value.resources).join("custom_translations.txt");
+    std::fs::File::create(&resource)
+        .unwrap()
+        .set_len(1024 * 1024 + 1)
+        .unwrap();
+
+    assert_eq!(
+        super::options::prepare_translation_sidecar(&value)
+            .unwrap_err()
+            .to_string(),
+        "Unable to prepare custom translation sidecar"
+    );
+    assert!(!Path::new(&value.dictionaries)
+        .join("custom_translations.txt")
+        .exists());
+}
+
 #[cfg(unix)]
 #[test]
 fn translation_sidecar_copy_rejects_a_symlinked_user_file() {

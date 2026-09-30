@@ -1,5 +1,7 @@
 //! `EngineOptions` and its mapping onto `SessionOptions` (api-contract §2, bridge.cpp:306-407, 698-734).
 
+use std::fs::File;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use crate::assets;
@@ -13,6 +15,8 @@ use crate::types::{
     SchemeType, SentenceAssociationOptions, ShuangpinProfileKind, WubiInputOptions,
 };
 use crate::user_dictionary::generation::prepare_runtime_paths;
+
+const MAX_TRANSLATION_SIDECAR_BYTES: u64 = 1024 * 1024;
 
 /// Every field is listed at every construction site; there is deliberately no `Default`.
 #[derive(Debug, Clone, PartialEq)]
@@ -203,10 +207,28 @@ pub fn prepare_translation_sidecar(options: &EngineOptions) -> Result<()> {
     {
         return Err(EngineError::failed(diagnostics::TRANSLATION_SIDECAR_FAILED));
     }
+    let source_file = File::open(&source)
+        .map_err(|_| EngineError::failed(diagnostics::TRANSLATION_SIDECAR_FAILED))?;
+    if source_file
+        .metadata()
+        .map_err(|_| EngineError::failed(diagnostics::TRANSLATION_SIDECAR_FAILED))?
+        .len()
+        > MAX_TRANSLATION_SIDECAR_BYTES
+    {
+        return Err(EngineError::failed(diagnostics::TRANSLATION_SIDECAR_FAILED));
+    }
+    let mut contents = Vec::new();
+    if source_file
+        .take(MAX_TRANSLATION_SIDECAR_BYTES + 1)
+        .read_to_end(&mut contents)
+        .is_err()
+        || contents.len() as u64 > MAX_TRANSLATION_SIDECAR_BYTES
+    {
+        return Err(EngineError::failed(diagnostics::TRANSLATION_SIDECAR_FAILED));
+    }
     let copied = match target.parent() {
-        Some(parent) => {
-            std::fs::create_dir_all(parent).and_then(|()| std::fs::copy(&source, &target))
-        }
+        Some(parent) => std::fs::create_dir_all(parent)
+            .and_then(|()| std::fs::write(&target, &contents).map(|()| contents.len() as u64)),
         None => Err(std::io::ErrorKind::NotFound.into()),
     };
     copied
