@@ -17,6 +17,7 @@ import { InputModeRouting, ModeGesture, ModeKey } from '../keyboard/InputModeRou
 import { VoiceKey } from '../keyboard/input/VoiceHotkeyPolicy';
 import { CandidateTextEdge } from '../keyboard/input/CandidateTextPolicy';
 import { FloatingToolbarLayout } from '../keyboard/FloatingToolbarLayout';
+import { InputModeHudPolicy, InputModeHudSize } from '../keyboard/InputModeHudPolicy';
 import { FloatingToolbarDragPolicy } from '../keyboard/FloatingToolbarDragPolicy';
 import { DesktopSurface } from '../keyboard/DesktopSurface';
 import type { KeyEvent as InputKeyEvent } from '@ohos.multimodalInput.keyEvent';
@@ -31,10 +32,7 @@ import { AttachedInputDevice, DeviceChange, HardwareKeyboardPolicy, KeyRoutingTr
 import { HarmonyHardwareKeyboards } from '../keyboard/input/HarmonyHardwareKeyboards';
 import { HardwareBackspaceGuard } from '../keyboard/input/BackspaceHoldPolicy';
 
-// The badge's own geometry, from platforms/macos/src/InputModeHUDPanel.mm: a capsule that carries
-// the logo and one character side by side, shown long enough to read and gone before the next word.
-const HUD_WIDTH_VP: number = 100;
-const HUD_HEIGHT_VP: number = 56;
+// Where the badge goes and how long it stays, from platforms/macos/src/input/InputModeHUDPanel.mm: shown long enough to read and gone before the next word. Its size is the floating toolbar's, from InputModeHudPolicy.sizeVp.
 const HUD_SCREEN_MARGIN_VP: number = 8;
 const HUD_CARET_GAP_VP: number = 10;
 const HUD_VISIBLE_MS: number = 780;
@@ -172,6 +170,9 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     }
     if (wantBadge && this.hud === undefined) {
       await this.openModeBadge(generation);
+    } else if (this.hud !== undefined) {
+      // The toolbar's font size or scale may be what changed, and the badge is sized by them.
+      await this.resizeModeBadge(this.hud);
     }
   }
 
@@ -265,8 +266,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
         return;
       }
       this.hud = hud;
-      await hud.resize(Math.round(HUD_WIDTH_VP * this.density),
-        Math.round(HUD_HEIGHT_VP * this.density));
+      await this.resizeModeBadge(hud);
       if (this.tornDown || generation !== this.statusPanelGeneration) {
         if (this.hud !== hud) {
           await engine.destroyPanel(hud);
@@ -281,6 +281,17 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
         engine.destroyPanel(hud);
       }
     }
+  }
+
+  /** The badge's size in vp: the floating toolbar's font size and scale, fitted to the mark and one character. */
+  private modeBadgeSize(): InputModeHudSize {
+    return InputModeHudPolicy.sizeVp(KeyboardSession.shared.toolbarFontSize(),
+      KeyboardSession.shared.toolbarScale());
+  }
+
+  private async resizeModeBadge(hud: inputMethodEngine.Panel): Promise<void> {
+    const size: InputModeHudSize = this.modeBadgeSize();
+    await hud.resize(Math.round(size.widthVp * this.density), Math.round(size.heightVp * this.density));
   }
 
   private closeModeBadge(): void {
@@ -459,8 +470,9 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     if (this.hud === undefined) {
       return;
     }
-    const width: number = HUD_WIDTH_VP * this.density;
-    const height: number = HUD_HEIGHT_VP * this.density;
+    const size: InputModeHudSize = this.modeBadgeSize();
+    const width: number = size.widthVp * this.density;
+    const height: number = size.heightVp * this.density;
     const margin: number = HUD_SCREEN_MARGIN_VP * this.density;
     let x: number = this.caret[2] > 0
       ? this.caret[0] + this.caret[2] / 2 - width / 2

@@ -55,6 +55,7 @@ import {
 } from './candidate/CandidateSkinCatalogPolicy';
 import { CandidateWidthPolicy } from './candidate/CandidateWidthPolicy';
 import { CandidatePagerPolicy } from './candidate/CandidatePagerPolicy';
+import { CandidateLogoPolicy } from './candidate/CandidateLogoPolicy';
 import { CandidateNumberFontPolicy } from './candidate/CandidateNumberFontPolicy';
 import { KeyboardMetrics } from './KeyboardMetrics';
 import { OnlineCandidatePolicy, OnlineQuery } from './candidate/OnlineCandidatePolicy';
@@ -1044,8 +1045,9 @@ export class KeyboardSession implements HardwareKeyTarget {
    * onChanged; this is the same news for the other reader, and fires only when the answer changes.
    */
   onComposition: ((active: boolean) => void) | undefined = undefined;
-  /** The mode badge's face, set by whichever window is currently drawing it: the mode, the fill and the ink that reads on it. */
-  onModeBadge: ((english: boolean, fill: string, ink: string) => void) | undefined = undefined;
+  /** The mode badge's face, set by whichever window is currently drawing it: the mode, the toolbar's font size and scale it is sized by, and the toolbar palette it wears. */
+  onModeBadge: ((english: boolean, fontSize: number, scale: number, toolbarSkin: ToolbarSkin) => void)
+    | undefined = undefined;
   /** The toolbar's face, set by whichever window is currently drawing it. */
   onToolbar: ((state: ToolbarState, buttons: ToolbarButton[], fontSize: number, scale: number,
                toolbarSkin: ToolbarSkin) => void) | undefined = undefined;
@@ -2163,11 +2165,10 @@ export class KeyboardSession implements HardwareKeyTarget {
     return this.onPanelKey(key);
   }
 
-  /** Tell whichever window is drawing the mode badge what to put on it, in the global theme's accent and the ink the theme pairs with it, as the keyboard wears them. */
+  /** Tell whichever window is drawing the mode badge what to put on it, at the floating toolbar's size and in the toolbar theme's palette (toolbar_theme, then theme, then the system), as the macOS badge wears them. */
   setModeBadge(english: boolean): void {
     if (this.onModeBadge !== undefined) {
-      const skin: KeyboardSkin = this.keyboardSkin(this.appearance.dark);
-      this.onModeBadge(english, skin.accent, skin.onAccent);
+      this.onModeBadge(english, this.toolbarFontSize(), this.toolbarScale(), this.toolbarSkin);
     }
   }
 
@@ -3388,7 +3389,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (this.onCandidateCount !== undefined) this.onCandidateCount(entries.length);
   }
 
-  /** A horizontal candidate window on a machine with its own keys is as wide as its whole page; a vertical list is as wide as its widest row. A 2in1 window that shows the composition line also makes room on it for the page indicator. */
+  /** A horizontal candidate window on a machine with its own keys is as wide as its whole page; a vertical list is as wide as its widest row. A 2in1 window that shows the composition line also makes room on it for the brand mark and the page indicator. */
   private candidateWidthVp(entries: CandidateEntry[], editing: string, page: number, pageCount: number): number {
     const settings: KeyboardPreferences = this.preferences();
     if (!KeyboardFormFactor.isDesktop()) {
@@ -3402,7 +3403,9 @@ export class KeyboardSession implements HardwareKeyTarget {
       : CandidateWidthPolicy.widthVp(entries, editing, settings.candidateFontSize,
         settings.candidatePreeditFontSize, settings.candidateMinWidthVp);
     return settings.candidateShowPreedit
-      ? CandidatePagerPolicy.panelWidthVp(base, editing, settings.candidatePreeditFontSize, page, pageCount)
+      ? CandidatePagerPolicy.panelWidthVp(base, editing, settings.candidatePreeditFontSize, page, pageCount,
+        CandidateWidthPolicy.MAX_WIDTH_VP, CandidateLogoPolicy.slotWidthVp(
+          CandidateLogoPolicy.visible(KeyboardFormFactor.isDesktop(), settings.candidateShowPreedit)))
       : base;
   }
 

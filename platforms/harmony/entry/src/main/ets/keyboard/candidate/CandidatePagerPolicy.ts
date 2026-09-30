@@ -41,7 +41,10 @@ export class CandidatePagerPolicy {
     }
     const size: number = CandidatePagerPolicy.FONT_SIZE;
     const arrows: number =
-      CandidateWidthPolicy.textWidthVp(CandidatePagerPolicy.PREVIOUS + CandidatePagerPolicy.NEXT, size) +
+      CandidateWidthPolicy.textWidthVp(
+        CandidatePagerPolicy.PREVIOUS + CandidatePagerPolicy.NEXT,
+        size,
+      ) +
       CandidatePagerPolicy.ARROW_PADDING_VP * 4;
     return Math.ceil(
       CandidatePagerPolicy.LEADING_GAP_VP +
@@ -50,7 +53,7 @@ export class CandidatePagerPolicy {
     );
   }
 
-  /** A panel width that also fits the composition line with the indicator after it, so a long spelling is not cut short to make room for it. Never narrower than `baseWidthVp`, never wider than `maxWidthVp` unless the base already is. */
+  /** A panel width that also fits the composition line with the indicator after it, so a long spelling is not cut short to make room for it. `leadingVp` is what the line puts before the spelling (the brand mark and its gap, CandidateLogoPolicy). Never narrower than `baseWidthVp`, never wider than `maxWidthVp` unless the base already is. */
   static panelWidthVp(
     baseWidthVp: number,
     editing: string,
@@ -58,13 +61,17 @@ export class CandidatePagerPolicy {
     page: number,
     pageCount: number,
     maxWidthVp: number = CandidateWidthPolicy.MAX_WIDTH_VP,
+    leadingVp: number = 0,
   ): number {
     const pager: number = CandidatePagerPolicy.widthVp(page, pageCount);
-    if (pager === 0) {
+    if (pager === 0 && leadingVp <= 0) {
       return baseWidthVp;
     }
     const line: number = Math.ceil(
-      CandidateWidthPolicy.textWidthVp(editing, preeditFontSize) + pager + CandidateWidthPolicy.EXTRA_WIDTH_VP,
+      Math.max(0, leadingVp) +
+        CandidateWidthPolicy.textWidthVp(editing, preeditFontSize) +
+        pager +
+        CandidateWidthPolicy.EXTRA_WIDTH_VP,
     );
     return Math.max(baseWidthVp, Math.min(maxWidthVp, line));
   }

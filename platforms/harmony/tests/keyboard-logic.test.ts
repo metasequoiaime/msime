@@ -300,6 +300,7 @@ import {
 } from "../entry/src/main/ets/keyboard/candidate/CandidateDecorationLayout";
 import { CandidateWidthPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidateWidthPolicy";
 import { CandidatePagerPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidatePagerPolicy";
+import { CandidateLogoPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidateLogoPolicy";
 import { CandidatePresentationPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidatePresentationPolicy";
 import { CandidateWheelPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidateWheelPolicy";
 import {
@@ -2468,6 +2469,69 @@ group("a 2in1 candidate window shows which page it is on", () => {
   check(
     CandidatePagerPolicy.panelWidthVp(600, "ni", 15, 0, 4) === 600,
     "a wider page keeps its width",
+  );
+});
+
+group("a 2in1 candidate window's composition line leads with the brand mark", () => {
+  // macOS top row: a 16pt full-colour mark, 6pt, then the reading.
+  check(
+    CandidateLogoPolicy.visible(true, true) === true,
+    "a candidate window with its line shows the mark",
+  );
+  check(
+    CandidateLogoPolicy.visible(true, false) === false,
+    "a candidate window with the line switched off has no row to put it in",
+  );
+  check(
+    CandidateLogoPolicy.visible(false, true) === false,
+    "a touch strip keeps its logo on the idle bar's button",
+  );
+  check(CandidateLogoPolicy.slotWidthVp(true) === 22, "the mark and its gap take 16 + 6");
+  check(CandidateLogoPolicy.slotWidthVp(false) === 0, "no mark takes no room");
+  const spelling = "zhonghuarenmingongheguo";
+  const slot = CandidateLogoPolicy.slotWidthVp(true);
+  check(
+    CandidatePagerPolicy.panelWidthVp(
+      CandidateWidthPolicy.MIN_WIDTH_VP,
+      spelling.repeat(2),
+      15,
+      0,
+      1,
+      CandidateWidthPolicy.MAX_WIDTH_VP,
+      slot,
+    ) ===
+      Math.ceil(
+        slot +
+          CandidateWidthPolicy.textWidthVp(spelling.repeat(2), 15) +
+          CandidateWidthPolicy.EXTRA_WIDTH_VP,
+      ),
+    "a long spelling keeps its room after the mark even with one page",
+  );
+  check(
+    CandidatePagerPolicy.panelWidthVp(
+      CandidateWidthPolicy.MIN_WIDTH_VP,
+      spelling,
+      15,
+      0,
+      4,
+      CandidateWidthPolicy.MAX_WIDTH_VP,
+      slot,
+    ) ===
+      CandidatePagerPolicy.panelWidthVp(CandidateWidthPolicy.MIN_WIDTH_VP, spelling, 15, 0, 4) +
+        slot,
+    "the mark widens the line by exactly its slot next to the indicator",
+  );
+  check(
+    CandidatePagerPolicy.panelWidthVp(
+      300,
+      "ni",
+      15,
+      0,
+      1,
+      CandidateWidthPolicy.MAX_WIDTH_VP,
+      slot,
+    ) === 300,
+    "a short spelling leaves a wider page alone",
   );
 });
 
@@ -5316,6 +5380,47 @@ group("the mode badge is built only when the shared preference allows it", () =>
   check(
     InputModeHudPolicy.enabled("false") === true,
     "a malformed value is not read as a request to hide it",
+  );
+});
+
+group("the mode badge is the floating toolbar's size", () => {
+  // macOS InputModeHUDPanel: height (font + 20) x scale, 0.95 x font glyph, 22 logo, 6 spacing, 12 insets, 10 radius, all scaled.
+  const standard = InputModeHudPolicy.sizeVp(24, 1);
+  check(standard.heightVp === 44, "the default badge is as tall as the default toolbar");
+  check(
+    standard.widthVp === 75,
+    "the default badge fits both insets, the mark, its gap and one em",
+  );
+  check(
+    standard.heightVp === FloatingToolbarLayout.heightVp(1),
+    "at the default font the badge and the bar stand the same height",
+  );
+  const large = InputModeHudPolicy.sizeVp(28, 1.5);
+  check(large.heightVp === 72, "a larger font and scale grow the height with the toolbar's");
+  check(
+    large.widthVp === Math.ceil(2 * 12 * 1.5 + (22 + 6) * 1.5 + 28 * 1.5 * 0.95),
+    "and the width with every scaled piece",
+  );
+  const small = InputModeHudPolicy.sizeVp(16, 0.75);
+  check(
+    small.heightVp === 27 && small.widthVp < standard.widthVp,
+    "the smallest toolbar makes the smallest badge",
+  );
+  const stale = InputModeHudPolicy.sizeVp(40, 2);
+  check(
+    stale.widthVp === standard.widthVp && stale.heightVp === standard.heightVp,
+    "an out-of-range font size or scale falls back as the toolbar's does",
+  );
+  check(
+    InputModeHudPolicy.glyphFontSize(24, 1) === 24 * 0.95,
+    "the character is the toolbar's glyph size",
+  );
+  check(
+    InputModeHudPolicy.logoSideVp(1.25) === 27.5 &&
+      InputModeHudPolicy.spacingVp(1.25) === 7.5 &&
+      InputModeHudPolicy.insetVp(1.25) === 15 &&
+      InputModeHudPolicy.cornerRadiusVp(1.25) === 12.5,
+    "the mark, gap, insets and corner scale with the toolbar",
   );
 });
 

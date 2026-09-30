@@ -33,6 +33,7 @@ import { CandidateContextMenuPolicy, PointerAction, PointerButton }
 import { CandidateNumberFontPolicy } from './candidate/CandidateNumberFontPolicy';
 import { CandidateWidthPolicy } from './candidate/CandidateWidthPolicy';
 import { CandidatePagerPolicy } from './candidate/CandidatePagerPolicy';
+import { CandidateLogoPolicy } from './candidate/CandidateLogoPolicy';
 import { CandidateDecorationLayout, CandidateDecorationRect } from './candidate/CandidateDecorationLayout';
 import { PreeditCaretPolicy } from './candidate/PreeditCaretPolicy';
 import { CandidatePreeditStylePolicy, VisibleComposition } from './candidate/CandidatePreeditStylePolicy';
@@ -1683,6 +1684,11 @@ struct KeyboardView {
       && this.candidates.length > 0 && CandidatePagerPolicy.visible(this.candidatePageCount);
   }
 
+  /** A candidate window's composition line leads with the brand mark, as the macOS candidate window's top row does; see CandidateLogoPolicy for why a touch strip's does not. */
+  private showsCandidateLogo(): boolean {
+    return CandidateLogoPolicy.visible(KeyboardFormFactor.isDesktop(), this.settings.candidateShowPreedit);
+  }
+
   /** The spelling: the accent in a candidate window, the keyboard's secondary text over a touch strip, where the candidates below carry the accent. */
   private compositionColor(): string {
     return KeyboardFormFactor.isDesktop() ? this.candidateAccentColor() : this.skin.secondary;
@@ -1782,6 +1788,16 @@ struct KeyboardView {
       // below it shifts when one starts. Composing it shows the spelling, and a diagnostic takes it
       // over while it lasts.
       Row() {
+        if (this.showsCandidateLogo()) {
+          // The full-colour application mark rather than the keyboard_brand path the touch strip tints: the mark the macOS candidate window, toolbar and mode badge lead with.
+          Image($r('app.media.app_icon'))
+            .width(CandidateLogoPolicy.SIDE_VP)
+            .height(CandidateLogoPolicy.SIDE_VP)
+            .objectFit(ImageFit.Contain)
+            .margin({ right: CandidateLogoPolicy.GAP_VP })
+            .flexShrink(0)
+            .accessibilityText('水杉输入法')
+        }
         if (this.diagnostic.length > 0 || !KeyboardFormFactor.isDesktop()
             || this.settings.candidateShowPreedit) {
           // The caret the segment keys move. The source draws it as a bar inside the composition
