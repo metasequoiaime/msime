@@ -2,6 +2,7 @@
 #include <cassert>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <stdexcept>
 #include <string>
 #ifdef _WIN32
@@ -103,9 +104,13 @@ int main() {
 #ifdef _WIN32
   // A replaced state subdirectory must not redirect the lock, temporary
   // archive, or final store outside the state root.
+  const auto outside_directory =
+      directory.parent_path() /
+      ("msime-clipboard-history-outside-" +
+       std::to_string(GetCurrentProcessId()) + "-" +
+       std::to_string(GetTickCount64()));
+  REQUIRE(std::filesystem::create_directory(outside_directory));
   const auto linked_directory = directory / "linked";
-  const auto outside_directory = directory / "outside";
-  std::filesystem::create_directory(outside_directory);
   if (CreateSymbolicLinkW(linked_directory.c_str(), outside_directory.c_str(),
                           SYMBOLIC_LINK_FLAG_DIRECTORY)) {
     msime::windows::ClipboardHistory linked_history(
@@ -114,6 +119,28 @@ int main() {
     REQUIRE(!std::filesystem::exists(outside_directory / "history.json"));
     std::filesystem::remove(linked_directory, error);
   }
+
+  // The final store file is untrusted too. A leaf reparse point must not make
+  // history load or mutate a file outside the state directory.
+  const auto outside_store = outside_directory / "outside-history.json";
+  const auto linked_store = directory / "linked-history.json";
+  {
+    std::ofstream output(outside_store, std::ios::trunc);
+    output << "[\"synthetic-outside\"]";
+  }
+  if (CreateSymbolicLinkW(linked_store.c_str(), outside_store.c_str(), 0)) {
+    msime::windows::ClipboardHistory linked_history(linked_store);
+    REQUIRE(linked_history.load().empty());
+    REQUIRE(!linked_history.add("synthetic-reparse"));
+    REQUIRE(!linked_history.remove("synthetic-outside"));
+    REQUIRE(linked_history.clear());
+    std::ifstream input(outside_store);
+    const std::string outside_payload((std::istreambuf_iterator<char>(input)),
+                                      std::istreambuf_iterator<char>());
+    REQUIRE(outside_payload == "[\"synthetic-outside\"]");
+  }
+  std::filesystem::remove(outside_store, error);
+  std::filesystem::remove_all(outside_directory, error);
 #endif
 
   std::filesystem::remove_all(directory, error);
