@@ -6,6 +6,7 @@ import { useSettingsForm } from "../settings-form-context";
 import { GroupList, Row } from "../../core/platform-controls";
 import { TouchKeyboardGeometrySection } from "../touch-keyboard-geometry-section";
 import * as controls from "../../core/platform-controls-style";
+import { createSettingsDraftActions } from "../settings-draft-actions";
 
 /** The 屏幕键盘 page of the settings form. */
 export function ScreenKeyboardSettingsPage() {
@@ -35,6 +36,7 @@ export function ScreenKeyboardSettingsPage() {
     touchRowSpacingTenths,
     touchKeyboardHeightAdjustment,
   } = useSettingsForm();
+  const { onPreferencesChange } = createSettingsDraftActions({ setDraft });
   return (
     <fieldset disabled={busy} hidden={page !== "screen-keyboard"} aria-label="屏幕键盘">
       <div className={settings.groups}>
@@ -69,18 +71,18 @@ export function ScreenKeyboardSettingsPage() {
           tabletFullKeys={mobileKeyboardFeedback?.tabletFullKeys}
           tabletFullKeysBusy={mobileKeyboardFeedbackBusy}
           onHeightAdjustmentChange={(touch_keyboard_height_adjustment) =>
-            setDraft({ ...draft, touch_keyboard_height_adjustment })
+            onPreferencesChange({ touch_keyboard_height_adjustment })
           }
           onKeySpacingChange={(touch_key_spacing_tenths) =>
-            setDraft({ ...draft, touch_key_spacing_tenths })
+            onPreferencesChange({ touch_key_spacing_tenths })
           }
           onRowSpacingChange={(touch_row_spacing_tenths) =>
-            setDraft({ ...draft, touch_row_spacing_tenths })
+            onPreferencesChange({ touch_row_spacing_tenths })
           }
           onTouchVoiceShortcutChange={(touch_voice_shortcut) =>
-            setDraft({ ...draft, touch_voice_shortcut })
+            onPreferencesChange({ touch_voice_shortcut })
           }
-          onToolbarChange={(touch_toolbar) => setDraft({ ...draft, touch_toolbar })}
+          onToolbarChange={(touch_toolbar) => onPreferencesChange({ touch_toolbar })}
           onTabletFullKeysChange={(tabletFullKeys) => {
             if (mobileKeyboardFeedback) {
               void saveMobileKeyboardFeedback({ ...mobileKeyboardFeedback, tabletFullKeys });
