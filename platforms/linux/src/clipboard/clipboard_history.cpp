@@ -19,7 +19,7 @@ constexpr size_t kMaxStoreBytes = 1024 * 1024;
 class HistoryLock {
  public:
   explicit HistoryLock(const std::filesystem::path &history) {
-    fd_ = open((history.string() + ".lock").c_str(), O_CREAT | O_RDWR, 0600);
+    fd_ = msime::linux_host::open_clipboard_lock(history);
     if (fd_ >= 0 && flock(fd_, LOCK_EX) != 0) { close(fd_); fd_ = -1; }
   }
   ~HistoryLock() { if (fd_ >= 0) { flock(fd_, LOCK_UN); close(fd_); } }

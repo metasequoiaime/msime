@@ -47,6 +47,28 @@ class ClipboardTool(unittest.TestCase):
             self.assertEqual(result.stderr, b"")
             self.assertEqual(self.path.read_text(), original)
 
+    def test_lock_symlink_is_rejected(self):
+        outside = self.path.parent / "outside.lock"
+        outside.write_text("synthetic lock target")
+        Path(str(self.path) + ".lock").symlink_to(outside)
+        result = self.run_tool("list")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stderr, b"")
+        self.assertEqual(outside.read_text(), "synthetic lock target")
+        self.assertFalse(self.path.exists())
+
+    def test_parent_symlink_is_rejected_before_locking(self):
+        outside = self.path.parent / "outside-state"
+        outside.mkdir()
+        linked = self.path.parent / "linked-state"
+        linked.symlink_to(outside, target_is_directory=True)
+        linked_path = linked / "history.json"
+        result = subprocess.run([TOOL, str(linked_path), "list"],
+                                capture_output=True, timeout=3)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stderr, b"")
+        self.assertFalse((outside / "history.json.lock").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

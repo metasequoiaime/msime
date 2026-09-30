@@ -1111,8 +1111,7 @@ std::vector<std::string> clipboard_items(const std::string &path) {
 bool clipboard_delete(const std::string &path, const std::optional<std::string> &text) {
   if (path.empty() || path.size() > 4096)
     return false;
-  const auto lock_path = path + ".lock";
-  const int lock = open(lock_path.c_str(), O_CREAT | O_RDWR, 0600);
+  const int lock = msime::linux_host::open_clipboard_lock(std::filesystem::path(path));
   if (lock < 0 || flock(lock, LOCK_EX) != 0) {
     if (lock >= 0)
       close(lock);

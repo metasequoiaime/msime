@@ -40,6 +40,18 @@ inline bool prepare_clipboard_directory(const std::filesystem::path &directory) 
   return !error && !std::filesystem::is_symlink(status) && std::filesystem::is_directory(status);
 }
 
+// Open the history lock without following either a replaced parent directory
+// or a replaced lock-file entry. Clipboard readers and writers use the same
+// helper so the standalone tool and the IBus menu cannot diverge.
+inline int open_clipboard_lock(const std::filesystem::path &history) {
+  const auto directory = history.has_parent_path() ? history.parent_path()
+                                                   : std::filesystem::path(".");
+  if (!clipboard_directory_is_safe(directory)) return -1;
+  auto lock = history;
+  lock += ".lock";
+  return ::open(lock.c_str(), O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
+}
+
 inline std::optional<std::string> read_clipboard_file(const std::filesystem::path &file,
                                                       std::size_t max_bytes) {
   const auto directory = file.has_parent_path() ? file.parent_path() : std::filesystem::path(".");
