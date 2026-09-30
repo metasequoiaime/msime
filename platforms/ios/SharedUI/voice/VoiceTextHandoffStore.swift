@@ -49,7 +49,8 @@ final class VoiceTextHandoffStore: @unchecked Sendable {
     Self.lock.lock()
     defer { Self.lock.unlock() }
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    let descriptor = open(directory.appendingPathComponent("transfer.lock").path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+    let descriptor = open(directory.appendingPathComponent("transfer.lock").path,
+                          O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR)
     guard descriptor >= 0 else { throw Failure.unavailable }
     defer { close(descriptor) }
     guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { throw Failure.busy }

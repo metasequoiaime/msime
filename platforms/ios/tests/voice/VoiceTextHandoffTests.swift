@@ -1,6 +1,29 @@
 import XCTest
 
 final class VoiceTextHandoffTests: XCTestCase {
+  func testReadRejectsASymlinkedTransferLock() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("msime-voice-lock-test-\(UUID().uuidString)")
+    let outsideDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("msime-voice-lock-target-\(UUID().uuidString)")
+    defer {
+      try? FileManager.default.removeItem(at: root)
+      try? FileManager.default.removeItem(at: outsideDirectory)
+    }
+    let handoffDirectory = root.appendingPathComponent("VoiceHandoff", isDirectory: true)
+    try FileManager.default.createDirectory(at: handoffDirectory, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: outsideDirectory, withIntermediateDirectories: true)
+    let outsideLock = outsideDirectory.appendingPathComponent("outside.lock")
+    try Data("synthetic-lock-target".utf8).write(to: outsideLock)
+    let now = Date(timeIntervalSince1970: 1_000_000)
+    let entry = VoiceTextHandoff(id: UUID(), text: "fixture", createdAt: now, expiresAt: now.addingTimeInterval(600))
+    try JSONEncoder().encode(entry).write(to: handoffDirectory.appendingPathComponent("result.json"))
+    try FileManager.default.createSymbolicLink(
+      at: handoffDirectory.appendingPathComponent("transfer.lock"), withDestinationURL: outsideLock)
+
+    XCTAssertThrowsError(try VoiceTextHandoffStore(directory: root).read(now: now))
+    XCTAssertEqual(try Data(contentsOf: outsideLock), Data("synthetic-lock-target".utf8))
+    XCTAssertEqual(try Data(contentsOf: handoffDirectory.appendingPathComponent("result.json")), try JSONEncoder().encode(entry))
+  }
+
   func testOneTimeClaimReplacementAndExpiry() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }
