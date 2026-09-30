@@ -84,6 +84,9 @@ impl JapaneseDictionary {
     /// `None` when the file is missing or fails any header, bounds or ordering check.
     #[allow(unsafe_code)]
     pub fn load(path: &Path) -> Option<JapaneseDictionary> {
+        if !std::fs::symlink_metadata(path).ok()?.file_type().is_file() {
+            return None;
+        }
         let file = File::open(path).ok()?;
         let metadata = file.metadata().ok()?;
         // A directory or a file too short for the header is refused before anything is mapped.
@@ -474,6 +477,21 @@ mod tests {
             std::fs::write(&short, &valid[..length]).expect("write short model");
             assert!(JapaneseDictionary::load(&short).is_none(), "{length}");
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_a_symlinked_valid_model() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let external = root.path().join("external.dat");
+        std::fs::write(&external, test_model::single("甲")).unwrap();
+        let linked = root.path().join("linked.dat");
+        symlink(&external, &linked).unwrap();
+
+        assert!(JapaneseDictionary::load(&external).is_some());
+        assert!(JapaneseDictionary::load(&linked).is_none());
     }
 
     /// `load` maps the file (the `bytes` field is a read-only `Mmap`, not an owned buffer) and every lookup, the matrix search included, reads through that mapping; unlinking the file does not disturb a loaded dictionary.
