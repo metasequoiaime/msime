@@ -991,6 +991,10 @@ export {
   type CommunityScopeButtonsProps,
 } from "./community/community-scope-buttons";
 export {
+  CommunityResourceScopeButtons,
+  type CommunityResourceScopeButtonsProps,
+} from "./community/community-resource-scope-buttons";
+export {
   CommunitySkinPublicationFields,
   type CommunitySkinPublicationFieldsProps,
 } from "./community/community-skin-publication-fields";

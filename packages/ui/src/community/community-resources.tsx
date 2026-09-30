@@ -7,14 +7,17 @@ import {
   communityRating,
   resourceKindTitle,
   resourceMessage,
-  resourceScopeTitle,
 } from "./community-helpers";
 import type { CustomSkinLibraryClient } from "../keyboard/touch-keyboard-skin-design";
 import * as style from "./community-style";
 import { CommunitySearchForm } from "./community-search-form";
+import {
+  CommunityResourceScopeButtons,
+  type CommunityResourceScope,
+} from "./community-resource-scope-buttons";
 
 export type CommunityResourceKind = "dictionary" | "reply";
-export type CommunityResourceScope = "" | "mine" | "saved";
+export type { CommunityResourceScope } from "./community-resource-scope-buttons";
 export type CommunitySharedWord = {
   kind: "pinyin" | "wubi" | "quick" | "english";
   code: string;
@@ -763,86 +766,11 @@ export function CommunityResourcesPage({
           </p>
         </div>
         <div className={style.headingActions}>
-          <div
-            className={style.scopeButtonsCollapsing}
-            role="group"
-            aria-label={`${resourceKindTitle(kind)}范围`}
-          >
-            <button
-              type="button"
-              className={scope === "" ? "primary" : "secondary"}
-              aria-pressed={scope === ""}
-              onClick={() => setScope("")}
-            >
-              全部
-            </button>
-            <button
-              type="button"
-              className={scope === "saved" ? "primary" : "secondary"}
-              aria-pressed={scope === "saved"}
-              onClick={() => setScope("saved")}
-            >
-              收藏
-            </button>
-            <button
-              type="button"
-              className={scope === "mine" ? "primary" : "secondary"}
-              aria-pressed={scope === "mine"}
-              onClick={() => setScope("mine")}
-            >
-              我的作品
-            </button>
-          </div>
-          <details className={style.scopeMenu}>
-            <summary
-              className={style.scopeMenuSummary}
-              aria-label={`${resourceKindTitle(kind)}筛选范围`}
-            >
-              {resourceScopeTitle(scope)}
-            </summary>
-            <div
-              className={style.scopeMenuList}
-              role="group"
-              aria-label={`${resourceKindTitle(kind)}筛选范围`}
-            >
-              <button
-                type="button"
-                className={style.scopeMenuItem}
-                aria-label="筛选范围：全部"
-                aria-pressed={scope === ""}
-                onClick={(event) => {
-                  setScope("");
-                  event.currentTarget.closest("details")?.removeAttribute("open");
-                }}
-              >
-                全部
-              </button>
-              <button
-                type="button"
-                className={style.scopeMenuItem}
-                aria-label="筛选范围：收藏"
-                aria-pressed={scope === "saved"}
-                onClick={(event) => {
-                  setScope("saved");
-                  event.currentTarget.closest("details")?.removeAttribute("open");
-                }}
-              >
-                收藏
-              </button>
-              <button
-                type="button"
-                className={style.scopeMenuItem}
-                aria-label="筛选范围：我的作品"
-                aria-pressed={scope === "mine"}
-                onClick={(event) => {
-                  setScope("mine");
-                  event.currentTarget.closest("details")?.removeAttribute("open");
-                }}
-              >
-                我的作品
-              </button>
-            </div>
-          </details>
+          <CommunityResourceScopeButtons
+            resourceLabel={resourceKindTitle(kind)}
+            scope={scope}
+            onScopeChange={setScope}
+          />
           <button type="button" className="primary" onClick={() => setEditing(true)}>
             发布作品
           </button>
