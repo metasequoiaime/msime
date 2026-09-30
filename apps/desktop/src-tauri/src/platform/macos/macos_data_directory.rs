@@ -42,6 +42,15 @@ fn locator_backups(locators: &[PathBuf]) -> Result<Vec<LocatorBackup>, MoveError
         if !unique.insert(path.clone()) {
             continue;
         }
+        let parent = path.parent().ok_or(MoveError::Publish)?;
+        crate::shared::atomic_file::check_directory_ancestors(parent)
+            .map_err(|_| MoveError::Publish)?;
+        if fs::symlink_metadata(path)
+            .map(|metadata| metadata.file_type().is_symlink())
+            .unwrap_or(false)
+        {
+            return Err(MoveError::Publish);
+        }
         let contents = match File::open(path) {
             Ok(file) => Some(
                 crate::shared::bounded_body::read_bounded(file, MAX_LOCATOR_BYTES as usize)
@@ -389,5 +398,30 @@ mod tests {
         assert!(outcome.retained_old_data);
         assert!(source.join("preferences.json").is_file());
         assert!(target.join("preferences.json").is_file());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refuses_a_symlinked_locator_without_reading_outside_it() {
+        use std::os::unix::fs::symlink;
+
+        let (root, default, native, target, locators) = setup();
+        let outside = root.path().join("outside-locator");
+        fs::write(&outside, b"external locator").unwrap();
+        fs::remove_file(&locators[0]).unwrap();
+        symlink(&outside, &locators[0]).unwrap();
+
+        assert_eq!(
+            move_data_directory(&default, &target, &default, &native, &locators, |_| {
+                Ok(json!({}))
+            }),
+            Err(MoveError::Publish)
+        );
+        assert!(fs::symlink_metadata(&locators[0])
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(fs::read(&outside).unwrap(), b"external locator");
+        assert!(default.join("preferences.json").is_file());
     }
 }
