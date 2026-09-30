@@ -7832,6 +7832,20 @@ group("the skin gallery is public to browse and signed in to change", () => {
       }).then((result) => {
         check(JSON.parse(result).error === "community_invalid", "while a multi-line name is not");
       });
+      void gallery({
+        community_operation: "publish",
+        id,
+        name: "晨雾",
+        description: "",
+        design: { background: 0x1000000 },
+      }).then((result) => {
+        const publishCalls = calls.filter((call) => call.path === "/v1/community/skins");
+        check(JSON.parse(result).error === "community_invalid", "an out-of-range design is refused");
+        check(
+          publishCalls.length === 1,
+          "an invalid design never reaches the publish endpoint",
+        );
+      });
 
       // The community pages decode their own vocabulary; an account_* code would arrive as the
       // one generic sentence instead of "已达到发布上限".

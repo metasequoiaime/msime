@@ -1131,9 +1131,7 @@ export class AccountCloudBridge {
         !validCommunityText(name, 1, 32) ||
         name.trim() !== name ||
         !validCommunityText(description, 0, 280, true) ||
-        action.design === null ||
-        typeof action.design !== "object" ||
-        Array.isArray(action.design)
+        !validSkinDesign(action.design)
       ) {
         return error("community_invalid");
       }
