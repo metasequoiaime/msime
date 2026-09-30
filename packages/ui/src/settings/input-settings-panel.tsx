@@ -404,28 +404,24 @@ export function InputSettingsPanel({
                 !tencentSecretConfigured(tencentTranslation.secret_key)
               }
               onToggle={(enabled) =>
-                setDraft({
-                  ...draft,
+                onPreferencesChange({
                   tencent_tmt: { ...tencentTranslation, enabled },
                   // Turning on a service of the user's own ends the account choice, so the account never keeps receiving candidates behind a visible selection.
                   ...(enabled ? { translation_account: undefined } : {}),
                 })
               }
               onSecretIdChange={(secret_id) =>
-                setDraft({
-                  ...draft,
+                onPreferencesChange({
                   tencent_tmt: { ...tencentTranslation, secret_id },
                 })
               }
               onSecretKeyChange={(secret_key) =>
-                setDraft({
-                  ...draft,
+                onPreferencesChange({
                   tencent_tmt: { ...tencentTranslation, secret_key },
                 })
               }
               onRegionChange={(region) =>
-                setDraft({
-                  ...draft,
+                onPreferencesChange({
                   tencent_tmt: { ...tencentTranslation, region },
                 })
               }
@@ -468,22 +464,19 @@ export function InputSettingsPanel({
             apiKey={customTranslation.api_key}
             endpointIssue={translationEndpointIssue(customTranslation.endpoint)}
             onToggle={(enabled) =>
-              setDraft({
-                ...draft,
+              onPreferencesChange({
                 custom_translation: { ...customTranslation, enabled },
                 // Same rule as the Tencent switch: a service of the user's own ends the account choice.
                 ...(enabled ? { translation_account: undefined } : {}),
               })
             }
             onEndpointChange={(endpoint) =>
-              setDraft({
-                ...draft,
+              onPreferencesChange({
                 custom_translation: { ...customTranslation, endpoint },
               })
             }
             onApiKeyChange={(api_key) =>
-              setDraft({
-                ...draft,
+              onPreferencesChange({
                 custom_translation: { ...customTranslation, api_key },
               })
             }
