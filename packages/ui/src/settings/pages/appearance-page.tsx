@@ -132,8 +132,7 @@ export function AppearanceSettingsPage() {
             wordCharacter={wordCharacter}
             linux={linuxPlatform}
             onChange={(next) =>
-              setDraft({
-                ...draft,
+              appearanceActions.onPreferencesChange({
                 // Only a paging key that takes 以词定字's key touches it; otherwise an unset value stays unset.
                 ...(next.wordCharacter !== wordCharacter
                   ? { word_character: next.wordCharacter }
