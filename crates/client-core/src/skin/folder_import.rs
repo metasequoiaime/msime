@@ -32,6 +32,8 @@ pub fn import(source: &Path, root: &Path) -> Result<String, &'static str> {
     if !manifest_metadata.is_file() || manifest_metadata.file_type().is_symlink() {
         return Err("skin_manifest");
     }
+    let source_parent = source.parent().ok_or("skin_manifest")?;
+    super::catalog::load_package(source_parent, &name).map_err(|_| "skin_manifest")?;
     // A linked root would publish the import into an unrelated directory. Check before creating
     // it because `create_dir_all` follows a final-component symlink.
     if !crate::storage::create_directory_and_check(root).map_err(|_| "storage")? {
@@ -135,7 +137,13 @@ mod tests {
     fn picked(parent: &Path, name: &str) -> PathBuf {
         let skin = parent.join(name);
         std::fs::create_dir_all(skin.join("images")).unwrap();
-        std::fs::write(skin.join("skin.toml"), b"id = 'synthetic'").unwrap();
+        std::fs::write(
+            skin.join("skin.toml"),
+            format!(
+                "schema_version = 1\nid = '{name}'\nname = 'Sample'\nversion = '1.0'\nbase = 'night'\n[supports]\nlayouts = ['vertical']\nthemes = ['light']\n[candidate_window]\nmin_width_dip = 10\n"
+            ),
+        )
+        .unwrap();
         std::fs::write(skin.join("images").join("bg.png"), b"new").unwrap();
         skin
     }
@@ -170,6 +178,23 @@ mod tests {
         assert!(!root.join("sakura").join("stale.css").exists());
         assert!(root.join("sakura").join("skin.toml").is_file());
         assert!(!root.join(".replaced-sakura").exists());
+    }
+
+    #[test]
+    fn import_rejects_an_invalid_manifest_before_replacing_existing_skin() {
+        let files = tempfile::tempdir().unwrap();
+        let state = tempfile::tempdir().unwrap();
+        let root = state.path().join("skins");
+        std::fs::create_dir_all(root.join("sakura")).unwrap();
+        std::fs::write(root.join("sakura").join("skin.toml"), b"old").unwrap();
+        let source = picked(files.path(), "sakura");
+        std::fs::write(source.join("skin.toml"), b"not valid skin metadata").unwrap();
+
+        assert_eq!(import(&source, &root), Err("skin_manifest"));
+        assert_eq!(
+            std::fs::read(root.join("sakura").join("skin.toml")).unwrap(),
+            b"old"
+        );
     }
 
     #[test]
