@@ -62,13 +62,19 @@ pub fn directory(resources: &Path) -> PathBuf {
 /// row that silently disappears is worse than one that explains itself.
 pub fn load(resources: &Path) -> Result<Vec<Wordbook>, BuiltinWordbookError> {
     let root = directory(resources);
-    if !root.is_dir() {
+    if !std::fs::symlink_metadata(&root)
+        .map(|metadata| metadata.file_type().is_dir())
+        .unwrap_or(false)
+    {
         return Ok(Vec::new());
     }
     let mut books = Vec::with_capacity(ORDER.len());
     for id in ORDER {
         let path = root.join(format!("{id}.json"));
-        match std::fs::metadata(&path) {
+        match std::fs::symlink_metadata(&path) {
+            Ok(metadata) if !metadata.file_type().is_file() => {
+                return Err(BuiltinWordbookError::InvalidWordbook);
+            }
             Ok(metadata) if metadata.len() > MAX_BOOK_BYTES => {
                 return Err(BuiltinWordbookError::InvalidWordbook);
             }
@@ -189,6 +195,29 @@ mod tests {
         std::fs::write(directory.join("cet4.json"), b"{\"id\":\"cet4\"}").unwrap();
         // The user can see it in the picker; a row that silently disappears explains nothing.
         assert!(load(root.path()).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_book_is_rejected_without_reading_external_content() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let directory = root.path().join(DIRECTORY);
+        std::fs::create_dir_all(&directory).unwrap();
+        let external = outside.path().join("cet4.json");
+        std::fs::write(
+            &external,
+            serde_json::to_vec(&book("cet4", "外部")).unwrap(),
+        )
+        .unwrap();
+        symlink(&external, directory.join("cet4.json")).unwrap();
+
+        assert!(matches!(
+            load(root.path()),
+            Err(BuiltinWordbookError::InvalidWordbook)
+        ));
     }
 
     #[test]
