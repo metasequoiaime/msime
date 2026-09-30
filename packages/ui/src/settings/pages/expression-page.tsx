@@ -148,7 +148,7 @@ export function ExpressionSettingsPage() {
             onAccountTranslationChange={(enabled) =>
               enabled
                 ? setTranslationProvider("account")
-                : setDraft({ ...draft, translation_account: undefined })
+                : onPreferencesChange({ translation_account: undefined })
             }
           />
           {onDeviceMissingLanguages.length > 0 && (
