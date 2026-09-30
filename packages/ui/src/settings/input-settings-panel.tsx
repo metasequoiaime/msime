@@ -498,8 +498,7 @@ export function InputSettingsPanel({
         navigation={draft.navigation ?? defaultNavigation}
         ios={iosPlatform}
         onChange={({ wordCharacter: nextWordCharacter, navigation }) =>
-          setDraft({
-            ...draft,
+          onPreferencesChange({
             word_character: nextWordCharacter,
             navigation,
           })
