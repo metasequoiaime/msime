@@ -278,7 +278,8 @@ class HarmonyTransport implements AccountTransport {
     });
     request.on('dataReceive', (chunk: ArrayBuffer): void => {
       const view: Uint8Array = new Uint8Array(chunk);
-      if (failed || bytes + view.byteLength > maximumBytes || view.includes(0)) {
+      // The file is opened before the request starts streaming, but the closure cannot see that narrowing.
+      if (failed || handle === undefined || bytes + view.byteLength > maximumBytes || view.includes(0)) {
         failed = true;
         return;
       }

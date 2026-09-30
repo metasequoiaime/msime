@@ -1393,11 +1393,14 @@ class SettingsBridge {
         { role: 'user', content: request.text }
       ]
     };
+    // ArkTS has no object spread; headers() hands back a fresh record, so adding to it is safe.
+    const header: Record<string, string> = AiAuthenticationPolicy.headers(endpoint, token);
+    header['Content-Type'] = 'application/json';
     const httpRequest = http.createHttp();
     try {
       const response: http.HttpResponse = await httpRequest.request(endpoint, {
         method: http.RequestMethod.POST,
-        header: { ...AiAuthenticationPolicy.headers(endpoint, token), 'Content-Type': 'application/json' },
+        header: header,
         connectTimeout: 5000,
         readTimeout: 15000,
         extraData: JSON.stringify(body)
