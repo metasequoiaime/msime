@@ -1,6 +1,6 @@
 import { useConfirm } from "./core/confirm";
 import { NavItem } from "./core/platform-controls";
-import { mobilePageTitle, mobileTabIcon, mobileTabTitle } from "./settings/mobile-tab-helpers";
+import { mobilePageTitle } from "./settings/mobile-tab-helpers";
 import {
   desktopDownloadUrl,
   documentationUrl,
@@ -12,6 +12,7 @@ import { useSettingsWindowInteractions } from "./settings/use-settings-window-in
 import { updateCandidateColor, updateCustomKeyboard } from "./settings/theme-selection-updates";
 import { useSettingsNavigation } from "./settings/use-settings-navigation";
 import { useSettingsContentScrollReset } from "./settings/use-settings-content-scroll-reset";
+import { MobileSettingsTabs } from "./settings/mobile-settings-tabs";
 import {
   mobilePrimaryPageIds,
   mobileTabForPage,
@@ -32,7 +33,7 @@ import { clipboardHistoryEnabled } from "./settings/clipboard-history-preference
 import { settingsThemePreferences } from "./settings/settings-theme-preferences";
 import type { VoiceDeviceReader } from "./voice/voice-device-picker";
 import type { LocalVoiceModelClient } from "./voice/local-models";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   type DictionaryEntry,
   type LocalDictionaryFormat,
@@ -2683,32 +2684,11 @@ export function SettingsPage(props: SettingsPageProps) {
       <div className={settings.body} data-settings-body="">
         {/* A bottom tab bar. `order-2` seats it below the content while the DOM keeps it ahead, so assistive technology and keyboard focus still reach the navigation first, and the bottom padding clears the gesture inset. Hidden above phone width, where the sidebar serves. */}
         {mobilePlatform && (
-          <nav className={settings.mobileTabBar} aria-label="主要功能">
-            {mobilePrimaryPages.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                className={settings.mobileTab(mobileActiveTab === item.id)}
-                aria-current={mobileActiveTab === item.id ? "page" : undefined}
-                onClick={() => selectMobileTab(item.id)}
-              >
-                <span className={settings.mobileTabPill(mobileActiveTab === item.id)}>
-                  {/* Drawn as a mask over the text colour, so the selected tab takes the accent and every glyph follows the theme; an `<img>` of a `currentColor` stroke renders it black. */}
-                  <span
-                    className={settings.mobileTabIcon}
-                    style={
-                      {
-                        "--tab-icon": `url("${mobileTabIcon(item.id, item.icon)}")`,
-                      } as CSSProperties
-                    }
-                    data-tab-icon={mobileTabIcon(item.id, item.icon)}
-                    aria-hidden="true"
-                  />
-                </span>
-                {mobileTabTitle(item.id, item.title)}
-              </button>
-            ))}
-          </nav>
+          <MobileSettingsTabs
+            tabs={mobilePrimaryPages}
+            activeTab={mobileActiveTab}
+            onSelect={selectMobileTab}
+          />
         )}
         <nav
           className={`${settings.sidebar} ${ipadSidebarShown ? "" : "ipad:hidden"}`}
