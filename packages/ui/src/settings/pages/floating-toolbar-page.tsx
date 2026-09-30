@@ -5,6 +5,7 @@ import type { FloatingToolbarPreferences, HostCapabilities } from "../../index";
 import { useSettingsForm } from "../settings-form-context";
 import { Checks, GroupList, Row, Select, Switch } from "../../core/platform-controls";
 import { FloatingToolbarPlatformNotice } from "../floating-toolbar-platform-notice";
+import { createFloatingToolbarSettingsActions } from "../floating-toolbar-settings-actions";
 
 type FloatingToolbarOptionKey = keyof Pick<
   FloatingToolbarPreferences,
@@ -56,8 +57,11 @@ export function FloatingToolbarSettingsPage() {
     toolbarPreviewTheme,
     globalTheme,
   } = useSettingsForm();
-  const setToolbar = (patch: Partial<FloatingToolbarPreferences>) =>
-    setDraft({ ...draft, floating_toolbar: { ...floatingToolbar, ...patch } });
+  const { onChange: onToolbarChange } = createFloatingToolbarSettingsActions({
+    draft,
+    floatingToolbar,
+    setDraft,
+  });
   return (
     <fieldset disabled={busy} hidden={page !== "floating-toolbar"} aria-label="悬浮工具栏">
       <div className={settings.groups}>
@@ -65,7 +69,7 @@ export function FloatingToolbarSettingsPage() {
           <Row title="在桌面显示悬浮工具栏" description="快速访问输入法状态与常用功能">
             <Switch
               checked={floatingToolbar.enabled}
-              onChange={(enabled) => setToolbar({ enabled })}
+              onChange={(enabled) => onToolbarChange({ enabled })}
             />
           </Row>
           <div className={settings.toolbarPreviewArea} aria-label="悬浮工具栏预览">
@@ -100,7 +104,7 @@ export function FloatingToolbarSettingsPage() {
                 <Select
                   value={floatingToolbar.scale_percent}
                   onChange={(event) =>
-                    setToolbar({
+                    onToolbarChange({
                       scale_percent: Number(
                         event.target.value,
                       ) as FloatingToolbarPreferences["scale_percent"],
@@ -118,7 +122,7 @@ export function FloatingToolbarSettingsPage() {
                 <Select
                   value={floatingToolbar.font_size}
                   onChange={(event) =>
-                    setToolbar({
+                    onToolbarChange({
                       font_size: Number(
                         event.target.value,
                       ) as FloatingToolbarPreferences["font_size"],
@@ -161,7 +165,7 @@ export function FloatingToolbarSettingsPage() {
                     .map(([key, label]) => ({ value: key, label, checked: floatingToolbar[key] })),
                 ]}
                 onChange={(key, checked) => {
-                  if (key !== "mode_switch") setToolbar({ [key]: checked });
+                  if (key !== "mode_switch") onToolbarChange({ [key]: checked });
                 }}
               />
             </div>

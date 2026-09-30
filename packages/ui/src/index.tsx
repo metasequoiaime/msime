@@ -244,6 +244,10 @@ export {
   type CreateAppearanceSettingsActionsOptions,
 } from "./settings/appearance-settings-actions";
 export {
+  createFloatingToolbarSettingsActions,
+  type CreateFloatingToolbarSettingsActionsOptions,
+} from "./settings/floating-toolbar-settings-actions";
+export {
   createDictionaryPanelActions,
   type CreateDictionaryPanelActionsOptions,
 } from "./settings/dictionary-panel-actions";
