@@ -251,17 +251,7 @@ export function VoiceSettingsPage() {
                       : "other"
             }
             values={draft.voice_input ?? {}}
-            onChange={(key, checked) =>
-              setDraft({
-                ...draft,
-                voice_input: {
-                  ...draft.voice_input,
-                  enabled: draft.voice_input?.enabled ?? true,
-                  language: draft.voice_input?.language ?? "zh-CN",
-                  [key]: checked,
-                },
-              })
-            }
+            onChange={(key, checked) => updateVoice({ [key]: checked })}
           />
         )}
       </div>
