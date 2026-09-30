@@ -288,7 +288,116 @@ private final class InvalidCommunityDetailProtocol: URLProtocol {
   override func stopLoading() {}
 }
 
+private final class InvalidCommunityMutationProtocol: URLProtocol, @unchecked Sendable {
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    let path = request.url!.path
+    let body: String
+    let status: Int
+    if path == "/v1/auth/challenges" {
+      body = #"{"challenge_id":"fixture-id","nonce":"server-nonce","expires_in":300}"#; status = 200
+    } else if path == "/v1/auth/login" {
+      let token = String(repeating: "a", count: 64)
+      let refresh = String(repeating: "f", count: 64)
+      body = "{\"access_token\":\"\(token)\",\"refresh_token\":\"\(refresh)\",\"token_type\":\"Bearer\",\"expires_in\":900,\"user\":{\"id\":\"fixture-user\",\"display_name\":\"测试\",\"created_at\":\"2026-09-08T00:00:00Z\"}}"; status = 200
+    } else if path == "/v1/users/me" {
+      body = #"{"user":{"id":"fixture-user","display_name":"测试","created_at":"2026-09-08T00:00:00Z"},"identities":[]}"#; status = 200
+    } else if path == "/v1/community/resources" && request.httpMethod == "GET" {
+      body = #"{"items":[{"id":"10000000-0000-4000-8000-000000000001","kind":"dictionary","name":"测试","description":"","author":"作者","content":{"entries":[{"kind":"unknown","code":"a","word":"啊","weight":1}]},"revision":1,"saves":0,"saved":false,"owned":false,"rating_count":0,"rating_average":0,"my_rating":0}],"has_more":false}"#; status = 200
+    } else if path == "/v1/community/resources" && request.httpMethod == "POST" {
+      body = #"{"id":"10000000-0000-4000-8000-000000000001","revision":0}"#; status = 200
+    } else if path == "/v1/community/skins" && request.httpMethod == "POST" {
+      body = #"{"id":"a1234567-1234-1234-1234-123456789abc"}"#; status = 200
+    } else if path.hasSuffix("/download") {
+      body = #"{"design":{"background":16777216,"keyBackground":16777215,"keyForeground":1516829,"accent":1596487,"actionBackground":1596487,"cornerRadius":8,"borderWidth":0,"shadow":0,"pattern":0,"monospaced":false}}"#; status = 200
+    } else if path.hasSuffix("/save") {
+      body = #"{"saved":false}"#; status = 200
+    } else if path.hasSuffix("/rating") {
+      body = #"{"stars":1}"#; status = 200
+    } else if path == "/v1/community/resources/10000000-0000-4000-8000-000000000001" && request.httpMethod == "DELETE" {
+      body = #"{"deleted":false}"#; status = 200
+    } else if path == "/v1/community/skins/10000000-0000-4000-8000-000000000001" && request.httpMethod == "DELETE" {
+      body = #"{"deleted":false}"#; status = 200
+    } else {
+      body = #"{}"#; status = 200
+    }
+    client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status,
+      httpVersion: nil, headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: Data(body.utf8))
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
+
 extension SkinCommunityTests {
+  func testUnknownDictionaryWordKindAndCommunityMutationResponsesAreRejected() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [InvalidCommunityMutationProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    let memory = CommunityMemoryCredentials()
+    let api = SkinCommunityAPI(client: client,
+                               account: BackendAccountSession(api: client, storage: memory))
+    do {
+      _ = try await api.resources(.dictionary)
+      XCTFail("expected unknown dictionary word kind rejection")
+    } catch let failure as CommunityFailure {
+      XCTAssertEqual(failure.message, "社区暂时不可用，请稍后重试。")
+    }
+
+    try await api.login(challenge: "fixture", identityToken: "synthetic")
+    let id = "10000000-0000-4000-8000-000000000001"
+    let content = CommunityResourceContent(entries: [CommunityWord(kind: "pinyin", code: "a", word: "啊", weight: 1)], prompt: nil)
+    do {
+      try await api.publishResource(id: id, kind: .dictionary, name: "测试", description: "", content: content, revision: 1)
+      XCTFail("expected invalid publish response rejection")
+    } catch let failure as CommunityFailure {
+      XCTAssertEqual(failure.message, "社区暂时不可用，请稍后重试。")
+    }
+    do {
+      try await api.saveResource(id, saved: true)
+      XCTFail("expected invalid save response rejection")
+    } catch let failure as CommunityFailure {
+      XCTAssertEqual(failure.message, "社区暂时不可用，请稍后重试。")
+    }
+    do {
+      try await api.rateResource(id, stars: 4)
+      XCTFail("expected invalid rating response rejection")
+    } catch let failure as CommunityFailure {
+      XCTAssertEqual(failure.message, "社区暂时不可用，请稍后重试。")
+    }
+    do {
+      try await api.unpublishResource(id)
+      XCTFail("expected invalid delete response rejection")
+    } catch let failure as CommunityFailure {
+      XCTAssertEqual(failure.message, "社区暂时不可用，请稍后重试。")
+    }
+    do {
+      try await api.publish(id: id, name: "测试", description: "", design: CustomKeyboardSkin())
+      XCTFail("expected mismatched skin publication ID rejection")
+    } catch let failure as CommunityFailure {
+      XCTAssertEqual(failure.message, "社区暂时不可用，请稍后重试。")
+    }
+    do {
+      _ = try await api.download(id)
+      XCTFail("expected invalid downloaded design rejection")
+    } catch let failure as CommunityFailure {
+      XCTAssertEqual(failure.message, "社区暂时不可用，请稍后重试。")
+    }
+    do {
+      try await api.rate(id, stars: 4)
+      XCTFail("expected mismatched skin rating rejection")
+    } catch let failure as CommunityFailure {
+      XCTAssertEqual(failure.message, "社区暂时不可用，请稍后重试。")
+    }
+    do {
+      try await api.unpublish(id)
+      XCTFail("expected unsuccessful skin deletion rejection")
+    } catch let failure as CommunityFailure {
+      XCTAssertEqual(failure.message, "社区暂时不可用，请稍后重试。")
+    }
+  }
+
   func testMalformedCommunityDetailsAreRejected() async throws {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [InvalidCommunityDetailProtocol.self]
