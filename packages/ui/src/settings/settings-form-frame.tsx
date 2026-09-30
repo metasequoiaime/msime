@@ -5,7 +5,7 @@ export interface SettingsFormFrameProps {
   onSubmit: FormEventHandler<HTMLFormElement>;
   showReload: boolean;
   busy: boolean;
-  onReload: () => void | Promise<void>;
+  onReload?: () => void | Promise<void>;
 }
 
 /** Owns the shared settings form boundary and its reload control. */
@@ -19,8 +19,8 @@ export function SettingsFormFrame({
   return (
     <>
       <form onSubmit={onSubmit}>{children}</form>
-      {showReload && (
-        <button className="secondary" disabled={busy} onClick={onReload}>
+      {showReload && onReload && (
+        <button type="button" className="secondary" disabled={busy} onClick={onReload}>
           重新读取
         </button>
       )}

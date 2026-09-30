@@ -97,6 +97,7 @@ export {
 import { SettingsFormFooter } from "./settings/settings-form-footer";
 import { SettingsPageStatus } from "./settings/settings-page-status";
 import type { InputSourceStartupStatus } from "./settings/input-source-startup-notice";
+import { SettingsFormFrame } from "./settings/settings-form-frame";
 import { useProviderCredentials } from "./settings/use-provider-credentials";
 import { useFeedbackReport } from "./settings/use-feedback-report";
 import { useDataDirectory } from "./settings/use-data-directory";
@@ -2923,7 +2924,9 @@ export function SettingsPage(props: SettingsPageProps) {
               page !== "chat" &&
               page !== "more" &&
               page !== "community" && (
-                <form
+                <SettingsFormFrame
+                  showReload={false}
+                  busy={busy}
                   onSubmit={(event) => {
                     event.preventDefault();
                     void save();
@@ -2984,7 +2987,7 @@ export function SettingsPage(props: SettingsPageProps) {
                     showRestoreDefaults={Boolean(client.loadDefaultPreferences)}
                     onRestoreDefaults={() => void restoreDefaults()}
                   />
-                </form>
+                </SettingsFormFrame>
               )}
             {page !== "typing-statistics" &&
               page !== "vocabulary" &&
