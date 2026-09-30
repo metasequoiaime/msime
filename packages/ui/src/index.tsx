@@ -571,6 +571,10 @@ export {
   type TranslationSecondaryLanguage,
   type TranslationSecondaryLanguageOption,
 } from "./settings/candidate-translation-options-section";
+export {
+  CandidateTranslationSettingsSection,
+  type CandidateTranslationSettingsSectionProps,
+} from "./settings/candidate-translation-settings-section";
 export { PunctuationSection, type PunctuationPreferences } from "./settings/punctuation-section";
 export {
   MixedInputSection,

@@ -6,12 +6,10 @@ import { GroupList, Row, Switch } from "../../core/platform-controls";
 import { FuzzyPinyinSection } from "../fuzzy-pinyin-section";
 import { InputLanguageOptionsSection } from "../input-language-options-section";
 import { PunctuationSection } from "../punctuation-section";
-import { TranslationServiceSelectorSection } from "../translation-service-selector-section";
+import { CandidateTranslationSettingsSection } from "../candidate-translation-settings-section";
 import { TranslationProviderSettingsSection } from "../translation-provider-settings-section";
-import { CandidateTranslationOptionsSection } from "../candidate-translation-options-section";
 import { tencentCredentialIssue, translationEndpointIssue } from "../translation-validation";
 import { tencentSecretConfigured } from "../credential-utils";
-import { OnDeviceTranslationNotice } from "../on-device-translation-notice";
 import {
   customTranslationCredentialTestConfig,
   customTranslationCredentialTestDisabled,
@@ -116,53 +114,39 @@ export function ExpressionSettingsPage() {
             onPreferencesChange({ english_suggestions })
           }
         />
-        <GroupList title="候选词翻译">
-          <CandidateTranslationOptionsSection
-            enabled={candidateTranslations}
-            targetLanguage={translationTargetLanguage}
-            secondaryLanguage={draft.translation_secondary_language ?? ""}
-            candidateGlossLanguagesEnabled={candidateGlossLanguagesEnabled}
-            visibleLanguages={visibleTranslationLanguages}
-            visibleSecondaryLanguages={visibleSecondaryLanguages}
-            showSecondaryLanguage={
-              androidPlatform || iosPlatform || macosPlatform || harmonyPlatform
-            }
-            showAccountTranslation={androidPlatform}
-            accountTranslation={draft.translation_account ?? false}
-            onEnabledChange={(candidate_translations) =>
-              onPreferencesChange({ candidate_translations })
-            }
-            onTargetLanguageChange={(translation_target_language) =>
-              onPreferencesChange({ translation_target_language })
-            }
-            onSecondaryLanguageChange={(value) =>
-              onPreferencesChange({ translation_secondary_language: value === "" ? null : value })
-            }
-            onAccountTranslationChange={(enabled) =>
-              enabled
-                ? setTranslationProvider("account")
-                : onPreferencesChange({ translation_account: undefined })
-            }
-          />
-          {onDeviceMissingLanguages.length > 0 && (
-            <div className={settings.groupBlock}>
-              <OnDeviceTranslationNotice
-                languages={onDeviceMissingLanguages.map(([, label]) => label)}
-                openSettings={client.onDeviceTranslation?.openSettings}
-                onError={setError}
-              />
-            </div>
-          )}
-          {!androidPlatform && (
-            <TranslationServiceSelectorSection
-              grouped
-              available={candidateTranslations}
-              provider={translationProvider}
-              showAccountProvider={macosPlatform || linuxPlatform}
-              onChange={setTranslationProvider}
-            />
-          )}
-        </GroupList>
+        <CandidateTranslationSettingsSection
+          grouped
+          enabled={candidateTranslations}
+          targetLanguage={translationTargetLanguage}
+          secondaryLanguage={draft.translation_secondary_language ?? ""}
+          candidateGlossLanguagesEnabled={candidateGlossLanguagesEnabled}
+          visibleLanguages={visibleTranslationLanguages}
+          visibleSecondaryLanguages={visibleSecondaryLanguages}
+          showSecondaryLanguage={androidPlatform || iosPlatform || macosPlatform || harmonyPlatform}
+          showAccountTranslation={androidPlatform}
+          accountTranslation={draft.translation_account ?? false}
+          onEnabledChange={(candidate_translations) =>
+            onPreferencesChange({ candidate_translations })
+          }
+          onTargetLanguageChange={(translation_target_language) =>
+            onPreferencesChange({ translation_target_language })
+          }
+          onSecondaryLanguageChange={(value) =>
+            onPreferencesChange({ translation_secondary_language: value === "" ? null : value })
+          }
+          onAccountTranslationChange={(enabled) =>
+            enabled
+              ? setTranslationProvider("account")
+              : onPreferencesChange({ translation_account: undefined })
+          }
+          onDeviceMissingLanguages={onDeviceMissingLanguages.map(([, label]) => label)}
+          openSettings={client.onDeviceTranslation?.openSettings}
+          onError={setError}
+          showTranslationService={!androidPlatform}
+          translationProvider={translationProvider}
+          showAccountProvider={macosPlatform || linuxPlatform}
+          onTranslationProviderChange={setTranslationProvider}
+        />
         {!androidPlatform && (
           <TranslationProviderSettingsSection
             grouped

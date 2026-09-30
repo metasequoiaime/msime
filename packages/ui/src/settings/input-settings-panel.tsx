@@ -17,16 +17,12 @@ import { InputSchemeDetailsSection, type ShuangpinProfile } from "./input-scheme
 import { WubiSection } from "./wubi-section";
 import { NavigationSection, defaultNavigation } from "./navigation-section";
 import {
-  CandidateTranslationOptionsSection,
   type TranslationLanguage,
   type TranslationSecondaryLanguage,
 } from "./candidate-translation-options-section";
-import {
-  TranslationServiceSelectorSection,
-  type TranslationProvider,
-} from "./translation-service-selector-section";
+import { CandidateTranslationSettingsSection } from "./candidate-translation-settings-section";
+import { type TranslationProvider } from "./translation-service-selector-section";
 import { TranslationProviderSettingsSection } from "./translation-provider-settings-section";
-import { OnDeviceTranslationNotice } from "./on-device-translation-notice";
 import { defaultWordCharacter } from "./word-character-section";
 import { FuzzyPinyinSection, defaultFuzzyPinyin } from "./fuzzy-pinyin-section";
 import { PunctuationSection } from "./punctuation-section";
@@ -278,7 +274,7 @@ export function InputSettingsPanel({
           })
         }
       />
-      <CandidateTranslationOptionsSection
+      <CandidateTranslationSettingsSection
         enabled={candidateTranslations}
         targetLanguage={translationTargetLanguage}
         secondaryLanguage={translationSecondaryLanguage ?? ""}
@@ -304,22 +300,16 @@ export function InputSettingsPanel({
             ? setTranslationProvider("account")
             : onPreferencesChange({ translation_account: undefined })
         }
+        onDeviceMissingLanguages={onDeviceMissingLanguages.map(([, label]) => label)}
+        openSettings={client.onDeviceTranslation?.openSettings}
+        onError={onError}
+        showTranslationService={!androidPlatform}
+        translationProvider={translationProvider}
+        showAccountProvider={macosPlatform || linuxPlatform}
+        onTranslationProviderChange={setTranslationProvider}
       />
-      {onDeviceMissingLanguages.length > 0 && (
-        <OnDeviceTranslationNotice
-          languages={onDeviceMissingLanguages.map(([, label]) => label)}
-          openSettings={client.onDeviceTranslation?.openSettings}
-          onError={onError}
-        />
-      )}
       {!androidPlatform && (
         <>
-          <TranslationServiceSelectorSection
-            available={candidateTranslations}
-            provider={translationProvider}
-            showAccountProvider={macosPlatform || linuxPlatform}
-            onChange={setTranslationProvider}
-          />
           <TranslationProviderSettingsSection
             niutrans={{
               enabled: niutrans.enabled,
