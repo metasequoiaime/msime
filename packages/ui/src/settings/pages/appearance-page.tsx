@@ -13,6 +13,7 @@ import { NavigationSection } from "../navigation-section";
 import { appearanceSettingsPreferences } from "../appearance-settings-preferences";
 import { CandidatePanelLimitSection } from "../candidate-panel-limit-section";
 import { CandidateFontUnsupportedNotice } from "../candidate-font-unsupported-notice";
+import { createAppearanceSettingsActions } from "../appearance-settings-actions";
 
 /** The 候选窗口 page of the settings form (route id `appearance`). */
 export function AppearanceSettingsPage() {
@@ -37,6 +38,12 @@ export function AppearanceSettingsPage() {
     wordCharacter,
   } = useSettingsForm();
   const navigation = draft.navigation ?? defaultNavigation;
+  const appearanceActions = createAppearanceSettingsActions({
+    draft,
+    mobileKeyboardFeedback,
+    saveMobileKeyboardFeedback,
+    setDraft,
+  });
   const showWindowGroup =
     host?.fixed_candidate_page_size === undefined || host?.fixed_candidate_layout === undefined;
   return (
@@ -69,7 +76,7 @@ export function AppearanceSettingsPage() {
             <>
               <CandidateFontControls
                 value={draft}
-                onChange={(patch) => setDraft({ ...draft, ...patch })}
+                onChange={appearanceActions.onPreferencesChange}
                 readFonts={client.listFontFamilies}
                 windows={host?.platform === "windows"}
                 englishFont={showCandidateEnglishFont}
@@ -80,7 +87,7 @@ export function AppearanceSettingsPage() {
                 mobile={mobilePlatform}
                 showFontControls
                 showPreeditFont={showCandidatePreeditFont}
-                onChange={(patch) => setDraft({ ...draft, ...patch })}
+                onChange={appearanceActions.onPreferencesChange}
               />
             </>
           ) : (
@@ -109,11 +116,8 @@ export function AppearanceSettingsPage() {
             showShuangpinPreedit={showShuangpinPreedit}
             inlinePreedit={mobileKeyboardFeedback?.inlinePreedit}
             inlinePreeditBusy={mobileKeyboardFeedbackBusy}
-            onChange={(patch) => setDraft({ ...draft, ...patch })}
-            onInlinePreeditChange={(inlinePreedit) => {
-              if (mobileKeyboardFeedback)
-                void saveMobileKeyboardFeedback({ ...mobileKeyboardFeedback, inlinePreedit });
-            }}
+            onChange={appearanceActions.onPreferencesChange}
+            onInlinePreeditChange={appearanceActions.onInlinePreeditChange}
           />
         </GroupList>
         <GroupList title="翻页">
