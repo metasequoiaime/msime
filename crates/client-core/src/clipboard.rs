@@ -338,7 +338,7 @@ pub fn mobile_text_is_valid(text: &str) -> bool {
 }
 
 fn valid_stored(text: &str) -> bool {
-    !text.trim().is_empty()
+    !text.is_empty()
         && text.len() <= MAX_MOBILE_TEXT_BYTES
         && text.graphemes(true).count() <= MAX_MOBILE_TEXT_CHARACTERS
         && valid_characters(text)
@@ -572,17 +572,15 @@ mod tests {
     }
 
     #[test]
-    fn load_discards_whitespace_only_records() {
+    fn desktop_whitespace_only_text_survives_reload() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("history.json");
-        fs::write(
-            &path,
-            br#"[{"text":" \n\t","timestampMs":2,"pinned":false},{"text":"synthetic","timestampMs":1,"pinned":false}]"#,
-        )
-        .unwrap();
+        let mut writer = ClipboardHistoryStore::open(&path);
+        assert!(writer.push(" \n\t".into()).unwrap());
         let mut store = ClipboardHistoryStore::open(&path);
         store.load().unwrap();
-        assert_eq!(texts(&store), ["synthetic"]);
+        assert_eq!(texts(&store), [" \n\t"]);
+        assert!(!store.push_mobile(" \n\t".into()).unwrap());
     }
 
     #[test]
