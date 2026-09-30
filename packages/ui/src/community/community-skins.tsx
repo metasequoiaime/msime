@@ -14,6 +14,7 @@ import {
 } from "./community-helpers";
 import * as style from "./community-style";
 import { CommunitySearchForm } from "./community-search-form";
+import { CommunityScopeButtons } from "./community-scope-buttons";
 import type {
   CustomSkinLibraryClient,
   SavedTouchKeyboardSkin,
@@ -701,34 +702,16 @@ export function CommunitySkinsPage({
           </p>
         </div>
         <div className={style.headingActions}>
-          <div className={style.scopeButtons} role="group" aria-label="社区皮肤范围">
-            <button
-              type="button"
-              className={mineOnly ? "secondary" : "primary"}
-              aria-pressed={!mineOnly}
-              onClick={() => {
-                if (mineOnly) {
-                  setMineOnly(false);
-                  void requestList(activeSearch.current, false);
-                }
-              }}
-            >
-              全部皮肤
-            </button>
-            <button
-              type="button"
-              className={mineOnly ? "primary" : "secondary"}
-              aria-pressed={mineOnly}
-              onClick={() => {
-                if (!mineOnly) {
-                  setMineOnly(true);
-                  void requestList(activeSearch.current, false);
-                }
-              }}
-            >
-              我的作品
-            </button>
-          </div>
+          <CommunityScopeButtons
+            ariaLabel="社区皮肤范围"
+            mineOnly={mineOnly}
+            allLabel="全部皮肤"
+            mineLabel="我的作品"
+            onMineOnlyChange={(nextMineOnly) => {
+              setMineOnly(nextMineOnly);
+              void requestList(activeSearch.current, false);
+            }}
+          />
           {localSkinLibrary && (
             <button type="button" className="primary" onClick={() => setPublishOpen(true)}>
               发布我的设计

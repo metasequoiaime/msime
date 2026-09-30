@@ -10,6 +10,7 @@ import {
 } from "./community-helpers";
 import * as style from "./community-style";
 import { CommunitySearchForm } from "./community-search-form";
+import { CommunityScopeButtons } from "./community-scope-buttons";
 
 /** The server's license columns; each is `""` when the manifest leaves it out. */
 export type CommunityCandidateSkinLicense = { code: string; assets: string; source: string };
@@ -553,34 +554,16 @@ export function CommunityCandidateSkinsPage({
           <p className={style.headingNote}>为输入候选窗换一身新装，下载后在「主题」中启用</p>
         </div>
         <div className={style.headingActions}>
-          <div className={style.scopeButtons} role="group" aria-label="候选窗皮肤范围">
-            <button
-              type="button"
-              className={mineOnly ? "secondary" : "primary"}
-              aria-pressed={!mineOnly}
-              onClick={() => {
-                if (mineOnly) {
-                  setMineOnly(false);
-                  void requestList(activeSearch.current, false, false);
-                }
-              }}
-            >
-              全部
-            </button>
-            <button
-              type="button"
-              className={mineOnly ? "primary" : "secondary"}
-              aria-pressed={mineOnly}
-              onClick={() => {
-                if (!mineOnly) {
-                  setMineOnly(true);
-                  void requestList(activeSearch.current, false, true);
-                }
-              }}
-            >
-              我的作品
-            </button>
-          </div>
+          <CommunityScopeButtons
+            ariaLabel="候选窗皮肤范围"
+            mineOnly={mineOnly}
+            allLabel="全部"
+            mineLabel="我的作品"
+            onMineOnlyChange={(nextMineOnly) => {
+              setMineOnly(nextMineOnly);
+              void requestList(activeSearch.current, false, nextMineOnly);
+            }}
+          />
           {localSkins && (
             <button type="button" className="primary" onClick={() => setPublishOpen(true)}>
               发布我的皮肤

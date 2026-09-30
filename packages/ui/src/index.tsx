@@ -986,6 +986,10 @@ export {
   type CommunityCandidateSkinLicense,
   type CommunityCandidateSkinPage,
 } from "./community/community-candidate-skins";
+export {
+  CommunityScopeButtons,
+  type CommunityScopeButtonsProps,
+} from "./community/community-scope-buttons";
 export { CandidateSkinPublishDialog } from "./community/candidate-skin-publish-dialog";
 export { CommunityPage, type CommunityPageProps } from "./community/community-page";
 export type { SkinCatalog, ExternalSkin } from "./skin/external-skins";
