@@ -1,5 +1,6 @@
 import * as settings from "../settings-style";
 import { useSettingsForm } from "../settings-form-context";
+import { createSettingsDraftActions } from "../settings-draft-actions";
 import { SubPageEntries } from "./sub-page-entries";
 import { GroupList, Row, Select, Switch } from "../../core/platform-controls";
 import { FuzzyPinyinSection } from "../fuzzy-pinyin-section";
@@ -76,6 +77,7 @@ export function ExpressionSettingsPage() {
     credentialTestControl,
     selectPage,
   } = useSettingsForm();
+  const { onPreferencesChange } = createSettingsDraftActions({ setDraft });
   const translationControlsDisabled = !candidateTranslations;
   const tencentIssue = tencentCredentialIssue(
     tencentTranslation.secret_id,
@@ -89,14 +91,14 @@ export function ExpressionSettingsPage() {
           <PunctuationSection
             preferences={draft}
             showCharacterWidth={false}
-            onChange={(patch) => setDraft({ ...draft, ...patch })}
+            onChange={onPreferencesChange}
           />
         </GroupList>
         {client.fuzzyPinyin && (
           <GroupList title="拼写纠错">
             <FuzzyPinyinSection
               preferences={fuzzyPinyin}
-              onChange={(fuzzy_pinyin) => setDraft({ ...draft, fuzzy_pinyin })}
+              onChange={(fuzzy_pinyin) => onPreferencesChange({ fuzzy_pinyin })}
               confirm={confirm}
             />
           </GroupList>
@@ -104,18 +106,20 @@ export function ExpressionSettingsPage() {
         <GroupList title="多语言候选">
           <MixedInputSection
             preferences={mixedInput}
-            onChange={(mixed_input) => setDraft({ ...draft, mixed_input })}
+            onChange={(mixed_input) => onPreferencesChange({ mixed_input })}
           />
           {client.candidateEnglishGloss && (
             <CandidateEnglishGlossSection
               value={candidateEnglishGloss}
-              onChange={(checked) => setDraft({ ...draft, candidate_english_gloss: checked })}
+              onChange={(candidate_english_gloss) =>
+                onPreferencesChange({ candidate_english_gloss })
+              }
             />
           )}
           {showEnglishSuggestions && (
             <EnglishSuggestionsSection
               value={englishSuggestions}
-              onChange={(checked) => setDraft({ ...draft, english_suggestions: checked })}
+              onChange={(english_suggestions) => onPreferencesChange({ english_suggestions })}
             />
           )}
         </GroupList>
