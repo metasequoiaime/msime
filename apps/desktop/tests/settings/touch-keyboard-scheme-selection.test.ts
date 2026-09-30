@@ -1,9 +1,12 @@
-import { expect, test } from "vitest";
+// @vitest-environment jsdom
+import { act, renderHook } from "@testing-library/react";
+import { expect, test, vi } from "vitest";
 import {
   allTouchKeyboardSchemes,
   selectHomeTouchKeyboardScheme,
   updateTouchKeyboardSchemeEnabled,
   type Preferences,
+  useTouchKeyboardSchemeSelection,
 } from "@msime/ui";
 
 const preferences: Preferences = {
@@ -48,6 +51,25 @@ test("selecting a home scheme enables it and updates the selected value", () => 
     selected: "wubi",
   });
   expect(next.scheme).toBe("wubi");
+});
+
+test("selecting a visible scheme updates the draft through the shared hook", () => {
+  const setDraft = vi.fn();
+  const { result } = renderHook(() =>
+    useTouchKeyboardSchemeSelection({ draft: preferences, setDraft }),
+  );
+
+  act(() => result.current.select("wubi"));
+
+  expect(setDraft).toHaveBeenCalledWith(
+    expect.objectContaining({
+      scheme: "wubi",
+      touch_keyboard_schemes: {
+        enabled: ["quanpin", "xiaohe", "wubi"],
+        selected: "wubi",
+      },
+    }),
+  );
 });
 
 test("the helper exposes the complete stable scheme order", () => {

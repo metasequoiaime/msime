@@ -2030,6 +2030,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   };
   const {
     selected: selectedTouchKeyboardScheme,
+    select: selectTouchKeyboardScheme,
     selectHome: selectHomeScheme,
     setEnabled: setTouchKeyboardSchemeEnabled,
   } = useTouchKeyboardSchemeSelection({ draft, setDraft });
@@ -2372,6 +2373,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     fuzzyPinyin,
     touchKeyboardSchemes,
     selectedTouchKeyboardScheme,
+    selectTouchKeyboardScheme,
     setTouchKeyboardSchemeEnabled,
     selectHomeScheme,
     localModes,

@@ -7,10 +7,7 @@ import { HandwritingPlatformNotice } from "./handwriting-platform-notice";
 import { MobileInputAiNotice } from "./mobile-input-ai-notice";
 import { InputModeSection } from "./input-mode-section";
 import { TouchKeyboardSchemesSection } from "./touch-keyboard-schemes-section";
-import {
-  touchKeyboardSchemeOptions,
-  selectTouchKeyboardScheme,
-} from "./touch-keyboard-scheme-helpers";
+import { touchKeyboardSchemeOptions } from "./touch-keyboard-scheme-helpers";
 import {
   InputSchemeSelectorSection,
   type InputSchemeSelectorValue,
@@ -91,6 +88,7 @@ export interface InputSettingsPanelProps {
   windowsPlatform: boolean;
   touchKeyboardSchemes: NonNullable<Preferences["touch_keyboard_schemes"]>;
   selectedTouchKeyboardScheme: TouchKeyboardSchemePreference;
+  selectTouchKeyboardScheme: (scheme: TouchKeyboardSchemePreference) => void;
   setTouchKeyboardSchemeEnabled: (scheme: TouchKeyboardSchemePreference, enabled: boolean) => void;
   macosShuangpinKeymap: boolean | undefined;
   setShuangpinKeymap: Dispatch<SetStateAction<boolean | undefined>>;
@@ -164,6 +162,7 @@ export function InputSettingsPanel({
   windowsPlatform,
   touchKeyboardSchemes,
   selectedTouchKeyboardScheme,
+  selectTouchKeyboardScheme,
   setTouchKeyboardSchemeEnabled,
   macosShuangpinKeymap,
   setShuangpinKeymap,
@@ -237,9 +236,7 @@ export function InputSettingsPanel({
           options={touchKeyboardSchemeOptions}
           enabled={touchKeyboardSchemes.enabled}
           selected={selectedTouchKeyboardScheme}
-          onSelect={(scheme) =>
-            setDraft(selectTouchKeyboardScheme(draft, scheme as TouchKeyboardSchemePreference))
-          }
+          onSelect={(scheme) => selectTouchKeyboardScheme(scheme as TouchKeyboardSchemePreference)}
           onToggle={(scheme, enabled) =>
             setTouchKeyboardSchemeEnabled(scheme as TouchKeyboardSchemePreference, enabled)
           }

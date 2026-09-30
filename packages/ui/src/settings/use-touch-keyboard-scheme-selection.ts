@@ -1,6 +1,7 @@
 import type { Dispatch, SetStateAction } from "react";
 import {
   inferredTouchKeyboardScheme,
+  selectTouchKeyboardScheme,
   selectHomeTouchKeyboardScheme,
   updateTouchKeyboardSchemeEnabled,
   type TouchKeyboardScheme,
@@ -30,5 +31,10 @@ export function useTouchKeyboardSchemeSelection({
     setDraft(selectHomeTouchKeyboardScheme(draft, scheme));
   };
 
-  return { selectHome, selected, setEnabled } as const;
+  const select = (scheme: TouchKeyboardScheme) => {
+    if (!draft) return;
+    setDraft(selectTouchKeyboardScheme(draft, scheme));
+  };
+
+  return { select, selectHome, selected, setEnabled } as const;
 }

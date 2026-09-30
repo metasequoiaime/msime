@@ -1,7 +1,4 @@
-import {
-  touchKeyboardSchemeOptions,
-  selectTouchKeyboardScheme,
-} from "../touch-keyboard-scheme-helpers";
+import { touchKeyboardSchemeOptions } from "../touch-keyboard-scheme-helpers";
 import { defaultNavigation } from "../navigation-section";
 import type { Preferences, TouchKeyboardScheme } from "../../index";
 import { useSettingsForm } from "../settings-form-context";
@@ -50,6 +47,7 @@ export function InputSettingsPage() {
     frequency,
     touchKeyboardSchemes,
     selectedTouchKeyboardScheme,
+    selectTouchKeyboardScheme,
     setTouchKeyboardSchemeEnabled,
     localModes,
   } = useSettingsForm();
@@ -73,9 +71,7 @@ export function InputSettingsPage() {
               options={touchKeyboardSchemeOptions}
               enabled={touchKeyboardSchemes.enabled}
               selected={selectedTouchKeyboardScheme}
-              onSelect={(scheme) =>
-                setDraft(selectTouchKeyboardScheme(draft, scheme as TouchKeyboardScheme))
-              }
+              onSelect={(scheme) => selectTouchKeyboardScheme(scheme as TouchKeyboardScheme)}
               onToggle={(scheme, enabled) =>
                 setTouchKeyboardSchemeEnabled(scheme as TouchKeyboardScheme, enabled)
               }
