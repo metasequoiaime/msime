@@ -336,8 +336,8 @@ export function InputSettingsPanel({
             appId={niutrans.app_id}
             apiKey={niutrans.apikey}
             onToggle={(enabled) => setTranslationProvider(enabled ? "niutrans" : "none")}
-            onAppIdChange={(app_id) => setDraft({ ...draft, niutrans: { ...niutrans, app_id } })}
-            onApiKeyChange={(apikey) => setDraft({ ...draft, niutrans: { ...niutrans, apikey } })}
+            onAppIdChange={(app_id) => onPreferencesChange({ niutrans: { ...niutrans, app_id } })}
+            onApiKeyChange={(apikey) => onPreferencesChange({ niutrans: { ...niutrans, apikey } })}
           >
             {credentialTestControl(
               "translation.niutrans",
