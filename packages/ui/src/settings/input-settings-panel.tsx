@@ -564,16 +564,16 @@ export function InputSettingsPanel({
       <TraditionalChineseOutputSection
         value={draft.traditional_chinese_output}
         onChange={(traditional_chinese_output) =>
-          setDraft({ ...draft, traditional_chinese_output })
+          onPreferencesChange({ traditional_chinese_output })
         }
       />
       <CloudCandidatesSection
         value={draft.cloud_candidates}
-        onChange={(cloud_candidates) => setDraft({ ...draft, cloud_candidates })}
+        onChange={(cloud_candidates) => onPreferencesChange({ cloud_candidates })}
       />
       <FrequencySection
         preferences={frequency}
-        onChange={(frequency) => setDraft({ ...draft, frequency })}
+        onChange={(frequency) => onPreferencesChange({ frequency })}
       />
       {mobilePlatform && client.mobileKeyboardFeedback && mobileKeyboardFeedback && (
         <MobileKeyboardFeedbackSection
