@@ -121,7 +121,18 @@ fn state_entries(source: &Path) -> Result<Vec<OsString>, MoveError> {
 /// A target may already hold the marker and leftover staging directories. The default root, as a target when moving back, may also hold its pinned files, and nothing else.
 fn target_is_empty(target: &Path, default_root: &Path) -> Result<bool, MoveError> {
     for entry in fs::read_dir(target).map_err(|_| MoveError::InvalidTarget)? {
-        let name = entry.map_err(|_| MoveError::InvalidTarget)?.file_name();
+        let entry = entry.map_err(|_| MoveError::InvalidTarget)?;
+        // The marker and staging names are normally tolerated so an interrupted move can be
+        // resumed. They must still be real entries: fs::write(marker) below follows a symlink,
+        // which could otherwise overwrite a file outside the selected data directory.
+        if entry
+            .file_type()
+            .map_err(|_| MoveError::InvalidTarget)?
+            .is_symlink()
+        {
+            return Err(MoveError::InvalidTarget);
+        }
+        let name = entry.file_name();
         if name == DATA_DIRECTORY_MARKER
             || is_staging(&name)
             || (target == default_root && is_pinned(&name))
@@ -1059,6 +1070,30 @@ mod tests {
             fs::read(layout.target.join("unrelated.txt")).unwrap(),
             b"keep"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refuses_a_symlinked_marker_without_following_it() {
+        use std::os::unix::fs::symlink;
+
+        let layout = setup();
+        let outside = layout._root.path().join("outside-marker");
+        fs::write(&outside, b"keep").unwrap();
+        symlink(&outside, layout.target.join(DATA_DIRECTORY_MARKER)).unwrap();
+
+        assert_eq!(
+            relocate_state(
+                &layout.default,
+                &layout.default,
+                &layout.target,
+                &layout.default,
+                std::slice::from_ref(&layout.locator),
+            ),
+            Err(MoveError::InvalidTarget)
+        );
+        assert_eq!(fs::read(&outside).unwrap(), b"keep");
+        assert!(layout.default.join("preferences.json").is_file());
     }
 
     #[test]
