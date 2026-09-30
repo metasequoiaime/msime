@@ -22,6 +22,22 @@ test("updates nested AI and voice preferences while preserving the rest of the d
   expect(voiceUpdater(draft).voice_input?.language).toBe("en-US");
 });
 
+test("updates custom theme preferences while preserving the rest of the draft", () => {
+  const setDraft = vi.fn();
+  const actions = createSettingsDraftActions({ setDraft });
+  const draft = {
+    scheme: "quanpin",
+    custom_theme: { base: "system" },
+  } as unknown as Preferences;
+
+  actions.onCustomThemeChange({ candidate_skin: "synthetic-skin" });
+  const updater = setDraft.mock.calls[0][0] as (value: Preferences) => Preferences;
+  const next = updater(draft);
+
+  expect(next.custom_theme).toEqual({ base: "system", candidate_skin: "synthetic-skin" });
+  expect(next.scheme).toBe("quanpin");
+});
+
 test("replaces the draft for translation settings changes", () => {
   const setDraft = vi.fn();
   const actions = createSettingsDraftActions({ setDraft });

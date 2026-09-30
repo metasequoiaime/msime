@@ -1,5 +1,10 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { AiAssistantPreferences, Preferences, VoiceInputPreferences } from "../index";
+import type {
+  AiAssistantPreferences,
+  CustomTheme,
+  Preferences,
+  VoiceInputPreferences,
+} from "../index";
 import { defaultAiAssistant } from "./ai-assistant-defaults";
 import { defaultVoiceInput } from "./voice-input-defaults";
 
@@ -22,6 +27,12 @@ export function createSettingsDraftActions({ setDraft }: CreateSettingsDraftActi
           : current,
       ),
     onTranslationChange: (next: Preferences) => setDraft(next),
+    onCustomThemeChange: (patch: Partial<CustomTheme>) =>
+      setDraft((current) =>
+        current
+          ? { ...current, custom_theme: { ...current.custom_theme, ...patch } }
+          : current,
+      ),
     onVoiceChange: (patch: Partial<VoiceInputPreferences>) =>
       setDraft((current) =>
         current

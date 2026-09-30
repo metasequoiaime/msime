@@ -65,7 +65,7 @@ export function SkinSettingsPage() {
     setShowTouchSkinEditor,
     openCommunity,
   } = useSettingsForm();
-  const { onPreferencesChange } = createSettingsDraftActions({ setDraft });
+  const { onCustomThemeChange, onPreferencesChange } = createSettingsDraftActions({ setDraft });
   return (
     <fieldset disabled={busy} hidden={page !== "skin"} aria-label="主题">
       <SkinPlatformNotice mobile={mobilePlatform} linux={linuxPlatform} />
@@ -233,19 +233,7 @@ export function SkinSettingsPage() {
                 library={client.customSkinLibrary}
                 aiSkins={client.aiSkins}
                 communitySkins={client.communitySkins}
-                onChange={(design) =>
-                  setDraft((current) =>
-                    current
-                      ? {
-                          ...current,
-                          custom_theme: {
-                            ...current.custom_theme,
-                            keyboard: design,
-                          },
-                        }
-                      : current,
-                  )
-                }
+                onChange={(design) => onCustomThemeChange({ keyboard: design })}
                 onUse={() =>
                   setDraft((current) =>
                     current
