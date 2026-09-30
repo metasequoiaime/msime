@@ -24,10 +24,8 @@ test("expression page and input panel share translation settings composition", (
   );
   expect(page).toContain("<TranslationSettingsContent");
   expect(panel).toContain("<TranslationSettingsContent");
-  expect(page).not.toContain("<TencentTranslationSection");
-  expect(panel).not.toContain("<TencentTranslationSection");
-  expect(page).not.toContain("<LinuxTencentCredentialsSection");
-  expect(panel).not.toContain("<LinuxTencentCredentialsSection");
-  expect(page).not.toContain("<TranslationProviderSettingsSection");
-  expect(panel).not.toContain("<TranslationProviderSettingsSection");
+  for (const source of [page, panel]) {
+    expect(source).not.toContain("<CandidateTranslationSettingsSection");
+    expect(source).not.toContain("<TranslationProviderSettingsSection");
+  }
 });

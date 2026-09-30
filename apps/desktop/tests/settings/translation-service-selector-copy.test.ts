@@ -16,13 +16,22 @@ test("expression page and input panel reuse the translation service selector", (
     }),
   )[0];
 
-  expect(page).toContain(
-    'import { TranslationServiceSelectorSection } from "../translation-service-selector-section";',
+  const candidate = Object.values(
+    import.meta.glob<string>(
+      "../../../../packages/ui/src/settings/candidate-translation-settings-section.tsx",
+      {
+        eager: true,
+        query: "?raw",
+        import: "default",
+      },
+    ),
+  )[0];
+
+  expect(candidate).toContain(
+    'TranslationServiceSelectorSection,\n  type TranslationProvider,\n} from "./translation-service-selector-section";',
   );
-  expect(page).toContain("<TranslationServiceSelectorSection");
-  expect(panel).toContain(
-    'import {\n  TranslationServiceSelectorSection,\n  type TranslationProvider,\n} from "./translation-service-selector-section";',
-  );
-  expect(panel).toContain("<TranslationServiceSelectorSection");
+  expect(candidate).toContain("<TranslationServiceSelectorSection");
+  expect(page).toContain("<TranslationSettingsContent");
+  expect(panel).toContain("<TranslationSettingsContent");
   expect(page).not.toContain('<select\n                  aria-label="候选词翻译服务"');
 });

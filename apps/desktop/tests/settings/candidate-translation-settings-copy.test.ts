@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 
-test("expression page and input panel share candidate translation settings binding", () => {
+test("expression page and input panel share translation settings composition", () => {
   const page = Object.values(
     import.meta.glob<string>("../../../../packages/ui/src/settings/pages/expression-page.tsx", {
       eager: true,
@@ -17,15 +17,16 @@ test("expression page and input panel share candidate translation settings bindi
   )[0];
 
   expect(page).toContain(
-    'import { CandidateTranslationSettingsSection } from "../candidate-translation-settings-section";',
+    'import { TranslationSettingsContent } from "../translation-settings-content";',
   );
   expect(panel).toContain(
-    'import { CandidateTranslationSettingsSection } from "./candidate-translation-settings-section";',
+    'import { TranslationSettingsContent } from "./translation-settings-content";',
   );
-  expect(page).toContain("<CandidateTranslationSettingsSection");
-  expect(panel).toContain("<CandidateTranslationSettingsSection");
+  expect(page).toContain("<TranslationSettingsContent");
+  expect(panel).toContain("<TranslationSettingsContent");
   for (const source of [page, panel]) {
     expect(source).not.toContain("<CandidateTranslationOptionsSection");
     expect(source).not.toContain("<OnDeviceTranslationNotice");
+    expect(source).not.toContain("<CandidateTranslationSettingsSection");
   }
 });
