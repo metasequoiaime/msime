@@ -35,24 +35,57 @@ extension BackendAccountClient {
     let revision_required: Bool
   }
   func preferences(token: String) async throws -> Preferences {
-    try await json("GET", "/v1/users/me/preferences", token: token)
+    let value: Preferences = try await json("GET", "/v1/users/me/preferences", token: token)
+    guard Self.validPreferences(value) else { throw Failure(status: 0) }
+    return value
   }
   func preferenceSchema(token: String) async throws -> PreferenceSchema {
-    try await json("GET", "/v1/users/me/preferences/schema", token: token)
+    let value: PreferenceSchema = try await json("GET", "/v1/users/me/preferences/schema", token: token)
+    guard Self.validPreferenceSchema(value) else { throw Failure(status: 0) }
+    return value
   }
   static func mergedPreferences(_ base: Preferences, replacing values: [String: BackendPreferenceValue], schema: PreferenceSchema) throws -> Preferences {
-    guard base.revision >= 0, schema.update_mode == "replace", schema.revision_required else { throw Failure(status: 0) }
+    guard validPreferences(base), validPreferenceSchema(schema) else { throw Failure(status: 0) }
     for (key, value) in values {
       guard let field = schema.fields[key], field.type == value.kind || (field.type == "number" && value.kind == "integer") else { throw Failure(status: 503) }
     }
     // Preserve every other platform's fields. A revision conflict is returned to
     // the user, never resolved by an automatic last-writer-wins retry.
     let merged = Preferences(revision: base.revision, settings: base.settings.merging(values) { _, new in new })
-    guard try JSONEncoder().encode(merged).count <= min(schema.maximum_bytes, 1024 * 1024) else { throw Failure(status: 400) }
+    guard validPreferences(merged), try JSONEncoder().encode(merged).count <= min(schema.maximum_bytes, 1024 * 1024) else { throw Failure(status: 400) }
     return merged
   }
   func putPreferences(_ preferences: Preferences, token: String) async throws -> Preferences {
-    try await json("PUT", "/v1/users/me/preferences", token: token, body: JSONEncoder().encode(preferences))
+    guard Self.validPreferences(preferences) else { throw Failure(status: 400) }
+    let result: Preferences = try await json("PUT", "/v1/users/me/preferences", token: token, body: JSONEncoder().encode(preferences))
+    guard Self.validPreferences(result) else { throw Failure(status: 0) }
+    return result
+  }
+
+  private static func validPreferences(_ value: Preferences) -> Bool {
+    value.revision >= 0 && value.settings.count <= 512
+      && value.settings.allSatisfy { key, setting in
+        validPreferenceKey(key) && {
+          if case .string(let string) = setting { return string.utf8.count <= 1024 * 1024 }
+          if case .number(let number) = setting { return number.isFinite }
+          return true
+        }()
+      }
+  }
+
+  private static func validPreferenceSchema(_ value: PreferenceSchema) -> Bool {
+    value.fields.count <= 512 && (1...1024 * 1024).contains(value.maximum_bytes)
+      && value.update_mode == "replace" && value.revision_required
+      && value.fields.allSatisfy { key, field in
+        validPreferenceKey(key) && ["boolean", "integer", "number", "string"].contains(field.type)
+      }
+  }
+
+  private static func validPreferenceKey(_ value: String) -> Bool {
+    !value.isEmpty && value.utf8.count <= 128
+      && value.utf8.allSatisfy { byte in
+        (48...57).contains(byte) || (65...90).contains(byte) || (97...122).contains(byte)
+          || byte == 45 || byte == 46 || byte == 95
+      }
   }
 }
-

@@ -1,7 +1,45 @@
 import XCTest
 @testable import MSIMEBackend
 
+private final class MalformedPreferencesProtocol: URLProtocol {
+  override class func canInit(with request: URLRequest) -> Bool {
+    ["/v1/users/me/preferences", "/v1/users/me/preferences/schema"].contains(request.url?.path)
+  }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    let body: String
+    if request.url?.path.hasSuffix("/schema") == true {
+      body = #"{"fields":{"bad key":{"type":"object"}},"maximum_bytes":0,"update_mode":"merge","revision_required":false}"#
+    } else {
+      body = #"{"revision":-1,"settings":{"bad key":true}}"#
+    }
+    let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+      headerFields: ["Content-Type":"application/json"])!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: Data(body.utf8))
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
+
 final class BackendPreferencesTests: XCTestCase {
+  func testMalformedPreferenceResponsesAreRejected() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [MalformedPreferencesProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    do {
+      _ = try await client.preferences(token: "session")
+      XCTFail("malformed preferences accepted")
+    } catch let failure as BackendAccountClient.Failure { XCTAssertEqual(failure.status, 0) }
+    do {
+      _ = try await client.preferenceSchema(token: "session")
+      XCTFail("malformed preference schema accepted")
+    } catch let failure as BackendAccountClient.Failure { XCTAssertEqual(failure.status, 0) }
+    do {
+      _ = try await client.putPreferences(.init(revision: 0, settings: [:]), token: "session")
+      XCTFail("malformed preference update accepted")
+    } catch let failure as BackendAccountClient.Failure { XCTAssertEqual(failure.status, 0) }
+  }
   func testMergePreservesOtherPlatformsAndReadRevision() throws {
     let base = BackendAccountClient.Preferences(revision: 42, settings: ["appearance.page_size": .integer(7), "input.schema": .string("quanpin")])
     let schema = BackendAccountClient.PreferenceSchema(fields: ["input.schema": .init(type: "string")], maximum_bytes: 65536, update_mode: "replace", revision_required: true)
