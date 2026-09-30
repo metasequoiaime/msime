@@ -252,6 +252,44 @@ fn hand_written_glosses_apply_without_a_learned_store() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn learned_glosses_reject_a_symlinked_database() {
+    use std::os::unix::fs::symlink;
+
+    let resources = tempfile::tempdir().unwrap();
+    let user = tempfile::tempdir().unwrap();
+    let external = tempfile::tempdir().unwrap();
+    Connection::open(resources.path().join("english.db"))
+        .unwrap()
+        .execute_batch(&format!(
+            "{ENGLISH_SCHEMA} INSERT INTO zh_en_glosses VALUES('测试','packaged gloss');"
+        ))
+        .unwrap();
+    assert!(save_candidate_gloss(
+        external.path().to_str().unwrap(),
+        true,
+        "测试",
+        "external gloss",
+    ));
+    symlink(
+        external.path().join("translation-glosses.db"),
+        user.path().join("translation-glosses.db"),
+    )
+    .unwrap();
+
+    let candidates = vec![("测试".into(), 0)];
+    assert_eq!(
+        candidate_glosses_with_user(
+            resources.path().to_str().unwrap(),
+            user.path().to_str().unwrap(),
+            &candidates,
+        )
+        .unwrap(),
+        vec!["packaged gloss"]
+    );
+}
+
 #[test]
 fn unsafe_learned_glosses_fall_back_to_packaged_values() {
     let resources = tempfile::tempdir().unwrap();

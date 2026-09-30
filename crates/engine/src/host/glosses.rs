@@ -197,7 +197,7 @@ pub fn candidate_target_glosses(
 
 /// `open_dictionary` (bridge.cpp:1150-1158): only a regular file whose prefix statement prepares.
 fn open_gloss_dictionary(path: &Path) -> Option<EnglishDictionary> {
-    if !path.is_file() {
+    if !std::fs::symlink_metadata(path).ok()?.file_type().is_file() {
         return None;
     }
     Some(EnglishDictionary::open(path, None, None)).filter(EnglishDictionary::ready)
