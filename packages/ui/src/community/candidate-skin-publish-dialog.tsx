@@ -8,6 +8,7 @@ import {
   communityNeedsSignIn,
 } from "./community-helpers";
 import * as style from "./community-style";
+import { CommunitySkinPublicationFields } from "./community-skin-publication-fields";
 import type {
   CandidateSkinCommunityClient,
   CandidateSkinPackPreview,
@@ -259,46 +260,22 @@ export function CandidateSkinPublishDialog({
             <p className={style.metrics} aria-label="皮肤授权">
               {licenseLines(pack.license).join(" / ")}
             </p>
-            <label className={style.field}>
-              皮肤名称
-              <input
-                className={style.fieldControl}
-                aria-label="发布皮肤名称"
-                maxLength={32}
-                value={name}
-                disabled={busy}
-                onChange={(event) => {
-                  setPublicationId(randomUuid());
-                  setName(boundedGraphemes(event.target.value, 32));
-                }}
-              />
-            </label>
-            <label className={style.field}>
-              设计说明
-              <textarea
-                className={style.textArea}
-                aria-label="发布设计说明"
-                maxLength={280}
-                rows={4}
-                value={description}
-                disabled={busy}
-                onChange={(event) => {
-                  setPublicationId(randomUuid());
-                  setDescription(event.target.value);
-                }}
-              />
-            </label>
-            <label className={style.agreement}>
-              <input
-                className={style.agreementBox}
-                type="checkbox"
-                aria-label="确认拥有发布素材权利"
-                checked={agreed}
-                disabled={busy}
-                onChange={(event) => setAgreed(event.target.checked)}
-              />
-              我拥有发布所用素材的权利，并同意其他用户按上述授权免费下载使用
-            </label>
+            <CommunitySkinPublicationFields
+              name={name}
+              description={description}
+              agreed={agreed}
+              busy={busy}
+              agreementText="我拥有发布所用素材的权利，并同意其他用户按上述授权免费下载使用"
+              onNameChange={(value) => {
+                setPublicationId(randomUuid());
+                setName(boundedGraphemes(value, 32));
+              }}
+              onDescriptionChange={(value) => {
+                setPublicationId(randomUuid());
+                setDescription(value);
+              }}
+              onAgreedChange={setAgreed}
+            />
             <p className={style.warning}>{publishWarning}</p>
           </>
         )}

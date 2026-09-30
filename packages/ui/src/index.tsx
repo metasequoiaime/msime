@@ -990,6 +990,10 @@ export {
   CommunityScopeButtons,
   type CommunityScopeButtonsProps,
 } from "./community/community-scope-buttons";
+export {
+  CommunitySkinPublicationFields,
+  type CommunitySkinPublicationFieldsProps,
+} from "./community/community-skin-publication-fields";
 export { CandidateSkinPublishDialog } from "./community/candidate-skin-publish-dialog";
 export { CommunityPage, type CommunityPageProps } from "./community/community-page";
 export type { SkinCatalog, ExternalSkin } from "./skin/external-skins";
