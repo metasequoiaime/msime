@@ -5,7 +5,6 @@ import {
   desktopDownloadUrl,
   documentationUrl,
   fallbackAppVersion,
-  windowIcons,
 } from "./settings/app-resources";
 import { useSettingsWindowInteractions } from "./settings/use-settings-window-interactions";
 import { updateCandidateColor, updateCustomKeyboard } from "./settings/theme-selection-updates";
@@ -102,6 +101,7 @@ import { SettingsFormFooter } from "./settings/settings-form-footer";
 import { SettingsPageStatus } from "./settings/settings-page-status";
 import type { InputSourceStartupStatus } from "./settings/input-source-startup-notice";
 import { SettingsFormFrame } from "./settings/settings-form-frame";
+import { WindowTitlebar } from "./settings/window-titlebar";
 import { useProviderCredentials } from "./settings/use-provider-credentials";
 import { useFeedbackReport } from "./settings/use-feedback-report";
 import { useDataDirectory } from "./settings/use-data-directory";
@@ -2619,69 +2619,16 @@ export function SettingsPage(props: SettingsPageProps) {
     >
       {confirmation}
       {titlebarShown && (
-        <header className={settings.titlebar} aria-label="窗口控制" {...windowDragHandlers}>
-          <span className={settings.titlebarBrand}>
-            {!linuxShell && <img src={logo} alt="" draggable={false} />}
-            <span className={settings.title} data-window-title="">
-              水杉输入法
-            </span>
-            {!linuxShell && <span className={settings.titlebarSubtitle}>设置</span>}
-          </span>
-          {linuxShell && (
-            <span className={settings.titlebarPageTitle} aria-hidden="true">
-              {pageTitle}
-            </span>
-          )}
-          {searchInTitlebar && (
-            <label className={settings.titlebarSearch} {...keepPointer}>
-              {navSearchField}
-            </label>
-          )}
-          {client.windowControl && (
-            <span className={settings.windowControls} {...keepPointer}>
-              <button
-                type="button"
-                aria-label="最小化"
-                disabled={!client.windowControl}
-                onClick={() => void client.windowControl!("minimize")}
-              >
-                <img
-                  className={settings.windowIcon}
-                  src={windowIcons.minimize}
-                  alt=""
-                  draggable={false}
-                />
-              </button>
-              <button
-                type="button"
-                aria-label={windowMaximized ? "还原" : "最大化"}
-                disabled={!client.windowControl}
-                onClick={() => void client.windowControl!(windowMaximized ? "restore" : "maximize")}
-              >
-                <img
-                  className={settings.windowIcon}
-                  src={windowMaximized ? windowIcons.restore : windowIcons.maximize}
-                  alt=""
-                  draggable={false}
-                />
-              </button>
-              <button
-                type="button"
-                className={settings.windowClose}
-                aria-label="关闭"
-                disabled={!client.windowControl}
-                onClick={() => void client.windowControl!("close")}
-              >
-                <img
-                  className={settings.windowIcon}
-                  src={windowIcons.close}
-                  alt=""
-                  draggable={false}
-                />
-              </button>
-            </span>
-          )}
-        </header>
+        <WindowTitlebar
+          linux={linuxShell}
+          logo={logo}
+          pageTitle={pageTitle}
+          search={searchInTitlebar ? navSearchField : undefined}
+          maximized={windowMaximized}
+          windowControl={client.windowControl}
+          dragHandlers={windowDragHandlers}
+          keepPointer={keepPointer}
+        />
       )}
       <div className={settings.body} data-settings-body="">
         {/* A bottom tab bar. `order-2` seats it below the content while the DOM keeps it ahead, so assistive technology and keyboard focus still reach the navigation first, and the bottom padding clears the gesture inset. Hidden above phone width, where the sidebar serves. */}
