@@ -88,12 +88,74 @@ test("the entry is shown and copied as the host reports it", async () => {
   const copyText = vi.fn(async () => {});
   await openDeveloper({ mcpServerStatus: async () => status(), copyText });
   const group = await screen.findByRole("group", { name: "连接 AI 助手" });
-  expect(within(group).getByLabelText("MCP 配置").textContent).toBe(config);
   expect(group.textContent).toContain("--allow-write");
-  // Without an install callback there is nothing to write into.
-  expect(within(group).queryByRole("button", { name: "写入 Cursor" })).toBeNull();
+  // Without an install callback there is nothing to write into, so there is no tab for it either.
+  expect(within(group).queryByRole("radio", { name: "Cursor" })).toBeNull();
+  fireEvent.click(within(group).getByRole("radio", { name: "其他" }));
+  expect(within(group).getByLabelText("MCP 配置").textContent).toBe(config);
   fireEvent.click(within(group).getByRole("button", { name: "复制配置" }));
   await waitFor(() => expect(copyText).toHaveBeenCalledWith(config));
+});
+
+test("the install commands are built from the host's paths and follow the permission switches", async () => {
+  const copyText = vi.fn(async () => {});
+  await openDeveloper({ mcpServerStatus: async () => status(), copyText });
+  const group = await screen.findByRole("group", { name: "连接 AI 助手" });
+  expect(within(group).getByLabelText("Claude Code 安装命令").textContent).toBe(
+    "claude mcp add --scope user msime -- /opt/msime/msime-mcp --options /state/runtime-options.json",
+  );
+  fireEvent.click(within(group).getByRole("button", { name: "复制命令" }));
+  await waitFor(() =>
+    expect(copyText).toHaveBeenCalledWith(
+      "claude mcp add --scope user msime -- /opt/msime/msime-mcp --options /state/runtime-options.json",
+    ),
+  );
+
+  // The switches add their flags in a fixed order, whatever order they are turned on in.
+  fireEvent.click(within(group).getByRole("switch", { name: "允许读取词库" }));
+  fireEvent.click(within(group).getByRole("switch", { name: "允许修改设置" }));
+  fireEvent.click(within(group).getByRole("radio", { name: "Codex" }));
+  expect(within(group).getByLabelText("Codex 安装命令").textContent).toBe(
+    "codex mcp add msime -- /opt/msime/msime-mcp --options /state/runtime-options.json --allow-write --allow-dictionary-read",
+  );
+
+  fireEvent.click(within(group).getByRole("radio", { name: "其他" }));
+  expect(JSON.parse(within(group).getByLabelText("MCP 配置").textContent!)).toEqual({
+    mcpServers: {
+      msime: {
+        command: "/opt/msime/msime-mcp",
+        args: [
+          "--options",
+          "/state/runtime-options.json",
+          "--allow-write",
+          "--allow-dictionary-read",
+        ],
+      },
+    },
+  });
+});
+
+test("paths with spaces are quoted for the shell they are pasted into", async () => {
+  const posix = {
+    ...status(),
+    command: "/Applications/水杉 输入法.app/msime-mcp",
+    options: "/it's/options.json",
+  };
+  const view = render(<McpConnectSection status={() => Promise.resolve(posix)} />);
+  expect((await screen.findByLabelText("Claude Code 安装命令")).textContent).toBe(
+    "claude mcp add --scope user msime -- '/Applications/水杉 输入法.app/msime-mcp' --options '/it'\\''s/options.json'",
+  );
+  view.unmount();
+
+  const windows = {
+    ...status(),
+    command: "C:\\Program Files\\MSIME\\msime-mcp.exe",
+    options: "C:\\Users\\someone\\options.json",
+  };
+  render(<McpConnectSection status={() => Promise.resolve(windows)} />);
+  expect((await screen.findByLabelText("Claude Code 安装命令")).textContent).toBe(
+    'claude mcp add --scope user msime -- "C:\\Program Files\\MSIME\\msime-mcp.exe" --options "C:\\Users\\someone\\options.json"',
+  );
 });
 
 test("writing adds the entry and a different one is replaced only after confirming", async () => {
@@ -106,9 +168,12 @@ test("writing adds the entry and a different one is replaced only after confirmi
   await openDeveloper({ mcpServerStatus: async () => current, installMcpClient });
   const group = await screen.findByRole("group", { name: "连接 AI 助手" });
 
+  fireEvent.click(within(group).getByRole("radio", { name: "Cursor" }));
   fireEvent.click(within(group).getByRole("button", { name: "写入 Cursor" }));
   await within(group).findByText("已写入 Cursor 的配置。重新启动 Cursor 后生效。");
   expect(installMcpClient).toHaveBeenCalledWith("cursor", false);
+
+  fireEvent.click(within(group).getByRole("radio", { name: "Claude Desktop" }));
 
   // Declining leaves the other entry alone.
   fireEvent.click(within(group).getByRole("button", { name: "写入 Claude Desktop" }));
@@ -136,6 +201,7 @@ test("a write response from a replaced host cannot update the new MCP section", 
     <McpConnectSection status={() => Promise.resolve(status())} install={oldInstall} />,
   );
   const group = await screen.findByRole("group", { name: "连接 AI 助手" });
+  fireEvent.click(within(group).getByRole("radio", { name: "Cursor" }));
   fireEvent.click(within(group).getByRole("button", { name: "写入 Cursor" }));
   view.rerender(
     <McpConnectSection status={() => Promise.resolve(status())} install={nextInstall} />,
@@ -158,6 +224,7 @@ test("a configuration file that is not JSON is reported and left alone", async (
   });
   await openDeveloper({ mcpServerStatus: async () => status(), installMcpClient });
   const group = await screen.findByRole("group", { name: "连接 AI 助手" });
+  fireEvent.click(within(group).getByRole("radio", { name: "Cursor" }));
   fireEvent.click(within(group).getByRole("button", { name: "写入 Cursor" }));
   await within(group).findByText("Cursor 的配置文件不是有效的 JSON，已保持原样。请先修正该文件。");
 });
@@ -170,10 +237,10 @@ test("a late status response cannot update an unmounted section or replace a new
 
   first.resolve(status());
   await Promise.resolve();
-  expect(screen.queryByLabelText("MCP 配置")).toBeNull();
+  expect(screen.queryByLabelText("Claude Code 安装命令")).toBeNull();
 
   second.resolve(status(true));
-  expect(await screen.findByLabelText("MCP 配置")).not.toBeNull();
+  expect(await screen.findByLabelText("Claude Code 安装命令")).not.toBeNull();
   view.unmount();
 
   const late = deferred<McpServerStatus>();
