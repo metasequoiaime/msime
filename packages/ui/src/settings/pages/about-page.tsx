@@ -44,18 +44,14 @@ export function AboutSettingsPage() {
     installerTrust,
     chooseDataDirectory,
     selectPage,
-    diagnosticLog,
   } = useSettingsForm();
-  const { onCheckForUpdate, onConfirmUninstall, onTelemetryChange } =
-    createAboutSettingsActions({
-      draft,
-      diagnosticLog,
-      checkForUpdate,
-      chooseDataDirectory,
-      confirmUninstall,
-      selectPage,
-      setDraft,
-    });
+  const { onCheckForUpdate, onConfirmUninstall, onTelemetryChange } = createAboutSettingsActions({
+    checkForUpdate,
+    chooseDataDirectory,
+    confirmUninstall,
+    selectPage,
+    setDraft,
+  });
   return (
     <fieldset disabled={busy} hidden={page !== "about"} aria-label="关于">
       <div className={settings.groups}>
@@ -148,10 +144,7 @@ export function AboutSettingsPage() {
         )}
         {/* Only the Windows Server reads this switch; the other hosts report on their own terms, described in PRIVACY.md, so offering it there would be a switch that changes nothing. */}
         {windowsPlatform && (
-          <TelemetrySection
-            value={draft?.telemetry_enabled}
-            onChange={onTelemetryChange}
-          />
+          <TelemetrySection value={draft?.telemetry_enabled} onChange={onTelemetryChange} />
         )}
       </div>
     </fieldset>

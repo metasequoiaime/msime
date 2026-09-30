@@ -14,7 +14,6 @@ export function DeveloperSettingsPage() {
     linuxPlatform,
     windowsPlatform,
     macosPlatform,
-    draft,
     setDraft,
     busy,
     setError,
@@ -29,8 +28,6 @@ export function DeveloperSettingsPage() {
     selectPage,
   } = useSettingsForm();
   const { onChooseDataDirectory, onDiagnosticLogChange } = createAboutSettingsActions({
-    draft,
-    diagnosticLog,
     checkForUpdate,
     chooseDataDirectory,
     confirmUninstall,
