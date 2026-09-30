@@ -41,6 +41,32 @@ final class BackendLocalStoreTests: XCTestCase {
     #endif
   }
 
+  func testSaveRejectsASymlinkedLockFile() throws {
+    #if canImport(Darwin)
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("msime-store-lock-symlink-test-\(UUID().uuidString)")
+    let outsideDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("msime-store-lock-target-\(UUID().uuidString)")
+    defer {
+      try? FileManager.default.removeItem(at: directory)
+      try? FileManager.default.removeItem(at: outsideDirectory)
+    }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: outsideDirectory, withIntermediateDirectories: true)
+    let outsideLock = outsideDirectory.appendingPathComponent("outside.lock")
+    try Data("synthetic-lock-target".utf8).write(to: outsideLock)
+    let lock = directory.appendingPathComponent("backend-local-store.lock")
+    try FileManager.default.createSymbolicLink(at: lock, withDestinationURL: outsideLock)
+
+    let user = BackendAccountClient.User(id: "synthetic-user", display_name: "", created_at: "2026-09-26")
+    let tokens = BackendAccountClient.Tokens(access_token: String(repeating: "a", count: 64),
+      refresh_token: String(repeating: "b", count: 64), token_type: "Bearer", expires_in: 900, user: user)
+    let store = BackendLocalStore(fileName: "session.json", directory: directory)
+
+    XCTAssertThrowsError(try store.save(BackendSavedSession(tokens: tokens, expiresAt: Date())))
+    XCTAssertEqual(try Data(contentsOf: outsideLock), Data("synthetic-lock-target".utf8))
+    XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent("session.json").path))
+    #endif
+  }
+
   func testWriteIfAbsentAllowsOnlyOneCreator() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("msime-store-create-test-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: directory) }

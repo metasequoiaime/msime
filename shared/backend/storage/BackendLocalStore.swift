@@ -23,7 +23,7 @@ struct BackendLocalStore: BackendSessionStorage {
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
       attributes: [.posixPermissions: 0o700])
     #if canImport(Darwin)
-    let descriptor = open(lockURL.path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+    let descriptor = open(lockURL.path, O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR)
     guard descriptor >= 0 else { throw BackendAccountClient.Failure(status: 0) }
     defer { close(descriptor) }
     guard flock(descriptor, LOCK_EX) == 0 else { throw BackendAccountClient.Failure(status: 0) }
