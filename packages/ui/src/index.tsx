@@ -1,10 +1,7 @@
 import { useConfirm } from "./core/confirm";
 import { NavItem } from "./core/platform-controls";
 import { mobilePageTitle } from "./settings/mobile-tab-helpers";
-import {
-  desktopDownloadUrl,
-  fallbackAppVersion,
-} from "./settings/app-resources";
+import { desktopDownloadUrl, fallbackAppVersion } from "./settings/app-resources";
 import { useSettingsWindowInteractions } from "./settings/use-settings-window-interactions";
 import { updateCandidateColor, updateCustomKeyboard } from "./settings/theme-selection-updates";
 import { useSettingsNavigation } from "./settings/use-settings-navigation";
@@ -24,10 +21,7 @@ import {
   type SettingsPageId,
 } from "./settings/settings-page-registry";
 import { settingsPageProjections } from "./settings/settings-page-projections";
-import {
-  canReloadSettingsPage,
-  isSettingsFormPage,
-} from "./settings/settings-page-visibility";
+import { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
 import { settingsInputPreferences } from "./settings/settings-input-preferences";
 import { aiSettingsPreferences } from "./settings/ai-settings-preferences";
 import { diagnosticLogPreferences } from "./settings/diagnostic-log-preferences";
@@ -657,6 +651,7 @@ export {
 } from "./settings/settings-actions-footer";
 export { AboutHeroSection, type AboutHeroSectionProps } from "./settings/about-hero-section";
 export { SkinPlatformNotice, type SkinPlatformNoticeProps } from "./settings/skin-platform-notice";
+export { ThemeCarousel, type ThemeCarouselProps } from "./settings/theme-carousel";
 export {
   DefaultImeModeSection,
   type DefaultImeMode,
@@ -1759,7 +1754,9 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   });
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [draft, setDraft] = useState<Preferences>();
-  const { onAiChange, onTranslationChange, onVoiceChange } = createSettingsDraftActions({ setDraft });
+  const { onAiChange, onTranslationChange, onVoiceChange } = createSettingsDraftActions({
+    setDraft,
+  });
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -2870,69 +2867,61 @@ export function SettingsPage(props: SettingsPageProps) {
               />
             )}
             {draft && isSettingsFormPage(page) && (
-                <SettingsFormFrame
-                  showReload={false}
-                  busy={busy}
-                  onSubmit={saveSettings}
-                >
-                  <SettingsFormContext.Provider value={{ ...model, draft }}>
-                    <SkinSettingsPage />
-                    <AppearanceSettingsPage />
-                    <FloatingToolbarSettingsPage />
-                    <InputSettingsPage />
-                    <HelpcodeSettingsPage
-                      value={draft}
-                      customSchemas={customHelpcodeSchemas}
-                      mobile={mobilePlatform}
-                      showShiftEntry={model.showHelpcodeShiftEntry}
-                      disabled={busy}
-                      hidden={page !== "input" || !model.showHelpcode}
-                      onChange={onHelpcodeChange}
-                    />
-                    <ExpressionSettingsPage />
-                    <AiSettingsPage />
-                    <ShortcutSettingsPage />
-                    <DictionarySettingsPage />
-                    <ScreenKeyboardSettingsPage />
-                    <VoiceSettingsPage />
-                    <HandwritingSettingsPage />
-                    <ToolsSettingsPage />
-                    <DownloadSettingsPage />
-                    <DeveloperSettingsPage />
-                    <FeedbackSettingsPage />
-                    <HelpSettingsPage
-                      busy={busy}
-                      hidden={page !== "help"}
-                      macos={macosPlatform}
-                      mobile={mobilePlatform}
-                      ios={iosPlatform}
-                      android={androidPlatform}
-                      platformHelpIntro={model.platformHelpIntro}
-                      platformQuickStart={model.platformQuickStart}
-                      platformNetworkDescription={model.platformNetworkDescription}
-                      onOpenDocumentation={externalActions.onOpenDocumentation}
-                      onOpenSystemKeyboardSettings={externalActions.onOpenSystemKeyboardSettings}
-                    />
-                    <AboutSettingsPage />
-                  </SettingsFormContext.Provider>
-                  <SettingsFormFooter
-                    draft={draft}
-                    busy={busy}
-                    dirty={dirty}
-                    showRestoreDefaults={Boolean(client.loadDefaultPreferences)}
-                    onRestoreDefaults={onRestoreDefaults}
+              <SettingsFormFrame showReload={false} busy={busy} onSubmit={saveSettings}>
+                <SettingsFormContext.Provider value={{ ...model, draft }}>
+                  <SkinSettingsPage />
+                  <AppearanceSettingsPage />
+                  <FloatingToolbarSettingsPage />
+                  <InputSettingsPage />
+                  <HelpcodeSettingsPage
+                    value={draft}
+                    customSchemas={customHelpcodeSchemas}
+                    mobile={mobilePlatform}
+                    showShiftEntry={model.showHelpcodeShiftEntry}
+                    disabled={busy}
+                    hidden={page !== "input" || !model.showHelpcode}
+                    onChange={onHelpcodeChange}
                   />
-                </SettingsFormFrame>
-              )}
+                  <ExpressionSettingsPage />
+                  <AiSettingsPage />
+                  <ShortcutSettingsPage />
+                  <DictionarySettingsPage />
+                  <ScreenKeyboardSettingsPage />
+                  <VoiceSettingsPage />
+                  <HandwritingSettingsPage />
+                  <ToolsSettingsPage />
+                  <DownloadSettingsPage />
+                  <DeveloperSettingsPage />
+                  <FeedbackSettingsPage />
+                  <HelpSettingsPage
+                    busy={busy}
+                    hidden={page !== "help"}
+                    macos={macosPlatform}
+                    mobile={mobilePlatform}
+                    ios={iosPlatform}
+                    android={androidPlatform}
+                    platformHelpIntro={model.platformHelpIntro}
+                    platformQuickStart={model.platformQuickStart}
+                    platformNetworkDescription={model.platformNetworkDescription}
+                    onOpenDocumentation={externalActions.onOpenDocumentation}
+                    onOpenSystemKeyboardSettings={externalActions.onOpenSystemKeyboardSettings}
+                  />
+                  <AboutSettingsPage />
+                </SettingsFormContext.Provider>
+                <SettingsFormFooter
+                  draft={draft}
+                  busy={busy}
+                  dirty={dirty}
+                  showRestoreDefaults={Boolean(client.loadDefaultPreferences)}
+                  onRestoreDefaults={onRestoreDefaults}
+                />
+              </SettingsFormFrame>
+            )}
             {canReloadSettingsPage(page) && (
-                <button
-                  className="secondary"
-                  disabled={busy}
-                  onClick={() => void reloadSettings()}
-                >
-                  重新读取
-                </button>
-              )}
+              <button className="secondary" disabled={busy} onClick={() => void reloadSettings()}>
+                重新读取
+              </button>
+            )}
           </div>
         </main>
       </div>

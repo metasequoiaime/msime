@@ -52,8 +52,18 @@ export const externalDiagnostics =
   "mx-1 mt-2.5 text-xs break-anywhere text-muted [&>summary]:cursor-pointer [&>ul]:mt-[7px] [&>ul]:mb-0 [&>ul]:pl-5";
 export const externalResourceNote = "px-6 pt-0 pb-3";
 
-/** The design lays the themes out as a grid of cards; each of these carries three live previews, so a column is wider than the design's 180px swatches. */
-export const skinGrid = "grid grid-cols-[repeat(auto-fill,minmax(min(100%,320px),1fr))] gap-3";
+/** The theme page shows one card at a time: a horizontal scroll-snap track, so a trackpad or touch swipe moves between cards as well as the arrows do. */
+export const themeCarouselTrack =
+  "flex snap-x snap-mandatory overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden";
+/** The padding keeps the card's shadow and focus ring inside the track, which clips its overflow. */
+export const themeCarouselSlide = "w-full shrink-0 snap-start p-1";
+export const themeCarouselNav = "mt-2 flex items-center justify-center gap-3";
+export const themeCarouselArrow =
+  "flex size-7 items-center justify-center rounded-full border border-edge bg-[var(--p-group-bg)] p-0 text-lg leading-none text-muted hover:text-body disabled:opacity-40 disabled:hover:text-muted";
+export const themeCarouselDots = "flex items-center gap-1.5";
+export const themeCarouselDot = (active: boolean) =>
+  `size-2 rounded-full border-0 p-0 ${active ? "bg-accent" : "bg-[var(--toggle-off-bg)] hover:bg-edge-strong"}`;
+export const themeCarouselCount = "min-w-10 text-center text-xs text-muted tabular-nums";
 export const skinCard = (selected: boolean) =>
   `block overflow-hidden rounded-[var(--p-group-r)] border bg-[var(--p-group-bg)] p-0 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-accent hover:border-edge-strong ${
     selected

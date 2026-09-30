@@ -22,6 +22,7 @@ import { useSettingsForm } from "../settings-form-context";
 import { CandidatePanelLimitSection } from "../candidate-panel-limit-section";
 import { CandidatePaletteFallbackNotice } from "../candidate-palette-fallback-notice";
 import { SkinPlatformNotice } from "../skin-platform-notice";
+import { ThemeCarousel } from "../theme-carousel";
 import { createSettingsDraftActions } from "../settings-draft-actions";
 
 const themeModeOptions = [
@@ -72,7 +73,13 @@ export function SkinSettingsPage() {
       {host?.candidate_panel_limit && (
         <CandidatePanelLimitSection limit={host.candidate_panel_limit} />
       )}
-      <div className={settings.skinGrid}>
+      <ThemeCarousel
+        labels={themeCatalog.map((entry) => entry.title)}
+        selectedIndex={Math.max(
+          themeCatalog.findIndex((entry) => entry.id === globalTheme),
+          0,
+        )}
+      >
         {themeCatalog.map((entry) => {
           const id = entry.id;
           const selected = globalTheme === id;
@@ -168,7 +175,7 @@ export function SkinSettingsPage() {
             </article>
           );
         })}
-      </div>
+      </ThemeCarousel>
       <div className={settings.groups}>
         <GroupList title="外观">
           <Row title="颜色模式" description="设置窗口和各界面的默认明暗模式">
