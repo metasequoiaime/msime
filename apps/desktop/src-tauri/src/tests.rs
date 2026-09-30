@@ -946,6 +946,25 @@ fn custom_translations_refuse_documents_the_engine_could_not_read() {
 
 #[cfg(unix)]
 #[test]
+fn custom_translations_read_rejects_symlinked_storage() {
+    use std::os::unix::fs::symlink;
+
+    let state = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let user = state.path().join("user");
+    std::fs::create_dir_all(&user).unwrap();
+    let outside_file = outside.path().join("custom-translations.txt");
+    std::fs::write(&outside_file, "synthetic outside\n").unwrap();
+    symlink(&outside_file, user.join("custom_translations.txt")).unwrap();
+
+    assert_eq!(
+        super::read_custom_translations_at(user).unwrap_err().code,
+        "storage"
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn custom_translation_save_does_not_follow_a_staging_symlink() {
     use std::os::unix::fs::symlink;
 

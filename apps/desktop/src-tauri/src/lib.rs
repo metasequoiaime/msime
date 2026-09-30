@@ -745,13 +745,19 @@ fn custom_translations_path(user: &std::path::Path) -> PathBuf {
 }
 
 fn read_custom_translations_at(user: PathBuf) -> Result<String, CommandError> {
+    crate::shared::atomic_file::check_directory_ancestors(&user)
+        .map_err(|_| CommandError { code: "storage" })?;
     let path = custom_translations_path(&user);
-    let file = match std::fs::File::open(path) {
-        Ok(file) => file,
+    let metadata = match std::fs::symlink_metadata(&path) {
+        Ok(metadata) => metadata,
         // No overlay yet is the ordinary state, not a failure: the page opens on an empty document.
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(String::new()),
         Err(_) => return Err(CommandError { code: "storage" }),
     };
+    if !metadata.file_type().is_file() {
+        return Err(CommandError { code: "storage" });
+    }
+    let file = std::fs::File::open(path).map_err(|_| CommandError { code: "storage" })?;
     let bytes = crate::shared::bounded_body::read_bounded(file, CUSTOM_TRANSLATIONS_MAX_BYTES)
         .map_err(|_| CommandError { code: "storage" })?;
     // A UTF-8 BOM is an encoding marker the reference accepts, not part of the first source word.
