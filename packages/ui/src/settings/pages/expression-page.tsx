@@ -2,13 +2,14 @@ import * as settings from "../settings-style";
 import { useSettingsForm } from "../settings-form-context";
 import { createSettingsDraftActions } from "../settings-draft-actions";
 import { SubPageEntries } from "./sub-page-entries";
-import { GroupList, Row, Select, Switch } from "../../core/platform-controls";
+import { GroupList, Row, Switch } from "../../core/platform-controls";
 import { FuzzyPinyinSection } from "../fuzzy-pinyin-section";
 import { MixedInputSection } from "../mixed-input-section";
 import { CandidateEnglishGlossSection } from "../candidate-english-gloss-section";
 import { EnglishSuggestionsSection } from "../english-suggestions-section";
 import { PunctuationSection } from "../punctuation-section";
 import { NiuTransSettingsSection } from "../niutrans-settings-section";
+import { TranslationServiceSelectorSection } from "../translation-service-selector-section";
 import { TencentTranslationSettingsSection } from "../tencent-translation-settings-section";
 import { CustomTranslationSettingsSection } from "../custom-translation-settings-section";
 import { CandidateTranslationOptionsSection } from "../candidate-translation-options-section";
@@ -160,28 +161,13 @@ export function ExpressionSettingsPage() {
             </div>
           )}
           {!androidPlatform && (
-            <div role="group" aria-label="候选词翻译服务" className={settings.rowStack}>
-              <Row title="翻译服务">
-                <Select
-                  aria-label="候选词翻译服务"
-                  disabled={translationControlsDisabled}
-                  value={translationProvider}
-                  onChange={(event) =>
-                    setTranslationProvider(
-                      event.target.value as "none" | "custom" | "tencent" | "niutrans" | "account",
-                    )
-                  }
-                >
-                  <option value="none">关闭</option>
-                  <option value="tencent">腾讯云机器翻译</option>
-                  <option value="niutrans">小牛翻译（NiuTrans）</option>
-                  <option value="custom">自定义 DeepLX 兼容服务</option>
-                  {(macosPlatform || linuxPlatform) && (
-                    <option value="account">水杉账号（候选词发送到 api.msime.app）</option>
-                  )}
-                </Select>
-              </Row>
-            </div>
+            <TranslationServiceSelectorSection
+              grouped
+              available={candidateTranslations}
+              provider={translationProvider}
+              showAccountProvider={macosPlatform || linuxPlatform}
+              onChange={setTranslationProvider}
+            />
           )}
         </GroupList>
         {!androidPlatform && (

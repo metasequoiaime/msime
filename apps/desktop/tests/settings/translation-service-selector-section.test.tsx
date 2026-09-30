@@ -44,3 +44,22 @@ test("disables provider selection when candidate translation is unavailable", ()
     screen.queryByRole("option", { name: "水杉账号（候选词发送到 api.msime.app）" }),
   ).toBeNull();
 });
+
+test("grouped selector keeps the settings row layout", () => {
+  const onChange = vi.fn();
+  render(
+    <TranslationServiceSelectorSection
+      grouped
+      available
+      provider="none"
+      showAccountProvider={false}
+      onChange={onChange}
+    />,
+  );
+
+  expect(screen.getByRole("group", { name: "候选词翻译服务" })).toBeTruthy();
+  fireEvent.change(screen.getByRole("combobox", { name: "候选词翻译服务" }), {
+    target: { value: "tencent" },
+  });
+  expect(onChange).toHaveBeenCalledWith("tencent");
+});
