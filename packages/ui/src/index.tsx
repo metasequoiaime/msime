@@ -3,7 +3,7 @@ import { NavItem } from "./core/platform-controls";
 import { mobilePageTitle } from "./settings/mobile-tab-helpers";
 import { desktopDownloadUrl, fallbackAppVersion } from "./settings/app-resources";
 import { useSettingsWindowInteractions } from "./settings/use-settings-window-interactions";
-import { updateCandidateColor, updateCustomKeyboard } from "./settings/theme-selection-updates";
+import { updateCandidateColor } from "./settings/theme-selection-updates";
 import { useSettingsNavigation } from "./settings/use-settings-navigation";
 import { useSettingsContentScrollReset } from "./settings/use-settings-content-scroll-reset";
 import { MobileSettingsTabs } from "./settings/mobile-settings-tabs";
@@ -1754,9 +1754,13 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   });
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [draft, setDraft] = useState<Preferences>();
-  const { onAiChange, onTranslationChange, onVoiceChange } = createSettingsDraftActions({
-    setDraft,
-  });
+  const {
+    onAiChange,
+    onCustomKeyboardChange,
+    onTranslationChange,
+    onUseCustomKeyboard,
+    onVoiceChange,
+  } = createSettingsDraftActions({ setDraft });
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -2104,8 +2108,6 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   // A picker colour is part of the custom theme, so choosing one selects that theme; clearing one leaves the selection alone. Choosing one while another theme is selected customizes that theme: it becomes the custom theme's base, and a package, whose own base would replace it, is dropped.
   const setCandidateColor = (slot: keyof CustomCandidateColors, value: string | null) =>
     setDraft((current) => (current ? updateCandidateColor(current, slot, value) : current));
-  // Choosing the custom keyboard is the same transition as choosing a picker colour: from another theme it customizes that theme (its base kept, a package dropped), so the candidate window does not jump to an unrelated base or package; an already custom theme keeps its base and package.
-  const withCustomKeyboard = updateCustomKeyboard;
   // A custom theme without a keyboard design draws its base's keyboard, so the custom keyboard card is selected only when the theme carries one.
   const customKeyboardSelected = globalTheme === "custom" && Boolean(draft?.custom_theme?.keyboard);
   useEffect(() => setSkinPreviewThemes({}), [candidatePreviewTheme]);
@@ -2417,7 +2419,8 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     customColors,
     customTouchKeyboardSkin,
     setCandidateColor,
-    withCustomKeyboard,
+    onCustomKeyboardChange,
+    onUseCustomKeyboard,
     customKeyboardSelected,
     touchKeySpacingTenths,
     touchRowSpacingTenths,

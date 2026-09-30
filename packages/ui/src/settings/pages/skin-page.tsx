@@ -13,7 +13,6 @@ import { SkinToolbarPreview } from "../../skin/skin-toolbar-preview";
 import { ExternalSkins } from "../../skin/external-skins";
 import { ScreenKeyboardPreview } from "../../keyboard/screen-keyboard-preview";
 import { TouchKeyboardSkinEditor } from "../../keyboard/touch-keyboard-skin-editor";
-import { defaultTouchKeyboardSkinDesign } from "../../keyboard/touch-keyboard-skin-design";
 import { GroupList, Row, Segmented, Switch } from "../../core/platform-controls";
 import { CandidateColorsSection } from "../candidate-colors-section";
 import { ThemeSettingsSection } from "../theme-settings-section";
@@ -60,7 +59,8 @@ export function SkinSettingsPage() {
     desktopPanels,
     keyboardPreviewTheme,
     customTouchKeyboardSkin,
-    withCustomKeyboard,
+    onCustomKeyboardChange,
+    onUseCustomKeyboard,
     customKeyboardSelected,
     showTouchSkinEditor,
     setShowTouchSkinEditor,
@@ -226,7 +226,7 @@ export function SkinSettingsPage() {
               customDesign={customTouchKeyboardSkin}
               editorOpen={showTouchSkinEditor}
               // The card previews the editor's design, so choosing it stores that design; without one the custom theme would draw its base's keyboard.
-              onSelect={() => setDraft(withCustomKeyboard(draft, customTouchKeyboardSkin))}
+              onSelect={() => onCustomKeyboardChange(customTouchKeyboardSkin)}
               onToggleEditor={() => setShowTouchSkinEditor((value) => !value)}
             />
           )}
@@ -241,16 +241,7 @@ export function SkinSettingsPage() {
                 aiSkins={client.aiSkins}
                 communitySkins={client.communitySkins}
                 onChange={(design) => onCustomThemeChange({ keyboard: design })}
-                onUse={() =>
-                  setDraft((current) =>
-                    current
-                      ? withCustomKeyboard(
-                          current,
-                          current.custom_theme?.keyboard ?? defaultTouchKeyboardSkinDesign,
-                        )
-                      : current,
-                  )
-                }
+                onUse={onUseCustomKeyboard}
                 onClose={() => setShowTouchSkinEditor(false)}
               />
             </div>

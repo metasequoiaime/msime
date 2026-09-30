@@ -1,5 +1,6 @@
 import { expect, test, vi } from "vitest";
 import { createSettingsDraftActions, type Preferences } from "@msime/ui";
+import { defaultTouchKeyboardSkinDesign } from "../../../../packages/ui/src/keyboard/touch-keyboard-skin-design";
 
 test("updates nested AI and voice preferences while preserving the rest of the draft", () => {
   const setDraft = vi.fn();
@@ -57,4 +58,40 @@ test("merges shared preference patches into the current draft", () => {
 
   const updater = setDraft.mock.calls[0][0] as (value: Preferences) => Preferences;
   expect(updater(draft)).toMatchObject({ scheme: "quanpin", learning: false });
+});
+
+test("selects a custom keyboard through the shared draft action", () => {
+  const setDraft = vi.fn();
+  const actions = createSettingsDraftActions({ setDraft });
+  const design = { ...defaultTouchKeyboardSkinDesign, key_radius: 11 };
+  const draft = {
+    scheme: "quanpin",
+    global_theme: "night",
+    custom_theme: { base: "night", candidate_skin: "community-skin" },
+  } as unknown as Preferences;
+
+  actions.onCustomKeyboardChange(design);
+
+  const updater = setDraft.mock.calls[0][0] as (value: Preferences) => Preferences;
+  expect(updater(draft).custom_theme).toMatchObject({
+    base: "night",
+    candidate_skin: null,
+    keyboard: design,
+  });
+});
+
+test("uses the latest custom keyboard draft through the shared action", () => {
+  const setDraft = vi.fn();
+  const actions = createSettingsDraftActions({ setDraft });
+  const design = { ...defaultTouchKeyboardSkinDesign, key_radius: 13 };
+  const draft = {
+    scheme: "quanpin",
+    global_theme: "custom",
+    custom_theme: { base: "night", keyboard: design },
+  } as unknown as Preferences;
+
+  actions.onUseCustomKeyboard();
+
+  const updater = setDraft.mock.calls[0][0] as (value: Preferences) => Preferences;
+  expect(updater(draft).custom_theme?.keyboard).toEqual(design);
 });

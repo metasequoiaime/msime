@@ -7,6 +7,9 @@ import type {
 } from "../index";
 import { defaultAiAssistant } from "./ai-assistant-defaults";
 import { defaultVoiceInput } from "./voice-input-defaults";
+import { defaultTouchKeyboardSkinDesign } from "../keyboard/touch-keyboard-skin-design";
+import type { TouchKeyboardSkinDesign } from "../keyboard/touch-keyboard-skin-design";
+import { updateCustomKeyboard } from "./theme-selection-updates";
 
 export interface CreateSettingsDraftActionsOptions {
   setDraft: Dispatch<SetStateAction<Preferences | undefined>>;
@@ -29,8 +32,17 @@ export function createSettingsDraftActions({ setDraft }: CreateSettingsDraftActi
     onTranslationChange: (next: Preferences) => setDraft(next),
     onCustomThemeChange: (patch: Partial<CustomTheme>) =>
       setDraft((current) =>
+        current ? { ...current, custom_theme: { ...current.custom_theme, ...patch } } : current,
+      ),
+    onCustomKeyboardChange: (design: TouchKeyboardSkinDesign) =>
+      setDraft((current) => (current ? updateCustomKeyboard(current, design) : current)),
+    onUseCustomKeyboard: () =>
+      setDraft((current) =>
         current
-          ? { ...current, custom_theme: { ...current.custom_theme, ...patch } }
+          ? updateCustomKeyboard(
+              current,
+              current.custom_theme?.keyboard ?? defaultTouchKeyboardSkinDesign,
+            )
           : current,
       ),
     onVoiceChange: (patch: Partial<VoiceInputPreferences>) =>
