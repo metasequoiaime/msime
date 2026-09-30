@@ -1,6 +1,56 @@
 import XCTest
 
 final class TypingStatisticsTests: XCTestCase {
+  func testPrepareRejectsASymlinkedStatisticsLock() throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("stats-lock-test-\(UUID().uuidString)")
+    let outsideDirectory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("stats-lock-target-\(UUID().uuidString)")
+    defer {
+      try? FileManager.default.removeItem(at: directory)
+      try? FileManager.default.removeItem(at: outsideDirectory)
+    }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: outsideDirectory, withIntermediateDirectories: true)
+    let outsideLock = outsideDirectory.appendingPathComponent("outside.lock")
+    try Data("synthetic-lock-target".utf8).write(to: outsideLock)
+    try FileManager.default.createSymbolicLink(
+      at: directory.appendingPathComponent("typing-statistics.lock"), withDestinationURL: outsideLock)
+
+    XCTAssertThrowsError(try TypingStatisticsStore(directory: directory).setEnabled(true))
+    XCTAssertEqual(try Data(contentsOf: outsideLock), Data("synthetic-lock-target".utf8))
+    XCTAssertFalse(FileManager.default.fileExists(
+      atPath: directory.appendingPathComponent("typing-statistics.json").path))
+  }
+
+  func testLegacyMigrationRejectsASymlinkedLegacyLock() throws {
+    let container = FileManager.default.temporaryDirectory
+      .appendingPathComponent("stats-legacy-lock-test-\(UUID().uuidString)")
+    let sharedState = container.appendingPathComponent("MSIME", isDirectory: true)
+    let outsideDirectory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("stats-legacy-lock-target-\(UUID().uuidString)")
+    defer {
+      try? FileManager.default.removeItem(at: container)
+      try? FileManager.default.removeItem(at: outsideDirectory)
+    }
+    try FileManager.default.createDirectory(at: container, withIntermediateDirectories: true)
+    try TypingStatisticsStore(directory: container).setEnabled(true)
+    try FileManager.default.createDirectory(at: outsideDirectory, withIntermediateDirectories: true)
+    let outsideLock = outsideDirectory.appendingPathComponent("outside.lock")
+    try Data("synthetic-lock-target".utf8).write(to: outsideLock)
+    try FileManager.default.removeItem(at: container.appendingPathComponent("typing-statistics.lock"))
+    try FileManager.default.createSymbolicLink(
+      at: container.appendingPathComponent("typing-statistics.lock"), withDestinationURL: outsideLock)
+
+    let store = TypingStatisticsStore(directory: sharedState, legacyDirectory: container)
+    XCTAssertThrowsError(try store.load())
+    XCTAssertEqual(try Data(contentsOf: outsideLock), Data("synthetic-lock-target".utf8))
+    XCTAssertTrue(FileManager.default.fileExists(
+      atPath: container.appendingPathComponent("typing-statistics.json").path))
+    XCTAssertFalse(FileManager.default.fileExists(
+      atPath: sharedState.appendingPathComponent("typing-statistics.json").path))
+  }
+
   func testCountsCommittedCharactersAcrossDaysAndPreservesPauseOnReset() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

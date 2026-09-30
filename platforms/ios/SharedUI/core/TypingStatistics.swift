@@ -383,7 +383,7 @@ struct TypingStatisticsStore {
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     // The shared store takes the same lock file, and flock locks per open file, so this must be released before any call into it.
     let lockURL = directory.appendingPathComponent("typing-statistics.lock")
-    let descriptor = open(lockURL.path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+    let descriptor = open(lockURL.path, O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR)
     guard descriptor >= 0 else { throw CocoaError(.fileWriteNoPermission) }
     defer { close(descriptor) }
     guard flock(descriptor, LOCK_EX) == 0 else { throw CocoaError(.fileLocking) }
@@ -413,7 +413,7 @@ struct TypingStatisticsStore {
     guard FileManager.default.fileExists(atPath: source.path) else { return }
 
     let legacyLockURL = legacyDirectory.appendingPathComponent("typing-statistics.lock")
-    let descriptor = open(legacyLockURL.path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+    let descriptor = open(legacyLockURL.path, O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR)
     guard descriptor >= 0 else { throw CocoaError(.fileWriteNoPermission) }
     defer { close(descriptor) }
     guard flock(descriptor, LOCK_EX) == 0 else { throw CocoaError(.fileLocking) }
