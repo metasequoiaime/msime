@@ -58,8 +58,6 @@ export function FloatingToolbarSettingsPage() {
     globalTheme,
   } = useSettingsForm();
   const { onChange: onToolbarChange } = createFloatingToolbarSettingsActions({
-    draft,
-    floatingToolbar,
     setDraft,
   });
   return (

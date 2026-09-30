@@ -1,9 +1,5 @@
 import { expect, test, vi } from "vitest";
-import {
-  createFloatingToolbarSettingsActions,
-  type FloatingToolbarPreferences,
-  type Preferences,
-} from "@msime/ui";
+import { createFloatingToolbarSettingsActions, type Preferences } from "@msime/ui";
 
 const draft = {
   scheme: "quanpin",
@@ -11,45 +7,28 @@ const draft = {
   candidate_page_size: 6,
   learning: true,
   chinese_punctuation: true,
-} as Preferences;
+  floating_toolbar: { enabled: true, font_size: 18 },
+} as unknown as Preferences;
 
-const floatingToolbar: FloatingToolbarPreferences = {
-  enabled: true,
-  english_mode: true,
-  fullwidth: false,
-  punctuation: true,
-  character_set: false,
-  emoji: true,
-  handwriting: true,
-  screen_keyboard: false,
-  voice: true,
-  settings: true,
-  scale_percent: 100,
-  font_size: 20,
-};
-
-test("merges floating-toolbar patches into the current draft", () => {
+test("updates floating toolbar preferences through a functional draft action", () => {
   const setDraft = vi.fn();
-  const actions = createFloatingToolbarSettingsActions({ draft, floatingToolbar, setDraft });
-
-  actions.onChange({ enabled: false, scale_percent: 125 });
-
-  expect(setDraft).toHaveBeenCalledWith(
-    expect.objectContaining({
-      floating_toolbar: expect.objectContaining({ enabled: false, scale_percent: 125 }),
-    }),
-  );
-});
-
-test("does not update before preferences have loaded", () => {
-  const setDraft = vi.fn();
-  const actions = createFloatingToolbarSettingsActions({
-    draft: undefined,
-    floatingToolbar,
-    setDraft,
-  });
+  const actions = createFloatingToolbarSettingsActions({ setDraft });
 
   actions.onChange({ enabled: false });
 
-  expect(setDraft).not.toHaveBeenCalled();
+  const updater = setDraft.mock.calls[0][0] as (value: Preferences) => Preferences;
+  expect(updater(draft).floating_toolbar).toMatchObject({ enabled: false, font_size: 18 });
+});
+
+test("preserves the latest floating toolbar draft", () => {
+  const setDraft = vi.fn();
+  const actions = createFloatingToolbarSettingsActions({ setDraft });
+
+  actions.onChange({ font_size: 22 });
+
+  const updater = setDraft.mock.calls[0][0] as (value: Preferences) => Preferences;
+  expect(updater({ ...draft, candidate_page_size: 9 })).toMatchObject({
+    candidate_page_size: 9,
+    floating_toolbar: { font_size: 22 },
+  });
 });
