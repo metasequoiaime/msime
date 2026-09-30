@@ -21,6 +21,68 @@ struct CommunityFailure: LocalizedError {
   var errorDescription: String? { message }
 }
 
+enum CommunityResponseValidation {
+  private static let maximumJavaScriptInteger = 9_007_199_254_740_991
+
+  static func validID(_ value: String) -> Bool {
+    guard let id = UUID(uuidString: value) else { return false }
+    return id.uuidString != "00000000-0000-0000-0000-000000000000"
+  }
+
+  static func validText(_ value: String, minimum: Int, maximum: Int,
+                        multiline: Bool, trimmed: Bool = false) -> Bool {
+    let scalars = value.unicodeScalars
+    guard (minimum...maximum).contains(scalars.count),
+          (!trimmed || value == value.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+      return false
+    }
+    return !scalars.contains { scalar in
+      CharacterSet.controlCharacters.contains(scalar)
+        && !(multiline && (scalar == "\n" || scalar == "\t"))
+    }
+  }
+
+  static func validRating(count: Int, average: Double, mine: Int) -> Bool {
+    count >= 0 && count <= maximumJavaScriptInteger && (0...5).contains(mine)
+      && average.isFinite && (0...5).contains(average)
+      && (count != 0 || average == 0)
+  }
+
+  static func validSkin(_ skin: CommunitySkin) -> Bool {
+    validID(skin.id)
+      && validText(skin.name, minimum: 1, maximum: 32, multiline: false, trimmed: true)
+      && validText(skin.description, minimum: 0, maximum: 280, multiline: true)
+      && validText(skin.author, minimum: 1, maximum: 128, multiline: false, trimmed: true)
+      && skin.downloads >= 0 && skin.downloads <= maximumJavaScriptInteger
+      && validRating(count: skin.rating_count, average: skin.rating_average, mine: skin.my_rating)
+  }
+
+  static func validResource(_ item: CommunityResource, expectedKind: CommunityResourceKind) -> Bool {
+    guard item.kind == expectedKind, validID(item.id), item.revision > 0,
+          validText(item.name, minimum: 1, maximum: 32, multiline: false, trimmed: true),
+          validText(item.description, minimum: 0, maximum: 280, multiline: true),
+          validText(item.author, minimum: 1, maximum: 128, multiline: false, trimmed: true),
+          item.saves >= 0, item.saves <= maximumJavaScriptInteger,
+          validRating(count: item.rating_count, average: item.rating_average, mine: item.my_rating)
+    else { return false }
+    switch item.kind {
+    case .reply:
+      return (item.content.entries ?? []).isEmpty
+        && item.content.prompt.map { validText($0, minimum: 1, maximum: 2_000, multiline: true) } == true
+    case .dictionary:
+      guard item.content.prompt == nil, let entries = item.content.entries,
+            (1...128).contains(entries.count) else { return false }
+      var seen = Set<String>()
+      return entries.allSatisfy { entry in
+        validText(entry.code, minimum: 1, maximum: 256, multiline: false)
+          && validText(entry.word, minimum: 1, maximum: 1_024, multiline: false)
+          && entry.weight >= 0
+          && seen.insert("\(entry.kind)|\(entry.code)|\(entry.word)").inserted
+      }
+    }
+  }
+}
+
 enum CommunityProfilePolicy {
   static let maximumNameScalars = 64
 
@@ -131,7 +193,8 @@ actor SkinCommunityAPI {
     parts.queryItems = [.init(name: "offset", value: String(offset)), .init(name: "q", value: search)]
     parts.percentEncodedQuery = parts.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
     let page: CommunityPage = try await request(parts.string!)
-    guard Self.validPage(page.skins, hasMore: page.has_more) else {
+    guard Self.validPage(page.skins, hasMore: page.has_more),
+          page.skins.allSatisfy(CommunityResponseValidation.validSkin) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
     return page
@@ -172,7 +235,8 @@ actor SkinCommunityAPI {
       .init(name: "q", value: search), .init(name: "offset", value: String(offset))]
     parts.percentEncodedQuery = parts.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
     let page: ResourcePage = try await request(parts.string!, maximumResponseBytes: 48 * 1024 * 1024)
-    guard Self.validPage(page.items, hasMore: page.has_more) else {
+    guard Self.validPage(page.items, hasMore: page.has_more),
+          page.items.allSatisfy({ CommunityResponseValidation.validResource($0, expectedKind: kind) }) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
     return page

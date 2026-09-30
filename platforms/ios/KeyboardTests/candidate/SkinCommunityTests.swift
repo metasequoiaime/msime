@@ -223,7 +223,65 @@ private final class MalformedCommunityPageProtocol: URLProtocol {
   override func stopLoading() {}
 }
 
+private final class InvalidCommunityPageProtocol: URLProtocol {
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    let design: [String: Any] = [
+      "background": 15266027, "keyBackground": 16777215, "keyForeground": 1516829,
+      "accent": 1596487, "actionBackground": 1596487, "cornerRadius": 8,
+      "borderWidth": 0, "shadow": 0, "pattern": 0, "monospaced": false
+    ]
+    let invalidSkin: [String: Any] = [
+      "id": "not-a-uuid", "name": " ", "description": "", "author": "",
+      "design": design, "downloads": 0, "rating_count": 0, "rating_average": 1,
+      "owned": false, "my_rating": 6
+    ]
+    let invalidResource: [String: Any] = [
+      "id": "not-a-uuid", "kind": "dictionary", "name": " ", "description": "",
+      "author": "", "content": ["entries": []], "revision": 0, "saves": 0,
+      "saved": false, "owned": false, "rating_count": 0, "rating_average": 1,
+      "my_rating": 6
+    ]
+    let body: [String: Any] = request.url?.path == "/v1/community/skins"
+      ? ["skins": [invalidSkin], "has_more": false]
+      : ["items": [invalidResource], "has_more": false]
+    let data = try! JSONSerialization.data(withJSONObject: body)
+    client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200,
+      httpVersion: nil, headerFields: ["Content-Type": "application/json"])!,
+      cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: data)
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
+
 extension SkinCommunityTests {
+  func testMalformedCommunityItemsAreRejected() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [InvalidCommunityPageProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    let api = SkinCommunityAPI(client: client,
+                               account: BackendAccountSession(api: client,
+                                                              storage: CommunityMemoryCredentials()))
+    do {
+      _ = try await api.list(search: "malformed")
+      XCTFail("expected malformed skin page rejection")
+    } catch let failure as CommunityFailure {
+      XCTAssertEqual(failure.message, "社区暂时不可用，请稍后重试。")
+    } catch {
+      XCTFail("unexpected error: \(error)")
+    }
+    do {
+      _ = try await api.resources(.dictionary, search: "malformed")
+      XCTFail("expected malformed resource page rejection")
+    } catch let failure as CommunityFailure {
+      XCTAssertEqual(failure.message, "社区暂时不可用，请稍后重试。")
+    } catch {
+      XCTFail("unexpected error: \(error)")
+    }
+  }
+
   func testDuplicateCommunityPageIsRejected() async throws {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [MalformedCommunityPageProtocol.self]
