@@ -145,6 +145,10 @@ pub fn apply(
             })?;
         }
         ReviewAction::Remove { wordbook } => {
+            // Validate progress before deleting the book. Removal spans two stores; if the
+            // progress document is damaged, returning an error after the library write would
+            // still destroy the user's imported material.
+            let document = store.load()?;
             // Checked by name rather than by what is on disk: a host that failed to stage its
             // books would otherwise let the user delete one and find it back after the next
             // install, with its review progress already gone.
@@ -155,7 +159,6 @@ pub fn apply(
             // The book is gone, so its schedule is unreachable. Leaving it would grow the progress
             // document forever and would silently return if the same id ever came back.
             store.reset_wordbook(&wordbook)?;
-            let document = store.load()?;
             if document.settings.wordbook == wordbook {
                 store.set_settings(VocabularyReviewSettings {
                     wordbook: String::new(),
@@ -350,6 +353,33 @@ mod tests {
             Err(ReviewSessionError::Progress(_))
         ));
         assert!(WordbookLibrary::new(root.path()).list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn remove_does_not_delete_a_book_when_progress_is_corrupt() {
+        let root = directory();
+        let book = import(root.path(), "合成词表").settings.wordbook;
+        std::fs::write(
+            root.path().join("vocabulary-progress.json"),
+            b"corrupt synthetic progress",
+        )
+        .unwrap();
+
+        assert!(matches!(
+            apply(
+                root.path(),
+                root.path(),
+                TODAY,
+                ReviewAction::Remove {
+                    wordbook: book.clone(),
+                },
+            ),
+            Err(ReviewSessionError::Progress(_))
+        ));
+        assert!(WordbookLibrary::new(root.path())
+            .load(&book)
+            .unwrap()
+            .is_some());
     }
 
     #[test]
