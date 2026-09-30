@@ -55,6 +55,18 @@ final class KeyboardAITests: XCTestCase {
     XCTAssertTrue(model.status.contains("模板已移除"))
   }
 
+  func testCommunityLibraryRejectsMalformedReplyTemplate() throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("msime-community-invalid-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let item = CommunityResource(id: UUID().uuidString, kind: .reply, name: "测试风格",
+      description: "测试", author: "测试作者",
+      content: .init(prompt: String(repeating: "字", count: 2_001)), revision: 1, saves: 0,
+      saved: true, owned: false, rating_count: 0, rating_average: 0, my_rating: 0)
+    XCTAssertThrowsError(try CommunityLibrary.save(item, in: directory))
+  }
+
   func testAISelectionRejectsDocumentCaretAndTextChanges() {
     let id = UUID()
     let selection = KeyboardDocumentContext(document: id, before: "before", selected: "fixture", after: "after")

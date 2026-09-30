@@ -44,6 +44,10 @@ struct CommunityResource: Codable, Identifiable, Sendable {
 
 // Only explicit downloads are shared with the keyboard; never credentials or source messages.
 enum CommunityLibrary {
+  private static let maximumBytes = 4_000_000
+  private static let maximumItems = 50
+  private static let maximumJavaScriptInteger = 9_007_199_254_740_991
+
   private static func file(in directory: URL? = nil) -> URL? {
     (directory ?? FileManager.default.containerURL(
       forSecurityApplicationGroupIdentifier: InputSchemePreference.appGroupIdentifier))?
@@ -52,21 +56,28 @@ enum CommunityLibrary {
   static func read(in directory: URL? = nil) throws -> [CommunityResource] {
     guard let file = file(in: directory) else { throw PersonalDictionaryStore.StoreError.unavailable }
     guard FileManager.default.fileExists(atPath: file.path) else { return [] }
-    guard let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= 4_000_000 else {
+    guard let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= maximumBytes else {
       throw PersonalDictionaryStore.StoreError.invalidState
     }
     let data: Data
     do {
-      data = try BoundedFileReader.read(from: file, maximumBytes: 4_000_000)
+      data = try BoundedFileReader.read(from: file, maximumBytes: maximumBytes)
     } catch {
       throw PersonalDictionaryStore.StoreError.invalidState
     }
-    return try JSONDecoder().decode([CommunityResource].self, from: data)
+    let items = try JSONDecoder().decode([CommunityResource].self, from: data)
+    guard items.count <= maximumItems,
+          Set(items.map(\.id)).count == items.count,
+          items.allSatisfy(valid) else {
+      throw PersonalDictionaryStore.StoreError.invalidState
+    }
+    return items
   }
   static func save(_ item: CommunityResource, in directory: URL? = nil) throws {
+    guard valid(item) else { throw PersonalDictionaryStore.StoreError.invalidState }
     var items = try read(in: directory)
     items.removeAll { $0.id == item.id }
-    guard items.count < 50 else { throw PersonalDictionaryStore.StoreError.tooManyRequests }
+    guard items.count < maximumItems else { throw PersonalDictionaryStore.StoreError.tooManyRequests }
     items.append(item)
     try write(items, in: directory)
   }
@@ -76,7 +87,7 @@ enum CommunityLibrary {
   private static func write(_ items: [CommunityResource], in directory: URL?) throws {
     guard let file = file(in: directory) else { throw PersonalDictionaryStore.StoreError.unavailable }
     let data = try JSONEncoder().encode(items)
-    guard data.count <= 4_000_000 else { throw PersonalDictionaryStore.StoreError.tooManyRequests }
+    guard data.count <= maximumBytes else { throw PersonalDictionaryStore.StoreError.tooManyRequests }
     try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
     try data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
   }
@@ -84,4 +95,49 @@ enum CommunityLibrary {
     ((try? read(in: directory)) ?? []).filter { $0.kind == .reply }
   }
   static var replies: [CommunityResource] { replies() }
+
+  private static func valid(_ item: CommunityResource) -> Bool {
+    guard let id = UUID(uuidString: item.id),
+          id != UUID(uuidString: "00000000-0000-0000-0000-000000000000")!, item.revision > 0,
+          validText(item.name, minimum: 1, maximum: 32, multiline: false, trimmed: true),
+          validText(item.description, minimum: 0, maximum: 280, multiline: true),
+          validText(item.author, minimum: 1, maximum: 128, multiline: false, trimmed: true),
+          item.saves >= 0, item.saves <= maximumJavaScriptInteger,
+          validRating(count: item.rating_count, average: item.rating_average, mine: item.my_rating)
+    else { return false }
+    switch item.kind {
+    case .reply:
+      return (item.content.entries ?? []).isEmpty
+        && item.content.prompt.map { validText($0, minimum: 1, maximum: 2_000, multiline: true) } == true
+    case .dictionary:
+      guard item.content.prompt == nil, let entries = item.content.entries,
+            (1...128).contains(entries.count) else { return false }
+      var seen = Set<String>()
+      return entries.allSatisfy { entry in
+        validText(entry.code, minimum: 1, maximum: 256, multiline: false)
+          && validText(entry.word, minimum: 1, maximum: 1_024, multiline: false)
+          && entry.weight >= 0
+          && seen.insert("\(entry.kind)|\(entry.code)|\(entry.word)").inserted
+      }
+    }
+  }
+
+  private static func validRating(count: Int, average: Double, mine: Int) -> Bool {
+    count >= 0 && count <= maximumJavaScriptInteger && (0...5).contains(mine)
+      && average.isFinite && (0...5).contains(average)
+      && (count != 0 || average == 0)
+  }
+
+  private static func validText(_ value: String, minimum: Int, maximum: Int,
+                                multiline: Bool, trimmed: Bool = false) -> Bool {
+    let scalars = value.unicodeScalars
+    guard (minimum...maximum).contains(scalars.count),
+          (!trimmed || value == value.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+      return false
+    }
+    return !scalars.contains { scalar in
+      CharacterSet.controlCharacters.contains(scalar)
+        && !(multiline && (scalar == "\n" || scalar == "\t"))
+    }
+  }
 }
