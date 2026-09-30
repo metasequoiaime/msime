@@ -47,7 +47,10 @@ public final class TypingStatisticsDocument {
             }
         }
         return new TypingStatisticsModel(
-            root.optBoolean("enabled", true),
+            // The shared Rust store defaults a missing field to false. Keep old or partially
+            // written documents opt-in on Android as well; showing them as enabled would expose
+            // statistics the user never turned on.
+            root.optBoolean("enabled", false),
             Math.max(0, root.optLong("total", 0)),
             root.optString("retention", "forever"),
             counts(root.optJSONObject("days")),
