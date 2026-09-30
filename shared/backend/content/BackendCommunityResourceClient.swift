@@ -54,13 +54,13 @@ extension BackendAccountClient {
     let page: ResourcePage = try await json("GET", path, token: token, maximumResponseBytes: 48 * 1024 * 1024)
     guard page.items.count <= 20, !page.has_more || !page.items.isEmpty,
           Set(page.items.map(\.id)).count == page.items.count,
-          page.items.allSatisfy({ $0.kind == kind && $0.revision > 0 }) else { throw Failure(status: 502) }
+          page.items.allSatisfy({ Self.validResponse($0, expectedKind: kind) }) else { throw Failure(status: 502) }
     return page
   }
   func communityResource(_ id: UUID, token: String? = nil) async throws -> CommunityResource {
     let value: CommunityResource = try await json("GET", Self.resourcePath(id), token: token,
                                                  maximumResponseBytes: 3 * 1024 * 1024)
-    guard value.id == id, value.revision > 0 else { throw Failure(status: 502) }
+    guard value.id == id, Self.validResponse(value, expectedKind: value.kind) else { throw Failure(status: 502) }
     return value
   }
   func publishResource(id: UUID, kind: ResourceKind, name: String, description: String,
@@ -124,6 +124,30 @@ extension BackendAccountClient {
   private static func validSharedWord(_ entry: SharedWord) -> Bool {
     entry.weight >= 0 && resourceText(entry.code, minimum: 1, maximum: 256, multiline: false) &&
       resourceText(entry.word, minimum: 1, maximum: 1_024, multiline: false)
+  }
+  private static func validResponse(_ value: CommunityResource, expectedKind: ResourceKind) -> Bool {
+    guard value.kind == expectedKind,
+          value.id != UUID(uuidString: "00000000-0000-0000-0000-000000000000")!, value.revision > 0,
+          resourceText(value.name, minimum: 1, maximum: 32, multiline: false),
+          value.name == value.name.trimmingCharacters(in: .whitespacesAndNewlines),
+          resourceText(value.description, minimum: 0, maximum: 280, multiline: true),
+          resourceText(value.author, minimum: 1, maximum: 128, multiline: false),
+          value.author == value.author.trimmingCharacters(in: .whitespacesAndNewlines),
+          value.saves >= 0, value.saves <= 9_007_199_254_740_991,
+          value.rating_count >= 0, value.rating_count <= 9_007_199_254_740_991,
+          value.my_rating >= 0, value.my_rating <= 5,
+          value.rating_average.isFinite, (0...5).contains(value.rating_average),
+          value.rating_count != 0 || value.rating_average == 0 else { return false }
+    switch value.kind {
+    case .reply:
+      guard value.content.entries?.isEmpty != false, let prompt = value.content.prompt else { return false }
+      return resourceText(prompt, minimum: 1, maximum: 2_000, multiline: true)
+    case .dictionary:
+      guard value.content.prompt == nil, let entries = value.content.entries,
+            (1...128).contains(entries.count) else { return false }
+      let keys = entries.map { "\($0.kind.rawValue)\u{0}\($0.code)\u{0}\($0.word)" }
+      return entries.allSatisfy(validSharedWord) && Set(keys).count == entries.count
+    }
   }
   private static func resourceText(_ text: String, minimum: Int, maximum: Int, multiline: Bool) -> Bool {
     text.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.count >= minimum &&
