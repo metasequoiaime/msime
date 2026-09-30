@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstring>
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <memory>
 #include <unistd.h>
 #include <vector>
@@ -56,9 +57,12 @@ NSString *CorrectedText(NSString *text, NSArray<NSDictionary *> *hotwords) {
 
 NSDictionary *ModelManifest(NSString *path) {
     if (!path.isAbsolutePath) return nil;
-    BOOL directory = NO;
-    if (![NSFileManager.defaultManager fileExistsAtPath:path isDirectory:&directory] || !directory) return nil;
-    NSData *data = [NSData dataWithContentsOfFile:[path stringByAppendingPathComponent:@"msime-model.json"]];
+    struct stat directoryStat = {};
+    if (lstat(path.fileSystemRepresentation, &directoryStat) != 0 || !S_ISDIR(directoryStat.st_mode)) return nil;
+    NSString *manifestPath = [path stringByAppendingPathComponent:@"msime-model.json"];
+    struct stat manifestStat = {};
+    if (lstat(manifestPath.fileSystemRepresentation, &manifestStat) != 0 || !S_ISREG(manifestStat.st_mode)) return nil;
+    NSData *data = [NSData dataWithContentsOfFile:manifestPath];
     id manifest = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
     return [manifest isKindOfClass:NSDictionary.class] ? manifest : nil;
 }

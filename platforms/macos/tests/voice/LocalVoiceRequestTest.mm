@@ -91,6 +91,17 @@ int main(int argc, char **argv) {
 
         // Only an installed model directory is accepted: not a file, not a directory the installer never finished, not a relative path.
         NSString *native = ModelDirectory(@"native");
+        NSString *external = ModelDirectory(@"native");
+        NSString *linked = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+        assert([NSFileManager.defaultManager createSymbolicLinkAtPath:linked withDestinationPath:external error:nil]);
+        assert(!MSIMELocalVoiceModelDirectory(linked));
+        NSError *linkedError = nil;
+        assert(![[MSIMELocalVoiceRequest alloc] initWithOptions:@{@"asr_model_path" : linked} hostOptions:nil error:&linkedError] && linkedError);
+        NSString *linkedManifestModel = ModelDirectory(@"native");
+        NSString *linkedManifestPath = [linkedManifestModel stringByAppendingPathComponent:@"msime-model.json"];
+        assert([NSFileManager.defaultManager removeItemAtPath:linkedManifestPath error:nil]);
+        assert([NSFileManager.defaultManager createSymbolicLinkAtPath:linkedManifestPath withDestinationPath:[external stringByAppendingPathComponent:@"msime-model.json"] error:nil]);
+        assert(!MSIMELocalVoiceModelDirectory(linkedManifestModel));
         NSString *unfinished = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
         assert([NSFileManager.defaultManager createDirectoryAtPath:unfinished withIntermediateDirectories:YES attributes:nil error:nil]);
         NSString *file = [native stringByAppendingPathComponent:@"msime-model.json"];
@@ -187,6 +198,9 @@ int main(int argc, char **argv) {
         }
 
         [NSFileManager.defaultManager removeItemAtPath:native error:nil];
+        [NSFileManager.defaultManager removeItemAtPath:linked error:nil];
+        [NSFileManager.defaultManager removeItemAtPath:external error:nil];
+        [NSFileManager.defaultManager removeItemAtPath:linkedManifestModel error:nil];
         [NSFileManager.defaultManager removeItemAtPath:unfinished error:nil];
         [NSFileManager.defaultManager removeItemAtPath:log error:nil];
     }
