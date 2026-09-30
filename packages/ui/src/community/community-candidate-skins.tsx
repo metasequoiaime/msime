@@ -4,6 +4,8 @@ import type { SkinCatalog } from "../skin/external-skins";
 import { CandidateSkinPublishDialog } from "./candidate-skin-publish-dialog";
 import { candidateSkinMessage, communityNeedsSignIn, communityRating } from "./community-helpers";
 import { useCommunityGallery, type CommunityGalleryClient } from "./community-gallery";
+import { CommunityErrorAlert } from "./community-error-alert";
+import { CommunityDetailStatus } from "./community-detail-status";
 import * as style from "./community-style";
 import { CommunitySearchForm } from "./community-search-form";
 import { CommunityScopeButtons } from "./community-scope-buttons";
@@ -285,17 +287,7 @@ export function CommunityCandidateSkinsPage({
   };
 
   const errorAlert = error && (
-    <p role="alert" className="error">
-      {error}
-      {signInRequired && onLogin && (
-        <>
-          {" "}
-          <button type="button" className="secondary" onClick={onLogin}>
-            去登录
-          </button>
-        </>
-      )}
-    </p>
+    <CommunityErrorAlert message={error} signInRequired={signInRequired} onLogin={onLogin} />
   );
 
   if (selected) {
@@ -332,20 +324,15 @@ export function CommunityCandidateSkinsPage({
           </div>
           {selected.description && <p className={style.description}>{selected.description}</p>}
           {license && <p className={style.metrics}>{license}</p>}
-          <p className={style.metrics}>
-            {selected.downloads.toLocaleString("zh-CN")} 人下载 ·{" "}
-            {communityRating(selected.rating_count, selected.rating_average)} ·{" "}
-            {selected.rating_count.toLocaleString("zh-CN")} 人评分
-          </p>
-          {selected.my_rating > 0 && (
-            <p className={style.metrics}>我的评分：{selected.my_rating} 星</p>
-          )}
-          {detailBusy && <p role="status">正在读取皮肤详情…</p>}
-          {actionNotice && (
-            <p role="status" className={style.actionNotice}>
-              {actionNotice}
-            </p>
-          )}
+          <CommunityDetailStatus
+            downloads={selected.downloads}
+            ratingCount={selected.rating_count}
+            ratingAverage={selected.rating_average}
+            myRating={selected.my_rating}
+            detailBusy={detailBusy}
+            actionNotice={actionNotice}
+            loadingText="正在读取皮肤详情…"
+          />
           {installed ? (
             <>
               <p role="status" className={style.actionNotice}>

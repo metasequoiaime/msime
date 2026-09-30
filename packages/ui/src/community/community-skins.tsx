@@ -12,6 +12,8 @@ import {
   communitySkinPublishMessage,
 } from "./community-helpers";
 import { useCommunityGallery, type CommunityGalleryClient } from "./community-gallery";
+import { CommunityErrorAlert } from "./community-error-alert";
+import { CommunityDetailStatus } from "./community-detail-status";
 import * as style from "./community-style";
 import { CommunitySearchForm } from "./community-search-form";
 import { CommunityScopeButtons } from "./community-scope-buttons";
@@ -172,19 +174,7 @@ function CommunitySkinPublishDialog({
           </button>
         </div>
         {error && (
-          <p role="alert" className="error">
-            {error}
-            {/* The source opens the sign-in form in place rather than telling the user to go and
-                find it, which from a modal is the difference between one tap and four. */}
-            {signInRequired && onLogin && (
-              <>
-                {" "}
-                <button type="button" className="secondary" onClick={onLogin}>
-                  去登录
-                </button>
-              </>
-            )}
-          </p>
+          <CommunityErrorAlert message={error} signInRequired={signInRequired} onLogin={onLogin} />
         )}
         {busy && saved.length === 0 && <p role="status">正在读取我的皮肤…</p>}
         {!busy && saved.length === 0 && (
@@ -461,19 +451,7 @@ export function CommunitySkinsPage({
           ← 社区
         </button>
         {error && (
-          <p role="alert" className="error">
-            {error}
-            {/* The detail view is where a signed-out download fails, so the way out belongs here
-                too rather than only on the gallery behind it. */}
-            {signInRequired && onLogin && (
-              <>
-                {" "}
-                <button type="button" className="secondary" onClick={onLogin}>
-                  去登录
-                </button>
-              </>
-            )}
-          </p>
+          <CommunityErrorAlert message={error} signInRequired={signInRequired} onLogin={onLogin} />
         )}
         <section className={`section ${style.detail}`}>
           <div className={style.detailStage}>
@@ -487,20 +465,15 @@ export function CommunitySkinsPage({
             {selected.owned && <span className={style.detailBadge}>我的作品</span>}
           </div>
           {selected.description && <p className={style.description}>{selected.description}</p>}
-          <p className={style.metrics}>
-            {selected.downloads.toLocaleString("zh-CN")} 人下载 ·{" "}
-            {communityRating(selected.rating_count, selected.rating_average)} ·{" "}
-            {selected.rating_count.toLocaleString("zh-CN")} 人评分
-          </p>
-          {selected.my_rating > 0 && (
-            <p className={style.metrics}>我的评分：{selected.my_rating} 星</p>
-          )}
-          {detailBusy && <p role="status">正在读取皮肤详情…</p>}
-          {actionNotice && (
-            <p role="status" className={style.actionNotice}>
-              {actionNotice}
-            </p>
-          )}
+          <CommunityDetailStatus
+            downloads={selected.downloads}
+            ratingCount={selected.rating_count}
+            ratingAverage={selected.rating_average}
+            myRating={selected.my_rating}
+            detailBusy={detailBusy}
+            actionNotice={actionNotice}
+            loadingText="正在读取皮肤详情…"
+          />
           {!trial && (
             <button
               type="button"
@@ -587,17 +560,7 @@ export function CommunitySkinsPage({
         </div>
       </div>
       {error && (
-        <p role="alert" className="error">
-          {error}
-          {signInRequired && onLogin && (
-            <>
-              {" "}
-              <button type="button" className="secondary" onClick={onLogin}>
-                去登录
-              </button>
-            </>
-          )}
-        </p>
+        <CommunityErrorAlert message={error} signInRequired={signInRequired} onLogin={onLogin} />
       )}
       {!listBusy && skins.filter((skin) => !mineOnly || skin.owned).length === 0 && (
         <p className={style.notice}>

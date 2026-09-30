@@ -9,6 +9,7 @@ import {
 } from "./community-helpers";
 import * as style from "./community-style";
 import { CommunitySkinPublicationFields } from "./community-skin-publication-fields";
+import { CommunityErrorAlert } from "./community-error-alert";
 import type {
   CandidateSkinCommunityClient,
   CandidateSkinPackPreview,
@@ -202,17 +203,7 @@ export function CandidateSkinPublishDialog({
           </button>
         </div>
         {error && (
-          <p role="alert" className="error">
-            {error}
-            {signInRequired && onLogin && (
-              <>
-                {" "}
-                <button type="button" className="secondary" onClick={onLogin}>
-                  去登录
-                </button>
-              </>
-            )}
-          </p>
+          <CommunityErrorAlert message={error} signInRequired={signInRequired} onLogin={onLogin} />
         )}
         {optionsLoading && <p role="status">正在读取本地皮肤…</p>}
         {!optionsLoading && options.length === 0 && (
