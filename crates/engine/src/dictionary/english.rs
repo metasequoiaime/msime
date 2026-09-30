@@ -2,6 +2,8 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -26,6 +28,9 @@ const ZH_EN_SQL: &str = "SELECT english_gloss FROM zh_en_glosses WHERE chinese=?
 const ENGLISH_WORDS_DDL: &str = "CREATE TABLE english_words(word TEXT COLLATE BINARY NOT NULL,display TEXT NOT NULL,weight INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(word,display)) WITHOUT ROWID;";
 const GLOSS_TABLES_DDL: &str = "CREATE TABLE IF NOT EXISTS en_zh_glosses(english TEXT COLLATE BINARY PRIMARY KEY,chinese_gloss TEXT NOT NULL) WITHOUT ROWID;CREATE TABLE IF NOT EXISTS zh_en_glosses(chinese TEXT COLLATE BINARY PRIMARY KEY,english_gloss TEXT NOT NULL) WITHOUT ROWID;PRAGMA user_version=3;";
 const GLOSS_BUSY_TIMEOUT: Duration = Duration::from_millis(250);
+/// The settings UI accepts a 1 MiB sidecar; keep direct Engine callers from allocating for a
+/// larger user supplied file as well.
+const MAX_CUSTOM_TRANSLATION_BYTES: u64 = 1024 * 1024;
 /// The reference never set a busy timeout on its read connections (english_dictionary.cpp:325,371), so SQLite's default of none applied: a locked file answers "no rows" at once instead of stalling the keystroke. rusqlite would otherwise wait 5 s.
 const READ_BUSY_TIMEOUT: Duration = Duration::ZERO;
 
@@ -256,9 +261,24 @@ pub fn load_custom_translations(path: &Path) -> CustomTranslations {
     if !metadata.file_type().is_file() {
         return translations;
     }
-    let Ok(text) = std::fs::read(path) else {
+    let Ok(file) = File::open(path) else {
         return translations;
     };
+    let Ok(size) = file.metadata().map(|metadata| metadata.len()) else {
+        return translations;
+    };
+    if size > MAX_CUSTOM_TRANSLATION_BYTES {
+        return translations;
+    }
+    let mut text = Vec::new();
+    if file
+        .take(MAX_CUSTOM_TRANSLATION_BYTES + 1)
+        .read_to_end(&mut text)
+        .is_err()
+        || text.len() as u64 > MAX_CUSTOM_TRANSLATION_BYTES
+    {
+        return translations;
+    }
     let text = text.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&text);
     for line in split_lines(text) {
         let line = trim_start(trim_end(line));
@@ -730,6 +750,18 @@ hello\tlast wins\n\
         assert_eq!(translations.zh_en.len(), 1);
         assert_eq!(
             load_custom_translations(&directory.path().join("absent.txt")),
+            CustomTranslations::default()
+        );
+    }
+
+    #[test]
+    fn oversized_sidecar_is_treated_as_unreadable() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join(assets::TRANSLATIONS);
+        std::fs::write(&path, vec![b'x'; MAX_CUSTOM_TRANSLATION_BYTES as usize + 1]).unwrap();
+
+        assert_eq!(
+            load_custom_translations(&path),
             CustomTranslations::default()
         );
     }
