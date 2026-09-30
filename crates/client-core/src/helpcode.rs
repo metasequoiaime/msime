@@ -47,8 +47,11 @@ pub fn is_custom_schema(schema: &str) -> bool {
 /// Return the table path for an available custom schema.
 pub fn custom_helpcode_path(resources: &Path, schema: &str) -> Option<PathBuf> {
     let stem = custom_schema_stem(schema)?;
-    let path = custom_helpcode_directory(resources).join(format!("{stem}.txt"));
-    path.is_file().then_some(path)
+    let directory = custom_helpcode_directory(resources);
+    crate::storage::reject_symlink(&directory).ok()?;
+    let path = directory.join(format!("{stem}.txt"));
+    let metadata = std::fs::symlink_metadata(&path).ok()?;
+    metadata.file_type().is_file().then_some(path)
 }
 
 /// Discover regular `.txt` files in `helpcodes/custom` and read their optional display metadata.
@@ -198,5 +201,36 @@ mod tests {
             custom_helpcode_path(resources.path(), "custom/../mine"),
             None
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_symlinked_custom_tables() {
+        use std::os::unix::fs::symlink;
+
+        let resources = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let directory = custom_helpcode_directory(resources.path());
+        fs::create_dir_all(&directory).unwrap();
+        let external = outside.path().join("mine.txt");
+        fs::write(&external, "你=ab\n").unwrap();
+        symlink(&external, directory.join("mine.txt")).unwrap();
+
+        assert_eq!(custom_helpcode_path(resources.path(), "custom/mine"), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_a_symlinked_custom_directory() {
+        use std::os::unix::fs::symlink;
+
+        let resources = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let directory = custom_helpcode_directory(resources.path());
+        fs::create_dir_all(directory.parent().unwrap()).unwrap();
+        fs::write(outside.path().join("mine.txt"), "你=ab\n").unwrap();
+        symlink(outside.path(), &directory).unwrap();
+
+        assert_eq!(custom_helpcode_path(resources.path(), "custom/mine"), None);
     }
 }
