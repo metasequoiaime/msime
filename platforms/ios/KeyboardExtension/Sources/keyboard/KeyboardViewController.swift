@@ -670,6 +670,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateKeyboardLayout()
   }
 
+  /// A key in the nine-key sidebar: text only, on the sidebar's translucent fill. The fill, outline and shadow decorateKey gives a grid key are all removed - a shadow left under a clear key draws as a grey block offset from its title.
+  private static func drawBareInSidebar(_ button: UIButton) {
+    button.configuration?.background.backgroundColor = .clear
+    button.configuration?.background.customView = nil
+    button.configuration?.background.strokeWidth = 0
+    button.layer.shadowOpacity = 0
+  }
+
   private func makeNineKeyLayout() -> UIView {
     nineKeyContainer.axis = .horizontal
     nineKeyContainer.spacing = 6
@@ -683,8 +691,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       let button = makeKey(title: symbol, accessibilityLabel: "符号 \(symbol)") { [weak self] in
         self?.handleSymbol(symbol)
       }
-      button.configuration?.background.backgroundColor = .clear
-      button.configuration?.background.customView = nil
+      Self.drawBareInSidebar(button)
       punctuationStack.addArrangedSubview(button)
     }
     for content in [punctuationStack, makeSpellingStrip()] {
@@ -1293,10 +1300,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         continue
       }
       let spelling = spellings[index]
-      // Drawn as a key of the theme, like the grid beside it; the accent is kept for the reading and the chosen candidate.
-      var configuration = UIButton.Configuration.filled()
+      // Drawn like the punctuation keys that share the sidebar: bare text in the key colour on the sidebar's own fill. The accent is kept for the reading and the chosen candidate.
+      var configuration = UIButton.Configuration.plain()
       configuration.title = spelling
-      configuration.background.backgroundColor = KeyboardTheme.current.keyBackground
+      configuration.titleLineBreakMode = .byClipping
       configuration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 2, bottom: 6, trailing: 2)
       configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
         var attributes = attributes
@@ -1305,6 +1312,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       }
       configuration.baseForegroundColor = KeyboardTheme.current.keyForeground
       button.configuration = configuration
+      Self.drawBareInSidebar(button)
       button.tag = index
       button.isHidden = false
       button.accessibilityLabel = "选择拼音 \(spelling)"
