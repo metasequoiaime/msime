@@ -6,9 +6,22 @@
 NSNotificationName const MSIMEVoiceProviderSettingsDidChangeNotification = @"MSIMEClientVoiceProviderSettingsDidChange";
 #import <Security/Security.h>
 #import "../core/WindowPresentation.h"
+#include <sys/stat.h>
 
 namespace
 {
+bool IsRegularDirectory(NSString *path)
+{
+    struct stat status = {};
+    return lstat(path.fileSystemRepresentation, &status) == 0 && S_ISDIR(status.st_mode);
+}
+
+bool IsRegularFile(NSString *path)
+{
+    struct stat status = {};
+    return lstat(path.fileSystemRepresentation, &status) == 0 && S_ISREG(status.st_mode);
+}
+
 NSArray<NSDictionary<NSString *, NSString *> *> *ProviderSpecs()
 {
     static NSArray<NSDictionary<NSString *, NSString *> *> *specs;
@@ -256,10 +269,8 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
     if ([self.provider isEqualToString:@"local"])
     {
         // An installed model directory, which the model installer marks complete by writing msime-model.json last and which runs in the msime-voice-local helper.
-        BOOL directory = NO;
-        NSFileManager *files = NSFileManager.defaultManager;
-        if (![files fileExistsAtPath:self.modelPath isDirectory:&directory] || !directory ||
-            ![files fileExistsAtPath:[self.modelPath stringByAppendingPathComponent:@"msime-model.json"]])
+        NSString *manifest = [self.modelPath stringByAppendingPathComponent:@"msime-model.json"];
+        if (!IsRegularDirectory(self.modelPath) || !IsRegularFile(manifest))
             message = @"请选择已下载的本地语音模型目录。";
     }
     else if (![MSIMEVoiceASRProviderIDs() containsObject:self.provider])

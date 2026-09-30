@@ -78,6 +78,26 @@ int main()
         settings.modelPath = path;
         Require([settings validate:nil], "local mode requires unused cloud credentials");
         [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
+        NSString *external = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+        Require([[NSFileManager defaultManager] createDirectoryAtPath:external withIntermediateDirectories:NO attributes:nil error:nil],
+                "external model directory creation failed");
+        Require([@"{}" writeToFile:[external stringByAppendingPathComponent:@"msime-model.json"] atomically:YES
+                          encoding:NSUTF8StringEncoding error:nil], "external manifest creation failed");
+        NSString *linked = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+        Require([[NSFileManager defaultManager] createSymbolicLinkAtPath:linked withDestinationPath:external error:nil],
+                "linked model directory creation failed");
+        settings.modelPath = linked;
+        Require(![settings validate:nil], "symlinked model directory accepted");
+        [[NSFileManager defaultManager] removeItemAtPath:linked error:nil];
+        Require([[NSFileManager defaultManager] createDirectoryAtPath:linked withIntermediateDirectories:NO attributes:nil error:nil],
+                "model directory creation failed");
+        Require([[NSFileManager defaultManager] createSymbolicLinkAtPath:[linked stringByAppendingPathComponent:@"msime-model.json"]
+                                                       withDestinationPath:[external stringByAppendingPathComponent:@"msime-model.json"] error:nil],
+                "linked manifest creation failed");
+        settings.modelPath = linked;
+        Require(![settings validate:nil], "symlinked model manifest accepted");
+        [[NSFileManager defaultManager] removeItemAtPath:linked error:nil];
+        [[NSFileManager defaultManager] removeItemAtPath:external error:nil];
         settings.provider = @"unknown";
         Require(![settings validate:nil], "unknown provider accepted");
     }
