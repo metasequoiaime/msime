@@ -1,4 +1,5 @@
 import { utf8Length } from "../keyboard/Utf8";
+import { CustomKeyboardSkin, CustomSkinDocument } from "../keyboard/skin/CustomKeyboardSkin";
 
 export type AccountTransportResponse = { status: number; body: string; contentLength?: number };
 export type AccountDownloadResponse = {
@@ -214,6 +215,130 @@ function validResponseText(
   const text = value as string;
   if (trim && text.trim() !== text) return false;
   return [...text.trim()].length >= minimum;
+}
+
+function validSkinDesign(value: unknown): boolean {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const design = value as Action;
+  const fields = [
+    "background",
+    "keyBackground",
+    "keyForeground",
+    "accent",
+    "actionBackground",
+    "cornerRadius",
+    "borderWidth",
+    "shadow",
+    "pattern",
+    "monospaced",
+    "keyShape",
+    "keyMaterial",
+    "keyOpacity",
+    "gradientEnd",
+    "gradientHorizontal",
+    "patternOpacity",
+    "customBorderColor",
+    "photo",
+    "photoShade",
+    "photoPosition",
+  ];
+  if (Object.keys(design).some((field) => !fields.includes(field))) return false;
+  const color = (field: string, allowNull = false): boolean => {
+    const current = design[field];
+    return current === undefined || (allowNull && current === null) ||
+      (typeof current === "number" && safeInteger(current) && current >= 0 && current <= 0xffffff);
+  };
+  const boundedNumber = (field: string, minimum: number, maximum: number, allowNull = false): boolean => {
+    const current = design[field];
+    return current === undefined || (allowNull && current === null) ||
+      (typeof current === "number" && Number.isFinite(current) && current >= minimum && current <= maximum);
+  };
+  if (
+    !["background", "keyBackground", "keyForeground", "accent", "actionBackground"].every((field) => color(field)) ||
+    !boundedNumber("cornerRadius", 0, 20) ||
+    !boundedNumber("borderWidth", 0, 2) ||
+    !boundedNumber("shadow", 0, 0.4) ||
+    !boundedNumber("keyOpacity", 0.25, 1, true) ||
+    !boundedNumber("patternOpacity", 0, 0.5, true) ||
+    !boundedNumber("photoShade", 0, 0.8, true) ||
+    !boundedNumber("photoPosition", 0, 1, true)
+  ) {
+    return false;
+  }
+  const pattern = design.pattern;
+  if (pattern !== undefined && (!safeInteger(pattern) || pattern < 0 || pattern > 3)) return false;
+  if (design.monospaced !== undefined && typeof design.monospaced !== "boolean") return false;
+  if (design.gradientHorizontal !== undefined && typeof design.gradientHorizontal !== "boolean") return false;
+  if (
+    (design.keyShape !== undefined && design.keyShape !== null &&
+      !["rounded", "capsule", "ticket", "pebble"].includes(design.keyShape as string)) ||
+    (design.keyMaterial !== undefined && design.keyMaterial !== null &&
+      !["flat", "raised", "glass", "paper"].includes(design.keyMaterial as string)) ||
+    !color("gradientEnd", true) ||
+    !color("customBorderColor", true)
+  ) {
+    return false;
+  }
+  const photo = design.photo;
+  if (photo !== undefined && photo !== null) {
+    if (typeof photo !== "string") return false;
+    if (CustomKeyboardSkin.from(design as CustomSkinDocument).photoSource() === null) return false;
+  }
+  return true;
+}
+
+function validCommunitySkinResponse(value: unknown, expectedId?: string): boolean {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const skin = value as Action;
+  return (
+    validResourceUuid(skin.id) &&
+    (expectedId === undefined || skin.id.toLowerCase() === expectedId.toLowerCase()) &&
+    validResponseText(skin.name, 1, 32, false, true) &&
+    validResponseText(skin.description, 0, 280, true) &&
+    validResponseText(skin.author, 1, 128, false, true) &&
+    validSkinDesign(skin.design) &&
+    safeInteger(skin.downloads) &&
+    skin.downloads >= 0 &&
+    safeInteger(skin.rating_count) &&
+    skin.rating_count >= 0 &&
+    typeof skin.owned === "boolean" &&
+    safeInteger(skin.my_rating) &&
+    skin.my_rating >= 0 &&
+    skin.my_rating <= 5 &&
+    typeof skin.rating_average === "number" &&
+    Number.isFinite(skin.rating_average) &&
+    skin.rating_average >= 0 &&
+    skin.rating_average <= 5 &&
+    (skin.rating_count !== 0 || skin.rating_average === 0)
+  );
+}
+
+function validateCommunitySkinResponse(path: string, value: unknown): boolean {
+  const listPrefix = "/v1/community/skins?";
+  if (path.startsWith(listPrefix)) {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+    const page = value as Action;
+    if (
+      !Array.isArray(page.skins) ||
+      page.skins.length > 20 ||
+      typeof page.has_more !== "boolean" ||
+      (page.has_more && page.skins.length === 0)
+    ) return false;
+    const ids: string[] = [];
+    for (const item of page.skins as unknown[]) {
+      if (!validCommunitySkinResponse(item)) return false;
+      const id = (item as Action).id as string;
+      if (ids.includes(id.toLowerCase())) return false;
+      ids.push(id.toLowerCase());
+    }
+    return true;
+  }
+  const detailPrefix = "/v1/community/skins/";
+  if (path.startsWith(detailPrefix)) {
+    const id = path.slice(detailPrefix.length);
+    return validResourceUuid(id) && validCommunitySkinResponse(value, id);
+  }
+  return true;
 }
 
 /** The page and detail contracts are decoded by the UI, so validate them at the native boundary. */
@@ -1075,6 +1200,10 @@ export class AccountCloudBridge {
     if (value === null && response.body.length > 0) return error("community_unavailable");
     if (method === "GET" && path.startsWith("/v1/community/resources") &&
         !validateCommunityResourceResponse(path, value)) {
+      return error("community_unavailable");
+    }
+    if (method === "GET" && path.startsWith("/v1/community/skins") &&
+        !validateCommunitySkinResponse(path, value)) {
       return error("community_unavailable");
     }
     return success(value ?? {});

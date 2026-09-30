@@ -7850,6 +7850,60 @@ group("the skin gallery is public to browse and signed in to change", () => {
     });
 });
 
+group("community skin responses are checked before reaching the gallery", () => {
+  const store: AccountSessionStore = {
+    load: () => null,
+    save: () => {},
+    clear: () => {},
+  };
+  const id = "10000000-0000-4000-8000-000000000001";
+  const skin = {
+    id,
+    name: "皮肤",
+    description: "",
+    author: "作者",
+    design: {},
+    downloads: 0,
+    rating_count: 0,
+    rating_average: 0,
+    owned: false,
+    my_rating: 0,
+  };
+  const transport: AccountTransport = {
+    request: async (_method, path) => {
+      if (path.startsWith("/v1/community/skins?")) {
+        return {
+          status: 200,
+          body: JSON.stringify({
+            skins: [{ ...skin, name: "坏\u0000名称" }],
+            has_more: false,
+          }),
+        };
+      }
+      return {
+        status: 200,
+        body: JSON.stringify({ ...skin, rating_average: 6 }),
+      };
+    },
+  };
+  const bridge = new AccountCloudBridge(transport, store);
+  const skins = (action: Record<string, unknown>) =>
+    bridge.handle(JSON.stringify({ operation: "community_skin", ...action }));
+
+  void skins({ community_operation: "list", offset: 0, search: "" }).then((result) => {
+    check(
+      JSON.parse(result).error === "community_unavailable",
+      "a malformed skin list item is refused",
+    );
+  });
+  void skins({ community_operation: "detail", id }).then((result) => {
+    check(
+      JSON.parse(result).error === "community_unavailable",
+      "a malformed skin detail is refused",
+    );
+  });
+});
+
 group("the account assistant answers with a model list and one reply", () => {
   let stored: string | null = null;
   const store: AccountSessionStore = {
