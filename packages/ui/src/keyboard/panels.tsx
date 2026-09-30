@@ -35,6 +35,8 @@ import { keyboardSkinStyles } from "./keyboard-skin-styles";
 import { keyboardRows, nineKeyRows } from "./panel-keyboard-layouts";
 import { CloudDictionaryEntryForm } from "./cloud-dictionary-entry-form";
 import { CloudPanelHeader } from "./cloud-panel-header";
+import { CloudDictionaryKindTabs, cloudDictionaryKinds } from "./cloud-dictionary-kind-tabs";
+import type { CloudDictionaryKind } from "./cloud-dictionary-kind-tabs";
 import {
   clipboardTooltip,
   emojiDisplayName,
@@ -131,7 +133,7 @@ export interface CloudClipboardPanelClient extends PanelClient {
   ): Promise<{ items?: CloudClipboardItem[]; enabled?: boolean }>;
 }
 
-export type CloudDictionaryKind = "pinyin" | "wubi" | "quick" | "english";
+export type { CloudDictionaryKind } from "./cloud-dictionary-kind-tabs";
 export type CloudCandidateKind = CloudDictionaryKind | "jianpin";
 export type CloudRankingMode = "disabled" | "pin" | "halve" | "linear" | "promote";
 export type CloudDictionaryFileFormat = "standard" | "windows" | "hans";
@@ -1981,13 +1983,6 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
   );
 }
 
-const cloudDictionaryKinds: [CloudDictionaryKind, string][] = [
-  ["pinyin", "拼音"],
-  ["wubi", "五笔"],
-  ["quick", "快捷短语"],
-  ["english", "英文"],
-];
-
 export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelClient }) {
   const { confirm, confirmation } = useConfirm();
   const [kind, setKind] = useState<CloudDictionaryKind>("pinyin");
@@ -2185,21 +2180,7 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
         <p className={cloud.dictionaryNote}>
           管理当前账号的云端词条。修改需要 provider 提供登录态和同步服务。
         </p>
-        <div className={cloud.dictionaryKindTabs} role="tablist" aria-label="云词库类型">
-          {cloudDictionaryKinds.map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              role="tab"
-              aria-selected={kind === value}
-              className={cloud.dictionaryKindTab(kind === value)}
-              onClick={() => changeKind(value)}
-              disabled={busy}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <CloudDictionaryKindTabs value={kind} disabled={busy} onChange={changeKind} />
         <div className={cloud.dictionaryToolbar}>
           <label className={`${cloud.dictionaryField} ${cloud.dictionaryDesktopOnlyField}`}>
             词库
@@ -2653,21 +2634,7 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
         onClose={() => void client.close()}
       />
       <div className={cloud.dictionaryBody}>
-        <div className={cloud.dictionaryKindTabs} role="tablist" aria-label="云词库类型">
-          {cloudDictionaryKinds.map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              role="tab"
-              aria-selected={kind === value}
-              className={cloud.dictionaryKindTab(kind === value)}
-              onClick={() => changeKind(value)}
-              disabled={busy}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <CloudDictionaryKindTabs value={kind} disabled={busy} onChange={changeKind} />
         <div className={cloud.dictionaryToolbar}>
           <label className={`${cloud.dictionaryField} ${cloud.dictionaryDesktopOnlyField}`}>
             词库
