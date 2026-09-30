@@ -41,7 +41,7 @@ export function useTouchKeyboardSettingsReset({
     delete next.touch_toolbar;
     setDraft(next);
     setError("");
-    setNotice("屏幕键盘设置已恢复默认，请点击保存设置。");
+    setNotice("屏幕键盘设置已恢复默认。");
   }
 
   return resetTouchKeyboardSettings;

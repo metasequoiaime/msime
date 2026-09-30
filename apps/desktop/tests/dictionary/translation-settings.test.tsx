@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { settingsFormReady, saveSettingsNow } from "../support/settings-form";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import {
@@ -33,7 +34,7 @@ const base: Snapshot = {
 async function mount(preferences: Record<string, unknown> = {}) {
   const snapshot: Snapshot = { ...base, preferences: { ...base.preferences, ...preferences } };
   const mounted = render(<SettingsPage client={{ load: async () => snapshot, save: vi.fn() }} />);
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
   // The translation controls live on the 输入 page; other pages are hidden, and
   // hidden subtrees are absent from the accessibility tree.
   fireEvent.click(screen.getByRole("button", { name: "表达" }));
@@ -132,14 +133,14 @@ describe("the MSIME account translation is an explicit choice", () => {
         }}
       />,
     );
-    await screen.findByRole("button", { name: "保存设置" });
+    await settingsFormReady();
     return save;
   }
   const serviceSelect = () =>
     screen.getByRole("combobox", { name: "候选词翻译服务" }) as HTMLSelectElement;
   const optionValues = () => Array.from(serviceSelect().options).map((option) => option.value);
   async function saveAndRead(save: ReturnType<typeof vi.fn>, call: number) {
-    fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+    saveSettingsNow();
     await waitFor(() => expect(save).toHaveBeenCalledTimes(call + 1));
     return save.mock.calls[call][1] as Preferences;
   }
@@ -169,17 +170,17 @@ describe("the MSIME account translation is an explicit choice", () => {
   );
 
   test.each(["windows", "linux", "macos"])(
-    "%s: undoing a service change leaves nothing unsaved",
+    "%s: undoing a service change leaves nothing to save",
     async (platform) => {
-      await mountOn(platform, {
+      const save = await mountOn(platform, {
         tencent_tmt: { enabled: false, secret_id: "", secret_key: "", region: "ap-guangzhou" },
         niutrans: { enabled: false, app_id: "", apikey: "" },
       });
       fireEvent.change(serviceSelect(), { target: { value: "niutrans" } });
-      expect(screen.getByText("有未保存的修改")).toBeTruthy();
       fireEvent.change(serviceSelect(), { target: { value: "custom" } });
       // The saved document omits translation_account while it is false, so the draft must not grow the key either.
-      await waitFor(() => expect(screen.queryByText("有未保存的修改")).toBeNull());
+      saveSettingsNow();
+      expect(save).not.toHaveBeenCalled();
     },
   );
 
@@ -280,7 +281,7 @@ describe("macOS points at undownloaded Apple translation languages", () => {
         }}
       />,
     );
-    await screen.findByRole("button", { name: "保存设置" });
+    await settingsFormReady();
     // Let the host's answer land, so a hidden hint means hidden and not merely not yet shown.
     await waitFor(() => expect(downloadableLanguages).toHaveBeenCalled());
     await act(async () => {});

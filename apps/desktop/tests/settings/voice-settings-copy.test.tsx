@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { settingsFormReady, saveSettingsNow } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { SettingsPage, type Snapshot } from "@msime/ui";
@@ -161,7 +162,7 @@ async function openVoice(platform: string) {
   render(
     <SettingsPage client={{ load: async () => snapshot, save: vi.fn(), host: host(platform) }} />,
   );
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
   // The token fields are hidden on Linux, where credentials belong to the
   // provider service, so wait on a control both platforms render.
@@ -241,15 +242,15 @@ test("Linux exposes Doubao auth mode without exposing provider credentials", asy
     preferences,
   }));
   render(<SettingsPage client={{ load: async () => linuxSnapshot, save, host: host("linux") }} />);
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
   const mode = (await screen.findByLabelText("豆包鉴权方式")) as HTMLSelectElement;
   expect(mode.value).toBe("api_key");
   expect(screen.queryByLabelText("Doubao API Key")).toBeNull();
   expect(screen.queryByLabelText("Doubao App Key")).toBeNull();
   fireEvent.change(mode, { target: { value: "legacy" } });
-  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
-  await screen.findByText("设置已保存。");
+  saveSettingsNow();
+  await screen.findByText("已保存");
   expect(save.mock.calls[0][1].voice_input.doubao_auth_mode).toBe("legacy");
 });
 
@@ -292,7 +293,7 @@ test("iOS exposes the shared in-app voice action", async () => {
       }}
     />,
   );
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "开始 iOS 语音" }));
   expect(openVoice).toHaveBeenCalledOnce();
 });
@@ -310,7 +311,7 @@ test("iOS handwriting points to the keyboard extension instead of a desktop pane
       }}
     />,
   );
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
   expect(screen.getByText("iOS 键盘手写")).toBeTruthy();
   expect(screen.getByText(/切换到“手写”输入方案/)).toBeTruthy();
   expect(screen.queryByText("打开手写识别板")).toBeNull();

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { SettingsPage, type DictionaryEntry, type Snapshot } from "@msime/ui";
@@ -52,7 +53,7 @@ async function openDictionary(dictionary: ReturnType<typeof dictionaryClient>) {
       client={{ load: async () => snapshot, save: vi.fn(), dictionary: dictionary as never }}
     />,
   );
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
   // The page lists on demand rather than on open.
   fireEvent.click(await screen.findByRole("button", { name: "查询" }));
@@ -141,7 +142,7 @@ test("Android personal dictionary JSON import previews and queues only after con
       client={{ load: async () => snapshot, save: vi.fn(), dictionary: dictionary as never }}
     />,
   );
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
 
   const file = new File(
@@ -185,7 +186,7 @@ test("personal dictionary import ignores a response from a replaced dictionary c
       client={{ load: async () => snapshot, save: vi.fn(), dictionary: oldDictionary as never }}
     />,
   );
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
   const file = new File(
     [

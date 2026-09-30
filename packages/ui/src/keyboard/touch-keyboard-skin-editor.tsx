@@ -497,7 +497,7 @@ export function TouchKeyboardSkinEditor({
         <div>
           <div className="section-title">
             自定义皮肤
-            <small>Apple 同款当前设计字段；修改后使用页面底部“保存设置”写入共享配置</small>
+            <small>Apple 同款当前设计字段；修改后自动写入共享配置</small>
           </div>
         </div>
         <div className={skin.editorHeadingActions}>

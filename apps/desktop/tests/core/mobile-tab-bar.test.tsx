@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { SettingsPage, type HostCapabilities, type Snapshot } from "@msime/ui";
@@ -49,7 +50,7 @@ const tabs = ["设置", "社区", "统计", "我的"];
 // four tabs of an icon over a word and nothing else.
 test("the phone tab bar is the source's four tabs, each an icon over a word", async () => {
   mount();
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
 
   const bar = screen.getByRole("navigation", { name: "主要功能" });
   const buttons = [...bar.querySelectorAll("button")];
@@ -73,7 +74,7 @@ test("the phone tab bar is the source's four tabs, each an icon over a word", as
 // later is covered without anyone remembering to come back here.
 test("every page the sidebar reaches is reachable on a phone", async () => {
   mount();
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
 
   const sidebar = screen.getByRole("navigation", { name: "设置分类" });
   const reachable = new Set(tabs);
@@ -97,7 +98,7 @@ test("every page the sidebar reaches is reachable on a phone", async () => {
 // everything its navigation stack pushes.
 test("the 设置 tab stays lit on the pages reached from it", async () => {
   mount();
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
 
   const bar = screen.getByRole("navigation", { name: "主要功能" });
   const home = within(bar).getByRole("button", { name: "设置" });
@@ -120,7 +121,7 @@ test("the 设置 tab stays lit on the pages reached from it", async () => {
 // keyboard tab's leaf, so returning after visiting another tab always reset it to 首页.
 test("each phone tab remembers where the user left it", async () => {
   mount();
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
 
   fireEvent.click(screen.getByRole("button", { name: /全部设置/ }));
   const list = screen.getByRole("region", { name: "全部设置" });

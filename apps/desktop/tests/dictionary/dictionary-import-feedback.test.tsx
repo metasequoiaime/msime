@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { settingsFormReady } from "../support/settings-form";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import {
@@ -76,7 +77,7 @@ async function importFile(
       client={{ load: async () => snapshot, save: vi.fn(), dictionary: dictionary as never }}
     />,
   );
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
   const input = document.querySelector('input[type="file"]') as HTMLInputElement;
   Object.defineProperty(input, "files", { value: [file] });

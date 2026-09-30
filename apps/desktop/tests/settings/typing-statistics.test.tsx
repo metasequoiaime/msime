@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { answerConfirm } from "../support/confirm";
@@ -80,7 +81,7 @@ function deferred<T>() {
 
 test("desktop settings omit typing statistics without the Android capability", async () => {
   render(<SettingsPage client={baseClient()} />);
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
   expect(screen.queryByRole("button", { name: "统计" })).toBeNull();
 });
 
@@ -93,7 +94,7 @@ test("statistics capability provides 7 day, 30 day, cumulative and selected-day 
   render(<SettingsPage client={{ ...baseClient(), typingStatistics }} />);
   fireEvent.click(await screen.findByRole("button", { name: "统计" }));
   expect((await screen.findByLabelText("当前范围输入字符数")).textContent).toBe("10");
-  expect(screen.queryByRole("button", { name: "保存设置" })).toBeNull();
+  expect(screen.queryByRole("form", { name: "设置" })).toBeNull();
   expect(screen.queryByRole("button", { name: "重新读取" })).toBeNull();
 
   fireEvent.click(screen.getByRole("button", { name: "30 天" }));

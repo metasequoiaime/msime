@@ -12,7 +12,7 @@ export function VoiceModelMirrorSection({ value, onChange }: VoiceModelMirrorSec
     <GroupList title="模型下载">
       <Row
         title="模型下载镜像"
-        description="可选。以 https:// 开头的加速前缀，下载地址为“镜像/原始地址”；留空直接从 GitHub 下载。保存设置后生效"
+        description="可选。以 https:// 开头的加速前缀，下载地址为“镜像/原始地址”；留空直接从 GitHub 下载"
       >
         <input
           aria-label="模型下载镜像"

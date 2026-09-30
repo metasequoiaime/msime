@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { SettingsPage, type Snapshot } from "@msime/ui";
@@ -37,7 +38,7 @@ async function openVoice(client: Record<string, unknown>) {
       }}
     />,
   );
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
   return screen.findByLabelText("本地模型目录");
 }

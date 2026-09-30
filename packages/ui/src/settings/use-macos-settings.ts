@@ -20,6 +20,7 @@ export function useMacosSettings({ client, macos, setError }: UseMacosSettingsOp
   );
   const [onDeviceDownloadable, setOnDeviceDownloadable] = useState<string[]>([]);
   const [shuangpinKeymap, setShuangpinKeymap] = useState<boolean>();
+  const [savedShuangpinKeymap, setSavedShuangpinKeymap] = useState<boolean>();
   const [wubiAutoCommitUnique, setWubiAutoCommitUnique] = useState<boolean>();
   const [savedWubiAutoCommitUnique, setSavedWubiAutoCommitUnique] = useState<boolean>();
 
@@ -74,13 +75,16 @@ export function useMacosSettings({ client, macos, setError }: UseMacosSettingsOp
   useEffect(() => {
     if (!macos || !client.loadMacosShuangpinKeymap) {
       setShuangpinKeymap(undefined);
+      setSavedShuangpinKeymap(undefined);
       return;
     }
     let active = true;
     void client
       .loadMacosShuangpinKeymap()
       .then((value) => {
-        if (active) setShuangpinKeymap(value);
+        if (!active) return;
+        setShuangpinKeymap(value);
+        setSavedShuangpinKeymap(value);
       })
       .catch(() => {
         if (active) setError("无法读取双拼键位提示设置，请重试。");
@@ -115,8 +119,10 @@ export function useMacosSettings({ client, macos, setError }: UseMacosSettingsOp
   return {
     inputSourceStartup,
     onDeviceDownloadable,
+    savedShuangpinKeymap,
     savedWubiAutoCommitUnique,
     setInputSourceStartup,
+    setSavedShuangpinKeymap,
     setSavedWubiAutoCommitUnique,
     setShuangpinKeymap,
     setWubiAutoCommitUnique,

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { settingsFormReady } from "../support/settings-form";
 import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -672,7 +673,7 @@ test("settings expose My only with a personal capability and omit preference act
   const without = render(
     <SettingsPage client={{ load: async () => preferences, save: vi.fn() }} />,
   );
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
   expect(screen.queryByRole("button", { name: "账户与同步" })).toBeNull();
   without.unmount();
 
@@ -684,7 +685,7 @@ test("settings expose My only with a personal capability and omit preference act
   );
   expect(await screen.findByRole("heading", { name: "账户与同步" })).not.toBeNull();
   await screen.findByText("欢迎来到水杉");
-  expect(screen.queryByRole("button", { name: "保存设置" })).toBeNull();
+  expect(screen.queryByRole("form", { name: "设置" })).toBeNull();
   expect(screen.queryByRole("button", { name: "重新读取" })).toBeNull();
 });
 

@@ -130,9 +130,9 @@ export const serviceRowDanger =
 export const serviceConfirmation =
   "mt-1 flex basis-full flex-col gap-2.5 rounded-[9px] border border-danger bg-raised p-3 [&>p]:m-0 [&>p]:leading-relaxed [&>p]:text-secondary [&>div]:flex [&>div]:flex-wrap [&>div]:gap-2 [&_.danger]:rounded-lg [&_.danger]:border [&_.danger]:border-danger [&_.danger]:bg-danger [&_.danger]:px-3 [&_.danger]:py-[7px] [&_.danger]:text-white";
 
-// Only 保存设置 is the primary button; a bare `[&>button]` also painted 恢复默认设置 and 重新读取 green over their `secondary` look. The status span takes the free space, so the secondary actions sit left and 保存设置 right, and `secondary`'s top margin is cleared so the row lines up.
+// Settings save themselves, so the row has no primary button: 恢复默认设置 sits left, and the save status takes the free space so it and the 重试 / 重新读取 shown after a failure sit right. `secondary`'s top margin is cleared so the row lines up.
 export const settingsActions =
-  "flex flex-wrap items-center gap-3 [&>span]:ml-auto [&>span]:text-xs [&>span]:text-muted [&>.secondary]:mt-0 [&>button[type=submit]]:rounded-lg [&>button[type=submit]]:border [&>button[type=submit]]:border-accent-soft-border [&>button[type=submit]]:bg-accent-strong [&>button[type=submit]]:px-[18px] [&>button[type=submit]]:py-[7px] [&>button[type=submit]]:text-white";
+  "flex flex-wrap items-center gap-3 [&>span]:ml-auto [&>span]:text-xs [&>span]:text-muted [&>span[role=alert]]:text-danger [&>.secondary]:mt-0";
 export const settingsWarning = "mt-1.5 mb-0 text-[13px] leading-normal text-[#a2543a]";
 
 // ---- clipboard, quick phrases, personal dictionary ----

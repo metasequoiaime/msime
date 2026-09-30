@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import {
@@ -58,7 +59,7 @@ async function openAi(platform: string) {
       client={{ load: async () => snapshot, save: vi.fn(), host: { platform } as never }}
     />,
   );
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "表达" }));
   fireEvent.click(screen.getByRole("button", { name: "AI 辅助" }));
 }
@@ -113,7 +114,7 @@ test("Linux writes the AI token to the provider file, bound to the current setti
       }}
     />,
   );
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "表达" }));
   fireEvent.click(screen.getByRole("button", { name: "AI 辅助" }));
   const group = screen.getByRole("group", { name: "AI 凭据" });
@@ -166,7 +167,7 @@ test("Linux reports a provider file it cannot use", async () => {
       }}
     />,
   );
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "表达" }));
   fireEvent.click(screen.getByRole("button", { name: "AI 辅助" }));
   await screen.findByText(/现有 ai-provider.json 无效/);
@@ -213,7 +214,7 @@ test("Linux lets the user reveal the AI token before saving it", async () => {
       }}
     />,
   );
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "表达" }));
   fireEvent.click(screen.getByRole("button", { name: "AI 辅助" }));
   await screen.findByRole("group", { name: "AI 凭据" });

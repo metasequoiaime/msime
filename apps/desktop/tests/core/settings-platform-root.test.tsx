@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { SettingsPage, type HostCapabilities, type Snapshot } from "@msime/ui";
@@ -32,7 +33,7 @@ async function shellFor(host: Partial<HostCapabilities> | undefined) {
       }}
     />,
   );
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
   return container.querySelector("[data-settings-shell]")!;
 }
 

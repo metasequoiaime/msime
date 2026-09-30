@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import {
@@ -72,7 +73,7 @@ async function openVoice() {
       client={{ load: async () => snapshot, save: vi.fn(), host: { platform: "windows" } as never }}
     />,
   );
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
   return await screen.findByLabelText("润色方案");
 }
@@ -119,7 +120,7 @@ test("the AI prompt slot selector is no longer Linux-only", async () => {
       client={{ load: async () => snapshot, save: vi.fn(), host: { platform: "windows" } as never }}
     />,
   );
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "表达" }));
   fireEvent.click(screen.getByRole("button", { name: "AI 辅助" }));
   // Windows users could author three custom prompts but had no control that

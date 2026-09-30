@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { settingsFormReady, saveSettingsNow } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { SettingsPage, type Snapshot } from "@msime/ui";
@@ -34,9 +35,9 @@ test("inline preedit saves without disturbing the candidate-window preedit", asy
     .fn()
     .mockImplementation(async (_revision, preferences) => ({ ...base, revision: 10, preferences }));
   render(<SettingsPage client={{ load: async () => base, save }} />);
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
   fireEvent.change(screen.getByLabelText("行内预编辑"), { target: { value: "pinyin" } });
-  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  saveSettingsNow();
   await vi.waitFor(() => expect(save).toHaveBeenCalled());
   const saved = save.mock.calls[0][1];
   expect(saved.tsf_preedit_style).toBe("pinyin");

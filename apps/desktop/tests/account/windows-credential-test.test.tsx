@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { SettingsPage, type Snapshot } from "@msime/ui";
@@ -48,7 +49,7 @@ test.each(["windows", "macos"])(
         }}
       />,
     );
-    await screen.findByRole("button", { name: "保存设置" });
+    await settingsFormReady();
     expect(probe).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "表达" }));
     fireEvent.click(screen.getByRole("button", { name: "AI 辅助" }));

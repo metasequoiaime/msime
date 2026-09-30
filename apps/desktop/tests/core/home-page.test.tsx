@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { HomePage, SettingsPage, type HostCapabilities, type Snapshot } from "@msime/ui";
@@ -183,7 +184,7 @@ test("opens Android on home and preserves the appearance fallback without home c
 
   cleanup();
   render(<SettingsPage client={{ load: async () => initial, save: vi.fn() }} />);
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
   expect(screen.getByRole("button", { name: "候选窗口" }).getAttribute("aria-current")).toBe(
     "page",
   );

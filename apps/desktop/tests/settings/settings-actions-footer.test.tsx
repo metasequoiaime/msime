@@ -1,97 +1,74 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { SettingsActionsFooter } from "@msime/ui";
+import { SettingsActionsFooter, type SettingsActionsFooterProps } from "@msime/ui";
 
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
 });
 
-test("renders dirty state and dispatches restore and save actions", () => {
-  const onRestoreDefaults = vi.fn();
-  const onSave = vi.fn();
-  render(
-    <form
-      onSubmit={(event) => {
-        event.preventDefault();
-        onSave();
-      }}
-    >
-      <SettingsActionsFooter
-        busy={false}
-        dirty
-        canSave
-        showRestoreDefaults
-        onRestoreDefaults={onRestoreDefaults}
-      />
-    </form>,
-  );
-
-  expect(screen.getByText("有未保存的修改")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "恢复默认设置" }));
-  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
-  expect(onRestoreDefaults).toHaveBeenCalledTimes(1);
-  expect(onSave).toHaveBeenCalledTimes(1);
-});
-
-test("draws 重新读取 in the action row and only 保存设置 as the primary button", () => {
-  const onReload = vi.fn();
+function renderFooter(props: Partial<SettingsActionsFooterProps> = {}) {
   render(
     <SettingsActionsFooter
       busy={false}
-      dirty
-      canSave
+      saveState="idle"
+      saveError=""
       showRestoreDefaults
       onRestoreDefaults={vi.fn()}
-      onReload={onReload}
+      onRetry={vi.fn()}
+      {...props}
     />,
   );
-  const footer = screen.getByRole("contentinfo");
-  // Secondary actions first, then the status that takes the free space, then 保存设置.
+  return screen.getByRole("contentinfo");
+}
+
+test("has no save button and reports the automatic save quietly", () => {
+  const onRestoreDefaults = vi.fn();
+  const footer = renderFooter({ saveState: "saving", onRestoreDefaults });
   expect(Array.from(footer.children).map((child) => child.textContent)).toEqual([
-    "重新读取",
     "恢复默认设置",
-    "有未保存的修改",
-    "保存设置",
+    "正在保存…",
   ]);
+  expect(footer.querySelector("button[type=submit]")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "恢复默认设置" }));
+  expect(onRestoreDefaults).toHaveBeenCalledOnce();
+});
+
+test("shows 已保存 after a save and nothing while idle", () => {
+  renderFooter({ saveState: "saved" });
+  expect(screen.getByText("已保存")).toBeTruthy();
+  cleanup();
+  const footer = renderFooter();
+  expect(footer.querySelector("span")?.textContent).toBe("");
+});
+
+test("a failed save shows its reason with 重试 and 重新读取", () => {
+  const onRetry = vi.fn();
+  const onReload = vi.fn();
+  const footer = renderFooter({
+    saveState: "failed",
+    saveError: "磁盘已满",
+    onRetry,
+    onReload,
+  });
+  expect(screen.getByRole("alert").textContent).toBe("磁盘已满");
+  expect(Array.from(footer.children).map((child) => child.textContent)).toEqual([
+    "恢复默认设置",
+    "磁盘已满",
+    "重试",
+    "重新读取",
+  ]);
+  fireEvent.click(screen.getByRole("button", { name: "重试" }));
   fireEvent.click(screen.getByRole("button", { name: "重新读取" }));
-  expect(onReload).toHaveBeenCalledTimes(1);
-  // A bare `[&>button]` fill painted the secondary actions green over their `secondary` look.
-  expect(footer.className).not.toMatch(/\[&>button\]:bg-/);
-  expect(footer.className).toContain("[&>button[type=submit]]:bg-accent-strong");
-  for (const name of ["重新读取", "恢复默认设置"])
+  expect(onRetry).toHaveBeenCalledOnce();
+  expect(onReload).toHaveBeenCalledOnce();
+  for (const name of ["重试", "重新读取", "恢复默认设置"])
     expect(screen.getByRole("button", { name }).className).toBe("secondary");
 });
 
-test("leaves 重新读取 out when the page cannot reload", () => {
-  render(
-    <SettingsActionsFooter
-      busy={false}
-      dirty={false}
-      canSave
-      showRestoreDefaults
-      onRestoreDefaults={vi.fn()}
-    />,
-  );
-  expect(screen.queryByRole("button", { name: "重新读取" })).toBeNull();
-});
-
-test("disables actions while busy or when there are no valid edits", () => {
-  render(
-    <SettingsActionsFooter
-      busy
-      dirty={false}
-      canSave={false}
-      showRestoreDefaults
-      onRestoreDefaults={vi.fn()}
-    />,
-  );
-
-  expect((screen.getByRole("button", { name: "恢复默认设置" }) as HTMLButtonElement).disabled).toBe(
-    true,
-  );
-  expect((screen.getByRole("button", { name: "处理中…" }) as HTMLButtonElement).disabled).toBe(
-    true,
-  );
+test("disables the actions while busy", () => {
+  renderFooter({ busy: true, saveState: "failed", saveError: "x", onReload: vi.fn() });
+  for (const name of ["恢复默认设置", "重试", "重新读取"])
+    expect((screen.getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(true);
 });

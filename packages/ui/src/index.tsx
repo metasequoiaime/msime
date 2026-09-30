@@ -410,7 +410,7 @@ import { HomePage, MoreSettingsPage, type HomePageActions } from "./keyboard/hom
 import { useSettingsPlatform } from "./theme/settings-platform";
 import { SettingsFormContext } from "./settings/settings-form-context";
 import { createSettingsReloadAction } from "./settings/settings-reload-action";
-import { createSettingsSaveAction } from "./settings/settings-save-action";
+import { deepEqual } from "./core/deep-equal";
 import { createSettingsPageSelection } from "./settings/settings-page-selection";
 import { createSettingsDraftActions } from "./settings/settings-draft-actions";
 import { createHelpcodeSettingsActions } from "./settings/helpcode-settings-actions";
@@ -648,6 +648,7 @@ export {
   SettingsActionsFooter,
   type SettingsActionsFooterProps,
 } from "./settings/settings-actions-footer";
+export type { SettingsSaveState } from "./settings/use-settings-persistence";
 export { AboutHeroSection, type AboutHeroSectionProps } from "./settings/about-hero-section";
 export { SkinPlatformNotice, type SkinPlatformNoticeProps } from "./settings/skin-platform-notice";
 export { ThemeCarousel, type ThemeCarouselProps } from "./settings/theme-carousel";
@@ -1791,11 +1792,13 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     inputSourceStartup,
     onDeviceDownloadable,
     setInputSourceStartup,
+    setSavedShuangpinKeymap,
     setSavedWubiAutoCommitUnique,
     setShuangpinKeymap,
     setWubiAutoCommitUnique,
     shuangpinKeymap: macosShuangpinKeymap,
     wubiAutoCommitUnique: macosWubiAutoCommitUnique,
+    savedShuangpinKeymap: savedMacosShuangpinKeymap,
     savedWubiAutoCommitUnique: savedMacosWubiAutoCommitUnique,
   } = useMacosSettings({ client, macos: macosPlatform, setError });
   const restoredMobilePage =
@@ -1941,7 +1944,15 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     confirm,
   });
 
-  const { draftRef, snapshotRef, reload, save } = useSettingsPersistence({
+  const {
+    draftRef,
+    snapshotRef,
+    reload,
+    flush: retrySave,
+    saveState,
+    saveError,
+    loadFailed,
+  } = useSettingsPersistence({
     client,
     mobile: mobilePlatform,
     macos: macosPlatform,
@@ -1955,8 +1966,11 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     setNotice,
     setRecoveredBackup,
     macosShuangpinKeymap,
+    savedMacosShuangpinKeymap,
     saveMacosShuangpinKeymap: client.saveMacosShuangpinKeymap,
+    setSavedMacosShuangpinKeymap: setSavedShuangpinKeymap,
     macosWubiAutoCommitUnique,
+    savedMacosWubiAutoCommitUnique,
     saveMacosWubiAutoCommitUnique: client.saveMacosWubiAutoCommitUnique,
     setSavedMacosWubiAutoCommitUnique: setSavedWubiAutoCommitUnique,
   });
@@ -2000,8 +2014,10 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
 
   const openPanel = useOpenPanel({ setError });
 
+  // Only a failed save leaves changes unsaved for long; 重新读取 then asks before discarding them.
   const dirty =
-    (!!draft && !!snapshot && JSON.stringify(draft) !== JSON.stringify(snapshot.preferences)) ||
+    (!!draft && !!snapshot && !deepEqual(draft, snapshot.preferences)) ||
+    (macosShuangpinKeymap !== undefined && macosShuangpinKeymap !== savedMacosShuangpinKeymap) ||
     (macosWubiAutoCommitUnique !== undefined &&
       macosWubiAutoCommitUnique !== savedMacosWubiAutoCommitUnique);
   const { ai, storedAiCredential } = aiSettingsPreferences(
@@ -2347,7 +2363,10 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     submitFeedback,
     saveCustomTranslations,
     reload,
-    save,
+    retrySave,
+    saveState,
+    saveError,
+    loadFailed,
     saveMobileKeyboardFeedback,
     chooseDataDirectory,
     previewMobileKeyboardHaptics,
@@ -2512,7 +2531,10 @@ export function SettingsPage(props: SettingsPageProps) {
     communityDestination,
     windowMaximized,
     reload,
-    save,
+    retrySave,
+    saveState,
+    saveError,
+    loadFailed,
     openExternalUrl,
     platformIssuesUrl,
     openPanel,
@@ -2542,7 +2564,6 @@ export function SettingsPage(props: SettingsPageProps) {
     setDraft: model.setDraft,
   });
   const reloadSettings = createSettingsReloadAction({ dirty, reload, confirm });
-  const saveSettings = createSettingsSaveAction({ save });
   const { onOpenPage } = createSettingsPageSelection({ selectPage });
   const statusActions = createSettingsStatusActions({
     recoverPreferences,
@@ -2886,7 +2907,7 @@ export function SettingsPage(props: SettingsPageProps) {
               />
             )}
             {draft && isSettingsFormPage(page) && (
-              <SettingsFormFrame showReload={false} busy={busy} onSubmit={saveSettings}>
+              <SettingsFormFrame showReload={false} busy={busy}>
                 <SettingsFormContext.Provider value={{ ...model, draft }}>
                   <SkinSettingsPage />
                   <AppearanceSettingsPage />
@@ -2930,14 +2951,21 @@ export function SettingsPage(props: SettingsPageProps) {
                 <SettingsFormFooter
                   draft={draft}
                   busy={busy}
-                  dirty={dirty}
+                  saveState={saveState}
+                  saveError={saveError}
                   showRestoreDefaults={Boolean(client.loadDefaultPreferences)}
                   onRestoreDefaults={onRestoreDefaults}
-                  onReload={canReloadSettingsPage(page) ? () => void reloadSettings() : undefined}
+                  onRetry={() => void retrySave()}
+                  // Settings save themselves, so reading them again is only a way out of a failure: a save or load that failed, or an error the page is showing.
+                  onReload={
+                    canReloadSettingsPage(page) && (saveState === "failed" || loadFailed || !!error)
+                      ? () => void reloadSettings()
+                      : undefined
+                  }
                 />
               </SettingsFormFrame>
             )}
-            {/* With the form on screen 重新读取 sits in its action row; without it (a page with no form, or settings that failed to load) this is the only way back. */}
+            {/* With the form on screen 重新读取 sits in its action row once loading or saving failed; without it (a page with no form, or settings that failed to load) this is the only way back. */}
             {canReloadSettingsPage(page) && !(draft && isSettingsFormPage(page)) && (
               <button className="secondary" disabled={busy} onClick={() => void reloadSettings()}>
                 重新读取

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { settingsFormReady, saveSettingsNow } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import {
@@ -395,7 +396,7 @@ test("the settings page picks a model and a mirror into the saved preferences", 
       }}
     />,
   );
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
 
   const card = within(await screen.findByRole("listitem", { name: "快速整句" }));
@@ -406,7 +407,7 @@ test("the settings page picks a model and a mirror into the saved preferences", 
   fireEvent.change(screen.getByLabelText("模型下载镜像"), {
     target: { value: "https://ghproxy.example.com" },
   });
-  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  saveSettingsNow();
 
   await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
   const saved = save.mock.calls[0]?.[1]?.voice_input;

@@ -1,8 +1,7 @@
-import type { FormEventHandler, ReactNode } from "react";
+import type { ReactNode } from "react";
 
 export interface SettingsFormFrameProps {
   children: ReactNode;
-  onSubmit: FormEventHandler<HTMLFormElement>;
   showReload: boolean;
   busy: boolean;
   onReload?: () => void | Promise<void>;
@@ -11,14 +10,16 @@ export interface SettingsFormFrameProps {
 /** Owns the shared settings form boundary and its reload control. */
 export function SettingsFormFrame({
   children,
-  onSubmit,
   showReload,
   busy,
   onReload,
 }: SettingsFormFrameProps) {
   return (
     <>
-      <form onSubmit={onSubmit}>{children}</form>
+      {/* Changes save themselves, so submitting does nothing: Enter in a lone text field would otherwise submit and navigate the page. */}
+      <form aria-label="设置" onSubmit={(event) => event.preventDefault()}>
+        {children}
+      </form>
       {showReload && onReload && (
         <button type="button" className="secondary" disabled={busy} onClick={onReload}>
           重新读取

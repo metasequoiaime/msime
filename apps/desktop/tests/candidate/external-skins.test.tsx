@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { settingsFormReady, saveSettingsNow } from "../support/settings-form";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { ComponentProps } from "react";
 import {
@@ -660,8 +661,8 @@ test("choosing a package makes it the custom theme's skin, and the 自定义 car
   expect(within(custom).getByRole("switch").getAttribute("aria-checked")).toBe("false");
   expect(within(custom).queryByText("使用中")).toBeNull();
   expect(within(custom).getByText("外部皮肤、候选颜色与自定义键盘")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
-  await screen.findByText("设置已保存。");
+  saveSettingsNow();
+  await screen.findByText("已保存");
   expect(save).toHaveBeenLastCalledWith(3, {
     ...initial.preferences,
     global_theme: "custom",
@@ -670,7 +671,7 @@ test("choosing a package makes it the custom theme's skin, and the 自定义 car
   fireEvent.click(within(custom).getByRole("switch"));
   expect(within(custom).getByRole("switch").getAttribute("aria-checked")).toBe("true");
   expect(within(card).getByRole("switch").getAttribute("aria-checked")).toBe("false");
-  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  saveSettingsNow();
   await waitFor(() =>
     expect(save).toHaveBeenLastCalledWith(4, {
       ...initial.preferences,
@@ -732,7 +733,7 @@ test("external selection enters the revisioned draft; preview toggles never save
   fireEvent.click(within(card).getByRole("switch"));
   expect(within(card).getByRole("switch").getAttribute("aria-checked")).toBe("true");
   expect(save).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  saveSettingsNow();
   expect(save).toHaveBeenCalledWith(
     3,
     expect.objectContaining({
@@ -1055,7 +1056,7 @@ test("the Windows skin page keeps the toolbar preview", async () => {
       client={{ load: async () => initial, save: vi.fn(), host: { platform: "windows" } as never }}
     />,
   );
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
   expect(
     screen.getByText("选择候选窗和悬浮工具栏使用的主题；明暗预览仅影响当前卡片，不修改设置。"),
   ).toBeTruthy();

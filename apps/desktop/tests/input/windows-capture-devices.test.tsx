@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { settingsFormReady, saveSettingsNow } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { SettingsPage, type Snapshot } from "@msime/ui";
@@ -42,7 +43,7 @@ test("Windows saves endpoint identity across duplicate labels and enumeration re
       }}
     />,
   );
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
   const backend = await screen.findByLabelText("录音后端");
   expect(within(backend).queryByRole("option", { name: "PulseAudio" })).toBeNull();
@@ -58,8 +59,8 @@ test("Windows saves endpoint identity across duplicate labels and enumeration re
   );
   fireEvent.change(screen.getByLabelText("可用录音设备"), { target: { value: "0" } });
   expect((screen.getByLabelText("麦克风设备") as HTMLInputElement).value).toBe(b.id);
-  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
-  await screen.findByText("设置已保存。");
+  saveSettingsNow();
+  await screen.findByText("已保存");
   expect(save.mock.calls[0][1].voice_input).toMatchObject({
     capture_backend: "windows",
     capture_device: b.id,
@@ -84,7 +85,7 @@ test("missing or legacy Windows devices are retained until the user chooses a de
       }}
     />,
   );
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
   fireEvent.click(await screen.findByRole("button", { name: "刷新设备" }));
   await screen.findByText(/未发现设备/);

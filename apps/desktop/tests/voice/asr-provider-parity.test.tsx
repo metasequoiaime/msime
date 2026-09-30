@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ASR_PROVIDER_DEFAULTS, SettingsPage, asrProviderUpdate, type Snapshot } from "@msime/ui";
@@ -71,7 +72,7 @@ test("iOS voice settings list the new services and their preset models", async (
       client={{ load: async () => snapshot, save: vi.fn(), host: { platform: "ios" } as never }}
     />,
   );
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
 
   const select = screen.getByLabelText("识别服务") as HTMLSelectElement;

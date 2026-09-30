@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { settingsFormReady, saveSettingsNow } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { SettingsPage, type Snapshot } from "@msime/ui";
@@ -43,7 +44,7 @@ async function moreSettingsRows() {
   // and then opens one would otherwise wait for a button that this page does not have.
   const open = screen.queryByRole("region", { name: "全部设置" });
   if (open) return [...open.querySelectorAll("button")];
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: /全部设置/ }));
   return [...screen.getByRole("region", { name: "全部设置" }).querySelectorAll("button")];
 }
@@ -80,7 +81,7 @@ test("Android saves a helper-code schema into shared preferences", async () => {
   expect(schema.value).toBe("ziranma");
   fireEvent.change(schema, { target: { value: "xiaohe" } });
 
-  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  saveSettingsNow();
   await waitFor(() =>
     expect(save).toHaveBeenCalledWith(
       7,
@@ -130,7 +131,7 @@ test("an iOS host without the capability keeps the helper-code settings hidden",
 test("the desktop input page keeps the helper-code settings and their window wording", async () => {
   renderSettings("windows");
 
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
   expect(screen.getByRole("group", { name: "辅助码" })).toBeTruthy();
   expect(screen.getByLabelText("在候选窗口中显示双拼辅助码")).toBeTruthy();
@@ -156,7 +157,7 @@ test("HarmonyOS saves a helper-code schema into shared preferences", async () =>
   expect(schema.value).toBe("ziranma");
   fireEvent.change(schema, { target: { value: "xiaohe" } });
 
-  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  saveSettingsNow();
   await waitFor(() =>
     expect(save).toHaveBeenCalledWith(
       7,
@@ -195,7 +196,7 @@ test("a host that appends helper codes is not told to hold Shift", async () => {
       }}
     />,
   );
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
   expect(screen.getByRole("group", { name: "辅助码" })).toBeTruthy();
   expect(screen.queryByText(/按 Shift\s*再输入的字母作为辅助码/)).toBeNull();

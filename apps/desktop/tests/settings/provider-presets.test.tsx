@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { SettingsPage, type Snapshot } from "@msime/ui";
@@ -57,7 +58,7 @@ async function openPage(
       }}
     />,
   );
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
   // AI 辅助 is reached from inside the 表达 page.
   if (page === "AI 辅助") fireEvent.click(screen.getByRole("button", { name: "表达" }));
   fireEvent.click(screen.getByRole("button", { name: page }));

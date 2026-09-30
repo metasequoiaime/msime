@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { settingsFormReady, saveSettingsNow } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import {
@@ -51,7 +52,7 @@ test("credential rules match the ones that would reject the save", () => {
 test("the credentials can be entered and are saved", async () => {
   const save = vi.fn(async (_revision: number, _preferences: Preferences) => snapshot);
   render(<SettingsPage client={{ load: async () => snapshot, save }} />);
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "表达" }));
 
   // Before this change there was no way to enter these at all.
@@ -60,7 +61,7 @@ test("the credentials can be entered and are saved", async () => {
   fireEvent.change(screen.getByLabelText("腾讯云 SecretKey"), { target: { value: "s3cret" } });
   fireEvent.change(screen.getByLabelText("腾讯云地域"), { target: { value: "ap-shanghai" } });
 
-  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  saveSettingsNow();
   await waitFor(() => expect(save).toHaveBeenCalled());
   const saved = save.mock.calls[0][1];
   expect(saved.tencent_tmt).toEqual({
@@ -73,7 +74,7 @@ test("the credentials can be entered and are saved", async () => {
 
 test("empty credentials are called out instead of silently returning nothing", async () => {
   render(<SettingsPage client={{ load: async () => snapshot, save: vi.fn() }} />);
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "表达" }));
 
   // This is the user-visible defect: translation on, no keys, no explanation.
@@ -91,7 +92,7 @@ test("empty credentials are called out instead of silently returning nothing", a
 
 test("the copy no longer claims a Linux provider on every platform", async () => {
   render(<SettingsPage client={{ load: async () => snapshot, save: vi.fn() }} />);
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "表达" }));
   await screen.findByLabelText("腾讯云 SecretId");
   // Windows performs the request natively in TranslationWorker, so telling
@@ -111,7 +112,7 @@ test("Linux delegates Tencent credentials to the user-managed provider", async (
       client={{ load: async () => snapshot, save: vi.fn(), host: { platform: "linux" } as never }}
     />,
   );
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "表达" }));
   const online = screen.getByRole("group", { name: "在线翻译服务" });
   expect(online.textContent).toContain("tencent-provider.json");
@@ -149,7 +150,7 @@ test("Linux saves Tencent credentials to the provider file", async () => {
       }}
     />,
   );
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "表达" }));
   const online = screen.getByRole("group", { name: "在线翻译服务" });
   await waitFor(() => expect(credentials.status).toHaveBeenCalled());

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { settingsFormReady, saveSettingsNow } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { SettingsPage, type SettingsClient, type Snapshot, type HostCapabilities } from "@msime/ui";
@@ -22,7 +23,7 @@ function mount(client: Partial<SettingsClient>) {
 }
 
 async function openVoice() {
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
   return screen.getByLabelText("识别服务") as HTMLSelectElement;
 }
@@ -70,7 +71,7 @@ test("macOS system recognition is configurable without cloud ASR fields", async 
   expect((screen.getByRole("combobox", { name: "识别语言" }) as HTMLInputElement).value).toBe(
     "zh-CN",
   );
-  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  saveSettingsNow();
   await vi.waitFor(() => expect(save).toHaveBeenCalled());
   expect(save.mock.calls[0][1].voice_input).toMatchObject({
     asr_provider: "system",
@@ -128,7 +129,7 @@ test("a stored provider selection round-trips through save", async () => {
   mount({ save });
   const select = await openVoice();
   fireEvent.change(select, { target: { value: "siliconflow" } });
-  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  saveSettingsNow();
   await vi.waitFor(() => expect(save).toHaveBeenCalled());
   expect(save.mock.calls[0][1].voice_input.asr_provider).toBe("siliconflow");
 });

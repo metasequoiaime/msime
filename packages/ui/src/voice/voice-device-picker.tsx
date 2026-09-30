@@ -42,7 +42,7 @@ export function VoiceDevicePicker({
       setDevices(result);
       setNotice(
         result.length
-          ? "选择设备后保存设置，从下一次录音生效"
+          ? "选择设备后从下一次录音生效"
           : "未发现设备，可手动填写设备名称或使用默认设备",
       );
     } catch {

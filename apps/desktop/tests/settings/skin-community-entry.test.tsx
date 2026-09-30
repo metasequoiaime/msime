@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { SettingsPage, type Snapshot } from "@msime/ui";
@@ -50,7 +51,7 @@ function renderSettings(platform: string, skins: unknown = communitySkins()) {
 // Apple's 皮肤 page carries this jump because the community is a separate tab there; the shared mobile navigation has the same shape, and its skins now live on 主题.
 test("a mobile host can jump from the theme page to the community", async () => {
   renderSettings("android");
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
 
   fireEvent.click(screen.getByRole("button", { name: "去社区发现皮肤" }));
   expect(await screen.findByRole("heading", { name: "社区" })).toBeTruthy();
@@ -58,7 +59,7 @@ test("a mobile host can jump from the theme page to the community", async () => 
 
 test("iOS carries the same entry", async () => {
   renderSettings("ios");
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
 
   expect(screen.getByRole("button", { name: "去社区发现皮肤" })).toBeTruthy();
 });
@@ -66,7 +67,7 @@ test("iOS carries the same entry", async () => {
 // A host with no community client has nothing to open.
 test("no community client means no entry", async () => {
   renderSettings("android", null);
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
 
   expect(screen.queryByRole("button", { name: "去社区发现皮肤" })).toBeNull();
 });
@@ -74,7 +75,7 @@ test("no community client means no entry", async () => {
 // The desktop sidebar already lists 社区; a second route to it is noise there.
 test("the desktop keeps its sidebar route only", async () => {
   renderSettings("windows");
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
 
   expect(screen.queryByRole("button", { name: "去社区发现皮肤" })).toBeNull();
 });

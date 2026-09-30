@@ -196,7 +196,7 @@ export function LocalModelManager({
     <div className="section" aria-label="本地识别模型">
       <div className="section-title">
         本地识别模型
-        <small>模型下载到本机后完全离线运行，录音不会上传。点击“使用”后保存设置生效。</small>
+        <small>模型下载到本机后完全离线运行，录音不会上传。点击“使用”后生效。</small>
       </div>
       {!list && !notice && <p>正在读取模型列表…</p>}
       <ul className="grid gap-3" aria-label="可用的本地模型">

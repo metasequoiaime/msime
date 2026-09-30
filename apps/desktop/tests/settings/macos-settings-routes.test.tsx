@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { settingsFormReady, saveSettingsNow } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { SettingsPage, type Snapshot } from "@msime/ui";
@@ -43,7 +44,7 @@ test("macOS translation settings open on the 表达 page and save NiuTrans draft
     app_id: "synthetic-edited",
     apikey: "synthetic-key",
   });
-  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  saveSettingsNow();
   await waitFor(() => expect(save).toHaveBeenCalled());
   expect(save.mock.calls[0][1].niutrans).toEqual({
     enabled: true,
@@ -66,7 +67,7 @@ test("macOS AI entry opens the shared AI category without implicit credential re
     />,
   );
   expect(await screen.findByRole("heading", { name: "AI 辅助" })).toBeDefined();
-  expect(await screen.findByRole("button", { name: "保存设置" })).toBeDefined();
+  expect(await settingsFormReady()).toBeDefined();
   expect(probe).not.toHaveBeenCalled();
 });
 

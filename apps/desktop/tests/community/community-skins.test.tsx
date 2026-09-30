@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import {
@@ -84,7 +85,7 @@ test("settings expose community only with the Android capability and omit prefer
   const without = render(
     <SettingsPage client={{ load: async () => preferences, save: vi.fn() }} />,
   );
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
   expect(screen.queryByRole("button", { name: "社区" })).toBeNull();
   without.unmount();
 
@@ -97,7 +98,7 @@ test("settings expose community only with the Android capability and omit prefer
   );
   expect(await screen.findByRole("heading", { name: "社区" })).not.toBeNull();
   await waitFor(() => expect(communitySkins.list).toHaveBeenCalledWith(0, ""));
-  expect(screen.queryByRole("button", { name: "保存设置" })).toBeNull();
+  expect(screen.queryByRole("form", { name: "设置" })).toBeNull();
   expect(screen.queryByRole("button", { name: "重新读取" })).toBeNull();
 });
 

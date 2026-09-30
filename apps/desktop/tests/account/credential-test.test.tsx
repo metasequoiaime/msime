@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
@@ -67,7 +68,7 @@ test("Linux settings tests translation configuration through its provider", asyn
     .fn()
     .mockResolvedValue({ ok: true, message: "连接成功，当前配置有效。" });
   mount(testApiCredential);
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "表达" }));
   fireEvent.click(screen.getByRole("button", { name: "测试 NiuTrans 配置" }));
   await screen.findByText("连接成功，当前配置有效。");
@@ -80,7 +81,7 @@ test("Linux settings tests translation configuration through its provider", asyn
 test("Linux voice and AI tests never send private tokens from preferences", async () => {
   const testApiCredential = vi.fn().mockResolvedValue({ ok: true, message: "fixture ok" });
   mount(testApiCredential);
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
   fireEvent.click(screen.getByRole("button", { name: "测试语音识别配置" }));
   await screen.findByText("fixture ok");
@@ -111,7 +112,7 @@ test("Linux voice and AI tests never send private tokens from preferences", asyn
 test("provider transport failures remain actionable and stale results disappear after edits", async () => {
   const testApiCredential = vi.fn().mockRejectedValue({ code: "unavailable" });
   mount(testApiCredential);
-  await screen.findByRole("button", { name: "保存设置" });
+  await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "表达" }));
   fireEvent.click(screen.getByRole("button", { name: "AI 辅助" }));
   fireEvent.click(screen.getByRole("button", { name: "测试 AI 辅助配置" }));

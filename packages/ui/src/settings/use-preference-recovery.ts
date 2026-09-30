@@ -1,4 +1,5 @@
 import type { Dispatch, RefObject, SetStateAction } from "react";
+import { deepEqual } from "../core/deep-equal";
 import { errorMessage } from "../core/error-message";
 import type { Preferences, PreferencesRecovery, SettingsClient, Snapshot } from "../index";
 
@@ -40,7 +41,7 @@ export function usePreferenceRecovery({
     if (!client.loadDefaultPreferences || busy) return;
     const confirmed = await confirm({
       title: "恢复默认设置",
-      message: "语音和翻译服务的密钥、词库和学习数据都不会改变。恢复后需要点击保存设置才会生效。",
+      message: "语音和翻译服务的密钥、词库和学习数据都不会改变。恢复后立即生效。",
       confirmLabel: "恢复",
     });
     if (!confirmed || !client.loadDefaultPreferences || busy) return;
@@ -48,7 +49,7 @@ export function usePreferenceRecovery({
     setNotice("");
     try {
       setDraft(await client.loadDefaultPreferences());
-      setNotice("所有设置已恢复默认，请点击保存设置。");
+      setNotice("所有设置已恢复默认。");
     } catch {
       setError("无法读取默认设置，请重试。原有设置不会被自动重置。");
     }
@@ -74,7 +75,7 @@ export function usePreferenceRecovery({
       const dirty =
         !!currentSnapshot &&
         !!currentDraft &&
-        JSON.stringify(currentDraft) !== JSON.stringify(currentSnapshot.preferences);
+        !deepEqual(currentDraft, currentSnapshot.preferences);
       setSnapshot(result.snapshot);
       if (!dirty) setDraft(result.snapshot.preferences);
       if (!result.backupPath) {
@@ -86,7 +87,7 @@ export function usePreferenceRecovery({
       setNotice(
         `配置文件已修复，原文件已备份为 ${backupName}。${
           result.salvaged ? "" : "原有设置无法识别，已恢复默认。"
-        }${dirty ? "未保存的修改仍保留，请点击保存设置。" : ""}`,
+        }${dirty ? "尚未保存的修改仍保留，并会自动保存。" : ""}`,
       );
     } catch (reason) {
       setError(errorMessage(reason));

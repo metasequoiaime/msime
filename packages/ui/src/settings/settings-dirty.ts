@@ -1,3 +1,4 @@
+import { deepEqual } from "../core/deep-equal";
 import type { Preferences, Snapshot } from "../index";
 
 export interface SettingsDirtyOptions {
@@ -15,7 +16,7 @@ export function settingsDirty({
   savedMacosWubiAutoCommitUnique,
 }: SettingsDirtyOptions): boolean {
   return (
-    (!!draft && !!snapshot && JSON.stringify(draft) !== JSON.stringify(snapshot.preferences)) ||
+    (!!draft && !!snapshot && !deepEqual(draft, snapshot.preferences)) ||
     (macosWubiAutoCommitUnique !== undefined &&
       macosWubiAutoCommitUnique !== savedMacosWubiAutoCommitUnique)
   );
