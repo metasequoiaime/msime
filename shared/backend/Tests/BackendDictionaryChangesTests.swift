@@ -10,14 +10,31 @@ private final class ChangesProtocol: URLProtocol {
     let body: String
     switch cursor {
     case "0":
-      body = #"{"changes":[{"revision":2,"previous":null,"replacement":null,"ranking":[{"id":"","kind":"pinyin","code":"ni","word":"你","weight":8,"revision":2,"user_inserted":false}],"selection":{"context":"pinyin","code":"ni","word":"你","count":0}},{"revision":3,"position":{"context":"pinyin","code":"ni","word":"你","position":0}},{"revision":4,"reset":true}],"next":4,"has_more":true}"#
+      body = #"{"changes":[{"revision":2,"previous":null,"replacement":null,"ranking":[{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","kind":"pinyin","code":"ni","word":"你","weight":8,"revision":2,"user_inserted":false}],"selection":{"context":"pinyin","code":"ni","word":"你","count":0}},{"revision":3,"position":{"context":"pinyin","code":"ni","word":"你","position":0}},{"revision":4,"reset":true}],"next":4,"has_more":true}"#
     case "4": body = #"{"changes":[],"next":4,"has_more":false}"#
     case "5": body = #"{"changes":[{"revision":5}],"next":5,"has_more":false}"#
     case "6": body = #"{"changes":[],"next":7,"has_more":false}"#
+    case "8": body = #"{"changes":[{"revision":9,"ranking":[{"id":"","kind":"pinyin","code":"ni","word":"你","weight":1,"revision":9}]}],"next":9,"has_more":false}"#
     default: body = #"{"changes":[],"next":7,"has_more":true}"#
     }
     let status = request.url?.path == "/v1/users/me/dictionary/changes" && request.httpMethod == "GET" && request.value(forHTTPHeaderField: "Authorization") == "Bearer synthetic" ? 200 : 400
     client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: ["Content-Type":"application/json"])!, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: Data(body.utf8))
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
+private final class MalformedDictionaryChangeProtocol: URLProtocol {
+  override class func canInit(with request: URLRequest) -> Bool {
+    request.url?.path == "/v1/users/me/dictionaries/pinyin"
+      || request.url?.path == "/v1/users/me/dictionaries/pinyin/edit"
+  }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+      headerFields: ["Content-Type":"application/json"])!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    let body = #"{"revision":1,"previous":{"id":"../logout","kind":"pinyin","code":"ni","word":"你","weight":1,"revision":1},"replacement":null}"#
     client?.urlProtocol(self, didLoad: Data(body.utf8))
     client?.urlProtocolDidFinishLoading(self)
   }
@@ -43,7 +60,7 @@ final class BackendDictionaryChangesTests: XCTestCase {
     XCTAssertFalse(end.has_more)
   }
   func testRejectsNonAdvancingAndInconsistentCursors() async throws {
-    for cursor: Int64 in [5, 6, 7] {
+    for cursor: Int64 in [5, 6, 7, 8] {
       do {
         _ = try await client().dictionaryChanges(after: cursor, token: "synthetic")
         XCTFail("Invalid change cursor accepted")
@@ -57,5 +74,14 @@ final class BackendDictionaryChangesTests: XCTestCase {
         XCTFail("Invalid request accepted")
       } catch let failure as BackendAccountClient.Failure { XCTAssertEqual(failure.status, 400) }
     }
+  }
+  func testDictionaryMutationRejectsMalformedChange() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [MalformedDictionaryChangeProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    do {
+      _ = try await client.addDictionary(.pinyin, value: .init(code: "ni", word: "你", weight: 1), token: "synthetic")
+      XCTFail("malformed dictionary change accepted")
+    } catch let failure as BackendAccountClient.Failure { XCTAssertEqual(failure.status, 0) }
   }
 }

@@ -134,6 +134,18 @@ private final class MalformedDictionaryProtocol: URLProtocol {
   }
   override func stopLoading() {}
 }
+private final class MalformedImportProtocol: URLProtocol {
+  override class func canInit(with request: URLRequest) -> Bool { request.url?.path.hasSuffix("/import") == true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+      headerFields: ["Content-Type":"application/json"])!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: Data(#"{"imported":1000001,"revision":-1}"#.utf8))
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
 
 final class BackendAccountClientTests: XCTestCase {
   func testDefaultNicknameIsStableAndPreservesChosenName() {
@@ -232,6 +244,15 @@ final class BackendAccountClientTests: XCTestCase {
     } catch let error as BackendAccountClient.Failure {
       XCTAssertEqual(error.status, 0)
     }
+  }
+  func testDictionaryImportRejectsMalformedServerResult() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [MalformedImportProtocol.self]
+    do {
+      _ = try await BackendAccountClient(configuration: configuration).importDictionary(
+        .pinyin, text: "ni\t你", format: .standard, token: "session")
+      XCTFail("malformed dictionary import result accepted")
+    } catch let failure as BackendAccountClient.Failure { XCTAssertEqual(failure.status, 0) }
   }
   func testDictionaryRejectsMalformedServerEntries() async throws {
     let configuration = URLSessionConfiguration.ephemeral

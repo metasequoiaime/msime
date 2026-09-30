@@ -82,6 +82,18 @@ private final class MalformedFixedPositionsProtocol: URLProtocol {
   }
   override func stopLoading() {}
 }
+private final class MalformedRankingProtocol: URLProtocol {
+  override class func canInit(with request: URLRequest) -> Bool { request.url?.path.hasSuffix("/ranking") == true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+      headerFields: ["Content-Type":"application/json"])!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: Data(#"{"revision":-1,"changed":true,"selection":{"count":-1}}"#.utf8))
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
 final class BackendCandidateClientTests: XCTestCase {
   private func client() -> BackendAccountClient {
     let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [CandidateProtocol.self]
@@ -124,5 +136,16 @@ final class BackendCandidateClientTests: XCTestCase {
         XCTAssertEqual(error.status, 0)
       }
     }
+  }
+  func testRankingRejectsMalformedServerResponses() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [MalformedRankingProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    let candidate = BackendAccountClient.PersonalCandidate(code: "ni", word: "你", weight: 1, canonical_pinyin: nil)
+    let query = BackendAccountClient.CandidateQuery(text: "ni", kind: "pinyin", scheme: "pinyin", profile: "xiaohe", limit: 1)
+    do {
+      _ = try await client.rankCandidate(candidate, query: query, revision: 1, mode: .pin, token: "session")
+      XCTFail("malformed ranking response accepted")
+    } catch let error as BackendAccountClient.Failure { XCTAssertEqual(error.status, 0) }
   }
 }

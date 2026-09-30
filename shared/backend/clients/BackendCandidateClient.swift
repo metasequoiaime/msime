@@ -60,14 +60,18 @@ extension BackendAccountClient {
     guard revision >= 0, (1...100).contains(step), (1...10).contains(trigger), query.kind != "quick" else { throw Failure(status: 400) }
     struct Action: Encodable { let code: String; let word: String; let mode: String; let linear_step: Int; let trigger_count: Int; let force_top: Bool }
     struct Body: Encodable { let revision: Int64; let query: CandidateQuery; let action: Action }
-    return try await json("POST", "/v1/users/me/dictionary/ranking", token: token,
+    let result: RankingResult = try await json("POST", "/v1/users/me/dictionary/ranking", token: token,
       body: JSONEncoder().encode(Body(revision: revision, query: query, action: .init(code: candidate.mutationCode, word: candidate.word, mode: mode.rawValue, linear_step: step, trigger_count: trigger, force_top: forceTop))))
+    guard result.revision >= 0, result.selection.count >= 0 else { throw Failure(status: 0) }
+    return result
   }
   func removeCandidate(_ candidate: PersonalCandidate, query: CandidateQuery, revision: Int64, token: String) async throws -> DictionaryChange {
     guard revision >= 0, query.kind != "quick" else { throw Failure(status: 400) }
     struct Body: Encodable { let revision: Int64; let query: CandidateQuery; let code: String; let word: String }
-    return try await json("DELETE", "/v1/users/me/dictionary/candidates", token: token,
+    let change: DictionaryChange = try await json("DELETE", "/v1/users/me/dictionary/candidates", token: token,
       body: JSONEncoder().encode(Body(revision: revision, query: query, code: candidate.mutationCode, word: candidate.word)))
+    guard let kind = Self.dictionaryKind(forCandidateKind: query.kind), Self.validDictionaryChange(change, expectedKind: kind) else { throw Failure(status: 0) }
+    return change
   }
   func fixedPositions(context: String = "", offset: Int = 0, token: String) async throws -> FixedPositions {
     guard (0...1_000_000).contains(offset) else { throw Failure(status: 400) }
@@ -89,8 +93,10 @@ extension BackendAccountClient {
   func setFixedPosition(context: String, code: String, word: String, position: Int?, revision: Int64, token: String) async throws -> DictionaryRevision {
     guard revision >= 0, position == nil || (1...5).contains(position!) else { throw Failure(status: 400) }
     struct Body: Encodable { let context: String; let code: String; let word: String; let position: Int?; let revision: Int64 }
-    return try await json(position == nil ? "DELETE" : "PUT", "/v1/users/me/dictionary/positions", token: token,
+    let result: DictionaryRevision = try await json(position == nil ? "DELETE" : "PUT", "/v1/users/me/dictionary/positions", token: token,
       body: JSONEncoder().encode(Body(context: context, code: code, word: word, position: position, revision: revision)))
+    guard result.revision >= 0 else { throw Failure(status: 0) }
+    return result
   }
 
   private static func validPersonalCandidate(_ candidate: PersonalCandidate) -> Bool {
