@@ -65,6 +65,7 @@ import type { FuzzyPinyinPreferences } from "./fuzzy-pinyin-section";
 import type { MixedInputPreferences } from "./mixed-input-section";
 import type { FrequencyPreferences } from "./frequency-section";
 import type { NavigationPreferences, WordCharacterPreferences } from "./word-character-section";
+import { createSettingsDraftActions } from "./settings-draft-actions";
 
 export interface InputSettingsPanelProps {
   disabled: boolean;
@@ -207,6 +208,7 @@ export function InputSettingsPanel({
   saveMobileKeyboardFeedback,
   previewMobileKeyboardHaptics,
 }: InputSettingsPanelProps) {
+  const { onPreferencesChange } = createSettingsDraftActions({ setDraft });
   return (
     <fieldset disabled={disabled} hidden={hidden} aria-label="输入">
       {iosPlatform && (
@@ -227,7 +229,7 @@ export function InputSettingsPanel({
         <InputModeSection
           scheme={draft.scheme}
           lastChineseScheme={draft.last_chinese_scheme}
-          onChange={(patch) => setDraft({ ...draft, ...patch })}
+          onChange={onPreferencesChange}
         />
       )}
       {client.touchKeyboardSchemes && (
@@ -247,7 +249,7 @@ export function InputSettingsPanel({
         <InputSchemeSelectorSection
           value={draft.scheme === "japanese" ? "quanpin" : draft.scheme}
           onChange={(scheme: InputSchemeSelectorValue) =>
-            setDraft({ ...draft, scheme, last_chinese_scheme: scheme })
+            onPreferencesChange({ scheme, last_chinese_scheme: scheme })
           }
         />
       </div>
@@ -262,7 +264,7 @@ export function InputSettingsPanel({
             : undefined
         }
         onShuangpinProfileChange={(shuangpin_profile: ShuangpinProfile) =>
-          setDraft({ ...draft, shuangpin_profile })
+          onPreferencesChange({ shuangpin_profile })
         }
         onMacosShuangpinKeymapChange={setShuangpinKeymap}
       />
@@ -271,7 +273,7 @@ export function InputSettingsPanel({
         <WubiSection
           preferences={draft}
           autoCommitUnique={macosPlatform ? macosWubiAutoCommitUnique : undefined}
-          onChange={(patch) => setDraft({ ...draft, ...patch })}
+          onChange={onPreferencesChange}
           onAutoCommitUniqueChange={setWubiAutoCommitUnique}
         />
       )}
