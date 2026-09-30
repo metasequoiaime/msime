@@ -29,6 +29,13 @@ enum CommunityResponseValidation {
     return id.uuidString != "00000000-0000-0000-0000-000000000000"
   }
 
+  static func matchesID(_ value: String, requested: String) -> Bool {
+    guard validID(value), validID(requested),
+          let valueID = UUID(uuidString: value), let requestedID = UUID(uuidString: requested)
+    else { return false }
+    return valueID == requestedID
+  }
+
   static func validText(_ value: String, minimum: Int, maximum: Int,
                         multiline: Bool, trimmed: Bool = false) -> Bool {
     let scalars = value.unicodeScalars
@@ -203,7 +210,15 @@ actor SkinCommunityAPI {
     #if DEBUG && targetEnvironment(simulator)
     if CommunityPreviewFixtures.enabled, let skin = CommunityPreviewFixtures.skins.first(where: { $0.id == id }) { return skin }
     #endif
-    return try await request("/v1/community/skins/\(id)")
+    guard CommunityResponseValidation.validID(id) else {
+      throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
+    }
+    let skin: CommunitySkin = try await request("/v1/community/skins/\(id)")
+    guard CommunityResponseValidation.validSkin(skin),
+          CommunityResponseValidation.matchesID(skin.id, requested: id) else {
+      throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
+    }
+    return skin
   }
   func publish(id: String, name: String, description: String, design: CustomKeyboardSkin) async throws {
     struct Payload: Encodable { let id: String; let name: String; let description: String; let design: CustomKeyboardSkin }
@@ -252,7 +267,15 @@ actor SkinCommunityAPI {
     #if DEBUG && targetEnvironment(simulator)
     if CommunityPreviewFixtures.enabled, let item = CommunityPreviewFixtures.items.first(where: { $0.id == id }) { return item }
     #endif
-    return try await request("/v1/community/resources/\(id)", maximumResponseBytes: 3 * 1024 * 1024)
+    guard CommunityResponseValidation.validID(id) else {
+      throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
+    }
+    let resource: CommunityResource = try await request("/v1/community/resources/\(id)", maximumResponseBytes: 3 * 1024 * 1024)
+    guard CommunityResponseValidation.validResource(resource, expectedKind: resource.kind),
+          CommunityResponseValidation.matchesID(resource.id, requested: id) else {
+      throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
+    }
+    return resource
   }
   func publishResource(id: String, kind: CommunityResourceKind, name: String, description: String,
                        content: CommunityResourceContent, revision: Int) async throws {
