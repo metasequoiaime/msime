@@ -148,8 +148,7 @@ export function InputSettingsPage() {
             navigation={navigation}
             ios={iosPlatform}
             onChange={(next) =>
-              setDraft({
-                ...draft,
+              onPreferencesChange({
                 word_character: next.wordCharacter,
                 navigation: next.navigation,
               })
