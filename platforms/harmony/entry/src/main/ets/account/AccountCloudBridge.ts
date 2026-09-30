@@ -183,7 +183,7 @@ function validResourceContent(kind: unknown, value: unknown): boolean {
       !validCommunityText(code, 1, 256) ||
       !validCommunityText(word, 1, 1024) ||
       typeof entry.weight !== "number" ||
-      !Number.isInteger(entry.weight) ||
+      !Number.isSafeInteger(entry.weight) ||
       entry.weight < 0
     ) {
       return false;
@@ -191,6 +191,96 @@ function validResourceContent(kind: unknown, value: unknown): boolean {
     const key = `${entryKind}\u0000${code}\u0000${word}`;
     if (seen.includes(key)) return false;
     seen.push(key);
+  }
+  return true;
+}
+
+function validResourceUuid(value: unknown): value is string {
+  return validUuid(value) && value.toLowerCase() !== "00000000-0000-0000-0000-000000000000";
+}
+
+function safeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value);
+}
+
+function validResponseText(
+  value: unknown,
+  minimum: number,
+  maximum: number,
+  multiline = false,
+  trim = false,
+): value is string {
+  if (!validCommunityText(value, 0, maximum, multiline)) return false;
+  const text = value as string;
+  if (trim && text.trim() !== text) return false;
+  return [...text.trim()].length >= minimum;
+}
+
+/** The page and detail contracts are decoded by the UI, so validate them at the native boundary. */
+function validCommunityResourceResponse(
+  value: unknown,
+  expectedKind: unknown,
+  expectedId?: string,
+): boolean {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const resource = value as Action;
+  if (
+    !validResourceUuid(resource.id) ||
+    (expectedId !== undefined && resource.id.toLowerCase() !== expectedId.toLowerCase()) ||
+    !validCommunityKind(resource.kind) ||
+    (expectedKind !== undefined && resource.kind !== expectedKind) ||
+    !validResponseText(resource.name, 1, 32, false, true) ||
+    !validResponseText(resource.description, 0, 280, true) ||
+    !validResponseText(resource.author, 1, 128, false, true) ||
+    !safeInteger(resource.revision) ||
+    resource.revision <= 0 ||
+    !safeInteger(resource.saves) ||
+    resource.saves < 0 ||
+    !safeInteger(resource.rating_count) ||
+    resource.rating_count < 0 ||
+    typeof resource.saved !== "boolean" ||
+    typeof resource.owned !== "boolean" ||
+    !safeInteger(resource.my_rating) ||
+    resource.my_rating < 0 ||
+    resource.my_rating > 5 ||
+    typeof resource.rating_average !== "number" ||
+    !Number.isFinite(resource.rating_average) ||
+    resource.rating_average < 0 ||
+    resource.rating_average > 5 ||
+    (resource.rating_count === 0 && resource.rating_average !== 0) ||
+    !validResourceContent(resource.kind, resource.content)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function validateCommunityResourceResponse(path: string, value: unknown): boolean {
+  const listMatch = /^\/v1\/community\/resources\?kind=(dictionary|reply)(?:&|$)/.exec(path);
+  if (listMatch !== null) {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+    const page = value as Action;
+    if (
+      !Array.isArray(page.items) ||
+      page.items.length > 20 ||
+      typeof page.has_more !== "boolean" ||
+      (page.has_more && page.items.length === 0)
+    ) {
+      return false;
+    }
+    const ids: string[] = [];
+    for (const item of page.items as unknown[]) {
+      if (!validCommunityResourceResponse(item, listMatch[1])) return false;
+      const id = (item as Action).id as string;
+      if (ids.includes(id.toLowerCase())) return false;
+      ids.push(id.toLowerCase());
+    }
+    return true;
+  }
+  const detailPrefix = "/v1/community/resources/";
+  if (path.startsWith(detailPrefix)) {
+    const id = path.slice(detailPrefix.length);
+    return validResourceUuid(id) && validCommunityResourceResponse(value, undefined, id);
   }
   return true;
 }
@@ -983,6 +1073,10 @@ export class AccountCloudBridge {
     }
     const value = parseJson(response.body, communityResponseLimit(path));
     if (value === null && response.body.length > 0) return error("community_unavailable");
+    if (method === "GET" && path.startsWith("/v1/community/resources") &&
+        !validateCommunityResourceResponse(path, value)) {
+      return error("community_unavailable");
+    }
     return success(value ?? {});
   }
 

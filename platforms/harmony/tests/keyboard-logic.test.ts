@@ -7655,6 +7655,69 @@ group("shared dictionaries and reply templates keep their own bounds", () => {
     });
 });
 
+group("community resource responses are checked before reaching the page", () => {
+  const store: AccountSessionStore = {
+    load: () => null,
+    save: () => {},
+    clear: () => {},
+  };
+  const id = "10000000-0000-4000-8000-000000000001";
+  const resource = {
+    id,
+    kind: "reply",
+    name: "模板",
+    description: "",
+    author: "作者",
+    content: { prompt: "请回复" },
+    revision: 1,
+    saves: 0,
+    saved: false,
+    owned: false,
+    rating_count: 0,
+    rating_average: 0,
+    my_rating: 0,
+  };
+  const transport: AccountTransport = {
+    request: async (_method, path) => {
+      if (path.startsWith("/v1/community/resources?")) {
+        return {
+          status: 200,
+          body: JSON.stringify({
+            items: [{ ...resource, content: { prompt: "坏\u0000提示" } }],
+            has_more: false,
+          }),
+        };
+      }
+      return {
+        status: 200,
+        body: JSON.stringify({ ...resource, content: { prompt: "x".repeat(2001) } }),
+      };
+    },
+  };
+  const bridge = new AccountCloudBridge(transport, store);
+  const resources = (action: Record<string, unknown>) =>
+    bridge.handle(JSON.stringify({ operation: "community_resource", ...action }));
+
+  void resources({
+    resource_operation: "list",
+    kind: "reply",
+    scope: "",
+    search: "",
+    offset: 0,
+  }).then((result) => {
+    check(
+      JSON.parse(result).error === "community_unavailable",
+      "a malformed list item is refused",
+    );
+  });
+  void resources({ resource_operation: "detail", id }).then((result) => {
+    check(
+      JSON.parse(result).error === "community_unavailable",
+      "a malformed detail is refused",
+    );
+  });
+});
+
 group("the skin gallery is public to browse and signed in to change", () => {
   let stored: string | null = null;
   const store: AccountSessionStore = {
