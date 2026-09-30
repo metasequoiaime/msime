@@ -36,6 +36,7 @@ rusqlite = "0.40"
 time = "0.3"
 tokio = "1"
 rustix = "1.1"
+libc = "0.2"
 uuid = "1"
 tauri = "2"
 

@@ -2638,6 +2638,7 @@ dependencies = [
  "futures-util",
  "hex",
  "hmac",
+ "libc",
  "md-5",
  "pinyin",
  "reqwest 0.12.28",
