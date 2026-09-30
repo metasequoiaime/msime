@@ -35,8 +35,9 @@ import { keyboardSkinStyles } from "./keyboard-skin-styles";
 import { keyboardRows, nineKeyRows } from "./panel-keyboard-layouts";
 import { CloudDictionaryEntryForm } from "./cloud-dictionary-entry-form";
 import { CloudPanelHeader } from "./cloud-panel-header";
-import { CloudDictionaryKindTabs, cloudDictionaryKinds } from "./cloud-dictionary-kind-tabs";
+import { CloudDictionaryKindTabs } from "./cloud-dictionary-kind-tabs";
 import type { CloudDictionaryKind } from "./cloud-dictionary-kind-tabs";
+import { CloudDictionaryKindSelect } from "./cloud-dictionary-kind-select";
 import {
   clipboardTooltip,
   emojiDisplayName,
@@ -2184,19 +2185,7 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
         <div className={cloud.dictionaryToolbar}>
           <label className={`${cloud.dictionaryField} ${cloud.dictionaryDesktopOnlyField}`}>
             词库
-            <select
-              className={cloud.dictionaryInput}
-              aria-label="词库类型"
-              value={kind}
-              onChange={(event) => changeKind(event.target.value as CloudDictionaryKind)}
-              disabled={busy}
-            >
-              {cloudDictionaryKinds.map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
+            <CloudDictionaryKindSelect value={kind} disabled={busy} onChange={changeKind} />
           </label>
           <label className={cloud.dictionarySearch}>
             搜索
@@ -2638,19 +2627,7 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
         <div className={cloud.dictionaryToolbar}>
           <label className={`${cloud.dictionaryField} ${cloud.dictionaryDesktopOnlyField}`}>
             词库
-            <select
-              className={cloud.dictionaryInput}
-              aria-label="词库类型"
-              value={kind}
-              onChange={(event) => changeKind(event.target.value as CloudDictionaryKind)}
-              disabled={busy}
-            >
-              {cloudDictionaryKinds.map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
+            <CloudDictionaryKindSelect value={kind} disabled={busy} onChange={changeKind} />
           </label>
           <label className={cloud.dictionaryField}>
             文件格式
@@ -3221,19 +3198,7 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
         <div className={cloud.dictionaryToolbar}>
           <label className={`${cloud.dictionaryField} ${cloud.dictionaryDesktopOnlyField}`}>
             词库
-            <select
-              className={cloud.dictionaryInput}
-              aria-label="词库类型"
-              value={kind}
-              onChange={(event) => changeKind(event.target.value as CloudDictionaryKind)}
-              disabled={busy}
-            >
-              {cloudDictionaryKinds.map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
+            <CloudDictionaryKindSelect value={kind} disabled={busy} onChange={changeKind} />
           </label>
           <label className={cloud.dictionarySearch}>
             编码
@@ -3643,19 +3608,7 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
         <div className={cloud.dictionaryToolbar}>
           <label className={`${cloud.dictionaryField} ${cloud.dictionaryDesktopOnlyField}`}>
             词库
-            <select
-              className={cloud.dictionaryInput}
-              aria-label="词库类型"
-              value={kind}
-              onChange={(event) => changeKind(event.target.value as CloudDictionaryKind)}
-              disabled={busy}
-            >
-              {cloudDictionaryKinds.map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
+            <CloudDictionaryKindSelect value={kind} disabled={busy} onChange={changeKind} />
           </label>
           <label className={cloud.dictionarySearch}>
             编码
