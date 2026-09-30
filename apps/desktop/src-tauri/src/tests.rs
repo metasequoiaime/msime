@@ -25,6 +25,41 @@ fn runtime_options_fallback_reserves_all_candidate_slots() {
     );
 }
 
+#[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
+#[test]
+fn session_provider_discovery_rejects_symlinked_or_shared_endpoints() {
+    use std::os::unix::fs::{symlink, PermissionsExt};
+    use std::os::unix::net::UnixListener;
+
+    let runtime = tempfile::tempdir().unwrap();
+    let target = tempfile::tempdir().unwrap();
+    let target_directory = target.path().join("msime-client");
+    std::fs::create_dir(&target_directory).unwrap();
+    std::fs::set_permissions(&target_directory, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let target_socket = target_directory.join("provider.sock");
+    let listener = UnixListener::bind(&target_socket).unwrap();
+
+    let linked_directory = runtime.path().join("msime-client");
+    symlink(&target_directory, &linked_directory).unwrap();
+    assert!(super::discover_session_provider_in(runtime.path(), "provider.sock").is_none());
+    drop(listener);
+
+    let directory = runtime.path().join("msime-client");
+    std::fs::remove_file(&directory).unwrap();
+    std::fs::create_dir(&directory).unwrap();
+    std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let socket = directory.join("provider.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    assert_eq!(
+        super::discover_session_provider_in(runtime.path(), "provider.sock"),
+        Some(socket)
+    );
+    drop(listener);
+
+    std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(super::discover_session_provider_in(runtime.path(), "provider.sock").is_none());
+}
+
 #[cfg(unix)]
 #[test]
 fn runtime_options_reject_a_symlinked_file() {

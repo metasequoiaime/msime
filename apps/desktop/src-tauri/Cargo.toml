@@ -39,7 +39,7 @@ msime-tauri-mobile-platform = { path = "../../../crates/tauri-mobile-platform" }
 [target.'cfg(target_os = "ios")'.dependencies]
 msime-ios-native-ffi = { path = "../../../crates/ios-native-ffi" }
 
-[target.'cfg(target_os = "linux")'.dependencies]
+[target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
 rustix = { workspace = true, features = ["fs", "process"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

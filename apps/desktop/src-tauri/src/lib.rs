@@ -3467,12 +3467,30 @@ fn discover_session_provider(filename: &str) -> Option<PathBuf> {
     std::env::var_os("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
         .filter(|directory| directory.is_absolute())
-        .map(|directory| directory.join("msime-client").join(filename))
-        .filter(|path| {
-            path.metadata()
-                .map(|metadata| metadata.file_type().is_socket())
-                .unwrap_or(false)
-        })
+        .and_then(|directory| discover_session_provider_in(&directory, filename))
+}
+
+#[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
+fn discover_session_provider_in(
+    runtime_directory: &std::path::Path,
+    filename: &str,
+) -> Option<PathBuf> {
+    use std::os::unix::fs::MetadataExt;
+
+    let directory = runtime_directory.join("msime-client");
+    let path = directory.join(filename);
+    let directory_metadata = std::fs::symlink_metadata(&directory).ok()?;
+    let socket_metadata = std::fs::symlink_metadata(&path).ok()?;
+    let uid = rustix::process::geteuid().as_raw();
+    if !directory_metadata.file_type().is_dir()
+        || directory_metadata.uid() != uid
+        || directory_metadata.mode() & 0o077 != 0
+        || !socket_metadata.file_type().is_socket()
+        || socket_metadata.uid() != uid
+    {
+        return None;
+    }
+    Some(path)
 }
 
 /// Locate the Engine's packaged handwriting model: the host options first, then
