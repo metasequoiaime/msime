@@ -12,8 +12,7 @@ import { isAsrServiceProvider } from "../voice/voice-providers";
 import { VoiceInputBasicsSection } from "./voice-input-basics-section";
 import { VoiceLocalModelSettingsSection } from "./voice-local-model-settings-section";
 import { VoiceAsrProviderSettingsSection } from "./voice-asr-provider-settings-section";
-import { VoiceStreamPreeditSection } from "./voice-stream-preedit-section";
-import { VoiceCommitModeSection } from "./voice-commit-mode-section";
+import { VoiceRecognitionResultSection } from "./voice-recognition-result-section";
 import {
   VoiceCaptureDevicesSection,
   type VoiceCaptureBackendOption,
@@ -169,8 +168,7 @@ export function VoiceSettingsPanel({
         providerPresetControls={providerPresetControls}
         updateVoice={updateVoice}
       />
-      {linuxPlatform &&
-        isAsrServiceProvider(voiceInput.asr_provider ?? "doubao") &&
+      {linuxPlatform && isAsrServiceProvider(voiceInput.asr_provider ?? "doubao") && (
         <VoiceCredentialControl
           available={Boolean(client.providerCredentials)}
           kind="asr"
@@ -182,7 +180,8 @@ export function VoiceSettingsPanel({
           providerCredentialBusy={providerCredentialBusy}
           providerCredentialMessages={providerCredentialMessages}
           runVoiceCredential={runVoiceCredential}
-        />}
+        />
+      )}
       {linuxPlatform &&
         credentialTestControl(
           "voice.asr",
@@ -201,19 +200,17 @@ export function VoiceSettingsPanel({
         doubaoAuthMode={doubaoAuthMode}
         credentialTestControl={credentialTestControl}
       />
-      {showVoiceStreamPreedit && (
-        <VoiceStreamPreeditSection
-          enabled={voiceInput.stream_inline_preedit === true}
-          onChange={(stream_inline_preedit) => updateVoice({ stream_inline_preedit })}
-        />
-      )}
-      {showVoiceCommitMode && (
-        <VoiceCommitModeSection
-          macos={macosPlatform}
-          value={voiceInput.commit_mode ?? "tsf"}
-          onChange={(commit_mode) => updateVoice({ commit_mode })}
-        />
-      )}
+      <VoiceRecognitionResultSection
+        showStreamPreedit={showVoiceStreamPreedit}
+        showCommitMode={showVoiceCommitMode}
+        macos={macosPlatform}
+        streamInlinePreedit={voiceInput.stream_inline_preedit === true}
+        commitMode={voiceInput.commit_mode ?? "tsf"}
+        onStreamInlinePreeditChange={(stream_inline_preedit) =>
+          updateVoice({ stream_inline_preedit })
+        }
+        onCommitModeChange={(commit_mode) => updateVoice({ commit_mode })}
+      />
       {showVoiceCaptureDevices && (
         <VoiceCaptureDevicesSection
           windows={windowsPlatform}

@@ -25,12 +25,44 @@ test("voice settings pages reuse the shared polish settings section", () => {
     }),
   )[0];
 
-  expect(page).toContain('import { VoicePolishSettingsSection } from "../voice-polish-settings-section";');
-  expect(panel).toContain('import { VoicePolishSettingsSection } from "./voice-polish-settings-section";');
+  expect(page).toContain(
+    'import { VoicePolishSettingsSection } from "../voice-polish-settings-section";',
+  );
+  expect(panel).toContain(
+    'import { VoicePolishSettingsSection } from "./voice-polish-settings-section";',
+  );
   expect(page).toContain("<VoicePolishSettingsSection");
   expect(panel).toContain("<VoicePolishSettingsSection");
   expect(page).not.toContain("customPrompts={{");
   expect(panel).not.toContain("customPrompts={{");
+});
+
+test("voice settings pages reuse the shared recognition result section", () => {
+  const page = Object.values(
+    import.meta.glob<string>("../../../../packages/ui/src/settings/pages/voice-page.tsx", {
+      eager: true,
+      query: "?raw",
+      import: "default",
+    }),
+  )[0];
+  const panel = Object.values(
+    import.meta.glob<string>("../../../../packages/ui/src/settings/voice-settings-panel.tsx", {
+      eager: true,
+      query: "?raw",
+      import: "default",
+    }),
+  )[0];
+
+  expect(page).toContain(
+    'import { VoiceRecognitionResultSection } from "../voice-recognition-result-section";',
+  );
+  expect(panel).toContain(
+    'import { VoiceRecognitionResultSection } from "./voice-recognition-result-section";',
+  );
+  expect(page).toContain("<VoiceRecognitionResultSection");
+  expect(panel).toContain("<VoiceRecognitionResultSection");
+  expect(page).not.toContain("<VoiceStreamPreeditSection");
+  expect(panel).not.toContain("<VoiceStreamPreeditSection");
 });
 
 test("voice settings pages reuse the shared ASR provider section", () => {
@@ -49,8 +81,12 @@ test("voice settings pages reuse the shared ASR provider section", () => {
     }),
   )[0];
 
-  expect(page).toContain('import { VoiceAsrProviderSettingsSection } from "../voice-asr-provider-settings-section";');
-  expect(panel).toContain('import { VoiceAsrProviderSettingsSection } from "./voice-asr-provider-settings-section";');
+  expect(page).toContain(
+    'import { VoiceAsrProviderSettingsSection } from "../voice-asr-provider-settings-section";',
+  );
+  expect(panel).toContain(
+    'import { VoiceAsrProviderSettingsSection } from "./voice-asr-provider-settings-section";',
+  );
   expect(page).toContain("<VoiceAsrProviderSettingsSection");
   expect(panel).toContain("<VoiceAsrProviderSettingsSection");
   expect(page).not.toContain("<VoiceModelSection");
@@ -73,8 +109,12 @@ test("voice settings pages reuse the shared local model settings section", () =>
     }),
   )[0];
 
-  expect(page).toContain('import { VoiceLocalModelSettingsSection } from "../voice-local-model-settings-section";');
-  expect(panel).toContain('import { VoiceLocalModelSettingsSection } from "./voice-local-model-settings-section";');
+  expect(page).toContain(
+    'import { VoiceLocalModelSettingsSection } from "../voice-local-model-settings-section";',
+  );
+  expect(panel).toContain(
+    'import { VoiceLocalModelSettingsSection } from "./voice-local-model-settings-section";',
+  );
   expect(page).toContain("<VoiceLocalModelSettingsSection");
   expect(panel).toContain("<VoiceLocalModelSettingsSection");
   expect(page).not.toContain("<LocalModelManager");
@@ -97,8 +137,12 @@ test("voice settings pages reuse the shared input basics section", () => {
     }),
   )[0];
 
-  expect(page).toContain('import { VoiceInputBasicsSection } from "../voice-input-basics-section";');
-  expect(panel).toContain('import { VoiceInputBasicsSection } from "./voice-input-basics-section";');
+  expect(page).toContain(
+    'import { VoiceInputBasicsSection } from "../voice-input-basics-section";',
+  );
+  expect(panel).toContain(
+    'import { VoiceInputBasicsSection } from "./voice-input-basics-section";',
+  );
   expect(page).toContain("<VoiceInputBasicsSection");
   expect(panel).toContain("<VoiceInputBasicsSection");
   expect(page).not.toContain("<VoiceInputIntroSection");

@@ -6,8 +6,7 @@ import { GroupList, Row, Select, Switch } from "../../core/platform-controls";
 import { VoiceInputBasicsSection } from "../voice-input-basics-section";
 import { VoiceLocalModelSettingsSection } from "../voice-local-model-settings-section";
 import { VoiceAsrProviderSettingsSection } from "../voice-asr-provider-settings-section";
-import { VoiceStreamPreeditSection } from "../voice-stream-preedit-section";
-import { VoiceCommitModeSection } from "../voice-commit-mode-section";
+import { VoiceRecognitionResultSection } from "../voice-recognition-result-section";
 import { VoiceCaptureDevicesSection } from "../voice-capture-devices-section";
 import { VoiceRecordingBehaviorSettingsSection } from "../voice-recording-behavior-settings-section";
 import { DoubaoOptionsSection } from "../doubao-options-section";
@@ -143,23 +142,18 @@ export function VoiceSettingsPage() {
           doubaoAuthMode={doubaoAuthMode}
           credentialTestControl={credentialTestControl}
         />
-        {(showVoiceStreamPreedit || showVoiceCommitMode) && (
-          <GroupList title="识别结果">
-            {showVoiceStreamPreedit && (
-              <VoiceStreamPreeditSection
-                enabled={voiceInput.stream_inline_preedit === true}
-                onChange={(stream_inline_preedit) => updateVoice({ stream_inline_preedit })}
-              />
-            )}
-            {showVoiceCommitMode && (
-              <VoiceCommitModeSection
-                macos={macosPlatform}
-                value={voiceInput.commit_mode ?? "tsf"}
-                onChange={(commit_mode) => updateVoice({ commit_mode })}
-              />
-            )}
-          </GroupList>
-        )}
+        <VoiceRecognitionResultSection
+          showStreamPreedit={showVoiceStreamPreedit}
+          showCommitMode={showVoiceCommitMode}
+          macos={macosPlatform}
+          streamInlinePreedit={voiceInput.stream_inline_preedit === true}
+          commitMode={voiceInput.commit_mode ?? "tsf"}
+          onStreamInlinePreeditChange={(stream_inline_preedit) =>
+            updateVoice({ stream_inline_preedit })
+          }
+          onCommitModeChange={(commit_mode) => updateVoice({ commit_mode })}
+          grouped
+        />
         {showVoiceCaptureDevices && (
           <VoiceCaptureDevicesSection
             windows={windowsPlatform}
