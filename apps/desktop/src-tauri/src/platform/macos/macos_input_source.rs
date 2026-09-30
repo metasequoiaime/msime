@@ -82,6 +82,12 @@ fn validate_bundle(source: &Path) -> Result<(), InstallError> {
     if !metadata.is_dir() || metadata.file_type().is_symlink() {
         return Err(InstallError::InvalidBundle);
     }
+    for directory in [source.join("Contents"), source.join("Contents/MacOS")] {
+        let metadata = fs::symlink_metadata(&directory).map_err(|_| InstallError::InvalidBundle)?;
+        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+            return Err(InstallError::InvalidBundle);
+        }
+    }
     let info = source.join("Contents/Info.plist");
     let executable = source.join("Contents/MacOS").join(INPUT_SOURCE_EXECUTABLE);
     if is_symlink(&info).map_err(|_| InstallError::InvalidBundle)?
@@ -917,6 +923,24 @@ mod tests {
         fs::write(&link, b"outside").unwrap();
         fs::remove_file(source.join("Contents/Info.plist")).unwrap();
         std::os::unix::fs::symlink(&link, source.join("Contents/Info.plist")).unwrap();
+        assert!(matches!(
+            validate_bundle(&source),
+            Err(InstallError::InvalidBundle)
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_symlinked_bundle_directory_ancestors() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempdir().unwrap();
+        let source = fixture(root.path(), INPUT_SOURCE_BUNDLE_ID, b"new");
+        let contents = source.join("Contents");
+        let real_contents = root.path().join("RealContents");
+        fs::rename(&contents, &real_contents).unwrap();
+        symlink(&real_contents, &contents).unwrap();
+
         assert!(matches!(
             validate_bundle(&source),
             Err(InstallError::InvalidBundle)
