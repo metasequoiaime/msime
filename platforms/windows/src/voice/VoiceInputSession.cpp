@@ -3,6 +3,7 @@
 #include "PolishPrompt.h"
 
 #include "LocalAsr.h"
+#include "LocalAsrAudioQueue.h"
 #include "ReplyCodec.h"
 #include "SystemAudioMuter.h"
 #include "VoiceProviders.h"
@@ -247,29 +248,27 @@ static_assert(
                    VoiceSessionEpoch &>);
 } // namespace
 
-// One on-device dictation fed while it is recorded, so its text appears as the person speaks, the way Doubao's does. The capture thread only appends to a queue: loading a model takes seconds and decoding a finished speech segment can take longer than a capture buffer, neither of which the audio callback may wait on. run() does both on a recognition task and finish() collects the transcript from it.
+// One on-device dictation fed while it is recorded, so its text appears as the person speaks, the way Doubao's does. The capture thread appends to a bounded queue: loading a model takes seconds and decoding a finished speech segment can take longer than a capture buffer, neither of which the audio callback may wait on. run() does both on a recognition task and finish() collects the transcript from it.
 class LocalAsrStream {
 public:
   using Partial = msime::voice::LocalAsrSession::PartialCallback;
 
-  // Capture thread. Audio arriving after the end, a cancellation or a failed load is dropped rather than queued for a worker that will never read it.
-  void push(const float *samples, std::size_t count) {
+  // Capture thread. Audio arriving after the end, a cancellation or a failed load is dropped rather than queued for a worker that will never read it. An over-budget queue is reported to the session so it can fail visibly.
+  bool push(const float *samples, std::size_t count) {
     if (!samples || count == 0)
-      return;
-    {
-      std::lock_guard lock(mutex_);
-      if (ended_ || done_)
-        return;
-      pending_.insert(pending_.end(), samples, samples + count);
+      return true;
+    const auto result = queue_.push(samples, count);
+    if (result == LocalAsrAudioQueue::PushResult::overflowed) {
+      cancelled_->store(true);
+      return false;
     }
-    wake_.notify_one();
+    return true;
   }
 
   // Recognition task of the finished recording: no more audio is coming. Waits for run() to decode what is left and returns the transcript, hotword-corrected; rethrows what the recognizer threw.
   std::string finish() {
+    queue_.finish();
     std::unique_lock lock(mutex_);
-    ended_ = true;
-    wake_.notify_all();
     done_wake_.wait(lock, [this] { return done_; });
     if (error_)
       std::rethrow_exception(error_);
@@ -279,11 +278,7 @@ public:
   // Any thread, any number of times, also after finish(). The recognizer stops at its next check and run() returns without a transcript.
   void cancel() {
     cancelled_->store(true);
-    {
-      std::lock_guard lock(mutex_);
-      ended_ = true;
-    }
-    wake_.notify_all();
+    queue_.cancel();
   }
 
   // The recognition task started with the recording. Reads the hotwords itself, because listing the dictionary reads the store, which the control thread must not wait on.
@@ -300,12 +295,7 @@ public:
       std::vector<float> batch;
       for (;;) {
         bool last = false;
-        {
-          std::unique_lock lock(mutex_);
-          wake_.wait(lock, [this] { return !pending_.empty() || ended_; });
-          batch.swap(pending_);
-          last = ended_;
-        }
+        batch = queue_.wait_and_take(last);
         if (cancelled_->load())
           break;
         // Everything queued while the model loaded arrives here in one call; the recognizer slices it.
@@ -313,7 +303,8 @@ public:
           session.accept(batch.data(), batch.size());
         batch.clear();
         if (last) {
-          // ended_ was read under the lock that push() takes, so nothing can have been queued after this batch.
+          // The queue closes before finish() waits, so no later capture batch
+          // can be added after this one.
           text = session.finish();
           break;
         }
@@ -329,8 +320,6 @@ public:
       result_ = std::move(text);
       error_ = error;
       done_ = true;
-      pending_.clear();
-      pending_.shrink_to_fit();
     }
     done_wake_.notify_all();
   }
@@ -338,12 +327,9 @@ public:
 private:
   std::shared_ptr<std::atomic_bool> cancelled_ =
       std::make_shared<std::atomic_bool>(false);
+  LocalAsrAudioQueue queue_;
   std::mutex mutex_;
-  std::condition_variable wake_;
   std::condition_variable done_wake_;
-  // Unbounded, like the Doubao queue: a hands-free dictation may run for minutes, and the recognizer drains it as fast as the machine allows.
-  std::vector<float> pending_;
-  bool ended_ = false;
   bool done_ = false;
   std::string result_;
   std::exception_ptr error_;
@@ -493,6 +479,7 @@ bool VoiceInputSession::start(std::shared_ptr<VoiceReviewResult> review,
   cancel_requested_.store(false);
   locked_.store(false);
   capture_full_.store(false);
+  local_stream_overflow_.store(false);
   {
     std::lock_guard lock(samples_mutex_);
     samples_.clear();
@@ -575,11 +562,13 @@ bool VoiceInputSession::start(std::shared_ptr<VoiceReviewResult> review,
       std::lock_guard stream_lock(local_stream_mutex_);
       local_feed = local_stream_;
     }
-    // Streaming is not bounded by the batch buffer. Upstream never buffers at all on this path, so stopping the feed at a ceiling threw away the second half of exactly the hands-free dictation the space lock exists for. Only the count is kept, for stop() to recognise a tap too short to transcribe.
+    // Streaming bypasses the batch buffer. Its own bounded queue reports an
+    // overflow to maintain(), which cancels the recording instead of silently
+    // dropping the second half of a hands-free dictation.
     if (client)
       client->PushFloatSamples(samples, frames);
-    else if (local_feed)
-      local_feed->push(samples, frames);
+    else if (local_feed && !local_feed->push(samples, frames))
+      local_stream_overflow_.store(true);
     std::lock_guard lock(samples_mutex_);
     if (client || local_feed) {
       captured_frames_ += frames;
@@ -661,6 +650,13 @@ void VoiceInputSession::stop() {
     return;
   if (capture_)
     capture_->stop();
+  if (local_stream_overflow_.exchange(false)) {
+    const bool native = !review_;
+    cancel_session(true);
+    if (native)
+      report_failure(voice_capture_interrupted_message, session_.load());
+    return;
+  }
   // A callback that threw stopped delivering audio part-way, so what was captured is not the recording the person made. MSIME-Windows StopRecording discards it and says so.
   if (capture_ && capture_->callback_failed()) {
     const bool native = !review_;
@@ -1080,6 +1076,13 @@ void VoiceInputSession::maintain() {
   release_idle_local_model();
   if (!recording_.load())
     return;
+  if (local_stream_overflow_.exchange(false)) {
+    const bool native = !review_;
+    cancel_session(true);
+    if (native)
+      report_failure(voice_capture_interrupted_message, session_.load());
+    return;
+  }
   if (capture_ && capture_->callback_failed()) {
     // Detected while still recording rather than when the key comes up: a locked recording could otherwise sit on a dead microphone indefinitely.
     const bool native = !review_;

@@ -1133,6 +1133,16 @@ add_executable(windows-voice-session-epoch tests/voice/voice_session_epoch.cpp)
 target_link_libraries(windows-voice-session-epoch PRIVATE Threads::Threads)
 add_test(NAME windows-voice-session-epoch COMMAND windows-voice-session-epoch)
 set_tests_properties(windows-voice-session-epoch PROPERTIES TIMEOUT 10)
+add_executable(windows-local-asr-queue tests/voice/local_asr_queue.cpp)
+target_include_directories(windows-local-asr-queue PRIVATE src/voice)
+target_link_libraries(windows-local-asr-queue PRIVATE Threads::Threads)
+if(MSVC)
+  target_compile_options(windows-local-asr-queue PRIVATE /W4 /WX /utf-8 /UNDEBUG)
+else()
+  target_compile_options(windows-local-asr-queue PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+endif()
+add_test(NAME windows-local-asr-queue COMMAND windows-local-asr-queue)
+set_tests_properties(windows-local-asr-queue PROPERTIES TIMEOUT 10)
 
 # Tests in this tree check with assert(), but the suite is configured, built and
 # run in Release (platforms/windows/README.md), where NDEBUG compiles every one
