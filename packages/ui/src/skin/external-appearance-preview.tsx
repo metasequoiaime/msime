@@ -6,7 +6,7 @@ import {
   drawnPackagePalette,
   selectedBarCss,
   skinGeometryStyle,
-  usePreviewBackground,
+  useSkinPreviewAssets,
   type ExternalSkin,
   type SkinCatalog,
 } from "./external-skins";
@@ -18,7 +18,7 @@ import {
   type ResolvedTheme,
   type ResolveThemeRequest,
 } from "../theme/global-theme";
-import { useSkinImage, type SkinImageReader } from "./skin-image";
+import type { SkinImageReader } from "./skin-image";
 import { SkinCandidatePreview } from "./skin-candidate-preview";
 import { candidateFontSize, candidateFontStyle } from "../candidate/candidate-font-size";
 import { candidateFamilyStyle } from "../candidate/candidate-font-family";
@@ -96,10 +96,12 @@ function LoadedPreview({
   const decorated =
     dimension(skin.decorationTopDip, 500) > 0 && dimension(skin.decorationWidthDip, 1000) > 0;
   const decoration = decorated ? decorationImage(skin) : null;
-  const image = useSkinImage(readImage, skin.id, decoration, 0);
-  const [decodeFailed, setDecodeFailed] = useState(false);
-  useEffect(() => setDecodeFailed(false), [image]);
-  const background = usePreviewBackground(readImage, skin, 0);
+  const { image, decodeFailed, onImageError, background } = useSkinPreviewAssets(
+    readImage,
+    skin,
+    decoration,
+    0,
+  );
   const geometry = {
     ...candidatePaletteStyle(palette),
     ...candidateFontStyle(preferences),
@@ -125,7 +127,7 @@ function LoadedPreview({
             helpcode={helpcode}
             decorated={decorated}
             image={decodeFailed ? undefined : image?.url}
-            onImageError={() => setDecodeFailed(true)}
+            onImageError={onImageError}
             background={background.drawn}
             onBackgroundError={background.onError}
           />

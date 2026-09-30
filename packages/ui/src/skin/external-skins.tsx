@@ -137,6 +137,25 @@ export function usePreviewBackground(
   };
 }
 
+/** Shared image and background loading state for external skin previews. */
+export function useSkinPreviewAssets(
+  readImage: SkinImageReader | undefined,
+  skin: Pick<ExternalSkin, "id" | "background">,
+  decoration: string | null,
+  revision: number,
+) {
+  const image = useSkinImage(readImage, skin.id, decoration, revision);
+  const [decodeFailed, setDecodeFailed] = useState(false);
+  useEffect(() => setDecodeFailed(false), [image]);
+  const background = usePreviewBackground(readImage, skin, revision);
+  return {
+    image,
+    decodeFailed,
+    onImageError: () => setDecodeFailed(true),
+    background,
+  };
+}
+
 /** One scanned package as a card of the theme carousel, drawn with the built-in theme cards' own styles. */
 export function ExternalSkinCard({
   skin,
@@ -211,10 +230,12 @@ export function ExternalSkinCard({
   const decorated =
     dimension(skin.decorationTopDip, 500) > 0 && dimension(skin.decorationWidthDip, 1000) > 0;
   const decoration = decorated ? decorationImage(skin) : null;
-  const image = useSkinImage(readImage, skin.id, decoration, revision);
-  const [decodeFailed, setDecodeFailed] = useState(false);
-  useEffect(() => setDecodeFailed(false), [image]);
-  const background = usePreviewBackground(readImage, skin, revision);
+  const { image, decodeFailed, onImageError, background } = useSkinPreviewAssets(
+    readImage,
+    skin,
+    decoration,
+    revision,
+  );
   const geometry = {
     // The package drawn over its base theme, as `resolve()` layers them; a card has no pickers.
     ...customCandidateStyle(skin.base, undefined, palette),
@@ -287,7 +308,7 @@ export function ExternalSkinCard({
             orientation="horizontal"
             decorated={decorated}
             image={decodeFailed ? undefined : image?.url}
-            onImageError={() => setDecodeFailed(true)}
+            onImageError={onImageError}
             background={background.drawn}
             onBackgroundError={background.onError}
           />
@@ -297,7 +318,7 @@ export function ExternalSkinCard({
             orientation="vertical"
             decorated={decorated}
             image={decodeFailed ? undefined : image?.url}
-            onImageError={() => setDecodeFailed(true)}
+            onImageError={onImageError}
             background={background.drawn}
             onBackgroundError={background.onError}
           />

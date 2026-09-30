@@ -15,6 +15,7 @@ import {
 import {
   ExternalSkinCard,
   selectedBarCss,
+  useSkinPreviewAssets,
   useSkinCatalog,
 } from "../../../../packages/ui/src/skin/external-skins";
 import * as settingsStyle from "../../../../packages/ui/src/settings/settings-style";
@@ -148,6 +149,23 @@ test("external skin selected-bar flag emits a scoped hide rule", () => {
   ]);
   expect(selectedBarCss("scope", { showSelectedBar: true })).toEqual([]);
   expect(selectedBarCss("scope", null)).toEqual([]);
+});
+
+test("shared preview assets reset decode fallback when the preview revision changes", async () => {
+  const readImage = vi.fn().mockResolvedValue(imageData);
+  const { result, rerender } = renderHook(
+    ({ revision }) =>
+      useSkinPreviewAssets(readImage, { id: "sample", background: null }, "preview.png", revision),
+    { initialProps: { revision: 0 } },
+  );
+
+  await waitFor(() => expect(result.current.image?.url).toContain("data:image/png"));
+  act(() => result.current.onImageError());
+  expect(result.current.decodeFailed).toBe(true);
+
+  rerender({ revision: 1 });
+  await waitFor(() => expect(result.current.decodeFailed).toBe(false));
+  expect(readImage).toHaveBeenCalledWith("sample", "preview.png");
 });
 // The page scans once as it mounts; a manual refresh is clicked once that scan has settled and the button is back.
 async function refresh() {
