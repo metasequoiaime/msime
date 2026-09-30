@@ -122,6 +122,15 @@ impl Drop for JournalConnection {
 
 /// `sqlite3_open_v2` with the reference's flags plus the 5 s busy timeout every engine connection uses (J:65-76). Without CREATE a missing file stays missing.
 pub(crate) fn open_database(path: &Path, flags: OpenFlags) -> Result<Connection> {
+    if let Ok(metadata) = std::fs::symlink_metadata(path) {
+        if !metadata.file_type().is_file() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "database path is not a regular file",
+            )
+            .into());
+        }
+    }
     let connection = Connection::open_with_flags(path, flags | OpenFlags::SQLITE_OPEN_FULL_MUTEX)?;
     connection.busy_timeout(Duration::from_millis(BUSY_TIMEOUT_MS))?;
     Ok(connection)
@@ -489,6 +498,20 @@ mod tests {
                 params![kind.journal_name(), key, value],
             )
             .unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn opening_a_journal_rejects_a_symlinked_path() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let external = root.path().join("external.db");
+        let linked = root.path().join("msime_user.db");
+        symlink(&external, &linked).unwrap();
+
+        assert!(open_journal(&linked).is_err());
+        assert!(!external.exists());
     }
 
     #[test]
