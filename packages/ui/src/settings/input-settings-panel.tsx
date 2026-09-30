@@ -26,8 +26,7 @@ import {
   type TranslationProvider,
 } from "./translation-service-selector-section";
 import { NiuTransSettingsSection } from "./niutrans-settings-section";
-import { LinuxTencentCredentialsSection } from "./linux-tencent-credentials-section";
-import { TencentTranslationSection } from "./tencent-translation-section";
+import { TencentTranslationSettingsSection } from "./tencent-translation-settings-section";
 import { CustomTranslationSettingsSection } from "./custom-translation-settings-section";
 import { OnDeviceTranslationNotice } from "./on-device-translation-notice";
 import { defaultWordCharacter } from "./word-character-section";
@@ -339,101 +338,93 @@ export function InputSettingsPanel({
               niutransCredentialTestDisabled(candidateTranslations, niutrans),
             )}
           />
-          {linuxPlatform ? (
-            <LinuxTencentCredentialsSection
-              available={Boolean(client.providerCredentials)}
-              status={
-                providerCredentials
-                  ? {
-                      tencent: providerCredentials.tencent,
-                      tencentInvalid: providerCredentials.tencentInvalid,
-                    }
-                  : undefined
-              }
-              input={tencentCredentialInput}
-              busy={providerCredentialBusy === "tencent"}
-              message={providerCredentialMessages.tencent}
-              onInputChange={(patch) => updateTencentCredentialInput(patch)}
-              onSave={(credential) =>
-                void runProviderCredential(
-                  "tencent",
-                  (credentials) => credentials.saveTencent(credential),
-                  "凭据已保存，provider 服务下次请求时生效。",
-                )
-              }
-              onClear={() =>
-                void runProviderCredential(
-                  "tencent",
-                  (credentials) => credentials.clearTencent(),
-                  "凭据已清除。",
-                )
-              }
-            >
-              {translationProvider === "tencent" &&
-                credentialTestControl(
-                  "translation.tencent",
-                  "测试腾讯云翻译配置",
-                  {},
-                  !candidateTranslations,
-                )}
-            </LinuxTencentCredentialsSection>
-          ) : (
-            <TencentTranslationSection
-              enabled={tencentTranslation.enabled}
-              available={candidateTranslations}
-              secretId={tencentTranslation.secret_id}
-              secretKey={tencentTranslation.secret_key}
-              region={tencentTranslation.region}
-              credentialIssue={tencentCredentialIssue(
-                tencentTranslation.secret_id,
-                tencentTranslation.secret_key,
-                tencentTranslation.region,
-              )}
-              showMissingCredentialsWarning={
-                !customTranslation.enabled &&
-                !tencentSecretConfigured(tencentTranslation.secret_id) &&
-                !tencentSecretConfigured(tencentTranslation.secret_key)
-              }
-              onToggle={(enabled) =>
-                onPreferencesChange({
-                  tencent_tmt: { ...tencentTranslation, enabled },
-                  // Turning on a service of the user's own ends the account choice, so the account never keeps receiving candidates behind a visible selection.
-                  ...(enabled ? { translation_account: undefined } : {}),
-                })
-              }
-              onSecretIdChange={(secret_id) =>
-                onPreferencesChange({
-                  tencent_tmt: { ...tencentTranslation, secret_id },
-                })
-              }
-              onSecretKeyChange={(secret_key) =>
-                onPreferencesChange({
-                  tencent_tmt: { ...tencentTranslation, secret_key },
-                })
-              }
-              onRegionChange={(region) =>
-                onPreferencesChange({
-                  tencent_tmt: { ...tencentTranslation, region },
-                })
-              }
-            >
-              {(windowsPlatform || macosPlatform) &&
-                tencentTranslation.enabled &&
-                credentialTestControl(
-                  "translation.tencent",
-                  "测试腾讯云翻译配置",
-                  tencentTranslationCredentialTestConfig(tencentTranslation),
-                  tencentTranslationCredentialTestDisabled(
-                    candidateTranslations,
-                    tencentCredentialIssue(
-                      tencentTranslation.secret_id,
-                      tencentTranslation.secret_key,
-                      tencentTranslation.region,
-                    ),
+          <TencentTranslationSettingsSection
+            linux={linuxPlatform}
+            available={candidateTranslations}
+            linuxCredentialsAvailable={Boolean(client.providerCredentials)}
+            enabled={tencentTranslation.enabled}
+            secretId={tencentTranslation.secret_id}
+            secretKey={tencentTranslation.secret_key}
+            region={tencentTranslation.region}
+            credentialIssue={tencentCredentialIssue(
+              tencentTranslation.secret_id,
+              tencentTranslation.secret_key,
+              tencentTranslation.region,
+            )}
+            showMissingCredentialsWarning={
+              !customTranslation.enabled &&
+              !tencentSecretConfigured(tencentTranslation.secret_id) &&
+              !tencentSecretConfigured(tencentTranslation.secret_key)
+            }
+            status={
+              providerCredentials
+                ? {
+                    tencent: providerCredentials.tencent,
+                    tencentInvalid: providerCredentials.tencentInvalid,
+                  }
+                : undefined
+            }
+            input={tencentCredentialInput}
+            busy={providerCredentialBusy === "tencent"}
+            message={providerCredentialMessages.tencent}
+            onToggle={(enabled) =>
+              onPreferencesChange({
+                tencent_tmt: { ...tencentTranslation, enabled },
+                // Turning on a service of the user's own ends the account choice, so the account never keeps receiving candidates behind a visible selection.
+                ...(enabled ? { translation_account: undefined } : {}),
+              })
+            }
+            onSecretIdChange={(secret_id) =>
+              onPreferencesChange({ tencent_tmt: { ...tencentTranslation, secret_id } })
+            }
+            onSecretKeyChange={(secret_key) =>
+              onPreferencesChange({ tencent_tmt: { ...tencentTranslation, secret_key } })
+            }
+            onRegionChange={(region) =>
+              onPreferencesChange({ tencent_tmt: { ...tencentTranslation, region } })
+            }
+            onInputChange={(patch) => updateTencentCredentialInput(patch)}
+            onSave={(credential) =>
+              void runProviderCredential(
+                "tencent",
+                (credentials) => credentials.saveTencent(credential),
+                "凭据已保存，provider 服务下次请求时生效。",
+              )
+            }
+            onClear={() =>
+              void runProviderCredential(
+                "tencent",
+                (credentials) => credentials.clearTencent(),
+                "凭据已清除。",
+              )
+            }
+            linuxCredentialTest={
+              translationProvider === "tencent" &&
+              credentialTestControl(
+                "translation.tencent",
+                "测试腾讯云翻译配置",
+                {},
+                !candidateTranslations,
+              )
+            }
+            serviceCredentialTest={
+              (windowsPlatform || macosPlatform) &&
+              tencentTranslation.enabled &&
+              credentialTestControl(
+                "translation.tencent",
+                "测试腾讯云翻译配置",
+                tencentTranslationCredentialTestConfig(tencentTranslation),
+                tencentTranslationCredentialTestDisabled(
+                  candidateTranslations,
+                  tencentCredentialIssue(
+                    tencentTranslation.secret_id,
+                    tencentTranslation.secret_key,
+                    tencentTranslation.region,
                   ),
-                )}
-            </TencentTranslationSection>
-          )}
+                ),
+              )
+            }
+          />
           <CustomTranslationSettingsSection
             mobile={mobilePlatform}
             customTranslationsAvailable={Boolean(client.customTranslations)}
