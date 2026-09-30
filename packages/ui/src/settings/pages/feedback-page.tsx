@@ -3,6 +3,7 @@ import * as settings from "../settings-style";
 import { useSettingsForm } from "../settings-form-context";
 import { GroupList, Row, Select } from "../../core/platform-controls";
 import { SubPageEntries } from "./sub-page-entries";
+import { createSettingsExternalActions } from "../settings-external-actions";
 
 /** The 反馈 page of the settings form. */
 export function FeedbackSettingsPage() {
@@ -22,7 +23,14 @@ export function FeedbackSettingsPage() {
     supportDiagnostics,
     submitFeedback,
     openExternalUrl,
+    mobilePlatform,
   } = useSettingsForm();
+  const externalActions = createSettingsExternalActions({
+    mobile: mobilePlatform,
+    canOpenExternalUrl: Boolean(client.openExternalUrl),
+    openExternalUrl,
+    issuesUrl: platformIssuesUrl,
+  });
   return (
     <fieldset disabled={busy} hidden={page !== "feedback"} aria-label="反馈">
       <div className={settings.groups}>
@@ -88,7 +96,7 @@ export function FeedbackSettingsPage() {
             <button
               type="button"
               className="secondary"
-              onClick={() => void openExternalUrl(platformIssuesUrl)}
+              onClick={externalActions.onOpenIssues}
             >
               查看 Issues
             </button>
@@ -114,7 +122,7 @@ export function FeedbackSettingsPage() {
             <button
               type="button"
               className="secondary"
-              onClick={() => void openExternalUrl("https://t.me/msimegroup")}
+              onClick={externalActions.onOpenTelegram}
             >
               打开群组
             </button>
