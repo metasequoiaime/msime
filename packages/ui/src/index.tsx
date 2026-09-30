@@ -414,6 +414,7 @@ import { ChatPage, type ChatClient } from "./chat/chat-page";
 import { HomePage, MoreSettingsPage, type HomePageActions } from "./keyboard/home-page";
 import { useSettingsPlatform } from "./theme/settings-platform";
 import { SettingsFormContext } from "./settings/settings-form-context";
+import { createSettingsReloadAction } from "./settings/settings-reload-action";
 import { VoiceSettingsPage } from "./settings/pages/voice-page";
 import { AiSettingsPage } from "./settings/pages/ai-page";
 import { InputSettingsPage } from "./settings/pages/input-page";
@@ -2529,6 +2530,7 @@ export function SettingsPage(props: SettingsPageProps) {
     initialCommunityScope,
     initialCommunityMine,
   } = model;
+  const reloadSettings = createSettingsReloadAction({ dirty, reload, confirm });
   const winShell = settingsPlatform === "win";
   const macShell = settingsPlatform === "mac";
   const linuxShell = settingsPlatform === "linux";
@@ -2917,20 +2919,7 @@ export function SettingsPage(props: SettingsPageProps) {
                 <button
                   className="secondary"
                   disabled={busy}
-                  onClick={() => {
-                    if (!dirty) {
-                      void reload();
-                      return;
-                    }
-                    void confirm({
-                      title: "重新读取",
-                      message: "尚未保存的修改会被放弃。",
-                      confirmLabel: "放弃并重新读取",
-                      danger: true,
-                    }).then((confirmed) => {
-                      if (confirmed) void reload();
-                    });
-                  }}
+                  onClick={() => void reloadSettings()}
                 >
                   重新读取
                 </button>
