@@ -3,6 +3,7 @@ import { clamp } from "../core/number";
 import { utf8ByteLength } from "../core/text";
 import { readDictionaryFile } from "../dictionary/dictionary-file";
 import { usePanelDrag } from "./use-panel-drag";
+import { usePanelAction } from "./use-panel-action";
 import { useEmojiNavigation } from "../emoji/use-emoji-navigation";
 import {
   useEffect,
@@ -1721,29 +1722,16 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
   const [items, setItems] = useState<CloudClipboardItem[]>([]);
   const [draft, setDraft] = useState("");
   const [enabled, setEnabled] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const refreshRevision = useRef(0);
-  const busyRef = useRef(false);
+  const [notice, setNotice] = useState("只上传你明确选择的内容");
+  const {
+    busy,
+    busyRef,
+    revisionRef: refreshRevision,
+    run,
+    invalidate,
+  } = usePanelAction(setNotice);
   const draftRevision = useRef(0);
   const searchRef = useRef("");
-  const [notice, setNotice] = useState("只上传你明确选择的内容");
-
-  async function run(action: (revision: number) => Promise<void>, failure: string) {
-    if (busyRef.current) return;
-    const revision = ++refreshRevision.current;
-    busyRef.current = true;
-    setBusy(true);
-    try {
-      await action(revision);
-    } catch {
-      if (revision === refreshRevision.current) setNotice(failure);
-    } finally {
-      if (revision === refreshRevision.current) {
-        busyRef.current = false;
-        setBusy(false);
-      }
-    }
-  }
 
   async function load(revision: number, nextSearch: string) {
     let result;
@@ -1790,10 +1778,9 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
     void refresh(searchRef.current);
     return () => {
       active = false;
-      refreshRevision.current++;
-      busyRef.current = false;
+      invalidate();
     };
-  }, [client]);
+  }, [client, invalidate]);
 
   function add() {
     if (!enabled || draft.trim().length === 0 || draft.length > 4000) {
@@ -1997,36 +1984,16 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
     word: string;
     weight: number;
   } | null>(null);
-  const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("管理当前账号的云端词条");
-  const refreshRevision = useRef(0);
-  const busyRef = useRef(false);
+  const {
+    busy,
+    busyRef,
+    revisionRef: refreshRevision,
+    run,
+    invalidate,
+    isCurrent,
+  } = usePanelAction(setNotice);
   const searchRef = useRef("");
-  const mounted = useRef(true);
-
-  useEffect(
-    () => () => {
-      mounted.current = false;
-    },
-    [],
-  );
-
-  async function run(action: (revision: number) => Promise<void>, failure: string) {
-    if (!mounted.current || busyRef.current) return;
-    const revision = ++refreshRevision.current;
-    busyRef.current = true;
-    setBusy(true);
-    try {
-      await action(revision);
-    } catch {
-      if (mounted.current && revision === refreshRevision.current) setNotice(failure);
-    } finally {
-      if (mounted.current && revision === refreshRevision.current) {
-        busyRef.current = false;
-        setBusy(false);
-      }
-    }
-  }
 
   async function load(
     revision: number,
@@ -2043,14 +2010,14 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
         search: nextSearch,
       });
     } catch (error) {
-      if (revision === refreshRevision.current) {
+      if (isCurrent(revision)) {
         setEntries([]);
         setHasMore(false);
         setForm(null);
       }
       throw error;
     }
-    if (revision !== refreshRevision.current) return;
+    if (!isCurrent(revision)) return;
     setEntries(cloudDictionaryEntries<CloudDictionaryEntry>(result));
     setOffset(typeof result.offset === "number" ? result.offset : nextOffset);
     setHasMore(result.has_more === true);
@@ -2059,21 +2026,21 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
   function refresh(nextOffset = 0, nextSearch = searchRef.current, nextKind = kind) {
     return run(async (revision) => {
       await load(revision, nextOffset, nextSearch, nextKind);
-      if (revision === refreshRevision.current) setNotice("云词典已刷新");
+      if (isCurrent(revision)) setNotice("云词典已刷新");
     }, "无法访问云词典服务，请确认 provider 已连接");
   }
 
   useEffect(() => {
-    busyRef.current = false;
+    invalidate();
     setEntries([]);
     setOffset(0);
     setHasMore(false);
     setForm(null);
     void refresh(0);
     return () => {
-      refreshRevision.current++;
+      invalidate();
     };
-  }, [client]);
+  }, [client, invalidate]);
 
   function beginAdd() {
     if (!busyRef.current) setForm({ entry: null, code: "", word: "", weight: 100000 });
@@ -2084,12 +2051,12 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
   }
 
   async function reloadAfterMutation(revision: number, success: string) {
-    if (revision !== refreshRevision.current) return;
+    if (!isCurrent(revision)) return;
     try {
       await load(revision, 0, searchRef.current, kind);
-      if (revision === refreshRevision.current) setNotice(success);
+      if (isCurrent(revision)) setNotice(success);
     } catch {
-      if (revision === refreshRevision.current) {
+      if (isCurrent(revision)) {
         setEntries([]);
         setOffset(0);
         setHasMore(false);
@@ -2120,7 +2087,7 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
       } else {
         await client.request({ operation: "add", kind, code, word, weight: form.weight });
       }
-      if (revision !== refreshRevision.current) return;
+      if (!isCurrent(revision)) return;
       setForm(null);
       await reloadAfterMutation(revision, "云词条已保存");
     }, "云词条保存失败，请刷新后重试");
@@ -2129,14 +2096,14 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
   function remove(entry: CloudDictionaryEntry) {
     return run(async (revision) => {
       await client.request({ operation: "delete", kind, id: entry.id, revision: entry.revision });
-      if (revision !== refreshRevision.current) return;
+      if (!isCurrent(revision)) return;
       setForm((current) => (current?.entry?.id === entry.id ? null : current));
       await reloadAfterMutation(revision, "云词条已删除");
     }, "云词条删除失败，请刷新后重试");
   }
 
   async function confirmRemove(entry: CloudDictionaryEntry) {
-    if (!mounted.current || busyRef.current) return;
+    if (busyRef.current) return;
     const confirmed = await confirm({
       title: "删除云词条",
       message: `“${entry.word}”只会从云端删除，本机词库不会改变。`,
@@ -2145,22 +2112,22 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
     });
     // Re-checked after the answer: the dialog is not instant, and another action may have started
     // while it was open.
-    if (!confirmed || !mounted.current || busyRef.current) return;
+    if (!confirmed || busyRef.current) return;
     void remove(entry);
   }
 
   async function downloadToLocal(entry: CloudDictionaryEntry) {
-    if (!mounted.current || busyRef.current || !client.downloadToLocal) return;
+    if (busyRef.current || !client.downloadToLocal) return;
     const confirmed = await confirm({
       title: "加入本机词典",
       message: `云词条“${entry.word}”会被加入本机个人词典。`,
       confirmLabel: "加入",
     });
-    if (!confirmed || !mounted.current || busyRef.current || !client.downloadToLocal) return;
+    if (!confirmed || busyRef.current || !client.downloadToLocal) return;
     const download = client.downloadToLocal;
     return run(async (revision) => {
       await download(entry);
-      if (revision === refreshRevision.current) setNotice("云词条已加入本机词典队列");
+      if (isCurrent(revision)) setNotice("云词条已加入本机词典队列");
     }, "加入本机词典失败，请重试");
   }
 
@@ -2328,56 +2295,40 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
   const [kind, setKind] = useState<CloudDictionaryKind>("pinyin");
   const [format, setFormat] = useState<CloudDictionaryFileFormat>("standard");
   const [file, setFile] = useState<{ name: string; text: string; bytes: number } | null>(null);
-  const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("选择 TSV 文件后确认上传；导出不会改变云端内容");
+  const {
+    busy,
+    busyRef,
+    revisionRef: requestRevision,
+    run,
+    invalidate,
+  } = usePanelAction(setNotice);
   const [snapshotBusy, setSnapshotBusy] = useState(false);
   const [restorePreview, setRestorePreview] = useState<{
     text: string;
     snapshot: CloudDictionarySnapshotMetadata;
     expectedRevision: number;
   } | null>(null);
-  const requestRevision = useRef(0);
-  const busyRef = useRef(false);
   const mounted = useRef(true);
   const lifecycleRevision = useRef(0);
 
   useEffect(() => {
     const current = ++lifecycleRevision.current;
-    requestRevision.current++;
-    busyRef.current = false;
-    setBusy(false);
+    invalidate();
     setSnapshotBusy(false);
     setRestorePreview(null);
     return () => {
       if (current === lifecycleRevision.current) lifecycleRevision.current++;
-      requestRevision.current++;
-      busyRef.current = false;
+      invalidate();
       if (client.snapshotNative) void client.request({ operation: "snapshot_restore_cancel" });
     };
-  }, [client]);
+  }, [client, invalidate]);
 
   useEffect(() => {
     return () => {
       mounted.current = false;
     };
   }, []);
-
-  async function run(action: (revision: number) => Promise<void>, failure: string) {
-    if (busyRef.current) return;
-    const revision = ++requestRevision.current;
-    busyRef.current = true;
-    setBusy(true);
-    try {
-      await action(revision);
-    } catch {
-      if (revision === requestRevision.current) setNotice(failure);
-    } finally {
-      if (revision === requestRevision.current) {
-        busyRef.current = false;
-        setBusy(false);
-      }
-    }
-  }
 
   function changeKind(next: CloudDictionaryKind) {
     if (busyRef.current || next === kind) return;
@@ -2772,10 +2723,15 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
   const [request, setRequest] = useState<CloudDictionarySnapshotRequest | null>(null);
   const [preview, setPreview] = useState<CloudDictionarySnapshotMetadata | null>(null);
   const [previewToken, setPreviewToken] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("先获取本机词库版本，再下载并预览云端快照");
-  const busyRef = useRef(false);
-  const statusRevision = useRef(0);
+  const {
+    busy,
+    busyRef,
+    revisionRef: statusRevision,
+    run: runAction,
+    invalidate,
+    isCurrent,
+  } = usePanelAction(setNotice);
   const lifecycleRevision = useRef(0);
 
   async function refreshStatus() {
@@ -2784,35 +2740,18 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
     const revision = ++statusRevision.current;
     try {
       const result = await client.request({ operation: "snapshot_status" });
-      if (lifecycle !== lifecycleRevision.current || revision !== statusRevision.current) return;
+      if (lifecycle !== lifecycleRevision.current || !isCurrent(revision)) return;
       setLocalVersion(typeof result.localVersion === "string" ? result.localVersion : null);
       setRequest(cloudResponseRequest<CloudDictionarySnapshotRequest>(result));
     } catch {
-      if (lifecycle === lifecycleRevision.current && revision === statusRevision.current)
+      if (lifecycle === lifecycleRevision.current && isCurrent(revision))
         setNotice("无法读取本机词库状态，请确认键盘已启用");
     }
   }
 
-  async function run(
-    action: (revision: number, lifecycle: number) => Promise<void>,
-    failure: string,
-  ) {
-    if (busyRef.current) return;
+  function run(action: (revision: number, lifecycle: number) => Promise<void>, failure: string) {
     const lifecycle = lifecycleRevision.current;
-    const revision = ++statusRevision.current;
-    busyRef.current = true;
-    setBusy(true);
-    try {
-      await action(revision, lifecycle);
-    } catch {
-      if (lifecycle === lifecycleRevision.current && revision === statusRevision.current)
-        setNotice(failure);
-    } finally {
-      if (lifecycle === lifecycleRevision.current && revision === statusRevision.current) {
-        busyRef.current = false;
-        setBusy(false);
-      }
-    }
+    return runAction((revision) => action(revision, lifecycle), failure);
   }
 
   function download() {
@@ -2822,7 +2761,7 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
     }
     void run(async (revision, lifecycle) => {
       const result = await client.request({ operation: "snapshot_preview" });
-      if (lifecycle !== lifecycleRevision.current || revision !== statusRevision.current) return;
+      if (lifecycle !== lifecycleRevision.current || !isCurrent(revision)) return;
       if (!result.snapshot || typeof result.previewToken !== "string")
         throw new Error("invalid preview");
       setPreview(result.snapshot);
@@ -2844,8 +2783,7 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
     if (!confirmed || busyRef.current || lifecycle !== lifecycleRevision.current) return;
     void run(async (revision, currentLifecycle) => {
       const result = await client.request({ operation: "snapshot_enqueue", token });
-      if (currentLifecycle !== lifecycleRevision.current || revision !== statusRevision.current)
-        return;
+      if (currentLifecycle !== lifecycleRevision.current || !isCurrent(revision)) return;
       setPreview(null);
       setPreviewToken(null);
       setRequest(cloudResponseRequest<CloudDictionarySnapshotRequest>(result));
@@ -2865,8 +2803,7 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
     if (!confirmed || busyRef.current || lifecycle !== lifecycleRevision.current) return;
     void run(async (revision, currentLifecycle) => {
       const result = await client.request({ operation: "snapshot_cancel" });
-      if (currentLifecycle !== lifecycleRevision.current || revision !== statusRevision.current)
-        return;
+      if (currentLifecycle !== lifecycleRevision.current || !isCurrent(revision)) return;
       setRequest(cloudResponseRequest<CloudDictionarySnapshotRequest>(result));
       setNotice("已取消待应用快照");
     }, "取消快照失败");
@@ -2874,9 +2811,7 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
 
   useEffect(() => {
     const lifecycle = ++lifecycleRevision.current;
-    statusRevision.current++;
-    busyRef.current = false;
-    setBusy(false);
+    invalidate();
     setPreview(null);
     setPreviewToken(null);
     void refreshStatus();
@@ -2885,11 +2820,10 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
     }, 2000);
     return () => {
       if (lifecycle === lifecycleRevision.current) lifecycleRevision.current++;
-      statusRevision.current++;
-      busyRef.current = false;
+      invalidate();
       window.clearInterval(timer);
     };
-  }, [client]);
+  }, [client, invalidate]);
 
   return (
     <main className={`native-panel ${cloud.dictionaryPanel}`} aria-label="应用云词库">
@@ -3009,15 +2943,18 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
     word: string;
     weight: number;
   } | null>(null);
-  const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("查询基础词库与当前账号的完整目录");
-  const requestRevision = useRef(0);
-  const busyRef = useRef(false);
+  const {
+    busy,
+    busyRef,
+    revisionRef: requestRevision,
+    run,
+    invalidate,
+    isCurrent,
+  } = usePanelAction(setNotice);
 
   useEffect(() => {
-    requestRevision.current++;
-    busyRef.current = false;
-    setBusy(false);
+    invalidate();
     setEntries([]);
     setForm(null);
     setConfirmed(null);
@@ -3026,27 +2963,9 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
     setRevision(0);
     setNormalized("");
     return () => {
-      requestRevision.current++;
-      busyRef.current = false;
+      invalidate();
     };
-  }, [client]);
-
-  async function run(action: (requestRevision: number) => Promise<void>, failure: string) {
-    if (busyRef.current) return;
-    const current = ++requestRevision.current;
-    busyRef.current = true;
-    setBusy(true);
-    try {
-      await action(current);
-    } catch {
-      if (current === requestRevision.current) setNotice(failure);
-    } finally {
-      if (current === requestRevision.current) {
-        busyRef.current = false;
-        setBusy(false);
-      }
-    }
-  }
+  }, [client, invalidate]);
 
   async function load(
     current: number,
@@ -3064,7 +2983,7 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
         profile: query.profile,
       });
     } catch (error) {
-      if (current === requestRevision.current) {
+      if (isCurrent(current)) {
         setEntries([]);
         setForm(null);
         setConfirmed(null);
@@ -3075,7 +2994,7 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
       }
       throw error;
     }
-    if (current !== requestRevision.current) return;
+    if (!isCurrent(current)) return;
     setEntries(cloudDictionaryCatalogEntries<CloudDictionaryCatalogEntry>(result));
     setOffset(typeof result.offset === "number" ? result.offset : nextOffset);
     setHasMore(result.has_more === true);
@@ -3095,7 +3014,7 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
     }
     return run(async (current) => {
       await load(current, nextOffset, query);
-      if (current === requestRevision.current) setNotice("完整目录已刷新");
+      if (isCurrent(current)) setNotice("完整目录已刷新");
     }, "无法访问完整云词库目录，请确认账号已登录");
   }
 
@@ -3114,9 +3033,9 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
     if (!confirmed) return;
     try {
       await load(current, 0, confirmed);
-      if (current === requestRevision.current) setNotice(message);
+      if (isCurrent(current)) setNotice(message);
     } catch {
-      if (current === requestRevision.current) setNotice(`${message}，但目录刷新失败，请重新查询`);
+      if (isCurrent(current)) setNotice(`${message}，但目录刷新失败，请重新查询`);
     }
   }
 
@@ -3137,7 +3056,7 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
           ? { code: form.code.trim(), word: form.word, weight: form.weight }
           : null,
       });
-      if (current !== requestRevision.current) return;
+      if (!isCurrent(current)) return;
       setForm(null);
       await reload(current, "完整目录已保存");
     }, "目录保存失败，请刷新后重试");
@@ -3153,7 +3072,7 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
         revision,
         replacement: null,
       });
-      if (current !== requestRevision.current) return;
+      if (!isCurrent(current)) return;
       setForm((currentForm) =>
         currentForm?.entry.code === entry.code && currentForm.entry.word === entry.word
           ? null
@@ -3379,43 +3298,28 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
   const [positions, setPositions] = useState<CloudFixedPosition[]>([]);
   const [context, setContext] = useState("");
   const [revision, setRevision] = useState(0);
-  const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("仅在点击查询时发送编码；修改只保存到当前账号");
+  const {
+    busy,
+    busyRef,
+    revisionRef: requestRevision,
+    run,
+    invalidate,
+    isCurrent,
+  } = usePanelAction(setNotice);
   const textRef = useRef("");
-  const requestRevision = useRef(0);
-  const busyRef = useRef(false);
 
   useEffect(() => {
-    requestRevision.current++;
-    busyRef.current = false;
-    setBusy(false);
+    invalidate();
     setCandidates([]);
     setPositions([]);
     setQuery(null);
     setContext("");
     setRevision(0);
     return () => {
-      requestRevision.current++;
-      busyRef.current = false;
+      invalidate();
     };
-  }, [client]);
-
-  async function run(action: (requestRevision: number) => Promise<void>, failure: string) {
-    if (busyRef.current) return;
-    const current = ++requestRevision.current;
-    busyRef.current = true;
-    setBusy(true);
-    try {
-      await action(current);
-    } catch {
-      if (current === requestRevision.current) setNotice(failure);
-    } finally {
-      if (current === requestRevision.current) {
-        busyRef.current = false;
-        setBusy(false);
-      }
-    }
-  }
+  }, [client, invalidate]);
 
   async function load(
     current: number,
@@ -3431,7 +3335,7 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
     try {
       result = await client.request({ operation: "candidates", ...nextQuery });
     } catch (error) {
-      if (current === requestRevision.current) {
+      if (isCurrent(current)) {
         setCandidates([]);
         setPositions([]);
         setQuery(null);
@@ -3440,7 +3344,7 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
       }
       throw error;
     }
-    if (current !== requestRevision.current) return;
+    if (!isCurrent(current)) return;
     const nextCandidates = Array.isArray(result.candidates)
       ? result.candidates.filter(
           (candidate) =>
@@ -3461,7 +3365,7 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
         context: result.context,
         offset: 0,
       });
-      if (current !== requestRevision.current) return;
+      if (!isCurrent(current)) return;
       const nextPositions = Array.isArray(fixed.positions)
         ? fixed.positions.filter(
             (item) => item && typeof item.code === "string" && typeof item.word === "string",
@@ -3486,7 +3390,7 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
     };
     return run(async (current) => {
       await load(current, nextQuery);
-      if (current === requestRevision.current) setNotice("云端候选已刷新");
+      if (isCurrent(current)) setNotice("云端候选已刷新");
     }, "无法查询云端候选，请确认账号已登录");
   }
 
@@ -3494,9 +3398,9 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
     if (!query) return;
     try {
       await load(current, query);
-      if (current === requestRevision.current) setNotice(message);
+      if (isCurrent(current)) setNotice(message);
     } catch {
-      if (current === requestRevision.current) setNotice(`${message}，但候选刷新失败，请重新查询`);
+      if (isCurrent(current)) setNotice(`${message}，但候选刷新失败，请重新查询`);
     }
   }
 

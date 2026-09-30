@@ -1114,6 +1114,11 @@ export {
   type VoicePanelClient,
 } from "./keyboard/panels";
 export {
+  usePanelAction,
+  type PanelAction,
+  type PanelActionState,
+} from "./keyboard/use-panel-action";
+export {
   CloudDictionaryEntryForm,
   type CloudDictionaryEntryFormProps,
   type CloudDictionaryEntryFormValue,
