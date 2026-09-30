@@ -30,19 +30,12 @@ import { LinuxTencentCredentialsSection } from "./linux-tencent-credentials-sect
 import { TencentTranslationSection } from "./tencent-translation-section";
 import { CustomTranslationSettingsSection } from "./custom-translation-settings-section";
 import { OnDeviceTranslationNotice } from "./on-device-translation-notice";
-import { WordCharacterSection, defaultWordCharacter } from "./word-character-section";
+import { defaultWordCharacter } from "./word-character-section";
 import { FuzzyPinyinSection, defaultFuzzyPinyin } from "./fuzzy-pinyin-section";
-import { LearningSection } from "./learning-section";
 import { PunctuationSection } from "./punctuation-section";
 import { MixedInputSection, defaultMixedInput } from "./mixed-input-section";
-import { InputModeHudSection } from "./input-mode-hud-section";
-import { CandidateEnglishGlossSection } from "./candidate-english-gloss-section";
-import { EnglishSuggestionsSection } from "./english-suggestions-section";
-import { DefaultImeModeSection } from "./default-ime-mode-section";
-import { ImeModeScopeSection } from "./ime-mode-scope-section";
-import { TraditionalChineseOutputSection } from "./traditional-chinese-output-section";
-import { CloudCandidatesSection } from "./cloud-candidates-section";
-import { FrequencySection, defaultFrequency } from "./frequency-section";
+import { defaultFrequency } from "./frequency-section";
+import { InputSharedSettingsSection } from "./input-shared-settings-section";
 import {
   MobileKeyboardFeedbackSection,
   type MobileKeyboardFeedback,
@@ -467,79 +460,39 @@ export function InputSettingsPanel({
           />
         </>
       )}
-      <WordCharacterSection
-        preferences={wordCharacter}
-        navigation={draft.navigation ?? defaultNavigation}
-        ios={iosPlatform}
-        onChange={({ wordCharacter: nextWordCharacter, navigation }) =>
-          onPreferencesChange({
-            word_character: nextWordCharacter,
-            navigation,
-          })
-        }
-      />
-      {client.fuzzyPinyin && (
-        <FuzzyPinyinSection
-          preferences={fuzzyPinyin}
-          onChange={(fuzzy_pinyin) => onPreferencesChange({ fuzzy_pinyin })}
-          confirm={confirm}
-        />
-      )}
-      <LearningSection
-        value={draft.learning}
-        onChange={(learning) => onPreferencesChange({ learning })}
-      />
-      <PunctuationSection
+      <InputSharedSettingsSection
         preferences={draft}
-        showCharacterWidth={showCharacterWidth}
-        onChange={onPreferencesChange}
-      />
-      <MixedInputSection
-        preferences={mixedInput}
-        onChange={(mixed_input) => onPreferencesChange({ mixed_input })}
-      />
-      {/* macOS keeps this with the chords that trigger it, on the shortcut page. */}
-      {showInputModeHUD && !macosPlatform && (
-        <InputModeHudSection
-          value={draft.input_mode_hud}
-          onChange={(input_mode_hud) => onPreferencesChange({ input_mode_hud })}
-        />
-      )}
-      {client.candidateEnglishGloss && (
-        <CandidateEnglishGlossSection
-          value={draft.candidate_english_gloss}
-          onChange={(candidate_english_gloss) => onPreferencesChange({ candidate_english_gloss })}
-        />
-      )}
-      {showEnglishSuggestions && (
-        <EnglishSuggestionsSection
-          value={draft.english_suggestions}
-          onChange={(english_suggestions) => onPreferencesChange({ english_suggestions })}
-        />
-      )}
-      <DefaultImeModeSection
-        value={draft.default_ime_mode}
-        onChange={(default_ime_mode) => onPreferencesChange({ default_ime_mode })}
-      />
-      {showModeScope && (
-        <ImeModeScopeSection
-          value={draft.ime_mode_scope}
-          onChange={(ime_mode_scope) => onPreferencesChange({ ime_mode_scope })}
-        />
-      )}
-      <TraditionalChineseOutputSection
-        value={draft.traditional_chinese_output}
-        onChange={(traditional_chinese_output) =>
-          onPreferencesChange({ traditional_chinese_output })
+        wordCharacter={wordCharacter}
+        navigation={draft.navigation ?? defaultNavigation}
+        frequency={frequency}
+        ios={iosPlatform}
+        showInputModeHUD={showInputModeHUD && !macosPlatform}
+        showModeScope={showModeScope}
+        showCandidateEnglishGloss={Boolean(client.candidateEnglishGloss)}
+        showEnglishSuggestions={showEnglishSuggestions}
+        beforeLearning={
+          client.fuzzyPinyin ? (
+            <FuzzyPinyinSection
+              preferences={fuzzyPinyin}
+              onChange={(fuzzy_pinyin) => onPreferencesChange({ fuzzy_pinyin })}
+              confirm={confirm}
+            />
+          ) : null
         }
-      />
-      <CloudCandidatesSection
-        value={draft.cloud_candidates}
-        onChange={(cloud_candidates) => onPreferencesChange({ cloud_candidates })}
-      />
-      <FrequencySection
-        preferences={frequency}
-        onChange={(frequency) => onPreferencesChange({ frequency })}
+        beforeLanguage={
+          <>
+            <PunctuationSection
+              preferences={draft}
+              showCharacterWidth={showCharacterWidth}
+              onChange={onPreferencesChange}
+            />
+            <MixedInputSection
+              preferences={mixedInput}
+              onChange={(mixed_input) => onPreferencesChange({ mixed_input })}
+            />
+          </>
+        }
+        onPreferencesChange={onPreferencesChange}
       />
       {mobilePlatform && client.mobileKeyboardFeedback && mobileKeyboardFeedback && (
         <MobileKeyboardFeedbackSection
