@@ -3,7 +3,6 @@ import { NavItem } from "./core/platform-controls";
 import { mobilePageTitle } from "./settings/mobile-tab-helpers";
 import { desktopDownloadUrl, fallbackAppVersion } from "./settings/app-resources";
 import { useSettingsWindowInteractions } from "./settings/use-settings-window-interactions";
-import { updateCandidateColor } from "./settings/theme-selection-updates";
 import { useSettingsNavigation } from "./settings/use-settings-navigation";
 import { useSettingsContentScrollReset } from "./settings/use-settings-content-scroll-reset";
 import { MobileSettingsTabs } from "./settings/mobile-settings-tabs";
@@ -342,7 +341,6 @@ import {
 } from "./voice/polish-presets";
 import {
   customThemeBase,
-  type CustomCandidateColors,
   type CustomTheme,
   type GlobalTheme,
   type ResolveThemeRequest,
@@ -1756,6 +1754,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   const [draft, setDraft] = useState<Preferences>();
   const {
     onAiChange,
+    onCandidateColorChange,
     onCustomKeyboardChange,
     onTranslationChange,
     onUseCustomKeyboard,
@@ -2106,8 +2105,6 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   const toolbarPreviewTheme = useCandidatePreviewTheme(themeMode, draft?.toolbar_theme);
   const keyboardPreviewTheme = useCandidatePreviewTheme(themeMode, draft?.screen_keyboard_theme);
   // A picker colour is part of the custom theme, so choosing one selects that theme; clearing one leaves the selection alone. Choosing one while another theme is selected customizes that theme: it becomes the custom theme's base, and a package, whose own base would replace it, is dropped.
-  const setCandidateColor = (slot: keyof CustomCandidateColors, value: string | null) =>
-    setDraft((current) => (current ? updateCandidateColor(current, slot, value) : current));
   // A custom theme without a keyboard design draws its base's keyboard, so the custom keyboard card is selected only when the theme carries one.
   const customKeyboardSelected = globalTheme === "custom" && Boolean(draft?.custom_theme?.keyboard);
   useEffect(() => setSkinPreviewThemes({}), [candidatePreviewTheme]);
@@ -2418,7 +2415,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     globalTheme,
     customColors,
     customTouchKeyboardSkin,
-    setCandidateColor,
+    onCandidateColorChange,
     onCustomKeyboardChange,
     onUseCustomKeyboard,
     customKeyboardSelected,

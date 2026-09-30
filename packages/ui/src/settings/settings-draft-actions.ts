@@ -9,7 +9,8 @@ import { defaultAiAssistant } from "./ai-assistant-defaults";
 import { defaultVoiceInput } from "./voice-input-defaults";
 import { defaultTouchKeyboardSkinDesign } from "../keyboard/touch-keyboard-skin-design";
 import type { TouchKeyboardSkinDesign } from "../keyboard/touch-keyboard-skin-design";
-import { updateCustomKeyboard } from "./theme-selection-updates";
+import type { CustomCandidateColors } from "../theme/global-theme";
+import { updateCandidateColor, updateCustomKeyboard } from "./theme-selection-updates";
 
 export interface CreateSettingsDraftActionsOptions {
   setDraft: Dispatch<SetStateAction<Preferences | undefined>>;
@@ -34,6 +35,8 @@ export function createSettingsDraftActions({ setDraft }: CreateSettingsDraftActi
       setDraft((current) =>
         current ? { ...current, custom_theme: { ...current.custom_theme, ...patch } } : current,
       ),
+    onCandidateColorChange: (slot: keyof CustomCandidateColors, value: string | null) =>
+      setDraft((current) => (current ? updateCandidateColor(current, slot, value) : current)),
     onCustomKeyboardChange: (design: TouchKeyboardSkinDesign) =>
       setDraft((current) => (current ? updateCustomKeyboard(current, design) : current)),
     onUseCustomKeyboard: () =>

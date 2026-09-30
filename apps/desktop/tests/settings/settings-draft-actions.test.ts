@@ -95,3 +95,22 @@ test("uses the latest custom keyboard draft through the shared action", () => {
   const updater = setDraft.mock.calls[0][0] as (value: Preferences) => Preferences;
   expect(updater(draft).custom_theme?.keyboard).toEqual(design);
 });
+
+test("updates a candidate color through the shared draft action", () => {
+  const setDraft = vi.fn();
+  const actions = createSettingsDraftActions({ setDraft });
+  const draft = {
+    scheme: "quanpin",
+    global_theme: "night",
+    custom_theme: { base: "night", candidate_skin: "community-skin" },
+  } as unknown as Preferences;
+
+  actions.onCandidateColorChange("surface", "#123456");
+
+  const updater = setDraft.mock.calls[0][0] as (value: Preferences) => Preferences;
+  expect(updater(draft).custom_theme).toMatchObject({
+    base: "night",
+    candidate_skin: null,
+    candidate_colors: { surface: "#123456" },
+  });
+});

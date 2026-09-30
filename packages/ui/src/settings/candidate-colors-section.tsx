@@ -17,7 +17,7 @@ export interface CandidateColorsSectionProps {
   showSelectionAppearance: boolean;
   showBorderColor: boolean;
   linux: boolean;
-  /** Sets or clears one slot. The settings model's `setCandidateColor` also selects the custom theme when a colour is chosen (see THEME_CONTRACT). */
+  /** Sets or clears one slot. The settings model's `onCandidateColorChange` also selects the custom theme when a colour is chosen (see THEME_CONTRACT). */
   onChange: (key: CandidateColorKey, value: string | null) => void;
 }
 

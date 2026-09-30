@@ -51,7 +51,7 @@ export function SkinSettingsPage() {
     globalTheme,
     themeMode,
     customColors,
-    setCandidateColor,
+    onCandidateColorChange,
     showCandidateRowColors,
     showCandidateSelectionAppearance,
     showCandidateBorderColor,
@@ -209,7 +209,7 @@ export function SkinSettingsPage() {
           {mobileKeyboardFeedback?.candidatePaletteFollowsDesktop === false && (
             <CandidatePaletteFallbackNotice />
           )}
-          {/* Choosing a colour makes the theme custom, over whatever theme was on screen (see `setCandidateColor`). */}
+          {/* Choosing a colour makes the theme custom, over whatever theme was on screen (see `onCandidateColorChange`). */}
           <CandidateColorsSection
             preferences={customColors}
             previewTheme={candidatePreviewTheme}
@@ -217,7 +217,7 @@ export function SkinSettingsPage() {
             showSelectionAppearance={showCandidateSelectionAppearance}
             showBorderColor={showCandidateBorderColor}
             linux={linuxPlatform}
-            onChange={setCandidateColor}
+            onChange={onCandidateColorChange}
           />
           {client.customTouchKeyboardSkins && (
             <ScreenKeyboardSkinsSection
