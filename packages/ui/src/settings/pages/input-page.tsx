@@ -204,8 +204,7 @@ export function InputSettingsPage() {
             <Switch
               checked={draft.sentence_association?.word_lattice ?? true}
               onChange={(checked) =>
-                setDraft({
-                  ...draft,
+                onPreferencesChange({
                   sentence_association: {
                     ...draft.sentence_association,
                     word_lattice: checked,
@@ -225,8 +224,7 @@ export function InputSettingsPage() {
                   : (draft.sentence_association?.neural_desktop ?? false)
               }
               onChange={(checked) =>
-                setDraft({
-                  ...draft,
+                onPreferencesChange({
                   sentence_association: {
                     ...draft.sentence_association,
                     ...(mobilePlatform
