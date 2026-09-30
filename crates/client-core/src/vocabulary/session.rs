@@ -127,6 +127,10 @@ pub fn apply(
             })?;
         }
         ReviewAction::Import { name, text } => {
+            // Validate the existing progress before writing the new book. Import spans two
+            // stores; if the progress document is damaged, returning an error after the library
+            // write would leave a book behind even though the action failed.
+            let document = store.load()?;
             let report = wordbook_import::parse(&text, MAX_IMPORT_BYTES)?;
             // The id is minted here and never taken from the file. A book keys the review
             // progress, so a file that named its own id could inherit or destroy the schedule of a
@@ -135,7 +139,6 @@ pub fn apply(
             let book = library.import(&name, report.entries, &id)?;
             // Selecting it is the only useful next step; leaving the user to pick the book they
             // just imported out of a list is a step with exactly one right answer.
-            let document = store.load()?;
             store.set_settings(VocabularyReviewSettings {
                 wordbook: book.id,
                 ..document.settings
@@ -323,6 +326,30 @@ mod tests {
             first, status.settings.wordbook,
             "a second import must not inherit the first book's schedule"
         );
+    }
+
+    #[test]
+    fn import_does_not_leave_a_book_when_progress_is_corrupt() {
+        let root = directory();
+        std::fs::write(
+            root.path().join("vocabulary-progress.json"),
+            b"corrupt synthetic progress",
+        )
+        .unwrap();
+
+        assert!(matches!(
+            apply(
+                root.path(),
+                root.path(),
+                TODAY,
+                ReviewAction::Import {
+                    name: "合成词表".to_owned(),
+                    text: LIST.to_owned(),
+                },
+            ),
+            Err(ReviewSessionError::Progress(_))
+        ));
+        assert!(WordbookLibrary::new(root.path()).list().unwrap().is_empty());
     }
 
     #[test]
