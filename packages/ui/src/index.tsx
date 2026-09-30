@@ -452,13 +452,10 @@ import { allTouchKeyboardSchemes } from "./settings/touch-keyboard-scheme-helper
 import { defaultAiAssistant } from "./settings/ai-assistant-defaults";
 import { defaultVoiceInput } from "./settings/voice-input-defaults";
 import { logo } from "./settings/settings-options";
-import { CommunitySkinsPage, type CommunitySkinClient } from "./community/community-skins";
+import type { CommunitySkinClient } from "./community/community-skins";
 import { communityDestinationView } from "./community/community-destination";
-import {
-  CommunityHomePage,
-  CommunityResourcesPage,
-  type CommunityResourceClient,
-} from "./community/community-resources";
+import type { CommunityResourceClient } from "./community/community-resources";
+import { CommunityPage } from "./community/community-page";
 export { useConfirm, type ConfirmRequest } from "./core/confirm";
 export {
   decodeDictionaryBytes,
@@ -973,6 +970,7 @@ export {
   type CommunityResourceScope,
   type CommunitySharedWord,
 } from "./community/community-resources";
+export { CommunityPage, type CommunityPageProps } from "./community/community-page";
 export type { SkinCatalog, ExternalSkin } from "./skin/external-skins";
 import type { SkinImageReader } from "./skin/skin-image";
 export type { SkinImage, SkinImageReader } from "./skin/skin-image";
@@ -2819,9 +2817,9 @@ export function SettingsPage(props: SettingsPageProps) {
                 onLogin={openAccountLogin}
               />
             )}
-            {client.communitySkins && client.communityResources && page === "community" && (
-              <CommunityHomePage
-                key={communityDestination}
+            {page === "community" && (
+              <CommunityPage
+                destinationKey={communityDestination}
                 skins={client.communitySkins}
                 resources={client.communityResources}
                 theme={keyboardPreviewTheme}
@@ -2832,25 +2830,6 @@ export function SettingsPage(props: SettingsPageProps) {
                 localSkinLibrary={client.customSkinLibrary}
                 mobile={mobilePlatform}
                 onLogin={openAccountLogin}
-              />
-            )}
-            {client.communitySkins && !client.communityResources && page === "community" && (
-              <CommunitySkinsPage
-                key={communityDestination}
-                client={client.communitySkins}
-                theme={keyboardPreviewTheme}
-                localSkinLibrary={client.customSkinLibrary}
-                initialMine={initialCommunityMine}
-                mobile={mobilePlatform}
-                onLogin={openAccountLogin}
-              />
-            )}
-            {!client.communitySkins && client.communityResources && page === "community" && (
-              <CommunityResourcesPage
-                client={client.communityResources}
-                kind={initialCommunityCategory === "reply" ? "reply" : "dictionary"}
-                initialScope={initialCommunityScope}
-                mobile={mobilePlatform}
               />
             )}
             {client.typingStatistics && page === "typing-statistics" && (
