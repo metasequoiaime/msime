@@ -24,7 +24,7 @@ jobs:
         run: rustup toolchain install
       - name: Build msime-dict-build
         run: cargo build --release --locked -p msime-dict-builder
-      # Downloads every input resources/dictionary-sources.lock.json pins (about 500 MB, including the custom dictionary from msime-customdict) and verifies each by size and SHA-256 before any stage reads it. No --include-unlicensed: inputs without a redistribution grant must never reach a release.
+      # Downloads every input resources/dictionary-sources.lock.json pins (about 500 MB, including the base lexicons and custom dictionary from msime-dictionary) and verifies each by size and SHA-256 before any stage reads it. No --include-unlicensed: inputs without a redistribution grant must never reach a release.
       - name: Build dictionary artifacts
         run: target/release/msime-dict-build --cache target/dictionary-sources --out target/dictionary-release
       # The builder writes dictionary-manifest.json and SHA256SUMS.txt only after its release checks pass; the release carries them exactly as written.

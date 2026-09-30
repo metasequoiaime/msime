@@ -91,4 +91,4 @@
 
 ## 本项目自建部分
 
-`source/FanyExtDict.txt`、`cn/phrases.txt`、`resources/dictionary-sources/` 下的人工维护条目、共享自定义词库 [metasequoiaime/msime-customdict](https://github.com/metasequoiaime/msime-customdict) 的 `words.txt` 与 `translations.txt`（构建时按 `resources/dictionary-sources.lock.json` 固定的提交下载），以及构建词库的 Rust 构建器 `crates/dict-builder`（取代原先 `makecikudb/` 下的 Python 脚本）由本项目编写，依据 GPL-3.0 提供，与组织内其他仓库一致。
+`source/FanyExtDict.txt`、`cn/phrases.txt`、`resources/dictionary-sources/` 下的人工维护条目、词库源仓库 [metasequoiaime/msime-dictionary](https://github.com/metasequoiaime/msime-dictionary) 的 `custom/words.txt` 与 `custom/translations.txt`（构建时按 `resources/dictionary-sources.lock.json` 固定的提交下载），以及构建词库的 Rust 构建器 `crates/dict-builder`（取代原先 `makecikudb/` 下的 Python 脚本）由本项目编写，依据 GPL-3.0 提供，与组织内其他仓库一致。

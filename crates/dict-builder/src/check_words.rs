@@ -1,4 +1,4 @@
-//! `check-words`: the gate for changes to words.txt in the shared custom dictionary (metasequoiaime/msime-customdict). A change may only append lines. Every appended entry must pass the parser the build uses, keep its weight within the range the file already uses, and be new: not repeated within the change, not already in words.txt, and, when a shipped msime.db is given, not already in the quanpin table for its pinyin. Appended blank and `#` comment lines are skipped, as the build skips them.
+//! `check-words`: the gate for changes to custom/words.txt in the dictionary source repository (metasequoiaime/msime-dictionary). A change may only append lines. Every appended entry must pass the parser the build uses, keep its weight within the range the file already uses, and be new: not repeated within the change, not already in words.txt, and, when a shipped msime.db is given, not already in the quanpin table for its pinyin. Appended blank and `#` comment lines are skipped, as the build skips them.
 
 use std::collections::HashMap;
 

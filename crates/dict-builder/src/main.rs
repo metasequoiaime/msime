@@ -32,7 +32,7 @@ use crate::sources::{Lock, Sources};
 enum Stage {
     /// Quanpin tables in msime.db (tbl_{1..7,others}_{initial})
     Quanpin,
-    /// custom/words.txt (pinned from msime-customdict) merged into the quanpin tables
+    /// custom/words.txt (pinned from msime-dictionary) merged into the quanpin tables
     CustomWords,
     /// 86 wubi table in msime.db
     Wubi,
@@ -42,7 +42,7 @@ enum Stage {
     English,
     /// Bidirectional gloss tables in english.db, derived from ECDICT (reads msime.db)
     EnglishGlosses,
-    /// custom/translations.txt (pinned from msime-customdict) over the gloss tables
+    /// custom/translations.txt (pinned from msime-dictionary) over the gloss tables
     CustomTranslations,
     /// emoji tables in others.db
     Emoji,

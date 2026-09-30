@@ -36,9 +36,10 @@ const FEATURES: [&str; 8] = [
 ];
 const REPOSITORY: &str = "metasequoiaime/msime";
 const SOURCE_PATH: &str = "resources/dictionary-sources";
-/// The shared custom dictionary (custom words and translations), pinned under this name in the sources lock. Its files sit at the repository root.
-const CUSTOM_DICTIONARY: &str = "msime-customdict";
-const CUSTOM_DICTIONARY_REPOSITORY: &str = "metasequoiaime/msime-customdict";
+/// The dictionary source repository, pinned under this name in the sources lock. The custom words and translations sit in its `custom/` directory; the base lexicons come from the same commit.
+const CUSTOM_DICTIONARY: &str = "msime-dictionary";
+const CUSTOM_DICTIONARY_REPOSITORY: &str = "metasequoiaime/msime-dictionary";
+const CUSTOM_DICTIONARY_PATH: &str = "custom";
 
 #[derive(Serialize)]
 struct Manifest {
@@ -243,7 +244,7 @@ pub fn write_manifest(out: &Path, repository: &Path, lock: &Lock, complete: bool
         format_contract_commit: source.commit.clone(),
         custom_dictionary_commit: custom_dictionary.commit.clone(),
         custom_dictionary_repository: CUSTOM_DICTIONARY_REPOSITORY,
-        custom_dictionary_path: ".",
+        custom_dictionary_path: CUSTOM_DICTIONARY_PATH,
         references: lock
             .references
             .iter()
