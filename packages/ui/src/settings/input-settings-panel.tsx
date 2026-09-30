@@ -116,7 +116,9 @@ export interface InputSettingsPanelProps {
   setTranslationProvider: (provider: TranslationProvider) => void;
   providerCredentials: ProviderCredentialStatus | undefined;
   tencentCredentialInput: ReturnType<typeof useProviderCredentials>["tencentCredentialInput"];
-  setTencentCredentialInput: ReturnType<typeof useProviderCredentials>["setTencentCredentialInput"];
+  updateTencentCredentialInput: ReturnType<
+    typeof useProviderCredentials
+  >["updateTencentCredentialInput"];
   providerCredentialBusy: ReturnType<typeof useProviderCredentials>["providerCredentialBusy"];
   providerCredentialMessages: ReturnType<
     typeof useProviderCredentials
@@ -185,7 +187,7 @@ export function InputSettingsPanel({
   setTranslationProvider,
   providerCredentials,
   tencentCredentialInput,
-  setTencentCredentialInput,
+  updateTencentCredentialInput,
   providerCredentialBusy,
   providerCredentialMessages,
   runProviderCredential,
@@ -360,9 +362,7 @@ export function InputSettingsPanel({
               input={tencentCredentialInput}
               busy={providerCredentialBusy === "tencent"}
               message={providerCredentialMessages.tencent}
-              onInputChange={(patch) =>
-                setTencentCredentialInput({ ...tencentCredentialInput, ...patch })
-              }
+              onInputChange={(patch) => updateTencentCredentialInput(patch)}
               onSave={(credential) =>
                 void runProviderCredential(
                   "tencent",

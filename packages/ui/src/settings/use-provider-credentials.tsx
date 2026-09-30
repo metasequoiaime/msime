@@ -24,6 +24,12 @@ export interface ProviderCredentialInput {
   endpoint?: string;
 }
 
+export interface TencentCredentialInput {
+  secretId: string;
+  secretKey: string;
+  region?: string;
+}
+
 export type ProviderCredentialBusy = "ai" | "tencent" | VoiceCredentialKind;
 export type ProviderCredentialMessage = { ok: boolean; text: string };
 
@@ -43,7 +49,7 @@ export function useProviderCredentials({ client }: UseProviderCredentialsOptions
   const credentialTestGeneration = useRef<Partial<Record<ApiCredentialTestService, number>>>({});
   const [providerCredentials, setProviderCredentials] = useState<ProviderCredentialStatus>();
   const [aiCredentialInput, setAiCredentialInput] = useState("");
-  const [tencentCredentialInput, setTencentCredentialInput] = useState({
+  const [tencentCredentialInput, setTencentCredentialInput] = useState<TencentCredentialInput>({
     secretId: "",
     secretKey: "",
     region: undefined as string | undefined,
@@ -55,6 +61,9 @@ export function useProviderCredentials({ client }: UseProviderCredentialsOptions
   const [providerCredentialMessages, setProviderCredentialMessages] = useState<
     Partial<Record<ProviderCredentialBusy, ProviderCredentialMessage>>
   >({});
+
+  const updateTencentCredentialInput = (patch: Partial<TencentCredentialInput>) =>
+    setTencentCredentialInput((current) => ({ ...current, ...patch }));
 
   useEffect(() => {
     const credentials = client.providerCredentials;
@@ -186,6 +195,7 @@ export function useProviderCredentials({ client }: UseProviderCredentialsOptions
     setAiCredentialInput,
     tencentCredentialInput,
     setTencentCredentialInput,
+    updateTencentCredentialInput,
     voiceCredentialInput,
     setVoiceCredentialInput,
     providerCredentialBusy,

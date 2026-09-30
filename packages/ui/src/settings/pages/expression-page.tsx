@@ -54,7 +54,7 @@ export function ExpressionSettingsPage() {
     customTranslationsSummary,
     providerCredentials,
     tencentCredentialInput,
-    setTencentCredentialInput,
+    updateTencentCredentialInput,
     providerCredentialBusy,
     flushCustomTranslations,
     mixedInput,
@@ -225,9 +225,7 @@ export function ExpressionSettingsPage() {
                   input={tencentCredentialInput}
                   busy={providerCredentialBusy === "tencent"}
                   message={providerCredentialMessages.tencent}
-                  onInputChange={(patch) =>
-                    setTencentCredentialInput({ ...tencentCredentialInput, ...patch })
-                  }
+                  onInputChange={(patch) => updateTencentCredentialInput(patch)}
                   onSave={(credential) =>
                     void runProviderCredential(
                       "tencent",

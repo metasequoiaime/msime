@@ -119,6 +119,7 @@ export {
   type ProviderCredentialInput,
   type ProviderCredentialMessage,
   type ProviderCredentialsHost,
+  type TencentCredentialInput,
   type UseProviderCredentialsOptions,
 } from "./settings/use-provider-credentials";
 export { useFeedbackReport, type UseFeedbackReportOptions } from "./settings/use-feedback-report";
@@ -1919,6 +1920,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     setAiCredentialInput,
     tencentCredentialInput,
     setTencentCredentialInput,
+    updateTencentCredentialInput,
     voiceCredentialInput,
     setVoiceCredentialInput,
     providerCredentialBusy,
@@ -2372,6 +2374,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     setAiCredentialInput,
     tencentCredentialInput,
     setTencentCredentialInput,
+    updateTencentCredentialInput,
     voiceCredentialInput,
     setVoiceCredentialInput,
     providerCredentialBusy,
