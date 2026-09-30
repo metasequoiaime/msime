@@ -87,7 +87,9 @@ export function InputSettingsPage() {
               value={
                 draft.scheme === "shuangpin" || draft.scheme === "wubi" ? draft.scheme : "quanpin"
               }
-              onChange={(scheme) => setDraft({ ...draft, scheme, last_chinese_scheme: scheme })}
+              onChange={(scheme) =>
+                onPreferencesChange({ scheme, last_chinese_scheme: scheme })
+              }
             />
           </Row>
           <Row title="双拼方案" hidden={client.touchKeyboardSchemes || !chineseSchemes}>
@@ -96,8 +98,7 @@ export function InputSettingsPage() {
               disabled={macosPlatform && draft.scheme !== "shuangpin"}
               value={draft.shuangpin_profile}
               onChange={(event) =>
-                setDraft({
-                  ...draft,
+                onPreferencesChange({
                   shuangpin_profile: event.target.value as Preferences["shuangpin_profile"],
                 })
               }
@@ -156,25 +157,25 @@ export function InputSettingsPage() {
           />
           <LearningSection
             value={draft.learning}
-            onChange={(checked) => setDraft({ ...draft, learning: checked })}
+            onChange={(learning) => onPreferencesChange({ learning })}
           />
         </GroupList>
         <GroupList title="中英文">
           <DefaultImeModeSection
             value={draft.default_ime_mode}
-            onChange={(mode) => setDraft({ ...draft, default_ime_mode: mode })}
+            onChange={(default_ime_mode) => onPreferencesChange({ default_ime_mode })}
           />
           {showModeScope && (
             <ImeModeScopeSection
               value={draft.ime_mode_scope}
-              onChange={(scope) => setDraft({ ...draft, ime_mode_scope: scope })}
+              onChange={(ime_mode_scope) => onPreferencesChange({ ime_mode_scope })}
             />
           )}
           {/* macOS keeps this with the chords that trigger it, on the shortcut page. */}
           {showInputModeHUD && !macosPlatform && (
             <InputModeHudSection
               value={draft.input_mode_hud}
-              onChange={(checked) => setDraft({ ...draft, input_mode_hud: checked })}
+              onChange={(input_mode_hud) => onPreferencesChange({ input_mode_hud })}
             />
           )}
         </GroupList>
@@ -187,11 +188,13 @@ export function InputSettingsPage() {
           )}
           <TraditionalChineseOutputSection
             value={draft.traditional_chinese_output}
-            onChange={(checked) => setDraft({ ...draft, traditional_chinese_output: checked })}
+            onChange={(traditional_chinese_output) =>
+              onPreferencesChange({ traditional_chinese_output })
+            }
           />
           <CloudCandidatesSection
             value={draft.cloud_candidates}
-            onChange={(checked) => setDraft({ ...draft, cloud_candidates: checked })}
+            onChange={(cloud_candidates) => onPreferencesChange({ cloud_candidates })}
           />
         </GroupList>
         <GroupList title="整句联想">
@@ -238,7 +241,7 @@ export function InputSettingsPage() {
         </GroupList>
         <FrequencySection
           preferences={frequency}
-          onChange={(next) => setDraft({ ...draft, frequency: next })}
+          onChange={(frequency) => onPreferencesChange({ frequency })}
         />
         <LocalModesSection
           preferences={localModes}
