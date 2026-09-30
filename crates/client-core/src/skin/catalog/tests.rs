@@ -961,6 +961,21 @@ fn a_fifo_manifest_is_rejected_without_blocking() {
     assert_eq!(scan(root.path()).issues[0].folder, "pipe");
 }
 
+#[test]
+#[cfg(unix)]
+fn a_symlinked_manifest_is_rejected_even_when_it_stays_inside_the_package() {
+    let root = tempdir().unwrap();
+    let skin = root.path().join("linked");
+    fs::create_dir_all(&skin).unwrap();
+    fs::write(skin.join("real.toml"), manifest("linked")).unwrap();
+    std::os::unix::fs::symlink(skin.join("real.toml"), skin.join("skin.toml")).unwrap();
+    assert_eq!(
+        load_package(root.path(), "linked"),
+        Err("skin.toml is not a regular file".into())
+    );
+    assert!(scan(root.path()).packages.is_empty());
+}
+
 /// The layout msime-skins (github.com/metasequoiaime/msime-skins) writes: a decoration with its own image and alignment, a background image, a corner radius, a toolbar palette per mode, a translation colour and licence metadata.
 fn styled_package(root: &Path) -> std::path::PathBuf {
     let skin = root.join("bigfish");

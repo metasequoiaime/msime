@@ -293,7 +293,7 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
         return Err("manifest escapes skin directory".into());
     }
     // Check the type before opening: opening a FIFO for reading blocks until a writer appears, which would stall the scan and every host that resolves a skin.
-    if !fs::metadata(&manifest)
+    if !fs::symlink_metadata(&manifest)
         .map_err(|_| "missing skin.toml".to_owned())?
         .is_file()
     {
