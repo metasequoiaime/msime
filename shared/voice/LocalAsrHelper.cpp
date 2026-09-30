@@ -188,7 +188,15 @@ private:
         if (errno == EINTR) continue;
         break;
       }
-      pending.append(buffer.data(), static_cast<size_t>(count));
+      if (discarding_line) {
+        const auto *newline = static_cast<const char *>(std::memchr(buffer.data(), '\n', static_cast<size_t>(count)));
+        if (!newline) continue;
+        discarding_line = false;
+        const auto remainder = static_cast<size_t>(count - (newline - buffer.data()) - 1);
+        pending.assign(newline + 1, remainder);
+      } else {
+        pending.append(buffer.data(), static_cast<size_t>(count));
+      }
       for (;;) {
         const auto newline = pending.find('\n');
         if (newline == std::string::npos) {

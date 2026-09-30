@@ -69,6 +69,11 @@ if(BUILD_TESTING)
   add_test(NAME shared-voice-local-helper-protocol-limits
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/local_helper_protocol_limits.py"
       $<TARGET_FILE:msime-voice-local>)
+  if(NOT WIN32)
+    add_test(NAME shared-voice-local-helper-line-buffer
+      COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/local_helper_line_buffer.py"
+        $<TARGET_FILE:msime-voice-local>)
+  endif()
   add_executable(shared-voice-local-helper-queue tests/local_helper_queue.cpp)
   target_compile_features(shared-voice-local-helper-queue PRIVATE cxx_std_17)
   target_include_directories(shared-voice-local-helper-queue PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
