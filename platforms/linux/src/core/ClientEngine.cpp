@@ -5191,7 +5191,9 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       // Later choices stack on an unsaved one; a removal stays a null so it still removes the stored key.
       if (s.theme_choice_override) {
         (*s.theme_choice_override)["global_theme"] = change->at("global_theme");
-        for (const auto &[key, item] : change->value("custom_theme", Json::object()).items())
+        // Held in a local: items() only refers to the JSON it iterates, and the temporary value() returns would be gone before the loop body runs.
+        const Json custom_theme = change->value("custom_theme", Json::object());
+        for (const auto &[key, item] : custom_theme.items())
           (*s.theme_choice_override)["custom_theme"][key] = item;
       } else {
         s.theme_choice_override = std::move(*change);
