@@ -3,7 +3,6 @@ import { NavItem } from "./core/platform-controls";
 import { mobilePageTitle } from "./settings/mobile-tab-helpers";
 import {
   desktopDownloadUrl,
-  documentationUrl,
   fallbackAppVersion,
 } from "./settings/app-resources";
 import { useSettingsWindowInteractions } from "./settings/use-settings-window-interactions";
@@ -419,6 +418,7 @@ import { createSettingsSaveAction } from "./settings/settings-save-action";
 import { createSettingsPageSelection } from "./settings/settings-page-selection";
 import { createSettingsDraftActions } from "./settings/settings-draft-actions";
 import { createSettingsStatusActions } from "./settings/settings-status-actions";
+import { createSettingsExternalActions } from "./settings/settings-external-actions";
 import { createSettingsNavigationActions } from "./settings/settings-navigation-actions";
 import { VoiceSettingsPage } from "./settings/pages/voice-page";
 import { AiSettingsPage } from "./settings/pages/ai-page";
@@ -2496,6 +2496,7 @@ export function SettingsPage(props: SettingsPageProps) {
     reload,
     save,
     openExternalUrl,
+    platformIssuesUrl,
     openPanel,
     restoreDefaults,
     recoverPreferences,
@@ -2526,6 +2527,13 @@ export function SettingsPage(props: SettingsPageProps) {
     recoverPreferences,
     inputSourceStartup: client.inputSourceStartup,
     setInputSourceStartup,
+  });
+  const externalActions = createSettingsExternalActions({
+    mobile: mobilePlatform,
+    canOpenExternalUrl: Boolean(client.openExternalUrl),
+    openExternalUrl,
+    issuesUrl: platformIssuesUrl,
+    openSystemKeyboardSettings: client.openSystemKeyboardSettings,
   });
   const { onOpenChat, onRestoreDefaults } = createSettingsNavigationActions({
     selectPage,
@@ -2893,16 +2901,8 @@ export function SettingsPage(props: SettingsPageProps) {
                       platformHelpIntro={model.platformHelpIntro}
                       platformQuickStart={model.platformQuickStart}
                       platformNetworkDescription={model.platformNetworkDescription}
-                      onOpenDocumentation={
-                        client.openExternalUrl
-                          ? () => void openExternalUrl(documentationUrl)
-                          : undefined
-                      }
-                      onOpenSystemKeyboardSettings={
-                        client.openSystemKeyboardSettings
-                          ? () => void client.openSystemKeyboardSettings!()
-                          : undefined
-                      }
+                      onOpenDocumentation={externalActions.onOpenDocumentation}
+                      onOpenSystemKeyboardSettings={externalActions.onOpenSystemKeyboardSettings}
                     />
                     <AboutSettingsPage />
                   </SettingsFormContext.Provider>
