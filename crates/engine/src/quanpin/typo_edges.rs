@@ -101,7 +101,7 @@ fn plan_keys(
         .filter(|&i| weak[i])
         .chain((0..n).filter(|&i| !weak[i]));
 
-    let mut planned = Vec::new();
+    let mut planned = Vec::with_capacity(TYPO_KEY_BUDGET);
     let mut seen = HashSet::new();
     'positions: for position in positions {
         if planned.len() >= TYPO_KEY_BUDGET {

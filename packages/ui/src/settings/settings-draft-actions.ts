@@ -10,6 +10,8 @@ export interface CreateSettingsDraftActionsOptions {
 /** Builds the nested draft updates shared by settings hooks. */
 export function createSettingsDraftActions({ setDraft }: CreateSettingsDraftActionsOptions) {
   return {
+    onPreferencesChange: (patch: Partial<Preferences>) =>
+      setDraft((current) => (current ? { ...current, ...patch } : current)),
     onAiChange: (patch: Partial<AiAssistantPreferences>) =>
       setDraft((current) =>
         current

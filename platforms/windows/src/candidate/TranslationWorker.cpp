@@ -609,6 +609,7 @@ TranslationWorker::translate(const FocusLease &lease, const std::string &query_b
     const std::unordered_set<std::string> wanted_texts(wanted.begin(),
                                                        wanted.end());
     std::vector<nlohmann::json> pending;
+    pending.reserve(plan->size());
     for (const auto &item : *plan) {
       if (wanted_texts.find(item.at("text").get<std::string>()) ==
           wanted_texts.end())

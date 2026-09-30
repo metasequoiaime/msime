@@ -3,6 +3,7 @@ import { McpConnectSection } from "../mcp-connect";
 import { useSettingsForm } from "../settings-form-context";
 import { DiagnosticLogsSection } from "../diagnostic-logs-section";
 import { DataDirectorySection } from "../data-directory-section";
+import { createAboutSettingsActions } from "../about-settings-actions";
 
 /**
  * The 开发者选项 page: the local `msime-mcp` server, the diagnostic logs and where the data lives. The design's 显示调试信息, 日志级别 and 导出诊断包 have no counterpart in any host and are not drawn; its 重置所有设置 is the form's own 恢复默认设置.
@@ -23,7 +24,19 @@ export function DeveloperSettingsPage() {
     chooseDataDirectory,
     diagnosticLog,
     page,
+    checkForUpdate,
+    confirmUninstall,
+    selectPage,
   } = useSettingsForm();
+  const { onChooseDataDirectory, onDiagnosticLogChange } = createAboutSettingsActions({
+    draft,
+    diagnosticLog,
+    checkForUpdate,
+    chooseDataDirectory,
+    confirmUninstall,
+    selectPage,
+    setDraft,
+  });
   return (
     <fieldset disabled={busy} hidden={page !== "developer"} aria-label="开发者选项">
       <div className={settings.groups}>
@@ -41,9 +54,7 @@ export function DeveloperSettingsPage() {
           windows={windowsPlatform || !client.host}
           values={diagnosticLog}
           openDirectory={client.openDiagnosticLogDirectory}
-          onChange={(patch) =>
-            setDraft({ ...draft, diagnostic_log: { ...diagnosticLog, ...patch } })
-          }
+          onChange={onDiagnosticLogChange}
           onError={setError}
         />
         <DataDirectorySection
@@ -52,7 +63,7 @@ export function DeveloperSettingsPage() {
           dataDirectory={dataDirectory}
           busy={dataDirectoryBusy}
           result={dataDirectoryResult}
-          onChoose={() => void chooseDataDirectory()}
+          onChoose={onChooseDataDirectory}
         />
       </div>
     </fieldset>

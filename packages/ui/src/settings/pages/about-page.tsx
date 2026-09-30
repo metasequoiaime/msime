@@ -6,6 +6,7 @@ import { GroupList } from "../../core/platform-controls";
 import { LicenseUninstallSection } from "../license-uninstall-section";
 import { TelemetrySection } from "../telemetry-section";
 import { AboutHeroSection } from "../about-hero-section";
+import { createAboutSettingsActions } from "../about-settings-actions";
 
 const privacyUrl = "https://msime.app/privacy/";
 const androidPrivacyUrl = "https://msime.app/privacy/";
@@ -41,7 +42,20 @@ export function AboutSettingsPage() {
     openExternalUrl,
     checkForUpdate,
     installerTrust,
+    chooseDataDirectory,
+    selectPage,
+    diagnosticLog,
   } = useSettingsForm();
+  const { onCheckForUpdate, onConfirmUninstall, onTelemetryChange } =
+    createAboutSettingsActions({
+      draft,
+      diagnosticLog,
+      checkForUpdate,
+      chooseDataDirectory,
+      confirmUninstall,
+      selectPage,
+      setDraft,
+    });
   return (
     <fieldset disabled={busy} hidden={page !== "about"} aria-label="关于">
       <div className={settings.groups}>
@@ -63,7 +77,7 @@ export function AboutSettingsPage() {
               type="button"
               className={`secondary ${doc.updateButton}`}
               disabled={updateBusy}
-              onClick={() => void checkForUpdate()}
+              onClick={onCheckForUpdate}
             >
               {updateBusy ? "正在检查…" : "检查更新"}
             </button>
@@ -128,7 +142,7 @@ export function AboutSettingsPage() {
             uninstallResult={uninstallResult}
             onRemoveUserDataChange={setRemoveUserDataOnUninstall}
             onRequestUninstall={requestUninstall}
-            onConfirmUninstall={() => void confirmUninstall()}
+            onConfirmUninstall={onConfirmUninstall}
             onCancelUninstall={cancelUninstall}
           />
         )}
@@ -136,7 +150,7 @@ export function AboutSettingsPage() {
         {windowsPlatform && (
           <TelemetrySection
             value={draft?.telemetry_enabled}
-            onChange={(telemetry_enabled) => setDraft({ ...draft, telemetry_enabled })}
+            onChange={onTelemetryChange}
           />
         )}
       </div>

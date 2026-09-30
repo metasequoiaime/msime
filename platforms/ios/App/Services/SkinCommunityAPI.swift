@@ -81,7 +81,8 @@ enum CommunityResponseValidation {
             (1...128).contains(entries.count) else { return false }
       var seen = Set<String>()
       return entries.allSatisfy { entry in
-        validText(entry.code, minimum: 1, maximum: 256, multiline: false)
+        ["pinyin", "wubi", "quick", "english"].contains(entry.kind)
+          && validText(entry.code, minimum: 1, maximum: 256, multiline: false)
           && validText(entry.word, minimum: 1, maximum: 1_024, multiline: false)
           && entry.weight >= 0
           && seen.insert("\(entry.kind)|\(entry.code)|\(entry.word)").inserted
@@ -222,21 +223,48 @@ actor SkinCommunityAPI {
   }
   func publish(id: String, name: String, description: String, design: CustomKeyboardSkin) async throws {
     struct Payload: Encodable { let id: String; let name: String; let description: String; let design: CustomKeyboardSkin }
-    let _: [String: String] = try await request("/v1/community/skins", method: "POST", body: JSONEncoder().encode(Payload(id: id, name: name, description: description, design: design.normalized)), authenticated: true)
+    struct Result: Decodable { let id: String }
+    guard CommunityResponseValidation.validID(id) else {
+      throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
+    }
+    let result: Result = try await request("/v1/community/skins", method: "POST", body: JSONEncoder().encode(Payload(id: id, name: name, description: description, design: design.normalized)), authenticated: true)
+    guard CommunityResponseValidation.matchesID(result.id, requested: id) else {
+      throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
+    }
   }
   func download(_ id: String) async throws -> CustomKeyboardSkin {
     #if DEBUG && targetEnvironment(simulator)
     if CommunityPreviewFixtures.enabled, let skin = CommunityPreviewFixtures.skins.first(where: { $0.id == id }) { return skin.design }
     #endif
     struct Result: Decodable, Sendable { let design: CustomKeyboardSkin }
+    guard CommunityResponseValidation.validID(id) else {
+      throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
+    }
     let result: Result = try await request("/v1/community/skins/\(id)/download", method: "POST", body: Data("{}".utf8), authenticated: true)
+    guard result.design == result.design.normalized else {
+      throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
+    }
     return result.design.normalized
   }
   func rate(_ id: String, stars: Int) async throws {
-    let _: [String: Int] = try await request("/v1/community/skins/\(id)/rating", method: "PUT", body: JSONSerialization.data(withJSONObject: ["stars": stars]), authenticated: true)
+    struct Result: Decodable { let stars: Int }
+    guard CommunityResponseValidation.validID(id), (1...5).contains(stars) else {
+      throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
+    }
+    let result: Result = try await request("/v1/community/skins/\(id)/rating", method: "PUT", body: JSONSerialization.data(withJSONObject: ["stars": stars]), authenticated: true)
+    guard result.stars == stars else {
+      throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
+    }
   }
   func unpublish(_ id: String) async throws {
-    let _: [String: Bool] = try await request("/v1/community/skins/\(id)", method: "DELETE", authenticated: true)
+    struct Result: Decodable { let deleted: Bool }
+    guard CommunityResponseValidation.validID(id) else {
+      throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
+    }
+    let result: Result = try await request("/v1/community/skins/\(id)", method: "DELETE", authenticated: true)
+    guard result.deleted else {
+      throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
+    }
   }
   struct ResourcePage: Decodable { let items: [CommunityResource]; let has_more: Bool }
   func resources(_ kind: CommunityResourceKind, scope: String = "", search: String = "", offset: Int = 0) async throws -> ResourcePage {
@@ -284,19 +312,46 @@ actor SkinCommunityAPI {
       let content: CommunityResourceContent; let revision: Int
     }
     struct Result: Decodable { let id: String; let revision: Int }
-    let _: Result = try await request("/v1/community/resources", method: "POST", body: JSONEncoder().encode(
+    guard CommunityResponseValidation.validID(id) else {
+      throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
+    }
+    let result: Result = try await request("/v1/community/resources", method: "POST", body: JSONEncoder().encode(
       Payload(id: id, kind: kind, name: name, description: description, content: content, revision: revision)), authenticated: true)
+    guard CommunityResponseValidation.matchesID(result.id, requested: id), result.revision > 0 else {
+      throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
+    }
   }
   func saveResource(_ id: String, saved: Bool) async throws {
-    let _: [String: Bool] = try await request("/v1/community/resources/\(id)/save", method: "PUT",
+    struct Result: Decodable { let saved: Bool }
+    guard CommunityResponseValidation.validID(id) else {
+      throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
+    }
+    let result: Result = try await request("/v1/community/resources/\(id)/save", method: "PUT",
       body: JSONSerialization.data(withJSONObject: ["saved": saved]), authenticated: true)
+    guard result.saved == saved else {
+      throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
+    }
   }
   func rateResource(_ id: String, stars: Int) async throws {
-    let _: [String: Int] = try await request("/v1/community/resources/\(id)/rating", method: "PUT",
+    struct Result: Decodable { let stars: Int }
+    guard CommunityResponseValidation.validID(id), (1...5).contains(stars) else {
+      throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
+    }
+    let result: Result = try await request("/v1/community/resources/\(id)/rating", method: "PUT",
       body: JSONSerialization.data(withJSONObject: ["stars": stars]), authenticated: true)
+    guard result.stars == stars else {
+      throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
+    }
   }
   func unpublishResource(_ id: String) async throws {
-    let _: [String: Bool] = try await request("/v1/community/resources/\(id)", method: "DELETE", authenticated: true)
+    struct Result: Decodable { let deleted: Bool }
+    guard CommunityResponseValidation.validID(id) else {
+      throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
+    }
+    let result: Result = try await request("/v1/community/resources/\(id)", method: "DELETE", authenticated: true)
+    guard result.deleted else {
+      throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
+    }
   }
 
 }
