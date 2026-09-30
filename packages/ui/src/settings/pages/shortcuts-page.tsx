@@ -1,6 +1,7 @@
 import { defaultNavigation } from "../navigation-section";
 import { useSettingsForm } from "../settings-form-context";
 import { ShortcutsSettingsSection } from "../shortcuts-settings-section";
+import { createShortcutsSettingsActions } from "../shortcuts-settings-actions";
 
 /** The 快捷键 page of the settings form. */
 export function ShortcutSettingsPage() {
@@ -29,16 +30,19 @@ export function ShortcutSettingsPage() {
     inputModeHUD,
   } = useSettingsForm();
   const navigation = draft.navigation ?? defaultNavigation;
+  const {
+    onKeybindingsChange,
+    onInputModeHUDChange,
+    onNumberRowSelectionChange,
+  } = createShortcutsSettingsActions({ draft, keybindings, setDraft });
   return (
     <ShortcutsSettingsSection
       disabled={busy}
       hidden={page !== "shortcuts"}
       mobile={mobilePlatform}
       keybindings={keybindings}
-      onKeybindingsChange={(patch) =>
-        setDraft({ ...draft, keybindings: { ...keybindings, ...patch } })
-      }
-      onInputModeHUDChange={(checked) => setDraft({ ...draft, input_mode_hud: checked })}
+      onKeybindingsChange={onKeybindingsChange}
+      onInputModeHUDChange={onInputModeHUDChange}
       showModeSwitchShortcuts={showModeSwitchShortcuts}
       macos={macosPlatform}
       showInputModeHUD={showInputModeHUD}
@@ -49,9 +53,7 @@ export function ShortcutSettingsPage() {
       navigation={navigation}
       numberRowSelection={draft.number_row_selection ?? true}
       showNumberRowSelection={showNumberRowSelection}
-      onNumberRowSelectionChange={(checked) =>
-        setDraft({ ...draft, number_row_selection: checked })
-      }
+      onNumberRowSelectionChange={onNumberRowSelectionChange}
       showPanelShortcuts={showPanelShortcuts}
       harmony={harmonyPlatform}
       showDesktopMaintenanceShortcuts={showDesktopMaintenanceShortcuts}
