@@ -417,6 +417,7 @@ import { SettingsFormContext } from "./settings/settings-form-context";
 import { createSettingsReloadAction } from "./settings/settings-reload-action";
 import { createSettingsSaveAction } from "./settings/settings-save-action";
 import { createSettingsPageSelection } from "./settings/settings-page-selection";
+import { createSettingsDraftActions } from "./settings/settings-draft-actions";
 import { VoiceSettingsPage } from "./settings/pages/voice-page";
 import { AiSettingsPage } from "./settings/pages/ai-page";
 import { InputSettingsPage } from "./settings/pages/input-page";
@@ -452,8 +453,6 @@ import type { MobileKeyboardFeedbackClient } from "./settings/mobile-keyboard-fe
 import { HandwritingSettingsPage } from "./settings/pages/handwriting-page";
 import { FeedbackSettingsPage } from "./settings/pages/feedback-page";
 import { allTouchKeyboardSchemes } from "./settings/touch-keyboard-scheme-helpers";
-import { defaultAiAssistant } from "./settings/ai-assistant-defaults";
-import { defaultVoiceInput } from "./settings/voice-input-defaults";
 import { logo } from "./settings/settings-options";
 import type { CommunitySkinClient } from "./community/community-skins";
 import { communityDestinationView } from "./community/community-destination";
@@ -1752,6 +1751,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   });
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [draft, setDraft] = useState<Preferences>();
+  const { onAiChange, onTranslationChange, onVoiceChange } = createSettingsDraftActions({ setDraft });
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -2007,15 +2007,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     client: client.aiAssistant,
     ai,
     providerCredentialAvailable: aiProviderCredentials,
-    onChange: (patch) =>
-      setDraft((current) =>
-        current
-          ? {
-              ...current,
-              ai_assistant: { ...(current.ai_assistant ?? defaultAiAssistant), ...patch },
-            }
-          : current,
-      ),
+    onChange: onAiChange,
   });
   const {
     wordCharacter,
@@ -2075,7 +2067,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     linux: linuxPlatform,
     candidateEnglishGlossAvailable: Boolean(client.candidateEnglishGloss),
     onDeviceDownloadable,
-    onChange: (next) => setDraft(next),
+    onChange: onTranslationChange,
   });
   const {
     voiceInput,
@@ -2094,15 +2086,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     harmony: harmonyPlatform,
     nativeVoicePlatform,
     localModelsAvailable: client.localVoiceModels !== undefined,
-    onChange: (patch) =>
-      setDraft((current) =>
-        current
-          ? {
-              ...current,
-              voice_input: { ...defaultVoiceInput, ...current.voice_input, ...patch },
-            }
-          : current,
-      ),
+    onChange: onVoiceChange,
   });
   const providerPresetControls = createProviderPresetControl(client.openExternalUrl);
   const floatingToolbar = floatingToolbarPreferences(draft);
