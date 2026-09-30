@@ -15,14 +15,30 @@ function draft(): Preferences {
 test("applies appearance preference patches to the current draft", () => {
   const setDraft = vi.fn();
   const actions = createAppearanceSettingsActions({
-    draft: draft(),
     saveMobileKeyboardFeedback: vi.fn().mockResolvedValue(undefined),
     setDraft,
   });
 
   actions.onPreferencesChange({ candidate_follow_cursor: true });
 
-  expect(setDraft).toHaveBeenCalledWith(expect.objectContaining({ candidate_follow_cursor: true }));
+  const updater = setDraft.mock.calls[0][0] as (value: Preferences) => Preferences;
+  expect(updater(draft())).toMatchObject({ candidate_follow_cursor: true });
+});
+
+test("applies appearance patches to the latest draft", () => {
+  const setDraft = vi.fn();
+  const actions = createAppearanceSettingsActions({
+    saveMobileKeyboardFeedback: vi.fn().mockResolvedValue(undefined),
+    setDraft,
+  });
+
+  actions.onPreferencesChange({ candidate_follow_cursor: true });
+
+  const updater = setDraft.mock.calls[0][0] as (value: Preferences) => Preferences;
+  expect(updater({ ...draft(), candidate_page_size: 9 })).toMatchObject({
+    candidate_page_size: 9,
+    candidate_follow_cursor: true,
+  });
 });
 
 test("saves inline preedit through the mobile feedback client", () => {
@@ -34,7 +50,6 @@ test("saves inline preedit through the mobile feedback client", () => {
     inlinePreedit: false,
   };
   const actions = createAppearanceSettingsActions({
-    draft: draft(),
     mobileKeyboardFeedback: feedback,
     saveMobileKeyboardFeedback: save,
     setDraft: vi.fn(),

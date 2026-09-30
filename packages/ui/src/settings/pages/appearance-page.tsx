@@ -39,7 +39,6 @@ export function AppearanceSettingsPage() {
   } = useSettingsForm();
   const navigation = draft.navigation ?? defaultNavigation;
   const appearanceActions = createAppearanceSettingsActions({
-    draft,
     mobileKeyboardFeedback,
     saveMobileKeyboardFeedback,
     setDraft,

@@ -1,9 +1,9 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { MobileKeyboardFeedback } from "./mobile-keyboard-feedback-section";
 import type { Preferences } from "../index";
+import { createSettingsDraftActions } from "./settings-draft-actions";
 
 export interface CreateAppearanceSettingsActionsOptions {
-  draft?: Preferences;
   mobileKeyboardFeedback?: MobileKeyboardFeedback;
   saveMobileKeyboardFeedback: (settings: MobileKeyboardFeedback) => Promise<void>;
   setDraft: Dispatch<SetStateAction<Preferences | undefined>>;
@@ -11,15 +11,13 @@ export interface CreateAppearanceSettingsActionsOptions {
 
 /** Creates appearance preference and mobile inline-preedit callbacks. */
 export function createAppearanceSettingsActions({
-  draft,
   mobileKeyboardFeedback,
   saveMobileKeyboardFeedback,
   setDraft,
 }: CreateAppearanceSettingsActionsOptions) {
+  const { onPreferencesChange } = createSettingsDraftActions({ setDraft });
   return {
-    onPreferencesChange: (patch: Partial<Preferences>) => {
-      if (draft) setDraft({ ...draft, ...patch });
-    },
+    onPreferencesChange,
     onInlinePreeditChange: (inlinePreedit: boolean) => {
       if (mobileKeyboardFeedback) {
         void saveMobileKeyboardFeedback({ ...mobileKeyboardFeedback, inlinePreedit });
