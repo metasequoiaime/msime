@@ -11,7 +11,7 @@ const draft: Preferences = {
 
 test("merges local-mode changes into the current draft", () => {
   const setDraft = vi.fn();
-  const actions = createUtilitiesSettingsActions({ draft, setDraft });
+  const actions = createUtilitiesSettingsActions({ setDraft });
   const localModes = {
     unicode: true,
     date_time: false,
@@ -25,12 +25,13 @@ test("merges local-mode changes into the current draft", () => {
 
   actions.onLocalModesChange(localModes);
 
-  expect(setDraft).toHaveBeenCalledWith(expect.objectContaining({ local_modes: localModes }));
+  const updater = setDraft.mock.calls[0][0] as (value: Preferences) => Preferences;
+  expect(updater(draft)).toMatchObject({ local_modes: localModes });
 });
 
-test("does not update before preferences have loaded", () => {
+test("merges local-mode changes into the latest draft", () => {
   const setDraft = vi.fn();
-  const actions = createUtilitiesSettingsActions({ draft: undefined, setDraft });
+  const actions = createUtilitiesSettingsActions({ setDraft });
 
   actions.onLocalModesChange({
     unicode: false,
@@ -43,5 +44,6 @@ test("does not update before preferences have loaded", () => {
     temporary_japanese: false,
   });
 
-  expect(setDraft).not.toHaveBeenCalled();
+  const updater = setDraft.mock.calls[0][0] as (value: Preferences) => Preferences;
+  expect(updater({ ...draft, candidate_page_size: 9 })).toMatchObject({ candidate_page_size: 9 });
 });

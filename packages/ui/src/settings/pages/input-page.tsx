@@ -19,11 +19,7 @@ import { CharacterWidthRow } from "../punctuation-section";
 import { InputModeHudSection } from "../input-mode-hud-section";
 import { createUtilitiesSettingsActions } from "../utilities-settings-actions";
 import { createSettingsDraftActions } from "../settings-draft-actions";
-import {
-  chineseInputSchemeOptions,
-  japaneseInputSchemeOptions,
-} from "../input-scheme-options";
-
+import { chineseInputSchemeOptions, japaneseInputSchemeOptions } from "../input-scheme-options";
 
 /** The 输入 page of the settings form. */
 export function InputSettingsPage() {
@@ -51,7 +47,7 @@ export function InputSettingsPage() {
     setTouchKeyboardSchemeEnabled,
     localModes,
   } = useSettingsForm();
-  const { onLocalModesChange } = createUtilitiesSettingsActions({ draft, setDraft });
+  const { onLocalModesChange } = createUtilitiesSettingsActions({ setDraft });
   const { onPreferencesChange } = createSettingsDraftActions({ setDraft });
   const chineseSchemes = draft.scheme !== "japanese";
   const navigation = draft.navigation ?? defaultNavigation;
@@ -83,9 +79,7 @@ export function InputSettingsPage() {
               value={
                 draft.scheme === "shuangpin" || draft.scheme === "wubi" ? draft.scheme : "quanpin"
               }
-              onChange={(scheme) =>
-                onPreferencesChange({ scheme, last_chinese_scheme: scheme })
-              }
+              onChange={(scheme) => onPreferencesChange({ scheme, last_chinese_scheme: scheme })}
             />
           </Row>
           <Row title="双拼方案" hidden={client.touchKeyboardSchemes || !chineseSchemes}>
@@ -176,10 +170,7 @@ export function InputSettingsPage() {
         </GroupList>
         <GroupList title="输出">
           {showCharacterWidth && (
-            <CharacterWidthRow
-              preferences={draft}
-              onChange={onPreferencesChange}
-            />
+            <CharacterWidthRow preferences={draft} onChange={onPreferencesChange} />
           )}
           <TraditionalChineseOutputSection
             value={draft.traditional_chinese_output}
