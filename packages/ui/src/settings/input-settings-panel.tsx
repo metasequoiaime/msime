@@ -25,7 +25,7 @@ import {
   TranslationServiceSelectorSection,
   type TranslationProvider,
 } from "./translation-service-selector-section";
-import { NiuTransSection } from "./niutrans-section";
+import { NiuTransSettingsSection } from "./niutrans-settings-section";
 import { LinuxTencentCredentialsSection } from "./linux-tencent-credentials-section";
 import { TencentTranslationSection } from "./tencent-translation-section";
 import { CustomTranslationSettingsSection } from "./custom-translation-settings-section";
@@ -331,7 +331,7 @@ export function InputSettingsPanel({
             showAccountProvider={macosPlatform || linuxPlatform}
             onChange={setTranslationProvider}
           />
-          <NiuTransSection
+          <NiuTransSettingsSection
             enabled={niutrans.enabled}
             available={candidateTranslations}
             appId={niutrans.app_id}
@@ -339,14 +339,13 @@ export function InputSettingsPanel({
             onToggle={(enabled) => setTranslationProvider(enabled ? "niutrans" : "none")}
             onAppIdChange={(app_id) => onPreferencesChange({ niutrans: { ...niutrans, app_id } })}
             onApiKeyChange={(apikey) => onPreferencesChange({ niutrans: { ...niutrans, apikey } })}
-          >
-            {credentialTestControl(
+            credentialTest={credentialTestControl(
               "translation.niutrans",
               "测试 NiuTrans 配置",
               niutransCredentialTestConfig(niutrans),
               niutransCredentialTestDisabled(candidateTranslations, niutrans),
             )}
-          </NiuTransSection>
+          />
           {linuxPlatform ? (
             <LinuxTencentCredentialsSection
               available={Boolean(client.providerCredentials)}

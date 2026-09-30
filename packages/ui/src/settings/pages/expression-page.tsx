@@ -8,7 +8,7 @@ import { MixedInputSection } from "../mixed-input-section";
 import { CandidateEnglishGlossSection } from "../candidate-english-gloss-section";
 import { EnglishSuggestionsSection } from "../english-suggestions-section";
 import { PunctuationSection } from "../punctuation-section";
-import { NiuTransSection } from "../niutrans-section";
+import { NiuTransSettingsSection } from "../niutrans-settings-section";
 import { TencentTranslationSection } from "../tencent-translation-section";
 import { CustomTranslationSettingsSection } from "../custom-translation-settings-section";
 import { LinuxTencentCredentialsSection } from "../linux-tencent-credentials-section";
@@ -187,28 +187,24 @@ export function ExpressionSettingsPage() {
         </GroupList>
         {!androidPlatform && (
           <>
-            <GroupList title="小牛翻译">
-              <NiuTransSection
-                enabled={niutrans.enabled}
-                available={candidateTranslations}
-                appId={niutrans.app_id}
-                apiKey={niutrans.apikey}
-                onToggle={(enabled) => setTranslationProvider(enabled ? "niutrans" : "none")}
-                onAppIdChange={(app_id) =>
-                  onPreferencesChange({ niutrans: { ...niutrans, app_id } })
-                }
-                onApiKeyChange={(apikey) =>
-                  onPreferencesChange({ niutrans: { ...niutrans, apikey } })
-                }
-              >
-                {credentialTestControl(
-                  "translation.niutrans",
-                  "测试 NiuTrans 配置",
-                  niutransCredentialTestConfig(niutrans),
-                  niutransCredentialTestDisabled(candidateTranslations, niutrans),
-                )}
-              </NiuTransSection>
-            </GroupList>
+            <NiuTransSettingsSection
+              grouped
+              enabled={niutrans.enabled}
+              available={candidateTranslations}
+              appId={niutrans.app_id}
+              apiKey={niutrans.apikey}
+              onToggle={(enabled) => setTranslationProvider(enabled ? "niutrans" : "none")}
+              onAppIdChange={(app_id) => onPreferencesChange({ niutrans: { ...niutrans, app_id } })}
+              onApiKeyChange={(apikey) =>
+                onPreferencesChange({ niutrans: { ...niutrans, apikey } })
+              }
+              credentialTest={credentialTestControl(
+                "translation.niutrans",
+                "测试 NiuTrans 配置",
+                niutransCredentialTestConfig(niutrans),
+                niutransCredentialTestDisabled(candidateTranslations, niutrans),
+              )}
+            />
             <GroupList title="腾讯云机器翻译">
               {linuxPlatform ? (
                 <LinuxTencentCredentialsSection
