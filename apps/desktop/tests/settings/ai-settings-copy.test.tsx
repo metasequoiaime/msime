@@ -14,7 +14,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-test("the activity AI settings page uses the shared page section", () => {
+test("the activity AI settings page uses the shared AI settings content", () => {
   const source = Object.values(
     import.meta.glob<string>("../../../../packages/ui/src/settings/pages/ai-page.tsx", {
       eager: true,
@@ -24,9 +24,35 @@ test("the activity AI settings page uses the shared page section", () => {
   )[0];
 
   expect(source).toBeDefined();
-  expect(source).toContain('import { AiSettingsPageSection } from "../ai-settings-page-section";');
-  expect(source).toContain("<AiSettingsPageSection");
+  expect(source).toContain('import { AiSettingsContent } from "../ai-settings-content";');
+  expect(source).toContain("<AiSettingsContent");
   expect(source).not.toContain('<fieldset disabled={busy} hidden={page !== "ai"}');
+});
+
+test("the page and embedded panel use one shared AI settings content component", () => {
+  const pageSource = Object.values(
+    import.meta.glob<string>("../../../../packages/ui/src/settings/pages/ai-page.tsx", {
+      eager: true,
+      query: "?raw",
+      import: "default",
+    }),
+  )[0];
+  const panelSource = Object.values(
+    import.meta.glob<string>("../../../../packages/ui/src/settings/ai-settings-panel.tsx", {
+      eager: true,
+      query: "?raw",
+      import: "default",
+    }),
+  )[0];
+
+  expect(pageSource).toContain('import { AiSettingsContent } from "../ai-settings-content";');
+  expect(panelSource).toContain(
+    'import { AiSettingsContent, type AiSettingsContentProps } from "./ai-settings-content";',
+  );
+  expect(pageSource).toContain("<AiSettingsContent");
+  expect(panelSource).toContain("<AiSettingsContent");
+  expect(pageSource).not.toContain("<AiSettingsPageSection");
+  expect(panelSource).not.toContain("<AiSettingsPageSection");
 });
 
 const snapshot: Snapshot = {
