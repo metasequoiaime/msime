@@ -500,6 +500,10 @@ impl BackendAccountClient {
         if revision < 0 || !snapshot.is_absolute() || !crate::text::is_lower_hex(access_token, 64) {
             return Err(AccountError::Invalid);
         }
+        let metadata = std::fs::symlink_metadata(snapshot).map_err(|_| AccountError::Invalid)?;
+        if !metadata.file_type().is_file() {
+            return Err(AccountError::Invalid);
+        }
         let file = std::fs::File::open(snapshot).map_err(|_| AccountError::Invalid)?;
         let bytes = file.metadata().map_err(|_| AccountError::Invalid)?.len();
         if bytes == 0 || bytes > MAX_DICTIONARY_SNAPSHOT_BYTES as u64 {
