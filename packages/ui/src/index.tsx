@@ -416,6 +416,7 @@ import { useSettingsPlatform } from "./theme/settings-platform";
 import { SettingsFormContext } from "./settings/settings-form-context";
 import { createSettingsReloadAction } from "./settings/settings-reload-action";
 import { createSettingsSaveAction } from "./settings/settings-save-action";
+import { createSettingsPageSelection } from "./settings/settings-page-selection";
 import { VoiceSettingsPage } from "./settings/pages/voice-page";
 import { AiSettingsPage } from "./settings/pages/ai-page";
 import { InputSettingsPage } from "./settings/pages/input-page";
@@ -2533,6 +2534,7 @@ export function SettingsPage(props: SettingsPageProps) {
   } = model;
   const reloadSettings = createSettingsReloadAction({ dirty, reload, confirm });
   const saveSettings = createSettingsSaveAction({ save });
+  const { onOpenPage } = createSettingsPageSelection({ selectPage });
   const winShell = settingsPlatform === "win";
   const macShell = settingsPlatform === "mac";
   const linuxShell = settingsPlatform === "linux";
@@ -2745,7 +2747,7 @@ export function SettingsPage(props: SettingsPageProps) {
               <HomePage
                 preferences={draft}
                 actions={client.home}
-                onOpenPage={(value) => selectPage(value as SettingsPageId)}
+                onOpenPage={onOpenPage}
                 onSelectScheme={selectHomeScheme}
                 onOpenChat={client.chat ? () => selectPage("chat") : undefined}
                 touchLayout={mobilePlatform}
@@ -2756,7 +2758,7 @@ export function SettingsPage(props: SettingsPageProps) {
                 groups={mobileSecondaryGroups.map((group) =>
                   group.map((item) => ({ id: item.id, title: item.title, icon: item.icon })),
                 )}
-                onOpenPage={(value) => selectPage(value as SettingsPageId)}
+                onOpenPage={onOpenPage}
               />
             )}
             {(client.account || client.appIcon) && page === "account" && (
