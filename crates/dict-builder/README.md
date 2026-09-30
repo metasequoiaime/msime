@@ -11,8 +11,8 @@ target/release/msime-dict-build --list
 
 ## Inputs
 
-- `resources/dictionary-sources.lock.json` pins every third-party or large input by URL, size and SHA-256: the lexicons and the custom dictionary at a fixed msime-dictionary commit, ECDICT, Mozc's OSS dictionary and the zhwiki dump part the n-gram tables count. They are downloaded into `--cache` on first use (about 500 MB) and reused while they still match; `--offline` refuses to download.
-- The base lexicons (`cn/`, `en/`) and the custom words and translations (`custom/words.txt`, `custom/translations.txt`) live in the dictionary source repository [metasequoiaime/msime-dictionary](https://github.com/metasequoiaime/msime-dictionary), which msime and MSIME-Windows both consume through the dictionary release. The lock pins every file at one commit of it, under the same paths.
+- `resources/dictionary-sources.lock.json` pins every third-party or large input by URL, size and SHA-256: the lexicons and the custom dictionary as assets of one msime-dictionary `sources-v*` release, ECDICT, Mozc's OSS dictionary and the zhwiki dump part the n-gram tables count. They are downloaded into `--cache` on first use (about 500 MB) and reused while they still match; `--offline` refuses to download.
+- The base lexicons (`cn/`, `en/`) and the custom words and translations (`custom/words.txt`, `custom/translations.txt`) live in the dictionary source repository [metasequoiaime/msime-dictionary](https://github.com/metasequoiaime/msime-dictionary), which msime and MSIME-Windows both consume through the dictionary release. The lock pins every file to an asset of one `sources-vX.Y.Z` release (assets are flat, so only the basename appears in the URL) and records the tagged commit as the `msime-dictionary` reference; the lock `path` keeps the repository layout.
 - `resources/dictionary-sources/` holds the other hand-maintained inputs: quick phrases, the emoji, kaomoji and symbol tables, the single-character whitelist additions, and `pinyin-overrides.txt`.
 
 Inputs without a redistribution grant (`src/licensing.rs`) are left out unless `--include-unlicensed` is given; such a build is for local evaluation and must not be released.
@@ -20,7 +20,7 @@ Inputs without a redistribution grant (`src/licensing.rs`) are left out unless `
 ## Changing the data
 
 - Edit the files under `resources/dictionary-sources/` and rebuild.
-- Base lexicons, custom words and translations are changed in msime-dictionary. To take its new state, move the `msime-dictionary` reference and every entry fetched from it in the lock to the new commit (URL, size and SHA-256), rebuild, and compare.
+- Base lexicons, custom words and translations are changed in msime-dictionary. To take its new state, wait for msime-dictionary to publish a new `sources-vX.Y.Z` release, move every entry fetched from it in the lock to that release's assets (URL, size and SHA-256, which `SHA256SUMS.txt` in the release lists), set the `msime-dictionary` reference to the tagged commit, rebuild, and compare. Do not pin raw files at an untagged commit.
 - Emoji, kaomoji and symbol keywords get their pinyin from the `pinyin` crate one character at a time. When a new polyphone keyword needs its phrase reading, add `keyword<TAB>item<TAB>item...` to `pinyin-overrides.txt`.
 - To move a pinned input, change its URL, size and SHA-256 in the lock in the same commit, rebuild, and compare the result with the previous release before publishing.
 
