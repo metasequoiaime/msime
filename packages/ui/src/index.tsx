@@ -1188,6 +1188,10 @@ export {
   type CommunityResourceScopeButtonsProps,
 } from "./community/community-resource-scope-buttons";
 export {
+  CommunityGalleryLoadMore,
+  type CommunityGalleryLoadMoreProps,
+} from "./community/community-gallery-load-more";
+export {
   CommunitySkinPublicationFields,
   type CommunitySkinPublicationFieldsProps,
 } from "./community/community-skin-publication-fields";

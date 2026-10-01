@@ -35,7 +35,8 @@ import {
 import { CommunitySkinCardMetrics } from "./community-skin-card-metrics";
 import { CommunityInstallButton } from "./community-install-button";
 import { CommunityReplaceConfirmation } from "./community-replace-confirmation";
-import { CommunityBackButton, CommunityLoadMoreButton } from "./community-gallery-controls";
+import { CommunityBackButton } from "./community-gallery-controls";
+import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
 
 /** The kinds a pack can be shared as; effect packs stay local for now. Mirrors `client-core::plugins::community::PUBLISHABLE_KINDS`. */
 export type CommunityPluginKind = Exclude<PluginKind, "effect">;
@@ -450,17 +451,12 @@ export function CommunityPluginsPage({
           <CommunityPluginCard key={plugin.id} plugin={plugin} open={() => open(plugin)} />
         ))}
       </div>
-      {hasMore && (
-        <CommunityLoadMoreButton
-          disabled={listBusy}
-          onClick={() => void requestList(activeSearch, true)}
-        />
-      )}
-      {listBusy && (
-        <p role="status" className={style.notice}>
-          正在读取插件…
-        </p>
-      )}
+      <CommunityGalleryLoadMore
+        hasMore={hasMore}
+        busy={listBusy}
+        loadingText="正在读取插件…"
+        onLoadMore={() => void requestList(activeSearch, true)}
+      />
       {publishOpen && localPlugins && (
         <CommunityPluginPublishDialog
           client={client}

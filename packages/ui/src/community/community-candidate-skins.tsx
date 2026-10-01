@@ -20,7 +20,8 @@ import {
 import { CommunitySkinCardMetrics } from "./community-skin-card-metrics";
 import { CommunityInstallButton } from "./community-install-button";
 import { CommunityReplaceConfirmation } from "./community-replace-confirmation";
-import { CommunityBackButton, CommunityLoadMoreButton } from "./community-gallery-controls";
+import { CommunityBackButton } from "./community-gallery-controls";
+import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
 import {
   CommunitySkinCategoryFilter,
   CommunitySkinCategorySelect,
@@ -432,7 +433,7 @@ export function CommunityCandidateSkinsPage({
     const selectedCategory = communitySkinCategoryLabel(selected.category);
     return (
       <div className={style.page}>
-      <CommunityBackButton disabled={actionBusy} onClick={closeDetail} />
+        <CommunityBackButton disabled={actionBusy} onClick={closeDetail} />
         {errorAlert}
         <section className={`section ${style.detail}`}>
           <CandidateSkinPreviewImage
@@ -598,17 +599,12 @@ export function CommunityCandidateSkinsPage({
           />
         ))}
       </div>
-      {hasMore && (
-        <CommunityLoadMoreButton
-          disabled={listBusy}
-          onClick={() => void requestList(activeSearch, true)}
-        />
-      )}
-      {listBusy && (
-        <p role="status" className={style.notice}>
-          正在读取候选窗皮肤…
-        </p>
-      )}
+      <CommunityGalleryLoadMore
+        hasMore={hasMore}
+        busy={listBusy}
+        loadingText="正在读取候选窗皮肤…"
+        onLoadMore={() => void requestList(activeSearch, true)}
+      />
       {publishOpen && localSkins && (
         <CandidateSkinPublishDialog
           client={client}

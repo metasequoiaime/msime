@@ -28,7 +28,8 @@ import { CommunitySkinPublicationFields } from "./community-skin-publication-fie
 import { CommunitySelectField } from "./community-select-field";
 import { CommunitySkinModerationSection } from "./community-skin-moderation-section";
 import { CommunitySkinCardMetrics } from "./community-skin-card-metrics";
-import { CommunityBackButton, CommunityLoadMoreButton } from "./community-gallery-controls";
+import { CommunityBackButton } from "./community-gallery-controls";
+import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
 import {
   CommunitySkinCategoryFilter,
   CommunitySkinCategorySelect,
@@ -655,17 +656,12 @@ export function CommunitySkinsPage({
             <CommunitySkinCard key={skin.id} skin={skin} theme={theme} open={() => open(skin)} />
           ))}
       </div>
-      {hasMore && (
-        <CommunityLoadMoreButton
-          disabled={listBusy}
-          onClick={() => void requestList(activeSearch, true)}
-        />
-      )}
-      {listBusy && (
-        <p role="status" className={style.notice}>
-          正在读取社区皮肤…
-        </p>
-      )}
+      <CommunityGalleryLoadMore
+        hasMore={hasMore}
+        busy={listBusy}
+        loadingText="正在读取社区皮肤…"
+        onLoadMore={() => void requestList(activeSearch, true)}
+      />
       {publishOpen && localSkinLibrary && (
         <CommunitySkinPublishDialog
           client={client}
