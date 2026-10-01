@@ -512,9 +512,12 @@ test("lists the installed packs by kind with what each is used as, and removes o
   const rows = within(sounds).getAllByRole("button");
   expect(rows.map((row) => row.getAttribute("aria-label"))).toEqual(["默认", "小星星", "打字机"]);
   expect(rows.every((row) => row.getAttribute("type") === "button")).toBe(true);
-  expect(rows[0].textContent).toBe("默认1.0.0 · 内置›");
-  expect(rows[1].textContent).toBe("小星星1.0.0 · 按键旋律 · 内置当前旋律›");
+  expect(rows[0].textContent).toBe("默认›");
+  expect(rows[1].textContent).toBe("小星星按键旋律当前旋律›");
   expect(rows[2].textContent).toBe("打字机1.0.0 · 作者 测试者使用中›");
+  // 导入是少见的操作，所以这一行放在已安装的插件之后，而不是夹在上面的设置入口和插件列表之间。
+  const importGroup = screen.getByRole("region", { name: "导入插件" });
+  expect(list.compareDocumentPosition(importGroup) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(within(list).getByRole("button", { name: "雨声" }).textContent).not.toContain("使用中");
   expect(screen.getByText("音效包 broken 无法载入：缺少 plugin.toml")).toBeTruthy();
 

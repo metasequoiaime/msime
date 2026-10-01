@@ -85,7 +85,7 @@ export interface PluginListViewProps {
   onOpenMissing: (kind: PluginKind, id: string) => void;
 }
 
-/** 我的插件: the entries for the settings that belong to no one pack, the import buttons, and the installed packs grouped by kind, each opening its own detail. */
+/** 我的插件：先是不属于任何一个插件包的设置入口，再是按类型分组、各自打开详情的已安装插件，导入这一行放在最后，因为导入是少见的操作。 */
 export function PluginListView({
   hasClient,
   catalog,
@@ -134,39 +134,6 @@ export function PluginListView({
           )}
         </GroupList>
       )}
-      {hasClient && (
-        <GroupList>
-          <div className={settings.managerBlock}>
-            <p className={settings.managerNote}>
-              插件只含音频、指令模板等数据，不能带任何可执行内容，每个包都必须声明许可证。可以导入一个包的文件夹，或者打包好的
-              .zip 文件。
-            </p>
-            <div className={settings.managerActions}>
-              <button
-                type="button"
-                className="secondary"
-                disabled={working}
-                onClick={() => onImport("folder")}
-              >
-                导入文件夹
-              </button>
-              <button
-                type="button"
-                className="secondary"
-                disabled={working}
-                onClick={() => onImport("archive")}
-              >
-                导入 .zip
-              </button>
-            </div>
-            {notice && (
-              <p className={settings.managerNote} role="status">
-                {notice}
-              </p>
-            )}
-          </div>
-        </GroupList>
-      )}
       <div className={settings.subViewStack} aria-label="已安装的插件">
         {hasClient && catalogState === "loading" && (
           <p className={settings.clipboardEmpty} role="status">
@@ -205,14 +172,16 @@ export function PluginListView({
               <PluginNavRow
                 key={pack.id}
                 title={pack.name}
-                description={[
-                  pack.version,
-                  pack.kind === "sound" && pack.mode === "sequence" ? "按键旋律" : null,
-                  pack.author ? `作者 ${pack.author}` : null,
-                  pack.builtin ? "内置" : null,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
+                // 内置插件的版本和作者都一样，所以这一行只留能把它们区分开的内容；详情页仍然显示全部信息。
+                description={
+                  [
+                    pack.builtin ? null : pack.version,
+                    pack.kind === "sound" && pack.mode === "sequence" ? "按键旋律" : null,
+                    !pack.builtin && pack.author ? `作者 ${pack.author}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ") || undefined
+                }
                 marker={packMarker(pack, preferences, kinds)}
                 rowKey={`pack/${pack.kind}/${pack.id}`}
                 onOpen={() => onOpenPack(pack.kind, pack.id)}
@@ -230,6 +199,41 @@ export function PluginListView({
           </GroupList>
         ))}
       </div>
+      {hasClient && (
+        <GroupList title="导入插件">
+          <div className={controls.row}>
+            <span className={controls.rowText}>
+              <span className={controls.rowTitle}>从文件导入</span>
+              <span className={controls.rowDescription}>
+                只含音频、指令模板等数据，不含可执行内容，每个包须声明许可证
+              </span>
+            </span>
+            <span className={`${settings.managerActions} shrink-0`}>
+              <button
+                type="button"
+                className="secondary"
+                disabled={working}
+                onClick={() => onImport("folder")}
+              >
+                导入文件夹
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                disabled={working}
+                onClick={() => onImport("archive")}
+              >
+                导入 .zip
+              </button>
+            </span>
+          </div>
+          {notice && (
+            <p className={settings.groupNote} role="status">
+              {notice}
+            </p>
+          )}
+        </GroupList>
+      )}
       {catalog.issues.length > 0 && (
         <GroupList title="无法载入的插件">
           <div className={settings.managerBlock} role="list" aria-label="无法载入的插件">
