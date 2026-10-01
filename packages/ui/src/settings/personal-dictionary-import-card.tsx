@@ -9,6 +9,7 @@ import {
 import { GroupList } from "../core/platform-controls";
 import { personalDictionaryKindTitle } from "../dictionary/dictionary-messages";
 import * as settings from "./settings-style";
+import { useMountedRef } from "./use-mounted-ref";
 
 export interface PersonalDictionaryImportClient {
   importPersonal?: (
@@ -33,17 +34,15 @@ export function PersonalDictionaryImportCard({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const mounted = useRef(true);
+  const mounted = useMountedRef();
   const dictionaryGeneration = useRef(0);
   const actionRunning = useRef(false);
 
   useEffect(() => {
-    mounted.current = true;
     dictionaryGeneration.current++;
     actionRunning.current = false;
     setBusy(false);
     return () => {
-      mounted.current = false;
       actionRunning.current = false;
       dictionaryGeneration.current++;
     };

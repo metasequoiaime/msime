@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useConfirm } from "../core/confirm";
 import { readDictionaryFile } from "../dictionary/dictionary-file";
+import { useMountedRef } from "./use-mounted-ref";
 
 // The largest word list the page reads. The shared layer takes at most 8 MiB of decoded text (`vocabulary::session::MAX_IMPORT_BYTES`), well under the dictionary import's bound, so this keeps the 1 MiB the page has always read rather than following that one.
 const WORDBOOK_FILE_BYTES = 1_048_576;
@@ -117,14 +118,12 @@ export function VocabularyReviewPage({
   const [importNote, setImportNote] = useState("");
   const requestRef = useRef<Promise<VocabularyReviewStatus> | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const mounted = useRef(true);
+  const mounted = useMountedRef();
 
   useEffect(() => {
-    mounted.current = true;
     requestRef.current = null;
     setBusy(true);
     return () => {
-      mounted.current = false;
       requestRef.current = null;
     };
   }, [client]);
