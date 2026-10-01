@@ -11,6 +11,7 @@ import {
 import type { CustomSkinLibraryClient } from "../keyboard/touch-keyboard-skin-design";
 import * as style from "./community-style";
 import { CommunitySearchForm } from "./community-search-form";
+import { runAsyncAction } from "../core/async-action";
 import {
   CommunityResourceScopeButtons,
   type CommunityResourceScope,
@@ -178,26 +179,28 @@ function ResourceEditor({
       );
       return;
     }
-    setBusy(true);
-    setError("");
     const generation = clientGeneration.current;
-    try {
-      await client.publish(
-        id,
-        kind,
-        normalizedName,
-        normalizedDescription,
-        kind === "reply" ? { prompt } : { entries },
-        existing?.revision ?? 0,
-      );
-      if (!mounted.current || generation !== clientGeneration.current) return;
-      await onPublished();
-    } catch (publishError) {
-      if (mounted.current && generation === clientGeneration.current) {
-        setError(resourceMessage(publishError));
-        setBusy(false);
-      }
-    }
+    await runAsyncAction(
+      {
+        busy,
+        isCurrent: () => mounted.current && generation === clientGeneration.current,
+        setBusy,
+        setError,
+      },
+      async () => {
+        await client.publish(
+          id,
+          kind,
+          normalizedName,
+          normalizedDescription,
+          kind === "reply" ? { prompt } : { entries },
+          existing?.revision ?? 0,
+        );
+        if (!mounted.current || generation !== clientGeneration.current) return;
+        await onPublished();
+      },
+      { formatError: resourceMessage },
+    );
   };
   return (
     <div className={style.backdrop}>
@@ -379,19 +382,18 @@ function ResourceDetail({
   const clientGeneration = useRef(0);
   const renderGeneration = clientGeneration.current;
   const run = async (action: (generation: number) => Promise<void>) => {
-    if (busy || !mounted.current) return;
     const generation = clientGeneration.current;
-    setBusy(true);
-    setError("");
-    setNotice("");
-    try {
-      await action(generation);
-    } catch (actionError) {
-      if (mounted.current && generation === clientGeneration.current)
-        setError(resourceMessage(actionError));
-    } finally {
-      if (mounted.current && generation === clientGeneration.current) setBusy(false);
-    }
+    await runAsyncAction(
+      {
+        busy,
+        isCurrent: () => mounted.current && generation === clientGeneration.current,
+        setBusy,
+        setError,
+        setNotice,
+      },
+      () => action(generation),
+      { formatError: resourceMessage },
+    );
   };
   useEffect(() => {
     let active = true;
