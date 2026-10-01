@@ -644,6 +644,8 @@ function DesktopSettings() {
             dictionary: isMobileHost(host.platform) ? mobileDictionary : dictionary,
             // Windows and macOS resolve the offline gloss in their native
             // candidate controllers, so the setting is real on both hosts.
+            // Only macOS draws readings after the gloss so far; other hosts keep the value untouched.
+            candidatePronunciation: host.platform === "macos",
             candidateEnglishGloss:
               host.platform === "linux" ||
               host.platform === "android" ||

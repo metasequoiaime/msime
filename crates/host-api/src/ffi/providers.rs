@@ -356,6 +356,10 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
             if !offline_gloss_languages.is_empty() {
                 query["offline_gloss_languages"] = json!(offline_gloss_languages);
             }
+            // Likewise present only when on: the host then pronounces the gloss lines it draws, English through msime_client_pronunciation_request.
+            if preferences.candidate_pronunciation {
+                query["candidate_pronunciation"] = json!(true);
+            }
             Ok(query)
         })
     })

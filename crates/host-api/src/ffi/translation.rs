@@ -573,8 +573,33 @@ pub unsafe extern "C" fn msime_client_candidate_gloss_request(
         }
         let glosses = match target_language.as_deref() {
             None | Some("en") => {
-                msime_engine::host::candidate_glosses_with_user(resources, user_data, &candidates)
-                    .map_err(|_| "candidate gloss dictionary unavailable")?
+                let mut glosses = msime_engine::host::candidate_glosses_with_user(
+                    resources,
+                    user_data,
+                    &candidates,
+                )
+                .map_err(|_| "candidate gloss dictionary unavailable")?;
+                // What the user's own glossary contributed is what differs from the packaged answer; that stays.
+                let learned = if user_data.is_empty() {
+                    vec![false; glosses.len()]
+                } else {
+                    msime_engine::host::candidate_glosses(resources, &candidates)
+                        .map(|packaged| {
+                            glosses
+                                .iter()
+                                .zip(&packaged)
+                                .map(|(gloss, packaged)| gloss != packaged)
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_else(|_| vec![true; glosses.len()])
+                };
+                crate::supplementary_glosses::prefer(
+                    std::path::Path::new(resources),
+                    &candidates,
+                    &mut glosses,
+                    &learned,
+                );
+                glosses
             }
             // Another language reads only its offline dictionary: the learned store and custom_translations.txt hold English. A dictionary that is not installed answers nothing, so the host keeps whatever the online path brings.
             Some(language) if crate::OFFLINE_GLOSS_LANGUAGES.contains(&language) => {
@@ -621,6 +646,153 @@ pub unsafe extern "C" fn msime_client_candidate_gloss_request(
             "generation": generation,
             "translations": translations,
         }))
+    })
+}
+
+/// Pronounce copied English texts — English candidates or English gloss lines — from the offline
+/// table beside resources. Like the gloss request this owns no session state, runs on a host
+/// worker thread, and echoes the generation for the host to match against its current view.
+///
+/// # Safety
+/// Both pointers must reference readable buffers for their stated lengths and
+/// remain valid for this call. The buffers are not retained.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_pronunciation_request(
+    request: *const u8,
+    request_length: usize,
+    resources: *const u8,
+    resources_length: usize,
+) -> *mut c_char {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Request {
+        generation: u64,
+        items: Vec<Item>,
+    }
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Item {
+        text: String,
+        language: String,
+    }
+    response(|| {
+        if request.is_null()
+            || resources.is_null()
+            || request_length > 262_144
+            || resources_length > 4096
+        {
+            return Err("invalid pronunciation buffer".into());
+        }
+        let request: Request =
+            serde_json::from_slice(unsafe { std::slice::from_raw_parts(request, request_length) })
+                .map_err(|_| "invalid pronunciation request")?;
+        if request.items.len() > 4096
+            || request.items.iter().any(|item| {
+                item.text.is_empty()
+                    || item.text.len() > 4096
+                    || item.text.chars().any(char::is_control)
+            })
+        {
+            return Err("pronunciation entries exceed limits".into());
+        }
+        // English is the only language pronounced from shared data so far; a host that romanises
+        // Japanese does so with its own system API, and asking for it here is a host bug.
+        if request.items.iter().any(|item| item.language != "en") {
+            return Err("invalid pronunciation request".into());
+        }
+        let resources =
+            std::str::from_utf8(unsafe { std::slice::from_raw_parts(resources, resources_length) })
+                .map_err(|_| "resources path is not UTF-8")?;
+        if !std::path::Path::new(resources).is_absolute() {
+            return Err("resources path must be absolute".into());
+        }
+        // Not installed is an empty answer, not an error, so a host without the table draws the
+        // gloss exactly as before.
+        let Some(database) =
+            crate::pronunciation::english_database_beside(std::path::Path::new(resources))
+        else {
+            return Ok(json!({"generation": request.generation, "pronunciations": []}));
+        };
+        let database = database
+            .to_str()
+            .ok_or("pronunciation dictionary unavailable")?;
+        let texts = request
+            .items
+            .iter()
+            .map(|item| item.text.clone())
+            .collect::<Vec<_>>();
+        let pronunciations = crate::pronunciation::english_pronunciations(database, &texts)?;
+        let pronunciations = request
+            .items
+            .into_iter()
+            .zip(pronunciations)
+            .filter(|(_, pronunciation)| !pronunciation.is_empty())
+            .map(|(item, pronunciation)| {
+                json!({"text": item.text, "language": item.language, "pronunciation": pronunciation})
+            })
+            .collect::<Vec<_>>();
+        Ok(json!({"generation": request.generation, "pronunciations": pronunciations}))
+    })
+}
+
+/// Break copied Chinese candidates that no dictionary has as a whole into words with their English, from the local
+/// character and word tables. Owns no session state and runs on a host worker thread; the generation is echoed.
+///
+/// # Safety
+/// Both pointers must reference readable buffers for their stated lengths and
+/// remain valid for this call. The buffers are not retained.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_gloss_breakdown_request(
+    request: *const u8,
+    request_length: usize,
+    resources: *const u8,
+    resources_length: usize,
+) -> *mut c_char {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Request {
+        generation: u64,
+        texts: Vec<String>,
+    }
+    response(|| {
+        if request.is_null()
+            || resources.is_null()
+            || request_length > 65_536
+            || resources_length > 4096
+        {
+            return Err("invalid breakdown buffer".into());
+        }
+        let request: Request =
+            serde_json::from_slice(unsafe { std::slice::from_raw_parts(request, request_length) })
+                .map_err(|_| "invalid breakdown request")?;
+        if request.texts.len() > 64
+            || request.texts.iter().any(|text| {
+                text.is_empty() || text.len() > 4096 || text.chars().any(char::is_control)
+            })
+        {
+            return Err("breakdown entries exceed limits".into());
+        }
+        let resources =
+            std::str::from_utf8(unsafe { std::slice::from_raw_parts(resources, resources_length) })
+                .map_err(|_| "resources path is not UTF-8")?;
+        if !std::path::Path::new(resources).is_absolute() {
+            return Err("resources path must be absolute".into());
+        }
+        let texts = request
+            .texts
+            .into_iter()
+            .filter(|text| crate::word_breakdown::eligible(text))
+            .collect::<Vec<_>>();
+        let known = crate::word_breakdown::known_pieces(std::path::Path::new(resources), &texts);
+        let breakdowns = texts
+            .iter()
+            .filter_map(|text| {
+                let pieces = crate::word_breakdown::segment(text, &known);
+                crate::word_breakdown::render(&pieces)
+                    .map(|breakdown| json!({"text": text, "breakdown": breakdown}))
+            })
+            .collect::<Vec<_>>();
+        Ok(json!({"generation": request.generation, "breakdowns": breakdowns}))
     })
 }
 

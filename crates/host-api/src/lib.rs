@@ -90,7 +90,10 @@ mod handwriting_cells;
 pub use doubao_auth::msime_client_doubao_auth_headers;
 mod learned_translation;
 mod niutrans_translation;
+mod pronunciation;
+mod supplementary_glosses;
 mod tencent_translation;
+mod word_breakdown;
 pub use dictionary::{
     dictionary_request_json, dictionary_words, edit_dictionary_word, edit_user_quick_phrase,
     import_dictionary_words, lookup_candidates, msime_client_dictionary,

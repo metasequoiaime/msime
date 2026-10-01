@@ -252,6 +252,24 @@ static NSDictionary *decode(char *response, NSError **error) {
     return decode(msime_client_candidate_gloss_request((const uint8_t *)data.bytes, data.length,
         (const uint8_t *)path.bytes, path.length), error);
 }
++ (NSDictionary *)pronunciationRequest:(NSDictionary *)request resources:(NSString *)resources error:(NSError **)error {
+    if (![resources isKindOfClass:NSString.class] || !resources.isAbsolutePath ||
+        ![NSJSONSerialization isValidJSONObject:request]) { setError(error, @"读音请求格式错误"); return nil; }
+    NSData *path = [resources dataUsingEncoding:NSUTF8StringEncoding];
+    NSData *data = [NSJSONSerialization dataWithJSONObject:request options:0 error:error];
+    if (!path || path.length > 4096 || !data || data.length > 262144) { setError(error, @"读音请求过大"); return nil; }
+    return decode(msime_client_pronunciation_request((const uint8_t *)data.bytes, data.length,
+        (const uint8_t *)path.bytes, path.length), error);
+}
++ (NSDictionary *)glossBreakdownRequest:(NSDictionary *)request resources:(NSString *)resources error:(NSError **)error {
+    if (![resources isKindOfClass:NSString.class] || !resources.isAbsolutePath ||
+        ![NSJSONSerialization isValidJSONObject:request]) { setError(error, @"逐词释义请求格式错误"); return nil; }
+    NSData *path = [resources dataUsingEncoding:NSUTF8StringEncoding];
+    NSData *data = [NSJSONSerialization dataWithJSONObject:request options:0 error:error];
+    if (!path || path.length > 4096 || !data || data.length > 65536) { setError(error, @"逐词释义请求过大"); return nil; }
+    return decode(msime_client_gloss_breakdown_request((const uint8_t *)data.bytes, data.length,
+        (const uint8_t *)path.bytes, path.length), error);
+}
 - (NSDictionary *)applyTranslations:(NSArray<NSDictionary *> *)translations generation:(uint64_t)generation error:(NSError **)error {
     if (![translations isKindOfClass:NSArray.class] || translations.count > 4096 ||
         ![NSJSONSerialization isValidJSONObject:translations]) { setError(error, @"候选释义格式错误"); return nil; }

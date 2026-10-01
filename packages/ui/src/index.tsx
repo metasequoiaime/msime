@@ -1386,6 +1386,7 @@ export type Preferences = {
   cloud_candidates?: boolean;
   candidate_translations?: boolean;
   candidate_english_gloss?: boolean;
+  candidate_pronunciation?: boolean;
   english_suggestions?: boolean;
   translation_target_language?: "en" | "fr" | "ja" | "es" | "ru" | "de" | "ko";
   /** Optional second candidate-translation language; null/absent keeps one gloss row. */
@@ -1864,6 +1865,8 @@ export interface SettingsClient {
   aiSkins?: AiSkinClient;
   /** Mobile and desktop hosts can show packaged offline English glosses without changing candidate identity. */
   candidateEnglishGloss?: boolean;
+  /** Hosts that draw a reading (English IPA, Japanese romaji) after each gloss line. */
+  candidatePronunciation?: boolean;
   /** The desktop hosts' plugin pack store and the @ name list, behind the 插件 page. */
   plugins?: PluginClient;
   /**
