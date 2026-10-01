@@ -12,7 +12,6 @@ import {
 import type { CustomSkinLibraryClient } from "../keyboard/touch-keyboard-skin-design";
 import * as style from "./community-style";
 import { CommunitySearchForm } from "./community-search-form";
-import { runAsyncAction } from "../core/async-action";
 import { CommunityDialogHeader } from "./community-dialog";
 import {
   CommunityRemovedBadge,
@@ -387,19 +386,18 @@ function ResourceDetail({
   const run = async (action: (generation: number) => Promise<void>) => {
     if (actionBusyRef.current || busy) return;
     const generation = clientGeneration.current;
-    actionBusyRef.current = true;
-    await runAsyncAction(
-      {
-        busy,
-        isCurrent: () => mounted.current && generation === clientGeneration.current,
-        setBusy,
-        setError,
-        setNotice,
-      },
-      () => action(generation),
-      { formatError: resourceMessage },
-    );
-    if (mounted.current && generation === clientGeneration.current) actionBusyRef.current = false;
+    await runCommunityAction({
+      busy,
+      generation,
+      clientGeneration,
+      actionRunning: actionBusyRef,
+      setBusy,
+      setError,
+      setNotice,
+      isCurrent: () => mounted.current && generation === clientGeneration.current,
+      formatError: resourceMessage,
+      operation: () => action(generation),
+    });
   };
   useEffect(() => {
     let active = true;

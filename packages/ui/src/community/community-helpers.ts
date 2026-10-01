@@ -216,6 +216,7 @@ export interface CommunityActionOptions {
   actionRunning: RunningAction;
   setBusy: (busy: boolean) => void;
   setError: (message: string) => void;
+  setNotice?: (message: string) => void;
   setSignInRequired?: (value: boolean) => void;
   formatError: (error: unknown) => string;
   isCurrent?: () => boolean;
@@ -230,6 +231,7 @@ export async function runCommunityAction({
   actionRunning,
   setBusy,
   setError,
+  setNotice,
   setSignInRequired,
   formatError,
   isCurrent,
@@ -245,6 +247,7 @@ export async function runCommunityAction({
         isCurrent: current,
         setBusy,
         setError,
+        setNotice,
       },
       operation,
       {
