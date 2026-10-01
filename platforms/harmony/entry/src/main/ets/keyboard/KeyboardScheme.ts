@@ -5,6 +5,8 @@
  * Java spells this as an enum carrying fields. ArkTS enums hold only a value, so each scheme is a
  * frozen record and SCHEMES preserves the declaration order the Apple hosts also rely on.
  */
+import { SchemeTraits } from "./SchemeTraits";
+
 export interface SchemeDefinition {
   readonly id: string;
   readonly preferenceId: string;
@@ -415,13 +417,7 @@ export class KeyboardScheme {
   }
 
   private static isChineseScheme(value: string | null): boolean {
-    return (
-      value === "quanpin" ||
-      value === "shuangpin" ||
-      value === "wubi" ||
-      value === "cantonese" ||
-      value === "zhuyin"
-    );
+    return value !== null && SchemeTraits.isChinese(SchemeTraits.fromName(value));
   }
 
   private static normalizedProfile(value: string | null): string {

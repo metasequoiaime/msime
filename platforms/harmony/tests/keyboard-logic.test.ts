@@ -10686,12 +10686,15 @@ group("Korean draws the syllable, not the key letters behind it", () => {
     "the keyboard's own choice is Korean only outside English",
   );
   check(
-    KoreanCompositionPolicy.reading(true, "sud", "녕") === "녕",
+    SchemeCompositionPolicy.reading(SchemeTraits.KOREAN, "sud", "녕") === "녕",
     "editing_text holds the letters of the open syllable; the strip draws the syllable",
   );
-  check(KoreanCompositionPolicy.reading(true, "", "") === "", "nothing open draws nothing");
   check(
-    KoreanCompositionPolicy.reading(false, "nihao", "ni hao") === "nihao",
+    SchemeCompositionPolicy.reading(SchemeTraits.KOREAN, "", "") === "",
+    "nothing open draws nothing",
+  );
+  check(
+    SchemeCompositionPolicy.reading(SchemeTraits.QUANPIN, "nihao", "ni hao") === "nihao",
     "every other scheme keeps drawing its spelling",
   );
   check(
@@ -12521,11 +12524,6 @@ group("the scheme traits answer as the Engine's SchemeType predicates", () => {
       !SchemeTraits.hasOpenableCandidateList(SchemeTraits.VIETNAMESE) &&
       SchemeTraits.cancelKeepsComposition(SchemeTraits.VIETNAMESE),
     "Zhuyin opens its list as Korean does; Vietnamese has none but keeps the first Cancel",
-  );
-  check(
-    SchemeTraits.acceptsApostrophe(SchemeTraits.CANTONESE) &&
-      !SchemeTraits.acceptsApostrophe(SchemeTraits.ZHUYIN),
-    "a Jyutping apostrophe is a syllable boundary",
   );
 });
 

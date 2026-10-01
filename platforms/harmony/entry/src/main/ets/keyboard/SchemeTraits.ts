@@ -87,24 +87,9 @@ export class SchemeTraits {
     return [SchemeTraits.QUANPIN, SchemeTraits.SHUANGPIN, SchemeTraits.WUBI].includes(scheme);
   }
 
-  /** Candidates may carry translation glosses. */
-  static showsGlosses(scheme: number): boolean {
-    return [
-      SchemeTraits.QUANPIN,
-      SchemeTraits.SHUANGPIN,
-      SchemeTraits.WUBI,
-      SchemeTraits.KOREAN,
-    ].includes(scheme);
-  }
-
   /** Leaving the field or the scheme commits the composition instead of discarding it. */
   static commitsOnBlur(scheme: number): boolean {
     return [SchemeTraits.KOREAN, SchemeTraits.ZHUYIN, SchemeTraits.VIETNAMESE].includes(scheme);
-  }
-
-  /** The view's `reading` carries the composed text for the keyboard to draw. */
-  static drawsReading(scheme: number): boolean {
-    return [SchemeTraits.JAPANESE, SchemeTraits.KOREAN, SchemeTraits.ZHUYIN].includes(scheme);
   }
 
   /** Candidates appear only in a list the user opens and can close again: the Korean Hanja list, the Zhuyin list. */
@@ -115,16 +100,6 @@ export class SchemeTraits {
   /** The first Cancel keeps the composition (closing the list, or taking a Vietnamese word back to its keys); a second discards it. */
   static cancelKeepsComposition(scheme: number): boolean {
     return [SchemeTraits.KOREAN, SchemeTraits.ZHUYIN, SchemeTraits.VIETNAMESE].includes(scheme);
-  }
-
-  /** An apostrophe typed inside the composition is a syllable boundary the scheme keeps. */
-  static acceptsApostrophe(scheme: number): boolean {
-    return [
-      SchemeTraits.QUANPIN,
-      SchemeTraits.SHUANGPIN,
-      SchemeTraits.JAPANESE,
-      SchemeTraits.CANTONESE,
-    ].includes(scheme);
   }
 
   /** The caret stays at the end of the composition. */
