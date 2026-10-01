@@ -114,6 +114,25 @@ export function candidateFontPresetPatch(
   };
 }
 
+/**
+ * The font preferences for choosing `family` as the main candidate font. The Windows renderer reads no `candidate_font_family`: Latin text is drawn in the English font and everything else comes from the fallback chain, so there the family also leads that chain, as a preset's families do. The previous main family is taken out first, because the field reports every keystroke and the partial names typed on the way must not pile up behind the finished one.
+ */
+export function candidateMainFontPatch(
+  family: string,
+  windows: boolean,
+  current: CandidateFontPreferences,
+): CandidateFontPreferences {
+  if (!windows) return { candidate_font_family: family };
+  const previous = current.candidate_font_family ?? defaultCandidateFontFamily;
+  const rest = (current.candidate_fallback_fonts ?? defaultCandidateFallbackFonts).filter(
+    (name) => name !== previous && name !== family,
+  );
+  return {
+    candidate_font_family: family,
+    candidate_fallback_fonts: [family, ...rest].slice(0, maxFallbackFonts),
+  };
+}
+
 /** The preset the font preferences show, or `null` for a font the user chose themselves. The main font names the preset; where two presets share it (黑体 and 圆体 both fall back to Noto Sans SC, as 默认 does), the one whose families lead the fallback chain on `platform` wins, and otherwise 默认. */
 export function currentCandidateFontPreset(
   preferences: CandidateFontPreferences,

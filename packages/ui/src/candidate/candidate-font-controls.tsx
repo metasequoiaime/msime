@@ -3,12 +3,13 @@ import {
   defaultCandidateFontFamily,
   type CandidateFontPreferences,
 } from "./candidate-font-family";
+import { candidateMainFontPatch } from "./candidate-font-presets";
 import { useFontCatalog, type FontCatalogReader } from "./font-catalog";
 import { FontFamilyInput } from "./font-family-input";
 import { Row } from "../core/platform-controls";
 
 /**
- * The candidate font rows. `candidate_fallback_fonts` has no editor here on purpose: the 候选字体 presets write it, every host appends the system font after it, and an ordered list of family names - most of them other platforms' faces, since the document is shared - asked users to make a typesetting decision they had no way to judge.
+ * The candidate font rows. `candidate_fallback_fonts` has no editor here on purpose: the 候选字体 presets and, on Windows, the main font write it, every host appends the system font after it, and an ordered list of family names - most of them other platforms' faces, since the document is shared - asked users to make a typesetting decision they had no way to judge.
  */
 export function CandidateFontControls({
   value,
@@ -61,19 +62,17 @@ export function CandidateFontControls({
           />
         </Row>
       )}
-      {!windows && (
-        <Row title={`${surfaceName}主字体`}>
-          <FontFamilyInput
-            label={`${surfaceName}主字体`}
-            value={value.candidate_font_family ?? defaultCandidateFontFamily}
-            fonts={catalog.fonts}
-            enabled={!!readFonts}
-            ready={catalog.status === "ready"}
-            request={catalog.request}
-            onChange={(font) => onChange({ candidate_font_family: font })}
-          />
-        </Row>
-      )}
+      <Row title={`${surfaceName}主字体`}>
+        <FontFamilyInput
+          label={`${surfaceName}主字体`}
+          value={value.candidate_font_family ?? defaultCandidateFontFamily}
+          fonts={catalog.fonts}
+          enabled={!!readFonts}
+          ready={catalog.status === "ready"}
+          request={catalog.request}
+          onChange={(font) => onChange(candidateMainFontPatch(font, windows, value))}
+        />
+      </Row>
       {/* The live region stays mounted while empty, so the status it later takes is announced. */}
       <Row title="系统字体列表" description={<span role="status">{catalogStatus}</span>}>
         {readFonts && (

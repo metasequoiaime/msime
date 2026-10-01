@@ -123,12 +123,8 @@ static BOOL ValidFontFamily(id value) {
            [value lengthOfBytesUsingEncoding:NSUTF8StringEncoding] <= 128 &&
            [value rangeOfCharacterFromSet:[NSCharacterSet controlCharacterSet]].location == NSNotFound;
 }
-/// How many supplementary families the candidate window will carry. The validator, the 添加 action and the line the page prints under 补充字体 all have to agree on it, and they only do while they are reading the same number.
+/// How many supplementary families the candidate window will carry, as crates/client-core validates.
 static const NSUInteger kFallbackFontLimit = 32;
-/// A row of 补充字体优先顺序 being dragged to another position in the same list. The order is the setting, so the list is its own drag source and destination and nothing outside this table is offered the type.
-static NSPasteboardType const MSIMEFallbackFontRowType = @"app.msime.client.fallback-font-row";
-/// The reuse identifier of a row view in 补充字体优先顺序. Every row is one family name, so there is one kind of view and one identifier.
-static NSUserInterfaceItemIdentifier const MSIMEFallbackFontCellIdentifier = @"MSIMEFallbackFontCell";
 /// The two columns of 应用例外 and the reuse identifier of a cell in each: an application's name, and the mode it is to start in.
 static NSUserInterfaceItemIdentifier const MSIMEAppRuleApplicationColumn = @"application";
 static NSUserInterfaceItemIdentifier const MSIMEAppRuleModeColumn = @"mode";
@@ -1001,9 +997,6 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSPopUpButton *_fontButton;
     NSComboBox *_englishFontFamilyControl;
     NSComboBox *_fontFamilyControl;
-    NSTableView *_fallbackTable;
-    NSComboBox *_fallbackFamilyControl;
-    NSTextField *_fallbackStatusLabel;
     NSPopUpButton *_preeditFontButton;
     NSPopUpButton *_candidatePreeditButton;
     NSPopUpButton *_pageShortcutButton;
@@ -2811,13 +2804,6 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     for (NSString *property in _candidateColorWells)
         _candidateColorWells[property].color =
             CandidateColor([self valueForKey:property], [self candidateSkinColorForProperty:property]);
-    // A reload keeps the row number the user had picked, which is the row they were still looking at unless the list has shrunk past it. The actions that change the list put the selection where the change left it, and they do that after the write that brings this reload with it.
-    const NSInteger fallbackSelection = _fallbackTable.selectedRow;
-    [_fallbackTable reloadData];
-    if (fallbackSelection >= 0) [self selectFallbackRow:fallbackSelection];
-    _fallbackStatusLabel.stringValue =
-        [NSString stringWithFormat:@"已添加 %lu 项，最多 %lu 项。", (unsigned long)self.fallbackFonts.count,
-                                   (unsigned long)kFallbackFontLimit];
     [_preeditFontButton selectItemAtIndex:self.preeditFontSize - 12];
     _candidateScaleSlider.integerValue = self.candidateScalePercent;
     _candidateScaleLabel.stringValue = [NSString stringWithFormat:@"%ld%%", (long)self.candidateScalePercent];
@@ -3094,49 +3080,6 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     _toolbarThemeButton.target = self;
     _toolbarThemeButton.action = @selector(toolbarThemeChanged:);
     _inputModeHUDToggle = MSIMESettingSwitch(self, @selector(inputModeHUDChanged:), @"切换中英文时显示提示");
-    // The order these families are tried in is the entire setting, and a popup showed one of them at a time: the list existed only while its menu was open, and the three buttons under it moved a row nobody could see. A table shows the order as an order — every family, in the order the candidate window will try them — and a row can be dragged to its place as well as stepped there.
-    _fallbackTable = [[NSTableView alloc] initWithFrame:NSZeroRect];
-    _fallbackTable.accessibilityLabel = @"补充字体顺序";
-    _fallbackTable.headerView = nil;
-    _fallbackTable.allowsMultipleSelection = NO;
-    _fallbackTable.rowHeight = 20.0;
-    _fallbackTable.style = NSTableViewStyleFullWidth;
-    NSTableColumn *fallbackColumn = [[NSTableColumn alloc] initWithIdentifier:@"family"];
-    fallbackColumn.resizingMask = NSTableColumnAutoresizingMask;
-    [_fallbackTable addTableColumn:fallbackColumn];
-    _fallbackTable.dataSource = self;
-    _fallbackTable.delegate = self;
-    [_fallbackTable registerForDraggedTypes:@[ MSIMEFallbackFontRowType ]];
-    [_fallbackTable setDraggingSourceOperationMask:NSDragOperationMove forLocal:YES];
-    NSScrollView *fallbackScroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
-    fallbackScroll.documentView = _fallbackTable;
-    fallbackScroll.hasVerticalScroller = YES;
-    fallbackScroll.borderType = NSBezelBorder;
-    fallbackScroll.translatesAutoresizingMaskIntoConstraints = NO;
-    // About five rows at once: enough of the list to read an order rather than a row, and short enough that the card it sits in is still a card.
-    [fallbackScroll.heightAnchor constraintEqualToConstant:112.0].active = YES;
-    [fallbackScroll.widthAnchor constraintGreaterThanOrEqualToConstant:msime::mac::layout::kControlMinWidth].active = YES;
-    _fallbackFamilyControl = [[NSComboBox alloc] initWithFrame:NSZeroRect];
-    [_fallbackFamilyControl addItemsWithObjectValues:_fontFamilyControl.objectValues];
-    _fallbackFamilyControl.completes = YES;
-    _fallbackFamilyControl.accessibilityLabel = @"添加补充字体";
-    _fallbackFamilyControl.placeholderString = @"字体家族名称";
-    [_fallbackFamilyControl.widthAnchor constraintEqualToConstant:176].active = YES;
-    NSButton *addFallback = [NSButton buttonWithTitle:@"添加" target:self action:@selector(addFallbackFont:)];
-    NSStackView *fallbackAdd = [NSStackView stackViewWithViews:@[_fallbackFamilyControl, addFallback]];
-    fallbackAdd.orientation = NSUserInterfaceLayoutOrientationHorizontal;
-    // How full the list is, and why an 添加 that did nothing did nothing. The cap and the refusals used to be a beep and a 最多 32 项 in the row's own name, which says what the limit is but never how close to it the list already is.
-    _fallbackStatusLabel = MSIMEDetailLabel(@"");
-    NSStackView *fallbackButtons = [NSStackView stackViewWithViews:@[
-        [NSButton buttonWithTitle:@"上移" target:self action:@selector(moveFallbackFontUp:)],
-        [NSButton buttonWithTitle:@"下移" target:self action:@selector(moveFallbackFontDown:)],
-        [NSButton buttonWithTitle:@"移除" target:self action:@selector(removeFallbackFont:)]]];
-    fallbackButtons.orientation = NSUserInterfaceLayoutOrientationHorizontal;
-    NSStackView *fallbackOrder = [NSStackView stackViewWithViews:@[ fallbackScroll, fallbackButtons ]];
-    fallbackOrder.orientation = NSUserInterfaceLayoutOrientationVertical;
-    fallbackOrder.alignment = NSLayoutAttributeLeading;
-    fallbackOrder.spacing = 6.0;
-    [fallbackScroll.widthAnchor constraintEqualToAnchor:fallbackOrder.widthAnchor].active = YES;
     _preeditFontButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     for (NSUInteger size = 12; size <= 32; ++size)
         [_preeditFontButton addItemWithTitle:[NSString stringWithFormat:@"%lu pt", (unsigned long)size]];
@@ -3625,20 +3568,15 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     // edge without the second fixed width these rows used to ask for.
     NSBox *fontCard = MSIMECardWithViews(@[
         [self settingRow:@"字体预设"
-                  detail:@"写入候选字体，并把这一类字体在各平台的名称排到补充字体最前；本机未安装时按补充字体顺序回退。"
+                  detail:@"写入候选字体；本机未安装时使用同类字体，最后使用系统字体。"
                  control:_candidateFontPresetButton
                      aka:@[@"宋体", @"黑体", @"楷体", @"圆体"]],
         [self settingRow:@"候选字体"
-                  detail:@"可选择本机字体或输入字体家族名称；未安装时按补充字体顺序回退，最后使用系统字体，并保留原设置。"
+                  detail:@"可选择本机字体或输入字体家族名称；未安装或缺字时使用系统字体，并保留原设置。"
                  control:_fontFamilyControl],
         [self settingRow:@"候选窗英文字体"
-                  detail:@"优先用于拉丁字符；未安装时回退到候选主字体和补充字体，留空表示不设置独立英文字体。"
+                  detail:@"优先用于拉丁字符；未安装时使用候选字体，留空表示不设置独立英文字体。"
                  control:_englishFontFamilyControl],
-        [self settingRow:@"补充字体" detailLabel:_fallbackStatusLabel control:fallbackAdd],
-        [self settingRow:@"补充字体优先顺序"
-                  detail:@"从上往下依次尝试；拖动一行可以改变顺序。"
-                 control:fallbackOrder
-                     aka:@[@"回退字体"]],
     ], 0.0);
     fontCard.accessibilityLabel = @"候选字体卡片";
     // 候选文字颜色 leaves the font card for this one, which is the only row that moves: it is a colour,
@@ -5165,55 +5103,6 @@ static NSString *CandidateColorHex(NSColor *color) {
 - (void)inputModeHUDChanged:(NSSwitch *)sender { self.inputModeHUD = sender.state == NSControlStateValueOn; }
 - (void)themeModeChanged:(NSPopUpButton *)sender { self.themeMode = ThemeModes()[sender.indexOfSelectedItem]; }
 - (void)candidateThemeChanged:(NSPopUpButton *)sender { self.candidateTheme = SurfaceThemes()[sender.indexOfSelectedItem]; }
-/// Puts the selection of 补充字体优先顺序 on a row, or clears it when the list has no such row to offer. Every caller runs it after writing the property, because that write reloads the table.
-- (void)selectFallbackRow:(NSInteger)row {
-    const NSInteger rows = (NSInteger)self.fallbackFonts.count;
-    if (row < 0 || rows == 0) {
-        [_fallbackTable deselectAll:nil];
-        return;
-    }
-    const NSInteger selected = MIN(row, rows - 1);
-    [_fallbackTable selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)selected] byExtendingSelection:NO];
-    [_fallbackTable scrollRowToVisible:selected];
-}
-- (void)addFallbackFont:(id)sender {
-    (void)sender;
-    NSString *family = _fallbackFamilyControl.stringValue;
-    // Both refusals used to be one beep, and a beep from a window with a list on it does not say which of the two it is — that the list is full, or that what was typed is not a family name.
-    if (self.fallbackFonts.count >= kFallbackFontLimit) {
-        _fallbackStatusLabel.stringValue =
-            [NSString stringWithFormat:@"已经有 %lu 项，达到上限；先移除一项再添加。", (unsigned long)kFallbackFontLimit];
-        return;
-    }
-    if (!ValidFontFamily(family)) {
-        _fallbackStatusLabel.stringValue = @"请填写字体家族名称：不能为空或含控制字符，最长 128 字节。";
-        return;
-    }
-    self.fallbackFonts = [self.fallbackFonts arrayByAddingObject:family];
-    [self selectFallbackRow:(NSInteger)self.fallbackFonts.count - 1];
-    _fallbackFamilyControl.stringValue = @"";
-}
-/// Deleting a row leaves the selection on the row number it had, which is now the family that moved up into it — or on the last row, when what went was the bottom one. Leaving the selection behind is what made the second press of 移除 delete a font the user was not looking at: the row number survived the deletion, the font under it did not.
-- (void)removeFallbackFont:(id)sender {
-    (void)sender;
-    NSInteger index = _fallbackTable.selectedRow;
-    if (index < 0 || (NSUInteger)index >= self.fallbackFonts.count) return;
-    NSMutableArray *fonts = [self.fallbackFonts mutableCopy];
-    [fonts removeObjectAtIndex:index];
-    self.fallbackFonts = fonts;
-    [self selectFallbackRow:index];
-}
-- (void)moveFallbackFontBy:(NSInteger)delta {
-    NSInteger index = _fallbackTable.selectedRow;
-    NSInteger next = index + delta;
-    if (index < 0 || next < 0 || (NSUInteger)index >= self.fallbackFonts.count || (NSUInteger)next >= self.fallbackFonts.count) return;
-    NSMutableArray *fonts = [self.fallbackFonts mutableCopy];
-    [fonts exchangeObjectAtIndex:index withObjectAtIndex:next];
-    self.fallbackFonts = fonts;
-    [self selectFallbackRow:next];
-}
-- (void)moveFallbackFontUp:(id)sender { (void)sender; [self moveFallbackFontBy:-1]; }
-- (void)moveFallbackFontDown:(id)sender { (void)sender; [self moveFallbackFontBy:1]; }
 - (void)preeditFontChanged:(NSPopUpButton *)sender { self.preeditFontSize = sender.indexOfSelectedItem + 12; }
 - (void)candidateStyleSliderChanged:(NSSlider *)sender {
     const NSInteger value = sender.integerValue;
@@ -5231,70 +5120,15 @@ static NSString *CandidateColorHex(NSColor *color) {
 - (void)candidateFontPresetChanged:(NSPopUpButton *)sender { self.candidateFontPreset = sender.indexOfSelectedItem; }
 - (void)candidatePreeditChanged:(NSPopUpButton *)sender { self.showsCandidatePreedit = sender.indexOfSelectedItem == 0; }
 
-#pragma mark - Fallback font order and application exception tables
+#pragma mark - Application exception table
 // This object is the sidebar's data source as well, and an NSOutlineView is an NSTableView, so each of these answers for the one table it was written for and says so rather than assuming it can only have been called by that table.
 - (NSInteger)numberOfRowsInTableView:(NSTableView *)tableView {
-    if (tableView == _fallbackTable) return (NSInteger)self.fallbackFonts.count;
     if (tableView == _appRuleTable) return (NSInteger)_appRuleIdentifiers.count;
     return 0;
 }
 - (NSView *)tableView:(NSTableView *)tableView viewForTableColumn:(NSTableColumn *)tableColumn row:(NSInteger)row {
     if (tableView == _appRuleTable) return [self applicationRuleCellForColumn:tableColumn row:row];
-    (void)tableColumn;
-    if (tableView != _fallbackTable || row < 0 || (NSUInteger)row >= self.fallbackFonts.count) return nil;
-    NSTableCellView *cell = [tableView makeViewWithIdentifier:MSIMEFallbackFontCellIdentifier owner:self];
-    if (cell == nil) {
-        cell = [[NSTableCellView alloc] initWithFrame:NSZeroRect];
-        cell.identifier = MSIMEFallbackFontCellIdentifier;
-        NSTextField *label = [NSTextField labelWithString:@""];
-        label.font = [NSFont systemFontOfSize:msime::mac::layout::kBodyFontSize weight:NSFontWeightRegular];
-        label.translatesAutoresizingMaskIntoConstraints = NO;
-        [cell addSubview:label];
-        cell.textField = label;
-        [NSLayoutConstraint activateConstraints:@[
-            [label.leadingAnchor constraintEqualToAnchor:cell.leadingAnchor constant:4.0],
-            [label.trailingAnchor constraintLessThanOrEqualToAnchor:cell.trailingAnchor],
-            [label.centerYAnchor constraintEqualToAnchor:cell.centerYAnchor],
-        ]];
-    }
-    cell.textField.stringValue = self.fallbackFonts[(NSUInteger)row];
-    return cell;
-}
-- (id<NSPasteboardWriting>)tableView:(NSTableView *)tableView pasteboardWriterForRow:(NSInteger)row {
-    if (tableView != _fallbackTable) return nil;
-    NSPasteboardItem *item = [[NSPasteboardItem alloc] init];
-    // What is being carried is the position, not the family: two rows may well name the same font, and it is the one that was picked up that has to move.
-    [item setString:[@(row) stringValue] forType:MSIMEFallbackFontRowType];
-    return item;
-}
-- (NSDragOperation)tableView:(NSTableView *)tableView
-                validateDrop:(id<NSDraggingInfo>)info
-                 proposedRow:(NSInteger)row
-       proposedDropOperation:(NSTableViewDropOperation)dropOperation {
-    if (tableView != _fallbackTable || info.draggingSource != _fallbackTable) return NSDragOperationNone;
-    // A row dropped on top of another row is still someone asking for it to go there, so it is retargeted to the gap above instead of refused.
-    if (dropOperation == NSTableViewDropOn) [tableView setDropRow:row dropOperation:NSTableViewDropAbove];
-    return NSDragOperationMove;
-}
-- (BOOL)tableView:(NSTableView *)tableView
-       acceptDrop:(id<NSDraggingInfo>)info
-              row:(NSInteger)row
-    dropOperation:(NSTableViewDropOperation)dropOperation {
-    (void)dropOperation;
-    if (tableView != _fallbackTable) return NO;
-    NSString *carried = [info.draggingPasteboard stringForType:MSIMEFallbackFontRowType];
-    if (carried == nil) return NO;
-    const NSInteger source = carried.integerValue;
-    NSMutableArray<NSString *> *fonts = [self.fallbackFonts mutableCopy];
-    if (source < 0 || (NSUInteger)source >= fonts.count || row < 0 || (NSUInteger)row > fonts.count) return NO;
-    // The drop row is a gap in the list as it stands now, and taking the dragged row out first closes every gap after it by one.
-    NSString *family = fonts[(NSUInteger)source];
-    [fonts removeObjectAtIndex:(NSUInteger)source];
-    const NSInteger destination = row > source ? row - 1 : row;
-    [fonts insertObject:family atIndex:(NSUInteger)destination];
-    self.fallbackFonts = fonts;
-    [self selectFallbackRow:destination];
-    return YES;
+    return nil;
 }
 /// One row of 应用例外: the application on the leading edge, the mode it is to start in trailing it.
 ///

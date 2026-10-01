@@ -48,16 +48,16 @@ static bool TokenIs(msime::mac::Rgba color, NSString *hex, CGFloat alpha = 1) {
 }
 
 static void TestFallbackFonts(MSIMEAppearancePreferences *preferences, NSUserDefaults *defaults) {
-    NSComboBox *entry = (id)FindControl(preferences.window.contentView, @"添加补充字体");
-    NSTableView *list = (id)FindControl(preferences.window.contentView, @"补充字体顺序");
-    assert(entry && list);
+    // The list has no editor on the page: the 字体预设 popup writes it, and the shared document carries it between hosts.
+    assert(FindControl(preferences.window.contentView, @"候选字体卡片"));
+    assert(!FindControl(preferences.window.contentView, @"添加补充字体") && !FindControl(preferences.window.contentView, @"补充字体顺序"));
     NSString *sans = [NSFont fontWithName:@"PingFangSC-Regular" size:18].familyName;
     NSString *serif = [NSFont fontWithName:@"STSongti-SC-Regular" size:18].familyName;
     assert(sans && serif);
     __block NSUInteger notifications = 0;
     id observer = [NSNotificationCenter.defaultCenter addObserverForName:MSIMEAppearanceDidChangeNotification object:preferences queue:nil usingBlock:^(NSNotification *note) { (void)note; ++notifications; }];
     [preferences applySharedCandidatePreferences:@{@"candidate_font_family": @"Menlo", @"candidate_english_font": @"Helvetica", @"candidate_fallback_fonts": @[sans, serif]}];
-    assert(notifications == 0 && list.numberOfRows == 2);
+    assert(notifications == 0 && ([preferences.fallbackFonts isEqual:@[sans, serif]]));
     assert([preferences.candidateEnglishFont isEqual:@"Helvetica"]);
     NSDictionary *fontMerge = [preferences sharedPreferencesByMerging:@{}];
     assert([fontMerge[@"candidate_english_font"] isEqual:@"Helvetica"]);
@@ -66,17 +66,9 @@ static void TestFallbackFonts(MSIMEAppearancePreferences *preferences, NSUserDef
     assert(!preferences.candidateEnglishFont);
     [preferences applySharedCandidatePreferences:@{@"candidate_english_font": @"Helvetica"}];
     assert([RenderedFamily([preferences candidateFontOfSize:18]) isEqual:sans]);
-    [list selectRowIndexes:[NSIndexSet indexSetWithIndex:1] byExtendingSelection:NO];
-    [NSApp sendAction:NSSelectorFromString(@"moveFallbackFontUp:") to:preferences from:nil];
-    assert([preferences.fallbackFonts.firstObject isEqual:serif]);
+    preferences.fallbackFonts = @[serif, sans];
     assert([RenderedFamily([preferences candidateFontOfSize:18]) isEqual:serif]);
-    [NSApp sendAction:NSSelectorFromString(@"moveFallbackFontDown:") to:preferences from:nil];
-    assert([preferences.fallbackFonts.firstObject isEqual:sans]);
-    entry.stringValue = @"MSIME Synthetic Unavailable Supplement";
-    [NSApp sendAction:NSSelectorFromString(@"addFallbackFont:") to:preferences from:entry];
-    assert(preferences.fallbackFonts.count == 3 && list.selectedRow == 2);
-    [NSApp sendAction:NSSelectorFromString(@"removeFallbackFont:") to:preferences from:nil];
-    assert(preferences.fallbackFonts.count == 2);
+    preferences.fallbackFonts = @[sans, serif];
     MSIMEAppearancePreferences *reloaded = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:preferences.skinsRoot];
     assert([reloaded.fallbackFonts isEqual:preferences.fallbackFonts]);
     NSArray *saved = preferences.fallbackFonts;
@@ -91,14 +83,10 @@ static void TestFallbackFonts(MSIMEAppearancePreferences *preferences, NSUserDef
     NSMutableArray *limit = [NSMutableArray array];
     for (NSUInteger i = 0; i < 32; ++i) [limit addObject:sans];
     preferences.fallbackFonts = limit;
-    assert(preferences.fallbackFonts.count == 32 && list.numberOfRows == 32);
+    assert(preferences.fallbackFonts.count == 32);
     [limit addObject:serif];
     preferences.fallbackFonts = limit;
     assert(preferences.fallbackFonts.count == 32);
-    NSUInteger countAtLimit = notifications;
-    entry.stringValue = serif;
-    [NSApp sendAction:NSSelectorFromString(@"addFallbackFont:") to:preferences from:entry];
-    assert(preferences.fallbackFonts.count == 32 && notifications == countAtLimit);
     NSMutableString *mutableFamily = [sans mutableCopy];
     NSMutableArray *mutableFonts = [NSMutableArray arrayWithObject:mutableFamily];
     [preferences applySharedCandidatePreferences:@{@"candidate_fallback_fonts": mutableFonts}];

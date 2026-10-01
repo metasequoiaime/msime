@@ -3640,6 +3640,34 @@ test("the candidate window page has no fallback font editor and keeps the stored
   });
 });
 
+// The Windows renderer reads no candidate_font_family: Chinese text comes from the fallback chain, so there the main font also leads that chain, and the names typed on the way to it do not pile up behind it.
+test("on Windows the main font leads the fallback chain", async () => {
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...initial,
+    revision: 8,
+    preferences,
+  }));
+  render(
+    <SettingsPage
+      client={{
+        load: async () => initial,
+        save,
+        host: { platform: "windows", candidate_font_controls: true } as HostCapabilities,
+      }}
+    />,
+  );
+  const primary = await screen.findByLabelText("候选窗主字体");
+  for (const typed of ["L", "LX", "LXGW WenKai"])
+    fireEvent.change(primary, { target: { value: typed } });
+  saveSettingsNow();
+  await screen.findByText("已保存");
+  expect(save).toHaveBeenLastCalledWith(7, {
+    ...initial.preferences,
+    candidate_font_family: "LXGW WenKai",
+    candidate_fallback_fonts: ["LXGW WenKai", "Microsoft YaHei"],
+  });
+});
+
 test("automatic color swatch follows candidate theme without persisting a color override", async () => {
   const save = vi
     .fn()
@@ -5443,11 +5471,7 @@ const referenceSections: {
     button: "候选窗口",
     titles: [
       "候选窗口跟随光标",
-      // 候选窗主字体 is not asserted: this repo hides it on the Windows host, which shows
-      // 候选窗英文字体 and the fallback list instead (candidate-font-controls.tsx branches on
-      // `windows`, and the English row carries Windows' own "保存后自动应用" note). That is an
-      // existing decision about the Windows font path, not HarmonyOS drift, so it is recorded
-      // rather than forced.
+      "候选窗主字体",
       "候选窗字号",
       "候选窗预编辑字号",
       "每页候选项数量",
@@ -6073,8 +6097,8 @@ test.each(optionHosts)(
     ];
     const ordered = present.filter((text) => reference.includes(text));
     expect(ordered).toEqual(reference.filter((title) => ordered.includes(title)));
-    // Windows shows 候选窗英文字体 in place of 候选窗主字体 (see the section table above), so one may be missing.
-    expect(ordered.length).toBeGreaterThanOrEqual(reference.length - 1);
+    // Every host shows 候选窗主字体 now, Windows included, so none may go missing.
+    expect(ordered.length).toBe(reference.length);
   },
 );
 
