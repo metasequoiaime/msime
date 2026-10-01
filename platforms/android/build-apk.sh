@@ -88,5 +88,13 @@ fi
   --out target/android/msime-client.apk "$repo_root/target/android/aligned.apk"
 "$tools_dir/apksigner" verify --verbose target/android/msime-client.apk
 "$tools_dir/zipalign" -c -P 16 4 target/android/msime-client.apk
+# The package is only worth shipping if it carries each dictionary staged above, beside its licence (a release, MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1, has already refused to stage fewer than both).
+apk_entries=$(unzip -Z1 target/android/msime-client.apk)
+for pair in cantonese.db:rime_cantonese_LICENSE.txt zhuyin.db:libchewing_data_LICENSE.txt; do
+  [ -f "$assets/language-dictionaries/${pair%%:*}" ] || continue
+  for entry in "${pair%%:*}" "${pair#*:}"; do
+    grep -qxF "assets/language-dictionaries/$entry" <<< "$apk_entries" || { echo "target/android/msime-client.apk has no assets/language-dictionaries/$entry although it was staged" >&2; exit 1; }
+  done
+done
 rm -f "$repo_root/target/android/aligned.apk"
 echo "Development APK built: $repo_root/target/android/msime-client.apk; not installed or device-verified"

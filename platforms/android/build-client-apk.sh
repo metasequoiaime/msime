@@ -104,4 +104,12 @@ output="$repo_root/target/android/msime-client.apk"
   --ks-pass pass:android --key-pass pass:android --out "$output" "$unsigned"
 "$android_sdk/build-tools/35.0.0/apksigner" verify "$output"
 "$android_sdk/build-tools/35.0.0/zipalign" -c -P 16 4 "$output"
+# The package is only worth shipping if it carries each dictionary staged above, beside its licence (a release, MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1, has already refused to stage fewer than both).
+apk_entries=$(unzip -Z1 "$output")
+for pair in cantonese.db:rime_cantonese_LICENSE.txt zhuyin.db:libchewing_data_LICENSE.txt; do
+  [ -f "$assets/language-dictionaries/${pair%%:*}" ] || continue
+  for entry in "${pair%%:*}" "${pair#*:}"; do
+    grep -qxF "assets/language-dictionaries/$entry" <<< "$apk_entries" || { echo "$output has no assets/language-dictionaries/$entry although it was staged" >&2; exit 1; }
+  done
+done
 echo "Tauri + native IME development APK built for $abi; no device changed"
