@@ -25,8 +25,11 @@ test("expression page and input panel share translation settings composition", (
   );
   expect(page).toContain("<TranslationSettingsContent");
   expect(panel).toContain("<TranslationSettingsContent");
-  expect(page).not.toContain("<CustomTranslationsSection");
-  expect(panel).not.toContain("<CustomTranslationsSection");
+  // The custom glosses editor sits with 显示英文释义 rather than inside a service's group, so hosts place it themselves, but always from the shared binding rather than wiring its props by hand.
+  for (const source of [page, panel]) {
+    expect(source).toContain("<CustomTranslationsSection {...translation.customGlosses} />");
+    expect(source).not.toContain("onFlush={");
+  }
   expect(page).not.toContain("<TranslationProviderSettingsSection");
   expect(panel).not.toContain("<TranslationProviderSettingsSection");
 });

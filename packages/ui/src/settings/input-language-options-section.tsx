@@ -14,6 +14,8 @@ export interface InputLanguageOptionsSectionProps {
   showEnglishSuggestions?: boolean;
   englishSuggestions?: boolean;
   betweenMixedAndCandidates?: ReactNode;
+  /** Shown right after 显示英文释义, for controls that adjust those glosses. */
+  afterCandidateEnglishGloss?: ReactNode;
   onMixedInputChange?: (value: MixedInputPreferences) => void;
   onCandidateEnglishGlossChange?: (value: boolean) => void;
   onEnglishSuggestionsChange?: (value: boolean) => void;
@@ -30,6 +32,7 @@ export function InputLanguageOptionsSection({
   showEnglishSuggestions = false,
   englishSuggestions,
   betweenMixedAndCandidates,
+  afterCandidateEnglishGloss,
   onMixedInputChange,
   onCandidateEnglishGlossChange,
   onEnglishSuggestionsChange,
@@ -46,6 +49,7 @@ export function InputLanguageOptionsSection({
           onChange={onCandidateEnglishGlossChange}
         />
       )}
+      {afterCandidateEnglishGloss}
       {includeCandidateControls && showEnglishSuggestions && onEnglishSuggestionsChange && (
         <EnglishSuggestionsSection
           value={englishSuggestions}
@@ -55,5 +59,5 @@ export function InputLanguageOptionsSection({
     </>
   );
 
-  return grouped ? <GroupList title="多语言候选">{content}</GroupList> : content;
+  return grouped ? <GroupList title="多语言与释义">{content}</GroupList> : content;
 }

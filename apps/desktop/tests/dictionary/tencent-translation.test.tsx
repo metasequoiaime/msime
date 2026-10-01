@@ -95,13 +95,14 @@ test("the copy no longer claims a Linux provider on every platform", async () =>
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
   await screen.findByLabelText("腾讯云 SecretId");
-  // Windows performs the request natively in TranslationWorker, so telling
-  // every user it goes through a Linux provider socket was simply wrong.
-  // Scoped to the translation groups: the voice sections carry the same wrong
-  // claim, but that is a separate gap and is not touched here.
-  const online = screen.getByRole("group", { name: "在线翻译服务" });
-  const custom = screen.getByRole("group", { name: "自定义翻译服务" });
+  // Windows performs the request natively in TranslationWorker, so telling every user it goes through a Linux provider socket was simply wrong. Scoped to the translation groups: the voice sections carry the same wrong claim, but that is a separate gap and is not touched here.
+  const online = screen.getByRole("group", { name: "腾讯云机器翻译" });
   expect(online.textContent).not.toContain("Linux provider");
+  // Only the chosen service's settings are on the page, so choose the custom one to read its copy.
+  fireEvent.change(screen.getByRole("combobox", { name: "候选词翻译服务" }), {
+    target: { value: "custom" },
+  });
+  const custom = screen.getByRole("group", { name: "自定义翻译服务" });
   expect(custom.textContent).not.toContain("Linux provider");
   expect(custom.textContent).toContain("DeepLX");
 });

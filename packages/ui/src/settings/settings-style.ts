@@ -139,6 +139,9 @@ export const serviceConfirmation =
 // Settings save themselves, so the row has no primary button: 恢复默认设置 sits left, and the save status takes the free space so it and the 重试 / 重新读取 shown after a failure sit right. `secondary`'s top margin is cleared so the row lines up.
 export const settingsActions =
   "flex flex-wrap items-center gap-3 [&>span]:ml-auto [&>span]:text-xs [&>span]:text-muted [&>span[role=alert]]:text-danger [&>.secondary]:mt-0";
+/** The one line of small text under the custom glosses editor: how many glosses it holds, how its automatic save stands, and the 重试 a failed save needs. The page's own footer reports the page's settings, so this one stays a line of text rather than a second footer. */
+export const customGlossesStatus =
+  "mt-2 mb-0 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted [&>span[role=alert]]:text-danger [&>.secondary]:mt-0";
 export const settingsWarning = "mt-1.5 mb-0 text-[13px] leading-normal text-[#a2543a]";
 
 // ---- clipboard, quick phrases, personal dictionary ----

@@ -4,6 +4,7 @@ import { createSettingsDraftActions } from "../settings-draft-actions";
 import { SubPageEntries } from "./sub-page-entries";
 import { GroupList } from "../../core/platform-controls";
 import { InputLanguageOptionsSection } from "../input-language-options-section";
+import { CustomTranslationsSection } from "../custom-translations-section";
 import { PunctuationSection } from "../punctuation-section";
 import { TranslationSettingsContent } from "../translation-settings-content";
 import { createTranslationSettingsBindings } from "../translation-settings-bindings";
@@ -60,6 +61,48 @@ export function ExpressionSettingsPage() {
     selectPage,
   } = useSettingsForm();
   const { onPreferencesChange } = createSettingsDraftActions({ setDraft });
+  const translation = createTranslationSettingsBindings({
+    grouped: true,
+    client,
+    candidateTranslations,
+    mobile: mobilePlatform,
+    linux: linuxPlatform,
+    windows: windowsPlatform,
+    macos: macosPlatform,
+    customTranslation,
+    tencentTranslation,
+    niutrans,
+    translationProvider,
+    providerCredentials,
+    tencentCredentialInput,
+    updateTencentCredentialInput,
+    providerCredentialBusy,
+    providerCredentialMessages,
+    runProviderCredential,
+    credentialTestControl,
+    customTranslationsText,
+    customTranslationsPlaceholder,
+    customTranslationsNotice,
+    customTranslationsSummary,
+    customTranslationsSaveState,
+    customTranslationsSaveError,
+    onCustomTranslationsChange: setCustomTranslationsText,
+    onFlushCustomTranslations: () => void flushCustomTranslations(),
+    onPreferencesChange,
+    setTranslationProvider,
+    android: androidPlatform,
+    ios: iosPlatform,
+    harmony: harmonyPlatform,
+    translationAccount: draft.translation_account ?? false,
+    translationTargetLanguage,
+    translationSecondaryLanguage: draft.translation_secondary_language,
+    candidateGlossLanguagesEnabled,
+    visibleTranslationLanguages,
+    visibleSecondaryLanguages,
+    onDeviceMissingLanguages,
+    openSettings: client.onDeviceTranslation?.openSettings,
+    onError: setError,
+  });
   return (
     <fieldset disabled={busy} hidden={page !== "expression"} aria-label="标点与翻译">
       <div className={settings.groups}>
@@ -81,6 +124,11 @@ export function ExpressionSettingsPage() {
           onCandidateEnglishGlossChange={(candidate_english_gloss) =>
             onPreferencesChange({ candidate_english_gloss })
           }
+          afterCandidateEnglishGloss={
+            translation.customGlosses && (
+              <CustomTranslationsSection {...translation.customGlosses} />
+            )
+          }
           showEnglishSuggestions={showEnglishSuggestions}
           englishSuggestions={englishSuggestions}
           onEnglishSuggestionsChange={(english_suggestions) =>
@@ -88,48 +136,8 @@ export function ExpressionSettingsPage() {
           }
         />
         <TranslationSettingsContent
-          {...createTranslationSettingsBindings({
-            grouped: true,
-            client,
-            candidateTranslations,
-            mobile: mobilePlatform,
-            linux: linuxPlatform,
-            windows: windowsPlatform,
-            macos: macosPlatform,
-            customTranslation,
-            tencentTranslation,
-            niutrans,
-            translationProvider,
-            providerCredentials,
-            tencentCredentialInput,
-            updateTencentCredentialInput,
-            providerCredentialBusy,
-            providerCredentialMessages,
-            runProviderCredential,
-            credentialTestControl,
-            customTranslationsText,
-            customTranslationsPlaceholder,
-            customTranslationsNotice,
-            customTranslationsSummary,
-            customTranslationsSaveState,
-            customTranslationsSaveError,
-            onCustomTranslationsChange: setCustomTranslationsText,
-            onFlushCustomTranslations: () => void flushCustomTranslations(),
-            onPreferencesChange,
-            setTranslationProvider,
-            android: androidPlatform,
-            ios: iosPlatform,
-            harmony: harmonyPlatform,
-            translationAccount: draft.translation_account ?? false,
-            translationTargetLanguage,
-            translationSecondaryLanguage: draft.translation_secondary_language,
-            candidateGlossLanguagesEnabled,
-            visibleTranslationLanguages,
-            visibleSecondaryLanguages,
-            onDeviceMissingLanguages,
-            openSettings: client.onDeviceTranslation?.openSettings,
-            onError: setError,
-          })}
+          candidate={translation.candidate}
+          providers={translation.providers}
         />
         {mobilePlatform && <MobileInputAiNotice grouped onOpenAi={() => selectPage("ai")} />}
         <SubPageEntries

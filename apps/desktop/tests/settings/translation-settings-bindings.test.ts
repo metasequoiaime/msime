@@ -64,3 +64,69 @@ test("composes candidate and provider bindings while omitting providers on Andro
   });
   expect(androidBindings.providers).toBeUndefined();
 });
+
+test("binds the custom glosses editor apart from the services, only where the host can store the overlay", () => {
+  const options = {
+    client: {
+      providerCredentials: undefined,
+      customTranslations: { load: async () => "", save: async () => undefined },
+    },
+    candidateTranslations: true,
+    translationTargetLanguage: "en",
+    translationSecondaryLanguage: "",
+    candidateGlossLanguagesEnabled: true,
+    visibleTranslationLanguages: [["en", "英语"]],
+    visibleSecondaryLanguages: [["", "不显示第二种语言"]],
+    android: false,
+    ios: false,
+    macos: false,
+    windows: false,
+    harmony: true,
+    linux: false,
+    mobile: true,
+    translationAccount: false,
+    onPreferencesChange: () => undefined,
+    onDeviceMissingLanguages: [],
+    // No service chosen: the glosses editor does not depend on one.
+    translationProvider: "none",
+    setTranslationProvider: () => undefined,
+    customTranslation: { enabled: false, endpoint: "", api_key: "" },
+    tencentTranslation: { enabled: false, secret_id: "", secret_key: "", region: "ap-test" },
+    niutrans: { enabled: false, app_id: "", apikey: "" },
+    providerCredentials: undefined,
+    tencentCredentialInput: { secretId: "", secretKey: "", region: undefined },
+    updateTencentCredentialInput: () => undefined,
+    providerCredentialBusy: undefined,
+    providerCredentialMessages: {},
+    runProviderCredential: async () => undefined,
+    credentialTestControl: () => null,
+    customTranslationsText: "你好\thello",
+    customTranslationsPlaceholder: "synthetic",
+    customTranslationsNotice: "",
+    customTranslationsSummary: "1 条释义",
+    customTranslationsSaveState: "saved",
+    customTranslationsSaveError: "",
+    onCustomTranslationsChange: () => undefined,
+    onFlushCustomTranslations: () => undefined,
+  } satisfies TranslationSettingsBindingsOptions;
+
+  const bindings = createTranslationSettingsBindings(options);
+  expect(bindings.providers?.provider).toBe("none");
+  expect(bindings.customGlosses).toMatchObject({
+    mobile: true,
+    value: "你好\thello",
+    summary: "1 条释义",
+    saveState: "saved",
+  });
+  // A host with no route for the overlay is not offered the editor.
+  expect(
+    createTranslationSettingsBindings({
+      ...options,
+      client: { providerCredentials: undefined },
+    }).customGlosses,
+  ).toBeUndefined();
+  // Android stays without it until its host is confirmed to read the overlay.
+  expect(createTranslationSettingsBindings({ ...options, android: true }).customGlosses).toBe(
+    undefined,
+  );
+});

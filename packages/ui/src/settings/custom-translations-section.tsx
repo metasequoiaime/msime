@@ -1,5 +1,4 @@
 import { Row } from "../core/platform-controls";
-import { SettingsActionsFooter } from "./settings-actions-footer";
 import * as settings from "./settings-style";
 import type { SettingsSaveState } from "./use-settings-persistence";
 
@@ -45,15 +44,21 @@ export function CustomTranslationsSection({
           onChange={(event) => onChange(event.target.value)}
           onBlur={onFlush}
         />
-        <p role="status">{notice || summary}</p>
-        <SettingsActionsFooter
-          busy={false}
-          saveState={saveState}
-          saveError={saveError}
-          showRestoreDefaults={false}
-          onRestoreDefaults={() => undefined}
-          onRetry={onFlush}
-        />
+        <p className={settings.customGlossesStatus}>
+          <span role="status">{notice || summary}</span>
+          {saveState === "failed" ? (
+            <>
+              <span role="alert">{saveError}</span>
+              <button type="button" className="secondary" onClick={onFlush}>
+                重试
+              </button>
+            </>
+          ) : (
+            <span aria-live="polite">
+              {saveState === "saving" ? "正在保存…" : saveState === "saved" ? "已保存" : ""}
+            </span>
+          )}
+        </p>
       </div>
     </div>
   );

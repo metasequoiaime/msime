@@ -78,12 +78,39 @@ test("translation credentials are disabled while candidate translation is off", 
   await mount({ candidate_translations: false });
   expect(endpointField().disabled).toBe(true);
   expect((screen.getByLabelText("自定义翻译 API Key") as HTMLInputElement).disabled).toBe(true);
-  // The group and its switch share the label, so select the switch by role.
   expect(
-    (screen.getByRole("switch", { name: "自定义翻译服务" }) as HTMLInputElement).disabled,
+    (screen.getByRole("combobox", { name: "候选词翻译服务" }) as HTMLSelectElement).disabled,
   ).toBe(true);
   // A disabled field must not shout about its contents.
   expect(screen.queryByRole("status")).toBeNull();
+});
+
+test("only the chosen service's settings are shown, in the order the select lists them", async () => {
+  await mount();
+  const select = screen.getByRole("combobox", { name: "候选词翻译服务" }) as HTMLSelectElement;
+  expect(Array.from(select.options).map((option) => option.value)).toEqual([
+    "none",
+    "tencent",
+    "niutrans",
+    "custom",
+  ]);
+  const shown = () => ({
+    tencent: screen.queryByLabelText("腾讯云 SecretId") !== null,
+    niutrans: screen.queryByLabelText("NiuTrans App ID") !== null,
+    custom: screen.queryByLabelText("自定义翻译 Endpoint") !== null,
+  });
+  expect(shown()).toEqual({ tencent: false, niutrans: false, custom: true });
+  fireEvent.change(select, { target: { value: "tencent" } });
+  expect(shown()).toEqual({ tencent: true, niutrans: false, custom: false });
+  expect(screen.getByRole("heading", { name: "腾讯云机器翻译" })).toBeTruthy();
+  fireEvent.change(select, { target: { value: "niutrans" } });
+  expect(shown()).toEqual({ tencent: false, niutrans: true, custom: false });
+  fireEvent.change(select, { target: { value: "none" } });
+  expect(shown()).toEqual({ tencent: false, niutrans: false, custom: false });
+  // The select is the only way to choose a service; no group carries a switch of its own.
+  for (const name of ["腾讯云机器翻译", "小牛翻译（NiuTrans）", "自定义翻译服务"]) {
+    expect(screen.queryByRole("switch", { name })).toBeNull();
+  }
 });
 
 test("the API key can be revealed to check a pasted value", async () => {
@@ -101,10 +128,11 @@ test("the API key can be revealed to check a pasted value", async () => {
 
 test("NiuTrans provider is mutually exclusive and exposes synthetic credential fields", async () => {
   await mount();
-  fireEvent.click(screen.getByRole("switch", { name: "小牛翻译（NiuTrans）" }));
-  expect((screen.getByRole("switch", { name: "自定义翻译服务" }) as HTMLInputElement).checked).toBe(
-    false,
-  );
+  fireEvent.change(screen.getByRole("combobox", { name: "候选词翻译服务" }), {
+    target: { value: "niutrans" },
+  });
+  // Choosing NiuTrans turns the custom service off, and its settings leave the page with it.
+  expect(screen.queryByLabelText("自定义翻译 Endpoint")).toBeNull();
   const appId = screen.getByLabelText("NiuTrans App ID") as HTMLInputElement;
   const apiKey = screen.getByLabelText("NiuTrans API Key") as HTMLInputElement;
   expect(appId.disabled).toBe(false);
@@ -198,14 +226,16 @@ describe("the MSIME account translation is an explicit choice", () => {
     expect(serviceSelect().value).toBe("none");
   });
 
-  test("turning on Tencent from its own switch ends the account choice", async () => {
+  test("choosing Tencent ends the account choice", async () => {
     const save = await mountOn("macos", {
       translation_account: true,
       custom_translation: { enabled: false, endpoint: "", api_key: "" },
       tencent_tmt: { enabled: false, secret_id: "", secret_key: "", region: "ap-guangzhou" },
     });
     expect(serviceSelect().value).toBe("account");
-    fireEvent.click(screen.getByRole("switch", { name: "腾讯云机器翻译" }));
+    // The account sends no credentials of the user's own, so nothing below the select is shown for it.
+    expect(screen.queryByLabelText("腾讯云 SecretId")).toBeNull();
+    fireEvent.change(serviceSelect(), { target: { value: "tencent" } });
     expect(serviceSelect().value).toBe("tencent");
     // Unusable secrets must not leave the account quietly receiving candidates behind the Tencent selection.
     const saved = await saveAndRead(save, 0);
@@ -232,15 +262,15 @@ describe("the MSIME account translation is an explicit choice", () => {
     expect(serviceSelect().value).toBe("tencent");
   });
 
-  test("toggling the custom service on and off does not bring the account back", async () => {
+  test("choosing the custom service and then 关闭 does not bring the account back", async () => {
     const save = await mountOn("macos", {
       translation_account: true,
       custom_translation: { enabled: false, endpoint: "", api_key: "" },
       tencent_tmt: { enabled: false, secret_id: "", secret_key: "", region: "ap-guangzhou" },
     });
-    const custom = screen.getByRole("switch", { name: "自定义翻译服务" });
-    fireEvent.click(custom);
-    fireEvent.click(custom);
+    fireEvent.change(serviceSelect(), { target: { value: "custom" } });
+    expect(serviceSelect().value).toBe("custom");
+    fireEvent.change(serviceSelect(), { target: { value: "none" } });
     expect(serviceSelect().value).toBe("none");
     const saved = await saveAndRead(save, 0);
     expect(saved.translation_account).toBeUndefined();
