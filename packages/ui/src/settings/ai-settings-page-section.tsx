@@ -7,6 +7,7 @@ import { AiModelCatalogSection } from "./ai-model-catalog-section";
 import { AiPromptSettingsSection } from "./ai-prompt-settings-section";
 import { CustomPromptSlotOptions } from "./custom-prompt-slot-options";
 import { ModelSelect } from "./model-select";
+import { SettingsTextareaField } from "./settings-textarea-field";
 import * as settings from "./settings-style";
 
 export interface AiSettingsPageSectionProps {
@@ -203,32 +204,24 @@ export function AiSettingsPageSection({
               </Select>
             </Row>
             <div className={settings.managerBlock}>
-              <label className={settings.field}>
-                <span>
-                  <span data-row-title="">{slot.label}</span> 发送给 AI 联想服务的额外提示词
-                </span>
-                <textarea
-                  aria-label={slot.label}
-                  className={settings.promptInput}
-                  value={slot.value}
-                  onChange={(event) => slot.onChange(event.target.value)}
-                />
-              </label>
+              <SettingsTextareaField
+                label={slot.label}
+                description="发送给 AI 联想服务的额外提示词"
+                ariaLabel={slot.label}
+                value={slot.value}
+                onChange={slot.onChange}
+              />
             </div>
             <MoreOptions>
               <div className={settings.managerBlock}>
-                <label className={settings.field}>
-                  <span>
-                    <span data-row-title="">兼容提示词</span> 旧版提示词，所选自定义槽位留空时使用
-                  </span>
-                  <textarea
-                    aria-label="AI 润色提示词"
-                    className={settings.promptInput}
-                    placeholder="留空时使用内置的联想提示词"
-                    value={compatiblePrompt}
-                    onChange={(event) => onPromptChange(event.target.value)}
-                  />
-                </label>
+                <SettingsTextareaField
+                  label="兼容提示词"
+                  description="旧版提示词，所选自定义槽位留空时使用"
+                  ariaLabel="AI 润色提示词"
+                  placeholder="留空时使用内置的联想提示词"
+                  value={compatiblePrompt}
+                  onChange={onPromptChange}
+                />
                 <div className={settings.managerActions}>
                   <button
                     type="button"
