@@ -1183,6 +1183,10 @@ export {
   CommunityRightsAgreement,
   type CommunityRightsAgreementProps,
 } from "./community/community-rights-agreement";
+export {
+  CommunityTextareaField,
+  type CommunityTextareaFieldProps,
+} from "./community/community-textarea-field";
 export { CandidateSkinPublishDialog } from "./community/candidate-skin-publish-dialog";
 export {
   CommunityPluginPublishDialog,

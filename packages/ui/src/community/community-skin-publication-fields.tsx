@@ -1,5 +1,6 @@
 import * as style from "./community-style";
 import { CommunityRightsAgreement } from "./community-rights-agreement";
+import { CommunityTextareaField } from "./community-textarea-field";
 
 export interface CommunitySkinPublicationFieldsProps {
   name: string;
@@ -36,18 +37,15 @@ export function CommunitySkinPublicationFields({
           onChange={(event) => onNameChange(event.target.value)}
         />
       </label>
-      <label className={style.field}>
-        设计说明
-        <textarea
-          className={style.textArea}
-          aria-label="发布设计说明"
-          maxLength={280}
-          rows={4}
-          value={description}
-          disabled={busy}
-          onChange={(event) => onDescriptionChange(event.target.value)}
-        />
-      </label>
+      <CommunityTextareaField
+        label="设计说明"
+        ariaLabel="发布设计说明"
+        maxLength={280}
+        rows={4}
+        value={description}
+        disabled={busy}
+        onChange={onDescriptionChange}
+      />
       <CommunityRightsAgreement
         agreementText={agreementText}
         ariaLabel="确认拥有发布素材权利"

@@ -22,6 +22,7 @@ import { CommunitySearchForm } from "./community-search-form";
 import { CommunitySkinModerationSection } from "./community-skin-moderation-section";
 import { CommunityScopeButtons } from "./community-scope-buttons";
 import { CommunityRightsAgreement } from "./community-rights-agreement";
+import { CommunityTextareaField } from "./community-textarea-field";
 import {
   CommunityRemovedBadge,
   CommunityReportSection,
@@ -737,21 +738,18 @@ export function CommunityPluginPublishDialog({
                 }}
               />
             </label>
-            <label className={style.field}>
-              说明
-              <textarea
-                className={style.textArea}
-                aria-label="发布插件说明"
-                maxLength={280}
-                rows={4}
-                value={description}
-                disabled={busy}
-                onChange={(event) => {
-                  setPublicationId(randomUuid());
-                  setDescription(event.target.value);
-                }}
-              />
-            </label>
+            <CommunityTextareaField
+              label="说明"
+              ariaLabel="发布插件说明"
+              maxLength={280}
+              rows={4}
+              value={description}
+              disabled={busy}
+              onChange={(value) => {
+                setPublicationId(randomUuid());
+                setDescription(value);
+              }}
+            />
             <CommunityRightsAgreement
               agreementText="我拥有插件中音频与文字的发布权利，并同意其他用户按包内授权免费下载使用"
               ariaLabel="确认拥有发布内容权利"
