@@ -1908,7 +1908,7 @@ fn touch_keyboard_scheme_visibility_matches_apple_order_and_fallback_contract() 
     let loaded = store.load().unwrap();
     assert_eq!(
         loaded.preferences.touch_keyboard_schemes.enabled,
-        TouchKeyboardScheme::ALL.into_iter().collect()
+        TouchKeyboardScheme::DEFAULT_ENABLED.into_iter().collect()
     );
     assert_eq!(loaded.preferences.touch_keyboard_schemes.selected, None);
     assert_eq!(fs::read(store.path()).unwrap(), legacy);
@@ -1955,6 +1955,64 @@ fn touch_keyboard_scheme_visibility_matches_apple_order_and_fallback_contract() 
     fs::write(store.path(), &bytes).unwrap();
     assert!(store.load().is_err());
     assert_eq!(fs::read(store.path()).unwrap(), bytes);
+}
+
+#[test]
+fn cantonese_zhuyin_and_vietnamese_touch_schemes_are_appended_and_opt_in() {
+    assert_eq!(
+        TouchKeyboardScheme::ALL[..12],
+        TouchKeyboardScheme::DEFAULT_ENABLED
+    );
+    assert_eq!(
+        TouchKeyboardScheme::ALL[12..],
+        [
+            TouchKeyboardScheme::Cantonese,
+            TouchKeyboardScheme::Zhuyin,
+            TouchKeyboardScheme::Vietnamese,
+        ]
+    );
+    for (scheme, id) in [
+        (TouchKeyboardScheme::Cantonese, "cantonese"),
+        (TouchKeyboardScheme::Zhuyin, "zhuyin"),
+        (TouchKeyboardScheme::Vietnamese, "vietnamese"),
+    ] {
+        assert_eq!(serde_json::to_value(scheme).unwrap(), id);
+        assert!(!TouchKeyboardSchemePreferences::default()
+            .enabled
+            .contains(&scheme));
+    }
+    // The picker grid follows ALL, and a set orders the same way.
+    let all: Vec<_> = TouchKeyboardScheme::ALL
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    assert_eq!(all, TouchKeyboardScheme::ALL);
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let saved = store
+        .save(
+            0,
+            Preferences {
+                scheme: InputScheme::Zhuyin,
+                touch_keyboard_schemes: TouchKeyboardSchemePreferences {
+                    enabled: [TouchKeyboardScheme::Quanpin, TouchKeyboardScheme::Zhuyin]
+                        .into_iter()
+                        .collect(),
+                    selected: Some(TouchKeyboardScheme::Zhuyin),
+                },
+                ..Preferences::default()
+            },
+        )
+        .unwrap();
+    let document: serde_json::Value =
+        serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+    assert_eq!(
+        document["preferences"]["touch_keyboard_schemes"],
+        serde_json::json!({"enabled": ["quanpin", "zhuyin"], "selected": "zhuyin"})
+    );
+    assert_eq!(store.load().unwrap(), saved);
 }
 
 #[test]
