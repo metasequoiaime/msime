@@ -55,12 +55,16 @@ pub fn is_accepted_syllable_code(code: &str, profile: &ShuangpinProfile) -> bool
 /// Whether the two keys at `position` form an accepted syllable, case-insensitively.
 pub(crate) fn takes_two_keys(input: &[u8], position: usize, profile: &ShuangpinProfile) -> bool {
     input.len() >= position + 2 && {
-        let pair: String = input[position..position + 2]
-            .iter()
-            .map(|byte| char::from(byte.to_ascii_lowercase()))
-            .collect();
-        is_accepted_syllable_code(&pair, profile)
+        let pair = lowercase_pair(input, position);
+        std::str::from_utf8(&pair).is_ok_and(|pair| is_accepted_syllable_code(pair, profile))
     }
+}
+
+fn lowercase_pair(input: &[u8], position: usize) -> [u8; 2] {
+    [
+        input[position].to_ascii_lowercase(),
+        input[position + 1].to_ascii_lowercase(),
+    ]
 }
 
 /// Forward-greedy two-then-one split, case kept (:118-158).
@@ -209,6 +213,11 @@ mod tests {
         let result = cvt_single_sp_to_pinyin("vs", xiaohe());
         assert_eq!(result, "zhong");
         assert_eq!(result.capacity(), result.len());
+    }
+
+    #[test]
+    fn key_pair_lowering_stays_on_the_stack() {
+        assert_eq!(lowercase_pair(b"NI", 0), [b'n', b'i']);
     }
 
     #[test]
