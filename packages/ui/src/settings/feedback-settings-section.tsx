@@ -1,5 +1,6 @@
 import { FeedbackChannels } from "./feedback-channels";
 import { SettingField } from "./setting-field";
+import { FeedbackKindOptions } from "./feedback-kind-options";
 export function FeedbackSettingsSection({
   hero,
   eyebrow,
@@ -71,10 +72,7 @@ export function FeedbackSettingsSection({
             value={kind}
             onChange={(event) => onKindChange(event.target.value)}
           >
-            <option>功能异常</option>
-            <option>候选词不对</option>
-            <option>功能建议</option>
-            <option>其他</option>
+            <FeedbackKindOptions />
           </select>
         </SettingField>
         <label className="section-title">

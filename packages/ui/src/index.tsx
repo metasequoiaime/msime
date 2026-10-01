@@ -689,6 +689,7 @@ export {
 } from "./settings/theme-settings-section";
 export { SurfaceThemeSelect, type SurfaceThemeSelectProps } from "./settings/surface-theme-select";
 export { EndpointInput, type EndpointInputProps } from "./settings/endpoint-input";
+export { FeedbackKindOptions } from "./settings/feedback-kind-options";
 export { VoiceLanguageOptions, type VoiceLanguageOptionsProps } from "./voice/voice-language-options";
 export {
   CloudPinyinSchemeOptions,

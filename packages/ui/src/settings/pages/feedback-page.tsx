@@ -5,6 +5,7 @@ import { GroupList, Row, Select } from "../../core/platform-controls";
 import { SubPageEntries } from "./sub-page-entries";
 import { createSettingsExternalActions } from "../settings-external-actions";
 import { FeedbackChannels } from "../feedback-channels";
+import { FeedbackKindOptions } from "../feedback-kind-options";
 
 /** The 反馈 page of the settings form. */
 export function FeedbackSettingsPage() {
@@ -45,10 +46,7 @@ export function FeedbackSettingsPage() {
                 value={feedbackKind}
                 onChange={(event) => setFeedbackKind(event.target.value)}
               >
-                <option>功能异常</option>
-                <option>候选词不对</option>
-                <option>功能建议</option>
-                <option>其他</option>
+                <FeedbackKindOptions />
               </Select>
             </Row>
             <div className={settings.managerBlock}>
