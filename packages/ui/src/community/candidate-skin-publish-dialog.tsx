@@ -14,6 +14,7 @@ import {
 import * as style from "./community-style";
 import { CommunitySkinPublicationFields } from "./community-skin-publication-fields";
 import { CommunityErrorAlert } from "./community-error-alert";
+import { CommunityDialogHeader } from "./community-dialog";
 import type {
   CandidateSkinCommunityClient,
   CandidateSkinPackPreview,
@@ -247,18 +248,12 @@ export function CandidateSkinPublishDialog({
         aria-label="发布候选窗皮肤"
         onKeyDown={onKeyDown}
       >
-        <div className={style.dialogHeading}>
-          <h2 className={style.dialogTitle}>发布候选窗皮肤</h2>
-          <button
-            type="button"
-            className={style.dialogClose}
-            disabled={busy}
-            onClick={onClose}
-            aria-label="关闭发布窗口"
-          >
-            ×
-          </button>
-        </div>
+        <CommunityDialogHeader
+          title="发布候选窗皮肤"
+          titleClassName={style.dialogTitle}
+          busy={busy}
+          onClose={onClose}
+        />
         {error && (
           <CommunityErrorAlert message={error} signInRequired={signInRequired} onLogin={onLogin} />
         )}

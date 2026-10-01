@@ -12,6 +12,7 @@ import type { CustomSkinLibraryClient } from "../keyboard/touch-keyboard-skin-de
 import * as style from "./community-style";
 import { CommunitySearchForm } from "./community-search-form";
 import { runAsyncAction } from "../core/async-action";
+import { CommunityDialogHeader } from "./community-dialog";
 import {
   CommunityResourceScopeButtons,
   type CommunityResourceScope,
@@ -211,20 +212,12 @@ function ResourceEditor({
         aria-label={existing ? "更新社区作品" : `发布${resourceKindTitle(kind)}`}
         onSubmit={(event) => void submit(event)}
       >
-        <div className={style.dialogHeading}>
-          <h2 className={style.dialogTitle}>
-            {existing ? "更新作品" : `发布${resourceKindTitle(kind)}`}
-          </h2>
-          <button
-            type="button"
-            className={style.dialogClose}
-            onClick={close}
-            disabled={busy}
-            aria-label="关闭发布窗口"
-          >
-            ×
-          </button>
-        </div>
+        <CommunityDialogHeader
+          title={existing ? "更新作品" : `发布${resourceKindTitle(kind)}`}
+          titleClassName={style.dialogTitle}
+          busy={busy}
+          onClose={close}
+        />
         {error && (
           <p role="alert" className="error">
             {error}

@@ -15,6 +15,7 @@ import {
 } from "./community-helpers";
 import { useCommunityGallery, type CommunityGalleryClient } from "./community-gallery";
 import { CommunityErrorAlert } from "./community-error-alert";
+import { CommunityDialogHeader } from "./community-dialog";
 import { CommunityDetailStatus } from "./community-detail-status";
 import * as style from "./community-style";
 import { CommunitySearchForm } from "./community-search-form";
@@ -609,18 +610,12 @@ export function CommunityPluginPublishDialog({
         aria-label="发布扩展包"
         onKeyDown={onKeyDown}
       >
-        <div className={style.dialogHeading}>
-          <h2 className={style.dialogTitle}>发布扩展包</h2>
-          <button
-            type="button"
-            className={style.dialogClose}
-            disabled={busy}
-            onClick={onClose}
-            aria-label="关闭发布窗口"
-          >
-            ×
-          </button>
-        </div>
+        <CommunityDialogHeader
+          title="发布扩展包"
+          titleClassName={style.dialogTitle}
+          busy={busy}
+          onClose={onClose}
+        />
         {error && (
           <CommunityErrorAlert message={error} signInRequired={signInRequired} onLogin={onLogin} />
         )}

@@ -1057,6 +1057,10 @@ export {
   type CommunityErrorAlertProps,
 } from "./community/community-error-alert";
 export {
+  CommunityDialogHeader,
+  type CommunityDialogHeaderProps,
+} from "./community/community-dialog";
+export {
   CommunityDetailStatus,
   type CommunityDetailStatusProps,
 } from "./community/community-detail-status";
