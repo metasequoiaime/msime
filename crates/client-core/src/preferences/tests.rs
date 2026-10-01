@@ -401,6 +401,31 @@ fn candidate_english_gloss_is_opt_in_and_round_trips() {
 }
 
 #[test]
+fn candidate_pronunciation_is_opt_in_and_round_trips() {
+    let defaults = Preferences::default();
+    assert!(!defaults.candidate_pronunciation);
+    let mut legacy = serde_json::to_value(&defaults).unwrap();
+    legacy
+        .as_object_mut()
+        .unwrap()
+        .remove("candidate_pronunciation");
+    assert!(
+        !serde_json::from_value::<Preferences>(legacy)
+            .unwrap()
+            .candidate_pronunciation
+    );
+    let enabled = Preferences {
+        candidate_pronunciation: true,
+        ..defaults
+    };
+    assert!(
+        serde_json::from_str::<Preferences>(&serde_json::to_string(&enabled).unwrap())
+            .unwrap()
+            .candidate_pronunciation
+    );
+}
+
+#[test]
 fn english_suggestions_default_on_and_legacy_documents_preserve_it() {
     let defaults = Preferences::default();
     assert!(defaults.english_suggestions);

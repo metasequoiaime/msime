@@ -3539,6 +3539,43 @@ fn translation_query_lists_installed_offline_gloss_languages() {
 }
 
 #[test]
+fn translation_query_carries_the_pronunciation_switch_only_when_on() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut preferences = Preferences {
+        candidate_english_gloss: true,
+        ..Preferences::default()
+    };
+    preferences.tencent_tmt.enabled = false;
+    let handle = test_host_preferences(dir.path(), preferences.clone());
+    read(msime_client_focus(handle, true));
+    for byte in b"U4e2d" {
+        read(msime_client_character(
+            handle,
+            *byte,
+            byte.is_ascii_uppercase(),
+        ));
+    }
+    let off = read(msime_client_translation_query(handle));
+    assert!(off["value"].is_object());
+    assert!(off["value"].get("candidate_pronunciation").is_none());
+
+    preferences.candidate_pronunciation = true;
+    update(handle, 1, &preferences);
+    let on = read(msime_client_translation_query(handle));
+    assert_eq!(on["value"]["candidate_pronunciation"], true);
+
+    // Pronunciation annotates a gloss; with every gloss source off there is nothing to annotate.
+    preferences.candidate_english_gloss = false;
+    preferences.candidate_translations = false;
+    update(handle, 2, &preferences);
+    assert_eq!(
+        read(msime_client_translation_query(handle))["value"],
+        Value::Null
+    );
+    read(msime_client_destroy(handle));
+}
+
+#[test]
 fn candidate_gloss_request_reads_the_offline_dictionary_for_its_target_language() {
     let directory = tempfile::tempdir().unwrap();
     let resources = directory.path().join("resources");
@@ -7538,4 +7575,87 @@ fn statistics_record_reports_the_milestone_field() {
     );
     assert_eq!(quiet["value"]["recorded"], 2, "{quiet}");
     assert!(quiet["value"].get("milestone").is_some());
+}
+
+#[test]
+fn pronunciation_request_reads_the_table_beside_resources() {
+    let root = tempfile::tempdir().unwrap();
+    let resources = root.path().join("generation");
+    std::fs::create_dir_all(&resources).unwrap();
+    let resources = resources.to_str().unwrap().to_owned();
+    let call = |request: Value| {
+        let request = serde_json::to_vec(&request).unwrap();
+        read(unsafe {
+            msime_client_pronunciation_request(
+                request.as_ptr(),
+                request.len(),
+                resources.as_ptr(),
+                resources.len(),
+            )
+        })
+    };
+    let request = json!({"generation": 7, "items": [
+        {"text": "love; affection", "language": "en"},
+        {"text": "Hello", "language": "en"},
+        {"text": "to love", "language": "en"},
+        {"text": "blue sky", "language": "en"},
+        {"text": "unknown sky", "language": "en"},
+        {"text": "你好", "language": "en"}
+    ]});
+    // Not installed: an empty answer, so a host draws the gloss as it did before.
+    let missing = call(request.clone());
+    assert_eq!(missing["ok"], true);
+    assert_eq!(
+        missing["value"],
+        json!({"generation": 7, "pronunciations": []})
+    );
+
+    let directory = root.path().join("pronunciations");
+    std::fs::create_dir_all(&directory).unwrap();
+    let database = rusqlite::Connection::open(directory.join("en-phonetic.db")).unwrap();
+    database
+        .execute_batch(
+            "CREATE TABLE en_phonetics(word TEXT PRIMARY KEY, phonetic TEXT NOT NULL) WITHOUT ROWID;
+             CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
+             INSERT INTO meta VALUES('kind', 'en_phonetic');
+             INSERT INTO en_phonetics VALUES('love', 'lʌv');
+             INSERT INTO en_phonetics VALUES('hello', 'həˈləʊ');
+             INSERT INTO en_phonetics VALUES('blue', 'bluː');
+             INSERT INTO en_phonetics VALUES('sky', 'skaɪ');
+             PRAGMA user_version = 1;",
+        )
+        .unwrap();
+    drop(database);
+    let result = call(request);
+    assert_eq!(result["ok"], true);
+    // A term with one unknown word is not half-pronounced; Chinese text is not English.
+    assert_eq!(
+        result["value"],
+        json!({"generation": 7, "pronunciations": [
+            {"text": "love; affection", "language": "en", "pronunciation": "/lʌv/"},
+            {"text": "Hello", "language": "en", "pronunciation": "/həˈləʊ/"},
+            {"text": "to love", "language": "en", "pronunciation": "/lʌv/"},
+            {"text": "blue sky", "language": "en", "pronunciation": "/bluː skaɪ/"}
+        ]})
+    );
+
+    for invalid in [
+        json!({"generation": 1, "items": [{"text": "愛する", "language": "ja"}]}),
+        json!({"generation": 1, "items": [{"text": "", "language": "en"}]}),
+        json!({"generation": 1, "items": [{"text": "a\nb", "language": "en"}]}),
+        json!({"generation": 1, "items": [], "extra": true}),
+    ] {
+        assert_eq!(call(invalid)["ok"], false);
+    }
+    let relative = b"relative/resources";
+    let request = serde_json::to_vec(&json!({"generation": 1, "items": []})).unwrap();
+    let refused = read(unsafe {
+        msime_client_pronunciation_request(
+            request.as_ptr(),
+            request.len(),
+            relative.as_ptr(),
+            relative.len(),
+        )
+    });
+    assert_eq!(refused["ok"], false);
 }

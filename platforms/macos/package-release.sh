@@ -137,6 +137,11 @@ fi
 # Beside the Zinnia licence tauri.macos.conf.json already put in Contents/Resources/handwriting.
 mkdir -p "$app/Contents/Resources/handwriting"
 cp "$handwriting_model/handwriting-zh_CN.model" "$handwriting_model/HandwritingModel-LICENSE.txt" "$app/Contents/Resources/handwriting/"
+# The English pronunciation table (scripts/build_pronunciations.py), optional and read beside EngineResources in the same way.
+pronunciations="$repo_root/target/macos/pronunciations"
+if [ -d "$pronunciations" ]; then
+  ditto "$pronunciations" "$app/Contents/Resources/pronunciations"
+fi
 # Without --deep, so the input method keeps the signature and entitlements it was given above; the outer signature seals it as a nested resource.
 sign "$app"
 codesign --verify --deep --strict "$app"
@@ -158,6 +163,9 @@ check_app() {
   codesign --verify --strict "$root/Contents/MacOS/msime-mcp"
   if [ -d "$glosses" ]; then
     test -f "$resources_dir/offline-glosses/offline-glosses-NOTICE.txt"
+  fi
+  if [ -d "$pronunciations" ]; then
+    test -f "$resources_dir/pronunciations/pronunciations-NOTICE.txt"
   fi
   local nested
   nested="$(only "$resources_dir"/*.app)"

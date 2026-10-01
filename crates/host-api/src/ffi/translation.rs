@@ -624,6 +624,92 @@ pub unsafe extern "C" fn msime_client_candidate_gloss_request(
     })
 }
 
+/// Pronounce copied English texts — English candidates or English gloss lines — from the offline
+/// table beside resources. Like the gloss request this owns no session state, runs on a host
+/// worker thread, and echoes the generation for the host to match against its current view.
+///
+/// # Safety
+/// Both pointers must reference readable buffers for their stated lengths and
+/// remain valid for this call. The buffers are not retained.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_pronunciation_request(
+    request: *const u8,
+    request_length: usize,
+    resources: *const u8,
+    resources_length: usize,
+) -> *mut c_char {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Request {
+        generation: u64,
+        items: Vec<Item>,
+    }
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Item {
+        text: String,
+        language: String,
+    }
+    response(|| {
+        if request.is_null()
+            || resources.is_null()
+            || request_length > 262_144
+            || resources_length > 4096
+        {
+            return Err("invalid pronunciation buffer".into());
+        }
+        let request: Request =
+            serde_json::from_slice(unsafe { std::slice::from_raw_parts(request, request_length) })
+                .map_err(|_| "invalid pronunciation request")?;
+        if request.items.len() > 4096
+            || request.items.iter().any(|item| {
+                item.text.is_empty()
+                    || item.text.len() > 4096
+                    || item.text.chars().any(char::is_control)
+            })
+        {
+            return Err("pronunciation entries exceed limits".into());
+        }
+        // English is the only language pronounced from shared data so far; a host that romanises
+        // Japanese does so with its own system API, and asking for it here is a host bug.
+        if request.items.iter().any(|item| item.language != "en") {
+            return Err("invalid pronunciation request".into());
+        }
+        let resources =
+            std::str::from_utf8(unsafe { std::slice::from_raw_parts(resources, resources_length) })
+                .map_err(|_| "resources path is not UTF-8")?;
+        if !std::path::Path::new(resources).is_absolute() {
+            return Err("resources path must be absolute".into());
+        }
+        // Not installed is an empty answer, not an error, so a host without the table draws the
+        // gloss exactly as before.
+        let Some(database) =
+            crate::pronunciation::english_database_beside(std::path::Path::new(resources))
+        else {
+            return Ok(json!({"generation": request.generation, "pronunciations": []}));
+        };
+        let database = database
+            .to_str()
+            .ok_or("pronunciation dictionary unavailable")?;
+        let texts = request
+            .items
+            .iter()
+            .map(|item| item.text.clone())
+            .collect::<Vec<_>>();
+        let pronunciations = crate::pronunciation::english_pronunciations(database, &texts)?;
+        let pronunciations = request
+            .items
+            .into_iter()
+            .zip(pronunciations)
+            .filter(|(_, pronunciation)| !pronunciation.is_empty())
+            .map(|(item, pronunciation)| {
+                json!({"text": item.text, "language": item.language, "pronunciation": pronunciation})
+            })
+            .collect::<Vec<_>>();
+        Ok(json!({"generation": request.generation, "pronunciations": pronunciations}))
+    })
+}
+
 /// Query copied prefixes against the packaged English dictionary. This does not
 /// create or mutate an Engine session and is suitable for a host worker thread.
 ///

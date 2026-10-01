@@ -4,7 +4,7 @@ umask 077
 
 repo_root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$repo_root"
-source_dir=${1:?usage: stage-resources.sh <verified-resource-directory> [settled-model-directory] [offline-glosses-directory]}
+source_dir=${1:?usage: stage-resources.sh <verified-resource-directory> [settled-model-directory] [offline-glosses-directory] [pronunciations-directory]}
 source_dir=$(cd "$source_dir" && pwd)
 destination="$repo_root/target/macos/EngineResources"
 
@@ -62,5 +62,17 @@ if compgen -G "$glosses_source/zh-*.db" >/dev/null && [ -f "$glosses_source/offl
   echo "offline glosses staged: $glosses_destination"
 else
   echo "no offline glosses at $glosses_source; candidates are glossed offline in English only"
+fi
+
+# Optional: the English pronunciation table built by scripts/build_pronunciations.py, read beside the resource directory like the glosses. Without it English gloss lines carry no IPA; Japanese romaji needs no data.
+pronunciations_source=${4:-$repo_root/target/pronunciations}
+pronunciations_destination="$repo_root/target/macos/pronunciations"
+rm -rf "$pronunciations_destination"
+if [ -f "$pronunciations_source/en-phonetic.db" ] && [ -f "$pronunciations_source/pronunciations-NOTICE.txt" ]; then
+  mkdir -p "$pronunciations_destination"
+  cp "$pronunciations_source/en-phonetic.db" "$pronunciations_source/pronunciations-NOTICE.txt" "$pronunciations_destination/"
+  echo "pronunciations staged: $pronunciations_destination"
+else
+  echo "no pronunciations at $pronunciations_source; English glosses are shown without IPA"
 fi
 echo "macOS resources staged from the pinned dictionary release: $destination"

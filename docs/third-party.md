@@ -195,6 +195,24 @@ kaikki 每周覆盖同一个 URL，所以能复现构建的是 `filtered_input`�
 
 退出方式：不安装 `offline-glosses/` 即可。释义退回只用 `english.db` 和在线翻译（macOS 26 及以上在没有选择翻译服务时还有系统自带的离线翻译，见 [PRIVACY.md](../PRIVACY.md#候选翻译macos-与-linux-新装默认用水杉账号)），其余功能不受影响。
 
+## 英文读音表（`resources/pronunciations.lock.json`）
+
+打开「显示读音」后，候选的英文释义行后面显示音标。`english.db` 的构建丢弃了 ECDICT 的 `phonetic` 列，所以音标单独生成一个文件，与背单词词书取自同一份锁定的 ECDICT。
+
+| 项 | 值 |
+| --- | --- |
+| 来源仓库 | [skywind3000/ECDICT](https://github.com/skywind3000/ECDICT) |
+| 来源提交 | `82c9872576b23118d7c42e920c11beb77f510ae2`（与 `wordbook.lock.json` 相同） |
+| 文件 | `ecdict.csv`（`sha256:1a6947e0…c3cf`）与 `LICENSE`（`sha256:f8552dd2…ed0f`，1,063 字节），都在锁里 |
+| 许可 | MIT，`Copyright (c) 2025 Linwei` |
+| 生成器 | `scripts/build_pronunciations.py`，只用 Python 标准库，下载与校验复用 `fetch_wordbooks.fetch` |
+| 产物 | `pronunciations/en-phonetic.db`（`en_phonetics(word, phonetic)`，`meta.kind = en_phonetic`，`user_version = 1`，约 18.8 万词、5.7 MB），外加 `pronunciations-NOTICE.txt`（含 ECDICT 的 LICENSE 全文） |
+| 取词范围 | 纯 ASCII 字母词（可含 `-`、`'`），键为小写；同键时取小写词头那一行；`phonetic` 只取第一种读法，西里尔 `ә`、ASCII `'`/`:`/`,` 等写法规范成 IPA，规范后仍含 IPA 以外字符（中文注释、私用区字符、不配对括号）的整条丢弃；ECDICT 约七成条目是旧式英式注音（`dei`、`həˈləu`、`bəːd`、`buk`），生成时按规则改成现行学习词典的写法（`deɪ`、`həˈləʊ`、`bɜːd`、`bʊk`），词尾与元音前的 `i` 保留 happY 惯例，已是现行写法的部分不变 |
+
+同样**放在 resources 的兄弟目录 `pronunciations/`**，理由与 `offline-glosses/` 相同。目前只在本地生成（同一份输入、同一 SQLite 版本逐字节相同），还没有发布位置，也还没接入各平台的发布工作流。
+
+退出方式：不安装 `pronunciations/` 即可。`msime_client_pronunciation_request` 返回空结果，释义照旧显示、只是没有音标。日语罗马音在 macOS 上由系统的 `CFStringTokenizer` 生成，不需要数据文件。
+
 ## 编译进共享库的数据
 
 | 组件 | 许可证 | 位置与说明 |
