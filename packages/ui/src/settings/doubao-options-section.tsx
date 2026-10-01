@@ -1,6 +1,7 @@
-import { GroupList, Row, Switch } from "../core/platform-controls";
+import { GroupList, Row } from "../core/platform-controls";
 import * as settings from "./settings-style";
 import { TextInputRow } from "./text-input-row";
+import { SwitchRow } from "./switch-row";
 
 export interface DoubaoOptionsSectionProps {
   linux: boolean;
@@ -31,15 +32,24 @@ export function DoubaoOptionsSection({
       <p className={settings.groupNote}>
         {linux ? "由 provider 服务应用" : "随识别请求发送给豆包"}
       </p>
-      <Row title="数字格式化">
-        <Switch aria-label="数字格式化" checked={enableItn} onChange={onEnableItnChange} />
-      </Row>
-      <Row title="标点预测">
-        <Switch aria-label="标点预测" checked={enablePunc} onChange={onEnablePuncChange} />
-      </Row>
-      <Row title="语义顺滑">
-        <Switch aria-label="语义顺滑" checked={enableDdc} onChange={onEnableDdcChange} />
-      </Row>
+      <SwitchRow
+        title="数字格式化"
+        aria-label="数字格式化"
+        checked={enableItn}
+        onChange={onEnableItnChange}
+      />
+      <SwitchRow
+        title="标点预测"
+        aria-label="标点预测"
+        checked={enablePunc}
+        onChange={onEnablePuncChange}
+      />
+      <SwitchRow
+        title="语义顺滑"
+        aria-label="语义顺滑"
+        checked={enableDdc}
+        onChange={onEnableDdcChange}
+      />
       <TextInputRow
         title="热词表 ID"
         label="热词表 ID"

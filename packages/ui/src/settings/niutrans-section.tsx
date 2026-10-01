@@ -1,8 +1,9 @@
 import type { ReactNode } from "react";
-import { Row, Switch } from "../core/platform-controls";
+import { Row } from "../core/platform-controls";
 import * as settings from "./settings-style";
 import { SecretSettingRow } from "./secret-setting-row";
 import { TextInputRow } from "./text-input-row";
+import { SwitchRow } from "./switch-row";
 
 export interface NiuTransSectionProps {
   enabled: boolean;
@@ -28,14 +29,14 @@ export function NiuTransSection({
 }: NiuTransSectionProps) {
   return (
     <div role="group" aria-label="小牛翻译（NiuTrans）" className={settings.rowStack}>
-      <Row title="小牛翻译（NiuTrans）" description="使用 App ID 和 API Key 为候选词提供逐条翻译">
-        <Switch
-          aria-label="小牛翻译（NiuTrans）"
-          disabled={!available}
-          checked={enabled}
-          onChange={onToggle}
-        />
-      </Row>
+      <SwitchRow
+        title="小牛翻译（NiuTrans）"
+        description="使用 App ID 和 API Key 为候选词提供逐条翻译"
+        aria-label="小牛翻译（NiuTrans）"
+        disabled={!available}
+        checked={enabled}
+        onChange={onToggle}
+      />
       <TextInputRow
         title="App ID"
         label="NiuTrans App ID"

@@ -1,5 +1,6 @@
 import { Row, Switch } from "../core/platform-controls";
 import { PreeditStyleSelect } from "./preedit-style-select";
+import { SwitchRow } from "./switch-row";
 
 export type TsfPreeditStyle = "raw" | "pinyin" | "empty";
 export type CandidatePreeditStyle = "pinyin" | "empty";
@@ -77,12 +78,12 @@ export function PreeditSettingsSection({
         />
       </Row>
       {showPageNumber && (
-        <Row title="显示页码" description="显示候选列表的当前页与总页数；关闭后仍可正常翻页。">
-          <Switch
-            checked={preferences.show_candidate_page_number !== false}
-            onChange={(checked) => onChange({ show_candidate_page_number: checked })}
-          />
-        </Row>
+        <SwitchRow
+          title="显示页码"
+          description="显示候选列表的当前页与总页数；关闭后仍可正常翻页。"
+          checked={preferences.show_candidate_page_number !== false}
+          onChange={(checked) => onChange({ show_candidate_page_number: checked })}
+        />
       )}
     </>
   );

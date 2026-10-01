@@ -1,8 +1,9 @@
 import type { ReactNode } from "react";
-import { Row, Switch } from "../core/platform-controls";
+import { Row } from "../core/platform-controls";
 import * as settings from "./settings-style";
 import { SecretSettingRow } from "./secret-setting-row";
 import { TextInputRow } from "./text-input-row";
+import { SwitchRow } from "./switch-row";
 
 export interface TencentTranslationSectionProps {
   enabled: boolean;
@@ -36,17 +37,14 @@ export function TencentTranslationSection({
 }: TencentTranslationSectionProps) {
   return (
     <div role="group" aria-label="在线翻译服务" className={settings.rowStack}>
-      <Row
+      <SwitchRow
         title="在线翻译服务"
         description="候选词翻译默认使用腾讯云机器翻译，需要填入你自己的 API 凭据"
-      >
-        <Switch
-          aria-label="腾讯云机器翻译"
-          disabled={!available}
-          checked={enabled}
-          onChange={onToggle}
-        />
-      </Row>
+        aria-label="腾讯云机器翻译"
+        disabled={!available}
+        checked={enabled}
+        onChange={onToggle}
+      />
       <TextInputRow
         title="SecretId"
         label="腾讯云 SecretId"
