@@ -851,6 +851,41 @@ test("settings sync requires confirmation and preserves a remote conflict error"
   expect(await screen.findByText("云端设置已被其他设备更新，请刷新后重新确认。")).not.toBeNull();
 });
 
+test("ignores a second settings upload while the first is pending", async () => {
+  let resolveUpload!: (value: { revision: number; settings: Record<string, string> }) => void;
+  const upload = vi.fn(
+    () =>
+      new Promise<{ revision: number; settings: Record<string, string> }>((resolve) => {
+        resolveUpload = resolve;
+      }),
+  );
+  const client = account({
+    status: vi.fn().mockResolvedValue({ user }),
+    settingsSync: {
+      schema: vi.fn().mockResolvedValue({
+        fields: { "input.schema": { type: "string" } },
+        maximumBytes: 65536,
+        updateMode: "replace",
+        revisionRequired: true,
+      }),
+      load: vi.fn().mockResolvedValue({ revision: 7, settings: { "input.schema": "quanpin" } }),
+      upload,
+      apply: vi.fn(),
+    },
+  });
+  render(<AccountPage client={client} />);
+  expect(await screen.findByText("云端版本：7")).not.toBeNull();
+  fireEvent.click(await screen.findByRole("button", { name: "上传本机设置" }));
+  const confirm = screen.getByRole("button", { name: "确认上传" });
+  act(() => {
+    fireEvent.click(confirm);
+    fireEvent.click(confirm);
+  });
+  expect(upload).toHaveBeenCalledOnce();
+  resolveUpload({ revision: 8, settings: { "input.schema": "quanpin" } });
+  await waitFor(() => expect(upload).toHaveBeenCalledOnce());
+});
+
 const preferences: Snapshot = {
   format_version: 1,
   revision: 1,
