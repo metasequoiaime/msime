@@ -51,6 +51,11 @@ toggle = toggle[:toggle.index("bool toggleWordCharacter()")]
 assert toggle.index("clearPanel();") < toggle.index("showInputModeHud();")
 assert toggle.index("render();") < toggle.index("showInputModeHud();")
 assert "input_mode_hud" in source
+# #2589: moving into another text field shows the current mode too, after the panel is drawn for the same reason as above, and only for a focus change (switching to this input method gets Fcitx5's own popup).
+activate = source[source.index("void activate(const fcitx::InputMethodEntry &"):]
+activate = activate[:activate.index("void deactivate(const fcitx::InputMethodEntry &")]
+assert "event.type() == fcitx::EventType::InputContextFocusIn) state->showInputModeHud();" in activate
+assert activate.index("state->render();") < activate.index("state->showInputModeHud();")
 assert 'tsf_preedit_style' in source
 assert 'candidate_preedit_style' in source
 assert 'FcitxSchemeBooleanAction' in source

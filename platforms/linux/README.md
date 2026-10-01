@@ -153,7 +153,7 @@ Fcitx5 宿主复用同一套 X11/Wayland 原生浮层和取消、结束按钮；
 
 Fcitx5 每 5 秒通过 freedesktop Settings portal 读取 `org.freedesktop.appearance/color-scheme`，因此 `voice_theme=follow` 且全局主题为 `system` 时，已显示的语音浮层会跟随系统明暗变化；portal 不可用时保留上一次主题，不阻塞输入。
 
-Fcitx5 切换中英文时（共享偏好 `input_mode_hud`，默认开启），除面板自带的文字提示外还显示约 1 秒带产品 logo 的「中」/「英」徽章。Wayland 下经 `wlr-layer-shell` 固定在屏幕右下角；X11 下（没有 layer-shell 的 Wayland 会话如 GNOME 经 Xwayland 也走这里）是不抢焦点、点击穿透的原生窗口，每次显示时按语音浮层的同一套规则选显示器（前台窗口所在，取不到时用指针所在或主显示器，经 XRandR 枚举），放在该显示器工作区的右下角以避开面板，尺寸、图标和边距按 `Xft.dpi`/`GDK_SCALE` 缩放。徽章深浅与候选面板一致：`candidate_theme` 为浅色或深色时照用，为「跟随全局」时取全局主题，全局主题为「跟随系统」时跟随上述 portal 报告的系统明暗。
+Fcitx5 切换中英文时，以及焦点移到另一个输入框时（共享偏好 `input_mode_hud`，默认开启），除面板自带的文字提示外还显示约 1 秒带产品 logo 的「中」/「英」徽章；从别的输入法切到水杉时由 Fcitx5 自己弹输入法名，不再叠加这个提示。IBus 下同一偏好在切换中英文和焦点移到新输入框时，于辅助区域显示约 1.2 秒「中」/「英」，IBus 协商客户端身份时重放的同一次焦点不会再显示一遍；密码框和私密输入中都不显示。Wayland 下经 `wlr-layer-shell` 固定在屏幕右下角；X11 下（没有 layer-shell 的 Wayland 会话如 GNOME 经 Xwayland 也走这里）是不抢焦点、点击穿透的原生窗口，每次显示时按语音浮层的同一套规则选显示器（前台窗口所在，取不到时用指针所在或主显示器，经 XRandR 枚举），放在该显示器工作区的右下角以避开面板，尺寸、图标和边距按 `Xft.dpi`/`GDK_SCALE` 缩放。徽章深浅与候选面板一致：`candidate_theme` 为浅色或深色时照用，为「跟随全局」时取全局主题，全局主题为「跟随系统」时跟随上述 portal 报告的系统明暗。
 
 同一个 socket 也承载候选翻译请求。候选视图更新后，宿主发送一行 JSON：
 

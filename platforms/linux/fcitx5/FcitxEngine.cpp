@@ -5557,6 +5557,8 @@ public:
               fcitx::StatusGroup::InputMethod, &voice_action_);
         state->render();
         state->syncMusic();
+        // Moving into another text field shows the current 中/英 as a switch does (#2589), so the user knows the mode before typing there. Only a focus change: switching to this input method from another already gets Fcitx5's own input-method popup, and showInputModeHud keeps to the input_mode_hud preference and stays quiet in password and private fields.
+        if (event.type() == fcitx::EventType::InputContextFocusIn) state->showInputModeHud();
       }
     } catch (const OptionsNotConfigured &) { notConfigured(*state, true); }
     catch (...) { unavailable(*state); }

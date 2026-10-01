@@ -480,6 +480,13 @@ int main(int argc, char **argv) {
                             .c_str());
     };
     invoke("FocusIn");
+    // #2589: a new focus shows the current mode the way a switch does, then the hint goes away by itself. The replay IBus sends while it names the client is the same focus and must not show it again.
+    require(wait_until([&] { return seen.auxiliary == "中" && seen.auxiliary_visible; }),
+            "Focus did not show the input mode");
+    require(wait_until([&] { return !seen.auxiliary_visible; }), "Focus mode hint did not hide");
+    invoke("FocusIn");
+    require(!wait_until([&] { return seen.auxiliary_visible; }) || seen.auxiliary != "中",
+            "A repeated focus showed the input mode again");
     const auto finish = [&] {
       g_dbus_connection_signal_unsubscribe(client, subscription);
       ibus_object_destroy(IBUS_OBJECT(engine));
