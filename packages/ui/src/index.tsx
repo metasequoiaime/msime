@@ -46,6 +46,10 @@ export {
   personalDictionaryExportName,
   personalDictionaryExportPayload,
 } from "./dictionary/dictionary-export";
+export {
+  DictionaryFormatOptions,
+  type DictionaryFormatOptionsProps,
+} from "./dictionary/dictionary-format-options";
 export { dictionaryErrorMessage } from "./dictionary/dictionary-errors";
 import type { TouchKeyboardSchemePreferences } from "./settings/touch-keyboard-scheme-helpers";
 export {

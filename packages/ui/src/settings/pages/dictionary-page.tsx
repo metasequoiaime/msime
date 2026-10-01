@@ -10,6 +10,7 @@ import { PersonalDictionaryImportCard } from "../personal-dictionary-import-card
 import { DictionaryEntries } from "../dictionary-entries";
 import { DictionaryFailuresNotice } from "../dictionary-failures-notice";
 import { DictionaryPagination } from "../dictionary-pagination";
+import { DictionaryFormatOptions } from "../../dictionary/dictionary-format-options";
 
 export { dictionaryKindKeyHint } from "../../dictionary/dictionary-messages";
 
@@ -179,12 +180,7 @@ export function DictionarySettingsPage() {
                   setDictionaryFormat(event.target.value as LocalDictionaryFormat)
                 }
               >
-                <option value="standard">词在前（标准 TSV）</option>
-                <option value="windows">编码在前（Windows TSV）</option>
-                <option value="rime">Rime userdb / dict.yaml</option>
-                {dictionaryKind === "pinyin" && (
-                  <option value="hans">汉字自动注音（仅导入）</option>
-                )}
+                <DictionaryFormatOptions pinyin={dictionaryKind === "pinyin"} rime />
               </Select>
             </Row>
             <Row title="编码前缀">

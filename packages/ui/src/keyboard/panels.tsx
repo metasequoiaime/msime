@@ -2,6 +2,7 @@ import { useConfirm } from "../core/confirm";
 import { clamp } from "../core/number";
 import { utf8ByteLength } from "../core/text";
 import { readDictionaryFile } from "../dictionary/dictionary-file";
+import { DictionaryFormatOptions } from "../dictionary/dictionary-format-options";
 import { usePanelDrag } from "./use-panel-drag";
 import { usePanelAction } from "./use-panel-action";
 import { useEmojiNavigation } from "../emoji/use-emoji-navigation";
@@ -2589,9 +2590,7 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
               onChange={(event) => setFormat(event.target.value as CloudDictionaryFileFormat)}
               disabled={busy}
             >
-              <option value="standard">词在前（标准 TSV）</option>
-              <option value="windows">编码在前（Windows TSV）</option>
-              {kind === "pinyin" && <option value="hans">汉字自动注音（仅导入）</option>}
+              <DictionaryFormatOptions pinyin={kind === "pinyin"} />
             </select>
           </label>
         </div>
