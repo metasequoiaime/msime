@@ -133,19 +133,39 @@ export function useProviderCredentials({ client }: UseProviderCredentialsOptions
     );
   };
 
+  async function runCredentialSave<T>(
+    kind: ProviderCredentialBusy,
+    operation: (credentials: ProviderCredentialClient) => Promise<T>,
+    onSuccess: (result: T) => void,
+  ) {
+    const credentials = client.providerCredentials;
+    if (!credentials || providerCredentialBusy === kind) return;
+    const clientVersion = clientGeneration.current;
+    await runAsyncAction(
+      {
+        busy: providerCredentialBusy === kind,
+        isCurrent: () => clientGeneration.current === clientVersion,
+        setBusy: (busy) => setProviderCredentialBusy(busy ? kind : undefined),
+        setError: (message) =>
+          setProviderCredentialMessages((current) => ({
+            ...current,
+            [kind]: message ? { ok: false, text: message } : undefined,
+          })),
+      },
+      async (isCurrent) => {
+        const result = await operation(credentials);
+        if (isCurrent()) onSuccess(result);
+      },
+      { formatError: providerCredentialErrorMessage },
+    );
+  }
+
   const runProviderCredential = async (
     kind: "ai" | "tencent",
     operation: (credentials: ProviderCredentialClient) => Promise<ProviderCredentialStatus>,
     success: string,
   ) => {
-    const credentials = client.providerCredentials;
-    if (!credentials) return;
-    const clientVersion = clientGeneration.current;
-    setProviderCredentialBusy(kind);
-    setProviderCredentialMessages((current) => ({ ...current, [kind]: undefined }));
-    try {
-      const result = await operation(credentials);
-      if (clientGeneration.current !== clientVersion) return;
+    await runCredentialSave(kind, operation, (result) => {
       setProviderCredentials(result);
       if (kind === "ai") setAiCredentialInput("");
       else setTencentCredentialInput({ secretId: "", secretKey: "", region: undefined });
@@ -153,15 +173,7 @@ export function useProviderCredentials({ client }: UseProviderCredentialsOptions
         ...current,
         [kind]: { ok: true, text: success },
       }));
-    } catch (error) {
-      if (clientGeneration.current !== clientVersion) return;
-      setProviderCredentialMessages((current) => ({
-        ...current,
-        [kind]: { ok: false, text: providerCredentialErrorMessage(error) },
-      }));
-    } finally {
-      if (clientGeneration.current === clientVersion) setProviderCredentialBusy(undefined);
-    }
+    });
   };
 
   const runVoiceCredential = async (
@@ -169,14 +181,7 @@ export function useProviderCredentials({ client }: UseProviderCredentialsOptions
     operation: (credentials: ProviderCredentialClient) => Promise<VoiceCredentialSaveResult>,
     success: string,
   ) => {
-    const credentials = client.providerCredentials;
-    if (!credentials) return;
-    const clientVersion = clientGeneration.current;
-    setProviderCredentialBusy(kind);
-    setProviderCredentialMessages((current) => ({ ...current, [kind]: undefined }));
-    try {
-      const result = await operation(credentials);
-      if (clientGeneration.current !== clientVersion) return;
+    await runCredentialSave(kind, operation, (result) => {
       setProviderCredentials(result.status);
       setVoiceCredentialInput((current) => ({ ...current, [kind]: { token: "", appKey: "" } }));
       setProviderCredentialMessages((current) => ({
@@ -188,15 +193,7 @@ export function useProviderCredentials({ client }: UseProviderCredentialsOptions
               text: `${success}但未能更新语音服务，请运行 systemctl --user enable --now msime-linux-voice.socket。`,
             },
       }));
-    } catch (error) {
-      if (clientGeneration.current !== clientVersion) return;
-      setProviderCredentialMessages((current) => ({
-        ...current,
-        [kind]: { ok: false, text: providerCredentialErrorMessage(error) },
-      }));
-    } finally {
-      if (clientGeneration.current === clientVersion) setProviderCredentialBusy(undefined);
-    }
+    });
   };
 
   const credentialTestControl = (
