@@ -81,18 +81,18 @@ pub fn can_match_exact_key(segments: &[String]) -> bool {
 /// Last and single-letter segments get a `%` suffix, joined with `'` (QQ:258-274). The range prefix is this minus its final character, so an inner single letter keeps a literal `%` and matches nothing, which is what sends such input on to the mixed-jianpin step.
 pub fn build_key_like_pattern(segments: &[String]) -> String {
     let last = segments.len().saturating_sub(1);
-    segments
-        .iter()
-        .enumerate()
-        .map(|(index, segment)| {
-            if index == last || segment.len() == 1 {
-                format!("{segment}%")
-            } else {
-                segment.clone()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("'")
+    let capacity = segments.iter().map(String::len).sum::<usize>() + segments.len();
+    let mut result = String::with_capacity(capacity);
+    for (index, segment) in segments.iter().enumerate() {
+        if index > 0 {
+            result.push('\'');
+        }
+        result.push_str(segment);
+        if index == last || segment.len() == 1 {
+            result.push('%');
+        }
+    }
+    result
 }
 
 /// `prefix + "{"`: `{` sorts right after `z` (QQ:276-279).
