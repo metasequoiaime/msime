@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { runAsyncAction } from "../core/async-action";
 import {
   parsePersonalDictionaryImport,
   personalDictionaryExample,
@@ -34,59 +35,75 @@ export function PersonalDictionaryImportCard({
   const [notice, setNotice] = useState("");
   const mounted = useRef(true);
   const dictionaryGeneration = useRef(0);
+  const actionRunning = useRef(false);
 
   useEffect(() => {
     mounted.current = true;
     dictionaryGeneration.current++;
+    actionRunning.current = false;
     setBusy(false);
     return () => {
       mounted.current = false;
+      actionRunning.current = false;
       dictionaryGeneration.current++;
     };
   }, [dictionary]);
 
-  const chooseFile = async (file: File | undefined) => {
-    if (!file) return;
+  async function runDictionaryAction(
+    operation: (isCurrent: () => boolean) => Promise<void>,
+    formatError: (error: unknown) => string,
+  ) {
+    if (actionRunning.current || !mounted.current) return;
+    actionRunning.current = true;
     const generation = dictionaryGeneration.current;
+    try {
+      await runAsyncAction(
+        {
+          busy: false,
+          isCurrent: () => mounted.current && generation === dictionaryGeneration.current,
+          setBusy,
+          setError,
+          setNotice,
+        },
+        operation,
+        { formatError },
+      );
+    } finally {
+      actionRunning.current = false;
+    }
+  }
+
+  const chooseFile = async (file: File | undefined) => {
+    if (!file || busy) return;
     setEntries(null);
     setFileName(file.name);
-    setError("");
-    setNotice("");
-    setBusy(true);
-    try {
-      // The Apple-compatible personal dictionary file is at most 1 MiB.
-      const parsed = parsePersonalDictionaryImport(await readDictionaryFile(file, 1_048_576));
-      if (!mounted.current || generation !== dictionaryGeneration.current) return;
-      setEntries(parsed);
-    } catch (cause) {
-      if (mounted.current && generation === dictionaryGeneration.current)
-        setError(cause instanceof Error ? cause.message : "无法读取所选文件，请重新选择。");
-    } finally {
-      if (mounted.current && generation === dictionaryGeneration.current) setBusy(false);
-    }
+    await runDictionaryAction(
+      async (isCurrent) => {
+        // The Apple-compatible personal dictionary file is at most 1 MiB.
+        const parsed = parsePersonalDictionaryImport(await readDictionaryFile(file, 1_048_576));
+        if (!isCurrent()) return;
+        setEntries(parsed);
+      },
+      (cause) => (cause instanceof Error ? cause.message : "无法读取所选文件，请重新选择。"),
+    );
   };
 
   const importEntries = async () => {
-    if (!entries || !dictionary.importPersonal) return;
-    const generation = dictionaryGeneration.current;
-    setBusy(true);
-    setError("");
-    setNotice("");
-    try {
-      const text = JSON.stringify({ format: "msime-personal-dictionary", version: 1, entries });
-      const result = await dictionary.importPersonal(text, `ui-personal-import-${Date.now()}`);
-      if (!mounted.current || generation !== dictionaryGeneration.current) return;
-      setNotice(
-        `已加入本机同步队列，共 ${entries.length} 条；当前等待同步 ${result.pending_count} 条。`,
-      );
-      setEntries(null);
-      setFileName("");
-    } catch (cause) {
-      if (mounted.current && generation === dictionaryGeneration.current)
-        setError(cause instanceof Error ? cause.message : "导入失败，请稍后重试。");
-    } finally {
-      if (mounted.current && generation === dictionaryGeneration.current) setBusy(false);
-    }
+    const importPersonal = dictionary.importPersonal;
+    if (!entries || !importPersonal || busy) return;
+    await runDictionaryAction(
+      async (isCurrent) => {
+        const text = JSON.stringify({ format: "msime-personal-dictionary", version: 1, entries });
+        const result = await importPersonal(text, `ui-personal-import-${Date.now()}`);
+        if (!isCurrent()) return;
+        setNotice(
+          `已加入本机同步队列，共 ${entries.length} 条；当前等待同步 ${result.pending_count} 条。`,
+        );
+        setEntries(null);
+        setFileName("");
+      },
+      (cause) => (cause instanceof Error ? cause.message : "导入失败，请稍后重试。"),
+    );
   };
 
   const saveExample = () => {
