@@ -52,6 +52,7 @@ export function useCommunityGallery<T extends { id: string }>({
   const activeMine = useRef(initialMine);
   const mounted = useRef(true);
   const clientGeneration = useRef(0);
+  const actionBusyRef = useRef(false);
 
   const fail = useCallback(
     (failure: unknown) => {
@@ -96,6 +97,7 @@ export function useCommunityGallery<T extends { id: string }>({
   useEffect(() => {
     const currentClient = ++clientGeneration.current;
     mounted.current = true;
+    actionBusyRef.current = false;
     setActionBusy(false);
     void requestList("", false, activeMine.current);
     return () => {
@@ -103,6 +105,7 @@ export function useCommunityGallery<T extends { id: string }>({
       if (clientGeneration.current === currentClient) clientGeneration.current++;
       listGeneration.current += 1;
       detailGeneration.current += 1;
+      actionBusyRef.current = false;
     };
   }, [client, requestList]);
 
@@ -141,7 +144,8 @@ export function useCommunityGallery<T extends { id: string }>({
   }, [actionBusy]);
 
   const beginAction = useCallback(() => {
-    if (!selected || actionBusy) return null;
+    if (!selected || actionBusy || actionBusyRef.current) return null;
+    actionBusyRef.current = true;
     setActionBusy(true);
     return clientGeneration.current;
   }, [actionBusy, selected]);
@@ -153,7 +157,10 @@ export function useCommunityGallery<T extends { id: string }>({
 
   const endAction = useCallback(
     (generation: number) => {
-      if (isCurrent(generation)) setActionBusy(false);
+      if (isCurrent(generation)) {
+        actionBusyRef.current = false;
+        setActionBusy(false);
+      }
     },
     [isCurrent],
   );
@@ -163,13 +170,18 @@ export function useCommunityGallery<T extends { id: string }>({
       action: (generation: number) => Promise<void>,
       options: CommunityGalleryActionOptions = {},
     ) => {
+      if (actionBusy || actionBusyRef.current) return Promise.resolve();
       const generation = clientGeneration.current;
+      actionBusyRef.current = true;
       setSignInRequired(false);
       return runAsyncAction(
         {
           busy: actionBusy,
           isCurrent: () => isCurrent(generation),
-          setBusy: setActionBusy,
+          setBusy: (busy) => {
+            actionBusyRef.current = busy;
+            setActionBusy(busy);
+          },
           setError,
           setNotice: options.clearNotice ? setActionNotice : undefined,
         },
