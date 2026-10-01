@@ -522,6 +522,7 @@ export {
   type AccountConfirmationProps,
 } from "./account/account-confirmation";
 export { copyAccountId, type AccountIdCopyOptions } from "./account/account-id-copy";
+export { runAccountOperation, type AccountOperationState } from "./account/account-operation";
 export {
   ChatPage,
   type ChatClient,

@@ -7,6 +7,7 @@ import { accountMessage, isAccountCancellation } from "./account-errors";
 import { AccountConfirmation } from "./account-confirmation";
 import { pushMobileSettingsState } from "../settings/mobile-navigation";
 import { copyAccountId as copyAccountIdToClipboard } from "./account-id-copy";
+import { runAccountOperation } from "./account-operation";
 
 export type AccountUser = {
   id: string;
@@ -134,23 +135,17 @@ function MobileAccountProfilePage({
   }, [client]);
 
   const perform = async (operation: () => Promise<void>) => {
-    if (busy || !mounted.current) return;
     const generation = clientGeneration.current;
-    setBusy(true);
-    setError("");
-    setNotice("");
-    try {
-      await operation();
-    } catch (cause) {
-      if (
-        mounted.current &&
-        generation === clientGeneration.current &&
-        !isAccountCancellation(cause)
-      )
-        setError(accountMessage(cause));
-    } finally {
-      if (mounted.current && generation === clientGeneration.current) setBusy(false);
-    }
+    await runAccountOperation(
+      {
+        busy,
+        isCurrent: () => mounted.current && generation === clientGeneration.current,
+        setBusy,
+        setError,
+        setNotice,
+      },
+      operation,
+    );
   };
   const rename = () =>
     void perform(async () => {
@@ -871,18 +866,17 @@ function AccountDetailsPage({
   }, [challenge]);
 
   const perform = async (operation: () => Promise<void>) => {
-    if (busy || !mounted.current) return;
-    setBusy(true);
-    setError("");
-    setNotice("");
-    try {
-      await operation();
-    } catch (operationError) {
-      if (mounted.current && !isAccountCancellation(operationError))
-        setError(accountMessage(operationError));
-    } finally {
-      if (mounted.current) setBusy(false);
-    }
+    const generation = clientGeneration.current;
+    await runAccountOperation(
+      {
+        busy,
+        isCurrent: () => mounted.current && generation === clientGeneration.current,
+        setBusy,
+        setError,
+        setNotice,
+      },
+      operation,
+    );
   };
 
   const chooseChannel = (value: Channel) => {
