@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { runAsyncAction } from "../core/async-action";
 import { randomRequestId } from "../core/random-id";
 import {
   DICTIONARY_PAGE_SIZE,
@@ -67,6 +68,23 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
       phraseRequestGeneration.current += 1;
     };
   }, []);
+
+  async function runPhraseAction(
+    operation: (isCurrent: () => boolean) => Promise<void>,
+    formatError: (error: unknown) => string,
+  ) {
+    await runAsyncAction(
+      {
+        busy: phraseBusy,
+        isCurrent: () => mounted.current,
+        setBusy: setPhraseBusy,
+        setError: setPhraseError,
+        setNotice: setPhraseNotice,
+      },
+      operation,
+      { formatError },
+    );
+  }
 
   async function loadPhrases(kind: LocalDictionaryKind = dictionaryKind, offset = 0) {
     if (!client.dictionary || !mounted.current) return;
@@ -288,87 +306,82 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
   }
 
   async function exportPhrases() {
-    if (!client.dictionary) return;
+    const dictionary = client.dictionary;
+    if (!dictionary) return;
     if (dictionaryFormat === "hans") {
       setPhraseError("汉字自动注音格式仅支持导入。");
       return;
     }
-    setPhraseBusy(true);
-    setPhraseError("");
-    setPhraseNotice("");
-    try {
-      let text = "";
-      if (client.dictionary.export) {
-        let offset = 0;
-        let hasMore = true;
-        while (hasMore && offset <= 1000000) {
-          const page = await client.dictionary.export(
-            dictionaryKind,
-            dictionaryFormat === "rime" ? "standard" : dictionaryFormat,
-            offset,
-            1000,
-          );
-          text += page.text;
-          const count = page.text ? page.text.trimEnd().split("\n").length : 0;
-          offset += count;
-          hasMore = page.has_more && count > 0;
+    await runPhraseAction(
+      async () => {
+        let text = "";
+        if (dictionary.export) {
+          let offset = 0;
+          let hasMore = true;
+          while (hasMore && offset <= 1000000) {
+            const page = await dictionary.export(
+              dictionaryKind,
+              dictionaryFormat === "rime" ? "standard" : dictionaryFormat,
+              offset,
+              1000,
+            );
+            text += page.text;
+            const count = page.text ? page.text.trimEnd().split("\n").length : 0;
+            offset += count;
+            hasMore = page.has_more && count > 0;
+          }
+        } else {
+          text = phrases
+            .map((entry) =>
+              dictionaryFormat === "windows"
+                ? `${entry.key}\t${entry.value}\t${entry.weight}`
+                : `${entry.value}\t${entry.key}\t${entry.weight}`,
+            )
+            .join("\n");
         }
-      } else {
-        text = phrases
-          .map((entry) =>
-            dictionaryFormat === "windows"
-              ? `${entry.key}\t${entry.value}\t${entry.weight}`
-              : `${entry.value}\t${entry.key}\t${entry.weight}`,
-          )
-          .join("\n");
-      }
-      const payload = dictionaryExportPayload(dictionaryKind, dictionaryFormat, text);
-      if (!payload.rows) {
-        setPhraseError("当前没有可导出的用户新增词条。");
-        return;
-      }
-      const path = await deliverDictionaryExport(
-        dictionaryExportName(dictionaryKind),
-        payload.body,
-      );
-      if (path === undefined) return;
-      setPhraseNotice(
-        path === null
-          ? `已导出 ${payload.rows} 条用户词条。`
-          : `已导出 ${payload.rows} 条用户词条到 ${path}。`,
-      );
-    } catch (error) {
-      setPhraseError(dictionaryErrorMessage(error, "词库导出失败，请稍后重试。"));
-    } finally {
-      setPhraseBusy(false);
-    }
+        const payload = dictionaryExportPayload(dictionaryKind, dictionaryFormat, text);
+        if (!payload.rows) {
+          setPhraseError("当前没有可导出的用户新增词条。");
+          return;
+        }
+        const path = await deliverDictionaryExport(
+          dictionaryExportName(dictionaryKind),
+          payload.body,
+        );
+        if (path === undefined) return;
+        setPhraseNotice(
+          path === null
+            ? `已导出 ${payload.rows} 条用户词条。`
+            : `已导出 ${payload.rows} 条用户词条到 ${path}。`,
+        );
+      },
+      (error) => dictionaryErrorMessage(error, "词库导出失败，请稍后重试。"),
+    );
   }
 
   async function exportAllPhrases() {
-    if (!client.dictionary) return;
-    setPhraseBusy(true);
-    setPhraseError("");
-    setPhraseNotice("正在读取全部用户词库…");
-    try {
-      const payload = personalDictionaryExportPayload(
-        await loadAllPersonalDictionaryEntries(client.dictionary),
-      );
-      if (!payload.rows) {
-        setPhraseNotice("当前没有可导出的用户词条。");
-        return;
-      }
-      const path = await deliverDictionaryExport(personalDictionaryExportName(), payload.body);
-      if (path === undefined) return;
-      setPhraseNotice(
-        path === null
-          ? `已导出全部 ${payload.rows} 条用户词条。`
-          : `已导出全部 ${payload.rows} 条用户词条到 ${path}。`,
-      );
-    } catch (error) {
-      setPhraseError(dictionaryErrorMessage(error, "全部词库导出失败，请稍后重试。"));
-    } finally {
-      setPhraseBusy(false);
-    }
+    const dictionary = client.dictionary;
+    if (!dictionary) return;
+    await runPhraseAction(
+      async () => {
+        setPhraseNotice("正在读取全部用户词库…");
+        const payload = personalDictionaryExportPayload(
+          await loadAllPersonalDictionaryEntries(dictionary),
+        );
+        if (!payload.rows) {
+          setPhraseNotice("当前没有可导出的用户词条。");
+          return;
+        }
+        const path = await deliverDictionaryExport(personalDictionaryExportName(), payload.body);
+        if (path === undefined) return;
+        setPhraseNotice(
+          path === null
+            ? `已导出全部 ${payload.rows} 条用户词条。`
+            : `已导出全部 ${payload.rows} 条用户词条到 ${path}。`,
+        );
+      },
+      (error) => dictionaryErrorMessage(error, "全部词库导出失败，请稍后重试。"),
+    );
   }
 
   async function resetLearnedData() {
