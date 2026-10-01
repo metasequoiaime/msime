@@ -1,4 +1,5 @@
 import { CustomPromptSlotOptions } from "./custom-prompt-slot-options";
+import { SettingField } from "./setting-field";
 import { SettingTextarea } from "./setting-textarea";
 
 export function AiPromptSettingsSection({
@@ -29,11 +30,10 @@ export function AiPromptSettingsSection({
   return (
     <>
       <div className="section">
-        <label className="section-header">
-          <span className="section-title">
-            AI 联想提示词方案
-            <small>使用选中的独立槽位；槽位留空时使用兼容提示词</small>
-          </span>
+        <SettingField
+          label="AI 联想提示词方案"
+          description="使用选中的独立槽位；槽位留空时使用兼容提示词"
+        >
           <select
             aria-label="AI 联想提示词方案"
             value={promptId === "custom" ? "custom_1" : promptId || "custom_1"}
@@ -41,7 +41,7 @@ export function AiPromptSettingsSection({
           >
             <CustomPromptSlotOptions />
           </select>
-        </label>
+        </SettingField>
       </div>
       <SettingTextarea
         label="兼容提示词"

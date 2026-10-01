@@ -1,6 +1,7 @@
 import { Row, Segmented, Select, Switch } from "../core/platform-controls";
 import { japaneseInputSchemeOptions, koreanInputSchemeOptions } from "./input-scheme-options";
 import { SettingToggle } from "./setting-toggle";
+import { SettingField } from "./setting-field";
 
 export type InputSchemeDetailsScheme = "quanpin" | "shuangpin" | "wubi" | "japanese" | "korean";
 export type ShuangpinProfile = "xiaohe" | "ziranma" | "shoudao" | "microsoft";
@@ -96,8 +97,7 @@ export function InputSchemeDetailsSection({
   return (
     <>
       <div className="section" hidden={hideChineseSchemeOptions}>
-        <label className="section-header">
-          <span className="section-title">双拼方案</span>
+        <SettingField label="双拼方案">
           {/* The source disables this menu unless Shuangpin is the active scheme
               (`_shuangpinSchemeButton.enabled = storedScheme == 1`): until then the
               choice changes nothing, and a live control that does nothing reads as a
@@ -110,7 +110,7 @@ export function InputSchemeDetailsSection({
           >
             <ShuangpinProfileOptions />
           </select>
-        </label>
+        </SettingField>
       </div>
       {macosShuangpinKeymap !== undefined && (
         <div className="section" hidden={hasTouchKeyboardSchemes || scheme !== "shuangpin"}>
@@ -125,12 +125,11 @@ export function InputSchemeDetailsSection({
         </div>
       )}
       <div className="section" hidden={hideChineseSchemeOptions}>
-        <label className="section-header">
-          <span className="section-title">五笔方案</span>
+        <SettingField label="五笔方案">
           <select aria-label="五笔方案" value="wubi86" onChange={() => {}}>
             <WubiSchemeOption />
           </select>
-        </label>
+        </SettingField>
       </div>
       <div
         className="section"

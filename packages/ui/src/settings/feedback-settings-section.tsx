@@ -1,4 +1,5 @@
 import { FeedbackChannels } from "./feedback-channels";
+import { SettingField } from "./setting-field";
 export function FeedbackSettingsSection({
   hero,
   eyebrow,
@@ -64,8 +65,7 @@ export function FeedbackSettingsSection({
           提交可复现的问题
           <small>报告只在你点击按钮时生成，不会读取或上传输入历史。</small>
         </div>
-        <label className="section-header">
-          <span className="section-title">类型</span>
+        <SettingField label="类型">
           <select
             aria-label="反馈类型"
             value={kind}
@@ -76,7 +76,7 @@ export function FeedbackSettingsSection({
             <option>功能建议</option>
             <option>其他</option>
           </select>
-        </label>
+        </SettingField>
         <label className="section-title">
           描述
           <textarea

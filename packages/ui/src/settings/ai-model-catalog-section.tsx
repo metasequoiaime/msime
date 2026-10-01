@@ -1,4 +1,5 @@
 import { ModelSelect } from "./model-select";
+import { SettingField } from "./setting-field";
 
 export function AiModelCatalogSection({
   busy,
@@ -29,8 +30,7 @@ export function AiModelCatalogSection({
         </button>
       </div>
       {models && models.length > 0 && (
-        <label className="section-header">
-          <span className="section-title">已获取模型</span>
+        <SettingField label="已获取模型">
           <ModelSelect
             models={models}
             model={selectedModel}
@@ -38,7 +38,7 @@ export function AiModelCatalogSection({
             emptyLabel="选择模型…"
             onSelect={onSelect}
           />
-        </label>
+        </SettingField>
       )}
       {status && <p role="status">{status}</p>}
     </div>
