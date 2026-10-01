@@ -130,7 +130,7 @@ impl PinyinDatabase {
             return Vec::new();
         }
         // Keys separate syllables with `'`, so the trailing `'` admits only whole-syllable continuations: ping'guo' reaches ping'guo'ji and nothing spelled differently.
-        let prefix = format!("{}'", join_segments(segments));
+        let prefix = longer_phrase_prefix(segments);
         let upper_bound = key_prefix_upper_bound(&prefix);
         let initial = segments[0].as_bytes()[0];
         let mut rows = Vec::with_capacity(extra_syllables.saturating_mul(limit));
@@ -410,6 +410,19 @@ fn range_sql(table: &str) -> String {
     sql
 }
 
+fn longer_phrase_prefix(segments: &[String]) -> String {
+    let capacity = segments.iter().map(String::len).sum::<usize>() + segments.len();
+    let mut prefix = String::with_capacity(capacity);
+    for (index, segment) in segments.iter().enumerate() {
+        if index > 0 {
+            prefix.push('\'');
+        }
+        prefix.push_str(segment);
+    }
+    prefix.push('\'');
+    prefix
+}
+
 fn batch_sql(table: &str, key_count: usize) -> String {
     let mut sql = String::with_capacity(
         table
@@ -484,6 +497,13 @@ mod tests {
 
     fn strings(parts: &[&str]) -> Vec<String> {
         parts.iter().map(|part| (*part).to_owned()).collect()
+    }
+
+    #[test]
+    fn longer_phrase_prefix_allocates_one_result_string() {
+        let prefix = longer_phrase_prefix(&strings(&["ping", "guo"]));
+        assert_eq!(prefix, "ping'guo'");
+        assert_eq!(prefix.capacity(), prefix.len());
     }
 
     fn values(rows: &[DictRow]) -> Vec<&str> {
