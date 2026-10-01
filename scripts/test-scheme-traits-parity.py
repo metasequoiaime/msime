@@ -5,10 +5,14 @@ The engine's `SchemeType` const fns (crates/engine/src/types.rs) are the one sou
 
 The Android input service decides from the same number in Java, so `InputSchemeTraits.java` copies the predicates it needs the same way and is checked the same way as the header.
 
+The HarmonyOS keyboard decides from the number in ArkTS, so `SchemeTraits.ts` copies them too, each predicate written as the list of schemes it is true for, and its `NAMES` are the engine's wire names by ordinal.
+
 This reads all of them and checks:
 
-- the header's and the Android copy's scheme constants are the engine ordinals;
+- the header's, the Android copy's and the Harmony copy's scheme constants are the engine ordinals;
 - every header function that mirrors a `SchemeType` predicate, either by being named after it in CamelCase or by a comment starting with that predicate's name in backticks, answers the same as the engine for every scheme, and false for a number the engine does not know;
+- every Harmony predicate is a list of scheme constants, and the one named after a `SchemeType` predicate in camelCase answers the same as the engine, and false for an unknown number;
+- the Harmony `NAMES` are the engine's wire names in ordinal order;
 - the header's host-only `OpensCandidateList` is the engine's `has_openable_candidate_list`, which is the same list under a host name;
 - the page's `chineseInputSchemeOptions` and `nonChineseSchemes` split the engine's schemes by `is_chinese`, in engine order, and `knownInputSchemes` names every scheme;
 - the page's `InputScheme` and `ChineseScheme` types, and client-core's `InputScheme` and `ChineseScheme` enums they mirror, name the same schemes in engine order.
@@ -24,6 +28,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 ENGINE = ROOT / "crates/engine/src/types.rs"
 HEADER = ROOT / "platforms/macos/src/input/InputSchemeTraits.h"
 ANDROID = ROOT / "platforms/android/java/app/msime/android/policy/InputSchemeTraits.java"
+HARMONY = ROOT / "platforms/harmony/entry/src/main/ets/keyboard/SchemeTraits.ts"
 OPTIONS = ROOT / "packages/ui/src/settings/input-scheme-options.ts"
 UI_TYPES = ROOT / "packages/ui/src/index.tsx"
 PREFERENCES = ROOT / "crates/client-core/src/preferences.rs"
@@ -156,6 +161,32 @@ class AndroidTraits(Header):
         return {"".join(part.capitalize() for part in name.split("_")): value for name, value in self.constants.items()}
 
 
+class HarmonyTraits(AndroidTraits):
+    """The Harmony copy: `static readonly QUANPIN: number = 0;` constants and `static isChinese(scheme: number): boolean { return [SchemeTraits.QUANPIN, ...].includes(scheme); }` predicates, read as the equivalent `scheme == QUANPIN || ...` expression. Like the Android copy it has no host aliases and its constants are the variant names in upper snake case."""
+
+    path = HARMONY
+    constant_pattern = r"static readonly (\w+): number = (\d+);"
+    function_pattern = r"^[ \t]*static (\w+)\(scheme: number\): boolean \{\s*return \[(.*?)\]\.includes\(scheme\);\s*\}"
+    missing = "no `static <trait>(scheme: number): boolean` predicates"
+
+    def __init__(self, text: str, errors: list[str]) -> None:
+        self.constants = {name: int(value) for name, value in re.findall(self.constant_pattern, text)}
+        self.functions = {}
+        for match in re.compile(self.function_pattern, re.M | re.S).finditer(text):
+            elements = [element.strip() for element in match.group(2).split(",") if element.strip()]
+            # An element that is not a scheme constant is kept as written, so evaluating it reports it rather than skipping it.
+            terms = [f"scheme == {element[len('SchemeTraits.') :]}" if re.fullmatch(r"SchemeTraits\.\w+", element) else element for element in elements]
+            self.functions[match.group(1)] = (None, " || ".join(terms) or "False")
+        declared = re.findall(r"^[ \t]*static (\w+)\(scheme: number\): boolean", text, re.M)
+        for function in declared:
+            if function not in self.functions:
+                errors.append(f"{rel(self.path)}: `{function}` is not written as `return [SchemeTraits.X, ...].includes(scheme);`, so it cannot be checked")
+        if not self.functions:
+            errors.append(f"{rel(self.path)}: {self.missing}")
+        names = re.search(r"static readonly NAMES: string\[\] = \[(.*?)\];", text, re.S)
+        self.names = re.findall(r"\"([a-z_]+)\"", names.group(1)) if names else None
+
+
 def ts_string_list(text: str, name: str) -> list[str] | None:
     """An exported array's string elements, or its option objects' `value`s."""
     match = re.search(rf"export const {name}\b[^=]*=\s*\[(.*?)\]", text, re.S)
@@ -212,7 +243,7 @@ def check_header(engine: Engine, header: Header, errors: list[str]) -> int:
                     errors.append(f"{rel(header.path)}: `{function}({unknown})` is true for a scheme no build knows")
         except ValueError as error:
             errors.append(f"{rel(header.path)}: {error}")
-    # The aliases are the macOS header's names; the Android copy names every trait after its predicate.
+    # The aliases are the macOS header's names; the Android and Harmony copies name every trait after its predicate.
     for function in () if isinstance(header, AndroidTraits) else HOST_ALIASES:
         if function not in header.functions:
             errors.append(f"{rel(header.path)}: `{function}` is gone; drop it from HOST_ALIASES here if the host no longer needs it")
@@ -260,11 +291,19 @@ def main() -> int:
     android = 0
     if ANDROID.is_file():
         android = check_header(engine, AndroidTraits(ANDROID.read_text(encoding="utf-8"), errors), errors)
+    harmony = 0
+    harmony_traits: HarmonyTraits | None = None
+    if HARMONY.is_file():
+        harmony_traits = HarmonyTraits(HARMONY.read_text(encoding="utf-8"), errors)
+        harmony = check_header(engine, harmony_traits, errors)
 
     chinese = engine.predicates["is_chinese"]
     all_names = engine.wire_names()
     chinese_names = engine.wire_names(lambda variant: variant in chinese)
     other_names = engine.wire_names(lambda variant: variant not in chinese)
+
+    if harmony_traits is not None:
+        compare(errors, f"{rel(HARMONY)} NAMES", harmony_traits.names, all_names)
 
     options = OPTIONS.read_text(encoding="utf-8")
     compare(errors, f"{rel(OPTIONS)} chineseInputSchemeOptions", ts_string_list(options, "chineseInputSchemeOptions"), chinese_names)
@@ -292,7 +331,7 @@ def main() -> int:
             print(f"FAIL {error}", file=sys.stderr)
         return 1
     print(
-        f"scheme traits: {len(engine.ordinals)} schemes; {compared} macOS and {android} Android traits match the engine predicates they mirror;"
+        f"scheme traits: {len(engine.ordinals)} schemes; {compared} macOS, {android} Android and {harmony} Harmony traits match the engine predicates they mirror;"
         f" the settings page and client-core split them {len(chinese_names)} Chinese / {len(other_names)} other as `is_chinese` does"
     )
     return 0
