@@ -60,6 +60,14 @@ struct CloudQueryState {
     cache_key: String,
 }
 
+fn online_identity(scheme: SchemeType, input: &str) -> String {
+    let mut identity = String::with_capacity(2 + input.len());
+    identity.push(char::from(b'0' + scheme as u8));
+    identity.push(':');
+    identity.push_str(input);
+    identity
+}
+
 impl InputSession {
     /// input_session.cpp:631-667 over `get_cloud_query_state` (input_session_composition.cpp:913-974).
     pub(super) fn online_query(&self) -> Option<OnlineQuery> {
@@ -82,7 +90,7 @@ impl InputSession {
         let mut query = OnlineQuery {
             scheme: request.scheme,
             generation: self.online_requests.generation,
-            identity: format!("{}:{}", request.scheme as u8, input),
+            identity: online_identity(request.scheme, input),
             query_text: state.query_text,
             cache_key: state.cache_key,
             session_id: self.online_requests.session_id,

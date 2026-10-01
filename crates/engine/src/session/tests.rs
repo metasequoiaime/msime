@@ -1484,6 +1484,8 @@ fn an_edit_rejects_the_answer_to_the_old_composition() {
     type_text(&mut session, "ni");
     let query = session.online_query().expect("a quanpin query");
     assert_eq!(query.query_text, "ni");
+    assert_eq!(query.identity, "0:ni");
+    assert_eq!(query.identity.capacity(), query.identity.len());
     assert!(query.cloud_eligible && query.ai_eligible);
     session.command(Command::MoveHome);
     session.command(Command::DeleteForward);
