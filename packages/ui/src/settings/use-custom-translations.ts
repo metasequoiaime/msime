@@ -10,6 +10,7 @@ import {
   SETTINGS_SAVED_STATUS_MS,
   type SettingsSaveState,
 } from "./use-settings-persistence";
+import { useFlushOnWindowLeave } from "./use-flush-on-window-leave";
 
 export interface CustomTranslationsClient {
   load(): Promise<string>;
@@ -128,6 +129,7 @@ export function useCustomTranslations({ client }: UseCustomTranslationsOptions) 
   }
   const flushRef = useRef(flush);
   flushRef.current = flush;
+  useFlushOnWindowLeave(() => void flushRef.current());
 
   function setText(value: string) {
     textRef.current = value;
@@ -143,23 +145,6 @@ export function useCustomTranslations({ client }: UseCustomTranslationsOptions) 
       void flushRef.current();
     }, SETTINGS_AUTOSAVE_DELAY_MS);
   }
-
-  // Leaving the window or page saves at once rather than waiting out the countdown.
-  useEffect(() => {
-    if (typeof window === "undefined" || typeof document === "undefined") return;
-    const flushNow = () => void flushRef.current();
-    const onVisibilityChange = () => {
-      if (document.hidden) flushNow();
-    };
-    window.addEventListener("blur", flushNow);
-    window.addEventListener("pagehide", flushNow);
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    return () => {
-      window.removeEventListener("blur", flushNow);
-      window.removeEventListener("pagehide", flushNow);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-    };
-  }, []);
 
   // Unmounting with an edit still counting down writes it without waiting for an answer: nothing is left on screen to show the result.
   useEffect(

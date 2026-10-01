@@ -16,6 +16,7 @@ import {
   preferenceChanges,
   preferenceChangesCollide,
 } from "./preference-changes";
+import { useFlushOnWindowLeave } from "./use-flush-on-window-leave";
 
 /** Where the automatic save of the settings form stands, for the quiet status in its action row. */
 export type SettingsSaveState = "idle" | "saving" | "saved" | "failed";
@@ -353,6 +354,7 @@ export function useSettingsPersistence({
   }
   const flushRef = useRef(flush);
   flushRef.current = flush;
+  useFlushOnWindowLeave(() => void flushRef.current());
 
   // Every edit restarts the countdown; the loop in `flush` picks up edits made while a save is in flight, so nothing is scheduled then.
   useEffect(() => {
@@ -370,23 +372,6 @@ export function useSettingsPersistence({
     macosWubiAutoCommitUnique,
     savedMacosWubiAutoCommitUnique,
   ]);
-
-  // Leaving the window or page saves at once rather than waiting out the countdown.
-  useEffect(() => {
-    if (typeof window === "undefined" || typeof document === "undefined") return;
-    const flushNow = () => void flushRef.current();
-    const onVisibilityChange = () => {
-      if (document.hidden) flushNow();
-    };
-    window.addEventListener("blur", flushNow);
-    window.addEventListener("pagehide", flushNow);
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    return () => {
-      window.removeEventListener("blur", flushNow);
-      window.removeEventListener("pagehide", flushNow);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-    };
-  }, []);
 
   // Unmounting with an edit still counting down writes it without waiting for an answer: nothing is left on screen to show the result.
   useEffect(
