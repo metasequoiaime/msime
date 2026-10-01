@@ -104,11 +104,11 @@ export function FeedbackSettingsPage() {
             系统版本、输入方案、复现步骤、相关截图，以及 Debug 输出中的关键日志。
           </p>
         </GroupList>
+        <SubPageEntries
+          title="帮助"
+          pages={[{ id: "help", description: "安装、切换输入法与常见问题" }]}
+        />
       </div>
-      <SubPageEntries
-        title="帮助"
-        pages={[{ id: "help", description: "安装、切换输入法与常见问题" }]}
-      />
     </fieldset>
   );
 }

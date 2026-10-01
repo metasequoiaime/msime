@@ -1,11 +1,11 @@
 import type { CSSProperties } from "react";
 
-// Brand marks from yldm-tech/ai-logo (packages/static-svg, MIT).
+// Brand marks from yldm-tech/ai-logo (packages/static-svg, MIT), except QQ: ai-logo's QQ mark is a flat blue silhouette, so the penguin with its face and scarf comes from bytedance/IconPark (tencent-qq, Apache-2.0).
 const githubIcon = new URL("../assets/github.svg", import.meta.url).href;
-const qqIcon = new URL("../assets/qq-color.svg", import.meta.url).href;
+const qqIcon = new URL("../assets/qq.svg", import.meta.url).href;
 const telegramIcon = new URL("../assets/telegram-color.svg", import.meta.url).href;
 
-/** Colour marks are drawn as-is; the monochrome GitHub mark is masked out of the text colour so it follows light and dark themes. */
+/** Colour marks are drawn as-is; the monochrome GitHub and QQ marks are masked out of the text colour so they follow light and dark themes. */
 const brandGlyph = "block size-6";
 const monoGlyph =
   "block size-6 [background:var(--p-text)] [mask-image:var(--channel-icon)] [mask-position:center] [mask-repeat:no-repeat] [mask-size:contain] [-webkit-mask-image:var(--channel-icon)] [-webkit-mask-position:center] [-webkit-mask-repeat:no-repeat] [-webkit-mask-size:contain]";
@@ -59,6 +59,7 @@ export function FeedbackChannels({
     {
       id: "qq",
       icon: qqIcon,
+      mono: true,
       title: "QQ 交流群",
       description: "适合中文用户进行日常交流、测试反馈和使用讨论。",
       code: "群号：829919142",
