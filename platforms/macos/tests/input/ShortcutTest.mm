@@ -7857,11 +7857,54 @@ int main(int argc, char **argv) {
         session.lastCommand = UINT32_MAX;
         session.asciiCalls = 0;
         assert([controller handleEvent:reverseTab client:client] && session.lastCommand == UINT32_MAX && session.asciiCalls == 0);
+        // With no candidates showing (an invalid caret, no screen) Tab and Shift+Tab go back to the application whatever navigation.tab says. A composition still on the line is finished first, for every scheme and not only a Korean syllable, so the key does not move focus away from marked text left dangling in the old field; with nothing composed the session is not touched at all.
+        NSEvent *plainTab = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil characters:@"\t" charactersIgnoringModifiers:@"\t" isARepeat:NO keyCode:48];
+        NSDictionary *hiddenComposition = @{@"session": @73, @"generation": @74, @"focused": @YES, @"editing_text": @"synthetic", @"scheme": @0, @"local_mode": @"none",
+            @"candidates": @[@{@"text": @"合成", @"highlighted": @YES, @"id": @{@"session": @73, @"generation": @74, @"index": @0}}]};
+        for (NSNumber *tabPaging in @[@YES, @NO]) {
+            [appearance applySharedCandidatePreferences:@{@"navigation": @{@"tab": tabPaging}}];
+            for (NSEvent *tab in @[plainTab, reverseTab]) {
+                [controller setValue:hiddenComposition forKey:@"view"];
+                layoutPanel.requestedVisible = NO;
+                session.lastCommand = UINT32_MAX;
+                session.nextTransition = @{@"handled": @YES, @"commit": NSNull.null, @"view": emptyView};
+                assert(![controller handleEvent:tab client:client]);
+                assert(session.lastCommand == MSIME_FINISH_COMPOSITION);
+                [controller setValue:emptyView forKey:@"view"];
+                layoutPanel.requestedVisible = NO;
+                session.lastCommand = UINT32_MAX;
+                NSUInteger commandsBeforeIdleTab = session.commandCalls;
+                assert(![controller handleEvent:tab client:client]);
+                assert(session.lastCommand == UINT32_MAX && session.commandCalls == commandsBeforeIdleTab);
+            }
+        }
+        // A highlighted candidate that carries a gloss takes Tab first: Tab steps the armed gloss column 0 -> 1 -> 2 -> 0 and Shift+Tab steps it back, with no Engine command and whether or not Tab paging is on. A candidate without a gloss still pages.
+        NSDictionary *glossView = @{@"session": @75, @"generation": @76, @"focused": @YES, @"page": @0, @"page_count": @2, @"editing_text": @"hello", @"caret_position": @5, @"scheme": @0, @"local_mode": @"none",
+            @"candidates": @[@{@"text": @"你好", @"translation": @"hello\nhola", @"highlighted": @YES, @"id": @{@"session": @75, @"generation": @76, @"index": @0}}]};
+        for (NSNumber *tabPaging in @[@YES, @NO]) {
+            [appearance applySharedCandidatePreferences:@{@"navigation": @{@"tab": tabPaging}}];
+            [controller setValue:glossView forKey:@"view"];
+            [controller setValue:@0 forKey:@"armedGlossColumn"];
+            NSUInteger commandsBeforeGloss = session.commandCalls;
+            for (NSArray *step in @[@[plainTab, @1], @[plainTab, @2], @[plainTab, @0], @[reverseTab, @2], @[reverseTab, @1], @[reverseTab, @0]]) {
+                layoutPanel.requestedVisible = YES;
+                assert([controller handleEvent:step[0] client:client]);
+                assert([[controller valueForKey:@"armedGlossColumn"] integerValue] == [step[1] integerValue]);
+            }
+            assert(session.commandCalls == commandsBeforeGloss);
+        }
         [appearance applySharedCandidatePreferences:@{@"navigation": @{@"tab": @YES}}];
-        // With no candidates showing, Tab goes back to the application.
-        layoutPanel.requestedVisible = NO;
-        session.lastCommand = UINT32_MAX;
-        assert(![controller handleEvent:reverseTab client:client] && session.lastCommand == UINT32_MAX);
+        NSMutableDictionary *unglossedView = [glossView mutableCopy];
+        unglossedView[@"candidates"] = @[@{@"text": @"你好", @"highlighted": @YES, @"id": @{@"session": @75, @"generation": @76, @"index": @0}}];
+        for (NSEvent *tab in @[plainTab, reverseTab]) {
+            [controller setValue:[unglossedView copy] forKey:@"view"];
+            [controller setValue:@0 forKey:@"armedGlossColumn"];
+            layoutPanel.requestedVisible = YES;
+            session.lastCommand = UINT32_MAX;
+            assert([controller handleEvent:tab client:client]);
+            assert(session.lastCommand == (tab == reverseTab ? MSIME_PREVIOUS_PAGE : MSIME_NEXT_PAGE));
+        }
+        session.nextTransition = beforeWordTransition;
         // Script selection changes only native display/commit strings, not Engine state or IDs.
         assert(!appearance.traditionalOutput);
         assert([MSIMEChineseOutputString(@"汉语", YES) isEqual:@"漢語"]);

@@ -312,7 +312,9 @@ ctest --test-dir target/macos-isolated -L emoji-local --output-on-failure
 
 ## 按键处理与翻页快捷键
 
-Home/End 在候选可见时通过共享运行时移到当前页首/末候选，不改变编辑串、光标或提交文本；最后不足一页时止于实际末项。候选隐藏后沿用编辑光标 Home/End。测试覆盖可见/隐藏状态、完整页及末页、过期候选和全局索引提交。翻页快捷键提供减号/等号（默认）、方括号、Page Up/Page Down 三种设置。字符键仅在候选可见且无 Shift/Command/Control/Option 时按所选键组翻页；未匹配或有 Shift 时将实际字符交给 Engine。Page Up/Page Down 在三种设置下均有效，与 Apple 路由一致。候选可见时，快捷键已关闭的 Tab/Shift+Tab、Page Up/Page Down 与 ↑/↓ 会被输入法吞掉，编辑串和候选保持原样，与 Windows 一致；只有没有候选显示时这些键才交还应用。设置保存在宿主原生偏好域，测试覆盖默认、非法值归一化、控件保存、48 种字符组合以及修饰键优先级。
+Home/End 在候选可见时通过共享运行时移到当前页首/末候选，不改变编辑串、光标或提交文本；最后不足一页时止于实际末项。候选隐藏后沿用编辑光标 Home/End。测试覆盖可见/隐藏状态、完整页及末页、过期候选和全局索引提交。翻页快捷键是共享 `navigation` 偏好里的一组独立开关，可以任意组合：`minus_equal`（减号/等号）、`comma_period`（逗号/句号）、`brackets`（方括号）、`tab`（Tab/Shift+Tab）、`page_up_down`（Page Up/Page Down）、`arrows`（方向键选择候选）和 `mouse_wheel`（在候选面板上滚动滚轮翻页）。某个开关在共享偏好和本机 `MSIMEClientNavigation` 字典里都没有值时才回退到默认：`minus_equal` 与 `brackets` 由旧的 `candidate_page_shortcut` 预设（本机 `MSIMEClientCandidatePageShortcut`）推出，预设 0（默认）开减号/等号、1 开方括号、2 两者都不开；`comma_period`、`tab`、`page_up_down`、`arrows` 默认开启，`mouse_wheel` 默认关闭。
+
+字符键按物理 ANSI 键位判定，仅在候选可见且无 Shift/Command/Control/Option 时翻页；与以词定字占用同一组键时由以词定字处理，日语方案的减号/等号和 Unicode 模式的 `+` 仍交给 Engine；开关关闭或带 Shift 时将实际字符交给 Engine。候选可见时 Tab 向后翻页、Shift+Tab 向前翻页；若高亮候选带释义（`translation` 有第一或第二列），Tab/Shift+Tab 先在不选、第一列、第二列释义之间循环选中，不发翻页命令，也不受 `tab` 开关影响，没有释义的候选照常翻页。候选可见时，已关闭的 Tab/Shift+Tab、Page Up/Page Down 与 ↑/↓ 会被输入法吞掉，编辑串和候选保持原样，与 Windows 一致；没有候选显示时这些键交还应用。候选不可见时 Tab/Shift+Tab 无论开关如何都交还应用，交还前若仍有编辑串或候选，先通过 Engine finish 提交当前组合，避免组合残留在原输入框；Page Up/Page Down 与 ↑/↓ 关闭后交还应用时，只有韩语方案会先结束当前音节。设置保存在宿主原生偏好域，测试覆盖默认、非法值归一化、控件保存、48 种字符组合以及修饰键优先级。
 
 迁移对照固定为 MSIME-Apple 远端默认分支 develop 的提交 `b637828e15eafcb5e459edd270a962dd14517285`。Command、Control、Option 快捷键沿用其 `MetasequoiaInputController.mm` 行为：先通过 Engine finish 提交当前高亮对应组合，再放行快捷键。原生控制器测试覆盖三个修饰键的分派、提交、清空预编辑和返回未处理，使用替身会话驱动。
 
