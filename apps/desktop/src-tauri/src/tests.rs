@@ -188,7 +188,7 @@ fn cantonese_and_zhuyin_are_offered_only_with_their_installed_dictionary() {
     std::fs::write(directory.join("zhuyin.db"), b"sqlite").unwrap();
     let offered = |host_options: Option<&serde_json::Value>| {
         let mut capabilities = HostCapabilities::for_platform(HostPlatform::Macos);
-        super::drop_uninstalled_language_schemes(&mut capabilities, host_options);
+        super::drop_uninstalled_language_schemes(&mut capabilities, host_options, false);
         capabilities.input_schemes
     };
     let without_both = vec![
@@ -217,13 +217,46 @@ fn cantonese_and_zhuyin_are_offered_only_with_their_installed_dictionary() {
         offered(Some(&named)),
         HostCapabilities::for_platform(HostPlatform::Macos).input_schemes
     );
+    // Without the Windows fallback a document naming only its resources offers neither.
+    let resources_only = serde_json::json!({ "resources": root.path().join("resources") });
+    assert_eq!(offered(Some(&resources_only)), without_both);
     // Hosts that never offer the schemes are left as they are.
-    let mut windows = HostCapabilities::for_platform(HostPlatform::Windows);
-    super::drop_uninstalled_language_schemes(&mut windows, None);
+    let mut linux = HostCapabilities::for_platform(HostPlatform::Linux);
+    super::drop_uninstalled_language_schemes(&mut linux, None, true);
     assert_eq!(
-        windows.input_schemes,
-        HostCapabilities::for_platform(HostPlatform::Windows).input_schemes
+        linux.input_schemes,
+        HostCapabilities::for_platform(HostPlatform::Linux).input_schemes
     );
+}
+
+#[test]
+fn windows_finds_language_dictionaries_beside_resources_its_options_file_does_not_name() {
+    use msime_client_core::host_surface::{HostCapabilities, HostPlatform};
+    use msime_client_core::preferences::InputScheme;
+    let root = tempfile::tempdir().unwrap();
+    let directory = root.path().join("language-dictionaries");
+    std::fs::create_dir_all(&directory).unwrap();
+    std::fs::write(directory.join("cantonese.db"), b"sqlite").unwrap();
+    let offered = |host_options: &serde_json::Value| {
+        let mut capabilities = HostCapabilities::for_platform(HostPlatform::Windows);
+        super::drop_uninstalled_language_schemes(&mut capabilities, Some(host_options), true);
+        capabilities.input_schemes
+    };
+    let schemes = offered(&serde_json::json!({ "resources": root.path().join("resources") }));
+    assert!(schemes.contains(&InputScheme::Cantonese));
+    assert!(!schemes.contains(&InputScheme::Zhuyin));
+    assert!(schemes.contains(&InputScheme::Vietnamese));
+    // A relative resources directory is not trusted to locate the installed dictionaries.
+    let relative = offered(&serde_json::json!({ "resources": "resources" }));
+    assert!(!relative.contains(&InputScheme::Cantonese));
+    // A document that names the directory is taken at its word.
+    let elsewhere = root.path().join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    let named = offered(&serde_json::json!({
+        "resources": root.path().join("resources"),
+        "language_dictionaries": elsewhere,
+    }));
+    assert!(!named.contains(&InputScheme::Cantonese));
 }
 
 #[test]

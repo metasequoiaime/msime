@@ -331,7 +331,7 @@ const BASE_INPUT_SCHEMES: [InputScheme; 5] = [
     InputScheme::Korean,
 ];
 
-/// The base schemes plus Cantonese, Zhuyin and Vietnamese, which only the macOS host offers.
+/// The base schemes plus Cantonese, Zhuyin and Vietnamese, which the macOS and Windows hosts offer.
 const ALL_INPUT_SCHEMES: [InputScheme; 8] = [
     InputScheme::Quanpin,
     InputScheme::Shuangpin,
@@ -347,9 +347,9 @@ fn base_input_schemes() -> Vec<InputScheme> {
     BASE_INPUT_SCHEMES.to_vec()
 }
 
-/// The schemes this build hands to its Engine. host-api falls back from any other scheme a preferences document names, so a host that never offers a scheme never runs it either. All eight on macOS, the one host that routes the Cantonese, Zhuyin and Vietnamese keys and stages their dictionaries; the base five everywhere else. Cantonese and Zhuyin still fall back on macOS when their dictionary is not installed.
+/// The schemes this build hands to its Engine. host-api falls back from any other scheme a preferences document names, so a host that never offers a scheme never runs it either. All eight on macOS and Windows, the hosts that route the Cantonese, Zhuyin and Vietnamese keys and stage their dictionaries; the base five everywhere else. Cantonese and Zhuyin still fall back when their dictionary is not installed.
 pub fn compiled_input_schemes() -> &'static [InputScheme] {
-    if cfg!(target_os = "macos") {
+    if cfg!(any(target_os = "macos", target_os = "windows")) {
         &ALL_INPUT_SCHEMES
     } else {
         &BASE_INPUT_SCHEMES
@@ -606,8 +606,8 @@ impl HostCapabilities {
             typing_effects: platform.is_desktop() || platform == HostPlatform::Harmony,
             os_version: None,
             candidate_panel_limit: None,
-            // Only the macOS host routes the Cantonese, Zhuyin and Vietnamese keys and ships their dictionaries.
-            input_schemes: if platform == HostPlatform::Macos {
+            // Only the macOS and Windows hosts route the Cantonese, Zhuyin and Vietnamese keys and ship their dictionaries.
+            input_schemes: if matches!(platform, HostPlatform::Macos | HostPlatform::Windows) {
                 ALL_INPUT_SCHEMES.to_vec()
             } else {
                 base_input_schemes()
