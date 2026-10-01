@@ -379,6 +379,26 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     "<": "《", ">": "》", "'": "‘", "\"": "“", "_": "——",
   ]
 
+  /// Whether Chinese punctuation is on for marks the keyboard writes itself rather than through the Engine (the Zhuyin symbol panel): a 中文 lock, or the 中文标点 switch under 跟随中英文; an 英文 lock turns it off. Not private: the scheme tests pin it.
+  static func writesChinesePunctuation(switchOn: Bool, punctuationLock: String?) -> Bool {
+    switch punctuationLock ?? "follow" {
+    case "chinese": return true
+    case "english": return false
+    default: return switchOn
+    }
+  }
+
+  /// What a Zhuyin symbol-panel key writes: the Chinese mark for an ASCII mark that has one while Chinese punctuation is on, else the key itself. Not private: the scheme tests pin it.
+  static func zhuyinSymbolText(_ symbol: String, chinesePunctuation: Bool) -> String {
+    chinesePunctuation ? chineseSymbolFaces[symbol] ?? symbol : symbol
+  }
+
+  /// Whether the Zhuyin symbol panel writes Chinese marks now.
+  private var zhuyinWritesChinesePunctuation: Bool {
+    Self.writesChinesePunctuation(switchOn: chinesePunctuation,
+                                  punctuationLock: session.sharedPreferences?["punctuation_lock"] as? String)
+  }
+
   override func loadView() {
     inputView = KeyboardInputView(frame: .zero, inputViewStyle: .keyboard)
   }
@@ -1190,7 +1210,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     configure(punctuationShortcut, title: chinesePunctuation ? "，" : ",", symbol: nil,
               label: "中英文标点", id: "punctuationShortcut")
     punctuationShortcut.accessibilityValue = chinesePunctuation ? "中文标点" : "英文标点"
-    punctuationShortcut.isEnabled = isChineseMode && (inputScheme.writesChinese || inputScheme.isCantonese)
+    punctuationShortcut.isEnabled = isChineseMode && (inputScheme.writesChinese || inputScheme.isCantonese || inputScheme.isZhuyin)
       && (session.sharedPreferences?["punctuation_lock"] as? String ?? "follow") == "follow"
     layoutShortcut.isHidden = !pinned.layout
     emojiShortcut.isHidden = !pinned.emoji
@@ -1261,10 +1281,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           self.setFullWidthInput(!self.fullWidthInput)
           self.updateShortcutButtons()
         },
-        // A locked punctuation setting decides on its own, and English mode types ASCII marks anyway, so the switch only means something in Chinese mode under 跟随中英文, and only for the schemes whose marks go through the Engine's punctuation route: Zhuyin types the marks its symbol panel draws.
+        // A locked punctuation setting decides on its own, and English mode types ASCII marks anyway, so the switch only means something in Chinese mode under 跟随中英文, and only for the schemes that write Chinese marks: those whose marks go through the Engine's punctuation route, and Zhuyin, whose symbol panel picks the mark by the same switch.
         KeyboardTool(title: "中文标点", symbol: "textformat.characters",
                      selected: chinesePunctuation,
-                     enabled: isChineseMode && (inputScheme.writesChinese || inputScheme.isCantonese)
+                     enabled: isChineseMode && (inputScheme.writesChinese || inputScheme.isCantonese || inputScheme.isZhuyin)
                        && (session.sharedPreferences?["punctuation_lock"] as? String ?? "follow") == "follow") { [weak self] in
           guard let self else { return }
           self.setChinesePunctuation(!self.chinesePunctuation)
@@ -1752,14 +1772,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
   }
 
-  /// A Dachen key: its ASCII key goes to the Zhuyin editor, which types the symbol, marks the tone or, for Space after a toned syllable, opens the list. With the list open a digit 1-9 would pick a row instead, so the list is closed first and the key types what its face shows; rows are picked on the strip. A tone key with nothing composing is left unclaimed and types nothing, since a tone mark alone is not text.
+  /// A Dachen key: its ASCII key goes to the Zhuyin editor, which types the symbol, marks the tone or, for Space after a toned syllable, opens the list. With the list open a digit 1-9 would pick a row instead, so the list is closed first and the key types what its face shows; rows are picked on the strip. A key the editor leaves unclaimed (a tone key with nothing composing) is the host's to type, so its ASCII key is inserted after whatever the editor committed, as on a hardware keyboard and on Android.
   private func handleZhuyinKey(_ key: String) {
     playInputClick()
     guard isChineseMode else { return }
     synchronizeInputSchemePreference()
     guard typesZhuyin else { return }
     if zhuyinListOpen && ZhuyinKeyLayout.selectsWhileListOpen(key) { render(session.cancel()) }
-    render(session.handleCharacter(key))
+    let snapshot = session.handleCharacter(key)
+    render(snapshot)
+    if !snapshot.isHandled { insertDirectText(key) }
   }
 
   /// Read the current word from the host document instead of maintaining a shadow
@@ -1827,10 +1849,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       return
     }
 
-    // Zhuyin spells with the digit row and with , . / ; -, so the symbol panel cannot hand its keys to the Engine: they would type ㄅ or ㄝ or pick a list row. The panel commits the conversion and types the mark itself, as the key draws it: the Chinese face for an ASCII mark that has one.
+    // Zhuyin spells with the digit row and with , . / ; -, so the symbol panel cannot hand its keys to the Engine: they would type ㄅ or ㄝ or pick a list row. The panel commits the conversion and types the mark itself, as the key draws it: the Chinese face for an ASCII mark that has one while Chinese punctuation is on, the ASCII mark otherwise.
     if typesZhuyin {
       render(session.finishComposition())
-      insertDirectText(Self.chineseSymbolFaces[symbol] ?? symbol)
+      insertDirectText(Self.zhuyinSymbolText(symbol, chinesePunctuation: zhuyinWritesChinesePunctuation))
       return
     }
 
@@ -3061,6 +3083,18 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateKeyboardLayout()
   }
 
+  private func updateSymbolKeyFaces() {
+    // Chinese punctuation only appears in Chinese mode. Local utilities and dedicated English input send the literal ASCII key value, so their labels must follow their insertion path. Korean and Vietnamese write ASCII marks too. Zhuyin's panel writes its marks itself, by the punctuation switch, so its faces follow that switch too.
+    let sendsChinesePunctuation = isChineseMode && !isInLocalMode && !inputScheme.writesAsciiPunctuation
+      && (!typesZhuyin || zhuyinWritesChinesePunctuation)
+    for face in symbolKeyFaces {
+      let title = sendsChinesePunctuation ? face.chinese : face.ascii
+      guard face.key.configuration?.title != title else { continue }
+      face.key.configuration?.title = title
+      face.key.accessibilityLabel = "符号 \(title)"
+    }
+  }
+
   private func updateKeyboardLayout() {
     applyLayoutPreferences()
     standardRowHeights.forEach { $0.1.isActive = false }
@@ -3138,16 +3172,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       NSLayoutConstraint.activate(usesNineKeyLayout ? nineKeyActionWidths : standardActionWidths)
     }
     symbolRowViews.forEach { $0.isHidden = !showsSymbols || kana || nineKey }
-    // Chinese punctuation only appears in Chinese mode. Local utilities and dedicated English
-    // input send the literal ASCII key value, so their labels must follow their insertion path.
-    // Korean and Vietnamese write ASCII marks too.
-    let sendsChinesePunctuation = isChineseMode && !isInLocalMode && !inputScheme.writesAsciiPunctuation
-    for face in symbolKeyFaces {
-      let title = sendsChinesePunctuation ? face.chinese : face.ascii
-      guard face.key.configuration?.title != title else { continue }
-      face.key.configuration?.title = title
-      face.key.accessibilityLabel = "符号 \(title)"
-    }
+    updateSymbolKeyFaces()
     for (row, height) in standardRowHeights { height.isActive = !row.isHidden }
     if var configuration = layoutToggleButton?.configuration {
       configuration.title = showsSymbols ? (kana ? "あいう" : (nineKey ? "九键" : "ABC")) : "123"
@@ -3481,6 +3506,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func setChinesePunctuation(_ enabled: Bool) {
     chinesePunctuation = enabled
     session.setChinesePunctuation(enabled)
+    // The Zhuyin panel's faces follow the switch, and it can flip while the panel is on screen.
+    if typesZhuyin { updateSymbolKeyFaces() }
   }
 
   /// Hand the runtime the Keychain key for candidate-bar AI, and take it back when the settings app turns it off or points it somewhere the saved keyboard configuration does not.

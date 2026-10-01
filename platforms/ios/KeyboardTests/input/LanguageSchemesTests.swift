@@ -159,7 +159,35 @@ final class LanguageSchemesTests: XCTestCase {
     XCTAssertEqual(key.accessibilityLabel, "注音 ㄆ")
   }
 
+  func testTheZhuyinSymbolPanelFollowsTheChinesePunctuationSwitch() {
+    XCTAssertEqual(KeyboardViewController.zhuyinSymbolText(",", chinesePunctuation: true), "，")
+    XCTAssertEqual(KeyboardViewController.zhuyinSymbolText(".", chinesePunctuation: false), ".")
+    XCTAssertEqual(KeyboardViewController.zhuyinSymbolText("@", chinesePunctuation: true), "@")
+    XCTAssertTrue(KeyboardViewController.writesChinesePunctuation(switchOn: true, punctuationLock: nil))
+    XCTAssertTrue(KeyboardViewController.writesChinesePunctuation(switchOn: true, punctuationLock: "follow"))
+    XCTAssertFalse(KeyboardViewController.writesChinesePunctuation(switchOn: false, punctuationLock: "follow"))
+    XCTAssertFalse(KeyboardViewController.writesChinesePunctuation(switchOn: true, punctuationLock: "english"))
+    XCTAssertTrue(KeyboardViewController.writesChinesePunctuation(switchOn: false, punctuationLock: "chinese"))
+  }
+
   // MARK: - Through the bridge
+
+  func testAnIdleZhuyinToneKeyIsLeftToTheKeyboardToType() throws {
+    try XCTSkipUnless(InputSchemePreference.installedLanguageSchemes?.contains(.zhuyin) == true,
+                      "zhuyin.db is not staged into the test host")
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    _ = bridge.switchToZhuyin()
+    for tone in ["6", "3", "4", "7"] {
+      let snapshot = bridge.handleCharacter(tone)
+      XCTAssertFalse(snapshot.isHandled, "the Engine leaves \(tone) to the keyboard, which inserts it")
+      XCTAssertNil(snapshot.commitText, tone)
+      XCTAssertEqual(snapshot.preedit, "", tone)
+    }
+    let pending = type("1", into: bridge)
+    XCTAssertTrue(pending.isHandled)
+    XCTAssertTrue(bridge.handleCharacter("6").isHandled, "a tone key on a pending syllable stays the Engine's")
+  }
+
 
   func testZhuyinComposesInPlaceAndReturnCommitsTheConversion() throws {
     try XCTSkipUnless(InputSchemePreference.installedLanguageSchemes?.contains(.zhuyin) == true,
