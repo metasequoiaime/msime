@@ -15,7 +15,7 @@ export function DoubaoAuthModeSection({ value, linux, onChange }: DoubaoAuthMode
       title="豆包鉴权方式"
       description={
         linux
-          ? "provider 服务必须与此模式匹配"
+          ? "语音服务必须与此模式匹配"
           : "新版控制台使用单 API Key；旧版使用 App ID + Access Token"
       }
     >

@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { type CredentialStatusMessageValue } from "./credential-status-message";
 import { CredentialActions } from "./credential-actions";
 import { SecretSettingField } from "./secret-setting-field";
+import * as settings from "./settings-style";
 
 export interface AiCredentialStored {
   endpoint: string;
@@ -21,6 +22,8 @@ export interface AiCredentialSectionProps {
   onSave: () => void;
   onClear: () => void;
   children?: ReactNode;
+  /** 放进 AI 辅助页的「服务」组时为真：去掉自带的卡片外框，画成组内的一块。 */
+  grouped?: boolean;
 }
 
 /** Linux provider credentials for the shared AI assistant settings. */
@@ -37,10 +40,11 @@ export function AiCredentialSection({
   onSave,
   onClear,
   children,
+  grouped = false,
 }: AiCredentialSectionProps) {
   const matchesStored = stored?.endpoint === endpoint && stored.model === model;
   return (
-    <div className="section" role="group" aria-label="AI 凭据">
+    <div className={grouped ? settings.managerBlock : "section"} role="group" aria-label="AI 凭据">
       <SecretSettingField
         label="API Token"
         inputLabel="AI API Token"

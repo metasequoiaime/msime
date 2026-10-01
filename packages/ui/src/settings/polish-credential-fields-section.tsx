@@ -18,12 +18,8 @@ export function PolishCredentialFieldsSection({
 }: PolishCredentialFieldsSectionProps) {
   return (
     <>
-      <SettingField label="润色接口地址" description="留空使用当前 provider 默认地址">
-        <EndpointInput
-          label="润色接口地址"
-          value={endpoint}
-          onChange={onEndpointChange}
-        />
+      <SettingField label="润色接口地址" description="留空使用当前服务的默认地址">
+        <EndpointInput label="润色接口地址" value={endpoint} onChange={onEndpointChange} />
       </SettingField>
       <SecretSettingField
         label="润色 API Token"

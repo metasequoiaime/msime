@@ -10,7 +10,7 @@ export function DoubaoResourceIdSection({ value, onChange }: DoubaoResourceIdSec
   return (
     <TextInputRow
       title="Doubao 资源 ID"
-      description="仅由 Doubao provider 使用"
+      description="仅豆包识别使用"
       label="Doubao 资源 ID"
       value={value}
       onChange={onChange}

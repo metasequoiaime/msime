@@ -7,6 +7,7 @@ import {
 } from "./voice-credential-test-config";
 import type { DoubaoAuthMode } from "./doubao-auth-mode-section";
 import { VoiceSyntheticSilenceNotice } from "./voice-synthetic-silence-notice";
+import * as settings from "./settings-style";
 
 export interface VoiceAsrServiceTestSectionProps {
   available: boolean;
@@ -18,6 +19,8 @@ export interface VoiceAsrServiceTestSectionProps {
     config: Record<string, unknown>,
     disabled?: boolean,
   ) => ReactNode;
+  /** 放在语音页「识别服务配置」组末尾时为真，画成组内的一块。 */
+  grouped?: boolean;
 }
 
 /** Shared remote ASR test notice and credential test control. */
@@ -26,11 +29,12 @@ export function VoiceAsrServiceTestSection({
   voiceInput,
   doubaoAuthMode,
   credentialTestControl,
+  grouped = false,
 }: VoiceAsrServiceTestSectionProps) {
   const provider = voiceInput.asr_provider ?? "";
   if (!available || !isAsrServiceProvider(provider)) return null;
 
-  return (
+  const content = (
     <>
       <VoiceSyntheticSilenceNotice />
       {credentialTestControl(
@@ -41,4 +45,5 @@ export function VoiceAsrServiceTestSection({
       )}
     </>
   );
+  return grouped ? <div className={settings.groupBlock}>{content}</div> : content;
 }

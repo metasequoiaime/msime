@@ -13,6 +13,10 @@ export interface VoicePolishSettingsSectionProps {
   linux: boolean;
   providerPresetControls: ProviderPresetControlFactory;
   updateVoice: (patch: Partial<VoiceInputPreferences>) => void;
+  /** 见 `VoicePolishSectionProps.collapsible`。 */
+  collapsible?: boolean;
+  /** Linux 的润色凭据由语音服务保管，不在共享设置里；传入时放在接口地址与令牌的位置，也就是方案与提示词之前。 */
+  linuxCredentials?: ReactNode;
   children?: ReactNode;
 }
 
@@ -22,10 +26,13 @@ export function VoicePolishSettingsSection({
   linux,
   providerPresetControls,
   updateVoice,
+  collapsible,
+  linuxCredentials,
   children,
 }: VoicePolishSettingsSectionProps) {
   return (
     <VoicePolishSection
+      collapsible={collapsible}
       enabled={isVoicePolishEnabled(voiceInput)}
       provider={voiceInput.polish_provider ?? "siliconflow"}
       model={voiceInput.polish_model ?? ""}
@@ -40,7 +47,9 @@ export function VoicePolishSettingsSection({
       onProviderChange={(provider) => updateVoice(polishProviderUpdate(provider, voiceInput))}
       onModelChange={(polish_model) => updateVoice({ polish_model })}
     >
-      {!linux && (
+      {linux ? (
+        linuxCredentials
+      ) : (
         <PolishCredentialFieldsSection
           endpoint={voiceInput.polish_endpoint ?? ""}
           token={voiceInput.polish_token ?? ""}

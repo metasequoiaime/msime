@@ -379,6 +379,33 @@ const snapshot: Snapshot = {
   },
 };
 
+// 语音页把本地模型放进「识别服务配置」组：模型列表在组里，下载镜像和手动目录收在默认关闭的「更多选项」里。
+test("the voice page keeps the local models in the service group with the mirror folded away", async () => {
+  const fake = fakeClient([{ ...sense, installed: true }]);
+  render(
+    <SettingsPage
+      client={{
+        load: async () => snapshot,
+        save: vi.fn(),
+        host: { platform: "windows" } as never,
+        localVoiceModels: fake.client,
+      }}
+    />,
+  );
+  await settingsFormReady();
+  fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
+
+  const service = await screen.findByRole("region", { name: "识别服务配置" });
+  expect(within(service).getByRole("group", { name: "本地识别模型" })).toBeTruthy();
+  const more = within(service).getByText("更多选项").closest("details");
+  expect(more).not.toBeNull();
+  expect(more!.open).toBe(false);
+  expect(more!.contains(screen.getByLabelText("模型下载镜像"))).toBe(true);
+  expect(more!.contains(screen.getByLabelText("本地模型目录"))).toBe(true);
+  // 折叠区统一叫「更多选项」，旧的「高级：」说法只留在嵌入式面板里。
+  expect(screen.queryByText("高级：手动指定本地模型目录")).toBeNull();
+});
+
 test("the settings page picks a model and a mirror into the saved preferences", async () => {
   const fake = fakeClient([{ ...sense, installed: true }]);
   const save = vi.fn(async (_revision: number, preferences: Snapshot["preferences"]) => ({

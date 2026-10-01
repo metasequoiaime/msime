@@ -17,5 +17,5 @@ test("forwards endpoint edits", () => {
   });
 
   expect(onChange).toHaveBeenCalledWith("https://updated.example.test");
-  expect(screen.getByText(/留空使用当前 provider 默认地址/)).toBeTruthy();
+  expect(screen.getByText(/留空使用当前服务的默认地址/)).toBeTruthy();
 });

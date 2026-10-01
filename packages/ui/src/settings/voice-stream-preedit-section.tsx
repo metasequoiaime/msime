@@ -10,7 +10,7 @@ export function VoiceStreamPreeditSection({ enabled, onChange }: VoiceStreamPree
   return (
     <SwitchRow
       title="流式预编辑"
-      description="provider 支持时显示实时识别片段"
+      description="识别服务支持时显示实时识别片段"
       aria-label="流式预编辑"
       checked={enabled}
       onChange={onChange}

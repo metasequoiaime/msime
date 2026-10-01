@@ -22,6 +22,17 @@ export const rowControl = "flex shrink-0 items-center gap-2";
 /** 跳转行：整行是一个按钮，外形与 `row` 相同，悬停时变色。 */
 export const linkRow = `${row} w-full cursor-pointer border-0 text-left hover:bg-[var(--p-hover)]`;
 
+// ---- more options ----
+
+/** 「更多选项」折叠区本身是组里的一行，靠 `group/more` 让标题的箭头随展开旋转。 */
+export const moreOptions = "group/more min-w-0";
+export const moreOptionsSummary = `${row} cursor-pointer list-none hover:bg-[var(--p-hover)] [&::-webkit-details-marker]:hidden`;
+export const moreOptionsMarker =
+  "[font-size:var(--p-sub-fs)] [color:var(--p-sub)] transition-transform group-open/more:rotate-90 motion-reduce:transition-none";
+/** 展开后的每一行都画上分隔线，与组内各行之间的分隔一致。 */
+export const moreOptionsRows =
+  "flex flex-col gap-[var(--p-row-gap)] [&>:not([hidden])]:[border-top:1px_solid_var(--p-row-divider)]";
+
 // ---- page intro ----
 
 /** 页首说明：页面第一组之前的一段灰字，内边距取组名的 `--p-g-title-pad`，与下面各组的组名对齐。 */

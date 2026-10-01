@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import * as settings from "../settings/settings-style";
+import { rowTitle } from "../core/platform-controls-style";
 import {
   formatModelBytes,
   localModelErrorMessage,
@@ -60,6 +62,8 @@ export type LocalVoiceModelClient = {
   onProgress(listener: (progress: LocalVoiceModelProgress) => void): Promise<() => void>;
 };
 
+const localModelNote = "模型下载到本机后完全离线运行，录音不会上传。点击“使用”后生效。";
+
 /**
  * The on-device models the `local` provider can run: what each is, what it costs, and download, use and remove.
  *
@@ -73,6 +77,7 @@ export function LocalModelManager({
   onRemoved,
   confirm,
   openExternalUrl,
+  grouped = false,
 }: {
   client: LocalVoiceModelClient;
   mobile: boolean;
@@ -86,6 +91,8 @@ export function LocalModelManager({
     danger?: boolean;
   }) => Promise<boolean>;
   openExternalUrl?: (url: string) => Promise<void>;
+  /** 放在语音页「识别服务配置」组里时为真：画成组内的一块，标题和说明用组内的字号，不再自带卡片。 */
+  grouped?: boolean;
 }) {
   const [list, setList] = useState<LocalVoiceModelList>();
   const [notice, setNotice] = useState("");
@@ -192,11 +199,24 @@ export function LocalModelManager({
 
   const models = list ? visibleLocalModels(list.models, mobile, modelPath) : [];
   return (
-    <div className="section" aria-label="本地识别模型">
-      <div className="section-title">
-        本地识别模型
-        <small>模型下载到本机后完全离线运行，录音不会上传。点击“使用”后生效。</small>
-      </div>
+    <div
+      className={grouped ? settings.managerBlock : "section"}
+      role={grouped ? "group" : undefined}
+      aria-label="本地识别模型"
+    >
+      {grouped ? (
+        <div>
+          <span className={rowTitle} data-row-title="">
+            本地识别模型
+          </span>
+          <p className={settings.managerNote}>{localModelNote}</p>
+        </div>
+      ) : (
+        <div className="section-title">
+          本地识别模型
+          <small>{localModelNote}</small>
+        </div>
+      )}
       {!list && !notice && <p>正在读取模型列表…</p>}
       <ul className="grid gap-3" aria-label="可用的本地模型">
         {models.map((model) => {

@@ -15,8 +15,8 @@ export interface DoubaoOptionsSectionProps {
   onBoostingTableIdChange: (value: string) => void;
 }
 
-/** Doubao recognition flags and hotword table settings. */
-export function DoubaoOptionsSection({
+/** 豆包识别的几个开关和热词表，不带组；语音页把它们接在「识别服务配置」组里豆包的设置后面。 */
+export function DoubaoOptionsRows({
   linux,
   enableItn,
   enablePunc,
@@ -28,9 +28,9 @@ export function DoubaoOptionsSection({
   onBoostingTableIdChange,
 }: DoubaoOptionsSectionProps) {
   return (
-    <GroupList title="豆包识别选项">
+    <>
       <p className={settings.groupNote}>
-        {linux ? "由 provider 服务应用" : "随识别请求发送给豆包"}
+        {linux ? "以下豆包识别选项由语音服务应用" : "以下豆包识别选项随识别请求发送给豆包"}
       </p>
       <SwitchRow
         title="数字格式化"
@@ -56,6 +56,15 @@ export function DoubaoOptionsSection({
         value={boostingTableId}
         onChange={onBoostingTableIdChange}
       />
+    </>
+  );
+}
+
+/** Doubao recognition flags and hotword table settings. */
+export function DoubaoOptionsSection(props: DoubaoOptionsSectionProps) {
+  return (
+    <GroupList title="豆包识别选项">
+      <DoubaoOptionsRows {...props} />
     </GroupList>
   );
 }

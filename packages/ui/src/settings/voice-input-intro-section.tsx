@@ -105,13 +105,13 @@ export function VoiceInputIntroSection({
     <GroupList title="语音面板">
       <Row
         title="打开语音输入"
-        description={linux ? "录音和识别由已配置的 provider 服务完成" : "录音和识别在本机完成"}
+        description={linux ? "录音和识别由已配置的语音服务完成" : "录音和识别在本机完成"}
       >
         <OpenPanelButton action={onOpenVoice} className={`secondary ${settings.openButton}`} />
       </Row>
       {linux && (
         <p className={settings.groupNote}>
-          语音需要 provider 服务：录音、模型和凭据都由它负责，服务未运行时无法录音。
+          语音需要单独运行的语音服务：录音、模型和凭据都由它负责，服务未运行时无法录音。
         </p>
       )}
     </GroupList>

@@ -17,6 +17,7 @@ import { AiLinuxProviderSection } from "./ai-linux-provider-section";
 import { AiApiTokenSection } from "./ai-api-token-section";
 import { AiTestToolsSection } from "./ai-test-tools-section";
 import type { ProviderPresetControlFactory } from "./provider-preset-control";
+import * as settings from "./settings-style";
 
 export interface AiSettingsContentProps {
   disabled: boolean;
@@ -54,6 +55,8 @@ export interface AiSettingsContentProps {
   runProviderCredential: ReturnType<typeof useProviderCredentials>["runProviderCredential"];
   credentialTestControl: ReturnType<typeof useProviderCredentials>["credentialTestControl"];
   mcpConnect: ReactNode;
+  /** 设置窗口的 AI 辅助页传 true，见 `AiSettingsPageSectionProps.grouped`。 */
+  grouped?: boolean;
 }
 
 /** Complete AI settings composition; host state and provider operations stay with SettingsPage. */
@@ -91,9 +94,27 @@ export function AiSettingsContent({
   runProviderCredential,
   credentialTestControl,
   mcpConnect,
+  grouped = false,
 }: AiSettingsContentProps) {
+  const linuxCredentialTest = credentialTestControl(
+    "ai.assistant",
+    "测试 AI 辅助配置",
+    aiProviderCredentialTestConfig(ai),
+    aiCredentialTestDisabled(ai, aiOrigin),
+  );
+  const serviceCredentialTest =
+    windowsPlatform || macosPlatform || iosPlatform
+      ? credentialTestControl(
+          "ai.assistant",
+          "测试 AI 辅助配置",
+          aiServiceCredentialTestConfig(ai, aiToken),
+          aiServiceCredentialTestDisabled(ai, aiOrigin, aiToken),
+        )
+      : null;
   return (
     <AiSettingsPageSection
+      grouped={grouped}
+      endpointValid={aiOrigin !== null}
       disabled={disabled}
       hidden={hidden}
       enabled={ai.enabled}
@@ -113,6 +134,7 @@ export function AiSettingsContent({
         aiProviderOption(ai.provider),
         ai.model,
         (model) => updateAi({ model }),
+        grouped ? settings.managerBlock : undefined,
       )}
       onEnabledChange={(enabled) => updateAi({ enabled })}
       onProviderChange={(provider) => updateAi(aiProviderUpdate(provider, ai))}
@@ -121,6 +143,7 @@ export function AiSettingsContent({
       credentialSection={
         linuxPlatform && client.providerCredentials ? (
           <AiCredentialSection
+            grouped={grouped}
             endpoint={ai.endpoint}
             model={ai.model}
             origin={aiOrigin}
@@ -145,35 +168,24 @@ export function AiSettingsContent({
               )
             }
           >
-            {credentialTestControl(
-              "ai.assistant",
-              "测试 AI 辅助配置",
-              aiProviderCredentialTestConfig(ai),
-              aiCredentialTestDisabled(ai, aiOrigin),
-            )}
+            {!grouped && linuxCredentialTest}
           </AiCredentialSection>
         ) : linuxPlatform ? (
-          <AiLinuxProviderSection>
-            {credentialTestControl(
-              "ai.assistant",
-              "测试 AI 辅助配置",
-              aiProviderCredentialTestConfig(ai),
-              aiCredentialTestDisabled(ai, aiOrigin),
-            )}
+          <AiLinuxProviderSection grouped={grouped}>
+            {!grouped && linuxCredentialTest}
           </AiLinuxProviderSection>
         ) : (
-          <AiApiTokenSection origin={aiOrigin} token={aiToken} onTokenChange={updateAiToken} />
+          <AiApiTokenSection
+            grouped={grouped}
+            origin={aiOrigin}
+            token={aiToken}
+            onTokenChange={updateAiToken}
+          />
         )
       }
+      // 分组的页面把 Linux 的测试按钮也挪到服务组末尾，与其他平台一致；旧面板仍把它放在凭据卡片里。
       desktopCredentialTest={
-        windowsPlatform || macosPlatform || iosPlatform
-          ? credentialTestControl(
-              "ai.assistant",
-              "测试 AI 辅助配置",
-              aiServiceCredentialTestConfig(ai, aiToken),
-              aiServiceCredentialTestDisabled(ai, aiOrigin, aiToken),
-            )
-          : null
+        serviceCredentialTest ?? (grouped && linuxPlatform ? linuxCredentialTest : null)
       }
       modelCatalog={
         client.aiAssistant
@@ -203,6 +215,7 @@ export function AiSettingsContent({
       testTools={
         client.aiAssistant ? (
           <AiTestToolsSection
+            grouped={grouped}
             input={aiTestInput}
             busy={aiTestBusy}
             status={aiTestStatus}

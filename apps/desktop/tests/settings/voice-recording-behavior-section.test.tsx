@@ -38,7 +38,7 @@ test("forwards recording behavior changes", () => {
   expect(onMuteSystemAudioChange).toHaveBeenCalledWith(true);
 });
 
-test("describes Linux provider behavior", () => {
+test("names the group 录音行为 on Linux too and says where the options go", () => {
   render(
     <VoiceRecordingBehaviorSection
       linux
@@ -53,6 +53,7 @@ test("describes Linux provider behavior", () => {
     />,
   );
 
-  expect(screen.getByText("Linux provider 行为")).toBeTruthy();
+  expect(screen.getByText("录音行为")).toBeTruthy();
+  expect(screen.queryByText("Linux provider 行为")).toBeNull();
   expect(screen.getByText(/随请求传给用户管理的语音服务/)).toBeTruthy();
 });

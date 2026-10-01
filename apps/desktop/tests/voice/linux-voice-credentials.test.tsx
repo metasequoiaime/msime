@@ -149,6 +149,8 @@ test("Linux polishing credential names the provider and model selected above", a
     ],
   });
   await openVoice(credentials);
+  // 语音页在润色关闭时只留开关，凭据随润色一起展开。
+  fireEvent.click(await screen.findByRole("switch", { name: "启用文本润色" }));
   const group = await screen.findByRole("group", { name: "语音润色凭据" });
   await waitFor(() => expect(group.textContent).toContain("不一致"));
   // A stored token is kept: rebinding the model does not need it pasted again.

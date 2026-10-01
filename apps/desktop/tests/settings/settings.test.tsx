@@ -435,6 +435,12 @@ test("iOS exposes the shared offline candidate gloss setting", async () => {
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "手写输入" }));
+  // 每个平台只有一组：开启步骤、隐私说明和 SDK 隐私行都在这一组里，隐私文案只出现一次。
+  const handwriting = screen.getByRole("group", { name: "手写输入" });
+  expect(
+    [...handwriting.querySelectorAll("[data-group-title]")].map((node) => node.textContent),
+  ).toEqual(["iOS 键盘手写"]);
+  expect(within(handwriting).getAllByText(/笔迹和识别结果不会上传/)).toHaveLength(1);
   expect(screen.getByText(/首次在键盘中使用手写时下载中文模型/)).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "手写 SDK 隐私说明" }));
   await waitFor(() =>
@@ -2664,7 +2670,8 @@ test("dictionary fallback import uses 10000 by default and preserves an explicit
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
-  const manager = screen.getByRole("region", { name: "本地词库管理" });
+  // 导入在词库页的「导入与导出」组。
+  const manager = screen.getByRole("region", { name: "导入与导出" });
   fireEvent.change(within(manager).getByLabelText("导入"), {
     target: {
       files: [
@@ -5846,9 +5853,11 @@ const referenceSections: {
       "语音输入",
       // 来源：ASR API。
       "识别服务",
-      "豆包识别选项",
-      // 来源：文本润色 API。
-      "文本润色 provider",
+      // 来源的「豆包识别选项」一节并进了「识别服务配置」组，紧接豆包自己的设置；这里钉组名和其中一行。
+      "识别服务配置",
+      "数字格式化",
+      // 来源：文本润色 API。组名不带 provider 字样。
+      "文本润色",
       "录音时静音其他声音",
       // 来源：语音输入快捷键。三个长按组合的键名按平台改写（Option/Command 对 Alt/Win），
       // 所以这里只钉小节本身，键名由各自平台的用例覆盖。
@@ -5943,6 +5952,8 @@ test.each(referenceSections)(
             edit: vi.fn(),
           },
           scanSkinCatalog: vi.fn().mockResolvedValue({ directory: "", packages: [], issues: [] }),
+          // 桌面宿主都注入了这个动作（main.tsx），屏幕键盘页只在有它时才画「打开屏幕键盘」。
+          openScreenKeyboard: vi.fn(),
           // The capabilities `host_surface.rs` gives the Windows host, since these are the
           // reference's own sections: several of them are behind a capability and a bare fixture
           // would assert they are missing when the host simply never declared it.
@@ -6050,6 +6061,8 @@ test.each(referenceSections)(
             edit: vi.fn(),
           },
           scanSkinCatalog: vi.fn().mockResolvedValue({ directory: "", packages: [], issues: [] }),
+          // main.tsx 在 macOS 上同样注入它，见上一张表。
+          openScreenKeyboard: vi.fn(),
         }}
       />,
     );
@@ -6117,6 +6130,8 @@ const referenceOptions: {
   control: string;
   // A choice drawn as a segmented control is a radio group rather than a select.
   role?: "radiogroup";
+  // 控件所在的组收起时，先打开的那个开关（如语音页的文本润色）。
+  expand?: string;
   options: string[];
 }[] = [
   {
@@ -6232,6 +6247,8 @@ const referenceOptions: {
     page: "voice",
     button: "语音输入",
     control: "润色方案",
+    // 语音页在润色关闭时只留开关，方案随润色一起展开。
+    expand: "启用文本润色",
     options: ["精炼整理", "忠实校对", "中翻英", "口语整理", "自定义一", "自定义二", "自定义三"],
   },
   {
@@ -6281,7 +6298,7 @@ test.each(
   ),
 )(
   "$control offers the reference window's choices on $platform",
-  async ({ button, control, role, options, host }) => {
+  async ({ button, control, role, expand, options, host }) => {
     render(
       <SettingsPage
         client={{
@@ -6298,6 +6315,7 @@ test.each(
     );
     await settingsReady();
     fireEvent.click(screen.getByRole("button", { name: button }));
+    if (expand) fireEvent.click(await screen.findByRole("switch", { name: expand }));
     if (role === "radiogroup") {
       const group = await screen.findByRole("radiogroup", { name: control });
       expect(
@@ -8315,4 +8333,161 @@ test("a host without a repair keeps the unreadable-document message alone", asyn
   const alert = await screen.findByRole("alert");
   expect(alert.textContent).toContain("配置文件无法读取");
   expect(within(alert).queryByRole("button")).toBeNull();
+});
+
+const pageGroupTitles = (page: HTMLElement) =>
+  [...page.querySelectorAll("[data-group-title]")].map((node) => node.textContent ?? "");
+
+// 屏幕键盘页：预览在它影响的尺寸滑块上方，工具栏从尺寸组拆出来，跳到主题的入口放在最后。
+test("the screen-keyboard page puts the preview above the size controls", async () => {
+  render(
+    <SettingsPage
+      initialPage="screen-keyboard"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        openScreenKeyboard: vi.fn().mockResolvedValue(undefined),
+      }}
+    />,
+  );
+  await settingsReady();
+  const page = screen.getByRole("group", { name: "屏幕键盘" });
+  expect(pageGroupTitles(page)).toEqual(["屏幕键盘", "尺寸", "工具栏", "外观"]);
+  const keyboard = within(page).getByRole("region", { name: "屏幕键盘" });
+  expect(within(keyboard).getByText("打开屏幕键盘")).toBeTruthy();
+  expect(within(keyboard).getByLabelText("屏幕键盘预览")).toBeTruthy();
+  expect(within(page).getByRole("region", { name: "工具栏" }).textContent).toContain(
+    "顶部语音入口",
+  );
+  expect(within(page).getByRole("region", { name: "尺寸" }).textContent).not.toMatch(
+    /Apple|Engine/,
+  );
+});
+
+test("the screen-keyboard page offers no launch button the host cannot honour", async () => {
+  render(
+    <SettingsPage
+      initialPage="screen-keyboard"
+      client={{ load: vi.fn().mockResolvedValue(initial), save: vi.fn() }}
+    />,
+  );
+  await settingsReady();
+  const page = screen.getByRole("group", { name: "屏幕键盘" });
+  expect(within(page).queryByText("打开屏幕键盘")).toBeNull();
+  expect(within(page).getByLabelText("屏幕键盘预览")).toBeTruthy();
+});
+
+// 词库页：先是词库本身，再是导入导出，然后是词库信息和背单词入口，清除学习数据放在页末。
+test("the dictionary page ends with the learning data reset", async () => {
+  render(
+    <SettingsPage
+      initialPage="dictionary"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        resetLearnedData: vi.fn().mockResolvedValue(undefined),
+        dictionary: {
+          list: vi.fn().mockResolvedValue({ entries: [], has_more: false }),
+          edit: vi.fn(),
+          importPersonal: vi.fn(),
+        },
+        host: { platform: "windows" } as HostCapabilities,
+      }}
+    />,
+  );
+  await settingsReady();
+  const page = screen.getByRole("group", { name: "词库" });
+  const groups = pageGroupTitles(page);
+  const expected = ["本地词库管理", "导入与导出", "更多", "学习数据"];
+  expect(groups.filter((title) => expected.includes(title))).toEqual(
+    expected.filter((title) => title !== "更多" || groups.includes("更多")),
+  );
+  expect(groups.at(-1)).toBe("学习数据");
+  const transfer = within(page).getByRole("region", { name: "导入与导出" });
+  expect(within(transfer).getByLabelText("本地词库文件格式")).toBeTruthy();
+  expect(within(transfer).getByRole("group", { name: "个人词库文件" })).toBeTruthy();
+  expect(within(page).getByRole("region", { name: "本地词库管理" }).textContent).not.toContain(
+    "Engine",
+  );
+});
+
+// 清除学习数据只看宿主有没有提供这个动作，不再限于 macOS。
+test.each(["windows", "linux"])("%s offers the learning data reset too", async (platform) => {
+  render(
+    <SettingsPage
+      initialPage="dictionary"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        resetLearnedData: vi.fn().mockResolvedValue(undefined),
+        dictionary: {} as never,
+        host: { platform } as HostCapabilities,
+      }}
+    />,
+  );
+  await screen.findByRole("region", { name: "学习数据" });
+  expect(screen.getByRole("button", { name: "清除全部学习数据" })).toBeTruthy();
+});
+
+test("a host without the reset has no learning data group", async () => {
+  render(
+    <SettingsPage
+      initialPage="dictionary"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        dictionary: {} as never,
+        host: { platform: "macos" } as HostCapabilities,
+      }}
+    />,
+  );
+  await settingsReady();
+  expect(screen.queryByRole("region", { name: "学习数据" })).toBeNull();
+});
+
+// AI 辅助页用和其他页一样的分组：服务 → 联想 → 提示词 → 测试工具，接口地址收在「更多选项」里，提示词只显示所选槽位的一段。
+test("the AI page is grouped like the other pages", async () => {
+  render(
+    <SettingsPage
+      initialPage="ai"
+      client={{
+        load: vi.fn().mockResolvedValue({
+          ...initial,
+          preferences: {
+            ...initial.preferences,
+            ai_assistant: {
+              enabled: true,
+              provider: "deepseek",
+              model: "deepseek-v4-flash",
+              endpoint: "https://api.deepseek.com/chat/completions",
+              candidate_limit: 3,
+              token: "",
+              tokens: {},
+              prompt_id: "custom_2",
+              prompt_custom_1: "",
+              prompt_custom_2: "second",
+              prompt_custom_3: "",
+            },
+          },
+        }),
+        save: vi.fn(),
+        aiAssistant: { models: vi.fn(), complete: vi.fn() } as never,
+        host: { platform: "windows" } as HostCapabilities,
+      }}
+    />,
+  );
+  await settingsReady();
+  const page = screen.getByRole("group", { name: "AI 辅助" });
+  expect(page.querySelector(".section")).toBeNull();
+  expect(pageGroupTitles(page)).toEqual(["服务", "联想", "提示词", "测试工具"]);
+  const endpoint = within(page).getByLabelText("AI 接口地址");
+  const more = endpoint.closest("details");
+  expect(more).not.toBeNull();
+  expect(more!.open).toBe(false);
+  expect(within(page).getByRole("region", { name: "联想" }).textContent).toContain("候选数量");
+  expect((within(page).getByLabelText("自定义提示词二") as HTMLTextAreaElement).value).toBe(
+    "second",
+  );
+  expect(within(page).queryByLabelText("自定义提示词一")).toBeNull();
+  expect(within(page).queryByLabelText("自定义提示词三")).toBeNull();
 });

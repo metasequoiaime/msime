@@ -40,15 +40,37 @@ export function ScreenKeyboardSettingsPage() {
   return (
     <fieldset disabled={busy} hidden={page !== "screen-keyboard"} aria-label="屏幕键盘">
       <div className={settings.groups}>
-        {/* The keyboard's own light/dark override sits with the other per-surface overrides under 主题 › 高级 (dc.html); this row only points there. */}
-        <GroupList title="外观">
-          <LinkRow
-            title="屏幕键盘外观"
-            description="主题与明暗外观在「主题」页的「高级」中设置"
-            onClick={() => selectPage("skin")}
-          />
+        {/* The preview sits above the size controls it shows; the drag on it adjusts the same spacing. The launch button only exists where the host can raise its own screen keyboard panel. */}
+        <GroupList title="屏幕键盘">
+          {client.openScreenKeyboard && (
+            <Row title="打开屏幕键盘" description="使用鼠标或触控方式输入文字与快捷按键">
+              <OpenPanelButton
+                action={() => openPanel(client.openScreenKeyboard)}
+                className={`secondary ${settings.openButton}`}
+              />
+            </Row>
+          )}
+          <div className={settings.groupPreview} aria-label="屏幕键盘预览">
+            <div className={settings.panelPreviewLabel}>预览</div>
+            <div
+              aria-label="拖动预览调整键盘间距"
+              onPointerDown={beginTouchGeometryDrag}
+              onPointerMove={updateTouchGeometryDrag}
+              onPointerUp={endTouchGeometryDrag}
+              onPointerCancel={endTouchGeometryDrag}
+              style={{ touchAction: "none" }}
+            >
+              <ScreenKeyboardPreview
+                theme={keyboardPreviewTheme}
+                skin={keyboardThemeId(globalTheme, draft.custom_theme)}
+                customDesign={customTouchKeyboardSkin}
+                keySpacingTenths={touchKeySpacingTenths}
+                rowSpacingTenths={touchRowSpacingTenths}
+                heightAdjustment={touchKeyboardHeightAdjustment}
+              />
+            </div>
+          </div>
         </GroupList>
-        {/* The global theme, 我的皮肤 and its editor are on the 主题 page, which is where the design picks the keyboard's look along with every other surface's. */}
         <TouchKeyboardGeometrySection
           heightAdjustment={touchKeyboardHeightAdjustment}
           keySpacingTenths={touchKeySpacingTenths}
@@ -89,35 +111,13 @@ export function ScreenKeyboardSettingsPage() {
           onChange={(value) => void saveMobileKeyboardFeedback(value)}
           onPreview={() => void previewMobileKeyboardHaptics()}
         />
-        <GroupList title="屏幕键盘">
-          <Row title="打开屏幕键盘" description="使用鼠标或触控方式输入文字与快捷按键">
-            <OpenPanelButton
-              action={
-                client.openScreenKeyboard ? () => openPanel(client.openScreenKeyboard) : undefined
-              }
-              className={`secondary ${settings.openButton}`}
-            />
-          </Row>
-          <div className={settings.groupPreview} aria-label="屏幕键盘预览">
-            <div className={settings.panelPreviewLabel}>预览</div>
-            <div
-              aria-label="拖动预览调整键盘间距"
-              onPointerDown={beginTouchGeometryDrag}
-              onPointerMove={updateTouchGeometryDrag}
-              onPointerUp={endTouchGeometryDrag}
-              onPointerCancel={endTouchGeometryDrag}
-              style={{ touchAction: "none" }}
-            >
-              <ScreenKeyboardPreview
-                theme={keyboardPreviewTheme}
-                skin={keyboardThemeId(globalTheme, draft.custom_theme)}
-                customDesign={customTouchKeyboardSkin}
-                keySpacingTenths={touchKeySpacingTenths}
-                rowSpacingTenths={touchRowSpacingTenths}
-                heightAdjustment={touchKeyboardHeightAdjustment}
-              />
-            </div>
-          </div>
+        {/* The keyboard's own light/dark override sits with the other per-surface overrides under 主题 › 高级 (dc.html); this row only points there. The global theme, 我的皮肤 and its editor are on the 主题 page too. */}
+        <GroupList title="外观">
+          <LinkRow
+            title="屏幕键盘外观"
+            description="主题与明暗外观在「主题」页的「高级」中设置"
+            onClick={() => selectPage("skin")}
+          />
         </GroupList>
       </div>
     </fieldset>

@@ -55,5 +55,5 @@ test("describes provider-side options", () => {
     />,
   );
 
-  expect(screen.getByText("由 provider 服务应用")).toBeTruthy();
+  expect(screen.getByText("以下豆包识别选项由语音服务应用")).toBeTruthy();
 });

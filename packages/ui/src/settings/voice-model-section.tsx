@@ -10,7 +10,7 @@ export function VoiceModelSection({ value, onChange }: VoiceModelSectionProps) {
   return (
     <TextInputRow
       title="识别模型"
-      description="由 provider 服务选择对应模型"
+      description="由语音服务选择对应模型"
       label="识别模型"
       value={value}
       onChange={onChange}

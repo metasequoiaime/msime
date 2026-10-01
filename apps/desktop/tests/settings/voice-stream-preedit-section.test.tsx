@@ -15,5 +15,5 @@ test("forwards the streaming preedit toggle", () => {
   fireEvent.click(screen.getByLabelText("流式预编辑"));
 
   expect(onChange).toHaveBeenCalledWith(false);
-  expect(screen.getByText(/provider 支持时显示实时识别片段/)).toBeTruthy();
+  expect(screen.getByText(/识别服务支持时显示实时识别片段/)).toBeTruthy();
 });

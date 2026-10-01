@@ -27,7 +27,7 @@ export function VoiceRecordingBehaviorSection({
   onMuteSystemAudioChange,
 }: VoiceRecordingBehaviorSectionProps) {
   return (
-    <GroupList title={linux ? "Linux provider 行为" : "录音行为"}>
+    <GroupList title="录音行为">
       <p className={settings.groupNote}>
         {linux
           ? "这些选项会随请求传给用户管理的语音服务，不包含凭据"
