@@ -17,7 +17,7 @@ export const field = "flex flex-col gap-[7px] text-xs text-secondary";
 export const input =
   "min-h-[38px] w-full rounded-lg border border-control-border bg-[var(--dropdown-bg)] px-2.5 py-[7px] font-[inherit] text-body focus:border-accent";
 export const primary =
-  "w-fit rounded-lg border border-accent-soft-border bg-accent-strong px-3.5 py-[7px] text-white";
+  "w-fit whitespace-nowrap rounded-lg border border-accent-soft-border bg-accent-strong px-3.5 py-[7px] text-white disabled:opacity-60";
 /** A row of buttons that wraps rather than overflowing; every account surface uses the same one. */
 export const actionRow =
   "flex flex-wrap items-center gap-[9px] [&>.secondary]:m-0 [&>.danger-text]:m-0";
@@ -69,8 +69,23 @@ export const modalHeading = "flex items-center justify-between gap-3 [&>h2]:m-0"
 
 /** Two columns of facts, one on a phone where a value would otherwise be squeezed to a few glyphs. */
 export const details =
-  "m-0 grid grid-cols-2 gap-3 pt-1 max-phone:grid-cols-1 [&>div]:min-w-0 [&>div]:rounded-lg [&>div]:bg-subtle [&>div]:p-3 [&_dt]:text-xs [&_dt]:[color:var(--p-sub)] [&_dd]:mt-[5px] [&_dd]:mb-0 [&_dd]:break-anywhere [&_dd]:[color:var(--p-text)]";
+  "m-0 grid grid-cols-2 gap-3 pt-1 max-phone:grid-cols-1 [&>div]:min-w-0 [&>div]:rounded-lg [&>div]:bg-subtle [&>div]:p-3 [&_dt]:text-xs [&_dt]:[color:var(--p-sub)] [&_dd]:mt-[5px] [&_dd]:mb-0 [&_dd]:ml-0 [&_dd]:break-anywhere [&_dd]:[color:var(--p-text)]";
 export const code = "flex flex-col gap-3 pt-0.5";
+
+// ---- the signed-in settings, drawn as the platform's grouped rows ----
+
+export const rowInput =
+  "h-7 w-[220px] max-w-full min-w-0 rounded-md border border-control-border bg-[var(--dropdown-bg)] px-2 font-[inherit] text-[13px] text-body focus:border-accent max-phone:w-[140px]";
+export const rowValue = "[font-size:var(--p-row-fs)] [color:var(--p-sub)]";
+export const rowButton = "secondary m-0 whitespace-nowrap";
+/** The destructive action in a row: a bordered button in the danger colour, so it reads as a button beside its neighbours rather than as stray red text. */
+export const rowDanger =
+  "m-0 cursor-pointer whitespace-nowrap rounded-lg border border-[var(--border-color)] bg-[var(--button-secondary-bg)] px-3 py-[7px] text-danger not-disabled:hover:bg-[var(--button-secondary-hover)] disabled:cursor-default disabled:opacity-60";
+export const dangerButton =
+  "cursor-pointer whitespace-nowrap rounded-lg border border-danger bg-danger px-3.5 py-[7px] text-white disabled:cursor-default disabled:opacity-60";
+/** Something that belongs to a group but is not a row of its own, such as a confirmation, given the row's surface and padding. */
+export const rowBlock = "bg-[var(--p-row-bg)] [padding:var(--p-row-pad)]";
+export const footnote = "m-0 px-1 text-xs leading-relaxed [color:var(--p-sub)]";
 export const confirmation = "rounded-lg border border-edge bg-subtle p-3.5 [&>p]:mt-0 [&>p]:mb-3";
 
 export const communityActions =

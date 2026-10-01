@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { runAsyncAction } from "../core/async-action";
-import { GroupList } from "../core/platform-controls";
+import { GroupList, Row } from "../core/platform-controls";
 import * as doc from "../settings/document-style";
 import * as account from "./account-style";
 import { accountProviderName, preferredAccountName } from "./account-labels";
@@ -596,7 +596,7 @@ function SettingsSyncCard({ client, userId }: { client: SettingsSyncClient; user
               ? "将更新云端对应设置，并保留其他平台专属设置。版本冲突时不会自动覆盖。"
               : "将替换本机对应设置，不会下载词库或开启数据上传。"}
           </p>
-          <div>
+          <div className={account.actionRow}>
             <button
               type="button"
               className={account.primary}
@@ -1298,268 +1298,222 @@ function AccountDetailsPage({
           platform={platform === "harmony" ? undefined : platform}
         />
       )}
-      {!mobile && onOpenLocalDesigns && (
-        <section className={`${account.section} ${account.communityActions}`}>
-          <div>
-            <h2 className={account.heading}>我的设计</h2>
-            <p className={account.note}>保存在本机的键盘皮肤，不会因登录账号而上传。</p>
-          </div>
-          <button type="button" className="secondary" disabled={busy} onClick={onOpenLocalDesigns}>
-            打开设计器
-          </button>
-        </section>
-      )}
-      {user && (
-        <>
-          {!mobile && (
-            <section className={`${account.section} ${account.stack}`}>
-              <div>
-                <h2 className={account.heading}>个人资料</h2>
-                <p className={account.note}>昵称会显示在社区作品中，已发布的作品也会同步更新。</p>
-              </div>
-              <label className={account.field}>
-                社区昵称
-                <input
-                  className={account.input}
-                  aria-label="社区昵称"
-                  maxLength={64}
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  disabled={busy}
-                />
-              </label>
-              <div className={account.actionRow}>
-                <button
-                  type="button"
-                  className={account.primary}
-                  disabled={busy || name.trim() === user.displayName}
-                  onClick={rename}
-                >
-                  {busy ? "正在处理…" : "保存昵称"}
-                </button>
-              </div>
-              <dl className={account.details}>
-                <div>
-                  <dt>账号 ID</dt>
-                  <dd>#{user.id.slice(0, 6).toUpperCase()}</dd>
-                </div>
-                <div>
-                  <dt>登录方式</dt>
-                  <dd>{profile?.providers.map(accountProviderName).join("、") || "正在读取"}</dd>
-                </div>
-              </dl>
-            </section>
-          )}
-          {!mobile && editingProfile && (
-            <div
-              className={account.modalBackdrop}
-              role="presentation"
-              onMouseDown={(event) => {
-                if (event.target === event.currentTarget && !busy) setEditingProfile(false);
-              }}
+      {user && !mobile && (
+        <GroupList title="个人资料">
+          <Row title="社区昵称" description="显示在社区作品中，已发布的作品也会同步更新。">
+            <input
+              className={account.rowInput}
+              aria-label="社区昵称"
+              maxLength={64}
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              disabled={busy}
+            />
+            <button
+              type="button"
+              className={account.primary}
+              disabled={busy || name.trim() === user.displayName}
+              onClick={rename}
             >
-              <section
-                className={account.modal}
-                role="dialog"
-                aria-modal="true"
-                aria-label="编辑个人资料"
+              保存昵称
+            </button>
+          </Row>
+          <Row title="账号 ID">
+            <button type="button" className={account.copyId} onClick={copyAccountId}>
+              {copiedAccountId ? "已复制" : `#${user.id.slice(0, 6).toUpperCase()}`}
+            </button>
+          </Row>
+          <Row title="登录方式">
+            <span className={account.rowValue}>
+              {profile?.providers.map(accountProviderName).join("、") || "正在读取"}
+            </span>
+          </Row>
+        </GroupList>
+      )}
+      {user && !mobile && editingProfile && (
+        <div
+          className={account.modalBackdrop}
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !busy) setEditingProfile(false);
+          }}
+        >
+          <section
+            className={account.modal}
+            role="dialog"
+            aria-modal="true"
+            aria-label="编辑个人资料"
+          >
+            <div className={account.modalHeading}>
+              <h2 className={account.heading}>编辑资料</h2>
+              <button
+                type="button"
+                className="secondary"
+                disabled={busy}
+                onClick={() => setEditingProfile(false)}
               >
-                <div className={account.modalHeading}>
-                  <h2 className={account.heading}>编辑资料</h2>
-                  <button
-                    type="button"
-                    className="secondary"
-                    disabled={busy}
-                    onClick={() => setEditingProfile(false)}
-                  >
-                    关闭
+                关闭
+              </button>
+            </div>
+            <div className={account.profilePreview}>
+              <div className={account.avatar("small")} aria-hidden="true">
+                {preferredAccountName(user).slice(0, 1)}
+              </div>
+              <strong>{name.trim() || "你的昵称"}</strong>
+            </div>
+            <label className={account.field}>
+              社区昵称
+              <input
+                className={account.input}
+                aria-label="编辑社区昵称"
+                maxLength={64}
+                value={name}
+                disabled={busy}
+                onChange={(event) => setName(event.target.value)}
+              />
+            </label>
+            <p className={account.muted}>昵称会显示在社区作品中，已发布的作品也会同步更新。</p>
+            <dl className={account.details}>
+              <div>
+                <dt>账号 ID</dt>
+                <dd>
+                  <button type="button" className={account.copyId} onClick={copyAccountId}>
+                    {copiedAccountId ? "已复制" : `#${user.id.slice(0, 6).toUpperCase()}`}
                   </button>
-                </div>
-                <div className={account.profilePreview}>
-                  <div className={account.avatar("small")} aria-hidden="true">
-                    {preferredAccountName(user).slice(0, 1)}
-                  </div>
-                  <strong>{name.trim() || "你的昵称"}</strong>
-                </div>
-                <label className={account.field}>
-                  社区昵称
-                  <input
-                    className={account.input}
-                    aria-label="编辑社区昵称"
-                    maxLength={64}
-                    value={name}
-                    disabled={busy}
-                    onChange={(event) => setName(event.target.value)}
-                  />
-                </label>
-                <p className={account.muted}>昵称会显示在社区作品中，已发布的作品也会同步更新。</p>
-                <dl className={account.details}>
-                  <div>
-                    <dt>账号 ID</dt>
-                    <dd>
-                      <button type="button" className={account.copyId} onClick={copyAccountId}>
-                        {copiedAccountId ? "已复制" : `#${user.id.slice(0, 6).toUpperCase()}`}
-                      </button>
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>登录方式</dt>
-                    <dd>{profile?.providers.map(accountProviderName).join("、") || "正在读取"}</dd>
-                  </div>
-                  <div>
-                    <dt>加入水杉</dt>
-                    <dd>{new Date(user.createdAt).toLocaleDateString("zh-CN")}</dd>
-                  </div>
-                </dl>
-                <div className={account.actionRow}>
-                  <button
-                    type="button"
-                    className={account.primary}
-                    disabled={busy || name.trim() === user.displayName}
-                    onClick={() => {
-                      rename();
-                      setEditingProfile(false);
-                    }}
-                  >
-                    保存修改
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary"
-                    disabled={busy}
-                    onClick={() => setEditingProfile(false)}
-                  >
-                    取消
-                  </button>
-                </div>
-              </section>
+                </dd>
+              </div>
+              <div>
+                <dt>登录方式</dt>
+                <dd>{profile?.providers.map(accountProviderName).join("、") || "正在读取"}</dd>
+              </div>
+              <div>
+                <dt>加入水杉</dt>
+                <dd>{new Date(user.createdAt).toLocaleDateString("zh-CN")}</dd>
+              </div>
+            </dl>
+            <div className={account.actionRow}>
+              <button
+                type="button"
+                className={account.primary}
+                disabled={busy || name.trim() === user.displayName}
+                onClick={() => {
+                  rename();
+                  setEditingProfile(false);
+                }}
+              >
+                保存修改
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                disabled={busy}
+                onClick={() => setEditingProfile(false)}
+              >
+                取消
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+      {user && !mobile && client.settingsSync && (
+        <SettingsSyncCard client={client.settingsSync} userId={user.id} />
+      )}
+      {user && !mobile && (onOpenCloudDictionary || onOpenCloudClipboard) && (
+        <GroupList title="云端">
+          {onOpenCloudDictionary && (
+            <MeRow title="云词库" disabled={busy} onClick={onOpenCloudDictionary} />
+          )}
+          {onOpenCloudClipboard && (
+            <MeRow title="云剪贴板" disabled={busy} onClick={onOpenCloudClipboard} />
+          )}
+        </GroupList>
+      )}
+      {!mobile && (onOpenLocalDesigns || (user && (openPublishedSkins || onOpenCommunity))) && (
+        <GroupList title="我的内容">
+          {onOpenLocalDesigns && (
+            <Row title="我的设计" description="保存在本机的键盘皮肤，不会因登录账号而上传。">
+              <button
+                type="button"
+                className={account.rowButton}
+                disabled={busy}
+                onClick={onOpenLocalDesigns}
+              >
+                打开设计器
+              </button>
+            </Row>
+          )}
+          {user && openPublishedSkins && (
+            <MeRow title="我发布的皮肤" disabled={busy} onClick={openPublishedSkins} />
+          )}
+          {user && onOpenCommunity && (
+            <>
+              <MeRow
+                title="我发布的词库"
+                disabled={busy}
+                onClick={() => onOpenCommunity("published-dictionary")}
+              />
+              <MeRow
+                title="我发布的回复"
+                disabled={busy}
+                onClick={() => onOpenCommunity("published-reply")}
+              />
+              <MeRow
+                title="收藏的词库"
+                disabled={busy}
+                onClick={() => onOpenCommunity("saved-dictionary")}
+              />
+              <MeRow
+                title="收藏的回复"
+                disabled={busy}
+                onClick={() => onOpenCommunity("saved-reply")}
+              />
+            </>
+          )}
+        </GroupList>
+      )}
+      {user && !mobile && (
+        <GroupList title="账号">
+          <Row title="这台设备" description="退出后，社区功能需要重新登录才能使用。">
+            <button
+              type="button"
+              className={account.rowButton}
+              disabled={busy}
+              onClick={() => signOut(false)}
+            >
+              退出登录
+            </button>
+          </Row>
+          <Row title="所有设备" description="所有已登录的设备都需要重新登录。">
+            <button
+              type="button"
+              className={account.rowButton}
+              disabled={busy}
+              onClick={() => setConfirmation("logout-all")}
+            >
+              退出所有设备
+            </button>
+          </Row>
+          <Row title="删除账号" description="删除账号及已发布的作品、评分等云端数据，无法撤销。">
+            <button
+              type="button"
+              className={account.rowDanger}
+              disabled={busy}
+              onClick={() => setConfirmation("delete")}
+            >
+              注销账号
+            </button>
+          </Row>
+          {confirmation && (
+            <div className={account.rowBlock}>
+              <AccountConfirmation
+                action={confirmation}
+                busy={busy}
+                onConfirm={() => (confirmation === "delete" ? deleteAccount() : signOut(true))}
+                onCancel={() => setConfirmation(null)}
+              />
             </div>
           )}
-          {!mobile && (
-            <section className={`${account.section} ${account.stack}`}>
-              <h2 className={account.heading}>账号</h2>
-              <div>
-                <button
-                  type="button"
-                  className="secondary"
-                  disabled={busy}
-                  onClick={() => signOut(false)}
-                >
-                  退出登录
-                </button>
-                <button
-                  type="button"
-                  className="secondary"
-                  disabled={busy}
-                  onClick={() => setConfirmation("logout-all")}
-                >
-                  退出所有设备
-                </button>
-                <button
-                  type="button"
-                  className="danger-text"
-                  disabled={busy}
-                  onClick={() => setConfirmation("delete")}
-                >
-                  注销账号
-                </button>
-              </div>
-              {confirmation && (
-                <AccountConfirmation
-                  action={confirmation}
-                  busy={busy}
-                  onConfirm={() => (confirmation === "delete" ? deleteAccount() : signOut(true))}
-                  onCancel={() => setConfirmation(null)}
-                />
-              )}
-            </section>
-          )}
-          {!mobile && client.settingsSync && (
-            <SettingsSyncCard client={client.settingsSync} userId={user.id} />
-          )}
-          {!mobile && (onOpenCloudDictionary || onOpenCloudClipboard) && (
-            <section className={`${account.section} ${account.communityActions}`}>
-              <div>
-                <h2 className={account.heading}>云端</h2>
-                <p className={account.note}>访问账号中的云词库和云剪贴板。</p>
-              </div>
-              {onOpenCloudDictionary && (
-                <button
-                  type="button"
-                  className="secondary"
-                  disabled={busy}
-                  onClick={onOpenCloudDictionary}
-                >
-                  云词库
-                </button>
-              )}
-              {onOpenCloudClipboard && (
-                <button
-                  type="button"
-                  className="secondary"
-                  disabled={busy}
-                  onClick={onOpenCloudClipboard}
-                >
-                  云剪贴板
-                </button>
-              )}
-            </section>
-          )}
-          {!mobile && (openPublishedSkins || onOpenCommunity) && (
-            <section className={`${account.section} ${account.communityActions}`}>
-              <div>
-                <h2 className={account.heading}>我的社区作品</h2>
-                <p className={account.note}>管理你公开发布或收藏的社区作品。</p>
-              </div>
-              {openPublishedSkins && (
-                <button
-                  type="button"
-                  className="secondary"
-                  disabled={busy}
-                  onClick={openPublishedSkins}
-                >
-                  我发布的皮肤
-                </button>
-              )}
-              {onOpenCommunity && (
-                <>
-                  <button
-                    type="button"
-                    className="secondary"
-                    disabled={busy}
-                    onClick={() => onOpenCommunity("published-dictionary")}
-                  >
-                    我发布的词库
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary"
-                    disabled={busy}
-                    onClick={() => onOpenCommunity("published-reply")}
-                  >
-                    我发布的回复
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary"
-                    disabled={busy}
-                    onClick={() => onOpenCommunity("saved-dictionary")}
-                  >
-                    收藏的词库
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary"
-                    disabled={busy}
-                    onClick={() => onOpenCommunity("saved-reply")}
-                  >
-                    收藏的回复
-                  </button>
-                </>
-              )}
-            </section>
-          )}
-        </>
+        </GroupList>
       )}
       {mobile && (
         // The design's 我的 groups (dc.html `meGroups`), less the rows with nothing behind them (我的设备, 隐私, 开屏动画) and the ones the 设置 list already holds (词库, 自造词). The account's own settings stay on the profile page behind the card above.
@@ -1622,44 +1576,29 @@ function AccountDetailsPage({
           />
         </>
       )}
-      {!mobile && (onOpenAbout || onOpenDesktopDownload) && (
-        <section className={`${account.section} ${account.communityActions}`}>
-          <div>
-            <h2 className={account.heading}>关于</h2>
-            <p className={account.note}>查看水杉版本信息、开源说明和其他平台下载指南。</p>
-          </div>
-          <div className={account.actionRow}>
-            {onOpenAbout && (
-              <button type="button" className="secondary" disabled={busy} onClick={onOpenAbout}>
-                关于水杉
-              </button>
-            )}
-            {onOpenDesktopDownload && (
-              <button
-                type="button"
-                className="secondary"
-                disabled={busy}
-                onClick={onOpenDesktopDownload}
-              >
-                电脑版下载
-              </button>
-            )}
-          </div>
-        </section>
+      {!mobile && (onOpenAbout || onOpenDesktopDownload || onReplayOnboarding) && (
+        <GroupList title="关于">
+          {onOpenAbout && <MeRow title="关于水杉" disabled={busy} onClick={onOpenAbout} />}
+          {onOpenDesktopDownload && (
+            <MeRow title="电脑版下载" disabled={busy} onClick={onOpenDesktopDownload} />
+          )}
+          {onReplayOnboarding && (
+            <MeRow title="重新查看新手引导" disabled={busy} onClick={onReplayOnboarding} />
+          )}
+        </GroupList>
       )}
-      {!mobile && onReplayOnboarding && (
-        <section className={`${account.section} ${account.actionRow}`}>
-          <button type="button" className="secondary" disabled={busy} onClick={onReplayOnboarding}>
-            重新查看新手引导
-          </button>
+      {mobile ? (
+        <section className={`${account.section} ${account.stack}`}>
+          <h2 className={account.heading}>本地数据与云端作品</h2>
+          <p className={account.note}>
+            皮肤设计和打字统计保存在本机。只有你主动发布的作品会分享至社区；账号登录不会自动上传本地设计或输入记录。
+          </p>
         </section>
-      )}
-      <section className={`${account.section} ${account.stack}`}>
-        <h2 className={account.heading}>本地数据与云端作品</h2>
-        <p className={account.note}>
+      ) : (
+        <p className={account.footnote}>
           皮肤设计和打字统计保存在本机。只有你主动发布的作品会分享至社区；账号登录不会自动上传本地设计或输入记录。
         </p>
-      </section>
+      )}
     </div>
   );
 }

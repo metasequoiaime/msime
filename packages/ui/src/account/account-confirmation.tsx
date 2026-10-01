@@ -40,10 +40,10 @@ export function AccountConfirmation({
   return (
     <div className={account.confirmation} role="alertdialog" aria-label={detail.label}>
       <p className={account.note}>{detail.message}</p>
-      <div>
+      <div className={account.actionRow}>
         <button
           type="button"
-          className={action === "delete" ? "danger-text" : "account-primary"}
+          className={action === "delete" ? account.dangerButton : account.primary}
           disabled={busy}
           onClick={onConfirm}
         >
