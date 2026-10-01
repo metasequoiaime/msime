@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { runAsyncAction } from "../core/async-action";
 import { CredentialTestSection, type CredentialTestState } from "./credential-test-section";
 import { providerCredentialErrorMessage } from "./credential-utils";
 import type {
@@ -85,32 +86,38 @@ export function useProviderCredentials({ client }: UseProviderCredentialsOptions
     config: Record<string, unknown>,
   ) => {
     if (!client.testApiCredential) return;
+    if (credentialTests[service]?.busy) return;
     const signature = JSON.stringify(config);
     const generation = (credentialTestGeneration.current[service] ?? 0) + 1;
     credentialTestGeneration.current[service] = generation;
-    setCredentialTests((current) => ({
-      ...current,
-      [service]: { signature, busy: true, message: "" },
-    }));
-    try {
-      const result = await client.testApiCredential(service, config);
-      if (credentialTestGeneration.current[service] !== generation) return;
+    const update = (patch: { busy: boolean; ok?: boolean; message: string }) =>
       setCredentialTests((current) => ({
         ...current,
-        [service]: { signature, busy: false, ...result },
+        [service]: { signature, ...patch },
       }));
-    } catch {
-      if (credentialTestGeneration.current[service] !== generation) return;
-      setCredentialTests((current) => ({
-        ...current,
-        [service]: {
-          signature,
-          busy: false,
-          ok: false,
-          message: "无法连接 provider，请确认服务已启动。",
-        },
-      }));
-    }
+    await runAsyncAction(
+      {
+        busy: false,
+        isCurrent: () => credentialTestGeneration.current[service] === generation,
+        setBusy: (busy) =>
+          setCredentialTests((current) => ({
+            ...current,
+            [service]: {
+              ...(current[service]?.signature === signature ? current[service] : {}),
+              signature,
+              busy,
+            },
+          })),
+        setError: (message) =>
+          update(message ? { busy: true, ok: false, message } : { busy: true, message }),
+      },
+      async (isCurrent) => {
+        const result = await client.testApiCredential!(service, config);
+        if (!isCurrent()) return;
+        update({ busy: true, ...result });
+      },
+      { formatError: () => "无法连接 provider，请确认服务已启动。" },
+    );
   };
 
   const runProviderCredential = async (
