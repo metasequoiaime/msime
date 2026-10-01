@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Scheme traits agree across the engine, the macOS host and the settings page.
+"""Scheme traits agree across the engine, the macOS and Linux hosts and the settings page.
 
-The engine's `SchemeType` const fns (crates/engine/src/types.rs) are the one source of truth for what differs between input schemes, and input-runtime and host-api call them directly. Two places cannot: the macOS controller decides from a view's `scheme` number in C++, so `InputSchemeTraits.h` copies the predicates the view does not publish, and the settings page is TypeScript, so it keeps its own lists of which schemes are Chinese. Each copy compiles and passes its own tests on its own values, and a scheme added or moved on one side alone shows up only as a key that behaves like the wrong language.
+The engine's `SchemeType` const fns (crates/engine/src/types.rs) are the one source of truth for what differs between input schemes, and input-runtime and host-api call them directly. Two places cannot: the macOS controller and the Linux IBus and Fcitx5 hosts decide from a view's `scheme` number in C++, so each platform's `InputSchemeTraits.h` copies the predicates the view does not publish, and the settings page is TypeScript, so it keeps its own lists of which schemes are Chinese. Each copy compiles and passes its own tests on its own values, and a scheme added or moved on one side alone shows up only as a key that behaves like the wrong language.
 
 The Android input service decides from the same number in Java, so `InputSchemeTraits.java` copies the predicates it needs the same way and is checked the same way as the header.
 
@@ -9,11 +9,11 @@ The HarmonyOS keyboard decides from the number in ArkTS, so `SchemeTraits.ts` co
 
 This reads all of them and checks:
 
-- the header's, the Android copy's and the Harmony copy's scheme constants are the engine ordinals;
+- each header's, the Android copy's and the Harmony copy's scheme constants are the engine ordinals;
 - every header function that mirrors a `SchemeType` predicate, either by being named after it in CamelCase or by a comment starting with that predicate's name in backticks, answers the same as the engine for every scheme, and false for a number the engine does not know;
 - every Harmony predicate is a list of scheme constants, and the one named after a `SchemeType` predicate in camelCase answers the same as the engine, and false for an unknown number;
 - the Harmony `NAMES` are the engine's wire names in ordinal order;
-- the header's host-only `OpensCandidateList` is the engine's `has_openable_candidate_list`, which is the same list under a host name;
+- each header's host-only `OpensCandidateList` is the engine's `has_openable_candidate_list`, which is the same list under a host name;
 - the page's `chineseInputSchemeOptions` and `nonChineseSchemes` split the engine's schemes by `is_chinese`, in engine order, and `knownInputSchemes` names every scheme;
 - the page's `InputScheme` and `ChineseScheme` types, and client-core's `InputScheme` and `ChineseScheme` enums they mirror, name the same schemes in engine order.
 """
@@ -26,7 +26,10 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ENGINE = ROOT / "crates/engine/src/types.rs"
-HEADER = ROOT / "platforms/macos/src/input/InputSchemeTraits.h"
+HEADERS = (
+    ROOT / "platforms/macos/src/input/InputSchemeTraits.h",
+    ROOT / "platforms/linux/src/core/InputSchemeTraits.h",
+)
 ANDROID = ROOT / "platforms/android/java/app/msime/android/policy/InputSchemeTraits.java"
 HARMONY = ROOT / "platforms/harmony/entry/src/main/ets/keyboard/SchemeTraits.ts"
 OPTIONS = ROOT / "packages/ui/src/settings/input-scheme-options.ts"
@@ -109,12 +112,13 @@ class Engine:
 
 
 class Header:
-    path = HEADER
     constant_pattern = r"constexpr int (\w+) = (\d+);"
     function_pattern = r"((?:^//[^\n]*\n)*)^constexpr bool (\w+)\(int scheme\)\s*\{\s*return\s+(.*?);\s*\}"
     missing = "no `constexpr bool <Trait>(int scheme)` functions"
 
-    def __init__(self, text: str, errors: list[str]) -> None:
+    def __init__(self, path: pathlib.Path, errors: list[str]) -> None:
+        self.path = path
+        text = path.read_text(encoding="utf-8")
         self.constants = {name: int(value) for name, value in re.findall(self.constant_pattern, text)}
         # Function -> (the engine predicate its comment names or None, its boolean expression).
         self.functions: dict[str, tuple[str | None, str]] = {}
@@ -152,7 +156,6 @@ class Header:
 class AndroidTraits(Header):
     """The Android copy: `static final int QUANPIN = 0;` constants and `static boolean isChinese(int scheme) { return ...; }` traits, each optionally preceded by `// `predicate`: ...` comment lines."""
 
-    path = ANDROID
     constant_pattern = r"static final int (\w+) = (\d+);"
     function_pattern = r"((?:^[ \t]*//[^\n]*\n)*)^[ \t]*public static boolean (\w+)\(int scheme\)\s*\{\s*return\s+(.*?);\s*\}"
     missing = "no `public static boolean <trait>(int scheme)` functions"
@@ -164,12 +167,13 @@ class AndroidTraits(Header):
 class HarmonyTraits(AndroidTraits):
     """The Harmony copy: `static readonly QUANPIN: number = 0;` constants and `static isChinese(scheme: number): boolean { return [SchemeTraits.QUANPIN, ...].includes(scheme); }` predicates, read as the equivalent `scheme == QUANPIN || ...` expression. Like the Android copy it has no host aliases and its constants are the variant names in upper snake case."""
 
-    path = HARMONY
     constant_pattern = r"static readonly (\w+): number = (\d+);"
     function_pattern = r"^[ \t]*static (\w+)\(scheme: number\): boolean \{\s*return \[(.*?)\]\.includes\(scheme\);\s*\}"
     missing = "no `static <trait>(scheme: number): boolean` predicates"
 
-    def __init__(self, text: str, errors: list[str]) -> None:
+    def __init__(self, path: pathlib.Path, errors: list[str]) -> None:
+        self.path = path
+        text = path.read_text(encoding="utf-8")
         self.constants = {name: int(value) for name, value in re.findall(self.constant_pattern, text)}
         self.functions = {}
         for match in re.compile(self.function_pattern, re.M | re.S).finditer(text):
@@ -270,7 +274,7 @@ def compare(errors: list[str], where: str, found: list[str] | None, want: list[s
 
 
 def main() -> int:
-    inputs = (ENGINE, HEADER, OPTIONS, UI_TYPES, PREFERENCES)
+    inputs = (ENGINE, *HEADERS, OPTIONS, UI_TYPES, PREFERENCES)
     missing = [rel(path) for path in inputs if not path.is_file()]
     if missing:
         print(f"skipped: {', '.join(missing)} missing")
@@ -286,16 +290,13 @@ def main() -> int:
         print(f"FAIL {rel(ENGINE)}: SchemeType has no `is_chinese` predicate to split the page's lists by", file=sys.stderr)
         return 1
 
-    header = Header(HEADER.read_text(encoding="utf-8"), errors)
-    compared = check_header(engine, header, errors)
-    android = 0
+    compared = {rel(path): check_header(engine, Header(path, errors), errors) for path in HEADERS}
     if ANDROID.is_file():
-        android = check_header(engine, AndroidTraits(ANDROID.read_text(encoding="utf-8"), errors), errors)
-    harmony = 0
+        compared[rel(ANDROID)] = check_header(engine, AndroidTraits(ANDROID, errors), errors)
     harmony_traits: HarmonyTraits | None = None
     if HARMONY.is_file():
-        harmony_traits = HarmonyTraits(HARMONY.read_text(encoding="utf-8"), errors)
-        harmony = check_header(engine, harmony_traits, errors)
+        harmony_traits = HarmonyTraits(HARMONY, errors)
+        compared[rel(HARMONY)] = check_header(engine, harmony_traits, errors)
 
     chinese = engine.predicates["is_chinese"]
     all_names = engine.wire_names()
@@ -331,7 +332,9 @@ def main() -> int:
             print(f"FAIL {error}", file=sys.stderr)
         return 1
     print(
-        f"scheme traits: {len(engine.ordinals)} schemes; {compared} macOS, {android} Android and {harmony} Harmony traits match the engine predicates they mirror;"
+        f"scheme traits: {len(engine.ordinals)} schemes; "
+        + "; ".join(f"{count} traits in {path}" for path, count in compared.items())
+        + " match the engine predicates they mirror;"
         f" the settings page and client-core split them {len(chinese_names)} Chinese / {len(other_names)} other as `is_chinese` does"
     )
     return 0

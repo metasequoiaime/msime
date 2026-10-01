@@ -6408,9 +6408,9 @@ fn host_options_carry_vietnamese_settings_and_language_dictionaries_to_the_engin
     );
 }
 
-/// Cantonese and Zhuyin run on macOS once their dictionary is installed beside the resources, and fall back without it; Vietnamese needs no data and runs on macOS regardless. Every other build falls back from all three.
+/// Cantonese and Zhuyin run on every build but Windows once their dictionary is installed beside the resources, and fall back without it; Vietnamese needs no data and runs there regardless. Windows falls back from all three.
 #[test]
-fn installed_language_dictionaries_enable_their_schemes_on_macos() {
+fn installed_language_dictionaries_enable_their_schemes_outside_windows() {
     let root = tempfile::tempdir().expect("tempdir");
     let resources = root.path().join("resources");
     std::fs::create_dir_all(&resources).expect("resources");
@@ -6426,14 +6426,14 @@ fn installed_language_dictionaries_enable_their_schemes_on_macos() {
             .into_engine_options()
             .scheme
     };
-    let macos = cfg!(target_os = "macos");
+    let runs = !cfg!(windows);
     // Without the directory both fall back to the last Chinese scheme, 五笔.
     assert_eq!(super::installed_language_dictionaries(&resources), None);
     assert_eq!(engine_scheme(InputScheme::Cantonese), 2);
     assert_eq!(engine_scheme(InputScheme::Zhuyin), 2);
     assert_eq!(
         engine_scheme(InputScheme::Vietnamese),
-        if macos { 7 } else { 2 }
+        if runs { 7 } else { 2 }
     );
 
     let beside = root.path().join("language-dictionaries");
@@ -6446,15 +6446,12 @@ fn installed_language_dictionaries_enable_their_schemes_on_macos() {
     );
     assert_eq!(
         engine_scheme(InputScheme::Cantonese),
-        if macos { 5 } else { 2 }
+        if runs { 5 } else { 2 }
     );
-    assert_eq!(
-        engine_scheme(InputScheme::Zhuyin),
-        if macos { 6 } else { 2 }
-    );
+    assert_eq!(engine_scheme(InputScheme::Zhuyin), if runs { 6 } else { 2 });
     assert_eq!(
         engine_scheme(InputScheme::Vietnamese),
-        if macos { 7 } else { 2 }
+        if runs { 7 } else { 2 }
     );
 }
 
@@ -7035,7 +7032,7 @@ fn stale_dictionary_generation_is_prepared_and_other_keys_survive() {
         "online_provider_socket": "/run/user/1000/msime-online.sock",
     });
     let mut requested = None;
-    let refreshed = super::refreshed_host_options(&document, "new", |resources, state| {
+    let refreshed = super::refreshed_host_options(&document, "new", None, |resources, state| {
         requested = Some((resources.to_owned(), state.to_owned()));
         Ok(json!({
             "resources": "/usr/share/msime-client/resources",
@@ -7072,7 +7069,7 @@ fn current_or_unfamiliar_options_are_not_prepared() {
     let mut relative = current.clone();
     relative["resources"] = json!("r");
     for document in [current, unfamiliar, moved, relative, json!({})] {
-        let refreshed = super::refreshed_host_options(&document, "new", |_, _| {
+        let refreshed = super::refreshed_host_options(&document, "new", None, |_, _| {
             panic!("must not prepare {document}")
         })
         .unwrap();
@@ -7136,7 +7133,7 @@ fn a_prepared_generation_records_the_language_dictionaries_beside_its_new_resour
         "dictionaries": "/s/user/dictionaries/old",
         "preferences_directory": "/s",
     });
-    let prepared = super::refreshed_host_options(&stale, "new", |_, _| {
+    let prepared = super::refreshed_host_options(&stale, "new", None, |_, _| {
         Ok(json!({ "resources": new, "dictionaries": "/s/user/dictionaries/new" }))
     })
     .unwrap()
@@ -7186,6 +7183,117 @@ fn only_the_input_method_refresh_records_the_language_dictionaries() {
     expected["language_dictionaries"] = json!(beside);
     assert_eq!(read(), expected);
     assert!(!super::refresh_host_options_with_language_dictionaries(&options).unwrap());
+}
+
+/// 用户自己暂存的资源目录停在旧代次上，词库锁已经升级：代次准备以 `dictionary_outdated` 失败，但输入法的刷新仍要记下资源旁已安装的粤语与注音词库，`resources` 和 `dictionaries` 保持原样；设置应用的刷新对文件一字不动。
+#[test]
+fn an_outdated_generation_still_records_the_installed_language_dictionaries() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = directory.path().join("state");
+    // 与 Application Support 里手工暂存的布局相同：资源目录和语言词库都在状态目录里。
+    let resources = state.join("EngineResources");
+    std::fs::create_dir_all(&resources).unwrap();
+    std::fs::write(resources.join("msime.db"), b"previous generation").unwrap();
+    let beside = state.join("language-dictionaries");
+    std::fs::create_dir(&beside).unwrap();
+    std::fs::write(beside.join("cantonese.db"), b"sqlite").unwrap();
+    std::fs::write(beside.join("zhuyin.db"), b"sqlite").unwrap();
+    let document = json!({
+        "api_version": 1,
+        "cache": state.join("cache"),
+        "dictionaries": state.join("user/dictionaries/previous"),
+        "preferences": {},
+        "preferences_directory": state,
+        "resources": resources,
+        "user_data": state.join("user"),
+    });
+    let options = state.join("runtime-options.json");
+    let bytes = serde_json::to_vec_pretty(&document).unwrap();
+    std::fs::write(&options, &bytes).unwrap();
+
+    let error = super::refresh_host_options(&options).unwrap_err();
+    assert!(error.is::<super::DictionaryOutdated>(), "{error}");
+    assert_eq!(std::fs::read(&options).unwrap(), bytes);
+
+    let error = super::refresh_host_options_with_language_dictionaries(&options).unwrap_err();
+    assert!(error.is::<super::DictionaryOutdated>(), "{error}");
+    let mut expected = document.clone();
+    expected["language_dictionaries"] = json!(beside);
+    let read = || serde_json::from_slice::<Value>(&std::fs::read(&options).unwrap()).unwrap();
+    assert_eq!(read(), expected);
+
+    // 下一次启动代次仍然失败，但语言词库已经记录过，不再改写文件。
+    let recorded = std::fs::read(&options).unwrap();
+    assert!(super::refresh_host_options_with_language_dictionaries(&options).is_err());
+    assert_eq!(std::fs::read(&options).unwrap(), recorded);
+}
+
+/// 记录的资源目录与词库锁不符时，自带资源的宿主改用自己那份准备代次，此后 `resources` 指向它；别的失败、没有自带资源、或自带的就是记录的那份时，照旧报告失败。
+#[test]
+fn outdated_recorded_resources_are_prepared_from_the_bundled_copy() {
+    use msime_client_core::resources::ResourceError;
+    let stale = json!({
+        "resources": "/Users/u/Library/Application Support/app.msime.macos/EngineResources",
+        "user_data": "/s/user",
+        "dictionaries": "/s/user/dictionaries/old",
+        "preferences_directory": "/s",
+        "preferences": {},
+    });
+    let bundled = Path::new("/Applications/MSIME.app/Contents/Resources/EngineResources");
+    let outdated = |resources: &Path| -> Result<Value, Box<dyn std::error::Error>> {
+        if resources == bundled {
+            Ok(json!({ "resources": bundled, "dictionaries": "/s/user/dictionaries/new" }))
+        } else {
+            Err(Box::new(super::DictionaryOutdated(
+                ResourceError::Integrity,
+            )))
+        }
+    };
+    let mut requested = Vec::new();
+    let refreshed =
+        super::refreshed_host_options(&stale, "new", Some(bundled), |resources, state| {
+            requested.push((resources.to_owned(), state.to_owned()));
+            outdated(resources)
+        })
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        requested,
+        [
+            (
+                PathBuf::from(stale["resources"].as_str().unwrap()),
+                PathBuf::from("/s")
+            ),
+            (bundled.to_owned(), PathBuf::from("/s")),
+        ]
+    );
+    let mut expected = stale.clone();
+    expected["resources"] = json!(bundled);
+    expected["dictionaries"] = json!("/s/user/dictionaries/new");
+    assert_eq!(refreshed, expected);
+
+    let error =
+        super::refreshed_host_options(&stale, "new", None, |resources, _| outdated(resources))
+            .unwrap_err();
+    assert!(error.is::<super::DictionaryOutdated>());
+    let mut packaged = stale.clone();
+    packaged["resources"] = json!(bundled);
+    let error = super::refreshed_host_options(&packaged, "new", Some(bundled), |_, _| {
+        Err(Box::new(super::DictionaryOutdated(
+            ResourceError::Integrity,
+        )))
+    })
+    .unwrap_err();
+    assert!(error.is::<super::DictionaryOutdated>());
+    let mut calls = 0;
+    assert!(
+        super::refreshed_host_options(&stale, "new", Some(bundled), |_, _| {
+            calls += 1;
+            Err("busy".into())
+        })
+        .is_err()
+    );
+    assert_eq!(calls, 1);
 }
 
 #[test]
@@ -7243,9 +7351,9 @@ fn a_failed_preparation_is_reported_and_incomplete_output_rejected() {
         "dictionaries": "/s/user/dictionaries/old",
         "preferences_directory": "/s",
     });
-    assert!(super::refreshed_host_options(&stale, "new", |_, _| Err("busy".into())).is_err());
+    assert!(super::refreshed_host_options(&stale, "new", None, |_, _| Err("busy".into())).is_err());
     assert!(
-        super::refreshed_host_options(&stale, "new", |_, _| Ok(json!({"resources": "/r"})))
+        super::refreshed_host_options(&stale, "new", None, |_, _| Ok(json!({"resources": "/r"})))
             .is_err()
     );
 }

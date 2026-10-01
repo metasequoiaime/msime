@@ -1120,23 +1120,33 @@ fn reject_symlinked_options_parent(path: &Path) -> std::io::Result<()> {
 ///
 /// Returns whether the file was rewritten. Run it before the caller's own sessions exist. The previous generation is never modified, so a host still using it keeps working until it restarts. A symlink, or a document whose paths do not follow the layout `prepare_host_configuration` produces, is left alone rather than guessed at. When the recorded resources do not match the compiled lock the error is [`DictionaryOutdated`] and the file is left as it was.
 pub fn refresh_host_options(path: &std::path::Path) -> Result<bool, Box<dyn std::error::Error>> {
-    refresh_options_file(path, false)
+    refresh_options_file(path, false, None)
 }
 
-/// [`refresh_host_options`], and also keep `language_dictionaries` in step with the Cantonese and Zhuyin dictionaries installed beside the resources, whatever the generation; otherwise a current file is only read.
+/// 给自带一份已校验资源的宿主用的 [`refresh_host_options`]（macOS 设置应用 bundle 里的 `EngineResources` 就是这样一份）：记录的资源目录与编译进来的词库锁不符（[`DictionaryOutdated`]）时，改用 `bundled` 准备新代次，此后 `resources` 指向它。
 ///
-/// Only the input method process itself calls this, at its start, before any session reads the file. Every input method session re-reads the document and `HostOptions` rejects unknown keys, so a key added to a document that an older running input method still reads would stop it from opening sessions. The settings app can be upgraded while the previous input method keeps running, which is why its own refresh is [`refresh_host_options`]; an input method running this code understands the key it writes.
+/// 记录的资源目录不一定是安装包会替换的那一个。手工暂存到 Application Support 的目录、在输入法「准备词库」里选的目录，都停在暂存时的代次上，之后每次升级都以 [`DictionaryOutdated`] 失败，用户既拿不到新词库，也拿不到安装包放在自带资源旁的粤语与注音词库。记录的目录仍是当前代次，或者失败是别的原因时，处理与 [`refresh_host_options`] 完全相同；这里同样不碰 `language_dictionaries`。
+pub fn refresh_host_options_from(
+    path: &std::path::Path,
+    bundled: &std::path::Path,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    refresh_options_file(path, false, Some(bundled))
+}
+
+/// 在 [`refresh_host_options`] 之外，不论代次是否变化，都让 `language_dictionaries` 跟上资源目录旁实际安装的粤语与注音词库；两项都不需要改时只读一次文件。代次准备失败也不会挡住这一项：仍按记录的资源目录更新这个键，然后再返回准备失败的错误，`resources` 与 `dictionaries` 保持原样。
+///
+/// 只有输入法进程自己在启动时、任何会话读取这份文件之前调用它。每个输入法会话都会重读这份文件，而 `HostOptions` 拒绝未知键，往一个仍被旧版输入法读取的文件里加键会让它再也开不了会话。设置应用升级后旧版输入法可能还在运行，所以设置应用自己的刷新是 [`refresh_host_options`]；运行这段代码的输入法认识它写入的键。
 pub fn refresh_host_options_with_language_dictionaries(
     path: &std::path::Path,
 ) -> Result<bool, Box<dyn std::error::Error>> {
-    refresh_options_file(path, true)
+    refresh_options_file(path, true, None)
 }
 
 fn refresh_options_file(
     path: &std::path::Path,
     language_dictionaries: bool,
+    bundled: Option<&std::path::Path>,
 ) -> Result<bool, Box<dyn std::error::Error>> {
-    use std::io::Write as _;
     reject_symlinked_options_parent(path)?;
     let metadata = std::fs::symlink_metadata(path)?;
     if !metadata.is_file() {
@@ -1162,31 +1172,57 @@ fn refresh_options_file(
     let prepared = refreshed_host_options(
         &document,
         &specification.generation()?,
+        bundled,
         |resources, state| {
             Ok(serde_json::from_str(
                 &prepare_host_configuration(resources, state).map_err(outdated_resources)?,
             )?)
         },
-    )?;
+    );
+    // 语言词库随安装包到来，与词库代次无关；代次准备失败（最常见的是没有任何安装包会升级的资源目录，见 `refresh_host_options_from`）不能让它们进不了配置。
     let languages = if language_dictionaries {
-        with_installed_language_dictionaries(prepared.as_ref().unwrap_or(&document))?
+        let current = match &prepared {
+            Ok(Some(prepared)) => prepared,
+            _ => &document,
+        };
+        with_installed_language_dictionaries(current)?
     } else {
         None
+    };
+    let prepared = match prepared {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            if let Some(languages) = languages {
+                replace_options_file(path, &metadata, &languages)?;
+            }
+            return Err(error);
+        }
     };
     let Some(refreshed) = languages.or(prepared) else {
         return Ok(false);
     };
+    replace_options_file(path, &metadata, &refreshed)?;
+    Ok(true)
+}
+
+/// 用 `document` 原子替换 `path` 处的配置文件，保留原有权限。
+fn replace_options_file(
+    path: &std::path::Path,
+    metadata: &std::fs::Metadata,
+    document: &Value,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::Write as _;
     let parent = path.parent().ok_or("runtime options have no directory")?;
     let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
     temporary
         .as_file()
         .set_permissions(metadata.permissions())?;
-    let mut serialized = serde_json::to_vec_pretty(&refreshed)?;
+    let mut serialized = serde_json::to_vec_pretty(document)?;
     serialized.push(b'\n');
     temporary.write_all(&serialized)?;
     temporary.as_file().sync_all()?;
     temporary.persist(path)?;
-    Ok(true)
+    Ok(())
 }
 
 /// The `resources`, `dictionaries` and state directory of a document in the layout `prepare_host_configuration` produces, or `None` for any other document.
@@ -1209,11 +1245,12 @@ fn prepared_layout(document: &Value) -> Option<(&Path, &Path, &Path)> {
     .then_some((resources, dictionaries, state))
 }
 
-/// The options `refresh_host_options` would publish, or `None` when the document is current or not in the prepared layout.
+/// `refresh_host_options` 会发布的配置；文件已是当前代次或不符合准备布局时为 `None`。记录的资源目录是 [`DictionaryOutdated`]、而宿主自带 `bundled` 资源时，改用它准备代次。
 fn refreshed_host_options(
     document: &Value,
     generation: &str,
-    prepare: impl FnOnce(&Path, &Path) -> Result<Value, Box<dyn std::error::Error>>,
+    bundled: Option<&Path>,
+    mut prepare: impl FnMut(&Path, &Path) -> Result<Value, Box<dyn std::error::Error>>,
 ) -> Result<Option<Value>, Box<dyn std::error::Error>> {
     let Some((resources, dictionaries, state)) = prepared_layout(document) else {
         return Ok(None);
@@ -1221,7 +1258,12 @@ fn refreshed_host_options(
     if dictionaries.file_name().and_then(|name| name.to_str()) == Some(generation) {
         return Ok(None);
     }
-    let prepared = prepare(resources, state)?;
+    let prepared = match (prepare(resources, state), bundled) {
+        (Err(error), Some(bundled)) if error.is::<DictionaryOutdated>() && bundled != resources => {
+            prepare(bundled, state)?
+        }
+        (prepared, _) => prepared?,
+    };
     let mut refreshed = document.clone();
     for key in ["resources", "dictionaries"] {
         refreshed[key] = prepared

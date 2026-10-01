@@ -15,7 +15,7 @@ struct DictionaryOutdated : std::runtime_error {
   DictionaryOutdated() : std::runtime_error("recorded dictionaries are older than this version") {}
 };
 
-// Bring runtime options written before a package upgrade up to the installed dictionary generation: the Host API prepares the new generation, replays the user dictionary into it and rewrites the file. Returns true when the file was rewritten and false when it was already current. Throws when preparation failed, DictionaryOutdated when that was because the recorded dictionaries do not match this version; the file is then left exactly as it was and the previous generation stays usable, so the caller carries on and the next start tries again. The Host API error is not surfaced beyond its stable prefix because it can name private paths.
+// 把安装包升级前写下的运行时配置带到已安装的词库代次：Host API 准备新代次、把用户词库回放进去并改写文件。文件被改写时返回 true，已是当前代次时返回 false。准备失败时抛出异常，原因是记录的词库与本版本不符时抛出 DictionaryOutdated；此时 `resources` 与 `dictionaries` 保持原样（资源目录旁装有粤语或注音词库时，`language_dictionaries` 仍会更新），旧代次照常可用，调用方继续运行，下次启动再试。Host API 的错误除稳定前缀外不向外报告，因为其中可能有私人路径。
 inline bool refresh_runtime_options(const std::filesystem::path &path) {
   const auto text = path.string();
   std::unique_ptr<char, decltype(&msime_client_string_free)> raw(

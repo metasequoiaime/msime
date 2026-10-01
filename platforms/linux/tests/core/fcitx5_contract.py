@@ -110,9 +110,10 @@ labels = (root / "src/candidates/CandidateLocalModeLabels.h").read_text()
 for name in emitted:
     if name != "none":
         assert f'{{"{name}", "' in labels, name
-# Plugin input modes and sounds are wired the same way in both hosts. A key the local mode spells with (View.spelling_symbols) is sent to the Engine before any host binding, digits gate on the listed symbols rather than on a mode name, generated commits stay out of typing statistics, and sounds only post requests to the Host API.
+# Plugin input modes and sounds are wired the same way in both hosts. A key the local mode or the scheme spells with (View.spelling_symbols) is sent to the Engine before any host binding, digits gate on the listed symbols rather than on a mode name, generated commits stay out of typing statistics, and sounds only post requests to the Host API.
 for host_source in (source, ibus_source):
-    assert 'msime::linux_host::local_mode_spelling(' in host_source
+    assert 'msime::linux_host::engine_spelling(' in host_source
+    assert 'msime::linux_host::spelling_space(' in host_source
     assert 'msime::linux_host::spelling_digits(' in host_source
     assert 'context.value("typing_statistics", true)' in host_source
     assert 'msime_client_key_sound(' in host_source
@@ -151,7 +152,9 @@ assert 'ibus_text_new_from_static_string("取消固定")' in ibus_source
 assert '"固定候选"' not in ibus_source
 assert '"固定到 1"' not in ibus_source
 assert 'std::string("取消固定 ")' not in ibus_source
-assert 'item->source() == 0 || item->source() == 1 || item->source() == 4' in source
+# Only main-lexicon candidates of the user dictionary sources carry candidate actions; the shared policy decides it for both hosts.
+assert 'candidate_dictionary_actions_available(state_.view_.value("scheme", 0u), item->source())' in source
+assert 'candidate_dictionary_actions_available(scheme, item->source())' in source
 assert 'source_(candidate.value("source", 0u))' in source
 assert 'text_(candidate.at("text").get<std::string>())' in source
 assert 'fixed_position_(candidate.value("fixed_position", 0u))' in source
@@ -362,25 +365,27 @@ assert 'fcitx::startProcess({guide, "--host", "fcitx5"})' in source
 assert 'MSIME_BINDIR="${CMAKE_INSTALL_FULL_BINDIR}"' in cmake_fcitx5
 assert "scripts/msime-linux-first-run-guide" in cmake
 
-# The Korean Hanja keys (Hangul_Hanja and a bare F9) and the open list are read through the shared core/KoreanHanja.h in both hosts. The keys are decided before the rules that would finish the syllable and hand the key to the application, so a trigger the Engine leaves unhandled (a lone jamo) never writes the syllable out and then leaks the key.
-fcitx_convert = 'command(MSIME_CONVERT_HANJA)'
-ibus_convert = 'msime_client_command(s.session, MSIME_CONVERT_HANJA)'
-assert source.count(fcitx_convert) == 1 and ibus_source.count(ibus_convert) == 1
+# The Korean Hanja keys (Hangul_Hanja and a bare F9), which also open the Zhuyin list, and the open lists are read through the shared core/KoreanHanja.h and core/InputSchemes.h in both hosts. The keys are decided before the rules that would finish the composition and hand the key to the application, so a trigger the Engine leaves unhandled (a lone jamo) never writes the syllable out and then leaks the key. Down is the second key that opens the Zhuyin list, so each host sends the command twice.
+fcitx_convert = 'command(MSIME_OPEN_CANDIDATE_LIST)'
+ibus_convert = 'msime_client_command(s.session, MSIME_OPEN_CANDIDATE_LIST)'
+assert source.count(fcitx_convert) == 2 and ibus_source.count(ibus_convert) == 2
 for host in (source, ibus_source):
     assert 'msime::linux_host::korean_hanja_key(' in host
-    assert 'msime::linux_host::korean_composition(' in host
+    assert 'msime::linux_host::candidate_list_composition(' in host
+    assert 'msime::linux_host::zhuyin_list_down_key(' in host
     assert 'msime::linux_host::korean_hanja_list_open(' in host
+    assert 'msime::linux_host::opened_candidate_list(' in host
 assert 'msime::linux_host::korean_hanja_punctuation_key(' in ibus_source
 fcitx_key = source[source.index("bool FcitxState::key(fcitx::KeyEvent &event) {"):]
 fcitx_key = fcitx_key[:fcitx_key.index("\n}\n")]
-assert fcitx_key.index(fcitx_convert) < fcitx_key.index("if (composing && korean() && !koreanHanjaList)")
+assert fcitx_key.index(fcitx_convert) < fcitx_key.index("if (composing && commitsOnBlur() && !openedList)")
 assert fcitx_key.index(fcitx_convert) < fcitx_key.rindex("if (composing) command(MSIME_FINISH_COMPOSITION);")
 ibus_key = ibus_source[ibus_source.index("gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) {"):]
 ibus_key = ibus_key[:ibus_key.index("\n}\n")]
-assert ibus_key.index(ibus_convert) < ibus_key.index("korean_scheme && has_composition)")
-# With the list open Return chooses the highlighted Hanja in both hosts rather than writing the Hangul out and breaking the line.
-assert "command(koreanHanjaList ? MSIME_COMMIT_CANDIDATE : MSIME_COMMIT_RAW)" in fcitx_key
+assert ibus_key.index(ibus_convert) < ibus_key.index("commits_on_blur && has_composition)")
+# With a list open Return chooses the highlighted Hanja or Zhuyin candidate in both hosts rather than writing the composition out and breaking the line.
+assert "command(openedList ? MSIME_COMMIT_CANDIDATE : MSIME_COMMIT_RAW)" in fcitx_key
 ibus_return = ibus_key[ibus_key.index("case IBUS_Return:"):]
-assert ibus_return.index("if (korean_hanja_list) {") < ibus_return.index("command = MSIME_COMMIT_RAW;")
+assert ibus_return.index("if (opened_list) {") < ibus_return.index("command = MSIME_COMMIT_RAW;")
 
 print("Fcitx5 addon metadata passed")

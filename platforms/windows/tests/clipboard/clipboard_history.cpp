@@ -1,10 +1,12 @@
 #include "ClipboardHistory.h"
 #include <cassert>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -142,19 +144,50 @@ int main() {
   std::filesystem::remove(outside_store, error);
   std::filesystem::remove_all(outside_directory, error);
 
-  // 持锁期间锁文件不能被删除，否则新建的同名文件会绕过原来的字节范围锁。
+  // A held history lock must not be deleted and recreated around another
+  // writer. FILE_SHARE_DELETE would let a second process unlink this file
+  // while the first process still owns the byte-range lock.
   {
-    const auto lock_path = path.wstring() + L".lock";
-    HANDLE holder = CreateFileW(lock_path.c_str(), GENERIC_READ | GENERIC_WRITE,
-                                FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS,
-                                FILE_ATTRIBUTE_NORMAL, nullptr);
-    REQUIRE(holder != INVALID_HANDLE_VALUE);
+    auto lock_path = path;
+    lock_path += ".lock";
+    HANDLE blocker = CreateFileW(
+        lock_path.c_str(), GENERIC_READ | GENERIC_WRITE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+        OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
+        nullptr);
+    REQUIRE(blocker != INVALID_HANDLE_VALUE);
     OVERLAPPED offset{};
-    REQUIRE(LockFileEx(holder, LOCKFILE_EXCLUSIVE_LOCK, 0, MAXDWORD, MAXDWORD, &offset));
-    REQUIRE(!DeleteFileW(lock_path.c_str()));
-    REQUIRE(GetLastError() == ERROR_SHARING_VIOLATION);
-    UnlockFileEx(holder, 0, MAXDWORD, MAXDWORD, &offset);
-    CloseHandle(holder);
+    REQUIRE(LockFileEx(blocker, LOCKFILE_EXCLUSIVE_LOCK, 0, MAXDWORD, MAXDWORD,
+                       &offset));
+
+    std::thread writer([&] {
+      (void)history.add("synthetic-lock-delete");
+    });
+    bool writer_handle_opened = false;
+    for (size_t attempt = 0; attempt < 5000; ++attempt) {
+      HANDLE probe = CreateFileW(
+          lock_path.c_str(), DELETE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+          nullptr, OPEN_EXISTING,
+          FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+      if (probe == INVALID_HANDLE_VALUE) {
+        if (GetLastError() == ERROR_SHARING_VIOLATION) {
+          writer_handle_opened = true;
+          break;
+        }
+      } else {
+        CloseHandle(probe);
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    const bool delete_blocked =
+        writer_handle_opened && !DeleteFileW(lock_path.c_str());
+
+    UnlockFileEx(blocker, 0, MAXDWORD, MAXDWORD, &offset);
+    CloseHandle(blocker);
+    writer.join();
+    REQUIRE(delete_blocked);
+    std::filesystem::remove(path, error);
+    std::filesystem::remove(lock_path, error);
   }
 #endif
 

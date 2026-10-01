@@ -62,6 +62,7 @@
 #include "../src/core/ClientInputModeMemory.h"
 #include "../src/core/JapaneseConversion.h"
 #include "../src/core/KoreanHanja.h"
+#include "../src/core/InputSchemes.h"
 #include "../src/system/TypingStatistics.h"
 #include "SystemTheme.h"
 #include "../src/voice/VoiceAction.h"
@@ -567,11 +568,13 @@ public:
   }
   // The label Fcitx5 shows for the input method in its tray and panel (FcitxEngine::subModeLabelImpl), in the same words as the mode HUD.
   std::string modeIndicatorLabel() const {
-    const auto scheme = scheme_override_.value_or(preferences_.value("scheme", std::string("quanpin")));
-    switch (msime::linux_host::input_mode_indicator(input_enabled_, scheme, caps_lock_)) {
+    switch (msime::linux_host::input_mode_indicator(input_enabled_, effectiveScheme(), caps_lock_)) {
     case msime::linux_host::InputModeIndicator::Chinese: return "中";
     case msime::linux_host::InputModeIndicator::Japanese: return "日";
     case msime::linux_host::InputModeIndicator::Korean: return "한";
+    case msime::linux_host::InputModeIndicator::Cantonese: return "粤";
+    case msime::linux_host::InputModeIndicator::Zhuyin: return "注";
+    case msime::linux_host::InputModeIndicator::Vietnamese: return "越";
     case msime::linux_host::InputModeIndicator::English: return "英";
     case msime::linux_host::InputModeIndicator::CapsLock: return "⇪";
     }
@@ -582,7 +585,7 @@ public:
     msime::linux_host::publish_input_status(
         std::getenv("XDG_RUNTIME_DIR"),
         msime::linux_host::input_status_document(
-            active, modeIndicatorLabel(), scheme_override_.value_or(preferences_.value("scheme", std::string("quanpin")))));
+            active, modeIndicatorLabel(), effectiveScheme()));
   }
   // Called wherever the mode can change; the status area is asked to redraw only when the label actually does.
   void refreshModeIndicator() {
@@ -615,18 +618,41 @@ public:
     return true;
   }
   // The schemes in the order of the view's scheme index, which is also the order the status action steps through them.
-  static constexpr std::array<const char *, 5> kSchemes = {"quanpin", "shuangpin", "wubi", "japanese", "korean"};
+  static constexpr std::array<const char *, 8> kSchemes = {"quanpin", "shuangpin", "wubi", "japanese", "korean",
+                                                           "cantonese", "zhuyin", "vietnamese"};
+  static_assert(kSchemes.size() == msime::linux_host::kInputSchemeIds.size());
+  // Whether a scheme can run with the runtime options this context last read: Cantonese and Zhuyin need their language dictionary (core/InputSchemes.h).
+  bool schemeAvailable(const char *id) const {
+    return msime::linux_host::input_scheme_available(id, scheme_dictionaries_);
+  }
+  // The scheme the Engine runs for the preferences, after host-api's fallback from a scheme whose data is missing; the indicator and the status file show this one.
+  std::string effectiveScheme() const {
+    return msime::linux_host::effective_input_scheme(
+        scheme_override_.value_or(preferences_.value("scheme", std::string("quanpin"))),
+        preferences_.value("last_chinese_scheme", std::string("quanpin")), scheme_dictionaries_);
+  }
+  // Works out from the runtime options just read which language dictionaries are installed, once per read rather than per key, and lists Cantonese and Zhuyin in the scheme menu only while theirs is.
+  void noteSchemeOptions(const Json &options) {
+    scheme_dictionaries_ = msime::linux_host::language_dictionary_availability(options);
+    refreshSchemeMenu();
+  }
+  void refreshSchemeMenu();
   bool cycleScheme() {
     if (!session_ || restricted() || privateInput()) return false;
     const auto current = view_.value("scheme", 0u);
-    return selectScheme(kSchemes[(current + 1) % kSchemes.size()]);
+    // Steps past a scheme whose dictionary is missing; quanpin always runs, so the walk ends.
+    for (size_t step = 1; step <= kSchemes.size(); ++step) {
+      const auto *next = kSchemes[(current + step) % kSchemes.size()];
+      if (schemeAvailable(next)) return selectScheme(next);
+    }
+    return false;
   }
   bool selectScheme(const char *next) {
-    if (!session_ || restricted() || privateInput()) return false;
+    if (!session_ || restricted() || privateInput() || !schemeAvailable(next)) return false;
     if (!view_.value("editing_text", std::string{}).empty())
       command(MSIME_FINISH_COMPOSITION);
-    // The shared settings page and the IBus host both offer "中文" as a way back to the scheme the user last typed Chinese with. Nothing records it here, so switching to Japanese or Korean from the status area left that choice with nothing but the quanpin fallback to return to.
-    if (std::string(next) != "japanese" && std::string(next) != "korean")
+    // The shared settings page and the IBus host both offer "中文" as a way back to the scheme the user last typed Chinese with. Nothing records it here, so switching to Japanese, Korean or Vietnamese from the status area left that choice with nothing but the quanpin fallback to return to.
+    if (msime::linux_host::scheme::IsChinese(msime::linux_host::scheme_number(next)))
       saveStringPreference("last_chinese_scheme", next);
     saveStringPreference("scheme", next);
     waitForPreferenceSave();
@@ -1466,6 +1492,7 @@ public:
     candidate_skin_catalog_ = parseCandidateSkinCatalog(options);
     candidate_skin_document_ = options.value("candidate_skin_catalog", Json());
     refreshThemeMenu();
+    noteSchemeOptions(options);
     // The skin catalogue is for this host's own menu; the Host API rejects an
     // options document carrying a field it does not know, so leaving it in
     // means no session can ever open on a deployment that installed skins.
@@ -1721,6 +1748,7 @@ public:
       candidate_skin_catalog_ = parseCandidateSkinCatalog(options);
       candidate_skin_document_ = options.value("candidate_skin_catalog", Json());
       refreshThemeMenu();
+      noteSchemeOptions(options);
       syncCandidatePanelTheme();
       syncVoiceOverlayTheme();
       // Runtime options can move the shared clipboard history while this
@@ -2748,6 +2776,26 @@ public:
   bool korean() const {
     return view_.value("scheme", 0u) == 4 && !view_.value("dedicated_english", false);
   }
+  // The view's scheme number outside the dedicated English mode, which keeps its own rules in every scheme; -1 there.
+  int typingScheme() const {
+    return view_.value("dedicated_english", false) ? -1 : msime::linux_host::view_scheme(view_);
+  }
+  // A Korean syllable, Zhuyin conversion or Vietnamese word is text the user already wrote: a key that leaves it writes it out rather than discarding it (`commits_on_blur`), and the caret stays at its end, so there are no segments to edit (`locks_caret`).
+  bool commitsOnBlur() const {
+    const int scheme = typingScheme();
+    return scheme >= 0 && msime::linux_host::scheme::CommitsOnBlur(scheme);
+  }
+  // Korean and Vietnamese write half-width ASCII marks and are never widened (`widens_full_width`).
+  bool narrowScheme() const {
+    const int scheme = typingScheme();
+    return scheme == msime::linux_host::scheme::Korean || scheme == msime::linux_host::scheme::Vietnamese;
+  }
+  // Korean, Zhuyin and Vietnamese take their punctuation from the Engine without the host's paired and smart helpers (`host_smart_punctuation`). Japanese keeps them, as it always has on this host.
+  bool withoutHostPunctuation() const {
+    const int scheme = typingScheme();
+    return scheme == msime::linux_host::scheme::Korean || scheme == msime::linux_host::scheme::Zhuyin ||
+           scheme == msime::linux_host::scheme::Vietnamese;
+  }
   void forgetSmartPunctuationRepeat() {
     last_smart_punctuation_ = 0;
     last_smart_punctuation_at_ = {};
@@ -2757,8 +2805,8 @@ public:
   // Chinese one after all. Returns true when it replaced the mark, in which case
   // the key is consumed and never reaches Engine.
   bool repeatSmartPunctuationToChinese(char ascii) {
-    // Korean punctuation is always ASCII, so ".." stays "..".
-    if (korean() || !chinese_punctuation_ || !smart_punctuation_ || !smart_punctuation_repeat_ ||
+    // Korean and Vietnamese punctuation is always ASCII, so ".." stays ".."; Zhuyin takes its marks from the Engine alone.
+    if (withoutHostPunctuation() || !chinese_punctuation_ || !smart_punctuation_ || !smart_punctuation_repeat_ ||
         last_smart_punctuation_ != ascii ||
         last_smart_punctuation_at_ == std::chrono::steady_clock::time_point{} ||
         composingOrCandidates())
@@ -2822,7 +2870,7 @@ public:
                            preceding < 0x80 && std::isalnum(static_cast<int>(preceding)) != 0 &&
                            !composingOrCandidates() && !view_.value("dedicated_english", false) &&
                            view_.value("local_mode", std::string("none")) == "none" &&
-                           view_.value("scheme", 0u) != 3 && !korean();
+                           view_.value("scheme", 0u) != 3 && !withoutHostPunctuation();
     const bool handled =
         apply(msime_client_punctuation_with_context(session_, value, preceding),
               std::move(spaceConvertPreceding), pairMode);
@@ -3029,12 +3077,15 @@ public:
     if (!ensure() || restricted() || privateInput() || !ic_.hasFocus()) return false;
     return apply(msime_client_reset_cache(session_));
   }
-  // The traditional-output conversion is for Chinese text only: Japanese (kana and the kanji the Engine chose) and Korean (Hangul and the Hanja the user picks) pass through as they are. The candidate rows, the commit and the status action all ask this one gate, so a row never shows a character other than the one it commits (s2t would draw the Hanja 后 as 後).
+  // The traditional-output conversion is for simplified Chinese text only (`script_conversion_applies`): Japanese (kana and the kanji the Engine chose) and Korean (Hangul and the Hanja the user picks) pass through as they are, Cantonese and Zhuyin are written in traditional characters already, and Vietnamese is not Chinese. The candidate rows, the commit and the status action all ask this one gate, so a row never shows a character other than the one it commits (s2t would draw the Hanja 后 as 後).
+  bool scriptConversionApplies() const {
+    return msime::linux_host::scheme::ScriptConversionApplies(view_.value("scheme", 0));
+  }
   bool traditionalApplies() const {
-    return traditional_ && view_.value("scheme", 0u) != 3 && view_.value("scheme", 0u) != 4;
+    return traditional_ && scriptConversionApplies();
   }
   bool toggleTraditional() {
-    if (!session_ || view_.value("scheme", 0u) == 3 || view_.value("scheme", 0u) == 4) return false;
+    if (!session_ || !scriptConversionApplies()) return false;
     traditional_ = !traditional_;
     preferences_["traditional_chinese_output"] = traditional_;
     if (preferences_snapshot_.is_object() && preferences_snapshot_.contains("preferences"))
@@ -3174,6 +3225,8 @@ public:
   std::string dictionary_user_data_;
   std::string resources_;
   std::optional<std::string> scheme_override_;
+  // The language dictionaries the runtime options named when this context last read them, which decide whether Cantonese and Zhuyin can run (noteSchemeOptions).
+  msime::linux_host::LanguageDictionaryAvailability scheme_dictionaries_;
   bool caps_lock_ = false;
   std::string mode_indicator_label_;
   std::optional<std::string> shuangpin_profile_override_;
@@ -3443,8 +3496,7 @@ public:
         state_.privateInput() || state_.session_ != item->session() ||
         state_.view_.value("generation", uint64_t{}) != item->generation())
       return false;
-    return state_.view_.value("scheme", 0u) != 3 && state_.view_.value("scheme", 0u) != 4 &&
-           (item->source() == 0 || item->source() == 1 || item->source() == 4);
+    return msime::linux_host::candidate_dictionary_actions_available(state_.view_.value("scheme", 0u), item->source());
   }
   std::vector<fcitx::CandidateAction>
   candidateActions(const fcitx::CandidateWord &candidate) const override {
@@ -3456,7 +3508,7 @@ public:
         state_.privateInput() || state_.session_ != item->session() ||
         state_.view_.value("generation", uint64_t{}) != item->generation()) return actions;
     const auto scheme = state_.view_.value("scheme", 0u);
-    if (scheme == 3 || scheme == 4 || (item->source() != 0 && item->source() != 1 && item->source() != 4))
+    if (!msime::linux_host::candidate_dictionary_actions_available(scheme, item->source()))
       return actions;
     const auto make = [](int id, const char *text) {
       fcitx::CandidateAction action;
@@ -3602,6 +3654,9 @@ public:
     case 2: return "输入方案：五笔";
     case 3: return "输入方案：日文";
     case 4: return "输入方案：韩文";
+    case 5: return "输入方案：粤拼";
+    case 6: return "输入方案：注音";
+    case 7: return "输入方案：越南文";
     default: return "输入方案：全拼";
     }
   }
@@ -3640,6 +3695,7 @@ public:
     if (!ic || !ic->hasFocus() || isChecked(ic)) return;
     try {
       auto *state = ic->propertyFor(factory_);
+      // selectScheme refuses a scheme whose dictionary was removed after the menu last listed it.
       if (state->selectScheme(FcitxState::kSchemes[index_])) update(ic);
     } catch (...) {
       ic->propertyFor(factory_)->close();
@@ -5313,6 +5369,9 @@ public:
              {&scheme_wubi_action_, "msime-scheme-wubi"},
              {&scheme_japanese_action_, "msime-scheme-japanese"},
              {&scheme_korean_action_, "msime-scheme-korean"},
+             {&scheme_cantonese_action_, "msime-scheme-cantonese"},
+             {&scheme_zhuyin_action_, "msime-scheme-zhuyin"},
+             {&scheme_vietnamese_action_, "msime-scheme-vietnamese"},
              {&input_group_action_, "msime-group-input"},
              {&input_group_separator_, "msime-group-input-separator"},
              {&punctuation_group_action_, "msime-group-punctuation"},
@@ -5320,13 +5379,9 @@ public:
              {&candidate_group_action_, "msime-group-candidate"},
              {&candidate_group_separator_, "msime-group-candidate-separator"}})
       action->registerAction(name, &instance->userInterfaceManager());
-    // 输入方案 lists the schemes rather than stepping through them on each click.
+    // 输入方案 lists the schemes rather than stepping through them on each click. Cantonese and Zhuyin join it once a context has read runtime options naming their dictionaries (rebuildSchemeMenu).
     scheme_action_.setMenu(&scheme_menu_);
-    scheme_menu_.addAction(&scheme_quanpin_action_);
-    scheme_menu_.addAction(&scheme_shuangpin_action_);
-    scheme_menu_.addAction(&scheme_wubi_action_);
-    scheme_menu_.addAction(&scheme_japanese_action_);
-    scheme_menu_.addAction(&scheme_korean_action_);
+    rebuildSchemeMenu(nullptr, false, false);
     // The design menu keeps 中文/英文, 全角/标点/译文, 输入方案 and 主题/词库…/设置…/关于 at the top; every other switch the status area listed moves, as the same action, into one of three groups.
     input_group_action_.setMenu(&input_group_menu_);
     for (auto *action : std::initializer_list<fcitx::Action *>{
@@ -5388,12 +5443,12 @@ public:
           auto *ic = static_cast<fcitx::InputContextEvent &>(event).inputContext();
           auto *state = ic->propertyFor(&factory_);
           if (!state->session_) return;
-          // Leaving the client commits an open Korean syllable. Fcitx5 commits a client preedit on focus out itself (or the client does, with ClientUnfocusCommit), so only a syllable drawn in the panel, for a client without preedit support, is committed here.
-          if (state->korean() && !state->view_.value("editing_text", std::string{}).empty()) {
+          // Leaving the client commits an open Korean syllable, Zhuyin conversion or Vietnamese word. Fcitx5 commits a client preedit on focus out itself (or the client does, with ClientUnfocusCommit), so only a composition drawn in the panel, for a client without preedit support, is committed here.
+          if (state->commitsOnBlur() && !state->view_.value("editing_text", std::string{}).empty()) {
             if (!ic->capabilityFlags().test(fcitx::CapabilityFlag::Preedit)) {
               try { state->apply(msime_client_focus(state->session_, false)); } catch (...) {}
             } else {
-              // The syllable reaches the document through the preedit rather than through commitText, so it is counted here as typed text.
+              // The composition reaches the document through the preedit rather than through commitText, so it is counted here as typed text.
               state->recordTypingStatistics(state->view_.value("preedit", std::string{}), state->typingSource());
             }
           }
@@ -5630,9 +5685,9 @@ public:
   }
   void deactivate(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
     auto *state = event.inputContext()->propertyFor(&factory_);
-    // Switching to another input method ends an open Korean syllable as text, since it is already what the user wrote. Losing the focus needs nothing here: Fcitx5 commits the client preedit itself then (see focus_watch_).
+    // Switching to another input method ends an open Korean syllable, Zhuyin conversion or Vietnamese word as text, since it is already what the user wrote. Losing the focus needs nothing here: Fcitx5 commits the client preedit itself then (see focus_watch_).
     if (event.type() == fcitx::EventType::InputContextSwitchInputMethod && state->session_ &&
-        state->korean() && !state->view_.value("editing_text", std::string{}).empty()) {
+        state->commitsOnBlur() && !state->view_.value("editing_text", std::string{}).empty()) {
       try { state->command(MSIME_FINISH_COMPOSITION); } catch (...) {}
     }
     // Everything activate() or a later voice or toolbar refresh may have added.
@@ -5651,9 +5706,9 @@ public:
     auto *state = event.inputContext()->propertyFor(&factory_);
     state->backspace_hold_.reset();
     state->toggle_chord_held_ = FcitxKey_None;
-    // An open Korean syllable drawn in the panel, for a client without preedit support, exists nowhere but here, so a reset writes it out instead of dropping text the user already typed (see focus_watch_ for the same rule on focus out).
+    // An open Korean syllable, Zhuyin conversion or Vietnamese word drawn in the panel, for a client without preedit support, exists nowhere but here, so a reset writes it out instead of dropping text the user already typed (see focus_watch_ for the same rule on focus out).
     const bool koreanPanelSyllable =
-        state->session_ && state->korean() && !state->view_.value("editing_text", std::string{}).empty() &&
+        state->session_ && state->commitsOnBlur() && !state->view_.value("editing_text", std::string{}).empty() &&
         !event.inputContext()->capabilityFlags().test(fcitx::CapabilityFlag::Preedit);
     try {
       if (state->session_) state->command(koreanPanelSyllable ? MSIME_FINISH_COMPOSITION : MSIME_CANCEL);
@@ -5745,6 +5800,12 @@ public:
   FcitxSchemeItemAction scheme_wubi_action_{&factory_, 2, "五笔"};
   FcitxSchemeItemAction scheme_japanese_action_{&factory_, 3, "日文"};
   FcitxSchemeItemAction scheme_korean_action_{&factory_, 4, "韩文"};
+  FcitxSchemeItemAction scheme_cantonese_action_{&factory_, 5, "粤拼"};
+  FcitxSchemeItemAction scheme_zhuyin_action_{&factory_, 6, "注音"};
+  FcitxSchemeItemAction scheme_vietnamese_action_{&factory_, 7, "越南文"};
+  // The entries scheme_menu_ holds, in menu order, and whether Cantonese and Zhuyin were among them when it was last built.
+  std::vector<fcitx::Action *> scheme_menu_entries_;
+  std::optional<std::pair<bool, bool>> scheme_menu_languages_;
   FcitxShuangpinProfileAction shuangpin_profile_action_{&factory_};
   FcitxModeAction width_action_{&factory_, FcitxModeAction::Mode::Fullwidth};
   fcitx::Menu nine_key_menu_;
@@ -5808,6 +5869,7 @@ public:
   std::vector<std::unique_ptr<FcitxGlobalThemeItemAction>> global_theme_package_items_;
   std::vector<std::pair<std::string, std::string>> global_theme_packages_;
   void rebuildThemeMenu(fcitx::InputContext *ic);
+  void rebuildSchemeMenu(fcitx::InputContext *ic, bool cantonese, bool zhuyin);
   fcitx::Menu candidate_page_size_menu_;
   FcitxCandidatePageSizeAction candidate_page_size_action_;
   FcitxCandidatePageSizeItemAction candidate_page_size1_{&factory_, 1};
@@ -5929,6 +5991,10 @@ void FcitxState::refreshThemeMenu() {
   if (engine_) engine_->rebuildThemeMenu(&ic_);
 }
 
+void FcitxState::refreshSchemeMenu() {
+  if (engine_) engine_->rebuildSchemeMenu(&ic_, schemeAvailable("cantonese"), schemeAvailable("zhuyin"));
+}
+
 void FcitxState::refreshToolbar() {
   if (!engine_) return;
   engine_->rebuildToolbarMenu(&ic_);
@@ -5971,6 +6037,8 @@ void FcitxState::render() {
   ic_.inputPanel().reset();
   const auto editing = view_.value("editing_text", std::string());
   const auto style = preferences_.value("tsf_preedit_style", std::string("raw"));
+  const int inlineScheme = typingScheme();
+  const bool alwaysInline = inlineScheme >= 0 && msime::linux_host::scheme::AlwaysInlinePreedit(inlineScheme);
   if (!voice_preedit_.empty()) {
     fcitx::Text preedit(voice_preedit_, fcitx::TextFormatFlag::Underline);
     preedit.setCursor(static_cast<int>(voice_preedit_.size()));
@@ -5978,9 +6046,9 @@ void FcitxState::render() {
       ic_.inputPanel().setClientPreedit(preedit);
     else
       ic_.inputPanel().setPreedit(preedit);
-  } else if (style != "empty" || korean()) {
-    // A Korean syllable is text the user already wrote, so it is drawn inline whatever the preedit style: until its Hanja list opens there is no candidate window to show it in.
-    auto reading = style == "pinyin" ? view_.value("preedit", editing) : editing;
+  } else if (style != "empty" || alwaysInline) {
+    // A Korean syllable, Zhuyin conversion or Vietnamese word is text the user is writing, so it is drawn inline whatever the preedit style: until a list opens there is no candidate window to show it in (core/InputSchemeTraits.h, AlwaysInlinePreedit).
+    auto reading = style == "pinyin" || alwaysInline ? view_.value("preedit", editing) : editing;
     // A Japanese composition is かな, not the letters that produced it; see
     // ../src/core/PhrasePreedit.h for the one case that keeps the letters.
     const auto kana = view_.value("reading", std::string{});
@@ -5996,8 +6064,8 @@ void FcitxState::render() {
     fcitx::Text preedit(composed.text, fcitx::TextFormatFlag::Underline);
     if (reading == editing)
       preedit.setCursor(static_cast<int>(composed.caret_bytes));
-    // The caret always follows the Hangul; the runtime keeps no caret inside an open syllable.
-    else if (korean())
+    // The caret always follows an inline composition; the runtime keeps no caret inside it.
+    else if (alwaysInline)
       preedit.setCursor(static_cast<int>(composed.text.size()));
     if (ic_.capabilityFlags().test(fcitx::CapabilityFlag::Preedit))
       ic_.inputPanel().setClientPreedit(preedit);
@@ -6516,12 +6584,13 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
       }
     }
   }
-  // A key the active local mode spells with is input before any binding below can claim it: a paired closing mark, a page or word-character key, a candidate digit, a paired bracket or smart punctuation (core/SpellingSymbols.h).
+  // A key the active local mode or scheme spells with is input before any binding below can claim it: a paired closing mark, a page or word-character key, a candidate digit, a paired bracket or smart punctuation (core/SpellingSymbols.h). Space is one of them only while a Zhuyin syllable composes, where it is the first tone.
   if (!states.testAny(fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Alt,
                                        fcitx::KeyState::Super, fcitx::KeyState::Hyper,
                                        fcitx::KeyState::Meta, fcitx::KeyState::Mod5})) {
     const auto spelled = static_cast<char32_t>(fcitx::Key::keySymToUnicode(sym));
-    if (msime::linux_host::local_mode_spelling(view_, spelled))
+    if (msime::linux_host::engine_spelling(view_, spelled) ||
+        (spelled == U' ' && !states.test(fcitx::KeyState::Shift) && msime::linux_host::spelling_space(view_)))
       return apply(msime_client_character(session_, static_cast<uint8_t>(spelled),
                                           event.rawKey().states().test(fcitx::KeyState::Shift)));
   }
@@ -6547,8 +6616,8 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     if (composing) command(MSIME_COMMIT_RAW);
     return false;
   }
-  // Keep Ctrl-only segment editing consistent with IBus and the Windows composition editor. The shared runtime resolves the actual segment boundaries and falls back safely for local modes. A Korean syllable has no segments, so there the chord finishes it below and stays the application's shortcut.
-  if (ctrl && !alt && !shift && composing && !korean()) {
+  // Keep Ctrl-only segment editing consistent with IBus and the Windows composition editor. The shared runtime resolves the actual segment boundaries and falls back safely for local modes. A Korean syllable, Zhuyin conversion or Vietnamese word has no segments, so there the chord finishes it below and stays the application's shortcut.
+  if (ctrl && !alt && !shift && composing && !commitsOnBlur()) {
     if (sym == FcitxKey_BackSpace) return command(MSIME_BACKSPACE_SEGMENT);
     if (sym == FcitxKey_Left || sym == FcitxKey_KP_Left)
       return command(MSIME_MOVE_LEFT_SEGMENT);
@@ -6558,31 +6627,42 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
   if (states.testAny(fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Alt,
                                       fcitx::KeyState::Super, fcitx::KeyState::Hyper,
                                       fcitx::KeyState::Mod5})) {
-    // A Korean syllable is already text, so a shortcut finishes it rather than throwing it away.
-    if (composing) command(korean() ? MSIME_FINISH_COMPOSITION : MSIME_CANCEL);
+    // A Korean syllable, Zhuyin conversion or Vietnamese word is already text, so a shortcut finishes it rather than throwing it away.
+    if (composing) command(commitsOnBlur() ? MSIME_FINISH_COMPOSITION : MSIME_CANCEL);
     return false;
   }
-  // CapsLock uppercase letters belong to the editor when a new composition has not started, matching the Windows and IBus host routers. Korean letters are jamo whatever CapsLock says, so they still compose.
-  if (!korean() && states.test(fcitx::KeyState::CapsLock) && !shift &&
+  // CapsLock uppercase letters belong to the editor when a new composition has not started, matching the Windows and IBus host routers. Korean letters are jamo whatever CapsLock says, and a Vietnamese word starts in capitals, so both still compose.
+  if (!(typingScheme() >= 0 && msime::linux_host::scheme::CapsLockBypassExempt(typingScheme())) &&
+      states.test(fcitx::KeyState::CapsLock) && !shift &&
       sym >= FcitxKey_A && sym <= FcitxKey_Z &&
       view_.value("editing_text", std::string{}).empty() &&
       view_.value("candidates", Json::array()).empty())
     return false;
-  // Hangul_Hanja, or a bare F9, converts the composing Korean syllable to Hanja, the keys of fcitx5-hangul and ibus-hangul; pressed again with the list open it closes it (msime_client.h, MSIME_CONVERT_HANJA). Ctrl+F9 is the voice toggle above. While a syllable composes the key stays the input method's whatever the Engine answers: a lone jamo has no Hanja, and the tail of this function would write the syllable out and hand the key to the application. With nothing composing it is the application's as before.
+  // Hangul_Hanja, or a bare F9, converts the composing Korean syllable to Hanja, the keys of fcitx5-hangul and ibus-hangul; pressed again with the list open it closes it (msime_client.h, MSIME_OPEN_CANDIDATE_LIST). A composing Zhuyin conversion opens its candidate list with the same keys. Ctrl+F9 is the voice toggle above. While a composition is open the key stays the input method's whatever the Engine answers: a lone jamo has no Hanja, and the tail of this function would write the composition out and hand the key to the application. With nothing composing it is the application's as before.
   static_assert(msime::linux_host::kKeysymHangulHanja == FcitxKey_Hangul_Hanja &&
                 msime::linux_host::kKeysymF9 == FcitxKey_F9);
   if (composing && msime::linux_host::korean_hanja_key(sym) &&
       !states.testAny(fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Alt, fcitx::KeyState::Shift,
                                        fcitx::KeyState::Super, fcitx::KeyState::Hyper, fcitx::KeyState::Meta,
                                        fcitx::KeyState::Mod5}) &&
-      msime::linux_host::korean_composition(view_)) {
-    command(MSIME_CONVERT_HANJA);
+      msime::linux_host::candidate_list_composition(view_)) {
+    command(MSIME_OPEN_CANDIDATE_LIST);
     return true;
   }
-  // With its Hanja list open a Korean syllable has candidates, and the candidate block below takes the keys as it does for any list.
+  // Down opens the list of a composing Zhuyin conversion, as in libchewing; with the list open it moves the highlight below like in any list.
+  if (composing && (sym == FcitxKey_Down || sym == FcitxKey_KP_Down) &&
+      !states.testAny(fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Alt, fcitx::KeyState::Shift,
+                                       fcitx::KeyState::Super, fcitx::KeyState::Hyper, fcitx::KeyState::Meta,
+                                       fcitx::KeyState::Mod5}) &&
+      msime::linux_host::zhuyin_list_down_key(view_)) {
+    command(MSIME_OPEN_CANDIDATE_LIST);
+    return true;
+  }
+  // With its Hanja list open a Korean syllable has candidates, and the candidate block below takes the keys as it does for any list; so does a Zhuyin conversion with its list open.
   const bool koreanHanjaList = msime::linux_host::korean_hanja_list_open(view_);
-  // Otherwise a Korean syllable has no candidates. The keys that end it send it to the application as a commit and then do their own work there (the transition is unhandled), as in every Korean input method; Escape discards it and Backspace takes back one jamo. Every other key falls through: a letter composes, a digit or a mark ends the syllable through the runtime, and anything else finishes it at the end of this function.
-  if (composing && korean() && !koreanHanjaList) {
+  const bool openedList = msime::linux_host::opened_candidate_list(view_);
+  // Otherwise a Korean syllable has no candidates. The keys that end it send it to the application as a commit and then do their own work there (the transition is unhandled), as in every Korean input method; Escape discards it and Backspace takes back one jamo. Every other key falls through: a letter composes, a digit or a mark ends the syllable through the runtime, and anything else finishes it at the end of this function. A Zhuyin conversion with its list closed and a Vietnamese word end the same way.
+  if (composing && commitsOnBlur() && !openedList) {
     switch (sym) {
     case FcitxKey_Escape: return command(MSIME_CANCEL);
     case FcitxKey_BackSpace: return command(MSIME_BACKSPACE);
@@ -6596,7 +6676,7 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     default: break;
     }
   }
-  if (composing && (!korean() || koreanHanjaList)) {
+  if (composing && (!commitsOnBlur() || openedList)) {
     const bool japanese = view_.value("scheme", 0u) == 3;
     // The marks among these keys stay punctuation while a Korean Hanja list is open, as they are with no list (core/KoreanHanja.h): the Engine closes the list and writes the Hangul with the mark. Page Up, Page Down and Tab still page.
     if (!shift && !view_.at("candidates").empty() && !koreanHanjaList) {
@@ -6650,9 +6730,9 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     case FcitxKey_Escape: return command(MSIME_CANCEL);
     case FcitxKey_BackSpace: return command(MSIME_BACKSPACE);
     case FcitxKey_Delete: case FcitxKey_KP_Delete: return command(MSIME_DELETE_FORWARD);
-    // With a Korean Hanja list open Return chooses the highlighted Hanja, as Space does; only the session knows the highlight, so the command is the candidate one (msime_client.h).
+    // With a Korean Hanja list or a Zhuyin list open Return chooses the highlighted candidate, as Space does; only the session knows the highlight, so the command is the candidate one (msime_client.h).
     case FcitxKey_Return: case FcitxKey_KP_Enter:
-      return command(koreanHanjaList ? MSIME_COMMIT_CANDIDATE : MSIME_COMMIT_RAW);
+      return command(openedList ? MSIME_COMMIT_CANDIDATE : MSIME_COMMIT_RAW);
     case FcitxKey_space: return command(MSIME_COMMIT_CANDIDATE);
     case FcitxKey_Left: case FcitxKey_KP_Left: return command(MSIME_MOVE_LEFT);
     case FcitxKey_Right: case FcitxKey_KP_Right: return command(MSIME_MOVE_RIGHT);
@@ -6709,11 +6789,11 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
         const auto id = view_.at("candidates").at(index).at("id");
         return apply(msime_client_select(session_, id.at("generation"), id.at("index")));
       }
-      // A digit past the end of a Hanja page picks nothing and is swallowed, as the runtime swallows it, rather than typed beside the open syllable.
-      return koreanHanjaList;
+      // A digit past the end of a Hanja or Zhuyin page picks nothing and is swallowed, as the runtime swallows it, rather than typed beside the open composition.
+      return openedList;
     }
-    // With number-row selection off a digit is not a candidate shortcut. Sent to the Engine it would still pick a Hanja, since the runtime turns a digit the Engine leaves unhandled into a page selection, so it ends the syllable instead, as a digit does with no list: the Hangul is written and the digit goes to the application after it.
-    if (number && koreanHanjaList) {
+    // With number-row selection off a digit is not a candidate shortcut. Sent to the Engine it would still pick a candidate, since the runtime turns a digit the Engine leaves unhandled into a page selection, so it ends the composition instead, as a digit does with no Hanja list: the composition is written and the digit goes to the application after it.
+    if (number && openedList) {
       command(MSIME_FINISH_COMPOSITION);
       return false;
     }
@@ -6735,7 +6815,7 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     if (apply(msime_client_punctuation_ascii(session_, static_cast<uint8_t>(keypad))))
       return true;
     if (keypad != '.') return false;
-    commitText(fullwidthOutput() && !korean() ? std::string("．") : std::string("."));
+    commitText(fullwidthOutput() && !narrowScheme() ? std::string("．") : std::string("."));
     return true;
   }
   const auto text = fcitx::Key::keySymToUTF8(sym);
@@ -6750,8 +6830,8 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     }
     const bool asciiPunctuation =
         std::ispunct(static_cast<unsigned char>(text[0])) != 0 &&
-        // An apostrophe in an active spelling is an Engine input character for emoji/kaomoji and Japanese modes, matching the IBus router. In Korean it is a mark that follows the open syllable like any other.
-        !(text[0] == '\'' && composing && !korean());
+        // An apostrophe in an active spelling is an Engine input character for emoji/kaomoji and Japanese modes, matching the IBus router. In Korean, Zhuyin and Vietnamese it is a mark that follows the open composition like any other.
+        !(text[0] == '\'' && composing && !commitsOnBlur());
     const bool japaneseLongVowel = view_.value("scheme", 0u) == 3 && !shift &&
                                    (text[0] == '-' || text[0] == '=');
     if (japaneseLongVowel)
@@ -6759,8 +6839,8 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     if (asciiPunctuation) {
       if (repeatSmartPunctuationToChinese(text[0]))
         return true;
-      // Korean punctuation is plain ASCII, so it is never completed into a pair.
-      if (!keypad && !korean()) {
+      // Korean and Vietnamese punctuation is plain ASCII and Zhuyin's comes from the Engine alone, so none of them is completed into a pair.
+      if (!keypad && !withoutHostPunctuation()) {
         if (const auto paired = pairedPunctuation(text[0], composing)) return *paired;
       }
       return punctuation(static_cast<uint8_t>(text[0]));
@@ -6804,6 +6884,21 @@ void FcitxEngine::rebuildThemeMenu(fcitx::InputContext *ic) {
   }
   global_theme_packages_ = std::move(packages);
   ic->updateUserInterface(fcitx::UserInterfaceComponent::StatusArea);
+}
+
+// The scheme menu is shared by every context, so it follows the runtime options the last context read, as the theme menu does. The Chinese schemes come first and the other input languages after them, as in the IBus menu; nothing is rebuilt while the languages stay the same, so an entry is never replaced under a menu that shows it.
+void FcitxEngine::rebuildSchemeMenu(fcitx::InputContext *ic, bool cantonese, bool zhuyin) {
+  const std::pair languages{cantonese, zhuyin};
+  if (scheme_menu_languages_ == languages) return;
+  for (auto *entry : scheme_menu_entries_) scheme_menu_.removeAction(entry);
+  scheme_menu_entries_ = {&scheme_quanpin_action_, &scheme_shuangpin_action_, &scheme_wubi_action_};
+  if (cantonese) scheme_menu_entries_.push_back(&scheme_cantonese_action_);
+  if (zhuyin) scheme_menu_entries_.push_back(&scheme_zhuyin_action_);
+  scheme_menu_entries_.insert(scheme_menu_entries_.end(),
+                              {&scheme_japanese_action_, &scheme_korean_action_, &scheme_vietnamese_action_});
+  for (auto *entry : scheme_menu_entries_) scheme_menu_.addAction(entry);
+  scheme_menu_languages_ = languages;
+  if (ic) ic->updateUserInterface(fcitx::UserInterfaceComponent::StatusArea);
 }
 
 void FcitxEngine::rebuildToolbarMenu(fcitx::InputContext *ic) {

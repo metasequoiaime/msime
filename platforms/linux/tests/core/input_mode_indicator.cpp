@@ -11,7 +11,13 @@ int main() {
   assert(input_mode_indicator(true, "wubi", false) == Indicator::Chinese);
   assert(input_mode_indicator(true, "japanese", false) == Indicator::Japanese);
   assert(input_mode_indicator(true, "korean", false) == Indicator::Korean);
+  assert(input_mode_indicator(true, "cantonese", false) == Indicator::Cantonese);
+  assert(input_mode_indicator(true, "zhuyin", false) == Indicator::Zhuyin);
+  assert(input_mode_indicator(true, "vietnamese", false) == Indicator::Vietnamese);
   assert(input_mode_indicator(false, "quanpin", false) == Indicator::English);
+  assert(input_mode_indicator(false, "zhuyin", false) == Indicator::English);
+  assert(input_mode_indicator(false, "vietnamese", false) == Indicator::English);
+  assert(input_mode_indicator(true, "vietnamese", true) == Indicator::CapsLock);
   // Direct input with the Japanese or Korean scheme selected types English.
   assert(input_mode_indicator(false, "japanese", false) == Indicator::English);
   assert(input_mode_indicator(false, "korean", false) == Indicator::English);

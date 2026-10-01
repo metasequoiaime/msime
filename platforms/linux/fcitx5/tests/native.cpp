@@ -1,6 +1,7 @@
 // Real Fcitx input contexts and the real Host API. All input is synthetic.
 #include "../FcitxEngine.cpp"
 #include <array>
+#include <cstdlib>
 #include <iostream>
 #include <filesystem>
 #include <thread>
@@ -1964,7 +1965,8 @@ int main(int argc, char **argv) {
               "Korean leaves the last Chinese scheme alone");
       require(state->modeIndicatorLabel() == "한", "the status area labels Korean input");
       // The 输入方案 menu picks a scheme directly and marks the one in use.
-      require(engine.scheme_menu_.actions().size() == 5, "scheme menu lists the five schemes");
+      // Cantonese and Zhuyin are listed only with their dictionaries, which this fixture does not install.
+      require(engine.scheme_menu_.actions().size() == 6, "scheme menu lists the six schemes that need no dictionary");
       require(engine.scheme_korean_action_.isChecked(&ic) && !engine.scheme_japanese_action_.isChecked(&ic) &&
                   !engine.scheme_quanpin_action_.isChecked(&ic),
               "scheme menu marks the scheme in use");
@@ -2019,9 +2021,7 @@ int main(int argc, char **argv) {
       require(state->view_.value("scheme", 0u) == 2 && !state->scheme_override_,
               "a later settings page scheme replaces the status bar choice on reload");
       // The same change made while the context had no session, as when the settings window has the focus.
-      require(state->cycleScheme() && state->cycleScheme() && state->cycleScheme() &&
-                  state->view_.value("scheme", 0u) == 1,
-              "status bar back to shuangpin");
+      while (state->view_.value("scheme", 0u) != 1) require(state->cycleScheme(), "status bar back to shuangpin");
       state->close();
       state->clearPanel();
       settingsPageSetsScheme("wubi");
@@ -2338,6 +2338,138 @@ int main(int argc, char **argv) {
       engine.deactivate(entry, switched);
       require(ic.committed == before + "가가", "switching input methods commits the open syllable");
       engine.activate(entry, focus);
+      state->close();
+      state->clearPanel();
+    }
+    // Zhuyin needs its language dictionary: saved as the scheme while the dictionary is missing, the last Chinese scheme runs and the menu leaves Zhuyin out. Installed, the Dachen digit row spells, Space is the first tone and converts without a list, and the list opens only on request. Vietnamese then composes inline with VNI digits and is never widened.
+    {
+      const auto dictionaries = std::filesystem::path(directory) / "language-dictionaries";
+      std::filesystem::create_directory(dictionaries);
+      options["language_dictionaries"] = dictionaries.string();
+      options["preferences"]["scheme"] = "zhuyin";
+      options["preferences"]["last_chinese_scheme"] = "quanpin";
+      options["preferences"]["character_width"] = "halfwidth";
+      options["preferences"]["number_row_selection"] = true;
+      options["preferences"]["vietnamese"]["input_method"] = "vni";
+      std::ofstream(path) << options.dump();
+      // The store outranks the options file for the scheme and the width, as the status bar saves them there.
+      {
+        auto snapshot = response(msime_client_load_preferences(
+            reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size()));
+        const auto revision = snapshot.at("revision").get<uint64_t>();
+        snapshot["preferences"]["scheme"] = "zhuyin";
+        snapshot["preferences"]["character_width"] = "halfwidth";
+        snapshot["revision"] = revision + 1;
+        const auto document = snapshot.dump();
+        const auto saved = response(msime_client_save_preferences(
+            reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size(), revision,
+            reinterpret_cast<const uint8_t *>(document.data()), document.size()));
+        require(saved.value("revision", uint64_t{}) > revision, "Zhuyin saved as the scheme");
+      }
+      const auto press = [&](fcitx::KeySym sym, fcitx::KeyStates states = fcitx::KeyStates()) {
+        fcitx::KeyEvent event(&ic, fcitx::Key(sym, states));
+        engine.keyEvent(entry, event);
+        return event.accepted();
+      };
+      const auto preedit = [&] { return ic.inputPanel().clientPreedit().toString(); };
+      const auto candidates = [&] { return state->view_.value("candidates", Json::array()); };
+      const auto offered = [&](fcitx::Action *action) {
+        const auto actions = engine.scheme_menu_.actions();
+        return std::find(actions.begin(), actions.end(), action) != actions.end();
+      };
+      require(state->ensure(), "session with Zhuyin saved and its dictionary missing");
+      require(state->effectiveScheme() == "quanpin" && state->view_.value("scheme", 9u) == 0 &&
+                  state->modeIndicatorLabel() == "中",
+              "a missing Zhuyin dictionary falls back to the last Chinese scheme");
+      require(!offered(&engine.scheme_zhuyin_action_) && !offered(&engine.scheme_cantonese_action_) &&
+                  offered(&engine.scheme_quanpin_action_) && offered(&engine.scheme_vietnamese_action_),
+              "the scheme menu leaves out a scheme whose dictionary is missing");
+      require(engine.scheme_quanpin_action_.isChecked(&ic) && !engine.scheme_zhuyin_action_.isChecked(&ic),
+              "the scheme menu marks the fallback in use");
+      require(!state->selectScheme("zhuyin") && state->view_.value("scheme", 9u) == 0,
+              "Zhuyin cannot be selected without its dictionary");
+      const auto fixture =
+          std::string("python3 '") + MSIME_ZHUYIN_DICTIONARY_FIXTURE + "' '" + dictionaries.string() + "'";
+      require(std::system(fixture.c_str()) == 0, "Zhuyin dictionary fixture written");
+      state->close();
+      state->clearPanel();
+      require(state->ensure() && state->effectiveScheme() == "zhuyin" && state->view_.value("scheme", 0u) == 6 &&
+                  state->modeIndicatorLabel() == "注",
+              "the saved Zhuyin runs once its dictionary is installed");
+      require(offered(&engine.scheme_zhuyin_action_) && engine.scheme_zhuyin_action_.isChecked(&ic) &&
+                  !offered(&engine.scheme_cantonese_action_),
+              "the scheme menu offers and marks Zhuyin with its dictionary installed");
+      auto before = ic.committed;
+      require(press(FcitxKey_1) && press(FcitxKey_8) && ic.committed == before,
+              "the digit row spells ㄅㄚ rather than choosing a candidate");
+      require(press(FcitxKey_space) && preedit() == "八" && candidates().empty() && ic.committed == before,
+              "Space gives the first tone and converts without opening a list");
+      require(press(FcitxKey_Down) && candidates().size() == 2 &&
+                  candidates().at(0).value("text", std::string()) == "八" &&
+                  candidates().at(1).value("text", std::string()) == "巴",
+              "Down opens the Zhuyin list");
+      require(press(FcitxKey_2) && preedit() == "巴" && candidates().empty() && ic.committed == before,
+              "a digit picks from the open list without committing");
+      require(press(FcitxKey_Down) && !candidates().empty() && press(FcitxKey_1) && preedit() == "八" &&
+                  ic.committed == before,
+              "1 picks the first row of the list");
+      require(press(FcitxKey_Return) && ic.committed == before + "八" && preedit().empty(),
+              "Return commits the conversion");
+      before = ic.committed;
+      require(press(FcitxKey_1) && press(FcitxKey_8) && press(FcitxKey_space) && press(FcitxKey_F9) &&
+                  !candidates().empty(),
+              "F9 opens the Zhuyin list");
+      require(press(FcitxKey_Escape) && candidates().empty() && preedit() == "八",
+              "Escape closes the list and keeps the conversion");
+      require(press(FcitxKey_Escape) && preedit().empty() && ic.committed == before,
+              "a second Escape discards the conversion");
+      require(press(FcitxKey_comma) && press(FcitxKey_space) && preedit() == "欸" && ic.committed == before,
+              "the comma spells ㄝ rather than writing Chinese punctuation");
+      require(press(FcitxKey_Return) && ic.committed == before + "欸", "Return commits 欸");
+      // Vietnamese with VNI: the digits after a word place its marks inline and never open a list.
+      require(state->selectScheme("vietnamese") && state->view_.value("scheme", 0u) == 7 &&
+                  engine.scheme_vietnamese_action_.isChecked(&ic) && state->modeIndicatorLabel() == "越",
+              "the scheme menu selects Vietnamese");
+      before = ic.committed;
+      require(!press(FcitxKey_6) && ic.committed == before, "an idle VNI digit is the application's");
+      for (const auto sym : {FcitxKey_v, FcitxKey_i, FcitxKey_e, FcitxKey_t, FcitxKey_6, FcitxKey_5})
+        require(press(sym), "VNI keys compose");
+      require(preedit() == "việt" && candidates().empty() && ic.committed == before,
+              "VNI digits compose việt inline");
+      // A mark follows the word as ASCII, with fullwidth output on too, and an idle mark is left to the application unwidened.
+      require(state->toggleWidth() && state->fullwidthOutput() && preedit() == "việt", "fullwidth output on");
+      require(press(FcitxKey_comma) && ic.committed == before + "việt," && preedit().empty(),
+              "the comma after a word commits with it as ASCII");
+      require(!press(FcitxKey_comma) && ic.committed == before + "việt,",
+              "an idle comma reaches the application as ASCII");
+      require(press(FcitxKey_a) && preedit() == "a" && !press(FcitxKey_space) && ic.committed == before + "việt,a",
+              "Space commits the word unwidened and reaches the application");
+      require(state->toggleWidth() && !state->fullwidthOutput(), "fullwidth output off");
+      // Caps Lock types a capital that starts a word.
+      before = ic.committed;
+      require(press(FcitxKey_A, fcitx::KeyStates(fcitx::KeyState::CapsLock)) && preedit() == "A" &&
+                  ic.committed == before,
+              "Caps Lock starts a Vietnamese word with a capital");
+      require(!press(FcitxKey_Return) && ic.committed == before + "A" && preedit().empty(),
+              "Return commits the word and reaches the application");
+      // Switching input methods, and leaving a client that draws no preedit of its own, write the word out.
+      require(press(FcitxKey_v) && press(FcitxKey_i) && preedit() == "vi", "Vietnamese composes before the switch");
+      fcitx::InputContextEvent switched(&ic, fcitx::EventType::InputContextSwitchInputMethod);
+      engine.deactivate(entry, switched);
+      require(ic.committed == before + "Avi", "switching input methods commits the open word");
+      engine.activate(entry, focus);
+      ic.setCapabilityFlags(fcitx::CapabilityFlag::NoFlag);
+      require(press(FcitxKey_v) && press(FcitxKey_i) && ic.inputPanel().preedit().toString() == "vi" &&
+                  state->view_.value("scheme", 0u) == 7,
+              "Vietnamese composes in the panel for a client without preedit");
+      ic.focusOut();
+      require(ic.committed == before + "Avivi" && state->session_ == 0, "focus out commits the open word");
+      ic.setCapabilityFlags(fcitx::CapabilityFlags{fcitx::CapabilityFlag::Preedit,
+                                                 fcitx::CapabilityFlag::SurroundingText});
+      ic.focusIn();
+      engine.activate(entry, focus);
+      require(press(FcitxKey_a) && preedit() == "a" && ic.committed == before + "Avivi",
+              "the next field starts a new word");
       state->close();
       state->clearPanel();
     }

@@ -84,7 +84,7 @@ pub(crate) fn resolve_with_resources(
         {
             return Err("Cannot read prepared HostOptions JSON");
         }
-        refresh_options(&options_path);
+        refresh_options(&options_path, resources_directory);
     }
     let file =
         std::fs::File::open(&options_path).map_err(|_| "Cannot read prepared HostOptions JSON")?;
@@ -325,13 +325,28 @@ pub(crate) fn recover_default_options(application_directory: &Path, native_optio
     replace_options(&local, &document).is_ok()
 }
 
-/// Bring options written before an app upgrade up to the dictionary generation this build's lock describes, the counterpart of the user-dictionary replay the Windows installer runs on every upgrade: the Host API prepares the new generation, replays the user journal into it and atomically rewrites only `resources` and `dictionaries`. This runs before any session exists. Symlinks and documents outside the prepared layout are left alone by the Host API. A failure keeps the previous generation in use and the next launch tries again; the error is not printed because it can name private paths.
-fn refresh_options(options_path: &Path) {
-    if msime_host_api::refresh_host_options(options_path).is_err() {
+/// 把应用升级前写下的配置带到本构建词库锁描述的代次，对应 Windows 安装程序每次升级时做的用户词库回放：Host API 准备新代次、把用户词库日志回放进去，并原子地只改写 `resources` 与 `dictionaries`。它在任何会话建立之前运行。符号链接和不符合准备布局的文件由 Host API 原样保留。失败时继续用旧代次，下次启动再试；错误不打印，因为其中可能有私人路径。
+///
+/// 打包的应用传入 bundle 内的 `EngineResources`：记录的资源目录是没有安装包会升级的副本（手工暂存到 Application Support，或在输入法「准备词库」里选的目录）且已与词库锁不符时，改从 bundle 准备代次，此后配置指向 bundle，bundle 里的 `language-dictionaries` 也就成了记录的资源目录的同级目录，由输入法自己的刷新记入 `language_dictionaries`。开发运行的资源目录是随时可能被清掉的 cargo 产物，不会这样记录。
+fn refresh_options(options_path: &Path, bundled_resources: Option<&Path>) {
+    let refreshed = match packaged_resources(bundled_resources) {
+        Some(bundled) => msime_host_api::refresh_host_options_from(options_path, bundled),
+        None => msime_host_api::refresh_host_options(options_path),
+    };
+    if refreshed.is_err() {
         eprintln!(
             "Cannot update the dictionary to the installed generation; keeping the current one"
         );
     }
+}
+
+/// `resources` 是打包应用 `Contents/Resources` 下的目录时原样返回，开发运行的 cargo 产物目录返回 `None`。
+fn packaged_resources(resources: Option<&Path>) -> Option<&Path> {
+    resources.filter(|resources| {
+        resources
+            .parent()
+            .is_some_and(super::macos_input_source::is_packaged_resource_directory)
+    })
 }
 
 fn prepare_default_options(
@@ -682,6 +697,20 @@ mod tests {
         assert_eq!(launch.document, document);
         assert_eq!(fs::read(&path).unwrap(), bytes);
         assert_eq!(launch.preferences_directory, root.path().join("state"));
+    }
+
+    /// 升级时只有打包应用自带的 `EngineResources` 能顶替过期的资源目录；开发运行的资源目录是 cargo 产物，不能写进用户的配置。
+    #[test]
+    fn only_a_packaged_bundle_replaces_outdated_resources() {
+        let packaged = Path::new("/Applications/MSIME.app/Contents/Resources/EngineResources");
+        assert_eq!(packaged_resources(Some(packaged)), Some(packaged));
+        for development in [
+            Path::new("/repo/target/debug/EngineResources"),
+            Path::new("/repo/target/release/bundle/Resources/EngineResources"),
+        ] {
+            assert_eq!(packaged_resources(Some(development)), None);
+        }
+        assert_eq!(packaged_resources(None), None);
     }
 
     #[test]
