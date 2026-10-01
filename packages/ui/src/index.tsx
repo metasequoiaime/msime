@@ -1304,6 +1304,10 @@ export {
 } from "./keyboard/cloud-dictionary-entry-form";
 export { CloudPanelHeader, type CloudPanelHeaderProps } from "./keyboard/cloud-panel-header";
 export {
+  CloudDictionaryPagination,
+  type CloudDictionaryPaginationProps,
+} from "./keyboard/cloud-dictionary-pagination";
+export {
   CloudDictionaryKindTabs,
   type CloudDictionaryKindTabsProps,
 } from "./keyboard/cloud-dictionary-kind-tabs";

@@ -38,6 +38,7 @@ import { keyboardSkinStyles } from "./keyboard-skin-styles";
 import { keyboardRows, nineKeyRows } from "./panel-keyboard-layouts";
 import { CloudDictionaryEntryForm } from "./cloud-dictionary-entry-form";
 import { CloudPanelHeader } from "./cloud-panel-header";
+import { CloudDictionaryPagination } from "./cloud-dictionary-pagination";
 import { NativePanelHeader } from "./native-panel-header";
 import { CloudDictionaryKindTabs } from "./cloud-dictionary-kind-tabs";
 import type { CloudDictionaryKind } from "./cloud-dictionary-kind-tabs";
@@ -2257,25 +2258,13 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
             <p className={cloud.dictionaryEmpty}>暂无词条</p>
           )}
         </div>
-        <div className={cloud.dictionaryPagination}>
-          <button
-            className={cloud.dictionaryButton}
-            type="button"
-            onClick={() => void refresh(Math.max(0, offset - 100))}
-            disabled={busy || offset === 0}
-          >
-            上一页
-          </button>
-          <span>第 {Math.floor(offset / 100) + 1} 页</span>
-          <button
-            className={cloud.dictionaryButton}
-            type="button"
-            onClick={() => void refresh(offset + 100)}
-            disabled={busy || !hasMore}
-          >
-            下一页
-          </button>
-        </div>
+        <CloudDictionaryPagination
+          offset={offset}
+          hasMore={hasMore}
+          busy={busy}
+          onPrevious={() => void refresh(Math.max(0, offset - 100))}
+          onNext={() => void refresh(offset + 100)}
+        />
         <p className={cloud.dictionaryNote} role="status">
           {notice}
         </p>
@@ -3221,25 +3210,13 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
           />
         )}
         {confirmed && (
-          <div className={cloud.dictionaryPagination}>
-            <button
-              className={cloud.dictionaryButton}
-              type="button"
-              onClick={() => void queryCatalog(Math.max(0, offset - 100), confirmed)}
-              disabled={busy || offset === 0}
-            >
-              上一页
-            </button>
-            <span>第 {Math.floor(offset / 100) + 1} 页</span>
-            <button
-              className={cloud.dictionaryButton}
-              type="button"
-              onClick={() => void queryCatalog(offset + 100, confirmed)}
-              disabled={busy || !hasMore}
-            >
-              下一页
-            </button>
-          </div>
+          <CloudDictionaryPagination
+            offset={offset}
+            hasMore={hasMore}
+            busy={busy}
+            onPrevious={() => void queryCatalog(Math.max(0, offset - 100), confirmed)}
+            onNext={() => void queryCatalog(offset + 100, confirmed)}
+          />
         )}
         <p className={cloud.dictionaryNote} role="status">
           {notice}
