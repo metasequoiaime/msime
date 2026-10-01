@@ -1,4 +1,5 @@
 import * as settings from "./settings-style";
+import { OpenPanelButton } from "./open-panel-button";
 import { GroupList, Row } from "../core/platform-controls";
 
 export interface VoiceInputIntroSectionProps {
@@ -106,14 +107,7 @@ export function VoiceInputIntroSection({
         title="打开语音输入"
         description={linux ? "录音和识别由已配置的 provider 服务完成" : "录音和识别在本机完成"}
       >
-        <button
-          type="button"
-          className={`secondary ${settings.openButton}`}
-          disabled={!onOpenVoice}
-          onClick={onOpenVoice}
-        >
-          打开
-        </button>
+        <OpenPanelButton action={onOpenVoice} className={`secondary ${settings.openButton}`} />
       </Row>
       {linux && (
         <p className={settings.groupNote}>

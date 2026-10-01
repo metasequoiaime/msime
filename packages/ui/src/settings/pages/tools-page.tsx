@@ -3,6 +3,7 @@ import { useSettingsForm } from "../settings-form-context";
 import { ClipboardHistorySection } from "../clipboard-history-section";
 import { CLOUD_PANEL_SESSION_NOTE } from "../cloud-panel-session-notice";
 import { GroupList, Row } from "../../core/platform-controls";
+import { OpenPanelButton } from "../open-panel-button";
 
 /** The 云剪贴板 page of the settings form (route id `tools`): the clipboard history kept on this device and the cloud panels. */
 export function ToolsSettingsPage() {
@@ -40,24 +41,18 @@ export function ToolsSettingsPage() {
               <>
                 {client.openCloudClipboard && (
                   <Row title="云剪贴板">
-                    <button
-                      type="button"
-                      className="secondary"
-                      onClick={() => void openPanel(client.openCloudClipboard)}
-                    >
-                      打开云剪贴板
-                    </button>
+                    <OpenPanelButton
+                      action={() => openPanel(client.openCloudClipboard)}
+                      label="打开云剪贴板"
+                    />
                   </Row>
                 )}
                 {client.openCloudDictionary && (
                   <Row title="云词典">
-                    <button
-                      type="button"
-                      className="secondary"
-                      onClick={() => void openPanel(client.openCloudDictionary)}
-                    >
-                      打开云词典
-                    </button>
+                    <OpenPanelButton
+                      action={() => openPanel(client.openCloudDictionary)}
+                      label="打开云词典"
+                    />
                   </Row>
                 )}
               </>

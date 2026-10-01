@@ -690,6 +690,7 @@ export {
 export { SurfaceThemeSelect, type SurfaceThemeSelectProps } from "./settings/surface-theme-select";
 export { EndpointInput, type EndpointInputProps } from "./settings/endpoint-input";
 export { FeedbackKindOptions } from "./settings/feedback-kind-options";
+export { OpenPanelButton, type OpenPanelButtonProps } from "./settings/open-panel-button";
 export { VoiceLanguageOptions, type VoiceLanguageOptionsProps } from "./voice/voice-language-options";
 export {
   CloudPinyinSchemeOptions,
