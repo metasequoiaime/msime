@@ -74,5 +74,8 @@ int main() {
   // Only a Vietnamese word keeps composing after an Escape; every other composition, schemes 0-4 included, is discarded by it.
   for (int scheme = Quanpin; scheme <= Vietnamese; ++scheme)
     assert(CancelRestoresRaw(scheme) == (scheme == Vietnamese));
+  // Only the Zhuyin list refuses the mouse; the Korean Hanja list and every Chinese list stay clickable, and an unknown number keeps the mouse too.
+  for (int scheme = Quanpin; scheme <= Vietnamese + 1; ++scheme)
+    assert(KeyboardOnlyCandidateList(scheme) == (scheme == Zhuyin));
   return 0;
 }

@@ -35,6 +35,10 @@ constexpr bool AlwaysInlinePreedit(int scheme) { return LetterComposition(scheme
 // Escape first shows the keys typed for the composing word again and keeps composing, and only an Escape with those keys already showing discards it (`restore_vietnamese_raw` in crates/engine/src/ime/mod.rs). The TIP and the Server each send one MSIME_CANCEL for the key, so their sessions take the same step.
 constexpr bool CancelRestoresRaw(int scheme) { return scheme == Vietnamese; }
 
+
+// A choice from the list fixes one reading and keeps the conversion composing in the TIP's own host session, which a row picked or a page turned by the mouse in the Server's candidate window would leave behind, so the list is driven from the keyboard only. A Korean Hanja click ends the syllable on both sides and stays clickable.
+constexpr bool KeyboardOnlyCandidateList(int scheme) { return scheme == Zhuyin; }
+
 // ---- Engine traits the view does not publish; each mirrors the `SchemeType` predicate of the same name ----
 
 // `is_chinese`: a Chinese scheme, the kind `last_chinese_scheme` remembers and the Chinese mode returns to.
