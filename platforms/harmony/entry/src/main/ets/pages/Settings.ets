@@ -220,7 +220,7 @@ interface TypingStatisticsAction {
   day?: string;
 }
 
-/** One 扩展 page request; only the operation is read here, the rest travels to `msime_client_plugins` as the page wrote it. */
+/** One 插件 page request; only the operation is read here, the rest travels to `msime_client_plugins` as the page wrote it. */
 interface PluginPageAction {
   operation: string;
 }
@@ -886,7 +886,7 @@ class SettingsBridge {
   }
 
   /**
-   * The 扩展 page's pack store and @ name list: `catalog`, `remove`, `load_mentions` and `save_mentions`, answered by `msime_client_plugins` with the same rules and failure codes the desktop shell answers with. The page never names a path: the state root and the bundle's built-in sound packs are filled in here, and an import, which has to wait for the system picker, arrives through `startRequest` as `plugin_import` instead.
+   * The 插件 page's pack store and @ name list: `catalog`, `remove`, `load_mentions` and `save_mentions`, answered by `msime_client_plugins` with the same rules and failure codes the desktop shell answers with. The page never names a path: the state root and the bundle's built-in sound packs are filled in here, and an import, which has to wait for the system picker, arrives through `startRequest` as `plugin_import` instead.
    */
   plugins(actionDocument: string): string {
     const refused: string = JSON.stringify({ ok: false, error: 'invalid' });
@@ -934,7 +934,7 @@ class SettingsBridge {
       options.selectMode = folder ? picker.DocumentSelectMode.FOLDER : picker.DocumentSelectMode.FILE;
       options.maxSelectNumber = 1;
       if (!folder) {
-        options.fileSuffixFilters = ['扩展包|.zip'];
+        options.fileSuffixFilters = ['插件|.zip'];
       }
       picked = await new picker.DocumentViewPicker(context).select(options);
     } catch (error) {

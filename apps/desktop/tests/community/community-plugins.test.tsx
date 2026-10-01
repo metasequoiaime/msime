@@ -5,12 +5,14 @@ import {
   CommunityPage,
   CommunityPluginPublishDialog,
   CommunityPluginsPage,
+  SettingsPage,
   type CommunityPlugin,
   type CommunityPluginClient,
   type PluginCatalogResult,
   type PluginPackage,
 } from "@msime/ui";
 import { createDesktopPluginCommunity } from "../../src/core/desktop-host-services";
+import { settingsFormReady } from "../support/settings-form";
 
 afterEach(() => {
   cleanup();
@@ -88,7 +90,7 @@ function client(overrides: Partial<CommunityPluginClient> = {}): CommunityPlugin
 }
 
 async function openDetail(name = "雨声") {
-  fireEvent.click(await screen.findByRole("button", { name: `查看扩展包 ${name}` }));
+  fireEvent.click(await screen.findByRole("button", { name: `查看插件 ${name}` }));
   return screen.findByRole("heading", { name });
 }
 
@@ -108,7 +110,7 @@ test("the kind filter is sent with every page, including the ones load more appe
 
   fireEvent.click(await screen.findByRole("button", { name: "加载更多" }));
   await waitFor(() => expect(list).toHaveBeenLastCalledWith(1, "", "sound"));
-  expect(await screen.findByRole("button", { name: "查看扩展包 雷雨" })).not.toBeNull();
+  expect(await screen.findByRole("button", { name: "查看插件 雷雨" })).not.toBeNull();
 });
 
 test("a kind filter whose first page fails is rolled back, so load more stays on the listed kind", async () => {
@@ -144,14 +146,14 @@ test("installing over a pack of the same kind and id asks first, then reports th
   );
   await openDetail();
   fireEvent.click(screen.getByRole("button", { name: "一键安装" }));
-  const confirm = await screen.findByRole("alertdialog", { name: "确认替换扩展包" });
+  const confirm = await screen.findByRole("alertdialog", { name: "确认替换插件" });
   expect(communityClient.install).not.toHaveBeenCalled();
 
   fireEvent.click(within(confirm).getByRole("button", { name: "替换安装" }));
   await waitFor(() =>
     expect(communityClient.install).toHaveBeenCalledWith(first.id, "sound", "rain"),
   );
-  expect(await screen.findByText("已安装到扩展目录，可在「扩展」中选用。")).not.toBeNull();
+  expect(await screen.findByText("已安装到插件目录，可在「我的插件」中选用。")).not.toBeNull();
   expect(onInstalled).toHaveBeenCalledWith(pack("sound", "rain"));
 });
 
@@ -168,7 +170,7 @@ test("a pack of another kind with the same id installs without asking", async ()
   await waitFor(() =>
     expect(communityClient.install).toHaveBeenCalledWith(first.id, "sound", "rain"),
   );
-  expect(screen.queryByRole("alertdialog", { name: "确认替换扩展包" })).toBeNull();
+  expect(screen.queryByRole("alertdialog", { name: "确认替换插件" })).toBeNull();
 });
 
 test("a download that fails its checksum is named", async () => {
@@ -176,7 +178,7 @@ test("a download that fails its checksum is named", async () => {
   render(<CommunityPluginsPage client={client({ install })} />);
   await openDetail();
   fireEvent.click(screen.getByRole("button", { name: "一键安装" }));
-  expect((await screen.findByRole("alert")).textContent).toContain("下载的扩展包已损坏");
+  expect((await screen.findByRole("alert")).textContent).toContain("下载的插件已损坏");
 });
 
 test("rates and takes down through the gallery", async () => {
@@ -193,8 +195,8 @@ test("rates and takes down through the gallery", async () => {
 
   fireEvent.click(screen.getByRole("button", { name: "返回社区" }));
   await openDetail("雷雨");
-  fireEvent.click(screen.getByRole("button", { name: "下架这个扩展包" }));
-  const confirm = await screen.findByRole("alertdialog", { name: "确认下架扩展包" });
+  fireEvent.click(screen.getByRole("button", { name: "下架这个插件" }));
+  const confirm = await screen.findByRole("alertdialog", { name: "确认下架插件" });
   fireEvent.click(within(confirm).getByRole("button", { name: "确认下架" }));
   await waitFor(() => expect(communityClient.delete).toHaveBeenCalledWith(owned.id));
 });
@@ -216,9 +218,9 @@ test("publishing offers only installed, shareable packs and retries under the sa
       ])}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "发布我的扩展包" }));
-  const dialog = await screen.findByRole("dialog", { name: "发布扩展包" });
-  const select = await within(dialog).findByRole("combobox", { name: "发布扩展包" });
+  fireEvent.click(await screen.findByRole("button", { name: "发布我的插件" }));
+  const dialog = await screen.findByRole("dialog", { name: "发布插件" });
+  const select = await within(dialog).findByRole("combobox", { name: "发布插件" });
   const options = within(select)
     .getAllByRole("option")
     .map((option) => option.getAttribute("value"));
@@ -229,7 +231,7 @@ test("publishing offers only installed, shareable packs and retries under the sa
     expect(communityClient.packPreview).toHaveBeenLastCalledWith("sound", "rain"),
   );
   const name = (await within(dialog).findByRole("textbox", {
-    name: "发布扩展包名称",
+    name: "发布插件名称",
   })) as HTMLInputElement;
   await waitFor(() => expect(name.value).toBe("我的雨声"));
   fireEvent.click(within(dialog).getByRole("checkbox", { name: "确认拥有发布内容权利" }));
@@ -254,8 +256,8 @@ test("a successful publish releases the dialog busy state after the callback", a
       onPublished={onPublished}
     />,
   );
-  const dialog = await screen.findByRole("dialog", { name: "发布扩展包" });
-  await within(dialog).findByRole("textbox", { name: "发布扩展包名称" });
+  const dialog = await screen.findByRole("dialog", { name: "发布插件" });
+  await within(dialog).findByRole("textbox", { name: "发布插件名称" });
   fireEvent.click(within(dialog).getByRole("checkbox", { name: "确认拥有发布内容权利" }));
   const submit = within(dialog).getByRole("button", { name: "公开发布" }) as HTMLButtonElement;
   fireEvent.click(submit);
@@ -276,8 +278,8 @@ test("replacing the publish client releases a pending dialog action", async () =
       onPublished={vi.fn()}
     />,
   );
-  const dialog = await screen.findByRole("dialog", { name: "发布扩展包" });
-  await within(dialog).findByRole("textbox", { name: "发布扩展包名称" });
+  const dialog = await screen.findByRole("dialog", { name: "发布插件" });
+  await within(dialog).findByRole("textbox", { name: "发布插件名称" });
   fireEvent.click(within(dialog).getByRole("checkbox", { name: "确认拥有发布内容权利" }));
   const submit = within(dialog).getByRole("button", { name: "公开发布" }) as HTMLButtonElement;
   fireEvent.click(submit);
@@ -292,7 +294,7 @@ test("replacing the publish client releases a pending dialog action", async () =
     />,
   );
   await waitFor(() => {
-    const currentDialog = screen.getByRole("dialog", { name: "发布扩展包" });
+    const currentDialog = screen.getByRole("dialog", { name: "发布插件" });
     expect(
       (
         within(currentDialog).getByRole("checkbox", {
@@ -312,10 +314,10 @@ test("editing the name after a failed publish draws a new publication id", async
       localPlugins={catalog([pack("sound", "rain")])}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "发布我的扩展包" }));
-  const dialog = await screen.findByRole("dialog", { name: "发布扩展包" });
+  fireEvent.click(await screen.findByRole("button", { name: "发布我的插件" }));
+  const dialog = await screen.findByRole("dialog", { name: "发布插件" });
   const name = (await within(dialog).findByRole("textbox", {
-    name: "发布扩展包名称",
+    name: "发布插件名称",
   })) as HTMLInputElement;
   await waitFor(() => expect(name.value).toBe("我的雨声"));
   fireEvent.click(within(dialog).getByRole("checkbox", { name: "确认拥有发布内容权利" }));
@@ -336,14 +338,13 @@ test("a pack the packer refuses says why before the form is shown", async () => 
       localPlugins={catalog([pack("music", "lofi")])}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "发布我的扩展包" }));
-  const dialog = await screen.findByRole("dialog", { name: "发布扩展包" });
+  fireEvent.click(await screen.findByRole("button", { name: "发布我的插件" }));
+  const dialog = await screen.findByRole("dialog", { name: "发布插件" });
   expect((await within(dialog).findByRole("alert")).textContent).toContain("8 MB");
   expect(within(dialog).queryByRole("button", { name: "公开发布" })).toBeNull();
 });
 
-test("the desktop community page puts plugins on their own tab", async () => {
-  const pluginClient = client();
+test("the community page no longer carries a plugin tab", async () => {
   render(
     <CommunityPage
       theme="dark"
@@ -353,18 +354,65 @@ test("the desktop community page puts plugins on their own tab", async () => {
           sync: vi.fn(),
         } as never
       }
-      plugins={pluginClient}
-      localPlugins={catalog([])}
     />,
   );
-  const tabs = screen.getByRole("tablist", { name: "社区分类" });
-  expect(within(tabs).getByRole("tab", { name: "候选窗皮肤" }).getAttribute("aria-selected")).toBe(
+  await waitFor(() => expect(screen.queryByRole("tablist", { name: "社区分类" })).toBeNull());
+  expect(screen.queryByRole("tab", { name: "插件" })).toBeNull();
+});
+
+test("the 插件 page switches between the installed packs and the community gallery", async () => {
+  const pluginClient = client();
+  const installed = catalog([pack("sound", "rain")]);
+  render(
+    <SettingsPage
+      client={{
+        load: async () => ({
+          format_version: 1,
+          revision: 1,
+          preferences: {
+            scheme: "quanpin",
+            shuangpin_profile: "xiaohe",
+            candidate_page_size: 5,
+            learning: true,
+            chinese_punctuation: true,
+          },
+        }),
+        save: vi.fn(),
+        host: { platform: "macos" } as never,
+        plugins: {
+          catalog: installed,
+          importPack: vi.fn(async () => null),
+          remove: vi.fn(async () => undefined),
+          loadMentions: vi.fn(async () => []),
+          saveMentions: vi.fn(async () => undefined),
+        },
+        communityPlugins: pluginClient,
+      }}
+    />,
+  );
+  const form = await settingsFormReady();
+  fireEvent.click(screen.getByRole("button", { name: "插件" }));
+  const tabs = screen.getByRole("tablist", { name: "插件来源" });
+  expect(within(tabs).getByRole("tab", { name: "我的插件" }).getAttribute("aria-selected")).toBe(
     "true",
   );
+  expect(await screen.findByLabelText("已安装的插件")).not.toBeNull();
   expect(pluginClient.list).not.toHaveBeenCalled();
-  fireEvent.click(within(tabs).getByRole("tab", { name: "插件" }));
+
+  fireEvent.click(within(tabs).getByRole("tab", { name: "社区插件" }));
   await waitFor(() => expect(pluginClient.list).toHaveBeenCalledWith(0, "", null));
-  expect(await screen.findByRole("heading", { name: "扩展包" })).not.toBeNull();
+  const gallery = await screen.findByRole("heading", { name: "社区插件" });
+  // The gallery has its own search form, so it must sit outside the settings form rather than nest inside it.
+  expect(form.contains(gallery)).toBe(false);
+  const installedPage = form.querySelector<HTMLFieldSetElement>('fieldset[aria-label="插件"]')!;
+  expect(installedPage.hidden).toBe(true);
+
+  const reads = vi.mocked(installed).mock.calls.length;
+  fireEvent.click(within(tabs).getByRole("tab", { name: "我的插件" }));
+  expect(screen.queryByRole("heading", { name: "社区插件" })).toBeNull();
+  expect(installedPage.hidden).toBe(false);
+  // Coming back re-reads the directory, so a pack installed from the gallery shows up.
+  await waitFor(() => expect(vi.mocked(installed).mock.calls.length).toBeGreaterThan(reads));
 });
 
 test("the desktop bridge names each command and its camelCase arguments", async () => {

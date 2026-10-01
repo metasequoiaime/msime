@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import {
   CommunitySkinsPage,
   SettingsPage,
@@ -243,6 +243,34 @@ test("downloads enter a recoverable trial and can restore the previous skin", as
     expect(finishTrial).toHaveBeenCalledWith("20000000-0000-4000-8000-000000000001", false),
   );
   expect(await screen.findByText("已恢复试用前的皮肤。")).not.toBeNull();
+});
+
+test("ignores a second skin download while the first is pending", async () => {
+  const original = skin("10000000-0000-4000-8000-000000000071", "重复下载皮肤");
+  const pending = deferred<CommunitySkinDownload>();
+  const download = vi.fn().mockReturnValue(pending.promise);
+  render(
+    <CommunitySkinsPage
+      client={client({
+        list: vi.fn().mockResolvedValue({ skins: [original], has_more: false }),
+        detail: vi.fn().mockResolvedValue(original),
+        download,
+      })}
+      theme="dark"
+    />,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: `查看皮肤 ${original.name}` }));
+  const button = await screen.findByRole("button", { name: "下载并试用" });
+  act(() => {
+    fireEvent.click(button);
+    fireEvent.click(button);
+  });
+  expect(download).toHaveBeenCalledOnce();
+  pending.resolve({
+    skin: original,
+    trial: { id: "trial-duplicate", name: original.name },
+  });
+  await waitFor(() => expect(screen.getByText(`正在试用：${original.name}`)).toBeTruthy());
 });
 
 test("a download response from a replaced community client is ignored", async () => {

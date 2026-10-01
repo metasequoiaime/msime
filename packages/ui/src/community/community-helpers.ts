@@ -132,23 +132,23 @@ export function candidateSkinMessage(error: unknown, publishing = false): string
 }
 
 /**
- * Fixed sentences for the plugin gallery and its publish dialog. Pack failures come back with client-core's `plugin_*` codes, which read as they do on the 扩展 page, and the community ones with the host's HTTP-status `community_*` codes; backend text is never shown. `publishing` picks the sentence for a `community_invalid` or `community_conflict` publish, where the server has rejected something only it can check.
+ * Fixed sentences for the plugin gallery and its publish dialog. Pack failures come back with client-core's `plugin_*` codes, which read as they do on the 插件 page, and the community ones with the host's HTTP-status `community_*` codes; backend text is never shown. `publishing` picks the sentence for a `community_invalid` or `community_conflict` publish, where the server has rejected something only it can check.
  */
 export function communityPluginMessage(error: unknown, publishing = false): string {
   switch (errorCode(error)) {
     case "plugin_community_kind":
       return "特效包暂不支持分享。";
     case "plugin_community_too_large":
-      return "扩展包压缩后不能超过 8 MB。";
+      return "插件压缩后不能超过 8 MB。";
     case "plugin_community_checksum":
-      return "下载的扩展包已损坏，请重试。";
+      return "下载的插件已损坏，请重试。";
     case "plugin_community_mismatch":
-      return "下载的扩展包与作品信息不符，已停止安装。";
+      return "下载的插件与作品信息不符，已停止安装。";
     case "storage":
-      return "无法读写扩展目录，请检查数据目录的权限。";
+      return "无法读写插件目录，请检查数据目录的权限。";
     case "community_invalid":
       return publishing
-        ? "服务器未接受这个扩展包：请确认名称、说明和包内容符合发布要求。"
+        ? "服务器未接受这个插件：请确认名称、说明和包内容符合发布要求。"
         : "内容无效，请修改后重试。";
     case "community_conflict":
       return publishing

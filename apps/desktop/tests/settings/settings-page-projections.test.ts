@@ -64,7 +64,7 @@ test("projects mobile pages into tabs, grouped settings, and sidebar sections", 
   expect(mobile.sidebarGroups.flat().map((page) => page.id)).not.toContain("more");
 });
 
-test("places the 扩展 page beside 云剪贴板 and drops it where the host does not back it", () => {
+test("places the 插件 page beside 云剪贴板 and drops it where the host does not back it", () => {
   const desktop = project();
   const group = desktop.sidebarGroups.find((ids) => ids.some((page) => page.id === "tools"));
   expect(group?.map((page) => page.id)).toEqual([
@@ -75,7 +75,7 @@ test("places the 扩展 page beside 云剪贴板 and drops it where the host doe
     "community",
     "download",
   ]);
-  expect(desktop.availablePages.find((page) => page.id === "plugins")?.title).toBe("扩展");
+  expect(desktop.availablePages.find((page) => page.id === "plugins")?.title).toBe("插件");
 
   expect(project({ hasPlugins: false }).availablePages.map((page) => page.id)).not.toContain(
     "plugins",

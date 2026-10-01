@@ -94,7 +94,7 @@ export interface CommunityPluginClient {
 const archiveLimit = "8 MB";
 
 const publishWarning =
-  "上传的是扩展包目录中的全部文件（不含隐藏文件），压缩后不超过 8 MB；每个账号最多发布 20 个、合计 32 MB，每小时最多发布 10 次。其他用户下载后会按原样安装。";
+  "上传的是插件目录中的全部文件（不含隐藏文件），压缩后不超过 8 MB；每个账号最多发布 20 个、合计 32 MB，每小时最多发布 10 次。其他用户下载后会按原样安装。";
 
 function isCommunityKind(kind: PluginKind): kind is CommunityPluginKind {
   return kind !== "effect";
@@ -105,7 +105,7 @@ function CommunityPluginCard({ plugin, open }: { plugin: CommunityPlugin; open: 
     <button
       type="button"
       className={style.card}
-      aria-label={`查看扩展包 ${plugin.name}`}
+      aria-label={`查看插件 ${plugin.name}`}
       onClick={open}
     >
       <strong className={style.cardTitle}>{plugin.name}</strong>
@@ -293,11 +293,11 @@ export function CommunityPluginsPage({
             myRating={selected.my_rating}
             detailBusy={detailBusy}
             actionNotice={actionNotice}
-            loadingText="正在读取扩展包详情…"
+            loadingText="正在读取插件详情…"
           />
           {installed ? (
             <p role="status" className={style.actionNotice}>
-              已安装到扩展目录，可在「扩展」中选用。
+              已安装到插件目录，可在「我的插件」中选用。
             </p>
           ) : (
             <button
@@ -310,7 +310,7 @@ export function CommunityPluginsPage({
             </button>
           )}
           {confirmReplace && (
-            <div className={style.confirmation} role="alertdialog" aria-label="确认替换扩展包">
+            <div className={style.confirmation} role="alertdialog" aria-label="确认替换插件">
               <p>
                 已安装同 id 的{kindLabels[selected.kind]}“{selected.plugin_id}”，安装会整体替换它。
               </p>
@@ -338,19 +338,17 @@ export function CommunityPluginsPage({
             owned={selected.owned}
             actionBusy={actionBusy}
             ratingDescription="我的评分（安装后可评，可重新选择）"
-            unpublishMessage={`下架后其他用户无法再下载，下载数和评分会清空；已安装的扩展包会保留。确定下架“${selected.name}”吗？`}
+            unpublishMessage={`下架后其他用户无法再下载，下载数和评分会清空；已安装的插件会保留。确定下架“${selected.name}”吗？`}
             confirmUnpublish={confirmUnpublish}
             onRate={(stars) => void rateSelected(stars)}
             onRequestUnpublish={() => setConfirmUnpublish(true)}
             onUnpublish={() =>
-              void unpublishSelected(
-                "已下架这个扩展包；其他用户将无法再下载。已安装的扩展包会保留。",
-              )
+              void unpublishSelected("已下架这个插件；其他用户将无法再下载。已安装的插件会保留。")
             }
             onCancelUnpublish={() => setConfirmUnpublish(false)}
             confirmationActionsClassName={style.confirmationActions}
-            unpublishLabel="下架这个扩展包"
-            unpublishConfirmLabel="确认下架扩展包"
+            unpublishLabel="下架这个插件"
+            unpublishConfirmLabel="确认下架插件"
           />
         </section>
       </div>
@@ -360,25 +358,25 @@ export function CommunityPluginsPage({
   return (
     <div className={style.page}>
       <CommunitySearchForm
-        label="搜索扩展包"
+        label="搜索插件"
         value={search}
         onChange={setSearch}
         onSubmit={() => void requestList(search, false)}
       />
       <div className={style.heading}>
         <div className={style.headingBody}>
-          <h2 className={style.headingTitle}>扩展包</h2>
-          <p className={style.headingNote}>音效、音乐与指令表，安装后在「扩展」中选用</p>
+          <h2 className={style.headingTitle}>社区插件</h2>
+          <p className={style.headingNote}>音效、音乐与指令表，安装后在「我的插件」中选用</p>
         </div>
         <div className={style.headingActions}>
           {localPlugins && (
             <button type="button" className="primary" onClick={() => setPublishOpen(true)}>
-              发布我的扩展包
+              发布我的插件
             </button>
           )}
         </div>
       </div>
-      <div className={style.kindFilter} role="group" aria-label="扩展包类型">
+      <div className={style.kindFilter} role="group" aria-label="插件类型">
         <button
           type="button"
           className={kind === null ? "primary" : "secondary"}
@@ -405,7 +403,7 @@ export function CommunityPluginsPage({
           {actionNotice}
         </p>
       )}
-      {!listBusy && plugins.length === 0 && <p className={style.notice}>暂时没有匹配的扩展包。</p>}
+      {!listBusy && plugins.length === 0 && <p className={style.notice}>暂时没有匹配的插件。</p>}
       <div className={style.grid}>
         {plugins.map((plugin) => (
           <CommunityPluginCard key={plugin.id} plugin={plugin} open={() => open(plugin)} />
@@ -423,7 +421,7 @@ export function CommunityPluginsPage({
       )}
       {listBusy && (
         <p role="status" className={style.notice}>
-          正在读取扩展包…
+          正在读取插件…
         </p>
       )}
       {publishOpen && localPlugins && (
@@ -509,7 +507,7 @@ export function CommunityPluginPublishDialog({
         );
       })
       .catch(() => {
-        if (active) setError("读取本地扩展包失败，请重试。");
+        if (active) setError("读取本地插件失败，请重试。");
       })
       .finally(() => {
         if (active) setOptionsLoading(false);
@@ -608,11 +606,11 @@ export function CommunityPluginPublishDialog({
         className={style.dialog}
         role="dialog"
         aria-modal="true"
-        aria-label="发布扩展包"
+        aria-label="发布插件"
         onKeyDown={onKeyDown}
       >
         <CommunityDialogHeader
-          title="发布扩展包"
+          title="发布插件"
           titleClassName={style.dialogTitle}
           busy={busy}
           onClose={onClose}
@@ -620,18 +618,18 @@ export function CommunityPluginPublishDialog({
         {error && (
           <CommunityErrorAlert message={error} signInRequired={signInRequired} onLogin={onLogin} />
         )}
-        {optionsLoading && <p role="status">正在读取本地扩展包…</p>}
+        {optionsLoading && <p role="status">正在读取本地插件…</p>}
         {!optionsLoading && options.length === 0 && (
           <p className={style.notice}>
-            还没有可发布的扩展包。内置扩展包和特效包不能发布，请先在「扩展」中导入自己的音效包、音乐包或指令表。
+            还没有可发布的插件。内置插件和特效包不能发布，请先在「我的插件」中导入自己的音效包、音乐包或指令表。
           </p>
         )}
         {options.length > 0 && (
           <label className={style.field}>
-            发布扩展包
+            发布插件
             <select
               className={style.fieldControl}
-              aria-label="发布扩展包"
+              aria-label="发布插件"
               value={selection}
               disabled={busy}
               onChange={(event) => setSelection(event.target.value)}
@@ -645,7 +643,7 @@ export function CommunityPluginPublishDialog({
             </select>
           </label>
         )}
-        {packLoading && <p role="status">正在检查扩展包…</p>}
+        {packLoading && <p role="status">正在检查插件…</p>}
         {packError && (
           <div className={style.confirmation} role="alert">
             <p>{packError}</p>
@@ -667,7 +665,7 @@ export function CommunityPluginPublishDialog({
               名称
               <input
                 className={style.fieldControl}
-                aria-label="发布扩展包名称"
+                aria-label="发布插件名称"
                 maxLength={32}
                 value={name}
                 disabled={busy}
@@ -681,7 +679,7 @@ export function CommunityPluginPublishDialog({
               说明
               <textarea
                 className={style.textArea}
-                aria-label="发布扩展包说明"
+                aria-label="发布插件说明"
                 maxLength={280}
                 rows={4}
                 value={description}
@@ -701,7 +699,7 @@ export function CommunityPluginPublishDialog({
                 disabled={busy}
                 onChange={(event) => setAgreed(event.target.checked)}
               />
-              我拥有扩展包中音频与文字的发布权利，并同意其他用户按包内授权免费下载使用
+              我拥有插件中音频与文字的发布权利，并同意其他用户按包内授权免费下载使用
             </label>
             <p className={style.warning}>{publishWarning}</p>
           </>

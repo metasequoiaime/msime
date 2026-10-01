@@ -164,7 +164,7 @@ impl TypingEffect {
         }
         let loaded = match root {
             Some(root) => super::load_package(root, None, PluginKind::Effect, pack),
-            None => Err("没有扩展目录，无法载入特效包".to_owned()),
+            None => Err("没有插件目录，无法载入特效包".to_owned()),
         };
         match loaded {
             Ok(package) => {

@@ -1,11 +1,11 @@
-# 扩展包作者指南
+# 插件作者指南
 
-扩展包是只含数据的文件夹：一份 `plugin.toml` 清单，加上清单用到的音频和可选的说明文字。扩展包不能带任何可执行内容，也不能申请权限；输入法按固定规则校验每个包，不符合规则的包整包拒绝，不会只装一半。
+插件是只含数据的文件夹：一份 `plugin.toml` 清单，加上清单用到的音频和可选的说明文字。插件不能带任何可执行内容，也不能申请权限；输入法按固定规则校验每个包，不符合规则的包整包拒绝，不会只装一半。
 
 这份指南覆盖四种类型：音效包（`sound`）、音乐包（`music`）、指令表（`command_table`）和特效包（`effect`）。下面的限制都取自 `crates/client-core/src/plugins/` 里的代码，两者不一致时以代码为准。
 
 - 想直接开始：复制 [plugin-template](plugin-template/)，这是一个能通过校验的最小按键音效包。
-- 社区扩展包收集在 [metasequoiaime/msime-plugins](https://github.com/metasequoiaime/msime-plugins)，欢迎把自己的包提交到那里。
+- 社区插件收集在 [metasequoiaime/msime-plugins](https://github.com/metasequoiaime/msime-plugins)，欢迎把自己的包提交到那里。
 
 ## 文件夹结构
 
@@ -48,7 +48,7 @@ permissions = []        # 可选，只能是空数组
 | `license`        | 必填，不超过 64 字节，SPDX 许可证表达式（只含字母、数字、`.`、`-`、`+`、`(`、`)` 和空格），例如 `CC0-1.0`、`CC-BY-4.0`、`MIT OR Apache-2.0` |
 | `author`         | 可选，不超过 120 字节                                                                                                                       |
 | `description`    | 可选，不超过 500 字节                                                                                                                       |
-| `permissions`    | 可选，只能是 `[]`：扩展包不能申请任何权限                                                                                                   |
+| `permissions`    | 可选，只能是 `[]`：插件不能申请任何权限                                                                                                   |
 
 - 清单里出现上表和该类型专属键以外的任何键，都会拒绝整个包。专属键之内的未知键同样会被拒绝。
 - 以下 id 属于内置包，安装的包不能使用：
@@ -189,11 +189,11 @@ particles = 24                    # 可选，0 到 64
 - 选用一个特效包后，它的 `style` 和参数替代设置里的「打字特效」样式和强度。
 - 选中的包被删除或无法载入时不绘制特效，不会退回其他样式。
 - Linux 只显示连击计数，不绘制任何特效，所以特效包在 Linux 上没有可见效果。
-- 在设置的「扩展 → 打字效果」里选用已导入的特效包。各平台按自己能画的部分取用参数：macOS 用全部参数；Windows 和鸿蒙电脑只闪烁候选卡片，取 `intensity`、`duration_ms` 和第一个颜色，忽略 `particles`。
+- 在设置的「插件 → 打字效果」里选用已导入的特效包。各平台按自己能画的部分取用参数：macOS 用全部参数；Windows 和鸿蒙电脑只闪烁候选卡片，取 `intensity`、`duration_ms` 和第一个颜色，忽略 `particles`。
 
 ## 校验
 
-用 `msime-pack` 检查扩展包。它调用的就是输入法导入时用的校验代码：它接受的包，设置页一定能导入；它拒绝的包，设置页也会拒绝。
+用 `msime-pack` 检查插件。它调用的就是输入法导入时用的校验代码：它接受的包，设置页一定能导入；它拒绝的包，设置页也会拒绝。
 
 ```sh
 cargo build -p msime-pack-tool --bin msime-pack
@@ -213,11 +213,11 @@ target/debug/msime-pack validate path/to/my-keys path/to/other-pack.zip
   - `plugin_unsupported_source`：不是文件夹或 `.zip`
   - `plugin_reserved`：用了内置包的 id
 - 退出码：全部通过为 0；有任何一个不通过为 1；命令行写错为 2。
-- 只检查，不安装，不会改动本机的扩展目录。
+- 只检查，不安装，不会改动本机的插件目录。
 
 ## 导入
 
-在设置的「扩展」页点「导入文件夹」选择包的文件夹，或点「导入 .zip」选择压缩包。
+在设置的「插件」页点「导入文件夹」选择包的文件夹，或点「导入 .zip」选择压缩包。
 
 压缩包的要求：
 
@@ -229,5 +229,5 @@ target/debug/msime-pack validate path/to/my-keys path/to/other-pack.zip
 导入成功后：
 
 - 包装进数据目录下的 `plugins/<kind>/<id>/`。
-- 音效包、音乐包、指令表在「扩展」页对应的分组里选用。
+- 音效包、音乐包、指令表在「插件」页对应的分组里选用。
 - 删除一个正在使用的包后，设置会回到默认选择。

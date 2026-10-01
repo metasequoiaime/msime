@@ -1,4 +1,4 @@
-//! Plugin and name-list failures as the 扩展 settings page names them, shared by every host that serves the page: the desktop shell answers its commands with these, and host-api's `msime_client_plugins` puts the same code and detail in its reply, so the page decodes one vocabulary whichever host it runs in.
+//! Plugin and name-list failures as the 插件 settings page names them, shared by every host that serves the page: the desktop shell answers its commands with these, and host-api's `msime_client_plugins` puts the same code and detail in its reply, so the page decodes one vocabulary whichever host it runs in.
 
 use serde::Serialize;
 use std::path::Path;

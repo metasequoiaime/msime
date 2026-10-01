@@ -1,4 +1,4 @@
-//! Key sounds, commit sounds, background music, sound and music pack files, and the 扩展 page's pack store for native hosts.
+//! Key sounds, commit sounds, background music, sound and music pack files, and the 插件 page's pack store for native hosts.
 //!
 //! Part of the C ABI; see the parent module for what these shims guarantee. The three sound calls sit on the key path, so they answer a plain bool instead of a JSON document the host would have to free: whether a request was queued. They never block, decode or touch the disk; `key_sound` says why.
 
@@ -152,7 +152,7 @@ pub unsafe extern "C" fn msime_client_music_pack(request: *const u8, length: usi
 /// Largest `msime_client_plugins` request: a full name list at its document bound, with room for JSON escaping and the two paths.
 const MAX_PLUGINS_REQUEST_BYTES: usize = 2 * 1024 * 1024;
 
-/// The 扩展 page's pack store and @ name list, for a settings host other than the desktop shell. Every rule and every failure code is client-core's, the same ones the desktop shell answers its page with.
+/// The 插件 page's pack store and @ name list, for a settings host other than the desktop shell. Every rule and every failure code is client-core's, the same ones the desktop shell answers its page with.
 /// # Safety
 /// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
 /// The returned response must be released with `msime_client_string_free`.

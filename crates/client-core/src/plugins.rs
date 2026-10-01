@@ -234,7 +234,7 @@ pub fn scan(root: &Path, builtin_sounds: Option<&Path>) -> PluginCatalog {
             Ok(_) => catalog.issues.push(PluginIssue {
                 kind,
                 folder: String::new(),
-                reason: "扩展类别目录不是文件夹".into(),
+                reason: "插件类别目录不是文件夹".into(),
             }),
             Err(_) => {}
         }
@@ -265,7 +265,7 @@ fn scan_builtin(directory: &Path, catalog: &mut PluginCatalog) {
         };
         let loaded = match entry.file_type() {
             Ok(file_type) if file_type.is_dir() => load_installed(directory, &folder, kind, true),
-            _ => Err("不是扩展包文件夹".to_owned()),
+            _ => Err("不是插件文件夹".to_owned()),
         };
         match loaded {
             Ok(package) => catalog.packages.push(package),
@@ -291,7 +291,7 @@ fn scan_kind(directory: &Path, kind: PluginKind, builtin: bool, catalog: &mut Pl
             Ok(file_type) if file_type.is_dir() => {
                 load_installed(directory, &folder, kind, builtin)
             }
-            _ => Err("不是扩展包文件夹".to_owned()),
+            _ => Err("不是插件文件夹".to_owned()),
         };
         match loaded {
             Ok(package) => catalog.packages.push(package),
@@ -312,7 +312,7 @@ pub fn load_package(
     id: &str,
 ) -> Result<PluginSummary, String> {
     if !safe_id(id) {
-        return Err("扩展包 id 无效".into());
+        return Err("插件 id 无效".into());
     }
     if is_builtin(kind, id) {
         let builtin = builtin_sounds.ok_or("内置音效包不可用")?;
@@ -328,20 +328,20 @@ fn load_installed(
     kind: PluginKind,
     builtin: bool,
 ) -> Result<PluginSummary, String> {
-    crate::storage::reject_symlink(directory).map_err(|_| "扩展包所在目录是符号链接".to_owned())?;
+    crate::storage::reject_symlink(directory).map_err(|_| "插件所在目录是符号链接".to_owned())?;
     if !safe_id(folder) {
-        return Err("扩展包 id 无效".into());
+        return Err("插件 id 无效".into());
     }
     if !builtin && is_builtin(kind, folder) {
-        return Err("这个 id 属于内置扩展包".into());
+        return Err("这个 id 属于内置插件".into());
     }
     let package = directory.join(folder);
-    let metadata = fs::symlink_metadata(&package).map_err(|_| "扩展包文件夹不存在")?;
+    let metadata = fs::symlink_metadata(&package).map_err(|_| "插件文件夹不存在")?;
     if !metadata.is_dir() {
-        return Err("不是扩展包文件夹".into());
+        return Err("不是插件文件夹".into());
     }
     if !contained(directory, &package) {
-        return Err("扩展包指向了所在目录之外".into());
+        return Err("插件指向了所在目录之外".into());
     }
     let mut summary = load_directory(&package)?;
     if summary.id != folder {
@@ -389,10 +389,10 @@ pub(crate) fn load_directory(directory: &Path) -> Result<PluginSummary, String> 
         .get("kind")
         .and_then(Value::as_str)
         .and_then(PluginKind::parse)
-        .ok_or("kind 不是已知的扩展类型")?;
+        .ok_or("kind 不是已知的插件类型")?;
     let id = required_string(table, "id", 64)?;
     if !safe_id(&id) {
-        return Err("扩展包 id 无效".into());
+        return Err("插件 id 无效".into());
     }
     let name = required_string(table, "name", 80)?;
     let version = required_string(table, "version", 32)?;
@@ -408,7 +408,7 @@ pub(crate) fn load_directory(directory: &Path) -> Result<PluginSummary, String> 
     match table.get("permissions") {
         None => {}
         Some(Value::Array(items)) if items.is_empty() => {}
-        Some(Value::Array(_)) => return Err("扩展包不能申请权限，permissions 必须为空".into()),
+        Some(Value::Array(_)) => return Err("插件不能申请权限，permissions 必须为空".into()),
         Some(_) => return Err("permissions 必须是数组".into()),
     }
     let kind_keys: &[&str] = match kind {
@@ -478,9 +478,9 @@ impl AudioLimits {
 /// The regular files of a pack directory, hidden names aside. Anything else in it - a subdirectory, a symbolic link, a device - refuses the pack, as does a name that is not one plain component or an entry count past `MAX_PACK_FILES`.
 fn list_files(directory: &Path) -> Result<PackFiles, String> {
     let mut files = PackFiles::new();
-    let entries = fs::read_dir(directory).map_err(|_| "扩展包文件夹无法读取")?;
+    let entries = fs::read_dir(directory).map_err(|_| "插件文件夹无法读取")?;
     for entry in entries {
-        let entry = entry.map_err(|_| "扩展包文件夹无法读取")?;
+        let entry = entry.map_err(|_| "插件文件夹无法读取")?;
         let name = entry
             .file_name()
             .into_string()
@@ -492,7 +492,7 @@ fn list_files(directory: &Path) -> Result<PackFiles, String> {
         if files.len() == MAX_PACK_FILES {
             return Err("文件太多".into());
         }
-        let file_type = entry.file_type().map_err(|_| "扩展包文件夹无法读取")?;
+        let file_type = entry.file_type().map_err(|_| "插件文件夹无法读取")?;
         if file_type.is_symlink() {
             return Err(format!("{name} 是符号链接"));
         }
@@ -505,7 +505,7 @@ fn list_files(directory: &Path) -> Result<PackFiles, String> {
         if !valid_file_name(&name) {
             return Err(format!("{name} 不是有效的文件名"));
         }
-        let size = entry.metadata().map_err(|_| "扩展包文件夹无法读取")?.len();
+        let size = entry.metadata().map_err(|_| "插件文件夹无法读取")?.len();
         files.insert(name, size);
     }
     Ok(files)
@@ -658,7 +658,7 @@ pub(crate) fn only_keys(
 /// Delete an installed pack. A built-in id is refused; removing a pack that is not installed succeeds.
 pub fn remove(root: &Path, kind: PluginKind, id: &str) -> Result<(), PluginError> {
     if !safe_id(id) {
-        return Err(PluginError::Invalid("扩展包 id 无效".into()));
+        return Err(PluginError::Invalid("插件 id 无效".into()));
     }
     if is_builtin(kind, id) {
         return Err(PluginError::Reserved);

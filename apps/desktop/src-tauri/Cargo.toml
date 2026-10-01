@@ -49,7 +49,7 @@ tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", rev = "c9ec21
 [target.'cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))'.dependencies]
 # Desktop shells reuse one settings process and hand off surface routes to it. On macOS only settings launches join it; panel launches stay one process per input session.
 tauri-plugin-single-instance = "2.4"
-# The platform's own open dialog for the 扩展 page's pack import, driven from Rust only. Held below 2.8, which needs tauri 2.12.
+# The platform's own open dialog for the 插件 page's pack import, driven from Rust only. Held below 2.8, which needs tauri 2.12.
 tauri-plugin-dialog = "~2.7"
 
 [target.'cfg(windows)'.dependencies]

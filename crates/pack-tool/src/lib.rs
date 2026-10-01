@@ -4,7 +4,7 @@
 //! msime-pack validate <pack folder or .zip>...
 //! ```
 //!
-//! Every rule lives in `msime_client_core::plugins`: `validate` stages each pack the way `import` does and runs the same checks, so a pack this tool accepts is one the 扩展 page installs, and the other way round. Nothing is installed and no plugins directory is touched. One line per pack, in the order given: `ok <id> <kind> <version>`, or `error <path>: <reason>` where the reason starts with the same failure code the settings page decodes (`plugin_invalid`, `plugin_archive`, ...) followed by the broken rule in Chinese. The exit status is 0 when every pack is valid, 1 when any is not, and 2 for a usage error.
+//! Every rule lives in `msime_client_core::plugins`: `validate` stages each pack the way `import` does and runs the same checks, so a pack this tool accepts is one the 插件 page installs, and the other way round. Nothing is installed and no plugins directory is touched. One line per pack, in the order given: `ok <id> <kind> <version>`, or `error <path>: <reason>` where the reason starts with the same failure code the settings page decodes (`plugin_invalid`, `plugin_archive`, ...) followed by the broken rule in Chinese. The exit status is 0 when every pack is valid, 1 when any is not, and 2 for a usage error.
 
 use std::ffi::OsString;
 use std::io::Write;
@@ -65,9 +65,9 @@ pub fn run(args: &[OsString], out: &mut impl Write, err: &mut impl Write) -> i32
 fn reason(error: &PluginError) -> String {
     match error {
         PluginError::UnsupportedSource => {
-            "plugin_unsupported_source: 只接受扩展包文件夹或 .zip 文件".to_owned()
+            "plugin_unsupported_source: 只接受插件文件夹或 .zip 文件".to_owned()
         }
-        PluginError::Reserved => "plugin_reserved: 这个 id 属于内置扩展包，不能导入".to_owned(),
+        PluginError::Reserved => "plugin_reserved: 这个 id 属于内置插件，不能导入".to_owned(),
         other => other.to_string(),
     }
 }
