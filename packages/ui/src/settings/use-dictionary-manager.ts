@@ -59,6 +59,8 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
   const [dictionaryFormat, setDictionaryFormat] = useState<LocalDictionaryFormat>("standard");
   const phraseRequestGeneration = useRef(0);
   const clientGeneration = useRef(0);
+  const phraseActionBusy = useRef(false);
+  const phraseActionOwner = useRef(0);
   const phraseListRef = useRef<HTMLUListElement>(null);
   const mounted = useRef(true);
 
@@ -72,6 +74,8 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
 
   useEffect(() => {
     const generation = ++phraseRequestGeneration.current;
+    phraseActionOwner.current += 1;
+    phraseActionBusy.current = false;
     setPhraseBusy(false);
     return () => {
       if (phraseRequestGeneration.current === generation) phraseRequestGeneration.current++;
@@ -80,6 +84,8 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
 
   useEffect(() => {
     const generation = ++clientGeneration.current;
+    phraseActionOwner.current += 1;
+    phraseActionBusy.current = false;
     setPhraseBusy(false);
     return () => {
       if (clientGeneration.current === generation) clientGeneration.current++;
@@ -89,18 +95,30 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
   async function runPhraseAction(
     operation: (isCurrent: () => boolean) => Promise<void>,
     formatError: (error: unknown) => string,
+    generation = clientGeneration.current,
   ) {
+    if (phraseActionBusy.current || phraseBusy) return;
+    const owner = ++phraseActionOwner.current;
+    phraseActionBusy.current = true;
     await runAsyncAction(
       {
-        busy: phraseBusy,
-        isCurrent: () => mounted.current,
-        setBusy: setPhraseBusy,
+        busy: false,
+        isCurrent: () =>
+          mounted.current &&
+          generation === clientGeneration.current &&
+          owner === phraseActionOwner.current,
+        setBusy: (busy) => {
+          if (owner !== phraseActionOwner.current) return;
+          phraseActionBusy.current = busy;
+          setPhraseBusy(busy);
+        },
         setError: setPhraseError,
         setNotice: setPhraseNotice,
       },
       operation,
       { formatError },
     );
+    if (owner === phraseActionOwner.current) phraseActionBusy.current = false;
   }
 
   async function loadPhrases(kind: LocalDictionaryKind = dictionaryKind, offset = 0) {
@@ -143,130 +161,116 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
   async function removePhrase(entry: DictionaryEntry) {
     if (!client.dictionary || !mounted.current) return;
     const generation = clientGeneration.current;
+    const dictionary = client.dictionary;
     const confirmed = await confirm({
       title: "删除词条",
       message: `“${entry.value}”（${entry.key}）将被删除，此操作无法撤销。`,
       confirmLabel: "删除",
       danger: true,
     });
-    if (
-      !confirmed ||
-      !client.dictionary ||
-      !mounted.current ||
-      clientGeneration.current !== generation
-    )
-      return;
-    setPhraseBusy(true);
-    setPhraseError("");
-    setPhraseNotice("");
-    try {
-      await client.dictionary.edit(entry, null, randomRequestId("ui-remove"));
-      if (clientGeneration.current !== generation) return;
-      const remaining = phrases.length - 1;
-      const offset =
-        remaining === 0 && phrasePage.offset > 0
-          ? Math.max(0, phrasePage.offset - DICTIONARY_PAGE_SIZE)
-          : phrasePage.offset;
-      await loadPhrases(dictionaryKind, offset);
-    } catch (error) {
-      if (mounted.current && clientGeneration.current === generation)
-        setPhraseError(
-          dictionaryErrorMessage(
-            error,
-            `${dictionaryKindLabel(dictionaryKind)}删除失败，请稍后重试。`,
-          ),
-        );
-    } finally {
-      if (mounted.current && clientGeneration.current === generation) setPhraseBusy(false);
-    }
+    if (!confirmed || !mounted.current || clientGeneration.current !== generation) return;
+    await runPhraseAction(
+      async (isCurrent) => {
+        await dictionary.edit(entry, null, randomRequestId("ui-remove"));
+        if (!isCurrent()) return;
+        const remaining = phrases.length - 1;
+        const offset =
+          remaining === 0 && phrasePage.offset > 0
+            ? Math.max(0, phrasePage.offset - DICTIONARY_PAGE_SIZE)
+            : phrasePage.offset;
+        await loadPhrases(dictionaryKind, offset);
+      },
+      (error) =>
+        dictionaryErrorMessage(
+          error,
+          `${dictionaryKindLabel(dictionaryKind)}删除失败，请稍后重试。`,
+        ),
+      generation,
+    );
   }
 
   async function savePhrase() {
     if (!client.dictionary || !phraseForm || !mounted.current) return;
     const generation = clientGeneration.current;
-    const bundled = phraseForm.previous?.source === "bundled" ? phraseForm.previous : null;
+    const dictionary = client.dictionary;
+    const form = phraseForm;
+    const bundled = form.previous?.source === "bundled" ? form.previous : null;
     const replacement: DictionaryEntry = bundled
-      ? { ...bundled, weight: phraseForm.weight }
+      ? { ...bundled, weight: form.weight }
       : {
           kind: dictionaryKind,
-          key: phraseForm.key.trim(),
-          value: phraseForm.value,
-          weight: phraseForm.weight,
+          key: form.key.trim(),
+          value: form.value,
+          weight: form.weight,
         };
     if (!replacement.key || !replacement.value) {
       setPhraseError("编码和短语不能为空。");
       return;
     }
-    setPhraseBusy(true);
-    setPhraseError("");
-    setPhraseNotice("");
-    try {
-      await client.dictionary.edit(
-        phraseForm.previous,
-        replacement,
-        randomRequestId(phraseForm.previous ? "ui-edit" : "ui-add"),
-      );
-      if (!mounted.current || clientGeneration.current !== generation) return;
-      setPhraseForm(null);
-      await loadPhrases(dictionaryKind, phraseForm.previous ? phrasePage.offset : 0);
-    } catch (error) {
-      if (mounted.current && clientGeneration.current === generation)
-        setPhraseError(
-          dictionaryErrorMessage(
-            error,
-            `${dictionaryKindLabel(dictionaryKind)}保存失败，请稍后重试。`,
-            dictionaryKind,
-          ),
+    await runPhraseAction(
+      async (isCurrent) => {
+        await dictionary.edit(
+          form.previous,
+          replacement,
+          randomRequestId(form.previous ? "ui-edit" : "ui-add"),
         );
-    } finally {
-      if (mounted.current && clientGeneration.current === generation) setPhraseBusy(false);
-    }
+        if (!isCurrent()) return;
+        setPhraseForm(null);
+        await loadPhrases(dictionaryKind, form.previous ? phrasePage.offset : 0);
+      },
+      (error) =>
+        dictionaryErrorMessage(
+          error,
+          `${dictionaryKindLabel(dictionaryKind)}保存失败，请稍后重试。`,
+          dictionaryKind,
+        ),
+      generation,
+    );
   }
 
   async function importPhrases(file: File) {
     if (!client.dictionary || !mounted.current) return;
-    setPhraseBusy(true);
-    setPhraseError("");
-    setPhraseNotice("");
-    try {
-      const text = await readDictionaryFile(file, client.dictionary.maxImportFileBytes);
-      let imported: DictionaryImportResult | null = null;
-      if (client.dictionary.import) {
-        imported = await client.dictionary.import(
-          dictionaryKind,
-          dictionaryFormat,
-          text,
-          randomRequestId("ui-import"),
-        );
-      } else {
-        if (dictionaryFormat === "hans") throw new Error("hans format requires batch import");
-        const lines = text.split(/\r?\n/).filter(Boolean);
-        for (const line of lines) {
-          const [first, second, weight = "10000"] = line.split("\t");
-          if (!first || !second) continue;
-          const [value, key] = dictionaryFormat === "windows" ? [second, first] : [first, second];
-          const parsedWeight = Number(weight);
-          const normalizedWeight =
-            weight.trim() !== "" && Number.isSafeInteger(parsedWeight) && parsedWeight >= 0
-              ? parsedWeight
-              : 10000;
-          await client.dictionary.edit(
-            null,
-            { kind: dictionaryKind, key: key.trim(), value, weight: normalizedWeight },
+    const generation = clientGeneration.current;
+    const dictionary = client.dictionary;
+    await runPhraseAction(
+      async (isCurrent) => {
+        const text = await readDictionaryFile(file, dictionary.maxImportFileBytes);
+        let imported: DictionaryImportResult | null = null;
+        if (dictionary.import) {
+          imported = await dictionary.import(
+            dictionaryKind,
+            dictionaryFormat,
+            text,
             randomRequestId("ui-import"),
           );
+        } else {
+          if (dictionaryFormat === "hans") throw new Error("hans format requires batch import");
+          const lines = text.split(/\r?\n/).filter(Boolean);
+          for (const line of lines) {
+            const [first, second, weight = "10000"] = line.split("\t");
+            if (!first || !second) continue;
+            const [value, key] = dictionaryFormat === "windows" ? [second, first] : [first, second];
+            const parsedWeight = Number(weight);
+            const normalizedWeight =
+              weight.trim() !== "" && Number.isSafeInteger(parsedWeight) && parsedWeight >= 0
+                ? parsedWeight
+                : 10000;
+            await dictionary.edit(
+              null,
+              { kind: dictionaryKind, key: key.trim(), value, weight: normalizedWeight },
+              randomRequestId("ui-import"),
+            );
+          }
         }
-      }
-      await loadPhrases(dictionaryKind);
-      if (!mounted.current) return;
-      if (imported)
-        setPhraseNotice(describeImportResult(dictionaryKindLabel(dictionaryKind), imported));
-    } catch (error) {
-      if (mounted.current)
-        setPhraseError(importFailureMessage(dictionaryKindLabel(dictionaryKind), error));
-    } finally {
-      if (mounted.current) setPhraseBusy(false);
-    }
+        if (!isCurrent()) return;
+        await loadPhrases(dictionaryKind);
+        if (!isCurrent()) return;
+        if (imported)
+          setPhraseNotice(describeImportResult(dictionaryKindLabel(dictionaryKind), imported));
+      },
+      (error) => importFailureMessage(dictionaryKindLabel(dictionaryKind), error),
+      generation,
+    );
   }
 
   async function retryDictionaryFailure(requestId: string) {
@@ -407,8 +411,9 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
   }
 
   async function resetLearnedData() {
-    if (!client.resetLearnedData || phraseBusy) return;
+    if (!client.resetLearnedData || phraseBusy || phraseActionBusy.current) return;
     const generation = clientGeneration.current;
+    const reset = client.resetLearnedData;
     const confirmed = await confirm({
       title: "清除学习数据",
       message:
@@ -416,27 +421,22 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
       confirmLabel: "清除",
       danger: true,
     });
-    if (!confirmed || !client.resetLearnedData || phraseBusy) return;
-    setPhraseBusy(true);
-    setPhraseError("");
-    setPhraseNotice("");
-    try {
-      await client.resetLearnedData();
-      if (clientGeneration.current !== generation) return;
-      setPhrases([]);
-      setPhrasePage({ offset: 0, hasMore: false, status: "已清除学习数据" });
-      setDictionaryPendingCount(0);
-      setDictionaryFailures([]);
-      setDictionarySnapshotError("");
-      setPhraseNotice("已清除所有学习数据；输入方案和设置保持不变。");
-    } catch (error) {
-      if (clientGeneration.current !== generation) return;
-      setPhraseError(
+    if (!confirmed || !mounted.current || clientGeneration.current !== generation) return;
+    await runPhraseAction(
+      async (isCurrent) => {
+        await reset();
+        if (!isCurrent()) return;
+        setPhrases([]);
+        setPhrasePage({ offset: 0, hasMore: false, status: "已清除学习数据" });
+        setDictionaryPendingCount(0);
+        setDictionaryFailures([]);
+        setDictionarySnapshotError("");
+        setPhraseNotice("已清除所有学习数据；输入方案和设置保持不变。");
+      },
+      (error) =>
         dictionaryErrorMessage(error, "清除学习数据失败，请关闭正在使用输入法的程序后重试。"),
-      );
-    } finally {
-      if (clientGeneration.current === generation) setPhraseBusy(false);
-    }
+      generation,
+    );
   }
 
   return {

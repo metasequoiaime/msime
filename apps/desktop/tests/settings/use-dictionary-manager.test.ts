@@ -6,6 +6,44 @@ import {
   type DictionaryManagerClient,
 } from "../../../../packages/ui/src/settings/use-dictionary-manager";
 
+test("ignores a second phrase save while the first is pending", async () => {
+  let resolve!: () => void;
+  const pending = new Promise<void>((accept) => {
+    resolve = accept;
+  });
+  const edit = vi.fn().mockReturnValue(pending);
+  const list = vi.fn().mockResolvedValue({ entries: [], has_more: false });
+  const client: DictionaryManagerClient = {
+    dictionary: { list, edit },
+  };
+  const { result } = renderHook(() =>
+    useDictionaryManager({ client, confirm: vi.fn().mockResolvedValue(true) }),
+  );
+  act(() =>
+    result.current.setPhraseForm({
+      key: "synthetic",
+      value: "合成词条",
+      weight: 1,
+      previous: null,
+    }),
+  );
+
+  let first!: Promise<void>;
+  let second!: Promise<void>;
+  act(() => {
+    first = result.current.savePhrase();
+    second = result.current.savePhrase();
+  });
+  expect(edit).toHaveBeenCalledOnce();
+
+  resolve();
+  await act(async () => {
+    await first;
+    await second;
+  });
+  expect(edit).toHaveBeenCalledOnce();
+});
+
 test("ignores a second all-dictionaries export while the first is pending", async () => {
   let resolve!: () => void;
   const pending = new Promise<void>((accept) => {
