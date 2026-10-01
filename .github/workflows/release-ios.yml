@@ -27,7 +27,9 @@ jobs:
       # stage-resources.sh stages target/offline-glosses when it is there.
       - name: Fetch the locked offline candidate glosses
         run: python3 scripts/fetch_offline_glosses.py
+      # build-app.sh fetches the Cantonese and Zhuyin dictionaries pinned by resources/language-dictionaries.lock.json itself; a release must carry both, so stage-resources.sh fails rather than staging fewer.
       - name: Build native iOS host
+        env: {MSIME_REQUIRE_LANGUAGE_DICTIONARIES: "1"}
         run: |
           set -euo pipefail
           mkdir -p target/resources
