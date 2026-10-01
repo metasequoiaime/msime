@@ -1104,8 +1104,9 @@ STDAPI CMetasequoiaIME::OnCompositionTerminated(TfEditCookie ecWrite, _In_ ITfCo
         _compositionEpoch.fetch_add(1, std::memory_order_acq_rel);
     }
 
-    // An application that ends a Korean composition keeps its syllable in the document as text. The host session has to let go of it as well, or the next letter would build on that syllable and commit it a second time. An ending this TIP made itself has already settled the host, which may by then hold the next syllable.
-    if (!_terminatingOwnComposition && Global::KoreanInputModeEnabled.load(std::memory_order_relaxed))
+    // An application that ends a Korean, Zhuyin or Vietnamese composition keeps its text in the document (scheme::AlwaysInlinePreedit draws it there whatever the preedit preference). The host session has to let go of it as well, or the next key would build on that text and commit it a second time. An ending this TIP made itself has already settled the host, which may by then hold the next composition.
+    if (!_terminatingOwnComposition &&
+        msime::windows::scheme::AlwaysInlinePreedit(Global::InputModeScheme.load(std::memory_order_relaxed)))
     {
         (void)_CancelHostComposition();
     }

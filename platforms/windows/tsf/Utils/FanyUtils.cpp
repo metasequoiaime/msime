@@ -10,6 +10,7 @@
 #include "FanyUtils.h"
 #include "Ipc.h"
 #include "../HostOptionsPaths.h"
+#include "../../common/InputSchemeTraits.h"
 #include <msime_client.h>
 #include <nlohmann/json.hpp>
 #include <utf8cpp/utf8.h>
@@ -308,6 +309,34 @@ std::string ReadConfiguredInputScheme()
         return preferences->value("scheme", std::string{"quanpin"});
     }
     return ReadLegacyConfiguredInputMode();
+}
+
+int ReadConfiguredRunningScheme()
+{
+    const std::string configured = ReadConfiguredInputScheme();
+    std::string lastChinese;
+    if (const auto preferences = ReadSharedPreferences())
+    {
+        const auto last = preferences->find("last_chinese_scheme");
+        if (last != preferences->end() && last->is_string())
+        {
+            lastChinese = last->get<std::string>();
+        }
+    }
+    msime::windows::scheme::LanguageDictionaryPresence installed;
+    const auto options = nlohmann::json::parse(msime::tsf::default_host_options_json(), nullptr, false);
+    if (options.is_object())
+    {
+        const auto directory = options.find("language_dictionaries");
+        if (directory != options.end() && directory->is_string())
+        {
+            const auto path = std::filesystem::u8path(directory->get<std::string>());
+            std::error_code ec;
+            installed.cantonese = std::filesystem::is_regular_file(path / "cantonese.db", ec);
+            installed.zhuyin = std::filesystem::is_regular_file(path / "zhuyin.db", ec);
+        }
+    }
+    return msime::windows::scheme::effective_scheme(configured, lastChinese, installed);
 }
 
 BOOL ReadConfiguredJapaneseInputMode()

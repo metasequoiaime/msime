@@ -99,7 +99,7 @@ int main() {
     // Behind the deferred-key barrier the list is projected through the queue. The Hanja key opens a closed list and closes an open one, and the syllable keeps composing either way.
     using msime::tsf::project_korean_hanja_key;
     const auto projects = [](unsigned vk, wchar_t wch, bool open, bool listOpen, bool syllableEnds) {
-        const auto projected = project_korean_hanja_key(vk, wch, open);
+        const auto projected = project_korean_hanja_key(msime::windows::scheme::Korean, vk, wch, open);
         return projected.listOpen == listOpen && projected.syllableEnds == syllableEnds;
     };
     const unsigned hanja = msime::tsf::kVirtualKeyHanja;

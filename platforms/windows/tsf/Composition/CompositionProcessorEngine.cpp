@@ -604,7 +604,7 @@ namespace
 bool IsJapaneseLongVowelKey(UINT uCode, WCHAR wch)
 {
     return uCode == VK_OEM_MINUS && wch == L'-' &&
-           Global::JapaneseInputModeEnabled.load(std::memory_order_relaxed);
+           Global::InputModeScheme.load(std::memory_order_relaxed) == msime::windows::scheme::Japanese;
 }
 
 // In Japanese mode '=' and non-long-vowel '-' are punctuation rather than
@@ -617,7 +617,7 @@ bool IsJapaneseMinusEqualPunctuationKey(UINT uCode, WCHAR wch, BOOL fComposing, 
     {
         return false;
     }
-    if (keystrokeLength == 0 || !Global::JapaneseInputModeEnabled.load(std::memory_order_relaxed))
+    if (keystrokeLength == 0 || Global::InputModeScheme.load(std::memory_order_relaxed) != msime::windows::scheme::Japanese)
     {
         return false;
     }
@@ -1468,9 +1468,9 @@ void CCompositionProcessorEngine::InitializeMetasequoiaIMECompartment(_In_ ITfTh
 {
     // Default CN/EN on IME activate / switch-in (input.default_ime_mode).
     const BOOL openChinese = FanyUtils::ReadConfiguredDefaultImeModeChinese();
-    const std::string configuredScheme = FanyUtils::ReadConfiguredInputScheme();
-    Global::JapaneseInputModeEnabled.store(configuredScheme == "japanese", std::memory_order_relaxed);
-    Global::KoreanInputModeEnabled.store(configuredScheme == "korean", std::memory_order_relaxed);
+    Global::InputModeScheme.store(
+        msime::windows::scheme::mode_scheme(msime::windows::scheme::input_mode(FanyUtils::ReadConfiguredRunningScheme())),
+        std::memory_order_relaxed);
     // Use the suppressing writer so the OPENCLOSE sink does not treat this as
     // a user choice and drop the defense we are about to arm.
     SetKeyboardOpenCompartment(pThreadMgr, tfClientId, openChinese);
@@ -2187,7 +2187,7 @@ BOOL CCompositionProcessorEngine::IsVirtualKeyNeed( //
     const bool isCommaPeriodPagingKey = uCode == VK_OEM_COMMA || uCode == VK_OEM_PERIOD;
     const bool isBracketPagingKey = uCode == VK_OEM_4 || uCode == VK_OEM_6;
     const bool isMinusEqualPagingKey = (uCode == VK_OEM_MINUS || uCode == VK_OEM_PLUS) &&
-                                       !Global::JapaneseInputModeEnabled.load(std::memory_order_relaxed);
+                                       Global::InputModeScheme.load(std::memory_order_relaxed) != msime::windows::scheme::Japanese;
     if (candidateMode != CANDIDATE_NONE &&
         (isMinusEqualPagingKey || isCommaPeriodPagingKey || isBracketPagingKey || uCode == VK_TAB ||
          uCode == VK_PRIOR || uCode == VK_NEXT || uCode == VK_UP || uCode == VK_DOWN))

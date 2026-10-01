@@ -20,6 +20,8 @@ BOOL ReadConfiguredDefaultImeModeChinese();
 BOOL ReadConfiguredJapaneseInputMode();
 // The active scheme id from the shared PreferencesStore ("quanpin" when it names none), or the lower-cased legacy TOML `[input] mode` when the store is unreadable. One read answers both the Japanese and the Korean input mode.
 std::string ReadConfiguredInputScheme();
+// The scheme number the Engine runs for the configured scheme, as host-api's effective_scheme picks it: Cantonese and Zhuyin need their dictionary in the `language_dictionaries` directory the prepared HostOptions names, and fall back to `last_chinese_scheme` or quanpin without it.
+int ReadConfiguredRunningScheme();
 // Read punctuation_lock from shared PreferencesStore (with legacy TOML fallback).
 // 0 = follow IME, 1 = always Chinese punctuation, 2 = always English punctuation.
 int ReadConfiguredPunctuationLock();
