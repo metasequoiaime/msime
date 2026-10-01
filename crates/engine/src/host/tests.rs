@@ -1407,6 +1407,9 @@ fn gloss_keys_follow_the_bridge_rules() {
 #[test]
 fn gloss_display_keeps_two_senses_and_withholds_control_characters() {
     assert_eq!(candidate_gloss_display("a; b; c"), "a; b");
+    let joined = candidate_gloss_display("alpha;beta");
+    assert_eq!(joined, "alpha; beta");
+    assert_eq!(joined.capacity(), joined.len());
     assert_eq!(candidate_gloss_display("甲；乙;丙"), "甲; 乙");
     assert_eq!(
         candidate_gloss_display(";; first ;  ; second"),

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { SettingField } from "./setting-field";
 
 export interface SettingToggleProps {
   label: ReactNode;
@@ -24,11 +25,11 @@ export function SettingToggle({
   onChange,
 }: SettingToggleProps) {
   const row = (
-    <label className={`section-header${rowClassName ? ` ${rowClassName}` : ""}`}>
-      <span className="section-title">
-        {label}
-        {description !== undefined && <small>{description}</small>}
-      </span>
+    <SettingField
+      label={label}
+      description={description}
+      className={`section-header${rowClassName ? ` ${rowClassName}` : ""}`}
+    >
       <input
         className="toggle"
         type="checkbox"
@@ -37,7 +38,7 @@ export function SettingToggle({
         disabled={disabled}
         onChange={(event) => onChange(event.target.checked)}
       />
-    </label>
+    </SettingField>
   );
   return compact ? row : <div className="section">{row}</div>;
 }

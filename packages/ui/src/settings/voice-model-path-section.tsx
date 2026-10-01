@@ -1,3 +1,5 @@
+import { SettingField } from "./setting-field";
+
 export interface VoiceModelPathSectionProps {
   path: string;
   pickPath?: () => Promise<string | null>;
@@ -8,11 +10,10 @@ export interface VoiceModelPathSectionProps {
 export function VoiceModelPathSection({ path, pickPath, onChange }: VoiceModelPathSectionProps) {
   return (
     <div className="section">
-      <label className="section-header">
-        <span className="section-title">
-          本地模型目录
-          <small>已安装模型所在文件夹的绝对路径（包含 msime-model.json）</small>
-        </span>
+      <SettingField
+        label="本地模型目录"
+        description="已安装模型所在文件夹的绝对路径（包含 msime-model.json）"
+      >
         <span className="flex items-center gap-2 [&>input]:min-w-0 [&>input]:flex-1">
           <input
             aria-label="本地模型目录"
@@ -37,7 +38,7 @@ export function VoiceModelPathSection({ path, pickPath, onChange }: VoiceModelPa
             </button>
           )}
         </span>
-      </label>
+      </SettingField>
     </div>
   );
 }

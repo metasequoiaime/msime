@@ -1007,6 +1007,7 @@ export {
 } from "./settings/credential-status-message";
 export { CredentialActions, type CredentialActionsProps } from "./settings/credential-actions";
 export { SettingToggle, type SettingToggleProps } from "./settings/setting-toggle";
+export { SettingField, type SettingFieldProps } from "./settings/setting-field";
 export {
   AiCredentialSection,
   type AiCredentialSectionProps,
@@ -1026,6 +1027,7 @@ export {
   TencentTranslationSection,
   type TencentTranslationSectionProps,
 } from "./settings/tencent-translation-section";
+export { SecretSettingRow, type SecretSettingRowProps } from "./settings/secret-setting-row";
 export {
   LinuxTencentCredentialsSection,
   type LinuxTencentCredentialsSectionProps,

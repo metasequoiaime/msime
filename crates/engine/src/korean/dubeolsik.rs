@@ -189,7 +189,7 @@ impl Syllable {
 
 /// The syllables `keys` compose to, each with the key index it starts at. Keys that are not layout letters are skipped.
 fn fold(keys: &[u8]) -> Vec<Syllable> {
-    let mut syllables = Vec::new();
+    let mut syllables = Vec::with_capacity(keys.len());
     let mut current = Syllable::starting_at(0);
     for (index, &key) in keys.iter().enumerate() {
         let Some(jamo) = jamo_for_key(key) else {
@@ -276,6 +276,12 @@ pub fn split_finished(keys: &str) -> (String, &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fold_reserves_one_slot_per_key() {
+        let syllables = fold(b"rkrk");
+        assert_eq!(syllables.capacity(), 4);
+    }
 
     #[test]
     fn every_letter_types_its_dubeolsik_jamo() {

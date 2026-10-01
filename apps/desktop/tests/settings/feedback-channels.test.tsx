@@ -29,10 +29,13 @@ test("renders shared feedback channels and routes their actions", () => {
   expect(screen.getByText("example.test/issues")).toBeTruthy();
   const marks = [...document.querySelectorAll(".icon")];
   expect(marks.map((mark) => mark.textContent)).toEqual(["", "", ""]);
-  expect(marks[0].querySelector("span")?.getAttribute("style")).toContain("--channel-icon: url(");
-  const brandSources = marks.slice(1).map((mark) => mark.querySelector("img")?.getAttribute("src"));
-  expect(brandSources.every(Boolean)).toBe(true);
-  expect(new Set(brandSources).size).toBe(2);
+  // GitHub and QQ are monochrome marks masked out of the text colour; Telegram keeps its brand colours.
+  const monoSources = marks
+    .slice(0, 2)
+    .map((mark) => mark.querySelector("span")?.getAttribute("style") ?? "");
+  expect(monoSources.every((style) => style.includes("--channel-icon: url("))).toBe(true);
+  expect(new Set(monoSources).size).toBe(2);
+  expect(marks[2].querySelector("img")?.getAttribute("src")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "查看 Issues" }));
   fireEvent.click(screen.getByRole("button", { name: "复制群号" }));
   fireEvent.click(screen.getByRole("button", { name: "打开群组" }));

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { SettingField } from "./setting-field";
 import { SettingToggle } from "./setting-toggle";
 
 export type AiProviderOption = { id: string; title: string };
@@ -38,8 +39,7 @@ export function AiBasicSettingsSection({
         onChange={onEnabledChange}
       />
       <div className="section">
-        <label className="section-header">
-          <span className="section-title">服务提供商</span>
+        <SettingField label="服务提供商">
           <select
             aria-label="AI 服务提供商"
             value={provider}
@@ -51,29 +51,27 @@ export function AiBasicSettingsSection({
               </option>
             ))}
           </select>
-        </label>
+        </SettingField>
       </div>
       {providerPreset}
       <div className="section">
-        <label className="section-header">
-          <span className="section-title">模型</span>
+        <SettingField label="模型">
           <input
             aria-label="AI 模型"
             value={model}
             onChange={(event) => onModelChange(event.target.value)}
           />
-        </label>
+        </SettingField>
       </div>
       <div className="section">
-        <label className="section-header">
-          <span className="section-title">接口地址</span>
+        <SettingField label="接口地址">
           <input
             aria-label="AI 接口地址"
             type="url"
             value={endpoint}
             onChange={(event) => onEndpointChange(event.target.value)}
           />
-        </label>
+        </SettingField>
       </div>
     </>
   );

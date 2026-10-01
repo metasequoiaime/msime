@@ -558,6 +558,9 @@ test("publish dialog: a preview write from a replaced client is ignored", async 
     />,
   );
   await screen.findByRole("alert");
+  expect((screen.getByRole("button", { name: "生成预览图" }) as HTMLButtonElement).disabled).toBe(
+    false,
+  );
   pending.resolve(catalog(["ink-wash"]));
   await settle();
   expect(nextClient.packPreview).toHaveBeenCalledTimes(1);

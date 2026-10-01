@@ -185,7 +185,7 @@ pub fn query_units(code: &str) -> Option<Vec<String>> {
             })
             .collect(),
     };
-    let mut rows: Vec<String> = Vec::new();
+    let mut rows: Vec<String> = Vec::with_capacity(RESULT_LIMIT);
     let mut push = |row: String| {
         if rows.len() < RESULT_LIMIT
             && row.encode_utf16().count() <= TEXT_UTF16_LIMIT

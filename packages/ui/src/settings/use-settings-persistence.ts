@@ -84,6 +84,7 @@ export function useSettingsPersistence({
   const [saveState, setSaveState] = useState<SettingsSaveState>("idle");
   const [saveError, setSaveError] = useState("");
   const [loadFailed, setLoadFailed] = useState(false);
+  const reloadInFlightRef = useRef<Promise<void> | undefined>(undefined);
 
   useEffect(() => {
     snapshotRef.current = snapshot;
@@ -239,24 +240,34 @@ export function useSettingsPersistence({
 
   async function reload() {
     if (!mounted.current) return;
-    clearAutosave();
-    setBusy(true);
-    setError("");
-    setNotice("");
-    setRecoveredBackup("");
+    const inFlight = reloadInFlightRef.current;
+    if (inFlight) return inFlight;
+    const operation = (async () => {
+      clearAutosave();
+      setBusy(true);
+      setError("");
+      setNotice("");
+      setRecoveredBackup("");
+      try {
+        const value = await client.load();
+        if (!mounted.current) return;
+        adoptSnapshot(value);
+        setLoadFailed(false);
+        setSaveState("idle");
+        setSaveError("");
+      } catch (reason) {
+        if (!mounted.current) return;
+        setError(errorMessage(reason));
+        setLoadFailed(true);
+      } finally {
+        if (mounted.current) setBusy(false);
+      }
+    })();
+    reloadInFlightRef.current = operation;
     try {
-      const value = await client.load();
-      if (!mounted.current) return;
-      adoptSnapshot(value);
-      setLoadFailed(false);
-      setSaveState("idle");
-      setSaveError("");
-    } catch (reason) {
-      if (!mounted.current) return;
-      setError(errorMessage(reason));
-      setLoadFailed(true);
+      await operation;
     } finally {
-      if (mounted.current) setBusy(false);
+      if (reloadInFlightRef.current === operation) reloadInFlightRef.current = undefined;
     }
   }
 

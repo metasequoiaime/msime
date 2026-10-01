@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { CredentialActions } from "./credential-actions";
 import { type CredentialStatusMessageValue } from "./credential-status-message";
+import { SettingField } from "./setting-field";
 
 export interface LinuxTencentCredentialStatus {
   tencent: { region: string } | null;
@@ -59,8 +60,7 @@ export function LinuxTencentCredentialsSection({
       ) : (
         <>
           <p className="input-setting-description">{description}</p>
-          <label className="section-header">
-            <span className="section-title">SecretId</span>
+          <SettingField label="SecretId">
             <input
               aria-label="腾讯云 SecretId"
               type="password"
@@ -68,9 +68,8 @@ export function LinuxTencentCredentialsSection({
               value={input.secretId}
               onChange={(event) => onInputChange({ secretId: event.target.value })}
             />
-          </label>
-          <label className="section-header">
-            <span className="section-title">SecretKey</span>
+          </SettingField>
+          <SettingField label="SecretKey">
             <input
               aria-label="腾讯云 SecretKey"
               type="password"
@@ -78,15 +77,14 @@ export function LinuxTencentCredentialsSection({
               value={input.secretKey}
               onChange={(event) => onInputChange({ secretKey: event.target.value })}
             />
-          </label>
-          <label className="section-header">
-            <span className="section-title">地域</span>
+          </SettingField>
+          <SettingField label="地域">
             <input
               aria-label="腾讯云地域"
               value={region}
               onChange={(event) => onInputChange({ region: event.target.value })}
             />
-          </label>
+          </SettingField>
           <CredentialActions
             saveDisabled={busy || (!stored && (!input.secretId.trim() || !input.secretKey.trim()))}
             clearDisabled={busy}

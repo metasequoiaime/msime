@@ -2,6 +2,7 @@ import { findDoubaoStreamEndpoint } from "../voice/voice-providers";
 import { CredentialActions } from "./credential-actions";
 import { type CredentialStatusMessageValue } from "./credential-status-message";
 import { DoubaoStreamEndpointSelect } from "./doubao-stream-endpoint-section";
+import { SettingField } from "./setting-field";
 
 export type VoiceCredentialSectionKind = "asr" | "polish";
 
@@ -99,36 +100,26 @@ export function VoiceCredentialSection({
         </small>
       </div>
       {doubao && (
-        <label className="section-header">
-          <span className="section-title">
-            流式接口
-            <small>
-              整句流式边录边传、说完返回整句，服务方称准确率更高并推荐用于输入法；双向流式返回增量结果，流式预编辑刷新更频繁。选择后写入下方接口地址，保存凭据后生效；地址留空时语音
-              provider 使用双向流式。
-            </small>
-          </span>
+        <SettingField
+          label="流式接口"
+          description="整句流式边录边传、说完返回整句，服务方称准确率更高并推荐用于输入法；双向流式返回增量结果，流式预编辑刷新更频繁。选择后写入下方接口地址，保存凭据后生效；地址留空时语音 provider 使用双向流式。"
+        >
           <DoubaoStreamEndpointSelect
             endpoint={streamEndpoint}
             onChange={(value) => onChange({ endpoint: value })}
           />
-        </label>
+        </SettingField>
       )}
-      <label className="section-header">
-        <span className="section-title">
-          接口地址<small>留空使用当前 provider 默认地址</small>
-        </span>
+      <SettingField label="接口地址" description="留空使用当前 provider 默认地址">
         <input
           aria-label={`${name}接口地址`}
           type="url"
           value={endpoint}
           onChange={(event) => onChange({ endpoint: event.target.value })}
         />
-      </label>
+      </SettingField>
       {legacy && (
-        <label className="section-header">
-          <span className="section-title">
-            Doubao App Key<small>旧版控制台鉴权使用</small>
-          </span>
+        <SettingField label="Doubao App Key" description="旧版控制台鉴权使用">
           <input
             aria-label="Doubao App Key"
             type="password"
@@ -136,10 +127,9 @@ export function VoiceCredentialSection({
             value={input.appKey}
             onChange={(event) => onChange({ appKey: event.target.value })}
           />
-        </label>
+        </SettingField>
       )}
-      <label className="section-header">
-        <span className="section-title">{tokenLabel}</span>
+      <SettingField label={tokenLabel}>
         <input
           aria-label={tokenLabel}
           type="password"
@@ -147,7 +137,7 @@ export function VoiceCredentialSection({
           value={input.token}
           onChange={(event) => onChange({ token: event.target.value })}
         />
-      </label>
+      </SettingField>
       <CredentialActions
         saveDisabled={
           busy ||
