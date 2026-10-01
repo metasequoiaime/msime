@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
-import { SecretInput } from "../core/secret-input";
 import { Row, Switch } from "../core/platform-controls";
 import * as settings from "./settings-style";
+import { SecretSettingRow } from "./secret-setting-row";
 import { SettingToggle } from "./setting-toggle";
 
 export interface CustomTranslationSectionProps {
@@ -58,14 +58,13 @@ export function CustomTranslationSection({
           </p>
         </div>
       )}
-      <Row title="API Key">
-        <SecretInput
-          label="自定义翻译 API Key"
-          value={apiKey}
-          disabled={!available || !enabled}
-          onChange={onApiKeyChange}
-        />
-      </Row>
+      <SecretSettingRow
+        title="API Key"
+        label="自定义翻译 API Key"
+        value={apiKey}
+        disabled={!available || !enabled}
+        onChange={onApiKeyChange}
+      />
       {enabled && children && <div className={settings.groupBlock}>{children}</div>}
     </div>
   );

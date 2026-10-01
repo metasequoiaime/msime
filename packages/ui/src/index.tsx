@@ -1026,6 +1026,7 @@ export {
   TencentTranslationSection,
   type TencentTranslationSectionProps,
 } from "./settings/tencent-translation-section";
+export { SecretSettingRow, type SecretSettingRowProps } from "./settings/secret-setting-row";
 export {
   LinuxTencentCredentialsSection,
   type LinuxTencentCredentialsSectionProps,
