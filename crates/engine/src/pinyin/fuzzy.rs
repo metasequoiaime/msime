@@ -64,7 +64,9 @@ pub fn fuzzy_syllables(syllable: &str, options: FuzzyPinyinOptions) -> Vec<Strin
     let mut result = vec![syllable.to_owned()];
     for start in &starts {
         for end in &ends {
-            let candidate = format!("{start}{end}");
+            let mut candidate = String::with_capacity(start.len() + end.len());
+            candidate.push_str(start);
+            candidate.push_str(end);
             if is_intact(&candidate) && !result.contains(&candidate) {
                 result.push(candidate);
             }
@@ -149,10 +151,11 @@ mod tests {
 
     #[test]
     fn expansions_keep_the_original_first_and_stay_intact() {
-        assert_eq!(
-            fuzzy_syllables("zhan", rules(fuzzy_rule::ALL)),
-            ["zhan", "zhang", "zan", "zang"]
-        );
+        let variants = fuzzy_syllables("zhan", rules(fuzzy_rule::ALL));
+        assert_eq!(variants, ["zhan", "zhang", "zan", "zang"]);
+        assert!(variants
+            .iter()
+            .all(|variant| variant.capacity() == variant.len()));
         // `l` is the partner of both `n` and `r`.
         assert_eq!(
             fuzzy_syllables("lan", rules(fuzzy_rule::N_L | fuzzy_rule::R_L)),
