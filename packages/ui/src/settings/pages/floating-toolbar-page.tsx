@@ -64,7 +64,7 @@ export function FloatingToolbarSettingsPage() {
   return (
     <fieldset disabled={busy} hidden={page !== "floating-toolbar"} aria-label="悬浮工具栏">
       <div className={settings.groups}>
-        {/* The preview leads the page: every group below changes what it draws. */}
+        {/* 预览放在页首：下面每一组改的都是它画出的内容。 */}
         <GroupList>
           <div className={settings.groupPreview} aria-label="悬浮工具栏预览">
             <div className={settings.panelPreviewLabel}>预览</div>

@@ -7,7 +7,7 @@ export interface CandidatePanelLimitSectionProps {
   limit: CandidatePanelLimit;
 }
 
-/** Explains which Linux desktop surface owns the candidate panel appearance: a note under the 候选窗口 page's preview and at the top of the 主题 page, the two pages whose settings that surface ignores. */
+/** 说明候选面板外观由 Linux 桌面的哪个组件接管：显示在「候选窗口」页的预览下方和「主题」页顶部，这两页的设置都会被该组件忽略。 */
 export function CandidatePanelLimitSection({ limit }: CandidatePanelLimitSectionProps) {
   return <p className={settings.groupNote}>{candidatePanelLimitNotes[limit]}</p>;
 }

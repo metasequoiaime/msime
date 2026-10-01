@@ -6,7 +6,7 @@ export interface EnglishSuggestionsSectionProps {
   onChange: (value: boolean) => void;
 }
 
-/** English completion switch for hosts that expose the candidate suggestion feature: one row of the 多语言与释义 group on the 标点与翻译 page. */
+/** 英文补全开关，供提供候选建议功能的宿主使用：「标点与翻译」页「多语言与释义」组中的一行。 */
 export function EnglishSuggestionsSection({
   value,
   disabled = false,

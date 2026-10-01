@@ -677,9 +677,9 @@ group("bounds and deduplicates asynchronous online AI candidates", () => {
     "a failed current online request can be retried",
   );
   check(
-    !OnlineCandidatePolicy.shouldReleaseAfterFailure(signature, "new", 4, 4, 7, 7)
-      && !OnlineCandidatePolicy.shouldReleaseAfterFailure(signature, signature, 3, 4, 7, 7)
-      && !OnlineCandidatePolicy.shouldReleaseAfterFailure(signature, signature, 4, 4, 8, 7),
+    !OnlineCandidatePolicy.shouldReleaseAfterFailure(signature, "new", 4, 4, 7, 7) &&
+      !OnlineCandidatePolicy.shouldReleaseAfterFailure(signature, signature, 3, 4, 7, 7) &&
+      !OnlineCandidatePolicy.shouldReleaseAfterFailure(signature, signature, 4, 4, 8, 7),
     "a stale online failure cannot clear a newer request",
   );
   const response = JSON.stringify({
@@ -755,9 +755,9 @@ group("keeps translation provider policy bounded and credential-free in signatur
     "a failed current translation request can be retried",
   );
   check(
-    !TranslationPolicy.shouldReleaseAfterFailure(signature, "new", 4, 4, 7, 7)
-      && !TranslationPolicy.shouldReleaseAfterFailure(signature, signature, 3, 4, 7, 7)
-      && !TranslationPolicy.shouldReleaseAfterFailure(signature, signature, 4, 4, 8, 7),
+    !TranslationPolicy.shouldReleaseAfterFailure(signature, "new", 4, 4, 7, 7) &&
+      !TranslationPolicy.shouldReleaseAfterFailure(signature, signature, 3, 4, 7, 7) &&
+      !TranslationPolicy.shouldReleaseAfterFailure(signature, signature, 4, 4, 8, 7),
     "a stale translation failure cannot clear a newer request",
   );
   check(
@@ -765,8 +765,8 @@ group("keeps translation provider policy bounded and credential-free in signatur
     "offline rows do not hide a failed online provider",
   );
   check(
-    !TranslationPolicy.shouldReleaseAfterProviderFailure("tencent", true, true)
-      && !TranslationPolicy.shouldReleaseAfterProviderFailure("", false, true),
+    !TranslationPolicy.shouldReleaseAfterProviderFailure("tencent", true, true) &&
+      !TranslationPolicy.shouldReleaseAfterProviderFailure("", false, true),
     "complete or disabled providers keep a usable translation signature",
   );
 });
@@ -10042,7 +10042,7 @@ group("keypad digits reach both digit paths", () => {
 group("Ctrl+Shift+F switches simplified and traditional, not the character width", () => {
   const routing: InputModeRouting = new InputModeRouting();
   routing.use(DEFAULT_MODE_BINDINGS);
-  // Windows `HandleImeKey` answers `IsCharacterSetShortcut` with `SetConfiguredCharacterSet`; the settings page labels the binding 切换繁体输出.
+  // Windows 的 `HandleImeKey` 用 `SetConfiguredCharacterSet` 响应 `IsCharacterSetShortcut`；设置页把这个绑定标为「切换繁体输出」。
   check(
     routing.accept(modeKey(2022, true, 0, { ctrlKey: true, shiftKey: true })) ===
       ModeGesture.TOGGLE_CHARACTER_SET,

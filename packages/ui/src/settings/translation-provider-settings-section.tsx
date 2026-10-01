@@ -18,14 +18,14 @@ export type TranslationCustomSettings = Omit<CustomTranslationSettingsSectionPro
 
 export interface TranslationProviderSettingsSectionProps {
   grouped?: boolean;
-  /** The service chosen in 翻译服务; only its settings are shown, and none for 关闭 or the MSIME account. */
+  /** 在「翻译服务」中选择的服务；只显示它的设置，选「关闭」或 MSIME 账户时不显示任何设置。 */
   provider: TranslationProvider;
   niutrans: TranslationNiuTransSettings;
   tencent: TranslationTencentSettings;
   custom: TranslationCustomSettings;
 }
 
-/** Shared binding for the settings of the chosen translation service: Tencent, NiuTrans, or a custom one. The 翻译服务 select is the only place a service is turned on, so the other services' settings stay out of the way. */
+/** 所选翻译服务设置的共享绑定：腾讯、NiuTrans 或自定义服务。「翻译服务」下拉框是开启服务的唯一位置，所以其他服务的设置不会挡道。 */
 export function TranslationProviderSettingsSection({
   grouped = false,
   provider,

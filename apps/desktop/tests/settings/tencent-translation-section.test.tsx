@@ -24,7 +24,7 @@ test("forwards credential edits and leaves choosing the service to 翻译服务"
     />,
   );
 
-  // The service is turned on only from the 翻译服务 select, so its own settings carry no switch.
+  // 服务只能从「翻译服务」下拉框开启，所以它自己的设置里没有开关。
   expect(screen.queryByRole("switch")).toBeNull();
   fireEvent.change(screen.getByLabelText("腾讯云 SecretId"), {
     target: { value: "updated-id" },

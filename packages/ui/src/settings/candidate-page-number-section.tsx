@@ -5,7 +5,7 @@ export interface CandidatePageNumberSectionProps {
   onChange: (value: boolean) => void;
 }
 
-/** The 显示页码 switch for hosts that draw a page number (`HostCapabilities::candidate_page_number`): one row of the 候选窗口 page's 布局 group. */
+/** 「显示页码」开关，供会绘制页码的宿主使用（`HostCapabilities::candidate_page_number`）：「候选窗口」页「布局」组中的一行。 */
 export function CandidatePageNumberSection({ value, onChange }: CandidatePageNumberSectionProps) {
   return (
     <SwitchRow

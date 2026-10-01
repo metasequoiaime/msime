@@ -13,7 +13,7 @@ export interface UninstallSectionProps {
   onCancelUninstall: () => void;
 }
 
-/** macOS input-source removal, the last group of 维护与诊断. A host that cannot uninstall draws nothing. */
+/** macOS 输入源移除，「维护与诊断」的最后一组。不能卸载的宿主什么都不画。 */
 export function UninstallSection({
   uninstallInputSource,
   removeUserData,

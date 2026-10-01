@@ -5,10 +5,10 @@ export interface HandwritingPlatformNoticeProps {
   onOpenExternalUrl?: (url: string) => void;
 }
 
-/** Google ML Kit's terms and data disclosure; iOS and Android recognise handwriting with it. */
+/** Google ML Kit 的条款和数据披露；iOS 和 Android 用它识别手写。 */
 export const handwritingSdkPrivacyUrl = "https://developers.google.com/ml-kit/terms";
 
-/** The one copy of each platform's handwriting privacy text: the legacy input panel shows it through `HandwritingPlatformNotice`, and the settings window's 手写输入 page places it inside the platform's group in `HandwritingSettingsSection`. */
+/** 各平台手写隐私文案的唯一一份：旧的输入面板通过 `HandwritingPlatformNotice` 显示它，设置窗口的「手写输入」页则在 `HandwritingSettingsSection` 里把它放进该平台的组。 */
 export function handwritingPrivacyText(platform: HandwritingPlatform): string {
   switch (platform) {
     case "android":

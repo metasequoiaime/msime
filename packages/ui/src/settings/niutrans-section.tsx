@@ -12,7 +12,7 @@ export interface NiuTransSectionProps {
   children?: ReactNode;
 }
 
-/** NiuTrans credentials, shown while NiuTrans is the chosen translation service; the service itself is chosen in 翻译服务. */
+/** NiuTrans 凭据，在 NiuTrans 是所选翻译服务时显示；服务本身在「翻译服务」中选择。 */
 export function NiuTransSection({
   available,
   appId,

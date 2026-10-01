@@ -14,7 +14,7 @@ export interface CustomTranslationSettingsSectionProps {
   credentialTest?: ReactNode;
 }
 
-/** Shared custom translation endpoint settings; hosts choose whether to add a group wrapper. */
+/** 共享的自定义翻译接口设置；是否外包一层分组由宿主决定。 */
 export function CustomTranslationSettingsSection({
   grouped = false,
   customTranslation,

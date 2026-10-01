@@ -25,7 +25,7 @@ export interface CandidateColorsSectionProps {
 const linuxFcitxClassicColorNote =
   "Fcitx5 经典界面中编号跟随正文颜色、固定候选不单独着色，此项仅对 IBus 生效";
 
-/** One colour picker of the custom theme: the swatch, and a button that hands the slot back to the theme underneath. */
+/** 自定义主题的一个颜色选择器：色块，以及一个把该颜色槽交还给底层主题的按钮。 */
 export function CandidateColorRow({
   title,
   slot,
@@ -86,7 +86,7 @@ export function CandidateColorsSection({
   const light = previewTheme === "light";
   return (
     <>
-      {/* Background, then what is written on it, then the states a row can be in, then the frame. */}
+      {/* 先是背景，然后是写在背景上的内容，再是一行可能处于的各种状态，最后是边框。 */}
       <CandidateColorRow
         title="候选表面色"
         slot="surface"

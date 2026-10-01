@@ -14,7 +14,7 @@ const androidPrivacyUrl = "https://msime.app/privacy/";
 // Linux links to the data-flow document that ships with this code, as the Windows reference links its own PRIVACY.md; the Linux section of msime.app/privacy/ describes a host without an update check and with Secret Service credentials, and this one has the update check and keeps provider credentials in 0600 files.
 const linuxPrivacyUrl = "https://github.com/metasequoiaime/msime/blob/develop/PRIVACY.md";
 
-/** The 关于 page of the settings form: the brand header, 版本与更新 (with the rows of the former 其他平台下载 page) and 许可与隐私. Uninstalling lives on 维护与诊断. */
+/** 设置表单的「关于」页：品牌头部、「版本与更新」（含原「其他平台下载」页的几行）和「许可与隐私」。卸载在「维护与诊断」。 */
 export function AboutSettingsPage() {
   const {
     client,

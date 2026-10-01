@@ -17,7 +17,7 @@ export interface CandidateSizingSectionProps {
   onChange: (patch: Partial<CandidateSizingPreferences>) => void;
 }
 
-/** Shared candidate font-size controls for settings hosts: the size rows of the 候选窗口 page's 字体与大小 group, titled without the surface since the page already names it. */
+/** 设置宿主共用的候选字号控件：「候选窗口」页「字体与大小」组里的字号各行，标题不再写出界面名称，因为页面已经点明。 */
 export function CandidateSizingSection({
   preferences,
   showFontControls,

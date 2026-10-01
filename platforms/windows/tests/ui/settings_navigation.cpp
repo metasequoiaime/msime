@@ -36,7 +36,7 @@ bool launchable(const ShellTarget &target) {
 } // namespace
 int main() {
   try {
-    // The sidebar: 18 unique pages in 6 non-empty groups, in group order.
+    // 侧栏：18 个互不重复的页面，分在 6 个非空组里，按组的顺序排列。
     std::set<std::string_view> ids;
     std::set<std::size_t> groups;
     std::size_t previous_group = 0;
@@ -49,7 +49,7 @@ int main() {
     }
     require(ids.size() == 18);
     require(groups.size() == page_group_count);
-    // The same groups and order as settingsNavGroups in packages/ui/src/settings/settings-page-registry.ts (typing, appearance, more input methods, tools, account and community, support), so the native window and the shared settings UI list the same pages the same way.
+    // 分组和顺序与 `packages/ui/src/settings/settings-page-registry.ts` 里的 `settingsNavGroups` 相同（打字、外观、更多输入方式、工具、账户与社区、支持），这样原生窗口和共享设置 UI 以同样的方式列出同样的页面。
     const std::array<std::pair<std::string_view, std::size_t>, 18> sidebar{{
         {"typing", 0},   {"expression", 0}, {"shortcuts", 0}, {"lexicon", 0},
         {"themes", 1},   {"candidate", 1},  {"toolbar", 1},   {"osk", 2},
@@ -60,10 +60,10 @@ int main() {
     for (std::size_t i = 0; i < pages.size(); ++i)
       require(pages[i].id == sidebar[i].first &&
               pages[i].group == sidebar[i].second);
-    // The window opens on the first page of the sidebar.
+    // 窗口打开时显示侧栏的第一个页面。
     require(pages.front().id == default_page);
 
-    // The cross-platform service pages open the shared app on a route it accepts; native pages carry no route.
+    // 跨平台的服务页面在共享应用里以它接受的路由打开；原生页面没有路由。
     for (const auto &page : pages) {
       if (page.host == PageHost::Shell)
         require(launchable(page.shell));
@@ -78,7 +78,7 @@ int main() {
     require(find_page("plugins")->shell.page == "plugins" &&
             find_page("plugins")->group == find_page("clip")->group &&
             find_page("plugins")->group == find_page("stats")->group);
-    // The download links moved into the about page, so there is no download page any more.
+    // 下载链接已移到关于页，所以不再有下载页。
     require(find_page("download") == nullptr);
     // MCP stays in this window's developer page and the core pages stay native.
     for (auto id : {"themes", "candidate", "typing", "expression", "shortcuts",

@@ -14,7 +14,7 @@ export interface InputLanguageOptionsSectionProps {
   showEnglishSuggestions?: boolean;
   englishSuggestions?: boolean;
   betweenMixedAndCandidates?: ReactNode;
-  /** Shown right after 显示英文释义, for controls that adjust those glosses. */
+  /** 紧跟在「显示英文释义」之后显示，放调整这些释义的控件。 */
   afterCandidateEnglishGloss?: ReactNode;
   onMixedInputChange?: (value: MixedInputPreferences) => void;
   onCandidateEnglishGlossChange?: (value: boolean) => void;

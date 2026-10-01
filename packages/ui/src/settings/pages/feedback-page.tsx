@@ -7,7 +7,7 @@ import { createSettingsExternalActions } from "../settings-external-actions";
 import { FeedbackChannels } from "../feedback-channels";
 import { FeedbackReportFields } from "../feedback-report-fields";
 
-/** The 帮助与反馈 page of the settings form: 帮助 first, then the reproducible-issue report and the channels. */
+/** 设置表单的「帮助与反馈」页：先是「帮助」，然后是可复现问题的报告和各个反馈渠道。 */
 export function FeedbackSettingsPage() {
   const {
     client,
@@ -32,7 +32,7 @@ export function FeedbackSettingsPage() {
     pageEntry,
     selectPage,
   } = useSettingsForm();
-  // The same hosts the 诊断日志 group on 维护与诊断 is drawn for; elsewhere the link would open a page without it.
+  // 与在「维护与诊断」上绘制「诊断日志」组的宿主相同；在其他宿主上，这个链接会打开一个没有该组的页面。
   const diagnosticLogsOffered =
     Boolean(pageEntry("developer")) &&
     (!client.host || linuxPlatform || windowsPlatform || macosPlatform);

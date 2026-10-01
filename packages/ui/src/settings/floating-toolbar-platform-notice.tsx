@@ -1,6 +1,6 @@
 import * as settings from "./settings-style";
 
-/** Explains the limited toolbar controls on hosts that render it in the input method menu, naming only the controls this host still offers: the switch in 显示 always, the 按钮 checks when the host has them. */
+/** 在把工具栏放进输入法菜单的宿主上，说明能调的工具栏控件有限，并且只列出该宿主仍提供的控件：「显示」里的开关总会列出，「按钮」里的勾选项在宿主有时才列出。 */
 export function FloatingToolbarPlatformNotice({ buttons = true }: { buttons?: boolean }) {
   const stillApplies = buttons ? "上方的按钮选择和显示开关仍然生效" : "上方的显示开关仍然生效";
   return (

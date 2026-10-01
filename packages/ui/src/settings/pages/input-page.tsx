@@ -108,7 +108,7 @@ export function InputSettingsPage() {
               linux={linuxPlatform}
               onChange={(next) =>
                 onPreferencesChange({
-                  // Only a paging key that takes 以词定字's key touches it; otherwise an unset value stays unset.
+                  // 只有占用了「以词定字」按键的翻页键才会改动它；否则未设置的值保持未设置。
                   ...(next.wordCharacter !== wordCharacter
                     ? { word_character: next.wordCharacter }
                     : {}),

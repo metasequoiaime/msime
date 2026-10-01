@@ -36,7 +36,7 @@ export interface CandidateFontPresetRowProps {
   onChange: (patch: Partial<Preferences>) => void;
 }
 
-/** The 候选字体 preset row, the first row of the 候选窗口 page's 字体与大小 group. */
+/** 「候选字体」预设行，「候选窗口」页「字体与大小」组的第一行。 */
 export function CandidateFontPresetRow({
   preferences,
   platform,
@@ -74,7 +74,7 @@ export interface CandidateScaleRowProps {
   onChange: (patch: Partial<Preferences>) => void;
 }
 
-/** The 整体大小 slider, the last size row of the 候选窗口 page's 字体与大小 group: it scales the font sizes above it together with the window. */
+/** 「整体大小」滑块，「候选窗口」页「字体与大小」组的最后一个尺寸行：它把上面的各个字号连同窗口一起缩放。 */
 export function CandidateScaleRow({ preferences, onChange }: CandidateScaleRowProps) {
   const scale = candidateScalePercent(preferences.candidate_scale_percent);
   return (
@@ -96,14 +96,14 @@ export interface CandidateWindowStyleSectionProps {
   showOpacity: boolean;
   showCornerRadius: boolean;
   onChange: (patch: Partial<Preferences>) => void;
-  /** Rows after the window's own style, such as the link to where its colours and light/dark are chosen. */
+  /** 排在窗口自身样式之后的行，例如链接到颜色和明暗设置处的那一行。 */
   children?: ReactNode;
 }
 
 /** What the slider shows while the card follows the skin and the host: the radius the preview draws then. */
 const followedCornerRadius = 6;
 
-/** The 窗口样式 group of the 候选窗口 page: the window's opacity and corner radius. Its colours and light/dark are edited only on the 主题 page, which the page links to from the end of this group. */
+/** 「候选窗口」页的「窗口样式」组：窗口的不透明度和圆角。颜色和明暗只在「主题」页编辑，本页在这一组末尾链接过去。 */
 export function CandidateWindowStyleSection({
   preferences,
   showOpacity,

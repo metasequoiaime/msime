@@ -19,7 +19,7 @@ const snapshot: Snapshot = {
   },
 };
 
-// The translation controls live on the 标点与翻译 page. The macOS menu still asks for `input`, which `client-core` can route today; `expression` is the page this entry has to land on once the router accepts it.
+// 翻译相关的控件在「标点与翻译」页。macOS 菜单仍然请求 `input`，因为 `client-core` 目前能路由它；等路由器接受 `expression` 之后，这个入口应该落到的就是 `expression` 页。
 test("macOS translation settings open on the 标点与翻译 page and save NiuTrans drafts", async () => {
   const save = vi.fn().mockResolvedValue(snapshot);
   const probe = vi.fn().mockResolvedValue({ ok: true, message: "synthetic success" });

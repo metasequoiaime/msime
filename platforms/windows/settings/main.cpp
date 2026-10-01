@@ -666,11 +666,11 @@ constexpr std::array<PageLabel, 18> page_labels{{
 static_assert(page_labels.size() == nav::pages.size());
 static_assert(page_labels[0].id == nav::default_page);
 
-// The sidebar's group titles, indexed by the `group` of SettingsNavigation.h and worded as the shared settings UI's settingsNavGroups.
+// 侧栏的分组标题，按 `SettingsNavigation.h` 里的 `group` 索引，措辞与共享设置 UI 的 `settingsNavGroups` 一致。
 constexpr std::array<const wchar_t *, nav::page_group_count> group_titles{
     {L"打字", L"外观", L"更多输入方式", L"工具", L"账户与社区", L"支持"}};
 
-// An unknown id gets the default page's label.
+// 未知 id 取默认页面的标签。
 const PageLabel &page_label(std::string_view id) {
   for (const auto &label : page_labels)
     if (label.id == id)
@@ -1406,7 +1406,7 @@ private:
     });
     view.AutoSuggestBox(filter_);
 
-    // Each group opens with its title; the pages of SettingsNavigation.h are sorted by group, so a title is due whenever the group changes.
+    // 每组以标题开头；`SettingsNavigation.h` 的页面按组排序，所以组一变就该插入标题。
     std::optional<std::size_t> group;
     for (const auto &page : nav::pages) {
       if (page.group != group) {

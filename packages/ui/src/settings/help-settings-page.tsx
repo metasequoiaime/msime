@@ -75,7 +75,7 @@ export interface HelpSettingsPageProps {
   onOpenSystemKeyboardSettings?: () => void;
 }
 
-/** The 帮助 page, shared by desktop and mobile settings hosts; it opens from a row on 帮助与反馈. */
+/** 「帮助」页，桌面和移动设置宿主共用；从「帮助与反馈」上的一行进入。 */
 export function HelpSettingsPage({
   busy,
   hidden,

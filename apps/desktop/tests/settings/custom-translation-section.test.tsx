@@ -21,7 +21,7 @@ test("forwards endpoint and key changes and leaves choosing the service to 翻�
     />,
   );
 
-  // The service is turned on only from the 翻译服务 select, so its own settings carry no switch.
+  // 服务只能从「翻译服务」下拉框开启，所以它自己的设置里没有开关。
   expect(screen.queryByRole("switch")).toBeNull();
   fireEvent.change(screen.getByLabelText("自定义翻译 Endpoint"), {
     target: { value: "https://updated.example.test" },

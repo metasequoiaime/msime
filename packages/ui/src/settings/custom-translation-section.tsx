@@ -14,7 +14,7 @@ export interface CustomTranslationSectionProps {
   children?: ReactNode;
 }
 
-/** Settings for a user-managed DeepLX-compatible translation endpoint, shown while it is the chosen translation service; the service itself is chosen in 翻译服务. */
+/** 用户自行管理的 DeepLX 兼容翻译接口的设置，在它是所选翻译服务时显示；服务本身在「翻译服务」中选择。 */
 export function CustomTranslationSection({
   available,
   endpoint,

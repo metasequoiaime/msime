@@ -40,7 +40,7 @@ export function ScreenKeyboardSettingsPage() {
   return (
     <fieldset disabled={busy} hidden={page !== "screen-keyboard"} aria-label="屏幕键盘">
       <div className={settings.groups}>
-        {/* The preview sits above the size controls it shows; the drag on it adjusts the same spacing. The launch button only exists where the host can raise its own screen keyboard panel. */}
+        {/* 预览放在它所展示的尺寸控件上方；在预览上拖动调的是同一个间距。启动按钮只在宿主能唤出自己的屏幕键盘面板时才存在。 */}
         <GroupList title="屏幕键盘">
           {client.openScreenKeyboard && (
             <Row title="打开屏幕键盘" description="使用鼠标或触控方式输入文字与快捷按键">
@@ -111,7 +111,7 @@ export function ScreenKeyboardSettingsPage() {
           onChange={(value) => void saveMobileKeyboardFeedback(value)}
           onPreview={() => void previewMobileKeyboardHaptics()}
         />
-        {/* The keyboard's own light/dark override sits with the other per-surface overrides under 主题 › 高级 (dc.html); this row only points there. The global theme, 我的皮肤 and its editor are on the 主题 page too. */}
+        {/* 键盘自己的明暗覆盖与其他按界面的覆盖一起放在「主题 › 高级」下（dc.html）；这一行只是指向那里。全局主题、「我的皮肤」和它的编辑器也都在「主题」页。 */}
         <GroupList title="外观">
           <LinkRow
             title="屏幕键盘外观"

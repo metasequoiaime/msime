@@ -53,7 +53,7 @@ export interface TouchKeyboardGeometrySectionProps {
   onReset: () => void;
 }
 
-/** Shared touch keyboard controls for the 屏幕键盘 page, as the groups that follow its preview: 尺寸 (height, spacing and the reset), 工具栏, and 布局 where the host has the iPad's digit row and Tab key. */
+/** 「屏幕键盘」页共用的触屏键盘控件，即预览之后的各组：「尺寸」（高度、间距和重置）、「工具栏」，以及宿主有 iPad 数字行和 Tab 键时的「布局」。 */
 export function TouchKeyboardGeometrySection({
   heightAdjustment,
   keySpacingTenths,
@@ -102,7 +102,7 @@ export function TouchKeyboardGeometrySection({
             <Slider min={40} max={100} value={rowSpacingTenths} onChange={onRowSpacingChange} />
           </span>
         </Row>
-        {/* The reset also covers the 工具栏 group below, as it always has; it sits here, at the end of the first of the groups it resets. */}
+        {/* 重置一如既往也覆盖下面的「工具栏」组；它放在这里，也就是它所重置的第一组的末尾。 */}
         <Row title="恢复默认" description="高度、间距、顶部语音入口和工具栏按钮回到默认">
           <button
             type="button"

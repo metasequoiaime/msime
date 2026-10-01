@@ -16,7 +16,7 @@ export interface TencentTranslationSectionProps {
   children?: ReactNode;
 }
 
-/** Tencent Cloud credentials, shown while Tencent is the chosen translation service; the service itself is chosen in 翻译服务. */
+/** 腾讯云凭据，在腾讯翻译是所选翻译服务时显示；服务本身在「翻译服务」中选择。 */
 export function TencentTranslationSection({
   available,
   secretId,

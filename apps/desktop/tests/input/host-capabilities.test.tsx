@@ -274,7 +274,7 @@ test("Linux offers the border colour Fcitx5 draws and says which host each colou
     "Fcitx5 经典界面中编号跟随正文颜色、固定候选不单独着色，此项仅对 IBus 生效",
   );
   expect(captions).toHaveLength(2);
-  // Each caption is the description of its colour's row, beside the row title; the number colour comes before the accent, right after the text it numbers.
+  // 每条说明是对应颜色那一行的描述，紧挨着行标题；页码颜色排在强调色之前，紧跟在它所编号的文字颜色之后。
   expect(captions[0].parentElement?.textContent).toContain("候选编号颜色");
   expect(captions[1].parentElement?.textContent).toContain("候选强调色");
 });

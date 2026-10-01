@@ -40,7 +40,7 @@ export function CandidateFontControls({
           : catalog.status === "ready" && !catalog.fonts.length
             ? "系统字体列表为空，可手动输入。"
             : "";
-  // Rows of the page's 字体与大小 group: each font is a row with its input on the trailing edge, the main font first because the English font falls back to it.
+  // 该页「字体与大小」组里的各行：每种字体一行，输入控件在行尾；主字体排在最前，因为英文字体会回退到它。
   return (
     <>
       <Row title="主字体">

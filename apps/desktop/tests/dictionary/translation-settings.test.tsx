@@ -107,7 +107,7 @@ test("only the chosen service's settings are shown, in the order the select list
   expect(shown()).toEqual({ tencent: false, niutrans: true, custom: false });
   fireEvent.change(select, { target: { value: "none" } });
   expect(shown()).toEqual({ tencent: false, niutrans: false, custom: false });
-  // The select is the only way to choose a service; no group carries a switch of its own.
+  // 下拉框是选择服务的唯一方式；没有哪个组自带开关。
   for (const name of ["腾讯云机器翻译", "小牛翻译（NiuTrans）", "自定义翻译服务"]) {
     expect(screen.queryByRole("switch", { name })).toBeNull();
   }
@@ -131,7 +131,7 @@ test("NiuTrans provider is mutually exclusive and exposes synthetic credential f
   fireEvent.change(screen.getByRole("combobox", { name: "候选词翻译服务" }), {
     target: { value: "niutrans" },
   });
-  // Choosing NiuTrans turns the custom service off, and its settings leave the page with it.
+  // 选择 NiuTrans 会关闭自定义服务，它的设置也随之离开页面。
   expect(screen.queryByLabelText("自定义翻译 Endpoint")).toBeNull();
   const appId = screen.getByLabelText("NiuTrans App ID") as HTMLInputElement;
   const apiKey = screen.getByLabelText("NiuTrans API Key") as HTMLInputElement;
@@ -233,7 +233,7 @@ describe("the MSIME account translation is an explicit choice", () => {
       tencent_tmt: { enabled: false, secret_id: "", secret_key: "", region: "ap-guangzhou" },
     });
     expect(serviceSelect().value).toBe("account");
-    // The account sends no credentials of the user's own, so nothing below the select is shown for it.
+    // 账户不使用用户自己的凭据，所以选中它时下拉框下面什么都不显示。
     expect(screen.queryByLabelText("腾讯云 SecretId")).toBeNull();
     fireEvent.change(serviceSelect(), { target: { value: "tencent" } });
     expect(serviceSelect().value).toBe("tencent");

@@ -6,7 +6,7 @@ import { SurfaceThemeSelect, type SurfaceTheme } from "./surface-theme-select";
 export type ThemeMode = "dark" | "light" | "system";
 export type { SurfaceTheme } from "./surface-theme-select";
 
-/** The surfaces that can hold their own light or dark over the colour mode. The colour mode itself (`theme`) is the 明暗 group's segmented control on the 主题 page, not one of these. */
+/** 可以在颜色模式之上单独设置明暗的各个界面。颜色模式本身（`theme`）是「主题」页「明暗」组的分段控件，不属于这些界面。 */
 export type ThemePreferenceKey =
   | "settings_theme"
   | "screen_keyboard_theme"

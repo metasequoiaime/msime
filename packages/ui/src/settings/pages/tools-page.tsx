@@ -5,7 +5,7 @@ import { CLOUD_PANEL_SESSION_NOTE } from "../cloud-panel-session-notice";
 import { GroupList, Row } from "../../core/platform-controls";
 import { OpenPanelButton } from "../open-panel-button";
 
-/** The 剪贴板 page of the settings form (route id `tools`): the clipboard history kept on this device and the cloud panels. */
+/** 设置表单的「剪贴板」页（路由 id 为 `tools`）：本设备上保存的剪贴板历史和云端面板。 */
 export function ToolsSettingsPage() {
   const {
     client,

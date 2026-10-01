@@ -1237,7 +1237,7 @@ test("input parity controls persist cloud, translation and punctuation settings"
   expect(((await screen.findByLabelText("默认中英文")) as HTMLSelectElement).value).toBe("chinese");
   // Anchored: the emoji and kaomoji toggles mention 云候选 in their own descriptions.
   fireEvent.click(await screen.findByRole("switch", { name: /^云候选/ }));
-  // Translation and punctuation are on the 标点与翻译 page; both pages edit one draft.
+  // 翻译和标点都在「标点与翻译」页；两个页面编辑的是同一份草稿。
   fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
   fireEvent.click(screen.getByRole("switch", { name: /候选词翻译/ }));
   fireEvent.change(screen.getByLabelText("候选词翻译目标语言"), { target: { value: "ja" } });
@@ -2077,7 +2077,7 @@ test("macOS 维护与诊断 page exposes reversible uninstall with explicit data
   fireEvent.click(screen.getByRole("button", { name: "关于" }));
   const about = await screen.findByRole("group", { name: "关于" });
   expect(within(about).getByText("© 2026 Metasequoia IME")).toBeDefined();
-  // Uninstalling is maintenance, not product information: it moved off 关于 and closes 维护与诊断.
+  // 卸载属于维护，不是产品信息：它已从「关于」移出，放在「维护与诊断」的最后。
   expect(within(about).queryByText("卸载水杉输入法")).toBeNull();
   const groupTitles = (scope: HTMLElement) =>
     [...scope.querySelectorAll("[data-group-title]")].map((node) => node.textContent);
@@ -2086,7 +2086,7 @@ test("macOS 维护与诊断 page exposes reversible uninstall with explicit data
   const developer = await screen.findByRole("group", { name: "维护与诊断" });
   expect(await within(developer).findByText("卸载水杉输入法")).toBeDefined();
   expect(await within(developer).findByText("/synthetic/default-state")).toBeDefined();
-  // Basic service actions first, the destructive one last.
+  // 基础的服务操作在前，破坏性的那个在最后。
   expect(groupTitles(developer)).toEqual(["输入法服务", "诊断日志", "数据目录", "卸载"]);
   const remove = screen.getByRole("checkbox", { name: /同时删除词库/ }) as HTMLInputElement;
   expect(remove.checked).toBe(false);
@@ -3035,7 +3035,7 @@ test("macOS exposes learning data reset and keeps its confirmation flow", async 
   );
 
   await screen.findByRole("region", { name: "学习数据" });
-  // The destructive action wears the shared `danger-button` utility (see learning-data-section.test.tsx).
+  // 破坏性操作使用共享的 `danger-button` 工具类（见 `learning-data-section.test.tsx`）。
   expect(
     screen.getByRole("button", { name: "清除全部学习数据" }).classList.contains("danger-button"),
   ).toBe(true);
@@ -3376,11 +3376,11 @@ test("the theme page runs from the colour mode to the per-surface overrides", as
   const skin = screen.getByRole("group", { name: "主题" });
   const groups = [...skin.querySelectorAll("[data-group-title]")].map((title) => title.textContent);
   expect(groups).toEqual(["明暗", "更多皮肤", "自定义主题", "高级"]);
-  // The colour mode is its own group ahead of the cards, whose light/dark preview starts from it.
+  // 颜色模式自成一组，排在卡片之前，卡片的明暗预览以它为起点。
   const mode = within(skin).getByRole("radiogroup", { name: "颜色模式" });
   const firstCard = skin.querySelector("article")!;
   expect(mode.compareDocumentPosition(firstCard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  // The colours run from the background to the frame.
+  // 颜色从背景排到边框。
   const colours = [
     ...within(skin)
       .getByRole("region", { name: "自定义主题" })
@@ -3395,7 +3395,7 @@ test("the theme page runs from the colour mode to the per-surface overrides", as
     "候选悬停色",
     "候选边框色",
   ]);
-  // The Linux panel note leads the page, ahead of the groups whose skins and colours that panel ignores.
+  // Linux 面板的说明放在页首，排在那些皮肤和颜色会被该面板忽略的组之前。
   const note = within(skin).getByText(/Fcitx5 正在使用你在 Fcitx5 配置中选择的经典界面主题/);
   expect(note.compareDocumentPosition(mode) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
@@ -3424,7 +3424,7 @@ test("the floating toolbar page leads with its preview, then 显示, 按钮 and 
   expect(
     preview.compareDocumentPosition(groups[0]!) & Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy();
-  // The preview is its own block, not a row of 显示.
+  // 预览自成一块，不是「显示」组里的一行。
   expect(
     within(screen.getByRole("region", { name: "显示" })).queryByLabelText("悬浮工具栏预览"),
   ).toBeNull();
@@ -4667,7 +4667,7 @@ test("candidate text colour loads, previews, saves and resets to theme", async (
   expect(preview.style.getPropertyValue("--cand-text")).toBe("#123456");
   fireEvent.change(color, { target: { value: "#abcdef" } });
   expect(preview.style.getPropertyValue("--cand-num")).toBe("#ABCDEF9D");
-  // The 自定义 card on 主题, the preview next to the pickers now that 候选窗口 has none, redraws from the same draft.
+  // 「主题」页上的「自定义」卡片根据同一份草稿重绘；「候选窗口」页已经没有预览，它就是颜色选择器旁边的预览。
   const customCard = document.querySelector<HTMLElement>(
     'article [data-skin-preview][data-global-theme="custom"]',
   )!;
@@ -5734,7 +5734,7 @@ test("a host without the defaults command shows no restore button", async () => 
   expect(screen.queryByRole("button", { name: "恢复默认设置" })).toBeNull();
 });
 
-// The 候选窗口 page no longer follows the reference window's 外观 page either: it runs basic to advanced (see the appearance order test below), and only the sections the reference also has are pinned there. Its colour and theme sections are on the 主题 page, which is their only entry now.
+// 「候选窗口」页也不再沿用参考窗口「外观」页的顺序：它从基础排到进阶（见下面的外观顺序测试），只有参考窗口也有的那些部分在这里固定下来。它的颜色和主题部分在「主题」页，那里现在是它们唯一的入口。
 // 输入页不再沿用参考窗口的顺序，改按「基础 → 进阶」排（见下面的输入页顺序用例），规则和外观页那条相同：只钉列出的那些节，只钉它们的相对顺序。列表之外的设置（全角输入、整句联想、英文建议等）可以在所属组里自由移动，不用改列表。
 // A section title is the element's own text plus a nested <small> description, so read only the
 // direct text nodes: "中文标点" has to stay distinguishable from "中文标点后按空格转换".
@@ -5936,7 +5936,7 @@ const referenceSections: {
     ],
   },
   {
-    // The reference keeps its logs on 关于; the design moves them to 维护与诊断.
+    // 参考窗口把日志放在「关于」；设计稿把它们移到「维护与诊断」。
     page: "developer",
     button: "维护与诊断",
     titles: [
@@ -6128,7 +6128,7 @@ test.each([
   // than no card.
   expect(within(page).getByText("群号：829919142")).toBeTruthy();
   expect(within(page).getByText("t.me/msimegroup")).toBeTruthy();
-  // The report group says what to attach to a report.
+  // 报告组说明提交报告时要附上什么。
   expect(within(page).getByText(/提交问题时建议附上/)).toBeTruthy();
 });
 
@@ -6188,7 +6188,7 @@ const referenceOptions: {
   options: string[];
 }[] = [
   {
-    // A segmented control in the page's 布局 group, with the reference's two choices.
+    // 该页「布局」组里的一个分段控件，提供参考窗口的两个选项。
     page: "appearance",
     button: "候选窗口",
     control: "候选项排列方式",
@@ -6454,7 +6454,7 @@ test.each(optionHosts)(
     await settingsReady();
     const appearance = screen.getByRole("group", { name: "候选窗口" });
     const present = sectionTitles(appearance);
-    // The layout of the candidates first, then how big they are drawn, the window around them, and the preedit last. The page no longer follows the reference window's order, and its colours and light/dark are on 主题 only, which 窗口样式 links to.
+    // 先是候选的排列，然后是绘制大小、外围的窗口，最后是预编辑。该页不再沿用参考窗口的顺序，颜色和明暗只在「主题」页，「窗口样式」链接到那里。
     const expected = [
       "布局",
       "候选项排列方式",
@@ -6474,7 +6474,7 @@ test.each(optionHosts)(
     ];
     const ordered = present.filter((text) => expected.includes(text));
     expect(ordered).toEqual(expected);
-    // One entry per preference: the theme and the colour pickers are not repeated here.
+    // 每项偏好只有一个入口：主题和颜色选择器不在这里重复。
     expect(within(appearance).queryByRole("combobox", { name: "主题" })).toBeNull();
     expect(appearance.querySelector('input[type="color"]')).toBeNull();
     const link = within(appearance).getByRole("button", { name: "颜色与明暗" });

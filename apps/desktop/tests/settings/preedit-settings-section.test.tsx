@@ -27,7 +27,7 @@ test("desktop preedit selectors report each changed preference", () => {
     />,
   );
 
-  // The candidate window's own preedit comes first and the one written into the app last.
+  // 候选窗口自己的预编辑排在前面，写进应用里的预编辑排在最后。
   expect(
     [...document.querySelectorAll("[data-row-title]")].map((title) => title.textContent),
   ).toEqual(["候选窗口预编辑", "双拼预编辑", "行内预编辑"]);

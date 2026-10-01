@@ -36,7 +36,7 @@ test("forwards edits and saves at once when the field loses focus, with no save 
   expect(props.onFlush).toHaveBeenCalledOnce();
   expect(screen.queryByRole("button", { name: "保存自定义释义" })).toBeNull();
   expect(screen.getByText(/候选窗/)).toBeTruthy();
-  // The page's own footer reports the page; the editor keeps its save status to a line of text rather than a second footer.
+  // 页面自己的页脚报告整页的状态；编辑器的保存状态只占一行文字，不再出现第二个页脚。
   expect(document.querySelector("footer")).toBeNull();
   expect(screen.queryByRole("button", { name: "恢复默认设置" })).toBeNull();
 });

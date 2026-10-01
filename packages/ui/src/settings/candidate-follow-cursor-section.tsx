@@ -5,7 +5,7 @@ export interface CandidateFollowCursorSectionProps {
   onChange: (value: boolean) => void;
 }
 
-/** Candidate-window positioning switch for hosts that expose the setting: one row of the 候选窗口 page's 布局 group. */
+/** 候选窗口定位开关，供提供该设置的宿主使用：「候选窗口」页「布局」组中的一行。 */
 export function CandidateFollowCursorSection({
   value,
   onChange,

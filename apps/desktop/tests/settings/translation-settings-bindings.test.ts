@@ -87,7 +87,7 @@ test("binds the custom glosses editor apart from the services, only where the ho
     translationAccount: false,
     onPreferencesChange: () => undefined,
     onDeviceMissingLanguages: [],
-    // No service chosen: the glosses editor does not depend on one.
+    // 没有选择服务：释义编辑器不依赖任何服务。
     translationProvider: "none",
     setTranslationProvider: () => undefined,
     customTranslation: { enabled: false, endpoint: "", api_key: "" },
@@ -118,14 +118,14 @@ test("binds the custom glosses editor apart from the services, only where the ho
     summary: "1 条释义",
     saveState: "saved",
   });
-  // A host with no route for the overlay is not offered the editor.
+  // 宿主没有访问释义覆盖文件的途径时，不提供编辑器。
   expect(
     createTranslationSettingsBindings({
       ...options,
       client: { providerCredentials: undefined },
     }).customGlosses,
   ).toBeUndefined();
-  // Android stays without it until its host is confirmed to read the overlay.
+  // 在确认 Android 宿主会读取释义覆盖文件之前，Android 仍然不提供它。
   expect(createTranslationSettingsBindings({ ...options, android: true }).customGlosses).toBe(
     undefined,
   );

@@ -2603,7 +2603,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
       accountLoginReturnPage,
     });
   const untitledOnPhone: readonly SettingsPageId[] = ["home", "typing-statistics", "account"];
-  // The design's row that opens a page from inside another, e.g. AI 辅助 on 标点与翻译.
+  // 设计稿里从一个页面内部打开另一个页面的行，例如「标点与翻译」上的「AI 辅助」。
   const pageEntry = (id: SettingsPageId) => availablePages.find((item) => item.id === id);
   const { openCommunity, openLocalDesigns } = useSettingsDestinationActions({
     selectPage,
@@ -2996,7 +2996,7 @@ export function SettingsPage(props: SettingsPageProps) {
   const titlebarShown =
     !mobilePlatform && !macShell && Boolean(client.windowControl || client.beginWindowDrag);
   const pageTitle = availablePages.find((item) => item.id === page)?.title ?? "输入";
-  // A sub-page (AI 辅助 under 标点与翻译, 背单词 under 词库, 帮助 under 帮助与反馈) names its parent on the way back.
+  // 子页面（「标点与翻译」下的「AI 辅助」、「词库」下的「背单词」、「帮助与反馈」下的「帮助」）在返回时写出父页面的名字。
   const parentPage =
     navigationPage !== page ? availablePages.find((item) => item.id === navigationPage) : undefined;
   // A phone collapses the large title into a compact bar on the 设置 tab's pages, the way the design does; the other tabs and the untitled pages have no large title to collapse.

@@ -111,7 +111,7 @@ function packageCard(
   return <ExternalSkinCard {...cardProps} skin={skin} {...props} />;
 }
 
-// The theme page, where each package is a card of the carousel and the directory is the 外部皮肤 row of the 更多皮肤 group.
+// 主题页：每个皮肤包是轮播里的一张卡片，皮肤目录是「更多皮肤」组里的「外部皮肤」一行。
 function openSkinPage(client: Partial<SettingsClient> = {}) {
   return render(
     <SettingsPage

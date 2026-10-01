@@ -95,10 +95,10 @@ test("the copy no longer claims a Linux provider on every platform", async () =>
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
   await screen.findByLabelText("腾讯云 SecretId");
-  // Windows performs the request natively in TranslationWorker, so telling every user it goes through a Linux provider socket was simply wrong. Scoped to the translation groups: the voice sections carry the same wrong claim, but that is a separate gap and is not touched here.
+  // Windows 在 `TranslationWorker` 里原生发出请求，所以对所有用户都说请求经过 Linux provider socket 本来就是错的。这里只改翻译相关的组：语音部分也有同样的错误说法，但那是另一处缺口，这里不动。
   const online = screen.getByRole("group", { name: "腾讯云机器翻译" });
   expect(online.textContent).not.toContain("Linux provider");
-  // Only the chosen service's settings are on the page, so choose the custom one to read its copy.
+  // 页面上只有所选服务的设置，所以先选中自定义服务，再读它的文案。
   fireEvent.change(screen.getByRole("combobox", { name: "候选词翻译服务" }), {
     target: { value: "custom" },
   });

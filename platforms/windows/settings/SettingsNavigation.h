@@ -24,7 +24,7 @@ struct Page {
 
 inline constexpr std::size_t page_group_count = 6;
 
-// The sidebar, in the order and grouping of the shared settings UI's settingsNavGroups (packages/ui/src/settings/settings-page-registry.ts): typing, appearance, more input methods, tools, account and community, and support. Typing comes before appearance because it is adjusted again and again while appearance is usually set once. main.cpp holds the group titles.
+// 侧栏，顺序和分组与共享设置 UI 的 `settingsNavGroups`（`packages/ui/src/settings/settings-page-registry.ts`）一致：打字、外观、更多输入方式、工具、账户与社区、支持。打字排在外观之前，因为打字会反复调整，外观通常只设一次。分组标题在 `main.cpp` 里。
 inline constexpr std::array<Page, 18> pages{{
     {"typing", 0, PageHost::Native, {}},
     {"expression", 0, PageHost::Native, {}},
@@ -77,7 +77,7 @@ struct RouteAlias {
   std::string_view page;
 };
 
-// Every settings category the shared route vocabulary knows (client-core host_surface::SettingsCategory), mapped to the page that now holds it. An id keeps the meaning it has on every other host: `appearance` is the candidate window page and `skin` the theme page. The tray opens `skin`, `dictionary` and `about`, and the other desktop launchers use the same names. `download` is no longer a page of its own: its links sit in the about page's version group, as in the shared settings UI.
+// 共享路由词汇表（`client-core` 的 `host_surface::SettingsCategory`）认识的每个设置类别，映射到现在承载它的页面。每个 id 保持它在其他所有宿主上的含义：`appearance` 是候选窗口页，`skin` 是主题页。托盘会打开 `skin`、`dictionary` 和 `about`，其他桌面启动入口也用同样的名字。`download` 不再是独立页面：它的链接放在关于页的版本组里，与共享设置 UI 一致。
 inline constexpr std::array<RouteAlias, 24> route_aliases{{
     {"account", "account"},
     {"chat", "expression"},

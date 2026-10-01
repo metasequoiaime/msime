@@ -20,7 +20,7 @@ export interface PreeditSettingsSectionProps {
   onInlinePreeditChange?: (enabled: boolean) => void;
 }
 
-/** Shared preedit presentation controls for physical and touch keyboard hosts: the rows of the 候选窗口 page's 预编辑 group, the candidate window's own preedit first and the one written into the app last. */
+/** 实体键盘和触屏键盘宿主共用的预编辑显示控件：「候选窗口」页「预编辑」组的各行，候选窗口自己的预编辑在前，写进应用里的预编辑在最后。 */
 export function PreeditSettingsSection({
   preferences,
   mobile,

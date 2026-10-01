@@ -4,7 +4,7 @@ import { handwritingPrivacyText } from "./handwriting-platform-notice";
 import * as settings from "./settings-style";
 import { OpenPanelButton } from "./open-panel-button";
 
-/** The 手写输入 page's one group per platform: how to turn handwriting on, the system settings button, the privacy note and the SDK's privacy row on the keyboard hosts; the launch button and preview on a desktop host that opens its own panel. */
+/** 「手写输入」页每个平台一组：在键盘类宿主上是开启手写的方法、系统设置按钮、隐私说明和 SDK 的隐私行；在会打开自己面板的桌面宿主上是启动按钮和预览。 */
 export function HandwritingSettingsSection({
   ios,
   android,
@@ -24,7 +24,7 @@ export function HandwritingSettingsSection({
   openSystemKeyboardSettings?: () => void | Promise<void>;
   openHandwriting?: () => void | Promise<void>;
   onOpenHandwriting: () => void;
-  /** Opens Google ML Kit's privacy terms; absent where the host cannot open an outside link, which hides the row. Harmony recognises with the system and never shows it. */
+  /** 打开 Google ML Kit 的隐私条款；宿主无法打开外部链接时不传，这一行随之隐藏。鸿蒙用系统能力识别，从不显示它。 */
   onOpenSdkPrivacy?: () => void;
 }) {
   const systemSettingsRow = (title: string, label: string) =>

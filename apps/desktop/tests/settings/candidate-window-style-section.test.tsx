@@ -38,7 +38,7 @@ interface SectionOptions {
   showFontPresets: boolean;
 }
 
-/** The rows this file covers as the 候选窗口 page places them: the preset and the scale in 字体与大小, the opacity and the radius in 窗口样式. */
+/** 本文件覆盖的几行，按「候选窗口」页里的位置排列：预设和缩放在「字体与大小」组，不透明度和圆角在「窗口样式」组。 */
 function renderSection(overrides: Partial<SectionOptions> = {}) {
   const options: SectionOptions = {
     preferences: {},
@@ -83,7 +83,7 @@ test("窗口样式 holds the opacity and the radius, then the rows the page adds
   const titles = [...group.querySelectorAll("[data-row-title]")].map((row) => row.textContent);
   expect(titles).toEqual(["不透明度", "圆角大小"]);
   expect(group.lastElementChild?.lastElementChild?.textContent).toBe("跳转行");
-  // The colours and the light/dark are edited only on the 主题 page now.
+  // 颜色和明暗现在只在「主题」页编辑。
   expect(within(group).queryByRole("combobox")).toBeNull();
   expect(group.querySelector('input[type="color"]')).toBeNull();
 });

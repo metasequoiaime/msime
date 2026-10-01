@@ -3,7 +3,7 @@ import { useSettingsForm } from "../settings-form-context";
 import { HandwritingSettingsSection } from "../handwriting-settings-section";
 import { handwritingSdkPrivacyUrl } from "../handwriting-platform-notice";
 
-/** The 手写输入 page of the settings form: one group for the platform the host runs on. */
+/** 设置表单的「手写输入」页：只有宿主所在平台的那一组。 */
 export function HandwritingSettingsPage() {
   const {
     client,
