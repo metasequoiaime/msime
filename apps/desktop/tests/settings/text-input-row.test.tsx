@@ -47,3 +47,24 @@ test("passes native input state through to the row control", () => {
   expect(input.disabled).toBe(true);
   expect(input.getAttribute("spellcheck")).toBe("false");
 });
+
+test("renders row descriptions and supplementary input children", () => {
+  render(
+    <TextInputRow
+      title="模型"
+      description="由 provider 服务选择对应模型"
+      label="识别模型"
+      value="synthetic-model"
+      list="model-options"
+      onChange={vi.fn()}
+    >
+      <datalist id="model-options">
+        <option value="synthetic-model" />
+      </datalist>
+    </TextInputRow>,
+  );
+
+  expect(screen.getByText("由 provider 服务选择对应模型")).toBeTruthy();
+  expect(screen.getByLabelText("识别模型").getAttribute("list")).toBe("model-options");
+  expect(document.querySelector('datalist option[value="synthetic-model"]')).toBeTruthy();
+});

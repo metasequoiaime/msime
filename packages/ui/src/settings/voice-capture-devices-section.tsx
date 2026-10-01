@@ -2,6 +2,7 @@ import { VoiceDevicePicker, type VoiceDeviceReader } from "../voice/voice-device
 import { GroupList, Row } from "../core/platform-controls";
 import * as settings from "./settings-style";
 import { SelectRow } from "./select-row";
+import { TextInputRow } from "./text-input-row";
 
 export type VoiceCaptureBackendOption = readonly [string, string];
 export type VoiceCaptureBackend =
@@ -65,7 +66,7 @@ export function VoiceCaptureDevicesSection({
           choose={onBackendChange}
         />
       </div>
-      <Row
+      <TextInputRow
         title="麦克风设备"
         description={
           windows
@@ -74,14 +75,11 @@ export function VoiceCaptureDevicesSection({
               ? "刷新列表并选择麦克风，保存的是设备类型与地址，重启后仍然有效。留空使用系统默认设备；已选设备拔掉后回到系统默认，不会中断录音。系统语音识别由服务自行取音，不受此项影响。"
               : "填写 PulseAudio source、PipeWire 节点名称或序号、ALSA PCM 名称。选择后端后留空使用系统默认设备；沿用服务设置时留空使用服务设备。"
         }
-      >
-        <input
-          aria-label="麦克风设备"
-          maxLength={windows ? 1024 : 128}
-          value={device}
-          onChange={(event) => onDeviceChange(event.target.value)}
-        />
-      </Row>
+        label="麦克风设备"
+        maxLength={windows ? 1024 : 128}
+        value={device}
+        onChange={onDeviceChange}
+      />
     </GroupList>
   );
 }
