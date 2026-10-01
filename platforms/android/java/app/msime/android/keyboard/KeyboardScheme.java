@@ -19,7 +19,10 @@ public enum KeyboardScheme {
     JAPANESE("japanese", "japanese", null, "twenty_six_key", "日语 26 键", "あ", "26"),
     HANDWRITING("handwriting", "quanpin", null, "handwriting", "手写", "写", "手"),
     THOUGHTFUL_REPLY("thoughtful_reply", "quanpin", null, "twenty_six_key", "高情商回复", "聊", "AI"),
-    KOREAN("korean", "korean", null, "twenty_six_key", "韩语 26 键", "한", "26");
+    KOREAN("korean", "korean", null, "twenty_six_key", "韩语 26 键", "한", "26"),
+    CANTONESE("cantonese", "cantonese", null, "twenty_six_key", "粤拼 26 键", "粤", "26"),
+    ZHUYIN("zhuyin", "zhuyin", null, "twenty_six_key", "大千注音", "注", "大千"),
+    VIETNAMESE("vietnamese", "vietnamese", null, "twenty_six_key", "越南语 26 键", "越", "26");
 
     /** Complete preference values needed for one compare-and-swap update. */
     public record PreferenceMapping(
@@ -53,6 +56,36 @@ public enum KeyboardScheme {
     public String glyph() { return glyph; }
     public String badge() { return badge; }
 
+    /** Cantonese, Zhuyin and Vietnamese start hidden and appear once the user turns them on, as the shared `TouchKeyboardScheme::DEFAULT_ENABLED` keeps them out of a document that never stored a list. */
+    public boolean optIn() {
+        return this == CANTONESE || this == ZHUYIN || this == VIETNAMESE;
+    }
+
+    /** The file this scheme reads from the HostOptions `language_dictionaries` directory, or null for a scheme that needs only the shared resources. */
+    public String languageDictionary() {
+        if (this == CANTONESE) return "cantonese.db";
+        if (this == ZHUYIN) return "zhuyin.db";
+        return null;
+    }
+
+    /** Whether this scheme can run with the HostOptions `language_dictionaries` directory `directory`: without its dictionary host-api falls back from Cantonese or Zhuyin, so offering the scheme would offer a keyboard that never takes effect. */
+    public boolean installed(String directory) {
+        String dictionary = languageDictionary();
+        if (dictionary == null) return true;
+        if (directory == null || directory.isEmpty()) return false;
+        java.io.File root = new java.io.File(directory);
+        return root.isAbsolute() && new java.io.File(root, dictionary).isFile();
+    }
+
+    /** `enabled` without the schemes whose dictionary `directory` lacks, falling back to 全拼 26 键 like an empty stored list. */
+    public static List<KeyboardScheme> installedOf(List<KeyboardScheme> enabled, String directory) {
+        List<KeyboardScheme> installed = new ArrayList<>();
+        for (KeyboardScheme candidate : enabled) {
+            if (candidate.installed(directory)) installed.add(candidate);
+        }
+        return installed.isEmpty() ? List.of(QUANPIN) : List.copyOf(installed);
+    }
+
     public static KeyboardScheme fromPreferenceId(String value) {
         if (value == null) return null;
         for (KeyboardScheme candidate : values()) {
@@ -61,9 +94,15 @@ public enum KeyboardScheme {
         return null;
     }
 
-    /** Resolves preference IDs in the fixed Apple order and ignores unknown duplicates. */
+    /** Resolves preference IDs in the fixed Apple order and ignores unknown duplicates. Without a stored list the opt-in schemes stay off. */
     public static List<KeyboardScheme> enabledFromPreferenceIds(List<String> ids) {
-        if (ids == null) return List.of(values());
+        if (ids == null) {
+            List<KeyboardScheme> defaults = new ArrayList<>();
+            for (KeyboardScheme candidate : values()) {
+                if (!candidate.optIn()) defaults.add(candidate);
+            }
+            return List.copyOf(defaults);
+        }
         Set<String> requested = new LinkedHashSet<>(ids);
         // A plain loop, not `Stream#toList`: that arrived in API 34 and this host declares
         // minSdk 28, so it compiles against the platform jar and throws on the device.
@@ -122,13 +161,14 @@ public enum KeyboardScheme {
         if (shuangpinProfile != null) profile = shuangpinProfile;
         String lastChinese = isChineseScheme(currentLastChineseScheme)
             ? currentLastChineseScheme : "quanpin";
-        // Japanese and Korean keep the Chinese scheme to return to; neither is one.
+        // Japanese, Korean and Vietnamese keep the Chinese scheme to return to; none is one. Cantonese and Zhuyin are Chinese schemes and become it.
         if (isChineseScheme(engineScheme)) lastChinese = engineScheme;
         return new PreferenceMapping(engineScheme, lastChinese, profile, touchKeyboardLayout);
     }
 
     private static boolean isChineseScheme(String value) {
-        return "quanpin".equals(value) || "shuangpin".equals(value) || "wubi".equals(value);
+        return "quanpin".equals(value) || "shuangpin".equals(value) || "wubi".equals(value)
+            || "cantonese".equals(value) || "zhuyin".equals(value);
     }
 
     private static String normalizedProfile(String value) {

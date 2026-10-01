@@ -59,6 +59,26 @@ if rg -n -i '0xac00|44032|0x3131|12593' "$repo_root/platforms/android/java/app/m
   echo "Android must not compose Hangul syllables itself; the Engine owns the Korean automaton" >&2
   exit 1
 fi
+# Cantonese, Zhuyin and Vietnamese are View.scheme 5, 6 and 7 in the shared header; InputSchemeTraits names the same numbers, and every scheme gate in this host reads them from there.
+for pair in '5 cantonese:CANTONESE = 5;' '6 zhuyin:ZHUYIN = 6;' '7 vietnamese:VIETNAMESE = 7;'; do
+  if ! rg -qF "${pair%%:*}" "$repo_root/crates/host-api/include/msime_client.h" \
+    || ! rg -qF "${pair#*:}" "$repo_root/platforms/android/java/app/msime/android/policy/InputSchemeTraits.java"; then
+    echo "Android InputSchemeTraits no longer matches the shared View.scheme ordinal ${pair%%:*}" >&2
+    exit 1
+  fi
+done
+# The Zhuyin list opens with MSIME_OPEN_CANDIDATE_LIST, the Hanja command under its general name; the Android constant aliases the Korean one so the two cannot drift apart.
+if ! rg -q 'MSIME_OPEN_CANDIDATE_LIST = 16,' "$repo_root/crates/host-api/include/msime_client.h" \
+  || ! rg -q 'OPEN_CANDIDATE_LIST_COMMAND = KoreanInputPolicy\.CONVERT_HANJA_COMMAND;' \
+    "$repo_root/platforms/android/java/app/msime/android/policy/ZhuyinInputPolicy.java"; then
+  echo "Android OPEN_CANDIDATE_LIST_COMMAND no longer matches the shared Host API command 16" >&2
+  exit 1
+fi
+# Bopomofo composition is Engine state too. Android labels the Dachen keys and sends their ASCII keys; a syllable or phrase table here would be a second editor that can drift from the Engine's.
+if rg -n 'U\+3105|0x3105|12549' "$repo_root/platforms/android/java/app/msime/android"; then
+  echo "Android must not compose bopomofo itself; the Engine owns the Zhuyin editor" >&2
+  exit 1
+fi
 # The Hanja command is shared command 16 at both ends: the header's MSIME_CONVERT_HANJA, the FFI's ConvertHanja and this host's named constant must agree, and the service reaches it by name so a renumbering cannot leave a bare 16 behind.
 if ! rg -q 'MSIME_CONVERT_HANJA = 16,' "$repo_root/crates/host-api/include/msime_client.h" \
   || ! rg -q '^\s*16 => Action::Command\(Command::ConvertHanja\),' "$repo_root/crates/host-api/src/ffi/input.rs" \
@@ -452,6 +472,9 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/core/JapaneseSpacePolicySmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/KoreanKeyboardLayoutSmoke.java" \
   "$repo_root/platforms/android/tests/core/KoreanInputPolicySmoke.java" \
+  "$repo_root/platforms/android/tests/core/InputSchemeTraitsSmoke.java" \
+  "$repo_root/platforms/android/tests/keyboard/ZhuyinKeyboardLayoutSmoke.java" \
+  "$repo_root/platforms/android/tests/core/ZhuyinInputPolicySmoke.java" \
   "$repo_root/platforms/android/tests/settings/QuickPunctuationPolicySmoke.java" \
   "$repo_root/platforms/android/tests/voice/HandwritingContractSmoke.java" \
   "$repo_root/platforms/android/tests/candidate/CandidateAppearanceSmoke.java" \
@@ -548,6 +571,9 @@ java -cp "$output_dir" JapaneseVariantPolicySmoke
 java -cp "$output_dir" JapaneseSpacePolicySmoke
 java -cp "$output_dir" KoreanKeyboardLayoutSmoke
 java -cp "$output_dir" KoreanInputPolicySmoke
+java -cp "$output_dir" InputSchemeTraitsSmoke
+java -cp "$output_dir" ZhuyinKeyboardLayoutSmoke
+java -cp "$output_dir" ZhuyinInputPolicySmoke
 java -cp "$output_dir" QuickPunctuationPolicySmoke
 java -cp "$output_dir" HandwritingContractSmoke
 java -cp "$output_dir" CandidateAppearanceSmoke

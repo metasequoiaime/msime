@@ -16,6 +16,13 @@ public final class TypingSourceSmoke {
         check(TypingSource.resolve(KeyboardScheme.KOREAN, false, null) == TypingSource.KOREAN);
         check(TypingSource.resolve(KeyboardScheme.KOREAN, true, null) == TypingSource.ENGLISH);
         check(TypingSource.KOREAN.id().equals("korean"));
+        check(TypingSource.resolve(KeyboardScheme.CANTONESE, false, null) == TypingSource.CANTONESE
+            && TypingSource.CANTONESE.id().equals("cantonese"));
+        check(TypingSource.resolve(KeyboardScheme.ZHUYIN, false, null) == TypingSource.ZHUYIN
+            && TypingSource.ZHUYIN.id().equals("zhuyin"));
+        check(TypingSource.resolve(KeyboardScheme.VIETNAMESE, false, null) == TypingSource.VIETNAMESE
+            && TypingSource.VIETNAMESE.id().equals("vietnamese"));
+        check(TypingSource.resolve(KeyboardScheme.VIETNAMESE, true, null) == TypingSource.ENGLISH);
         check(TypingSource.resolve(KeyboardScheme.HANDWRITING, false, null) == TypingSource.HANDWRITING);
         check(TypingSource.resolve(KeyboardScheme.QUANPIN, true, null) == TypingSource.ENGLISH);
         check(TypingSource.resolve(KeyboardScheme.QUANPIN, true, "emoji") == TypingSource.LOCAL);
