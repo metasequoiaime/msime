@@ -4,18 +4,25 @@ export interface SettingSectionHeaderProps {
   title: ReactNode;
   description?: ReactNode;
   children?: ReactNode;
+  as?: "div" | "label";
 }
 
 /** Shared title and optional description layout for standalone settings sections. */
-export function SettingSectionHeader({ title, description, children }: SettingSectionHeaderProps) {
+export function SettingSectionHeader({
+  title,
+  description,
+  children,
+  as = "div",
+}: SettingSectionHeaderProps) {
+  const Header = as;
   return (
-    <div className="section-header">
+    <Header className="section-header">
       <span className="section-title">
         {title}
         {description !== undefined && <small>{description}</small>}
       </span>
       {children}
-    </div>
+    </Header>
   );
 }
 
