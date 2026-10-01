@@ -1,13 +1,13 @@
 import * as doc from "../document-style";
 import * as settings from "../settings-style";
 import { useSettingsForm } from "../settings-form-context";
-import { GroupList, PageIntro } from "../../core/platform-controls";
+import { GroupList, LinkRow, PageIntro } from "../../core/platform-controls";
 import { SubPageEntries } from "./sub-page-entries";
 import { createSettingsExternalActions } from "../settings-external-actions";
 import { FeedbackChannels } from "../feedback-channels";
 import { FeedbackReportFields } from "../feedback-report-fields";
 
-/** The 反馈 page of the settings form. */
+/** The 帮助与反馈 page of the settings form: 帮助 first, then the reproducible-issue report and the channels. */
 export function FeedbackSettingsPage() {
   const {
     client,
@@ -26,7 +26,16 @@ export function FeedbackSettingsPage() {
     submitFeedback,
     openExternalUrl,
     mobilePlatform,
+    linuxPlatform,
+    windowsPlatform,
+    macosPlatform,
+    pageEntry,
+    selectPage,
   } = useSettingsForm();
+  // The same hosts the 诊断日志 group on 维护与诊断 is drawn for; elsewhere the link would open a page without it.
+  const diagnosticLogsOffered =
+    Boolean(pageEntry("developer")) &&
+    (!client.host || linuxPlatform || windowsPlatform || macosPlatform);
   const externalActions = createSettingsExternalActions({
     mobile: mobilePlatform,
     canOpenExternalUrl: Boolean(client.openExternalUrl),
@@ -37,6 +46,10 @@ export function FeedbackSettingsPage() {
     <fieldset disabled={busy} hidden={page !== "feedback"} aria-label="帮助与反馈">
       <div className={settings.groups}>
         <PageIntro>遇到问题或有功能建议时，可以通过以下渠道提交和交流。</PageIntro>
+        <SubPageEntries
+          title="帮助"
+          pages={[{ id: "help", description: "安装、切换输入法与常见问题" }]}
+        />
         <GroupList title="提交可复现的问题">
           <div className={settings.rowStack} role="group" aria-label="问题报告">
             <p className={settings.groupNote}>报告只在你点击按钮时生成，不会读取或上传输入历史。</p>
@@ -67,6 +80,16 @@ export function FeedbackSettingsPage() {
                 提交会打开 GitHub 并预填报告；网址长度有限，过长描述会被截断，完整内容请先复制。
               </p>
             </FeedbackReportFields>
+            <p className={settings.groupNote}>
+              提交问题时建议附上系统版本、输入方案、复现步骤、相关截图，以及诊断日志中的关键片段。
+            </p>
+            {diagnosticLogsOffered && (
+              <LinkRow
+                title="诊断日志"
+                description="在维护与诊断页开启日志并打开日志目录"
+                onClick={() => selectPage("developer")}
+              />
+            )}
           </div>
         </GroupList>
         <GroupList title="反馈与交流">
@@ -82,15 +105,6 @@ export function FeedbackSettingsPage() {
             titleClassName={doc.feedbackTitle}
           />
         </GroupList>
-        <GroupList title="提交问题时建议附上">
-          <p className={settings.groupNote}>
-            系统版本、输入方案、复现步骤、相关截图，以及 Debug 输出中的关键日志。
-          </p>
-        </GroupList>
-        <SubPageEntries
-          title="帮助"
-          pages={[{ id: "help", description: "安装、切换输入法与常见问题" }]}
-        />
       </div>
     </fieldset>
   );

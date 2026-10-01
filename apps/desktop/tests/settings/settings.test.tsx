@@ -2056,7 +2056,7 @@ test("the start-time input method report is macOS only", async () => {
   expect(screen.queryByLabelText("水杉输入法安装状态")).toBeNull();
 });
 
-test("macOS about page exposes reversible uninstall with explicit data removal", async () => {
+test("macOS 维护与诊断 page exposes reversible uninstall with explicit data removal", async () => {
   const uninstallInputSource = vi.fn().mockResolvedValue(undefined);
   render(
     <SettingsPage
@@ -2065,13 +2065,29 @@ test("macOS about page exposes reversible uninstall with explicit data removal",
         save: vi.fn(),
         restartInputMethod: vi.fn().mockResolvedValue(undefined),
         uninstallInputSource,
+        dataDirectory: {
+          status: vi.fn().mockResolvedValue({ path: "/synthetic/default-state", isDefault: true }),
+          pick: vi.fn(),
+          move: vi.fn(),
+        },
         host: { platform: "macos", restart_input_method: true, panel_windows: true } as never,
       }}
     />,
   );
   fireEvent.click(screen.getByRole("button", { name: "关于" }));
-  expect(await screen.findByText("卸载水杉输入法")).toBeDefined();
-  expect(screen.getByText("© 2026 Metasequoia IME")).toBeDefined();
+  const about = await screen.findByRole("group", { name: "关于" });
+  expect(within(about).getByText("© 2026 Metasequoia IME")).toBeDefined();
+  // Uninstalling is maintenance, not product information: it moved off 关于 and closes 维护与诊断.
+  expect(within(about).queryByText("卸载水杉输入法")).toBeNull();
+  const groupTitles = (scope: HTMLElement) =>
+    [...scope.querySelectorAll("[data-group-title]")].map((node) => node.textContent);
+  expect(groupTitles(about)).toEqual(["版本与更新", "许可与隐私"]);
+  fireEvent.click(screen.getByRole("button", { name: "维护与诊断" }));
+  const developer = await screen.findByRole("group", { name: "维护与诊断" });
+  expect(await within(developer).findByText("卸载水杉输入法")).toBeDefined();
+  expect(await within(developer).findByText("/synthetic/default-state")).toBeDefined();
+  // Basic service actions first, the destructive one last.
+  expect(groupTitles(developer)).toEqual(["输入法服务", "诊断日志", "数据目录", "卸载"]);
   const remove = screen.getByRole("checkbox", { name: /同时删除词库/ }) as HTMLInputElement;
   expect(remove.checked).toBe(false);
   fireEvent.click(screen.getByRole("button", { name: "卸载…" }));
@@ -5425,7 +5441,7 @@ test("macOS support pages use client project and privacy links", async () => {
   );
   fireEvent.click(screen.getByRole("button", { name: "隐私政策" }));
   await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://msime.app/privacy/"));
-  fireEvent.click(screen.getByRole("button", { name: "查看许可全文" }));
+  fireEvent.click(screen.getByRole("button", { name: "第三方组件许可" }));
   await waitFor(() => expect(openThirdPartyLicenses).toHaveBeenCalledOnce());
 
   fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
@@ -6112,8 +6128,45 @@ test.each([
   // than no card.
   expect(within(page).getByText("群号：829919142")).toBeTruthy();
   expect(within(page).getByText("t.me/msimegroup")).toBeTruthy();
-  // The reference closes the page by saying what to attach to a report.
-  expect(within(page).getByText("提交问题时建议附上")).toBeTruthy();
+  // The report group says what to attach to a report.
+  expect(within(page).getByText(/提交问题时建议附上/)).toBeTruthy();
+});
+
+test("the feedback page opens with 帮助 and links the report to 诊断日志", async () => {
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: { platform: "windows" } as HostCapabilities,
+      }}
+    />,
+  );
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
+  const page = await screen.findByRole("group", { name: "帮助与反馈" });
+  const help = within(page).getByRole("button", { name: "帮助" });
+  const kind = within(page).getByRole("combobox", { name: "反馈类型" });
+  expect(help.compareDocumentPosition(kind) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(within(page).queryByText("提交问题时建议附上")).toBeNull();
+  fireEvent.click(within(page).getByRole("button", { name: "诊断日志" }));
+  expect(await screen.findByRole("heading", { name: "维护与诊断" })).toBeDefined();
+});
+
+test("the feedback page has no 诊断日志 link where 维护与诊断 has no logs", async () => {
+  render(
+    <SettingsPage
+      initialPage="feedback"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: { platform: "android" } as HostCapabilities,
+      }}
+    />,
+  );
+  const page = await screen.findByRole("group", { name: "帮助与反馈" });
+  expect(await within(page).findByRole("combobox", { name: "反馈类型" })).toBeDefined();
+  expect(within(page).queryByRole("button", { name: "诊断日志" })).toBeNull();
 });
 
 /**
@@ -8250,8 +8303,8 @@ test("a host can open the settings window on the section its menu named", async 
   // 「其他平台下载」已并入关于页：按旧 id 打开的宿主落到关于页，那里有这两行。
   render(<SettingsPage client={client} initialPage="download" />);
   expect(await screen.findByRole("heading", { name: "关于" })).toBeDefined();
-  expect(screen.getByRole("button", { name: "打开下载页" })).toBeDefined();
-  expect(screen.getByRole("button", { name: "查看发布记录" })).toBeDefined();
+  expect(screen.getByRole("button", { name: "其他平台下载" })).toBeDefined();
+  expect(screen.getByRole("button", { name: "历史版本" })).toBeDefined();
 });
 
 test("a host that fixes the candidate page size and layout does not offer them", async () => {

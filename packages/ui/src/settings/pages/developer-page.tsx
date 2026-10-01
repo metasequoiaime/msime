@@ -4,10 +4,11 @@ import { useSettingsForm } from "../settings-form-context";
 import { DiagnosticLogsSection } from "../diagnostic-logs-section";
 import { DataDirectorySection } from "../data-directory-section";
 import { InputMethodServiceSection } from "../input-method-service-section";
+import { UninstallSection } from "../uninstall-section";
 import { createAboutSettingsActions } from "../about-settings-actions";
 
 /**
- * 维护与诊断页：重启或重新注册输入法服务、本地 `msime-mcp` 服务、诊断日志和数据目录。设计稿里的「显示调试信息」「日志级别」「导出诊断包」在任何宿主上都没有对应能力，所以不画；它的「重置所有设置」就是表单自己的「恢复默认设置」。
+ * 维护与诊断页：依次是重启或重新注册输入法服务、诊断日志、数据目录、本地 `msime-mcp` 服务，最后是 macOS 的卸载。设计稿里的「显示调试信息」「日志级别」「导出诊断包」在任何宿主上都没有对应能力，所以不画；它的「重置所有设置」就是表单自己的「恢复默认设置」。
  */
 export function DeveloperSettingsPage() {
   const {
@@ -29,14 +30,22 @@ export function DeveloperSettingsPage() {
     checkForUpdate,
     confirmUninstall,
     selectPage,
+    removeUserDataOnUninstall,
+    setRemoveUserDataOnUninstall,
+    uninstallConfirmation,
+    uninstallBusy,
+    uninstallResult,
+    requestUninstall,
+    cancelUninstall,
   } = useSettingsForm();
-  const { onChooseDataDirectory, onDiagnosticLogChange } = createAboutSettingsActions({
-    checkForUpdate,
-    chooseDataDirectory,
-    confirmUninstall,
-    selectPage,
-    setDraft,
-  });
+  const { onChooseDataDirectory, onDiagnosticLogChange, onConfirmUninstall } =
+    createAboutSettingsActions({
+      checkForUpdate,
+      chooseDataDirectory,
+      confirmUninstall,
+      selectPage,
+      setDraft,
+    });
   return (
     <fieldset disabled={busy} hidden={page !== "developer"} aria-label="维护与诊断">
       <div className={settings.groups}>
@@ -47,13 +56,6 @@ export function DeveloperSettingsPage() {
           restartInputMethod={client.restartInputMethod}
           installInputSource={showInstallInputSource ? client.installInputSource : undefined}
         />
-        {client.mcpServerStatus && (
-          <McpConnectSection
-            status={client.mcpServerStatus}
-            install={client.installMcpClient}
-            copyText={client.copyText}
-          />
-        )}
         <DiagnosticLogsSection
           visible={!client.host || linuxPlatform || windowsPlatform || macosPlatform}
           linux={linuxPlatform}
@@ -72,6 +74,26 @@ export function DeveloperSettingsPage() {
           result={dataDirectoryResult}
           onChoose={onChooseDataDirectory}
         />
+        {client.mcpServerStatus && (
+          <McpConnectSection
+            status={client.mcpServerStatus}
+            install={client.installMcpClient}
+            copyText={client.copyText}
+          />
+        )}
+        {macosPlatform && (
+          <UninstallSection
+            uninstallInputSource={client.uninstallInputSource}
+            removeUserData={removeUserDataOnUninstall}
+            uninstallBusy={uninstallBusy}
+            uninstallConfirmation={uninstallConfirmation}
+            uninstallResult={uninstallResult}
+            onRemoveUserDataChange={setRemoveUserDataOnUninstall}
+            onRequestUninstall={requestUninstall}
+            onConfirmUninstall={onConfirmUninstall}
+            onCancelUninstall={cancelUninstall}
+          />
+        )}
       </div>
     </fieldset>
   );

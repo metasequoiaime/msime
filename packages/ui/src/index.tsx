@@ -817,6 +817,7 @@ export {
   type CloudCandidatesSectionProps,
 } from "./settings/cloud-candidates-section";
 export {
+  TelemetryRow,
   TelemetrySection,
   usageReportingDescription,
   type TelemetrySectionProps,
@@ -875,10 +876,8 @@ export {
   type DataDirectoryInfo,
   type DataDirectorySectionProps,
 } from "./settings/data-directory-section";
-export {
-  LicenseUninstallSection,
-  type LicenseUninstallSectionProps,
-} from "./settings/license-uninstall-section";
+export { LicenseRows, type LicenseRowsProps } from "./settings/license-rows";
+export { UninstallSection, type UninstallSectionProps } from "./settings/uninstall-section";
 export {
   DiagnosticLogsSection,
   type DiagnosticLogPreferences,
@@ -2543,7 +2542,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   // Helper codes are per-host rather than per-form-factor. The Android keyboard sends them: Shift during a quanpin or shuangpin composition passes the next letter to the Engine as a helper code, and the Engine reads the schema and the candidate-row hint from these very preferences. Hiding the group left that shipping feature with no way to pick a schema or turn it off. The iOS keyboard extension marks a helper code the same way, so the group also follows the host's `helpcode_shift_entry`; the platform names stay for hosts that predate the capability. HarmonyOS ships the same input: its ChineseHelpcodePolicy is the Android one, ported, and the session calls it on every shifted key.
   const showHelpcode =
     !mobilePlatform || showHelpcodeShiftEntry || androidPlatform || harmonyPlatform;
-  // 维护与诊断页收纳本地 MCP 服务、诊断日志、数据目录和输入法服务（重启、重新注册）；这些一样都没有的宿主不显示这一页。
+  // 维护与诊断页收纳输入法服务（重启、重新注册）、诊断日志、数据目录、本地 MCP 服务和 macOS 的卸载；这些一样都没有的宿主不显示这一页。
   const showDeveloperPage =
     Boolean(client.mcpServerStatus) ||
     Boolean(showRestartInputMethod) ||
