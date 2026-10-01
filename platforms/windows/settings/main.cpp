@@ -2777,16 +2777,25 @@ private:
   void build_typing_page(StackPanel const &page) {
     const auto scheme = document_.String(L"scheme", L"quanpin");
     auto schemes = add_group(page, L"输入方案");
-    add_row(schemes, 0xE765, L"输入方案", L"全拼、双拼、五笔、日语或韩语", segmented_control(
+    // Cantonese and Zhuyin need their dictionary in language-dictionaries beside the resources; chosen without it, the Engine runs the last Chinese scheme instead and the tray shows that one.
+    add_row(schemes, 0xE765, L"输入方案",
+            L"全拼、双拼、五笔、粤拼、注音、日语、韩语或越南语。粤拼和注音需要安装对应词库，未安装时沿用上次的中文方案", segmented_control(
         L"输入方案",
         {{L"quanpin", L"全拼"}, {L"shuangpin", L"双拼"}, {L"wubi", L"五笔"},
-         {L"japanese", L"日语"}, {L"korean", L"韩语"}},
+         {L"cantonese", L"粤拼"}, {L"zhuyin", L"注音"},
+         {L"japanese", L"日语"}, {L"korean", L"韩语"}, {L"vietnamese", L"越南语"}},
         scheme, [this](std::wstring const &next) { select_scheme(next); }));
     if (scheme == L"shuangpin" || indexing_)
       select_row(schemes, 0xE8AB, L"双拼方案", L"", L"shuangpin_profile",
                  {{L"xiaohe", L"小鹤双拼"}, {L"ziranma", L"自然码双拼"},
                   {L"microsoft", L"微软双拼"}, {L"shoudao", L"首道双拼"}},
                  L"xiaohe");
+    if (scheme == L"vietnamese" || indexing_) {
+      segment_row(schemes, 0xE8AB, L"越南语输入法", L"Telex 用字母打声调和变音，VNI 用数字键",
+                  L"vietnamese.input_method", {{L"telex", L"Telex"}, {L"vni", L"VNI"}}, L"telex");
+      segment_row(schemes, 0xE8D2, L"声调位置", L"oa、oe、uy 中声调标在哪个元音上：新式 hoà，旧式 hòa",
+                  L"vietnamese.tone_style", {{L"modern", L"新式"}, {L"classic", L"旧式"}}, L"modern");
+    }
     if (scheme == L"wubi" || indexing_) {
       bool_row(schemes, 0xE8D2, L"编码打不出时用拼音候选",
                L"五笔词库无法回答当前编码时，用同一串字母查询全拼；词库能回答时不影响。",
@@ -2875,13 +2884,13 @@ private:
              L"mixed_input.kaomoji", false);
   }
 
-  // Choosing Japanese or Korean remembers the Chinese scheme it replaces, so switching back returns to it; choosing a Chinese scheme makes it the one remembered. Moving between Japanese and Korean keeps the remembered scheme, since neither is a Chinese scheme the store accepts there. The same rule as the tray (store_input_scheme in server_main.cpp).
+  // Choosing Japanese, Korean or Vietnamese remembers the Chinese scheme it replaces, so switching back returns to it; choosing a Chinese scheme (Cantonese and Zhuyin included) makes it the one remembered. Moving between the three languages keeps the remembered scheme, since none is a Chinese scheme the store accepts there. The same rule as the tray (store_input_scheme in server_main.cpp).
   void select_scheme(std::wstring const &next) {
     const auto current = document_.String(L"scheme", L"quanpin");
     if (current == next)
       return;
     const auto chinese = [](std::wstring const &value) {
-      return value != L"japanese" && value != L"korean";
+      return value != L"japanese" && value != L"korean" && value != L"vietnamese";
     };
     change([&](PreferencesDocument &doc) {
       if (chinese(next))
@@ -2896,7 +2905,7 @@ private:
                      std::wstring const &prefix) {
     const bool enabled = document_.Boolean(prefix + L".enabled", false);
     bool_row(group, 0xE8CB, label + L"辅助码",
-             L"再输入的字母作为辅助码交给输入引擎，用于缩小候选。五笔、日语、韩语和本地输入模式不使用辅助码。",
+             L"再输入的字母作为辅助码交给输入引擎，用于缩小候选。五笔、粤拼、注音、日语、韩语、越南语和本地输入模式不使用辅助码。",
              prefix + L".enabled", false, true);
     select_row(group, 0xE8D2, label + L"辅助码方案", L"", prefix + L".schema",
                {{L"lantian", L"蓝天小雨点"}, {L"ziranma", L"自然码"},

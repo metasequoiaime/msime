@@ -179,7 +179,7 @@ punctuation_lock = "follow"
 # 会话后端，可选："legacy", "engine"
 # session_backend = "legacy"
 session_backend = "engine"
-# 输入模式，可选："chinese", "japanese", "korean"。切换模式时保留各语言上次使用的方案。
+# 输入模式，可选："chinese", "japanese", "korean", "vietnamese"。切换模式时保留各语言上次使用的方案。粤拼（"cantonese"）和注音（"zhuyin"）属于中文方案，在设置里选择，需要安装包附带的 language-dictionaries 词库，缺少词库时沿用上次的中文方案。
 mode = "chinese"
 # 输入方案，可选："quanpin", "shuangpin", "wubi"
 schema = "quanpin"
