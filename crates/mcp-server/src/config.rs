@@ -9,13 +9,13 @@ use std::path::{Path, PathBuf};
 /// The largest runtime-options document read. A macOS document carries the preferences, and with them a custom screen-keyboard photo of up to 1 MiB of base64.
 const OPTIONS_READ_LIMIT: u64 = 2 << 20;
 
-pub const USAGE: &str = "usage: msime-mcp [flags]                          serve the Model Context Protocol over stdio
-       msime-mcp [flags] tools                    list the tools, with their argument schemas, as JSON
-       msime-mcp [flags] call <tool> [<json>|-]   run one tool and print its result as JSON
-       msime-mcp [flags] prompts                  list the guided tasks (prompts), as JSON
-       msime-mcp [flags] prompt <name> [<json>]   print a guided task's instructions, such as diagnose or make_skin
+pub const USAGE: &str = "usage: msime-mcp [flags]                                serve the Model Context Protocol over stdio
+       msime-mcp [flags] tools                          list the tools, with their argument schemas, as JSON
+       msime-mcp [flags] call <tool> [<json>|-|@file]   run one tool and print its result as JSON
+       msime-mcp [flags] prompts                        list the guided tasks (prompts), as JSON
+       msime-mcp [flags] prompt <name> [<json>|@file]   print a guided task's instructions, such as diagnose or make_skin
 
-Manages 水杉输入法 (MSIME) for an AI assistant: over stdio as an MCP server, or one tool per run from a shell. Both offer the same tools and prompts under the same flags. call takes the tool's arguments as a JSON object (default {}), or reads it from stdin when given -; tool names may use - for _. A refused call prints the reason to stderr and exits 1.
+Manages 水杉输入法 (MSIME) for an AI assistant: over stdio as an MCP server, or one tool per run from a shell. Both offer the same tools and prompts under the same flags. call takes the tool's arguments as a JSON object (default {}), reads it from stdin when given -, or from a UTF-8 file when given @file, which works in every shell; tool names may use - for _. A refused call prints the reason to stderr and exits 1.
 
   --options <path>     The runtime-options document the input method hosts read. Defaults to MSIME_CLIENT_HOST_OPTIONS, then MSIME_IBUS_OPTIONS, then the platform's usual location.
   --state-dir <path>   The directory holding preferences.json, typing-statistics.json and the skins folder. Defaults to MSIME_CLIENT_STATE_DIR, then the document's preferences_directory.
@@ -53,6 +53,8 @@ pub enum Arguments {
     Inline(String),
     /// `-`: a document too long or too awkward to quote on a command line, such as a skin with its images.
     Stdin,
+    /// `@path`: a UTF-8 file holding the document, for a shell that cannot pass JSON intact, such as Windows PowerShell, which strips its quotes on the way to a program and pipes text in the console code page.
+    File(PathBuf),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -133,6 +135,7 @@ pub fn parse(
             arguments: match arguments {
                 None => Arguments::Inline("{}".into()),
                 Some(text) if text == "-" => Arguments::Stdin,
+                Some(text) if text.starts_with('@') => Arguments::File(PathBuf::from(&text[1..])),
                 Some(text) => Arguments::Inline(text),
             },
         }),
@@ -144,6 +147,7 @@ pub fn parse(
             arguments: match arguments {
                 None => Arguments::Inline("{}".into()),
                 Some(text) if text == "-" => Arguments::Stdin,
+                Some(text) if text.starts_with('@') => Arguments::File(PathBuf::from(&text[1..])),
                 Some(text) => Arguments::Inline(text),
             },
         }),
@@ -368,6 +372,17 @@ mod tests {
         assert_eq!(name, "make_skin");
         assert_eq!(arguments, Arguments::Inline(r#"{"style":"夜色"}"#.into()));
         assert!(parsed(&["--options", "/a.json", "prompt"]).is_err());
+        let Command::Call { arguments, .. } = parsed(&[
+            "--options",
+            "/a.json",
+            "call",
+            "get_preferences",
+            "@C:\\args.json",
+        ])
+        .unwrap() else {
+            panic!("expected call");
+        };
+        assert_eq!(arguments, Arguments::File(PathBuf::from("C:\\args.json")));
     }
 
     #[test]

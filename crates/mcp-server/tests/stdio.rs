@@ -742,3 +742,31 @@ fn the_command_line_prints_the_prompts() {
     assert_eq!(code, 0);
     assert!(text.contains("create_candidate_skin"), "{text}");
 }
+
+#[test]
+fn arguments_can_come_from_a_file() {
+    let directory = tempfile::tempdir().unwrap();
+    let options = fixture(directory.path());
+    let file = directory.path().join("edit.json");
+    std::fs::write(
+        &file,
+        r#"{"edits":[{"op":"add","code":"dz","text":"北京市海淀区"}]}"#,
+    )
+    .unwrap();
+    let argument = format!("@{}", file.display());
+    let (code, _, error) = run_cli(
+        &options,
+        &["--allow-write", "call", "edit_quick_phrases", &argument],
+        None,
+    );
+    assert_eq!(code, 0, "{error}");
+    let (_, page, _) = run_cli(&options, &["call", "list_quick_phrases"], None);
+    assert_eq!(page["phrases"][0]["text"], "北京市海淀区");
+    let (code, _, error) = run_cli(
+        &options,
+        &["call", "list_quick_phrases", "@/nonexistent/args.json"],
+        None,
+    );
+    assert_eq!(code, 2);
+    assert!(error.contains("cannot read the arguments"), "{error}");
+}

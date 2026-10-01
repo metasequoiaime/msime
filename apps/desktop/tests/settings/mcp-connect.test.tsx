@@ -313,7 +313,7 @@ test("the terminal tab tells an assistant how to run the tools directly, with th
     [
       "水杉输入法（MSIME）可以在终端里直接管理：",
       `- 查看可用的工具和参数：${program} tools`,
-      `- 调用一个工具，参数是 JSON 对象，输出 JSON：${program} call <工具名> '<JSON 参数>'`,
+      `- 调用一个工具，参数是 JSON 对象，输出 JSON：${program} call <工具名> '<JSON 参数>'，参数中有单引号时改为写进 UTF-8 文件并传 @<文件路径>`,
       `- 排查输入法问题（卡顿、候选框不见了）的步骤：${program} prompt diagnose`,
     ].join("\n"),
   );
@@ -322,4 +322,22 @@ test("the terminal tab tells an assistant how to run the tools directly, with th
   expect(usage).toContain(`${program} --allow-write tools`);
   fireEvent.click(within(group).getByRole("button", { name: "复制说明" }));
   await waitFor(() => expect(copyText).toHaveBeenCalledWith(usage));
+});
+
+test("on Windows the terminal instructions pass the arguments through a file", async () => {
+  await openDeveloper({
+    mcpServerStatus: async () => ({
+      ...status(),
+      command: "C:\\Program Files\\MSIME\\msime-mcp.exe",
+      options: "C:\\ProgramData\\MSIME\\runtime-options.json",
+    }),
+    copyText: vi.fn(async () => {}),
+  });
+  const group = await screen.findByRole("group", { name: "连接 AI 助手" });
+  fireEvent.click(within(group).getByRole("radio", { name: "命令行" }));
+  const usage = within(group).getByLabelText("命令行用法").textContent!;
+  expect(usage).toContain(
+    '"C:\\Program Files\\MSIME\\msime-mcp.exe" --options "C:\\ProgramData\\MSIME\\runtime-options.json" call <工具名> @<文件路径>',
+  );
+  expect(usage).not.toContain("'<JSON 参数>'");
 });

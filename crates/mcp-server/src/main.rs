@@ -102,6 +102,9 @@ fn main() -> ExitCode {
 fn call_arguments(arguments: config::Arguments) -> Result<serde_json::Map<String, Value>, String> {
     let text = match arguments {
         config::Arguments::Inline(text) => text,
+        config::Arguments::File(path) => std::fs::read_to_string(&path).map_err(|error| {
+            format!("cannot read the arguments from {}: {error}", path.display())
+        })?,
         config::Arguments::Stdin => {
             let mut text = String::new();
             std::io::stdin()

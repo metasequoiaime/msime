@@ -80,7 +80,7 @@ brew install --cask metasequoiaime/tap/msime
 
 cask 放在 [metasequoiaime/homebrew-tap](https://github.com/metasequoiaime/homebrew-tap) 的 `Casks/msime.rb`，模板是本目录的 `homebrew/msime.rb.in`。改 cask 改模板，tap 里的副本每次发布都会被覆盖。`release-macos.yml` 在 `publish` 打开、`prerelease` 关闭的发布之后，用刚发布的 DMG 的版本与 SHA-256 填好模板并推到 tap；DMG 没有通过 `xcrun stapler validate`（没有公证）或仓库没有 `HOMEBREW_TAP_TOKEN`（能推送该仓库的 token）时跳过并留下警告，因为 ad-hoc 包装得上但输入法注册不了。
 
-cask 安装 `MSIME.app`，并把其中的 `msime-mcp` 链接到 `PATH`，供在终端里配置的 AI 助手使用：既可以注册为 MCP 服务器，也可以由助手直接在终端里运行，`msime-mcp tools` 列出工具与参数，`msime-mcp call <tool> '<json>'` 调用其中一个并输出 JSON，`msime-mcp prompt diagnose` 给出排查问题的步骤，权限开关（`--allow-write`、`--allow-dictionary-read`）与 MCP 相同；设置页「连接 AI 助手」的「命令行」页给出可直接交给助手的说明。和拖进「应用程序」一样，装完要打开一次 MSIME，在它的安装窗口里点「立即安装」，把输入法装进 `~/Library/Input Methods` 并登记；全新的机器还要按上面的首次安装规则注销并重新登录。`brew uninstall` 同时删除 `~/Library/Input Methods/水杉输入法.app`，`--zap` 再删除设置、词库与缓存。只提供 Apple silicon，最低 macOS 13，与 DMG 相同。
+cask 安装 `MSIME.app`，并把其中的 `msime-mcp` 链接到 `PATH`，供在终端里配置的 AI 助手使用：既可以注册为 MCP 服务器，也可以由助手直接在终端里运行，`msime-mcp tools` 列出工具与参数，`msime-mcp call <tool> '<json>'`（或 `@文件` 从 UTF-8 文件读取参数）调用其中一个并输出 JSON，`msime-mcp prompt diagnose` 给出排查问题的步骤，权限开关（`--allow-write`、`--allow-dictionary-read`）与 MCP 相同；设置页「连接 AI 助手」的「命令行」页给出可直接交给助手的说明。和拖进「应用程序」一样，装完要打开一次 MSIME，在它的安装窗口里点「立即安装」，把输入法装进 `~/Library/Input Methods` 并登记；全新的机器还要按上面的首次安装规则注销并重新登录。`brew uninstall` 同时删除 `~/Library/Input Methods/水杉输入法.app`，`--zap` 再删除设置、词库与缓存。只提供 Apple silicon，最低 macOS 13，与 DMG 相同。
 
 ## 标识与数据目录
 

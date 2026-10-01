@@ -72,8 +72,12 @@ function serverArgs(server: McpServerStatus, flags: readonly McpFlag[]): string[
 }
 
 /** `msime-mcp` with the runtime options and the chosen flags, quoted for the shell. */
+function isWindowsPath(path: string): boolean {
+  return /^[A-Za-z]:\\/.test(path);
+}
+
 function serverProgram(server: McpServerStatus, flags: readonly McpFlag[]): string {
-  const windows = /^[A-Za-z]:\\/.test(server.command);
+  const windows = isWindowsPath(server.command);
   return [server.command, ...serverArgs(server, flags)]
     .map((part) => shellQuote(part, windows))
     .join(" ");
@@ -93,10 +97,14 @@ function installCommand(
 /** What to tell an assistant that works in a terminal, such as in its AGENTS.md or CLAUDE.md: the same tools without registering a server, one command per tool. */
 function terminalInstructions(server: McpServerStatus, flags: readonly McpFlag[]): string {
   const program = serverProgram(server, flags);
+  // Neither cmd nor Windows PowerShell passes a quoted JSON argument intact, so on Windows the arguments go through a file.
+  const call = isWindowsPath(server.command)
+    ? `把 JSON 参数以 UTF-8 写进一个文件，再运行 ${program} call <工具名> @<文件路径>`
+    : `${program} call <工具名> '<JSON 参数>'，参数中有单引号时改为写进 UTF-8 文件并传 @<文件路径>`;
   return [
     "水杉输入法（MSIME）可以在终端里直接管理：",
     `- 查看可用的工具和参数：${program} tools`,
-    `- 调用一个工具，参数是 JSON 对象，输出 JSON：${program} call <工具名> '<JSON 参数>'`,
+    `- 调用一个工具，参数是 JSON 对象，输出 JSON：${call}`,
     `- 排查输入法问题（卡顿、候选框不见了）的步骤：${program} prompt diagnose`,
   ].join("\n");
 }
