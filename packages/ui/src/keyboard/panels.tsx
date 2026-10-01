@@ -43,6 +43,7 @@ import { NativePanelHeader } from "./native-panel-header";
 import { CloudDictionaryKindTabs } from "./cloud-dictionary-kind-tabs";
 import type { CloudDictionaryKind } from "./cloud-dictionary-kind-tabs";
 import { CloudDictionaryKindSelect } from "./cloud-dictionary-kind-select";
+import { CloudDictionarySelectField } from "./cloud-dictionary-select-field";
 import { CloudDictionaryQueryToolbar } from "./cloud-dictionary-query-toolbar";
 import { CloudPinyinSchemeOptions, CloudShuangpinProfileOptions } from "./cloud-scheme-options";
 import {
@@ -2554,18 +2555,17 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
             词库
             <CloudDictionaryKindSelect value={kind} disabled={busy} onChange={changeKind} />
           </label>
-          <label className={cloud.dictionaryField}>
-            文件格式
-            <select
-              className={cloud.dictionaryInput}
-              aria-label="文件格式"
-              value={format}
-              onChange={(event) => setFormat(event.target.value as CloudDictionaryFileFormat)}
-              disabled={busy}
-            >
-              <DictionaryFormatOptions pinyin={kind === "pinyin"} />
-            </select>
-          </label>
+          <CloudDictionarySelectField
+            label="文件格式"
+            ariaLabel="文件格式"
+            labelClassName={cloud.dictionaryField}
+            selectClassName={cloud.dictionaryInput}
+            value={format}
+            onChange={(value) => setFormat(value as CloudDictionaryFileFormat)}
+            disabled={busy}
+          >
+            <DictionaryFormatOptions pinyin={kind === "pinyin"} />
+          </CloudDictionarySelectField>
         </div>
         <p className={cloud.dictionaryNote}>
           导入只处理你明确选择的本地文件，读取和上传均有 64 KiB 边界；导出所选类型的云端个人词条。
@@ -3096,31 +3096,29 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
         />
         {kind === "pinyin" && (
           <div className={cloud.dictionaryActions}>
-            <label className={cloud.dictionaryField}>
-              编码方案
-              <select
-                className={cloud.dictionaryInput}
-                aria-label="编码方案"
-                value={scheme}
-                onChange={(event) => setScheme(event.target.value)}
+            <CloudDictionarySelectField
+              label="编码方案"
+              ariaLabel="编码方案"
+              labelClassName={cloud.dictionaryField}
+              selectClassName={cloud.dictionaryInput}
+              value={scheme}
+              onChange={setScheme}
+              disabled={busy}
+            >
+              <CloudPinyinSchemeOptions />
+            </CloudDictionarySelectField>
+            {scheme === "shuangpin" && (
+              <CloudDictionarySelectField
+                label="双拼方案"
+                ariaLabel="双拼方案"
+                labelClassName={cloud.dictionaryField}
+                selectClassName={cloud.dictionaryInput}
+                value={profile}
+                onChange={setProfile}
                 disabled={busy}
               >
-                <CloudPinyinSchemeOptions />
-              </select>
-            </label>
-            {scheme === "shuangpin" && (
-              <label className={cloud.dictionaryField}>
-                双拼方案
-                <select
-                  className={cloud.dictionaryInput}
-                  aria-label="双拼方案"
-                  value={profile}
-                  onChange={(event) => setProfile(event.target.value)}
-                  disabled={busy}
-                >
-                  <CloudShuangpinProfileOptions />
-                </select>
-              </label>
+                <CloudShuangpinProfileOptions />
+              </CloudDictionarySelectField>
             )}
           </div>
         )}
@@ -3465,29 +3463,25 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
               />
               简拼候选
             </label>
-            <label>
-              编码方案
-              <select
-                aria-label="候选编码方案"
-                value={scheme}
-                onChange={(event) => setScheme(event.target.value)}
+            <CloudDictionarySelectField
+              label="编码方案"
+              ariaLabel="候选编码方案"
+              value={scheme}
+              onChange={setScheme}
+              disabled={busy}
+            >
+              <CloudPinyinSchemeOptions />
+            </CloudDictionarySelectField>
+            {scheme === "shuangpin" && (
+              <CloudDictionarySelectField
+                label="双拼方案"
+                ariaLabel="候选双拼方案"
+                value={profile}
+                onChange={setProfile}
                 disabled={busy}
               >
-                <CloudPinyinSchemeOptions />
-              </select>
-            </label>
-            {scheme === "shuangpin" && (
-              <label>
-                双拼方案
-                <select
-                  aria-label="候选双拼方案"
-                  value={profile}
-                  onChange={(event) => setProfile(event.target.value)}
-                  disabled={busy}
-                >
-                  <CloudShuangpinProfileOptions />
-                </select>
-              </label>
+                <CloudShuangpinProfileOptions />
+              </CloudDictionarySelectField>
             )}
           </div>
         )}
