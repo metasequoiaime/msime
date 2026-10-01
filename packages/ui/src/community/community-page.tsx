@@ -13,11 +13,9 @@ import {
   CommunityCandidateSkinsPage,
   type CandidateSkinCommunityClient,
 } from "./community-candidate-skins";
-import { CandidateSkinSyncStatus, useCandidateSkinSync } from "./candidate-skin-sync";
-import { ExternalSkinDirectoryRow, useSkinCatalog, type SkinCatalog } from "../skin/external-skins";
+import { useCandidateSkinSync } from "./candidate-skin-sync";
+import type { SkinCatalog } from "../skin/external-skins";
 import type { SkinImageReader } from "../skin/skin-image";
-import { GroupList } from "../core/platform-controls";
-import * as settings from "../settings/settings-style";
 
 export interface CommunityPageProps {
   skins?: CommunitySkinClient;
@@ -29,8 +27,6 @@ export interface CommunityPageProps {
   openSkinDirectory?: () => Promise<void>;
   /** Reads an installed package's images, so publishing can draw a preview for a package without one. */
   readSkinImage?: SkinImageReader;
-  /** The host imports a skin the user points at instead of opening the skin directory (`HostSurface.skin_directory_import`). */
-  importsSkin?: boolean;
   /** Opens 主题, where an installed candidate skin is enabled. */
   onOpenSkinPage?: () => void;
   theme: "light" | "dark";
@@ -45,45 +41,13 @@ export interface CommunityPageProps {
   destinationKey?: string;
 }
 
-/** The community page: the external skin directory, which community installs land in and which the signed-in user's library syncs with, above the gallery the host supports. Plugin packs are shared from the 插件 page instead. */
+/** The community page: the gallery the host supports, keeping the external skin directory in step with the signed-in user's library in the background. The directory itself is listed on 主题, and plugin packs are shared from the 插件 page. */
 export function CommunityPage(props: CommunityPageProps): ReactNode {
-  const {
-    skins,
-    resources,
-    candidateSkins,
-    localSkins,
-    openSkinDirectory,
-    importsSkin = false,
-  } = props;
-  const local = useSkinCatalog(localSkins, openSkinDirectory, importsSkin);
-  const sync = useCandidateSkinSync(candidateSkins, () => void local.refresh());
+  const { skins, resources, candidateSkins } = props;
+  // 主题 scans the directory again when it is next shown, so a run that changed it needs nothing here.
+  const sync = useCandidateSkinSync(candidateSkins, () => undefined);
   if (!skins && !resources && !candidateSkins) return null;
-  const gallery = (
-    <CommunityGallery
-      {...props}
-      onInstalled={() => {
-        void local.refresh();
-        sync.run();
-      }}
-    />
-  );
-  if (!localSkins && !openSkinDirectory) return gallery;
-  return (
-    <>
-      <div className={settings.groups}>
-        <GroupList title="本地皮肤">
-          <ExternalSkinDirectoryRow
-            skins={local}
-            scannable={!!localSkins}
-            openable={!!openSkinDirectory}
-            importsSkin={importsSkin}
-            status={candidateSkins && <CandidateSkinSyncStatus sync={sync} />}
-          />
-        </GroupList>
-      </div>
-      {gallery}
-    </>
-  );
+  return <CommunityGallery {...props} onInstalled={sync.run} />;
 }
 
 /** Selects the community surface supported by the host while preserving its destination state. */

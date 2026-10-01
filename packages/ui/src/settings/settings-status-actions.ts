@@ -1,6 +1,6 @@
 export interface CreateSettingsStatusActionsOptions {
   recoverPreferences: () => Promise<void>;
-  inputSourceStartup?: { openSettings: () => Promise<void>; enable?: () => Promise<void> };
+  inputSourceStartup?: { openSettings: () => Promise<void> };
   /** Hides the startup notice for the rest of this window, including later focus refreshes. */
   dismissInputSourceStartup: () => void;
 }
@@ -11,11 +11,9 @@ export function createSettingsStatusActions({
   inputSourceStartup,
   dismissInputSourceStartup,
 }: CreateSettingsStatusActionsOptions) {
-  const enable = inputSourceStartup?.enable;
   return {
     onRecover: () => void recoverPreferences(),
     onOpenSettings: () => inputSourceStartup?.openSettings(),
-    onEnable: enable ? () => enable() : undefined,
     onDismiss: dismissInputSourceStartup,
   } as const;
 }

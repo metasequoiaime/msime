@@ -29,6 +29,7 @@ import {
   SettingsStartupPage,
   WelcomeFlowPage,
   LinuxSetupPage,
+  MacosInstallPage,
   useCandidatePreviewTheme,
   type AccountClient,
   type ApiCredentialTestResult,
@@ -63,6 +64,7 @@ import {
   type OnboardingChoices,
   type OnboardingInputScheme,
   type LinuxSetupClient,
+  type MacosInstallClient,
   type LinuxSetupLine,
   type LinuxSetupStatus,
   type McpClientId,
@@ -208,7 +210,9 @@ const vocabularyReview: VocabularyReviewClient = {
 const inputSourceStartup: NonNullable<SettingsClient["inputSourceStartup"]> = {
   status: () => invoke("input_source_startup_status"),
   openSettings: () => invoke("open_input_source_settings"),
-  enable: () => invoke("enable_input_source"),
+};
+const macosInstallClient: MacosInstallClient = {
+  install: () => invoke("run_first_input_source_install"),
 };
 const client: SettingsClient = {
   readAppVersion: getVersion,
@@ -460,6 +464,7 @@ function DesktopSettings() {
   const [settingsClient, setSettingsClient] = useState<SettingsClient | null>(null);
   const [bootstrapRequired, setBootstrapRequired] = useState<boolean | null>(null);
   const [linuxSetup, setLinuxSetup] = useState<LinuxSetupStatus | null>(null);
+  const [macosInstall, setMacosInstall] = useState(false);
   const [replayOnboarding, setReplayOnboarding] = useState(false);
   const [mobilePanel, setMobilePanel] = useState<
     | "voice"
@@ -621,8 +626,14 @@ function DesktopSettings() {
         host?.platform === "linux"
           ? await invoke<LinuxSetupStatus>("linux_setup_status").catch(() => null)
           : null;
+      // The window is already at the install window's size when this asks; see `first_install_window_pending`.
+      const macosInstallPending =
+        host?.platform === "macos"
+          ? await invoke<boolean>("first_install_window_pending").catch(() => false)
+          : false;
       if (!active) return;
       if (linuxSetupStatus && !linuxSetupStatus.prepared) setLinuxSetup(linuxSetupStatus);
+      setMacosInstall(macosInstallPending);
       setBootstrapRequired((android || ios) && !ready);
       setInitialPage(page ?? undefined);
       const hosted: SettingsClient = host
@@ -875,6 +886,17 @@ function DesktopSettings() {
         status={linuxSetup}
         client={linuxSetupClient}
         onComplete={() => setLinuxSetup(null)}
+      />
+    );
+  if (macosInstall)
+    return (
+      <MacosInstallPage
+        client={macosInstallClient}
+        onComplete={() => {
+          void invoke("leave_first_install_window")
+            .catch(() => undefined)
+            .then(() => setMacosInstall(false));
+        }}
       />
     );
   // Mount once after discovery: replacing the client later would reload draft preferences.

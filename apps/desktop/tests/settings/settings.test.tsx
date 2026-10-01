@@ -1804,13 +1804,16 @@ test("macOS reports the start-time input method refresh and a source that still 
     />,
   );
   const banner = await screen.findByRole("status", { name: "水杉输入法安装状态" });
-  expect(within(banner).getByText("水杉输入法还没有加入输入法列表")).toBeDefined();
-  expect(within(banner).getByText(/^已更新到 0\.51\.0 \(7300\)。加入后才能/)).toBeDefined();
+  expect(within(banner).getByText("把水杉输入法加入输入法列表")).toBeDefined();
   expect(
-    within(banner).getByText(/「系统设置 › 键盘 › 文字输入 › 输入法」中点「编辑…」添加水杉输入法/),
+    within(banner).getByText(/^已更新到 0\.51\.0 \(7300\)。macOS 只允许你自己把输入法加入列表/),
   ).toBeDefined();
-  // Without an enable action the host only offers the manual route.
-  expect(within(banner).queryByRole("button", { name: "启用水杉输入法" })).toBeNull();
+  expect(
+    within(banner).getByText(/在左侧选「简体中文」，再选「水杉输入法」，然后点「添加」/),
+  ).toBeDefined();
+  expect(within(banner).getByText(/系统对所有第三方输入法都会显示的标准提示/)).toBeDefined();
+  // macOS 27 does not let a process enable the source, so nothing offers to do it for the user.
+  expect(within(banner).queryByRole("button", { name: /启用/ })).toBeNull();
   fireEvent.click(within(banner).getByRole("button", { name: "打开键盘设置" }));
   await waitFor(() => expect(openSettings).toHaveBeenCalledOnce());
   fireEvent.click(within(banner).getByRole("button", { name: "知道了" }));
@@ -1911,63 +1914,44 @@ test("macOS asks for a new login when a first install waits for the input source
   expect(within(banner).queryByRole("button", { name: "打开键盘设置" })).toBeNull();
 });
 
-test("macOS enables the input method from the notice and reports the result", async () => {
-  const enable = vi.fn().mockResolvedValue(undefined);
-  render(
-    <SettingsPage
-      client={{
-        load: vi.fn().mockResolvedValue(initial),
-        save: vi.fn(),
-        inputSourceStartup: {
-          status: vi.fn().mockResolvedValue({
-            action: "up_to_date",
-            enabled: false,
-            bundled_version: "0.51.0 (7300)",
-            installed_version: "0.51.0 (7300)",
-          }),
-          openSettings: vi.fn(),
-          enable,
-        },
-        host: { platform: "macos" } as HostCapabilities,
-      }}
-    />,
-  );
-  const banner = await screen.findByRole("status", { name: "水杉输入法安装状态" });
-  fireEvent.click(within(banner).getByRole("button", { name: "启用水杉输入法" }));
-  expect(enable).toHaveBeenCalledOnce();
-  expect(await within(banner).findByText("水杉输入法已启用")).toBeDefined();
-  expect(within(banner).queryByRole("button", { name: "启用水杉输入法" })).toBeNull();
-  expect(within(banner).queryByRole("button", { name: "打开键盘设置" })).toBeNull();
-});
-
-test("macOS falls back to the manual route when the system refuses to enable the input method", async () => {
-  render(
-    <SettingsPage
-      client={{
-        load: vi.fn().mockResolvedValue(initial),
-        save: vi.fn(),
-        inputSourceStartup: {
-          status: vi.fn().mockResolvedValue({
-            action: "up_to_date",
-            enabled: false,
-            bundled_version: "0.51.0 (7300)",
-            installed_version: "0.51.0 (7300)",
-          }),
-          openSettings: vi.fn(),
-          enable: vi.fn().mockRejectedValue({ code: "registration_failed" }),
-        },
-        host: { platform: "macos" } as HostCapabilities,
-      }}
-    />,
-  );
-  const banner = await screen.findByRole("status", { name: "水杉输入法安装状态" });
-  fireEvent.click(within(banner).getByRole("button", { name: "启用水杉输入法" }));
-  expect(
-    await screen.findByText(
-      /系统没有接受自动添加，请在「系统设置 › 键盘 › 文字输入 › 输入法」中点「编辑…」/,
-    ),
-  ).toBeDefined();
-  expect(within(banner).getByRole("button", { name: "打开键盘设置" })).toBeDefined();
+test("macOS keeps reading the input source list while the notice waits for the user", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    const status = vi
+      .fn()
+      .mockResolvedValueOnce({
+        action: "up_to_date",
+        enabled: false,
+        bundled_version: "0.51.0 (7300)",
+        installed_version: "0.51.0 (7300)",
+      })
+      .mockResolvedValue({
+        action: "up_to_date",
+        enabled: true,
+        bundled_version: "0.51.0 (7300)",
+        installed_version: "0.51.0 (7300)",
+      });
+    render(
+      <SettingsPage
+        client={{
+          load: vi.fn().mockResolvedValue(initial),
+          save: vi.fn(),
+          inputSourceStartup: { status, openSettings: vi.fn() },
+          host: { platform: "macos" } as HostCapabilities,
+        }}
+      />,
+    );
+    await screen.findByRole("status", { name: "水杉输入法安装状态" });
+    // System Settings sits beside the window, so no focus event arrives; the interval still notices the added source.
+    await vi.advanceTimersByTimeAsync(3000);
+    await waitFor(() => expect(screen.queryByLabelText("水杉输入法安装状态")).toBeNull());
+    expect(status).toHaveBeenCalledTimes(2);
+    // Nothing is left to wait for, so the reads stop.
+    await vi.advanceTimersByTimeAsync(9000);
+    expect(status).toHaveBeenCalledTimes(2);
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 test("macOS reads the input source again when the window regains focus, but not after a dismissal", async () => {

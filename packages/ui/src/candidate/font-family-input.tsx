@@ -95,6 +95,12 @@ export function FontFamilyInput({
           }
         }}
       />
+      {/* Decorative, and only where there is a list to open: a click on it lands on the field. */}
+      {enabled && (
+        <svg className="font-family-chevron" viewBox="0 0 10 10" aria-hidden="true">
+          <path d="M2.5 4l2.5 2.5L7.5 4" />
+        </svg>
+      )}
       {enabled && open && (
         <div className="font-family-menu">
           <div id={id} role="listbox" aria-label={`${label}可用字体`}>
@@ -104,6 +110,7 @@ export function FontFamilyInput({
                 id={`${id}-${index}`}
                 role="option"
                 aria-selected={index === selected}
+                data-current={font === value || undefined}
                 onPointerDown={(event) => event.preventDefault()}
                 onClick={() => choose(font)}
               >

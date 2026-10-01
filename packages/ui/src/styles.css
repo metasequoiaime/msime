@@ -1085,50 +1085,136 @@
 @utility candidate-fallback-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   margin: 12px 0;
 }
 @utility candidate-fallback-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-
-  & input {
-    flex: 1;
-    min-width: 0;
-  }
+  gap: 2px;
 
   & .font-family-combobox {
     flex: 1;
+    width: auto;
+    margin-right: 6px;
+  }
+}
+@utility candidate-fallback-index {
+  flex: 0 0 20px;
+  margin-right: 6px;
+  color: var(--p-sub, var(--text-muted));
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+/* Borderless glyph buttons, so three per row read as tools on the field rather than as three more fields. */
+@utility candidate-fallback-action {
+  display: inline-flex;
+  flex: 0 0 28px;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--p-r-ctl, 6px);
+  background: transparent;
+  color: var(--p-sub, var(--text-muted));
+
+  & svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  &:hover:not(:disabled) {
+    background: var(--p-hover, var(--surface-subtle));
+    color: var(--p-text, var(--text-color));
+  }
+
+  &.is-danger:hover:not(:disabled) {
+    color: var(--danger-text);
+  }
+
+  &:disabled {
+    opacity: 0.3;
+  }
+
+  &:focus-visible {
+    outline-offset: 0;
   }
 }
 /* The field and its menu: the menu is positioned against the field, so the two are one thing. */
 @utility font-family-combobox {
   position: relative;
+  width: 240px;
+  max-width: 100%;
   min-width: 0;
+
+  @media (width < 601px) {
+    width: 160px;
+  }
 
   & input {
     box-sizing: border-box;
     width: 100%;
+    height: 28px;
+    padding: 0 26px 0 10px;
+    border: var(--p-btn-border, 1px solid var(--border-color));
+    border-radius: var(--p-r-ctl, 6px);
+    background: var(--p-btn-bg, var(--surface-raised));
+    color: var(--p-text, var(--text-color));
+    font: inherit;
+    font-size: 13px;
+    transition:
+      border-color 0.15s ease,
+      box-shadow 0.15s ease;
+  }
+
+  & input:focus-visible {
+    border-color: var(--accent-color);
+    outline: none;
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+
+  & .font-family-chevron {
+    position: absolute;
+    top: 50%;
+    right: 9px;
+    width: 10px;
+    height: 10px;
+    translate: 0 -50%;
+    pointer-events: none;
+    fill: none;
+    stroke: var(--p-sub, var(--text-muted));
+    stroke-width: 1.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
 }
 @utility font-family-menu {
   position: absolute;
   z-index: 20;
-  top: 100%;
+  top: calc(100% + 4px);
   right: 0;
   left: 0;
   max-height: 240px;
   overflow: auto;
   padding: 4px;
   border: 1px solid var(--dropdown-menu-border);
-  border-radius: 6px;
+  border-radius: 8px;
   background: var(--dropdown-menu-bg);
   color: var(--dropdown-item-color);
+  font-size: 13px;
   box-shadow: var(--dropdown-menu-shadow);
 
   & [role="option"] {
-    padding: 6px 10px;
+    position: relative;
+    padding: 5px 10px 5px 26px;
+    border-radius: 5px;
     overflow-wrap: anywhere;
     cursor: pointer;
   }
@@ -1136,6 +1222,25 @@
   & [role="option"]:hover,
   & [aria-selected="true"] {
     background: var(--dropdown-item-hover-bg);
+  }
+
+  /* The family the field holds now, ticked the way a native menu ticks its current item. */
+  & [data-current]::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 9px;
+    width: 4px;
+    height: 8px;
+    border: solid var(--accent-color);
+    border-width: 0 1.5px 1.5px 0;
+    translate: 0 -65%;
+    rotate: 45deg;
+  }
+
+  & small {
+    margin: 0;
+    padding: 5px 10px;
   }
 }
 /* Windows 04a8df56 appearance.css colour controls, GPL-3.0. */

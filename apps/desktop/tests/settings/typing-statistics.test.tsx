@@ -85,7 +85,7 @@ test("desktop settings omit typing statistics without the Android capability", a
   expect(screen.queryByRole("button", { name: "统计" })).toBeNull();
 });
 
-test("statistics capability provides 7 day, 30 day, cumulative and selected-day scopes", async () => {
+test("desktop statistics split into content tabs over the cumulative and selected-day scopes", async () => {
   const typingStatistics = {
     load: vi.fn().mockResolvedValue(status()),
     setEnabled: vi.fn(),
@@ -93,21 +93,29 @@ test("statistics capability provides 7 day, 30 day, cumulative and selected-day 
   };
   render(<SettingsPage client={{ ...baseClient(), typingStatistics }} />);
   fireEvent.click(await screen.findByRole("button", { name: "统计" }));
-  expect((await screen.findByLabelText("当前范围输入字符数")).textContent).toBe("10");
+  expect((await screen.findByLabelText("当前范围输入字符数")).textContent).toBe("23");
   expect(screen.queryByRole("form", { name: "设置" })).toBeNull();
   expect(screen.queryByRole("button", { name: "重新读取" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "7 天" })).toBeNull();
+  expect(screen.getByRole("heading", { name: "每日趋势 · 近 30 天" })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "日历热力图" })).toBeTruthy();
+  expect(screen.queryByRole("heading", { name: "字符类型" })).toBeNull();
 
-  fireEvent.click(screen.getByRole("button", { name: "30 天" }));
-  expect(screen.getByLabelText("当前范围输入字符数").textContent).toBe("20");
-  fireEvent.click(screen.getByRole("button", { name: "累计" }));
-  expect(screen.getByLabelText("当前范围输入字符数").textContent).toBe("23");
-  expect(screen.getAllByLabelText(/历史未分类 3 字符/).length).toBeGreaterThanOrEqual(2);
+  fireEvent.click(screen.getByRole("tab", { name: "类型" }));
+  expect(screen.queryByRole("heading", { name: /每日趋势/ })).toBeNull();
+  expect(screen.getByLabelText(/^历史未分类 3 字符/)).not.toBeNull();
+  fireEvent.click(screen.getByRole("tab", { name: "模式" }));
+  expect(screen.getByLabelText(/^历史未分类 3 字符/)).not.toBeNull();
 
+  // A day picked on 趋势 stays picked, so the other tabs break that day down.
+  fireEvent.click(screen.getByRole("tab", { name: "趋势" }));
   fireEvent.click(screen.getByRole("button", { name: `${label(0)}，4 字符` }));
   const selectedTotal = screen.getByLabelText("当前范围输入字符数");
   expect(selectedTotal.textContent).toBe("4");
   expect(selectedTotal.parentElement?.querySelector("span")?.textContent).toBe(label(0));
+  fireEvent.click(screen.getByRole("tab", { name: "类型" }));
   expect(screen.getByLabelText(/汉字 4 字符/)).not.toBeNull();
+  expect(screen.getByLabelText("当前范围输入字符数").textContent).toBe("4");
   expect(screen.queryByText("private fixture text")).toBeNull();
 });
 
@@ -408,6 +416,7 @@ test("candidate positions show a first-candidate rate and keep rank order", asyn
   };
   render(<SettingsPage client={{ ...baseClient(), typingStatistics }} />);
   fireEvent.click(await screen.findByRole("button", { name: "统计" }));
+  fireEvent.click(await screen.findByRole("tab", { name: "候选" }));
 
   // 30 of 50 commits came from the first candidate.
   expect((await screen.findByLabelText("首选命中率")).textContent).toBe("60.0%");
@@ -440,6 +449,7 @@ test("statistics written before candidate positions existed render an empty stat
   };
   render(<SettingsPage client={{ ...baseClient(), typingStatistics }} />);
   fireEvent.click(await screen.findByRole("button", { name: "统计" }));
+  fireEvent.click(await screen.findByRole("tab", { name: "候选" }));
   expect(await screen.findByText("暂无候选记录。用水杉键盘上屏几次后再回来查看。")).not.toBeNull();
   expect(screen.queryByLabelText("候选命中位置分布")).toBeNull();
 });
@@ -459,12 +469,13 @@ test("Korean input has its own scheme and language slices", async () => {
   };
   render(<SettingsPage client={{ ...baseClient(), typingStatistics }} />);
   fireEvent.click(await screen.findByRole("button", { name: "统计" }));
-  fireEvent.click(await screen.findByRole("button", { name: "累计" }));
-  expect(screen.getAllByLabelText(/^韩语 5 字符/).length).toBeGreaterThanOrEqual(1);
-  expect(screen.getAllByLabelText(/^韩语模式 5 字符/).length).toBeGreaterThanOrEqual(1);
+  fireEvent.click(await screen.findByRole("tab", { name: "方案" }));
+  expect(screen.getByLabelText(/^韩语 5 字符/)).not.toBeNull();
+  fireEvent.click(screen.getByRole("tab", { name: "模式" }));
+  expect(screen.getByLabelText(/^韩语模式 5 字符/)).not.toBeNull();
 });
 
-test("desktop statistics draw an ANSI key heatmap for the selected range", async () => {
+test("desktop statistics draw an ANSI key heatmap for the cumulative or selected-day scope", async () => {
   const statistics: TypingStatistics = {
     ...initialStatistics(),
     dailyKeys: {
@@ -488,10 +499,12 @@ test("desktop statistics draw an ANSI key heatmap for the selected range", async
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "统计" }));
-  expect(await screen.findByRole("heading", { name: "按键热力图 · 近 7 天" })).toBeTruthy();
+  expect(screen.queryByRole("heading", { name: /按键热力图/ })).toBeNull();
+  fireEvent.click(await screen.findByRole("tab", { name: "按键" }));
+  expect(screen.getByRole("heading", { name: "按键热力图 · 累计" })).toBeTruthy();
   const heatmap = screen.getByRole("group", { name: "按键热力图" });
   expect(within(heatmap).getByRole("img", { name: "A，123 次" })).toBeTruthy();
-  expect(within(heatmap).getByRole("img", { name: "Z，0 次" })).toBeTruthy();
+  expect(within(heatmap).getByRole("img", { name: "Z，500 次" })).toBeTruthy();
   expect(within(heatmap).getByRole("img", { name: "左 Command，2 次" })).toBeTruthy();
   expect(within(heatmap).getByRole("img", { name: "F1，0 次" })).toBeTruthy();
   // A desktop page never draws the phone's on-screen keys.
@@ -502,14 +515,11 @@ test("desktop statistics draw an ANSI key heatmap for the selected range", async
     within(top)
       .getAllByRole("listitem")
       .map((item) => item.textContent),
-  ).toEqual(["1A123 次", "2空格40 次", "3左箭头3 次", "4左 Command2 次"]);
+  ).toEqual(["1Z500 次", "2A123 次", "3空格40 次", "4左箭头3 次", "5左 Command2 次"]);
 
-  fireEvent.click(screen.getByRole("button", { name: "累计" }));
-  expect(screen.getByRole("heading", { name: "按键热力图 · 累计" })).toBeTruthy();
-  expect(screen.getByRole("img", { name: "Z，500 次" })).toBeTruthy();
-
-  fireEvent.click(screen.getByRole("button", { name: "7 天" }));
+  fireEvent.click(screen.getByRole("tab", { name: "趋势" }));
   fireEvent.click(screen.getByRole("button", { name: `${label(-1)}，6 字符` }));
+  fireEvent.click(screen.getByRole("tab", { name: "按键" }));
   expect(screen.getByRole("heading", { name: `按键热力图 · ${label(-1)}` })).toBeTruthy();
   expect(screen.getByRole("img", { name: "A，3 次" })).toBeTruthy();
   expect(screen.getByRole("img", { name: "空格，0 次" })).toBeTruthy();
@@ -523,6 +533,7 @@ test("statistics written before keys were counted show an empty key heatmap", as
   };
   render(<SettingsPage client={{ ...baseClient(), typingStatistics }} />);
   fireEvent.click(await screen.findByRole("button", { name: "统计" }));
+  fireEvent.click(await screen.findByRole("tab", { name: "按键" }));
   expect(await screen.findByText("这段时间还没有按键记录")).toBeTruthy();
   expect(screen.queryByRole("group", { name: "按键热力图" })).toBeNull();
   expect(screen.getAllByText(/只保存每个键每天被按下的次数，不保存按键顺序和输入内容/).length).toBe(

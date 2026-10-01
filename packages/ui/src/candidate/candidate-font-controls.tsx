@@ -12,6 +12,15 @@ import { Row } from "../core/platform-controls";
 /** The fallback list sits under its row, inset like the row's content. */
 const fallbackBlock = "min-w-0 [padding:var(--p-row-pad)] [&>.candidate-fallback-list]:m-0";
 
+/** A 16×16 stroked glyph for the row actions; the button carries the accessible name. */
+function ActionIcon({ d }: { d: string }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path d={d} />
+    </svg>
+  );
+}
+
 export function CandidateFontControls({
   value,
   onChange,
@@ -87,7 +96,7 @@ export function CandidateFontControls({
         {readFonts && (
           <button
             type="button"
-            className="secondary"
+            className="secondary m-0"
             disabled={catalog.status === "loading"}
             onClick={catalog.refresh}
           >
@@ -101,7 +110,7 @@ export function CandidateFontControls({
       >
         <button
           type="button"
-          className="secondary"
+          className="secondary m-0"
           disabled={fonts.length >= 32 || fonts.some((font) => !validFontFamily(font))}
           onClick={() => onChange({ candidate_fallback_fonts: [...fonts, ""] })}
         >
@@ -113,6 +122,9 @@ export function CandidateFontControls({
           <div className="candidate-fallback-list" role="group" aria-label="补充字体回落顺序">
             {fonts.map((font, index) => (
               <div className="candidate-fallback-row" key={index}>
+                <span className="candidate-fallback-index" aria-hidden="true">
+                  {index + 1}
+                </span>
                 <FontFamilyInput
                   label={`补充字体 ${index + 1}`}
                   value={font}
@@ -131,33 +143,36 @@ export function CandidateFontControls({
                 />
                 <button
                   type="button"
-                  className="secondary"
+                  className="candidate-fallback-action"
                   aria-label={`上移补充字体 ${index + 1}`}
+                  title="上移"
                   disabled={index === 0}
                   onClick={() => move(index, -1)}
                 >
-                  ↑
+                  <ActionIcon d="M8 12.5V3.5M4 7.5l4-4 4 4" />
                 </button>
                 <button
                   type="button"
-                  className="secondary"
+                  className="candidate-fallback-action"
                   aria-label={`下移补充字体 ${index + 1}`}
+                  title="下移"
                   disabled={index === fonts.length - 1}
                   onClick={() => move(index, 1)}
                 >
-                  ↓
+                  <ActionIcon d="M8 3.5v9M4 8.5l4 4 4-4" />
                 </button>
                 <button
                   type="button"
-                  className="secondary"
+                  className="candidate-fallback-action is-danger"
                   aria-label={`移除补充字体 ${index + 1}`}
+                  title="移除"
                   onClick={() =>
                     onChange({
                       candidate_fallback_fonts: fonts.filter((_, position) => position !== index),
                     })
                   }
                 >
-                  移除
+                  <ActionIcon d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
                 </button>
               </div>
             ))}

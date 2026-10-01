@@ -80,9 +80,6 @@ export function SkinSettingsPage() {
   const candidateSkins = client.communityCandidateSkins;
   const importsSkin = host?.skin_directory_import === true;
   const skins = useSkinCatalog(client.scanSkinCatalog, client.openSkinDirectory, importsSkin);
-  const hasCommunity = Boolean(
-    client.communitySkins || client.communityResources || client.communityCandidateSkins,
-  );
   const packages = skins.catalog?.packages ?? [];
   // A package is part of the custom theme, so its card is the one in use while the custom theme draws it; the 自定义 card is then the custom theme without a package.
   const skinInUse = globalTheme === "custom" ? (draft.custom_theme?.candidate_skin ?? null) : null;
@@ -259,15 +256,12 @@ export function SkinSettingsPage() {
                 onChange={(theme) => onPreferencesChange({ theme })}
               />
             </Row>
-            {/* The directory row lives on 社区 beside the gallery that installs into it; a host without a community page keeps it here so its skins can still be added. */}
-            {!hasCommunity && (
-              <ExternalSkinDirectoryRow
-                skins={skins}
-                scannable={!!client.scanSkinCatalog}
-                openable={!!client.openSkinDirectory}
-                importsSkin={importsSkin}
-              />
-            )}
+            <ExternalSkinDirectoryRow
+              skins={skins}
+              scannable={!!client.scanSkinCatalog}
+              openable={!!client.openSkinDirectory}
+              importsSkin={importsSkin}
+            />
           </GroupList>
           <GroupList title="自定义主题">
             {mobileKeyboardFeedback?.candidatePaletteFollowsDesktop !== undefined && (

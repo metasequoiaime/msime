@@ -448,16 +448,6 @@ fn register_installed_bundle(bundle: &Path) -> Result<(), InstallError> {
     }
 }
 
-/// Register and enable the input method already installed in `~/Library/Input Methods`, without copying anything.
-///
-/// The start-time refresh only registers a bundle it has just installed or updated, so a user who later removed the source from the System Settings list is left with an installed but unlisted input method; this is what the settings page's 启用 button runs for them. `InvalidBundle` means there is no usable installed bundle, which only an install can fix.
-pub(crate) fn enable_installed() -> Result<(), InstallError> {
-    let _guard = install_lock();
-    let bundle = installed_bundle_path()?;
-    validate_bundle(&bundle)?;
-    register_installed_bundle(&bundle)
-}
-
 pub(crate) fn install(resource_directory: Option<&Path>) -> Result<(), InstallError> {
     let _guard = install_lock();
     install_unlocked(resource_directory)
@@ -557,6 +547,8 @@ pub(crate) enum Refresh {
     Install,
     Update,
     UpToDate,
+    /// Nothing of this product is installed yet and the caller asked to leave a first install to the user, who starts it from the settings app's install window.
+    Deferred,
 }
 
 /// What the start-time check does with the bundle the settings app carries.
@@ -589,6 +581,7 @@ pub(crate) struct RefreshOutcome {
 fn ensure_current_with<F>(
     source: &Path,
     target: &Path,
+    defer_first_install: bool,
     install_source: F,
 ) -> Result<RefreshOutcome, InstallError>
 where
@@ -619,6 +612,13 @@ where
             installed,
         });
     }
+    if refresh == Refresh::Install && defer_first_install && !any_product_bundle_beside(target) {
+        return Ok(RefreshOutcome {
+            refresh: Refresh::Deferred,
+            bundled,
+            installed: None,
+        });
+    }
     install_source()?;
     Ok(RefreshOutcome {
         refresh,
@@ -630,16 +630,36 @@ where
 /// Install the packaged input method when it is missing and refresh it when the packaged copy is newer, the way the Windows installer registers its TSF DLLs on every install and upgrade.
 ///
 /// Only the bundle inside a packaged app's own `Contents/Resources` is considered - never a `target/macos` build, nor the copy tauri-build places next to a `cargo run` binary - so running a development build does not replace the input method a developer has installed. `SourceUnavailable` means the resource directory is not a packaged app's, or that build carries no input method at all.
-pub(crate) fn ensure_current(resource_directory: &Path) -> Result<RefreshOutcome, InstallError> {
+///
+/// With `defer_first_install`, a machine that has never had this input method under any name it shipped with is left as it is and reported as `Refresh::Deferred`; a copy under an older name still counts as an upgrade and is replaced as before.
+pub(crate) fn ensure_current(
+    resource_directory: &Path,
+    defer_first_install: bool,
+) -> Result<RefreshOutcome, InstallError> {
     if !is_packaged_resource_directory(resource_directory) {
         return Err(InstallError::SourceUnavailable);
     }
     let _guard = install_lock();
     let source = resource_directory.join(INPUT_SOURCE_BUNDLE_NAME);
     let target = installed_bundle_path()?;
-    ensure_current_with(&source, &target, || {
+    ensure_current_with(&source, &target, defer_first_install, || {
         install_unlocked(Some(resource_directory))
     })
+}
+
+/// Whether the directory `target` would be installed into holds a copy of this input method under any name it has shipped with.
+fn any_product_bundle_beside(target: &Path) -> bool {
+    target
+        .parent()
+        .is_some_and(|input_methods| !product_bundles_in(input_methods).is_empty())
+}
+
+/// Whether a start-time check with `defer_first_install` would leave the install to the user: a packaged app on a machine with no copy of this input method in `~/Library/Input Methods`. Cheap enough for the window setup to call before the first paint, so the window opens at the install window's size rather than resizing in front of the user.
+pub(crate) fn first_install_pending(resource_directory: &Path) -> bool {
+    is_packaged_resource_directory(resource_directory)
+        && validate_bundle(&resource_directory.join(INPUT_SOURCE_BUNDLE_NAME)).is_ok()
+        && installed_bundle_path()
+            .is_ok_and(|target| !target.exists() && !any_product_bundle_beside(&target))
 }
 
 /// Whether `resource_directory` is the `Contents/Resources` of an `.app` bundle. A development run's resource directory is the cargo output directory, where tauri-build has copied the development input method with its framework symlinks flattened.
@@ -653,7 +673,7 @@ pub(crate) fn is_packaged_resource_directory(resource_directory: &Path) -> bool 
             == Some("app".as_ref())
 }
 
-/// Whether the `AppleEnabledInputSources` list, as JSON, has any entry for this input method.
+/// Whether an enabled input source list, as JSON, has any entry for this input method.
 fn enabled_in_input_source_list(json: &[u8]) -> Option<bool> {
     let list: serde_json::Value = serde_json::from_slice(json).ok()?;
     Some(list.as_array()?.iter().any(|entry| {
@@ -661,23 +681,41 @@ fn enabled_in_input_source_list(json: &[u8]) -> Option<bool> {
     }))
 }
 
+/// The preference lists macOS records enabled input sources in. Current releases keep third-party input methods in `com.apple.inputsources` and leave them out of the HIToolbox list, which only still carries Apple's own sources; older releases kept everything in the HIToolbox list.
+const ENABLED_INPUT_SOURCE_LISTS: [(&str, &str); 2] = [
+    (
+        "com.apple.inputsources",
+        "AppleEnabledThirdPartyInputSources",
+    ),
+    ("com.apple.HIToolbox", "AppleEnabledInputSources"),
+];
+
+/// Enabled when any list has this input method; `None` only when no list could be read, since a release that does not use one of them simply has no such key.
+fn enabled_in_any_list(lists: impl IntoIterator<Item = Option<bool>>) -> Option<bool> {
+    lists
+        .into_iter()
+        .flatten()
+        .reduce(|any, enabled| any || enabled)
+}
+
 /// Whether the user has this input method in the System Settings input source list. `None` when the list cannot be read.
 ///
 /// Read through `defaults export`, which asks cfprefsd, rather than the plist file itself: the file lags behind a registration that has only just enabled the source.
 pub(crate) fn input_source_enabled() -> Option<bool> {
+    enabled_in_any_list(
+        ENABLED_INPUT_SOURCE_LISTS
+            .iter()
+            .map(|(domain, key)| enabled_in_preference_list(domain, key)),
+    )
+}
+
+fn enabled_in_preference_list(domain: &str, key: &str) -> Option<bool> {
     use std::io::Write;
     let mut command = Command::new("/usr/bin/defaults");
-    command.args(["export", "com.apple.HIToolbox", "-"]);
+    command.args(["export", domain, "-"]);
     let exported = bounded_command_output(&mut command, MAX_INPUT_SOURCE_PREFERENCES_BYTES)?;
     let mut plutil = Command::new("/usr/bin/plutil")
-        .args([
-            "-extract",
-            "AppleEnabledInputSources",
-            "json",
-            "-o",
-            "-",
-            "-",
-        ])
+        .args(["-extract", key, "json", "-o", "-", "-"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -834,7 +872,7 @@ mod tests {
 
         let first_root = tempdir().unwrap();
         let first = versioned_fixture(first_root.path(), "0.50.0", "10", b"first");
-        let outcome = ensure_current_with(&first, &target, || {
+        let outcome = ensure_current_with(&first, &target, false, || {
             install_bundle_at(&first, &destination).map(|_| ())
         })
         .unwrap();
@@ -843,7 +881,7 @@ mod tests {
 
         let same_root = tempdir().unwrap();
         let same = versioned_fixture(same_root.path(), "0.50.0", "10", b"same");
-        let outcome = ensure_current_with(&same, &target, || {
+        let outcome = ensure_current_with(&same, &target, false, || {
             panic!("an equal version must not install")
         })
         .unwrap();
@@ -852,7 +890,7 @@ mod tests {
 
         let older_root = tempdir().unwrap();
         let older = versioned_fixture(older_root.path(), "0.50.0", "9", b"older");
-        let outcome = ensure_current_with(&older, &target, || {
+        let outcome = ensure_current_with(&older, &target, false, || {
             panic!("an older version must not install")
         })
         .unwrap();
@@ -861,7 +899,7 @@ mod tests {
 
         let newer_root = tempdir().unwrap();
         let newer = versioned_fixture(newer_root.path(), "0.50.0", "11", b"newer");
-        let outcome = ensure_current_with(&newer, &target, || {
+        let outcome = ensure_current_with(&newer, &target, false, || {
             install_bundle_at(&newer, &destination).map(|_| ())
         })
         .unwrap();
@@ -877,9 +915,76 @@ mod tests {
         let result = ensure_current_with(
             &root.path().join(INPUT_SOURCE_BUNDLE_NAME),
             &root.path().join("installed.app"),
+            false,
             || panic!("nothing to install"),
         );
         assert!(matches!(result, Err(InstallError::SourceUnavailable)));
+    }
+
+    #[test]
+    fn ensure_current_leaves_a_first_install_to_the_user_when_asked() {
+        let root = tempdir().unwrap();
+        let source = fixture(root.path(), INPUT_SOURCE_BUNDLE_ID, b"bundled");
+        let destination = root.path().join("Library/Input Methods");
+        let target = destination.join(INPUT_SOURCE_BUNDLE_NAME);
+
+        let outcome = ensure_current_with(&source, &target, true, || {
+            panic!("a deferred first install must not install")
+        })
+        .unwrap();
+        assert_eq!(outcome.refresh, Refresh::Deferred);
+        assert_eq!(outcome.installed, None);
+        assert!(!target.exists());
+
+        // The install window's button runs the same check without deferring.
+        let outcome = ensure_current_with(&source, &target, false, || {
+            install_bundle_at(&source, &destination).map(|_| ())
+        })
+        .unwrap();
+        assert_eq!(outcome.refresh, Refresh::Install);
+        assert!(target.exists());
+    }
+
+    #[test]
+    fn ensure_current_treats_a_copy_under_an_older_name_as_an_upgrade() {
+        let root = tempdir().unwrap();
+        let source = fixture(root.path(), INPUT_SOURCE_BUNDLE_ID, b"bundled");
+        let destination = root.path().join("Library/Input Methods");
+        fs::create_dir_all(&destination).unwrap();
+        let target = destination.join(INPUT_SOURCE_BUNDLE_NAME);
+        pkg_era_bundle(&destination, PKG_ERA_BUNDLE_NAME, INPUT_SOURCE_BUNDLE_ID);
+        let mut installed = false;
+
+        let outcome = ensure_current_with(&source, &target, true, || {
+            installed = true;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(outcome.refresh, Refresh::Install);
+        assert!(
+            installed,
+            "a pkg-era copy is replaced without waiting for the user"
+        );
+    }
+
+    #[test]
+    fn ensure_current_defers_beside_the_upstream_input_method() {
+        let root = tempdir().unwrap();
+        let source = fixture(root.path(), INPUT_SOURCE_BUNDLE_ID, b"bundled");
+        let destination = root.path().join("Library/Input Methods");
+        fs::create_dir_all(&destination).unwrap();
+        let target = destination.join(INPUT_SOURCE_BUNDLE_NAME);
+        pkg_era_bundle(
+            &destination,
+            PKG_ERA_BUNDLE_NAME,
+            "org.example.inputmethod.Upstream",
+        );
+
+        let outcome = ensure_current_with(&source, &target, true, || {
+            panic!("another product's bundle under the pkg-era name is not this one")
+        })
+        .unwrap();
+        assert_eq!(outcome.refresh, Refresh::Deferred);
     }
 
     #[test]
@@ -890,7 +995,7 @@ mod tests {
         let target = root.path().join(INPUT_SOURCE_BUNDLE_NAME);
         std::os::unix::fs::symlink(&external, &target).unwrap();
 
-        let result = ensure_current_with(&source, &target, || {
+        let result = ensure_current_with(&source, &target, false, || {
             panic!("a symlinked installed bundle must not be treated as current")
         });
         assert!(matches!(result, Err(InstallError::InvalidBundle)));
@@ -903,6 +1008,15 @@ mod tests {
         let absent = br#"[{"Bundle ID":"com.apple.inputmethod.Kotoeri.RomajiTyping"}]"#;
         assert_eq!(enabled_in_input_source_list(absent), Some(false));
         assert_eq!(enabled_in_input_source_list(b"not json"), None);
+    }
+
+    #[test]
+    fn enabled_when_any_readable_list_has_this_bundle() {
+        // Current macOS lists third-party sources only in com.apple.inputsources, so the HIToolbox list alone reads as not enabled.
+        assert_eq!(enabled_in_any_list([Some(true), Some(false)]), Some(true));
+        assert_eq!(enabled_in_any_list([None, Some(true)]), Some(true));
+        assert_eq!(enabled_in_any_list([None, Some(false)]), Some(false));
+        assert_eq!(enabled_in_any_list([None, None]), None);
     }
 
     #[test]
@@ -1009,14 +1123,14 @@ mod tests {
 
         // Not installed: the refresh is an install, which the injected step declines here.
         let source = fixture(root.path(), INPUT_SOURCE_BUNDLE_ID, b"bundled");
-        let result = ensure_current_with(&source, &target, || Err(InstallError::Io));
+        let result = ensure_current_with(&source, &target, false, || Err(InstallError::Io));
         assert!(result.is_err());
         assert!(pkg_era.exists(), "kept while nothing replaces it");
 
         // Installed and not older than the bundled copy (neither version is readable): up to date.
         install_bundle_at(&source, &destination).unwrap();
         let pkg_era = pkg_era_bundle(&destination, PKG_ERA_BUNDLE_NAME, INPUT_SOURCE_BUNDLE_ID);
-        let outcome = ensure_current_with(&source, &target, || {
+        let outcome = ensure_current_with(&source, &target, false, || {
             panic!("an up-to-date install must not reinstall")
         })
         .unwrap();
@@ -1203,7 +1317,7 @@ mod tests {
         assert!(!is_packaged_resource_directory(Path::new(
             "/Users/dev/Other.app/Resources"
         )));
-        let result = ensure_current(Path::new("/Users/dev/msime/target/debug"));
+        let result = ensure_current(Path::new("/Users/dev/msime/target/debug"), true);
         assert!(matches!(result, Err(InstallError::SourceUnavailable)));
     }
 

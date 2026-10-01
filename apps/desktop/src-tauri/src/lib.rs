@@ -2661,7 +2661,7 @@ async fn install_input_source(app: tauri::AppHandle) -> Result<(), HostActionErr
 #[cfg(target_os = "macos")]
 #[derive(Debug, Clone, serde::Serialize)]
 struct InputSourceStartupStatus {
-    /// `installed`, `updated`, `up_to_date`, `login_required` (installed, but the source list only picks it up after the next login) or `failed`.
+    /// `installed`, `updated`, `up_to_date`, `not_installed` (a first install, left for the user to start from the install window), `login_required` (installed, but the source list only picks it up after the next login) or `failed`.
     action: &'static str,
     /// Whether the input source is in the System Settings list at the time of the request (see `input_source_status_now`); absent when that list could not be read.
     enabled: Option<bool>,
@@ -2677,6 +2677,8 @@ struct InputSourceStartupStatus {
 struct InputSourceStartupState {
     result: Mutex<Option<Option<InputSourceStartupStatus>>>,
     finished: std::sync::Condvar,
+    /// Whether the main window opened as the first-install window and the user has not left it yet.
+    first_install_window: std::sync::atomic::AtomicBool,
 }
 
 #[cfg(target_os = "macos")]
@@ -2705,13 +2707,15 @@ impl InputSourceStartupState {
 #[cfg(target_os = "macos")]
 fn run_input_source_startup(
     resource_directory: &std::path::Path,
+    defer_first_install: bool,
 ) -> Option<InputSourceStartupStatus> {
-    let status = match macos_input_source::ensure_current(resource_directory) {
+    let status = match macos_input_source::ensure_current(resource_directory, defer_first_install) {
         Ok(outcome) => InputSourceStartupStatus {
             action: match outcome.refresh {
                 macos_input_source::Refresh::Install => "installed",
                 macos_input_source::Refresh::Update => "updated",
                 macos_input_source::Refresh::UpToDate => "up_to_date",
+                macos_input_source::Refresh::Deferred => "not_installed",
             },
             enabled: None,
             system_bundles: Vec::new(),
@@ -2785,23 +2789,88 @@ async fn input_source_startup_status(
     })
 }
 
-/// Adds the installed input method to the user's input sources, for the settings page's start-time notice. `not_installed` asks for an install instead; `registration_failed` means the system did not accept it, and the user can still add it by hand in System Settings.
+/// The install window's button: the start-time check run again without deferring, so a first install reports the same `installed` / `login_required` / `failed` the start-time check would have. The result replaces the start-time one, which is what the settings page reads once the window has made way for it.
 #[cfg(target_os = "macos")]
 #[tauri::command]
-async fn enable_input_source() -> Result<(), HostActionError> {
-    tauri::async_runtime::spawn_blocking(|| {
-        macos_input_source::enable_installed().map_err(|error| HostActionError {
-            code: match error {
-                macos_input_source::InstallError::InvalidBundle => "not_installed",
-                macos_input_source::InstallError::Registration => "registration_failed",
-                _ => "unavailable",
-            },
-        })
+async fn run_first_input_source_install(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<InputSourceStartupState>>,
+) -> Result<InputSourceStartupStatus, HostActionError> {
+    let resource_directory = app.path().resource_dir().map_err(|_| HostActionError {
+        code: "unavailable",
+    })?;
+    let state = Arc::clone(&state);
+    tauri::async_runtime::spawn_blocking(move || {
+        let status = run_input_source_startup(&resource_directory, false);
+        state.finish(status);
+        input_source_status_now(
+            &state,
+            std::time::Duration::ZERO,
+            macos_input_source::input_source_enabled,
+            macos_input_source::system_bundles,
+        )
     })
     .await
     .map_err(|_| HostActionError {
         code: "unavailable",
     })?
+    .ok_or(HostActionError {
+        code: "unavailable",
+    })
+}
+
+/// The install window's size. The main window opens at it on a first install (see the start-time check in `run`) and returns to the settings size once the user leaves the window.
+#[cfg(target_os = "macos")]
+const FIRST_INSTALL_WINDOW_SIZE: (f64, f64) = (480.0, 440.0);
+/// The settings window's size and minimum, as declared for `main` in tauri.macos.conf.json.
+#[cfg(target_os = "macos")]
+const SETTINGS_WINDOW_SIZE: (f64, f64) = (1000.0, 780.0);
+#[cfg(target_os = "macos")]
+const SETTINGS_WINDOW_MIN_SIZE: (f64, f64) = (360.0, 540.0);
+
+#[cfg(target_os = "macos")]
+fn shape_first_install_window(window: &tauri::WebviewWindow) {
+    let (width, height) = FIRST_INSTALL_WINDOW_SIZE;
+    let _ = window.set_min_size(None::<tauri::LogicalSize<f64>>);
+    let _ = window.set_size(tauri::LogicalSize::new(width, height));
+    let _ = window.set_resizable(false);
+    let _ = window.set_maximizable(false);
+    let _ = window.center();
+}
+
+/// Whether the page should open as the install window: answered from what the window setup decided, so the settings page never waits on the start-time check for it.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+fn first_install_window_pending(state: tauri::State<'_, Arc<InputSourceStartupState>>) -> bool {
+    state
+        .first_install_window
+        .load(std::sync::atomic::Ordering::Acquire)
+}
+
+/// Gives the main window back its settings size when the user leaves the install window.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+fn leave_first_install_window(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, Arc<InputSourceStartupState>>,
+) -> Result<(), HostActionError> {
+    state
+        .first_install_window
+        .store(false, std::sync::atomic::Ordering::Release);
+    let (width, height) = SETTINGS_WINDOW_SIZE;
+    let (min_width, min_height) = SETTINGS_WINDOW_MIN_SIZE;
+    let unavailable = |_| HostActionError {
+        code: "unavailable",
+    };
+    window.set_resizable(true).map_err(unavailable)?;
+    window.set_maximizable(true).map_err(unavailable)?;
+    window
+        .set_min_size(Some(tauri::LogicalSize::new(min_width, min_height)))
+        .map_err(unavailable)?;
+    window
+        .set_size(tauri::LogicalSize::new(width, height))
+        .map_err(unavailable)?;
+    window.center().map_err(unavailable)
 }
 
 #[cfg(target_os = "macos")]
@@ -4478,7 +4547,7 @@ pub fn run() {
             app.manage(macos_cloud_clipboard::CloudState::from_environment()?);
             #[cfg(target_os = "macos")]
             app.manage(macos_cloud_dictionary::DictionaryState::from_environment()?);
-            // Install or refresh the input method on every start, as the Windows installer registers its TSF DLLs on every install and upgrade. In the background so a slow or failed registration never holds up the window. Only a packaged app does this: `tauri dev`, `cargo run` and a binary under target/<profile> resolve their resource directory to the cargo output directory, where tauri-build has copied the development input method, and must not replace the developer's installed one. A run with its own host options and a panel the running input method asked for are skipped too.
+            // Refresh the input method on every start, as the Windows installer registers its TSF DLLs on every install and upgrade. In the background so a slow or failed registration never holds up the window. A first install is left to the user: the window opens as the install window instead, and its button runs the install (`run_first_input_source_install`). Only a packaged app does this: `tauri dev`, `cargo run` and a binary under target/<profile> resolve their resource directory to the cargo output directory, where tauri-build has copied the development input method, and must not replace the developer's installed one. A run with its own host options and a panel the running input method asked for are skipped too.
             #[cfg(target_os = "macos")]
             {
                 let startup = Arc::new(InputSourceStartupState::default());
@@ -4495,8 +4564,14 @@ pub fn run() {
                             && !development_run
                             && !panel_launch =>
                     {
+                        if macos_input_source::first_install_pending(&resource_directory) {
+                            if let Some(main) = app.get_webview_window("main") {
+                                shape_first_install_window(&main);
+                                startup.first_install_window.store(true, std::sync::atomic::Ordering::Release);
+                            }
+                        }
                         tauri::async_runtime::spawn_blocking(move || {
-                            startup.finish(run_input_source_startup(&resource_directory));
+                            startup.finish(run_input_source_startup(&resource_directory, true));
                         });
                     }
                     _ => startup.finish(None),
@@ -5038,7 +5113,11 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             input_source_startup_status,
             #[cfg(target_os = "macos")]
-            enable_input_source,
+            first_install_window_pending,
+            #[cfg(target_os = "macos")]
+            run_first_input_source_install,
+            #[cfg(target_os = "macos")]
+            leave_first_install_window,
             #[cfg(target_os = "macos")]
             open_input_source_settings,
             #[cfg(target_os = "macos")]

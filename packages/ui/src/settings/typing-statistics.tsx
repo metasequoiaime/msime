@@ -86,14 +86,13 @@ const heatWeek = "grid grid-rows-[repeat(7,14px)] gap-[3px]";
 const bar = "block w-full min-h-0.5 rounded-t-[3px] rounded-b-[1px]";
 const axis = "mt-[7px] flex justify-between text-xs text-muted";
 
-// The segmented control behind both the phone's content tabs and the desktop's range picker. The column count is a parameter because the two differ, and because the tab row silently kept four columns after a fifth tab was added -- the extra one wrapped onto a second row at a quarter width. Each count is spelled out so Tailwind sees the class.
+// The segmented control behind the content tabs. The column count is a parameter because the tab row silently kept four columns after a fifth tab was added -- the extra one wrapped onto a second row at a quarter width. Each count is spelled out so Tailwind sees the class.
 const segmentedColumns: Record<number, string> = {
-  3: "grid-cols-3",
   5: "grid-cols-5",
   6: "grid-cols-6",
 };
 const segmented = (columns: number) =>
-  `grid gap-[3px] rounded-[9px] bg-subtle p-[3px] ${segmentedColumns[columns]} [&>button]:min-h-[34px] [&>button]:rounded-[7px] [&>button]:border-0 [&>button]:bg-transparent [&>button]:text-secondary [&>button[aria-selected=true]]:bg-raised [&>button[aria-selected=true]]:text-body [&>button[aria-selected=true]]:shadow-card [&>button[aria-pressed=true]]:bg-raised [&>button[aria-pressed=true]]:text-body [&>button[aria-pressed=true]]:shadow-card`;
+  `grid gap-[3px] rounded-[9px] bg-subtle p-[3px] ${segmentedColumns[columns]} [&>button]:min-h-[34px] [&>button]:rounded-[7px] [&>button]:border-0 [&>button]:bg-transparent [&>button]:text-secondary [&>button[aria-selected=true]]:bg-raised [&>button[aria-selected=true]]:text-body [&>button[aria-selected=true]]:shadow-card`;
 
 export type SelectionCounts = {
   /** Commits from positions 1..9, index 0 being the first candidate. */
@@ -151,7 +150,8 @@ export interface TypingStatisticsClient {
   reset(): Promise<TypingStatisticsStatus>;
 }
 
-type Period = 7 | 30 | 0;
+/** Days the desktop trend bars cover. */
+const DESKTOP_TREND_DAYS = 30;
 type Slice = { id: string; title: string; count: number; color: string; symbol: string };
 
 const palette = [
@@ -1037,9 +1037,8 @@ export function TypingStatisticsPage({
 }) {
   const { confirm, confirmation } = useConfirm();
   const [status, setStatus] = useState<TypingStatisticsStatus>();
-  const [period, setPeriod] = useState<Period>(7);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
-  const [mobileTab, setMobileTab] = useState<
+  const [contentTab, setContentTab] = useState<
     "trend" | "kind" | "mode" | "scheme" | "ranks" | "keys"
   >("trend");
   const [busy, setBusy] = useState(true);
@@ -1054,7 +1053,7 @@ export function TypingStatisticsPage({
     () => recentDays(mobileTrendLength(status?.statistics.days ?? {})),
     [status?.statistics.days],
   );
-  const desktopTrendDays = useMemo(() => recentDays(period === 0 ? 30 : period), [period]);
+  const desktopTrendDays = useMemo(() => recentDays(DESKTOP_TREND_DAYS), []);
   const trendDays = mobile ? mobileTrendDays : desktopTrendDays;
 
   useEffect(() => {
@@ -1178,27 +1177,18 @@ export function TypingStatisticsPage({
       </div>
     );
   const statistics = status.statistics;
-  const scopeKeys = selectedDay
-    ? [selectedDay]
-    : mobile || period === 0
-      ? null
-      : trendDays.map((day) => day.key);
+  const scopeKeys = selectedDay ? [selectedDay] : null;
   const breakdown = scopedBreakdown(statistics, scopeKeys);
   const scopeTotal =
     scopeKeys === null
       ? statistics.total
       : scopeKeys.reduce((total, key) => total + (statistics.days[key] ?? 0), 0);
   const today = recentDays(1)[0];
-  const scopeTitle = selectedDay
+  const selectedLabel = selectedDay
     ? (trendDays.find((day) => day.key === selectedDay)?.label ?? dayLabel(selectedDay))
-    : mobile || period === 0
-      ? "累计输入"
-      : `近 ${period} 天输入`;
-  const keyScopeLabel = selectedDay
-    ? (trendDays.find((day) => day.key === selectedDay)?.label ?? dayLabel(selectedDay))
-    : mobile || period === 0
-      ? "累计"
-      : `近 ${period} 天`;
+    : null;
+  const scopeTitle = selectedLabel ?? "累计输入";
+  const keyScopeLabel = selectedLabel ?? "累计";
   const maximum = Math.max(1, ...trendDays.map((day) => statistics.days[day.key] ?? 0));
   const activity = activityMetrics(statistics, today.key);
   const characterSlices = characterKinds.map(([id, title], index) => ({
@@ -1368,55 +1358,32 @@ export function TypingStatisticsPage({
         </section>
       )}
       <section className="section m-0">
-        {mobile ? (
-          <div className={segmented(6)} role="tablist" aria-label="统计内容">
-            {(
-              [
-                ["trend", "趋势"],
-                ["kind", "类型"],
-                ["mode", "模式"],
-                ["scheme", "方案"],
-                ["ranks", "候选"],
-                ["keys", "按键"],
-              ] as const
-            ).map(([value, label]) => (
-              <button
-                type="button"
-                role="tab"
-                key={value}
-                aria-selected={mobileTab === value}
-                onClick={() => {
-                  setMobileTab(value);
-                  setSelectedDay(null);
-                }}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        ) : (
-          <div className={segmented(3)} role="group" aria-label="统计范围">
-            {(
-              [
-                [7, "7 天"],
-                [30, "30 天"],
-                [0, "累计"],
-              ] as const
-            ).map(([value, label]) => (
-              <button
-                type="button"
-                key={value}
-                aria-pressed={period === value}
-                onClick={() => {
-                  setPeriod(value);
-                  setSelectedDay(null);
-                }}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        )}
+        <div className={segmented(6)} role="tablist" aria-label="统计内容">
+          {(
+            [
+              ["trend", "趋势"],
+              ["kind", "类型"],
+              ["mode", "模式"],
+              ["scheme", "方案"],
+              ["ranks", "候选"],
+              ["keys", "按键"],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              type="button"
+              role="tab"
+              key={value}
+              aria-selected={contentTab === value}
+              onClick={() => {
+                setContentTab(value);
+                // The desktop keeps a picked day across tabs: its bars sit on 趋势, and the day's breakdown is what the other tabs are for.
+                if (mobile) setSelectedDay(null);
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
         <div className="mt-[22px] grid grid-cols-2 gap-6 max-phone:gap-3">
           <div className={metric}>
             <span className="text-secondary">今日输入</span>
@@ -1500,13 +1467,10 @@ export function TypingStatisticsPage({
           <StatisticsHourlyBars hours={activity.todayHours} />
         </section>
       )}
-      {(!mobile || mobileTab === "trend") && (
+      {contentTab === "trend" && (
         <section className="section m-0" aria-labelledby="statistics-trend-title">
           <h2 className={heading} id="statistics-trend-title">
-            每日趋势 ·{" "}
-            {mobile && trendDays.length >= 360
-              ? "近一年"
-              : `近 ${mobile ? trendDays.length : period === 0 ? 30 : period} 天`}
+            每日趋势 · {mobile && trendDays.length >= 360 ? "近一年" : `近 ${trendDays.length} 天`}
           </h2>
           <p className="mt-[7px] mb-0 text-xs text-muted">
             最高{" "}
@@ -1578,7 +1542,7 @@ export function TypingStatisticsPage({
           )}
         </section>
       )}
-      {!mobile && (
+      {!mobile && contentTab === "trend" && (
         <section className="section m-0" aria-labelledby="statistics-calendar-title">
           <h2 className={heading} id="statistics-calendar-title">
             日历热力图
@@ -1591,7 +1555,7 @@ export function TypingStatisticsPage({
           />
         </section>
       )}
-      {(!mobile || mobileTab === "keys") && (
+      {contentTab === "keys" && (
         <KeyboardHeatmap
           dailyKeys={statistics.dailyKeys}
           scopeKeys={scopeKeys}
@@ -1600,10 +1564,10 @@ export function TypingStatisticsPage({
           platform={platform}
         />
       )}
-      {(!mobile || mobileTab === "kind") && (
+      {contentTab === "kind" && (
         <Distribution title="字符类型" slices={characterSlices} variant={mobile ? "pie" : "bar"} />
       )}
-      {(!mobile || mobileTab === "mode") && (
+      {contentTab === "mode" && (
         <Distribution
           title="语言模式"
           slices={languageSlices}
@@ -1611,7 +1575,7 @@ export function TypingStatisticsPage({
           footer="按提交时使用的键盘模式统计，不推测文本语言；中文模式下输入的数字仍计入中文模式。AI 润色和语音输入单独按来源统计。"
         />
       )}
-      {(!mobile || mobileTab === "scheme") && (
+      {contentTab === "scheme" && (
         <Distribution
           title="输入方案"
           slices={sourceSlices}
@@ -1619,8 +1583,10 @@ export function TypingStatisticsPage({
           footer="输入方案统计其上屏字符数；拼音等按键另由按键热力图计数，只记每个键每天的按下次数。旧版本总数保留为历史未分类，新输入开始记录细分。"
         />
       )}
-      {!mobile && <DailyDetails rows={dailyDetailRows(statistics, today.key)} />}
-      {(!mobile || mobileTab === "ranks") && <CandidateRanks selections={statistics.selections} />}
+      {!mobile && contentTab === "trend" && (
+        <DailyDetails rows={dailyDetailRows(statistics, today.key)} />
+      )}
+      {contentTab === "ranks" && <CandidateRanks selections={statistics.selections} />}
       {mobile ? (
         <section className="section m-0 pt-0.5">
           <p className={`${privacy} mt-0`}>

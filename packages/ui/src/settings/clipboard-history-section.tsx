@@ -54,6 +54,7 @@ export function ClipboardHistorySection({
   const [sending, setSending] = useState(false);
   const cloudRevision = useRef(0);
   const historyGeneration = useRef(0);
+  const historyActionBusy = useRef(false);
   const historyShown = historyEnabled && Boolean(client?.list);
 
   // The account state and the server's enabled flag are read once each time the page is opened with the history showing; there is no polling.
@@ -124,10 +125,13 @@ export function ClipboardHistorySection({
     return () => {
       active = false;
       historyGeneration.current++;
+      historyActionBusy.current = false;
     };
   }, [client, ios, page, persistedHistoryEnabled, revision]);
 
   const mutate = async (action: () => Promise<void>, failure: string) => {
+    if (historyActionBusy.current) return;
+    historyActionBusy.current = true;
     const currentGeneration = historyGeneration.current;
     const currentClient = client;
     try {
@@ -141,6 +145,8 @@ export function ClipboardHistorySection({
       }
     } catch {
       if (currentGeneration === historyGeneration.current) onError(failure);
+    } finally {
+      if (currentGeneration === historyGeneration.current) historyActionBusy.current = false;
     }
   };
 

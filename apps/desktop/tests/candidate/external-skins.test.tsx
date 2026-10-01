@@ -132,16 +132,15 @@ function carousel(): HTMLElement {
   return screen.getByRole("region", { name: "主题列表" });
 }
 
-test("with a community page the theme page leaves the 外部皮肤 row to 社区", async () => {
+test("the theme page keeps the 外部皮肤 row on a host with a community page", async () => {
   openSkinPage({
     scanSkinCatalog: vi.fn().mockResolvedValue(catalog),
     openSkinDirectory: vi.fn(),
     communityCandidateSkins: {} as NonNullable<SettingsClient["communityCandidateSkins"]>,
   });
-  // The carousel still lists the scanned package; only the directory row has moved.
   expect(await screen.findByRole("article", { name: sample.name })).not.toBeNull();
-  expect(screen.queryByText("外部皮肤", { selector: "[data-row-title]" })).toBeNull();
-  expect(screen.queryByRole("button", { name: "刷新皮肤" })).toBeNull();
+  expect(await skinRow()).not.toBeNull();
+  expect(screen.getByRole("button", { name: "刷新皮肤" })).not.toBeNull();
 });
 
 test("external skin selected-bar flag emits a scoped hide rule", () => {

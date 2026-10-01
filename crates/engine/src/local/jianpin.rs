@@ -108,9 +108,7 @@ fn read(
     limit: usize,
     filter_initials: bool,
 ) -> rusqlite::Result<Vec<WordItem>> {
-    let sql = format!(
-        "SELECT \"key\",\"value\",\"weight\" FROM \"{table}\" WHERE \"jp\"=?1 ORDER BY \"weight\" DESC LIMIT ?2"
-    );
+    let sql = jianpin_sql(table);
     let jianpin: String = initials
         .iter()
         .filter_map(|initial| initial.get(..1))
@@ -139,6 +137,14 @@ fn read(
         }
     }
     Ok(candidates)
+}
+
+fn jianpin_sql(table: &str) -> String {
+    let mut sql = String::with_capacity(table.len() + 83);
+    sql.push_str("SELECT \"key\",\"value\",\"weight\" FROM \"");
+    sql.push_str(table);
+    sql.push_str("\" WHERE \"jp\"=?1 ORDER BY \"weight\" DESC LIMIT ?2");
+    sql
 }
 
 fn key_matches_initials(key: &str, initials: &[String]) -> bool {
@@ -188,6 +194,16 @@ mod tests {
         zero_initials: &[],
         finals: &[],
     };
+
+    #[test]
+    fn jianpin_sql_writes_the_lookup_statement_directly() {
+        let sql = jianpin_sql("tbl_2_n");
+        assert_eq!(
+            sql,
+            "SELECT \"key\",\"value\",\"weight\" FROM \"tbl_2_n\" WHERE \"jp\"=?1 ORDER BY \"weight\" DESC LIMIT ?2"
+        );
+        assert_eq!(sql.capacity(), sql.len());
+    }
 
     fn fixture(dir: &Path) -> PathBuf {
         let path = dir.join("msime.db");

@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { candidateSkinMessage, communityNeedsSignIn } from "./community-helpers";
 import type {
   CandidateSkinCommunityClient,
   CandidateSkinSyncReport,
@@ -71,79 +70,4 @@ export function useCandidateSkinSync(
   };
 
   return { busy, report, error, run };
-}
-
-/** Why one package was left out of a run, as a fixed sentence. */
-function skipReason(code: string): string {
-  if (code === "candidate_skin_public_kept")
-    return "这是公开作品，删除本地皮肤不会下架它；如需下架，请在社区中操作。";
-  if (code.startsWith("candidate_skin_") || code === "storage")
-    return candidateSkinMessage({ code });
-  switch (code) {
-    case "account_invalid":
-      return "服务器未接受这款皮肤。";
-    case "account_conflict":
-      return "云端的同名作品属于另一个皮肤包，未覆盖。";
-    case "account_rate_limited":
-      return "同步太频繁，下次再试。";
-  }
-  return "暂时无法同步，下次再试。";
-}
-
-function countLine(report: CandidateSkinSyncReport): string {
-  const parts = [
-    report.uploaded.length ? `上传 ${report.uploaded.length} 款` : "",
-    report.downloaded.length ? `下载 ${report.downloaded.length} 款` : "",
-    report.deleted_local.length ? `移除本地 ${report.deleted_local.length} 款` : "",
-    report.deleted_cloud.length ? `移除云端 ${report.deleted_cloud.length} 款` : "",
-  ].filter(Boolean);
-  return parts.length ? `已同步：${parts.join("，")}。` : "本地皮肤已与云端皮肤库同步。";
-}
-
-function stoppedLine(code: string): string {
-  return code === "candidate_skin_library_limit"
-    ? "云端皮肤库已满 100 款，其余皮肤未上传。"
-    : "同步太频繁，其余皮肤稍后再上传。";
-}
-
-/** The sync outcome under the 本地皮肤 row: what the last run did, why uploads stopped, and each package it left out. */
-export function CandidateSkinSyncStatus({ sync }: { sync: CandidateSkinSyncState }) {
-  if (sync.busy && !sync.report) {
-    return (
-      <span role="status" className="block">
-        正在与云端皮肤库同步…
-      </span>
-    );
-  }
-  if (sync.error) {
-    return (
-      <span role="status" className="block">
-        {communityNeedsSignIn(sync.error)
-          ? "登录后，本地皮肤会自动同步到你的云端皮肤库，默认仅自己可见。"
-          : `同步失败：${candidateSkinMessage(sync.error)}`}
-      </span>
-    );
-  }
-  const report = sync.report;
-  if (!report) return null;
-  return (
-    <>
-      <span role="status" className="block">
-        {sync.busy ? "正在与云端皮肤库同步…" : countLine(report)}
-        {report.stopped && ` ${stoppedLine(report.stopped)}`}
-      </span>
-      {report.skipped.length > 0 && (
-        <details>
-          <summary>{report.skipped.length} 款皮肤未同步</summary>
-          <ul>
-            {report.skipped.map((skip) => (
-              <li key={skip.package_id}>
-                {skip.package_id}：{skipReason(skip.code)}
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
-    </>
-  );
 }

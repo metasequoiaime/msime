@@ -43,7 +43,7 @@ pub fn query_quick_phrases_with_limit(
 
 fn read(connection: &Connection, prefix: &str, limit: usize) -> rusqlite::Result<Vec<WordItem>> {
     let mut statement = connection.prepare_cached(SQL)?;
-    let upper_bound = format!("{prefix}\x7f");
+    let upper_bound = prefix_upper_bound(prefix);
     let rows = statement.query_map(
         rusqlite::params![prefix, upper_bound, super::sql_limit(limit)],
         |row| {
@@ -70,9 +70,24 @@ fn read(connection: &Connection, prefix: &str, limit: usize) -> rusqlite::Result
     Ok(candidates)
 }
 
+fn prefix_upper_bound(prefix: &str) -> String {
+    let mut result = String::with_capacity(prefix.len() + 1);
+    result.push_str(prefix);
+    result.push('\x7f');
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prefix_upper_bound_allocates_only_result_bytes() {
+        let prefix = "secret";
+        let result = prefix_upper_bound(prefix);
+        assert_eq!(result, "secret\x7f");
+        assert_eq!(result.capacity(), result.len());
+    }
 
     fn fixture(dir: &Path) -> std::path::PathBuf {
         let path = dir.join("msime.db");

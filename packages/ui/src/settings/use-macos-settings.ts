@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { InputSourceStartupStatus, SettingsClient } from "../index";
+import { inputSourceNeedsAdding } from "./input-source-startup-notice";
+
+/** How often the settings page reads the input source list again while the notice waits for the user to act in System Settings or Finder; a focus change reads it at once. */
+export const INPUT_SOURCE_RECHECK_MS = 3000;
 
 export interface UseMacosSettingsOptions {
   client: Pick<
@@ -61,6 +65,19 @@ export function useMacosSettings({ client, macos, setError }: UseMacosSettingsOp
       window.removeEventListener("focus", refresh);
     };
   }, [client, macos, refreshInputSourceStartup]);
+
+  // System Settings may sit beside the window rather than in front of it, so focus alone can miss the moment the source is added; while the notice is waiting on the user, read again on a short interval as well.
+  const waitingOnUser =
+    inputSourceNeedsAdding(inputSourceStartup) ||
+    Boolean(inputSourceStartup?.system_bundles?.length);
+  useEffect(() => {
+    if (!waitingOnUser || typeof window === "undefined") return;
+    const timer = window.setInterval(
+      () => void refreshInputSourceStartup(),
+      INPUT_SOURCE_RECHECK_MS,
+    );
+    return () => window.clearInterval(timer);
+  }, [waitingOnUser, refreshInputSourceStartup]);
 
   // The input method records missing pairs when it next translates, so read again whenever the
   // window comes back, typically from System Settings after a download.
