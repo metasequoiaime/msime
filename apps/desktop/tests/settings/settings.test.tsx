@@ -346,6 +346,55 @@ test("Android touch schemes follow Apple order and stay absent on hosts without 
   expect(screen.queryByRole("switch", { name: "显示输入方案 全拼 26 键" })).toBeNull();
 });
 
+test("touch hosts offering Cantonese, Zhuyin and Vietnamese list their touch schemes last and off", async () => {
+  const host = {
+    platform: "android",
+    input_schemes: [
+      "quanpin",
+      "shuangpin",
+      "wubi",
+      "japanese",
+      "korean",
+      "cantonese",
+      "zhuyin",
+      "vietnamese",
+    ],
+  } as HostCapabilities;
+  render(
+    <SettingsPage
+      client={{ load: async () => initial, save: vi.fn(), touchKeyboardSchemes: true, host }}
+    />,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  const group = screen.getByRole("group", { name: "输入方案" });
+  expect(
+    within(group)
+      .getAllByRole("button")
+      .map((button) => button.textContent?.replace("✓", "")),
+  ).toEqual([...touchSchemeLabels, "粤拼 26 键", "大千注音", "越南语 26 键"]);
+  expect(within(group).getAllByRole("switch")).toHaveLength(15);
+  for (const label of ["粤拼 26 键", "大千注音", "越南语 26 键"]) {
+    expect(
+      (screen.getByRole("switch", { name: `显示输入方案 ${label}` }) as HTMLInputElement).checked,
+    ).toBe(false);
+  }
+});
+
+test("a touch host without the Cantonese dictionary does not list the Cantonese touch scheme", async () => {
+  const host = {
+    platform: "ios",
+    input_schemes: ["quanpin", "shuangpin", "wubi", "japanese", "korean", "zhuyin", "vietnamese"],
+  } as HostCapabilities;
+  render(
+    <SettingsPage
+      client={{ load: async () => initial, save: vi.fn(), touchKeyboardSchemes: true, host }}
+    />,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  expect(screen.queryByRole("switch", { name: "显示输入方案 粤拼 26 键" })).toBeNull();
+  expect(screen.getByRole("switch", { name: "显示输入方案 大千注音" })).toBeTruthy();
+});
+
 test("offline candidate gloss is host-enabled, defaults off and persists", async () => {
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
     ...initial,

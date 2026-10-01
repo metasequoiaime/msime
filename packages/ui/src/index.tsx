@@ -59,6 +59,7 @@ export {
   selectHomeTouchKeyboardScheme,
   updateTouchKeyboardSchemeEnabled,
   allTouchKeyboardSchemes,
+  defaultTouchKeyboardSchemes,
 } from "./settings/touch-keyboard-scheme-helpers";
 import { settingsPlatformPresentation } from "./settings/settings-platform-presentation";
 import { settingsPageEnvironment } from "./settings/settings-page-environment";
@@ -447,7 +448,7 @@ import { HelpSettingsPage } from "./settings/help-settings-page";
 import type { MobileKeyboardFeedbackClient } from "./settings/mobile-keyboard-feedback-section";
 import { HandwritingSettingsPage } from "./settings/pages/handwriting-page";
 import { FeedbackSettingsPage } from "./settings/pages/feedback-page";
-import { allTouchKeyboardSchemes } from "./settings/touch-keyboard-scheme-helpers";
+import { defaultTouchKeyboardSchemes } from "./settings/touch-keyboard-scheme-helpers";
 import { logo } from "./settings/settings-options";
 import type { CommunitySkinClient } from "./community/community-skins";
 import { communityDestinationView } from "./community/community-destination";
@@ -2304,7 +2305,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     inputModeHUD,
   } = settingsInputPreferences(draft);
   const touchKeyboardSchemes = draft?.touch_keyboard_schemes ?? {
-    enabled: allTouchKeyboardSchemes,
+    enabled: defaultTouchKeyboardSchemes,
   };
   const {
     selected: selectedTouchKeyboardScheme,
