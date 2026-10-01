@@ -674,6 +674,7 @@ export {
   MAX_COMMAND_TABLES,
   defaultPluginPreferences,
   pluginPreferences,
+  withPackSelected,
   withoutRemovedPack,
   type AchievementPreferences,
   type CommitSoundPreferences,
