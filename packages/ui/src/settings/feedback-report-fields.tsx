@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { Row } from "../core/platform-controls";
 import * as settings from "./settings-style";
 import { FeedbackKindOptions } from "./feedback-kind-options";
-import { SettingField } from "./setting-field";
+import { SelectSettingField } from "./select-setting-field";
 import { SelectRow } from "./select-row";
 
 export interface FeedbackReportFieldsProps {
@@ -51,15 +51,9 @@ export function FeedbackReportFields({
     </>
   ) : (
     <>
-      <SettingField label="类型">
-        <select
-          aria-label="反馈类型"
-          value={kind}
-          onChange={(event) => onKindChange(event.target.value)}
-        >
-          <FeedbackKindOptions />
-        </select>
-      </SettingField>
+      <SelectSettingField label="类型" inputLabel="反馈类型" value={kind} onChange={onKindChange}>
+        <FeedbackKindOptions />
+      </SelectSettingField>
       <label className="section-title">
         描述
         <textarea
