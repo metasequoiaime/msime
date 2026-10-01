@@ -398,6 +398,7 @@ impl CommunityPluginApi for FakeApi {
         Ok(CommunityPluginPage {
             plugins: vec![item()],
             has_more: false,
+            skipped: 0,
         })
     }
     fn community_plugin(
@@ -552,10 +553,12 @@ fn responses_are_validated() {
     let duplicate = CommunityPluginPage {
         plugins: vec![item(), item()],
         has_more: false,
+        skipped: 0,
     };
     let endless = CommunityPluginPage {
         plugins: Vec::new(),
         has_more: true,
+        skipped: 0,
     };
     let long = CommunityPluginPage {
         plugins: (0..=MAXIMUM_PAGE_ITEMS)
@@ -566,9 +569,10 @@ fn responses_are_validated() {
             })
             .collect(),
         has_more: false,
+        skipped: 0,
     };
     for page in [duplicate, endless, long] {
-        assert_eq!(validate_page(&page), Err(AccountError::Unavailable));
+        assert_eq!(validate_page(page), Err(AccountError::Unavailable));
     }
 
     let packed = packed_signature();
@@ -630,11 +634,8 @@ fn serve_once(response: Vec<u8>) -> (String, mpsc::Receiver<(String, Vec<u8>)>) 
 
 #[test]
 fn transport_lists_by_kind_with_an_encoded_search() {
-    let response = serde_json::to_vec(&CommunityPluginPage {
-        plugins: vec![item()],
-        has_more: false,
-    })
-    .unwrap();
+    let response =
+        serde_json::to_vec(&serde_json::json!({ "plugins": [item()], "has_more": false })).unwrap();
     let (origin, received) = serve_once(response);
     let client = BackendAccountClient::loopback(&origin).unwrap();
     let page = client
@@ -646,6 +647,50 @@ fn transport_lists_by_kind_with_an_encoded_search() {
         "GET /v1/community/plugins?offset=20&q=%E7%AD%BE%20%E5%90%8D&kind=command_table HTTP/1.1"
     ));
     assert!(!head.contains("authorization:"));
+}
+
+#[test]
+fn transport_lists_the_installable_items_of_a_page_that_also_holds_effect_packs() {
+    // The server lists effect packs too, which this client cannot install; they are left out and counted, and the rest of the page still reads.
+    let mut effect = serde_json::to_value(item()).unwrap();
+    effect["id"] = "10000000-0000-4000-8000-000000000002".into();
+    effect["kind"] = "effect".into();
+    effect["plugin_id"] = "sparkle".into();
+    let mut sound = item();
+    sound.kind = PluginKind::Sound;
+    sound.plugin_id = "rain".into();
+    let response = serde_json::to_vec(&serde_json::json!({
+        "plugins": [effect, serde_json::to_value(&sound).unwrap()],
+        "has_more": true,
+    }))
+    .unwrap();
+    let (origin, _received) = serve_once(response);
+    let client = BackendAccountClient::loopback(&origin).unwrap();
+    let page = client.community_plugins(0, "", None, None).unwrap();
+    assert_eq!(page.plugins, vec![sound]);
+    assert!(page.has_more);
+    assert_eq!(page.skipped, 1);
+}
+
+#[test]
+fn a_page_of_only_effect_packs_still_pages_on() {
+    let mut effect = item();
+    effect.kind = PluginKind::Effect;
+    let page = validate_page(CommunityPluginPage {
+        plugins: vec![effect],
+        has_more: true,
+        skipped: 0,
+    })
+    .unwrap();
+    assert!(page.plugins.is_empty());
+    assert!(page.has_more);
+    assert_eq!(page.skipped, 1);
+}
+
+#[test]
+fn a_page_cannot_claim_skipped_items_itself() {
+    let value = serde_json::json!({ "plugins": [], "has_more": false, "skipped": 3 });
+    assert!(serde_json::from_value::<CommunityPluginPage>(value).is_err());
 }
 
 #[test]

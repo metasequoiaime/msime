@@ -113,6 +113,85 @@ test("the kind filter is sent with every page, including the ones load more appe
   expect(await screen.findByRole("button", { name: "查看插件 雷雨" })).not.toBeNull();
 });
 
+test("an empty community without a search or filter says nothing is published yet", async () => {
+  const list = vi.fn().mockResolvedValue({ plugins: [], has_more: false });
+  render(<CommunityPluginsPage client={client({ list })} localPlugins={catalog([])} />);
+  expect(await screen.findByText(/社区里还没有插件/)).not.toBeNull();
+  expect(screen.getByText(/发布我的插件/, { selector: "p" })).not.toBeNull();
+  expect(screen.queryByText(/没有匹配/)).toBeNull();
+});
+
+test("without a way to publish, the empty community does not point at the publish button", async () => {
+  const list = vi.fn().mockResolvedValue({ plugins: [], has_more: false });
+  render(<CommunityPluginsPage client={client({ list })} />);
+  const notice = await screen.findByText(/社区里还没有插件/);
+  expect(notice.textContent).not.toContain("发布我的插件");
+});
+
+test("an empty page under a kind filter or a search says nothing matched", async () => {
+  const list = vi.fn().mockResolvedValue({ plugins: [], has_more: false });
+  render(<CommunityPluginsPage client={client({ list })} />);
+  await screen.findByText(/社区里还没有插件/);
+
+  fireEvent.click(screen.getByRole("button", { name: "音乐包" }));
+  await waitFor(() => expect(list).toHaveBeenLastCalledWith(0, "", "music"));
+  expect(await screen.findByText("没有匹配的插件。")).not.toBeNull();
+  expect(screen.queryByText(/社区里还没有插件/)).toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: "全部" }));
+  await screen.findByText(/社区里还没有插件/);
+  fireEvent.change(screen.getByRole("textbox", { name: "搜索插件" }), {
+    target: { value: "雨" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "搜索" }));
+  await waitFor(() => expect(list).toHaveBeenLastCalledWith(0, "雨", null));
+  expect(await screen.findByText("没有匹配的插件。")).not.toBeNull();
+});
+
+test("a list that fails shows the error and no empty-list notice", async () => {
+  const list = vi.fn().mockRejectedValue(new Error("offline"));
+  render(<CommunityPluginsPage client={client({ list })} />);
+  await waitFor(() => expect(list).toHaveBeenCalled());
+  expect(await screen.findByRole("alert")).not.toBeNull();
+  expect(screen.queryByText(/没有.*插件/)).toBeNull();
+});
+
+test("load more resumes after the items the host skipped on the previous page", async () => {
+  const list = vi
+    .fn()
+    .mockResolvedValueOnce({ plugins: [first], has_more: true, skipped: 2 })
+    .mockResolvedValueOnce({ plugins: [second], has_more: false, skipped: 0 });
+  render(<CommunityPluginsPage client={client({ list })} />);
+  fireEvent.click(await screen.findByRole("button", { name: "加载更多" }));
+  await waitFor(() => expect(list).toHaveBeenLastCalledWith(3, "", null));
+  expect(await screen.findByRole("button", { name: "查看插件 雷雨" })).not.toBeNull();
+});
+
+test("a first page the host emptied reads on to the installable plugins after it", async () => {
+  const list = vi
+    .fn()
+    .mockResolvedValueOnce({ plugins: [], has_more: true, skipped: 20 })
+    .mockResolvedValueOnce({ plugins: [first], has_more: false, skipped: 1 });
+  render(<CommunityPluginsPage client={client({ list })} localPlugins={catalog([])} />);
+  expect(await screen.findByRole("button", { name: "查看插件 雨声" })).not.toBeNull();
+  expect(list).toHaveBeenNthCalledWith(1, 0, "", null);
+  expect(list).toHaveBeenNthCalledWith(2, 20, "", null);
+  expect(screen.queryByText(/社区里还没有插件/)).toBeNull();
+  expect(screen.queryByRole("button", { name: "加载更多" })).toBeNull();
+});
+
+test("a run of emptied pages stops after a few and points at load more, not at an empty community", async () => {
+  const list = vi.fn().mockResolvedValue({ plugins: [], has_more: true, skipped: 20 });
+  render(<CommunityPluginsPage client={client({ list })} localPlugins={catalog([])} />);
+  expect(await screen.findByText(/这台设备都不能安装/)).not.toBeNull();
+  expect(screen.queryByText(/社区里还没有插件/)).toBeNull();
+  const calls = list.mock.calls.length;
+  expect(calls).toBeGreaterThan(1);
+  expect(calls).toBeLessThanOrEqual(6);
+  fireEvent.click(screen.getByRole("button", { name: "加载更多" }));
+  await waitFor(() => expect(list).toHaveBeenCalledWith(calls * 20, "", null));
+});
+
 test("a kind filter whose first page fails is rolled back, so load more stays on the listed kind", async () => {
   const list = vi
     .fn()
@@ -422,6 +501,9 @@ test("the 插件 page switches between the installed packs and the community gal
   );
   expect(await screen.findByLabelText("已安装的插件")).not.toBeNull();
   expect(pluginClient.list).not.toHaveBeenCalled();
+  // A pack's detail left open while visiting the gallery is closed on the way back.
+  fireEvent.click(await screen.findByRole("button", { name: "本地 rain" }));
+  expect(screen.getByRole("heading", { name: "本地 rain" })).not.toBeNull();
 
   fireEvent.click(within(tabs).getByRole("tab", { name: "社区插件" }));
   await waitFor(() => expect(pluginClient.list).toHaveBeenCalledWith(0, "", null));
@@ -437,6 +519,8 @@ test("the 插件 page switches between the installed packs and the community gal
   expect(installedPage.hidden).toBe(false);
   // Coming back re-reads the directory, so a pack installed from the gallery shows up.
   await waitFor(() => expect(vi.mocked(installed).mock.calls.length).toBeGreaterThan(reads));
+  expect(screen.queryByRole("heading", { name: "本地 rain" })).toBeNull();
+  expect(await screen.findByRole("button", { name: "本地 rain" })).not.toBeNull();
 });
 
 test("the desktop bridge names each command and its camelCase arguments", async () => {
