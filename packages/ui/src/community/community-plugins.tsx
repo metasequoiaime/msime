@@ -22,6 +22,7 @@ import { CommunitySearchForm } from "./community-search-form";
 import { CommunitySkinModerationSection } from "./community-skin-moderation-section";
 import { CommunityScopeButtons } from "./community-scope-buttons";
 import { CommunityRightsAgreement } from "./community-rights-agreement";
+import { CommunityInputField } from "./community-input-field";
 import { CommunityTextareaField } from "./community-textarea-field";
 import {
   CommunityRemovedBadge,
@@ -724,20 +725,17 @@ export function CommunityPluginPublishDialog({
                 .filter(Boolean)
                 .join(" · ")}
             </p>
-            <label className={style.field}>
-              名称
-              <input
-                className={style.fieldControl}
-                aria-label="发布插件名称"
-                maxLength={32}
-                value={name}
-                disabled={busy}
-                onChange={(event) => {
-                  setPublicationId(randomUuid());
-                  setName(boundedGraphemes(event.target.value, 32));
-                }}
-              />
-            </label>
+            <CommunityInputField
+              label="名称"
+              ariaLabel="发布插件名称"
+              maxLength={32}
+              value={name}
+              disabled={busy}
+              onChange={(value) => {
+                setPublicationId(randomUuid());
+                setName(boundedGraphemes(value, 32));
+              }}
+            />
             <CommunityTextareaField
               label="说明"
               ariaLabel="发布插件说明"

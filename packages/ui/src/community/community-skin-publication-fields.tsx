@@ -1,5 +1,6 @@
 import * as style from "./community-style";
 import { CommunityRightsAgreement } from "./community-rights-agreement";
+import { CommunityInputField } from "./community-input-field";
 import { CommunityTextareaField } from "./community-textarea-field";
 
 export interface CommunitySkinPublicationFieldsProps {
@@ -26,17 +27,14 @@ export function CommunitySkinPublicationFields({
 }: CommunitySkinPublicationFieldsProps) {
   return (
     <>
-      <label className={style.field}>
-        皮肤名称
-        <input
-          className={style.fieldControl}
-          aria-label="发布皮肤名称"
-          maxLength={32}
-          value={name}
-          disabled={busy}
-          onChange={(event) => onNameChange(event.target.value)}
-        />
-      </label>
+      <CommunityInputField
+        label="皮肤名称"
+        ariaLabel="发布皮肤名称"
+        maxLength={32}
+        value={name}
+        disabled={busy}
+        onChange={onNameChange}
+      />
       <CommunityTextareaField
         label="设计说明"
         ariaLabel="发布设计说明"

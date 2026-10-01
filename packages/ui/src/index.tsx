@@ -1187,6 +1187,10 @@ export {
   CommunityTextareaField,
   type CommunityTextareaFieldProps,
 } from "./community/community-textarea-field";
+export {
+  CommunityInputField,
+  type CommunityInputFieldProps,
+} from "./community/community-input-field";
 export { CandidateSkinPublishDialog } from "./community/candidate-skin-publish-dialog";
 export {
   CommunityPluginPublishDialog,
