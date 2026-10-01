@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { runAsyncAction } from "../core/async-action";
 import { Switch } from "../core/platform-controls";
 import { useSettingsPlatform } from "../theme/settings-platform";
 import * as onboarding from "./onboarding-style";
@@ -119,6 +120,15 @@ export function WelcomeFlowPage({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const prepared = useRef(false);
+  const running = useRef(false);
+  const mounted = useRef(true);
+  useEffect(
+    () => () => {
+      mounted.current = false;
+      running.current = false;
+    },
+    [],
+  );
   const platform = useSettingsPlatform(
     { platform: actions.platform ?? "android", mobile_settings: actions.mobileSettings },
     false,
@@ -133,17 +143,25 @@ export function WelcomeFlowPage({
   const endSplash = useCallback(() => setSplashing(false), []);
 
   const run = async (operation: () => Promise<void>, next?: number) => {
-    if (busy) return;
-    setBusy(true);
-    setError("");
-    try {
-      await operation();
-      if (next !== undefined) setPage(next);
-    } catch {
-      setError("操作失败，请稍后重试。");
-    } finally {
-      setBusy(false);
-    }
+    if (busy || running.current || !mounted.current) return;
+    running.current = true;
+    await runAsyncAction(
+      {
+        busy: false,
+        isCurrent: () => mounted.current && running.current,
+        setBusy: (value) => {
+          running.current = value;
+          setBusy(value);
+        },
+        setError,
+      },
+      async () => {
+        await operation();
+        if (next !== undefined && mounted.current) setPage(next);
+      },
+      { formatError: () => "操作失败，请稍后重试。" },
+    );
+    if (mounted.current) running.current = false;
   };
 
   // The built-in dictionaries have to be in place before the keyboard is enabled, so they are prepared once, ahead of whichever comes first: a system-settings action or leaving the step.

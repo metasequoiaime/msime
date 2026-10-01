@@ -45,6 +45,31 @@ test("prepares resources before leaving the Android setup step", async () => {
   );
 });
 
+test("ignores a second onboarding action while resources are pending", async () => {
+  let resolveResources!: () => void;
+  const prepareResources = vi.fn(
+    () =>
+      new Promise<void>((resolve) => {
+        resolveResources = resolve;
+      }),
+  );
+  render(
+    <WelcomeFlowPage
+      actions={makeActions({ prepareResources })}
+      onComplete={vi.fn().mockResolvedValue(undefined)}
+    />,
+  );
+
+  const next = screen.getByRole("button", { name: "下一步" });
+  act(() => {
+    fireEvent.click(next);
+    fireEvent.click(next);
+  });
+  expect(prepareResources).toHaveBeenCalledOnce();
+  resolveResources();
+  await waitFor(() => expect(screen.getByRole("heading", { name: "选择输入方式" })).toBeTruthy());
+});
+
 test("Android's first step leaves through 跳过 in the button bar, after the dictionaries are in place", async () => {
   const onSkip = vi.fn().mockResolvedValue(undefined);
   const prepareResources = vi.fn().mockResolvedValue(undefined);
