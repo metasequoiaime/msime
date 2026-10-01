@@ -93,7 +93,7 @@ macOS 26 及以上在没有选择任何服务时（候选翻译开启，小牛�
 - Android：应用首次打开时（`AccountIdentity.register`），已存有匿名会话（即使已过期）就不发请求，存于应用私有存储。
 - HarmonyOS：应用首次启动或键盘首次加载时，存于应用的 `files/state` 目录。
 
-Windows 与 HarmonyOS 目前只注册，不用这个账号发送任何内容。候选翻译在选择了「水杉账号」时才发送（macOS 与 Linux 新装默认选中），见[候选翻译](#候选翻译macos-与-linux-新装默认用水杉账号)；Android 浏览社区皮肤与词库目录时，也会带上匿名账号的令牌（`platforms/android/java/app/msime/android/community/CommunityCatalog.java`），取不到照常列出目录。凭据存放在系统密钥库：macOS/iOS 用 Keychain（`crates/host-macos/native/account.mm`、`crates/tauri-mobile-platform/ios/Sources/MobilePlatformPlugin.swift`），Android 用 Keystore 加密后落盘。
+Windows 与 HarmonyOS 目前只注册，不用这个账号发送任何内容。候选翻译在选择了「水杉账号」时才发送（macOS 与 Linux 新装默认选中），见[候选翻译](#候选翻译macos-与-linux-新装默认用水杉账号)；Android 浏览社区皮肤与词库目录时，也会带上匿名账号的令牌（`platforms/android/java/app/msime/android/community/CommunityCatalog.java`），取不到照常列出目录。凭据的存放：iOS 用 Keychain（`crates/tauri-mobile-platform/ios/Sources/MobilePlatformPlugin.swift`），Android 用 Keystore 加密后落盘；macOS、Windows 与 Linux 桌面端存在当前用户私有的 `account-session.json` 里（`crates/client-core/src/account/file_storage.rs`），只有本人可读写，不加密。
 
 ### 云剪贴板（需要登录）
 
@@ -103,7 +103,7 @@ Windows 与 HarmonyOS 目前只注册，不用这个账号发送任何内容。�
 - **只在打开面板时读取**：设置页、键盘里的「云端」栏和 macOS 输入法菜单里的「云剪贴板…」在打开和点刷新时各拉取一次列表，没有轮询或推送。
 - **密码框里不出现**：Android、iOS、HarmonyOS 键盘和 Linux Fcitx5 在密码类输入框里不显示云端条目，也不发请求；macOS 在安全输入期间不打开云剪贴板面板。
 - **关闭即删除**：把云剪贴板关掉会删除云端全部条目，共享设置页在关闭前会先请你确认。
-- **键盘怎么拿到账号**：键盘和设置应用是不同的进程，账号令牌不会被复制成明文文件。Android 键盘向主进程里一个不导出的 ContentProvider 取令牌，只有主进程会刷新令牌；iOS 的会话存放在 App 与键盘扩展共有的 App Group 钥匙串访问组里，键盘需要「允许完全访问」才会联网；HarmonyOS 键盘读取设置应用在应用私有目录里保存的同一份会话。iOS 与 HarmonyOS 刷新令牌时持有跨进程文件锁，防止两个进程用同一个刷新令牌而让会话被服务端吊销。
+- **键盘怎么拿到账号**：键盘和设置应用是不同的进程，账号令牌不会被复制成明文文件。Android 键盘向主进程里一个不导出的 ContentProvider 取令牌，只有主进程会刷新令牌；iOS 的会话存放在 App 与键盘扩展共有的 App Group 钥匙串访问组里，键盘需要「允许完全访问」才会联网；HarmonyOS 键盘读取设置应用在应用私有目录里保存的同一份会话；macOS 的输入法与设置应用读写同一个 `~/Library/Application Support/app.msime.macos/account-session.json`。iOS、HarmonyOS 与 macOS 刷新令牌时持有跨进程文件锁，防止两个进程用同一个刷新令牌而让会话被服务端吊销。
 - **从电脑上屏**：Windows 与 Linux 的设置窗口里，云剪贴板面板只有在这次打开时记下了另一个应用的输入窗口才能直接上屏，否则只能复制；它不会沿用以前记下的窗口。
 
 ### 资源与更新下载

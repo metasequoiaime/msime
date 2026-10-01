@@ -202,62 +202,6 @@ pub fn notify_typing_statistics_enabled(enabled: bool) {
     unsafe { msime_macos_notify_typing_statistics_enabled(enabled) };
 }
 
-/// Read the account session shared with the Swift backend Keychain store.
-#[cfg(target_os = "macos")]
-pub fn account_load() -> Result<Option<Vec<u8>>, &'static str> {
-    let mut bytes = vec![0_u8; 1024 * 1024];
-    let mut length = 0_usize;
-    unsafe extern "C" {
-        fn msime_macos_account_load(buffer: *mut u8, capacity: usize, length: *mut usize) -> i32;
-    }
-    let status = unsafe { msime_macos_account_load(bytes.as_mut_ptr(), bytes.len(), &mut length) };
-    if status < 0 || length > bytes.len() {
-        return Err("account keychain unavailable");
-    }
-    Ok((status == 1).then(|| {
-        bytes.truncate(length);
-        bytes
-    }))
-}
-
-#[cfg(target_os = "macos")]
-pub fn account_save(bytes: &[u8]) -> Result<(), &'static str> {
-    if bytes.is_empty() || bytes.len() > 1024 * 1024 {
-        return Err("account session too large");
-    }
-    unsafe extern "C" {
-        fn msime_macos_account_save(bytes: *const u8, length: usize) -> bool;
-    }
-    unsafe { msime_macos_account_save(bytes.as_ptr(), bytes.len()) }
-        .then_some(())
-        .ok_or("account keychain unavailable")
-}
-
-#[cfg(target_os = "macos")]
-pub fn account_clear() -> Result<(), &'static str> {
-    unsafe extern "C" {
-        fn msime_macos_account_clear() -> bool;
-    }
-    unsafe { msime_macos_account_clear() }
-        .then_some(())
-        .ok_or("account keychain unavailable")
-}
-
-#[cfg(not(target_os = "macos"))]
-pub fn account_load() -> Result<Option<Vec<u8>>, &'static str> {
-    Ok(None)
-}
-
-#[cfg(not(target_os = "macos"))]
-pub fn account_save(_: &[u8]) -> Result<(), &'static str> {
-    Err("account unavailable")
-}
-
-#[cfg(not(target_os = "macos"))]
-pub fn account_clear() -> Result<(), &'static str> {
-    Err("account unavailable")
-}
-
 #[cfg(not(target_os = "macos"))]
 pub fn quiesce_input_sessions() {}
 
@@ -691,20 +635,5 @@ mod tests {
         for key in [0, 0x100, 0xffff, 0x2c, 0x91, 0x13, 0x2d] {
             assert!(keyboard_stroke(&request(key)).is_none());
         }
-    }
-
-    /// Name every account entry point without calling one: the keychain belongs to the user, and what is
-    /// worth checking here is the linkage. Compiled as Objective-C++ without `extern "C"`, the bridge
-    /// exported C++-mangled names that resolved nothing, and every binary reaching it - the Tauri settings
-    /// app among them - failed to link. A test that merely references them fails the same way.
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn the_account_bridge_exports_c_symbols() {
-        let load: fn() -> Result<Option<Vec<u8>>, &'static str> = account_load;
-        let save: fn(&[u8]) -> Result<(), &'static str> = account_save;
-        let clear: fn() -> Result<(), &'static str> = account_clear;
-        // Linking is the assertion. black_box keeps the three references from being optimised away
-        // without letting anything run.
-        std::hint::black_box((load, save, clear));
     }
 }

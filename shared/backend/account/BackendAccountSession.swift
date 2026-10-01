@@ -151,6 +151,66 @@ struct BackendKeychain: BackendSessionStorage {
   }
 }
 
+#if os(macOS)
+/// The macOS account session: `account-session.json` in the input method's Application Support directory, read and written by this process and by the settings app (`FileAccountSessionStorage` in `crates/client-core`). Both take `account-refresh.lock` beside it around every write, so neither refreshes from a refresh token the other has already spent; the server revokes the session when one comes back. Owner-only, and never followed through a symlink.
+struct BackendDesktopSessionFile: BackendSessionStorage {
+  static let fileName = "account-session.json"
+  static let maximumBytes = 64 * 1024
+  static var standardDirectory: URL? {
+    FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+      .appendingPathComponent("app.msime.macos", isDirectory: true)
+  }
+  static var refreshLock: BackendFileRefreshLock {
+    BackendFileRefreshLock(url: standardDirectory?.appendingPathComponent("account-refresh.lock", isDirectory: false))
+  }
+  let directory: URL?
+  init(directory: URL? = BackendDesktopSessionFile.standardDirectory) { self.directory = directory }
+  private var url: URL? { directory?.appendingPathComponent(Self.fileName, isDirectory: false) }
+
+  func load() throws -> BackendSavedSession? {
+    guard let url else { return nil }
+    var status = stat()
+    if lstat(url.path, &status) != 0 {
+      if errno == ENOENT { return nil }
+      throw BackendAccountClient.Failure(status: 0)
+    }
+    // A symlink, a file another user can read, or one too large to be a session is not a store either process wrote.
+    guard status.st_mode & S_IFMT == S_IFREG, status.st_mode & 0o077 == 0, status.st_uid == geteuid(),
+          status.st_size <= Self.maximumBytes else { throw BackendAccountClient.Failure(status: 0) }
+    let data: Data
+    do { data = try Data(contentsOf: url) } catch { throw BackendAccountClient.Failure(status: 0) }
+    guard data.count <= Self.maximumBytes else { throw BackendAccountClient.Failure(status: 0) }
+    do { return try BackendSavedSession.validated(JSONDecoder().decode(BackendSavedSession.self, from: data)) }
+    catch { throw BackendAccountClient.Failure(status: 0) }
+  }
+
+  func save(_ session: BackendSavedSession) throws {
+    guard let directory, let url else { throw BackendAccountClient.Failure(status: 0) }
+    let data = try JSONEncoder().encode(BackendSavedSession.validated(session))
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
+      attributes: [.posixPermissions: 0o700])
+    // Created 0600 before any byte is written and published by rename, so the tokens are never readable by anyone else and no reader sees half a document.
+    let temporary = directory.appendingPathComponent(".\(Self.fileName).\(UUID().uuidString)", isDirectory: false)
+    let descriptor = open(temporary.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR)
+    guard descriptor >= 0 else { throw BackendAccountClient.Failure(status: 0) }
+    let written = data.withUnsafeBytes { bytes in
+      bytes.count == 0 || write(descriptor, bytes.baseAddress, bytes.count) == bytes.count
+    }
+    let synced = fsync(descriptor) == 0
+    close(descriptor)
+    guard written, synced, rename(temporary.path, url.path) == 0 else {
+      unlink(temporary.path)
+      throw BackendAccountClient.Failure(status: 0)
+    }
+  }
+
+  func clear() throws {
+    guard let url else { return }
+    guard unlink(url.path) == 0 || errno == ENOENT else { throw BackendAccountClient.Failure(status: 0) }
+  }
+}
+#endif
+
 /// Serializes every write to a stored session that several processes share: sign-in, refresh, profile updates and sign-out. The server rotates the refresh token on every refresh and revokes the whole session when a used one is presented again, so two processes refreshing from the same stored token sign the user out, and a refresh that finishes after another process signed out or switched accounts must not write its tokens back. Whoever holds this lock re-reads the store before writing.
 protocol BackendRefreshLock: Sendable {
   /// Whether other processes read and write the same store. Such a store, not this process's memory, says who is signed in.
@@ -211,9 +271,18 @@ actor BackendAccountSession {
   static var defaultRefreshLock: any BackendRefreshLock { BackendProcessRefreshLock() }
   #endif
 
-  init(api: any BackendSessionAPI = BackendAccountClient(), storage: any BackendSessionStorage = BackendKeychain(),
-       refreshLock: any BackendRefreshLock = BackendAccountSession.defaultRefreshLock) {
-    self.api = api; self.storage = storage; self.refreshLock = refreshLock
+  /// Without a `storage`, the account's own store: the keychain on iOS, and on macOS the session file the settings app shares, whose refreshes then take the lock beside it.
+  init(api: any BackendSessionAPI = BackendAccountClient(), storage: (any BackendSessionStorage)? = nil,
+       refreshLock: (any BackendRefreshLock)? = nil) {
+    self.api = api
+    #if os(macOS)
+    self.storage = storage ?? BackendDesktopSessionFile()
+    self.refreshLock = refreshLock
+      ?? (storage == nil ? BackendDesktopSessionFile.refreshLock : BackendAccountSession.defaultRefreshLock)
+    #else
+    self.storage = storage ?? BackendKeychain()
+    self.refreshLock = refreshLock ?? BackendAccountSession.defaultRefreshLock
+    #endif
   }
   func user() throws -> BackendAccountClient.User? {
     try load()

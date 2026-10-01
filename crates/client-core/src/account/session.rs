@@ -90,16 +90,21 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         Ok(next)
     }
 
+    /// A store other processes share is read every time: another process may have refreshed, signed out or switched accounts, and the copy held here would then be stale. A refresh from a stale copy presents a refresh token the backend has already rotated, and the backend answers that by revoking the session for every process.
     fn load_locked(&self, state: &mut SessionState) -> Result<(), AccountError> {
-        if !state.loaded {
-            let saved = self.storage.load()?;
-            if let Some(value) = &saved {
-                validate_saved_session(value)?;
-            }
-            state.saved = saved;
+        if !state.loaded || self.storage.shared_across_processes() {
+            state.saved = self.stored()?;
             state.loaded = true;
         }
         Ok(())
+    }
+
+    fn stored(&self) -> Result<Option<SavedAccountSession>, AccountError> {
+        let saved = self.storage.load()?;
+        if let Some(value) = &saved {
+            validate_saved_session(value)?;
+        }
+        Ok(saved)
     }
 
     pub fn status(&self) -> Result<Option<AccountUser>, AccountError> {
@@ -259,14 +264,16 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         validate_tokens(&tokens)?;
         let value = saved_session(tokens)?;
         let user = value.tokens.user.clone();
-        let mut state = self.lock()?;
-        if state.generation != version {
-            return Err(AccountError::Cancelled);
-        }
-        self.storage.save(&value)?;
-        state.saved = Some(value);
-        state.loaded = true;
-        Ok(user)
+        self.storage.with_refresh_lock(|| {
+            let mut state = self.lock()?;
+            if state.generation != version {
+                return Err(AccountError::Cancelled);
+            }
+            self.storage.save(&value)?;
+            state.saved = Some(value);
+            state.loaded = true;
+            Ok(user)
+        })
     }
 
     pub fn access_token(&self, rejected_token: Option<&str>) -> Result<String, AccountError> {
@@ -294,35 +301,10 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
             (flight, version, refresh_token)
         };
 
-        let api_result = self.api.refresh(&refresh_token);
-        let result = {
-            let mut state = self.lock()?;
-            let result = if state.generation != version {
-                Err(AccountError::Cancelled)
-            } else {
-                match api_result {
-                    Ok(tokens) => {
-                        match validate_tokens(&tokens).and_then(|_| saved_session(tokens)) {
-                            Ok(value) => match self.storage.save(&value) {
-                                Ok(()) => {
-                                    let token = value.tokens.access_token.clone();
-                                    state.saved = Some(value);
-                                    state.loaded = true;
-                                    Ok(token)
-                                }
-                                Err(error) => Err(error),
-                            },
-                            Err(error) => Err(error),
-                        }
-                    }
-                    Err(AccountError::Unauthorized) => {
-                        state.saved = None;
-                        state.loaded = true;
-                        self.storage.clear().and(Err(AccountError::Unauthorized))
-                    }
-                    Err(error) => Err(error),
-                }
-            };
+        let result = self.storage.with_refresh_lock(|| {
+            self.refresh_holding_lock(&refresh_token, rejected_token, version)
+        });
+        if let Ok(mut state) = self.lock() {
             if state
                 .refresh
                 .as_ref()
@@ -330,10 +312,105 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
             {
                 state.refresh = None;
             }
-            result
-        };
+        }
         flight.finish(result.clone());
         result
+    }
+
+    /// Runs with the store's refresh lock held, so no other process sharing the store can rotate the session between the read below and the save after the refresh.
+    fn refresh_holding_lock(
+        &self,
+        expected: &str,
+        rejected_token: Option<&str>,
+        version: u64,
+    ) -> Result<String, AccountError> {
+        let shared = self.storage.shared_across_processes();
+        let mut refresh_token = expected.to_owned();
+        if shared {
+            let stored = self.stored()?;
+            let mut state = self.lock()?;
+            if state.generation != version {
+                return Err(AccountError::Cancelled);
+            }
+            match stored {
+                // Another process signed out while this one waited for the lock.
+                None => {
+                    state.saved = None;
+                    state.loaded = true;
+                    return Err(AccountError::Unauthorized);
+                }
+                // Another process refreshed while this one waited; refreshing from the token it already spent would revoke the session.
+                Some(stored) if stored.tokens.refresh_token != expected => {
+                    let usable = usable_session(&stored, rejected_token);
+                    let access_token = stored.tokens.access_token.clone();
+                    refresh_token = stored.tokens.refresh_token.clone();
+                    state.saved = Some(stored);
+                    state.loaded = true;
+                    if usable {
+                        return Ok(access_token);
+                    }
+                }
+                Some(_) => {}
+            }
+        }
+
+        let api_result = self.api.refresh(&refresh_token);
+        let mut state = self.lock()?;
+        if state.generation != version {
+            return Err(AccountError::Cancelled);
+        }
+        match api_result {
+            Ok(tokens) => {
+                validate_tokens(&tokens)?;
+                let value = saved_session(tokens)?;
+                if shared {
+                    // A writer that does not take the lock can still change the store. Tokens for a session that is no longer the stored one are discarded rather than resurrecting it.
+                    match self.stored()? {
+                        None => {
+                            state.saved = None;
+                            state.loaded = true;
+                            return Err(AccountError::Unauthorized);
+                        }
+                        Some(current)
+                            if current.tokens.refresh_token != refresh_token
+                                || current.tokens.user.id != value.tokens.user.id =>
+                        {
+                            state.saved = Some(current);
+                            state.loaded = true;
+                            return Err(AccountError::Cancelled);
+                        }
+                        Some(_) => {}
+                    }
+                }
+                self.storage.save(&value)?;
+                let token = value.tokens.access_token.clone();
+                state.saved = Some(value);
+                state.loaded = true;
+                Ok(token)
+            }
+            Err(AccountError::Unauthorized) => {
+                // Clear only the session that was rejected; one another process saved meanwhile is adopted instead.
+                if shared {
+                    if let Ok(Some(stored)) = self.stored() {
+                        if stored.tokens.refresh_token != refresh_token {
+                            let usable = usable_session(&stored, rejected_token);
+                            let access_token = stored.tokens.access_token.clone();
+                            state.saved = Some(stored);
+                            state.loaded = true;
+                            return if usable {
+                                Ok(access_token)
+                            } else {
+                                Err(AccountError::Unauthorized)
+                            };
+                        }
+                    }
+                }
+                state.saved = None;
+                state.loaded = true;
+                self.storage.clear().and(Err(AccountError::Unauthorized))
+            }
+            Err(error) => Err(error),
+        }
     }
 
     pub fn credentials(
@@ -669,26 +746,33 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
     }
 
     pub fn forget(&self) -> Result<(), AccountError> {
-        let mut state = self.lock()?;
-        // No asynchronous operation can be running at the terminal value:
-        // next_generation refuses to issue it there. Keep the value stable
-        // while still clearing the account state.
-        state.generation = state.generation.saturating_add(1);
-        state.refresh = None;
-        state.saved = None;
-        state.loaded = true;
-        self.storage.clear()
+        {
+            let mut state = self.lock()?;
+            // No asynchronous operation can be running at the terminal value:
+            // next_generation refuses to issue it there. Keep the value stable
+            // while still clearing the account state.
+            state.generation = state.generation.saturating_add(1);
+            state.refresh = None;
+            state.saved = None;
+            state.loaded = true;
+        }
+        // Under the refresh lock, so a refresh another process has in flight cannot write its tokens back after this clear. A lock that cannot be taken still clears: clearing can only sign out.
+        self.storage
+            .with_refresh_lock(|| self.storage.clear())
+            .or_else(|_| self.storage.clear())
     }
 
     fn update_user(&self, user: AccountUser) -> Result<(), AccountError> {
-        let mut state = self.lock()?;
-        self.load_locked(&mut state)?;
-        let current = state.saved.as_mut().ok_or(AccountError::Cancelled)?;
-        if current.tokens.user.id != user.id {
-            return Err(AccountError::Cancelled);
-        }
-        current.tokens.user = user;
-        self.storage.save(current)
+        self.storage.with_refresh_lock(|| {
+            let mut state = self.lock()?;
+            self.load_locked(&mut state)?;
+            let current = state.saved.as_mut().ok_or(AccountError::Cancelled)?;
+            if current.tokens.user.id != user.id {
+                return Err(AccountError::Cancelled);
+            }
+            current.tokens.user = user;
+            self.storage.save(current)
+        })
     }
 }
 
@@ -758,6 +842,12 @@ fn unix_ms() -> Result<u64, AccountError> {
         .map_err(|_| AccountError::Unavailable)?
         .as_millis();
     u64::try_from(millis).map_err(|_| AccountError::Unavailable)
+}
+
+/// Whether `saved` can be used as is: not about to expire, and not the access token the caller was just refused with.
+fn usable_session(saved: &SavedAccountSession, rejected_token: Option<&str>) -> bool {
+    saved.expires_at_unix_ms > refresh_deadline_ms()
+        && rejected_token != Some(saved.tokens.access_token.as_str())
 }
 
 fn refresh_deadline_ms() -> u64 {

@@ -1767,3 +1767,213 @@ fn user_profile_fields_are_optional_and_bounded() {
     };
     assert_eq!(image.data_url(), "data:image/jpeg;base64,AQID");
 }
+
+/// The backend's refresh contract: each refresh token works once, and presenting a spent one revokes the session (`msime-cloud` `Store.Refresh`).
+#[derive(Clone)]
+struct RotatingBackend {
+    state: Arc<Mutex<RotatingState>>,
+    /// Runs inside `refresh` before it answers, standing in for another process that writes the store without taking the lock.
+    during_refresh: Option<Arc<dyn Fn() + Send + Sync>>,
+}
+
+struct RotatingState {
+    current: Option<String>,
+    next: u8,
+    refreshes: usize,
+    revoked: bool,
+}
+
+impl RotatingBackend {
+    fn new(refresh_token: &str) -> Self {
+        Self {
+            state: Arc::new(Mutex::new(RotatingState {
+                current: Some(refresh_token.into()),
+                next: 0,
+                refreshes: 0,
+                revoked: false,
+            })),
+            during_refresh: None,
+        }
+    }
+}
+
+impl AccountApi for RotatingBackend {
+    fn providers(&self) -> Result<HashMap<String, bool>, AccountError> {
+        Ok(HashMap::new())
+    }
+
+    fn challenge(&self, _provider: &str, _target: &str) -> Result<AccountChallenge, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
+    fn login(&self, _challenge: &str, _credential: &str) -> Result<AccountTokens, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
+    fn refresh(&self, refresh_token: &str) -> Result<AccountTokens, AccountError> {
+        if let Some(hook) = &self.during_refresh {
+            hook();
+        }
+        let mut state = self.state.lock().unwrap();
+        state.refreshes += 1;
+        if state.current.as_deref() != Some(refresh_token) {
+            state.current = None;
+            state.revoked = true;
+            return Err(AccountError::Unauthorized);
+        }
+        const HEX: &[u8; 16] = b"0123456789abcdef";
+        let access = HEX[usize::from(state.next % 16)];
+        let refresh = HEX[usize::from((state.next + 8) % 16)];
+        state.next += 1;
+        state.current = Some(token(refresh));
+        Ok(tokens(access, refresh, 900))
+    }
+
+    fn profile(&self, _access_token: &str) -> Result<AccountProfile, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
+    fn rename(&self, _display_name: &str, _access_token: &str) -> Result<(), AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
+    fn logout(&self, _access_token: &str, _all: bool) -> Result<(), AccountError> {
+        Ok(())
+    }
+
+    fn delete_account(&self, _access_token: &str) -> Result<(), AccountError> {
+        Err(AccountError::Unavailable)
+    }
+}
+
+fn expired_session() -> SavedAccountSession {
+    SavedAccountSession {
+        tokens: tokens(b'a', b'b', 900),
+        expires_at_unix_ms: 1,
+    }
+}
+
+fn session_file(directory: &Path) -> FileAccountSessionStorage {
+    FileAccountSessionStorage::new(directory, AccountSessionFileLayout::Apple)
+}
+
+#[test]
+fn a_session_shared_through_the_file_is_not_refreshed_from_a_spent_token() {
+    let directory = tempfile::tempdir().unwrap();
+    session_file(directory.path())
+        .save(&expired_session())
+        .unwrap();
+    let backend = RotatingBackend::new(&token(b'b'));
+    // The settings app and the input method, each with its own copy of the session in memory.
+    let settings = BackendAccountSession::new(backend.clone(), session_file(directory.path()));
+    let input_method = BackendAccountSession::new(backend.clone(), session_file(directory.path()));
+    assert!(settings.status().unwrap().is_some());
+
+    let rotated = input_method.access_token(None).unwrap();
+    // Before the fix the settings app refreshed from the token the input method had already spent, the backend revoked the session, and the settings app deleted it.
+    assert_eq!(settings.access_token(None).unwrap(), rotated);
+
+    let state = backend.state.lock().unwrap();
+    assert_eq!(state.refreshes, 1);
+    assert!(!state.revoked);
+    drop(state);
+    assert!(session_file(directory.path()).load().unwrap().is_some());
+}
+
+#[test]
+fn a_rejected_refresh_keeps_a_session_another_process_saved_meanwhile() {
+    let directory = tempfile::tempdir().unwrap();
+    session_file(directory.path())
+        .save(&expired_session())
+        .unwrap();
+    let mut backend = RotatingBackend::new(&token(b'f'));
+    let other = directory.path().to_path_buf();
+    backend.during_refresh = Some(Arc::new(move || {
+        session_file(&other)
+            .save(&SavedAccountSession {
+                tokens: tokens(b'c', b'f', 900),
+                expires_at_unix_ms: valid_future_expiry(),
+            })
+            .unwrap();
+    }));
+    let session = BackendAccountSession::new(backend, session_file(directory.path()));
+
+    assert_eq!(session.access_token(None).unwrap(), token(b'c'));
+    let kept = session_file(directory.path()).load().unwrap().unwrap();
+    assert_eq!(kept.tokens.refresh_token, token(b'f'));
+}
+
+#[test]
+fn signing_out_in_one_process_signs_out_the_other() {
+    let directory = tempfile::tempdir().unwrap();
+    session_file(directory.path())
+        .save(&expired_session())
+        .unwrap();
+    let backend = RotatingBackend::new(&token(b'b'));
+    let settings = BackendAccountSession::new(backend.clone(), session_file(directory.path()));
+    let input_method = BackendAccountSession::new(backend, session_file(directory.path()));
+    assert!(settings.status().unwrap().is_some());
+
+    input_method.forget().unwrap();
+    assert!(settings.status().unwrap().is_none());
+    assert!(matches!(
+        settings.access_token(None),
+        Err(AccountError::Unauthorized)
+    ));
+}
+
+#[test]
+fn session_file_layouts_round_trip_and_read_each_other() {
+    let directory = tempfile::tempdir().unwrap();
+    let session = SavedAccountSession {
+        tokens: tokens(b'a', b'b', 900),
+        expires_at_unix_ms: 1_790_000_000_123,
+    };
+    let apple = session_file(directory.path());
+    apple.save(&session).unwrap();
+    let text = std::fs::read_to_string(directory.path().join(ACCOUNT_SESSION_FILE)).unwrap();
+    let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert!(value.get("expiresAt").is_some());
+    assert!(value.get("expires_at_unix_ms").is_none());
+
+    let native = FileAccountSessionStorage::new(directory.path(), AccountSessionFileLayout::Native);
+    assert_eq!(
+        native.load().unwrap().unwrap().expires_at_unix_ms,
+        session.expires_at_unix_ms
+    );
+    native.save(&session).unwrap();
+    assert_eq!(
+        apple.load().unwrap().unwrap().expires_at_unix_ms,
+        session.expires_at_unix_ms
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn session_file_is_owner_only_and_a_widened_one_is_refused() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempfile::tempdir().unwrap();
+    let directory = root.path().join("state");
+    let storage = session_file(&directory);
+    storage.save(&expired_session()).unwrap();
+    let file = directory.join(ACCOUNT_SESSION_FILE);
+    let mode = |path: &Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode(&directory), 0o700);
+    assert_eq!(mode(&file), 0o600);
+
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(matches!(storage.load(), Err(AccountError::Storage)));
+}
+
+#[test]
+fn oversized_session_file_is_refused() {
+    let directory = tempfile::tempdir().unwrap();
+    let storage = session_file(directory.path());
+    storage.save(&expired_session()).unwrap();
+    std::fs::write(
+        directory.path().join(ACCOUNT_SESSION_FILE),
+        vec![b' '; 64 * 1024 + 1],
+    )
+    .unwrap();
+    assert!(matches!(storage.load(), Err(AccountError::Storage)));
+}

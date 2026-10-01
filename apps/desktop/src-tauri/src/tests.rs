@@ -1948,16 +1948,18 @@ fn skin_rescan_keeps_its_list_when_the_catalog_cannot_be_published() {
     assert_eq!(std::fs::read(&path).unwrap(), b"{ not json");
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
-fn linux_account_storage_round_trips_an_owner_only_session() {
+fn desktop_account_storage_round_trips_an_owner_only_session() {
     use msime_client_core::account::{
-        AccountSessionStorage, AccountTokens, AccountUser, SavedAccountSession,
+        AccountSessionFileLayout, AccountSessionStorage, AccountTokens, AccountUser,
+        FileAccountSessionStorage, SavedAccountSession,
     };
     use std::os::unix::fs::PermissionsExt;
 
     let directory = tempfile::tempdir().expect("temporary directory");
-    let storage = crate::platform::linux::linux_account::LinuxAccountStorage::new(directory.path());
+    let storage =
+        FileAccountSessionStorage::new(directory.path(), AccountSessionFileLayout::Native);
     // Nothing saved yet is an empty store, not a broken one: a first run must
     // report "signed out" rather than "secure storage is unavailable".
     assert!(storage.load().expect("empty store").is_none());
@@ -2019,22 +2021,25 @@ fn linux_account_storage_round_trips_an_owner_only_session() {
     assert!(storage.load().expect("cleared store").is_none());
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
-fn linux_account_storage_refuses_a_symlinked_or_oversized_store() {
-    use msime_client_core::account::AccountSessionStorage;
+fn desktop_account_storage_refuses_a_symlinked_or_oversized_store() {
+    use msime_client_core::account::{
+        AccountSessionFileLayout, AccountSessionStorage, FileAccountSessionStorage,
+    };
 
     let directory = tempfile::tempdir().expect("temporary directory");
     let elsewhere = directory.path().join("elsewhere.json");
     std::fs::write(&elsewhere, b"{}").unwrap();
-    let storage = crate::platform::linux::linux_account::LinuxAccountStorage::new(directory.path());
+    let storage =
+        FileAccountSessionStorage::new(directory.path(), AccountSessionFileLayout::Native);
     let path = directory.path().join("account-session.json");
     std::os::unix::fs::symlink(&elsewhere, &path).unwrap();
     // Following the link would read through a path this host did not choose.
     assert!(storage.load().is_err());
     std::fs::remove_file(&path).unwrap();
 
-    std::fs::write(&path, vec![b'x'; 32 * 1024]).unwrap();
+    std::fs::write(&path, vec![b'x'; 64 * 1024 + 1]).unwrap();
     std::fs::set_permissions(
         &path,
         <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o600),
