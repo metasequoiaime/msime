@@ -220,6 +220,68 @@ int main(void)
         NSBitmapImageRep *bitmap = [glossed bitmapImageRepForCachingDisplayInRect:glossed.bounds];
         assert(bitmap);
         [glossed cacheDisplayInRect:glossed.bounds toBitmapImageRep:bitmap];
+
+        // A Korean Hanja row shows only the Hanja on its line. Its 훈음 is drawn on the gloss line under it whatever the translation switches say, never as `translation`, which is what the gloss chords commit; the tooltip and accessibility label keep it apart from the Hanja.
+        appearance.vertical = NO;
+        appearance.candidateTranslations = NO;
+        appearance.candidateEnglishGloss = NO;
+        NSString *reading = @"나라 이름 한, 한나라 한";
+        NSDictionary *hanjaBase = @{@"focused": @YES, @"scheme": @(msime::mac::KoreanScheme), @"local_mode": @"none", @"editing_text": @"한",
+                                    @"page": @0, @"page_count": @1};
+        NSMutableDictionary *hanjaView = [hanjaBase mutableCopy];
+        hanjaView[@"candidates"] = @[@{@"text": @"韓", @"annotation": reading, @"highlighted": @YES}, @{@"text": @"漢", @"annotation": @"한수 한"}];
+        [controller setValue:[hanjaView copy] forKey:@"view"];
+        [controller renderCandidates];
+        MSIMECandidateButton *hanja = CandidateButton(panel.contentView, 0);
+        assert(hanja && [hanja.title isEqual:@"1  韓"] && hanja.annotation.length == 0 && hanja.itemLayout.annotation.width == 0);
+        assert([hanja.glossReading isEqual:reading] && hanja.translation.length == 0);
+        assert(hanja.itemLayout.translation.width > 0 && hanja.itemLayout.translation.below && hanja.translationBelow);
+        assert(hanja.itemLayout.translation.y >= hanja.itemLayout.textHeight);
+        assert([hanja.toolTip isEqual:[@"韓\n" stringByAppendingString:reading]]);
+        assert([hanja.accessibilityLabel isEqual:[@"1  韓 " stringByAppendingString:reading]]);
+        // The Hanja's own column is no wider than the reading line under it needs: an inline 훈음 at the candidate size made it several times wider.
+        const CGFloat readingWidth = ceil([reading sizeWithAttributes:@{NSFontAttributeName: hanja.translationFont}].width);
+        const CGFloat inlineWidth = ceil([reading sizeWithAttributes:@{NSFontAttributeName: rowFont}].width);
+        assert(hanja.itemLayout.translation.width <= readingWidth + 0.5 && readingWidth < inlineWidth);
+        bitmap = [hanja bitmapImageRepForCachingDisplayInRect:hanja.bounds];
+        [hanja cacheDisplayInRect:hanja.bounds toBitmapImageRep:bitmap];
+
+        // The 훈음 line is reserved with both translation switches off, so a Hanja with no 훈음 is as tall as one with it and the card does not jump; a Chinese page reserves nothing then.
+        const CGFloat hanjaHeight = NSHeight(hanja.frame);
+        hanjaView[@"candidates"] = @[@{@"text": @"韓", @"highlighted": @YES}];
+        [controller setValue:[hanjaView copy] forKey:@"view"];
+        [controller renderCandidates];
+        MSIMECandidateButton *bare = CandidateButton(panel.contentView, 0);
+        assert(bare.glossReading.length == 0 && fabs(NSHeight(bare.frame) - hanjaHeight) < 0.5);
+        [controller setValue:@{@"focused": @YES, @"editing_text": @"han", @"page": @0, @"page_count": @1,
+                               @"candidates": @[@{@"text": @"韩", @"highlighted": @YES}]} forKey:@"view"];
+        [controller renderCandidates];
+        assert(NSHeight(CandidateButton(panel.contentView, 0).frame) + glossLine * 0.5 < hanjaHeight);
+
+        // A real translation goes on the line after the 훈음, and only it is the row's `translation`.
+        appearance.candidateTranslations = YES;
+        hanjaView[@"candidates"] = @[@{@"text": @"韓", @"annotation": reading, @"translation": @"Korea", @"highlighted": @YES}];
+        [controller setValue:[hanjaView copy] forKey:@"view"];
+        [controller renderCandidates];
+        MSIMECandidateButton *translated = CandidateButton(panel.contentView, 0);
+        assert([translated.translation isEqual:@"Korea"] && [translated.glossReading isEqual:reading]);
+        assert(translated.itemLayout.translation.height > glossLine * 1.5);
+        NSString *translatedTip = [NSString stringWithFormat:@"韓\n%@\nKorea", reading];
+        assert([translated.toolTip isEqual:translatedTip]);
+        // An armed translation column underlines the translation, not the reading above it.
+        translated.armedGlossColumn = 1;
+        bitmap = [translated bitmapImageRepForCachingDisplayInRect:translated.bounds];
+        [translated cacheDisplayInRect:translated.bounds toBitmapImageRep:bitmap];
+
+        // Vertical follows the vertical gloss rule: the 훈음 stays beside the Hanja when it fits, and nothing is reserved.
+        appearance.vertical = YES;
+        appearance.candidateTranslations = NO;
+        hanjaView[@"candidates"] = @[@{@"text": @"韓", @"annotation": reading, @"highlighted": @YES}];
+        [controller setValue:[hanjaView copy] forKey:@"view"];
+        [controller renderCandidates];
+        MSIMECandidateButton *verticalHanja = CandidateButton(panel.contentView, 0);
+        assert(verticalHanja.itemLayout.translation.width > 0 && !verticalHanja.itemLayout.translation.below && !verticalHanja.translationBelow);
+        assert(verticalHanja.annotation.length == 0 && [verticalHanja.glossReading isEqual:reading]);
         MSIMERemoveTestPreferenceSuite(defaults, suite);
     }
     return 0;

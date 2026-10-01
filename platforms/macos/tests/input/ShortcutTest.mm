@@ -3431,6 +3431,15 @@ static void TestRealSessionComposition() {
     assert([client.marked isEqual:@"한"] && client.insertions.count == 0);
     // Hanja rows take no pin, fixed position or removal, so a right click offers no menu for them.
     assert([controller menuForCandidate:currentView()[@"candidates"][0]] == nil);
+    // The row draws the Hanja alone on its line and the 훈음 the Engine annotated it with on the small gloss line under it, never as the row's translation.
+    NSString *hanReading = currentView()[@"candidates"][0][@"annotation"];
+    assert([hanReading isKindOfClass:NSString.class] && hanReading.length);
+    MSIMECandidateButton *hanRow = nil;
+    for (NSView *view in panel.contentView.subviews)
+        if ([view isKindOfClass:MSIMECandidateButton.class] && view.tag == 0) hanRow = (MSIMECandidateButton *)view;
+    assert(hanRow && [hanRow.title isEqual:@"1  韓"] && hanRow.annotation.length == 0 && hanRow.itemLayout.annotation.width == 0);
+    assert([hanRow.glossReading isEqual:hanReading] && hanRow.translation.length == 0 && hanRow.itemLayout.translation.width > 0);
+    assert(![hanRow.title containsString:hanReading] && [hanRow.toolTip containsString:hanReading]);
     // Return chooses the highlighted Hanja instead of writing the syllable out and breaking the line.
     assert([controller handleEvent:enter client:client]);
     assert(client.insertions.count == 1 && [client.insertions[0] isEqual:@"韓"] && client.marked.length == 0 && !panel.isVisible);
@@ -3500,6 +3509,27 @@ static void TestRealSessionComposition() {
     assert(client.marked.length == 0);
     assert(![controller handleEvent:hanja client:client]);
     assert(client.insertions.count == 6);
+    // The 훈음 is shown, not committable: with translations on, Ctrl+Enter and Option/Ctrl+digit write only a real translation, and a Hanja row has none here, so neither the 훈음 nor anything glued to it reaches the document.
+    const BOOL savedTranslations = prefs.candidateTranslations;
+    prefs.candidateTranslations = YES;
+    typeHan();
+    assert([controller handleEvent:hanja client:client]);
+    assert(MSIMEKoreanHanjaListOpen(currentView()));
+    assert([controller sensesForHighlightedCandidate].count == 0);
+    assert(![controller commitHighlightedGlossColumn:1 client:client] && ![controller commitHighlightedGlossColumn:2 client:client]);
+    assert(client.insertions.count == 6 && MSIMEKoreanHanjaListOpen(currentView()));
+    for (NSEvent *glossChord in @[chord(@"1", 18, NSEventModifierFlagOption), chord(@"1", 18, NSEventModifierFlagControl),
+                                  chord(@"\r", 36, NSEventModifierFlagControl)]) {
+        if (!MSIMEKoreanHanjaListOpen(currentView())) {
+            if (!client.marked.length) typeHan();
+            assert([controller handleEvent:hanja client:client]);
+        }
+        [controller handleEvent:glossChord client:client];
+        for (NSString *inserted in client.insertions) assert(![inserted containsString:hanReading]);
+    }
+    if (MSIMEKoreanHanjaListOpen(currentView())) assert([controller handleEvent:escape client:client]);
+    if (client.marked.length) assert([controller handleEvent:escape client:client]);
+    prefs.candidateTranslations = savedTranslations;
     [prefs applySharedInputPreferences:@{@"tsf_preedit_style": @"raw"}];
     assert([koreanSession closeWithError:&error] && !error);
 

@@ -101,6 +101,13 @@ static inline msime::mac::CandidateRunMeasure MSIMECandidateRunMeasure(NSString 
     };
 }
 
+// The text of a row's gloss run: the reading lines drawn first (a Korean Hanja's 훈음), then the translation, one line each. The reading is shown but never committed, so it stays out of the candidate's `translation`, and an armed translation column is counted from the first line after it.
+static inline NSString *MSIMECandidateGlossRun(NSString *reading, NSString *translation)
+{
+    if (reading.length == 0) return translation ?: @"";
+    return translation.length ? [NSString stringWithFormat:@"%@\n%@", reading, translation] : reading;
+}
+
 @interface MSIMECandidateButton : NSButton
 @property(nonatomic, copy) NSDictionary *candidateID;
 @property(nonatomic, strong) NSFont *numberFont;
@@ -112,6 +119,8 @@ static inline msime::mac::CandidateRunMeasure MSIMECandidateRunMeasure(NSString 
 @property(nonatomic) BOOL translationBelow;
 // The 辅助码 or engine annotation, drawn as its own run after the text and moved under it when it does not fit.
 @property(nonatomic, copy) NSString *annotation;
+// A reading drawn on the gloss run above the translation, in the gloss style, and never committed: a Korean Hanja's 훈음. Empty for every other row.
+@property(nonatomic, copy) NSString *glossReading;
 // Geometry from the panel's page layout; frames, drawing and hit testing all come from it. Without one the button lays itself out in its bounds.
 @property(nonatomic) msime::mac::CandidateItemLayout itemLayout;
 @property(nonatomic) BOOL hasItemLayout;
@@ -228,7 +237,8 @@ static inline msime::mac::CandidateRunMeasure MSIMECandidateRunMeasure(NSString 
     NSString *number = [title substringToIndex:split.location];
     NSString *word = [title substringFromIndex:NSMaxRange(split)];
     NSString *annotation = self.annotation ?: @"";
-    NSString *translation = self.translation ?: @"";
+    NSString *glossReading = self.glossReading ?: @"";
+    NSString *translation = MSIMECandidateGlossRun(glossReading, self.translation);
     const NSSize numberSize = [number sizeWithAttributes:numberAttributes];
     const NSSize wordSize = [word sizeWithAttributes:titleAttributes];
     NSFont *glossFont = self.translationFont ?: [NSFont systemFontOfSize:MSIMECandidateTranslationPointSize * scale];
@@ -279,7 +289,9 @@ static inline msime::mac::CandidateRunMeasure MSIMECandidateRunMeasure(NSString 
             attributes:MSIMECandidateRunAttributes(glossFont, glossColor, run.below)];
         if (self.armedGlossColumn > 0) {
             NSArray<NSString *> *parts = [translation componentsSeparatedByString:@"\n"];
+            // The reading's lines come first in the run and are no column of their own.
             NSUInteger selected = (NSUInteger)(self.armedGlossColumn - 1);
+            if (glossReading.length) selected += [glossReading componentsSeparatedByString:@"\n"].count;
             if (selected < parts.count && parts[selected].length) {
                 NSUInteger location = 0;
                 for (NSUInteger index = 0; index < selected; ++index)

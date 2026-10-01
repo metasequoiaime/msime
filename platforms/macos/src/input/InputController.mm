@@ -340,6 +340,9 @@ struct MSIMECandidatePageGeometry {
     NSArray<NSString *> *texts = @[];
     NSArray<NSString *> *annotations = @[];
     NSArray<NSString *> *displays = @[];
+    // The reading each row draws on its gloss run above any translation (a Korean Hanja's 훈음, empty elsewhere), and the tooltip that shows the row's text with everything under it.
+    NSArray<NSString *> *readings = @[];
+    NSArray<NSString *> *tooltips = @[];
     // Card width, the width the rows share inside it, the height they stack to, and the x of the candidate text inside a row.
     CGFloat width = 0;
     CGFloat lineWidth = 0;
@@ -2444,9 +2447,8 @@ static NSImage *MSIMECandidateLogoImage() {
     if (!query || ![targets containsObject:@"en"]) return nil;
     if (_glossTargetLanguages && ![_glossTargetLanguages isEqual:targets]) return nil;
     NSDictionary *view = [self serviceSnapshotView];
-    // Windows suppresses candidate translations in Japanese, including a temporary Japanese composition whose view retains its original scheme. Korean's only candidates are the Hanja of one syllable, which carry their 훈음 as the annotation and are not translated.
-    if ([view[@"scheme"] isEqual:@3] || [view[@"scheme"] isEqual:@(msime::mac::KoreanScheme)] ||
-        [view[@"local_mode"] isEqual:@"temporary_japanese"]) return nil;
+    // Windows suppresses candidate translations in Japanese, including a temporary Japanese composition whose view retains its original scheme. Korean Hanja rows are glossed like Chinese ones: the gloss request also looks a Traditional Hanja up under its Simplified characters.
+    if ([view[@"scheme"] isEqual:@3] || [view[@"local_mode"] isEqual:@"temporary_japanese"]) return nil;
     if (![view[@"generation"] isEqual:query[@"generation"]]) return nil;
     NSMutableArray *candidates = [NSMutableArray array];
     for (NSDictionary *candidate in view[@"candidates"])
@@ -2575,8 +2577,7 @@ static NSImage *MSIMECandidateLogoImage() {
         if (![target isEqual:@"en"] && [installed containsObject:target]) [languages addObject:target];
     if (!languages.count) return nil;
     NSDictionary *view = [self serviceSnapshotView];
-    if ([view[@"scheme"] isEqual:@3] || [view[@"scheme"] isEqual:@(msime::mac::KoreanScheme)] ||
-        [view[@"local_mode"] isEqual:@"temporary_japanese"]) return nil;
+    if ([view[@"scheme"] isEqual:@3] || [view[@"local_mode"] isEqual:@"temporary_japanese"]) return nil;
     if (![view[@"generation"] isEqual:query[@"generation"]]) return nil;
     NSMutableArray *candidates = [NSMutableArray array];
     for (NSDictionary *candidate in view[@"candidates"])
@@ -4811,13 +4812,18 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
 //
 // Horizontal only. Vertical draws the gloss on the candidate's own row, where it costs width rather than
 // height, and width still follows the content: reserving it would widen the panel for nothing.
+//
+// A Korean Hanja list always keeps a line for the 훈음, which every Hanja row draws on its gloss line whatever the translation switches say, with the translation lines, when they are on, under it.
 - (CGFloat)reservedGlossHeightForFont:(NSFont *)glossFont {
     if (_appearance.vertical) return 0;
-    if (!_appearance.candidateTranslations && !_appearance.candidateEnglishGloss) return 0;
-    if (_glossEnabled && !_glossEnabled.boolValue && !_appearance.candidateEnglishGloss) return 0;
-    const NSUInteger lines = MIN(MAX(_glossTargetLanguages.count, (NSUInteger)1), (NSUInteger)2);
-    NSString *placeholder = lines > 1 ? @"X\nX" : @"X";
-    return MSIMETranslationTextSize(placeholder, glossFont).height + MSIMECandidateGlossPadding * MSIMECandidateScale(_appearance);
+    const NSUInteger readingLines = MSIMEKoreanHanjaListOpen(_view) ? 1 : 0;
+    const BOOL translations = (_appearance.candidateTranslations || _appearance.candidateEnglishGloss) &&
+        !(_glossEnabled && !_glossEnabled.boolValue && !_appearance.candidateEnglishGloss);
+    const NSUInteger lines = readingLines + (translations ? MIN(MAX(_glossTargetLanguages.count, (NSUInteger)1), (NSUInteger)2) : 0);
+    if (lines == 0) return 0;
+    NSMutableArray<NSString *> *placeholder = [NSMutableArray arrayWithCapacity:lines];
+    for (NSUInteger line = 0; line < lines; ++line) [placeholder addObject:@"X"];
+    return MSIMETranslationTextSize([placeholder componentsJoinedByString:@"\n"], glossFont).height + MSIMECandidateGlossPadding * MSIMECandidateScale(_appearance);
 }
 
 // Background music plays while one controller of this process is the active input method. IMK does not promise that the previous client's deactivateServer: comes before the next one's activateServer:, so only the controller that last let music play may stop it.
@@ -5886,6 +5892,10 @@ static __weak MSIMEInputController *MSIMEMusicOwner;
     NSMutableArray<NSString *> *annotations = [NSMutableArray arrayWithCapacity:candidates.count];
     NSMutableArray<NSString *> *displays = [NSMutableArray arrayWithCapacity:candidates.count];
     NSMutableArray<NSString *> *translations = [NSMutableArray arrayWithCapacity:candidates.count];
+    NSMutableArray<NSString *> *readings = [NSMutableArray arrayWithCapacity:candidates.count];
+    NSMutableArray<NSString *> *tooltips = [NSMutableArray arrayWithCapacity:candidates.count];
+    // A Korean Hanja's 훈음 (나라 이름 한) arrives as the row's annotation. Drawn inline at the candidate size it made every row several times as wide as its one character, so it goes on the small gloss line under the Hanja instead, always, with any translation on the lines after it. It stays out of `translation`, which is what the gloss commit chords write.
+    const BOOL hanjaReadings = MSIMEKoreanHanjaListOpen(_view);
     CGFloat candidateRow = MSIMECandidateTextHeight(@"", font) + MSIMECandidateRowPadding * scale;
     CGFloat numberWidth = 0;
     NSUInteger index = 0;
@@ -5893,10 +5903,21 @@ static __weak MSIMEInputController *MSIMEMusicOwner;
         NSString *hint = MSIMEWubiCodeHint(candidate, _view, _wubiCodeHintEnabled);
         NSString *text = CandidateTextRun(candidate, traditional);
         NSString *annotation = CandidateAnnotationRun(candidate, traditional, hint);
+        NSString *reading = @"";
+        if (hanjaReadings) {
+            reading = annotation;
+            annotation = @"";
+        }
+        NSString *gloss = MSIMECandidateGlossRun(reading, CandidateTranslation(candidate));
+        // The tooltip and the accessibility label keep the reading apart from the Hanja rather than running the two together.
+        NSString *display = hanjaReadings ? (reading.length ? [NSString stringWithFormat:@"%@ %@", text, reading] : text)
+                                          : CandidateDisplayWithWubiHint(candidate, traditional, hint);
         [texts addObject:text];
         [annotations addObject:annotation];
-        [displays addObject:CandidateDisplayWithWubiHint(candidate, traditional, hint)];
-        [translations addObject:CandidateTranslation(candidate)];
+        [displays addObject:display];
+        [readings addObject:reading];
+        [translations addObject:gloss];
+        [tooltips addObject:gloss.length ? [NSString stringWithFormat:@"%@\n%@", hanjaReadings ? text : display, gloss] : display];
         NSString *number = [NSString stringWithFormat:@"%lu", (unsigned long)++index];
         numberWidth = MAX(numberWidth, [number sizeWithAttributes:@{NSFontAttributeName: numberFont}].width);
         // Fallback glyphs can stand taller than the primary font; a one-line row is as tall as its tallest.
@@ -5905,6 +5926,8 @@ static __weak MSIMEInputController *MSIMEMusicOwner;
     geometry.texts = texts;
     geometry.annotations = annotations;
     geometry.displays = displays;
+    geometry.readings = readings;
+    geometry.tooltips = tooltips;
     geometry.contentLeft = MSIMECandidateTextLeft(showSelectedBar, scale) + ceil(numberWidth) + MSIMECandidateNumberGap * scale;
     const msime::mac::CandidateLayoutMetrics metrics =
         MSIMECandidateLayoutMetrics(font, glossFont, candidateRow, geometry.contentLeft + MSIMECandidateTextRight * scale, scale);
@@ -6138,7 +6161,6 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
             if (!button) { reusable = NO; break; }
             NSDictionary *candidate = candidates[index];
             const msime::mac::CandidateRowLayout &row = pageGeometry.rows[index];
-            NSString *display = pageGeometry.displays[index];
             NSString *title = [NSString stringWithFormat:@"%lu  %@", (unsigned long)(index + 1), pageGeometry.texts[index]];
             if (![button.candidateID isEqual:candidate[@"id"]] || ![button.title isEqual:title] ||
                 ![button.annotation isEqual:pageGeometry.annotations[index]] ||
@@ -6151,14 +6173,15 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
             button.menu = [self menuForCandidate:candidate];
             button.frame = NSMakeRect(inset + row.x, headerBottom - row.y - row.height,
                                       row.width, row.height);
-            button.toolTip = CandidateTranslation(candidate).length ? [display stringByAppendingFormat:@"\n%@", CandidateTranslation(candidate)] : display;
+            button.toolTip = pageGeometry.tooltips[index];
             button.translation = CandidateTranslation(candidate);
+            button.glossReading = pageGeometry.readings[index];
             button.armedGlossColumn = _armedGlossColumn;
             button.translationFont = glossFont;
             button.itemLayout = row.item;
             button.hasItemLayout = YES;
             button.contentLeft = pageGeometry.contentLeft;
-            button.translationBelow = button.translation.length ? row.item.translation.below : !vertical;
+            button.translationBelow = MSIMECandidateGlossRun(button.glossReading, button.translation).length ? row.item.translation.below : !vertical;
             button.needsDisplay = YES;
         }
         if (reusable) {
@@ -6199,16 +6222,16 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
         button.numberFont = numberFont;
         button.chromeScale = scale;
         button.lineBreakMode = NSLineBreakByWordWrapping;
-        button.toolTip = display;
         button.annotation = row.item.annotation.width > 0 ? pageGeometry.annotations[slot - 1] : @"";
         button.translation = CandidateTranslation(candidate);
+        button.glossReading = pageGeometry.readings[slot - 1];
         button.armedGlossColumn = _armedGlossColumn;
         button.translationFont = glossFont;
         button.itemLayout = row.item;
         button.hasItemLayout = YES;
         button.contentLeft = pageGeometry.contentLeft;
-        button.translationBelow = button.translation.length ? row.item.translation.below : !vertical;
-        if (button.translation.length) button.toolTip = [display stringByAppendingFormat:@"\n%@", button.translation];
+        button.translationBelow = MSIMECandidateGlossRun(button.glossReading, button.translation).length ? row.item.translation.below : !vertical;
+        button.toolTip = pageGeometry.tooltips[slot - 1];
         button.bordered = NO;
         button.candidateHighlighted = [candidate[@"highlighted"] boolValue];
         id fixed = candidate[@"fixed_position"];
