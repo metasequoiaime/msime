@@ -24,6 +24,7 @@ import {
   CommunityResourceScopeButtons,
   type CommunityResourceScope,
 } from "./community-resource-scope-buttons";
+import { CommunityRightsAgreement } from "./community-rights-agreement";
 
 export type CommunityResourceKind = "dictionary" | "reply";
 export type { CommunityResourceScope } from "./community-resource-scope-buttons";
@@ -352,16 +353,13 @@ function ResourceEditor({
           </>
         )}
         {!existing && (
-          <label className={style.agreement}>
-            <input
-              type="checkbox"
-              aria-label="确认拥有发布内容权利"
-              checked={agreed}
-              disabled={busy}
-              onChange={(event) => setAgreed(event.target.checked)}
-            />
-            我拥有发布所用内容的权利，并同意其他用户查看和使用
-          </label>
+          <CommunityRightsAgreement
+            agreementText="我拥有发布所用内容的权利，并同意其他用户查看和使用"
+            ariaLabel="确认拥有发布内容权利"
+            checked={agreed}
+            disabled={busy}
+            onChange={setAgreed}
+          />
         )}
         <p className={style.warning}>
           发布内容会公开展示。请勿包含 API

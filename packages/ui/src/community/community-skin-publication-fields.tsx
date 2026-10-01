@@ -1,4 +1,5 @@
 import * as style from "./community-style";
+import { CommunityRightsAgreement } from "./community-rights-agreement";
 
 export interface CommunitySkinPublicationFieldsProps {
   name: string;
@@ -47,17 +48,14 @@ export function CommunitySkinPublicationFields({
           onChange={(event) => onDescriptionChange(event.target.value)}
         />
       </label>
-      <label className={style.agreement}>
-        <input
-          className={style.agreementBox}
-          type="checkbox"
-          aria-label="确认拥有发布素材权利"
-          checked={agreed}
-          disabled={busy}
-          onChange={(event) => onAgreedChange(event.target.checked)}
-        />
-        {agreementText}
-      </label>
+      <CommunityRightsAgreement
+        agreementText={agreementText}
+        ariaLabel="确认拥有发布素材权利"
+        checked={agreed}
+        disabled={busy}
+        checkboxClassName={style.agreementBox}
+        onChange={onAgreedChange}
+      />
     </>
   );
 }

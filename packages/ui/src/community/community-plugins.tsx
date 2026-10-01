@@ -21,6 +21,7 @@ import * as style from "./community-style";
 import { CommunitySearchForm } from "./community-search-form";
 import { CommunitySkinModerationSection } from "./community-skin-moderation-section";
 import { CommunityScopeButtons } from "./community-scope-buttons";
+import { CommunityRightsAgreement } from "./community-rights-agreement";
 import {
   CommunityRemovedBadge,
   CommunityReportSection,
@@ -751,17 +752,14 @@ export function CommunityPluginPublishDialog({
                 }}
               />
             </label>
-            <label className={style.agreement}>
-              <input
-                className={style.agreementBox}
-                type="checkbox"
-                aria-label="确认拥有发布内容权利"
-                checked={agreed}
-                disabled={busy}
-                onChange={(event) => setAgreed(event.target.checked)}
-              />
-              我拥有插件中音频与文字的发布权利，并同意其他用户按包内授权免费下载使用
-            </label>
+            <CommunityRightsAgreement
+              agreementText="我拥有插件中音频与文字的发布权利，并同意其他用户按包内授权免费下载使用"
+              ariaLabel="确认拥有发布内容权利"
+              checked={agreed}
+              disabled={busy}
+              checkboxClassName={style.agreementBox}
+              onChange={setAgreed}
+            />
             <p className={style.warning}>{publishWarning}</p>
           </>
         )}

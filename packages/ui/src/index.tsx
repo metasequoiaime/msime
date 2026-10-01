@@ -1179,6 +1179,10 @@ export {
   CommunitySkinPublicationFields,
   type CommunitySkinPublicationFieldsProps,
 } from "./community/community-skin-publication-fields";
+export {
+  CommunityRightsAgreement,
+  type CommunityRightsAgreementProps,
+} from "./community/community-rights-agreement";
 export { CandidateSkinPublishDialog } from "./community/candidate-skin-publish-dialog";
 export {
   CommunityPluginPublishDialog,
