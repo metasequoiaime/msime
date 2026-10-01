@@ -1797,7 +1797,16 @@ fn temporary_japanese_returns_to_the_original_scheme() {
     assert_eq!(snapshot.candidates[0].source, CandidateSource::Fallback);
     type_text(&mut session, "ka");
     assert!(words(&session).contains(&"か".to_owned()));
-    assert_eq!(session.snapshot().editing_text, "Rka");
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.editing_text, "Rka");
+    assert_eq!(
+        snapshot.editing_text.capacity(),
+        snapshot.editing_text.len()
+    );
+    assert_eq!(
+        session.input.local_preedit.capacity(),
+        session.input.local_preedit.len()
+    );
     session.command(Command::Backspace);
     assert_eq!(session.snapshot().preedit, "Rk");
     assert_eq!(

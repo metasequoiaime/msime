@@ -8,6 +8,13 @@ use crate::shuangpin::query::{
 };
 use crate::types::{Command, KeyResult, LocalInputMode, SchemeType, ShuangpinProfileKind};
 
+pub(super) fn temporary_japanese_preedit(raw: &str) -> String {
+    let mut preedit = String::with_capacity(1 + raw.len());
+    preedit.push('R');
+    preedit.push_str(raw);
+    preedit
+}
+
 impl InputSession {
     /// Dedicated preedit; `"R" + cased raw` in temporary Japanese; the local preedit; else the cased raw input.
     pub(super) fn editing_text(&self) -> String {
@@ -16,7 +23,7 @@ impl InputSession {
         }
         match self.local_mode {
             LocalInputMode::TemporaryJapanese => {
-                format!("R{}", self.engine.request().raw_input_with_cases)
+                temporary_japanese_preedit(&self.engine.request().raw_input_with_cases)
             }
             LocalInputMode::None => self.raw_with_cases().to_owned(),
             _ => self.local_preedit.clone(),

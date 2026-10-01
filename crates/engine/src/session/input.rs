@@ -7,6 +7,7 @@ use std::time::Instant;
 
 use super::chain::CommitChain;
 use super::clock::Clock;
+use super::editing::temporary_japanese_preedit;
 use super::online::OnlineRequestGuard;
 use super::options::SessionOptions;
 use crate::assets;
@@ -933,7 +934,7 @@ impl InputSession {
 
     /// The `R` preedit and rows follow the Japanese engine after every edit.
     pub(super) fn refresh_temporary_japanese(&mut self) {
-        self.local_preedit = format!("R{}", self.engine.preedit());
+        self.local_preedit = temporary_japanese_preedit(self.engine.preedit());
         self.local_candidates = self.engine.candidates().to_vec();
         self.add_local_fallback_candidate();
     }
