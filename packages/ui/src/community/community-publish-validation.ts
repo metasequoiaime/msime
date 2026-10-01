@@ -1,3 +1,4 @@
+import type { KeyboardEvent } from "react";
 import { boundedGraphemes } from "../core/text";
 
 export interface CommunityPublishFields {
@@ -20,4 +21,14 @@ export function communityPublishFields(name: string, description: string): Commu
       [...normalizedName].length <= 32,
     descriptionValid: [...normalizedDescription].length <= 280,
   };
+}
+
+/** Submits a community publish dialog from a text input without hijacking checkbox Enter keys. */
+export function handleCommunityPublishKeyDown(
+  event: KeyboardEvent<HTMLElement>,
+  submit: () => void,
+) {
+  if (event.key !== "Enter" || !(event.target instanceof HTMLInputElement)) return;
+  event.preventDefault();
+  if (event.target.type !== "checkbox") submit();
 }

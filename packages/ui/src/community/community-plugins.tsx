@@ -1,6 +1,9 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { boundedGraphemes } from "../core/text";
-import { communityPublishFields } from "./community-publish-validation";
+import {
+  communityPublishFields,
+  handleCommunityPublishKeyDown,
+} from "./community-publish-validation";
 import { randomUuid } from "../core/random-id";
 import {
   kindLabels,
@@ -622,14 +625,6 @@ export function CommunityPluginPublishDialog({
     });
   };
 
-  // Enter in a text field would otherwise submit whichever form this dialog sits in.
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === "Enter" && event.target instanceof HTMLInputElement) {
-      event.preventDefault();
-      if (event.target.type !== "checkbox") void submit();
-    }
-  };
-
   return (
     <div className={style.backdrop}>
       <div
@@ -637,7 +632,7 @@ export function CommunityPluginPublishDialog({
         role="dialog"
         aria-modal="true"
         aria-label="发布插件"
-        onKeyDown={onKeyDown}
+        onKeyDown={(event) => handleCommunityPublishKeyDown(event, () => void submit())}
       >
         <CommunityDialogHeader
           title="发布插件"

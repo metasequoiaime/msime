@@ -1181,6 +1181,7 @@ export {
 } from "./community/community-scope-buttons";
 export {
   communityPublishFields,
+  handleCommunityPublishKeyDown,
   type CommunityPublishFields,
 } from "./community/community-publish-validation";
 export {
