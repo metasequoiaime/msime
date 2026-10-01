@@ -694,6 +694,7 @@ export {
   type ThemePreferenceKey,
   type ThemePreferences,
 } from "./settings/theme-settings-section";
+export { SurfaceThemeSelect, type SurfaceThemeSelectProps } from "./settings/surface-theme-select";
 export {
   CandidateColorsSection,
   type CandidateColorKey,
