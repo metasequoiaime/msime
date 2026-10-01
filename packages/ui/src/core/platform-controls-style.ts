@@ -19,6 +19,14 @@ export const rowText = "flex min-w-0 flex-1 flex-col gap-0.5";
 export const rowTitle = "block [font-size:var(--p-row-fs)] [color:var(--p-text)]";
 export const rowDescription = "block [font-size:var(--p-sub-fs)] [color:var(--p-sub)]";
 export const rowControl = "flex shrink-0 items-center gap-2";
+/** 跳转行：整行是一个按钮，外形与 `row` 相同，悬停时变色。 */
+export const linkRow = `${row} w-full cursor-pointer border-0 text-left hover:bg-[var(--p-hover)]`;
+
+// ---- page intro ----
+
+/** 页首说明：页面第一组之前的一段灰字，内边距取组名的 `--p-g-title-pad`，与下面各组的组名对齐。 */
+export const pageIntro =
+  "m-0 leading-relaxed [padding:var(--p-g-title-pad)] [font-size:var(--p-sub-fs)] [color:var(--p-sub)]";
 
 // ---- switch ----
 

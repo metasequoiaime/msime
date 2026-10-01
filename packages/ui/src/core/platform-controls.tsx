@@ -92,6 +92,47 @@ export function Row({
   );
 }
 
+/** 跳转行：没有控件，点击后去别处。`external` 为假时打开另一个设置页，行尾画 ›；为真时打开应用外的链接，行尾画 ↗。按钮以标题命名，以说明描述。 */
+export function LinkRow({
+  title,
+  description,
+  external,
+  onClick,
+}: {
+  title: string;
+  description?: ReactNode;
+  external?: boolean;
+  onClick: () => void;
+}) {
+  const descriptionId = useId();
+  return (
+    <button
+      type="button"
+      className={style.linkRow}
+      aria-label={title}
+      aria-describedby={description ? descriptionId : undefined}
+      onClick={onClick}
+    >
+      <span className={style.rowText}>
+        <span className={style.rowTitle}>{title}</span>
+        {description && (
+          <span id={descriptionId} className={style.rowDescription}>
+            {description}
+          </span>
+        )}
+      </span>
+      <span className={style.rowDescription} aria-hidden="true">
+        {external ? "↗" : "›"}
+      </span>
+    </button>
+  );
+}
+
+/** 页首说明：一段说明整页用途或适用范围的文字，放在页面 `settings.groups` 的第一项。 */
+export function PageIntro({ children }: { children: ReactNode }) {
+  return <p className={style.pageIntro}>{children}</p>;
+}
+
 export function Switch({
   checked,
   onChange,

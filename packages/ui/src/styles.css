@@ -250,6 +250,14 @@
   background: transparent;
   color: var(--danger-text);
 }
+/* 危险操作按钮：与 `secondary` 搭配，保留同样的边框和底色，只把文字换成警示色，让它在一行里仍然读作按钮。 */
+@utility danger-button {
+  color: var(--danger-text);
+
+  &:hover:not(:disabled) {
+    color: var(--danger-hover);
+  }
+}
 /* The switch every settings row uses. `appearance: none` and a drawn knob, because a checkbox cannot
    be restyled into one on every engine this ships to. */
 @utility toggle {

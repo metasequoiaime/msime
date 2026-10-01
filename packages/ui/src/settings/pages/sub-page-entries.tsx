@@ -1,5 +1,4 @@
-import { GroupList } from "../../core/platform-controls";
-import * as controls from "../../core/platform-controls-style";
+import { GroupList, LinkRow } from "../../core/platform-controls";
 import type { SettingsFormModel } from "../settings-form-context";
 import { useSettingsForm } from "../settings-form-context";
 
@@ -22,24 +21,12 @@ export function SubPageEntries({
   return (
     <GroupList title={title}>
       {entries.map((entry) => (
-        <button
+        <LinkRow
           key={entry.id}
-          type="button"
-          className={`${controls.row} w-full cursor-pointer border-0 text-left hover:bg-[var(--p-hover)]`}
-          aria-label={entry.title}
-          aria-describedby={`sub-page-${entry.id}`}
+          title={entry.title}
+          description={entry.description}
           onClick={() => selectPage(entry.id)}
-        >
-          <span className={controls.rowText}>
-            <span className={controls.rowTitle}>{entry.title}</span>
-            <span id={`sub-page-${entry.id}`} className={controls.rowDescription}>
-              {entry.description}
-            </span>
-          </span>
-          <span className={controls.rowDescription} aria-hidden="true">
-            ›
-          </span>
-        </button>
+        />
       ))}
     </GroupList>
   );

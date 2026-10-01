@@ -66,8 +66,8 @@ export function ShortcutsSettingsSection({
 }: ShortcutsSettingsSectionProps) {
   return (
     <fieldset disabled={disabled} hidden={hidden} aria-label="快捷键">
-      <ShortcutsIntroSection mobile={mobile} />
       <div className={settings.groups}>
+        <ShortcutsIntroSection mobile={mobile} />
         <InputModeShortcutsSection
           keybindings={keybindings}
           onChange={onKeybindingsChange}

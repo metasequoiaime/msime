@@ -1,7 +1,7 @@
 import * as doc from "../document-style";
 import * as settings from "../settings-style";
 import { useSettingsForm } from "../settings-form-context";
-import { GroupList } from "../../core/platform-controls";
+import { GroupList, PageIntro } from "../../core/platform-controls";
 import { SubPageEntries } from "./sub-page-entries";
 import { createSettingsExternalActions } from "../settings-external-actions";
 import { FeedbackChannels } from "../feedback-channels";
@@ -36,7 +36,7 @@ export function FeedbackSettingsPage() {
   return (
     <fieldset disabled={busy} hidden={page !== "feedback"} aria-label="反馈">
       <div className={settings.groups}>
-        <p className={settings.groupNote}>遇到问题或有功能建议时，可以通过以下渠道提交和交流。</p>
+        <PageIntro>遇到问题或有功能建议时，可以通过以下渠道提交和交流。</PageIntro>
         <GroupList title="提交可复现的问题">
           <div className={settings.rowStack} role="group" aria-label="问题报告">
             <p className={settings.groupNote}>报告只在你点击按钮时生成，不会读取或上传输入历史。</p>

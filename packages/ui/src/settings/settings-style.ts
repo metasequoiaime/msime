@@ -44,7 +44,6 @@ export const rowStack =
 
 // ---- the theme page: its card gallery ----
 
-export const skinIntro = "mt-0 mb-3.5 leading-relaxed text-muted";
 export const externalHeading =
   "mx-1 mt-7 mb-3 flex items-start justify-between gap-[18px] [&>div]:min-w-0";
 export const externalActions =

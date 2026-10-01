@@ -2,7 +2,7 @@ import * as doc from "../document-style";
 import { logo } from "../settings-options";
 import * as settings from "../settings-style";
 import { useSettingsForm } from "../settings-form-context";
-import { GroupList } from "../../core/platform-controls";
+import { GroupList, LinkRow } from "../../core/platform-controls";
 import { LicenseUninstallSection } from "../license-uninstall-section";
 import { TelemetrySection } from "../telemetry-section";
 import { AboutHeroSection } from "../about-hero-section";
@@ -104,17 +104,14 @@ export function AboutSettingsPage() {
             </div>
           )}
           <OtherPlatformDownloadRows />
-          <button
-            type="button"
-            className={doc.linkRow}
+          <LinkRow
+            title="开源许可协议"
+            external
             onClick={() => void openExternalUrl(platformLicenseUrl)}
-          >
-            <span className={doc.linkTitle}>开源许可协议</span>
-            <span aria-hidden="true">↗</span>
-          </button>
-          <button
-            type="button"
-            className={doc.linkRow}
+          />
+          <LinkRow
+            title="隐私政策"
+            external
             onClick={() =>
               void openExternalUrl(
                 linuxPlatform
@@ -124,10 +121,7 @@ export function AboutSettingsPage() {
                     : privacyUrl,
               )
             }
-          >
-            <span className={doc.linkTitle}>隐私政策</span>
-            <span aria-hidden="true">↗</span>
-          </button>
+          />
         </GroupList>
         {macosPlatform && (
           <LicenseUninstallSection

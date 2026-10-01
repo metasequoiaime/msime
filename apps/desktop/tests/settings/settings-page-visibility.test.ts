@@ -1,5 +1,10 @@
 import { expect, test } from "vitest";
-import { canReloadSettingsPage, isSettingsFormPage, type SettingsPageId } from "@msime/ui";
+import {
+  canReloadSettingsPage,
+  canRestoreDefaultsOnPage,
+  isSettingsFormPage,
+  type SettingsPageId,
+} from "@msime/ui";
 
 const pages: SettingsPageId[] = [
   "home",
@@ -43,4 +48,24 @@ test("keeps reload available on the shared form and more pages", () => {
       (page) => !["typing-statistics", "vocabulary", "account", "chat", "community"].includes(page),
     ),
   );
+});
+
+test("offers restore defaults only on the pages that edit preferences", () => {
+  expect(pages.filter(canRestoreDefaultsOnPage)).toEqual([
+    "appearance",
+    "dictionary",
+    "input",
+    "skin",
+    "floating-toolbar",
+    "expression",
+    "shortcuts",
+    "tools",
+    "plugins",
+    "screen-keyboard",
+    "handwriting",
+    "voice",
+    "ai",
+  ]);
+  for (const page of ["home", "developer", "help", "about", "feedback"] as const)
+    expect(canRestoreDefaultsOnPage(page)).toBe(false);
 });

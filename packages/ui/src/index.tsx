@@ -19,7 +19,11 @@ import {
   type SettingsPageId,
 } from "./settings/settings-page-registry";
 import { settingsPageProjections } from "./settings/settings-page-projections";
-import { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
+import {
+  canReloadSettingsPage,
+  canRestoreDefaultsOnPage,
+  isSettingsFormPage,
+} from "./settings/settings-page-visibility";
 import { settingsInputPreferences } from "./settings/settings-input-preferences";
 import { aiSettingsPreferences } from "./settings/ai-settings-preferences";
 import { diagnosticLogPreferences } from "./settings/diagnostic-log-preferences";
@@ -195,7 +199,11 @@ export {
   settingsSidebarGroups,
   type SettingsSidebarGroupsOptions,
 } from "./settings/sidebar-groups";
-export { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
+export {
+  canReloadSettingsPage,
+  canRestoreDefaultsOnPage,
+  isSettingsFormPage,
+} from "./settings/settings-page-visibility";
 export type { ExportedSettingsPageId as SettingsPageId } from "./settings/settings-page-registry";
 export {
   useSettingsDictionaryState,
@@ -3365,7 +3373,9 @@ export function SettingsPage(props: SettingsPageProps) {
                   busy={busy}
                   saveState={saveState}
                   saveError={saveError}
-                  showRestoreDefaults={Boolean(client.loadDefaultPreferences)}
+                  showRestoreDefaults={
+                    Boolean(client.loadDefaultPreferences) && canRestoreDefaultsOnPage(page)
+                  }
                   onRestoreDefaults={onRestoreDefaults}
                   onRetry={() => void retrySave()}
                   // Settings save themselves, so reading them again is only a way out of a failure: a save or load that failed, or an error the page is showing.

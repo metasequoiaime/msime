@@ -3003,6 +3003,10 @@ test("macOS exposes learning data reset and keeps its confirmation flow", async 
   );
 
   await screen.findByRole("region", { name: "学习数据" });
+  // The destructive action wears the shared `danger-button` utility (see learning-data-section.test.tsx).
+  expect(
+    screen.getByRole("button", { name: "清除全部学习数据" }).classList.contains("danger-button"),
+  ).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "清除全部学习数据" }));
   await answerConfirm("confirm");
   await waitFor(() => expect(resetLearnedData).toHaveBeenCalledTimes(1));
@@ -5545,6 +5549,26 @@ test("restore defaults declined leaves the draft alone", async () => {
   fireEvent.click(screen.getByRole("button", { name: "恢复默认设置" }));
   await answerConfirm("cancel");
   expect(loadDefaultPreferences).not.toHaveBeenCalled();
+});
+
+test("restore defaults sits in the footer of preference pages only", async () => {
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        loadDefaultPreferences: vi.fn(),
+        host: { platform: "macos" } as HostCapabilities,
+      }}
+    />,
+  );
+  await settingsReady();
+  expect(screen.getByRole("button", { name: "恢复默认设置" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  expect(await screen.findByRole("group", { name: "关于" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "恢复默认设置" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "主题" }));
+  expect(await screen.findByRole("button", { name: "恢复默认设置" })).toBeTruthy();
 });
 
 test("a host without the defaults command shows no restore button", async () => {

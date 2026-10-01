@@ -3,9 +3,8 @@ import { keyboardThemeId } from "../../theme/global-theme";
 import { ScreenKeyboardPreview } from "../../keyboard/screen-keyboard-preview";
 import * as settings from "../settings-style";
 import { useSettingsForm } from "../settings-form-context";
-import { GroupList, Row } from "../../core/platform-controls";
+import { GroupList, LinkRow, Row } from "../../core/platform-controls";
 import { TouchKeyboardGeometrySection } from "../touch-keyboard-geometry-section";
-import * as controls from "../../core/platform-controls-style";
 import { createSettingsDraftActions } from "../settings-draft-actions";
 import { OpenPanelButton } from "../open-panel-button";
 
@@ -43,23 +42,11 @@ export function ScreenKeyboardSettingsPage() {
       <div className={settings.groups}>
         {/* The keyboard's own light/dark override sits with the other per-surface overrides under 主题 › 高级 (dc.html); this row only points there. */}
         <GroupList title="外观">
-          <button
-            type="button"
-            className={`${controls.row} w-full cursor-pointer border-0 text-left hover:bg-[var(--p-hover)]`}
-            aria-label="屏幕键盘外观"
-            aria-describedby="screen-keyboard-look"
+          <LinkRow
+            title="屏幕键盘外观"
+            description="主题与明暗外观在「主题」页的「高级」中设置"
             onClick={() => selectPage("skin")}
-          >
-            <span className={controls.rowText}>
-              <span className={controls.rowTitle}>屏幕键盘外观</span>
-              <span id="screen-keyboard-look" className={controls.rowDescription}>
-                主题与明暗外观在「主题」页的「高级」中设置
-              </span>
-            </span>
-            <span className={controls.rowDescription} aria-hidden="true">
-              ›
-            </span>
-          </button>
+          />
         </GroupList>
         {/* The global theme, 我的皮肤 and its editor are on the 主题 page, which is where the design picks the keyboard's look along with every other surface's. */}
         <TouchKeyboardGeometrySection
