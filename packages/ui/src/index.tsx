@@ -1331,6 +1331,10 @@ export {
   CloudDictionaryKindSelect,
   type CloudDictionaryKindSelectProps,
 } from "./keyboard/cloud-dictionary-kind-select";
+export {
+  CloudDictionaryQueryToolbar,
+  type CloudDictionaryQueryToolbarProps,
+} from "./keyboard/cloud-dictionary-query-toolbar";
 export type { EmojiCatalogGroup } from "./emoji/emoji-catalog";
 export {
   customTranslationsExample,

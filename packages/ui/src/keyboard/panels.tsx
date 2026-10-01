@@ -43,10 +43,8 @@ import { NativePanelHeader } from "./native-panel-header";
 import { CloudDictionaryKindTabs } from "./cloud-dictionary-kind-tabs";
 import type { CloudDictionaryKind } from "./cloud-dictionary-kind-tabs";
 import { CloudDictionaryKindSelect } from "./cloud-dictionary-kind-select";
-import {
-  CloudPinyinSchemeOptions,
-  CloudShuangpinProfileOptions,
-} from "./cloud-scheme-options";
+import { CloudDictionaryQueryToolbar } from "./cloud-dictionary-query-toolbar";
+import { CloudPinyinSchemeOptions, CloudShuangpinProfileOptions } from "./cloud-scheme-options";
 import {
   clipboardTooltip,
   emojiDisplayName,
@@ -2145,30 +2143,22 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
           管理当前账号的云端词条。修改需要 provider 提供登录态和同步服务。
         </p>
         <CloudDictionaryKindTabs value={kind} disabled={busy} onChange={changeKind} />
-        <div className={cloud.dictionaryToolbar}>
-          <label className={`${cloud.dictionaryField} ${cloud.dictionaryDesktopOnlyField}`}>
-            词库
-            <CloudDictionaryKindSelect value={kind} disabled={busy} onChange={changeKind} />
-          </label>
-          <label className={cloud.dictionarySearch}>
-            搜索
-            <input
-              className={cloud.dictionaryInput}
-              aria-label="搜索云词条"
-              value={search}
-              onChange={(event) => {
-                searchRef.current = event.target.value;
-                setSearch(event.target.value);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") void refresh(0);
-              }}
-              placeholder="词条或编码"
-            />
-          </label>
-          <button type="button" onClick={() => void refresh(0)} disabled={busy}>
-            查询
-          </button>
+        <CloudDictionaryQueryToolbar
+          kind={kind}
+          busy={busy}
+          queryLabel="搜索"
+          queryAriaLabel="搜索云词条"
+          queryValue={search}
+          queryButtonLabel="查询"
+          inputClassName={cloud.dictionaryInput}
+          onKindChange={changeKind}
+          onQueryChange={(value) => {
+            searchRef.current = value;
+            setSearch(value);
+          }}
+          onQuery={() => void refresh(0)}
+          placeholder="词条或编码"
+        >
           <button type="button" onClick={beginAdd} disabled={busy}>
             添加词条
           </button>
@@ -2192,7 +2182,7 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
               应用到本机
             </button>
           )}
-        </div>
+        </CloudDictionaryQueryToolbar>
         {form && (
           <CloudDictionaryEntryForm
             value={form}
@@ -3089,33 +3079,21 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
         onClose={() => void client.close()}
       />
       <div className={cloud.dictionaryBody}>
-        <div className={cloud.dictionaryToolbar}>
-          <label className={`${cloud.dictionaryField} ${cloud.dictionaryDesktopOnlyField}`}>
-            词库
-            <CloudDictionaryKindSelect value={kind} disabled={busy} onChange={changeKind} />
-          </label>
-          <label className={cloud.dictionarySearch}>
-            编码
-            <input
-              className={cloud.dictionaryInput}
-              aria-label="完整目录编码"
-              value={code}
-              onChange={(event) => setCode(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") void queryCatalog();
-              }}
-              placeholder={kind === "quick" ? "可留空" : "例如 shi、a 或 hello"}
-            />
-          </label>
-          <button
-            className={cloud.dictionaryButton}
-            type="button"
-            onClick={() => void queryCatalog()}
-            disabled={busy || (kind !== "quick" && !code.trim())}
-          >
-            查询完整目录
-          </button>
-        </div>
+        <CloudDictionaryQueryToolbar
+          kind={kind}
+          busy={busy}
+          queryLabel="编码"
+          queryAriaLabel="完整目录编码"
+          queryValue={code}
+          queryButtonLabel="查询完整目录"
+          queryDisabled={kind !== "quick" && !code.trim()}
+          inputClassName={cloud.dictionaryInput}
+          onKindChange={changeKind}
+          onQueryChange={setCode}
+          onQuery={() => void queryCatalog()}
+          placeholder={kind === "quick" ? "可留空" : "例如 shi、a 或 hello"}
+          queryButtonClassName={cloud.dictionaryButton}
+        />
         {kind === "pinyin" && (
           <div className={cloud.dictionaryActions}>
             <label className={cloud.dictionaryField}>
@@ -3461,33 +3439,21 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
         onClose={() => void client.close()}
       />
       <div className={cloud.dictionaryBody}>
-        <div className={cloud.dictionaryToolbar}>
-          <label className={`${cloud.dictionaryField} ${cloud.dictionaryDesktopOnlyField}`}>
-            词库
-            <CloudDictionaryKindSelect value={kind} disabled={busy} onChange={changeKind} />
-          </label>
-          <label className={cloud.dictionarySearch}>
-            编码
-            <input
-              aria-label="云端候选编码"
-              value={text}
-              onChange={(event) => {
-                textRef.current = event.target.value;
-                setText(event.target.value);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") void queryCandidates();
-              }}
-            />
-          </label>
-          <button
-            type="button"
-            onClick={() => void queryCandidates()}
-            disabled={busy || !text.trim()}
-          >
-            查询云端候选
-          </button>
-        </div>
+        <CloudDictionaryQueryToolbar
+          kind={kind}
+          busy={busy}
+          queryLabel="编码"
+          queryAriaLabel="云端候选编码"
+          queryValue={text}
+          queryButtonLabel="查询云端候选"
+          queryDisabled={!text.trim()}
+          onKindChange={changeKind}
+          onQueryChange={(value) => {
+            textRef.current = value;
+            setText(value);
+          }}
+          onQuery={() => void queryCandidates()}
+        />
         {kind === "pinyin" && (
           <div className={cloud.dictionaryActions}>
             <label>
