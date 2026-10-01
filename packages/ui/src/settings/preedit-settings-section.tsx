@@ -32,7 +32,7 @@ export function PreeditSettingsSection({
 }: PreeditSettingsSectionProps) {
   return (
     <>
-      <Row title={mobile ? "候选栏预编辑" : "候选窗预编辑"}>
+      <Row title={mobile ? "候选栏预编辑" : "候选窗口预编辑"}>
         <PreeditStyleSelect
           mode="candidate"
           value={preferences.candidate_preedit_style ?? "pinyin"}

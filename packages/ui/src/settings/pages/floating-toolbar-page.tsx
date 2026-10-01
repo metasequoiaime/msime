@@ -66,8 +66,8 @@ export function FloatingToolbarSettingsPage() {
       <div className={settings.groups}>
         {/* The preview leads the page: every group below changes what it draws. */}
         <GroupList>
-          <div className={settings.toolbarPreviewArea} aria-label="悬浮工具栏预览">
-            <div className={settings.toolbarPreviewLabel}>预览</div>
+          <div className={settings.groupPreview} aria-label="悬浮工具栏预览">
+            <div className={settings.panelPreviewLabel}>预览</div>
             <div
               className={settings.skinCardPreview}
               data-skin-preview=""

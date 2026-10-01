@@ -9,7 +9,6 @@ import type { SkinImageReader } from "../skin/skin-image";
 import { useCandidatePreviewTheme } from "./candidate-preview-theme";
 import { useResolvedCandidateFonts, type FontFamilyResolver } from "./resolved-candidate-fonts";
 import * as settings from "../settings/settings-style";
-import { SettingSectionHeader } from "../settings/setting-action-header";
 import { defaultHelpcode } from "../settings/pages/helpcode-page";
 import {
   customCandidateStyle,
@@ -61,11 +60,10 @@ export function AppearanceCandidatePreview({
     (schemeHelpcode.show_in_candidate_window ?? true);
   const surfaceName = mobile ? "候选栏" : "候选窗口";
   return (
-    <section className="section" aria-label={`${surfaceName}预览`}>
-      <SettingSectionHeader
-        title={`${surfaceName}预览`}
-        description="固定样例随当前设置草稿变化，不代表实际输入候选。"
-      />
+    <section className={settings.groupPreview} aria-label={`${surfaceName}预览`}>
+      <div className={settings.panelPreviewLabel}>
+        预览：固定样例随当前设置草稿变化，不代表实际输入候选。
+      </div>
       {builtin ? (
         <div
           data-skin-preview=""

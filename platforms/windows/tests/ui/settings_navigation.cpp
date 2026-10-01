@@ -74,7 +74,7 @@ int main() {
     require(find_page("clip")->shell.panel == "cloud-clipboard");
     require(find_page("stats")->shell.page == "typing-statistics");
     require(find_page("community")->shell.page == "community");
-    // 插件 opens the shared app's plugins page, among the tools beside 剪贴板 and 打字统计.
+    // 插件打开共享应用的插件页，和云剪贴板、打字统计同在「工具」组。
     require(find_page("plugins")->shell.page == "plugins" &&
             find_page("plugins")->group == find_page("clip")->group &&
             find_page("plugins")->group == find_page("stats")->group);

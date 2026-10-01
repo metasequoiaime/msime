@@ -240,7 +240,7 @@ export function DictionarySettingsPage() {
           title="更多"
           pages={[{ id: "vocabulary", description: "用输入过的英文单词复习词汇" }]}
         />
-        {/* 清除学习数据只要宿主提供就显示，不再只限 macOS；它是危险操作，放在页末。 */}
+        {/* 宿主提供 `resetLearnedData` 就显示（宿主只在真正能清除的桌面平台上提供）；它是危险操作，放在页末。 */}
         {client.resetLearnedData && (
           <GroupList title="学习数据">
             <Row

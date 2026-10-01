@@ -57,21 +57,24 @@ export function AppearanceSettingsPage() {
   const surfaceName = mobilePlatform ? "候选栏" : "候选窗口";
   return (
     <fieldset disabled={busy} hidden={page !== "appearance"} aria-label="候选窗口">
-      <AppearanceCandidatePreview
-        preferences={appearanceSettingsPreferences(draft, host?.platform === "windows")}
-        scan={client.scanSkinCatalog}
-        readImage={client.readSkinImage}
-        resolveTheme={client.resolveTheme}
-        resolveFonts={client.resolveFontFamilies}
-        active={page === "appearance"}
-        revision={snapshot?.revision ?? 0}
-        mobile={mobilePlatform}
-      />
-      {host?.candidate_panel_limit && (
-        <CandidatePanelLimitSection limit={host.candidate_panel_limit} />
-      )}
       {/* Basic to advanced: how the candidates are laid out, how big they are drawn, the window around them, and last the preedit. The colours and light/dark are edited only on 主题, which 窗口样式 links to; 翻页方式 is on the 输入 page next to 以词定字. */}
       <div className={settings.groups}>
+        {/* 预览放在页首，它画的是下面所有组的设置；Linux 上由桌面环境接管候选面板时，限制说明紧跟在预览下面。 */}
+        <GroupList>
+          <AppearanceCandidatePreview
+            preferences={appearanceSettingsPreferences(draft, host?.platform === "windows")}
+            scan={client.scanSkinCatalog}
+            readImage={client.readSkinImage}
+            resolveTheme={client.resolveTheme}
+            resolveFonts={client.resolveFontFamilies}
+            active={page === "appearance"}
+            revision={snapshot?.revision ?? 0}
+            mobile={mobilePlatform}
+          />
+          {host?.candidate_panel_limit && (
+            <CandidatePanelLimitSection limit={host.candidate_panel_limit} />
+          )}
+        </GroupList>
         {showLayoutGroup && (
           <GroupList title="布局">
             <CandidateLayoutSection

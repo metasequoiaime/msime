@@ -653,7 +653,8 @@ constexpr std::array<PageLabel, 18> page_labels{{
     {"osk", L"屏幕键盘", 0xE92E},
     {"voice", L"语音输入", 0xE720},
     {"hand", L"手写输入", 0xE929},
-    {"clip", L"剪贴板", 0xE77F},
+    // 这一项打开的是共享应用的云剪贴板面板而不是本机剪贴板历史，所以 Windows 上保留「云剪贴板」这个名字。
+    {"clip", L"云剪贴板", 0xE77F},
     {"stats", L"打字统计", 0xE9D2},
     {"plugins", L"插件", 0xEA86},
     {"account", L"账户与同步", 0xE77B},
@@ -2344,7 +2345,7 @@ private:
       build_about_page(page);
   }
 
-  // 剪贴板、打字统计、插件、账户与同步、社区 are pages of the shared app on every platform; this window opens them there.
+  // 云剪贴板、打字统计、插件、账户与同步、社区都由各平台共用的共享应用提供，这个窗口只负责在那里打开它们。
   void build_shell_page(nav::Page const &model, StackPanel const &page) {
     const auto &label = page_label(model.id);
     auto group = add_group(page, L"");
@@ -2631,7 +2632,7 @@ private:
                 {{L"horizontal", L"横向"}, {L"vertical", L"纵向"}}, L"vertical");
     slider_row(layout, 0xE8CB, L"每页候选项数量", L"每页显示的候选项（1–9）",
                L"candidate_page_size", 1, 9, 6);
-    slider_row(layout, 0xE8E9, L"候选窗预编辑字号", L"候选窗口中拼音的字号（12–32）",
+    slider_row(layout, 0xE8E9, L"预编辑字号", L"候选窗口中拼音的字号（12–32）",
                L"candidate_preedit_font_size", 12, 32, 15);
     bool_row(layout, 0xE718, L"候选窗口跟随光标",
              L"关闭后保持首次出现的位置，直到候选窗口消失。",
@@ -2645,7 +2646,7 @@ private:
     corner_radius_row(look);
 
     auto preedit = add_group(page, L"预编辑");
-    select_row(preedit, 0xE70F, L"候选窗预编辑", L"", L"candidate_preedit_style",
+    select_row(preedit, 0xE70F, L"候选窗口预编辑", L"", L"candidate_preedit_style",
                {{L"pinyin", L"拼音分词"}, {L"empty", L"不显示"}}, L"pinyin", true);
     select_row(preedit, 0xE8D2, L"行内预编辑", L"", L"tsf_preedit_style",
                {{L"raw", L"原始按键"}, {L"pinyin", L"拼音分词"}, {L"empty", L"不显示"}},

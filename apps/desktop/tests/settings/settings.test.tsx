@@ -4832,7 +4832,7 @@ test("appearance preview follows drafts and skin selection before they are saved
   fireEvent.change(screen.getByLabelText("每页候选项数量"), { target: { value: "9" } });
   // The brand mark leads the top row, ahead of the reading.
   expect(preview.querySelector(".pinyin > .candidate-brand + .text")).not.toBeNull();
-  fireEvent.change(screen.getByLabelText("候选窗预编辑"), { target: { value: "empty" } });
+  fireEvent.change(screen.getByLabelText("候选窗口预编辑"), { target: { value: "empty" } });
   // With the reading hidden the row stays for the mark alone.
   expect(
     preview.querySelector(".container.preedit-hidden > .candidate-brand-row > .candidate-brand"),
@@ -5779,7 +5779,7 @@ const referenceSections: {
       "主字体",
       "字号",
       "预编辑字号",
-      "候选窗预编辑",
+      "候选窗口预编辑",
       "行内预编辑",
     ],
   },
@@ -6204,7 +6204,7 @@ const referenceOptions: {
   {
     page: "appearance",
     button: "候选窗口",
-    control: "候选窗预编辑",
+    control: "候选窗口预编辑",
     options: ["拼音分词", "不显示"],
   },
   {
@@ -6468,7 +6468,7 @@ test.each(optionHosts)(
       "预编辑字号",
       "窗口样式",
       "预编辑",
-      "候选窗预编辑",
+      "候选窗口预编辑",
       "双拼预编辑",
       "行内预编辑",
     ];
@@ -6497,6 +6497,52 @@ test("the page number row needs a host that draws one", async () => {
   await settingsReady();
   const appearance = screen.getByRole("group", { name: "候选窗口" });
   expect(within(appearance).queryByLabelText("显示页码")).toBeNull();
+});
+
+test("the page number switch saves show_candidate_page_number", async () => {
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...initial,
+    revision: 8,
+    preferences,
+  }));
+  render(
+    <SettingsPage
+      initialPage="appearance"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save,
+        host: { platform: "windows", candidate_page_number: true } as HostCapabilities,
+      }}
+    />,
+  );
+  await settingsReady();
+  const toggle = screen.getByLabelText("显示页码") as HTMLInputElement;
+  expect(toggle.checked).toBe(true);
+  fireEvent.click(toggle);
+  saveSettingsNow();
+  await screen.findByText("已保存");
+  expect(save).toHaveBeenLastCalledWith(
+    7,
+    expect.objectContaining({ show_candidate_page_number: false }),
+  );
+});
+
+test("the 中英混输 link on the input page opens 标点与翻译", async () => {
+  render(
+    <SettingsPage
+      initialPage="input"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: { platform: "macos" } as HostCapabilities,
+      }}
+    />,
+  );
+  await settingsReady();
+  const mode = screen.getByRole("region", { name: "中英文" });
+  fireEvent.click(within(mode).getByRole("button", { name: "中英混输" }));
+  expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("标点与翻译");
+  expect(screen.getByRole("switch", { name: /^中英混输/ })).toBeTruthy();
 });
 
 test("macOS enables the shuangpin profile menu only under shuangpin", async () => {
@@ -8444,6 +8490,13 @@ test("the dictionary page ends with the learning data reset", async () => {
           edit: vi.fn(),
           importPersonal: vi.fn(),
         },
+        // 背单词入口只在宿主提供 vocabularyReview 时出现；这里提供它，好钉住「更多」在导入导出之后。
+        vocabularyReview: {
+          load: vi.fn(),
+          answer: vi.fn(),
+          setSettings: vi.fn(),
+          reset: vi.fn(),
+        },
         host: { platform: "windows" } as HostCapabilities,
       }}
     />,
@@ -8452,9 +8505,7 @@ test("the dictionary page ends with the learning data reset", async () => {
   const page = screen.getByRole("group", { name: "词库" });
   const groups = pageGroupTitles(page);
   const expected = ["本地词库管理", "导入与导出", "更多", "学习数据"];
-  expect(groups.filter((title) => expected.includes(title))).toEqual(
-    expected.filter((title) => title !== "更多" || groups.includes("更多")),
-  );
+  expect(groups.filter((title) => expected.includes(title))).toEqual(expected);
   expect(groups.at(-1)).toBe("学习数据");
   const transfer = within(page).getByRole("region", { name: "导入与导出" });
   expect(within(transfer).getByLabelText("本地词库文件格式")).toBeTruthy();

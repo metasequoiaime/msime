@@ -106,9 +106,6 @@ export const skinCandidateStages = "flex flex-wrap items-start [&>*]:max-w-full 
 
 // ---- the floating toolbar editor ----
 
-export const toolbarPreviewArea =
-  "min-h-[190px] overflow-hidden bg-subtle px-6 pt-5 pb-[30px] max-phone:px-4";
-export const toolbarPreviewLabel = "mb-7 text-xs text-muted";
 export const toolbarPreview = (enabled: boolean) =>
   `mx-auto flex min-h-[35px] w-max max-w-full origin-center items-center gap-1.5 rounded-lg border border-white/15 bg-[#1a1a1a] px-[7px] py-1 whitespace-nowrap text-white shadow-[4px_4px_4px_rgba(0,0,0,0.3)] ${
     enabled ? "" : "opacity-45"
@@ -188,9 +185,9 @@ export const empty = "text-muted";
 
 // ---- panel launchers ----
 
-/** A launcher's live preview, shown as the last block of its group. */
+/** 预览块：屏幕键盘、手写、候选窗口和悬浮工具栏页的实时预览都用它，放在它所画的那组设置上方或组内。 */
 export const groupPreview =
-  "min-w-0 border-t border-[var(--p-row-divider)] px-6 pt-5 pb-[30px] max-phone:px-4";
+  "min-w-0 border-t border-[var(--p-row-divider)] px-6 pt-5 pb-[30px] first:border-t-0 max-phone:px-4";
 export const launchCard = "overflow-hidden p-0";
 export const launchRow = "px-6 py-5";
 export const openButton = "mt-0 min-w-18 shrink-0 grow-0 basis-auto";

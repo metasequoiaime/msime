@@ -1893,7 +1893,7 @@ export interface SettingsClient {
   save(revision: number, preferences: Preferences): Promise<Snapshot>;
   onPreferencesChanged?(listener: (snapshot: Snapshot) => void): Promise<() => void>;
   dictionary?: DictionaryClient;
-  /** macOS can atomically restore packaged dictionaries and clear all learning state. */
+  /** 原子地恢复内置词库并清除全部学习数据；宿主只在真正能清除的平台（三个桌面宿主）上提供它。 */
   resetLearnedData?: () => Promise<void>;
   /**
    * What a restore-to-defaults would write, without writing it. The host decides what survives --

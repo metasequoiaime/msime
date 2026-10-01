@@ -321,8 +321,6 @@ const client: SettingsClient = {
     setPinned: (text, pinned) => invoke("set_clipboard_history_pinned", { text, pinned }),
   },
   dictionary,
-  resetLearnedData: () =>
-    invoke("dictionary_request", { action: { operation: "reset" } }).then(() => undefined),
   loadDefaultPreferences: () => invoke<Preferences>("restored_default_preferences"),
   /* mobile host services are injected after host_capabilities resolves */
 };
@@ -687,6 +685,17 @@ function DesktopSettings() {
             host.platform === "linux" ||
             host.platform === "windows"
               ? { plugins }
+              : {}),
+            // 只有三个桌面宿主真正能清除学习数据：Android 的个人词库对 `reset` 一律报错，iOS 的 `reset` 不经过键盘扩展的个人词库，走的是 App 自己的引擎数据，不能保证清掉键盘扩展学到的内容，所以移动端不提供 `resetLearnedData`，设置页也就不显示这个按钮。
+            ...(host.platform === "macos" ||
+            host.platform === "linux" ||
+            host.platform === "windows"
+              ? {
+                  resetLearnedData: () =>
+                    invoke("dictionary_request", { action: { operation: "reset" } }).then(
+                      () => undefined,
+                    ),
+                }
               : {}),
             // msime-mcp is packaged beside the settings app on the three desktop hosts only.
             ...(host.platform === "macos" ||
