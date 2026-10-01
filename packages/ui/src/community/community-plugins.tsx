@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { boundedGraphemes } from "../core/text";
 import { randomUuid } from "../core/random-id";
+import { runAsyncAction } from "../core/async-action";
 import {
   kindLabels,
   type PluginCatalogResult,
@@ -565,25 +566,30 @@ export function CommunityPluginPublishDialog({
   const submit = async () => {
     if (busy || !ready || !chosen) return;
     const generation = clientGeneration.current;
-    setBusy(true);
-    setError("");
     setSignInRequired(false);
-    try {
-      const published = await client.publish(
-        chosen.kind,
-        chosen.id,
-        publicationId,
-        normalizedName,
-        normalizedDescription,
-      );
-      if (generation !== clientGeneration.current) return;
-      await onPublished(published);
-    } catch (publishError) {
-      if (generation !== clientGeneration.current) return;
-      setError(communityPluginMessage(publishError, true));
-      setSignInRequired(communityNeedsSignIn(publishError));
-      setBusy(false);
-    }
+    await runAsyncAction(
+      {
+        busy,
+        isCurrent: () => generation === clientGeneration.current,
+        setBusy,
+        setError,
+      },
+      async (isCurrent) => {
+        const published = await client.publish(
+          chosen.kind,
+          chosen.id,
+          publicationId,
+          normalizedName,
+          normalizedDescription,
+        );
+        if (!isCurrent()) return;
+        await onPublished(published);
+      },
+      {
+        formatError: (publishError) => communityPluginMessage(publishError, true),
+        onError: (publishError) => setSignInRequired(communityNeedsSignIn(publishError)),
+      },
+    );
   };
 
   // Enter in a text field would otherwise submit whichever form this dialog sits in.

@@ -3,6 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import {
   CommunityPage,
+  CommunityPluginPublishDialog,
   CommunityPluginsPage,
   type CommunityPlugin,
   type CommunityPluginClient,
@@ -233,6 +234,25 @@ test("publishing offers only installed, shareable packs and retries under the sa
   expect(firstCall).toEqual(["sound", "rain", firstCall[2], "我的雨声", "下雨的声音"]);
   expect(retry[2]).toBe(firstCall[2]);
   expect(await screen.findByText("已发布到社区。")).not.toBeNull();
+});
+
+test("a successful publish releases the dialog busy state after the callback", async () => {
+  const onPublished = vi.fn().mockResolvedValue(undefined);
+  render(
+    <CommunityPluginPublishDialog
+      client={client()}
+      localPlugins={catalog([pack("sound", "rain")])}
+      onClose={vi.fn()}
+      onPublished={onPublished}
+    />,
+  );
+  const dialog = await screen.findByRole("dialog", { name: "发布扩展包" });
+  await within(dialog).findByRole("textbox", { name: "发布扩展包名称" });
+  fireEvent.click(within(dialog).getByRole("checkbox", { name: "确认拥有发布内容权利" }));
+  const submit = within(dialog).getByRole("button", { name: "公开发布" }) as HTMLButtonElement;
+  fireEvent.click(submit);
+  await waitFor(() => expect(onPublished).toHaveBeenCalledOnce());
+  await waitFor(() => expect(submit.disabled).toBe(false));
 });
 
 test("editing the name after a failed publish draws a new publication id", async () => {

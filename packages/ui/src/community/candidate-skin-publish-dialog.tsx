@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { boundedGraphemes } from "../core/text";
 import { randomUuid } from "../core/random-id";
 import { errorCode } from "../core/error-code";
+import { runAsyncAction } from "../core/async-action";
 import type { ExternalSkin, SkinCatalog } from "../skin/external-skins";
 import type { SkinImageReader } from "../skin/skin-image";
 import { renderSkinPreview } from "../skin/skin-preview-render";
@@ -193,25 +194,30 @@ export function CandidateSkinPublishDialog({
   const submit = async () => {
     if (busy || !ready || !skinId) return;
     const generation = clientGeneration.current;
-    setBusy(true);
-    setError("");
     setSignInRequired(false);
-    try {
-      const published = await client.publish(
-        skinId,
-        publicationId,
-        normalizedName,
-        normalizedDescription,
-        visibility,
-      );
-      if (generation !== clientGeneration.current) return;
-      await onPublished(published);
-    } catch (publishError) {
-      if (generation !== clientGeneration.current) return;
-      setError(candidateSkinMessage(publishError, true));
-      setSignInRequired(communityNeedsSignIn(publishError));
-      setBusy(false);
-    }
+    await runAsyncAction(
+      {
+        busy,
+        isCurrent: () => generation === clientGeneration.current,
+        setBusy,
+        setError,
+      },
+      async (isCurrent) => {
+        const published = await client.publish(
+          skinId,
+          publicationId,
+          normalizedName,
+          normalizedDescription,
+          visibility,
+        );
+        if (!isCurrent()) return;
+        await onPublished(published);
+      },
+      {
+        formatError: (publishError) => candidateSkinMessage(publishError, true),
+        onError: (publishError) => setSignInRequired(communityNeedsSignIn(publishError)),
+      },
+    );
   };
 
   const openFolder = async () => {
