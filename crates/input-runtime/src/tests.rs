@@ -3066,6 +3066,38 @@ fn korean_syllables_commit_through_the_runtime_without_candidates() {
     assert_eq!(attached.view.editing_text, "");
 }
 
+/// Tab and Shift+Tab page the candidate list, so with no candidates on screen the paging actions must not eat the key: the host has to insert the Tab or move focus as it would without the input method.
+#[test]
+fn idle_paging_passes_through_on_pinyin() {
+    let assert_passes_through = |runtime: &mut Runtime<Fixture>| {
+        for action in [Action::NextPage, Action::PreviousPage] {
+            let transition = runtime.dispatch(action).unwrap();
+            assert!(!transition.handled);
+            assert!(transition.commit.is_none());
+            assert!(transition.view.candidates.is_empty());
+            assert_eq!(transition.view.preedit, "");
+            assert_eq!(transition.view.reading, "");
+            assert_eq!(transition.view.editing_text, "");
+        }
+    };
+
+    // Focused with nothing typed.
+    let mut runtime = runtime();
+    runtime.focus(true).unwrap();
+    assert_eq!(runtime.view().scheme, 0);
+    assert_passes_through(&mut runtime);
+
+    // Right after a commit the list is gone again, and paging must not reach back into it.
+    let typed = type_key(&mut runtime);
+    assert!(typed.handled);
+    assert!(!typed.view.candidates.is_empty());
+    let committed = runtime.dispatch(Action::SelectHighlighted).unwrap();
+    assert_eq!(committed.commit.as_deref(), Some("candidate-0"));
+    assert!(committed.view.candidates.is_empty());
+    assert_eq!(committed.view.reading, "");
+    assert_passes_through(&mut runtime);
+}
+
 /// A host that draws half-composed phrases itself still receives every finished Korean syllable as a commit: the syllable is text, not a piece of a phrase.
 #[test]
 fn korean_syllables_are_never_held_as_a_phrase_prefix() {
