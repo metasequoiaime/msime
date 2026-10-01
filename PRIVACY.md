@@ -8,7 +8,7 @@
 
 ## 一句话结论
 
-默认配置下，**只有一个功能会把你输入的内容发出设备：云联想**。它默认开启，把当前正在组的拼音串发给 Google 输入工具；Windows、Linux 与 macOS 在第一次使用时先问（见[云联想](#云联想默认开启)），macOS 在回答之前不发请求。其余所有联网功能——语音识别、语音润色、AI 联想、账号同步——默认凭据为空，你不填自己的密钥它们就不会发出任何请求。候选翻译默认不联网，需要你在设置里选择一个翻译服务（自己的凭据，或显式选择「水杉账号」）。
+默认配置下，**会把你输入的内容发出设备的只有云联想，以及 macOS 与 Linux 新装时的候选翻译**。它默认开启，把当前正在组的拼音串发给 Google 输入工具；Windows、Linux 与 macOS 在第一次使用时先问（见[云联想](#云联想默认开启)），macOS 在回答之前不发请求。其余所有联网功能——语音识别、语音润色、AI 联想、账号同步——默认凭据为空，你不填自己的密钥它们就不会发出任何请求。候选翻译在 macOS 与 Linux 新装时默认用「水杉账号」，把当前页的中文候选词发到 `api.msime.app`（见[候选翻译](#候选翻译macos-与-linux-新装默认用水杉账号)）；其他平台默认不联网，需要你在设置里选择一个翻译服务（自己的凭据，或显式选择「水杉账号」）。
 
 另有一条不携带输入内容的自有上报路径，端点是本项目自己的 `https://api.msime.app`：macOS、iOS、Android、Linux、HarmonyOS 会在启动时发一次安装计数，其中除 HarmonyOS 外还会在进程崩溃时发送异常信息，这五个平台默认开启且没有开关；Windows 的同一条路径**默认关闭**，只有在设置页「关于」里打开「匿名使用统计」（`telemetry_enabled`）之后才发送启动与崩溃事件。去重、调用栈和离线重试这三件事逐平台不同，不要按「六个平台一样」理解，差异逐条列在[安装与崩溃上报](#安装与崩溃上报)。仓库不接入任何第三方统计或崩溃上报 SDK。
 
@@ -42,13 +42,13 @@ https://inputtools.google.com/request?text=ni%20hao&itc=zh-t-i0-pinyin&num=1&ie=
 
 保持默认开启是为了与已发布的平台输入法行为一致。这与常见中文输入法的云输入功能是同一类能力，但既然仓库公开，端点和发送内容就应当白纸黑字写在这里，而不是让人去读源码才能知道。
 
-### 候选翻译（默认不联网，需要你选择服务）
+### 候选翻译（macOS 与 Linux 新装默认用水杉账号）
 
 `candidate_translations` 默认 `true`，支持腾讯机器翻译（`https://tmt.tencentcloudapi.com`）、小牛翻译（`https://api.niutrans.com/v2/text/translate`）和自定义端点。三者都要求你在设置里填入自己的 API 凭据，默认全为空字符串——**没有凭据就不会发出请求**，开关为真也一样。发送内容是待翻译的候选词。代码在 `crates/client-core/src/credential/translation.rs`。
 
-macOS、iOS、Android 和 Linux 另提供「水杉账号」（`translation_account`，默认 `false`）：只有你在翻译服务里显式选择它，才会把当前页的中文候选词（包括本地已有释义的）连同目标语言代码 POST 到 `https://api.msime.app/v1/translate`。请求带账号令牌：macOS 与 Android 在你已登录时用登录的账号，否则（以及 iOS 上始终）用一个匿名账号；Linux 在安装后的用户初始化流程中自动创建并保存本机匿名身份，候选翻译仍只有在显式选择该服务后才发送。你自己的服务优先：候选翻译关闭、小牛或自定义服务已启用、或腾讯已启用且两项凭据都可用时，都不走水杉账号。共享层把这个判定算成翻译查询里的 `translation_account` 字段（`crates/host-api/src/ffi/providers.rs`），各宿主只在它为真时发请求。Windows、HarmonyOS 没有这条路径。没有选择任何服务时不发出候选翻译请求。
+macOS、iOS、Android 和 Linux 另提供「水杉账号」（`translation_account`）：选择它后，会把当前页的中文候选词（包括本地已有释义的）连同目标语言代码 POST 到 `https://api.msime.app/v1/translate`。请求带账号令牌：macOS 与 Android 在你已登录时用登录的账号，否则（以及 iOS 上始终）用一个匿名账号；Linux 在安装后的用户初始化流程中自动创建并保存本机匿名身份。macOS 与 Linux 的出厂默认（新装，以及「恢复默认设置」）就选中它，所以新装后打字即会发送；已有配置文件里没有这个字段的，按未选择处理，升级不会替你打开。iOS 与 Android 默认不选，只有你显式选择才发送。不想发送，在设置的翻译服务里改选别的服务或「不使用在线翻译」，或关掉候选翻译。你自己的服务优先：候选翻译关闭、小牛或自定义服务已启用、或腾讯已启用且两项凭据都可用时，都不走水杉账号。共享层把这个判定算成翻译查询里的 `translation_account` 字段（`crates/host-api/src/ffi/providers.rs`），各宿主只在它为真时发请求。Windows、HarmonyOS 没有这条路径。没有选择任何服务时不发出候选翻译请求。
 
-macOS 26 及以上在没有选择任何服务时（候选翻译开启，小牛、自定义、腾讯都未启用，也没有选择水杉账号），会用 Apple 系统自带的离线翻译模型为随包词典答不上的中文候选补一行释义。翻译在本机完成，候选词不离开这台 Mac；只用你已经在「系统设置 → 通用 → 语言与地区 → 翻译语言」里下载好的语言对，输入法不会触发下载，没下载就不补。代码在 `platforms/macos/src/backend/translation/BackendOnDeviceGloss.swift`，判定在 `InputController.mm` 的 `currentOnDeviceGlossRequest`。
+macOS 26 及以上在没有选择任何服务时（候选翻译开启，小牛、自定义、腾讯都未启用，也没有选择水杉账号——新装默认选了水杉账号，所以要先改选「不使用在线翻译」），会用 Apple 系统自带的离线翻译模型为随包词典答不上的中文候选补一行释义。翻译在本机完成，候选词不离开这台 Mac；只用你已经在「系统设置 → 通用 → 语言与地区 → 翻译语言」里下载好的语言对，输入法不会触发下载，没下载就不补。代码在 `platforms/macos/src/backend/translation/BackendOnDeviceGloss.swift`，判定在 `InputController.mm` 的 `currentOnDeviceGlossRequest`。
 
 ### 语音输入（默认凭据为空）
 
@@ -83,7 +83,7 @@ macOS 26 及以上在没有选择任何服务时（候选翻译开启，小牛�
 
 ### 账号与同步（需要登录）
 
-`https://api.msime.app`，定义在 `crates/client-core/src/account.rs` 的 `ACCOUNT_ORIGIN`。普通账号不登录不发生。Linux 安装包会在 Debian `postinst` 为可联系的登录用户注册匿名账号；手工安装或当时网络不可用时，`msime-linux-setup` 会在首次配置时重试。候选翻译只有在选择了「水杉账号」后才发送，见[候选翻译](#候选翻译默认不联网需要你选择服务)；Android 浏览社区皮肤与词库目录时，也会先取匿名账号的令牌（`platforms/android/java/app/msime/android/community/CommunityCatalog.java`），取不到照常列出目录。macOS 输入法激活时不创建账号。Linux 的匿名身份和令牌由 `msime-linux-online-provider` 保存在用户配置目录的 `anonymous-account.json` 与 `anonymous-session.json`，两个文件均为当前用户专用权限，不进入设置页或输入法进程。凭据存放在系统密钥库：macOS/iOS 用 Keychain（`crates/host-macos/native/account.mm`、`crates/tauri-mobile-platform/ios/Sources/MobilePlatformPlugin.swift`），Android 用 Keystore 加密后落盘。
+`https://api.msime.app`，定义在 `crates/client-core/src/account.rs` 的 `ACCOUNT_ORIGIN`。普通账号不登录不发生。Linux 安装包会在 Debian `postinst` 为可联系的登录用户注册匿名账号；手工安装或当时网络不可用时，`msime-linux-setup` 会在首次配置时重试。候选翻译在选择了「水杉账号」时才发送（macOS 与 Linux 新装默认选中），见[候选翻译](#候选翻译macos-与-linux-新装默认用水杉账号)；Android 浏览社区皮肤与词库目录时，也会先取匿名账号的令牌（`platforms/android/java/app/msime/android/community/CommunityCatalog.java`），取不到照常列出目录。macOS 输入法激活时不创建账号。Linux 的匿名身份和令牌由 `msime-linux-online-provider` 保存在用户配置目录的 `anonymous-account.json` 与 `anonymous-session.json`，两个文件均为当前用户专用权限，不进入设置页或输入法进程。凭据存放在系统密钥库：macOS/iOS 用 Keychain（`crates/host-macos/native/account.mm`、`crates/tauri-mobile-platform/ios/Sources/MobilePlatformPlugin.swift`），Android 用 Keystore 加密后落盘。
 
 ### 云剪贴板（需要登录）
 

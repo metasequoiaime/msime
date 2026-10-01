@@ -213,6 +213,25 @@ describe("the MSIME account translation is an explicit choice", () => {
     expect(saved.translation_account).toBeUndefined();
   });
 
+  test("the fresh-install default shows the account despite Tencent's credential-less default", async () => {
+    // Fresh macOS and Linux installs store `translation_account: true` beside Tencent's default `enabled: true`; the host translates through the account, so the page must say so.
+    await mountOn("macos", {
+      translation_account: true,
+      custom_translation: { enabled: false, endpoint: "", api_key: "" },
+      tencent_tmt: { enabled: true, secret_id: "", secret_key: "", region: "ap-guangzhou" },
+    });
+    expect(serviceSelect().value).toBe("account");
+  });
+
+  test("usable Tencent secrets take precedence over the account", async () => {
+    await mountOn("linux", {
+      translation_account: true,
+      custom_translation: { enabled: false, endpoint: "", api_key: "" },
+      tencent_tmt: { enabled: true, secret_id: "id", secret_key: "key", region: "ap-guangzhou" },
+    });
+    expect(serviceSelect().value).toBe("tencent");
+  });
+
   test("toggling the custom service on and off does not bring the account back", async () => {
     const save = await mountOn("macos", {
       translation_account: true,

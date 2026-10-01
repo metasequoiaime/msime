@@ -1,3 +1,4 @@
+import { tencentSecretConfigured } from "./credential-utils";
 import {
   defaultCustomTranslation,
   defaultNiuTrans,
@@ -61,15 +62,25 @@ export function useTranslationSettings({
   const customTranslation = preferences?.custom_translation ?? defaultCustomTranslation;
   const tencentTranslation = preferences?.tencent_tmt ?? defaultTencentTranslation;
   const niutrans = preferences?.niutrans ?? defaultNiuTrans;
-  const translationProvider = niutrans.enabled
-    ? "niutrans"
-    : customTranslation.enabled
-      ? "custom"
-      : tencentTranslation.enabled
-        ? "tencent"
-        : (macos || linux) && preferences?.translation_account
-          ? "account"
-          : "none";
+  // Mirrors `selected_translation_services` in crates/host-api/src/ffi/providers.rs: Tencent's default `enabled: true` without usable secrets is not a user choice, so it does not shadow the account.
+  const translationProvider =
+    (macos || linux) &&
+    preferences?.translation_account &&
+    !niutrans.enabled &&
+    !customTranslation.enabled &&
+    !(
+      tencentTranslation.enabled &&
+      tencentSecretConfigured(tencentTranslation.secret_id) &&
+      tencentSecretConfigured(tencentTranslation.secret_key)
+    )
+      ? "account"
+      : niutrans.enabled
+        ? "niutrans"
+        : customTranslation.enabled
+          ? "custom"
+          : tencentTranslation.enabled
+            ? "tencent"
+            : "none";
   const onDeviceTranslationInUse =
     macos &&
     candidateTranslations &&

@@ -457,11 +457,20 @@ fn telemetry_is_opt_in_and_survives_a_save() {
 }
 
 #[test]
-fn translation_account_is_opt_in_and_omitted_until_chosen() {
+fn translation_account_defaults_on_for_new_desktop_installs_and_omitted_until_chosen() {
     let defaults = Preferences::default();
-    assert!(!defaults.translation_account);
-    // An older strict parser must still read a document that never chose the account.
-    let serialized = serde_json::to_value(&defaults).unwrap();
+    let desktop_default = cfg!(any(target_os = "macos", target_os = "linux"));
+    assert_eq!(defaults.translation_account, desktop_default);
+    assert_eq!(
+        defaults.restored_to_defaults().translation_account,
+        desktop_default
+    );
+    // A stored document that never chose the account keeps it off, and an older strict parser must still read it.
+    let unchosen = Preferences {
+        translation_account: false,
+        ..defaults.clone()
+    };
+    let serialized = serde_json::to_value(&unchosen).unwrap();
     assert!(serialized.get("translation_account").is_none());
     assert!(
         !serde_json::from_value::<Preferences>(serialized.clone())
@@ -476,7 +485,7 @@ fn translation_account_is_opt_in_and_omitted_until_chosen() {
     let store = PreferencesStore::new(dir.path());
     let chosen = Preferences {
         translation_account: true,
-        ..defaults
+        ..unchosen
     };
     assert!(chosen.validate().is_ok());
     assert_eq!(
@@ -487,7 +496,6 @@ fn translation_account_is_opt_in_and_omitted_until_chosen() {
     assert!(saved.preferences.translation_account);
     let loaded = store.load().unwrap().preferences;
     assert!(loaded.translation_account);
-    assert!(!loaded.restored_to_defaults().translation_account);
 }
 
 #[test]

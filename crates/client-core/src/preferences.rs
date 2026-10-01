@@ -732,7 +732,7 @@ pub struct Preferences {
     /// legacy single-language behavior and is omitted from serialized snapshots.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub translation_secondary_language: Option<TranslationTargetLanguage>,
-    /// True only when the user explicitly picks the MSIME account (水杉账号) as the candidate translation service in settings; candidates are then sent to `https://api.msime.app/v1/translate`. Omitted while false so documents that never chose it stay readable by older strict parsers.
+    /// True when the MSIME account (水杉账号) is the candidate translation service; candidates are then sent to `https://api.msime.app/v1/translate`. Fresh macOS and Linux installs start with it chosen (see `Default`), while a stored document without the field reads false, so a user who never chose it keeps the behaviour they had. Omitted while false so documents that never chose it stay readable by older strict parsers.
     #[serde(default, skip_serializing_if = "is_false")]
     pub translation_account: bool,
     /// Send the anonymous start and crash events to `https://api.msime.app/v1/telemetry/events`. Off until the user turns it on. Only the Windows Server reads it so far; the other hosts keep their own telemetry behaviour, described in PRIVACY.md.
@@ -1699,7 +1699,8 @@ impl Default for Preferences {
             english_suggestions: true,
             translation_target_language: TranslationTargetLanguage::default(),
             translation_secondary_language: None,
-            translation_account: false,
+            // Only the desktop hosts that offer 水杉账号 in the translation service picker default to it; Android, iOS, Windows and HarmonyOS keep it as an explicit choice.
+            translation_account: cfg!(any(target_os = "macos", target_os = "linux")),
             telemetry_enabled: false,
         }
     }

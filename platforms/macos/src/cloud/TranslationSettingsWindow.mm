@@ -3,6 +3,13 @@
 
 static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"ru", @"de", @"ko"]; }
 
+/// Mirrors `usable_credential` in crates/client-core/src/translation.rs.
+static BOOL TencentCredentialUsable(id value) {
+    if (![value isKindOfClass:NSString.class]) return NO;
+    NSString *trimmed = [value stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@" \t\r\n"]];
+    return trimmed.length && !([trimmed hasPrefix:@"<"] && [trimmed hasSuffix:@">"]) && ![trimmed hasPrefix:@"FAKESECRET_"];
+}
+
 /// Applies `edits` (owned preference keys; NSNull removes one) on top of `preferences`.
 static NSDictionary *TranslationPreferencesApplying(NSDictionary *preferences, NSDictionary *edits) {
     NSMutableDictionary *result = [preferences mutableCopy] ?: [NSMutableDictionary dictionary];
@@ -211,8 +218,11 @@ static NSDictionary *SaveTranslationEdits(NSString *directory, NSDictionary *sna
                 [current->_target selectItemAtIndex:index == NSNotFound ? 0 : index];
                 NSUInteger secondary = [TranslationLanguages() indexOfObject:preferences[@"translation_secondary_language"] ?: @""];
                 [current->_secondary selectItemAtIndex:secondary == NSNotFound ? 0 : secondary + 1];
+                // Same precedence as `selected_translation_services` in crates/host-api/src/ffi/providers.rs: Tencent's default `enabled: true` without usable secrets does not shadow the account.
+                NSDictionary *tencentPreferences = preferences[@"tencent_tmt"];
+                BOOL tencentUsable = [tencentPreferences[@"enabled"] boolValue] && TencentCredentialUsable(tencentPreferences[@"secret_id"]) && TencentCredentialUsable(tencentPreferences[@"secret_key"]);
                 NSUInteger provider = [niutrans[@"enabled"] boolValue] ? 1
-                    : ([custom[@"enabled"] boolValue] ? 2 : ([preferences[@"translation_account"] boolValue] ? 3 : 0));
+                    : ([custom[@"enabled"] boolValue] ? 2 : ([preferences[@"translation_account"] boolValue] && !tencentUsable ? 3 : 0));
                 [current->_provider selectItemAtIndex:provider];
                 current->_endpoint.stringValue = custom[@"endpoint"] ?: @"";
                 current->_key.stringValue = custom[@"api_key"] ?: @"";

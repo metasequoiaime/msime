@@ -125,7 +125,7 @@ Fcitx5 下 `Ctrl+Shift+Alt+R`、状态菜单「重载输入法服务」和设置
 
 可选的 `online_provider_socket` 顶层启动配置指定用户管理的绝对 Unix socket。宿主复制在线查询后在 GLib worker 中请求该服务，再通过 Host API 的代次校验回填候选；未配置时不发起在线请求。请求带有 `kind:"online"`，启用 AI 联想时还携带已校验的 provider、model、候选数量和提示词配置，但不携带 token；socket 服务负责凭据、网络和 provider 策略。独立入口 `msime-linux-online /absolute/provider.sock` 从标准输入读取同一 OnlineQuery JSON 并输出受界限的 JSON 响应，供 GTK/Qt 面板或其他 Linux 宿主复用。也可用 `translation_provider_socket` 或 `MSIME_TRANSLATION_PROVIDER_SOCKET` 指定独立的候选翻译服务；未指定时翻译继续复用在线 socket。`MSIME_ONLINE_PROVIDER_SOCKET` 可作为在线 socket 的环境变量回退。
 
-候选翻译服务选择「水杉账号」时，Linux provider 只在这个选项被保存且没有其他可用翻译服务时发送候选词到 `/v1/translate`。安装包的 Debian `postinst` 会为每个可联系到的登录用户调用 provider 的 `--ensure-anonymous-account`，`msime-linux-setup` 也会在首次配置时执行同一步；它先生成本机匿名身份，再通过 `https://api.msime.app/v1/auth/challenges` 与 `/v1/auth/login` 换取翻译令牌。网络失败只会提示并留待下一次重试。身份和轮换后的令牌分别保存在 `$XDG_CONFIG_HOME/msime-client/anonymous-account.json` 与 `anonymous-session.json`，文件由当前用户独占读写（0600），不传给设置页或输入法进程。未选择「水杉账号」时不会发送候选翻译，但账号注册仍按安装流程完成。
+候选翻译服务选择「水杉账号」时，Linux provider 只在这个选项被保存且没有其他可用翻译服务时发送候选词到 `/v1/translate`。安装包的 Debian `postinst` 会为每个可联系到的登录用户调用 provider 的 `--ensure-anonymous-account`，`msime-linux-setup` 也会在首次配置时执行同一步；它先生成本机匿名身份，再通过 `https://api.msime.app/v1/auth/challenges` 与 `/v1/auth/login` 换取翻译令牌。网络失败只会提示并留待下一次重试。身份和轮换后的令牌分别保存在 `$XDG_CONFIG_HOME/msime-client/anonymous-account.json` 与 `anonymous-session.json`，文件由当前用户独占读写（0600），不传给设置页或输入法进程。新装与恢复默认设置时默认选中「水杉账号」；已有配置里没有 `translation_account` 字段的按未选择处理。未选择「水杉账号」时不会发送候选翻译，但账号注册仍按安装流程完成。
 
 当 JSON 和环境变量都没有指定 provider socket 时，宿主仅在 socket 已存在的前提下尝试 `$XDG_RUNTIME_DIR/msime-client/online.sock` 与 `voice.sock`；显式 JSON 路径和环境变量始终优先，不会自动启动服务或连接不存在的路径。
 

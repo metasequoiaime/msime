@@ -4983,11 +4983,10 @@ test("Linux help network section says what goes online and where credentials liv
   expect(text).toContain("Google input-tools");
   expect(text).toContain("msime-linux-online-provider");
   expect(text).toContain("msime-linux-voice-provider");
-  // A custom translation service goes online with only an endpoint, its API key being optional, and the MSIME account translates only once chosen, so the gate is a configured service rather than a credential.
-  expect(text).toContain(
-    "只在启用并配置好对应服务（凭据、自定义翻译服务，或显式选择水杉账号）后联网",
-  );
-  expect(text).toContain("选择水杉账号才会把候选词发送到 api.msime.app");
+  // Fresh Linux installs translate candidates through the MSIME account, so the copy says what it sends and how to switch away; voice and AI still wait for a configured service.
+  expect(text).toContain("候选词翻译默认用水杉账号，会把当前页的中文候选词发送到 api.msime.app");
+  expect(text).toContain("可在翻译服务里改选自己的服务或不使用在线翻译");
+  expect(text).toContain("语音识别和 AI 功能只在启用并配置好对应服务后联网");
   expect(text).not.toContain("填好凭据后联网");
   // The provider credentials are private files; NiuTrans and custom translation keys are the exception and the copy says so.
   expect(text).toContain("ai-provider.json、tencent-provider.json 和 voice-provider.json");

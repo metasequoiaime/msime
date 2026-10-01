@@ -50,9 +50,9 @@ export function platformCopy({
   const networkDescription = android
     ? "语音输入会调用设备上的系统语音识别服务，识别结果回到键盘后需确认才会插入；AI 功能按需配置。日常拼音输入无需联网。"
     : linux
-      ? "日常拼音输入无需联网。云候选默认开启（首次配置时可以关闭，之后也可在设置里改），开启时会把正在输入的拼写发给 Google input-tools 换回一条候选；语音识别、候选词翻译和 AI 功能只在启用并配置好对应服务（凭据、自定义翻译服务，或显式选择水杉账号）后联网。这些请求由用户级的 msime-linux-online-provider 和 msime-linux-voice-provider 服务发出，输入法本身不联网。Linux 安装后的用户初始化会自动注册本机匿名水杉账号，网络失败时稍后重试；选择水杉账号才会把候选词发送到 api.msime.app。在 AI、腾讯翻译和语音页面填写的凭据只写入用户配置目录（通常是 ~/.config/msime-client）下仅本人可读的 ai-provider.json、tencent-provider.json 和 voice-provider.json，不进入共享设置；小牛翻译和自定义翻译服务的密钥则保存在共享设置中。普通账号功能只在登录后联网。"
+      ? "日常拼音输入无需联网。云候选默认开启（首次配置时可以关闭，之后也可在设置里改），开启时会把正在输入的拼写发给 Google input-tools 换回一条候选；候选词翻译默认用水杉账号，会把当前页的中文候选词发送到 api.msime.app，可在翻译服务里改选自己的服务或不使用在线翻译；语音识别和 AI 功能只在启用并配置好对应服务后联网。这些请求由用户级的 msime-linux-online-provider 和 msime-linux-voice-provider 服务发出，输入法本身不联网。Linux 安装后的用户初始化会自动注册本机匿名水杉账号，网络失败时稍后重试。在 AI、腾讯翻译和语音页面填写的凭据只写入用户配置目录（通常是 ~/.config/msime-client）下仅本人可读的 ai-provider.json、tencent-provider.json 和 voice-provider.json，不进入共享设置；小牛翻译和自定义翻译服务的密钥则保存在共享设置中。普通账号功能只在登录后联网。"
       : macos
-        ? "语音识别、候选词翻译和 AI 功能仅在用户配置并启用对应服务时联网；日常拼音输入无需联网。"
+        ? "候选词翻译默认用水杉账号，会把当前页的中文候选词发送到 api.msime.app，可在翻译服务里改选自己的服务或不使用在线翻译；语音识别和 AI 功能仅在用户配置并启用对应服务时联网；日常拼音输入无需联网。"
         : harmony
           ? "豆包语音识别仅在用户配置并启用时联网；也可使用 HarmonyOS 系统语音识别。原始音频只在本次识别期间处理。"
           : ios

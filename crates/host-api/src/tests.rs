@@ -3549,8 +3549,10 @@ fn candidate_gloss_request_reads_the_offline_dictionary_for_its_target_language(
 fn translation_query_names_the_selected_service_through_the_provider_socket() {
     use std::io::{BufRead, Write};
     let dir = tempfile::tempdir().unwrap();
+    // A stored document that never chose the account, whatever the platform's fresh-install default.
     let mut preferences = Preferences {
         candidate_translations: true,
+        translation_account: false,
         ..Preferences::default()
     };
     let handle = test_host_preferences(dir.path(), preferences.clone());
@@ -3626,7 +3628,7 @@ fn translation_query_names_the_selected_service_through_the_provider_socket() {
 
     let query = read(msime_client_translation_query(handle))["value"].clone();
     assert_eq!(query["provider"], "tencent");
-    // The MSIME account endpoint is never chosen implicitly.
+    // Without the stored choice the MSIME account endpoint is not used.
     assert_eq!(query["translation_account"], false);
     assert_eq!(forward(&query).unwrap()["query"]["provider"], "tencent");
 
