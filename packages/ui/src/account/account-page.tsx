@@ -8,6 +8,7 @@ import { AccountAvatar } from "./account-avatar";
 import { accountProviderName, preferredAccountName } from "./account-labels";
 import { accountMessage, isAccountCancellation } from "./account-errors";
 import { AccountConfirmation } from "./account-confirmation";
+import { AccountNicknameField } from "./account-nickname-field";
 import { pushMobileSettingsState } from "../settings/mobile-navigation";
 import { copyAccountId as copyAccountIdToClipboard } from "./account-id-copy";
 import { runAccountOperation } from "./account-operation";
@@ -248,17 +249,12 @@ function MobileAccountProfilePage({
       </section>
       <section className={`${account.section} ${account.stack}`}>
         <h2 className={account.heading}>社区昵称</h2>
-        <label className={account.field}>
-          社区昵称
-          <input
-            className={account.input}
-            aria-label="编辑社区昵称"
-            maxLength={64}
-            value={name}
-            disabled={busy}
-            onChange={(event) => setName(event.target.value)}
-          />
-        </label>
+        <AccountNicknameField
+          value={name}
+          disabled={busy}
+          ariaLabel="编辑社区昵称"
+          onChange={setName}
+        />
         <p className={`account-muted${!validName && normalizedName ? " error" : ""}`}>
           {normalizedName
             ? validName
@@ -1433,17 +1429,12 @@ function AccountDetailsPage({
             {client.chooseAvatar && (
               <p className={account.muted}>点头像可更换，支持 1 MiB 以内的 PNG 或 JPEG。</p>
             )}
-            <label className={account.field}>
-              社区昵称
-              <input
-                className={account.input}
-                aria-label="编辑社区昵称"
-                maxLength={64}
-                value={name}
-                disabled={busy}
-                onChange={(event) => setName(event.target.value)}
-              />
-            </label>
+            <AccountNicknameField
+              value={name}
+              disabled={busy}
+              ariaLabel="编辑社区昵称"
+              onChange={setName}
+            />
             <p className={account.muted}>昵称会显示在社区作品中，已发布的作品也会同步更新。</p>
             <dl className={account.details}>
               <div>
