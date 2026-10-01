@@ -1,3 +1,5 @@
+import { ModelSelect } from "./model-select";
+
 export interface ProviderPreset {
   models?: readonly string[];
   documentation?: string;
@@ -32,20 +34,13 @@ export function ProviderPresetSection({
           <span className="section-title">
             预置模型<small>服务商已知支持的模型；也可以在模型框中自行填写</small>
           </span>
-          <select
-            aria-label={`${label}预置模型`}
-            value={models.includes(model) ? model : ""}
-            onChange={(event) => {
-              if (event.target.value) onSelectModel(event.target.value);
-            }}
-          >
-            <option value="">自定义模型…</option>
-            {models.map((entry) => (
-              <option key={entry} value={entry}>
-                {entry}
-              </option>
-            ))}
-          </select>
+          <ModelSelect
+            models={models}
+            model={model}
+            ariaLabel={`${label}预置模型`}
+            emptyLabel="自定义模型…"
+            onSelect={onSelectModel}
+          />
         </label>
       )}
       {linkable && (

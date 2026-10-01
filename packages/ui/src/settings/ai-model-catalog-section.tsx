@@ -1,3 +1,5 @@
+import { ModelSelect } from "./model-select";
+
 export function AiModelCatalogSection({
   busy,
   origin,
@@ -29,20 +31,13 @@ export function AiModelCatalogSection({
       {models && models.length > 0 && (
         <label className="section-header">
           <span className="section-title">已获取模型</span>
-          <select
-            aria-label="已获取的 AI 模型"
-            value={models.includes(selectedModel) ? selectedModel : ""}
-            onChange={(event) => {
-              if (event.target.value) onSelect(event.target.value);
-            }}
-          >
-            <option value="">选择模型…</option>
-            {models.map((model) => (
-              <option key={model} value={model}>
-                {model}
-              </option>
-            ))}
-          </select>
+          <ModelSelect
+            models={models}
+            model={selectedModel}
+            ariaLabel="已获取的 AI 模型"
+            emptyLabel="选择模型…"
+            onSelect={onSelect}
+          />
         </label>
       )}
       {status && <p role="status">{status}</p>}

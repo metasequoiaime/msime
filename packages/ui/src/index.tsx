@@ -1009,6 +1009,7 @@ export { CredentialActions, type CredentialActionsProps } from "./settings/crede
 export { SettingToggle, type SettingToggleProps } from "./settings/setting-toggle";
 export { SettingField, type SettingFieldProps } from "./settings/setting-field";
 export { SettingTextarea, type SettingTextareaProps } from "./settings/setting-textarea";
+export { ModelSelect, type ModelSelectProps } from "./settings/model-select";
 export {
   AiCredentialSection,
   type AiCredentialSectionProps,
