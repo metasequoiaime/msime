@@ -689,6 +689,12 @@ export {
 } from "./settings/theme-settings-section";
 export { SurfaceThemeSelect, type SurfaceThemeSelectProps } from "./settings/surface-theme-select";
 export {
+  PreeditStyleSelect,
+  type PreeditStyle,
+  type PreeditStyleSelectMode,
+  type PreeditStyleSelectProps,
+} from "./settings/preedit-style-select";
+export {
   CandidateColorsSection,
   type CandidateColorKey,
   type CandidateColorPreferences,
