@@ -135,6 +135,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var numberRowView: UIStackView?
   private var tabKey: UIButton?
   private var symbolRowViews: [UIView] = []
+  /// The four Dachen rows, shown instead of the letter rows while the Zhuyin scheme is active.
+  private var zhuyinRowViews: [UIView] = []
   // Symbol keys show the punctuation they actually emit in Chinese mode.
   private var symbolKeyFaces: [(key: UIButton, ascii: String, chinese: String)] = []
   private var layoutToggleButton: UIButton?
@@ -173,6 +175,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var typesKorean: Bool { isChineseMode && inputScheme.isKorean && !isInLocalMode }
   /// Whether the Hanja list of the composing Korean syllable is on the strip. The Engine offers Korean no candidates until MSIME_CONVERT_HANJA (msime_client.h), so a Korean composition with candidates is that list.
   private var koreanHanjaListOpen: Bool { typesKorean && hasComposition && !visibleCandidates.isEmpty }
+  /// Whether the Dachen keys are on screen and feed the Zhuyin editor: their faces are bopomofo and tone marks, and each sends the ASCII key the Engine reads for it.
+  private var typesZhuyin: Bool { isChineseMode && inputScheme.isZhuyin && !isInLocalMode }
+  /// Whether the Zhuyin candidate list is on the strip. The editor offers no candidates while the list is closed, so a Zhuyin composition with candidates is that list.
+  private var zhuyinListOpen: Bool { typesZhuyin && hasComposition && !visibleCandidates.isEmpty }
+  /// Whether the letter keys feed the Vietnamese word: Shift and Caps Lock give capitals, as in English, instead of switching to English.
+  private var typesVietnamese: Bool { isChineseMode && inputScheme.isVietnamese && !isInLocalMode }
+  /// Whether the open composition is already the text being written (a Korean syllable, a Zhuyin conversion, a Vietnamese word), so Return confirms nothing but commits it, except while a list is open to choose from.
+  private var composesInPlace: Bool { isChineseMode && inputScheme.composesInPlace && !isInLocalMode }
   private var nineKeyRows: [UIView] = []
   private var actionRow: UIStackView!
   private var actionDeleteButton: UIButton!
@@ -547,11 +557,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     render(session.finishComposition())
   }
 
-  /// MSIME_CANCEL for a composition the keyboard abandons. With a Korean Hanja list open the first cancel only closes the list (msime_client.h), so it takes a second to drop the syllable, which would otherwise stay composing in the Engine after the host took it as typed text.
+  /// MSIME_CANCEL for a composition the keyboard abandons. For an in-place scheme the first cancel may only step back (msime_client.h): it closes a Korean Hanja list or a Zhuyin list, and it restores the raw keys of a Vietnamese word. A second cancel then drops what is left, which would otherwise stay composing in the Engine after the host took it as typed text.
   private func discardComposition() -> MetasequoiaInputSnapshot {
-    let closesHanjaList = koreanHanjaListOpen
+    let inPlace = composesInPlace
     let snapshot = session.cancel()
-    return closesHanjaList ? session.cancel() : snapshot
+    return inPlace && !snapshot.preedit.isEmpty ? session.cancel() : snapshot
   }
 
   override func textDidChange(_ textInput: UITextInput?) {
@@ -618,6 +628,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     for (index, row) in letterRows.enumerated() {
       let rowView = makeLetterRow(row, includesShift: index == letterRows.count - 1)
       letterRowViews.append(rowView)
+      root.addArrangedSubview(rowView)
+    }
+    for (index, row) in ZhuyinKeyLayout.rows.enumerated() {
+      let rowView = makeZhuyinRow(row, includesDelete: index == ZhuyinKeyLayout.rows.count - 1)
+      rowView.isHidden = true
+      zhuyinRowViews.append(rowView)
       root.addArrangedSubview(rowView)
     }
     root.addArrangedSubview(makeNineKeyLayout())
@@ -698,7 +714,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     actionRow = makeActionRow()
     root.addArrangedSubview(actionRow)
-    standardRowHeights = ([numberRow] + letterRowViews + symbolRowViews).map {
+    standardRowHeights = ([numberRow] + letterRowViews + zhuyinRowViews + symbolRowViews).map {
       ($0, $0.heightAnchor.constraint(equalTo: actionRow.heightAnchor))
     }
     // Keep the three keypad rows the same height as the bottom controls.
@@ -1174,7 +1190,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     configure(punctuationShortcut, title: chinesePunctuation ? "，" : ",", symbol: nil,
               label: "中英文标点", id: "punctuationShortcut")
     punctuationShortcut.accessibilityValue = chinesePunctuation ? "中文标点" : "英文标点"
-    punctuationShortcut.isEnabled = isChineseMode && inputScheme.writesChinese
+    punctuationShortcut.isEnabled = isChineseMode && (inputScheme.writesChinese || inputScheme.isCantonese)
       && (session.sharedPreferences?["punctuation_lock"] as? String ?? "follow") == "follow"
     layoutShortcut.isHidden = !pinned.layout
     emojiShortcut.isHidden = !pinned.emoji
@@ -1245,10 +1261,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           self.setFullWidthInput(!self.fullWidthInput)
           self.updateShortcutButtons()
         },
-        // A locked punctuation setting decides on its own, and English mode types ASCII marks anyway, so the switch only means something in Chinese mode under 跟随中英文.
+        // A locked punctuation setting decides on its own, and English mode types ASCII marks anyway, so the switch only means something in Chinese mode under 跟随中英文, and only for the schemes whose marks go through the Engine's punctuation route: Zhuyin types the marks its symbol panel draws.
         KeyboardTool(title: "中文标点", symbol: "textformat.characters",
                      selected: chinesePunctuation,
-                     enabled: isChineseMode && inputScheme.writesChinese
+                     enabled: isChineseMode && (inputScheme.writesChinese || inputScheme.isCantonese)
                        && (session.sharedPreferences?["punctuation_lock"] as? String ?? "follow") == "follow") { [weak self] in
           guard let self else { return }
           self.setChinesePunctuation(!self.chinesePunctuation)
@@ -1400,6 +1416,27 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     row.accessibilityIdentifier = "numberRow"
     row.isHidden = true
+    return row
+  }
+
+  /// A row of Dachen keys. Each key draws its bopomofo symbol or tone mark and sends its ASCII key; the bottom row ends with Backspace, since Dachen takes the whole digit row and the symbol panel keeps its own.
+  private func makeZhuyinRow(_ keys: [String], includesDelete: Bool) -> UIStackView {
+    let row = makeRow()
+    for key in keys {
+      let face = ZhuyinKeyLayout.keycap(for: key) ?? key
+      let button = makeKey(title: face, accessibilityLabel: "注音 \(face)") { [weak self] in
+        self?.countKeyPress(TypingKeyID.character(key))
+        self?.handleZhuyinKey(key)
+      }
+      button.accessibilityIdentifier = "zhuyinKey\(key)"
+      row.addArrangedSubview(button)
+    }
+    if includesDelete {
+      let delete = makeDeleteKey()
+      delete.accessibilityIdentifier = "zhuyinDelete"
+      row.addArrangedSubview(delete)
+    }
+    row.accessibilityIdentifier = "zhuyinRow"
     return row
   }
 
@@ -1682,6 +1719,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         }
         return
       }
+      // Vietnamese takes the letter in the case Shift or Caps Lock gives it, as English does; the Engine keeps that case through the tone and vowel marks.
+      if typesVietnamese, let letter = character.first, letter.isLetter {
+        let shifted = letterCaseState != .lowercase
+        render(session.handleCharacter(shifted ? character.uppercased() : character, shifted: shifted))
+        if letterCaseState == .shifted {
+          letterCaseState = .lowercase
+          lastShiftTapTime = nil
+          updateLetterCaseControls()
+        }
+        return
+      }
       if entersHelpcode, let letter = character.first, letter.isLetter {
         render(session.handleCharacter(character.uppercased(), shifted: true))
         if letterCaseState == .shifted {
@@ -1702,6 +1750,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         updateLetterCaseControls()
       }
     }
+  }
+
+  /// A Dachen key: its ASCII key goes to the Zhuyin editor, which types the symbol, marks the tone or, for Space after a toned syllable, opens the list. With the list open a digit 1-9 would pick a row instead, so the list is closed first and the key types what its face shows; rows are picked on the strip. A tone key with nothing composing is left unclaimed and types nothing, since a tone mark alone is not text.
+  private func handleZhuyinKey(_ key: String) {
+    playInputClick()
+    guard isChineseMode else { return }
+    synchronizeInputSchemePreference()
+    guard typesZhuyin else { return }
+    if zhuyinListOpen && ZhuyinKeyLayout.selectsWhileListOpen(key) { render(session.cancel()) }
+    render(session.handleCharacter(key))
   }
 
   /// Read the current word from the host document instead of maintaining a shadow
@@ -1769,8 +1827,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       return
     }
 
-    // Korean digits go to the session as characters. With the Hanja list open a digit 1-9 chooses from its page and comes back handled with the Hanja as the commit; otherwise the digit ends the open syllable, which comes back as the commit of an unhandled key, and is then typed after it.
-    if typesKorean, symbol.count == 1, symbol >= "0", symbol <= "9" {
+    // Zhuyin spells with the digit row and with , . / ; -, so the symbol panel cannot hand its keys to the Engine: they would type ㄅ or ㄝ or pick a list row. The panel commits the conversion and types the mark itself, as the key draws it: the Chinese face for an ASCII mark that has one.
+    if typesZhuyin {
+      render(session.finishComposition())
+      insertDirectText(Self.chineseSymbolFaces[symbol] ?? symbol)
+      return
+    }
+
+    // Korean and Vietnamese digits go to the session as characters. With the Hanja list open a digit 1-9 chooses from its page and comes back handled with the Hanja as the commit; a VNI digit marks the open Vietnamese word; otherwise the digit ends the open syllable or word, which comes back as the commit of an unhandled key, and is then typed after it.
+    if typesKorean || typesVietnamese, symbol.count == 1, symbol >= "0", symbol <= "9" {
       let snapshot = session.handleCharacter(symbol)
       render(snapshot)
       if !snapshot.isHandled { insertDirectText(symbol) }
@@ -1802,7 +1867,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
 
     guard let punctuation = KeyboardPunctuationContext.engineInput(
-      for: symbol, japanese: inputScheme.isJapanese, korean: typesKorean) else {
+      for: symbol, japanese: inputScheme.isJapanese, asciiMarks: typesKorean || typesVietnamese) else {
       render(session.finishComposition())
       insertDirectText(symbol)
       return
@@ -1965,8 +2030,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func toggleLetterCase() {
-    // Korean Shift is the layout's own shift: it picks ㅃ ㅉ ㄸ ㄲ ㅆ ㅒ ㅖ rather than switching to English.
-    if isChineseMode && !helpcodeCompositionEligible && !typesKorean {
+    // Korean Shift is the layout's own shift: it picks ㅃ ㅉ ㄸ ㄲ ㅆ ㅒ ㅖ rather than switching to English. Vietnamese Shift gives capitals, as in English.
+    if isChineseMode && !helpcodeCompositionEligible && !typesKorean && !typesVietnamese {
       toggleInputMode()
       letterCaseState = .lowercase
     }
@@ -1987,7 +2052,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func updateAutomaticCapitalization() {
-    guard !isChineseMode else {
+    // Vietnamese is written in Latin letters, so its words take the field's automatic capitals as English words do.
+    guard !isChineseMode || typesVietnamese else {
       isAutomaticShift = false
       updateLetterCaseControls()
       return
@@ -2025,13 +2091,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // 拼音和罗马字的键面用大写，切到英文才回小写。键面大小写通常只是外观；组合中的
     // Shift 通过无障碍标签显示辅码状态，并把下一字母作为大写辅码交给 Engine。
     // 本地模式除外：那里敲入的就是键面上的字面字符，保持小写才不会误导用户。
-    let shifted = letterCaseState != .lowercase && (!isChineseMode || entersHelpcode)
+    let vietnamese = typesVietnamese
+    let shifted = letterCaseState != .lowercase && (!isChineseMode || entersHelpcode || vietnamese)
     // Read once, not once per key. `isInLocalMode` looks like a property and is a full C ABI
     // round trip: it serialises the whole view - preedit, every candidate, its codes and glosses -
     // to JSON in Rust and parses it back in Swift. Asking for it inside the loop below made that
     // happen twenty-seven times for every keystroke.
     let inLocalMode = isInLocalMode
-    let usesUppercase = (isChineseMode && !inLocalMode) || shifted
+    // Vietnamese keys show the case they type, as English keys do.
+    let usesUppercase = (isChineseMode && !inLocalMode && !vietnamese) || shifted
     let korean = typesKorean
     let koreanShifted = korean && letterCaseState != .lowercase
     for (button, lowercase, hintLabel) in letterButtons {
@@ -2072,7 +2140,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     case .lowercase:
       configuration.image = UIImage(systemName: "shift")
       configuration.background.backgroundColor = KeyboardTheme.current.functionKeyBackground
-      button.accessibilityLabel = korean ? "双辅音" : isChineseMode ? "切换到英文大写" : "大写"
+      button.accessibilityLabel = korean ? "双辅音" : isChineseMode && !vietnamese ? "切换到英文大写" : "大写"
       button.accessibilityValue = "关闭"
     case .shifted:
       configuration.image = UIImage(systemName: "shift.fill")
@@ -2093,7 +2161,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func updateLanguageModeButton() {
     var configuration = UIButton.Configuration.filled()
-    configuration.title = isChineseMode ? (inputScheme.isJapanese ? "日" : inputScheme.isKorean ? "한" : "中") : "英"
+    configuration.title = isChineseMode ? Self.languageKeyTitle(inputScheme) : "英"
     // A function key like 123 in the design (`X('中')`, dc.html L2217); only return is ever emphasized.
     configuration.baseForegroundColor = KeyboardTheme.current.keyForeground
     configuration.baseBackgroundColor = KeyboardTheme.current.functionKeyBackground
@@ -2107,9 +2175,33 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     bottomLanguageButton?.accessibilityLabel =
       isChineseMode ? "切换到英文输入" : "切换到所选输入方案"
     bottomLanguageButton?.accessibilityValue = isChineseMode
-      ? (inputScheme.isJapanese ? "日语输入" : inputScheme.isKorean ? "韩语输入" : "中文输入") : "英文输入"
+      ? Self.languageKeyValue(inputScheme) : "英文输入"
     updateShortcutButtons()
     updateKeyboardLayout()
+  }
+
+  /// The face of the 中/英 key while the scheme is on: the language it writes, with Cantonese and Zhuyin named apart from Mandarin. Not private: the scheme tests pin it.
+  static func languageKeyTitle(_ scheme: ChineseInputScheme) -> String {
+    if scheme.isJapanese { return "日" }
+    switch scheme {
+    case .korean: return "한"
+    case .cantonese: return "粤"
+    case .zhuyin: return "注"
+    case .vietnamese: return "越"
+    default: return "中"
+    }
+  }
+
+  /// The accessibility value of the 中/英 key while the scheme is on.
+  static func languageKeyValue(_ scheme: ChineseInputScheme) -> String {
+    if scheme.isJapanese { return "日语输入" }
+    switch scheme {
+    case .korean: return "韩语输入"
+    case .cantonese: return "粤语输入"
+    case .zhuyin: return "注音输入"
+    case .vietnamese: return "越南语输入"
+    default: return "中文输入"
+    }
   }
 
   /// Japanese names its space key by the action it performs: 空白 while idle and 変換 while
@@ -2158,8 +2250,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       title = "换行"
     }
 
-    // Return commits what is being composed rather than doing the field's action, so it says so. A Korean syllable is already text: Return commits it and still does the field's action, so the key keeps the field's name, unless the syllable's Hanja list is open, where Return only chooses a Hanja.
-    let confirms = hasComposition && (!(isChineseMode && inputScheme.isKorean) || koreanHanjaListOpen)
+    // Return commits what is being composed rather than doing the field's action, so it says so. A Korean syllable or a Vietnamese word is already text: Return commits it and still does the field's action, so the key keeps the field's name, unless the syllable's Hanja list is open, where Return only chooses a Hanja. A Zhuyin conversion is committed by Return alone, as on the Dachen keyboards, so there it confirms.
+    let confirms = hasComposition && (!returnKeepsFieldAction || koreanHanjaListOpen)
     let shownTitle = !confirms ? title : inputScheme.isJapanese ? "確定" : "确认"
     if var configuration = japaneseReturnButton?.configuration {
       let japaneseTitle = hasComposition ? "確定" : "改行"
@@ -2177,13 +2269,18 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     styleReturnKey()
   }
 
+  /// Whether Return commits the open composition and then still does the field's action: Korean and Vietnamese, whose runtime answers the commit unhandled.
+  private var returnKeepsFieldAction: Bool {
+    isChineseMode && (inputScheme.isKorean || inputScheme.isVietnamese)
+  }
+
   /// Return is a function key at rest and fills with the accent only while it commits a composition (`X(..., hasComp)`, dc.html L2217). A keyboard design keeps its own action colour throughout.
   private func styleReturnKey() {
     guard let enterButton, var configuration = enterButton.configuration else { return }
     let skin = KeyboardTheme.current
     guard skin.design == nil else { return }
-    // A Korean syllable is nearly always open while typing, and Return does not merely confirm it, so the key stays a function key until the syllable's Hanja list opens.
-    let emphasized = hasComposition && (!(isChineseMode && inputScheme.isKorean) || koreanHanjaListOpen)
+    // A Korean syllable or a Vietnamese word is nearly always open while typing, and Return does not merely confirm it, so the key stays a function key until the syllable's Hanja list opens.
+    let emphasized = hasComposition && (!returnKeepsFieldAction || koreanHanjaListOpen)
     let background = emphasized ? skin.actionBackground : skin.functionKeyBackground
     let foreground = emphasized ? skin.actionForeground : skin.keyForeground
     guard configuration.background.backgroundColor != background || configuration.baseForegroundColor != foreground
@@ -2310,6 +2407,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     case .wubi: session.switchToWubi()
     case .japanese, .japaneseNineKey: session.switchToJapanese()
     case .korean: session.switchToKorean()
+    case .cantonese: session.switchToCantonese()
+    case .zhuyin: session.switchToZhuyin()
+    case .vietnamese: session.switchToVietnamese()
     case .handwriting: session.switch(toShuangpin: false)
     case .quanpin, .thoughtfulReply: session.switch(toShuangpin: usesShuangpin)
     case .shuangpin: session.switch(toShuangpinProfile: "xiaohe")
@@ -2317,15 +2417,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func selectInputScheme(_ scheme: ChineseInputScheme, persistShared: Bool = true) {
-    guard InputSchemePreference.enabledSchemes.contains(scheme) else { return }
+    guard InputSchemePreference.offeredSchemes.contains(scheme) else { return }
     if scheme == inputScheme {
       if scheme == .thoughtfulReply { synchronizeReplyKeyboard() }
       return
     }
     playInputClick()
     let source = typingSource
-    // An open Korean syllable is text the user already wrote, so leaving the scheme commits it; the switch below would otherwise discard it along with the marked text.
-    if typesKorean && hasComposition { render(session.finishComposition(), source: source) }
+    // An open Korean syllable, Zhuyin conversion or Vietnamese word is text the user already wrote, so leaving the scheme commits it; the switch below would otherwise discard it along with the marked text.
+    if composesInPlace && hasComposition { render(session.finishComposition(), source: source) }
     handwriting.clear()
     inputScheme = scheme
     let snapshot = applyInputScheme()
@@ -2637,7 +2737,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       if !enabled.isEmpty { InputSchemePreference.enabledSchemes = enabled }
       selectedScheme = (schemes["selected"] as? String).flatMap(Self.sharedInputScheme)
     }
-    if !hasComposition, let selectedScheme, InputSchemePreference.enabledSchemes.contains(selectedScheme) {
+    if !hasComposition, let selectedScheme, InputSchemePreference.offeredSchemes.contains(selectedScheme) {
       selectInputScheme(selectedScheme, persistShared: false)
     }
     if skinChanged { applyKeyboardSkin() }
@@ -2771,10 +2871,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let title = isInLocalMode && visiblePreedit == localModeTrigger
       ? (modeName ?? visiblePreedit)
       : (idle ? (isChineseMode ? "水杉输入法" : "英文输入") : visiblePreedit)
-    // 「候选栏预编辑」 only changes what is drawn: `visiblePreedit` still says a composition is running, which keeps the strip up while a spelling has no candidates yet, and VoiceOver still reads the full title. The setting names pinyin, so a Japanese reading and a Korean syllable are left as they are.
+    // 「候选栏预编辑」 only changes what is drawn: `visiblePreedit` still says a composition is running, which keeps the strip up while a spelling has no candidates yet, and VoiceOver still reads the full title. The setting names the spelling, so a Japanese reading and what an in-place scheme composes are left as they are.
     let style = CandidatePreeditStyle(in: session.sharedPreferences)
     // A caret moved into the spelling is drawn even under 「不显示」: the next key acts at that caret, and a hidden one leaves no way to tell where.
-    let drawnTitle = idle || title != visiblePreedit || !inputScheme.writesChinese
+    let drawnTitle = idle || title != visiblePreedit || !inputScheme.hasSpellingCaret
       ? title
       : visibleCaretSpelling.map { visiblePhrasePrefix + $0 } ?? style.title(
         composition: visiblePreedit, phrasePrefix: visiblePhrasePrefix,
@@ -2877,8 +2977,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private var quickPunctuationSymbols: [String] {
-    // Korean writes half-width ASCII marks, the same menu English offers.
-    guard isChineseMode, !isInLocalMode, !inputScheme.isKorean else { return [",", ".", "?", "!", ":", ";", "@"] }
+    // Korean and Vietnamese write half-width ASCII marks, the same menu English offers.
+    guard isChineseMode, !isInLocalMode, !inputScheme.writesAsciiPunctuation else { return [",", ".", "?", "!", ":", ";", "@"] }
     if inputScheme.isJapanese { return ["、", "。", "？", "！", "「", "」", "・"] }
     return ["，", "。", "？", "！", "、", "；", "："]
   }
@@ -2904,7 +3004,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     nineGrid?.spacing = layout.rowSpacing
     nineControls?.spacing = layout.rowSpacing
     nineKeyHeight.constant = layout.rowSpacing * 2
-    for row in [numberRowView as UIView?].compactMap({ $0 }) + letterRowViews + symbolRowViews + nineKeyRows {
+    for row in [numberRowView as UIView?].compactMap({ $0 }) + letterRowViews + zhuyinRowViews + symbolRowViews + nineKeyRows {
       (row as? UIStackView)?.spacing = layout.keySpacing
     }
     actionRow.spacing = layout.keySpacing
@@ -2980,9 +3080,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     handwriting.isHidden = !writes
     if writes { handwriting.activate() }
     handwritingActionHeight?.isActive = writes
-    letterRowViews.forEach { $0.isHidden = showsSymbols || nineKey || writes || kana }
+    // Dachen takes the digit row and four punctuation keys for bopomofo, so Zhuyin draws its own four rows in place of the letter rows and the number row.
+    let dachen = isChineseMode && inputScheme.isZhuyin && !isInLocalMode
+    zhuyinRowViews.forEach { $0.isHidden = !dachen || showsSymbols }
+    letterRowViews.forEach { $0.isHidden = showsSymbols || nineKey || writes || kana || dachen }
     let fullKeys = formFactor.canShowFullKeys && KeyboardLayoutPreference.tabletFullKeys
-    numberRowView?.isHidden = !fullKeys || showsSymbols || nineKey || writes || kana
+    numberRowView?.isHidden = !fullKeys || showsSymbols || nineKey || writes || kana || dachen
     tabKey?.isHidden = !fullKeys
     let rowPunctuation = formFactor.showsLetterRowPunctuation
     for key in letterRowPunctuationKeys where key.isHidden == rowPunctuation { key.isHidden = !rowPunctuation }
@@ -3037,7 +3140,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     symbolRowViews.forEach { $0.isHidden = !showsSymbols || kana || nineKey }
     // Chinese punctuation only appears in Chinese mode. Local utilities and dedicated English
     // input send the literal ASCII key value, so their labels must follow their insertion path.
-    let sendsChinesePunctuation = isChineseMode && !isInLocalMode && !inputScheme.isKorean
+    // Korean and Vietnamese write ASCII marks too.
+    let sendsChinesePunctuation = isChineseMode && !isInLocalMode && !inputScheme.writesAsciiPunctuation
     for face in symbolKeyFaces {
       let title = sendsChinesePunctuation ? face.chinese : face.ascii
       guard face.key.configuration?.title != title else { continue }
@@ -3147,8 +3251,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   @objc private func repeatBackspace() {
     // Holding backspace in a spelling takes it apart a syllable at a time, as Ctrl+Backspace does in the Windows composition, so a long spelling can be cut back to the syllable that went wrong instead of being thrown away whole. The hold ends with the composition: the repeat never carries on into text that is already in the document. Nine-key, wubi and the other schemes without lettered syllables keep the hold that clears the whole composition below.
-    // A Korean syllable is text already, so a held backspace takes it apart a jamo at a time and carries on into the document, as the system Korean keyboard does.
-    if typesKorean {
+    // A Korean syllable, a Zhuyin conversion and a Vietnamese word are text already, so a held backspace takes them apart a key at a time and carries on into the document, as the system keyboards for those languages do.
+    if composesInPlace {
       didRepeatBackspace = true
       handleBackspace()
       return
@@ -3221,8 +3325,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     case .began:
       cursorMovement.begin(at: pan.translation(in: view).x, document: document)
       // While spelling, the drag edits the spelling: the caret walks through the pinyin as ← / → do in the Windows composition, and typing or backspace then acts there. A Japanese reading keeps ending the composition, because its conversion owns the space key.
-      // A Korean syllable has no caret inside it either, so the drag finishes it and moves the document caret.
-      spaceDragEditsComposition = hasComposition && inputScheme.writesChinese
+      // A Korean syllable, a Zhuyin conversion and a Vietnamese word have no caret inside them either, so the drag finishes them and moves the document caret.
+      spaceDragEditsComposition = hasComposition && inputScheme.hasSpellingCaret
       if hasComposition && !spaceDragEditsComposition { render(session.finishComposition()) }
       spaceButton?.configuration?.title = spaceDragEditsComposition ? "移动拼音光标" : "移动光标"
       if KeyboardFeedbackPreference.hapticsEnabled {
@@ -3278,6 +3382,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       updateReturnKey()
       return
     }
+    // In Zhuyin Space is a key of the spelling while the list is closed: tone 1 on a pending syllable, or the key that opens the list. With the list open it picks the highlighted row below, like any list.
+    if typesZhuyin && hasComposition && !zhuyinListOpen {
+      let snapshot = session.handleCharacter(" ")
+      render(snapshot)
+      if !snapshot.isHandled { insertDirectText(" ") }
+      return
+    }
     let snapshot = commitVisibleCandidate()
     // An unhandled Space can still carry a commit: the Korean syllable it ended. That goes in first and the space after it.
     render(snapshot)
@@ -3300,7 +3411,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       return
     }
     let snapshot = endComposition(at: .returnKey)
-    // An unhandled Return can still carry a commit: the Korean syllable it ended. That goes in first and the newline after it. A Hanja chosen from the open list comes back handled, with no newline.
+    // An unhandled Return can still carry a commit: the Korean syllable or Vietnamese word it ended. That goes in first and the newline after it. A Hanja chosen from the open list, or a Zhuyin conversion, comes back handled, with no newline.
     render(snapshot)
     if !snapshot.isHandled {
       pairedPunctuation.clear()
@@ -3352,9 +3463,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     recordTypingStatistics(text, source: source ?? typingSource)
   }
 
-  /// Korean writes half-width ASCII whatever the width switch says, as the runtime does for what it commits.
+  /// Korean and Vietnamese write half-width ASCII whatever the width switch says, as the runtime does for what they commit.
   private func insertDirectText(_ text: String, source: TypingSource? = nil) {
-    insertOwnText(FullWidthInputPolicy.output(text, enabled: fullWidthInput && !typesKorean), source: source)
+    insertOwnText(FullWidthInputPolicy.output(text, enabled: fullWidthInput && !typesKorean && !typesVietnamese), source: source)
   }
 
   /// The runtime converts what it commits and the keyboard converts what it inserts itself, so both are told together.
@@ -3538,15 +3649,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let composing = snapshot.phrasePrefix
       + (inputScheme.isJapanese && !snapshot.reading.isEmpty ? snapshot.reading : snapshot.preedit)
     visiblePhrasePrefix = snapshot.phrasePrefix
-    // Korean `editing_text` is the key letters of the open syllable, not a spelling with a caret to move.
-    visibleCaretSpelling = inputScheme.writesChinese ? snapshot.editingTextWithCaret : nil
-    editableSpelling = hasComposition && inputScheme.writesChinese && !snapshot.isInLocalMode
+    // The `editing_text` of an in-place scheme is the keys of what it composes, not a spelling with a caret to move.
+    visibleCaretSpelling = inputScheme.hasSpellingCaret ? snapshot.editingTextWithCaret : nil
+    editableSpelling = hasComposition && inputScheme.hasSpellingCaret && !snapshot.isInLocalMode
       && !snapshot.editingText.isEmpty && snapshot.editingText.allSatisfy(\.isASCII)
       ? (snapshot.editingText, snapshot.caretPosition) : nil
     let japaneseReading = inputScheme.isJapanese && !snapshot.reading.isEmpty ? snapshot.reading : nil
     showInlineComposition(hasComposition
       ? InlineCompositionPolicy.markedText(
-        korean: isChineseMode && inputScheme.isKorean, style: InlinePreeditPreference.style,
+        inPlace: isChineseMode && inputScheme.composesInPlace, style: InlinePreeditPreference.style,
         phrasePrefix: snapshot.phrasePrefix, preedit: snapshot.preedit,
         editingText: snapshot.editingText, japaneseReading: japaneseReading)
       : "")
@@ -4374,7 +4485,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // Handwriting shares the candidate strip and therefore the common portrait height.
     let height = formFactor.baseHeight(
       landscape: landscape, handwriting: !handwriting.isHidden,
-      numberRow: numberRowView?.isHidden == false) + extra
+      numberRow: numberRowView?.isHidden == false || zhuyinRowViews.first?.isHidden == false) + extra
     let adjustedHeight = height + sharedKeyboardHeightAdjustment
     if keyboardHeightConstraint?.constant != adjustedHeight { keyboardHeightConstraint?.constant = adjustedHeight }
   }
