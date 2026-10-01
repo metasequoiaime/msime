@@ -69,6 +69,14 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
     };
   }, []);
 
+  useEffect(() => {
+    const generation = ++phraseRequestGeneration.current;
+    setPhraseBusy(false);
+    return () => {
+      if (phraseRequestGeneration.current === generation) phraseRequestGeneration.current++;
+    };
+  }, [client.dictionary]);
+
   async function runPhraseAction(
     operation: (isCurrent: () => boolean) => Promise<void>,
     formatError: (error: unknown) => string,

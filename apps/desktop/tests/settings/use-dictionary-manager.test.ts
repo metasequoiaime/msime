@@ -50,3 +50,44 @@ test("ignores a second all-dictionaries export while the first is pending", asyn
   expect(saveExport).toHaveBeenCalledOnce();
   expect(result.current.phraseBusy).toBe(false);
 });
+
+test("a phrase list response from a replaced dictionary client is ignored", async () => {
+  let resolve!: (value: {
+    entries: Array<{ kind: "quick_phrase"; key: string; value: string; weight: number }>;
+    has_more: boolean;
+  }) => void;
+  const pending = new Promise<{
+    entries: Array<{ kind: "quick_phrase"; key: string; value: string; weight: number }>;
+    has_more: boolean;
+  }>((accept) => {
+    resolve = accept;
+  });
+  const oldDictionary = {
+    list: vi.fn().mockReturnValue(pending),
+    edit: vi.fn().mockResolvedValue(undefined),
+  };
+  const nextDictionary = {
+    list: vi.fn(),
+    edit: vi.fn().mockResolvedValue(undefined),
+  };
+  const oldClient: DictionaryManagerClient = { dictionary: oldDictionary };
+  const nextClient: DictionaryManagerClient = { dictionary: nextDictionary };
+  const { result, rerender } = renderHook(
+    ({ client }) => useDictionaryManager({ client, confirm: vi.fn() }),
+    { initialProps: { client: oldClient } },
+  );
+
+  let pendingLoad!: Promise<void>;
+  act(() => {
+    pendingLoad = result.current.loadPhrases();
+  });
+  await waitFor(() => expect(result.current.phraseBusy).toBe(true));
+  rerender({ client: nextClient });
+  resolve({
+    entries: [{ kind: "quick_phrase", key: "shortcut", value: "旧结果", weight: 1 }],
+    has_more: false,
+  });
+  await act(async () => pendingLoad);
+
+  expect(result.current.phrases).toEqual([]);
+});
