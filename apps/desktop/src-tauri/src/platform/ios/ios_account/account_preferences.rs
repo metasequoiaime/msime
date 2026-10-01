@@ -32,22 +32,26 @@ pub(crate) fn local_account_preferences(
         return Err(AccountError::Storage);
     }
     let mut settings = BTreeMap::new();
-    let (schema, profile, nine_key) = match native.input_scheme.as_str() {
-        "quanpin" | "handwriting" | "thoughtfulReply" => ("quanpin", None, false),
-        "nineKey" => ("quanpin", None, true),
-        "shuangpin" => ("shuangpin", Some("xiaohe"), false),
-        "ziranma" => ("shuangpin", Some("ziranma"), false),
-        "microsoft" => ("shuangpin", Some("microsoft"), false),
-        "shoudao" => ("shuangpin", Some("shoudao"), false),
-        "wubi" => ("wubi", None, false),
-        "japanese" => ("japanese", None, false),
-        "japaneseNineKey" => ("japanese", None, true),
-        "korean" => ("korean", None, false),
+    // The cloud `input.schema` cannot carry Cantonese, Zhuyin or Vietnamese (an older device would refuse the whole document), so those leave the scheme and the nine-key switch out and the cloud keeps what it has.
+    let scheme = match native.input_scheme.as_str() {
+        "quanpin" | "handwriting" | "thoughtfulReply" => Some(("quanpin", None, false)),
+        "nineKey" => Some(("quanpin", None, true)),
+        "shuangpin" => Some(("shuangpin", Some("xiaohe"), false)),
+        "ziranma" => Some(("shuangpin", Some("ziranma"), false)),
+        "microsoft" => Some(("shuangpin", Some("microsoft"), false)),
+        "shoudao" => Some(("shuangpin", Some("shoudao"), false)),
+        "wubi" => Some(("wubi", None, false)),
+        "japanese" => Some(("japanese", None, false)),
+        "japaneseNineKey" => Some(("japanese", None, true)),
+        "korean" => Some(("korean", None, false)),
+        "cantonese" | "zhuyin" | "vietnamese" => None,
         _ => return Err(AccountError::Storage),
     };
-    insert_string(&mut settings, "input.schema", schema);
-    if let Some(profile) = profile {
-        insert_string(&mut settings, "input.shuangpin_schema", profile);
+    if let Some((schema, profile, _)) = scheme {
+        insert_string(&mut settings, "input.schema", schema);
+        if let Some(profile) = profile {
+            insert_string(&mut settings, "input.shuangpin_schema", profile);
+        }
     }
     insert_string(
         &mut settings,
@@ -58,7 +62,9 @@ pub(crate) fn local_account_preferences(
             "simplified"
         },
     );
-    insert_bool(&mut settings, "platform.ios.nine_key", nine_key);
+    if let Some((_, _, nine_key)) = scheme {
+        insert_bool(&mut settings, "platform.ios.nine_key", nine_key);
+    }
     insert_bool(
         &mut settings,
         "platform.ios.sound_enabled",
@@ -362,6 +368,9 @@ fn touch_scheme(value: &str) -> Result<TouchKeyboardScheme, AccountError> {
         "handwriting" => Ok(TouchKeyboardScheme::Handwriting),
         "thoughtfulReply" => Ok(TouchKeyboardScheme::ThoughtfulReply),
         "korean" => Ok(TouchKeyboardScheme::Korean),
+        "cantonese" => Ok(TouchKeyboardScheme::Cantonese),
+        "zhuyin" => Ok(TouchKeyboardScheme::Zhuyin),
+        "vietnamese" => Ok(TouchKeyboardScheme::Vietnamese),
         _ => Err(AccountError::Invalid),
     }
 }
@@ -422,6 +431,21 @@ fn select_touch_scheme(preferences: &mut Preferences, requested: TouchKeyboardSc
         TouchKeyboardScheme::Korean => {
             remember_chinese_scheme(preferences);
             preferences.scheme = InputScheme::Korean;
+            preferences.touch_keyboard_layout = TouchKeyboardLayout::TwentySixKey;
+        }
+        TouchKeyboardScheme::Vietnamese => {
+            remember_chinese_scheme(preferences);
+            preferences.scheme = InputScheme::Vietnamese;
+            preferences.touch_keyboard_layout = TouchKeyboardLayout::TwentySixKey;
+        }
+        TouchKeyboardScheme::Cantonese => {
+            preferences.scheme = InputScheme::Cantonese;
+            preferences.last_chinese_scheme = Some(ChineseScheme::Cantonese);
+            preferences.touch_keyboard_layout = TouchKeyboardLayout::TwentySixKey;
+        }
+        TouchKeyboardScheme::Zhuyin => {
+            preferences.scheme = InputScheme::Zhuyin;
+            preferences.last_chinese_scheme = Some(ChineseScheme::Zhuyin);
             preferences.touch_keyboard_layout = TouchKeyboardLayout::TwentySixKey;
         }
         TouchKeyboardScheme::Wubi => {
@@ -489,6 +513,86 @@ mod tests {
             super::remember_chinese_scheme(&mut preferences);
             assert_eq!(preferences.last_chinese_scheme, remembered, "{scheme:?}");
         }
+    }
+
+    #[test]
+    fn upload_leaves_out_the_schemes_the_cloud_cannot_carry() {
+        for scheme in ["cantonese", "zhuyin", "vietnamese"] {
+            let mut native = native();
+            native.input_scheme = scheme.into();
+            let settings =
+                local_account_preferences(&native, &Preferences::default(), None).unwrap();
+            assert!(!settings.contains_key("input.schema"), "{scheme}");
+            assert!(!settings.contains_key("input.shuangpin_schema"), "{scheme}");
+            assert!(!settings.contains_key("platform.ios.nine_key"), "{scheme}");
+            assert_eq!(
+                settings["input.character_set"],
+                AccountPreferenceValue::String("traditional".into()),
+                "{scheme}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_cantonese_zhuyin_and_vietnamese_touch_schemes_select_their_input_schemes() {
+        use msime_client_core::preferences::ChineseScheme;
+        for (native, touch, scheme, remembered) in [
+            (
+                "cantonese",
+                TouchKeyboardScheme::Cantonese,
+                InputScheme::Cantonese,
+                ChineseScheme::Cantonese,
+            ),
+            (
+                "zhuyin",
+                TouchKeyboardScheme::Zhuyin,
+                InputScheme::Zhuyin,
+                ChineseScheme::Zhuyin,
+            ),
+            (
+                "vietnamese",
+                TouchKeyboardScheme::Vietnamese,
+                InputScheme::Vietnamese,
+                ChineseScheme::Wubi,
+            ),
+        ] {
+            assert_eq!(super::touch_scheme(native), Ok(touch));
+            let mut preferences = Preferences {
+                scheme: InputScheme::Wubi,
+                last_chinese_scheme: Some(ChineseScheme::Wubi),
+                touch_keyboard_layout: TouchKeyboardLayout::NineKey,
+                ..Preferences::default()
+            };
+            preferences.touch_keyboard_schemes.enabled.insert(touch);
+            super::select_touch_scheme(&mut preferences, touch);
+            assert_eq!(preferences.touch_keyboard_schemes.selected, Some(touch));
+            assert_eq!(preferences.scheme, scheme, "{native}");
+            assert_eq!(
+                preferences.last_chinese_scheme,
+                Some(remembered),
+                "{native}"
+            );
+            assert_eq!(
+                preferences.touch_keyboard_layout,
+                TouchKeyboardLayout::TwentySixKey,
+                "{native}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_touch_scheme_that_is_not_enabled_falls_back_to_the_first_enabled_one() {
+        let mut preferences = Preferences::default();
+        assert!(!preferences
+            .touch_keyboard_schemes
+            .enabled
+            .contains(&TouchKeyboardScheme::Zhuyin));
+        super::select_touch_scheme(&mut preferences, TouchKeyboardScheme::Zhuyin);
+        assert_eq!(
+            preferences.touch_keyboard_schemes.selected,
+            Some(TouchKeyboardScheme::Quanpin)
+        );
+        assert_eq!(preferences.scheme, InputScheme::Quanpin);
     }
 
     #[test]
