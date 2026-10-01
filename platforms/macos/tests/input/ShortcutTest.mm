@@ -6096,10 +6096,10 @@ static void TestOfflineTargetGlosses() {
     // Only the selected targets are read: ja is installed but not chosen. Rows follow the target order, and a candidate the English dictionary cannot answer keeps an empty first row.
     settle();
     assert(([[controller currentTargetGlossRequest][@"offline_languages"] isEqual:@[@"fr"]]));
-    assert(([session.delivered isEqual:@[@{@"text":@"Hello", @"translation":@"本地释义"}, @{@"text":@"测试", @"translation":@"\nessai"}]]));
+    assert(([session.delivered isEqual:@[@{@"text":@"Hello", @"translation":@"本地释义"}, @{@"text":@"测试", @"translation":@"\u2028essai"}]]));
     session.generation++; session.targetLanguage = @"ja"; session.targetLanguages = @[@"ja", @"en"];
     settle();
-    assert(([session.delivered isEqual:@[@{@"text":@"Hello", @"translation":@"\n本地释义"}, @{@"text":@"测试", @"translation":@"テスト"},
+    assert(([session.delivered isEqual:@[@{@"text":@"Hello", @"translation":@"\u2028本地释义"}, @{@"text":@"测试", @"translation":@"テスト"},
         @{@"text":@"你好", @"translation":@"こんにちは"}]]));
     // Without English among the targets the offline dictionary is the only local source.
     session.generation++; session.targetLanguage = @"fr"; session.targetLanguages = @[@"fr"];
@@ -6185,7 +6185,7 @@ static void TestOnDeviceGlosses() {
            ([controller.onDeviceFetches[3] isEqual:@[@[@"测试"], @[@"de"]]]));
     // A model answer over several lines is formatted to one, so it stays on the second target's row instead of opening a third.
     reply(@"de", @{@"测试":@"Test\nfoo "});
-    assert(([session.delivered isEqual:@[@{@"text":@"Hello", @"translation":@"本地释义"}, @{@"text":@"测试", @"translation":@"\nTest foo"}]]));
+    assert(([session.delivered isEqual:@[@{@"text":@"Hello", @"translation":@"本地释义"}, @{@"text":@"测试", @"translation":@"\u2028Test foo"}]]));
     // A Chinese word the English dictionary answers keeps its place in the page but is not sent to the model for English, which spends half a second on every word it is given.
     controller.extraEnglishGlosses = @{@"你好":@"hello"};
     session.generation++; session.targetLanguages = @[@"en"];
@@ -6419,15 +6419,15 @@ static void TestSecondaryTranslationScheduling() {
     assert([controller.batches[1].items[0][@"request"][@"body"][@"target_lang"] isEqual:@"JA"]);
     controller.batches[0].reply(@[@{@"text":@"你好", @"translation":@"bonjour"}]);
     controller.batches[1].reply(@[@{@"text":@"你好", @"translation":@"こんにちは"}]);
-    assert(([session.delivered isEqual:@[@{@"text":@"你好", @"translation":@"bonjour\nこんにちは"}]]));
+    assert(([session.delivered isEqual:@[@{@"text":@"你好", @"translation":@"bonjour\u2028こんにちは"}]]));
     session.generation++;
     [controller synchronizeCustomTranslations];
-    assert(controller.batches.count == 2 && [session.delivered[0][@"translation"] isEqual:@"bonjour\nこんにちは"]);
+    assert(controller.batches.count == 2 && [session.delivered[0][@"translation"] isEqual:@"bonjour\u2028こんにちは"]);
     session.generation++;
     session.targetLanguage = @"ja";
     session.targetLanguages = @[@"ja", @"fr"];
     [controller synchronizeCustomTranslations];
-    assert(controller.batches.count == 2 && [session.delivered[0][@"translation"] isEqual:@"こんにちは\nbonjour"]);
+    assert(controller.batches.count == 2 && [session.delivered[0][@"translation"] isEqual:@"こんにちは\u2028bonjour"]);
     [[MSIMETranslationCache sharedCache] clear];
     session.generation++;
     session.targetLanguage = @"fr";
