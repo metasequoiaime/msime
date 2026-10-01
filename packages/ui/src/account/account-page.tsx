@@ -6,6 +6,7 @@ import { accountProviderName, preferredAccountName } from "./account-labels";
 import { accountMessage, isAccountCancellation } from "./account-errors";
 import { AccountConfirmation } from "./account-confirmation";
 import { pushMobileSettingsState } from "../settings/mobile-navigation";
+import { copyAccountId as copyAccountIdToClipboard } from "./account-id-copy";
 
 export type AccountUser = {
   id: string;
@@ -191,19 +192,12 @@ function MobileAccountProfilePage({
     else if (action === "delete") deleteAccount();
   };
   const copyId = () => {
-    if (!navigator.clipboard?.writeText) return;
-    void navigator.clipboard
-      .writeText(user.id)
-      .then(() => {
-        if (!mounted.current) return;
-        setCopied(true);
-        window.setTimeout(() => {
-          if (mounted.current) setCopied(false);
-        }, 1800);
-      })
-      .catch(() => {
-        if (mounted.current) setError("账号 ID 暂时无法复制，请稍后重试。");
-      });
+    copyAccountIdToClipboard({
+      id: user.id,
+      isMounted: () => mounted.current,
+      setCopied,
+      setError,
+    });
   };
 
   return (
@@ -979,19 +973,12 @@ function AccountDetailsPage({
     });
 
   const copyAccountId = () => {
-    if (!user || !navigator.clipboard?.writeText) return;
-    void navigator.clipboard
-      .writeText(user.id)
-      .then(() => {
-        if (!mounted.current) return;
-        setCopiedAccountId(true);
-        window.setTimeout(() => {
-          if (mounted.current) setCopiedAccountId(false);
-        }, 1800);
-      })
-      .catch(() => {
-        if (mounted.current) setError("账号 ID 暂时无法复制，请稍后重试。");
-      });
+    copyAccountIdToClipboard({
+      id: user?.id,
+      isMounted: () => mounted.current,
+      setCopied: setCopiedAccountId,
+      setError,
+    });
   };
 
   const openPublishedSkins = onOpenCommunity
