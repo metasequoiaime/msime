@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
-import { SettingField } from "./setting-field";
 import { EndpointInput } from "./endpoint-input";
 import { SettingToggle } from "./setting-toggle";
+import { SettingField } from "./setting-field";
+import { TextSettingField } from "./text-setting-field";
 
 export type AiProviderOption = { id: string; title: string };
 
@@ -56,13 +57,12 @@ export function AiBasicSettingsSection({
       </div>
       {providerPreset}
       <div className="section">
-        <SettingField label="模型">
-          <input
-            aria-label="AI 模型"
-            value={model}
-            onChange={(event) => onModelChange(event.target.value)}
-          />
-        </SettingField>
+        <TextSettingField
+          label="模型"
+          inputLabel="AI 模型"
+          value={model}
+          onChange={onModelChange}
+        />
       </div>
       <div className="section">
         <SettingField label="接口地址">

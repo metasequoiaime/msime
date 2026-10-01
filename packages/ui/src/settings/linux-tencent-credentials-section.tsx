@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { CredentialActions } from "./credential-actions";
 import { type CredentialStatusMessageValue } from "./credential-status-message";
 import { PasswordSettingField } from "./password-setting-field";
-import { SettingField } from "./setting-field";
+import { TextSettingField } from "./text-setting-field";
 
 export interface LinuxTencentCredentialStatus {
   tencent: { region: string } | null;
@@ -73,13 +73,12 @@ export function LinuxTencentCredentialsSection({
             value={input.secretKey}
             onChange={(secretKey) => onInputChange({ secretKey })}
           />
-          <SettingField label="地域">
-            <input
-              aria-label="腾讯云地域"
-              value={region}
-              onChange={(event) => onInputChange({ region: event.target.value })}
-            />
-          </SettingField>
+          <TextSettingField
+            label="地域"
+            inputLabel="腾讯云地域"
+            value={region}
+            onChange={(value) => onInputChange({ region: value })}
+          />
           <CredentialActions
             saveDisabled={busy || (!stored && (!input.secretId.trim() || !input.secretKey.trim()))}
             clearDisabled={busy}

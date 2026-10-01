@@ -1066,6 +1066,7 @@ export {
   PasswordSettingField,
   type PasswordSettingFieldProps,
 } from "./settings/password-setting-field";
+export { TextSettingField, type TextSettingFieldProps } from "./settings/text-setting-field";
 export {
   LinuxTencentCredentialsSection,
   type LinuxTencentCredentialsSectionProps,
