@@ -67,3 +67,21 @@ test("maps failures only while current and can ignore cancellation errors", asyn
   expect(stale.setBusy.mock.calls).toEqual([[true]]);
   expect(stale.setError).toHaveBeenCalledExactlyOnceWith("");
 });
+
+test("lets a caller publish error side effects without duplicating the message mapping", async () => {
+  const setBusy = vi.fn();
+  const setError = vi.fn();
+  const onError = vi.fn();
+  const failure = { code: "community_unauthorized" };
+
+  await runAsyncAction(
+    { busy: false, isCurrent: () => true, setBusy, setError },
+    async () => {
+      throw failure;
+    },
+    { formatError: () => "请先登录后执行此操作。", onError },
+  );
+
+  expect(setError).toHaveBeenLastCalledWith("请先登录后执行此操作。");
+  expect(onError).toHaveBeenCalledExactlyOnceWith(failure);
+});

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { boundedGraphemes } from "../core/text";
 import { randomUuid } from "../core/random-id";
+import { runAsyncAction } from "../core/async-action";
 import { pushMobileSettingsState } from "../settings/mobile-navigation";
 import { ScreenKeyboardPreview } from "../keyboard/screen-keyboard-preview";
 import {
@@ -137,19 +138,24 @@ function CommunitySkinPublishDialog({
       setError("请填写有效名称和说明，并确认拥有公开发布所需的素材权利。");
       return;
     }
-    setBusy(true);
-    setError("");
     setSignInRequired(false);
-    try {
-      await client.publish(publicationId, normalizedName, normalizedDescription, selected.design);
-      if (generation !== clientGeneration.current) return;
-      await onPublished();
-    } catch (publishError) {
-      if (generation !== clientGeneration.current) return;
-      setError(communitySkinPublishMessage(publishError));
-      setSignInRequired(communityNeedsSignIn(publishError));
-      if (generation === clientGeneration.current) setBusy(false);
-    }
+    await runAsyncAction(
+      {
+        busy,
+        isCurrent: () => generation === clientGeneration.current,
+        setBusy,
+        setError,
+      },
+      async () => {
+        await client.publish(publicationId, normalizedName, normalizedDescription, selected.design);
+        if (generation !== clientGeneration.current) return;
+        await onPublished();
+      },
+      {
+        formatError: communitySkinPublishMessage,
+        onError: (publishError) => setSignInRequired(communityNeedsSignIn(publishError)),
+      },
+    );
   };
 
   return (

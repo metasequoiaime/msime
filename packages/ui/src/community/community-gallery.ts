@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { runAsyncAction } from "../core/async-action";
 import { appendUniqueById } from "./community-helpers";
 
 export type CommunityGalleryPage<T> = { items: T[]; has_more: boolean };
@@ -151,36 +152,45 @@ export function useCommunityGallery<T extends { id: string }>({
     [isCurrent],
   );
 
+  const runAction = useCallback(
+    (action: (generation: number) => Promise<void>) => {
+      const generation = clientGeneration.current;
+      setSignInRequired(false);
+      return runAsyncAction(
+        {
+          busy: actionBusy,
+          isCurrent: () => isCurrent(generation),
+          setBusy: setActionBusy,
+          setError,
+        },
+        () => action(generation),
+        {
+          formatError: errorMessage,
+          onError: (failure) => setSignInRequired(needsSignIn(failure)),
+        },
+      );
+    },
+    [actionBusy, errorMessage, isCurrent, needsSignIn],
+  );
+
   const rateSelected = useCallback(
     async (stars: number) => {
       if (!selected || actionBusy) return;
-      const generation = clientGeneration.current;
-      setActionBusy(true);
-      setError("");
-      setSignInRequired(false);
-      try {
+      await runAction(async (generation) => {
         await client.rate(selected.id, stars);
         const updated = await client.detail(selected.id);
         if (!isCurrent(generation)) return;
         setSelected(updated);
         setActionNotice(`已评分：${stars} 星。`);
-      } catch (actionError) {
-        if (generation === clientGeneration.current) fail(actionError);
-      } finally {
-        endAction(generation);
-      }
+      });
     },
-    [actionBusy, client, endAction, fail, isCurrent, selected],
+    [actionBusy, client, isCurrent, runAction, selected],
   );
 
   const unpublishSelected = useCallback(
     async (successMessage: string) => {
       if (!selected || actionBusy) return;
-      const generation = clientGeneration.current;
-      setActionBusy(true);
-      setError("");
-      setSignInRequired(false);
-      try {
+      await runAction(async (generation) => {
         await client.unpublish(selected.id);
         if (!isCurrent(generation)) return;
         detailGeneration.current += 1;
@@ -188,13 +198,9 @@ export function useCommunityGallery<T extends { id: string }>({
         setConfirmUnpublish(false);
         setActionNotice(successMessage);
         await requestList(activeSearch.current, false, activeMine.current);
-      } catch (actionError) {
-        if (generation === clientGeneration.current) fail(actionError);
-      } finally {
-        endAction(generation);
-      }
+      });
     },
-    [actionBusy, client, endAction, fail, isCurrent, requestList, selected],
+    [actionBusy, client, isCurrent, requestList, runAction, selected],
   );
 
   return {

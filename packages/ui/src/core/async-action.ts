@@ -9,13 +9,14 @@ export interface AsyncActionState {
 export interface AsyncActionOptions {
   formatError: (error: unknown) => string;
   ignoreError?: (error: unknown) => boolean;
+  onError?: (error: unknown) => void;
 }
 
 /** Runs a guarded UI action and publishes only results from its current owner. */
 export async function runAsyncAction(
   { busy, isCurrent, setBusy, setError, setNotice }: AsyncActionState,
   operation: (isCurrent: () => boolean) => Promise<void>,
-  { formatError, ignoreError }: AsyncActionOptions,
+  { formatError, ignoreError, onError }: AsyncActionOptions,
 ): Promise<void> {
   if (busy || !isCurrent()) return;
   setBusy(true);
@@ -24,7 +25,10 @@ export async function runAsyncAction(
   try {
     await operation(isCurrent);
   } catch (error) {
-    if (isCurrent() && !ignoreError?.(error)) setError(formatError(error));
+    if (isCurrent() && !ignoreError?.(error)) {
+      setError(formatError(error));
+      onError?.(error);
+    }
   } finally {
     if (isCurrent()) setBusy(false);
   }
