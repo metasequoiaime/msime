@@ -6064,7 +6064,7 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     return true;
   }
   if (sym == FcitxKey_F9 && ctrl && !alt && !shift &&
-      !states.testAny(fcitx::KeyStates{fcitx::KeyState::Super, fcitx::KeyState::Hyper}) &&
+      !states.testAny(fcitx::KeyStates{fcitx::KeyState::Super, fcitx::KeyState::Hyper, fcitx::KeyState::Mod5}) &&
       voice_hotkey_ctrl_f9_ && voice_enabled_ && !voice_socket_.empty() && !restricted() && !privateInput() &&
       ic_.hasFocus()) {
     if (voice_loading_) {
@@ -6238,6 +6238,14 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
                           ? MSIME_PREVIOUS_PAGE : MSIME_NEXT_PAGE);
       return true;
     }
+    // Tab pages the senses the way it pages an ordinary candidate list below; leaving the overlay first would page the Engine's hidden list instead. Fcitx normalises ISO_Left_Tab to Tab, so the raw key tells a Shift-less back-tab apart.
+    if (!ctrl && !alt && navigation_.value("tab", true) &&
+        !states.testAny(fcitx::KeyStates{fcitx::KeyState::Super, fcitx::KeyState::Hyper, fcitx::KeyState::Mod5}) &&
+        (sym == FcitxKey_Tab || sym == FcitxKey_KP_Tab || sym == FcitxKey_ISO_Left_Tab)) {
+      translationPage(shift || event.rawKey().sym() == FcitxKey_ISO_Left_Tab
+                          ? MSIME_PREVIOUS_PAGE : MSIME_NEXT_PAGE);
+      return true;
+    }
     // Other editing keys first restore the Engine-owned candidate page below.
     exitTranslationCandidates();
   }
@@ -6387,7 +6395,10 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     case FcitxKey_End: case FcitxKey_KP_End:
       return command(MSIME_LAST_CANDIDATE);
     case FcitxKey_Tab: case FcitxKey_KP_Tab:
-      if (navigation_.value("tab", true)) return command(shift ? MSIME_PREVIOUS_PAGE : MSIME_NEXT_PAGE);
+      // Fcitx normalises ISO_Left_Tab to Tab, keeping Shift only when it was held, so a back-tab sent without Shift is recognised by its raw symbol.
+      if (navigation_.value("tab", true))
+        return command(shift || event.rawKey().sym() == FcitxKey_ISO_Left_Tab ? MSIME_PREVIOUS_PAGE
+                                                                              : MSIME_NEXT_PAGE);
       break;
     case FcitxKey_ISO_Left_Tab:
       if (navigation_.value("tab", true)) return command(MSIME_PREVIOUS_PAGE);

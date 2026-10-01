@@ -1075,6 +1075,12 @@ int main(int argc, char **argv) {
       engine.keyEvent(entry, event);
       return event.accepted();
     };
+    // The same press with modifiers held; Fcitx normalises the raw key exactly as it does for a real keyboard.
+    const auto keyWith = [&](fcitx::KeySym sym, fcitx::KeyStates states) {
+      fcitx::KeyEvent event(&ic, fcitx::Key(sym, states));
+      engine.keyEvent(entry, event);
+      return event.accepted();
+    };
     // Ctrl+Shift+F flips the character set once per press and leaves the composition in place, as on Windows: auto-repeat while it is held is swallowed, and the release (a lowercase f once Shift is let go first) ends the hold.
     {
       require(key(FcitxKey_h) && key(FcitxKey_a) && key(FcitxKey_n) && key(FcitxKey_y) && key(FcitxKey_u),
@@ -1507,6 +1513,92 @@ int main(int argc, char **argv) {
     require(key(FcitxKey_minus), "configured minus previous-page binding");
     require(key(FcitxKey_equal), "configured equal next-page binding");
     require(key(FcitxKey_Escape), "cancel after navigation");
+    // Tab and Shift+Tab page the candidates by default (navigation.tab), as on macOS, Windows and IBus. A real keyboard sends Shift+Tab as Shift+ISO_Left_Tab, and Fcitx normalises both to Tab with Shift; a back-tab without Shift must still go back.
+    {
+      const auto candidatePage = [&] { return state->view_.value("page", size_t{0}); };
+      const auto preedit = [&] { return ic.inputPanel().clientPreedit().toString(); };
+      const fcitx::KeyStates shiftState(fcitx::KeyState::Shift);
+      require(state->navigation_.value("tab", true), "Tab paging is on by default");
+      require(!key(FcitxKey_Tab), "an idle Tab belongs to the application");
+      const auto beforeTab = ic.committed;
+      require(key(FcitxKey_n) && key(FcitxKey_i) && candidatePage() == 0 &&
+                  state->view_.value("page_count", size_t{0}) >= 3,
+              "Tab paging test composes a multi-page ni");
+      require(key(FcitxKey_Tab) && candidatePage() == 1, "Tab moves to the next candidate page");
+      require(key(FcitxKey_Tab) && candidatePage() == 2, "a second Tab moves on again");
+      require(keyWith(FcitxKey_Tab, shiftState) && candidatePage() == 1, "Shift+Tab moves to the previous page");
+      require(keyWith(FcitxKey_ISO_Left_Tab, shiftState) && candidatePage() == 0,
+              "Shift+ISO_Left_Tab moves to the previous page");
+      require(key(FcitxKey_Tab) && candidatePage() == 1 && key(FcitxKey_ISO_Left_Tab) && candidatePage() == 0,
+              "a back-tab without Shift still moves to the previous page");
+      require(ic.committed == beforeTab && preedit() == "ni", "Tab paging commits nothing and keeps the spelling");
+      // The temporary page of a candidate's translation senses (Ctrl+Enter) pages with Tab as well, instead of leaving the senses and paging the hidden Engine list.
+      require(state->enterTranslationCandidates("一; 二; 三; 四; 五") && state->translationCandidatesActive() &&
+                  candidatePage() == 0 && state->view_.value("page_count", size_t{0}) == 3,
+              "translation senses open on a three-page overlay");
+      require(key(FcitxKey_Tab) && state->translationCandidatesActive() && state->translation_page_ == 1 && candidatePage() == 1,
+              "Tab pages the translation senses forward");
+      require(state->translation_saved_view_.value("page", size_t{1}) == 0,
+              "Tab leaves the Engine's own candidate page alone");
+      require(keyWith(FcitxKey_Tab, shiftState) && state->translationCandidatesActive() && state->translation_page_ == 0,
+              "Shift+Tab pages the translation senses back");
+      require(key(FcitxKey_Tab) && keyWith(FcitxKey_ISO_Left_Tab, shiftState) &&
+                  state->translationCandidatesActive() && state->translation_page_ == 0,
+              "Shift+ISO_Left_Tab pages the translation senses back");
+      require(key(FcitxKey_Tab) && key(FcitxKey_ISO_Left_Tab) && state->translationCandidatesActive() &&
+                  state->translation_page_ == 0,
+              "a back-tab without Shift pages the translation senses back");
+      require(key(FcitxKey_Page_Down) && state->translationCandidatesActive() && state->translation_page_ == 1 &&
+                  key(FcitxKey_Page_Up) && state->translation_page_ == 0,
+              "Page Down and Page Up still page the translation senses");
+      require(ic.committed == beforeTab, "paging the translation senses commits nothing");
+      require(key(FcitxKey_Escape) && !state->translationCandidatesActive() && preedit().empty(),
+              "Escape leaves the translation senses and the composition");
+      // Turning navigation.tab off through the store reaches the open context on the next preference tick, the same reload the settings page triggers.
+      const auto loadStore = [&] {
+        return response(msime_client_load_preferences(
+            reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size()));
+      };
+      const auto setTabPaging = [&](bool enabled) {
+        auto snapshot = loadStore();
+        const auto revision = snapshot.at("revision").get<uint64_t>();
+        snapshot["preferences"]["navigation"]["tab"] = enabled;
+        snapshot["revision"] = revision + 1;
+        const auto document = snapshot.dump();
+        const auto saved = response(msime_client_save_preferences(
+            reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size(),
+            revision, reinterpret_cast<const uint8_t *>(document.data()), document.size()));
+        require(saved.value("revision", uint64_t{}) > revision, "navigation.tab saved");
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (state->navigation_.value("tab", true) != enabled && std::chrono::steady_clock::now() < deadline) {
+          state->refreshPreferences();
+          std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        return state->navigation_.value("tab", true) == enabled;
+      };
+      require(setTabPaging(false), "navigation.tab off reloads into the open context");
+      require(!key(FcitxKey_Tab), "an idle Tab belongs to the application with Tab paging off");
+      // With candidates showing, a disabled Tab finishes the composition with the highlighted candidate and then reaches the application, which is the Linux behaviour this pins; it does not page.
+      require(key(FcitxKey_n) && key(FcitxKey_i) && candidatePage() == 0, "disabled Tab test composes ni");
+      const auto beforeDisabledTab = ic.committed;
+      require(!key(FcitxKey_Tab), "a disabled Tab is handed to the application");
+      require(ic.committed.size() > beforeDisabledTab.size() && preedit().empty() &&
+                  state->view_.value("editing_text", std::string()).empty(),
+              "a disabled Tab commits the composition instead of paging");
+      // Ctrl+Tab is an application shortcut whatever the preference: it drops the spelling and passes through.
+      require(key(FcitxKey_n) && key(FcitxKey_i), "Ctrl+Tab test composes ni");
+      const auto beforeCtrlTab = ic.committed;
+      require(!keyWith(FcitxKey_Tab, fcitx::KeyStates(fcitx::KeyState::Ctrl)), "Ctrl+Tab is handed to the application");
+      require(ic.committed == beforeCtrlTab && preedit().empty() &&
+                  state->view_.value("editing_text", std::string()).empty(),
+              "Ctrl+Tab cancels the composition without committing it");
+      require(setTabPaging(true), "navigation.tab restored");
+      require(key(FcitxKey_n) && key(FcitxKey_i), "Ctrl+Tab test with Tab paging on composes ni");
+      const auto beforeEnabledCtrlTab = ic.committed;
+      require(!keyWith(FcitxKey_Tab, fcitx::KeyStates(fcitx::KeyState::Ctrl)) && candidatePage() == 0 &&
+                  ic.committed == beforeEnabledCtrlTab && preedit().empty(),
+              "Ctrl+Tab cancels and passes through with Tab paging on as well");
+    }
     const auto beforePunctuation = ic.committed;
     ic.surroundingText().setText("😀A", 2, 2);
     require(!key(FcitxKey_comma), "ASCII punctuation remains with editor");
