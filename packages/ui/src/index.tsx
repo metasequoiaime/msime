@@ -1070,6 +1070,10 @@ export { TextSettingField, type TextSettingFieldProps } from "./settings/text-se
 export { SelectSettingField, type SelectSettingFieldProps } from "./settings/select-setting-field";
 export { ModelSettingField, type ModelSettingFieldProps } from "./settings/model-setting-field";
 export {
+  EndpointSettingField,
+  type EndpointSettingFieldProps,
+} from "./settings/endpoint-setting-field";
+export {
   LinuxTencentCredentialsSection,
   type LinuxTencentCredentialsSectionProps,
   type LinuxTencentCredentialInput,
