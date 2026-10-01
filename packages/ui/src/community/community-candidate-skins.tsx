@@ -18,6 +18,7 @@ import {
   type CommunityReportReason,
 } from "./community-report";
 import { CommunitySkinCardMetrics } from "./community-skin-card-metrics";
+import { CommunityReplaceConfirmation } from "./community-replace-confirmation";
 import { CommunityBackButton, CommunityLoadMoreButton } from "./community-gallery-controls";
 import {
   CommunitySkinCategoryFilter,
@@ -492,27 +493,13 @@ export function CommunityCandidateSkinsPage({
             </button>
           )}
           {confirmReplace && (
-            <div className={style.confirmation} role="alertdialog" aria-label="确认替换皮肤">
-              <p>已存在同名皮肤“{selected.package_id}”，安装会整体替换它。</p>
-              <div className={style.confirmationActions}>
-                <button
-                  type="button"
-                  className="danger"
-                  disabled={actionBusy}
-                  onClick={() => void install(true)}
-                >
-                  替换安装
-                </button>
-                <button
-                  type="button"
-                  className="secondary"
-                  disabled={actionBusy}
-                  onClick={() => setConfirmReplace(false)}
-                >
-                  取消
-                </button>
-              </div>
-            </div>
+            <CommunityReplaceConfirmation
+              ariaLabel="确认替换皮肤"
+              message={<>已存在同名皮肤“{selected.package_id}”，安装会整体替换它。</>}
+              actionBusy={actionBusy}
+              onConfirm={() => void install(true)}
+              onCancel={() => setConfirmReplace(false)}
+            />
           )}
           {selected.owned && (
             <button
