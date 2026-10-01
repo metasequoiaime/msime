@@ -25,6 +25,7 @@ import {
   type CommunityReportReason,
 } from "./community-report";
 import { CommunitySkinPublicationFields } from "./community-skin-publication-fields";
+import { CommunitySelectField } from "./community-select-field";
 import { CommunitySkinModerationSection } from "./community-skin-moderation-section";
 import { CommunitySkinCardMetrics } from "./community-skin-card-metrics";
 import {
@@ -221,27 +222,24 @@ function CommunitySkinPublishDialog({
         )}
         {saved.length > 0 && (
           <>
-            <label className={style.field}>
-              发布设计
-              <select
-                className={style.fieldControl}
-                aria-label="发布设计"
-                value={selectedId}
-                disabled={busy}
-                onChange={(event) => {
-                  const item = saved.find((value) => value.id === event.target.value);
-                  setSelectedId(event.target.value);
-                  setPublicationId(randomUuid());
-                  if (item) setName(item.name);
-                }}
-              >
-                {saved.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <CommunitySelectField
+              label="发布设计"
+              ariaLabel="发布设计"
+              value={selectedId}
+              disabled={busy}
+              onChange={(nextId) => {
+                const item = saved.find((value) => value.id === nextId);
+                setSelectedId(nextId);
+                setPublicationId(randomUuid());
+                if (item) setName(item.name);
+              }}
+            >
+              {saved.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </CommunitySelectField>
             {selected && (
               <div className={`${style.cardStage} max-h-[220px]`}>
                 <ScreenKeyboardPreview theme="light" skin="custom" customDesign={selected.design} />

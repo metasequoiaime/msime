@@ -1191,6 +1191,10 @@ export {
   CommunityInputField,
   type CommunityInputFieldProps,
 } from "./community/community-input-field";
+export {
+  CommunitySelectField,
+  type CommunitySelectFieldProps,
+} from "./community/community-select-field";
 export { CandidateSkinPublishDialog } from "./community/candidate-skin-publish-dialog";
 export {
   CommunityPluginPublishDialog,

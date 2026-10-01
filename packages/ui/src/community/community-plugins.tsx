@@ -23,6 +23,7 @@ import { CommunitySkinModerationSection } from "./community-skin-moderation-sect
 import { CommunityScopeButtons } from "./community-scope-buttons";
 import { CommunityRightsAgreement } from "./community-rights-agreement";
 import { CommunityInputField } from "./community-input-field";
+import { CommunitySelectField } from "./community-select-field";
 import { CommunityTextareaField } from "./community-textarea-field";
 import {
   CommunityRemovedBadge,
@@ -689,23 +690,20 @@ export function CommunityPluginPublishDialog({
           </p>
         )}
         {options.length > 0 && (
-          <label className={style.field}>
-            发布插件
-            <select
-              className={style.fieldControl}
-              aria-label="发布插件"
-              value={selection}
-              disabled={busy}
-              onChange={(event) => setSelection(event.target.value)}
-            >
-              {options.map((item) => (
-                <option key={item.key} value={item.key}>
-                  {kindLabels[item.kind]} ·{" "}
-                  {item.name === item.id ? item.id : `${item.name}（${item.id}）`}
-                </option>
-              ))}
-            </select>
-          </label>
+          <CommunitySelectField
+            label="发布插件"
+            ariaLabel="发布插件"
+            value={selection}
+            disabled={busy}
+            onChange={setSelection}
+          >
+            {options.map((item) => (
+              <option key={item.key} value={item.key}>
+                {kindLabels[item.kind]} ·{" "}
+                {item.name === item.id ? item.id : `${item.name}（${item.id}）`}
+              </option>
+            ))}
+          </CommunitySelectField>
         )}
         {packLoading && <p role="status">正在检查插件…</p>}
         {packError && (

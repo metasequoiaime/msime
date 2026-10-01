@@ -16,6 +16,7 @@ import { CommunitySkinPublicationFields } from "./community-skin-publication-fie
 import { CommunityErrorAlert } from "./community-error-alert";
 import { CommunityDialogHeader } from "./community-dialog";
 import { CommunitySkinCategorySelect } from "./community-skin-category";
+import { CommunitySelectField } from "./community-select-field";
 import {
   type CandidateSkinCategory,
   type CandidateSkinCommunityClient,
@@ -358,22 +359,19 @@ export function CandidateSkinPublishDialog({
           </p>
         )}
         {options.length > 0 && (
-          <label className={style.field}>
-            发布皮肤
-            <select
-              className={style.fieldControl}
-              aria-label="发布皮肤"
-              value={skinId}
-              disabled={busy}
-              onChange={(event) => setSkinId(event.target.value)}
-            >
-              {options.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name === item.id ? item.id : `${item.name}（${item.id}）`}
-                </option>
-              ))}
-            </select>
-          </label>
+          <CommunitySelectField
+            label="发布皮肤"
+            ariaLabel="发布皮肤"
+            value={skinId}
+            disabled={busy}
+            onChange={setSkinId}
+          >
+            {options.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name === item.id ? item.id : `${item.name}（${item.id}）`}
+              </option>
+            ))}
+          </CommunitySelectField>
         )}
         <fieldset className={style.field} disabled={busy}>
           <legend>谁可以看到</legend>
