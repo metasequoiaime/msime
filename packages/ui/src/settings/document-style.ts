@@ -47,7 +47,7 @@ export const updateWarning = "text-danger!";
 export const feedbackCard =
   "grid min-h-[var(--p-row-h)] grid-cols-[42px_minmax(0,1fr)_auto] items-center gap-3.5 [padding:var(--p-row-pad)] max-phone:grid-cols-[36px_minmax(0,1fr)] [&>.secondary]:mt-0 [&>.secondary]:whitespace-nowrap [&>.secondary]:max-phone:col-start-2 [&>.secondary]:max-phone:justify-self-start";
 export const feedbackIcon =
-  "flex size-[38px] items-center justify-center rounded-[10px] bg-accent-soft text-xs font-bold [color:var(--p-accent-text)]";
+  "flex size-[38px] items-center justify-center rounded-[10px] border [border-color:var(--p-hair)]";
 export const feedbackBody =
   "min-w-0 [&>p]:mt-[3px] [&>p]:mb-[5px] [&>p]:[font-size:var(--p-sub-fs)] [&>p]:[color:var(--p-sub)] [&_code]:block [&_code]:break-anywhere [&_code]:text-xs [&_code]:[color:var(--p-sub)]";
 export const feedbackTitle = "[font-size:var(--p-row-fs)] font-semibold [color:var(--p-text)]";

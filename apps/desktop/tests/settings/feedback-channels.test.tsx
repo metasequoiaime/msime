@@ -27,6 +27,12 @@ test("renders shared feedback channels and routes their actions", () => {
   );
 
   expect(screen.getByText("example.test/issues")).toBeTruthy();
+  const marks = [...document.querySelectorAll(".icon")];
+  expect(marks.map((mark) => mark.textContent)).toEqual(["", "", ""]);
+  expect(marks[0].querySelector("span")?.getAttribute("style")).toContain("--channel-icon: url(");
+  const brandSources = marks.slice(1).map((mark) => mark.querySelector("img")?.getAttribute("src"));
+  expect(brandSources.every(Boolean)).toBe(true);
+  expect(new Set(brandSources).size).toBe(2);
   fireEvent.click(screen.getByRole("button", { name: "查看 Issues" }));
   fireEvent.click(screen.getByRole("button", { name: "复制群号" }));
   fireEvent.click(screen.getByRole("button", { name: "打开群组" }));
