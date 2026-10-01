@@ -18,6 +18,7 @@ import {
   type CommunityReportReason,
 } from "./community-report";
 import { CommunitySkinCardMetrics } from "./community-skin-card-metrics";
+import { CommunityCardAuthor } from "./community-card-author";
 import { CommunityInstallButton } from "./community-install-button";
 import { CommunityReplaceConfirmation } from "./community-replace-confirmation";
 import { CommunityBackButton } from "./community-gallery-controls";
@@ -222,13 +223,13 @@ function CommunityCandidateSkinCard({
         className={style.cardStage}
       />
       <strong className={style.cardTitle}>{skin.name}</strong>
-      <span className={style.cardAuthor}>
-        {communitySkinCategoryLabel(skin.category) &&
-          `${communitySkinCategoryLabel(skin.category)} · `}
-        {skin.owned ? "我的作品" : skin.author}
-        {skin.visibility === "private" && " · 私有"}
-        {skin.owned && skin.moderation === "removed" && " · 已下架"}
-      </span>
+      <CommunityCardAuthor
+        prefix={communitySkinCategoryLabel(skin.category) ?? undefined}
+        author={skin.author}
+        owned={skin.owned}
+        private={skin.visibility === "private"}
+        removed={skin.moderation === "removed"}
+      />
       <CommunitySkinCardMetrics
         downloads={skin.downloads}
         ratingCount={skin.rating_count}

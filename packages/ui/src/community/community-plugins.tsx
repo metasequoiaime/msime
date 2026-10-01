@@ -33,6 +33,7 @@ import {
   type CommunityReportReason,
 } from "./community-report";
 import { CommunitySkinCardMetrics } from "./community-skin-card-metrics";
+import { CommunityCardAuthor } from "./community-card-author";
 import { CommunityInstallButton } from "./community-install-button";
 import { CommunityReplaceConfirmation } from "./community-replace-confirmation";
 import { CommunityBackButton } from "./community-gallery-controls";
@@ -133,10 +134,12 @@ function CommunityPluginCard({ plugin, open }: { plugin: CommunityPlugin; open: 
       onClick={open}
     >
       <strong className={style.cardTitle}>{plugin.name}</strong>
-      <span className={style.cardAuthor}>
-        {kindLabels[plugin.kind]} · {plugin.owned ? "我的作品" : plugin.author}
-        {plugin.owned && plugin.moderation === "removed" && " · 已下架"}
-      </span>
+      <CommunityCardAuthor
+        prefix={kindLabels[plugin.kind]}
+        author={plugin.author}
+        owned={plugin.owned}
+        removed={plugin.moderation === "removed"}
+      />
       {plugin.description && (
         <span className={style.resourceDescription}>{plugin.description}</span>
       )}

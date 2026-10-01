@@ -1192,6 +1192,10 @@ export {
   type CommunityGalleryLoadMoreProps,
 } from "./community/community-gallery-load-more";
 export {
+  CommunityCardAuthor,
+  type CommunityCardAuthorProps,
+} from "./community/community-card-author";
+export {
   CommunitySkinPublicationFields,
   type CommunitySkinPublicationFieldsProps,
 } from "./community/community-skin-publication-fields";

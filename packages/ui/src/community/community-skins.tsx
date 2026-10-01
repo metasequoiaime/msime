@@ -28,6 +28,7 @@ import { CommunitySkinPublicationFields } from "./community-skin-publication-fie
 import { CommunitySelectField } from "./community-select-field";
 import { CommunitySkinModerationSection } from "./community-skin-moderation-section";
 import { CommunitySkinCardMetrics } from "./community-skin-card-metrics";
+import { CommunityCardAuthor } from "./community-card-author";
 import { CommunityBackButton } from "./community-gallery-controls";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
 import {
@@ -303,12 +304,12 @@ function CommunitySkinCard({
         <ScreenKeyboardPreview theme={theme} skin="custom" customDesign={skin.design} compact />
       </span>
       <strong>{skin.name}</strong>
-      <span className={style.cardAuthor}>
-        {communitySkinCategoryLabel(skin.category) &&
-          `${communitySkinCategoryLabel(skin.category)} · `}
-        {skin.owned ? "我的作品" : skin.author}
-        {skin.owned && skin.moderation === "removed" && " · 已下架"}
-      </span>
+      <CommunityCardAuthor
+        prefix={communitySkinCategoryLabel(skin.category) ?? undefined}
+        author={skin.author}
+        owned={skin.owned}
+        removed={skin.moderation === "removed"}
+      />
       <CommunitySkinCardMetrics
         downloads={skin.downloads}
         ratingCount={skin.rating_count}
