@@ -125,6 +125,7 @@ COMPANIONS: dict[str, tuple[list[str], bool]] = {
     # The TIP's reply parser, which its own policy tests call. No host library: this is JSON in,
     # struct out.
     "tsf/input/raw_commit.cpp": (["tsf/EngineResponse.cpp"], False),
+    "tsf/input/host_composition.cpp": (["tsf/EngineResponse.cpp"], False),
     "tsf/input/engine_response.cpp": (["tsf/EngineResponse.cpp"], False),
 }
 COMPANION_LIBRARIES = ["-lcurl", "-lsqlite3"]

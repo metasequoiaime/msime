@@ -17,6 +17,7 @@
 #include "../Utils/PerfTimer.h"
 #include "../HostRawCommit.h"
 #include "../HostCharacterResult.h"
+#include "../HostComposition.h"
 #include "../HostKoreanKey.h"
 #include "../KeyboardCancellation.h"
 #include "../../../../shared/input/CompositionDisplay.h"
@@ -255,42 +256,29 @@ HRESULT CMetasequoiaIME::_HandleSyllableCommit(TfEditCookie ec, _In_ ITfContext 
                                                bool replayKey)
 {
     std::wstring text;
-    bool keyText = msime::tsf::is_korean_text_key(wch);
+    bool keyText = msime::tsf::is_host_text_key(wch);
     // Set when the host had already let go of the composition the document still shows.
     bool hostLetGo = true;
     auto *host = _pCompositionProcessorEngine ? _pCompositionProcessorEngine->GetHostEngineAdapter() : nullptr;
     if (host && host->valid())
     {
-        std::string raw, error;
-        msime::tsf::EngineResult result;
-        // Zhuyin ends its conversion with a punctuation key through the Chinese table, the way the Server's session takes the same key: the host session commits the conversion with the full-width mark, or with the key's own character when the table has none. A letter typed with Shift follows the conversion as itself.
-        const bool chinesePunctuation =
-            keyText && wch != L' ' && !(wch >= L'0' && wch <= L'9') &&
-            msime::windows::scheme::UsesChinesePunctuation(Global::InputModeScheme.load(std::memory_order_relaxed));
-        if (chinesePunctuation)
+        std::string error;
+        auto ended = msime::tsf::EndHostComposition(*host, Global::InputModeScheme.load(std::memory_order_relaxed),
+                                                    wch, &error);
+        hostLetGo = ended.hostLetGo;
+        keyText = ended.keyFollows;
+        if (!ended.commit.empty() && ended.commit.size() <= static_cast<size_t>((std::numeric_limits<int>::max)()))
         {
-            keyText = false;
-            hostLetGo = !host->view(&raw, &error) ||
-                        !msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error) ||
-                        result.view.editing_text.empty();
-            raw.clear();
-        }
-        if ((chinesePunctuation ? host->punctuation(static_cast<uint8_t>(wch), &raw, &error)
-                                : host->command(MSIME_FINISH_COMPOSITION, &raw, &error)) &&
-            msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error) && result.has_commit &&
-            !result.commit.empty() && result.commit.size() <= static_cast<size_t>((std::numeric_limits<int>::max)()))
-        {
-            const int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, result.commit.data(),
-                                                   static_cast<int>(result.commit.size()), nullptr, 0);
+            const int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, ended.commit.data(),
+                                                   static_cast<int>(ended.commit.size()), nullptr, 0);
             if (length > 0)
             {
                 text.assign(static_cast<size_t>(length), L'\0');
-                if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, result.commit.data(),
-                                        static_cast<int>(result.commit.size()), text.data(), length) != length)
+                if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, ended.commit.data(),
+                                        static_cast<int>(ended.commit.size()), text.data(), length) != length)
                     text.clear();
             }
         }
-        if (!chinesePunctuation) hostLetGo = text.empty();
     }
     GlobalIme::word_for_creating_word.clear();
     GlobalIme::pending_create_word_preedit.clear();
@@ -308,8 +296,8 @@ HRESULT CMetasequoiaIME::_HandleSyllableCommit(TfEditCookie ec, _In_ ITfContext 
     }
     _HandleCompleteCommitFirst(ec, pContext);
     // A caret or editing key goes on to the application without reaching the Server, whose own session still holds the syllable. The routed clear a terminated composition sends keeps the two in step; keys with text reach the Server and end the syllable there themselves.
-    if (code != 0 && !msime::tsf::is_korean_text_key(wch) && Global::g_connected) SendHideCandidateWndEventToUIProcess();
-    if (replayKey && code != 0 && !msime::tsf::is_korean_text_key(wch)) _QueueKoreanSyllableKeyReplay(code);
+    if (code != 0 && !msime::tsf::is_host_text_key(wch) && Global::g_connected) SendHideCandidateWndEventToUIProcess();
+    if (replayKey && code != 0 && !msime::tsf::is_host_text_key(wch)) _QueueKoreanSyllableKeyReplay(code);
     return S_OK;
 }
 
