@@ -1,5 +1,4 @@
-import { SecretInput } from "../core/secret-input";
-import { SettingField } from "./setting-field";
+import { SecretSettingField } from "./secret-setting-field";
 
 export interface AiApiTokenSectionProps {
   origin: string | null;
@@ -11,17 +10,14 @@ export interface AiApiTokenSectionProps {
 export function AiApiTokenSection({ origin, token, onTokenChange }: AiApiTokenSectionProps) {
   return (
     <div className="section">
-      <SettingField
+      <SecretSettingField
         label="API Token"
+        inputLabel="AI API Token"
+        value={token}
         description={origin ? `只用于 ${origin}` : "请先填写有效的 HTTPS 接口地址"}
-      >
-        <SecretInput
-          label="AI API Token"
-          disabled={!origin}
-          value={token}
-          onChange={onTokenChange}
-        />
-      </SettingField>
+        disabled={!origin}
+        onChange={onTokenChange}
+      />
     </div>
   );
 }

@@ -1048,6 +1048,10 @@ export {
 } from "./settings/tencent-translation-section";
 export { SecretSettingRow, type SecretSettingRowProps } from "./settings/secret-setting-row";
 export {
+  SecretSettingField,
+  type SecretSettingFieldProps,
+} from "./settings/secret-setting-field";
+export {
   LinuxTencentCredentialsSection,
   type LinuxTencentCredentialsSectionProps,
   type LinuxTencentCredentialInput,
