@@ -33,7 +33,11 @@ const UNLIMITED_ROWS: usize = i32::MAX as usize;
 const PERSONAL_SCORED_KEY_LIMIT: usize = 2 * CACHE_CAPACITY;
 
 fn double_helpcode_cache_key(pinyin: &str, help_codes: &str) -> String {
-    format!("{pinyin}:{help_codes}")
+    let mut key = String::with_capacity(pinyin.len() + 1 + help_codes.len());
+    key.push_str(pinyin);
+    key.push(':');
+    key.push_str(help_codes);
+    key
 }
 
 pub struct ShuangpinDictionary {
@@ -557,5 +561,17 @@ impl ShuangpinDictionary {
         self.reversed_single_helpcode_cache.clear();
         self.double_helpcode_cache.clear();
         self.personal_scored_keys.clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::double_helpcode_cache_key;
+
+    #[test]
+    fn double_helpcode_cache_keys_use_exact_string_capacity() {
+        let key = double_helpcode_cache_key("ni'hao", "ab");
+        assert_eq!(key, "ni'hao:ab");
+        assert_eq!(key.capacity(), key.len());
     }
 }
