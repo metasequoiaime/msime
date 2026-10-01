@@ -3347,20 +3347,31 @@ public:
   size_t translation_cursor_ = 0;
 };
 
+// The row as the panel draws it.
+fcitx::Text candidateRowText(const Json &candidate, bool traditional, bool annotations,
+                             const std::string &hanjaGloss) {
+  fcitx::Text row((traditional ? msime_linux_simplified_to_traditional(candidate.at("text").get<std::string>())
+                               : candidate.at("text").get<std::string>()) +
+      // Engine-corrected spellings carry the same light marker Windows and the IBus host draw. Only the displayed row gets it: selection goes by session/generation/index, and text_ below, which the candidate actions (dictionary removal) read, stays the Engine's text.
+      (candidate.value("corrected", false) ? "*" : "") +
+      (candidate.value("source", 0u) == 2 ? "  ☁️" :
+       candidate.value("source", 0u) == 3 ? "  🤖" : "") +
+      (!hanjaGloss.empty() || !annotations || candidate.value("annotation", std::string()).empty() ? "" :
+       "  " + candidate.at("annotation").get<std::string>()));
+  // A Hanja row's 훈음 takes the translation's place after the candidate whatever the translation settings say, and the classic UI sets it in italics, so it reads as the row's secondary gloss rather than as part of the Hanja; a Fcitx5 panel has no second line for it. It is display text only, which DontCommit states as well: the row is chosen by index.
+  if (!hanjaGloss.empty())
+    row.append("  " + hanjaGloss, fcitx::TextFormatFlags{fcitx::TextFormatFlag::Italic,
+                                                         fcitx::TextFormatFlag::DontCommit});
+  if (candidate.contains("translation") && candidate.at("translation").is_string())
+    row.append("  " + candidate.at("translation").get<std::string>());
+  return row;
+}
+
 class FcitxCandidate : public fcitx::CandidateWord {
 public:
   FcitxCandidate(fcitx::FactoryFor<FcitxState> *factory, const Json &candidate, bool traditional,
-                 bool annotations)
-      : CandidateWord(fcitx::Text((traditional ? msime_linux_simplified_to_traditional(candidate.at("text").get<std::string>())
-                                               : candidate.at("text").get<std::string>()) +
-          // Engine-corrected spellings carry the same light marker Windows and the IBus host draw. Only the displayed row gets it: selection goes by session/generation/index, and text_ below, which the candidate actions (dictionary removal) read, stays the Engine's text.
-          (candidate.value("corrected", false) ? "*" : "") +
-          (candidate.value("source", 0u) == 2 ? "  ☁️" :
-           candidate.value("source", 0u) == 3 ? "  🤖" : "") +
-          (!annotations || candidate.value("annotation", std::string()).empty() ? "" :
-           "  " + candidate.at("annotation").get<std::string>()) +
-          (candidate.contains("translation") && candidate.at("translation").is_string()
-              ? "  " + candidate.at("translation").get<std::string>() : ""))), factory_(factory),
+                 bool annotations, const std::string &hanjaGloss)
+      : CandidateWord(candidateRowText(candidate, traditional, annotations, hanjaGloss)), factory_(factory),
         session_(candidate.at("id").at("session")), generation_(candidate.at("id").at("generation")),
         index_(candidate.at("id").at("index")), source_(candidate.value("source", 0u)),
         text_(candidate.at("text").get<std::string>()),
@@ -3404,7 +3415,8 @@ public:
     for (const auto &candidate : state.view_.at("candidates")) {
       if (candidate.value("highlighted", false)) cursor_ = words_.size();
       words_.push_back(std::make_unique<FcitxCandidate>(
-          factory, candidate, state.traditionalApplies(), annotations));
+          factory, candidate, state.traditionalApplies(), annotations,
+          msime::linux_host::korean_hanja_gloss(state.view_, candidate)));
       labels_.emplace_back(std::to_string(words_.size()) + ". ");
     }
   }

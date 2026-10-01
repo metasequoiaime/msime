@@ -3037,9 +3037,9 @@ int main(int argc, char **argv) {
               "A Hanja key with nothing composing was not left to the application");
       require(key('g') && key('k') && key('s') && key(IBUS_Hangul_Hanja) && seen.lookup_visible &&
                   !seen.candidates.empty() &&
-                  seen.candidates.front() == "韓  나라 이름 한, 한나라 한" &&
+                  seen.candidates.front() == "韓 · 나라 이름 한, 한나라 한" &&
                   seen.preedit == "한" && seen.committed == hanja_commit,
-              "Hangul_Hanja did not open the Hanja list with its 훈음");
+              "Hangul_Hanja did not open the Hanja list with its 훈음 as the row's gloss");
       require(key(IBUS_F9) && seen.preedit == "한" && seen.committed == hanja_commit,
               "The trigger did not keep the syllable when closing the list");
       settle_lookup();

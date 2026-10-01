@@ -7,6 +7,7 @@
 
 int main() {
   using msime::linux_host::korean_composition;
+  using msime::linux_host::korean_hanja_gloss;
   using msime::linux_host::korean_hanja_key;
   using msime::linux_host::korean_hanja_list_open;
   using msime::linux_host::korean_hanja_punctuation_key;
@@ -54,6 +55,22 @@ int main() {
   assert(!korean_rules(Json(nullptr)) && !korean_hanja_list_open(Json(nullptr)));
   assert(!korean_rules(Json::object()));
   assert(korean_rules(Json{{"scheme", 4}}));
+
+  // A Hanja row's 훈음 is its secondary gloss; a row without one, a malformed annotation, and every row outside an open Hanja list have none, so a Chinese helpcode or a Japanese annotation keeps its own place.
+  const Json hanja = {{"text", "韓"}, {"annotation", "나라 이름 한, 한나라 한"}};
+  assert(korean_hanja_gloss(open, hanja) == "나라 이름 한, 한나라 한");
+  assert(korean_hanja_gloss(Json::parse(open.dump()), hanja) == "나라 이름 한, 한나라 한");
+  assert(korean_hanja_gloss(open, Json{{"text", "韓"}}).empty());
+  assert(korean_hanja_gloss(open, Json{{"text", "韓"}, {"annotation", nullptr}}).empty());
+  assert(korean_hanja_gloss(open, Json{{"text", "韓"}, {"annotation", 1}}).empty());
+  assert(korean_hanja_gloss(open, Json(nullptr)).empty());
+  assert(korean_hanja_gloss(composing, hanja).empty());
+  assert(korean_hanja_gloss(english, hanja).empty() && korean_hanja_gloss(emoji, hanja).empty());
+  for (int scheme : {0, 1, 2, 3}) {
+    Json other = open;
+    other["scheme"] = scheme;
+    assert(korean_hanja_gloss(other, hanja).empty());
+  }
 
   // The marks among the paging and word-to-character keys stay punctuation; the paging keys that are not marks do not.
   for (uint32_t mark : std::initializer_list<uint32_t>{IBUS_minus, IBUS_equal, IBUS_bracketleft, IBUS_bracketright, IBUS_comma, IBUS_period})

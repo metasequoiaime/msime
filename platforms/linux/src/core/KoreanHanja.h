@@ -40,6 +40,14 @@ inline bool korean_hanja_list_open(const nlohmann::json &view) {
   return candidates != view.end() && candidates->is_array() && !candidates->empty();
 }
 
+// The 훈음 (meaning and reading, "나라 이름 한") of a row in an open Hanja list, which the Engine sends as the row's annotation; empty for any other row. Both hosts draw it as the row's secondary gloss, in the slot and style of a candidate translation and whatever the translation settings say, rather than as part of the candidate. It is display text only: a row is chosen by its session, generation and index, so the 훈음 never reaches the application.
+inline std::string korean_hanja_gloss(const nlohmann::json &view, const nlohmann::json &candidate) {
+  if (!korean_hanja_list_open(view) || !candidate.is_object()) return {};
+  const auto annotation = candidate.find("annotation");
+  if (annotation == candidate.end() || !annotation->is_string()) return {};
+  return annotation->get<std::string>();
+}
+
 // The marks among the candidate paging and word-to-character keys (- = [ ] , .). While a Hanja list is open they stay punctuation, as they are with no list: the Engine closes the list and writes the Hangul with the mark, so a mark typed after a syllable never turns a page or picks an edge character instead.
 inline bool korean_hanja_punctuation_key(uint32_t keysym) {
   switch (keysym) {

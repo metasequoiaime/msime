@@ -37,7 +37,7 @@ void autocorrectMarker() {
   };
   const auto row = [](Json candidate, bool traditional = false) {
     candidate["id"] = Json{{"session", 1}, {"generation", 1}, {"index", 0}};
-    return FcitxCandidate(nullptr, candidate, traditional, false);
+    return FcitxCandidate(nullptr, candidate, traditional, false, std::string());
   };
   const auto corrected = row(Json{{"text", "你好"}, {"corrected", true}});
   require(shown(corrected) == "你好*", "corrected candidate shows the marker");
@@ -48,6 +48,37 @@ void autocorrectMarker() {
           "marker comes before the cloud badge");
   require(shown(row(Json{{"text", "汉语"}, {"corrected", true}}, true)) == "漢語*",
           "marker follows the traditional-converted word");
+}
+// A Hanja row's 훈음 is drawn as the row's secondary gloss: its own italic, uncommittable segment where a translation goes, shown whatever the annotation and translation settings say, with a translation after it. Any other annotation stays plain text gated by the annotation setting. Runs before the resource fixture.
+void koreanHanjaGlossRow() {
+  const auto word = [](Json candidate, bool annotations, const std::string &gloss) {
+    candidate["id"] = Json{{"session", 1}, {"generation", 1}, {"index", 0}};
+    return FcitxCandidate(nullptr, candidate, false, annotations, gloss);
+  };
+  const auto shown = [](const FcitxCandidate &candidate) -> const fcitx::Text & {
+    return static_cast<const fcitx::CandidateWord &>(candidate).text();
+  };
+  const fcitx::TextFormatFlags secondary{fcitx::TextFormatFlag::Italic, fcitx::TextFormatFlag::DontCommit};
+  const Json hanja{{"text", "韓"}, {"annotation", "나라 이름 한, 한나라 한"}};
+  const auto plain = word(hanja, false, "나라 이름 한, 한나라 한");
+  require(shown(plain).toString() == "韓  나라 이름 한, 한나라 한", "a Hanja row shows its 훈음 even with annotations off");
+  require(shown(plain).size() == 2 && shown(plain).stringAt(0) == "韓" &&
+              shown(plain).formatAt(0) == fcitx::TextFormatFlags(fcitx::TextFormatFlag::NoFlag) &&
+              shown(plain).stringAt(1) == "  나라 이름 한, 한나라 한" && shown(plain).formatAt(1) == secondary,
+          "the 훈음 is a separate italic segment, never committed");
+  require(plain.text() == "韓", "the 훈음 stays out of the selected text");
+  auto translated = hanja;
+  translated["translation"] = "Korea";
+  const auto glossed = word(translated, true, "나라 이름 한, 한나라 한");
+  require(shown(glossed).toString() == "韓  나라 이름 한, 한나라 한  Korea" && shown(glossed).size() == 3 &&
+              shown(glossed).formatAt(1) == secondary &&
+              shown(glossed).formatAt(2) == fcitx::TextFormatFlags(fcitx::TextFormatFlag::NoFlag),
+          "a translation follows the 훈음 and the annotation is not drawn twice");
+  const auto helpcode = word(Json{{"text", "你"}, {"annotation", "ab"}}, true, std::string());
+  require(shown(helpcode).toString() == "你  ab" && shown(helpcode).size() == 1, "a helpcode stays plain row text");
+  require(word(Json{{"text", "你"}, {"annotation", "ab"}}, false, std::string()).text() == "你" &&
+              shown(word(Json{{"text", "你"}, {"annotation", "ab"}}, false, std::string())).toString() == "你",
+          "annotations off still hide a helpcode");
 }
 // An installed skin's decoration reaches the classic UI as the msime theme's overlay, with the image copied beside theme.conf; a built-in skin, or a switch back to one, leaves no image behind. This composes the theme exactly as applyCandidatePanelTheme does, against the shared layer's built-in catalogue, but writes it without the classic UI addon, which the fixture instance does not load. Runs before the resource fixture.
 void candidateThemeDecoration() {
@@ -199,6 +230,7 @@ void classicuiTakeoverRecord() {
 int main(int argc, char **argv) {
   try {
     autocorrectMarker();
+    koreanHanjaGlossRow();
     candidateThemeDecoration();
     modeBadgeTheme();
     classicuiTakeoverRecord();
@@ -2235,6 +2267,14 @@ int main(int argc, char **argv) {
                 "Hangul_Hanja opens the Hanja list of the composing syllable");
         require(candidates().at(0).value("annotation", std::string()) == "나라 이름 한, 한나라 한",
                 "a Hanja carries its 훈음 as the annotation");
+        {
+          const auto *list = ic.inputPanel().candidateList().get();
+          require(list && list->size() > 0 && list->candidate(0).text().toString() == "韓  나라 이름 한, 한나라 한" &&
+                      list->candidate(0).text().size() == 2 &&
+                      list->candidate(0).text().formatAt(1) ==
+                          fcitx::TextFormatFlags{fcitx::TextFormatFlag::Italic, fcitx::TextFormatFlag::DontCommit},
+                  "the panel draws the 훈음 as the Hanja row's italic gloss");
+        }
         require(press(FcitxKey_F9) && candidates().empty() && preedit() == "한", "the trigger again closes the list");
         require(press(FcitxKey_F9) && first() == "韓", "a bare F9 opens it too");
         require(press(FcitxKey_Down) && press(FcitxKey_Return) && ic.committed == before + "漢" &&

@@ -3665,15 +3665,17 @@ void render(IBusEngine *engine, const Json &view) {
          engine_state.translation_target_language == "en") ||
         candidate.value("id", Json::object()).value("generation", uint64_t{0}) ==
             engine_state.sentence_translation_generation;
+    // A Hanja row's 훈음 opens the gloss whatever the translation settings say, so it reads as the row's secondary line rather than as part of the candidate; a translation follows it. IBus has no second line, and the gloss is display text only: the row is chosen by index.
+    const auto hanja_gloss = msime::linux_host::korean_hanja_gloss(view, candidate);
+    if (!hanja_gloss.empty() && hanja_gloss.size() <= 4096 && value.size() <= 4096)
+      gloss = " · " + hanja_gloss;
     if (show_translations && !engine_state.translation_reset_pending &&
         candidate.contains("translation") && !candidate.at("translation").is_null()) {
       auto translation = candidate.at("translation").get<std::string>();
-      // IBus lookup rows are plain text; preserve the candidate and expose
-      // the optional gloss without allowing an oversized provider result to
-      // destabilize the panel.
+      // IBus lookup rows are plain text; preserve the candidate and expose the optional gloss without allowing an oversized provider result to destabilize the panel.
       if (!translation.empty() && translation.size() <= 4096 &&
           value.size() <= 4096)
-        gloss = " · " + translation;
+        gloss += " · " + translation;
     }
     std::string tail;
     switch (candidate.value("source", 0)) {
@@ -3687,8 +3689,9 @@ void render(IBusEngine *engine, const Json &view) {
     const auto annotation = candidate.value("annotation", std::string{});
     const bool wubi_annotation = view.value("scheme", 255) != 2 ||
                                  state(engine).wubi_code_hint;
-    if (!annotation.empty() && state(engine).show_helpcode_in_candidate_window &&
-        wubi_annotation) {
+    // A Hanja row's annotation is its 훈음, already drawn in the gloss above.
+    if (!annotation.empty() && hanja_gloss.empty() &&
+        state(engine).show_helpcode_in_candidate_window && wubi_annotation) {
       tail += "  ";
       tail += annotation;
     }
