@@ -3572,7 +3572,7 @@ test("macOS exposes the shuangpin preedit presentation and persists the expanded
   });
 });
 
-test("font family controls preserve order, validate drafts and save Unicode", async () => {
+test("font family controls validate drafts and save Unicode without touching the fallback list", async () => {
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
     ...initial,
     revision: 8,
@@ -3581,26 +3581,18 @@ test("font family controls preserve order, validate drafts and save Unicode", as
   const mounted = render(<SettingsPage client={{ load: async () => initial, save }} />);
   const primary = await screen.findByLabelText("候选窗主字体");
   expect((primary as HTMLInputElement).value).toBe("Noto Sans SC");
-  expect((screen.getByLabelText("补充字体 1") as HTMLInputElement).value).toBe("Noto Sans SC");
-  expect((screen.getByLabelText("补充字体 2") as HTMLInputElement).value).toBe("Microsoft YaHei");
-  fireEvent.change(primary, { target: { value: "示例主字体" } });
-  fireEvent.change(screen.getByLabelText("补充字体 1"), { target: { value: "" } });
-  // An empty fallback holds the automatic save back, and submitting the form does not force one.
+  // An empty family holds the automatic save back, and submitting the form does not force one.
+  fireEvent.change(primary, { target: { value: "" } });
   saveSettingsNow();
   fireEvent.submit(mounted.container.querySelector("form")!);
   expect(save).not.toHaveBeenCalled();
-  fireEvent.change(screen.getByLabelText("补充字体 1"), { target: { value: "示例一" } });
-  fireEvent.change(screen.getByLabelText("补充字体 2"), { target: { value: "示例二" } });
-  fireEvent.click(screen.getByRole("button", { name: "上移补充字体 2" }));
-  expect((screen.getByLabelText("补充字体 1") as HTMLInputElement).value).toBe("示例二");
+  fireEvent.change(primary, { target: { value: "示例主字体" } });
   saveSettingsNow();
   await screen.findByText("已保存");
   expect(save).toHaveBeenLastCalledWith(7, {
     ...initial.preferences,
     candidate_font_family: "示例主字体",
-    candidate_fallback_fonts: ["示例二", "示例一"],
   });
-  fireEvent.click(screen.getByRole("button", { name: "移除补充字体 1" }));
   const saves = save.mock.calls.length;
   fireEvent.change(primary, { target: { value: "字".repeat(43) } });
   saveSettingsNow();
@@ -3611,34 +3603,41 @@ test("font family controls preserve order, validate drafts and save Unicode", as
     expect(save).toHaveBeenLastCalledWith(8, {
       ...initial.preferences,
       candidate_font_family: "有效示例",
-      candidate_fallback_fonts: ["示例一"],
     }),
   );
 });
 
-test("font controls allow 32 existing fallbacks but prevent a 33rd", async () => {
+// The fallback list is written by the 候选字体 presets and has no editor of its own: a stored list, even a full one, is carried through a save unchanged.
+test("the candidate window page has no fallback font editor and keeps the stored list", async () => {
+  const fallbacks = Array.from({ length: 32 }, (_, i) => `示例${i}`);
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...initial,
+    revision: 8,
+    preferences,
+  }));
   render(
     <SettingsPage
       client={{
         load: async () => ({
           ...initial,
-          preferences: {
-            ...initial.preferences,
-            candidate_fallback_fonts: Array.from({ length: 32 }, (_, i) => `示例${i}`),
-          },
+          preferences: { ...initial.preferences, candidate_fallback_fonts: fallbacks },
         }),
-        save: vi.fn(),
+        save,
       }}
     />,
   );
-  await screen.findByLabelText("补充字体 32");
-  expect((screen.getByRole("button", { name: "添加补充字体" }) as HTMLButtonElement).disabled).toBe(
-    true,
-  );
-  fireEvent.click(screen.getByRole("button", { name: "移除补充字体 32" }));
-  expect((screen.getByRole("button", { name: "添加补充字体" }) as HTMLButtonElement).disabled).toBe(
-    false,
-  );
+  const primary = await screen.findByLabelText("候选窗主字体");
+  expect(screen.queryByRole("button", { name: "添加补充字体" })).toBeNull();
+  expect(screen.queryByLabelText(/^补充字体/)).toBeNull();
+  expect(screen.queryByText(/补充字体/)).toBeNull();
+  fireEvent.change(primary, { target: { value: "示例主字体" } });
+  saveSettingsNow();
+  await screen.findByText("已保存");
+  expect(save).toHaveBeenLastCalledWith(7, {
+    ...initial.preferences,
+    candidate_font_family: "示例主字体",
+    candidate_fallback_fonts: fallbacks,
+  });
 });
 
 test("automatic color swatch follows candidate theme without persisting a color override", async () => {

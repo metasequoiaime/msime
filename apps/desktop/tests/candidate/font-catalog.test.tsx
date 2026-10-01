@@ -21,7 +21,7 @@ test("font catalogs are bounded, validated and deduplicated", () => {
   for (const value of [null, {}, [""], [12], ["字".repeat(43)], Array(16385).fill("Font")])
     expect(() => normalizeFontCatalog(value)).toThrow("invalid font catalog");
 });
-test("search loads once, selects with keyboard without saving, and filters duplicate fallbacks", async () => {
+test("search loads once and selects with keyboard without saving", async () => {
   const listFontFamilies = vi.fn().mockResolvedValue(["Alpha", "Beta", "示例字体"]),
     save = vi.fn();
   render(<SettingsPage client={{ load: async () => initial, save, listFontFamilies }} />);
@@ -38,17 +38,11 @@ test("search loads once, selects with keyboard without saving, and filters dupli
   expect((primary as HTMLInputElement).value).toBe("Beta");
   expect(save).not.toHaveBeenCalled();
   expect(primary.getAttribute("aria-expanded")).toBe("false");
-  fireEvent.click(screen.getByRole("button", { name: "添加补充字体" }));
-  const first = screen.getByLabelText("补充字体 1");
-  fireEvent.focus(first);
-  fireEvent.click(screen.getByRole("option", { name: "Alpha" }));
-  fireEvent.click(screen.getByRole("button", { name: "添加补充字体" }));
-  const second = screen.getByLabelText("补充字体 2");
-  fireEvent.focus(second);
-  expect(screen.queryByRole("option", { name: "Alpha" })).toBeNull();
+  fireEvent.focus(primary);
+  await screen.findByRole("option", { name: "Beta" });
   expect(listFontFamilies).toHaveBeenCalledTimes(1);
-  fireEvent.keyDown(second, { key: "Escape" });
-  expect(second.getAttribute("aria-expanded")).toBe("false");
+  fireEvent.keyDown(primary, { key: "Escape" });
+  expect(primary.getAttribute("aria-expanded")).toBe("false");
 });
 test("late results from a replaced reader cannot reappear", async () => {
   let resolve!: (fonts: string[]) => void;

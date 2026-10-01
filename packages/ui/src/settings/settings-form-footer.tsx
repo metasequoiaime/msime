@@ -14,8 +14,7 @@ export function SettingsFormFooter({ draft, ...footerProps }: SettingsFormFooter
     <>
       {!canSave && (
         <p role="alert">
-          请在候选窗口页修正字体：名称不能为空、不能含控制字符或超过 128 个 UTF-8 字节，补充字体最多
-          32 项。
+          请在候选窗口页修正字体：名称不能为空、不能含控制字符或超过 128 个 UTF-8 字节。
         </p>
       )}
       <SettingsActionsFooter {...footerProps} />
