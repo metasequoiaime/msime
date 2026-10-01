@@ -1519,6 +1519,69 @@ int main(int argc, char **argv) {
         g_object_unref(engine);
       }
     }
+    // Tab and Shift+Tab page the translated senses like an ordinary candidate page while the shared Tab binding is on. With it off Tab keeps leaving the temporary page: the ordinary candidate is committed and the key goes to the application. One sense per page so a page change is visible.
+    {
+      const auto socket = (root / "translation-tab.sock").string();
+      TranslationProviderFixture provider(socket);
+      provider.multi_sense = true;
+      for (const bool tab : {true, false}) {
+        auto translated = options;
+        translated.erase("preferences_directory");
+        translated["translation_provider_socket"] = socket;
+        translated["preferences"]["candidate_translations"] = true;
+        translated["preferences"]["candidate_page_size"] = 1;
+        translated["preferences"]["translation_target_language"] = "ja";
+        translated["preferences"]["navigation"]["tab"] = tab;
+        msime_ibus_configure(translated.dump());
+        engine = create_engine();
+        seen = Observation{};
+        invoke("FocusIn");
+        phrase();
+        require(wait_until([&] {
+                  return !seen.candidates.empty() &&
+                         seen.candidates.front().find("first sense") != std::string::npos;
+                }),
+                "Multi-sense translation did not render for the Tab check");
+        seen.committed.clear();
+        auto opened = call(client, destination, "ProcessKeyEvent",
+                           g_variant_new("(uuu)", IBUS_Return, 0, IBUS_CONTROL_MASK));
+        g_variant_unref(opened);
+        require(seen.candidates == std::vector<std::string>{"first sense"},
+                "Ctrl+Enter did not open the one-per-page translation list for the Tab check");
+        auto shown = [&] {
+          return seen.candidates.empty() ? std::string{} : seen.candidates.front();
+        };
+        if (tab) {
+          const auto expect_page = [&](bool handled, const char *expected, const char *what) {
+            require(handled && seen.candidates == std::vector<std::string>{expected} &&
+                        seen.committed.empty() && seen.lookup_visible,
+                    (std::string(what) + " did not page the translation list: handled=" +
+                     std::to_string(handled) + " shown=[" + shown() + "] committed=[" +
+                     seen.committed + "]")
+                        .c_str());
+          };
+          expect_page(key(IBUS_Tab), "second sense", "Tab");
+          // The last page stays put, as Page Down does on the translation list.
+          expect_page(key(IBUS_Tab), "second sense", "Tab on the last page");
+          expect_page(key(IBUS_ISO_Left_Tab, IBUS_SHIFT_MASK), "first sense", "Shift+ISO_Left_Tab");
+          expect_page(key(IBUS_Tab), "second sense", "Tab after paging back");
+          expect_page(key(IBUS_Tab, IBUS_SHIFT_MASK), "first sense", "Shift+Tab");
+        } else {
+          const bool tab_forwarded = !key(IBUS_Tab);
+          settle_lookup();
+          require(tab_forwarded && !seen.committed.empty() &&
+                      seen.committed.find("sense") == std::string::npos &&
+                      !seen.preedit_visible && !seen.lookup_visible,
+                  ("Disabled Tab did not leave the translation list for the application: forwarded=" +
+                   std::to_string(tab_forwarded) + " committed=[" + seen.committed +
+                   "] preedit=" + std::to_string(seen.preedit_visible) + " lookup=" +
+                   std::to_string(seen.lookup_visible))
+                      .c_str());
+        }
+        ibus_object_destroy(IBUS_OBJECT(engine));
+        g_object_unref(engine);
+      }
+    }
     {
       const auto oversized_history_path = root / "clipboard-oversized-history.json";
       std::ofstream(oversized_history_path)
@@ -3302,6 +3365,45 @@ int main(int argc, char **argv) {
           seen.candidates == first_page && seen.cursor == 0 &&
               seen.committed == before_commit,
           "Navigation changed input or failed to return to first candidate");
+      // A Ctrl chord on an enabled navigation key is the application's shortcut (Ctrl+Tab switches tabs, Ctrl+PageDown switches documents), not paging. Like Ctrl+a and the Fcitx5 host it cancels the composition and goes to the application, so no preedit is left behind in the editor.
+      const std::string binding_name = binding.name;
+      if (binding_name == "tab" || binding_name == "page_up_down") {
+        const std::vector<std::pair<guint, guint>> chords =
+            binding_name == "tab"
+                ? std::vector<std::pair<guint, guint>>{
+                      {IBUS_Tab, IBUS_CONTROL_MASK},
+                      {IBUS_ISO_Left_Tab, IBUS_CONTROL_MASK | IBUS_SHIFT_MASK}}
+                : std::vector<std::pair<guint, guint>>{
+                      {IBUS_Page_Down, IBUS_CONTROL_MASK},
+                      {IBUS_Page_Up, IBUS_CONTROL_MASK}};
+        for (const auto &chord : chords) {
+          invoke("Reset");
+          phrase();
+          require(seen.preedit == "nihao" && !seen.candidates.empty(),
+                  "Modified navigation fixture did not show candidates");
+          const auto committed_before = seen.committed;
+          const bool chord_forwarded = !key(chord.first, chord.second);
+          settle_lookup();
+          require(chord_forwarded && seen.committed == committed_before &&
+                      !seen.preedit_visible && !seen.lookup_visible,
+                  ("Modified navigation key paged or left the composition behind: key=" +
+                   std::to_string(chord.first) + " state=" + std::to_string(chord.second) +
+                   " forwarded=" + std::to_string(chord_forwarded) + " committed=[" +
+                   seen.committed + "] expected=[" + committed_before + "] preedit=" +
+                   std::to_string(seen.preedit_visible) + " lookup=" +
+                   std::to_string(seen.lookup_visible))
+                      .c_str());
+        }
+        // The bare binding still pages after a cancelled chord.
+        phrase();
+        const auto chord_first_page = seen.candidates;
+        require(key(binding.next) && seen.candidates != chord_first_page,
+                "Navigation binding stopped paging after a modified chord");
+        require(key(binding.previous,
+                    binding.previous == IBUS_ISO_Left_Tab ? IBUS_SHIFT_MASK : 0) &&
+                    seen.candidates == chord_first_page,
+                "Navigation binding did not page back after a modified chord");
+      }
       invoke("Reset");
     }
     // The panel wheel arrives as cursor_up/down. As on Windows it pages only with 鼠标滚轮 on and otherwise does nothing; keyboard arrows stay on the key path above.

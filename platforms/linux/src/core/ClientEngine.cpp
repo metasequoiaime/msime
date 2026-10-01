@@ -6128,9 +6128,18 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         handled = true;
         return;
       }
-      if (no_modifiers && (key == IBUS_Page_Up || key == IBUS_KP_Page_Up ||
-                           key == IBUS_Page_Down || key == IBUS_KP_Page_Down)) {
-        if (key == IBUS_Page_Up || key == IBUS_KP_Page_Up)
+      // With the shared navigation.tab binding enabled, Tab and Shift+Tab page the senses exactly as they page an ordinary candidate list. With it disabled Tab keeps leaving the temporary page below.
+      const bool tab_page =
+          s.navigation.tab && (modifiers & ~IBUS_SHIFT_MASK) == 0 &&
+          (key == IBUS_Tab || key == IBUS_KP_Tab || key == IBUS_ISO_Left_Tab);
+      if (tab_page ||
+          (no_modifiers && (key == IBUS_Page_Up || key == IBUS_KP_Page_Up ||
+                            key == IBUS_Page_Down || key == IBUS_KP_Page_Down))) {
+        const bool previous =
+            tab_page ? (modifiers & IBUS_SHIFT_MASK) != 0 ||
+                           key == IBUS_ISO_Left_Tab
+                     : key == IBUS_Page_Up || key == IBUS_KP_Page_Up;
+        if (previous)
           s.translation_page = s.translation_page == 0
                                    ? 0
                                    : s.translation_page - 1;
@@ -6382,7 +6391,9 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     // composition is active. Finalize that composition first so the editor
     // never receives a navigation key while stale preedit is still owned by
     // the IBus engine.
-    if (msime::linux_host::navigation_key(key)) {
+    // Only bare or Shift-modified navigation keys take this path. A Ctrl/Alt/Super/AltGr chord (Ctrl+Tab, Ctrl+PageDown) is an application shortcut and falls through to the generic modifier branch below, which cancels the composition (or finishes a Korean syllable) before forwarding it, matching the Fcitx5 host.
+    if ((modifiers & ~IBUS_SHIFT_MASK) == 0 &&
+        msime::linux_host::navigation_key(key)) {
       const bool binding_enabled = s.navigation.command(
           key, (flags & IBUS_SHIFT_MASK) != 0).has_value();
       // A Korean syllable never has a candidate page for a binding to act on, so the key always finishes it and goes to the application.
