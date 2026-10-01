@@ -1854,7 +1854,8 @@ static NSImage *MSIMECandidateLogoImage() {
         return @{@"command":@YES, @"target_language":target, @"target_languages":@[target],
             (niuTrans ? @"niutrans" : custom ? @"custom_translation" : @"tencent_tmt"):config, @"candidates":@[@{@"text":text}]};
     }
-    if ([view[@"scheme"] isEqual:@3] || [view[@"scheme"] isEqual:@(msime::mac::KoreanScheme)] ||
+    // Korean Hanja rows are translated like Chinese ones; their 훈음 is drawn whatever comes back. Japanese, including temporary Japanese composition, is still left out.
+    if ([view[@"scheme"] isEqual:@3] ||
         [view[@"local_mode"] isEqual:@"temporary_japanese"] || ![view[@"generation"] isEqual:query[@"generation"]]) return nil;
     NSDictionary *gloss = [self currentGlossRequest];
     // Resolve the local dictionary first; never transmit an already-resolved key.
@@ -2167,7 +2168,8 @@ static NSImage *MSIMECandidateLogoImage() {
     NSArray *targets = MSIMETranslationTargets(query);
     if (!targets.count || (_glossTargetLanguages && ![_glossTargetLanguages isEqual:targets])) return nil;
     NSDictionary *view = [self serviceSnapshotView];
-    if ([view[@"scheme"] isEqual:@3] || [view[@"scheme"] isEqual:@(msime::mac::KoreanScheme)] ||
+    // Korean Hanja rows are translated like Chinese ones; their 훈음 is drawn whatever comes back. Japanese, including temporary Japanese composition, is still left out.
+    if ([view[@"scheme"] isEqual:@3] ||
         [view[@"local_mode"] isEqual:@"temporary_japanese"] || ![view[@"generation"] isEqual:query[@"generation"]]) return nil;
     NSMutableArray *candidates = [NSMutableArray array];
     for (NSDictionary *candidate in MSIMEOnlineGlossCandidates(query)) [candidates addObject:@{@"text":candidate[@"text"]}];
