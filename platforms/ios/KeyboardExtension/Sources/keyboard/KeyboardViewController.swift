@@ -1422,6 +1422,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         self?.countKeyPress(TypingKeyID.character(text))
         self?.handleCharacter(text)
       }
+      (button as? KeyboardKeyButton)?.showsPressPreview = true
       letterButtons.append((button: button, lowercase: text, hint: attachHintLabel(to: button)))
       row.addArrangedSubview(button)
     }
@@ -1478,6 +1479,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         self?.handleCharacter(";")
       }
       key.accessibilityIdentifier = "microsoftFinalKey"
+      (key as? KeyboardKeyButton)?.showsPressPreview = true
       microsoftFinalKey = key
       letterButtons.append((button: key, lowercase: ";", hint: attachHintLabel(to: key)))
       row.addArrangedSubview(key)
@@ -1516,6 +1518,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           self?.countKeyPress(TypingKeyID.character(symbol))
           self?.handleSymbol(symbol)
         }
+      (key as? KeyboardKeyButton)?.showsPressPreview = true
       if let chinese = Self.chineseSymbolFaces[symbol] {
         symbolKeyFaces.append((key, symbol, chinese))
       }
