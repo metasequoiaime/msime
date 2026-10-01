@@ -565,7 +565,7 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
                                              static_cast<int>(shadow_right),
                                              static_cast<int>(shadow_bottom)});
 }
-// The shipped presenter draws three runs per candidate: the text with its badge, the annotation (辅助码) and the translation, the last at a smaller size. Measuring them apart is what lets a long annotation or translation wrap under the text instead of being clipped off the end of one long label.
+// The shipped presenter draws three runs per candidate: the text with its badge, the annotation (辅助码) and the translation, the last at a smaller size. Measuring them apart is what lets a long annotation or translation wrap under the text instead of being clipped off the end of one long label. The translation run is candidate_secondary_text, which puts a Korean Hanja's 훈음 above its translation.
 std::vector<CandidateItemWidths>
 CandidateWindow::measure_items(const CandidatePresentation &value) {
   const auto metrics =
@@ -579,7 +579,9 @@ CandidateWindow::measure_items(const CandidatePresentation &value) {
     };
     items.push_back({width(candidate.text + candidate.badge, font_size_),
                      width(candidate.annotation, font_size_),
-                     width(candidate.translation, metrics.translation_font)});
+                     width(candidate_secondary_text(candidate),
+                           metrics.translation_font),
+                     candidate_secondary_lines(candidate)});
   }
   return items;
 }
@@ -595,7 +597,8 @@ CandidateWindow::wrap_measure(const CandidatePresentation &value) {
   runs.reserve(value.candidates.size());
   for (const auto &candidate : value.candidates)
     runs.push_back({wide(candidate.text + candidate.badge),
-                    wide(candidate.annotation), wide(candidate.translation)});
+                    wide(candidate.annotation),
+                    wide(candidate_secondary_text(candidate))});
   return [this, runs = std::move(runs), font = static_cast<float>(font_size_),
           translation_font = static_cast<float>(metrics.translation_font)](
              size_t index, CandidateRun run, double width) {
@@ -963,7 +966,7 @@ void CandidateWindow::paint() {
     };
     draw_run(value->candidates[i].annotation, item.annotation, font_size_,
              annotation_color);
-    draw_run(value->candidates[i].translation, item.translation,
+    draw_run(candidate_secondary_text(value->candidates[i]), item.translation,
              metrics.translation_font, translation_color);
   }
   const HRESULT drawn = target->EndDraw();

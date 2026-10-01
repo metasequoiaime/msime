@@ -585,6 +585,9 @@ std::optional<PendingReply> ReplyComposer::commit_candidate_translation(
   const auto view = session.view();
   if (!view.at("focused").get<bool>() || view.at("candidates").empty())
     return std::nullopt;
+  // The TIP never sends this for Korean: it composes Hangul in its own host session, which a commit made here would leave behind. A Hanja row's translation is display only, like its 훈음, which never reaches the view's translation at all.
+  if (view.value("scheme", 0u) == 4u)
+    return std::nullopt;
   const auto generation = view.at("generation").get<uint64_t>();
   const auto expected_session = view.at("session").get<uint64_t>();
   std::string translation;

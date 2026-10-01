@@ -870,7 +870,7 @@ BOOL CMetasequoiaIME::_IsKeyEaten(         //
             return TRUE;
         }
 
-        // Korean's only list is the Hanja list, whose rows carry no translation, and the Server has no Korean route for the key: it stays the application's like any other Ctrl chord.
+        // Korean's only list is the Hanja list. Its rows may show a translation under their 훈음, but both are display only: the TIP composes Hangul in its own host session, which a translation committed by the Server would leave behind, and the Server refuses the key for Korean too. It stays the application's like any other Ctrl chord.
         if (!korean && !freshCompositionState && _candidateMode != CANDIDATE_NONE &&
             IsTranslationCommitShortcut(*pCodeOut, shortcutModifiers))
         {

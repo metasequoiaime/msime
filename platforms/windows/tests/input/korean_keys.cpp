@@ -279,4 +279,24 @@ int main() {
     korean.session.cancel_composition(1);
     assert(korean.editing().empty() && korean.candidates().empty());
   }
+
+  // The Hanja list is glossed like a Chinese page: the Server asks for its translations, the 훈음 stays the annotation and never becomes the translation, and Ctrl+Enter commits neither. The TIP keeps Ctrl+Enter for the application in Korean; the Server refuses it too, because a commit made here would leave the syllable composing in the TIP's host session.
+  {
+    auto translated = options;
+    translated["preferences"]["candidate_translations"] = true;
+    Fixture korean(translated.dump());
+    korean.type("gks");
+    assert(korean.press(0x19, 0));
+    const auto query = korean.session.translation_query(1);
+    assert(query);
+    const auto asked = nlohmann::json::parse(*query);
+    assert(!asked.at("candidates").empty() && asked.at("candidates").at(0).at("text") == "韓");
+    const auto generation = korean.session.view().at("generation").get<uint64_t>();
+    assert(korean.session.apply_translations(1, generation, R"([{"text":"韓","translation":"Korea"}])"));
+    const auto row = korean.candidates().at(0);
+    assert(row.at("text") == "韓" && row.at("annotation") == "나라 이름 한, 한나라 한" && row.at("translation") == "Korea");
+    const auto enter = korean.press(0x0D, u'\r', PipeMetadata::CandidateActive | 2u);
+    assert(!enter || (!enter->committed_text && !enter->encoded));
+    assert(korean.editing() == "gks" && !korean.candidates().empty());
+  }
 }
