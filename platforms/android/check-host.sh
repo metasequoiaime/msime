@@ -201,6 +201,13 @@ if ! rg -qU 'void scheduleCandidateTranslations\(\) \{\s*if \(!candidateTranslat
   echo "Android must fetch candidate translations from the account only after an explicit choice" >&2
   exit 1
 fi
+# The shared translation query answers Korean Hanja rows, so neither the offline targets nor the account path may gate the Korean scheme out again; only Japanese stays ungated into other languages.
+if rg -n 'KOREAN_SCHEME' <(sed -n '/void scheduleCandidateGlosses()/,/^    }$/p;/void scheduleCandidateTranslations()/,/^    }$/p' "$account_service") \
+  || ! rg -q 'CandidateGlossPolicy\.hanjaAnnotation' "$account_service" \
+  || ! rg -q 'CandidateTranslationPolicy\.reservedGlossRows\(candidateGlossLineCount\(\), koreanHanjaRows\(\)\)' "$account_service"; then
+  echo "Android must gloss Korean Hanja rows and draw their 훈음 on its own reserved row" >&2
+  exit 1
+fi
 if ! rg -q '<asr_text>' \
     "$repo_root/platforms/android/java/app/msime/android/voice/VoicePolishPolicy.java"; then
   echo "Android polish must wrap the transcript in the boundary the presets name" >&2

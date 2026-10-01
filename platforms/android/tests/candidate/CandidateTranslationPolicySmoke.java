@@ -67,6 +67,21 @@ public final class CandidateTranslationPolicySmoke {
             "actual two-row gloss gets two rows");
         check(CandidateTranslationPolicy.renderedGlossLines(null) == 1,
             "missing rendered gloss stays one row");
+        check(CandidateTranslationPolicy.renderedOwnRowLines("") == 1
+                && CandidateTranslationPolicy.renderedOwnRowLines(null) == 1,
+            "a Hanja with no secondary text stays one row");
+        check(CandidateTranslationPolicy.renderedOwnRowLines("나라 이름 한") == 2,
+            "the 훈음 takes its own row under the Hanja");
+        check(CandidateTranslationPolicy.renderedOwnRowLines("나라 이름 한\nKorea\n韓国") == 4,
+            "each gloss row follows the 훈음 row");
+        check(CandidateTranslationPolicy.reservedGlossRows(0, false) == 0
+                && CandidateTranslationPolicy.reservedGlossRows(1, false) == 0
+                && CandidateTranslationPolicy.reservedGlossRows(2, false) == 1,
+            "an inline first gloss reserves no extra strip height");
+        check(CandidateTranslationPolicy.reservedGlossRows(0, true) == 1,
+            "Korean reserves the 훈음 row with glosses off");
+        check(CandidateTranslationPolicy.reservedGlossRows(2, true) == 3,
+            "Korean reserves every gloss row under the 훈음");
         // The account endpoint receives candidate words, so only an explicit choice may reach it.
         check(!CandidateTranslationPolicy.accountSelected(true, false, false, false),
             "candidate translations alone never select the account");

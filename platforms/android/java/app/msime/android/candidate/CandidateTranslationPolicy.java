@@ -102,6 +102,25 @@ public final class CandidateTranslationPolicy {
         return annotation != null && annotation.indexOf('\n') >= 0 ? 2 : 1;
     }
 
+    /** Rows of a candidate label whose secondary text starts on its own row under the candidate, as a Korean Hanja row does: the candidate, then one row per annotation line. */
+    public static int renderedOwnRowLines(String annotation) {
+        if (annotation == null || annotation.isEmpty()) return 1;
+        int lines = 2;
+        for (int index = annotation.indexOf('\n'); index >= 0; index = annotation.indexOf('\n', index + 1))
+            lines++;
+        return lines;
+    }
+
+    /**
+     * Rows the candidate strip reserves above its base height for {@code glossLines} gloss rows.
+     *
+     * <p>Elsewhere the first gloss sits inline after the candidate, so only rows after it add height. On Korean Hanja rows the 훈음 takes a row of its own under the Hanja and every gloss row follows it, so the scheme reserves one more row than it has glosses, whether or not the Hanja list is open, and the strip does not grow when the list opens.
+     */
+    public static int reservedGlossRows(int glossLines, boolean hanjaRows) {
+        int lines = Math.max(0, glossLines);
+        return hanjaRows ? lines + 1 : Math.max(0, lines - 1);
+    }
+
     private static String normalize(String value) {
         return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
     }

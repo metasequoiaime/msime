@@ -1778,10 +1778,8 @@ public final class MSIMEInputService extends InputMethodService {
                     || snapshot.optLong("generation") != generation) return;
             request = CandidateGlossModel.request(generation,
                 snapshot.getJSONArray("candidates"));
-            // The account path's scheme gate: a Japanese or Korean composition is not glossed into other languages.
-            int glossScheme = view.optInt("scheme", -1);
-            if ("none".equals(view.optString("local_mode", "none")) && glossScheme != 3
-                    && glossScheme != KoreanInputPolicy.KOREAN_SCHEME) {
+            // The account path's scheme gate: a Japanese composition is not glossed into other languages. Korean Hanja rows are, as the shared translation query answers them.
+            if ("none".equals(view.optString("local_mode", "none")) && view.optInt("scheme", -1) != 3) {
                 for (String language : candidateOfflineTargets()) {
                     targetRequests.put(language, CandidateGlossModel.request(generation,
                         snapshot.getJSONArray("candidates"), language));
@@ -1865,8 +1863,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (!candidateTranslationAccount || session == 0 || view == null
                 || candidateTranslationStore == null
                 || !"none".equals(view.optString("local_mode", "none"))) return;
-        int translationScheme = view.optInt("scheme", -1);
-        if (translationScheme == 3 || translationScheme == KoreanInputPolicy.KOREAN_SCHEME) return;
+        if (view.optInt("scheme", -1) == 3) return;
         JSONArray entries = view.optJSONArray("candidates");
         long generation = view.optLong("generation", -1);
         if (entries == null || entries.length() == 0 || generation < 0) return;
@@ -2195,7 +2192,7 @@ public final class MSIMEInputService extends InputMethodService {
         android.view.ViewGroup.LayoutParams params = candidateViewport.getLayoutParams();
         if (params == null) return;
         int height = pixels(KeyboardGeometry.CANDIDATE_ROW_HEIGHT_DP
-            + Math.max(0, candidateGlossLineCount() - 1) * 16);
+            + CandidateTranslationPolicy.reservedGlossRows(candidateGlossLineCount(), koreanHanjaRows()) * 16);
         if (params.height == height) return;
         params.height = height;
         candidateViewport.setLayoutParams(params);
@@ -6261,11 +6258,12 @@ public final class MSIMEInputService extends InputMethodService {
         return true;
     }
 
+    /** {@code ownRow} starts the annotation on its own row under the candidate, as Korean Hanja rows draw their 훈음; otherwise it follows the candidate inline. */
     private CharSequence candidateLabel(String prefix, String text, String annotation,
-                                        boolean highlighted) {
+                                        boolean highlighted, boolean ownRow) {
         if (annotation.isEmpty() && prefix.isEmpty()) return text;
         String primary = prefix + text;
-        SpannableString label = new SpannableString(primary + " " + annotation);
+        SpannableString label = new SpannableString(primary + (ownRow ? "\n" : " ") + annotation);
         if (!prefix.isEmpty()) {
             label.setSpan(new ForegroundColorSpan(candidateAppearance.number()), 0, prefix.length(),
                 Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
@@ -6283,22 +6281,30 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     /** Keep a candidate word intact; the surrounding strip/panel owns scrolling and wrapping. */
-    private void configureCandidateTextLayout(Button button, String annotation) {
-        // Reserve extra rows only when this candidate actually carries a gloss. A globally
-        // enabled translation target is not evidence that every candidate has one; keeping the
-        // empty case single-line prevents long candidate words from wrapping inside the chip.
-        // Likewise, a second requested language may be unavailable for this particular result;
-        // only an actual newline in the rendered annotation warrants a second row.
-        int lines = CandidateTranslationPolicy.renderedGlossLines(annotation);
-        // A two-language gloss deliberately occupies two rows. Do not turn the whole label into
-        // a single-line TextView in that case, or the second gloss is silently clipped. With no
-        // gloss row the chip can scroll horizontally as one intact candidate word.
+    private void configureCandidateTextLayout(Button button, int lines) {
+        // Reserve extra rows only when this candidate actually carries a gloss. A globally enabled translation target is not evidence that every candidate has one; keeping the empty case single-line prevents long candidate words from wrapping inside the chip. Likewise, a second requested language may be unavailable for this particular result; only an actual newline in the rendered label (a second gloss, or a Korean 훈음 row under its Hanja) warrants another row.
+        // A multi-row label deliberately occupies those rows. Do not turn the whole label into a single-line TextView in that case, or the rows after the first are silently clipped. With no extra row the chip can scroll horizontally as one intact candidate word.
         button.setSingleLine(lines == 1);
         button.setEllipsize(null);
         button.setHorizontallyScrolling(lines == 1);
     }
 
+    /** Rows of one rendered candidate label; see {@link #candidateLabel}. */
+    private static int candidateLabelLines(String annotation, boolean ownRow) {
+        return ownRow ? CandidateTranslationPolicy.renderedOwnRowLines(annotation)
+            : CandidateTranslationPolicy.renderedGlossLines(annotation);
+    }
+
+    /** Whether the candidates on the strip are the Hanja of a composing Korean syllable, whose annotation is the 훈음 drawn on its own row. */
+    private boolean koreanHanjaRows() {
+        return koreanSchemeActive() && "none".equals(view.optString("local_mode", "none"));
+    }
+
     private String candidateAnnotation(JSONObject candidate) {
+        if (koreanHanjaRows())
+            return CandidateGlossPolicy.hanjaAnnotation(candidate.optString("annotation", ""),
+                candidate.isNull("translation") ? "" : candidate.optString("translation", ""),
+                candidateEnglishGloss || candidateTranslationsEnabled);
         return CandidateGlossPolicy.annotation(candidate.optString("annotation", ""),
             candidate.isNull("translation") ? "" : candidate.optString("translation", ""),
             candidateEnglishGloss || candidateTranslationsEnabled);
@@ -6317,6 +6323,10 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private String candidateAccessibilitySuffix(JSONObject candidate) {
+        if (koreanHanjaRows())
+            return CandidateGlossPolicy.hanjaAccessibilitySuffix(candidate.optString("annotation", ""),
+                candidate.isNull("translation") ? "" : candidate.optString("translation", ""),
+                candidateEnglishGloss || candidateTranslationsEnabled);
         return CandidateGlossPolicy.accessibilitySuffix(candidate.optString("annotation", ""),
             candidate.isNull("translation") ? "" : candidate.optString("translation", ""),
             candidateEnglishGloss || candidateTranslationsEnabled);
@@ -6450,11 +6460,12 @@ public final class MSIMEInputService extends InputMethodService {
         // Touch candidates follow Apple's chip surface: the word itself is shown without a
         // numeric prefix. The slot remains available through contentDescription and the shared
         // session/generation/index identity for accessibility and hardware number-row selection.
-        button.setText(candidateLabel("", text, annotation, highlighted));
-        int labelLines = CandidateTranslationPolicy.renderedGlossLines(annotation);
+        boolean ownRow = koreanHanjaRows();
+        button.setText(candidateLabel("", text, annotation, highlighted, ownRow));
+        int labelLines = candidateLabelLines(annotation, ownRow);
         button.setMinLines(labelLines);
         button.setMaxLines(labelLines);
-        configureCandidateTextLayout(button, annotation);
+        configureCandidateTextLayout(button, labelLines);
         button.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidateFontSize);
         button.setSelected(highlighted);
         styleCandidateButton(button);
@@ -6477,11 +6488,12 @@ public final class MSIMEInputService extends InputMethodService {
             : candidatePanelSnapshot.optString("preedit", "");
         String annotation = candidateAnnotation(candidate, typed);
         button.setAllCaps(false);
-        button.setText(candidateLabel("", text, annotation, highlighted));
-        int labelLines = CandidateTranslationPolicy.renderedGlossLines(annotation);
+        boolean ownRow = koreanHanjaRows();
+        button.setText(candidateLabel("", text, annotation, highlighted, ownRow));
+        int labelLines = candidateLabelLines(annotation, ownRow);
         button.setMinLines(labelLines);
         button.setMaxLines(labelLines);
-        configureCandidateTextLayout(button, annotation);
+        configureCandidateTextLayout(button, labelLines);
         button.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidateFontSize);
         button.setSelected(highlighted);
         styleCandidateButton(button);

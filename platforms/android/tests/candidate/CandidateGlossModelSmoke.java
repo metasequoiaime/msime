@@ -14,6 +14,26 @@ public final class CandidateGlossModelSmoke {
         check(CandidateGlossPolicy.annotation("", "x".repeat(4097), true).isEmpty(),
             "oversized gloss hidden");
 
+        // Korean Hanja rows: the 훈음 always shows, on its own row, and a gloss follows it rather than being displaced.
+        check(CandidateGlossPolicy.hanjaAnnotation("나라 이름 한", "", false).equals("나라 이름 한"),
+            "the 훈음 shows with glosses off");
+        check(CandidateGlossPolicy.hanjaAnnotation("나라 이름 한", "Korea", false).equals("나라 이름 한"),
+            "a gloss stays hidden while glosses are off");
+        check(CandidateGlossPolicy.hanjaAnnotation("나라 이름 한", "Korea", true).equals("나라 이름 한\nKorea"),
+            "a gloss follows the 훈음 on the next row");
+        check(CandidateGlossPolicy.hanjaAnnotation("나라 이름 한", "Korea\n韓国", true)
+                .equals("나라 이름 한\nKorea\n韓国"), "two-language glosses keep their rows under the 훈음");
+        check(CandidateGlossPolicy.hanjaAnnotation("", "Korea", true).equals("Korea"),
+            "a Hanja without 훈음 shows its gloss alone");
+        check(CandidateGlossPolicy.hanjaAnnotation(null, null, true).isEmpty(),
+            "a Hanja with neither has no secondary row");
+        check(CandidateGlossPolicy.hanjaAnnotation("나라 이름 한", "x".repeat(4097), true).equals("나라 이름 한"),
+            "an oversized gloss is hidden under the 훈음");
+        check(CandidateGlossPolicy.hanjaAccessibilitySuffix("나라 이름 한", "Korea", true)
+                .equals("，训音：나라 이름 한，释义：Korea"), "accessible 훈음 and gloss");
+        check(CandidateGlossPolicy.hanjaAccessibilitySuffix("나라 이름 한", "Korea", false)
+                .equals("，训音：나라 이름 한"), "accessible 훈음 with glosses off");
+
         CandidateGlossPolicy.Token token = new CandidateGlossPolicy.Token(11, 7, 3);
         check(token.isCurrent(11, 7, 3), "matching token");
         check(!token.isCurrent(11, 8, 3) && !token.isCurrent(12, 7, 3)
