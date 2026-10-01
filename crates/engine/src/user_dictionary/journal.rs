@@ -13,6 +13,7 @@ use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 
 use crate::error::Result;
 use crate::format::build_table_name;
+use crate::pinyin::segment::split_segments;
 use crate::types::PersonalDictionaryKind;
 
 pub const BUSY_TIMEOUT_MS: u64 = 5_000;
@@ -302,7 +303,7 @@ pub(crate) fn thread_holds_journal() -> bool {
 
 /// The syllables of a journal key; empty when the key or any segment is empty, which means the key cannot be stored (J:182-199).
 pub(crate) fn pinyin_segments(key: &str) -> Vec<String> {
-    let segments: Vec<String> = key.split('\'').map(str::to_owned).collect();
+    let segments = split_segments(key);
     if segments.iter().any(String::is_empty) {
         return Vec::new();
     }
@@ -586,6 +587,16 @@ mod tests {
         assert_eq!(pinyin_table("ni''hao"), None);
         assert_eq!(pinyin_table("'ni"), None);
         assert_eq!(pinyin_table("ni'"), None);
+    }
+
+    #[test]
+    fn pinyin_segments_reserves_key_capacity() {
+        let key: String = (0..100)
+            .map(|index| if index % 5 == 3 { '\'' } else { 'a' })
+            .collect();
+        let segments = pinyin_segments(&key);
+        assert_eq!(segments.len(), 21);
+        assert_eq!(segments.capacity(), 21);
     }
 
     /// test_typo_correction_input_session.cpp:381-403: a journal written by the shipped engine (v3, four tables) is upgraded in place.

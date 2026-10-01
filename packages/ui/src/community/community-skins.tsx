@@ -3,13 +3,13 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { boundedGraphemes } from "../core/text";
 import { randomUuid } from "../core/random-id";
-import { runAsyncAction } from "../core/async-action";
 import { pushMobileSettingsState } from "../settings/mobile-navigation";
 import { ScreenKeyboardPreview } from "../keyboard/screen-keyboard-preview";
 import {
-  communityNeedsSignIn,
   communitySkinMessage,
   communitySkinPublishMessage,
+  communityNeedsSignIn,
+  runCommunityPublishAction,
 } from "./community-helpers";
 import { useCommunityGallery, type CommunityGalleryClient } from "./community-gallery";
 import { CommunityErrorAlert } from "./community-error-alert";
@@ -18,9 +18,27 @@ import { CommunityDetailStatus } from "./community-detail-status";
 import * as style from "./community-style";
 import { CommunitySearchForm } from "./community-search-form";
 import { CommunityScopeButtons } from "./community-scope-buttons";
+import {
+  CommunityRemovedBadge,
+  CommunityReportSection,
+  type CommunityModeration,
+  type CommunityReportReason,
+} from "./community-report";
 import { CommunitySkinPublicationFields } from "./community-skin-publication-fields";
+import { CommunitySelectField } from "./community-select-field";
 import { CommunitySkinModerationSection } from "./community-skin-moderation-section";
 import { CommunitySkinCardMetrics } from "./community-skin-card-metrics";
+import { CommunityCardAuthor } from "./community-card-author";
+import { CommunityBackButton } from "./community-gallery-controls";
+import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
+import {
+  CommunitySkinCategoryFilter,
+  CommunitySkinCategorySelect,
+  communitySkinCategoryLabel,
+  communitySkinCategoryLabels,
+  useCommunitySkinCategoryFilter,
+  type CommunitySkinCategory,
+} from "./community-skin-category";
 import type {
   CustomSkinLibraryClient,
   SavedTouchKeyboardSkin,
@@ -38,6 +56,10 @@ export type CommunitySkin = {
   rating_average: number;
   owned: boolean;
   my_rating: number;
+  /** Sent only on the user's own skins; `removed` shows 已下架. */
+  moderation?: CommunityModeration | null;
+  /** 发布分类；早于分类功能的服务端不返回。 */
+  category?: CommunitySkinCategory;
 };
 
 export type CommunitySkinPage = {
@@ -52,7 +74,13 @@ export type CommunitySkinDownload = {
 };
 
 export interface CommunitySkinClient {
-  list(offset: number, search: string): Promise<CommunitySkinPage>;
+  /** `mine` lists only the signed-in user's own skins, removed ones included. `category` 为 `null` 时列出全部分类。 */
+  list(
+    offset: number,
+    search: string,
+    mine: boolean,
+    category: CommunitySkinCategory | null,
+  ): Promise<CommunitySkinPage>;
   detail(id: string): Promise<CommunitySkin>;
   download(id: string, name: string): Promise<CommunitySkinDownload>;
   rate(id: string, stars: number): Promise<void>;
@@ -61,9 +89,14 @@ export interface CommunitySkinClient {
     name: string,
     description: string,
     design: TouchKeyboardSkinDesign,
+    category: CommunitySkinCategory,
   ): Promise<void>;
   unpublish(id: string): Promise<void>;
+  /** 修改自己作品的发布分类，返回修改后的条目。 */
+  setCategory(id: string, category: CommunitySkinCategory): Promise<CommunitySkin>;
   finishTrial(id: string, keep: boolean): Promise<void>;
+  /** Reports another user's skin to the moderators. */
+  report?(id: string, reason: CommunityReportReason, detail: string): Promise<void>;
 }
 
 function CommunitySkinPublishDialog({
@@ -85,6 +118,7 @@ function CommunitySkinPublishDialog({
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [agreed, setAgreed] = useState(false);
+  const [category, setCategory] = useState<CommunitySkinCategory>("other");
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   // Kept next to the sentence because publishMessage collapses the code, and this is the one
@@ -141,34 +175,27 @@ function CommunitySkinPublishDialog({
       setError("请填写有效名称和说明，并确认拥有公开发布所需的素材权利。");
       return;
     }
-    actionRunning.current = true;
-    setSignInRequired(false);
-    try {
-      await runAsyncAction(
-        {
-          busy,
-          isCurrent: () => generation === clientGeneration.current,
-          setBusy,
-          setError,
-        },
-        async () => {
-          await client.publish(
-            publicationId,
-            normalizedName,
-            normalizedDescription,
-            selected.design,
-          );
-          if (generation !== clientGeneration.current) return;
-          await onPublished();
-        },
-        {
-          formatError: communitySkinPublishMessage,
-          onError: (publishError) => setSignInRequired(communityNeedsSignIn(publishError)),
-        },
-      );
-    } finally {
-      if (generation === clientGeneration.current) actionRunning.current = false;
-    }
+    await runCommunityPublishAction({
+      busy,
+      generation,
+      clientGeneration,
+      actionRunning,
+      setBusy,
+      setError,
+      setSignInRequired,
+      formatError: communitySkinPublishMessage,
+      operation: async () => {
+        await client.publish(
+          publicationId,
+          normalizedName,
+          normalizedDescription,
+          selected.design,
+          category,
+        );
+        if (generation !== clientGeneration.current) return;
+        await onPublished();
+      },
+    });
   };
 
   return (
@@ -190,27 +217,24 @@ function CommunitySkinPublishDialog({
         )}
         {saved.length > 0 && (
           <>
-            <label className={style.field}>
-              发布设计
-              <select
-                className={style.fieldControl}
-                aria-label="发布设计"
-                value={selectedId}
-                disabled={busy}
-                onChange={(event) => {
-                  const item = saved.find((value) => value.id === event.target.value);
-                  setSelectedId(event.target.value);
-                  setPublicationId(randomUuid());
-                  if (item) setName(item.name);
-                }}
-              >
-                {saved.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <CommunitySelectField
+              label="发布设计"
+              ariaLabel="发布设计"
+              value={selectedId}
+              disabled={busy}
+              onChange={(nextId) => {
+                const item = saved.find((value) => value.id === nextId);
+                setSelectedId(nextId);
+                setPublicationId(randomUuid());
+                if (item) setName(item.name);
+              }}
+            >
+              {saved.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </CommunitySelectField>
             {selected && (
               <div className={`${style.cardStage} max-h-[220px]`}>
                 <ScreenKeyboardPreview theme="light" skin="custom" customDesign={selected.design} />
@@ -231,6 +255,16 @@ function CommunitySkinPublishDialog({
                 setDescription(value);
               }}
               onAgreedChange={setAgreed}
+            />
+            <CommunitySkinCategorySelect
+              ariaLabel="发布分类"
+              value={category}
+              disabled={busy}
+              onChange={(next) => {
+                // 分类也是这次发布的内容，换了分类就是另一次发布，不能沿用上一次的发布 id。
+                setPublicationId(randomUuid());
+                setCategory(next);
+              }}
             />
             <p className={style.warning}>
               发布后设计及照片壁纸将公开。请勿包含私人照片或敏感信息；发布成功后可在“我的作品”中下架。
@@ -270,7 +304,12 @@ function CommunitySkinCard({
         <ScreenKeyboardPreview theme={theme} skin="custom" customDesign={skin.design} compact />
       </span>
       <strong>{skin.name}</strong>
-      <span className={style.cardAuthor}>{skin.owned ? "我的作品" : skin.author}</span>
+      <CommunityCardAuthor
+        prefix={communitySkinCategoryLabel(skin.category) ?? undefined}
+        author={skin.author}
+        owned={skin.owned}
+        removed={skin.moderation === "removed"}
+      />
       <CommunitySkinCardMetrics
         downloads={skin.downloads}
         ratingCount={skin.rating_count}
@@ -296,17 +335,23 @@ export function CommunitySkinsPage({
   /** Where the account page is, for a publish that failed only because nobody is signed in. */
   onLogin?: () => void;
 }) {
+  const categoryFilter = useCommunitySkinCategoryFilter();
+  const categoryRequest = categoryFilter.request;
   const galleryClient = useMemo<CommunityGalleryClient<CommunitySkin>>(
     () => ({
-      list: async (offset, search) => {
-        const page = await client.list(offset, search);
+      list: async (offset, search, mine) => {
+        const page = await client.list(offset, search, mine ?? false, categoryRequest.current);
         return { items: page.skins, has_more: page.has_more };
       },
       detail: client.detail,
       rate: client.rate,
       unpublish: client.unpublish,
+      ...(client.report && {
+        report: (id: string, reason: CommunityReportReason, detail: string) =>
+          client.report!(id, reason, detail),
+      }),
     }),
-    [client],
+    [client, categoryRequest],
   );
   const gallery = useCommunityGallery({
     client: galleryClient,
@@ -336,6 +381,7 @@ export function CommunitySkinsPage({
     closeDetail: closeGalleryDetail,
     rateSelected,
     unpublishSelected,
+    reportSelected,
     runAction,
   } = gallery;
   const [search, setSearch] = useState("");
@@ -427,6 +473,26 @@ export function CommunitySkinsPage({
     });
   };
 
+  const changeCategory = (next: CommunitySkinCategory | null) =>
+    categoryFilter.change(next, () => requestList(activeSearch, false));
+
+  const changeOwnCategory = async (next: CommunitySkinCategory) => {
+    if (!selected) return;
+    const target = selected;
+    await runAction(
+      async (currentClient) => {
+        const updated = await client.setCategory(target.id, next);
+        if (!gallery.isCurrent(currentClient)) return;
+        setSelected(updated);
+        gallery.setItems((current) =>
+          current.map((item) => (item.id === updated.id ? updated : item)),
+        );
+        setActionNotice(`已改为「${communitySkinCategoryLabels[next]}」分类。`);
+      },
+      { clearNotice: true },
+    );
+  };
+
   const unpublish = () => {
     if (trial) return;
     void unpublishSelected("已下架这款皮肤；其他用户将无法再下载，已有本地副本不会受影响。");
@@ -441,15 +507,7 @@ export function CommunitySkinsPage({
   if (selected)
     return (
       <div className={style.page}>
-        <button
-          type="button"
-          className={style.back}
-          disabled={actionBusy}
-          onClick={() => void closeDetail()}
-          aria-label="返回社区"
-        >
-          ← 社区
-        </button>
+        <CommunityBackButton disabled={actionBusy} onClick={() => void closeDetail()} />
         {error && (
           <CommunityErrorAlert message={error} signInRequired={signInRequired} onLogin={onLogin} />
         )}
@@ -460,9 +518,14 @@ export function CommunitySkinsPage({
           <div className={style.detailTitle}>
             <div className={style.headingBody}>
               <h2 className={style.headingTitle}>{selected.name}</h2>
-              <p className={style.headingNote}>{selected.author}</p>
+              <p className={style.headingNote}>
+                {[communitySkinCategoryLabel(selected.category), selected.author]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
             </div>
             {selected.owned && <span className={style.detailBadge}>我的作品</span>}
+            <CommunityRemovedBadge owned={selected.owned} moderation={selected.moderation} />
           </div>
           {selected.description && <p className={style.description}>{selected.description}</p>}
           <CommunityDetailStatus
@@ -508,6 +571,14 @@ export function CommunitySkinsPage({
               </button>
             </div>
           )}
+          {selected.owned && (
+            <CommunitySkinCategorySelect
+              ariaLabel="修改分类"
+              value={selected.category ?? "other"}
+              disabled={actionBusy || detailBusy}
+              onChange={(next) => void changeOwnCategory(next)}
+            />
+          )}
           <CommunitySkinModerationSection
             owned={selected.owned}
             actionBusy={actionBusy}
@@ -520,6 +591,9 @@ export function CommunitySkinsPage({
             onUnpublish={() => void unpublish()}
             onCancelUnpublish={() => setConfirmUnpublish(false)}
           />
+          {!selected.owned && client.report && (
+            <CommunityReportSection actionBusy={actionBusy} onReport={reportSelected} />
+          )}
         </section>
       </div>
     );
@@ -549,7 +623,7 @@ export function CommunitySkinsPage({
             mineLabel="我的作品"
             onMineOnlyChange={(nextMineOnly) => {
               setMineOnly(nextMineOnly);
-              void requestList(activeSearch, false);
+              void requestList(activeSearch, false, nextMineOnly);
             }}
           />
           {localSkinLibrary && (
@@ -559,6 +633,11 @@ export function CommunitySkinsPage({
           )}
         </div>
       </div>
+      <CommunitySkinCategoryFilter
+        ariaLabel="键盘皮肤分类"
+        value={categoryFilter.category}
+        onChange={(next) => void changeCategory(next)}
+      />
       {error && (
         <CommunityErrorAlert message={error} signInRequired={signInRequired} onLogin={onLogin} />
       )}
@@ -578,21 +657,12 @@ export function CommunitySkinsPage({
             <CommunitySkinCard key={skin.id} skin={skin} theme={theme} open={() => open(skin)} />
           ))}
       </div>
-      {hasMore && (
-        <button
-          type="button"
-          className={`secondary ${style.more}`}
-          disabled={listBusy}
-          onClick={() => void requestList(activeSearch, true)}
-        >
-          加载更多
-        </button>
-      )}
-      {listBusy && (
-        <p role="status" className={style.notice}>
-          正在读取社区皮肤…
-        </p>
-      )}
+      <CommunityGalleryLoadMore
+        hasMore={hasMore}
+        busy={listBusy}
+        loadingText="正在读取社区皮肤…"
+        onLoadMore={() => void requestList(activeSearch, true)}
+      />
       {publishOpen && localSkinLibrary && (
         <CommunitySkinPublishDialog
           client={client}

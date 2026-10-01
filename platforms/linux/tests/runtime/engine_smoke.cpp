@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <poll.h>
@@ -61,6 +62,8 @@ struct Observation {
   bool desktop_dictionary = false;
   // Keys of the last RegisterProperties, top level only, in menu order.
   std::vector<std::string> registered_keys;
+  // The 输入方案 menu's entries as it was last sent, each with whether it is checked. An update sends the entries before the menu, so the list is whole once the menu itself arrives.
+  std::map<std::string, bool> scheme_entries;
   bool lookup_visible = false;
   bool preedit_visible = false;
   guint cursor = 0;
@@ -161,6 +164,9 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
       seen.clipboard_clear_name.clear();
       seen.clipboard_clear_sensitive = false;
     }
+    if (key == "Scheme") seen.scheme_entries.clear();
+    if (key.rfind("Scheme/", 0) == 0 && ibus_property_get_prop_type(property) == PROP_TYPE_RADIO)
+      seen.scheme_entries[key] = ibus_property_get_state(property) == PROP_STATE_CHECKED;
     if (key == "DesktopTools/Help") seen.desktop_help = true;
     if (key == "DesktopTools/Feedback") seen.desktop_feedback = true;
     if (key == "DesktopTools/Dictionary") seen.desktop_dictionary = true;
@@ -3815,6 +3821,127 @@ int main(int argc, char **argv) {
     }
     invoke("Disable");
     require(!key('n'), "Disabled engine consumed input");
+    // Zhuyin and Vietnamese, each on an engine of its own so nothing above depends on what they leave behind. The injected options are the authority, so a scheme picked from the menu takes effect at once rather than through the store.
+    {
+      const auto dictionaries = root / "language-dictionaries";
+      std::filesystem::create_directory(dictionaries);
+      auto languages = options;
+      languages.erase("preferences_directory");
+      languages["language_dictionaries"] = dictionaries.string();
+      languages["preferences"]["scheme"] = "zhuyin";
+      languages["preferences"]["last_chinese_scheme"] = "quanpin";
+      languages["preferences"]["character_width"] = "halfwidth";
+      languages["preferences"]["vietnamese"]["input_method"] = "vni";
+      const auto restart = [&] {
+        ibus_object_destroy(IBUS_OBJECT(engine));
+        g_object_unref(engine);
+        msime_ibus_configure(languages.dump());
+        engine = create_engine();
+        seen = Observation{};
+        invoke("FocusIn");
+      };
+      const auto offered = [&](const char *entry) { return seen.scheme_entries.count(entry) != 0; };
+      const auto checked = [&](const char *entry) {
+        const auto found = seen.scheme_entries.find(entry);
+        return found != seen.scheme_entries.end() && found->second;
+      };
+      // Zhuyin saved as the scheme while its dictionary is missing: host-api runs the last Chinese scheme instead, and the menu neither offers Zhuyin nor claims it is in use.
+      restart();
+      require(offered("Scheme/Quanpin") && offered("Scheme/Vietnamese") && !offered("Scheme/Zhuyin") &&
+                  !offered("Scheme/Cantonese"),
+              "The scheme menu offered Zhuyin without its dictionary");
+      require(checked("Scheme/Chinese") && checked("Scheme/Quanpin"),
+              "The scheme menu did not mark the quanpin fallback of a missing Zhuyin dictionary");
+      require(key('n') && seen.preedit == "n" && seen.lookup_visible && !seen.candidates.empty(),
+              "A missing Zhuyin dictionary did not fall back to quanpin");
+      invoke("Reset");
+      invoke("PropertyActivate", g_variant_new("(su)", "Scheme/Zhuyin", PROP_STATE_CHECKED));
+      require(key('n') && seen.preedit == "n" && seen.lookup_visible,
+              "Zhuyin was selected without its dictionary");
+      invoke("Reset");
+      // With the dictionary installed the saved Zhuyin runs and is offered.
+      const auto fixture = std::string("python3 '") + MSIME_ZHUYIN_DICTIONARY_FIXTURE + "' '" + dictionaries.string() + "'";
+      require(std::system(fixture.c_str()) == 0, "Zhuyin dictionary fixture was not written");
+      restart();
+      require(offered("Scheme/Zhuyin") && checked("Scheme/Chinese") && checked("Scheme/Zhuyin") &&
+                  !checked("Scheme/Quanpin") && !offered("Scheme/Cantonese"),
+              "The scheme menu did not offer and mark Zhuyin with its dictionary installed");
+      // 1 8 spells ㄅㄚ: the digit is a bopomofo key, not a candidate shortcut, and Space is the first tone, which converts without opening a list.
+      auto before = seen.committed;
+      require(key('1') && seen.preedit_visible && key('8') && seen.committed == before,
+              "Zhuyin did not spell with the digit row");
+      require(key(IBUS_space) && seen.preedit == "八" && seen.committed == before &&
+                  seen.preedit_mode == IBUS_ENGINE_PREEDIT_COMMIT,
+              "Space did not give the Zhuyin syllable its first tone");
+      settle_lookup();
+      require(!seen.lookup_visible, "The first tone opened the Zhuyin list");
+      require(key(IBUS_Down) && seen.lookup_visible && seen.candidates.size() == 2 &&
+                  seen.candidates[0].rfind("八", 0) == 0 && seen.candidates[1].rfind("巴", 0) == 0,
+              "Down did not open the Zhuyin list");
+      require(key('2') && seen.preedit == "巴" && seen.committed == before,
+              "A digit did not pick from the open Zhuyin list without committing");
+      settle_lookup();
+      require(!seen.lookup_visible, "Picking a Zhuyin candidate left the list open");
+      require(key(IBUS_Down) && seen.lookup_visible && key('1') && seen.preedit == "八" &&
+                  seen.committed == before,
+              "1 did not pick the first row of the Zhuyin list");
+      require(key(IBUS_Return) && seen.committed == before + "八" && !seen.preedit_visible,
+              "Return did not commit the Zhuyin conversion");
+      // F9 opens the list too, Escape closes it and keeps the conversion, and a second Escape discards it.
+      before = seen.committed;
+      require(key('1') && key('8') && key(IBUS_space) && key(IBUS_F9) && seen.lookup_visible,
+              "F9 did not open the Zhuyin list");
+      require(key(IBUS_Escape) && seen.preedit == "八", "Escape did not close the Zhuyin list");
+      settle_lookup();
+      require(!seen.lookup_visible && key(IBUS_Escape) && !seen.preedit_visible && seen.committed == before,
+              "Escape did not discard the Zhuyin conversion");
+      // The comma is ㄝ on the Dachen keyboard, not Chinese punctuation.
+      require(key(IBUS_comma) && key(IBUS_space) && seen.preedit == "欸" && seen.committed == before,
+              "The comma did not spell ㄝ");
+      require(key(IBUS_Return) && seen.committed == before + "欸", "Return did not commit 欸");
+      // Vietnamese: VNI digits mark the word, drawn inline in COMMIT mode, and it never opens a list.
+      invoke("PropertyActivate", g_variant_new("(su)", "Scheme/Vietnamese", PROP_STATE_CHECKED));
+      require(wait_until([&] { return checked("Scheme/Vietnamese") && !checked("Scheme/Chinese"); }),
+              "The scheme menu did not select Vietnamese");
+      before = seen.committed;
+      require(!key('6') && seen.committed == before, "An idle VNI digit was not left to the application");
+      for (char c : std::string("viet65"))
+        require(key(c), "A VNI key was not consumed");
+      require(seen.preedit == "việt" && seen.preedit_visible && seen.preedit_mode == IBUS_ENGINE_PREEDIT_COMMIT &&
+                  seen.committed == before,
+              "VNI digits did not compose việt inline");
+      settle_lookup();
+      require(!seen.lookup_visible, "Vietnamese opened a candidate list");
+      // A mark follows the word as ASCII, also with fullwidth output on, and an idle mark is the application's.
+      invoke("PropertyActivate", g_variant_new("(su)", "CharacterMode", PROP_STATE_CHECKED));
+      require(wait_until([&] { return seen.character_width; }), "Fullwidth output was not turned on");
+      key(IBUS_comma);
+      require(seen.committed == before + "việt," && !seen.preedit_visible,
+              "The comma after a Vietnamese word was not committed as ASCII with it");
+      require(!key(IBUS_comma) && seen.committed == before + "việt,",
+              "An idle Vietnamese comma was widened or kept from the application");
+      require(key('a') && seen.preedit == "a" && !key(IBUS_space) && seen.committed == before + "việt,a",
+              "Space did not commit the Vietnamese word unwidened and reach the application");
+      invoke("PropertyActivate", g_variant_new("(su)", "CharacterMode", PROP_STATE_UNCHECKED));
+      require(wait_until([&] { return !seen.character_width; }), "Fullwidth output was not turned off");
+      // Caps Lock types a capital, which starts a word rather than going to the application.
+      before = seen.committed;
+      require(key('A', IBUS_LOCK_MASK) && seen.preedit == "A" && seen.committed == before,
+              "Caps Lock did not start a Vietnamese word with a capital");
+      require(!key(IBUS_Return) && seen.committed == before + "A" && !seen.preedit_visible,
+              "Return did not commit the Vietnamese word and reach the application");
+      // Leaving the field hands the word to the client in COMMIT mode, so the host commits nothing of its own and the next field starts empty.
+      before = seen.committed;
+      require(key('v') && key('i') && seen.preedit == "vi" && seen.preedit_mode == IBUS_ENGINE_PREEDIT_COMMIT,
+              "Vietnamese word for the focus change");
+      invoke("FocusOut");
+      require(wait_until([&] { return !seen.preedit_visible; }) && seen.committed == before,
+              "Focus out did not leave the Vietnamese word to IBus");
+      invoke("FocusIn");
+      require(key('a') && seen.preedit == "a" && seen.committed == before,
+              "The Vietnamese word survived the focus change");
+      invoke("Reset");
+    }
     finish();
     std::cout << "IBus D-Bus shared-runtime acceptance passed\n";
   } catch (const std::exception &error) {

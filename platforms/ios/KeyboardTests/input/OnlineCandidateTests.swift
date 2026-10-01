@@ -104,6 +104,28 @@ final class OnlineCandidateTests: XCTestCase {
     XCTAssertEqual(requests.first?.maxBytes, 256 * 1024)
   }
 
+  func testAFailedRequestCanBeRetriedForTheSameComposition() throws {
+    CloudCandidatePreference.enabled = true
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    let transport = FlakyTransport(body: Self.cloudBody)
+    let provider = OnlineCandidateProvider(session: bridge, transport: transport)
+
+    type(bridge, "nihao")
+    let firstCall = expectation(description: "first request")
+    transport.onCall = { if $0 == 1 { firstCall.fulfill() } }
+    provider.refresh(allowed: true)
+    wait(for: [firstCall], timeout: 5)
+    RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+    XCTAssertEqual(transport.callCount, 1)
+
+    let rendered = expectation(description: "rendered after retry")
+    provider.onApplied = { _ in rendered.fulfill() }
+    provider.refresh(allowed: true)
+    wait(for: [rendered], timeout: 5)
+    XCTAssertEqual(transport.callCount, 2)
+    provider.cancel()
+  }
+
   func testNothingIsAskedWithoutTheHostsPermission() {
     CloudCandidatePreference.enabled = true
     let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
@@ -157,6 +179,19 @@ final class OnlineCandidateTests: XCTestCase {
     XCTAssertNotEqual(OnlineCandidateProvider.signature(splitCache), OnlineCandidateProvider.signature(splitIdentity))
   }
 
+  func testCloudSuccessStillAllowsRetryWhenAIHasNoAnswer() {
+    XCTAssertTrue(
+      OnlineCandidateProvider.shouldRetryAfterFetch(
+        cloudRequested: true, cloudApplied: true, aiRequested: true, aiApplied: false),
+      "云候选成功但 AI 没有结果时必须释放签名，以便同一组字重试 AI")
+    XCTAssertFalse(
+      OnlineCandidateProvider.shouldRetryAfterFetch(
+        cloudRequested: true, cloudApplied: true, aiRequested: true, aiApplied: true))
+    XCTAssertFalse(
+      OnlineCandidateProvider.shouldRetryAfterFetch(
+        cloudRequested: true, cloudApplied: true, aiRequested: false, aiApplied: false))
+  }
+
   private func type(_ bridge: MetasequoiaInputSessionBridge, _ letters: String) {
     _ = bridge.cancel()
     for letter in letters { _ = bridge.handleCharacter(String(letter)) }
@@ -175,5 +210,30 @@ private final class RecordingTransport: OnlineCandidateTransport, @unchecked Sen
   func fetch(_ request: OnlineCandidateRequest) async -> Data? {
     lock.withLock { recorded.append(request) }
     return body
+  }
+}
+
+private final class FlakyTransport: OnlineCandidateTransport, @unchecked Sendable {
+  private let body: Data
+  private let lock = NSLock()
+  private var calls = 0
+  var onCall: ((Int) -> Void)?
+
+  init(body: Data) { self.body = body }
+
+  var callCount: Int { lock.withLock { calls } }
+
+  func fetch(_ request: OnlineCandidateRequest) async -> Data? {
+    let call = lock.withLock {
+      calls += 1
+      return calls
+    }
+    if call == 1 {
+      // 在提供器处理完失败返回后再通知测试，避免把仍在执行的请求误当成已结束。
+      DispatchQueue.main.async { [weak self] in self?.onCall?(call) }
+    } else {
+      onCall?(call)
+    }
+    return call == 1 ? nil : body
   }
 }

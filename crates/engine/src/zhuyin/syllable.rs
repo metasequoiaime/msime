@@ -41,14 +41,21 @@ impl PendingSyllable {
 
     /// The Dachen keys that spell the filled slots, in syllable order, e.g. `su` for `ㄋㄧ`.
     pub fn keys(&self) -> String {
-        self.symbols()
-            .filter_map(|symbol| {
-                layout::DACHEN
-                    .iter()
-                    .find(|(_, dachen_symbol, _)| *dachen_symbol == symbol)
-                    .map(|(key, _, _)| char::from(*key))
-            })
-            .collect()
+        let mut keys = String::new();
+        self.append_keys(&mut keys);
+        keys
+    }
+
+    /// Appends the Dachen keys without allocating an intermediate string.
+    pub(super) fn append_keys(&self, target: &mut String) {
+        for symbol in self.symbols() {
+            if let Some((key, _, _)) = layout::DACHEN
+                .iter()
+                .find(|(_, dachen_symbol, _)| *dachen_symbol == symbol)
+            {
+                target.push(char::from(*key));
+            }
+        }
     }
 
     /// The toned syllable as `zhuyin.db` stores it: the symbols followed by the tone mark (empty for tone 1). `None` while nothing is typed, since a tone alone is not a syllable.

@@ -3,9 +3,10 @@ import { themeEntry, customCandidateStyle, themeCandidateStyle } from "../../the
 import { SkinToolbarPreview } from "../../skin/skin-toolbar-preview";
 import type { FloatingToolbarPreferences, HostCapabilities } from "../../index";
 import { useSettingsForm } from "../settings-form-context";
-import { Checks, GroupList, Row, Select, Switch } from "../../core/platform-controls";
+import { Checks, GroupList, Row, Switch } from "../../core/platform-controls";
 import { FloatingToolbarPlatformNotice } from "../floating-toolbar-platform-notice";
 import { createFloatingToolbarSettingsActions } from "../floating-toolbar-settings-actions";
+import { SelectRow } from "../select-row";
 
 type FloatingToolbarOptionKey = keyof Pick<
   FloatingToolbarPreferences,
@@ -98,42 +99,42 @@ export function FloatingToolbarSettingsPage() {
         <GroupList title="尺寸">
           {showToolbarAppearance ? (
             <>
-              <Row title="工具栏缩放" description="相对系统 DPI 的额外缩放，不改变系统显示缩放">
-                <Select
-                  value={floatingToolbar.scale_percent}
-                  onChange={(event) =>
-                    onToolbarChange({
-                      scale_percent: Number(
-                        event.target.value,
-                      ) as FloatingToolbarPreferences["scale_percent"],
-                    })
-                  }
-                >
-                  {floatingToolbarScales.map((value) => (
-                    <option key={value} value={value}>
-                      {value}%
-                    </option>
-                  ))}
-                </Select>
-              </Row>
-              <Row title="图标尺寸" description="图标基准大小（像素），再乘以上方缩放">
-                <Select
-                  value={floatingToolbar.font_size}
-                  onChange={(event) =>
-                    onToolbarChange({
-                      font_size: Number(
-                        event.target.value,
-                      ) as FloatingToolbarPreferences["font_size"],
-                    })
-                  }
-                >
-                  {floatingToolbarFontSizes.map((value) => (
-                    <option key={value} value={value}>
-                      {value}
-                    </option>
-                  ))}
-                </Select>
-              </Row>
+              <SelectRow
+                title="工具栏缩放"
+                description="相对系统 DPI 的额外缩放，不改变系统显示缩放"
+                value={floatingToolbar.scale_percent}
+                onChange={(event) =>
+                  onToolbarChange({
+                    scale_percent: Number(
+                      event.target.value,
+                    ) as FloatingToolbarPreferences["scale_percent"],
+                  })
+                }
+              >
+                {floatingToolbarScales.map((value) => (
+                  <option key={value} value={value}>
+                    {value}%
+                  </option>
+                ))}
+              </SelectRow>
+              <SelectRow
+                title="图标尺寸"
+                description="图标基准大小（像素），再乘以上方缩放"
+                value={floatingToolbar.font_size}
+                onChange={(event) =>
+                  onToolbarChange({
+                    font_size: Number(
+                      event.target.value,
+                    ) as FloatingToolbarPreferences["font_size"],
+                  })
+                }
+              >
+                {floatingToolbarFontSizes.map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </SelectRow>
             </>
           ) : (
             <FloatingToolbarPlatformNotice />

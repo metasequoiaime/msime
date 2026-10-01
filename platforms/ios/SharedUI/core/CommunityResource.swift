@@ -40,6 +40,10 @@ struct CommunityResource: Codable, Identifiable, Sendable {
   var rating_count: Int
   var rating_average: Double
   var my_rating: Int
+  /// "approved", "pending" or "removed" on the user's own works when the request asked for fields=moderation.
+  var moderation: String? = nil
+  /// Post-moderation: only a removal is shown to the author, never a pending state or a reason.
+  var removed: Bool { owned && moderation == "removed" }
 }
 
 // Only explicit downloads are shared with the keyboard; never credentials or source messages.

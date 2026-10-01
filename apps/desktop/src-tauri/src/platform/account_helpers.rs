@@ -66,6 +66,9 @@ pub(crate) fn community_error(error: AccountError) -> crate::CommandError {
             AccountError::Storage => "community_storage",
             AccountError::Conflict => "community_conflict",
             AccountError::Unavailable => "community_unavailable",
+            AccountError::BlockedContent => "community_blocked_content",
+            AccountError::ScreeningUnavailable => "community_screening_unavailable",
+            AccountError::Banned => "community_account_banned",
         },
     }
 }

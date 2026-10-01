@@ -3,14 +3,15 @@
 //! A shared package is an installed skin folder reduced to what the backend accepts: `skin.toml`, sent verbatim, plus the PNG or JPEG images its manifest references (the preview, the decoration image and the background image), base64-encoded. [`pack`] builds that payload from a folder under the host's skin root and [`install`] writes a downloaded one back as a folder the catalog lists. Both mirror every rule of the server (`internal/account/community_candidate.go`) the client can check, because the transport only reports an HTTP status and the page can then name the exact problem.
 
 use super::catalog::{self, SkinLicense, SkinSummary};
+use super::category::INCLUDE_CATEGORY;
 use crate::account::{
     request_with_account_session, AccountApi, AccountError, AccountSessionStorage,
     BackendAccountClient, BackendAccountSession,
 };
 use crate::cloud::dictionary::percent_encode;
 use crate::community::{
-    valid_author, valid_description, valid_name, valid_query, valid_rating,
-    MAXIMUM_JAVASCRIPT_INTEGER, MAXIMUM_PAGE_ITEMS,
+    valid_author, valid_description, valid_name, valid_query, valid_rating, CommunityModeration,
+    MAXIMUM_JAVASCRIPT_INTEGER, MAXIMUM_PAGE_ITEMS, MODERATION_FIELDS,
 };
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use reqwest::Method;
@@ -50,10 +51,16 @@ const MAX_SYNC_RESPONSE_BYTES: usize = 512 * 1024;
 const MAX_SYNC_ENTRIES: usize = 1000;
 /// The query every list and detail request carries so the server includes `visibility`, `updated_at` and the signed-in user's private packages. Clients released before private packages existed read items with unknown fields refused, so the server sends the new fields only to clients that ask for them.
 const SYNC_FIELDS: &str = "fields=sync";
-/// 每个返回 `CandidateSkinItem` 的请求都带上这个查询参数，服务端才会在条目里加上 `category`。早于分类功能发布的客户端以 `deny_unknown_fields` 读取条目，所以服务端只对显式请求的客户端返回该字段。
-const INCLUDE_CATEGORY: &str = "include=category";
 const TRANSFER_TIMEOUT: Duration = Duration::from_secs(90);
 const MAX_RESOURCE_PATH_BYTES: usize = 256;
+/// 单张图片每边最多的像素数，与服务端 `maxCandidateSide` 一致：更大的图服务端会拒收，装进来也同步不上去。
+const MAX_IMAGE_SIDE: u32 = 2048;
+/// 一个包里所有图片解码后的像素合计上限，与服务端 `maxCandidatePixels` 一致。
+const MAX_PACKAGE_PIXELS: u64 = 8_000_000;
+/// 解码一张图时允许分配的内存上限。每边 2048 的图按 16 位 RGBA 展开是 32 MiB，这里留出一倍给解码器自己的缓冲。尺寸在完整解码前就从文件头读出并按 [`MAX_IMAGE_SIDE`] 拒绝，这道上限是 PNG 解码的第二道防线：1 MiB 以内的文件声明巨大尺寸（解压炸弹）时，解码器也无法因此分配超出它的内存。JPEG 由 `zune-jpeg` 解码，它没有分配上限，由同样的每边上限兜底，最多展开成 2048×2048 的 RGB，即 12 MiB。
+const MAX_IMAGE_DECODE_ALLOC: u64 = 64 << 20;
+/// 一张渐进式 JPEG 最多的扫描段（SOS）数，与服务端 `maxCandidateJPEGScans` 一致。
+const MAX_JPEG_SCANS: usize = 32;
 const MANIFEST_FILE: &str = "skin.toml";
 /// Where [`install`] writes a package before swapping it in. It sits in the skin root, so the rename that publishes it never crosses a filesystem.
 const STAGING_DIRECTORY: &str = ".community-staging";
@@ -88,49 +95,8 @@ pub enum CandidateSkinVisibility {
     Private,
 }
 
-/// 社区候选窗皮肤的发布分类。分类只是发布元数据，不属于 `skin.toml`。服务端将来新增的分类 id 一律读作 [`CandidateSkinCategory::Other`]，这样旧客户端不会因新分类而读取失败。
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum CandidateSkinCategory {
-    Nature,
-    Guofeng,
-    Acg,
-    Cute,
-    Food,
-    Tech,
-    Minimal,
-    #[default]
-    #[serde(other)]
-    Other,
-}
-
-impl CandidateSkinCategory {
-    /// 全部分类，顺序即界面上筛选按钮的顺序。
-    pub const ALL: [Self; 8] = [
-        Self::Nature,
-        Self::Guofeng,
-        Self::Acg,
-        Self::Cute,
-        Self::Food,
-        Self::Tech,
-        Self::Minimal,
-        Self::Other,
-    ];
-
-    /// 服务端使用的分类 id。
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Nature => "nature",
-            Self::Guofeng => "guofeng",
-            Self::Acg => "acg",
-            Self::Cute => "cute",
-            Self::Food => "food",
-            Self::Tech => "tech",
-            Self::Minimal => "minimal",
-            Self::Other => "other",
-        }
-    }
-}
+/// 社区候选窗皮肤的发布分类，与社区键盘皮肤共用同一套分类。分类只是发布元数据，不属于 `skin.toml`。
+pub use super::category::SkinCategory as CandidateSkinCategory;
 
 /// One published package as the gallery lists it. It never carries the manifest or any image bytes.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -163,6 +129,9 @@ pub struct CandidateSkinItem {
     /// [`request_digest`] of the request that last set the content. The server sends it only for the signed-in user's own packages; `""` otherwise.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub request_sha256: String,
+    /// The moderation state, sent only for the signed-in user's own package and only to a request that asked for it with `fields=moderation`; other users' packages and older servers leave it out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moderation: Option<CommunityModeration>,
     /// 发布分类。客户端总是带 `include=category` 请求，早于分类功能的服务端不返回它，此时为 `None`。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub category: Option<CandidateSkinCategory>,
@@ -336,12 +305,17 @@ impl CandidateSkinCommunityApi for BackendAccountClient {
         if mine && token.is_none() {
             return Err(AccountError::Unauthorized);
         }
-        let scope = if mine { "&scope=mine" } else { "" };
+        // `fields` is repeated rather than comma-joined: a server that reads only the first value still gets the `sync` it requires.
+        let scope = if mine {
+            format!("&scope=mine&{SYNC_FIELDS}&{MODERATION_FIELDS}")
+        } else {
+            format!("&{SYNC_FIELDS}")
+        };
         let filter = category
             .map(|category| format!("&category={}", category.as_str()))
             .unwrap_or_default();
         let path = format!(
-            "/v1/community/candidate-skins?offset={offset}&q={}{scope}{filter}&{SYNC_FIELDS}&{INCLUDE_CATEGORY}",
+            "/v1/community/candidate-skins?offset={offset}&q={}{scope}{filter}&{INCLUDE_CATEGORY}",
             percent_encode(search)
         );
         let page = self.json::<CandidateSkinPage, ()>(Method::GET, &path, token, None)?;
@@ -358,7 +332,7 @@ impl CandidateSkinCommunityApi for BackendAccountClient {
             return Err(AccountError::Invalid);
         }
         let path = format!(
-            "/v1/community/candidate-skins/{}?{SYNC_FIELDS}&{INCLUDE_CATEGORY}",
+            "/v1/community/candidate-skins/{}?{SYNC_FIELDS}&{MODERATION_FIELDS}&{INCLUDE_CATEGORY}",
             id.hyphenated()
         );
         let item = self.json::<CandidateSkinItem, ()>(Method::GET, &path, token, None)?;
@@ -888,6 +862,67 @@ fn magic_matches(content_type: &str, bytes: &[u8]) -> bool {
     }
 }
 
+/// 按 `content_type` 指定的编码完整解码 `bytes`，返回像素数。只看文件头的签名会放过截断或损坏的图，而服务端发布时会完整解码并重新编码，这样的包装进来之后就同步不上去。
+///
+/// 先只读文件头取尺寸，任一边为 0 或超过 [`MAX_IMAGE_SIDE`] 时返回 `candidate_skin_too_large`（与服务端相同），不做完整解码；解码失败、编码与扩展名不符时返回 `candidate_skin_image_invalid`。
+fn check_image(content_type: &str, bytes: &[u8]) -> Result<u64, &'static str> {
+    let format = match content_type {
+        "image/png" => image::ImageFormat::Png,
+        "image/jpeg" => image::ImageFormat::Jpeg,
+        _ => return Err(IMAGE_INVALID),
+    };
+    // 编码由扩展名决定，不按内容猜：名为 .png 的 JPEG 也要拒绝。
+    if !magic_matches(content_type, bytes) {
+        return Err(IMAGE_INVALID);
+    }
+    let reader = |bytes| {
+        let mut limits = image::Limits::default();
+        limits.max_image_width = Some(MAX_IMAGE_SIDE);
+        limits.max_image_height = Some(MAX_IMAGE_SIDE);
+        limits.max_alloc = Some(MAX_IMAGE_DECODE_ALLOC);
+        let mut reader = image::ImageReader::with_format(std::io::Cursor::new(bytes), format);
+        reader.limits(limits);
+        reader
+    };
+    let (width, height) = reader(bytes)
+        .into_dimensions()
+        .map_err(|error| match error {
+            image::ImageError::Limits(_) => TOO_LARGE,
+            _ => IMAGE_INVALID,
+        })?;
+    if width == 0 || height == 0 || width > MAX_IMAGE_SIDE || height > MAX_IMAGE_SIDE {
+        return Err(TOO_LARGE);
+    }
+    if format == image::ImageFormat::Jpeg {
+        decode_jpeg_strictly(bytes)?;
+    } else {
+        reader(bytes).decode().map_err(|_| IMAGE_INVALID)?;
+    }
+    Ok(u64::from(width) * u64::from(height))
+}
+
+/// 用严格模式的 `zune-jpeg` 完整解码一张 JPEG，失败时返回 `candidate_skin_image_invalid`。
+///
+/// `image` 也用 `zune-jpeg` 解码 JPEG，但固定关掉了严格模式：数据提前结束时用灰色补齐剩下的像素并报告成功，截断在扫描数据中间的 JPEG 因此能“解码成功”，服务端的解码器却会报错。严格模式下这类文件直接解码失败，只缺结尾 EOI 的情况另外检查。每边上限与 [`MAX_IMAGE_SIDE`] 一致；渐进式 JPEG 的扫描段上限与服务端一致，基线 JPEG 每个颜色分量只有一个扫描段，最多 4 个，`zune-jpeg` 不对它计数。
+fn decode_jpeg_strictly(bytes: &[u8]) -> Result<(), &'static str> {
+    let side = MAX_IMAGE_SIDE as usize;
+    let options = zune_jpeg::zune_core::options::DecoderOptions::default()
+        .set_strict_mode(true)
+        .set_max_width(side)
+        .set_max_height(side)
+        .jpeg_set_max_scans(MAX_JPEG_SCANS);
+    let cursor = zune_jpeg::zune_core::bytestream::ZCursor::new(bytes);
+    zune_jpeg::JpegDecoder::new_with_options(cursor, options)
+        .decode()
+        .map_err(|_| IMAGE_INVALID)?;
+    // 严格模式不要求结尾的 EOI：像素数据完整、只缺最后的 `FF D9` 时它照样解码成功，服务端的解码器却会报“意外的文件结尾”。熵编码数据里不会出现 `FF D9` 和 `FF DA`（`0xFF` 后面只跟 `0x00` 或 RSTn），所以最后一个扫描段（`FF DA`）之后必须还有一个 EOI。
+    let marker = |code: u8| bytes.windows(2).rposition(|pair| pair == [0xFF, code]);
+    match (marker(0xDA), marker(0xD9)) {
+        (Some(scan), Some(end)) if end > scan => Ok(()),
+        _ => Err(IMAGE_INVALID),
+    }
+}
+
 /// Length of the padded standard base64 encoding of `bytes` bytes.
 fn base64_length(bytes: usize) -> usize {
     bytes.div_ceil(3) * 4
@@ -953,7 +988,7 @@ fn shared_preview(summary: &SkinSummary) -> Result<&str, &'static str> {
     Ok(preview)
 }
 
-/// Build the publish payload for the installed package `id` under `root`: `skin.toml` verbatim and exactly the images it references. Every rule the server applies that the client can check is applied here, each with its own error code, so a package the server would refuse is refused before anything is uploaded. Image dimensions and decodability are left to the server, which re-encodes every image.
+/// 为 `root` 下已安装的包 `id` 生成发布内容：原样的 `skin.toml` 加上它引用的那几张图，不多不少。服务端的规则凡是客户端能检查的都在这里检查，各有各的错误码，服务端会拒收的包在上传前就被拒绝。每张图都按扩展名完整解码一遍，尺寸和整包像素合计也按服务端的上限检查；服务端重新编码之后的大小仍由服务端判断。
 pub fn pack(root: &Path, id: &str) -> Result<PackedSkin, &'static str> {
     pack_as(root, id, CandidateSkinVisibility::Public)
 }
@@ -1000,6 +1035,7 @@ pub fn pack_as(
     let directory = root.join(id);
     let mut files = BTreeMap::new();
     let mut size = 0_usize;
+    let mut pixels = 0_u64;
     for path in &referenced {
         // read_resource follows links inside the package; a shared image must be a file the package itself holds.
         let metadata = fs::symlink_metadata(directory.join(path)).map_err(|_| PACKAGE)?;
@@ -1018,9 +1054,7 @@ pub fn pack_as(
             catalog::ResourceError::TooLarge => TOO_LARGE,
             _ => PACKAGE,
         })?;
-        if image_content_type(path) != Some(resource.content_type)
-            || !magic_matches(resource.content_type, &resource.bytes)
-        {
+        if image_content_type(path) != Some(resource.content_type) {
             return Err(IMAGE_INVALID);
         }
         if resource.bytes.len() > limit {
@@ -1028,6 +1062,10 @@ pub fn pack_as(
         }
         size += resource.bytes.len();
         if size > MAX_PACKAGE_BYTES {
+            return Err(TOO_LARGE);
+        }
+        pixels += check_image(resource.content_type, &resource.bytes)?;
+        if pixels > MAX_PACKAGE_PIXELS {
             return Err(TOO_LARGE);
         }
         files.insert(path.clone(), BASE64.encode(&resource.bytes));
@@ -1086,16 +1124,17 @@ pub fn add_preview(root: &Path, id: &str, bytes: &[u8]) -> Result<String, &'stat
     {
         return Err(PACKAGE);
     }
-    let extension = if magic_matches("image/png", bytes) {
-        "png"
+    let (extension, content_type) = if magic_matches("image/png", bytes) {
+        ("png", "image/png")
     } else if magic_matches("image/jpeg", bytes) {
-        "jpg"
+        ("jpg", "image/jpeg")
     } else {
         return Err(IMAGE_INVALID);
     };
     if bytes.len() > MAX_PREVIEW_BYTES {
         return Err(TOO_LARGE);
     }
+    check_image(content_type, bytes)?;
     let directory = root.join(id);
     let manifest_path = directory.join(MANIFEST_FILE);
     let input = fs::File::open(&manifest_path).map_err(|_| PACKAGE)?;
@@ -1304,6 +1343,7 @@ fn decode_files(files: &BTreeMap<String, String>) -> Result<Vec<(&str, Vec<u8>)>
     }
     let mut decoded = Vec::with_capacity(files.len());
     let mut total = 0_usize;
+    let mut pixels = 0_u64;
     for (path, data) in files {
         if data.len() > base64_length(MAX_PACKAGE_FILE_BYTES) {
             return Err(TOO_LARGE);
@@ -1317,8 +1357,9 @@ fn decode_files(files: &BTreeMap<String, String>) -> Result<Vec<(&str, Vec<u8>)>
             return Err(TOO_LARGE);
         }
         let content_type = image_content_type(path).ok_or(FILE_TYPE)?;
-        if !magic_matches(content_type, &bytes) {
-            return Err(IMAGE_INVALID);
+        pixels += check_image(content_type, &bytes)?;
+        if pixels > MAX_PACKAGE_PIXELS {
+            return Err(TOO_LARGE);
         }
         decoded.push((path.as_str(), bytes));
     }

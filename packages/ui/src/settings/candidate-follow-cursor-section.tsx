@@ -1,4 +1,4 @@
-import { Row, Switch } from "../core/platform-controls";
+import { SwitchRow } from "./switch-row";
 
 export interface CandidateFollowCursorSectionProps {
   value?: boolean;
@@ -11,8 +11,11 @@ export function CandidateFollowCursorSection({
   onChange,
 }: CandidateFollowCursorSectionProps) {
   return (
-    <Row title="候选窗口跟随光标" description="关闭后保持首次出现的位置，直到候选窗口消失。">
-      <Switch checked={value ?? true} onChange={onChange} />
-    </Row>
+    <SwitchRow
+      title="候选窗口跟随光标"
+      description="关闭后保持首次出现的位置，直到候选窗口消失。"
+      checked={value ?? true}
+      onChange={onChange}
+    />
   );
 }

@@ -10,19 +10,22 @@ use crate::types::{CandidateSource, QueryRequest, SchemeType, WordItem};
 
 const TABLE: &str = include_str!("hanja.tsv");
 
-/// Byte range of each syllable's lines in `TABLE`.
-fn index() -> &'static HashMap<&'static str, Range<usize>> {
-    static INDEX: OnceLock<HashMap<&'static str, Range<usize>>> = OnceLock::new();
+/// Byte range and row count of each syllable's lines in `TABLE`.
+fn index() -> &'static HashMap<&'static str, (Range<usize>, usize)> {
+    static INDEX: OnceLock<HashMap<&'static str, (Range<usize>, usize)>> = OnceLock::new();
     INDEX.get_or_init(|| {
-        let mut index: HashMap<&'static str, Range<usize>> = HashMap::new();
+        let mut index: HashMap<&'static str, (Range<usize>, usize)> = HashMap::new();
         let mut start = 0;
         for line in TABLE.split_inclusive('\n') {
             let end = start + line.len();
             if let Some((syllable, _)) = line.split_once('\t') {
                 index
                     .entry(syllable)
-                    .and_modify(|range| range.end = end)
-                    .or_insert(start..end);
+                    .and_modify(|(range, count)| {
+                        range.end = end;
+                        *count += 1;
+                    })
+                    .or_insert((start..end, 1));
             }
             start = end;
         }
@@ -34,12 +37,16 @@ fn index() -> &'static HashMap<&'static str, Range<usize>> {
 pub fn readings(syllable: &str) -> impl Iterator<Item = (&'static str, &'static str)> {
     let lines = index()
         .get(syllable)
-        .map_or("", |range| &TABLE[range.clone()]);
+        .map_or("", |(range, _)| &TABLE[range.clone()]);
     lines.lines().filter_map(|line| {
         let mut fields = line.split('\t');
         let (_, hanja, gloss) = (fields.next()?, fields.next()?, fields.next()?);
         Some((hanja, gloss))
     })
+}
+
+fn reading_count(syllable: &str) -> usize {
+    index().get(syllable).map_or(0, |(_, count)| *count)
 }
 
 /// The 훈음 of `hanja` read as `syllable`; empty when the source has none or the pair is not in the table.
@@ -51,19 +58,20 @@ pub fn gloss(syllable: &str, hanja: &str) -> &'static str {
 
 /// The candidate rows of an open Hanja list: the composing syllable's Hanja in table order. Each row carries the key letters as its code, as Japanese rows carry their romaji, so choosing one completes the composition; it is a `Database` row rather than `Generated`, which the runtime reads as a whole-sentence reading, and it is never learned (the session commits Korean rows without learning).
 pub fn candidates(request: &QueryRequest) -> Vec<WordItem> {
-    readings(&request.normalized_segmentation)
-        .map(|(hanja, _)| {
-            let mut item = WordItem::new(
-                request.raw_input_with_cases.clone(),
-                hanja,
-                0,
-                CandidateSource::Database,
-                "",
-            );
-            item.scheme = SchemeType::Korean;
-            item
-        })
-        .collect()
+    let readings = readings(&request.normalized_segmentation);
+    let mut candidates = Vec::with_capacity(reading_count(&request.normalized_segmentation));
+    for (hanja, _) in readings {
+        let mut item = WordItem::new(
+            request.raw_input_with_cases.clone(),
+            hanja,
+            0,
+            CandidateSource::Database,
+            "",
+        );
+        item.scheme = SchemeType::Korean;
+        candidates.push(item);
+    }
+    candidates
 }
 
 #[cfg(test)]
@@ -149,6 +157,7 @@ mod tests {
         };
         let rows = candidates(&request);
         assert_eq!(rows.len(), readings("한").count());
+        assert_eq!(rows.capacity(), rows.len());
         assert_eq!(rows[0].word, "韓");
         assert_eq!(rows[1].word, "漢");
         for row in &rows {

@@ -29,6 +29,7 @@ pub mod dictionary;
 pub mod file_lock;
 pub mod helpcode;
 pub mod host_surface;
+pub mod notices;
 pub mod panels;
 pub mod plugins;
 pub mod preferences;
@@ -36,6 +37,7 @@ pub mod punctuation;
 pub mod resources;
 pub mod skin;
 mod storage;
+pub mod telemetry;
 mod text;
 
 /// Shared text and hexadecimal validation predicates used by host boundaries.

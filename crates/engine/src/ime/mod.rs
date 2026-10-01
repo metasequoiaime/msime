@@ -617,6 +617,8 @@ fn merge_pinyin_fallback(
         .map(|item| seen.insert(item.word.as_str()))
         .collect::<Vec<_>>();
     drop(seen);
+    let unique_count = unique.iter().filter(|&&is_unique| is_unique).count();
+    candidates.reserve(unique_count);
     candidates.extend(
         pinyin_rows
             .into_iter()
@@ -717,6 +719,16 @@ mod tests {
         let list = merge_pinyin_fallback(Vec::new(), pinyin.clone());
         assert_eq!(list, pinyin);
         assert!(only_pinyin_rows(&list));
+    }
+
+    #[test]
+    fn pinyin_fallback_reserves_unique_rows() {
+        let pinyin: Vec<_> = (0..23)
+            .map(|index| quanpin("ni'hao", &format!("字{index:02}")))
+            .collect();
+        let list = merge_pinyin_fallback(Vec::new(), pinyin);
+        assert_eq!(list.len(), 23);
+        assert_eq!(list.capacity(), list.len());
     }
 
     #[test]

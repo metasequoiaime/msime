@@ -27,6 +27,9 @@ jobs:
       # package-container.sh installs target/offline-glosses when it is there.
       - name: Fetch the locked offline candidate glosses
         run: python3 scripts/fetch_offline_glosses.py
+      # package-container.sh installs target/language-dictionaries (Cantonese and Zhuyin, with their licences) when it is there; until a release is pinned the script prints a skipped line.
+      - name: Fetch the locked language dictionaries
+        run: python3 scripts/fetch_language_dictionaries.py
       # Builds the Release host library and desktop binary, configures the native hosts for /usr with packaging on, runs the same ctest suite the pull-request gate runs (on the Release build, where the tests keep their assertions), then produces the .deb, the .tar.gz and SHA256SUMS.
       - name: Build Linux packages
         env: {VERSION: "${{ steps.version.outputs.value }}"}
@@ -66,6 +69,9 @@ jobs:
           pnpm --filter @msime/desktop build
       - name: Fetch the locked offline candidate glosses
         run: python3 scripts/fetch_offline_glosses.py
+      # package-container.sh installs target/language-dictionaries (Cantonese and Zhuyin, with their licences) when it is there; until a release is pinned the script prints a skipped line.
+      - name: Fetch the locked language dictionaries
+        run: python3 scripts/fetch_language_dictionaries.py
       - name: Build Linux RPM
         env: {VERSION: "${{ steps.version.outputs.value }}", MSIME_PACKAGE_FORMAT: rpm}
         run: bash platforms/linux/package-container.sh "$VERSION"

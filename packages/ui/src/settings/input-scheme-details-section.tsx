@@ -1,4 +1,4 @@
-import { Row, Segmented, Select, Switch } from "../core/platform-controls";
+import { Row, Segmented, Switch } from "../core/platform-controls";
 import type { InputScheme, VietnamesePreferences } from "../index";
 import {
   cantoneseInputSchemeOptions,
@@ -8,8 +8,9 @@ import {
   vietnameseToneStyleOptions,
   zhuyinLayoutOptions,
 } from "./input-scheme-options";
+import { SelectSettingField } from "./select-setting-field";
 import { SettingToggle } from "./setting-toggle";
-import { SettingField } from "./setting-field";
+import { SelectRow } from "./select-row";
 
 export type InputSchemeDetailsScheme = InputScheme;
 export type ShuangpinProfile = "xiaohe" | "ziranma" | "shoudao" | "microsoft";
@@ -79,15 +80,15 @@ export function InputSchemeDetailsSection({
   if (grouped) {
     return (
       <>
-        <Row title="双拼方案" hidden={hideChineseSchemeOptions}>
-          <Select
-            disabled={macos && scheme !== "shuangpin"}
-            value={shuangpinProfile}
-            onChange={(event) => onShuangpinProfileChange(event.target.value as ShuangpinProfile)}
-          >
-            <ShuangpinProfileOptions />
-          </Select>
-        </Row>
+        <SelectRow
+          title="双拼方案"
+          hidden={hideChineseSchemeOptions}
+          disabled={macos && scheme !== "shuangpin"}
+          value={shuangpinProfile}
+          onChange={(event) => onShuangpinProfileChange(event.target.value as ShuangpinProfile)}
+        >
+          <ShuangpinProfileOptions />
+        </SelectRow>
         {macosShuangpinKeymap !== undefined && (
           <Row
             title="输入时显示双拼键位提示"
@@ -100,11 +101,14 @@ export function InputSchemeDetailsSection({
             />
           </Row>
         )}
-        <Row title="五笔方案" hidden={hideChineseSchemeOptions}>
-          <Select value="wubi86" onChange={() => {}}>
-            <WubiSchemeOption />
-          </Select>
-        </Row>
+        <SelectRow
+          title="五笔方案"
+          hidden={hideChineseSchemeOptions}
+          value="wubi86"
+          onChange={() => {}}
+        >
+          <WubiSchemeOption />
+        </SelectRow>
         <Row
           title="日语方案"
           description="直接输入罗马音，提供平假名、片假名及日语词库候选"
@@ -162,20 +166,19 @@ export function InputSchemeDetailsSection({
   return (
     <>
       <div className="section" hidden={hideChineseSchemeOptions}>
-        <SettingField label="双拼方案">
+        <SelectSettingField
+          label="双拼方案"
+          inputLabel="双拼方案"
+          disabled={macos && scheme !== "shuangpin"}
+          value={shuangpinProfile}
+          onChange={(value) => onShuangpinProfileChange(value as ShuangpinProfile)}
+        >
           {/* The source disables this menu unless Shuangpin is the active scheme
               (`_shuangpinSchemeButton.enabled = storedScheme == 1`): until then the
               choice changes nothing, and a live control that does nothing reads as a
               setting being ignored. Other hosts keep it always editable. */}
-          <select
-            aria-label="双拼方案"
-            disabled={macos && scheme !== "shuangpin"}
-            value={shuangpinProfile}
-            onChange={(event) => onShuangpinProfileChange(event.target.value as ShuangpinProfile)}
-          >
-            <ShuangpinProfileOptions />
-          </select>
-        </SettingField>
+          <ShuangpinProfileOptions />
+        </SelectSettingField>
       </div>
       {macosShuangpinKeymap !== undefined && (
         <div className="section" hidden={hasTouchKeyboardSchemes || scheme !== "shuangpin"}>
@@ -190,11 +193,9 @@ export function InputSchemeDetailsSection({
         </div>
       )}
       <div className="section" hidden={hideChineseSchemeOptions}>
-        <SettingField label="五笔方案">
-          <select aria-label="五笔方案" value="wubi86" onChange={() => {}}>
-            <WubiSchemeOption />
-          </select>
-        </SettingField>
+        <SelectSettingField label="五笔方案" inputLabel="五笔方案" value="wubi86" onChange={() => {}}>
+          <WubiSchemeOption />
+        </SelectSettingField>
       </div>
       <div
         className="section"

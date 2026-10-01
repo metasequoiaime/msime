@@ -126,6 +126,7 @@ test("community home opens the requested resource collection", async () => {
     rate: vi.fn(),
     publish: vi.fn(),
     unpublish: vi.fn(),
+    setCategory: vi.fn(),
     finishTrial: vi.fn(),
   };
   render(

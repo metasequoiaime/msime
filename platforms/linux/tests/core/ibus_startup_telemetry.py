@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""IBus 宿主的启动上报：注册 component 之后才在后台线程发出，端点挂起也不耽误注册和主循环；守护进程崩溃重启（--recovered）时不发；上报的版本是构建版本。
+"""IBus 宿主的使用上报：会话在启动时开始（文件 I/O，不联网），投递在注册 component 之后的后台线程里进行，端点挂起也不耽误注册和主循环；崩溃守护重启（--recovered）同样开始新会话，上一会话留下崩溃记录时补报 crash 和 session_crash；宿主收到崩溃信号时只把崩溃记录写到磁盘。
 
-跑的是真的 msime-linux-ibus 和真的 platforms/common/Telemetry.cpp。ibus-daemon 由一个普通 dbus-daemon 加 ibus-registration-bus 桩代替，桩只应答 RegisterComponent 并打出注册时刻和宿主的总线名。端点挂起期间，桩的 probe 模式向宿主的 IBusFactory 请求一个不存在的引擎：这个错误只能由宿主主循环回出来，所以上报一旦回到主线程同步执行，探测就会超时。上报端点经 libcurl 自己认的 HTTPS_PROXY 指到本地一个只 accept、从不回应的 TCP 监听，所以请求永远到不了 api.msime.app，而且对宿主来说就是一个挂起的端点。事件在发送前先写进 $XDG_STATE_HOME/msime/telemetry.json，版本号从那里核对。
+跑的是真的 msime-linux-ibus、真的 platforms/common/Telemetry.cpp 和它包装的 Host API。ibus-daemon 由一个普通 dbus-daemon 加 ibus-registration-bus 桩代替，桩只应答 RegisterComponent 并打出注册时刻和宿主的总线名。端点挂起期间，桩的 probe 模式向宿主的 IBusFactory 请求一个不存在的引擎：这个错误只能由宿主主循环回出来，所以投递一旦回到主线程同步执行，探测就会超时。投递经 HTTPS_PROXY（Host API 的 HTTP 客户端自己认）指到本地一个只 accept、从不回应的 TCP 监听，所以请求永远到不了 api.msime.app，而且对宿主来说就是一个挂起的端点。事件先排进 $XDG_STATE_HOME/msime/telemetry.json，内容从那里核对。
 
 用法：ibus_startup_telemetry.py HOST REGISTRATION_BUS EXPECTED_VERSION
 """
@@ -72,7 +72,7 @@ def stop(process):
             process.wait()
 
 
-def run_host(host, registration_bus, scratch, recovered):
+def run_host(host, registration_bus, scratch, recovered, legacy_queue=False):
     """Start the host against a fresh bus and endpoint; returns (registration time, main loop probe, endpoint, host process, cleanup)."""
     bus_socket = scratch / "bus"
     daemon = subprocess.Popen(
@@ -102,7 +102,7 @@ def run_host(host, registration_bus, scratch, recovered):
         options = scratch / "options/runtime-options.json"
         options.parent.mkdir()
         options.write_text('{"preferences":{}}')
-        if not recovered:
+        if legacy_queue:
             queue = scratch / "state/msime"
             queue.mkdir(parents=True)
             (queue / "telemetry.json").write_text(json.dumps([
@@ -119,7 +119,7 @@ def run_host(host, registration_bus, scratch, recovered):
             "XDG_RUNTIME_DIR": str(scratch),
             "IBUS_ADDRESS": address,
             "DBUS_SESSION_BUS_ADDRESS": address,
-            # libcurl reads these itself, so the request goes to the hanging endpoint instead of api.msime.app.
+            # The Host API's HTTP client reads these itself, so the request goes to the hanging endpoint instead of api.msime.app.
             "HTTPS_PROXY": proxy, "https_proxy": proxy, "ALL_PROXY": proxy, "all_proxy": proxy,
         }
         arguments = [host] + (["--recovered"] if recovered else []) + [str(options)]
@@ -128,7 +128,7 @@ def run_host(host, registration_bus, scratch, recovered):
         with log.open("w") as output:
             process = subprocess.Popen(arguments, env=environment, stdout=output, stderr=subprocess.STDOUT)
         processes.append(process)
-        # Registration must not wait on the endpoint. The old synchronous send held it for the 3 s connect timeout; well under that leaves room for a slow machine.
+        # Registration must not wait on the endpoint; well under the client's timeouts leaves room for a slow machine.
         wait_for(lambda: registrations or process.poll() is not None, "host never registered its component", timeout=10)
         assert registrations, ("host exited before registering", process.returncode, log.read_text())
         registered, sender = registrations[0]
@@ -144,9 +144,21 @@ def run_host(host, registration_bus, scratch, recovered):
         raise
 
 
+STATE = "state/msime"
+
+
 def events(scratch):
-    path = scratch / "state/msime/telemetry.json"
+    path = scratch / STATE / "telemetry.json"
     return json.loads(path.read_text()) if path.exists() else []
+
+
+def kinds(scratch):
+    return [event["kind"] for event in events(scratch)]
+
+
+def crash_records(scratch):
+    directory = scratch / STATE / "telemetry-crashes"
+    return sorted(directory.glob("*.crash")) if directory.exists() else []
 
 
 def main():
@@ -157,23 +169,26 @@ def main():
         print("dbus-daemon is not installed; skipping", file=sys.stderr)
         return SKIP
 
-    # 正常启动：注册先完成，然后后台线程才连端点，端点一直不回应，宿主照常活着。
+    # 正常启动：会话开始时排进当天的 active，旧版 C++ 上报器留下的每次启动 download 被迁移丢弃；注册先完成，然后后台线程才连端点，端点一直不回应，宿主照常活着。
     with tempfile.TemporaryDirectory() as name:
         scratch = Path(name)
-        registered, probe, endpoint, process, cleanup = run_host(host, registration_bus, scratch, recovered=False)
+        registered, probe, endpoint, process, cleanup = run_host(host, registration_bus, scratch, recovered=False, legacy_queue=True)
         try:
-            wait_for(lambda: endpoint.connections, "startup event was never sent")
+            wait_for(lambda: endpoint.connections, "queued events were never sent")
             accepted, request = endpoint.connections[0]
             assert request.startswith("CONNECT api.msime.app:443 "), request
             assert accepted >= registered, ("telemetry ran before registration", accepted, registered)
-            # While the request hangs, the main loop that serves ibus-daemon's CreateEngine and focus calls must still answer. A send moved back onto the main thread after registration passes every other check here: registration still comes first, the event is still queued and the process is still alive, blocked inside curl.
+            # While the request hangs, the main loop that serves ibus-daemon's CreateEngine and focus calls must still answer. A send moved back onto the main thread after registration passes every other check here: registration still comes first, the event is still queued and the process is still alive, blocked inside the request.
             reply = probe().split()
             assert reply[:1] == ["reply"] and reply[2:] == ["org.freedesktop.DBus.Error.Failed"], ("main loop did not answer within 1 s while the endpoint hung", reply)
-            wait_for(lambda: events(scratch), "startup event was not queued")
             [event] = events(scratch)
             assert {key: event[key] for key in ("kind", "platform", "version")} == {
-                "kind": "download", "platform": "linux", "version": version}, event
-            assert set(event) == {"id", "kind", "platform", "version"}, event
+                "kind": "active", "platform": "linux", "version": version}, event
+            install_id = event["install_id"]
+            assert 16 <= len(install_id) <= 64, install_id
+            assert event["id"].startswith(f"active-{install_id}-"), event
+            assert set(event) == {"id", "kind", "platform", "version", "install_id"}, event
+            assert (scratch / STATE / "telemetry-session.json").exists()
             # The request is still hanging and the host keeps running beside it.
             time.sleep(1)
             assert process.poll() is None, ("host exited while the endpoint hung", process.returncode)
@@ -181,15 +196,44 @@ def main():
         finally:
             cleanup()
 
-    # 守护进程重启（--recovered）：同样注册，但不发也不落盘任何启动事件。
+    # 崩溃守护重启（--recovered）：上一会话留下了崩溃记录，所以补报 session_crash 和 crash，崩溃记录里的目录只剩文件名；同样排进 active。
     with tempfile.TemporaryDirectory() as name:
         scratch = Path(name)
+        state = scratch / STATE
+        (state / "telemetry-crashes").mkdir(parents=True)
+        previous = "6f1c2a7e-0d35-4c0b-9a4e-2f8d1b3c4e5f"
+        (state / "telemetry-session.json").write_text(json.dumps(
+            {"id": previous, "platform": "linux", "version": "0.0.1", "started_at_unix_ms": 1}))
+        (state / "telemetry-crashes" / f"{previous}.crash").write_text(
+            "SIGSEGV: segmentation fault\n/home/someone/.local/lib/libmsime_host_api.so(+0x1f) [0x7f00]\n")
         _, _, endpoint, process, cleanup = run_host(host, registration_bus, scratch, recovered=True)
         try:
-            time.sleep(3)
+            wait_for(lambda: endpoint.connections, "queued events were never sent")
             assert process.poll() is None, ("recovered host exited", process.returncode)
-            assert not endpoint.connections, endpoint.connections
-            assert not events(scratch), events(scratch)
+            queued = events(scratch)
+            assert [event["kind"] for event in queued] == ["session_crash", "crash", "active"], queued
+            session_crash, crash, _ = queued
+            assert session_crash["id"] == f"session-{previous}" and session_crash["version"] == "0.0.1", session_crash
+            assert crash["message"] == "SIGSEGV: segmentation fault", crash
+            assert crash["stack"] == "libmsime_host_api.so(+0x1f) [0x7f00]", crash
+            assert "someone" not in json.dumps(queued)
+            assert not crash_records(scratch)
+        finally:
+            cleanup()
+
+    # 宿主收到崩溃信号：处理函数只把这次会话的崩溃记录写到磁盘（第一行是信号摘要），然后照默认动作退出，不联网。
+    with tempfile.TemporaryDirectory() as name:
+        scratch = Path(name)
+        _, _, endpoint, process, cleanup = run_host(host, registration_bus, scratch, recovered=False)
+        try:
+            wait_for(lambda: endpoint.connections, "queued events were never sent")
+            connections = len(endpoint.connections)
+            process.send_signal(signal.SIGSEGV)
+            process.wait(timeout=10)
+            assert process.returncode == -signal.SIGSEGV, process.returncode
+            [record] = crash_records(scratch)
+            assert record.read_text().startswith("SIGSEGV: segmentation fault\n"), record.read_text()
+            assert len(endpoint.connections) == connections, "the crash path used the network"
         finally:
             cleanup()
     return 0

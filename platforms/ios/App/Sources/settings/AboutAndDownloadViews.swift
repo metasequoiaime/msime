@@ -72,6 +72,8 @@ struct DesktopDownloadView: View {
 }
 
 struct AboutView: View {
+  @State private var usageReporting = UsageReporting.isEnabled
+  @State private var usageReportingFailed = false
   private var version: String {
     let info = Bundle.main.infoDictionary ?? [:]
     return "\(info["CFBundleShortVersionString"] as? String ?? "—") (\(info["CFBundleVersion"] as? String ?? "—"))"
@@ -115,14 +117,27 @@ struct AboutView: View {
         }
       }
       Section {
+        Toggle("发送匿名使用统计", isOn: Binding(get: { usageReporting }, set: { enabled in
+          if UsageReporting.setEnabled(enabled) { usageReporting = enabled } else { usageReportingFailed = true }
+        })).accessibilityIdentifier("usageReportingToggle")
+      } header: {
+        Text("使用统计")
+      } footer: {
+        Text("开启时，键盘每次显示结束后记一次使用，每天记一次活跃，崩溃后附上崩溃位置（程序模块名与偏移，不含文件路径），连同版本号、平台和一个本机随机生成的安装编号发送给水杉。安装编号与设备、账号无关，不发送输入内容、联系人或任何个人信息。关闭后不再记录或发送，未发送的记录立即删除。")
+      }
+      Section {
         Link(destination: URL(string: "https://msime.app/privacy/")!) {
           SettingsRowLabel(title: "隐私说明", detail: "msime.app", symbol: "hand.raised.fill")
         }
       } header: {
         Text("隐私")
       } footer: {
-        Text("键盘默认离线。仅在你使用 AI 或语音时，将本次文字或录音发送到所配置的服务。账号、云同步和皮肤社区按你启用的功能联网。手写首次联网下载模型，之后在设备上识别；Google ML Kit 会发送性能及使用统计，不会上传笔迹或识别结果。")
+        Text("键盘默认离线。仅在你使用 AI 或语音时，将本次文字或录音发送到所配置的服务。账号、云同步和皮肤社区按你启用的功能联网；开启「发送匿名使用统计」时，本应用和允许完全访问的键盘会发送上面的使用统计。手写首次联网下载模型，之后在设备上识别；Google ML Kit 会发送性能及使用统计，不会上传笔迹或识别结果。")
       }
     }.navigationTitle("关于水杉").navigationBarTitleDisplayMode(.inline)
+      .onAppear { usageReporting = UsageReporting.isEnabled }
+      .alert("无法保存设置", isPresented: $usageReportingFailed) { Button("好", role: .cancel) {} } message: {
+        Text("设置被键盘同时修改了，请稍后再试。")
+      }
   }
 }

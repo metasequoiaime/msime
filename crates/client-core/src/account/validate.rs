@@ -381,7 +381,7 @@ pub(super) fn read_bounded_response(
     maximum_response_bytes: usize,
 ) -> Result<Vec<u8>, AccountError> {
     if !response.status().is_success() {
-        return Err(AccountError::from_status(response.status()));
+        return Err(error_from_response(response));
     }
     if response
         .content_length()
@@ -391,6 +391,15 @@ pub(super) fn read_bounded_response(
     }
     crate::bounded_io::read_bounded(response, maximum_response_bytes as u64)
         .map_err(|_| AccountError::Unavailable)
+}
+
+/// Largest error body read to find the server's error code; the backend's error documents are a few dozen bytes.
+const MAX_ERROR_BODY_BYTES: u64 = 4096;
+
+pub(super) fn error_from_response(response: Response) -> AccountError {
+    let status = response.status();
+    let body = crate::bounded_io::read_bounded(response, MAX_ERROR_BODY_BYTES).unwrap_or_default();
+    AccountError::from_response(status, &body)
 }
 
 pub fn validate_account_preferences(value: &AccountPreferences) -> Result<(), AccountError> {

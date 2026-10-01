@@ -2033,6 +2033,21 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 - 打字统计的 30 天明细表和永久保留由 PR #652 处理，这一批没有改动。
 - 验证层级：TypeScript 部分在本机跑了 vitest 和 typecheck；`msime-client-core` 在本机跑了 cargo test；配色头文件测试在本机用 clang 编译并运行；Windows 窗口和面板定位代码经 `build-cross.sh x64` 和 `cargo check --target x86_64-pc-windows-gnu` 交叉编译。以上都没有在 Windows 桌面上实际操作过。
 
+### Windows：使用上报改走共享上报器，默认开启（2026-10-02）
+
+- 取代下面 2026-09-24 那一节的开关与事件：`telemetry_enabled` 不再读取，改读共享偏好 `usage_reporting`，默认开启，用户可以关闭。`TelemetryConsent.h` 的 `usage_reporting_enabled` 把缺省读作开启、显式 `false` 读作关闭，读不出布尔值时按关闭处理。
+- 事件：`platforms/common/Telemetry.cpp` 改成 Host API `msime_client_telemetry_*` 的薄封装，Server 不再自己用 libcurl 发送，也不再每次启动发 `download`。一个 Server 进程就是一次会话：启动时开始（只做文件 I/O，目录仍是 `%LOCALAPPDATA%\MSIME`，旧队列由 Host API 迁移），每天最多排一条 `active`，消息循环正常结束时排一条 `session`。投递在不等待的后台线程里进行，启动时一次，之后每 30 分钟一次。
+- 崩溃：`std::set_terminate` 回调写入异常类型和第一行说明（JSON 异常只保留类型和编号）以及 `CaptureStackBackTrace` 的调用栈；新增 `SetUnhandledExceptionFilter`，在不分配堆内存的前提下写入异常代码、出错模块和偏移，x64 上再用 `RtlVirtualUnwind` 沿 CONTEXT 回溯。两条路径都只写这次会话的崩溃记录，不联网；下次启动时变成 `crash` 和 `session_crash`，模块只保留文件名。只留下会话标记（注销、关机、被结束进程）不算崩溃。
+- 开关随偏好发布立即生效：关闭时清空队列、会话标记和崩溃记录，并停止记录崩溃；重新开启时像 Server 启动一样开始新会话。
+- 文案：设置页「匿名使用统计」和安装器「联网功能」页改为默认开启，并逐项写出发送内容。
+- 证据：`windows-telemetry-consent` 改为覆盖新的默认值和旧键；共享封装的会话、信号、terminate 和开关路径由 Linux 构建门禁里的 `common-telemetry` 在真实进程中验证。Windows 专有代码（异常过滤器、回溯、Server 接线、设置页、安装器）只能交给 Windows CI，本机没有编译或运行。
+
+### Windows：使用上报改为默认开启的 usage_reporting，走共享 Host API（2026-10-02）
+
+- 偏好：Server 和原生设置窗口都改读写共享偏好 `usage_reporting`（默认开启，开着时共享层不写进文档），不再读 `telemetry_enabled`；`TelemetryConsent.h` 的 `usage_reporting_enabled` 把缺省读作开启、显式 `false` 读作关闭、读不懂的值读作关闭。设置窗口「数据与隐私」和安装器「联网功能」页的文案逐项写出现在发送的内容。
+- Server：`platforms/common/Telemetry.cpp` 成为 Host API `msime_client_telemetry_*` 的薄封装，队列、安装 id、每日 `active`、会话和投递都在 Rust 里，不再用 libcurl 发遥测。每个 Server 进程一次会话，消息循环退出时排进 `session`；`std::set_terminate` 和 `SetUnhandledExceptionFilter` 只把崩溃记录（异常摘要加 `模块文件名+偏移` 的调用栈）写到 `%LOCALAPPDATA%\MSIME\telemetry-crashes`，下次启动才变成 `crash` 和 `session_crash`。投递在不等待的后台线程里进行，每 30 分钟一轮。偏好发布时开关立即生效：关闭清空队列并解除崩溃捕获。
+- 证据：`windows-telemetry-consent` 改为覆盖新语义；SEH 路径、Server 的实际投递和设置窗口文案只能在 Windows CI 和真机上看。
+
 ### Windows：启动与崩溃上报改为用户开启，默认关闭（2026-09-24）
 
 - 原状：`server_main.cpp` 在 `wmain` 第一行同步调用 `msime::telemetry::start`，Server 每次被拉起都先向 `https://api.msime.app/v1/telemetry/events` POST 一次、写一次 `%LOCALAPPDATA%\MSIME\telemetry.json`，端点慢或不可达时最多拖住启动 8 秒；`std::set_terminate` 的崩溃回调同样无条件上报。没有任何偏好能关掉它，安装器「联网功能」页却写着云候选是「唯一一个装完就会生效的联网功能」。

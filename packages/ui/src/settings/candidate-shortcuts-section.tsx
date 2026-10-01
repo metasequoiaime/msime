@@ -1,6 +1,7 @@
 import * as settings from "./settings-style";
-import { GroupList, Row, Switch } from "../core/platform-controls";
+import { GroupList, Row } from "../core/platform-controls";
 import type { NavigationPreferences } from "./word-character-section";
+import { SwitchRow } from "./switch-row";
 
 export interface CandidateShortcutsSectionProps {
   navigation: NavigationPreferences;
@@ -24,9 +25,12 @@ export function CandidateShortcutsSection({
     <GroupList title="候选操作">
       <p className={settings.groupNote}>输入和选取候选词时使用</p>
       {showNumberRowSelection && (
-        <Row title="数字键选词" description="关闭后，候选窗口显示时数字键仍交给当前应用。">
-          <Switch checked={numberRowSelection} onChange={onNumberRowSelectionChange} />
-        </Row>
+        <SwitchRow
+          title="数字键选词"
+          description="关闭后，候选窗口显示时数字键仍交给当前应用。"
+          checked={numberRowSelection}
+          onChange={onNumberRowSelectionChange}
+        />
       )}
       <Row title="选择候选">{key(`Space${numberRowSelection ? " 或 1–9" : ""}`)}</Row>
       {navigation.minus_equal && <Row title="向前 / 向后翻页">{key("- / =")}</Row>}

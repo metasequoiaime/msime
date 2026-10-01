@@ -48,7 +48,10 @@ fi
 gradle_dir="$repo_root/platforms/android/gradle-app"
 tauri_gradlew="$repo_root/apps/desktop/src-tauri/gen/android/gradlew"
 [[ -x "$tauri_gradlew" ]] || { echo "Gradle wrapper required; run the Tauri Android init once" >&2; exit 1; }
-ANDROID_HOME="$android_sdk" "$tauri_gradlew" --project-dir "$gradle_dir" --console=plain assembleRelease
+# The APK's versionName comes from version.txt; MSIME_ANDROID_VERSION (the release workflow's version input) overrides it.
+version_args=()
+[[ -n "${MSIME_ANDROID_VERSION:-}" ]] && version_args+=("-PmsimeVersion=$MSIME_ANDROID_VERSION")
+ANDROID_HOME="$android_sdk" "$tauri_gradlew" --project-dir "$gradle_dir" --console=plain ${version_args[@]+"${version_args[@]}"} assembleRelease
 
 unsigned="$gradle_dir/app/build/outputs/apk/release/app-release-unsigned.apk"
 [[ -f "$unsigned" ]] || { echo "Expected host APK not produced" >&2; exit 1; }

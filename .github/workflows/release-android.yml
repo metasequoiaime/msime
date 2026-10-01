@@ -24,6 +24,7 @@ jobs:
       - name: Fetch the locked offline candidate glosses
         run: python3 scripts/fetch_offline_glosses.py
       - name: Build native Android host
+        env: {MSIME_ANDROID_VERSION: "${{ steps.version.outputs.value }}"}
         run: |
           set -euo pipefail
           mkdir -p target/resources

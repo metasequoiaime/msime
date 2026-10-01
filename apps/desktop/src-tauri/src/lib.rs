@@ -9,6 +9,7 @@ mod clipboard_history;
 mod dictionary_import;
 // Only the two hosts that have to replay input into another window build this.
 // macOS delivers through the input method itself and needs none of it.
+mod notices;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 mod panel_input;
 mod panel_window;
@@ -42,8 +43,8 @@ use panel_input::{send_panel_key_windows, send_panel_text_windows, windows_panel
 use platform::android::android_account;
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 use platform::desktop::{
-    desktop_account, desktop_candidate_skin_community, desktop_plugin_community, desktop_plugins,
-    desktop_preferences_monitor,
+    desktop_account, desktop_candidate_skin_community, desktop_community_report,
+    desktop_plugin_community, desktop_plugins, desktop_preferences_monitor,
 };
 #[cfg(target_os = "ios")]
 use platform::ios::ios_account;
@@ -4746,6 +4747,7 @@ pub fn run() {
             }
             app.manage(TypingStatisticsState(typing_statistics));
             app.manage(DiagnosticLogState(directory.clone()));
+            app.manage(notices::NoticesState(directory.clone()));
             // The staging root, not the Engine resource directory inside it: `wordbooks/` is a
             // sibling of `EngineResources/` because `ResourceStore::verify` requires that
             // directory to hold exactly the pinned dictionary artifacts, and one extra entry
@@ -5040,6 +5042,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             host_capabilities,
+            notices::notices_list,
+            notices::notice_dismiss,
             list_voice_capture_devices,
             capture_voice_pcm,
             supports_font_catalog,
@@ -5297,6 +5301,8 @@ pub fn run() {
             #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
             desktop_candidate_skin_community::candidate_skin_community_sync,
             #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+            desktop_community_report::community_report,
+            #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
             desktop_plugin_community::plugin_community_list,
             #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
             desktop_plugin_community::plugin_community_detail,
@@ -5381,6 +5387,8 @@ pub fn run() {
             #[cfg(target_os = "android")]
             android_account::account_preferences_apply,
             #[cfg(any(target_os = "ios", target_os = "android"))]
+            mobile_community::community_report,
+            #[cfg(any(target_os = "ios", target_os = "android"))]
             mobile_community::community_skin_list,
             #[cfg(any(target_os = "ios", target_os = "android"))]
             mobile_community::community_skin_detail,
@@ -5392,6 +5400,8 @@ pub fn run() {
             mobile_community::community_skin_publish,
             #[cfg(any(target_os = "ios", target_os = "android"))]
             mobile_community::community_skin_unpublish,
+            #[cfg(any(target_os = "ios", target_os = "android"))]
+            mobile_community::community_skin_set_category,
             #[cfg(any(target_os = "ios", target_os = "android"))]
             mobile_community::community_skin_finish_trial,
             #[cfg(any(target_os = "ios", target_os = "android"))]

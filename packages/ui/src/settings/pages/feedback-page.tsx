@@ -1,10 +1,11 @@
 import * as doc from "../document-style";
 import * as settings from "../settings-style";
 import { useSettingsForm } from "../settings-form-context";
-import { GroupList, Row, Select } from "../../core/platform-controls";
+import { GroupList } from "../../core/platform-controls";
 import { SubPageEntries } from "./sub-page-entries";
 import { createSettingsExternalActions } from "../settings-external-actions";
 import { FeedbackChannels } from "../feedback-channels";
+import { FeedbackReportFields } from "../feedback-report-fields";
 
 /** The 反馈 page of the settings form. */
 export function FeedbackSettingsPage() {
@@ -39,31 +40,13 @@ export function FeedbackSettingsPage() {
         <GroupList title="提交可复现的问题">
           <div className={settings.rowStack} role="group" aria-label="问题报告">
             <p className={settings.groupNote}>报告只在你点击按钮时生成，不会读取或上传输入历史。</p>
-            <Row title="类型">
-              <Select
-                aria-label="反馈类型"
-                value={feedbackKind}
-                onChange={(event) => setFeedbackKind(event.target.value)}
-              >
-                <option>功能异常</option>
-                <option>候选词不对</option>
-                <option>功能建议</option>
-                <option>其他</option>
-              </Select>
-            </Row>
-            <div className={settings.managerBlock}>
-              <label className={settings.field}>
-                <span data-row-title="">描述</span>
-                <textarea
-                  aria-label="反馈描述"
-                  className={settings.promptInput}
-                  maxLength={4000}
-                  value={feedbackDetail}
-                  onChange={(event) => setFeedbackDetail(event.target.value)}
-                  placeholder="发生了什么？如果和打字有关，写出输入方案、编码和期望结果。"
-                  rows={6}
-                />
-              </label>
+            <FeedbackReportFields
+              grouped
+              kind={feedbackKind}
+              detail={feedbackDetail}
+              onKindChange={setFeedbackKind}
+              onDetailChange={setFeedbackDetail}
+            >
               <div className={doc.note}>
                 <strong>会一起附上的信息</strong>
                 <span className="block break-anywhere">{supportDiagnostics}</span>
@@ -83,7 +66,7 @@ export function FeedbackSettingsPage() {
               <p className={settings.managerNote}>
                 提交会打开 GitHub 并预填报告；网址长度有限，过长描述会被截断，完整内容请先复制。
               </p>
-            </div>
+            </FeedbackReportFields>
           </div>
         </GroupList>
         <GroupList title="反馈与交流">

@@ -7,6 +7,7 @@ import { GroupList, Row } from "../../core/platform-controls";
 import { TouchKeyboardGeometrySection } from "../touch-keyboard-geometry-section";
 import * as controls from "../../core/platform-controls-style";
 import { createSettingsDraftActions } from "../settings-draft-actions";
+import { OpenPanelButton } from "../open-panel-button";
 
 /** The 屏幕键盘 page of the settings form. */
 export function ScreenKeyboardSettingsPage() {
@@ -101,14 +102,14 @@ export function ScreenKeyboardSettingsPage() {
         />
         <GroupList title="屏幕键盘">
           <Row title="打开屏幕键盘" description="使用鼠标或触控方式输入文字与快捷按键">
-            <button
-              type="button"
+            <OpenPanelButton
+              action={
+                client.openScreenKeyboard
+                  ? () => openPanel(client.openScreenKeyboard)
+                  : undefined
+              }
               className={`secondary ${settings.openButton}`}
-              disabled={!client.openScreenKeyboard}
-              onClick={() => void openPanel(client.openScreenKeyboard)}
-            >
-              打开
-            </button>
+            />
           </Row>
           <div className={settings.groupPreview} aria-label="屏幕键盘预览">
             <div className={settings.panelPreviewLabel}>预览</div>

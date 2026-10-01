@@ -151,9 +151,6 @@ std::atomic<bool> stopping{false};
 std::atomic<bool> restart_requested{false};
 // Set by the maintenance stop shortcut. The Watchdog reads any other exit as a crash and starts the Server again, so a user's stop has to leave with stop_exit_code, as the reference's window hook does.
 std::atomic<bool> stop_requested{false};
-// The user's `telemetry_enabled` preference, read by the terminate hook on whatever thread fails. Off until the stored preferences say otherwise, so a Server that dies before reading them reports nothing.
-std::atomic<bool> telemetry_allowed{false};
-static_assert(std::atomic<bool>::is_always_lock_free);
 BOOL WINAPI console_control(DWORD event) {
   if (event != CTRL_C_EVENT && event != CTRL_BREAK_EVENT)
     return FALSE;
@@ -671,13 +668,14 @@ unsigned typing_effect_intensity(const nlohmann::json &preferences) {
 }
 } // namespace
 int wmain(int argc, wchar_t **argv) {
-  // Before any thread exists: libcurl's global init is not thread-safe, and the startup event's thread, a crash report on any thread and the online workers all use it.
+  // Before any thread exists: libcurl's global init is not thread-safe, and the online workers use it.
   curl_global_init(CURL_GLOBAL_DEFAULT);
+  // Crash capture only writes this session's crash record to disk, and only once telemetry::begin armed it with the user's consent; the next start reports it.
   std::set_terminate([] {
-    if (telemetry_allowed.load(std::memory_order_acquire))
-      msime::telemetry::crash("windows", MSIME_WINDOWS_VERSION, "std::terminate");
+    msime::telemetry::record_terminate();
     std::abort();
   });
+  msime::telemetry::install_crash_handlers();
   using namespace msime::windows;
   const auto launch = parse_server_arguments(argc, argv);
   attach_launching_console(launch);
@@ -751,10 +749,11 @@ int wmain(int argc, wchar_t **argv) {
     if (stopping.load())
       return 0;
     apply_diagnostic_log(diagnostic_log, prepared.at("value").at("preferences"));
-    // Opt-in: nothing is sent and telemetry.json is not written unless the stored preferences turn it on. The startup event runs off the main thread so an unreachable endpoint (up to the 8 s request timeout) cannot delay the Server; the thread is never joined, so exiting mid-request only drops this event.
-    if (msime::windows::telemetry_consented(prepared.at("value").at("preferences"))) {
-      telemetry_allowed.store(true, std::memory_order_release);
-      std::thread([] { msime::telemetry::start("windows", MSIME_WINDOWS_VERSION); }).detach();
+    // Usage reporting, on unless the user turned usage_reporting off: one session per Server process, kept in this Windows user's %LOCALAPPDATA%\MSIME. begin closes the previous session (session_crash only when it left a crash record) and queues today's active; it is file I/O only. Delivery runs on a thread that is never joined, so an unreachable endpoint cannot delay the Server and exiting mid-request only leaves the events queued for the next start.
+    const bool usage_reporting = msime::windows::usage_reporting_enabled(prepared.at("value").at("preferences"));
+    if (const auto telemetry_directory = msime::telemetry::default_directory(); !telemetry_directory.empty()) {
+      msime::telemetry::begin({"windows", MSIME_WINDOWS_VERSION, telemetry_directory, usage_reporting, {}});
+      msime::telemetry::start_flushing();
     }
     // The user's anonymous MSIME account is registered on the first run after install, as on every other platform; once anonymous-session.json exists this is a file read. It runs off the main thread for the same reason as the telemetry event, and a failure (offline, rate limited) is simply retried on the next start.
     if (const auto account = anonymous_account_directory(); production && !account.empty()) {
@@ -871,9 +870,8 @@ int wmain(int argc, wchar_t **argv) {
               nlohmann::json::parse(snapshot.serialized()).at("preferences");
           candidate_theme->publish(preferences);
           apply_diagnostic_log(diagnostic_log, preferences);
-          // A change applies to crash reports straight away; the startup event is sent at the next Server start.
-          telemetry_allowed.store(msime::windows::telemetry_consented(preferences),
-                                  std::memory_order_release);
+          // Turning reporting off clears what is queued and disarms crash capture at once; turning it on starts a session as a Server start would.
+          msime::telemetry::set_enabled(msime::windows::usage_reporting_enabled(preferences));
           if (auto settings = floating_toolbar_settings(preferences))
             toolbar_settings->publish(snapshot.revision(), *settings);
           if (auto fonts = candidate_font_settings(preferences))
@@ -1829,6 +1827,8 @@ int wmain(int argc, wchar_t **argv) {
     character_set_clicks.stop();
     mode_clicks.stop();
     english_reads.stop();
+    // Every way out of the message loop is a normal end of this session.
+    msime::telemetry::end();
     if (restart_requested.load()) {
       diagnostic_log.server("Server stopping: restart requested");
       return msime::windows::watchdog::restart_exit_code;

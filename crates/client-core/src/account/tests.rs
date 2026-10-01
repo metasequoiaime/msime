@@ -1656,6 +1656,12 @@ fn avatar_uploads_are_read_by_their_contents() {
     std::fs::write(&empty, b"").unwrap();
     let link = directory.path().join("link.png");
     std::os::unix::fs::symlink(&png, &link).unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let outside_png = outside.path().join("outside.png");
+    std::fs::write(&outside_png, b"\x89PNG\r\n\x1a\nexternal").unwrap();
+    let linked_parent = directory.path().join("linked-parent");
+    std::os::unix::fs::symlink(outside.path(), &linked_parent).unwrap();
+    let nested_link = linked_parent.join("outside.png");
     for path in [&gif, &webp, &large, &empty, &link, directory.path()] {
         assert_eq!(
             read_account_avatar_upload(path),
@@ -1663,6 +1669,10 @@ fn avatar_uploads_are_read_by_their_contents() {
             "{path:?}"
         );
     }
+    assert_eq!(
+        read_account_avatar_upload(&nested_link),
+        Err(AccountError::Invalid)
+    );
     assert_eq!(
         read_account_avatar_upload(Path::new("relative.png")),
         Err(AccountError::Invalid)
@@ -1976,4 +1986,64 @@ fn oversized_session_file_is_refused() {
     )
     .unwrap();
     assert!(matches!(storage.load(), Err(AccountError::Storage)));
+}
+
+#[test]
+fn moderation_refusals_are_told_apart_by_the_error_code() {
+    for (status, code, expected) in [
+        (
+            "422 Unprocessable Entity",
+            "blocked_content",
+            AccountError::BlockedContent,
+        ),
+        (
+            "400 Bad Request",
+            "blocked_content",
+            AccountError::BlockedContent,
+        ),
+        (
+            "503 Service Unavailable",
+            "screening_unavailable",
+            AccountError::ScreeningUnavailable,
+        ),
+        ("403 Forbidden", "account_banned", AccountError::Banned),
+        ("403 Forbidden", "forbidden", AccountError::Forbidden),
+        (
+            "503 Service Unavailable",
+            "auth_unavailable",
+            AccountError::Unavailable,
+        ),
+    ] {
+        let body = format!(r#"{{"error":{{"code":"{code}","message":"{code}"}}}}"#);
+        let response = format!(
+            "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nRetry-After: 30\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        let client = BackendAccountClient::loopback(&serve_once(response.into_bytes())).unwrap();
+        let result = client.json::<serde_json::Value, ()>(
+            Method::POST,
+            "/v1/community/resources",
+            Some(&token(b'a')),
+            None,
+        );
+        assert_eq!(result, Err(expected.clone()), "{status} {code}");
+    }
+    // A body that is not the server's error document falls back to the status.
+    let response =
+        b"HTTP/1.1 422 Unprocessable Entity\r\nContent-Length: 2\r\nConnection: close\r\n\r\nno"
+            .to_vec();
+    let client = BackendAccountClient::loopback(&serve_once(response)).unwrap();
+    assert_eq!(
+        client.json::<serde_json::Value, ()>(Method::GET, "/v1/community/skins", None, None),
+        Err(AccountError::Unavailable)
+    );
+    assert_eq!(
+        AccountError::BlockedContent.code(),
+        "account_blocked_content"
+    );
+    assert_eq!(
+        AccountError::ScreeningUnavailable.code(),
+        "account_screening_unavailable"
+    );
+    assert_eq!(AccountError::Banned.code(), "account_banned");
 }

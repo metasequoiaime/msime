@@ -40,6 +40,14 @@ public final class OnlineCandidatePolicySmoke {
         check(!OnlineCandidatePolicy.signature(7, "a:b", "c", true, "")
             .equals(OnlineCandidatePolicy.signature(7, "a", "b:c", true, "")));
 
+        // 失败请求只有仍属于当前会话和代次时才能重试；迟到失败不能清除新请求的签名。
+        String failed = signature(true, "");
+        check(OnlineCandidatePolicy.shouldReleaseAfterFailure(failed, failed, 4, 4, 7, 7));
+        check(!OnlineCandidatePolicy.shouldReleaseAfterFailure(failed,
+            signature(true, "{\"model\":\"new\"}"), 4, 4, 7, 7));
+        check(!OnlineCandidatePolicy.shouldReleaseAfterFailure(failed, failed, 3, 4, 7, 7));
+        check(!OnlineCandidatePolicy.shouldReleaseAfterFailure(failed, failed, 4, 4, 8, 7));
+
         // Provider order is kept, duplicates drop out, and the limit caps the result.
         check(OnlineCandidatePolicy.aiCandidates(
             Arrays.asList("你好", "您好", "你好", "哈喽", "嗨"), 3).equals(List.of("你好", "您好", "哈喽")));

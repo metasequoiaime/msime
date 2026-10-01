@@ -11,6 +11,28 @@ pub(crate) fn valid_text(value: &str, minimum: usize, maximum: usize, multiline:
         && !crate::has_disallowed_control_with_allowed(value, allowed_controls)
 }
 
+/// The query that asks the server to include [`CommunityModeration`] on the signed-in user's own items. It is opt-in because released clients refuse items with fields they do not know.
+pub(crate) const MODERATION_FIELDS: &str = "fields=moderation";
+
+/// Where the signed-in user's own published item stands with the moderators. Publication is moderated afterwards: an item is public as soon as it is published and moderators can remove it. Show the owner only that an item was removed (已下架); never a pending state, and the server never sends the reason.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CommunityModeration {
+    Approved,
+    Pending,
+    Removed,
+    /// A state a newer server added; treated like an item that is not removed.
+    #[serde(other)]
+    Unknown,
+}
+
+impl CommunityModeration {
+    /// Whether the owner should see the item as removed (已下架).
+    pub fn is_removed(self) -> bool {
+        self == Self::Removed
+    }
+}
+
 pub(crate) const MAXIMUM_OFFSET: usize = 1_000_000;
 pub(crate) const MAXIMUM_SEARCH_CHARACTERS: usize = 128;
 pub(crate) const MAXIMUM_PAGE_ITEMS: usize = 20;
@@ -40,5 +62,8 @@ pub(crate) fn valid_rating(rating_count: u64, rating_average: f64, my_rating: u8
         && (rating_count != 0 || rating_average == 0.0)
 }
 
+pub mod report;
 pub mod resource;
 pub mod resource_library;
+
+use serde::{Deserialize, Serialize};

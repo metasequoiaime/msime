@@ -1,7 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { boundedGraphemes } from "../core/text";
+import {
+  communityPublishFields,
+  handleCommunityPublishKeyDown,
+} from "./community-publish-validation";
 import { randomUuid } from "../core/random-id";
-import { runAsyncAction } from "../core/async-action";
 import {
   kindLabels,
   type PluginCatalogResult,
@@ -12,6 +15,7 @@ import {
   candidateSkinMegabytes,
   communityNeedsSignIn,
   communityPluginMessage,
+  runCommunityPublishAction,
 } from "./community-helpers";
 import { useCommunityGallery, type CommunityGalleryClient } from "./community-gallery";
 import { CommunityErrorAlert } from "./community-error-alert";
@@ -20,7 +24,23 @@ import { CommunityDetailStatus } from "./community-detail-status";
 import * as style from "./community-style";
 import { CommunitySearchForm } from "./community-search-form";
 import { CommunitySkinModerationSection } from "./community-skin-moderation-section";
+import { CommunityScopeButtons } from "./community-scope-buttons";
+import { CommunityRightsAgreement } from "./community-rights-agreement";
+import { CommunityInputField } from "./community-input-field";
+import { CommunitySelectField } from "./community-select-field";
+import { CommunityTextareaField } from "./community-textarea-field";
+import {
+  CommunityRemovedBadge,
+  CommunityReportSection,
+  type CommunityModeration,
+  type CommunityReportReason,
+} from "./community-report";
 import { CommunitySkinCardMetrics } from "./community-skin-card-metrics";
+import { CommunityCardAuthor } from "./community-card-author";
+import { CommunityInstallButton } from "./community-install-button";
+import { CommunityReplaceConfirmation } from "./community-replace-confirmation";
+import { CommunityBackButton } from "./community-gallery-controls";
+import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
 
 /** The kinds a pack can be shared as; effect packs stay local for now. Mirrors `client-core::plugins::community::PUBLISHABLE_KINDS`. */
 export type CommunityPluginKind = Exclude<PluginKind, "effect">;
@@ -50,6 +70,8 @@ export type CommunityPlugin = {
   owned: boolean;
   my_rating: number;
   created_at: string;
+  /** Sent only on the user's own packs; `removed` shows 已下架. */
+  moderation?: CommunityModeration | null;
 };
 
 export type CommunityPluginPage = {
@@ -75,6 +97,8 @@ export interface CommunityPluginClient {
     offset: number,
     search: string,
     kind: CommunityPluginKind | null,
+    /** Only the signed-in user's own packs, removed ones included. */
+    mine?: boolean,
   ): Promise<CommunityPluginPage>;
   detail(id: string): Promise<CommunityPlugin>;
   packPreview(kind: CommunityPluginKind, pluginId: string): Promise<CommunityPluginPackPreview>;
@@ -90,6 +114,8 @@ export interface CommunityPluginClient {
   install(id: string, kind: CommunityPluginKind, pluginId: string): Promise<PluginPackage>;
   rate(id: string, stars: number): Promise<{ stars: number }>;
   delete(id: string): Promise<{ deleted: boolean }>;
+  /** Reports another user's pack to the moderators. */
+  report?(id: string, reason: CommunityReportReason, detail: string): Promise<void>;
 }
 
 /** The server's archive limit, stated next to the packed size so the author sees the headroom. */
@@ -111,9 +137,12 @@ function CommunityPluginCard({ plugin, open }: { plugin: CommunityPlugin; open: 
       onClick={open}
     >
       <strong className={style.cardTitle}>{plugin.name}</strong>
-      <span className={style.cardAuthor}>
-        {kindLabels[plugin.kind]} · {plugin.owned ? "我的作品" : plugin.author}
-      </span>
+      <CommunityCardAuthor
+        prefix={kindLabels[plugin.kind]}
+        author={plugin.author}
+        owned={plugin.owned}
+        removed={plugin.moderation === "removed"}
+      />
       {plugin.description && (
         <span className={style.resourceDescription}>{plugin.description}</span>
       )}
@@ -144,8 +173,8 @@ export function CommunityPluginsPage({
   const kindFilter = useRef<CommunityPluginKind | null>(null);
   const galleryClient = useMemo<CommunityGalleryClient<CommunityPlugin>>(
     () => ({
-      list: async (offset, search) => {
-        const page = await client.list(offset, search, kindFilter.current);
+      list: async (offset, search, mine) => {
+        const page = await client.list(offset, search, kindFilter.current, mine ?? false);
         return { items: page.plugins, has_more: page.has_more, skipped: page.skipped };
       },
       detail: client.detail,
@@ -155,6 +184,10 @@ export function CommunityPluginsPage({
       unpublish: async (id) => {
         await client.delete(id);
       },
+      ...(client.report && {
+        report: (id: string, reason: CommunityReportReason, detail: string) =>
+          client.report!(id, reason, detail),
+      }),
     }),
     [client],
   );
@@ -172,16 +205,19 @@ export function CommunityPluginsPage({
     selected,
     actionBusy,
     actionNotice,
+    mineOnly,
     signInRequired,
     confirmUnpublish,
     activeSearch,
     setActionNotice,
+    setMineOnly,
     setConfirmUnpublish,
     requestList,
     open,
     closeDetail: closeGalleryDetail,
     rateSelected,
     unpublishSelected,
+    reportSelected,
     runAction,
   } = gallery;
   const [search, setSearch] = useState("");
@@ -252,15 +288,7 @@ export function CommunityPluginsPage({
   if (selected) {
     return (
       <div className={style.page}>
-        <button
-          type="button"
-          className={style.back}
-          disabled={actionBusy}
-          onClick={closeDetail}
-          aria-label="返回社区"
-        >
-          ← 社区
-        </button>
+        <CommunityBackButton disabled={actionBusy} onClick={closeDetail} />
         {errorAlert}
         <section className={`section ${style.detail}`}>
           <div className={style.detailTitle}>
@@ -277,6 +305,7 @@ export function CommunityPluginsPage({
               </p>
             </div>
             {selected.owned && <span className={style.detailBadge}>我的作品</span>}
+            <CommunityRemovedBadge owned={selected.owned} moderation={selected.moderation} />
           </div>
           {selected.description && <p className={style.description}>{selected.description}</p>}
           <p className={style.metrics}>
@@ -302,39 +331,26 @@ export function CommunityPluginsPage({
               已安装到插件目录，可在「我的插件」中选用。
             </p>
           ) : (
-            <button
-              type="button"
-              className={`primary ${style.action}`}
-              disabled={actionBusy || detailBusy || confirmReplace}
-              onClick={() => void install(false)}
-            >
-              {actionBusy ? "正在安装…" : "一键安装"}
-            </button>
+            <CommunityInstallButton
+              actionBusy={actionBusy}
+              detailBusy={detailBusy}
+              confirmReplace={confirmReplace}
+              onInstall={() => void install(false)}
+            />
           )}
           {confirmReplace && (
-            <div className={style.confirmation} role="alertdialog" aria-label="确认替换插件">
-              <p>
-                已安装同 id 的{kindLabels[selected.kind]}“{selected.plugin_id}”，安装会整体替换它。
-              </p>
-              <div className={style.confirmationActions}>
-                <button
-                  type="button"
-                  className="danger"
-                  disabled={actionBusy}
-                  onClick={() => void install(true)}
-                >
-                  替换安装
-                </button>
-                <button
-                  type="button"
-                  className="secondary"
-                  disabled={actionBusy}
-                  onClick={() => setConfirmReplace(false)}
-                >
-                  取消
-                </button>
-              </div>
-            </div>
+            <CommunityReplaceConfirmation
+              ariaLabel="确认替换插件"
+              message={
+                <>
+                  已安装同 id 的{kindLabels[selected.kind]}“{selected.plugin_id}
+                  ”，安装会整体替换它。
+                </>
+              }
+              actionBusy={actionBusy}
+              onConfirm={() => void install(true)}
+              onCancel={() => setConfirmReplace(false)}
+            />
           )}
           <CommunitySkinModerationSection
             owned={selected.owned}
@@ -352,6 +368,9 @@ export function CommunityPluginsPage({
             unpublishLabel="下架这个插件"
             unpublishConfirmLabel="确认下架插件"
           />
+          {!selected.owned && client.report && (
+            <CommunityReportSection actionBusy={actionBusy} onReport={reportSelected} />
+          )}
         </section>
       </div>
     );
@@ -371,6 +390,16 @@ export function CommunityPluginsPage({
           <p className={style.headingNote}>音效、音乐与指令表，安装后在「我的插件」中选用</p>
         </div>
         <div className={style.headingActions}>
+          <CommunityScopeButtons
+            ariaLabel="插件范围"
+            mineOnly={mineOnly}
+            allLabel="全部插件"
+            mineLabel="我的作品"
+            onMineOnlyChange={(nextMineOnly) => {
+              setMineOnly(nextMineOnly);
+              void requestList(activeSearch, false, nextMineOnly);
+            }}
+          />
           {localPlugins && (
             <button type="button" className="primary" onClick={() => setPublishOpen(true)}>
               发布我的插件
@@ -414,11 +443,13 @@ export function CommunityPluginsPage({
       )}
       {!listBusy && !error && plugins.length === 0 && !hasMore && (
         <p className={style.notice}>
-          {activeSearch || kind
-            ? "没有匹配的插件。"
-            : localPlugins
-              ? "社区里还没有插件，安装或制作插件后可以点「发布我的插件」分享出来。"
-              : "社区里还没有插件。"}
+          {mineOnly
+            ? "你还没有发布过插件。"
+            : activeSearch || kind
+              ? "没有匹配的插件。"
+              : localPlugins
+                ? "社区里还没有插件，安装或制作插件后可以点「发布我的插件」分享出来。"
+                : "社区里还没有插件。"}
         </p>
       )}
       <div className={style.grid}>
@@ -426,21 +457,12 @@ export function CommunityPluginsPage({
           <CommunityPluginCard key={plugin.id} plugin={plugin} open={() => open(plugin)} />
         ))}
       </div>
-      {hasMore && (
-        <button
-          type="button"
-          className={`secondary ${style.more}`}
-          disabled={listBusy}
-          onClick={() => void requestList(activeSearch, true)}
-        >
-          加载更多
-        </button>
-      )}
-      {listBusy && (
-        <p role="status" className={style.notice}>
-          正在读取插件…
-        </p>
-      )}
+      <CommunityGalleryLoadMore
+        hasMore={hasMore}
+        busy={listBusy}
+        loadingText="正在读取插件…"
+        onLoadMore={() => void requestList(activeSearch, true)}
+      />
       {publishOpen && localPlugins && (
         <CommunityPluginPublishDialog
           client={client}
@@ -573,55 +595,34 @@ export function CommunityPluginPublishDialog({
     };
   }, [client, chosen]);
 
-  const normalizedName = name.trim();
-  const normalizedDescription = description.trim();
-  const nameValid =
-    normalizedName.length > 0 &&
-    boundedGraphemes(normalizedName, 32) === normalizedName &&
-    [...normalizedName].length <= 32;
-  const descriptionValid = [...normalizedDescription].length <= 280;
+  const { normalizedName, normalizedDescription, nameValid, descriptionValid } =
+    communityPublishFields(name, description);
   const ready = Boolean(pack) && !packLoading && nameValid && descriptionValid && agreed;
 
   const submit = async () => {
     if (busy || actionRunning.current || !ready || !chosen) return;
     const generation = clientGeneration.current;
-    actionRunning.current = true;
-    setSignInRequired(false);
-    try {
-      await runAsyncAction(
-        {
-          busy,
-          isCurrent: () => generation === clientGeneration.current,
-          setBusy,
-          setError,
-        },
-        async (isCurrent) => {
-          const published = await client.publish(
-            chosen.kind,
-            chosen.id,
-            publicationId,
-            normalizedName,
-            normalizedDescription,
-          );
-          if (!isCurrent()) return;
-          await onPublished(published);
-        },
-        {
-          formatError: (publishError) => communityPluginMessage(publishError, true),
-          onError: (publishError) => setSignInRequired(communityNeedsSignIn(publishError)),
-        },
-      );
-    } finally {
-      if (generation === clientGeneration.current) actionRunning.current = false;
-    }
-  };
-
-  // Enter in a text field would otherwise submit whichever form this dialog sits in.
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === "Enter" && event.target instanceof HTMLInputElement) {
-      event.preventDefault();
-      if (event.target.type !== "checkbox") void submit();
-    }
+    await runCommunityPublishAction({
+      busy,
+      generation,
+      clientGeneration,
+      actionRunning,
+      setBusy,
+      setError,
+      setSignInRequired,
+      formatError: (publishError) => communityPluginMessage(publishError, true),
+      operation: async (isCurrent) => {
+        const published = await client.publish(
+          chosen.kind,
+          chosen.id,
+          publicationId,
+          normalizedName,
+          normalizedDescription,
+        );
+        if (!isCurrent()) return;
+        await onPublished(published);
+      },
+    });
   };
 
   return (
@@ -631,7 +632,7 @@ export function CommunityPluginPublishDialog({
         role="dialog"
         aria-modal="true"
         aria-label="发布插件"
-        onKeyDown={onKeyDown}
+        onKeyDown={(event) => handleCommunityPublishKeyDown(event, () => void submit())}
       >
         <CommunityDialogHeader
           title="发布插件"
@@ -649,23 +650,20 @@ export function CommunityPluginPublishDialog({
           </p>
         )}
         {options.length > 0 && (
-          <label className={style.field}>
-            发布插件
-            <select
-              className={style.fieldControl}
-              aria-label="发布插件"
-              value={selection}
-              disabled={busy}
-              onChange={(event) => setSelection(event.target.value)}
-            >
-              {options.map((item) => (
-                <option key={item.key} value={item.key}>
-                  {kindLabels[item.kind]} ·{" "}
-                  {item.name === item.id ? item.id : `${item.name}（${item.id}）`}
-                </option>
-              ))}
-            </select>
-          </label>
+          <CommunitySelectField
+            label="发布插件"
+            ariaLabel="发布插件"
+            value={selection}
+            disabled={busy}
+            onChange={setSelection}
+          >
+            {options.map((item) => (
+              <option key={item.key} value={item.key}>
+                {kindLabels[item.kind]} ·{" "}
+                {item.name === item.id ? item.id : `${item.name}（${item.id}）`}
+              </option>
+            ))}
+          </CommunitySelectField>
         )}
         {packLoading && <p role="status">正在检查插件…</p>}
         {packError && (
@@ -685,46 +683,37 @@ export function CommunityPluginPublishDialog({
                 .filter(Boolean)
                 .join(" · ")}
             </p>
-            <label className={style.field}>
-              名称
-              <input
-                className={style.fieldControl}
-                aria-label="发布插件名称"
-                maxLength={32}
-                value={name}
-                disabled={busy}
-                onChange={(event) => {
-                  setPublicationId(randomUuid());
-                  setName(boundedGraphemes(event.target.value, 32));
-                }}
-              />
-            </label>
-            <label className={style.field}>
-              说明
-              <textarea
-                className={style.textArea}
-                aria-label="发布插件说明"
-                maxLength={280}
-                rows={4}
-                value={description}
-                disabled={busy}
-                onChange={(event) => {
-                  setPublicationId(randomUuid());
-                  setDescription(event.target.value);
-                }}
-              />
-            </label>
-            <label className={style.agreement}>
-              <input
-                className={style.agreementBox}
-                type="checkbox"
-                aria-label="确认拥有发布内容权利"
-                checked={agreed}
-                disabled={busy}
-                onChange={(event) => setAgreed(event.target.checked)}
-              />
-              我拥有插件中音频与文字的发布权利，并同意其他用户按包内授权免费下载使用
-            </label>
+            <CommunityInputField
+              label="名称"
+              ariaLabel="发布插件名称"
+              maxLength={32}
+              value={name}
+              disabled={busy}
+              onChange={(value) => {
+                setPublicationId(randomUuid());
+                setName(boundedGraphemes(value, 32));
+              }}
+            />
+            <CommunityTextareaField
+              label="说明"
+              ariaLabel="发布插件说明"
+              maxLength={280}
+              rows={4}
+              value={description}
+              disabled={busy}
+              onChange={(value) => {
+                setPublicationId(randomUuid());
+                setDescription(value);
+              }}
+            />
+            <CommunityRightsAgreement
+              agreementText="我拥有插件中音频与文字的发布权利，并同意其他用户按包内授权免费下载使用"
+              ariaLabel="确认拥有发布内容权利"
+              checked={agreed}
+              disabled={busy}
+              checkboxClassName={style.agreementBox}
+              onChange={setAgreed}
+            />
             <p className={style.warning}>{publishWarning}</p>
           </>
         )}

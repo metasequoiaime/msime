@@ -123,7 +123,12 @@ public final class KeyboardFragment extends HomeTabFragment {
 
     // The keyboard's own pickers write the same file, so what this tab shows can go stale while
     // the user is in the keyboard rather than in here.
-    @Override protected void onBecameVisible() { reload(); }
+    // Notices are fetched when the app home comes on screen; the shared store caches the feed for a minute.
+    @Override protected void onBecameVisible() {
+        reload();
+        View view = getView();
+        if (view != null) NoticeBanner.load(this, view.findViewById(R.id.keyboard_notices));
+    }
 
     private void reload() {
         HostTask.run(this, context -> {
@@ -236,6 +241,7 @@ public final class KeyboardFragment extends HomeTabFragment {
             if (match) shown++;
         }
         for (View gap : gaps) gap.setVisibility(active ? View.GONE : View.VISIBLE);
+        view.findViewById(R.id.keyboard_notices).setVisibility(active ? View.GONE : View.VISIBLE);
         view.findViewById(R.id.keyboard_status_card).setVisibility(active ? View.GONE : View.VISIBLE);
         view.findViewById(R.id.keyboard_card).setVisibility(active ? View.GONE : View.VISIBLE);
         view.findViewById(R.id.keyboard_search_empty)

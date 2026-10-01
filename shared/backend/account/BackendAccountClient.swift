@@ -34,7 +34,25 @@ struct BackendAccountClient: Sendable {
   }
   struct Failure: Error, LocalizedError, Sendable {
     let status: Int
+    /// The server's `error.code`, read from the body of a refused request; nil when there was none.
+    var code: String? = nil
+
+    /// The community moderation refusals, which the user has to be told apart from an outage.
+    static let moderationMessages = [
+      "blocked_content": "内容包含不允许发布的词语，请修改后再提交",
+      "screening_unavailable": "审核服务暂时不可用，请稍后重试",
+      "account_banned": "该账号已被封禁，暂时无法使用账号相关功能",
+    ]
+    static let moderationStatuses = ["blocked_content": 422, "screening_unavailable": 503, "account_banned": 403]
+
+    /// The Chinese sentence for a moderation refusal, or nil when this failure is not one.
+    var moderationMessage: String? {
+      guard let code, Self.moderationStatuses[code] == status else { return nil }
+      return Self.moderationMessages[code]
+    }
+
     var errorDescription: String? {
+      if let moderationMessage { return moderationMessage }
       switch status {
       case 400: return "请求内容无效或超出大小限制，请检查后重试。"
       case 401: return "登录已失效，请重新登录。"
@@ -132,7 +150,9 @@ struct BackendAccountClient: Sendable {
     let request = try makeRequest(method, path, token: token, body: body, timeout: timeout)
     let (bytes, response) = try await session.bytes(for: request)
     guard let response = response as? HTTPURLResponse else { throw Failure(status: 0) }
-    guard (200..<300).contains(response.statusCode) else { throw Failure(status: response.statusCode) }
+    guard (200..<300).contains(response.statusCode) else {
+      throw Failure(status: response.statusCode, code: try? await Self.errorCode(bytes))
+    }
     guard response.expectedContentLength <= maximumResponseBytes else { throw Failure(status: 0) }
     var data = Data()
     for try await byte in bytes {
@@ -142,6 +162,26 @@ struct BackendAccountClient: Sendable {
     try Task.checkCancellation()
     return data
   }
+  /// `error.code` of a refusal body `{"error":{"code":...}}`, reading at most 4 KiB. The server's message text is never shown.
+  static func errorCode(_ bytes: URLSession.AsyncBytes) async throws -> String? {
+    var data = Data()
+    for try await byte in bytes {
+      guard data.count < 4096 else { return nil }
+      data.append(byte)
+    }
+    return errorCode(data)
+  }
+
+  static func errorCode(_ data: Data) -> String? {
+    guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let error = root["error"] as? [String: Any],
+          let code = error["code"] as? String,
+          (1...64).contains(code.utf8.count),
+          code.utf8.allSatisfy({ (97...122).contains($0) || (48...57).contains($0) || $0 == 95 })
+    else { return nil }
+    return code
+  }
+
   private func makeRequest(_ method: String, _ path: String, token: String?, body: Data?, timeout: TimeInterval = 30) throws -> URLRequest {
     guard path.hasPrefix("/v1/"), !path.contains("\\"),
           let url = URL(string: path, relativeTo: origin)?.absoluteURL,

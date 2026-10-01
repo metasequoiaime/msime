@@ -308,6 +308,7 @@ fn item() -> CommunityPlugin {
         owned: false,
         my_rating: 0,
         created_at: "2026-09-01T00:00:00Z".into(),
+        moderation: None,
     }
 }
 
@@ -394,6 +395,7 @@ impl CommunityPluginApi for FakeApi {
         _: usize,
         _: &str,
         _: Option<PluginKind>,
+        _: bool,
         bearer: Option<&str>,
     ) -> Result<CommunityPluginPage, AccountError> {
         self.call(bearer)?;
@@ -459,15 +461,15 @@ fn service_refuses_bad_requests_and_anonymous_writes_before_any_transport_call()
     assert_eq!(service.rate(publication(), 6), Err(AccountError::Invalid));
     assert_eq!(service.delete(Uuid::nil()), Err(AccountError::Invalid));
     assert_eq!(
-        service.list(MAX_COMMUNITY_OFFSET + 1, "", None),
+        service.list(MAX_COMMUNITY_OFFSET + 1, "", None, false),
         Err(AccountError::Invalid)
     );
     assert_eq!(
-        service.list(0, &"a".repeat(129), None),
+        service.list(0, &"a".repeat(129), None, false),
         Err(AccountError::Invalid)
     );
     assert_eq!(
-        service.list(0, "", Some(PluginKind::Effect)),
+        service.list(0, "", Some(PluginKind::Effect), false),
         Err(AccountError::Invalid)
     );
     let mut request = publish_request();
@@ -506,7 +508,7 @@ fn service_reads_anonymously_and_writes_refresh_once() {
     let api = FakeApi::default();
     let storage = MemoryStorage::default();
     let anonymous = service(&api, storage.clone());
-    assert_eq!(anonymous.list(0, "", None).unwrap().plugins.len(), 1);
+    assert_eq!(anonymous.list(0, "", None, false).unwrap().plugins.len(), 1);
     assert_eq!(
         anonymous.detail(publication()).unwrap().plugin_id,
         "signature"
@@ -641,7 +643,7 @@ fn transport_lists_by_kind_with_an_encoded_search() {
     let (origin, received) = serve_once(response);
     let client = BackendAccountClient::loopback(&origin).unwrap();
     let page = client
-        .community_plugins(20, "签 名", Some(PluginKind::CommandTable), None)
+        .community_plugins(20, "签 名", Some(PluginKind::CommandTable), false, None)
         .unwrap();
     assert_eq!(page.plugins, vec![item()]);
     let (head, _) = received.recv().unwrap();
@@ -668,7 +670,7 @@ fn transport_lists_the_installable_items_of_a_page_that_also_holds_effect_packs(
     .unwrap();
     let (origin, _received) = serve_once(response);
     let client = BackendAccountClient::loopback(&origin).unwrap();
-    let page = client.community_plugins(0, "", None, None).unwrap();
+    let page = client.community_plugins(0, "", None, false, None).unwrap();
     assert_eq!(page.plugins, vec![sound]);
     assert!(page.has_more);
     assert_eq!(page.skipped, 1);
@@ -779,5 +781,42 @@ fn transport_rates_and_deletes_by_id() {
     assert_eq!(
         client.delete_community_plugin(publication(), &token(b'e')),
         Err(AccountError::Unavailable)
+    );
+}
+
+#[test]
+fn the_own_list_asks_for_the_moderation_state_and_reads_it() {
+    let mut own = serde_json::to_value(item()).unwrap();
+    own["owned"] = true.into();
+    own["moderation"] = "removed".into();
+    let response =
+        serde_json::to_vec(&serde_json::json!({ "plugins": [own], "has_more": false })).unwrap();
+    let (origin, received) = serve_once(response);
+    let client = BackendAccountClient::loopback(&origin).unwrap();
+    let page = client
+        .community_plugins(0, "", None, true, Some(&"a".repeat(43)))
+        .unwrap();
+    assert_eq!(
+        page.plugins[0].moderation,
+        Some(crate::community::CommunityModeration::Removed)
+    );
+    assert!(page.plugins[0].moderation.unwrap().is_removed());
+    // A state a newer server adds still reads.
+    assert_eq!(
+        serde_json::from_value::<crate::community::CommunityModeration>("frozen".into()).unwrap(),
+        crate::community::CommunityModeration::Unknown
+    );
+    let (head, _) = received.recv().unwrap();
+    assert!(head.starts_with(
+        "GET /v1/community/plugins?offset=0&q=&scope=mine&fields=moderation HTTP/1.1"
+    ));
+    // Without the field the item serializes exactly as before.
+    assert!(serde_json::to_value(item())
+        .unwrap()
+        .get("moderation")
+        .is_none());
+    assert_eq!(
+        client.community_plugins(0, "", None, true, None),
+        Err(AccountError::Unauthorized)
     );
 }

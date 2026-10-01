@@ -20,15 +20,51 @@ const DECORATION_IMAGE: &str = "image = 'images/deco.jpg'\n";
 const BACKGROUND_TABLE: &str = "[candidate_window.background]\nimage = 'images/bg.png'\n";
 const LICENSE: &str = "[license]\ncode = 'MIT'\nassets = 'CC-BY-4.0'\n";
 
+/// 一张 `width`×`height` 的真实图片，按 `format` 编码。
+fn encoded(width: u32, height: u32, format: image::ImageFormat) -> Vec<u8> {
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    image::RgbImage::from_pixel(width, height, image::Rgb([200, 120, 150]))
+        .write_to(&mut bytes, format)
+        .unwrap();
+    bytes.into_inner()
+}
+
+/// 一张能完整解码的 1×1 PNG，用私有的辅助块（`msPd`，解码器会跳过）补到正好 `length` 字节；`length` 小于最小长度时返回最小的那张。
 fn png(length: usize) -> Vec<u8> {
-    let mut bytes = PNG_MAGIC.to_vec();
-    bytes.resize(length.max(PNG_MAGIC.len()), 7);
+    let mut bytes = encoded(1, 1, image::ImageFormat::Png);
+    // 签名 8 字节加 IHDR 块 25 字节，补白块插在 IHDR 之后；块本身另占长度、类型和 CRC 共 12 字节。
+    let Some(padding) = length.checked_sub(bytes.len() + 12) else {
+        return bytes;
+    };
+    let mut chunk = (padding as u32).to_be_bytes().to_vec();
+    let mut body = b"msPd".to_vec();
+    body.resize(4 + padding, 7);
+    let mut crc = flate2::Crc::new();
+    crc.update(&body);
+    chunk.extend(&body);
+    chunk.extend(crc.sum().to_be_bytes());
+    bytes.splice(33..33, chunk);
     bytes
 }
 
+/// 一张能完整解码的 8×8 JPEG，用注释段（COM）补到正好 `length` 字节；`length` 小于最小长度时返回最小的那张。
 fn jpeg(length: usize) -> Vec<u8> {
-    let mut bytes = JPEG_MAGIC.to_vec();
-    bytes.resize(length.max(JPEG_MAGIC.len()), 9);
+    let mut bytes = encoded(8, 8, image::ImageFormat::Jpeg);
+    let mut remaining = length.saturating_sub(bytes.len());
+    let mut segments = Vec::new();
+    // 每段带 4 字节段头，长度字段最大 65535（含自身两字节），所以一段最多 65537 字节；最后一段不能少于 4 字节。
+    while remaining >= 4 {
+        let size = match remaining {
+            0..=65_537 => remaining,
+            _ if remaining - 65_537 < 4 => remaining - 4,
+            _ => 65_537,
+        };
+        segments.extend([0xFF, 0xFE]);
+        segments.extend(((size - 2) as u16).to_be_bytes());
+        segments.resize(segments.len() + size - 4, 9);
+        remaining -= size;
+    }
+    bytes.splice(2..2, segments);
     bytes
 }
 
@@ -713,6 +749,7 @@ fn item() -> CandidateSkinItem {
         visibility: CandidateSkinVisibility::Public,
         updated_at: "2026-09-30T00:00:00Z".into(),
         request_sha256: String::new(),
+        moderation: None,
         category: Some(CandidateSkinCategory::Nature),
     }
 }
@@ -1101,7 +1138,7 @@ fn transport_lists_with_scope_and_encoded_search() {
     assert_eq!(page.skins, vec![item()]);
     let (head, _) = received.recv().unwrap();
     assert!(head.starts_with(
-        "GET /v1/community/candidate-skins?offset=20&q=%E6%A8%B1%20%E8%8A%B1&scope=mine&fields=sync&include=category HTTP/1.1"
+        "GET /v1/community/candidate-skins?offset=20&q=%E6%A8%B1%20%E8%8A%B1&scope=mine&fields=sync&fields=moderation&include=category HTTP/1.1"
     ));
     assert!(head.contains("authorization: Bearer "));
 }
@@ -1447,7 +1484,7 @@ fn transport_filters_by_category_and_always_includes_it() {
     assert_eq!(page.skins, vec![item()]);
     let (head, _) = received.recv().unwrap();
     assert!(head.starts_with(
-        "GET /v1/community/candidate-skins?offset=0&q=&category=acg&fields=sync&include=category HTTP/1.1"
+        "GET /v1/community/candidate-skins?offset=0&q=&fields=sync&category=acg&include=category HTTP/1.1"
     ));
 
     let (origin, received) = serve_once(serde_json::to_vec(&item()).unwrap());
@@ -1455,7 +1492,7 @@ fn transport_filters_by_category_and_always_includes_it() {
     assert_eq!(client.candidate_skin(item().id, None).unwrap(), item());
     let (head, _) = received.recv().unwrap();
     assert!(head.starts_with(&format!(
-        "GET /v1/community/candidate-skins/{}?fields=sync&include=category HTTP/1.1",
+        "GET /v1/community/candidate-skins/{}?fields=sync&fields=moderation&include=category HTTP/1.1",
         item().id.hyphenated()
     )));
 }
@@ -1501,4 +1538,214 @@ fn transport_sets_the_category_by_id() {
         Err(AccountError::Unauthorized)
     );
     assert_eq!(api.calls.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn image_fixtures_are_exactly_the_requested_length_and_decode() {
+    for length in [1000, 3000, MAX_PREVIEW_BYTES, MAX_PACKAGE_FILE_BYTES] {
+        assert_eq!(png(length).len(), length);
+        assert_eq!(check_image("image/png", &png(length)), Ok(1));
+        assert_eq!(jpeg(length).len(), length);
+        assert_eq!(check_image("image/jpeg", &jpeg(length)), Ok(64));
+    }
+    assert_eq!(jpeg(65_537 * 2 + 2 + 1000).len(), 65_537 * 2 + 2 + 1000);
+}
+
+/// 一张声明了 `width`×`height`、却只带一点像素数据的 PNG：文件很小，按声明的尺寸解码却要几个 GB，即解压炸弹。
+fn png_declaring(width: u32, height: u32) -> Vec<u8> {
+    let mut bytes = png(0);
+    bytes[16..20].copy_from_slice(&width.to_be_bytes());
+    bytes[20..24].copy_from_slice(&height.to_be_bytes());
+    let mut crc = flate2::Crc::new();
+    crc.update(&bytes[12..29]);
+    bytes[29..33].copy_from_slice(&crc.sum().to_be_bytes());
+    bytes
+}
+
+#[test]
+fn images_are_decoded_in_full_with_the_codec_their_extension_names() {
+    let good_png = encoded(64, 32, image::ImageFormat::Png);
+    let good_jpeg = encoded(64, 32, image::ImageFormat::Jpeg);
+    assert_eq!(check_image("image/png", &good_png), Ok(64 * 32));
+    assert_eq!(check_image("image/jpeg", &good_jpeg), Ok(64 * 32));
+    // 签名完好、正文截断：只看签名的旧检查会放过这些。
+    for cut in [8, 20, 33, good_png.len() / 2, good_png.len() - 12] {
+        assert_eq!(
+            check_image("image/png", &good_png[..cut]),
+            Err(IMAGE_INVALID),
+            "png cut at {cut}"
+        );
+    }
+    for cut in [3, 4, 20, good_jpeg.len() / 2, good_jpeg.len() - 2] {
+        assert_eq!(
+            check_image("image/jpeg", &good_jpeg[..cut]),
+            Err(IMAGE_INVALID),
+            "jpeg cut at {cut}"
+        );
+    }
+    let mut corrupt = good_png.clone();
+    let middle = corrupt.len() / 2;
+    corrupt[middle] ^= 0xFF;
+    assert_eq!(check_image("image/png", &corrupt), Err(IMAGE_INVALID));
+    // 编码由扩展名决定，不按内容猜。
+    assert_eq!(check_image("image/png", &good_jpeg), Err(IMAGE_INVALID));
+    assert_eq!(check_image("image/jpeg", &good_png), Err(IMAGE_INVALID));
+    assert_eq!(check_image("image/webp", &good_png), Err(IMAGE_INVALID));
+}
+
+#[test]
+fn image_dimensions_follow_the_server_limits_before_a_full_decode() {
+    assert_eq!(
+        check_image(
+            "image/png",
+            &encoded(MAX_IMAGE_SIDE, 1, image::ImageFormat::Png)
+        ),
+        Ok(u64::from(MAX_IMAGE_SIDE))
+    );
+    assert_eq!(
+        check_image(
+            "image/png",
+            &encoded(MAX_IMAGE_SIDE + 1, 1, image::ImageFormat::Png)
+        ),
+        Err(TOO_LARGE)
+    );
+    assert_eq!(
+        check_image(
+            "image/jpeg",
+            &encoded(1, MAX_IMAGE_SIDE + 1, image::ImageFormat::Jpeg)
+        ),
+        Err(TOO_LARGE)
+    );
+    // 不到 100 字节，声明的尺寸却要几十 GB：在分配之前就按尺寸拒绝。
+    let bomb = png_declaring(100_000, 100_000);
+    assert!(bomb.len() < 100);
+    assert_eq!(check_image("image/png", &bomb), Err(TOO_LARGE));
+    assert_eq!(
+        check_image("image/png", &png_declaring(0, 1)),
+        Err(IMAGE_INVALID)
+    );
+}
+
+#[test]
+fn install_refuses_images_that_do_not_decode_without_writing() {
+    let state = tempfile::tempdir().unwrap();
+    let root = state.path().join("skins");
+    fs::create_dir_all(root.join("sakura")).unwrap();
+    fs::write(root.join("sakura").join("skin.toml"), b"old").unwrap();
+    let before = snapshot(&root);
+    let good = standard_download();
+    let with = |path: &str, bytes: &[u8]| {
+        let mut package = good.clone();
+        package.files.insert(path.to_owned(), BASE64.encode(bytes));
+        package
+    };
+    let full = png(3000);
+    let cases = [
+        (with(BACKGROUND, &full[..full.len() / 2]), IMAGE_INVALID),
+        (
+            with(BACKGROUND, &full[..PNG_MAGIC.len() + 4]),
+            IMAGE_INVALID,
+        ),
+        (with(DECORATION, &JPEG_MAGIC[..2]), IMAGE_INVALID),
+        (
+            with(DECORATION, &[0xFF, 0xD8, 0xFF, 0xE0, 0, 16]),
+            IMAGE_INVALID,
+        ),
+        (with(PREVIEW, &jpeg(1000)), IMAGE_INVALID),
+        (with(DECORATION, &png(1000)), IMAGE_INVALID),
+        (
+            with(BACKGROUND, &png_declaring(100_000, 100_000)),
+            TOO_LARGE,
+        ),
+        (
+            with(
+                BACKGROUND,
+                &encoded(MAX_IMAGE_SIDE + 1, 1, image::ImageFormat::Png),
+            ),
+            TOO_LARGE,
+        ),
+    ];
+    for (package, expected) in cases {
+        assert_eq!(install(&root, &package, true), Err(expected));
+        assert_eq!(snapshot(&root), before);
+        assert_no_helpers(&root);
+    }
+
+    // 每张都在单边上限以内，合计像素超过服务端的整包上限。
+    let side = image::ImageFormat::Png;
+    let mut crowded = with(BACKGROUND, &encoded(MAX_IMAGE_SIDE, MAX_IMAGE_SIDE, side));
+    crowded.files.insert(
+        DECORATION.to_owned(),
+        BASE64.encode(encoded(
+            MAX_IMAGE_SIDE,
+            MAX_IMAGE_SIDE,
+            image::ImageFormat::Jpeg,
+        )),
+    );
+    assert_eq!(install(&root, &crowded, true), Err(TOO_LARGE));
+    assert_eq!(snapshot(&root), before);
+
+    let mut real = with(BACKGROUND, &encoded(640, 360, image::ImageFormat::Png));
+    real.files.insert(
+        DECORATION.to_owned(),
+        BASE64.encode(encoded(320, 80, image::ImageFormat::Jpeg)),
+    );
+    assert_eq!(install(&root, &real, true).unwrap(), "sakura");
+}
+
+#[test]
+fn pack_and_add_preview_refuse_images_that_do_not_decode() {
+    let root = tempfile::tempdir().unwrap();
+    let skin = standard_skin(root.path(), "sakura");
+    let full = png(3000);
+    fs::write(skin.join(BACKGROUND), &full[..full.len() / 2]).unwrap();
+    assert_eq!(pack(root.path(), "sakura"), Err(IMAGE_INVALID));
+    fs::write(skin.join(BACKGROUND), png_declaring(100_000, 100_000)).unwrap();
+    assert_eq!(pack(root.path(), "sakura"), Err(TOO_LARGE));
+    fs::write(skin.join(BACKGROUND), &full).unwrap();
+    assert!(pack(root.path(), "sakura").is_ok());
+
+    let skin = write_skin(root.path(), "bare", "", DECORATION_IMAGE, "", LICENSE);
+    fs::remove_file(skin.join(PREVIEW)).unwrap();
+    let before = snapshot(&skin);
+    let preview = jpeg(1000);
+    assert_eq!(
+        add_preview(root.path(), "bare", &preview[..preview.len() - 200]),
+        Err(IMAGE_INVALID)
+    );
+    assert_eq!(
+        add_preview(root.path(), "bare", &full[..full.len() - 20]),
+        Err(IMAGE_INVALID)
+    );
+    assert_eq!(snapshot(&skin), before);
+}
+
+#[test]
+fn a_jpeg_that_ends_early_or_has_too_many_scans_does_not_decode() {
+    // 用有纹理的图：纯色图的扫描数据太短，宽松模式下也大多解码失败，区分不出严格模式的作用。这张图在宽松模式下几乎每个截断点都能“解码成功”。
+    let mut picture = image::RgbImage::new(64, 64);
+    for (x, y, pixel) in picture.enumerate_pixels_mut() {
+        *pixel = image::Rgb([(x * 37 + y * 11) as u8, (x * y) as u8, ((x ^ y) * 4) as u8]);
+    }
+    let mut whole = std::io::Cursor::new(Vec::new());
+    picture
+        .write_to(&mut whole, image::ImageFormat::Jpeg)
+        .unwrap();
+    let whole = whole.into_inner();
+    assert_eq!(check_image("image/jpeg", &whole), Ok(64 * 64));
+    let mut trailing = whole.clone();
+    trailing.extend([0, 1, 2]);
+    assert_eq!(check_image("image/jpeg", &trailing), Ok(64 * 64));
+    for cut in 0..whole.len() {
+        assert_eq!(
+            check_image("image/jpeg", &whole[..cut]),
+            Err(IMAGE_INVALID),
+            "cut at {cut}"
+        );
+    }
+    // 两张 8×8 的灰度渐进式 JPEG，由 jpegtran 按扫描脚本生成：一张恰好 32 个扫描段，一张 33 个。
+    let at_limit = include_bytes!("progressive-32-scans.jpg");
+    let over_limit = include_bytes!("progressive-33-scans.jpg");
+    assert_eq!(check_image("image/jpeg", at_limit), Ok(64));
+    assert_eq!(check_image("image/jpeg", over_limit), Err(IMAGE_INVALID));
 }

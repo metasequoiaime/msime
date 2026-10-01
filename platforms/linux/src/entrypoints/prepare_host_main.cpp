@@ -1,5 +1,6 @@
 #include "msime_client.h"
 #include "../core/PreparePaths.h"
+#include "../core/PrepareState.h"
 #include "../core/RuntimeOptionsRefresh.h"
 
 #include <cerrno>
@@ -177,7 +178,8 @@ int main(int argc, char **argv) {
                                        {"state_root", state.string()}}).dump();
     if (request.size() > 16384) return 2;
     umask(0077);
-    if (mkdir(state.c_str(), 0700) != 0 && (errno != EEXIST || !installer_account_state(state))) {
+    if (!msime_linux::state_directory_path_is_safe(state) ||
+        (mkdir(state.c_str(), 0700) != 0 && (errno != EEXIST || !installer_account_state(state)))) {
       std::cerr << "Cannot create a fresh state directory; existing state is never replaced\n";
       return 1;
     }

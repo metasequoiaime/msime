@@ -10,6 +10,8 @@ struct SkinCommunityView: View {
   @State private var signedIn = false
   @State private var message: String?
   @State private var search = ""
+  /// `nil` 表示「全部」。
+  @State private var category: CommunitySkinCategory?
   @State private var showPublish = false
   @State private var showAccount = false
   @State private var requestID = UUID()
@@ -24,8 +26,10 @@ struct SkinCommunityView: View {
           Text("发现创作者的配色与巧思，找到你的那一款")
             .font(.caption).foregroundStyle(.secondary)
         }.padding(.vertical, 2)
+        categoryChips
         if visibleSkins.isEmpty && !busy {
-          Text(onlyMine ? (more ? "当前页没有你的作品，继续加载查看更多。" : "还没有已发布的作品，分享你的第一款设计吧。") : "暂时没有皮肤，发布你的第一款设计吧。")
+          Text(onlyMine ? (more ? "当前页没有你的作品，继续加载查看更多。" : "还没有已发布的作品，分享你的第一款设计吧。")
+               : (category == nil ? "暂时没有皮肤，发布你的第一款设计吧。" : "这个分类下暂时没有皮肤。"))
             .foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(.vertical, 40)
         }
         LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 14) {
@@ -40,6 +44,37 @@ struct SkinCommunityView: View {
       }.padding(16)
     }
     .background(Color(uiColor: .systemGroupedBackground))
+  }
+  /// 横向滚动的分类筛选，「全部」在最前。切换后从第一页重新读取；加载中禁用，避免切换被 `run` 的忙碌保护吞掉。
+  private var categoryChips: some View {
+    ScrollView(.horizontal, showsIndicators: false) {
+      HStack(spacing: 8) {
+        categoryChip(nil, title: "全部")
+        ForEach(CommunitySkinCategory.allCases) { categoryChip($0, title: $0.label) }
+      }.padding(.horizontal, 1)
+    }.disabled(busy)
+  }
+  private func categoryChip(_ value: CommunitySkinCategory?, title: String) -> some View {
+    let selected = category == value
+    return Button {
+      guard !selected else { return }
+      let previous = category
+      category = value
+      run {
+        do { try await load() }
+        catch {
+          category = CommunitySkinCategorySelectionPolicy.afterFailedLoad(previous: previous)
+          throw error
+        }
+      }
+    } label: {
+      Text(title).font(.system(size: 13, weight: selected ? .semibold : .regular))
+        .foregroundStyle(selected ? MetasequoiaTheme.accent : Color.secondary)
+        .padding(.horizontal, 13).frame(height: 32)
+        .background(selected ? MetasequoiaTheme.accentSoft : MetasequoiaTheme.surface, in: Capsule())
+        .contentShape(Capsule())
+    }.buttonStyle(.plain).accessibilityIdentifier("communitySkinCategory-\(value?.rawValue ?? "all")")
+      .accessibilityAddTraits(selected ? [.isSelected] : [])
   }
   var body: some View {
     gallery
@@ -77,7 +112,7 @@ struct SkinCommunityView: View {
     let id = UUID()
     requestID = id
     let page: CommunityPage
-    do { page = try await api.list(offset: append ? skins.count : 0, search: search) }
+    do { page = try await api.list(offset: append ? skins.count : 0, search: search, mine: onlyMine, category: category) }
     catch {
       guard requestID == id else { return }
       throw error
@@ -98,8 +133,15 @@ private struct CommunitySkinCard: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 9) {
       CommunityDesignPreview(design: skin.design)
-      Text(skin.name).font(.system(size: 15, weight: .semibold)).lineLimit(1)
-      CommunityAuthorLabel(name: skin.owned ? "我的作品" : skin.author)
+      HStack(spacing: 4) {
+        Text(skin.name).font(.system(size: 15, weight: .semibold)).lineLimit(1)
+        Spacer(minLength: 0)
+        if let category = skin.category { CommunitySkinCategoryTag(category: category) }
+      }
+      HStack(spacing: 4) {
+        CommunityAuthorLabel(name: skin.owned ? "我的作品" : skin.author)
+        if skin.removed { CommunityRemovedBadge() }
+      }
       HStack(spacing: 3) {
         Label("\(skin.downloads)", systemImage: "arrow.down.to.line")
         Spacer(minLength: 2)
@@ -109,6 +151,17 @@ private struct CommunitySkinCard: View {
       .overlay(RoundedRectangle(cornerRadius: MetasequoiaTheme.cardRadius, style: .continuous).strokeBorder(Color.primary.opacity(0.035), lineWidth: 1))
   }
 
+}
+
+private struct CommunitySkinCategoryTag: View {
+  let category: CommunitySkinCategory
+  var body: some View {
+    Text(category.label).font(.system(size: 10, weight: .medium)).lineLimit(1).fixedSize()
+      .foregroundStyle(MetasequoiaTheme.accent)
+      .padding(.horizontal, 6).padding(.vertical, 2)
+      .background(MetasequoiaTheme.accentSoft, in: Capsule())
+      .accessibilityLabel("分类：\(category.label)")
+  }
 }
 
 struct CommunitySkinDetail: View {
@@ -124,8 +177,14 @@ struct CommunitySkinDetail: View {
     ScrollView {
       VStack(alignment: .leading, spacing: 16) {
         CommunityDesignPreview(design: skin.design)
-        Text(skin.name).font(.title2.bold())
-        Text(skin.author).foregroundStyle(.secondary)
+        HStack {
+          Text(skin.name).font(.title2.bold())
+          if skin.removed { CommunityRemovedBadge() }
+        }
+        HStack(spacing: 8) {
+          Text(skin.author).foregroundStyle(.secondary)
+          if let category = skin.category { CommunitySkinCategoryTag(category: category) }
+        }
         Text(skin.description)
         Text("\(skin.downloads) 人下载 · \(skin.rating_average, specifier: "%.1f") 分 · \(skin.rating_count) 人评分")
           .font(.subheadline).foregroundStyle(.secondary)
@@ -154,7 +213,22 @@ struct CommunitySkinDetail: View {
                 .accessibilityLabel("评 \(stars) 星").disabled(busy)
             }
           }
+          CommunityReportButton(kind: "skins", itemID: skin.id)
         } else {
+          Menu {
+            ForEach(CommunitySkinCategory.allCases) { category in
+              Button { run {
+                var changed = try await SkinCommunityAPI.shared.setCategory(skin.id, category: category)
+                changed.moderation = changed.moderation ?? skin.moderation
+                updated = changed
+              } } label: {
+                if category == (skin.category ?? .other) { Label(category.label, systemImage: "checkmark") }
+                else { Text(category.label) }
+              }
+            }
+          } label: {
+            Label("修改分类：\((skin.category ?? .other).label)", systemImage: "tag")
+          }.disabled(busy).accessibilityIdentifier("changeCommunitySkinCategory")
           Button("下架这款皮肤", role: .destructive) { confirmsRemoval = true }.disabled(busy)
         }
         if busy { ProgressView() }
@@ -184,6 +258,7 @@ struct CommunityPublishView: View {
   @State private var publicationID = UUID().uuidString.lowercased()
   @State private var name = ""
   @State private var description = ""
+  @State private var category: CommunitySkinCategory = .other
   @State private var agrees = false
   @State private var busy = false
   @State private var message: String?
@@ -227,6 +302,10 @@ struct CommunityPublishView: View {
         Section("发布信息") {
           TextField("皮肤名称（最多 32 字）", text: $name).onChange(of: name) { name = String($0.prefix(32)); publicationID = UUID().uuidString.lowercased() }
           TextField("设计说明（最多 280 字）", text: $description).onChange(of: description) { description = String($0.prefix(280)); publicationID = UUID().uuidString.lowercased() }
+          // 分类不计入请求摘要，修改分类不需要换新的发布 id。
+          Picker("分类", selection: $category) {
+            ForEach(CommunitySkinCategory.allCases) { Text($0.label).tag($0) }
+          }.accessibilityIdentifier("communitySkinPublishCategory")
           Toggle("我拥有发布所用素材的权利，并同意其他用户免费下载使用", isOn: $agrees)
           Text("发布后，设计及照片壁纸将上传并公开。请勿包含私人照片或敏感信息。作者可随时下架。").font(.caption).foregroundStyle(.secondary)
         }
@@ -235,7 +314,7 @@ struct CommunityPublishView: View {
           Task {
             defer { busy = false }
             do {
-              try await SkinCommunityAPI.shared.publish(id: publicationID, name: name, description: description, design: design)
+              try await SkinCommunityAPI.shared.publish(id: publicationID, name: name, description: description, design: design, category: category)
               onPublished(); dismiss()
             } catch { message = error.localizedDescription }
           }

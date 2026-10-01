@@ -52,7 +52,7 @@ use std::io::{Read, Write};
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
 #[cfg(unix)]
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 #[cfg(unix)]
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;

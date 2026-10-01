@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Scheme traits agree across the engine, the macOS and Windows hosts and the settings page.
+"""Scheme traits agree across the engine, the macOS, Windows and Linux hosts and the settings page.
 
-The engine's `SchemeType` const fns (crates/engine/src/types.rs) are the one source of truth for what differs between input schemes, and input-runtime and host-api call them directly. Three places cannot: the macOS controller and the Windows Server and TIP decide from a view's `scheme` number in C++, so each has an `InputSchemeTraits.h` copying the predicates the view does not publish, and the settings page is TypeScript, so it keeps its own lists of which schemes are Chinese. Each copy compiles and passes its own tests on its own values, and a scheme added or moved on one side alone shows up only as a key that behaves like the wrong language.
+The engine's `SchemeType` const fns (crates/engine/src/types.rs) are the one source of truth for what differs between input schemes, and input-runtime and host-api call them directly. Two places cannot: the macOS controller, the Windows Server and TIP, and the Linux IBus and Fcitx5 hosts decide from a view's `scheme` number in C++, so each platform's `InputSchemeTraits.h` copies the predicates the view does not publish, and the settings page is TypeScript, so it keeps its own lists of which schemes are Chinese. Each copy compiles and passes its own tests on its own values, and a scheme added or moved on one side alone shows up only as a key that behaves like the wrong language.
 
 This reads all of them and checks:
 
@@ -23,6 +23,7 @@ ENGINE = ROOT / "crates/engine/src/types.rs"
 HEADERS = (
     ROOT / "platforms/macos/src/input/InputSchemeTraits.h",
     ROOT / "platforms/windows/common/InputSchemeTraits.h",
+    ROOT / "platforms/linux/src/core/InputSchemeTraits.h",
 )
 OPTIONS = ROOT / "packages/ui/src/settings/input-scheme-options.ts"
 UI_TYPES = ROOT / "packages/ui/src/index.tsx"
@@ -236,8 +237,7 @@ def main() -> int:
         print(f"FAIL {rel(ENGINE)}: SchemeType has no `is_chinese` predicate to split the page's lists by", file=sys.stderr)
         return 1
 
-    # Header -> how many of its traits mirror an engine predicate.
-    compared = {header: check_header(engine, Header(header, errors), errors) for header in HEADERS}
+    compared = {rel(path): check_header(engine, Header(path, errors), errors) for path in HEADERS}
 
     chinese = engine.predicates["is_chinese"]
     all_names = engine.wire_names()
@@ -270,7 +270,9 @@ def main() -> int:
             print(f"FAIL {error}", file=sys.stderr)
         return 1
     print(
-        f"scheme traits: {len(engine.ordinals)} schemes; " + ", ".join(f"{count} {rel(header)} traits" for header, count in compared.items()) + " match the engine predicates they mirror;"
+        f"scheme traits: {len(engine.ordinals)} schemes; "
+        + "; ".join(f"{count} traits in {path}" for path, count in compared.items())
+        + " match the engine predicates they mirror;"
         f" the settings page and client-core split them {len(chinese_names)} Chinese / {len(other_names)} other as `is_chinese` does"
     )
     return 0

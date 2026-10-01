@@ -94,6 +94,7 @@ add_executable(MSIMEClientInputMethod MACOSX_BUNDLE src/cloud/CloudFileTransfer.
 target_sources(MSIMEClientInputMethod PRIVATE src/core/AISettingsWindow.mm src/core/ScreenKeyboardPanel.mm src/cloud/CloudCandidateRequest.mm src/core/CustomTranslationBatch.mm src/voice/VoicePCMBuffer.mm src/voice/HTTPVoiceRequest.mm)
 target_sources(MSIMEClientInputMethod PRIVATE src/voice/DoubaoVoiceRequest.mm src/voice/LocalVoiceRequest.mm)
 target_sources(MSIMEClientInputMethod PRIVATE src/core/DesktopInputSession.mm)
+target_sources(MSIMEClientInputMethod PRIVATE src/core/UsageReporting.mm)
 target_sources(MSIMEClientInputMethod PRIVATE src/core/DesktopCloudClipboard.mm)
 target_link_libraries(MSIMEClientInputMethod PRIVATE "-framework CoreGraphics" "-framework CoreText" "-framework UniformTypeIdentifiers")
 file(GLOB_RECURSE MSIME_BACKEND_SWIFT CONFIGURE_DEPENDS

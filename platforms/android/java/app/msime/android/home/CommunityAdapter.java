@@ -60,6 +60,29 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
 
     public int size() { return items.size(); }
 
+    /**
+     * 换上服务端回来的新版本条目（作者改了分类之后）。
+     *
+     * @param keep 这一款是否还属于当前列表；按分类筛选时改到别的分类就从列表里拿掉
+     */
+    public void replace(CommunityCatalog.Item updated, boolean keep) {
+        for (int index = 0; index < items.size(); index++) {
+            if (!items.get(index).id().equals(updated.id())) continue;
+            if (keep) {
+                items.set(index, updated);
+                notifyItemChanged(index);
+            } else {
+                items.remove(index);
+                notifyItemRemoved(index);
+                // 分组卡片的首尾圆角跟着位置走，移走一行要让相邻的行重画。
+                int start = Math.max(0, index - 1);
+                int end = Math.min(index + 1, items.size());
+                if (end > start) notifyItemRangeChanged(start, end - start);
+            }
+            return;
+        }
+    }
+
     /** Grid columns an item takes: one for a skin card, the full width for a row. */
     public int span(int position) {
         return position < items.size() && getItemViewType(position) == TYPE_SKIN ? 1 : COLUMNS;
@@ -90,13 +113,18 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
             holder.itemView.setBackground(group(holder.itemView, position == 0,
                 position == items.size() - 1));
         }
+        if (holder.category != null) {
+            holder.category.setText(item.category() == null ? "" : item.category().label());
+            holder.category.setVisibility(item.category() == null ? View.GONE : View.VISIBLE);
+        }
         holder.name.setText(item.name());
         holder.author.setText(author(item));
         holder.rating.setText(rating(item));
         // 卡片上不放设计稿里的「获取」按钮：缩略图只是几枚色块，详情里才按用户自己的布局画出整块键盘，看过再存才不是盲存。看和存都在详情里，点卡片打开它。
         holder.itemView.setOnClickListener(ignored -> onOpen.accept(item));
-        holder.itemView.setContentDescription(item.name() + "，" + author(item) + "，"
-            + rating(item) + "，点按查看详情");
+        holder.itemView.setContentDescription(item.name() + "，"
+            + (item.category() == null ? "" : item.category().label() + "分类，")
+            + author(item) + "，" + rating(item) + "，点按查看详情");
     }
 
     /**
@@ -151,6 +179,8 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
         // Rows only: the grid card leaves the description to the detail sheet.
         @Nullable final TextView description;
         @Nullable final View divider;
+        // Skin cards only.
+        @Nullable final TextView category;
         final TextView badge;
         final TextView author;
         final TextView rating;
@@ -161,6 +191,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
             name = view.findViewById(R.id.community_item_name);
             description = view.findViewById(R.id.community_item_description);
             divider = view.findViewById(R.id.community_item_divider);
+            category = view.findViewById(R.id.community_item_category);
             badge = view.findViewById(R.id.community_item_badge);
             author = view.findViewById(R.id.community_item_author);
             rating = view.findViewById(R.id.community_item_rating);

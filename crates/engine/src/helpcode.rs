@@ -80,9 +80,12 @@ pub fn helpcode_path(resources: &Path, schema: &str) -> Result<PathBuf> {
         return Ok(resources.join(file));
     }
     match custom_schema_stem(schema) {
-        Some(stem) => Ok(resources
-            .join(CUSTOM_HELPCODE_DIRECTORY)
-            .join(format!("{stem}.txt"))),
+        Some(stem) => {
+            let mut filename = String::with_capacity(stem.len() + ".txt".len());
+            filename.push_str(stem);
+            filename.push_str(".txt");
+            Ok(resources.join(CUSTOM_HELPCODE_DIRECTORY).join(filename))
+        }
         None => Err(EngineError::invalid(UNKNOWN_HELPCODE_SCHEMA)),
     }
 }

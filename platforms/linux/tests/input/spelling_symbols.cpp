@@ -44,6 +44,36 @@ int main() {
   assert(!local_mode_spelling(Json(nullptr), U'1'));
   assert(!spelling_symbol(Json{{"spelling_symbols", 12}}, U'1'));
 
+  // Outside a local mode, a scheme that opens none spells with every symbol it lists: Zhuyin's keyboard keys idle, while composing (Space is the first tone) and with its list open, where "0" is still a key and 1 to 9 pick candidates.
+  using msime::linux_host::engine_spelling;
+  using msime::linux_host::spelling_space;
+  const Json zhuyin_idle = {{"scheme", 6}, {"local_mode", "none"}, {"spelling_symbols", "125890,./;-"}};
+  for (char32_t character : U"125890,./;-")
+    if (character != 0) assert(engine_spelling(zhuyin_idle, character));
+  assert(!engine_spelling(zhuyin_idle, U'3'));
+  assert(!spelling_space(zhuyin_idle));
+  const Json zhuyin_composing = {{"scheme", 6}, {"local_mode", "none"}, {"spelling_symbols", "1234567890,./;- "}};
+  assert(engine_spelling(zhuyin_composing, U'3'));
+  assert(spelling_space(zhuyin_composing));
+  assert(spelling_digits(zhuyin_composing));
+  const Json zhuyin_list = {{"scheme", 6}, {"local_mode", "none"}, {"spelling_symbols", "0,./;-"}};
+  assert(engine_spelling(zhuyin_list, U'0'));
+  assert(!engine_spelling(zhuyin_list, U'1'));
+  assert(!spelling_digits(zhuyin_list));
+  assert(!spelling_space(zhuyin_list));
+  // Cantonese's apostrophe and Vietnamese's VNI tone digits are spelling while composing.
+  assert(engine_spelling(Json{{"scheme", 5}, {"spelling_symbols", "'"}}, U'\''));
+  const Json vietnamese = {{"scheme", 7}, {"local_mode", "none"}, {"spelling_symbols", "0123456789"}};
+  assert(engine_spelling(vietnamese, U'6'));
+  assert(spelling_digits(vietnamese));
+  // Quanpin's idle mode-entry keys stay on the punctuation route, and the dedicated English mode keeps no scheme rules.
+  assert(!engine_spelling(Json{{"scheme", 0}, {"local_mode", "none"}, {"spelling_symbols", "/@"}}, U'/'));
+  assert(!engine_spelling(Json{{"scheme", 6}, {"dedicated_english", true}, {"spelling_symbols", "1"}}, U'1'));
+  // A local mode spells with its own symbols in every scheme.
+  assert(engine_spelling(Json{{"scheme", 0}, {"local_mode", "expression"}, {"spelling_symbols", "0123456789+-*/.()%^"}}, U'+'));
+  assert(!engine_spelling(Json(nullptr), U'1'));
+  assert(!spelling_space(Json(nullptr)));
+
   // Only printable ASCII is ever a spelling symbol: a keysym with no character, or one outside ASCII, is not.
   assert(!spelling_symbol(expression, 0));
   assert(!spelling_symbol(expression, U'·'));

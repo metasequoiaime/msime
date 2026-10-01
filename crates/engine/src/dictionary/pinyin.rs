@@ -111,7 +111,11 @@ impl PinyinDatabase {
         let sql = initial_sql(first);
         // The upper bound is written out here in the reference too (QQ:1083).
         let upper_bound = key_prefix_upper_bound(prefix);
-        self.rows(&sql, (prefix, upper_bound.as_str(), sql_limit(limit)))
+        self.rows(
+            &sql,
+            (prefix, upper_bound.as_str(), sql_limit(limit)),
+            query_capacity(limit),
+        )
     }
 
     /// Whole-syllable continuations of complete `segments` over 1..=`extra_syllables` more syllables, deduplicated by value, weight-sorted, at most `limit` (QQ:1305-1343).
@@ -141,6 +145,7 @@ impl PinyinDatabase {
             rows.extend(self.rows(
                 &range_sql(&table),
                 (prefix.as_str(), upper_bound.as_str(), sql_limit(limit)),
+                query_capacity(limit),
             ));
         }
         deduplicate_by_value(&mut rows);
@@ -204,7 +209,11 @@ impl PinyinDatabase {
                 continue;
             };
             if segments.len() == 1 {
-                let rows = self.rows(&exact_sql(&table), (key.as_str(), sql_limit(per_key_limit)));
+                let rows = self.rows(
+                    &exact_sql(&table),
+                    (key.as_str(), sql_limit(per_key_limit)),
+                    query_capacity(per_key_limit),
+                );
                 if !rows.is_empty() {
                     result.insert(key.clone(), rows);
                 }
@@ -275,9 +284,7 @@ impl PinyinDatabase {
             .ok_or_else(|| EngineError::invalid(INVALID_DICTIONARY_KEY))?;
         let jp = segments_to_jianpin(&segments);
         connection
-            .prepare_cached(&format!(
-                "INSERT INTO \"{table}\" (\"key\", \"jp\", \"value\", \"weight\") VALUES (?1, ?2, ?3, ?4)"
-            ))?
+            .prepare_cached(&insert_word_sql(&table))?
             .execute((key, jp.as_str(), value, INSERTED_WEIGHT))?;
         Ok(())
     }
@@ -303,7 +310,11 @@ impl PinyinDatabase {
         let bound = sql_limit(limit);
 
         if can_match_exact_key(segments) {
-            let rows = self.rows(&exact_sql(&table), (key.as_str(), bound));
+            let rows = self.rows(
+                &exact_sql(&table),
+                (key.as_str(), bound),
+                query_capacity(limit),
+            );
             if !rows.is_empty() {
                 return rows;
             }
@@ -313,7 +324,11 @@ impl PinyinDatabase {
         let pattern = build_key_like_pattern(segments);
         let prefix = &pattern[..pattern.len() - 1];
         let upper_bound = key_prefix_upper_bound(prefix);
-        let rows = self.rows(&range_sql(&table), (prefix, upper_bound.as_str(), bound));
+        let rows = self.rows(
+            &range_sql(&table),
+            (prefix, upper_bound.as_str(), bound),
+            query_capacity(limit),
+        );
         if !rows.is_empty() {
             return rows;
         }
@@ -322,7 +337,11 @@ impl PinyinDatabase {
         if needs_mixed_jianpin_query(segments, source) {
             let scan_limit = sql_limit(build_mixed_jianpin_scan_limit(limit));
             let rows: Vec<DictRow> = self
-                .rows(&jp_sql, (jp.as_str(), scan_limit))
+                .rows(
+                    &jp_sql,
+                    (jp.as_str(), scan_limit),
+                    query_capacity(build_mixed_jianpin_scan_limit(limit)),
+                )
                 .into_iter()
                 .filter(|row| matches_mixed_segments(&row.key, segments, source))
                 .take(limit)
@@ -335,7 +354,7 @@ impl PinyinDatabase {
         if !is_pure_jianpin(segments) {
             return Vec::new();
         }
-        self.rows(&jp_sql, (jp.as_str(), bound))
+        self.rows(&jp_sql, (jp.as_str(), bound), query_capacity(limit))
     }
 
     /// QQ:686-740: one `IN (...)` statement per key count, which `prepare_cached` keeps apart by its text.
@@ -347,11 +366,16 @@ impl PinyinDatabase {
         let bound = sql_limit(limit);
         let mut params: Vec<&dyn ToSql> = keys.iter().map(|key| key as &dyn ToSql).collect();
         params.push(&bound);
-        self.rows(&sql, params.as_slice())
+        self.rows(&sql, params.as_slice(), query_capacity(limit))
     }
 
     /// Runs a `"key", "value", "weight"` statement. A statement that fails to prepare (the table does not exist) yields no rows, and a failed step ends the rows read so far, exactly as the reference's `while (sqlite3_step(...) == SQLITE_ROW)` loops did (QQ:584-605).
-    fn rows(&self, sql: &str, params: impl rusqlite::Params) -> Vec<DictRow> {
+    fn rows(
+        &self,
+        sql: &str,
+        params: impl rusqlite::Params,
+        capacity: Option<usize>,
+    ) -> Vec<DictRow> {
         let Some(connection) = &self.connection else {
             return Vec::new();
         };
@@ -361,7 +385,7 @@ impl PinyinDatabase {
         let Ok(mut rows) = statement.query(params) else {
             return Vec::new();
         };
-        let mut result = Vec::new();
+        let mut result = capacity.map_or_else(Vec::new, Vec::with_capacity);
         while let Ok(Some(row)) = rows.next() {
             match dict_row(row) {
                 Ok(item) => result.push(item),
@@ -466,6 +490,16 @@ fn find_weight_sql(table: &str) -> String {
     sql
 }
 
+fn insert_word_sql(table: &str) -> String {
+    const PREFIX: &str = "INSERT INTO \"";
+    const SUFFIX: &str = "\" (\"key\", \"jp\", \"value\", \"weight\") VALUES (?1, ?2, ?3, ?4)";
+    let mut sql = String::with_capacity(PREFIX.len() + table.len() + SUFFIX.len());
+    sql.push_str(PREFIX);
+    sql.push_str(table);
+    sql.push_str(SUFFIX);
+    sql
+}
+
 fn initial_sql(first: u8) -> String {
     let mut sql = String::with_capacity(111);
     sql.push_str("SELECT \"key\", \"value\", \"weight\" FROM \"tbl_1_");
@@ -484,6 +518,10 @@ fn dict_row(row: &Row<'_>) -> rusqlite::Result<DictRow> {
         value: column_text(row, 1)?,
         weight: column_i64(row, 2)?,
     })
+}
+
+fn query_capacity(limit: usize) -> Option<usize> {
+    (limit < i32::MAX as usize).then_some(limit)
 }
 
 /// First occurrence wins (QQ:774-780).
@@ -588,6 +626,16 @@ mod tests {
     }
 
     #[test]
+    fn insert_word_sql_writes_the_lookup_statement_directly() {
+        let sql = insert_word_sql("tbl_2_n");
+        assert_eq!(
+            sql,
+            "INSERT INTO \"tbl_2_n\" (\"key\", \"jp\", \"value\", \"weight\") VALUES (?1, ?2, ?3, ?4)"
+        );
+        assert_eq!(sql.capacity(), sql.len());
+    }
+
+    #[test]
     fn initial_sql_writes_the_lookup_statement_directly() {
         let sql = initial_sql(b'n');
         assert_eq!(
@@ -642,6 +690,7 @@ mod tests {
         let database = cascade_fixture(directory.path());
         assert!(database.is_open());
         let rows = database.query_initial("n", 10);
+        assert_eq!(rows.capacity(), 10);
         assert_eq!(values(&rows), ["你", "您", "那"]);
         assert_eq!(
             rows[0],

@@ -10,7 +10,10 @@ import app.msime.android.CommunityRequest;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.R;
 import com.google.android.material.button.MaterialButton;
+import com.google.android.material.chip.Chip;
+import com.google.android.material.chip.ChipGroup;
 import java.util.Locale;
+import java.util.function.Consumer;
 
 /**
  * 一款社区作品的详情：先看清楚，再决定要不要存。
@@ -32,9 +35,12 @@ public final class CommunitySkinSheet {
      * @param nineKey draw the preview as the layout this user types on
      * @param onSave  runs when the sheet's own button is pressed; null for kinds that cannot be
      *                imported yet, which get a disabled button rather than a dead one
+     * @param onReport runs when 举报 is pressed, after the sheet closes
+     * @param onChangeCategory 作者选了另一个分类时调用；不是作者（或不是皮肤）时为 null，详情里只显示分类、不给修改入口
      */
     public static void show(Context context, CommunityCatalog.Item item, boolean nineKey,
-            Runnable onSave) {
+            Runnable onSave, Runnable onReport,
+            Consumer<CommunityRequest.Category> onChangeCategory) {
         KeyboardSkin skin = CommunityAdapter.preview(item);
         SettingsSheet sheet = new SettingsSheet(context, item.name(), subtitle(item));
         float density = context.getResources().getDisplayMetrics().density;
@@ -60,6 +66,29 @@ public final class CommunitySkinSheet {
         text.topMargin = Math.round(14 * density);
         sheet.content().addView(description, text);
 
+        if (onChangeCategory != null && item.category() != null) {
+            // 作者自己的皮肤：当前分类先选中，点另一个就交给调用方去改，结果在列表页提示。
+            sheet.addHeading("分类");
+            ChipGroup categories = new ChipGroup(context);
+            categories.setSingleSelection(true);
+            categories.setSelectionRequired(true);
+            for (CommunityRequest.Category category : CommunityRequest.categories()) {
+                Chip chip = new Chip(context);
+                chip.setId(android.view.View.generateViewId());
+                chip.setText(category.label());
+                chip.setCheckable(true);
+                categories.addView(chip);
+                if (category == item.category()) categories.check(chip.getId());
+                chip.setOnClickListener(ignored -> {
+                    if (category == item.category()) return;
+                    sheet.dismiss();
+                    onChangeCategory.accept(category);
+                });
+            }
+            sheet.content().addView(categories, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
+
         MaterialButton save = new MaterialButton(context);
         save.setText(onSave == null ? "暂不支持导入" : "保存到皮肤库");
         save.setEnabled(onSave != null);
@@ -74,6 +103,20 @@ public final class CommunitySkinSheet {
         action.topMargin = Math.round(18 * density);
         sheet.content().addView(save, action);
 
+        // Everything here is someone else's work, published without review first; this is how a reader flags it to the moderators.
+        MaterialButton report = new MaterialButton(context, null,
+            androidx.appcompat.R.attr.borderlessButtonStyle);
+        report.setText("举报");
+        report.setOnClickListener(ignored -> {
+            sheet.dismiss();
+            onReport.run();
+        });
+        LinearLayout.LayoutParams reportParams = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        reportParams.gravity = android.view.Gravity.END;
+        reportParams.topMargin = Math.round(4 * density);
+        sheet.content().addView(report, reportParams);
+
         sheet.addNote(onSave == null
             // 词库和回复要先有本地编辑器才谈得上导入，那一页还没搬过来。
             ? "词库和回复还不能在手机上导入，这里只能先看看。"
@@ -81,10 +124,11 @@ public final class CommunitySkinSheet {
         sheet.show();
     }
 
-    /** Author, saves and rating on one line — everything the card shows except the name. */
+    /** Category, author, saves and rating on one line — everything the card shows except the name. */
     private static String subtitle(CommunityCatalog.Item item) {
-        StringBuilder value = new StringBuilder(
-            item.author().isEmpty() ? "匿名作者" : item.author());
+        StringBuilder value = new StringBuilder();
+        if (item.category() != null) value.append(item.category().label()).append(" · ");
+        value.append(item.author().isEmpty() ? "匿名作者" : item.author());
         if (item.saves() > 0) value.append(" · ").append(item.saves()).append(" 次保存");
         value.append(" · ").append(item.ratingCount() <= 0 ? "暂无评分"
             : String.format(Locale.ROOT, "★ %.1f · %d 人", item.ratingAverage(),

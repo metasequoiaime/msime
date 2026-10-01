@@ -2940,50 +2940,38 @@ test("the diagnostic log action needs a host that can reveal the file", async ()
   expect(openDiagnosticLogDirectory).toHaveBeenCalledTimes(1);
 });
 
-test("the telemetry switch is offered on Windows only, starts off and says what it sends", async () => {
-  const client: SettingsClient = {
-    load: vi.fn().mockResolvedValue(initial),
-    save: vi.fn().mockImplementation(async (_revision, preferences) => ({
-      ...initial,
-      revision: 8,
-      preferences,
-    })),
-    host: { platform: "windows" } as HostCapabilities,
-  };
-  render(<SettingsPage client={client} />);
-  await settingsReady();
-  fireEvent.click(screen.getByRole("button", { name: "关于" }));
-  const toggle = (await screen.findByRole("switch", { name: "匿名使用统计" })) as HTMLInputElement;
-  // A configuration that never mentioned telemetry must not start reporting.
-  expect(toggle.checked).toBe(false);
-  const description = screen.getByText(/^默认关闭。开启后/).textContent ?? "";
-  expect(description).toContain("https://api.msime.app/v1/telemetry/events");
-  expect(description).toContain("std::terminate");
-  expect(description).toContain("不含输入内容");
-  fireEvent.click(toggle);
-  saveSettingsNow();
-  await screen.findByText("已保存");
-  expect(client.save).toHaveBeenCalledWith(7, {
-    ...initial.preferences,
-    telemetry_enabled: true,
-  });
-});
-
-test.each(["linux", "macos", "android", "ios", "harmony", undefined])(
-  "the telemetry switch is not offered where the host does not read it (%s)",
+test.each(["windows", "linux", "macos", "android", "ios", "harmony", undefined])(
+  "the usage reporting switch is offered on every platform, starts on and says what it sends (%s)",
   async (platform) => {
-    render(
-      <SettingsPage
-        client={{
-          load: vi.fn().mockResolvedValue(initial),
-          save: vi.fn(),
-          host: platform ? ({ platform } as HostCapabilities) : undefined,
-        }}
-      />,
-    );
+    const client: SettingsClient = {
+      load: vi.fn().mockResolvedValue(initial),
+      save: vi.fn().mockImplementation(async (_revision, preferences) => ({
+        ...initial,
+        revision: 8,
+        preferences,
+      })),
+      host: platform ? ({ platform } as HostCapabilities) : undefined,
+    };
+    render(<SettingsPage client={client} />);
+    await settingsReady();
     fireEvent.click(screen.getByRole("button", { name: "关于" }));
-    expect(await screen.findByRole("heading", { name: "关于" })).toBeDefined();
-    expect(screen.queryByRole("switch", { name: "匿名使用统计" })).toBeNull();
+    const toggle = (await screen.findByRole("switch", {
+      name: "匿名使用统计",
+    })) as HTMLInputElement;
+    // A configuration that never mentioned usage reporting reports by default.
+    expect(toggle.checked).toBe(true);
+    const description = screen.getByText(/^默认开启，可随时关闭。/).textContent ?? "";
+    expect(description).toContain("https://api.msime.app/v1/telemetry/events");
+    expect(description).toContain("安装 id");
+    expect(description).toContain("不含输入内容");
+    expect(description).toContain("清空尚未发送的记录");
+    fireEvent.click(toggle);
+    saveSettingsNow();
+    await screen.findByText("已保存");
+    expect(client.save).toHaveBeenCalledWith(7, {
+      ...initial.preferences,
+      usage_reporting: false,
+    });
   },
 );
 
@@ -3075,6 +3063,7 @@ test("mobile hosts use Apple-style primary navigation and retain secondary setti
           rate: vi.fn(),
           publish: vi.fn(),
           unpublish: vi.fn(),
+          setCategory: vi.fn(),
           finishTrial: vi.fn(),
         },
         communityResources: {

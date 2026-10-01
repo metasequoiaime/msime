@@ -1,4 +1,5 @@
-import { Row, Select, Switch } from "../core/platform-controls";
+import { Row, Switch } from "../core/platform-controls";
+import { SelectRow } from "./select-row";
 
 export interface PunctuationPreferences {
   chinese_punctuation: boolean;
@@ -85,22 +86,22 @@ export function PunctuationSection({
           />
         </Row>
       ))}
-      <Row title="固定标点" description="切换中英文时的标点形态，三者互斥">
-        <Select
-          value={preferences.punctuation_lock ?? "follow"}
-          onChange={(event) =>
-            onChange({
-              punctuation_lock: event.target.value as NonNullable<
-                PunctuationPreferences["punctuation_lock"]
-              >,
-            })
-          }
-        >
-          <option value="follow">跟随中英文状态</option>
-          <option value="chinese">始终使用中文标点</option>
-          <option value="english">始终使用英文标点</option>
-        </Select>
-      </Row>
+      <SelectRow
+        title="固定标点"
+        description="切换中英文时的标点形态，三者互斥"
+        value={preferences.punctuation_lock ?? "follow"}
+        onChange={(event) =>
+          onChange({
+            punctuation_lock: event.target.value as NonNullable<
+              PunctuationPreferences["punctuation_lock"]
+            >,
+          })
+        }
+      >
+        <option value="follow">跟随中英文状态</option>
+        <option value="chinese">始终使用中文标点</option>
+        <option value="english">始终使用英文标点</option>
+      </SelectRow>
     </>
   );
 }

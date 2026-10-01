@@ -95,6 +95,36 @@ fn resource_verification_rejects_a_symlinked_state_root() {
     assert!(!outside.path().join("verified-resources.json").exists());
 }
 
+#[cfg(unix)]
+#[test]
+fn resource_verification_rejects_an_existing_state_root_below_a_symlink() {
+    let root = tempfile::tempdir().unwrap();
+    let resources = root.path().join("resources");
+    std::fs::create_dir_all(&resources).unwrap();
+    std::fs::write(resources.join("fixture.db"), b"fixture").unwrap();
+    let specification = ResourceSet {
+        source_commit: "a".repeat(40),
+        artifacts: vec![msime_client_core::resources::Artifact {
+            name: "fixture.db".into(),
+            url: "https://example.invalid/fixture.db".into(),
+            sha256: hex::encode(Sha256::digest(b"fixture")),
+            size: 7,
+        }],
+    };
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::create_dir(outside.path().join("state")).unwrap();
+    let parent = tempfile::tempdir().unwrap();
+    let linked = parent.path().join("linked");
+    std::os::unix::fs::symlink(outside.path(), &linked).unwrap();
+    let state = linked.join("state");
+
+    assert!(verify_resources_once(&resources, &specification, &state).is_err());
+    assert!(!outside
+        .path()
+        .join("state/verified-resources.json")
+        .exists());
+}
+
 #[test]
 fn resource_verification_removes_the_retired_pinyin_dictionary_in_place() {
     let root = tempfile::tempdir().unwrap();
@@ -6378,9 +6408,9 @@ fn host_options_carry_vietnamese_settings_and_language_dictionaries_to_the_engin
     );
 }
 
-/// Cantonese and Zhuyin run on macOS and Windows once their dictionary is installed beside the resources, and fall back without it; Vietnamese needs no data and runs on those hosts regardless. Every other build falls back from all three.
+/// Cantonese and Zhuyin run on macOS, Windows and desktop Linux once their dictionary is installed beside the resources, and fall back without it; Vietnamese needs no data and runs there regardless. Every other build falls back from all three.
 #[test]
-fn installed_language_dictionaries_enable_their_schemes_on_macos_and_windows() {
+fn installed_language_dictionaries_enable_their_schemes_on_the_desktop_hosts() {
     let root = tempfile::tempdir().expect("tempdir");
     let resources = root.path().join("resources");
     std::fs::create_dir_all(&resources).expect("resources");
@@ -6396,14 +6426,18 @@ fn installed_language_dictionaries_enable_their_schemes_on_macos_and_windows() {
             .into_engine_options()
             .scheme
     };
-    let offered = cfg!(any(target_os = "macos", windows));
+    let runs = cfg!(any(
+        target_os = "macos",
+        windows,
+        all(target_os = "linux", not(target_env = "ohos"))
+    ));
     // Without the directory both fall back to the last Chinese scheme, 五笔.
     assert_eq!(super::installed_language_dictionaries(&resources), None);
     assert_eq!(engine_scheme(InputScheme::Cantonese), 2);
     assert_eq!(engine_scheme(InputScheme::Zhuyin), 2);
     assert_eq!(
         engine_scheme(InputScheme::Vietnamese),
-        if offered { 7 } else { 2 }
+        if runs { 7 } else { 2 }
     );
 
     let beside = root.path().join("language-dictionaries");
@@ -6416,15 +6450,12 @@ fn installed_language_dictionaries_enable_their_schemes_on_macos_and_windows() {
     );
     assert_eq!(
         engine_scheme(InputScheme::Cantonese),
-        if offered { 5 } else { 2 }
+        if runs { 5 } else { 2 }
     );
-    assert_eq!(
-        engine_scheme(InputScheme::Zhuyin),
-        if offered { 6 } else { 2 }
-    );
+    assert_eq!(engine_scheme(InputScheme::Zhuyin), if runs { 6 } else { 2 });
     assert_eq!(
         engine_scheme(InputScheme::Vietnamese),
-        if offered { 7 } else { 2 }
+        if runs { 7 } else { 2 }
     );
 }
 
@@ -7005,7 +7036,7 @@ fn stale_dictionary_generation_is_prepared_and_other_keys_survive() {
         "online_provider_socket": "/run/user/1000/msime-online.sock",
     });
     let mut requested = None;
-    let refreshed = super::refreshed_host_options(&document, "new", |resources, state| {
+    let refreshed = super::refreshed_host_options(&document, "new", None, |resources, state| {
         requested = Some((resources.to_owned(), state.to_owned()));
         Ok(json!({
             "resources": "/usr/share/msime-client/resources",
@@ -7042,7 +7073,7 @@ fn current_or_unfamiliar_options_are_not_prepared() {
     let mut relative = current.clone();
     relative["resources"] = json!("r");
     for document in [current, unfamiliar, moved, relative, json!({})] {
-        let refreshed = super::refreshed_host_options(&document, "new", |_, _| {
+        let refreshed = super::refreshed_host_options(&document, "new", None, |_, _| {
             panic!("must not prepare {document}")
         })
         .unwrap();
@@ -7106,7 +7137,7 @@ fn a_prepared_generation_records_the_language_dictionaries_beside_its_new_resour
         "dictionaries": "/s/user/dictionaries/old",
         "preferences_directory": "/s",
     });
-    let prepared = super::refreshed_host_options(&stale, "new", |_, _| {
+    let prepared = super::refreshed_host_options(&stale, "new", None, |_, _| {
         Ok(json!({ "resources": new, "dictionaries": "/s/user/dictionaries/new" }))
     })
     .unwrap()
@@ -7156,6 +7187,117 @@ fn only_the_input_method_refresh_records_the_language_dictionaries() {
     expected["language_dictionaries"] = json!(beside);
     assert_eq!(read(), expected);
     assert!(!super::refresh_host_options_with_language_dictionaries(&options).unwrap());
+}
+
+/// 用户自己暂存的资源目录停在旧代次上，词库锁已经升级：代次准备以 `dictionary_outdated` 失败，但输入法的刷新仍要记下资源旁已安装的粤语与注音词库，`resources` 和 `dictionaries` 保持原样；设置应用的刷新对文件一字不动。
+#[test]
+fn an_outdated_generation_still_records_the_installed_language_dictionaries() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = directory.path().join("state");
+    // 与 Application Support 里手工暂存的布局相同：资源目录和语言词库都在状态目录里。
+    let resources = state.join("EngineResources");
+    std::fs::create_dir_all(&resources).unwrap();
+    std::fs::write(resources.join("msime.db"), b"previous generation").unwrap();
+    let beside = state.join("language-dictionaries");
+    std::fs::create_dir(&beside).unwrap();
+    std::fs::write(beside.join("cantonese.db"), b"sqlite").unwrap();
+    std::fs::write(beside.join("zhuyin.db"), b"sqlite").unwrap();
+    let document = json!({
+        "api_version": 1,
+        "cache": state.join("cache"),
+        "dictionaries": state.join("user/dictionaries/previous"),
+        "preferences": {},
+        "preferences_directory": state,
+        "resources": resources,
+        "user_data": state.join("user"),
+    });
+    let options = state.join("runtime-options.json");
+    let bytes = serde_json::to_vec_pretty(&document).unwrap();
+    std::fs::write(&options, &bytes).unwrap();
+
+    let error = super::refresh_host_options(&options).unwrap_err();
+    assert!(error.is::<super::DictionaryOutdated>(), "{error}");
+    assert_eq!(std::fs::read(&options).unwrap(), bytes);
+
+    let error = super::refresh_host_options_with_language_dictionaries(&options).unwrap_err();
+    assert!(error.is::<super::DictionaryOutdated>(), "{error}");
+    let mut expected = document.clone();
+    expected["language_dictionaries"] = json!(beside);
+    let read = || serde_json::from_slice::<Value>(&std::fs::read(&options).unwrap()).unwrap();
+    assert_eq!(read(), expected);
+
+    // 下一次启动代次仍然失败，但语言词库已经记录过，不再改写文件。
+    let recorded = std::fs::read(&options).unwrap();
+    assert!(super::refresh_host_options_with_language_dictionaries(&options).is_err());
+    assert_eq!(std::fs::read(&options).unwrap(), recorded);
+}
+
+/// 记录的资源目录与词库锁不符时，自带资源的宿主改用自己那份准备代次，此后 `resources` 指向它；别的失败、没有自带资源、或自带的就是记录的那份时，照旧报告失败。
+#[test]
+fn outdated_recorded_resources_are_prepared_from_the_bundled_copy() {
+    use msime_client_core::resources::ResourceError;
+    let stale = json!({
+        "resources": "/Users/u/Library/Application Support/app.msime.macos/EngineResources",
+        "user_data": "/s/user",
+        "dictionaries": "/s/user/dictionaries/old",
+        "preferences_directory": "/s",
+        "preferences": {},
+    });
+    let bundled = Path::new("/Applications/MSIME.app/Contents/Resources/EngineResources");
+    let outdated = |resources: &Path| -> Result<Value, Box<dyn std::error::Error>> {
+        if resources == bundled {
+            Ok(json!({ "resources": bundled, "dictionaries": "/s/user/dictionaries/new" }))
+        } else {
+            Err(Box::new(super::DictionaryOutdated(
+                ResourceError::Integrity,
+            )))
+        }
+    };
+    let mut requested = Vec::new();
+    let refreshed =
+        super::refreshed_host_options(&stale, "new", Some(bundled), |resources, state| {
+            requested.push((resources.to_owned(), state.to_owned()));
+            outdated(resources)
+        })
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        requested,
+        [
+            (
+                PathBuf::from(stale["resources"].as_str().unwrap()),
+                PathBuf::from("/s")
+            ),
+            (bundled.to_owned(), PathBuf::from("/s")),
+        ]
+    );
+    let mut expected = stale.clone();
+    expected["resources"] = json!(bundled);
+    expected["dictionaries"] = json!("/s/user/dictionaries/new");
+    assert_eq!(refreshed, expected);
+
+    let error =
+        super::refreshed_host_options(&stale, "new", None, |resources, _| outdated(resources))
+            .unwrap_err();
+    assert!(error.is::<super::DictionaryOutdated>());
+    let mut packaged = stale.clone();
+    packaged["resources"] = json!(bundled);
+    let error = super::refreshed_host_options(&packaged, "new", Some(bundled), |_, _| {
+        Err(Box::new(super::DictionaryOutdated(
+            ResourceError::Integrity,
+        )))
+    })
+    .unwrap_err();
+    assert!(error.is::<super::DictionaryOutdated>());
+    let mut calls = 0;
+    assert!(
+        super::refreshed_host_options(&stale, "new", Some(bundled), |_, _| {
+            calls += 1;
+            Err("busy".into())
+        })
+        .is_err()
+    );
+    assert_eq!(calls, 1);
 }
 
 #[test]
@@ -7213,9 +7355,9 @@ fn a_failed_preparation_is_reported_and_incomplete_output_rejected() {
         "dictionaries": "/s/user/dictionaries/old",
         "preferences_directory": "/s",
     });
-    assert!(super::refreshed_host_options(&stale, "new", |_, _| Err("busy".into())).is_err());
+    assert!(super::refreshed_host_options(&stale, "new", None, |_, _| Err("busy".into())).is_err());
     assert!(
-        super::refreshed_host_options(&stale, "new", |_, _| Ok(json!({"resources": "/r"})))
+        super::refreshed_host_options(&stale, "new", None, |_, _| Ok(json!({"resources": "/r"})))
             .is_err()
     );
 }
@@ -8137,4 +8279,226 @@ fn statistics_record_reports_the_milestone_field() {
     );
     assert_eq!(quiet["value"]["recorded"], 2, "{quiet}");
     assert!(quiet["value"].get("milestone").is_some());
+}
+
+fn reporting_call(
+    function: unsafe extern "C" fn(*const u8, usize) -> *mut c_char,
+    request: Value,
+) -> Value {
+    let bytes = request.to_string();
+    // SAFETY: the buffer outlives the call and its length is exact.
+    read(unsafe { function(bytes.as_ptr(), bytes.len()) })
+}
+
+#[test]
+fn telemetry_abi_runs_a_session_through_a_crash_and_clears_when_turned_off() {
+    use crate::ffi::reporting::*;
+    let root = tempfile::tempdir().unwrap();
+    let directory = root.path().join("telemetry");
+    let request = |enabled: bool| {
+        json!({
+            "directory": directory,
+            "platform": "win",
+            "version": "0.50.0-build.7",
+            "enabled": enabled,
+        })
+    };
+    let started = reporting_call(msime_client_telemetry_begin, request(true));
+    assert_eq!(started["ok"], true, "{started}");
+    assert_eq!(started["value"]["enabled"], true);
+    let record = std::path::PathBuf::from(started["value"]["crash_record_path"].as_str().unwrap());
+    assert!(record.parent().unwrap().is_dir());
+
+    let crash = reporting_call(
+        msime_client_telemetry_record_crash,
+        json!({"directory": directory, "message": "std::terminate: bad_alloc", "stack": "msime-server.exe+0x10"}),
+    );
+    assert_eq!(crash["value"], true);
+    assert!(record.is_file());
+
+    let next = reporting_call(msime_client_telemetry_begin, request(true));
+    assert_eq!(next["value"]["previous_session_crashed"], true);
+    assert_eq!(next["value"]["crashes"], 1);
+    let ended = reporting_call(msime_client_telemetry_end, json!({"directory": directory}));
+    assert_eq!(ended["value"], true);
+
+    let store = msime_client_core::telemetry::TelemetryStore::new(&directory);
+    let kinds: Vec<_> = store
+        .queued()
+        .unwrap()
+        .into_iter()
+        .map(|event| serde_json::to_value(event.kind).unwrap())
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            json!("active"),
+            json!("session_crash"),
+            json!("crash"),
+            json!("session")
+        ]
+    );
+    assert!(store
+        .queued()
+        .unwrap()
+        .iter()
+        .all(|event| event.platform == "windows"));
+
+    // Turned off: flush sends nothing and clears the queue.
+    let flushed = reporting_call(msime_client_telemetry_flush, request(false));
+    assert_eq!(flushed["value"]["enabled"], false);
+    assert!(store.queued().unwrap().is_empty());
+
+    let invalid = reporting_call(
+        msime_client_telemetry_begin,
+        json!({"directory": "relative", "platform": "linux", "version": "1", "enabled": true}),
+    );
+    assert_eq!(invalid["ok"], false);
+    let unknown = reporting_call(
+        msime_client_telemetry_begin,
+        json!({"directory": directory, "platform": "linux", "version": "1", "enabled": true, "extra": 1}),
+    );
+    assert_eq!(unknown["ok"], false);
+}
+
+#[test]
+fn telemetry_abi_reads_consent_from_the_shared_preferences() {
+    use crate::ffi::reporting::*;
+    let root = tempfile::tempdir().unwrap();
+    let preferences = root.path().join("preferences");
+    let directory = root.path().join("telemetry");
+    let request = json!({
+        "directory": directory,
+        "platform": "linux",
+        "version": "0.50.0",
+        "preferences_directory": preferences,
+    });
+    // No preferences saved yet: the default, which is on.
+    let started = reporting_call(msime_client_telemetry_begin, request.clone());
+    assert_eq!(started["value"]["enabled"], true, "{started}");
+
+    let store = PreferencesStore::new(&preferences);
+    let off = Preferences {
+        usage_reporting: false,
+        ..Preferences::default()
+    };
+    store.save(0, off).unwrap();
+    let stopped = reporting_call(msime_client_telemetry_begin, request);
+    assert_eq!(stopped["value"]["enabled"], false);
+    assert!(
+        msime_client_core::telemetry::TelemetryStore::new(&directory)
+            .queued()
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn notice_abi_serves_the_cached_feed_with_rendered_html_and_dismissals() {
+    use crate::ffi::reporting::*;
+    let root = tempfile::tempdir().unwrap();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    // A feed fetched just now is served from the cache, so this test never reaches the network.
+    std::fs::write(
+        root.path().join("notices.json"),
+        json!({
+            "feed": "app/harmony",
+            "attempted_at_unix_ms": now,
+            "items": [
+                {"id": "2", "title": "维护", "body": "**今晚** <b>维护</b>", "targets": ["harmony"], "channels": ["app"], "published_at": "2026-10-01T03:00:00Z"},
+                {"id": "1", "title": "上线", "body": "[官网](https://msime.app)", "targets": ["all"], "channels": ["app"], "published_at": "2026-09-30T03:00:00Z"}
+            ],
+            "dismissed": []
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let request = json!({"directory": root.path(), "platform": "ohos"});
+    let listed = reporting_call(msime_client_notices, request.clone());
+    assert_eq!(listed["ok"], true, "{listed}");
+    let items = listed["value"]["items"].as_array().unwrap();
+    assert_eq!(items.len(), 2);
+    assert_eq!(
+        items[0]["html"],
+        "<p><strong>今晚</strong> &lt;b&gt;维护&lt;/b&gt;</p>\n"
+    );
+    let dismissed = reporting_call(
+        msime_client_notice_dismiss,
+        json!({"directory": root.path(), "id": "2"}),
+    );
+    assert_eq!(dismissed["value"], true);
+    let after = reporting_call(msime_client_notices, request);
+    let items = after["value"]["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["id"], "1");
+
+    let markdown = "[x](javascript:alert(1)) *y*";
+    // SAFETY: the buffer outlives the call and its length is exact.
+    let html = read(unsafe { msime_client_markdown_to_html(markdown.as_ptr(), markdown.len()) });
+    assert_eq!(html["value"], "<p>x <em>y</em></p>\n");
+}
+
+#[test]
+fn community_moderation_abi_lists_reasons_builds_reports_and_words_refusals() {
+    use crate::ffi::moderation::msime_client_community_moderation;
+    let reasons = reporting_call(
+        msime_client_community_moderation,
+        json!({"operation": "reasons"}),
+    );
+    assert_eq!(
+        reasons["value"],
+        json!([
+            "侵权/抄袭",
+            "色情低俗",
+            "违法违规",
+            "垃圾广告",
+            "恶意插件",
+            "其他"
+        ])
+    );
+
+    let report = reporting_call(
+        msime_client_community_moderation,
+        json!({"operation": "report", "kind": "candidate-skins", "item_id": "10000000-0000-4000-8000-000000000001", "reason": "垃圾广告", "detail": "  spam link  "}),
+    );
+    assert_eq!(report["ok"], true, "{report}");
+    assert_eq!(report["value"]["path"], "/v1/community/reports");
+    assert_eq!(
+        report["value"]["body"],
+        json!({"kind": "candidate-skins", "item_id": "10000000-0000-4000-8000-000000000001", "reason": "垃圾广告", "detail": "spam link"})
+    );
+    for bad in [
+        json!({"operation": "report", "kind": "skins", "item_id": "10000000-0000-4000-8000-000000000001", "reason": "不喜欢"}),
+        json!({"operation": "report", "kind": "skins", "item_id": "not-a-uuid", "reason": "其他"}),
+        json!({"operation": "report", "kind": "skins", "item_id": "10000000-0000-4000-8000-000000000001", "reason": "其他", "detail": "x".repeat(1001)}),
+    ] {
+        let refused = reporting_call(msime_client_community_moderation, bad);
+        assert_eq!(refused["error"], "community_invalid", "{refused}");
+    }
+
+    let error = |status: u16, code: &str| {
+        reporting_call(
+            msime_client_community_moderation,
+            json!({"operation": "error", "status": status, "body": json!({"error": {"code": code, "message": code}}).to_string()}),
+        )["value"]
+            .clone()
+    };
+    let blocked = error(422, "blocked_content");
+    assert_eq!(blocked["code"], "account_blocked_content");
+    assert_eq!(
+        blocked["message"],
+        "内容包含不允许发布的词语，请修改后再提交"
+    );
+    assert_eq!(blocked["retry"], false);
+    let screening = error(503, "screening_unavailable");
+    assert_eq!(screening["code"], "account_screening_unavailable");
+    assert_eq!(screening["message"], "审核服务暂时不可用，请稍后重试");
+    assert_eq!(screening["retry"], true);
+    assert_eq!(error(403, "account_banned")["code"], "account_banned");
+    let generic = error(404, "not_found");
+    assert_eq!(generic["code"], "account_unavailable");
+    assert!(generic["message"].is_null());
 }

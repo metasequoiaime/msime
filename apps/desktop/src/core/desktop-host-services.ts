@@ -68,10 +68,9 @@ export function createDesktopCandidateSkinCommunity(invoke: Invoke): CandidateSk
       }),
     sync: () => invoke<CandidateSkinSyncReport>("candidate_skin_community_sync"),
     rate: (id, stars) => invoke<{ stars: number }>("candidate_skin_community_rate", { id, stars }),
-    unpublish: (id) =>
-      invoke<{ deleted: boolean }>("candidate_skin_community_unpublish", {
-        id,
-      }),
+    unpublish: (id) => invoke<{ deleted: boolean }>("candidate_skin_community_unpublish", { id }),
+    report: (id, reason, detail) =>
+      invoke<void>("community_report", { kind: "candidate-skins", id, reason, detail }),
   };
 }
 
@@ -82,12 +81,8 @@ export function createDesktopCandidateSkinCommunity(invoke: Invoke): CandidateSk
  */
 export function createDesktopPluginCommunity(invoke: Invoke): CommunityPluginClient {
   return {
-    list: (offset, search, kind) =>
-      invoke<CommunityPluginPage>("plugin_community_list", {
-        offset,
-        search,
-        kind,
-      }),
+    list: (offset, search, kind, mine) =>
+      invoke<CommunityPluginPage>("plugin_community_list", { offset, search, kind, mine }),
     detail: (id) => invoke<CommunityPlugin>("plugin_community_detail", { id }),
     packPreview: (kind, pluginId) =>
       invoke<CommunityPluginPackPreview>("plugin_community_pack_preview", {
@@ -106,5 +101,7 @@ export function createDesktopPluginCommunity(invoke: Invoke): CommunityPluginCli
       invoke<PluginPackage>("plugin_community_install", { id, kind, pluginId }),
     rate: (id, stars) => invoke<{ stars: number }>("plugin_community_rate", { id, stars }),
     delete: (id) => invoke<{ deleted: boolean }>("plugin_community_delete", { id }),
+    report: (id, reason, detail) =>
+      invoke<void>("community_report", { kind: "plugins", id, reason, detail }),
   };
 }

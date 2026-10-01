@@ -8,7 +8,7 @@ use crate::account::{
 use crate::cloud::dictionary::{percent_encode, DictionaryKind};
 use crate::community::{
     valid_author, valid_description, valid_name, valid_query, valid_rating, valid_text,
-    MAXIMUM_JAVASCRIPT_INTEGER, MAXIMUM_PAGE_ITEMS,
+    CommunityModeration, MAXIMUM_JAVASCRIPT_INTEGER, MAXIMUM_PAGE_ITEMS, MODERATION_FIELDS,
 };
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
@@ -66,6 +66,9 @@ pub struct CommunityResource {
     pub rating_count: u64,
     pub rating_average: f64,
     pub my_rating: u8,
+    /// The moderation state, sent only for the signed-in user's own item and only to a request that asked for it with `fields=moderation`; other users' items and older servers leave it out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moderation: Option<CommunityModeration>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -165,8 +168,14 @@ impl CommunityResourceApi for BackendAccountClient {
         token: Option<&str>,
     ) -> Result<CommunityResourcePage, AccountError> {
         validate_query(offset, search, scope, token)?;
+        // The user's own list is where a removed item still shows, so it asks for the moderation state.
+        let fields = if scope == CommunityResourceScope::Mine {
+            format!("&{MODERATION_FIELDS}")
+        } else {
+            String::new()
+        };
         let path = format!(
-            "/v1/community/resources?kind={}&scope={}&q={}&offset={offset}",
+            "/v1/community/resources?kind={}&scope={}&q={}&offset={offset}{fields}",
             kind_name(kind),
             scope.query(),
             percent_encode(search)
@@ -192,7 +201,10 @@ impl CommunityResourceApi for BackendAccountClient {
         }
         let value = self.json_with_limit::<CommunityResource, ()>(
             Method::GET,
-            &format!("/v1/community/resources/{}", id.hyphenated()),
+            &format!(
+                "/v1/community/resources/{}?{MODERATION_FIELDS}",
+                id.hyphenated()
+            ),
             token,
             None,
             3 * 1024 * 1024,

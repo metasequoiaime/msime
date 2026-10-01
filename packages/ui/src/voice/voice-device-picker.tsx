@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { runAsyncAction } from "../core/async-action";
+import { SettingActionHeader } from "../settings/setting-action-header";
 
 export type VoiceCaptureDevice = {
   backend: "pulse" | "pipewire" | "alsa" | "windows" | "macos" | "harmony";
@@ -63,8 +64,7 @@ export function VoiceDevicePicker({
   const selected = devices.findIndex((item) => item.backend === backend && item.id === device);
   return (
     <div>
-      <label className="section-header">
-        <span className="section-title">可用录音设备</span>
+      <SettingActionHeader as="label" title="可用录音设备">
         <select
           aria-label="可用录音设备"
           value={selected < 0 ? "" : String(selected)}
@@ -86,7 +86,7 @@ export function VoiceDevicePicker({
         <button type="button" disabled={busy} onClick={() => void refresh()}>
           {busy ? "读取中…" : "刷新设备"}
         </button>
-      </label>
+      </SettingActionHeader>
       <p role="status">{notice}</p>
     </div>
   );

@@ -1,5 +1,4 @@
-import { SecretInput } from "../core/secret-input";
-import { SettingField } from "./setting-field";
+import { SecretSettingField } from "./secret-setting-field";
 
 export interface VoiceCredentialFieldsSectionProps {
   showAppKey: boolean;
@@ -22,13 +21,19 @@ export function VoiceCredentialFieldsSection({
   return (
     <>
       {showAppKey && (
-        <SettingField label="Doubao App Key" description="旧版控制台鉴权使用">
-          <SecretInput label="Doubao App Key" value={appKey} onChange={onAppKeyChange} />
-        </SettingField>
+        <SecretSettingField
+          label="Doubao App Key"
+          description="旧版控制台鉴权使用"
+          value={appKey}
+          onChange={onAppKeyChange}
+        />
       )}
-      <SettingField label={tokenLabel} description="仅保存在本机设置中">
-        <SecretInput label={tokenLabel} value={token} onChange={onTokenChange} />
-      </SettingField>
+      <SecretSettingField
+        label={tokenLabel}
+        description="仅保存在本机设置中"
+        value={token}
+        onChange={onTokenChange}
+      />
     </>
   );
 }

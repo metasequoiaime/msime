@@ -20,6 +20,11 @@ final class OnlineCandidateProvider {
   private var debounce: Timer?
   private var task: Task<Void, Never>?
 
+  static func shouldRetryAfterFetch(cloudRequested: Bool, cloudApplied: Bool,
+                                    aiRequested: Bool, aiApplied: Bool) -> Bool {
+    (cloudRequested && !cloudApplied) || (aiRequested && !aiApplied)
+  }
+
   init(session: MetasequoiaInputSessionBridge,
        transport: any OnlineCandidateTransport = URLSessionOnlineCandidateTransport()) {
     self.session = session
@@ -56,22 +61,37 @@ final class OnlineCandidateProvider {
   }
 
   private func fetch(document: Data, epoch target: UInt64) async {
+    let initialQuery = Self.object(document)
+    let cloudRequested = initialQuery.map(Self.requestsCloud) ?? false
+    var cloudApplied = false
+    var aiRequested = false
+    var aiApplied = false
+    defer {
+      // 云候选成功不代表后续 AI 也成功；只要当前代次还有失败的请求，就释放签名允许重试。
+      if Self.shouldRetryAfterFetch(cloudRequested: cloudRequested, cloudApplied: cloudApplied,
+                                    aiRequested: aiRequested, aiApplied: aiApplied),
+         target == epoch { signature = nil }
+    }
     var aiDocument = document
     if let query = Self.object(document), Self.requestsCloud(query),
        let url = MetasequoiaInputSessionBridge.cloudRequestURL(query: document),
        let body = await transport.fetch(Self.cloudRequest(url)), target == epoch,
        // Applying a cloud result advances the Engine's generation, so the AI request has to be built from the query as it stands afterwards or it arrives stale.
        let refreshed = apply({ try self.session.applyCloudResponse(query: document, body: body) }) {
+      cloudApplied = true
       aiDocument = refreshed
     }
     guard target == epoch, let query = Self.object(aiDocument), Self.requestsAI(query),
           let limit = Self.aiCandidateLimit(query),
           let descriptor = session.aiRequest(query: aiDocument),
-          let request = Self.aiRequest(descriptor),
-          let body = await transport.fetch(request), target == epoch else { return }
+          let request = Self.aiRequest(descriptor) else { return }
+    aiRequested = true
+    guard let body = await transport.fetch(request), target == epoch else { return }
     let candidates = MetasequoiaInputSessionBridge.parseAIResponse(body, limit: limit)
     guard !candidates.isEmpty else { return }
-    _ = apply { try self.session.applyOnlineCandidates(query: aiDocument, candidates: candidates, source: 1) }
+    if apply({ try self.session.applyOnlineCandidates(query: aiDocument, candidates: candidates, source: 1) }) != nil {
+      aiApplied = true
+    }
   }
 
   /// Hand one provider's result to the session and render it. Returns the query as it stands afterwards, or nil when nothing was applied.

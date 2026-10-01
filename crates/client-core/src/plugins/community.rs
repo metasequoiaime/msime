@@ -12,8 +12,8 @@ use crate::account::{
 };
 use crate::cloud::dictionary::percent_encode;
 use crate::community::{
-    valid_author, valid_description, valid_name, valid_query, valid_rating,
-    MAXIMUM_JAVASCRIPT_INTEGER, MAXIMUM_PAGE_ITEMS,
+    valid_author, valid_description, valid_name, valid_query, valid_rating, CommunityModeration,
+    MAXIMUM_JAVASCRIPT_INTEGER, MAXIMUM_PAGE_ITEMS, MODERATION_FIELDS,
 };
 use crate::skin::catalog::safe_id;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
@@ -79,6 +79,9 @@ pub struct CommunityPlugin {
     pub owned: bool,
     pub my_rating: u8,
     pub created_at: String,
+    /// The moderation state, sent only for the signed-in user's own item and only to a request that asked for it with `fields=moderation`; other users' items and older servers leave it out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moderation: Option<CommunityModeration>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -144,11 +147,13 @@ struct CommunityPluginDeleteResponse {
 }
 
 pub trait CommunityPluginApi: Send + Sync + 'static {
+    /// One page of published packs; `mine` lists only the signed-in user's own, removed ones included, with their moderation state.
     fn community_plugins(
         &self,
         offset: usize,
         search: &str,
         kind: Option<PluginKind>,
+        mine: bool,
         token: Option<&str>,
     ) -> Result<CommunityPluginPage, AccountError>;
     fn community_plugin(
@@ -176,14 +181,23 @@ impl CommunityPluginApi for BackendAccountClient {
         offset: usize,
         search: &str,
         kind: Option<PluginKind>,
+        mine: bool,
         token: Option<&str>,
     ) -> Result<CommunityPluginPage, AccountError> {
         validate_query(offset, search, kind)?;
+        if mine && token.is_none() {
+            return Err(AccountError::Unauthorized);
+        }
         let kind = kind
             .map(|kind| format!("&kind={}", kind.as_str()))
             .unwrap_or_default();
+        let scope = if mine {
+            format!("&scope=mine&{MODERATION_FIELDS}")
+        } else {
+            String::new()
+        };
         let path = format!(
-            "/v1/community/plugins?offset={offset}&q={}{kind}",
+            "/v1/community/plugins?offset={offset}&q={}{kind}{scope}",
             percent_encode(search)
         );
         let page = self.json::<CommunityPluginPage, ()>(Method::GET, &path, token, None)?;
@@ -198,7 +212,10 @@ impl CommunityPluginApi for BackendAccountClient {
         if id.is_nil() {
             return Err(AccountError::Invalid);
         }
-        let path = format!("/v1/community/plugins/{}", id.hyphenated());
+        let path = format!(
+            "/v1/community/plugins/{}?{MODERATION_FIELDS}",
+            id.hyphenated()
+        );
         let item = self.json::<CommunityPlugin, ()>(Method::GET, &path, token, None)?;
         validate_item(&item)?;
         if item.id != id {
@@ -311,16 +328,17 @@ where
     A: AccountApi + CommunityPluginApi,
     S: AccountSessionStorage,
 {
-    /// One page of published packs, newest first, of one kind or of every kind. Signed in, each item also says whether it is the user's own and how the user rated it.
+    /// One page of published packs, newest first, of one kind or of every kind. Signed in, each item also says whether it is the user's own and how the user rated it. `mine` lists only the user's own, removed ones included, and so requires a session.
     pub fn list(
         &self,
         offset: usize,
         search: &str,
         kind: Option<PluginKind>,
+        mine: bool,
     ) -> Result<CommunityPluginPage, AccountError> {
         validate_query(offset, search, kind)?;
-        request_with_account_session(&self.api, &self.session, false, |api, token| {
-            api.community_plugins(offset, search, kind, token)
+        request_with_account_session(&self.api, &self.session, mine, |api, token| {
+            api.community_plugins(offset, search, kind, mine, token)
         })
     }
 

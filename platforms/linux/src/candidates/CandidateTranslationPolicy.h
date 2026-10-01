@@ -40,4 +40,10 @@ inline bool command_translation_query(std::string_view local_mode, bool sentence
   return local_mode == "command" && sentence;
 }
 
+// 在线服务请求失败或没有返回任何译文时，当前查询仍应允许下一次刷新重试。
+inline bool should_retry_translation_after_provider(bool requested, bool response_valid,
+                                                    bool answered) {
+  return requested && (!response_valid || !answered);
+}
+
 } // namespace msime::linux_host

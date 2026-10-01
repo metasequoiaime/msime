@@ -10,6 +10,7 @@ private final class FakeCloudClipboard: KeyboardCloudClipboardService, @unchecke
   private var failure: Error?
   private var gate: CheckedContinuation<Void, Never>?
   private var holds = false
+  private var holdPageAfterAdd = false
   private var uploadLog: [String] = []
   private var pages = 0
   var uploads: [String] { lock.withLock { uploadLog } }
@@ -31,6 +32,8 @@ private final class FakeCloudClipboard: KeyboardCloudClipboardService, @unchecke
   func holdNextPage() { lock.withLock { holds = true } }
   func release() { lock.withLock { () -> CheckedContinuation<Void, Never>? in defer { gate = nil }; return gate }?.resume() }
   var isHolding: Bool { lock.withLock { gate != nil } }
+  func holdPageAfterNextAdd() { lock.withLock { holdPageAfterAdd = true } }
+  func replace(_ texts: [String]) { lock.withLock { stored = texts.enumerated().map { Self.item($0.element, index: $0.offset + 20) } } }
 
   func isSignedIn() async -> Bool { lock.withLock { signedInValue } }
   func page() async throws -> BackendAccountClient.ClipboardPage {
@@ -39,10 +42,11 @@ private final class FakeCloudClipboard: KeyboardCloudClipboardService, @unchecke
       defer { holds = false }
       return holds
     }
-    if shouldHold { await withCheckedContinuation { continuation in lock.withLock { gate = continuation } } }
-    let (failure, enabled, rows) = lock.withLock {
-      (failure, enabledValue, stored.map { ["id": $0.id, "text": $0.text, "updated_at": $0.updated_at] })
+    let snapshot = lock.withLock { () -> (Error?, Bool, [[String: Any]]) in
+      (self.failure, enabledValue, stored.map { ["id": $0.id, "text": $0.text, "updated_at": $0.updated_at] })
     }
+    if shouldHold { await withCheckedContinuation { continuation in lock.withLock { gate = continuation } } }
+    let (failure, enabled, rows) = snapshot
     if let failure { throw failure }
     let data = try JSONSerialization.data(withJSONObject: ["enabled": enabled, "items": rows])
     return try JSONDecoder().decode(BackendAccountClient.ClipboardPage.self, from: data)
@@ -52,6 +56,10 @@ private final class FakeCloudClipboard: KeyboardCloudClipboardService, @unchecke
       if let failure { throw failure }
       uploadLog.append(text)
       stored.insert(Self.item(text, index: stored.count + 1), at: 0)
+      if holdPageAfterAdd {
+        holds = true
+        holdPageAfterAdd = false
+      }
     }
   }
 }
@@ -192,6 +200,27 @@ final class KeyboardCloudClipboardTests: XCTestCase {
     XCTAssertEqual(service.uploads, ["合成的本机记录"])
     XCTAssertTrue(cloud.isDisabled)
     XCTAssertFalse(cloud.canUpload)
+  }
+
+  func testUploadCannotOverwriteARefreshThatStartedWhileItsReplyWasPending() async throws {
+    let service = FakeCloudClipboard(items: ["旧列表"])
+    let cloud = KeyboardCloudClipboard(hasFullAccess: true, service: service)
+    cloud.refresh()
+    await settle(cloud) { cloud.signedIn }
+
+    service.holdPageAfterNextAdd()
+    cloud.upload("上传中的记录")
+    await settle(cloud) { service.isHolding }
+    XCTAssertTrue(service.isHolding)
+
+    service.replace(["刷新后的列表"])
+    cloud.refresh()
+    await settle(cloud) { cloud.items.first?.text == "刷新后的列表" }
+    XCTAssertEqual(cloud.items.map(\.text), ["刷新后的列表"])
+
+    service.release()
+    await settle(cloud) { cloud.notice == "已发到云剪贴板" }
+    XCTAssertEqual(cloud.items.map(\.text), ["刷新后的列表"], "旧上传回复不能覆盖更新的刷新结果")
   }
 
   func testLocalRowMenuOffersSendToCloudOnlyWhenSignedIn() async throws {

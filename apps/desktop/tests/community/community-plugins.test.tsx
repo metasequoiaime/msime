@@ -101,15 +101,15 @@ test("the kind filter is sent with every page, including the ones load more appe
     .mockResolvedValueOnce({ plugins: [first], has_more: true })
     .mockResolvedValueOnce({ plugins: [second], has_more: false });
   render(<CommunityPluginsPage client={client({ list })} />);
-  await waitFor(() => expect(list).toHaveBeenCalledWith(0, "", null));
+  await waitFor(() => expect(list).toHaveBeenCalledWith(0, "", null, false));
 
   fireEvent.click(screen.getByRole("button", { name: "音效包" }));
-  await waitFor(() => expect(list).toHaveBeenLastCalledWith(0, "", "sound"));
+  await waitFor(() => expect(list).toHaveBeenLastCalledWith(0, "", "sound", false));
   expect(screen.getByRole("button", { name: "音效包" }).getAttribute("aria-pressed")).toBe("true");
   expect(screen.queryByRole("button", { name: "特效包" })).toBeNull();
 
   fireEvent.click(await screen.findByRole("button", { name: "加载更多" }));
-  await waitFor(() => expect(list).toHaveBeenLastCalledWith(1, "", "sound"));
+  await waitFor(() => expect(list).toHaveBeenLastCalledWith(1, "", "sound", false));
   expect(await screen.findByRole("button", { name: "查看插件 雷雨" })).not.toBeNull();
 });
 
@@ -134,7 +134,7 @@ test("an empty page under a kind filter or a search says nothing matched", async
   await screen.findByText(/社区里还没有插件/);
 
   fireEvent.click(screen.getByRole("button", { name: "音乐包" }));
-  await waitFor(() => expect(list).toHaveBeenLastCalledWith(0, "", "music"));
+  await waitFor(() => expect(list).toHaveBeenLastCalledWith(0, "", "music", false));
   expect(await screen.findByText("没有匹配的插件。")).not.toBeNull();
   expect(screen.queryByText(/社区里还没有插件/)).toBeNull();
 
@@ -144,7 +144,7 @@ test("an empty page under a kind filter or a search says nothing matched", async
     target: { value: "雨" },
   });
   fireEvent.click(screen.getByRole("button", { name: "搜索" }));
-  await waitFor(() => expect(list).toHaveBeenLastCalledWith(0, "雨", null));
+  await waitFor(() => expect(list).toHaveBeenLastCalledWith(0, "雨", null, false));
   expect(await screen.findByText("没有匹配的插件。")).not.toBeNull();
 });
 
@@ -163,7 +163,7 @@ test("load more resumes after the items the host skipped on the previous page", 
     .mockResolvedValueOnce({ plugins: [second], has_more: false, skipped: 0 });
   render(<CommunityPluginsPage client={client({ list })} />);
   fireEvent.click(await screen.findByRole("button", { name: "加载更多" }));
-  await waitFor(() => expect(list).toHaveBeenLastCalledWith(3, "", null));
+  await waitFor(() => expect(list).toHaveBeenLastCalledWith(3, "", null, false));
   expect(await screen.findByRole("button", { name: "查看插件 雷雨" })).not.toBeNull();
 });
 
@@ -174,8 +174,8 @@ test("a first page the host emptied reads on to the installable plugins after it
     .mockResolvedValueOnce({ plugins: [first], has_more: false, skipped: 1 });
   render(<CommunityPluginsPage client={client({ list })} localPlugins={catalog([])} />);
   expect(await screen.findByRole("button", { name: "查看插件 雨声" })).not.toBeNull();
-  expect(list).toHaveBeenNthCalledWith(1, 0, "", null);
-  expect(list).toHaveBeenNthCalledWith(2, 20, "", null);
+  expect(list).toHaveBeenNthCalledWith(1, 0, "", null, false);
+  expect(list).toHaveBeenNthCalledWith(2, 20, "", null, false);
   expect(screen.queryByText(/社区里还没有插件/)).toBeNull();
   expect(screen.queryByRole("button", { name: "加载更多" })).toBeNull();
 });
@@ -189,7 +189,7 @@ test("a run of emptied pages stops after a few and points at load more, not at a
   expect(calls).toBeGreaterThan(1);
   expect(calls).toBeLessThanOrEqual(6);
   fireEvent.click(screen.getByRole("button", { name: "加载更多" }));
-  await waitFor(() => expect(list).toHaveBeenCalledWith(calls * 20, "", null));
+  await waitFor(() => expect(list).toHaveBeenCalledWith(calls * 20, "", null, false));
 });
 
 test("a kind filter whose first page fails is rolled back, so load more stays on the listed kind", async () => {
@@ -199,10 +199,10 @@ test("a kind filter whose first page fails is rolled back, so load more stays on
     .mockRejectedValueOnce(new Error("offline"))
     .mockResolvedValueOnce({ plugins: [second], has_more: false });
   render(<CommunityPluginsPage client={client({ list })} />);
-  await waitFor(() => expect(list).toHaveBeenCalledWith(0, "", null));
+  await waitFor(() => expect(list).toHaveBeenCalledWith(0, "", null, false));
 
   fireEvent.click(await screen.findByRole("button", { name: "音乐包" }));
-  await waitFor(() => expect(list).toHaveBeenLastCalledWith(0, "", "music"));
+  await waitFor(() => expect(list).toHaveBeenLastCalledWith(0, "", "music", false));
   await waitFor(() =>
     expect(screen.getByRole("button", { name: "音乐包" }).getAttribute("aria-pressed")).toBe(
       "false",
@@ -210,7 +210,7 @@ test("a kind filter whose first page fails is rolled back, so load more stays on
   );
 
   fireEvent.click(await screen.findByRole("button", { name: "加载更多" }));
-  await waitFor(() => expect(list).toHaveBeenLastCalledWith(1, "", null));
+  await waitFor(() => expect(list).toHaveBeenLastCalledWith(1, "", null, false));
 });
 
 test("installing over a pack of the same kind and id asks first, then reports the install", async () => {
@@ -506,7 +506,7 @@ test("the 插件 page switches between the installed packs and the community gal
   expect(screen.getByRole("heading", { name: "本地 rain" })).not.toBeNull();
 
   fireEvent.click(within(tabs).getByRole("tab", { name: "社区插件" }));
-  await waitFor(() => expect(pluginClient.list).toHaveBeenCalledWith(0, "", null));
+  await waitFor(() => expect(pluginClient.list).toHaveBeenCalledWith(0, "", null, false));
   const gallery = await screen.findByRole("heading", { name: "社区插件" });
   // The gallery has its own search form, so it must sit outside the settings form rather than nest inside it.
   expect(form.contains(gallery)).toBe(false);

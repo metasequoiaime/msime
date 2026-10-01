@@ -97,6 +97,7 @@ import { SettingsFormFooter } from "./settings/settings-form-footer";
 import { SettingsPageStatus } from "./settings/settings-page-status";
 import type { InputSourceStartupStatus } from "./settings/input-source-startup-notice";
 import { SettingsFormFrame } from "./settings/settings-form-frame";
+import { NoticeBanner, type NoticesClient } from "./settings/notice-banner";
 import { WindowTitlebar } from "./settings/window-titlebar";
 import { useProviderCredentials } from "./settings/use-provider-credentials";
 import { useFeedbackReport } from "./settings/use-feedback-report";
@@ -202,6 +203,12 @@ export {
   type UseSettingsDictionaryStateOptions,
 } from "./settings/use-settings-dictionary-state";
 export { SettingsFormFrame, type SettingsFormFrameProps } from "./settings/settings-form-frame";
+export {
+  NoticeBanner,
+  noticeBodyHtml,
+  type AppNotice,
+  type NoticesClient,
+} from "./settings/notice-banner";
 export { SettingsInputPage, type SettingsInputPageProps } from "./settings/settings-input-page";
 export {
   settingsPageCatalog,
@@ -529,6 +536,10 @@ export {
   type AccountConfirmationAction,
   type AccountConfirmationProps,
 } from "./account/account-confirmation";
+export {
+  AccountIdentityDetails,
+  type AccountIdentityDetailsProps,
+} from "./account/account-identity-details";
 export { copyAccountId, type AccountIdCopyOptions } from "./account/account-id-copy";
 export { runAccountOperation, type AccountOperationState } from "./account/account-operation";
 export {
@@ -681,6 +692,23 @@ export {
   type ThemePreferences,
 } from "./settings/theme-settings-section";
 export { SurfaceThemeSelect, type SurfaceThemeSelectProps } from "./settings/surface-theme-select";
+export { EndpointInput, type EndpointInputProps } from "./settings/endpoint-input";
+export { FeedbackKindOptions } from "./settings/feedback-kind-options";
+export { OpenPanelButton, type OpenPanelButtonProps } from "./settings/open-panel-button";
+export {
+  VoiceLanguageOptions,
+  type VoiceLanguageOptionsProps,
+} from "./voice/voice-language-options";
+export {
+  CloudPinyinSchemeOptions,
+  CloudShuangpinProfileOptions,
+} from "./keyboard/cloud-scheme-options";
+export {
+  PreeditStyleSelect,
+  type PreeditStyle,
+  type PreeditStyleSelectMode,
+  type PreeditStyleSelectProps,
+} from "./settings/preedit-style-select";
 export {
   CandidateColorsSection,
   type CandidateColorKey,
@@ -769,7 +797,11 @@ export {
   CloudCandidatesSection,
   type CloudCandidatesSectionProps,
 } from "./settings/cloud-candidates-section";
-export { TelemetrySection, type TelemetrySectionProps } from "./settings/telemetry-section";
+export {
+  TelemetrySection,
+  usageReportingDescription,
+  type TelemetrySectionProps,
+} from "./settings/telemetry-section";
 export { WubiSection, type WubiPreferences, type WubiSectionProps } from "./settings/wubi-section";
 export {
   InputModeSection,
@@ -977,6 +1009,10 @@ export {
   type VoiceCredentialStatus,
 } from "./settings/voice-credential-section";
 export {
+  VoiceProviderSelect,
+  type VoiceProviderSelectProps,
+} from "./settings/voice-provider-select";
+export {
   CredentialTestSection,
   type CredentialTestSectionProps,
   type CredentialTestState,
@@ -997,6 +1033,8 @@ export { SettingField, type SettingFieldProps } from "./settings/setting-field";
 export {
   SettingActionHeader,
   type SettingActionHeaderProps,
+  SettingSectionHeader,
+  type SettingSectionHeaderProps,
 } from "./settings/setting-action-header";
 export { SettingTextarea, type SettingTextareaProps } from "./settings/setting-textarea";
 export { ModelSelect, type ModelSelectProps } from "./settings/model-select";
@@ -1020,6 +1058,16 @@ export {
   type TencentTranslationSectionProps,
 } from "./settings/tencent-translation-section";
 export { SecretSettingRow, type SecretSettingRowProps } from "./settings/secret-setting-row";
+export { TextInputRow, type TextInputRowProps } from "./settings/text-input-row";
+export { SelectRow, type SelectRowProps } from "./settings/select-row";
+export { SwitchRow, type SwitchRowProps } from "./settings/switch-row";
+export { SecretSettingField, type SecretSettingFieldProps } from "./settings/secret-setting-field";
+export {
+  PasswordSettingField,
+  type PasswordSettingFieldProps,
+} from "./settings/password-setting-field";
+export { TextSettingField, type TextSettingFieldProps } from "./settings/text-setting-field";
+export { SelectSettingField, type SelectSettingFieldProps } from "./settings/select-setting-field";
 export {
   LinuxTencentCredentialsSection,
   type LinuxTencentCredentialsSectionProps,
@@ -1076,6 +1124,17 @@ export {
   type CommunityGalleryPage,
 } from "./community/community-gallery";
 export {
+  CommunityRemovedBadge,
+  CommunityReportSection,
+  communityReportDetailLimit,
+  communityReportReasons,
+  communityReportedNotice,
+  type CommunityModeration,
+  type CommunityReportKind,
+  type CommunityReportReason,
+  type CommunityReportSectionProps,
+} from "./community/community-report";
+export {
   CommunityErrorAlert,
   type CommunityErrorAlertProps,
 } from "./community/community-error-alert";
@@ -1126,13 +1185,42 @@ export {
   type CommunityScopeButtonsProps,
 } from "./community/community-scope-buttons";
 export {
+  communityPublishFields,
+  handleCommunityPublishKeyDown,
+  type CommunityPublishFields,
+} from "./community/community-publish-validation";
+export {
   CommunityResourceScopeButtons,
   type CommunityResourceScopeButtonsProps,
 } from "./community/community-resource-scope-buttons";
 export {
+  CommunityGalleryLoadMore,
+  type CommunityGalleryLoadMoreProps,
+} from "./community/community-gallery-load-more";
+export {
+  CommunityCardAuthor,
+  type CommunityCardAuthorProps,
+} from "./community/community-card-author";
+export {
   CommunitySkinPublicationFields,
   type CommunitySkinPublicationFieldsProps,
 } from "./community/community-skin-publication-fields";
+export {
+  CommunityRightsAgreement,
+  type CommunityRightsAgreementProps,
+} from "./community/community-rights-agreement";
+export {
+  CommunityTextareaField,
+  type CommunityTextareaFieldProps,
+} from "./community/community-textarea-field";
+export {
+  CommunityInputField,
+  type CommunityInputFieldProps,
+} from "./community/community-input-field";
+export {
+  CommunitySelectField,
+  type CommunitySelectFieldProps,
+} from "./community/community-select-field";
 export { CandidateSkinPublishDialog } from "./community/candidate-skin-publish-dialog";
 export {
   CommunityPluginPublishDialog,
@@ -1238,6 +1326,10 @@ export {
 } from "./keyboard/cloud-dictionary-entry-form";
 export { CloudPanelHeader, type CloudPanelHeaderProps } from "./keyboard/cloud-panel-header";
 export {
+  CloudDictionaryPagination,
+  type CloudDictionaryPaginationProps,
+} from "./keyboard/cloud-dictionary-pagination";
+export {
   CloudDictionaryKindTabs,
   type CloudDictionaryKindTabsProps,
 } from "./keyboard/cloud-dictionary-kind-tabs";
@@ -1245,6 +1337,10 @@ export {
   CloudDictionaryKindSelect,
   type CloudDictionaryKindSelectProps,
 } from "./keyboard/cloud-dictionary-kind-select";
+export {
+  CloudDictionaryQueryToolbar,
+  type CloudDictionaryQueryToolbarProps,
+} from "./keyboard/cloud-dictionary-query-toolbar";
 export type { EmojiCatalogGroup } from "./emoji/emoji-catalog";
 export {
   customTranslationsExample,
@@ -1411,8 +1507,8 @@ export type Preferences = {
   translation_secondary_language?: "en" | "fr" | "ja" | "es" | "ru" | "de" | "ko" | null;
   /** The user explicitly chose the MSIME account (api.msime.app) for candidate translations; absent means not chosen. */
   translation_account?: boolean;
-  /** Anonymous start and crash events; off by default and honoured only by the Windows Server. */
-  telemetry_enabled?: boolean;
+  /** Anonymous usage reporting (daily activity, session ends, crash summaries) read by every host; absent means on, the default. */
+  usage_reporting?: boolean;
   floating_toolbar?: FloatingToolbarPreferences;
   mixed_input?: MixedInputPreferences;
   fuzzy_pinyin?: FuzzyPinyinPreferences;
@@ -1795,6 +1891,8 @@ export interface SettingsClient {
   openPreferencesDirectory?: () => Promise<void>;
   readAppVersion?: () => Promise<string>;
   openExternalUrl?: (url: string) => Promise<void>;
+  /** The console's app notices; the host fetches and caches the feed and remembers dismissals. Absent shows none. */
+  notices?: NoticesClient;
   /** macOS opens the versioned third-party notices shipped with the app bundle. */
   openThirdPartyLicenses?: () => Promise<void>;
   /** macOS keeps the native shuangpin keymap panel preference outside shared Engine preferences. */
@@ -3063,6 +3161,9 @@ export function SettingsPage(props: SettingsPageProps) {
               onOpenSettings={statusActions.onOpenSettings}
               onDismiss={statusActions.onDismiss}
             />
+            {client.notices && (
+              <NoticeBanner client={client.notices} openExternalUrl={openExternalUrl} />
+            )}
             {client.home && draft && page === "home" && (
               <HomePage
                 preferences={draft}

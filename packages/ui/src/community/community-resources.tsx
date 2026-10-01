@@ -7,16 +7,27 @@ import {
   communityRating,
   resourceKindTitle,
   resourceMessage,
+  runCommunityAction,
 } from "./community-helpers";
 import type { CustomSkinLibraryClient } from "../keyboard/touch-keyboard-skin-design";
 import * as style from "./community-style";
 import { CommunitySearchForm } from "./community-search-form";
-import { runAsyncAction } from "../core/async-action";
 import { CommunityDialogHeader } from "./community-dialog";
+import {
+  CommunityRemovedBadge,
+  CommunityReportSection,
+  communityReportedNotice,
+  type CommunityModeration,
+  type CommunityReportReason,
+} from "./community-report";
 import {
   CommunityResourceScopeButtons,
   type CommunityResourceScope,
 } from "./community-resource-scope-buttons";
+import { CommunityRightsAgreement } from "./community-rights-agreement";
+import { CommunityInputField } from "./community-input-field";
+import { CommunitySelectField } from "./community-select-field";
+import { CommunityTextareaField } from "./community-textarea-field";
 
 export type CommunityResourceKind = "dictionary" | "reply";
 export type { CommunityResourceScope } from "./community-resource-scope-buttons";
@@ -41,6 +52,8 @@ export type CommunityResource = {
   rating_count: number;
   rating_average: number;
   my_rating: number;
+  /** Sent only on the user's own items; `removed` shows 已下架. */
+  moderation?: CommunityModeration | null;
 };
 export type CommunityResourcePage = { items: CommunityResource[]; has_more: boolean };
 export type CommunityResourceApplication = {
@@ -79,6 +92,13 @@ export interface CommunityResourceClient {
   unpublish(id: string): Promise<void>;
   storeReply(item: CommunityResource): Promise<void>;
   removeReply(id: string): Promise<void>;
+  /** Reports another user's dictionary or reply template to the moderators. */
+  report?(
+    kind: CommunityResourceKind,
+    id: string,
+    reason: CommunityReportReason,
+    detail: string,
+  ): Promise<void>;
 }
 
 function ResourceCard({ item, open }: { item: CommunityResource; open: () => void }) {
@@ -93,7 +113,10 @@ function ResourceCard({ item, open }: { item: CommunityResource; open: () => voi
         {item.kind === "dictionary" ? "字" : "话"}
       </span>
       <strong className={style.cardTitle}>{item.name}</strong>
-      <span className={style.cardAuthor}>{item.owned ? "我的作品" : item.author}</span>
+      <span className={style.cardAuthor}>
+        {item.owned ? "我的作品" : item.author}
+        {item.owned && item.moderation === "removed" && " · 已下架"}
+      </span>
       <span className={style.resourceDescription}>
         {item.description || (item.kind === "dictionary" ? "共享词条" : "回复语气模板")}
       </span>
@@ -183,32 +206,28 @@ function ResourceEditor({
       return;
     }
     const generation = clientGeneration.current;
-    actionRunning.current = true;
-    try {
-      await runAsyncAction(
-        {
-          busy,
-          isCurrent: () => mounted.current && generation === clientGeneration.current,
-          setBusy,
-          setError,
-        },
-        async () => {
-          await client.publish(
-            id,
-            kind,
-            normalizedName,
-            normalizedDescription,
-            kind === "reply" ? { prompt } : { entries },
-            existing?.revision ?? 0,
-          );
-          if (!mounted.current || generation !== clientGeneration.current) return;
-          await onPublished();
-        },
-        { formatError: resourceMessage },
-      );
-    } finally {
-      if (generation === clientGeneration.current) actionRunning.current = false;
-    }
+    await runCommunityAction({
+      busy,
+      generation,
+      clientGeneration,
+      actionRunning,
+      setBusy,
+      setError,
+      isCurrent: () => mounted.current && generation === clientGeneration.current,
+      formatError: resourceMessage,
+      operation: async (isCurrent) => {
+        await client.publish(
+          id,
+          kind,
+          normalizedName,
+          normalizedDescription,
+          kind === "reply" ? { prompt } : { entries },
+          existing?.revision ?? 0,
+        );
+        if (!isCurrent()) return;
+        await onPublished();
+      },
+    });
   };
   return (
     <div className={style.backdrop}>
@@ -230,85 +249,70 @@ function ResourceEditor({
             {error}
           </p>
         )}
-        <label className={style.field}>
-          作品名称
-          <input
-            aria-label="社区作品名称"
-            maxLength={32}
-            value={name}
-            disabled={busy}
-            onChange={(event) => setName(event.target.value)}
-          />
-        </label>
-        <label className={style.field}>
-          作品说明
-          <textarea
-            aria-label="社区作品说明"
-            maxLength={280}
-            rows={3}
-            value={description}
-            disabled={busy}
-            onChange={(event) => setDescription(event.target.value)}
-          />
-        </label>
+        <CommunityInputField
+          label="作品名称"
+          ariaLabel="社区作品名称"
+          maxLength={32}
+          value={name}
+          disabled={busy}
+          onChange={setName}
+        />
+        <CommunityTextareaField
+          label="作品说明"
+          ariaLabel="社区作品说明"
+          maxLength={280}
+          rows={3}
+          value={description}
+          disabled={busy}
+          onChange={setDescription}
+        />
         {kind === "reply" ? (
-          <label className={style.field}>
-            回复提示词
-            <textarea
-              aria-label="社区回复提示词"
-              maxLength={2000}
-              rows={8}
-              value={prompt}
-              disabled={busy}
-              onChange={(event) => setPrompt(event.target.value)}
-            />
-          </label>
+          <CommunityTextareaField
+            label="回复提示词"
+            ariaLabel="社区回复提示词"
+            maxLength={2000}
+            rows={8}
+            value={prompt}
+            disabled={busy}
+            onChange={setPrompt}
+          />
         ) : (
           <>
             <div className={style.entryForm}>
-              <label className={style.field}>
-                类型
-                <select
-                  aria-label="社区词条类型"
-                  value={entryKind}
-                  onChange={(event) =>
-                    setEntryKind(event.target.value as CommunitySharedWord["kind"])
-                  }
-                >
-                  <option value="pinyin">拼音</option>
-                  <option value="wubi">五笔</option>
-                  <option value="quick">快捷短语</option>
-                  <option value="english">英文</option>
-                </select>
-              </label>
-              <label className={style.field}>
-                编码
-                <input
-                  aria-label="社区词条编码"
-                  value={code}
-                  disabled={busy}
-                  onChange={(event) => setCode(event.target.value)}
-                />
-              </label>
-              <label className={style.field}>
-                词语
-                <input
-                  aria-label="社区词条文字"
-                  value={word}
-                  disabled={busy}
-                  onChange={(event) => setWord(event.target.value)}
-                />
-              </label>
-              <label className={style.field}>
-                权重
-                <input
-                  aria-label="社区词条权重"
-                  type="number"
-                  value={weight}
-                  disabled={busy}
-                  onChange={(event) => setWeight(event.target.value)}
-                />
-              </label>
+              <CommunitySelectField
+                label="类型"
+                ariaLabel="社区词条类型"
+                value={entryKind}
+                disabled={busy}
+                onChange={(value) => setEntryKind(value as CommunitySharedWord["kind"])}
+              >
+                <option value="pinyin">拼音</option>
+                <option value="wubi">五笔</option>
+                <option value="quick">快捷短语</option>
+                <option value="english">英文</option>
+              </CommunitySelectField>
+              <CommunityInputField
+                label="编码"
+                ariaLabel="社区词条编码"
+                value={code}
+                disabled={busy}
+                onChange={setCode}
+              />
+              <CommunityInputField
+                label="词语"
+                ariaLabel="社区词条文字"
+                value={word}
+                disabled={busy}
+                onChange={setWord}
+              />
+              <CommunityInputField
+                label="权重"
+                ariaLabel="社区词条权重"
+                type="number"
+                value={weight}
+                disabled={busy}
+                onChange={setWeight}
+              />
               <button type="button" className="secondary" disabled={busy} onClick={addEntry}>
                 添加词条
               </button>
@@ -333,16 +337,13 @@ function ResourceEditor({
           </>
         )}
         {!existing && (
-          <label className={style.agreement}>
-            <input
-              type="checkbox"
-              aria-label="确认拥有发布内容权利"
-              checked={agreed}
-              disabled={busy}
-              onChange={(event) => setAgreed(event.target.checked)}
-            />
-            我拥有发布所用内容的权利，并同意其他用户查看和使用
-          </label>
+          <CommunityRightsAgreement
+            agreementText="我拥有发布所用内容的权利，并同意其他用户查看和使用"
+            ariaLabel="确认拥有发布内容权利"
+            checked={agreed}
+            disabled={busy}
+            onChange={setAgreed}
+          />
         )}
         <p className={style.warning}>
           发布内容会公开展示。请勿包含 API
@@ -385,19 +386,18 @@ function ResourceDetail({
   const run = async (action: (generation: number) => Promise<void>) => {
     if (actionBusyRef.current || busy) return;
     const generation = clientGeneration.current;
-    actionBusyRef.current = true;
-    await runAsyncAction(
-      {
-        busy,
-        isCurrent: () => mounted.current && generation === clientGeneration.current,
-        setBusy,
-        setError,
-        setNotice,
-      },
-      () => action(generation),
-      { formatError: resourceMessage },
-    );
-    if (mounted.current && generation === clientGeneration.current) actionBusyRef.current = false;
+    await runCommunityAction({
+      busy,
+      generation,
+      clientGeneration,
+      actionRunning: actionBusyRef,
+      setBusy,
+      setError,
+      setNotice,
+      isCurrent: () => mounted.current && generation === clientGeneration.current,
+      formatError: resourceMessage,
+      operation: () => action(generation),
+    });
   };
   useEffect(() => {
     let active = true;
@@ -492,6 +492,17 @@ function ResourceDetail({
       setConfirmDelete(false);
       close();
     });
+  const report = async (reason: CommunityReportReason, detail: string) => {
+    if (!client.report) return false;
+    let reported = false;
+    await run(async (generation) => {
+      await client.report!(item.kind, item.id, reason, detail);
+      if (!mounted.current || generation !== clientGeneration.current) return;
+      reported = true;
+      setNotice(communityReportedNotice);
+    });
+    return reported;
+  };
   return (
     <div className={style.page}>
       <button type="button" className={style.back} disabled={busy} onClick={close}>
@@ -511,6 +522,7 @@ function ResourceDetail({
             </p>
           </div>
           {item.owned && <span className={style.detailBadge}>我的作品</span>}
+          <CommunityRemovedBadge owned={item.owned} moderation={item.moderation} />
         </div>
         {item.description && <p className={style.description}>{item.description}</p>}
         <p className={style.metrics}>
@@ -627,6 +639,9 @@ function ResourceDetail({
               下架作品
             </button>
           </>
+        )}
+        {!item.owned && client.report && (
+          <CommunityReportSection actionBusy={busy} onReport={report} />
         )}
         {confirmDelete && (
           <div className={style.confirmation} role="alertdialog" aria-label="确认下架作品">

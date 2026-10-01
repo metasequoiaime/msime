@@ -18,6 +18,12 @@ final class KeyboardSkinTests: XCTestCase {
     }
   }
 
+  func testOnlyNativeTokensLeaveTheBackgroundToTheSystemBackdrop() throws {
+    XCTAssertTrue(KeyboardTheme.system.drawsNativeBackground)
+    let design = try XCTUnwrap(CustomKeyboardSkin.templates.first?.1)
+    XCTAssertFalse(KeyboardTheme.designed(design).drawsNativeBackground)
+  }
+
   func testSharedPreferencesDesignUsesRustCamelCaseAndSwiftDataEncoding() throws {
     let photo = Data([0x89, 0x50, 0x4E, 0x47])
     let document: [String: Any] = [

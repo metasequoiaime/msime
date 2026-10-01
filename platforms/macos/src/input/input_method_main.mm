@@ -7,6 +7,7 @@
 #import "../settings/RuntimeOptionsRefresh.h"
 #import "../settings/AppearancePreferences.h"
 #import "../core/FloatingToolbarPanel.h"
+#import "../core/UsageReporting.h"
 #import "../candidate/CandidateSkin.h"
 #import "../voice/VoiceAudioMuter.h"
 #include <cstring>
@@ -59,9 +60,6 @@ int main(int argc, const char *argv[]) {
         MSIMEConfigureMovableState();
         NSString *swiftBackend = [NSBundle.mainBundle.privateFrameworksPath stringByAppendingPathComponent:@"MSIMEBackend.dylib"];
         if (swiftBackend.length > 0 && dlopen(swiftBackend.fileSystemRepresentation, RTLD_NOW | RTLD_GLOBAL) == nullptr) return 1;
-        using MSIMEStartTelemetryFn = void (*)(void);
-        MSIMEStartTelemetryFn startTelemetry = reinterpret_cast<MSIMEStartTelemetryFn>(dlsym(RTLD_DEFAULT, "MSIMEStartTelemetry"));
-        if (startTelemetry != nullptr) startTelemetry();
         if (MSIMEShouldShowPreferences(argc, argv)) {
             [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
             id closeObserver = [[NSNotificationCenter defaultCenter]
@@ -77,6 +75,10 @@ int main(int argc, const char *argv[]) {
             [[NSNotificationCenter defaultCenter] removeObserver:closeObserver];
             return 0;
         }
+        // One input method process is one usage session; the standalone preferences window above is not.
+        NSDictionary *reportingOptions = MSIMELoadRuntimeOptions();
+        id reportingPreferences = reportingOptions[@"preferences_directory"];
+        MSIMEUsageReportingStart([reportingPreferences isKindOfClass:NSString.class] && [reportingPreferences isAbsolutePath] ? reportingPreferences : nil);
         // Recover a prior crashed capture before accepting new IMK sessions.
         // A running owner holds the journal lock, so this cannot undo its mute.
         [[[MSIMEVoiceAudioMuter alloc] init] restore];
@@ -112,6 +114,7 @@ int main(int argc, const char *argv[]) {
         [NSApp run];
         if ([shared respondsToSelector:@selector(stopClipboardCapture)]) [shared performSelector:@selector(stopClipboardCapture)];
         [sourceMonitor stop];
+        MSIMEUsageReportingStop();
         (void)server;
     }
     return 0;

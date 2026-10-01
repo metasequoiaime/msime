@@ -1,4 +1,6 @@
-import { Row, Select, Switch } from "../core/platform-controls";
+import { Row, Switch } from "../core/platform-controls";
+import { PreeditStyleSelect } from "./preedit-style-select";
+import { SwitchRow } from "./switch-row";
 
 export type TsfPreeditStyle = "raw" | "pinyin" | "empty";
 export type CandidatePreeditStyle = "pinyin" | "empty";
@@ -39,15 +41,11 @@ export function PreeditSettingsSection({
           title="双拼预编辑"
           description="仅在双拼方案下生效；选择保留原始双拼按键，或显示展开后的拼音分词。"
         >
-          <Select
+          <PreeditStyleSelect
+            mode="shuangpin"
             value={preferences.shuangpin_preedit_uses_raw === false ? "pinyin" : "raw"}
-            onChange={(event) =>
-              onChange({ shuangpin_preedit_uses_raw: event.target.value === "raw" })
-            }
-          >
-            <option value="raw">原始按键</option>
-            <option value="pinyin">拼音分词</option>
-          </Select>
+            onChange={(value) => onChange({ shuangpin_preedit_uses_raw: value === "raw" })}
+          />
         </Row>
       )}
       {inlinePreedit !== undefined ? (
@@ -63,36 +61,29 @@ export function PreeditSettingsSection({
         </Row>
       ) : (
         <Row title="行内预编辑">
-          <Select
+          <PreeditStyleSelect
+            mode="inline"
             value={preferences.tsf_preedit_style ?? "raw"}
-            onChange={(event) =>
-              onChange({ tsf_preedit_style: event.target.value as TsfPreeditStyle })
-            }
-          >
-            <option value="raw">原始按键</option>
-            <option value="pinyin">拼音分词</option>
-            <option value="empty">不显示</option>
-          </Select>
+            onChange={(value) => onChange({ tsf_preedit_style: value as TsfPreeditStyle })}
+          />
         </Row>
       )}
       <Row title={mobile ? "候选栏预编辑" : "候选窗预编辑"}>
-        <Select
+        <PreeditStyleSelect
+          mode="candidate"
           value={preferences.candidate_preedit_style ?? "pinyin"}
-          onChange={(event) =>
-            onChange({ candidate_preedit_style: event.target.value as CandidatePreeditStyle })
+          onChange={(value) =>
+            onChange({ candidate_preedit_style: value as CandidatePreeditStyle })
           }
-        >
-          <option value="pinyin">拼音分词</option>
-          <option value="empty">不显示</option>
-        </Select>
+        />
       </Row>
       {showPageNumber && (
-        <Row title="显示页码" description="显示候选列表的当前页与总页数；关闭后仍可正常翻页。">
-          <Switch
-            checked={preferences.show_candidate_page_number !== false}
-            onChange={(checked) => onChange({ show_candidate_page_number: checked })}
-          />
-        </Row>
+        <SwitchRow
+          title="显示页码"
+          description="显示候选列表的当前页与总页数；关闭后仍可正常翻页。"
+          checked={preferences.show_candidate_page_number !== false}
+          onChange={(checked) => onChange({ show_candidate_page_number: checked })}
+        />
       )}
     </>
   );

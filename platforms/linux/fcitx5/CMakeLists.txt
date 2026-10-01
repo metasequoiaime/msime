@@ -123,6 +123,15 @@ target_compile_definitions(msime-fcitx5 PRIVATE MSIME_SYSTEM_OPTIONS="${CMAKE_IN
 if(MSIME_FCITX5_CUSTOM_IM_INFORMATION)
   target_compile_definitions(msime-fcitx5 PRIVATE MSIME_FCITX5_CUSTOM_IM_INFORMATION)
 endif()
+# Usage reporting, through the same wrapper as the IBus host and with the same version: the parent project's MSIME_LINUX_VERSION, or platforms/linux/version.txt when this directory is configured on its own. Only the addon reports; the native test builds the engine without it.
+if(NOT MSIME_LINUX_VERSION)
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../version.txt")
+  file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/../version.txt" MSIME_LINUX_VERSION LIMIT_COUNT 1)
+  string(STRIP "${MSIME_LINUX_VERSION}" MSIME_LINUX_VERSION)
+endif()
+target_sources(msime-fcitx5 PRIVATE ../../common/Telemetry.cpp)
+target_include_directories(msime-fcitx5 PRIVATE ../../common)
+target_compile_definitions(msime-fcitx5 PRIVATE MSIME_FCITX5_TELEMETRY MSIME_LINUX_VERSION="${MSIME_LINUX_VERSION}")
 file(RELATIVE_PATH MSIME_FCITX5_HOST_RELATIVE "${CMAKE_INSTALL_PREFIX}/${MSIME_FCITX5_ADDON_DIR}" "${CMAKE_INSTALL_FULL_LIBDIR}/msime-client")
 set_target_properties(msime-fcitx5 PROPERTIES INSTALL_RPATH "$ORIGIN/${MSIME_FCITX5_HOST_RELATIVE}")
 install(TARGETS msime-fcitx5 LIBRARY DESTINATION "${MSIME_FCITX5_ADDON_DIR}")
@@ -155,7 +164,8 @@ if(BUILD_TESTING)
   target_compile_definitions(fcitx5-native-test PRIVATE
     MSIME_SYSTEM_OPTIONS="${CMAKE_CURRENT_BINARY_DIR}/first-run-absent/runtime-options.json"
     MSIME_BINDIR="${CMAKE_CURRENT_BINARY_DIR}/first-run-bin"
-    MSIME_ICON_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../data/icons/hicolor")
+    MSIME_ICON_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../data/icons/hicolor"
+    MSIME_ZHUYIN_DICTIONARY_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/../tests/runtime/zhuyin_dictionary.py")
   # The candidate card's brand mark, decoded from the icons the package installs.
   add_executable(linux-candidate-fcitx-logo-test ../tests/candidate/candidate_fcitx_logo.cpp)
   target_compile_options(linux-candidate-fcitx-logo-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)

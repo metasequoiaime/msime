@@ -994,7 +994,8 @@ add_library(msime-windows-clipboard STATIC src/clipboard/ClipboardHistory.cpp
 target_include_directories(msime-windows-clipboard PUBLIC src src/clipboard)
 target_link_libraries(msime-windows-clipboard PUBLIC nlohmann_json::nlohmann_json)
 add_executable(windows-clipboard-history tests/clipboard/clipboard_history.cpp)
-target_link_libraries(windows-clipboard-history PRIVATE msime-windows-clipboard)
+target_link_libraries(windows-clipboard-history PRIVATE msime-windows-clipboard
+                      Threads::Threads)
 add_executable(windows-clipboard-link tests/clipboard/clipboard_link.cpp)
 target_link_libraries(windows-clipboard-link PRIVATE msime-windows-clipboard)
 add_executable(windows-clipboard-presentation tests/clipboard/clipboard_presentation.cpp)

@@ -77,6 +77,7 @@ function skinClient(): CommunitySkinClient {
     publish: vi.fn().mockResolvedValue(undefined),
     rate: vi.fn().mockResolvedValue(undefined),
     unpublish: vi.fn().mockResolvedValue(undefined),
+    setCategory: vi.fn().mockResolvedValue(skin),
     finishTrial: vi.fn().mockResolvedValue(undefined),
   };
 }

@@ -66,6 +66,13 @@
                     android:textSize="15sp" />
             </com.google.android.material.textfield.TextInputLayout>
 
+            <!-- Notices from the MSIME team (GET /v1/notices, channel app), filled by NoticeBanner. Empty, and so taking no space, when there is none to show. -->
+            <LinearLayout
+                android:id="@+id/keyboard_notices"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/keyboard_status_card"
                 android:layout_width="match_parent"

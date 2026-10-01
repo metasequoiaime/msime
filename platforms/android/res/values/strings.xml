@@ -20,6 +20,7 @@
     <string name="keyboard_status_checking">检查中</string>
     <string name="keyboard_try">试用键盘</string>
     <string name="keyboard_search_hint">搜索</string>
+    <string name="notice_dismiss">知道了</string>
     <string name="keyboard_search_empty">没有匹配的设置</string>
     <string name="tryout_back">返回</string>
     <string name="tryout_dismiss_keyboard">收起键盘</string>

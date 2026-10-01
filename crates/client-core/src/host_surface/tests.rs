@@ -343,9 +343,13 @@ fn capabilities_round_trip_and_reject_unknown_keys() {
 }
 
 #[test]
-fn only_macos_and_windows_offer_cantonese_zhuyin_and_vietnamese() {
+fn only_the_desktop_hosts_offer_cantonese_zhuyin_and_vietnamese() {
     use crate::preferences::InputScheme;
-    for platform in [HostPlatform::Macos, HostPlatform::Windows] {
+    for platform in [
+        HostPlatform::Macos,
+        HostPlatform::Windows,
+        HostPlatform::Linux,
+    ] {
         let schemes = HostCapabilities::for_platform(platform).input_schemes;
         assert_eq!(schemes.len(), 8, "{platform:?}");
         for scheme in [
@@ -357,7 +361,6 @@ fn only_macos_and_windows_offer_cantonese_zhuyin_and_vietnamese() {
         }
     }
     for platform in [
-        HostPlatform::Linux,
         HostPlatform::Android,
         HostPlatform::Ios,
         HostPlatform::Harmony,
@@ -388,19 +391,21 @@ fn capabilities_without_input_schemes_offer_the_base_five() {
     let decoded: HostCapabilities = serde_json::from_value(document).expect("deserializes");
     assert_eq!(
         decoded.input_schemes,
-        HostCapabilities::for_platform(HostPlatform::Linux).input_schemes
+        HostCapabilities::for_platform(HostPlatform::Android).input_schemes
     );
 }
 
 #[test]
 fn a_build_compiles_the_schemes_its_platform_offers() {
-    // macOS and Windows compile all eight; every other target the base five, which is what Linux offers.
+    // macOS, Windows and desktop Linux compile all eight; every other target the base five. HarmonyOS builds for `target_os = "linux"` and still compiles five.
     let platform = if cfg!(target_os = "macos") {
         HostPlatform::Macos
     } else if cfg!(target_os = "windows") {
         HostPlatform::Windows
-    } else {
+    } else if cfg!(all(target_os = "linux", not(target_env = "ohos"))) {
         HostPlatform::Linux
+    } else {
+        HostPlatform::Windows
     };
     assert_eq!(
         compiled_input_schemes(),

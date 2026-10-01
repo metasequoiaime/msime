@@ -28,6 +28,11 @@ import {
   type TouchSkinKeyShape,
 } from "./touch-keyboard-skin-design";
 import type { CommunitySkinClient } from "../community/community-skins";
+import {
+  communitySkinCategories,
+  communitySkinCategoryLabels,
+  type CommunitySkinCategory,
+} from "../community/community-skin-category";
 import * as skin from "./touch-skin-style";
 import * as doc from "../settings/document-style";
 import * as community from "../community/community-style";
@@ -58,6 +63,7 @@ function AiSkinGeneration({
   const [publishing, setPublishing] = useState<SavedTouchKeyboardSkin | null>(null);
   const [publishDescription, setPublishDescription] = useState("");
   const [publishAgreed, setPublishAgreed] = useState(false);
+  const [publishCategory, setPublishCategory] = useState<CommunitySkinCategory>("other");
   const [publishBusy, setPublishBusy] = useState(false);
   const publishRunning = useRef(false);
   const generateRunning = useRef(false);
@@ -174,11 +180,18 @@ function AiSkinGeneration({
     publishRunning.current = true;
     setPublishBusy(true);
     try {
-      await communitySkins.publish(publishing.id, name, description, publishing.design);
+      await communitySkins.publish(
+        publishing.id,
+        name,
+        description,
+        publishing.design,
+        publishCategory,
+      );
       if (!mounted.current) return;
       setPublishing(null);
       setPublishDescription("");
       setPublishAgreed(false);
+      setPublishCategory("other");
       setMessage("已发布到社区。");
     } catch (error) {
       const code = errorCode(error);
@@ -321,6 +334,23 @@ function AiSkinGeneration({
                 maxLength={280}
                 onChange={(event) => setPublishDescription(event.target.value)}
               />
+            </label>
+            <label>
+              分类
+              <select
+                aria-label="发布分类"
+                value={publishCategory}
+                disabled={publishBusy}
+                onChange={(event) =>
+                  setPublishCategory(event.target.value as CommunitySkinCategory)
+                }
+              >
+                {communitySkinCategories.map((item) => (
+                  <option key={item} value={item}>
+                    {communitySkinCategoryLabels[item]}
+                  </option>
+                ))}
+              </select>
             </label>
             <label>
               <input

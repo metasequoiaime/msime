@@ -74,7 +74,12 @@ class ProjectConfigurationTests(unittest.TestCase):
             accessed["NSPrivacyAccessedAPICategorySystemBootTime"], ["35F9.1"]
         )
         self.assertFalse(privacy["NSPrivacyTracking"])
-        self.assertEqual(privacy["NSPrivacyCollectedDataTypes"], [])
+        # Anonymous usage reporting: crash reports, keyboard sessions and daily activity, and the random install id, none linked to the user or used for tracking.
+        self.assertEqual(privacy["NSPrivacyCollectedDataTypes"], [
+            {"NSPrivacyCollectedDataType": "NSPrivacyCollectedDataTypeCrashData", "NSPrivacyCollectedDataTypeLinked": False, "NSPrivacyCollectedDataTypeTracking": False, "NSPrivacyCollectedDataTypePurposes": ["NSPrivacyCollectedDataTypePurposeAnalytics", "NSPrivacyCollectedDataTypePurposeAppFunctionality"]},
+            {"NSPrivacyCollectedDataType": "NSPrivacyCollectedDataTypeProductInteraction", "NSPrivacyCollectedDataTypeLinked": False, "NSPrivacyCollectedDataTypeTracking": False, "NSPrivacyCollectedDataTypePurposes": ["NSPrivacyCollectedDataTypePurposeAnalytics"]},
+            {"NSPrivacyCollectedDataType": "NSPrivacyCollectedDataTypeDeviceID", "NSPrivacyCollectedDataTypeLinked": False, "NSPrivacyCollectedDataTypeTracking": False, "NSPrivacyCollectedDataTypePurposes": ["NSPrivacyCollectedDataTypePurposeAnalytics"]},
+        ])
         project = (IOS_ROOT / "project.yml").read_text()
         self.assertEqual(project.count("path: SharedResources/PrivacyInfo.xcprivacy"), 2)
         generated = (IOS_ROOT / "MSIMEClient.xcodeproj/project.pbxproj").read_text()

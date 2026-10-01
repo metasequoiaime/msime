@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { errorCode } from "../core/error-code";
 import type { SkinCatalog } from "../skin/external-skins";
 import type { SkinImageReader } from "../skin/skin-image";
@@ -11,7 +11,27 @@ import * as style from "./community-style";
 import { CommunitySearchForm } from "./community-search-form";
 import { CommunityScopeButtons } from "./community-scope-buttons";
 import { CommunitySkinModerationSection } from "./community-skin-moderation-section";
+import {
+  CommunityRemovedBadge,
+  CommunityReportSection,
+  type CommunityModeration,
+  type CommunityReportReason,
+} from "./community-report";
 import { CommunitySkinCardMetrics } from "./community-skin-card-metrics";
+import { CommunityCardAuthor } from "./community-card-author";
+import { CommunityInstallButton } from "./community-install-button";
+import { CommunityReplaceConfirmation } from "./community-replace-confirmation";
+import { CommunityBackButton } from "./community-gallery-controls";
+import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
+import {
+  CommunitySkinCategoryFilter,
+  CommunitySkinCategorySelect,
+  communitySkinCategories,
+  communitySkinCategoryLabel,
+  communitySkinCategoryLabels,
+  useCommunitySkinCategoryFilter,
+  type CommunitySkinCategory,
+} from "./community-skin-category";
 
 /** The server's license columns; each is `""` when the manifest leaves it out. */
 export type CommunityCandidateSkinLicense = {
@@ -23,44 +43,10 @@ export type CommunityCandidateSkinLicense = {
 /** Who can see a package: everyone in the gallery, or only its owner, whose library sync keeps private packages in. */
 export type CandidateSkinVisibility = "public" | "private";
 
-/** 发布分类，与服务端的固定 id 一致；只是发布元数据，不写进 skin.toml。 */
-export type CandidateSkinCategory =
-  | "nature"
-  | "guofeng"
-  | "acg"
-  | "cute"
-  | "food"
-  | "tech"
-  | "minimal"
-  | "other";
-
-/** 全部分类，顺序即筛选按钮和发布表单选项的顺序。 */
-export const candidateSkinCategories: readonly CandidateSkinCategory[] = [
-  "nature",
-  "guofeng",
-  "acg",
-  "cute",
-  "food",
-  "tech",
-  "minimal",
-  "other",
-];
-
-export const candidateSkinCategoryLabels: Record<CandidateSkinCategory, string> = {
-  nature: "自然",
-  guofeng: "国风",
-  acg: "二次元",
-  cute: "可爱",
-  food: "美食",
-  tech: "科技夜色",
-  minimal: "简约",
-  other: "其他",
-};
-
-/** 条目的分类名称；早于分类功能的服务端不返回分类，此时为 `""`。宿主已把未知的新分类读作 `other`。 */
-function categoryLabel(category: CandidateSkinCategory | undefined): string {
-  return category ? (candidateSkinCategoryLabels[category] ?? "") : "";
-}
+/** 候选窗皮肤的发布分类，与社区键盘皮肤共用；只是发布元数据，不写进 skin.toml。 */
+export type CandidateSkinCategory = CommunitySkinCategory;
+export const candidateSkinCategories = communitySkinCategories;
+export const candidateSkinCategoryLabels = communitySkinCategoryLabels;
 
 export type CommunityCandidateSkin = {
   id: string;
@@ -81,6 +67,8 @@ export type CommunityCandidateSkin = {
   created_at: string;
   visibility: CandidateSkinVisibility;
   updated_at: string;
+  /** Sent only on the user's own packages; `removed` shows 已下架. */
+  moderation?: CommunityModeration | null;
   /** 发布分类；早于分类功能的服务端不返回。 */
   category?: CandidateSkinCategory;
 };
@@ -154,6 +142,8 @@ export interface CandidateSkinCommunityClient {
   sync(): Promise<CandidateSkinSyncReport>;
   rate(id: string, stars: number): Promise<{ stars: number }>;
   unpublish(id: string): Promise<{ deleted: boolean }>;
+  /** Reports another user's package to the moderators. */
+  report?(id: string, reason: CommunityReportReason, detail: string): Promise<void>;
 }
 
 type PreviewLoader = (id: string) => Promise<string>;
@@ -233,11 +223,13 @@ function CommunityCandidateSkinCard({
         className={style.cardStage}
       />
       <strong className={style.cardTitle}>{skin.name}</strong>
-      <span className={style.cardAuthor}>
-        {categoryLabel(skin.category) && `${categoryLabel(skin.category)} · `}
-        {skin.owned ? "我的作品" : skin.author}
-        {skin.visibility === "private" && " · 私有"}
-      </span>
+      <CommunityCardAuthor
+        prefix={communitySkinCategoryLabel(skin.category) ?? undefined}
+        author={skin.author}
+        owned={skin.owned}
+        private={skin.visibility === "private"}
+        removed={skin.moderation === "removed"}
+      />
       <CommunitySkinCardMetrics
         downloads={skin.downloads}
         ratingCount={skin.rating_count}
@@ -271,12 +263,12 @@ export function CommunityCandidateSkinsPage({
   onInstalled?: () => void;
   onLogin?: () => void;
 }) {
-  // 分页 hook 只认 offset、搜索词和范围；分类通过 ref 随请求带上，这样「加载更多」追加的页沿用第一页的分类。
-  const categoryFilter = useRef<CandidateSkinCategory | null>(null);
+  const categoryFilter = useCommunitySkinCategoryFilter();
+  const categoryRequest = categoryFilter.request;
   const galleryClient = useMemo<CommunityGalleryClient<CommunityCandidateSkin>>(
     () => ({
       list: async (offset, search, mine) => {
-        const page = await client.list(offset, search, mine ?? false, categoryFilter.current);
+        const page = await client.list(offset, search, mine ?? false, categoryRequest.current);
         return { items: page.skins, has_more: page.has_more };
       },
       detail: client.detail,
@@ -286,8 +278,12 @@ export function CommunityCandidateSkinsPage({
       unpublish: async (id) => {
         await client.unpublish(id);
       },
+      ...(client.report && {
+        report: (id: string, reason: CommunityReportReason, detail: string) =>
+          client.report!(id, reason, detail),
+      }),
     }),
-    [client],
+    [client, categoryRequest],
   );
   const gallery = useCommunityGallery({
     client: galleryClient,
@@ -315,26 +311,15 @@ export function CommunityCandidateSkinsPage({
     closeDetail: closeGalleryDetail,
     rateSelected,
     unpublishSelected,
+    reportSelected,
     runAction,
   } = gallery;
   const [search, setSearch] = useState("");
   const [installed, setInstalled] = useState(false);
   const [confirmReplace, setConfirmReplace] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
-  const [category, setCategory] = useState<CandidateSkinCategory | null>(null);
-
-  const changeCategory = async (next: CandidateSkinCategory | null) => {
-    const previous = categoryFilter.current;
-    if (next === previous) return;
-    categoryFilter.current = next;
-    setCategory(next);
-    // 新分类从第一页读起；第一页失败时列表和 offset 仍是旧分类的，分类也跟着退回，否则「加载更多」会在旧分类的 offset 上追加新分类的页。
-    const listed = await requestList(activeSearch, false);
-    if (!listed && categoryFilter.current === next) {
-      categoryFilter.current = previous;
-      setCategory(previous);
-    }
-  };
+  const changeCategory = (next: CandidateSkinCategory | null) =>
+    categoryFilter.change(next, () => requestList(activeSearch, false));
 
   // One read per package per client: a card and its detail view share the image rather than fetching it twice. The cache belongs to the client, so a replaced client never answers with the previous one's image.
   const loadPreview = useMemo<PreviewLoader>(() => {
@@ -446,18 +431,10 @@ export function CommunityCandidateSkinsPage({
 
   if (selected) {
     const license = licenseLine(selected.license);
-    const selectedCategory = categoryLabel(selected.category);
+    const selectedCategory = communitySkinCategoryLabel(selected.category);
     return (
       <div className={style.page}>
-        <button
-          type="button"
-          className={style.back}
-          disabled={actionBusy}
-          onClick={closeDetail}
-          aria-label="返回社区"
-        >
-          ← 社区
-        </button>
+        <CommunityBackButton disabled={actionBusy} onClick={closeDetail} />
         {errorAlert}
         <section className={`section ${style.detail}`}>
           <CandidateSkinPreviewImage
@@ -480,6 +457,7 @@ export function CommunityCandidateSkinsPage({
                 {selected.visibility === "private" ? "私有" : "我的作品"}
               </span>
             )}
+            <CommunityRemovedBadge owned={selected.owned} moderation={selected.moderation} />
           </div>
           {selected.description && <p className={style.description}>{selected.description}</p>}
           {license && <p className={style.metrics}>{license}</p>}
@@ -508,37 +486,21 @@ export function CommunityCandidateSkinsPage({
               )}
             </>
           ) : (
-            <button
-              type="button"
-              className={`primary ${style.action}`}
-              disabled={actionBusy || detailBusy || confirmReplace}
-              onClick={() => void install(false)}
-            >
-              {actionBusy ? "正在安装…" : "一键安装"}
-            </button>
+            <CommunityInstallButton
+              actionBusy={actionBusy}
+              detailBusy={detailBusy}
+              confirmReplace={confirmReplace}
+              onInstall={() => void install(false)}
+            />
           )}
           {confirmReplace && (
-            <div className={style.confirmation} role="alertdialog" aria-label="确认替换皮肤">
-              <p>已存在同名皮肤“{selected.package_id}”，安装会整体替换它。</p>
-              <div className={style.confirmationActions}>
-                <button
-                  type="button"
-                  className="danger"
-                  disabled={actionBusy}
-                  onClick={() => void install(true)}
-                >
-                  替换安装
-                </button>
-                <button
-                  type="button"
-                  className="secondary"
-                  disabled={actionBusy}
-                  onClick={() => setConfirmReplace(false)}
-                >
-                  取消
-                </button>
-              </div>
-            </div>
+            <CommunityReplaceConfirmation
+              ariaLabel="确认替换皮肤"
+              message={<>已存在同名皮肤“{selected.package_id}”，安装会整体替换它。</>}
+              actionBusy={actionBusy}
+              onConfirm={() => void install(true)}
+              onCancel={() => setConfirmReplace(false)}
+            />
           )}
           {selected.owned && (
             <button
@@ -553,24 +515,12 @@ export function CommunityCandidateSkinsPage({
             </button>
           )}
           {selected.owned && (
-            <label className={style.field}>
-              分类
-              <select
-                className={style.fieldControl}
-                aria-label="修改分类"
-                value={selected.category ?? "other"}
-                disabled={actionBusy || detailBusy}
-                onChange={(event) =>
-                  void changeOwnCategory(event.target.value as CandidateSkinCategory)
-                }
-              >
-                {candidateSkinCategories.map((item) => (
-                  <option key={item} value={item}>
-                    {candidateSkinCategoryLabels[item]}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <CommunitySkinCategorySelect
+              ariaLabel="修改分类"
+              value={selected.category ?? "other"}
+              disabled={actionBusy || detailBusy}
+              onChange={(next) => void changeOwnCategory(next)}
+            />
           )}
           <CommunitySkinModerationSection
             owned={selected.owned}
@@ -585,6 +535,9 @@ export function CommunityCandidateSkinsPage({
             onCancelUnpublish={() => setConfirmUnpublish(false)}
             confirmationActionsClassName={style.confirmationActions}
           />
+          {!selected.owned && client.report && (
+            <CommunityReportSection actionBusy={actionBusy} onReport={reportSelected} />
+          )}
         </section>
       </div>
     );
@@ -621,27 +574,11 @@ export function CommunityCandidateSkinsPage({
           )}
         </div>
       </div>
-      <div className={style.kindFilter} role="group" aria-label="候选窗皮肤分类">
-        <button
-          type="button"
-          className={category === null ? "primary" : "secondary"}
-          aria-pressed={category === null}
-          onClick={() => void changeCategory(null)}
-        >
-          全部
-        </button>
-        {candidateSkinCategories.map((item) => (
-          <button
-            key={item}
-            type="button"
-            className={category === item ? "primary" : "secondary"}
-            aria-pressed={category === item}
-            onClick={() => void changeCategory(item)}
-          >
-            {candidateSkinCategoryLabels[item]}
-          </button>
-        ))}
-      </div>
+      <CommunitySkinCategoryFilter
+        ariaLabel="候选窗皮肤分类"
+        value={categoryFilter.category}
+        onChange={(next) => void changeCategory(next)}
+      />
       {errorAlert}
       {actionNotice && (
         <p role="status" className={style.actionNotice}>
@@ -663,21 +600,12 @@ export function CommunityCandidateSkinsPage({
           />
         ))}
       </div>
-      {hasMore && (
-        <button
-          type="button"
-          className={`secondary ${style.more}`}
-          disabled={listBusy}
-          onClick={() => void requestList(activeSearch, true)}
-        >
-          加载更多
-        </button>
-      )}
-      {listBusy && (
-        <p role="status" className={style.notice}>
-          正在读取候选窗皮肤…
-        </p>
-      )}
+      <CommunityGalleryLoadMore
+        hasMore={hasMore}
+        busy={listBusy}
+        loadingText="正在读取候选窗皮肤…"
+        onLoadMore={() => void requestList(activeSearch, true)}
+      />
       {publishOpen && localSkins && (
         <CandidateSkinPublishDialog
           client={client}
