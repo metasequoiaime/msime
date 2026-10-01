@@ -11,8 +11,7 @@ import { InputSchemeSettingsContent } from "./input-scheme-settings-content";
 import { NavigationSection, defaultNavigation } from "./navigation-section";
 import type { TouchKeyboardScheme as TouchKeyboardSchemePreference } from "./touch-keyboard-scheme-helpers";
 import { TranslationSettingsContent } from "./translation-settings-content";
-import { createCandidateTranslationSettings } from "./translation-candidate-settings";
-import { createTranslationProviderSettings } from "./translation-provider-settings";
+import { createTranslationSettingsBindings } from "./translation-settings-bindings";
 import { type TranslationProvider } from "./translation-service-selector-section";
 import { defaultWordCharacter } from "./word-character-section";
 import { FuzzyPinyinSection, defaultFuzzyPinyin } from "./fuzzy-pinyin-section";
@@ -222,60 +221,48 @@ export function InputSettingsPanel({
         }
       />
       <TranslationSettingsContent
-        candidate={createCandidateTranslationSettings({
+        {...createTranslationSettingsBindings({
+          client,
           candidateTranslations,
+          mobile: mobilePlatform,
+          linux: linuxPlatform,
+          windows: windowsPlatform,
+          macos: macosPlatform,
+          customTranslation,
+          tencentTranslation,
+          niutrans,
+          translationProvider,
+          providerCredentials,
+          tencentCredentialInput,
+          updateTencentCredentialInput,
+          providerCredentialBusy,
+          providerCredentialMessages,
+          runProviderCredential,
+          credentialTestControl,
+          customTranslationsText,
+          customTranslationsPlaceholder,
+          customTranslationsNotice,
+          customTranslationsSummary,
+          customTranslationsSaveState,
+          customTranslationsSaveError,
+          onCustomTranslationsChange: setCustomTranslationsText,
+          onFlushCustomTranslations: () => void flushCustomTranslations(),
+          onPreferencesChange,
+          setTranslationProvider,
+          serviceCredentialEnabled: tencentTranslation.enabled,
+          android: androidPlatform,
+          ios: iosPlatform,
+          harmony: harmonyPlatform,
+          translationAccount: draft.translation_account ?? false,
           translationTargetLanguage,
           translationSecondaryLanguage,
           candidateGlossLanguagesEnabled,
           visibleTranslationLanguages,
           visibleSecondaryLanguages,
-          android: androidPlatform,
-          ios: iosPlatform,
-          macos: macosPlatform,
-          harmony: harmonyPlatform,
-          linux: linuxPlatform,
-          translationAccount: draft.translation_account ?? false,
-          onPreferencesChange,
           onDeviceMissingLanguages,
           openSettings: client.onDeviceTranslation?.openSettings,
           onError,
-          translationProvider,
-          setTranslationProvider,
         })}
-        providers={
-          !androidPlatform
-            ? createTranslationProviderSettings({
-                client,
-                candidateTranslations,
-                mobile: mobilePlatform,
-                linux: linuxPlatform,
-                windows: windowsPlatform,
-                macos: macosPlatform,
-                customTranslation,
-                tencentTranslation,
-                niutrans,
-                translationProvider,
-                providerCredentials,
-                tencentCredentialInput,
-                updateTencentCredentialInput,
-                providerCredentialBusy,
-                providerCredentialMessages,
-                runProviderCredential,
-                credentialTestControl,
-                customTranslationsText,
-                customTranslationsPlaceholder,
-                customTranslationsNotice,
-                customTranslationsSummary,
-                customTranslationsSaveState,
-                customTranslationsSaveError,
-                onCustomTranslationsChange: setCustomTranslationsText,
-                onFlushCustomTranslations: () => void flushCustomTranslations(),
-                onPreferencesChange,
-                setTranslationProvider,
-                serviceCredentialEnabled: tencentTranslation.enabled,
-              })
-            : undefined
-        }
       />
       <InputSharedSettingsSection
         preferences={draft}

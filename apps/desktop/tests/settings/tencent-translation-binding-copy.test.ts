@@ -17,7 +17,7 @@ test("expression page and input panel use the shared Tencent translation binding
   )[0];
 
   for (const source of [page, panel]) {
-    expect(source).toContain("createTranslationProviderSettings(");
+    expect(source).toContain("createTranslationSettingsBindings(");
     expect(source).not.toContain("showMissingCredentialsWarning:");
     expect(source).not.toContain("onSecretIdChange:");
   }
