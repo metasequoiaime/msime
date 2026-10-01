@@ -1,7 +1,4 @@
-import type { SettingsPageId as MobileSettingsPageId } from "./mobile-navigation";
-import type { SettingsPageId as RegistrySettingsPageId } from "./settings-page-registry";
-
-type SettingsPageId = MobileSettingsPageId | RegistrySettingsPageId;
+import type { ExportedSettingsPageId as SettingsPageId } from "./settings-page-registry";
 
 const formExcludedPages: readonly SettingsPageId[] = [
   "typing-statistics",

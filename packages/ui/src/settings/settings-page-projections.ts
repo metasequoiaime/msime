@@ -23,11 +23,17 @@ export interface SettingsPageItem {
   readonly icon: string;
 }
 
+/** 导航里的一组页面。`title` 为空的组不显示组名，例如侧栏最前面单独的「首页」。 */
+export interface SettingsPageGroup {
+  readonly title?: string;
+  readonly pages: SettingsPageItem[];
+}
+
 export interface SettingsPageProjections {
   availablePages: SettingsPageItem[];
-  sidebarGroups: SettingsPageItem[][];
+  sidebarGroups: SettingsPageGroup[];
   mobilePrimaryPages: SettingsPageItem[];
-  mobileSecondaryGroups: SettingsPageItem[][];
+  mobileSecondaryGroups: SettingsPageGroup[];
 }
 
 /** Projects the current registry into the host-aware page lists used by the settings shell. */
@@ -55,7 +61,6 @@ export function settingsPageProjections({
         (item.id !== "chat" || hasChat) &&
         (item.id !== "community" || hasCommunity) &&
         (item.id !== "floating-toolbar" || showFloatingToolbar) &&
-        (item.id !== "download" || !mobilePlatform) &&
         (item.id !== "developer" || showDeveloperPage) &&
         (item.id !== "plugins" || hasPlugins) &&
         (item.id !== "more" || mobilePlatform),
@@ -75,30 +80,32 @@ export function settingsPageProjections({
   );
   const byId = new Map(sidebarPages.map((item) => [item.id, item]));
   const groups = settingsNavGroups
-    .map((ids) =>
-      ids.flatMap((id) => {
+    .map(({ title, ids }) => ({
+      title,
+      pages: ids.flatMap((id) => {
         if (mobilePlatform && !mobileListedPage(id)) return [];
         const item = byId.get(id);
         return item ? [item] : [];
       }),
-    )
-    .filter((group) => group.length > 0);
+    }))
+    .filter((group) => group.pages.length > 0);
   const home = byId.get("home");
-  const sidebarGroups = home ? [[home], ...groups] : groups;
+  const sidebarGroups = home ? [{ pages: [home] }, ...groups] : groups;
 
   const mobilePrimaryPages = mobilePrimaryPageIds.flatMap((id) => {
     const item = availablePages.find((page) => page.id === id);
     return item ? [item] : [];
   });
   const mobileSecondaryGroups = settingsNavGroups
-    .map((ids) =>
-      ids.flatMap((id) => {
+    .map(({ title, ids }) => ({
+      title,
+      pages: ids.flatMap((id) => {
         if (!mobileListedPage(id)) return [];
         const item = availablePages.find((page) => page.id === id);
         return item ? [item] : [];
       }),
-    )
-    .filter((group) => group.length > 0);
+    }))
+    .filter((group) => group.pages.length > 0);
 
   return { availablePages, sidebarGroups, mobilePrimaryPages, mobileSecondaryGroups };
 }

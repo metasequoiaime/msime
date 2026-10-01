@@ -167,7 +167,7 @@ test("opens the Android emoji and clipboard tools inside the mobile shell", () =
   expect(openClipboardPanel).toHaveBeenCalledOnce();
 });
 
-test("opens Android on home and preserves the appearance fallback without home capability", async () => {
+test("opens Android on home and falls back to the first navigation page without home capability", async () => {
   render(
     <SettingsPage
       client={{
@@ -185,9 +185,7 @@ test("opens Android on home and preserves the appearance fallback without home c
   cleanup();
   render(<SettingsPage client={{ load: async () => initial, save: vi.fn() }} />);
   await settingsFormReady();
-  expect(screen.getByRole("button", { name: "候选窗口" }).getAttribute("aria-current")).toBe(
-    "page",
-  );
+  expect(screen.getByRole("button", { name: "输入" }).getAttribute("aria-current")).toBe("page");
   expect(screen.queryByRole("region", { name: "首页" })).toBeNull();
 });
 

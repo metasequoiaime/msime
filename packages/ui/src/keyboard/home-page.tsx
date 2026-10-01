@@ -1,4 +1,6 @@
+import { useId } from "react";
 import { ScreenKeyboardPreview } from "./screen-keyboard-preview";
+import { groupTitle } from "../core/platform-controls-style";
 import { keyboardThemeId, themeEntry } from "../theme/global-theme";
 import { useCandidatePreviewTheme } from "../candidate/candidate-preview-theme";
 import type { Preferences, TouchKeyboardScheme } from "../index";
@@ -108,6 +110,12 @@ export interface MoreSettingsPage {
   id: string;
   title: string;
   icon: string;
+}
+
+/** 「全部设置」里的一组页面；`title` 是导航组名，为空时不显示组名。 */
+export interface MoreSettingsGroup {
+  title?: string;
+  pages: readonly MoreSettingsPage[];
 }
 
 export interface HomePageActions {
@@ -372,42 +380,66 @@ export function HomePage({
 }
 
 /**
- * The pages that have no tab of their own.
+ * 没有独立标签的设置页。
  *
- * Reached from the 键盘 tab rather than from a fifth cell in the bar, because the source's bar is
- * four tabs and its other pages sit one level down inside the first of them. One grouped list with
- * a hairline between the rows, not a card per page.
+ * 从「键盘」标签进入，而不是在标签栏里加第五格：来源应用的标签栏只有四格，其余页面都在第一个标签下一层。每组画成一张带分隔线的列表，而不是每页一张卡片。
+ *
+ * 每组列表上方显示导航的组名（与桌面侧栏同一份 `settingsNavGroups`），手机上只剩一项的组也能看出它属于哪一类。
  */
 export function MoreSettingsPage({
   groups,
   onOpenPage,
 }: {
-  /** The design's navigation groups, each drawn as one list. */
-  groups: readonly (readonly MoreSettingsPage[])[];
+  /** 导航分组，每组画成组名下的一张列表。 */
+  groups: readonly MoreSettingsGroup[];
   onOpenPage: (page: string) => void;
 }) {
   return (
     <section className="flex flex-col gap-3" aria-label="全部设置">
-      {groups.map((pages) => (
-        <div key={pages[0]?.id} className={listGroup}>
-          {pages.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={listRow}
-              onClick={() => onOpenPage(item.id)}
-            >
-              <img src={item.icon} alt="" aria-hidden="true" className="size-[20px] shrink-0" />
-              <span className={rowBody}>
-                <strong className="block font-medium">{item.title}</strong>
-              </span>
-              <span className={rowChevron} aria-hidden="true">
-                ›
-              </span>
-            </button>
-          ))}
-        </div>
+      {groups.map((group) => (
+        <MoreSettingsGroupList key={group.pages[0]?.id} group={group} onOpenPage={onOpenPage} />
       ))}
     </section>
+  );
+}
+
+function MoreSettingsGroupList({
+  group,
+  onOpenPage,
+}: {
+  group: MoreSettingsGroup;
+  onOpenPage: (page: string) => void;
+}) {
+  const titleId = useId();
+  return (
+    <div
+      className="flex flex-col gap-[var(--p-g-title-gap)]"
+      role={group.title ? "group" : undefined}
+      aria-labelledby={group.title ? titleId : undefined}
+    >
+      {group.title && (
+        <h3 id={titleId} className={groupTitle}>
+          {group.title}
+        </h3>
+      )}
+      <div className={listGroup}>
+        {group.pages.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            className={listRow}
+            onClick={() => onOpenPage(item.id)}
+          >
+            <img src={item.icon} alt="" aria-hidden="true" className="size-[20px] shrink-0" />
+            <span className={rowBody}>
+              <strong className="block font-medium">{item.title}</strong>
+            </span>
+            <span className={rowChevron} aria-hidden="true">
+              ›
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }

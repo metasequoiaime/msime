@@ -8,7 +8,6 @@ import { useSettingsContentScrollReset } from "./settings/use-settings-content-s
 import { MobileSettingsTabs } from "./settings/mobile-settings-tabs";
 import { SettingsPageHeader } from "./settings/settings-page-header";
 import {
-  mobilePrimaryPageIds,
   mobileTabForPage,
   requestedPage,
   type MobilePrimaryPageId,
@@ -197,7 +196,7 @@ export {
   type SettingsSidebarGroupsOptions,
 } from "./settings/sidebar-groups";
 export { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
-export type { SettingsPageId } from "./settings/mobile-navigation";
+export type { ExportedSettingsPageId as SettingsPageId } from "./settings/settings-page-registry";
 export {
   useSettingsDictionaryState,
   type UseSettingsDictionaryStateOptions,
@@ -426,7 +425,6 @@ import { AiSettingsPage } from "./settings/pages/ai-page";
 import { InputSettingsPage } from "./settings/pages/input-page";
 import { ExpressionSettingsPage } from "./settings/pages/expression-page";
 import { DeveloperSettingsPage } from "./settings/pages/developer-page";
-import { DownloadSettingsPage } from "./settings/pages/download-page";
 import { DictionarySettingsPage } from "./settings/pages/dictionary-page";
 import { AppearanceSettingsPage } from "./settings/pages/appearance-page";
 import { SkinSettingsPage } from "./settings/pages/skin-page";
@@ -554,7 +552,12 @@ export {
   type ChatModel,
   type ChatModels,
 } from "./chat/chat-page";
-export { HomePage, MoreSettingsPage, type HomePageActions } from "./keyboard/home-page";
+export {
+  HomePage,
+  MoreSettingsPage,
+  type HomePageActions,
+  type MoreSettingsGroup,
+} from "./keyboard/home-page";
 export {
   WelcomeFlowPage,
   type OnboardingActions,
@@ -2156,7 +2159,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
       initialPage ?? restoredMobilePage ?? (client.home ? "home" : undefined),
       pages,
       settingsPageAliases,
-      "appearance",
+      "input",
     ),
   );
   const [accountLoginReturnPage, setAccountLoginReturnPage] = useState<SettingsPageId | null>(null);
@@ -2971,7 +2974,7 @@ export function SettingsPage(props: SettingsPageProps) {
   // macOS keeps its native traffic lights over the page (an overlay title bar), and a phone's frame belongs to the OS, so only the platforms that draw their own caption get one. The host still exposes the window commands on mobile because the same Tauri app binary backs both, so the presence of a command is not the question -- the platform is.
   const titlebarShown =
     !mobilePlatform && !macShell && Boolean(client.windowControl || client.beginWindowDrag);
-  const pageTitle = availablePages.find((item) => item.id === page)?.title ?? "候选窗口";
+  const pageTitle = availablePages.find((item) => item.id === page)?.title ?? "输入";
   // A sub-page (AI 辅助 under 表达, 背单词 under 词库, 帮助 under 反馈) names its parent on the way back.
   const parentPage =
     navigationPage !== page ? availablePages.find((item) => item.id === navigationPage) : undefined;
@@ -2983,22 +2986,15 @@ export function SettingsPage(props: SettingsPageProps) {
   const searchInSidebar =
     macShell || settingsPlatform === "hm2" || ipadShell || (winShell && !titlebarShown);
   const navNeedle = navQuery.trim().toLocaleLowerCase();
-  // The iPad's tab bar carries 社区, 统计 and 我的, so its settings sidebar does not list them a second time.
-  const splitSidebarGroups = ipadShell
-    ? sidebarGroups
-        .map((group) =>
-          group.filter(
-            (item) =>
-              item.id === "home" || !mobilePrimaryPageIds.includes(item.id as MobilePrimaryPageId),
-          ),
-        )
-        .filter((group) => group.length > 0)
-    : sidebarGroups;
+  // iPad 的标签栏已有社区、统计和我的；`settingsPageProjections` 在手机和 iPad 上都不把这几个标签页列进侧栏，这里不必再过滤一次。
   const shownSidebarGroups = navNeedle
-    ? splitSidebarGroups
-        .map((group) => group.filter((item) => item.title.toLocaleLowerCase().includes(navNeedle)))
-        .filter((group) => group.length > 0)
-    : splitSidebarGroups;
+    ? sidebarGroups
+        .map((group) => ({
+          ...group,
+          pages: group.pages.filter((item) => item.title.toLocaleLowerCase().includes(navNeedle)),
+        }))
+        .filter((group) => group.pages.length > 0)
+    : sidebarGroups;
   const navSearchField = (
     <>
       <svg
@@ -3023,7 +3019,7 @@ export function SettingsPage(props: SettingsPageProps) {
         onKeyDown={(event) => {
           if (event.key === "Escape") setNavQuery("");
           if (event.key !== "Enter") return;
-          const first = shownSidebarGroups[0]?.[0];
+          const first = shownSidebarGroups[0]?.pages[0];
           if (first) selectPage(first.id);
         }}
       />
@@ -3079,11 +3075,18 @@ export function SettingsPage(props: SettingsPageProps) {
           {searchInSidebar && <label className={settings.sidebarSearch}>{navSearchField}</label>}
           {shownSidebarGroups.map((group, index) => (
             <div
-              key={group[0].id}
+              key={group.pages[0].id}
               className={settings.sidebarSection(index === 0)}
               data-sidebar-section=""
+              role={group.title ? "group" : undefined}
+              aria-label={group.title}
             >
-              {group.map((item) => (
+              {group.title && (
+                <div className={settings.sidebarGroupTitle} aria-hidden="true">
+                  {group.title}
+                </div>
+              )}
+              {group.pages.map((item) => (
                 <NavItem
                   key={item.id}
                   label={item.title}
@@ -3176,9 +3179,14 @@ export function SettingsPage(props: SettingsPageProps) {
             )}
             {page === "more" && (
               <MoreSettingsPage
-                groups={mobileSecondaryGroups.map((group) =>
-                  group.map((item) => ({ id: item.id, title: item.title, icon: item.icon })),
-                )}
+                groups={mobileSecondaryGroups.map((group) => ({
+                  title: group.title,
+                  pages: group.pages.map((item) => ({
+                    id: item.id,
+                    title: item.title,
+                    icon: item.icon,
+                  })),
+                }))}
                 onOpenPage={onOpenPage}
               />
             )}
@@ -3335,7 +3343,6 @@ export function SettingsPage(props: SettingsPageProps) {
                   <PluginsSettingsPage
                     hidden={Boolean(client.communityPlugins) && pluginView === "community"}
                   />
-                  <DownloadSettingsPage />
                   <DeveloperSettingsPage />
                   <FeedbackSettingsPage />
                   <HelpSettingsPage

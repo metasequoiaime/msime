@@ -93,6 +93,26 @@ test("every page the sidebar reaches is reachable on a phone", async () => {
   expect(stranded).toEqual([]);
 });
 
+// 「全部设置」按导航分组列出页面，每组上方是组名；在标签栏或「我的」里已有入口的组整组不列。
+test("the 全部设置 list is grouped under the navigation group titles", async () => {
+  mount();
+  await settingsFormReady();
+
+  fireEvent.click(screen.getByRole("button", { name: /全部设置/ }));
+  const list = screen.getByRole("region", { name: "全部设置" });
+  const groups = within(list)
+    .getAllByRole("group")
+    .map((group) => ({
+      title: group.getAttribute("aria-labelledby")
+        ? document.getElementById(group.getAttribute("aria-labelledby")!)?.textContent
+        : undefined,
+      pages: [...group.querySelectorAll("strong")].map((item) => item.textContent),
+    }));
+  expect(groups.map((group) => group.title)).toEqual(["打字", "外观", "更多输入方式", "工具"]);
+  expect(groups[0].pages[0]).toBe("输入");
+  expect(within(list).getByRole("group", { name: "打字" })).toBeTruthy();
+});
+
 // Drilling into a page that has no tab does not leave the bar blank: the page was reached from the
 // 设置 tab, so the 设置 tab is still where you are. The source keeps its first tab selected for
 // everything its navigation stack pushes.

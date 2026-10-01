@@ -66,7 +66,7 @@ export function useSettingsNavigation({
   useEffect(() => {
     if (!route || route.nonce === handledRoute.current) return;
     handledRoute.current = route.nonce;
-    selectPage(requestedPage(route.page, pages, settingsPageAliases, "appearance"));
+    selectPage(requestedPage(route.page, pages, settingsPageAliases, "input"));
     // Route nonces intentionally provide the effect's identity; the page callback reads current state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route?.nonce]);
@@ -85,7 +85,7 @@ export function useSettingsNavigation({
     const onPopState = (event: PopStateEvent) => {
       const state = event.state;
       if (state?.msimeSettings === true && typeof state.page === "string") {
-        const restored = requestedPage(state.page, pages, settingsPageAliases, "appearance");
+        const restored = requestedPage(state.page, pages, settingsPageAliases, "input");
         mobileLastPageByTab.current[mobileTabForPage(restored)] = restored;
         setPage(restored);
       }
@@ -121,7 +121,7 @@ export function useSettingsNavigation({
     const pageAvailable =
       availablePages.some((item) => item.id === page) &&
       (!mobilePlatform || !mobileHiddenPageIds.includes(page));
-    if (!pageAvailable) setPage(mobilePlatform && hasHomePage ? "home" : "appearance");
+    if (!pageAvailable) setPage(mobilePlatform && hasHomePage ? "home" : "input");
   }, [availablePages, hasHomePage, mobileHiddenPageIds, mobilePlatform, page, setPage]);
 
   return {

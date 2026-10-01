@@ -28,7 +28,7 @@ export interface SettingsSidebarGroupsOptions {
   macos: boolean;
 }
 
-/** Filters pages unavailable in the sidebar and applies the platform's grouping order. */
+/** 去掉侧栏不列的页面后按平台分组；macOS 的分组即 `settingsNavGroups`。 */
 export function settingsSidebarGroups<T extends { id: string }>(
   availablePages: readonly T[],
   { mobile, hiddenPageIds, macos }: SettingsSidebarGroupsOptions,

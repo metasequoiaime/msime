@@ -1,17 +1,6 @@
-/** The settings pages in the shared shell's navigation order. */
+/** 共享设置外壳里的设置页，按导航顺序排列。 */
 export const pages = [
   { id: "home", title: "首页", icon: new URL("../assets/msime.svg", import.meta.url).href },
-  { id: "skin", title: "主题", icon: new URL("../assets/skin.svg", import.meta.url).href },
-  {
-    id: "appearance",
-    title: "候选窗口",
-    icon: new URL("../assets/appearance.svg", import.meta.url).href,
-  },
-  {
-    id: "floating-toolbar",
-    title: "悬浮工具栏",
-    icon: new URL("../assets/floating-toolbar.svg", import.meta.url).href,
-  },
   { id: "input", title: "输入", icon: new URL("../assets/input.svg", import.meta.url).href },
   {
     id: "expression",
@@ -27,6 +16,17 @@ export const pages = [
     id: "dictionary",
     title: "词库",
     icon: new URL("../assets/dictionary.svg", import.meta.url).href,
+  },
+  { id: "skin", title: "主题", icon: new URL("../assets/skin.svg", import.meta.url).href },
+  {
+    id: "appearance",
+    title: "候选窗口",
+    icon: new URL("../assets/appearance.svg", import.meta.url).href,
+  },
+  {
+    id: "floating-toolbar",
+    title: "悬浮工具栏",
+    icon: new URL("../assets/floating-toolbar.svg", import.meta.url).href,
   },
   {
     id: "screen-keyboard",
@@ -44,19 +44,9 @@ export const pages = [
     icon: new URL("../assets/handwriting.svg", import.meta.url).href,
   },
   {
-    id: "account",
-    title: "账户与同步",
-    icon: new URL("../assets/account.svg", import.meta.url).href,
-  },
-  {
     id: "tools",
     title: "云剪贴板",
     icon: new URL("../assets/utilities.svg", import.meta.url).href,
-  },
-  {
-    id: "plugins",
-    title: "插件",
-    icon: new URL("../assets/plugins.svg", import.meta.url).href,
   },
   {
     id: "typing-statistics",
@@ -64,14 +54,19 @@ export const pages = [
     icon: new URL("../assets/statistics.svg", import.meta.url).href,
   },
   {
+    id: "plugins",
+    title: "插件",
+    icon: new URL("../assets/plugins.svg", import.meta.url).href,
+  },
+  {
+    id: "account",
+    title: "账户与同步",
+    icon: new URL("../assets/account.svg", import.meta.url).href,
+  },
+  {
     id: "community",
     title: "社区",
     icon: new URL("../assets/community.svg", import.meta.url).href,
-  },
-  {
-    id: "download",
-    title: "其他平台下载",
-    icon: new URL("../assets/download.svg", import.meta.url).href,
   },
   {
     id: "developer",
@@ -99,14 +94,19 @@ export const pages = [
 
 export type SettingsPageId = (typeof pages)[number]["id"];
 
-/** The design's five navigation groups (dc.html `NAV`), by page id. */
+/**
+ * 一级导航的分组：桌面侧栏、手机「全部设置」列表和旧的分组导出都从这里派生，页面顺序只有这一个来源。Windows 原生设置窗口的 `SettingsNavigation.h` 也要与它保持一致。
+ *
+ * 「打字」排在「外观」之前：打字行为会反复调整，外观通常只调一次。
+ */
 export const settingsNavGroups = [
-  ["skin", "appearance", "floating-toolbar"],
-  ["input", "expression", "shortcuts", "dictionary"],
-  ["screen-keyboard", "voice", "handwriting"],
-  ["account", "tools", "plugins", "typing-statistics", "community", "download"],
-  ["developer", "feedback", "about"],
-] as const satisfies readonly (readonly SettingsPageId[])[];
+  { title: "打字", ids: ["input", "expression", "shortcuts", "dictionary"] },
+  { title: "外观", ids: ["skin", "appearance", "floating-toolbar"] },
+  { title: "更多输入方式", ids: ["screen-keyboard", "voice", "handwriting"] },
+  { title: "工具", ids: ["tools", "typing-statistics", "plugins"] },
+  { title: "账户与社区", ids: ["account", "community"] },
+  { title: "支持", ids: ["developer", "feedback", "about"] },
+] as const satisfies readonly { title: string; ids: readonly SettingsPageId[] }[];
 
 /** Pages reached from inside another settings page. */
 export const subPageParents: Partial<Record<SettingsPageId, SettingsPageId>> = {
@@ -116,5 +116,13 @@ export const subPageParents: Partial<Record<SettingsPageId, SettingsPageId>> = {
   help: "feedback",
 };
 
-/** Former page ids whose contents now sit on another page. */
-export const settingsPageAliases: Record<string, SettingsPageId> = { helpcode: "input" };
+/** 已不再独立成页的旧页面 id，映射到现在承载其内容的页面。宿主仍会发送这些 id。 */
+export const settingsPageAliases: Record<string, SettingsPageId> = {
+  helpcode: "input",
+  download: "about",
+};
+
+/**
+ * 包对外导出的页面 id。`helpcode` 已不是独立页面，打开它会经 `settingsPageAliases` 落到输入页；过渡期仍保留在类型里，免得仓库外按旧 id 写的 TypeScript 宿主编译失败。
+ */
+export type ExportedSettingsPageId = SettingsPageId | "helpcode";

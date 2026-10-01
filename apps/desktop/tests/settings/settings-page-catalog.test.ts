@@ -27,28 +27,43 @@ test("builds the complete desktop page catalog in registry order", () => {
 
   expect(catalog.availablePages.map((page) => page.id)).toEqual([
     "home",
-    "account",
-    "chat",
-    "community",
-    "typing-statistics",
-    "appearance",
     "input",
-    "helpcode",
+    "expression",
     "shortcuts",
     "dictionary",
-    "vocabulary",
     "skin",
-    "voice",
+    "appearance",
+    "floating-toolbar",
     "screen-keyboard",
+    "voice",
     "handwriting",
     "tools",
+    "typing-statistics",
     "plugins",
-    "ai",
-    "floating-toolbar",
-    "help",
-    "about",
+    "account",
+    "community",
     "feedback",
+    "about",
+    "ai",
+    "chat",
+    "vocabulary",
+    "help",
   ]);
+  // 「开发者选项」只在宿主声明 developer 时出现；不传这一项的旧调用方看到的页面不变。
+  expect(
+    settingsPageCatalog({
+      ...allCapabilities,
+      developer: true,
+      mobile: false,
+      modeSwitchShortcuts: true,
+      panelShortcuts: true,
+      desktopMaintenanceShortcuts: true,
+      helpcodeShiftEntry: true,
+      android: false,
+      harmony: false,
+      macos: false,
+    }).availablePages.map((page) => page.id),
+  ).toContain("developer");
   expect(catalog.mobileHiddenPageIds).toEqual(["floating-toolbar", "plugins"]);
   expect(catalog.mobilePrimaryPages.map((page) => page.id)).toEqual([
     "home",
@@ -110,7 +125,10 @@ test("keeps helper codes on Android and HarmonyOS while exposing keyboard shortc
 
   expect(android.mobileHiddenPageIds).toEqual(["shortcuts", "floating-toolbar", "plugins"]);
   expect(harmonyTwoInOne.mobileHiddenPageIds).toEqual(["floating-toolbar", "plugins"]);
-  expect(harmonyTwoInOne.mobileSecondaryPages.map((page) => page.id)).toContain("helpcode");
+  // 辅助码现在是输入页的一组，不再是单独的页面；输入页在两种宿主上都列在「全部设置」里。
+  expect(android.mobileSecondaryPages.map((page) => page.id)).toContain("input");
+  expect(harmonyTwoInOne.mobileSecondaryPages.map((page) => page.id)).toContain("input");
+  expect(harmonyTwoInOne.mobileSecondaryPages.map((page) => page.id)).not.toContain("helpcode");
   expect(harmonyTwoInOne.mobileSecondaryPages.map((page) => page.id)).toContain("shortcuts");
 });
 

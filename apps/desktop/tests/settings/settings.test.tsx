@@ -3519,7 +3519,7 @@ test("candidate appearance settings persist and use Windows baseline defaults", 
       preferences,
     })),
   };
-  render(<SettingsPage client={client} />);
+  render(<SettingsPage initialPage="appearance" client={client} />);
   // The layout is a segmented control: one radio per arrangement.
   const layout = await screen.findByRole("radiogroup", { name: "候选项排列方式" });
   expect((within(layout).getByRole("radio", { name: "纵向" }) as HTMLInputElement).checked).toBe(
@@ -3555,7 +3555,7 @@ test("macOS exposes the shuangpin preedit presentation and persists the expanded
     save,
     host: { platform: "macos" } as HostCapabilities,
   };
-  render(<SettingsPage client={client} />);
+  render(<SettingsPage initialPage="appearance" client={client} />);
   const preedit = (await screen.findByRole("combobox", {
     name: "双拼预编辑",
   })) as HTMLSelectElement;
@@ -4560,7 +4560,7 @@ test("a picker used over a built-in theme customizes that theme, and the package
   const save = vi
     .fn()
     .mockImplementation(async (_revision, preferences) => ({ ...saved, revision: 8, preferences }));
-  render(<SettingsPage client={{ load: async () => saved, save }} />);
+  render(<SettingsPage initialPage="appearance" client={{ load: async () => saved, save }} />);
   const color = (await screen.findByLabelText("候选文字颜色")) as HTMLInputElement;
   fireEvent.change(color, { target: { value: "#ff0000" } });
   const preview = screen
@@ -4630,7 +4630,7 @@ test("complete candidate and preedit font sizes load, preview independently and 
   const save = vi
     .fn()
     .mockImplementation(async (_revision, preferences) => ({ ...saved, revision: 8, preferences }));
-  render(<SettingsPage client={{ load: async () => saved, save }} />);
+  render(<SettingsPage initialPage="appearance" client={{ load: async () => saved, save }} />);
   const size = (await screen.findByLabelText("候选窗字号")) as HTMLSelectElement;
   const preedit = screen.getByLabelText("候选窗预编辑字号") as HTMLSelectElement;
   expect(size.value).toBe("19");
@@ -4668,7 +4668,7 @@ test("complete candidate and preedit font sizes load, preview independently and 
 
 test("appearance preview follows drafts and skin selection before they are saved", async () => {
   const save = vi.fn();
-  render(<SettingsPage client={{ load: async () => initial, save }} />);
+  render(<SettingsPage initialPage="appearance" client={{ load: async () => initial, save }} />);
   const preview = await screen.findByRole("region", { name: "候选窗口预览" });
   expect(preview.querySelectorAll(".cand")).toHaveLength(5);
   expect(preview.querySelector('[data-preview-layout="vertical"]')).not.toBeNull();
@@ -4710,6 +4710,7 @@ test("appearance preview follows drafts and skin selection before they are saved
 test("appearance preview identifies external skins instead of showing a false built-in match", async () => {
   render(
     <SettingsPage
+      initialPage="appearance"
       client={{
         load: async () => ({
           ...initial,
@@ -4733,6 +4734,7 @@ test.each(["quanpin", "shuangpin", "wubi", "japanese"] as const)(
   async (scheme) => {
     render(
       <SettingsPage
+        initialPage="appearance"
         client={{
           load: async () => ({
             ...initial,
@@ -5361,11 +5363,8 @@ test("macOS and iOS help pages use their native host instructions", async () => 
   expect(await screen.findByText(/iPhone 与 iPad 触屏输入体验/)).toBeDefined();
 });
 
-// Every host but macOS lists the sidebar flat, so this is the order a Windows user sees and the
-// order the HarmonyOS settings window shows. Pinned against the reference window's own sidebar so
-// inserting a page cannot quietly move the reference's pages around it.
-// The design's navigation (dc.html `NAV`): five groups, in order. A page the host does not offer drops out of its group rather than leaving a gap, and the sub-pages are reached from inside their parent page.
-test("the sidebar follows the design's five groups", async () => {
+// 设置导航（`settingsNavGroups`）：六组，按顺序排列，每组带组名。宿主不提供的页从所在组里消失而不留空位，子页从父页里进入。
+test("the sidebar follows the six titled navigation groups", async () => {
   render(
     <SettingsPage
       client={{
@@ -5381,13 +5380,19 @@ test("the sidebar follows the design's five groups", async () => {
     [...section.querySelectorAll("button")].map((item) => item.textContent ?? ""),
   );
   expect(groups).toEqual([
-    ["主题", "候选窗口", "悬浮工具栏"],
     ["输入", "表达", "快捷键", "词库"],
+    ["主题", "候选窗口", "悬浮工具栏"],
     ["屏幕键盘", "语音输入", "手写输入"],
-    ["云剪贴板", "其他平台下载"],
+    ["云剪贴板"],
     ["开发者选项", "反馈", "关于"],
   ]);
-  for (const title of ["AI 辅助", "AI 对话", "背单词", "帮助", "辅助码"]) {
+  // 组名对辅助技术可见；只剩一项的「工具」组也能看出它属于哪一类。
+  expect(
+    within(sidebar)
+      .getAllByRole("group")
+      .map((group) => group.getAttribute("aria-label")),
+  ).toEqual(["打字", "外观", "更多输入方式", "工具", "支持"]);
+  for (const title of ["AI 辅助", "AI 对话", "背单词", "帮助", "辅助码", "其他平台下载"]) {
     expect(groups.flat()).not.toContain(title);
   }
 });
@@ -6202,6 +6207,7 @@ test.each(optionHosts)(
   async (_platform, host) => {
     render(
       <SettingsPage
+        initialPage="appearance"
         client={{
           load: vi.fn().mockResolvedValue(initial),
           save: vi.fn(),
@@ -6267,7 +6273,7 @@ test("other hosts keep the shuangpin profile menu editable", async () => {
   expect(menu.disabled).toBe(false);
 });
 
-test("macOS sidebar uses the same five groups", async () => {
+test("macOS sidebar uses the same six groups", async () => {
   render(
     <SettingsPage
       client={{
@@ -6283,10 +6289,10 @@ test("macOS sidebar uses the same five groups", async () => {
     [...section.querySelectorAll("button")].map((item) => item.textContent ?? ""),
   );
   expect(groups).toEqual([
-    ["主题", "候选窗口", "悬浮工具栏"],
     ["输入", "表达", "快捷键", "词库"],
+    ["主题", "候选窗口", "悬浮工具栏"],
     ["屏幕键盘", "语音输入", "手写输入"],
-    ["云剪贴板", "其他平台下载"],
+    ["云剪贴板"],
     ["开发者选项", "反馈", "关于"],
   ]);
 });
@@ -7555,7 +7561,7 @@ test("saves edited preferences against the loaded revision", async () => {
       preferences,
     })),
   };
-  render(<SettingsPage client={client} />);
+  render(<SettingsPage initialPage="appearance" client={client} />);
   const size = await screen.findByRole("slider", { name: "每页候选项数量" });
   fireEvent.change(size, { target: { value: "9" } });
   // Nothing is written until the edits pause for the autosave delay.
@@ -7576,7 +7582,7 @@ test("a late preference save is ignored after settings unmounts", async () => {
         }),
     ),
   };
-  const view = render(<SettingsPage client={client} />);
+  const view = render(<SettingsPage initialPage="appearance" client={client} />);
   const size = await screen.findByRole("slider", { name: "每页候选项数量" });
   fireEvent.change(size, { target: { value: "9" } });
   saveSettingsNow();
@@ -7603,7 +7609,7 @@ test("macOS offers the same candidate page sizes as every other host and keeps t
     save,
     host: { platform: "macos" } as HostCapabilities,
   };
-  render(<SettingsPage client={client} />);
+  render(<SettingsPage initialPage="appearance" client={client} />);
   const size = (await screen.findByRole("slider", {
     name: "每页候选项数量",
   })) as HTMLInputElement;
@@ -7624,7 +7630,7 @@ test("a saved page size below the reference's three stays in range and selected"
     save: vi.fn(),
     host: { platform: "windows" } as HostCapabilities,
   };
-  render(<SettingsPage client={client} />);
+  render(<SettingsPage initialPage="appearance" client={client} />);
   const size = (await screen.findByRole("slider", {
     name: "每页候选项数量",
   })) as HTMLInputElement;
@@ -7763,7 +7769,7 @@ test("a conflict that keeps recurring preserves edits and offers an explicit rel
     load: vi.fn().mockResolvedValue(initial),
     save: vi.fn().mockRejectedValue({ code: "conflict" }),
   };
-  render(<SettingsPage client={client} />);
+  render(<SettingsPage initialPage="appearance" client={client} />);
   const size = await screen.findByRole("slider", { name: "每页候选项数量" });
   fireEvent.change(size, { target: { value: "9" } });
   saveSettingsNow();
@@ -7796,7 +7802,7 @@ test.each(["windows", "macos", "linux"])(
       }),
       host: { platform } as never,
     };
-    render(<SettingsPage client={client} />);
+    render(<SettingsPage initialPage="appearance" client={client} />);
     const size = (await screen.findByRole("slider", {
       name: "每页候选项数量",
     })) as HTMLInputElement;
@@ -7849,7 +7855,7 @@ test("this window's own save echoed back by the monitor is not reported as anoth
     }),
     host: { platform: "linux" } as never,
   };
-  render(<SettingsPage client={client} />);
+  render(<SettingsPage initialPage="appearance" client={client} />);
   const size = (await screen.findByRole("slider", {
     name: "每页候选项数量",
   })) as HTMLInputElement;
@@ -7914,17 +7920,19 @@ test("category navigation preserves one draft and saves edits across pages", asy
     })),
   };
   render(<SettingsPage client={client} />);
-  const appearance = screen.getByRole("button", { name: "候选窗口" });
-  expect(appearance.getAttribute("aria-current")).toBe("page");
-  const pageSize = await screen.findByRole("slider", { name: "每页候选项数量" });
-  fireEvent.change(pageSize, { target: { value: "9" } });
-  fireEvent.click(screen.getByRole("button", { name: "输入" }));
-  expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("输入");
-  expect(screen.queryByRole("slider", { name: "每页候选项数量" })).toBeNull();
-  fireEvent.click(screen.getByRole("switch", { name: "全拼辅助码" }));
-  fireEvent.click(appearance);
-  expect((screen.getByRole("slider", { name: "每页候选项数量" }) as HTMLInputElement).value).toBe(
-    "9",
+  // 设置窗口落在导航第一页「输入」。
+  const input = screen.getByRole("button", { name: "输入" });
+  expect(input.getAttribute("aria-current")).toBe("page");
+  fireEvent.click(await screen.findByRole("switch", { name: "全拼辅助码" }));
+  fireEvent.click(screen.getByRole("button", { name: "候选窗口" }));
+  expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("候选窗口");
+  expect(screen.queryByRole("switch", { name: "全拼辅助码" })).toBeNull();
+  fireEvent.change(screen.getByRole("slider", { name: "每页候选项数量" }), {
+    target: { value: "9" },
+  });
+  fireEvent.click(input);
+  expect((screen.getByRole("switch", { name: "全拼辅助码" }) as HTMLInputElement).checked).toBe(
+    false,
   );
   saveSettingsNow();
   await screen.findByText("已保存");
@@ -7941,8 +7949,8 @@ test("category navigation opens every shared settings page at the top", async ()
   await settingsReady();
   const content = screen.getByRole("main");
   content.scrollTop = 480;
-  fireEvent.click(screen.getByRole("button", { name: "输入" }));
-  expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("输入");
+  fireEvent.click(screen.getByRole("button", { name: "候选窗口" }));
+  expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("候选窗口");
   expect(content.scrollTop).toBe(0);
 });
 
@@ -8023,11 +8031,17 @@ test("a host can open the settings window on the section its menu named", async 
   expect(await screen.findByRole("heading", { name: "关于" })).toBeDefined();
   cleanup();
 
-  // An id this build does not have keeps the default section rather than
-  // opening an empty one.
+  // 本版本没有的页面 id 落到默认页（导航第一页「输入」），而不是打开一个空页面。
   render(<SettingsPage client={client} initialPage="not-a-page" />);
   await settingsFormReady();
-  expect(screen.getByRole("heading", { name: "候选窗口" })).toBeDefined();
+  expect(screen.getByRole("heading", { name: "输入" })).toBeDefined();
+  cleanup();
+
+  // 「其他平台下载」已并入关于页：按旧 id 打开的宿主落到关于页，那里有这两行。
+  render(<SettingsPage client={client} initialPage="download" />);
+  expect(await screen.findByRole("heading", { name: "关于" })).toBeDefined();
+  expect(screen.getByRole("button", { name: "打开下载页" })).toBeDefined();
+  expect(screen.getByRole("button", { name: "查看发布记录" })).toBeDefined();
 });
 
 test("a host that fixes the candidate page size and layout does not offer them", async () => {

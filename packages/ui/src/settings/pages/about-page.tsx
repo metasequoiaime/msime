@@ -7,6 +7,7 @@ import { LicenseUninstallSection } from "../license-uninstall-section";
 import { TelemetrySection } from "../telemetry-section";
 import { AboutHeroSection } from "../about-hero-section";
 import { createAboutSettingsActions } from "../about-settings-actions";
+import { OtherPlatformDownloadRows } from "./download-page";
 
 const privacyUrl = "https://msime.app/privacy/";
 const androidPrivacyUrl = "https://msime.app/privacy/";
@@ -102,6 +103,7 @@ export function AboutSettingsPage() {
               </button>
             </div>
           )}
+          <OtherPlatformDownloadRows />
           <button
             type="button"
             className={doc.linkRow}

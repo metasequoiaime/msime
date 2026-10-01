@@ -628,7 +628,7 @@ pub enum SettingsCategory {
     Account,
     Chat,
     Community,
-    /// 其他平台下载: where to get the client for the user's other devices.
+    /// 其他平台下载：在其他设备上安装客户端的链接。它已不再单独成页，两行链接放在关于页，共享 UI 经 `settingsPageAliases` 为这个 id 打开关于页。宿主仍会发送它。
     Download,
     Appearance,
     Input,

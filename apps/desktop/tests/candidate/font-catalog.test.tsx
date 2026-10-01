@@ -24,7 +24,12 @@ test("font catalogs are bounded, validated and deduplicated", () => {
 test("search loads once and selects with keyboard without saving", async () => {
   const listFontFamilies = vi.fn().mockResolvedValue(["Alpha", "Beta", "示例字体"]),
     save = vi.fn();
-  render(<SettingsPage client={{ load: async () => initial, save, listFontFamilies }} />);
+  render(
+    <SettingsPage
+      initialPage="appearance"
+      client={{ load: async () => initial, save, listFontFamilies }}
+    />,
+  );
   const primary = await screen.findByLabelText("候选窗主字体");
   expect(listFontFamilies).not.toHaveBeenCalled();
   fireEvent.focus(primary);
@@ -51,11 +56,15 @@ test("late results from a replaced reader cannot reappear", async () => {
       resolve = done;
     });
   const client = { load: async () => initial, save: vi.fn() };
-  const view = render(<SettingsPage client={{ ...client, listFontFamilies: old }} />);
+  const view = render(
+    <SettingsPage initialPage="appearance" client={{ ...client, listFontFamilies: old }} />,
+  );
   fireEvent.focus(await screen.findByLabelText("候选窗主字体"));
   expect(screen.getByText("正在读取字体列表。")).toBeDefined();
   const next = vi.fn().mockResolvedValue(["New font"]);
-  view.rerender(<SettingsPage client={{ ...client, listFontFamilies: next }} />);
+  view.rerender(
+    <SettingsPage initialPage="appearance" client={{ ...client, listFontFamilies: next }} />,
+  );
   await screen.findByRole("option", { name: "New font" });
   await act(async () => resolve(["Stale font"]));
   expect(screen.queryByRole("option", { name: "Stale font" })).toBeNull();
@@ -65,7 +74,12 @@ test("failed catalog retries while allowing manual font entry", async () => {
     .fn()
     .mockRejectedValueOnce(Error("synthetic failure"))
     .mockResolvedValue([]);
-  render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), listFontFamilies }} />);
+  render(
+    <SettingsPage
+      initialPage="appearance"
+      client={{ load: async () => initial, save: vi.fn(), listFontFamilies }}
+    />,
+  );
   const input = await screen.findByLabelText("候选窗主字体");
   fireEvent.focus(input);
   await screen.findByText(/读取字体列表失败/);
@@ -79,6 +93,7 @@ test("failed catalog retries while allowing manual font entry", async () => {
 test("large catalogs bound visible options without losing searchable entries", async () => {
   render(
     <SettingsPage
+      initialPage="appearance"
       client={{
         load: async () => initial,
         save: vi.fn(),
