@@ -110,7 +110,7 @@ impl PinyinDatabase {
         }
         let sql = initial_sql(first);
         // The upper bound is written out here in the reference too (QQ:1083).
-        let upper_bound = format!("{prefix}{{");
+        let upper_bound = key_prefix_upper_bound(prefix);
         self.rows(&sql, (prefix, upper_bound.as_str(), sql_limit(limit)))
     }
 
