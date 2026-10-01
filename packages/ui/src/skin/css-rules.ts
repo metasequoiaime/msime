@@ -1,11 +1,19 @@
 type CssRuleContainer = CSSStyleSheet | CSSGroupingRule | CSSStyleRule;
 
-function isNestedDeclaration(rule: CSSRule): boolean {
+export function isCssNestedDeclaration(rule: CSSRule): boolean {
   return rule.constructor.name === "CSSNestedDeclarations";
 }
 
-function childRules(rule: CSSRule): CSSRuleList | undefined {
-  if (isNestedDeclaration(rule)) return undefined;
+export function isCssDeclarationRule(rule: CSSRule): boolean {
+  return (
+    rule.type === CSSRule.STYLE_RULE ||
+    rule.type === CSSRule.KEYFRAME_RULE ||
+    isCssNestedDeclaration(rule)
+  );
+}
+
+export function cssRuleChildren(rule: CSSRule): CSSRuleList | undefined {
+  if (isCssNestedDeclaration(rule)) return undefined;
   if (
     rule.type !== CSSRule.STYLE_RULE &&
     rule.type !== CSSRule.MEDIA_RULE &&
@@ -19,7 +27,7 @@ function childRules(rule: CSSRule): CSSRuleList | undefined {
 export function walkCssRules(rules: CSSRuleList, visit: (rule: CSSRule) => void): void {
   for (const rule of Array.from(rules)) {
     visit(rule);
-    const nested = childRules(rule);
+    const nested = cssRuleChildren(rule);
     if (nested) walkCssRules(nested, visit);
   }
 }
@@ -30,7 +38,7 @@ export async function walkCssRulesAsync(
 ): Promise<void> {
   for (const rule of Array.from(rules)) {
     await visit(rule);
-    const nested = childRules(rule);
+    const nested = cssRuleChildren(rule);
     if (nested) await walkCssRulesAsync(nested, visit);
   }
 }

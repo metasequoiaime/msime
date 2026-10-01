@@ -1,6 +1,10 @@
 // @vitest-environment jsdom
 import { expect, test } from "vitest";
-import { walkCssRules } from "../../../../packages/ui/src/skin/css-rules";
+import {
+  cssRuleChildren,
+  isCssDeclarationRule,
+  walkCssRules,
+} from "../../../../packages/ui/src/skin/css-rules";
 
 test("walks stylesheet rules and supported nested groups in source order", () => {
   const sheet = new CSSStyleSheet();
@@ -22,4 +26,16 @@ test("walks stylesheet rules and supported nested groups in source order", () =>
     "CSSKeyframesRule",
     "0%",
   ]);
+});
+
+test("shares declaration and child-rule classification with sanitizers", () => {
+  const sheet = new CSSStyleSheet();
+  sheet.replaceSync(".root{} @media (min-width: 1px){.nested{}} @font-face{font-family:demo}");
+  const [root, media, font] = Array.from(sheet.cssRules);
+  expect(isCssDeclarationRule(root)).toBe(true);
+  expect(cssRuleChildren(root)).toHaveLength(0);
+  expect(isCssDeclarationRule(media)).toBe(false);
+  expect(cssRuleChildren(media)).toHaveLength(1);
+  expect(isCssDeclarationRule(font)).toBe(false);
+  expect(cssRuleChildren(font)).toBeUndefined();
 });

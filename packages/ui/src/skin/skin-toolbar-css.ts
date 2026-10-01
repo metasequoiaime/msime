@@ -2,6 +2,7 @@ import { hasUnresolvedCssResource } from "./css-image-value";
 import { isolateToolbarAnimations } from "./skin-animations";
 import { preserveAnimationShorthands } from "./animation-shorthand-source";
 import { scopeRootSelector } from "./skin-root-selector";
+import { cssRuleChildren, isCssDeclarationRule } from "./css-rules";
 // Parse first, then insert rules into a browser-created scope. Concatenating an
 // untrusted stylesheet inside @scope would let an unmatched brace escape it.
 export function installToolbarCss(
@@ -24,12 +25,7 @@ export function installToolbarCss(
     // their native CSSNestedDeclarations ordering and pseudo-element semantics.
     for (let index = container.cssRules.length - 1; index >= 0; index--) {
       const rule = container.cssRules[index];
-      const nestedDeclarations = rule.constructor.name === "CSSNestedDeclarations";
-      if (
-        rule.type === CSSRule.STYLE_RULE ||
-        rule.type === CSSRule.KEYFRAME_RULE ||
-        nestedDeclarations
-      ) {
+      if (isCssDeclarationRule(rule)) {
         const styleRule = rule as CSSStyleRule;
         if (rule.type === CSSRule.STYLE_RULE)
           styleRule.selectorText = scopeRootSelector(styleRule.selectorText);
@@ -40,18 +36,17 @@ export function installToolbarCss(
             partial = true;
           }
         }
-        if (!nestedDeclarations && styleRule.cssRules?.length) sanitize(styleRule);
-      } else if (
-        rule.type === CSSRule.MEDIA_RULE ||
-        rule.type === CSSRule.SUPPORTS_RULE ||
-        rule.type === CSSRule.KEYFRAMES_RULE
-      ) {
-        sanitize(rule as CSSGroupingRule);
+        const nested = cssRuleChildren(rule);
+        if (nested) sanitize(styleRule);
       } else {
-        // Fonts and other globally named rules need their own
-        // resource/name isolation; do not leak them into the settings document.
-        partial = true;
-        container.deleteRule(index);
+        const nested = cssRuleChildren(rule);
+        if (nested) sanitize(rule as CSSGroupingRule);
+        else {
+          // Fonts and other globally named rules need their own
+          // resource/name isolation; do not leak them into the settings document.
+          partial = true;
+          container.deleteRule(index);
+        }
       }
     }
   }
