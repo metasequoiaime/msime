@@ -38,7 +38,9 @@ pub fn cvt_single_sp_to_pinyin(code: &str, profile: &ShuangpinProfile) -> String
         } else {
             final_unit
         };
-        let syllable = format!("{initial}{normalized}");
+        let mut syllable = String::with_capacity(initial.len() + normalized.len());
+        syllable.push_str(initial);
+        syllable.push_str(normalized);
         if accepted.contains(syllable.as_str()) {
             result = syllable;
         }
@@ -200,6 +202,13 @@ mod tests {
         assert_eq!(cvt_single_sp_to_pinyin("ue", shoudao), "e");
         let ziranma = profile(ShuangpinProfileKind::Ziranma);
         assert_eq!(cvt_single_sp_to_pinyin("hk", ziranma), "hao");
+    }
+
+    #[test]
+    fn converted_syllable_uses_exact_string_capacity() {
+        let result = cvt_single_sp_to_pinyin("vs", xiaohe());
+        assert_eq!(result, "zhong");
+        assert_eq!(result.capacity(), result.len());
     }
 
     #[test]
