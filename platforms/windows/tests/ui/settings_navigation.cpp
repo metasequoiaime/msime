@@ -1,9 +1,11 @@
 #include "../../settings/SettingsNavigation.h"
 #include "ShellSurfaces.h"
+#include <array>
 #include <cstdio>
 #include <set>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 using namespace msime::settings;
 using msime::windows::ShellSurfaceRequest;
@@ -34,7 +36,7 @@ bool launchable(const ShellTarget &target) {
 } // namespace
 int main() {
   try {
-    // The design's sidebar: 19 unique pages in 5 non-empty groups, in group order.
+    // The sidebar: 18 unique pages in 6 non-empty groups, in group order.
     std::set<std::string_view> ids;
     std::set<std::size_t> groups;
     std::size_t previous_group = 0;
@@ -45,10 +47,23 @@ int main() {
       previous_group = page.group;
       groups.insert(page.group);
     }
-    require(ids.size() == 19);
+    require(ids.size() == 18);
     require(groups.size() == page_group_count);
+    // The same groups and order as settingsNavGroups in packages/ui/src/settings/settings-page-registry.ts (typing, appearance, more input methods, tools, account and community, support), so the native window and the shared settings UI list the same pages the same way.
+    const std::array<std::pair<std::string_view, std::size_t>, 18> sidebar{{
+        {"typing", 0},   {"expression", 0}, {"shortcuts", 0}, {"lexicon", 0},
+        {"themes", 1},   {"candidate", 1},  {"toolbar", 1},   {"osk", 2},
+        {"voice", 2},    {"hand", 2},       {"clip", 3},      {"stats", 3},
+        {"plugins", 3},  {"account", 4},    {"community", 4}, {"dev", 5},
+        {"feedback", 5}, {"about", 5}}};
+    require(sidebar.size() == pages.size());
+    for (std::size_t i = 0; i < pages.size(); ++i)
+      require(pages[i].id == sidebar[i].first &&
+              pages[i].group == sidebar[i].second);
+    // The window opens on the first page of the sidebar.
+    require(pages.front().id == default_page);
 
-    // The cross-platform service pages open the shared app on a route it accepts; native pages carry no route; the download page only links out.
+    // The cross-platform service pages open the shared app on a route it accepts; native pages carry no route.
     for (const auto &page : pages) {
       if (page.host == PageHost::Shell)
         require(launchable(page.shell));
@@ -59,10 +74,12 @@ int main() {
     require(find_page("clip")->shell.panel == "cloud-clipboard");
     require(find_page("stats")->shell.page == "typing-statistics");
     require(find_page("community")->shell.page == "community");
-    // 扩展 opens the shared app's plugins page, next to the input pages it changes.
+    // 插件 opens the shared app's plugins page, among the tools beside 剪贴板 and 打字统计.
     require(find_page("plugins")->shell.page == "plugins" &&
-            find_page("plugins")->group == find_page("lexicon")->group);
-    require(find_page("download")->host == PageHost::Download);
+            find_page("plugins")->group == find_page("clip")->group &&
+            find_page("plugins")->group == find_page("stats")->group);
+    // The download links moved into the about page, so there is no download page any more.
+    require(find_page("download") == nullptr);
     // MCP stays in this window's developer page and the core pages stay native.
     for (auto id : {"themes", "candidate", "typing", "expression", "shortcuts",
                     "lexicon", "dev", "about"})
@@ -106,7 +123,7 @@ int main() {
     require(page_for_route("help") == "feedback");
     require(page_for_route("helpcode") == "typing");
     require(page_for_route("expression") == "expression");
-    require(page_for_route("download") == "download");
+    require(page_for_route("download") == "about");
     require(page_for_route("developer") == "dev");
     require(page_for_route("plugins") == "plugins");
     // A page id of this window opens itself; anything unknown falls back to the default page.

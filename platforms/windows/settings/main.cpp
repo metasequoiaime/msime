@@ -642,34 +642,39 @@ struct PageLabel {
   wchar_t glyph;
 };
 
-constexpr std::array<PageLabel, 19> page_labels{{
+constexpr std::array<PageLabel, 18> page_labels{{
+    {"typing", L"输入", 0xE765},
+    {"expression", L"标点与翻译", 0xE8C1},
+    {"shortcuts", L"快捷键", 0xEDA7},
+    {"lexicon", L"词库", 0xE82D},
     {"themes", L"主题", 0xE790},
     {"candidate", L"候选窗口", 0xE8FD},
     {"toolbar", L"悬浮工具栏", 0xE7F4},
-    {"typing", L"输入", 0xE765},
-    {"expression", L"表达", 0xE8C1},
-    {"shortcuts", L"快捷键", 0xEDA7},
-    {"lexicon", L"词库", 0xE82D},
-    {"plugins", L"扩展", 0xEA86},
     {"osk", L"屏幕键盘", 0xE92E},
     {"voice", L"语音输入", 0xE720},
     {"hand", L"手写输入", 0xE929},
+    {"clip", L"剪贴板", 0xE77F},
+    {"stats", L"打字统计", 0xE9D2},
+    {"plugins", L"插件", 0xEA86},
     {"account", L"账户与同步", 0xE77B},
-    {"clip", L"云剪贴板", 0xE77F},
-    {"stats", L"统计", 0xE9D2},
     {"community", L"社区", 0xE716},
-    {"download", L"其他平台下载", 0xE896},
-    {"dev", L"开发者选项", 0xE90F},
-    {"feedback", L"反馈", 0xED15},
+    {"dev", L"维护与诊断", 0xE90F},
+    {"feedback", L"帮助与反馈", 0xED15},
     {"about", L"关于", 0xE946},
 }};
 static_assert(page_labels.size() == nav::pages.size());
+static_assert(page_labels[0].id == nav::default_page);
 
+// The sidebar's group titles, indexed by the `group` of SettingsNavigation.h and worded as the shared settings UI's settingsNavGroups.
+constexpr std::array<const wchar_t *, nav::page_group_count> group_titles{
+    {L"打字", L"外观", L"更多输入方式", L"工具", L"账户与社区", L"支持"}};
+
+// An unknown id gets the default page's label.
 const PageLabel &page_label(std::string_view id) {
   for (const auto &label : page_labels)
     if (label.id == id)
       return label;
-  return page_labels[3];
+  return page_labels[0];
 }
 
 // What each page of the shared app is for, on the card that opens it.
@@ -1400,11 +1405,14 @@ private:
     });
     view.AutoSuggestBox(filter_);
 
-    std::size_t group = 0;
+    // Each group opens with its title; the pages of SettingsNavigation.h are sorted by group, so a title is due whenever the group changes.
+    std::optional<std::size_t> group;
     for (const auto &page : nav::pages) {
       if (page.group != group) {
         group = page.group;
-        view.MenuItems().Append(NavigationViewItemSeparator());
+        NavigationViewItemHeader header;
+        header.Content(box_value(hstring(group_titles[page.group])));
+        view.MenuItems().Append(header);
       }
       const auto &label = page_label(page.id);
       NavigationViewItem item;
@@ -1439,10 +1447,10 @@ private:
         item.Visibility(needle.empty() || label.find(needle) != std::wstring::npos
                             ? Visibility::Visible
                             : Visibility::Collapsed);
-      } else if (const auto separator =
-                     value.try_as<NavigationViewItemSeparator>()) {
-        separator.Visibility(needle.empty() ? Visibility::Visible
-                                            : Visibility::Collapsed);
+      } else if (const auto header =
+                     value.try_as<NavigationViewItemHeader>()) {
+        header.Visibility(needle.empty() ? Visibility::Visible
+                                         : Visibility::Collapsed);
       }
     }
   }
@@ -2306,10 +2314,6 @@ private:
       build_shell_page(*model, page);
       return;
     }
-    if (model->host == nav::PageHost::Download) {
-      build_download_page(page);
-      return;
-    }
     if (has_preview(id) && preview_visible_ && !indexing_)
       page.Children().Append(make_preview());
     if (id == "themes")
@@ -2340,7 +2344,7 @@ private:
       build_about_page(page);
   }
 
-  // 账户与同步、云剪贴板、统计、社区、扩展 are pages of the shared app on every platform; this window opens them there.
+  // 剪贴板、打字统计、插件、账户与同步、社区 are pages of the shared app on every platform; this window opens them there.
   void build_shell_page(nav::Page const &model, StackPanel const &page) {
     const auto &label = page_label(model.id);
     auto group = add_group(page, L"");
@@ -2352,18 +2356,6 @@ private:
                           12, palette_.faint);
     note.Margin(Thickness{4, 8, 4, 0});
     page.Children().Append(note);
-  }
-
-  void build_download_page(StackPanel const &page) {
-    auto group = add_group(page, L"");
-    url_row(group, 0xE896, L"下载页",
-            L"在 macOS、Linux、iOS、Android 和鸿蒙设备上安装水杉输入法。",
-            L"打开下载页", download_url);
-    add_row(group, 0xE8C8, L"复制下载链接", download_url,
-            button_control(L"复制链接", [this] {
-              copy_text(download_url);
-              show_notice(L"已复制下载链接。", InfoBarSeverity::Success);
-            }));
   }
 
   // ---- 主题 ----
@@ -2658,37 +2650,6 @@ private:
     select_row(preedit, 0xE8D2, L"行内预编辑", L"", L"tsf_preedit_style",
                {{L"raw", L"原始按键"}, {L"pinyin", L"拼音分词"}, {L"empty", L"不显示"}},
                L"raw");
-
-    auto paging = add_group(page, L"翻页");
-    const bool word_character = document_.Boolean(L"word_character.enabled", false);
-    const auto word_keys = document_.String(L"word_character.keys", L"brackets");
-    const std::array<std::pair<const wchar_t *, const wchar_t *>, 7> keys{{
-        {L"minus_equal", L"- / ="},
-        {L"comma_period", L", / ."},
-        {L"brackets", L"[ / ]"},
-        {L"tab", L"Shift+Tab / Tab"},
-        {L"page_up_down", L"PageUp / PageDown"},
-        {L"mouse_wheel", L"鼠标滚轮（候选面板支持时翻页）"},
-        {L"arrows", L"上 / 下（移动候选项）"},
-    }};
-    std::vector<Check> checks;
-    for (const auto &[id, label] : keys) {
-      const std::wstring key = std::wstring(L"navigation.") + id;
-      const std::wstring pair = id;
-      checks.push_back(
-          {label, document_.Boolean(key, false),
-           [this, key, pair, word_character, word_keys](bool on) {
-             // 以词定字 and 翻页 cannot share a key pair: taking the pair for paging turns 以词定字 off.
-             const bool conflict = on && word_character && pair == word_keys;
-             change([&](PreferencesDocument &doc) {
-               doc.SetBoolean(key, on);
-               if (conflict)
-                 doc.SetBoolean(L"word_character.enabled", false);
-             }, conflict);
-           }});
-    }
-    add_row(paging, 0xE8AB, L"翻页方式", L"选择用于翻页的按键", nullptr,
-            checks_panel(std::move(checks), 190));
   }
 
   // 圆角大小. A value overrides the skin package's radius; 默认 clears it, so the card follows the package again, else the theme. An unset radius shows the theme's on the slider.
@@ -2820,21 +2781,10 @@ private:
                 L"按应用分别记忆输入状态，或让所有输入上下文保持同一状态",
                 L"ime_mode_scope", {{L"app", L"按应用记忆"}, {L"global", L"全局统一"}},
                 L"app");
-    bool_row(language, 0xE8C1, L"简繁输入", L"将提交的简体中文转换为繁体中文",
-             L"traditional_chinese_output", false);
-    add_row(language, 0xE8E9, L"全角输入",
-            L"将英文字符和空格提交为全角形式，会话开始时生效；工具栏、键盘的更多工具或快捷键可临时切换",
-            toggle_control(L"全角输入",
-                           document_.String(L"character_width", L"halfwidth") ==
-                               L"fullwidth",
-                           [this](bool on) {
-                             change([&](PreferencesDocument &doc) {
-                               doc.SetString(L"character_width",
-                                             on ? L"fullwidth" : L"halfwidth");
-                             }, false);
-                           }));
+    add_row(language, 0xE774, L"中英混输", L"中文输入时在候选项中补充英文单词，在「标点与翻译」页设置",
+            button_control(L"前往", [this] { navigate("expression", true); }));
 
-    auto word = add_group(page, L"以词定字");
+    auto word = add_group(page, L"选词与翻页");
     const bool word_enabled = document_.Boolean(L"word_character.enabled", false);
     const auto word_keys = document_.String(L"word_character.keys", L"brackets");
     add_row(word, 0xE8C1, L"以词定字",
@@ -2856,23 +2806,63 @@ private:
                              }, true);
                            }));
 
+    const std::array<std::pair<const wchar_t *, const wchar_t *>, 7> paging_keys{{
+        {L"minus_equal", L"- / ="},
+        {L"comma_period", L", / ."},
+        {L"brackets", L"[ / ]"},
+        {L"tab", L"Shift+Tab / Tab"},
+        {L"page_up_down", L"PageUp / PageDown"},
+        {L"mouse_wheel", L"鼠标滚轮（候选面板支持时翻页）"},
+        {L"arrows", L"上 / 下（移动候选项）"},
+    }};
+    std::vector<Check> paging_checks;
+    for (const auto &[id, label] : paging_keys) {
+      const std::wstring key = std::wstring(L"navigation.") + id;
+      const std::wstring pair = id;
+      paging_checks.push_back(
+          {label, document_.Boolean(key, false),
+           [this, key, pair, word_enabled, word_keys](bool on) {
+             // 以词定字 and 翻页 cannot share a key pair: taking the pair for paging turns 以词定字 off.
+             const bool conflict = on && word_enabled && pair == word_keys;
+             change([&](PreferencesDocument &doc) {
+               doc.SetBoolean(key, on);
+               if (conflict)
+                 doc.SetBoolean(L"word_character.enabled", false);
+             }, conflict);
+           }});
+    }
+    add_row(word, 0xE8AB, L"翻页方式", L"选择用于翻页的按键", nullptr,
+            checks_panel(std::move(paging_checks), 190));
+
+    auto candidates = add_group(page, L"候选与联想");
+    bool_row(candidates, 0xE753, L"云候选", L"向在线服务请求额外候选",
+             L"cloud_candidates", false);
+
+    auto output = add_group(page, L"输出");
+    add_row(output, 0xE8E9, L"全角输入",
+            L"将英文字符和空格提交为全角形式，会话开始时生效；工具栏、键盘的更多工具或快捷键可临时切换",
+            toggle_control(L"全角输入",
+                           document_.String(L"character_width", L"halfwidth") ==
+                               L"fullwidth",
+                           [this](bool on) {
+                             change([&](PreferencesDocument &doc) {
+                               doc.SetString(L"character_width",
+                                             on ? L"fullwidth" : L"halfwidth");
+                             }, false);
+                           }));
+    bool_row(output, 0xE8C1, L"繁体输出", L"将提交的简体中文转换为繁体中文",
+             L"traditional_chinese_output", false);
+
+    auto correction = add_group(page, L"纠错与模糊音");
+    bool_row(correction, 0xE70F, L"自动纠错", L"修正常见的相邻按键顺序。",
+             L"autocorrect", false);
+    fuzzy_row(correction);
+
     auto helpcode = add_group(page, L"辅助码");
     helpcode_rows(helpcode, L"全拼", L"quanpin_helpcode");
     helpcode_rows(helpcode, L"双拼", L"shuangpin_helpcode");
     shell_row(helpcode, 0xE8A7, L"辅助码详细设置", L"在水杉输入法应用中查看辅助码说明与编码表",
               L"打开", nav::shell_links::helpcode);
-
-    auto mixed = add_group(page, L"中英混输");
-    bool_row(mixed, 0xE774, L"中英混输", L"中文输入时在候选项中补充英文单词",
-             L"mixed_input.english", true, true);
-    slider_row(mixed, 0xE8CB, L"触发字符数", L"预编辑字母达到该长度后才出现英文候选项",
-               L"mixed_input.minimum_prefix", 1, 8, 5);
-    bool_row(mixed, 0xE76E, L"emoji 混输",
-             L"中文输入时在候选项中加入匹配的 emoji（位于英文候选之后；云候选与 AI 联想会使其相应顺移）",
-             L"mixed_input.emoji", false);
-    bool_row(mixed, 0xE76E, L"颜文字混输",
-             L"中文输入时在候选项中加入匹配的颜文字（排在 emoji 之后；云候选与 AI 联想会使其相应顺移）",
-             L"mixed_input.kaomoji", false);
   }
 
   // Choosing Japanese or Korean remembers the Chinese scheme it replaces, so switching back returns to it; choosing a Chinese scheme makes it the one remembered. Moving between Japanese and Korean keeps the remembered scheme, since neither is a Chinese scheme the store accepts there. The same rule as the tray (store_input_scheme in server_main.cpp).
@@ -2907,7 +2897,7 @@ private:
              prefix + L".show_in_candidate_window", false, false, enabled);
   }
 
-  // ---- 表达 ----
+  // ---- 标点与翻译 ----
 
   void build_expression_page(StackPanel const &page) {
     auto punctuation = add_group(page, L"标点");
@@ -2938,12 +2928,22 @@ private:
              L"输入左侧符号时自动补全右侧符号，并将光标置于中间",
              L"paired_punctuation", false);
 
-    auto correction = add_group(page, L"纠错与模糊音");
-    bool_row(correction, 0xE70F, L"自动纠错", L"修正常见的相邻按键顺序。",
-             L"autocorrect", false);
-    fuzzy_row(correction);
+    auto mixed = add_group(page, L"多语言与释义");
+    bool_row(mixed, 0xE774, L"中英混输", L"中文输入时在候选项中补充英文单词",
+             L"mixed_input.english", true, true);
+    slider_row(mixed, 0xE8CB, L"触发字符数", L"预编辑字母达到该长度后才出现英文候选项",
+               L"mixed_input.minimum_prefix", 1, 8, 5);
+    bool_row(mixed, 0xE76E, L"emoji 混输",
+             L"中文输入时在候选项中加入匹配的 emoji（位于英文候选之后；云候选与 AI 联想会使其相应顺移）",
+             L"mixed_input.emoji", false);
+    bool_row(mixed, 0xE76E, L"颜文字混输",
+             L"中文输入时在候选项中加入匹配的颜文字（排在 emoji 之后；云候选与 AI 联想会使其相应顺移）",
+             L"mixed_input.kaomoji", false);
+    bool_row(mixed, 0xE82D, L"显示英文释义",
+             L"在候选词后面标出它的英文意思，中文候选给英文、英文候选给中文。释义来自随键盘打包的离线词库，不联网。",
+             L"candidate_english_gloss", false);
 
-    auto candidates = add_group(page, L"翻译与云候选");
+    auto candidates = add_group(page, L"候选词翻译");
     const bool translations = document_.Boolean(L"candidate_translations", false);
     bool_row(candidates, 0xE8C1, L"候选词翻译", L"为当前候选请求翻译结果并显示在候选行",
              L"candidate_translations", false, true);
@@ -2952,11 +2952,6 @@ private:
                {{L"en", L"英语"}, {L"fr", L"法语"}, {L"ja", L"日语"}, {L"es", L"西班牙语"},
                 {L"ru", L"俄语"}, {L"de", L"德语"}, {L"ko", L"韩语"}},
                L"en", false, translations);
-    bool_row(candidates, 0xE82D, L"显示英文释义",
-             L"在候选词后面标出它的英文意思，中文候选给英文、英文候选给中文。释义来自随键盘打包的离线词库，不联网。",
-             L"candidate_english_gloss", false);
-    bool_row(candidates, 0xE753, L"云候选", L"向在线服务请求额外候选",
-             L"cloud_candidates", false);
 
     auto ai = add_group(page, L"AI");
     bool_row(ai, 0xE945, L"启用 AI 辅助", L"为拼音联想提供共享配置",
@@ -3016,7 +3011,7 @@ private:
 
   void build_shortcuts_page(StackPanel const &page) {
     auto keys = add_group(page, L"快捷键");
-    bool_row(keys, 0xE8C1, L"Ctrl+Shift+F 切换简繁", L"在简体与繁体输出之间切换",
+    bool_row(keys, 0xE8C1, L"Ctrl+Shift+F 切换繁体输出", L"在简体与繁体输出之间切换",
              L"keybindings.toggle_character_set_ctrl_shift_f", true);
     add_row(keys, 0xE765, L"中英文切换键", L"在「输入」页选择",
             button_control(L"前往", [this] { navigate("typing", true); }));
@@ -3171,22 +3166,9 @@ private:
               nav::shell_links::handwriting);
   }
 
-  // ---- 开发者选项 ----
+  // ---- 维护与诊断 ----
 
   void build_dev_page(StackPanel const &page) {
-    auto mcp = add_group(page, L"连接 AI 助手");
-    record(L"连接 AI 助手", L"MCP msime-mcp Claude Desktop Cursor");
-    if (!indexing_) {
-      auto card = make_card();
-      StackPanel content;
-      content.Spacing(10);
-      content.Padding(Thickness{25, 20, 25, 20});
-      append_mcp_section(content);
-      card.Child(content);
-      mark_search_target(L"连接 AI 助手", card);
-      mcp.Children().Append(card);
-    }
-
     auto diagnostics = add_group(page, L"诊断");
     bool_row(diagnostics, 0xEBE8, L"Server 端日志",
              L"排查 Server 启动和通信问题时开启。记录 Server 启停原因和各组件是否就绪，限量轮转，不记录按键、输入内容或候选文本。文件是数据目录下的 logs\\server.log，TSF 端日志也写进这个文件，复现后可直接发送。",
@@ -3199,9 +3181,22 @@ private:
             directory.empty() ? L"未找到数据目录" : directory.wstring(),
             button_control(L"打开", [this, directory] { open_folder(directory); },
                            !directory.empty()));
+
+    auto mcp = add_group(page, L"连接 AI 助手");
+    record(L"连接 AI 助手", L"MCP msime-mcp Claude Desktop Cursor");
+    if (!indexing_) {
+      auto card = make_card();
+      StackPanel content;
+      content.Spacing(10);
+      content.Padding(Thickness{25, 20, 25, 20});
+      append_mcp_section(content);
+      card.Child(content);
+      mark_search_target(L"连接 AI 助手", card);
+      mcp.Children().Append(card);
+    }
   }
 
-  // ---- 反馈、关于 ----
+  // ---- 帮助与反馈、关于 ----
 
   void build_feedback_page(StackPanel const &page) {
     auto group = add_group(page, L"");
@@ -3209,7 +3204,7 @@ private:
               nav::shell_links::feedback);
     shell_row(group, 0xE897, L"帮助", L"使用说明与常见问题", L"打开",
               nav::shell_links::help);
-    add_row(group, 0xEBE8, L"诊断日志", L"复现问题前在「开发者选项」中开启日志，反馈时一起发送",
+    add_row(group, 0xEBE8, L"诊断日志", L"复现问题前在「维护与诊断」中开启日志，反馈时一起发送",
             button_control(L"前往", [this] { navigate("dev", true); }));
   }
 
@@ -3244,9 +3239,17 @@ private:
       page.Children().Append(card);
     }
 
-    auto updates = add_group(page, L"更新");
+    auto updates = add_group(page, L"版本与更新");
     shell_row(updates, 0xE895, L"检查更新", L"在水杉输入法应用中检查并安装新版本", L"检查",
               nav::shell_links::about);
+    url_row(updates, 0xE896, L"其他平台下载",
+            L"在 macOS、Linux、iOS、Android 和鸿蒙设备上安装水杉输入法。",
+            L"打开下载页", download_url);
+    add_row(updates, 0xE8C8, L"复制下载链接", download_url,
+            button_control(L"复制链接", [this] {
+              copy_text(download_url);
+              show_notice(L"已复制下载链接。", InfoBarSeverity::Success);
+            }));
     url_row(updates, 0xE8A5, L"版本发布记录", L"每个版本的更新内容", L"查看", releases_url);
 
     auto privacy = add_group(page, L"数据与隐私");
