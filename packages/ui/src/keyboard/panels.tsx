@@ -38,6 +38,7 @@ import { keyboardSkinStyles } from "./keyboard-skin-styles";
 import { keyboardRows, nineKeyRows } from "./panel-keyboard-layouts";
 import { CloudDictionaryEntryForm } from "./cloud-dictionary-entry-form";
 import { CloudPanelHeader } from "./cloud-panel-header";
+import { NativePanelHeader } from "./native-panel-header";
 import { CloudDictionaryKindTabs } from "./cloud-dictionary-kind-tabs";
 import type { CloudDictionaryKind } from "./cloud-dictionary-kind-tabs";
 import { CloudDictionaryKindSelect } from "./cloud-dictionary-kind-select";
@@ -656,7 +657,12 @@ export function KeyboardPanel({
       data-keyboard-layout={activeLayout}
       aria-label="屏幕键盘"
     >
-      <header className={`native-panel-header ${surface.keyboardHeader}`} {...drag}>
+      <NativePanelHeader
+        className={`native-panel-header ${surface.keyboardHeader}`}
+        drag={drag}
+        closeDisabled={openingVoice}
+        onClose={closeKeyboard}
+      >
         <span className={surface.keyboardNotice} role="status" title={notice}>
           {notice}
         </span>
@@ -673,10 +679,7 @@ export function KeyboardPanel({
             语音
           </button>
         )}
-        <button type="button" aria-label="关闭" disabled={openingVoice} onClick={closeKeyboard}>
-          ×
-        </button>
-      </header>
+      </NativePanelHeader>
       <div className={surface.keyboardBody}>
         <div className={surface.keyboardLayout} data-keyboard-layout-grid="" style={keyboardStyle}>
           {rows.map((row, rowIndex) => (
@@ -1177,17 +1180,13 @@ export function HandwritingPanel({
       data-panel-theme={theme}
       aria-label="手写识别板"
     >
-      <header className={`native-panel-header ${surface.panelHeader}`} {...drag}>
-        <span>水杉手写识别板</span>
-        <button
-          type="button"
-          aria-label="关闭"
-          disabled={closing}
-          onClick={() => void closeHandwriting()}
-        >
-          ×
-        </button>
-      </header>
+      <NativePanelHeader
+        title="水杉手写识别板"
+        className={`native-panel-header ${surface.panelHeader}`}
+        drag={drag}
+        closeDisabled={closing}
+        onClose={() => void closeHandwriting()}
+      />
       <div className={surface.handwritingBody}>
         <section className={surface.inkSection}>
           <svg
@@ -1610,12 +1609,12 @@ export function VoicePanel({
       data-panel-theme={theme}
       aria-label="语音输入"
     >
-      <header className={`native-panel-header ${surface.panelHeader}`} {...drag}>
-        <span>水杉语音输入</span>
-        <button type="button" aria-label="关闭" onClick={() => void close()}>
-          ×
-        </button>
-      </header>
+      <NativePanelHeader
+        title="水杉语音输入"
+        className={`native-panel-header ${surface.panelHeader}`}
+        drag={drag}
+        onClose={() => void close()}
+      />
       <div className={surface.voiceBody}>
         <div className={surface.voiceIcon} aria-hidden="true">
           🎙
@@ -4326,19 +4325,12 @@ export function EmojiPanel({
       data-panel-theme={theme}
       aria-label="表情与符号"
     >
-      <header
+      <NativePanelHeader
+        title="Emoji and more"
         className={`native-panel-header flex-[0_0_38px] border-b ${panelDivider} ${panelSurface} ${panelText} [&>button]:text-[#aeb0b7] group-data-[panel-theme=light]:[&>button]:text-[#656a73]`}
-      >
-        <span>Emoji and more</span>
-        <button
-          type="button"
-          aria-label="关闭"
-          disabled={clipboardBusy}
-          onClick={() => void closeEmoji()}
-        >
-          ×
-        </button>
-      </header>
+        closeDisabled={clipboardBusy}
+        onClose={() => void closeEmoji()}
+      />
       <div
         className={`mx-6 mt-3.5 flex flex-[0_0_52px] items-center gap-2 rounded-[10px] px-3.5 max-phone:mx-3.5 ${panelField} focus-within:border-[#5fbf84] focus-within:shadow-[0_0_0_1px_rgba(95,191,132,0.35)] group-data-[panel-theme=light]:focus-within:border-[#2c7a4b] group-data-[panel-theme=light]:focus-within:shadow-[0_0_0_1px_rgba(154,98,173,0.28)]`}
       >
