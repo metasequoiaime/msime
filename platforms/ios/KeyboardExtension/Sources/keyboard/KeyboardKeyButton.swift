@@ -108,6 +108,12 @@ final class KeyboardKeyButton: UIButton {
 
   override func layoutSubviews() {
     super.layoutSubviews()
+    // The key's own pass is the one that sees its final size. The keyboard controller's pass does not run again when the
+    // system walks the window down to its real height while the keyboard appears, so a shadow path taken there kept a
+    // key from the taller frame and hung a dark block below every key until something laid the keyboard out again.
+    if layer.shadowOpacity > 0 {
+      layer.shadowPath = UIBezierPath(roundedRect: bounds, cornerRadius: KeyboardTheme.current.cornerRadius).cgPath
+    }
     guard let lines = titleLineCount else { return }
     titleLabel?.numberOfLines = lines
   }

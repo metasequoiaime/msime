@@ -1005,6 +1005,24 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertTrue(key.layer.animationKeys()?.isEmpty ?? true)
   }
 
+  func testKeyShadowsFollowTheKeysWhenTheKeyboardShrinksIntoPlace() throws {
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    // The system shows a keyboard at a taller window first and walks it down to the real height (874 -> 444 -> 292 measured on iOS 26.3).
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 874)
+    controller.view.layoutIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 260 + KeyboardViewController.stripExtraHeight)
+    controller.view.layoutIfNeeded()
+    let shadowed = descendants(controller.view).compactMap { $0 as? UIButton }
+      .filter { $0.layer.shadowOpacity > 0 && $0.window == nil && !$0.isHidden && $0.bounds.height > 0 }
+    XCTAssertFalse(shadowed.isEmpty)
+    for button in shadowed {
+      let path = try XCTUnwrap(button.layer.shadowPath, button.accessibilityLabel ?? "")
+      XCTAssertEqual(path.boundingBoxOfPath.height, button.bounds.height, accuracy: 0.5, button.accessibilityLabel ?? "")
+      XCTAssertEqual(path.boundingBoxOfPath.width, button.bounds.width, accuracy: 0.5, button.accessibilityLabel ?? "")
+    }
+  }
+
   private func descendants(_ view: UIView) -> [UIView] {
     [view] + view.subviews.flatMap { descendants($0) }
   }
