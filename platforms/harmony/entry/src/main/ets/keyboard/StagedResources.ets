@@ -59,6 +59,20 @@ export class StagedResources {
     }
   }
 
+  /**
+   * The Cantonese and Zhuyin dictionaries, from `language-dictionaries` under `resourceDir` to `language-dictionaries` beside the staged Engine resources in `filesDir`, where host-api looks for them. A package built without them removes any an earlier one left, and those schemes are then not offered; either way the keyboard still starts.
+   */
+  static stageLanguageDictionaries(resourceDir: string, filesDir: string): void {
+    const packaged: string = `${resourceDir}/language-dictionaries`;
+    const destination: string = `${filesDir}/language-dictionaries`;
+    const marker: string = `${filesDir}/language-dictionaries.ready`;
+    if (fs.accessSync(packaged)) {
+      StagedResources.stage(packaged, destination, marker);
+    } else {
+      StagedResources.unstage(destination, marker);
+    }
+  }
+
   /** Removes a staged directory and its marker, for resources the installed package no longer carries. */
   static unstage(destination: string, marker: string): void {
     try {

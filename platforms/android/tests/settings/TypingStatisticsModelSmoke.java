@@ -55,7 +55,7 @@ public final class TypingStatisticsModelSmoke {
         check(TypingStatisticsModel.sum(kinds) == model.total(), "kinds sum to the total");
 
         List<Slice> schemes = model.slices(Section.SCHEME, null);
-        check(schemes.size() == 16 && "quanpin".equals(schemes.get(0).id()), "schemes are ordered");
+        check(schemes.size() == 19 && "quanpin".equals(schemes.get(0).id()), "schemes are ordered");
         check("korean".equals(schemes.get(8).id()) && "韩语".equals(schemes.get(8).title())
             && schemes.get(8).count() == 10, "Korean is its own source, after Japanese");
         check(TypingStatisticsModel.sum(schemes) == model.total(), "schemes sum to the total");
@@ -67,6 +67,17 @@ public final class TypingStatisticsModelSmoke {
         check(count(modes, "handwriting") == 10,
             "handwriting is its own mode rather than being dropped");
         check(TypingStatisticsModel.sum(modes) == model.total(), "modes sum to the total");
+
+        // Cantonese and Zhuyin are Chinese schemes and fold into 中文模式; Vietnamese is a language of its own.
+        TypingStatisticsModel languages = new TypingStatisticsModel(true, 60, "90d", Map.of(), Map.of(),
+            Map.of("cantonese", 10L, "zhuyin", 20L, "vietnamese", 30L), Map.of(), Map.of(), Map.of());
+        List<Slice> languageSchemes = languages.slices(Section.SCHEME, null);
+        check("粤拼".equals(title(languageSchemes, "cantonese")) && "注音".equals(title(languageSchemes, "zhuyin"))
+            && "越南语".equals(title(languageSchemes, "vietnamese")), "the new schemes carry their own titles");
+        List<Slice> languageModes = languages.slices(Section.MODE, null);
+        check(count(languageModes, "chinese") == 30 && count(languageModes, "vietnamese") == 30
+            && "越南语模式".equals(title(languageModes, "vietnamese")), "Vietnamese is its own mode rather than Chinese");
+        check(TypingStatisticsModel.sum(languageModes) == languages.total(), "language modes sum to the total");
 
         List<Slice> day = model.slices(Section.KIND, "2026-09-20");
         check(count(day, "han") == 70 && count(day, "unknown") == 30,
@@ -105,6 +116,11 @@ public final class TypingStatisticsModelSmoke {
 
     private static long count(List<Slice> slices, String id) {
         for (Slice slice : slices) if (slice.id().equals(id)) return slice.count();
+        throw new AssertionError("Missing slice: " + id);
+    }
+
+    private static String title(List<Slice> slices, String id) {
+        for (Slice slice : slices) if (slice.id().equals(id)) return slice.title();
         throw new AssertionError("Missing slice: " + id);
     }
 

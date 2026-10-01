@@ -2,7 +2,7 @@ import { findDoubaoStreamEndpoint } from "../voice/voice-providers";
 import { CredentialActions } from "./credential-actions";
 import { type CredentialStatusMessageValue } from "./credential-status-message";
 import { DoubaoStreamEndpointSelect } from "./doubao-stream-endpoint-section";
-import { EndpointInput } from "./endpoint-input";
+import { EndpointSettingField } from "./endpoint-setting-field";
 import { PasswordSettingField } from "./password-setting-field";
 import { SettingField } from "./setting-field";
 import * as settings from "./settings-style";
@@ -120,13 +120,13 @@ export function VoiceCredentialSection({
           />
         </SettingField>
       )}
-      <SettingField label="接口地址" description="留空使用当前服务的默认地址">
-        <EndpointInput
-          label={`${name}接口地址`}
-          value={endpoint}
-          onChange={(endpoint) => onChange({ endpoint })}
-        />
-      </SettingField>
+      <EndpointSettingField
+        label="接口地址"
+        inputLabel={`${name}接口地址`}
+        description="留空使用当前服务的默认地址"
+        value={endpoint}
+        onChange={(endpoint) => onChange({ endpoint })}
+      />
       {legacy && (
         <PasswordSettingField
           label="Doubao App Key"

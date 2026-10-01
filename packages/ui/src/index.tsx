@@ -62,6 +62,7 @@ export {
   selectHomeTouchKeyboardScheme,
   updateTouchKeyboardSchemeEnabled,
   allTouchKeyboardSchemes,
+  defaultTouchKeyboardSchemes,
 } from "./settings/touch-keyboard-scheme-helpers";
 import { settingsPlatformPresentation } from "./settings/settings-platform-presentation";
 import { settingsPageEnvironment } from "./settings/settings-page-environment";
@@ -458,7 +459,7 @@ import { HelpSettingsPage } from "./settings/help-settings-page";
 import type { MobileKeyboardFeedbackClient } from "./settings/mobile-keyboard-feedback-section";
 import { HandwritingSettingsPage } from "./settings/pages/handwriting-page";
 import { FeedbackSettingsPage } from "./settings/pages/feedback-page";
-import { allTouchKeyboardSchemes } from "./settings/touch-keyboard-scheme-helpers";
+import { defaultTouchKeyboardSchemes } from "./settings/touch-keyboard-scheme-helpers";
 import { logo } from "./settings/settings-options";
 import type { CommunitySkinClient } from "./community/community-skins";
 import { communityDestinationView } from "./community/community-destination";
@@ -1086,6 +1087,11 @@ export {
 } from "./settings/password-setting-field";
 export { TextSettingField, type TextSettingFieldProps } from "./settings/text-setting-field";
 export { SelectSettingField, type SelectSettingFieldProps } from "./settings/select-setting-field";
+export { ModelSettingField, type ModelSettingFieldProps } from "./settings/model-setting-field";
+export {
+  EndpointSettingField,
+  type EndpointSettingFieldProps,
+} from "./settings/endpoint-setting-field";
 export {
   LinuxTencentCredentialsSection,
   type LinuxTencentCredentialsSectionProps,
@@ -2448,7 +2454,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     inputModeHUD,
   } = settingsInputPreferences(draft);
   const touchKeyboardSchemes = draft?.touch_keyboard_schemes ?? {
-    enabled: allTouchKeyboardSchemes,
+    enabled: defaultTouchKeyboardSchemes,
   };
   const {
     selected: selectedTouchKeyboardScheme,

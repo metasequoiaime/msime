@@ -12,6 +12,8 @@ public final class KeyboardLayout {
     public static final int HANDWRITING_LAYOUT = 3;
     /** The 26 QWERTY keys drawn with Dubeolsik jamo keycaps; they still send the ASCII letters. */
     public static final int KOREAN_LAYOUT = 4;
+    /** The four Dachen bopomofo rows of {@link ZhuyinKeyboardLayout}; they send the Dachen ASCII keys. */
+    public static final int ZHUYIN_LAYOUT = 5;
 
     private static final List<List<String>> LETTER_ROWS = List.of(
         List.of("q", "w", "e", "r", "t", "y", "u", "i", "o", "p"),
@@ -31,6 +33,8 @@ public final class KeyboardLayout {
                                          String touchLayout) {
         // Korean has only the 26-key Dubeolsik keyboard, whatever layout the document carries.
         if (scheme == KoreanInputPolicy.KOREAN_SCHEME) return KOREAN_LAYOUT;
+        // Zhuyin is Dachen only, so it has no nine-key or handwriting surface either.
+        if (scheme == InputSchemeTraits.ZHUYIN) return ZHUYIN_LAYOUT;
         if (handwriting || "handwriting".equals(touchLayout)) return HANDWRITING_LAYOUT;
         if (scheme == 3 && "nine_key".equals(touchLayout)) return JAPANESE_NINE_KEY_LAYOUT;
         if (nineKey) return QUANPIN_NINE_KEY_LAYOUT;
@@ -38,7 +42,7 @@ public final class KeyboardLayout {
     }
 
     /**
-     * Whether the surface has a Shift state of its own: English case on the standard rows, the double consonants and ㅒ ㅖ on the Korean rows. Every other surface resets it.
+     * Whether the surface has a Shift state of its own: English case on the standard rows, the double consonants and ㅒ ㅖ on the Korean rows. Every other surface resets it, the Dachen rows included: bopomofo has no case, and Shift there would only send a key the Dachen table does not read.
      */
     public static boolean carriesLetterCase(int touchLayout) {
         return touchLayout == STANDARD_TOUCH_LAYOUT || touchLayout == KOREAN_LAYOUT;
@@ -56,5 +60,11 @@ public final class KeyboardLayout {
      */
     public static List<List<String>> rows(Layer layer) {
         return layer == Layer.SYMBOLS ? SYMBOL_ROWS : LETTER_ROWS;
+    }
+
+    /** The rows a surface draws: the Dachen letter layer has four rows of its own, every other surface the shared ones. */
+    public static List<List<String>> rows(Layer layer, int touchLayout) {
+        if (layer == Layer.LETTERS && touchLayout == ZHUYIN_LAYOUT) return ZhuyinKeyboardLayout.rows();
+        return rows(layer);
     }
 }

@@ -54,7 +54,11 @@ struct BackendLocalStore: BackendSessionStorage {
   }
   func clear() throws {
     guard baseDirectory != nil else { return }
-    try withLock { if let url { try? FileManager.default.removeItem(at: url) } }
+    try withLock {
+      guard let url else { return }
+      do { try FileManager.default.removeItem(at: url) }
+      catch let error as CocoaError where error.code == .fileNoSuchFile { }
+    }
   }
   static func read(_ fileName: String) -> Data? {
     guard let directory else { return nil }

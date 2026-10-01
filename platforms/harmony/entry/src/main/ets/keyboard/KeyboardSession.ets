@@ -19,6 +19,8 @@ import { KeyboardScheme, PreferenceMapping, SchemeDefinition } from './KeyboardS
 import { EditorPolicy, EditorTraits } from './input/EditorPolicy';
 import { JapaneseSpacePolicy } from './input/JapaneseSpacePolicy';
 import { KoreanCompositionPolicy } from './input/KoreanCompositionPolicy';
+import { SchemeCompositionPolicy } from './input/SchemeCompositionPolicy';
+import { SchemeTraits } from './SchemeTraits';
 import {
   CapitalizationMode, EnglishCapitalizationPolicy
 } from './input/EnglishCapitalizationPolicy';
@@ -198,6 +200,8 @@ interface EngineView {
   /** The non-letter keys the Engine takes as input now: the active local mode's digits and operators, or with nothing composed `/` and `@` for the modes they open. Absent from a runtime older than those modes. */
   spelling_symbols?: string;
   dedicated_english: boolean;
+  /** The scheme's openable candidate list is showing: the Korean Hanja list, the Zhuyin list. Absent from a runtime older than the flag. */
+  candidate_list_open?: boolean;
 }
 
 // The stored preferences, read and written whole. Only the fields the keyboard changes are named;
@@ -510,6 +514,8 @@ export interface KeyboardState {
   /** The candidate page on screen, from zero, and how many there are; a translation page is always the one page of one. */
   readonly page: number;
   readonly pageCount: number;
+  /** Whether the scheme's openable candidate list (the Korean Hanja list, the Zhuyin list) is on the strip; see `candidateListOpen`. */
+  readonly candidateListOpen: boolean;
 }
 
 interface EngineValue {
@@ -1071,8 +1077,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     handwritingTheme: 'follow',
     menuTheme: 'follow',
     voiceTheme: 'follow',
-    // Everything, which is what an absent shared list means; the prepared record narrows it.
-    enabledSchemes: KeyboardScheme.SCHEMES.map(
+    // What an absent shared list means; the prepared record narrows it.
+    enabledSchemes: KeyboardScheme.DEFAULT_ENABLED.map(
       (candidate: SchemeDefinition): string => candidate.preferenceId),
     selectedScheme: null,
     scheme: 'quanpin',
@@ -1325,10 +1331,11 @@ export class KeyboardSession implements HardwareKeyTarget {
       shuangpinProfile: preferences.shuangpin_profile,
       layout: preferences.touch_keyboard_layout,
       selectedScheme: preferences.touch_keyboard_schemes?.selected ?? null,
-      enabledSchemes: preferences.touch_keyboard_schemes?.enabled === undefined
-        ? KeyboardScheme.SCHEMES.map((candidate: SchemeDefinition): string => candidate.preferenceId)
-        : KeyboardScheme.enabledFromPreferenceIds(preferences.touch_keyboard_schemes.enabled)
-          .map((candidate: SchemeDefinition): string => candidate.preferenceId),
+      // A Cantonese or Zhuyin card whose dictionary this package did not stage stays hidden even when enabled: the Engine would type 全拼 under it.
+      enabledSchemes: KeyboardScheme.withInstalledDictionaries(
+        KeyboardScheme.enabledFromPreferenceIds(preferences.touch_keyboard_schemes?.enabled ?? null),
+        (file: string): boolean => this.languageDictionaryInstalled(file))
+        .map((candidate: SchemeDefinition): string => candidate.preferenceId),
       candidateFollowCursor: preferences.candidate_follow_cursor,
       numberRowSelection: preferences.number_row_selection,
       candidateShowPreedit: preferences.candidate_preedit_style !== 'empty',
@@ -2049,12 +2056,29 @@ export class KeyboardSession implements HardwareKeyTarget {
     return KoreanCompositionPolicy.selected(this.schemeName, this.englishMode, this.localMode);
   }
 
-  /** Whether the Hanja list of the composing Korean syllable is on the strip, read from what the Engine last reported. */
-  koreanHanjaListOpen(): boolean {
+  /** Whether the scheme in force writes ASCII marks whatever the punctuation switch says: Korean and Vietnamese (`uses_chinese_punctuation`). */
+  writesAsciiPunctuation(): boolean {
+    const scheme: number = this.rulesScheme();
+    return scheme >= 0 && !SchemeTraits.usesChinesePunctuation(scheme);
+  }
+
+  /** Whether the scheme in force writes half-width whatever the width switch says: Korean and Vietnamese (`widens_full_width`). */
+  private keepsHalfWidth(): boolean {
+    const scheme: number = this.rulesScheme();
+    return scheme >= 0 && !SchemeTraits.widensFullWidth(scheme);
+  }
+
+  /** The Engine scheme number whose own key rules are in force, or -1 while English or a local utility mode takes the keys. */
+  rulesScheme(): number {
+    return SchemeCompositionPolicy.selectedRulesScheme(this.schemeName, this.englishMode, this.localMode);
+  }
+
+  /** Whether the scheme's openable candidate list (the composing Korean syllable's Hanja, the Zhuyin list) is on the strip, read from what the Engine last reported. */
+  candidateListOpen(): boolean {
     const view: EngineView | undefined = this.lastView;
-    return view !== undefined && KoreanCompositionPolicy.hanjaListOpen(
-      KoreanCompositionPolicy.active(view.scheme, view.dedicated_english, view.local_mode),
-      view.candidates.length);
+    return view !== undefined && SchemeCompositionPolicy.listOpen(
+      SchemeCompositionPolicy.rulesScheme(view.scheme, view.dedicated_english, view.local_mode),
+      view.candidate_list_open, view.candidates.length);
   }
 
   /** Which mode-switch gestures the user left bound, as the shared document has them. */
@@ -2246,9 +2270,10 @@ export class KeyboardSession implements HardwareKeyTarget {
       temporaryEnglish: this.localMode === 'temporary_english' || this.isEnglishCandidates(),
       japanese: !this.englishMode && this.schemeName === 'japanese',
       korean: !this.englishMode && this.schemeName === 'korean',
+      vietnamese: !this.englishMode && this.schemeName === 'vietnamese',
       capsLock: this.capsLock,
-      // Korean writes ASCII punctuation whatever the switch says, and the face reports what is written.
-      chinesePunctuation: this.chinesePunctuation && !this.isKorean(),
+      // Korean and Vietnamese write ASCII punctuation whatever the switch says (`uses_chinese_punctuation`), and the face reports what is written.
+      chinesePunctuation: this.chinesePunctuation && !this.writesAsciiPunctuation(),
       fullWidth: this.fullWidth, traditional: this.traditional
     };
     this.onToolbar(state, FloatingToolbarLayout.buttons(this.toolbarComponents()),
@@ -2456,7 +2481,8 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   private finishCompositionBoundary(boundary: CompositionBoundary): void {
     const action: CompositionBoundaryAction = CompositionBoundaryPolicy.action(
-      this.composing(), this.schemeName === 'japanese', boundary, this.isKorean());
+      this.composing(), this.schemeName === 'japanese', boundary,
+      SchemeTraits.commitsOnBlur(this.rulesScheme()));
     if (action === CompositionBoundaryAction.FINISH_COMPOSITION) {
       this.finishComposition();
     } else if (action === CompositionBoundaryAction.COMMIT_RAW) {
@@ -2860,8 +2886,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     const view: EngineView | undefined = this.lastView;
     const wanted: string = view === undefined ? '' : InlinePreeditPolicy.text(this.inlinePreeditStyle,
       KeyboardFormFactor.isDesktop(), this.previewSupported, view.editing_text, view.preedit,
-      view.phrase_prefix ?? '', KoreanCompositionPolicy.active(view.scheme, view.dedicated_english,
-        view.local_mode));
+      view.phrase_prefix ?? '', SchemeCompositionPolicy.drawsPreedit(SchemeCompositionPolicy.rulesScheme(
+        view.scheme, view.dedicated_english, view.local_mode)));
     if (inputClient === undefined || wanted === this.previewText) return;
     const shown: string = this.previewText;
     this.pendingOwnEdits++;
@@ -3098,9 +3124,9 @@ export class KeyboardSession implements HardwareKeyTarget {
         && this.inputClient !== undefined && !this.composing()
         && this.currentCandidates.length === 0) {
       try {
-        // Korean punctuation is half-width ASCII in either character width.
+        // Korean and Vietnamese punctuation is half-width ASCII in either character width (`widens_full_width`).
         const literal: string = FullWidthInputPolicy.output(String.fromCharCode(ascii),
-          this.fullWidth && !this.isKorean()) ?? String.fromCharCode(ascii);
+          this.fullWidth && !this.keepsHalfWidth()) ?? String.fromCharCode(ascii);
         this.insertEditorTextSync(literal);
         this.recordTypingStatistics(literal, this.typingSource());
         this.refreshEnglishSuggestions();
@@ -3226,18 +3252,19 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   /**
-   * Throw the whole composition away, for a gesture that means to clear it rather than step back. With a Korean Hanja list open the first MSIME_CANCEL only closes the list and keeps the syllable (msime_client.h), so a second drops the syllable too; anywhere else this is cancel.
+   * Throw the whole composition away, for a gesture that means to clear it rather than step back. In a scheme whose first MSIME_CANCEL keeps the composition (`cancel_keeps_composition`: it closes a Korean Hanja or Zhuyin list, or takes a Vietnamese word back to its keys; msime_client.h) a second drops it too; anywhere else this is cancel.
    */
   discardComposition(): void {
-    const closesHanjaList: boolean = this.translationPage === null && this.koreanHanjaListOpen();
+    const keeps: boolean = this.translationPage === null
+      && SchemeTraits.cancelKeepsComposition(this.rulesScheme());
     this.cancel();
-    if (closesHanjaList) {
+    if (keeps && this.composing()) {
       this.cancel();
     }
   }
 
   /**
-   * MSIME_CONVERT_HANJA: list the Hanja of the composing Korean syllable, or close the open list and keep the syllable composing. False when the Engine declined, which it does for a lone jamo and with nothing composing.
+   * MSIME_CONVERT_HANJA: list the Hanja of the composing Korean syllable, or close the open list and keep the syllable composing; in Zhuyin the same command opens or closes the list over the conversion. False when the Engine declined, which it does for a lone jamo and with nothing composing.
    */
   convertHanja(): boolean {
     return this.command(InputCommand.CONVERT_HANJA);
@@ -3259,15 +3286,19 @@ export class KeyboardSession implements HardwareKeyTarget {
    * The Windows host finalizes and then lets the application insert the key, so the character is typed as the key made it, halfwidth and unconverted. Here the keyboard inserts it itself, after the commit, because releasing the key would leave its order against the commit to the editor.
    */
   commitThenType(ascii: number): void {
+    this.commitThenInsert(String.fromCharCode(ascii));
+  }
+
+  /** `commitThenType` for text the keyboard chose rather than a key's own character: a Zhuyin symbol-layer mark whose ASCII key the Dachen editor would take as a phonetic or tone key. */
+  commitThenInsert(text: string): void {
     this.finishComposition();
     if (this.inputClient === undefined) return;
-    const literal: string = String.fromCharCode(ascii);
-    this.insertEditorText(literal);
-    this.recordTypingStatistics(literal, this.typingSource());
+    this.insertEditorText(text);
+    this.recordTypingStatistics(text, this.typingSource());
   }
 
   /**
-   * Korean: commit the open syllable ahead of a key that goes on to do its own work (Return, a caret key, Delete).
+   * Korean, Zhuyin and Vietnamese: commit the open composition ahead of a key that goes on to do its own work (Return, a caret key, Delete).
    *
    * The commit is written synchronously, so it is in the document before the key that ended it reaches the editor or the application; left to the asynchronous insert, a Return could break the line ahead of the syllable it was meant to follow.
    */
@@ -3629,7 +3660,8 @@ export class KeyboardSession implements HardwareKeyTarget {
         english: view.dedicated_english,
         diagnostic: this.diagnostic,
         page: view.page,
-        pageCount: view.page_count
+        pageCount: view.page_count,
+        candidateListOpen: this.candidateListOpen()
       });
     }
     if (this.onCandidateWidth !== undefined) {
@@ -3677,7 +3709,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       spellings: view.nine_key_spellings,
       scheme: view.scheme, shuangpinProfile: view.shuangpin_profile, localMode: view.local_mode,
       english: view.dedicated_english, diagnostic: this.diagnostic,
-      page: view.page, pageCount: view.page_count
+      page: view.page, pageCount: view.page_count, candidateListOpen: this.candidateListOpen()
     });
     if (this.onCandidateWidth !== undefined) {
       this.onCandidateWidth(this.candidateWidthVp(entries, reading, view.page, view.page_count));
@@ -3685,16 +3717,18 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (this.onCandidateCount !== undefined) this.onCandidateCount(entries.length);
   }
 
-  /** The composition the strip draws: Korean's editing_text is only the key letters of the open syllable, so there the syllable itself is drawn. */
+  /** The composition the strip draws: for Korean, Zhuyin and Vietnamese editing_text is only the keys behind the composition, so there the written text itself is drawn. */
   private static drawnReading(view: EngineView): string {
-    return KoreanCompositionPolicy.reading(
-      KoreanCompositionPolicy.active(view.scheme, view.dedicated_english, view.local_mode),
+    return SchemeCompositionPolicy.reading(
+      SchemeCompositionPolicy.rulesScheme(view.scheme, view.dedicated_english, view.local_mode),
       view.editing_text, view.preedit);
   }
 
-  /** The caret within drawnReading: the Engine's own for a spelling, the end of a Korean syllable. */
+  /** The caret within drawnReading: the Engine's own for a spelling, the end of a composition the scheme keeps the caret at the end of (a Vietnamese caret_position is a byte offset into a word that is not ASCII, so it is never used as an index). */
   private static drawnCaret(view: EngineView, reading: string): number {
-    return reading === view.editing_text ? view.caret_position : reading.length;
+    return SchemeCompositionPolicy.caret(
+      SchemeCompositionPolicy.rulesScheme(view.scheme, view.dedicated_english, view.local_mode),
+      view.caret_position, reading);
   }
 
   /** A horizontal candidate window on a machine with its own keys is as wide as its whole page; a vertical list is as wide as its widest row. A 2in1 window that shows the composition line also makes room on it for the brand mark and the page indicator. */
@@ -3733,7 +3767,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       scheme: view?.scheme ?? this.scheme, shuangpinProfile: view?.shuangpin_profile ?? this.profileName,
       localMode: view?.local_mode ?? this.localMode,
       english: view?.dedicated_english ?? this.englishMode, diagnostic: this.diagnostic,
-      page: 0, pageCount: 1
+      page: 0, pageCount: 1, candidateListOpen: false
     });
     if (this.onCandidateWidth !== undefined) {
       this.onCandidateWidth(this.candidateWidthVp(entries, view?.editing_text ?? this.editing, 0, 1));
@@ -4098,6 +4132,12 @@ export class KeyboardSession implements HardwareKeyTarget {
       }
     }
     return result;
+  }
+
+  /** Whether the Cantonese or Zhuyin dictionary `file` is staged in `language-dictionaries` beside the resources, which is where host preparation looks for it. */
+  private languageDictionaryInstalled(file: string): boolean {
+    const parent: string = this.resourceDirectory.substring(0, this.resourceDirectory.lastIndexOf('/'));
+    return parent.length > 0 && fs.accessSync(`${parent}/language-dictionaries/${file}`);
   }
 
   /** The non-English targets with an offline dictionary staged beside the resources, known before any query so the gloss line is reserved up front. */
@@ -5383,8 +5423,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     const dedicatedEnglish: boolean = view?.dedicated_english ?? this.englishMode;
     return this.smartPunctuation && this.smartPunctuationRepeat
       && this.chinesePunctuation && this.punctuationLock === 'follow'
-      && !dedicatedEnglish && this.localMode === 'none' && this.schemeName !== 'japanese'
-      && this.schemeName !== 'korean'
+      && !dedicatedEnglish && this.localMode === 'none'
+      && SchemeTraits.hostSmartPunctuation(SchemeTraits.fromName(this.schemeName))
       && !this.composing() && this.currentCandidates.length === 0
       && SmartPunctuationRepeatPolicy.chineseMark(ascii) !== null
       && SmartPunctuationRepeatPolicy.isAsciiAlphanumeric(preceding);
@@ -5452,7 +5492,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       // would act on a list the user is no longer looking at.
       this.generation = response.value.generation;
       // The snapshot carries no scheme; the list being the Hanja one is read from the view it expands.
-      const hanja: boolean = this.koreanHanjaListOpen();
+      const hanja: boolean = this.candidateListOpen() && this.lastView?.scheme === SchemeTraits.KOREAN;
       const entries: ExpandedCandidate[] = [];
       for (const candidate of response.value.candidates) {
         entries.push({

@@ -51,7 +51,24 @@ public final class KeyboardLayoutSmoke {
             && KeyboardLayout.carriesLetterCase(KeyboardLayout.KOREAN_LAYOUT)
             && !KeyboardLayout.carriesLetterCase(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT)
             && !KeyboardLayout.carriesLetterCase(KeyboardLayout.JAPANESE_NINE_KEY_LAYOUT)
-            && !KeyboardLayout.carriesLetterCase(KeyboardLayout.HANDWRITING_LAYOUT));
+            && !KeyboardLayout.carriesLetterCase(KeyboardLayout.HANDWRITING_LAYOUT)
+            && !KeyboardLayout.carriesLetterCase(KeyboardLayout.ZHUYIN_LAYOUT));
+        // Zhuyin is Dachen only; Cantonese and Vietnamese keep the 26 QWERTY keys, and Vietnamese keeps their case.
+        check(KeyboardLayout.resolveTouchLayout(false, false, 6, "twenty_six_key")
+            == KeyboardLayout.ZHUYIN_LAYOUT);
+        check(KeyboardLayout.resolveTouchLayout(true, true, 6, "handwriting")
+            == KeyboardLayout.ZHUYIN_LAYOUT);
+        check(KeyboardLayout.resolveTouchLayout(false, false, 5, "twenty_six_key")
+            == KeyboardLayout.STANDARD_TOUCH_LAYOUT);
+        check(KeyboardLayout.resolveTouchLayout(false, false, 7, "twenty_six_key")
+            == KeyboardLayout.STANDARD_TOUCH_LAYOUT);
+        List<List<String>> dachen = KeyboardLayout.rows(KeyboardLayout.Layer.LETTERS, KeyboardLayout.ZHUYIN_LAYOUT);
+        check(dachen.size() == 4 && dachen.get(0).size() == 11 && "1".equals(dachen.get(0).get(0))
+            && "-".equals(dachen.get(0).get(10)) && ";".equals(dachen.get(2).get(9)) && "/".equals(dachen.get(3).get(9)));
+        check(KeyboardLayout.rows(KeyboardLayout.Layer.SYMBOLS, KeyboardLayout.ZHUYIN_LAYOUT)
+            == KeyboardLayout.rows(KeyboardLayout.Layer.SYMBOLS));
+        check(KeyboardLayout.rows(KeyboardLayout.Layer.LETTERS, KeyboardLayout.STANDARD_TOUCH_LAYOUT)
+            == KeyboardLayout.rows(KeyboardLayout.Layer.LETTERS));
 
         System.out.println("Android keyboard layers: canonical keys, faces and symbol layouts passed");
     }

@@ -1,8 +1,7 @@
 import type { ReactNode } from "react";
-import { EndpointInput } from "./endpoint-input";
+import { EndpointSettingField } from "./endpoint-setting-field";
 import { SettingToggle } from "./setting-toggle";
 import { SelectSettingField } from "./select-setting-field";
-import { SettingField } from "./setting-field";
 import { TextSettingField } from "./text-setting-field";
 
 export type AiProviderOption = { id: string; title: string };
@@ -65,13 +64,12 @@ export function AiBasicSettingsSection({
         />
       </div>
       <div className="section">
-        <SettingField label="接口地址">
-          <EndpointInput
-            label="AI 接口地址"
-            value={endpoint}
-            onChange={onEndpointChange}
-          />
-        </SettingField>
+        <EndpointSettingField
+          label="接口地址"
+          inputLabel="AI 接口地址"
+          value={endpoint}
+          onChange={onEndpointChange}
+        />
       </div>
     </>
   );

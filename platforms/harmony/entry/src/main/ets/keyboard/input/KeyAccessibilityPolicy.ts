@@ -113,6 +113,11 @@ export class KeyAccessibilityPolicy {
     return listOpen ? "关闭汉字列表" : "转换为汉字";
   }
 
+  /** The 選 button over a Zhuyin conversion, read as what the next tap does: open the candidate list, or close it. */
+  static zhuyinList(listOpen: boolean): string {
+    return listOpen ? "关闭候选列表" : "选字";
+  }
+
   /** The candidate translation switch, named as the panel's 译 tile titles it; the strip's 译 pill reads the same name. */
   static translations(): string {
     return "显示译文";

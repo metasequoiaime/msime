@@ -34,6 +34,8 @@ public final class NativeClient {
     private static String text(byte[] value) { return new String(value, StandardCharsets.UTF_8); }
     public static String create(String options) { return text(createRaw(options.getBytes(StandardCharsets.UTF_8))); }
     public static String prepareHost(String options) { return text(prepareHostRaw(options.getBytes(StandardCharsets.UTF_8))); }
+    /** Runs the shared `msime_client_refresh_host` on the runtime options file at the absolute `path`. */
+    public static String refreshHost(String path) { return text(refreshHostRaw(path.getBytes(StandardCharsets.UTF_8))); }
     /** Reads the current native dictionary version without creating a session. */
     public static String snapshotVersion(String options) {
         return text(snapshotVersionRaw(options.getBytes(StandardCharsets.UTF_8)));
@@ -430,6 +432,7 @@ public final class NativeClient {
     public static String destroy(long session) { return text(destroyRaw(session)); }
     private static native byte[] createRaw(byte[] options);
     private static native byte[] prepareHostRaw(byte[] options);
+    private static native byte[] refreshHostRaw(byte[] path);
     private static native byte[] snapshotVersionRaw(byte[] options);
     private static native byte[] snapshotPrepareRaw(byte[] request, byte[] file);
     private static native byte[] snapshotDiscardRaw(long handle);

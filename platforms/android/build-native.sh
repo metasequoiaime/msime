@@ -61,7 +61,7 @@ cp platforms/linux/data/licenses/onnxruntime-ThirdPartyNotices.txt "$notices/onn
 cp "$toolchain/sysroot/NOTICE" "$notices/ndk-sysroot.txt"
 # The input engine in libmsime_host_api.so embeds the Korean Hanja table from libhangul's data/hanja/hanja.txt, which is BSD-3-Clause: clause 2 requires its notice in every binary distribution, so it travels with the library's other notices into assets/native-notices.
 cp resources/licenses/libhangul-hanja-BSD-3-Clause.txt "$notices/libhangul-hanja.txt"
-# The engine's Cantonese and Zhuyin schemes take their Jyutping and bopomofo syllables and words from data derived from rime-cantonese (CC BY 4.0, which requires attribution) and libchewing-data (LGPL-2.1-or-later, which requires the licence text and a source pointer). This build does not offer those schemes or ship their dictionaries; the notices travel with every engine build so that one notice list covers every platform.
+# The engine's Cantonese and Zhuyin schemes take their Jyutping and bopomofo syllables and words from data derived from rime-cantonese (CC BY 4.0, which requires attribution) and libchewing-data (LGPL-2.1-or-later, which requires the licence text and a source pointer). build-apk.sh and build-client-apk.sh package the dictionaries themselves, each beside its own licence text, when target/language-dictionaries (or MSIME_LANGUAGE_DICTIONARIES) holds them; the notices travel with every engine build either way so that one notice list covers every platform.
 cp resources/licenses/rime-cantonese-CC-BY-4.0.txt "$notices/rime-cantonese.txt"
 cp resources/licenses/libchewing-data-LGPL-2.1.txt "$notices/libchewing-data.txt"
 echo "Android native libraries built: $output (not yet device-verified)"

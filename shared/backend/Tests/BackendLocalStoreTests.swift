@@ -67,6 +67,25 @@ final class BackendLocalStoreTests: XCTestCase {
     #endif
   }
 
+  func testClearReportsWhenTheSessionCannotBeRemoved() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("msime-store-clear-test-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let session = directory.appendingPathComponent("session.json")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    try Data("synthetic-session".utf8).write(to: session)
+    let store = BackendLocalStore(fileName: "session.json", directory: directory)
+    try store.save(BackendSavedSession(
+      tokens: .init(access_token: String(repeating: "a", count: 64),
+        refresh_token: String(repeating: "b", count: 64), token_type: "Bearer", expires_in: 900,
+        user: .init(id: "synthetic-user", display_name: "", created_at: "2026-09-26")),
+      expiresAt: Date()))
+    try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: directory.path)
+    defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path) }
+
+    XCTAssertThrowsError(try store.clear())
+    XCTAssertTrue(FileManager.default.fileExists(atPath: session.path))
+  }
+
   func testWriteIfAbsentAllowsOnlyOneCreator() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("msime-store-create-test-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: directory) }

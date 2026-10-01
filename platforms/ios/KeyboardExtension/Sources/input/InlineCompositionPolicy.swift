@@ -18,10 +18,10 @@ enum InlineCompositionPolicy {
     return next.isEmpty ? .clear : .mark(next)
   }
 
-  /// The marked text for a composition. Korean always marks its syllable, whatever 行内预编辑 says: the syllable is the text being written rather than a spelling waiting to be converted, and a Korean keyboard that kept it off the field would leave the user typing into a strip above it. Every other scheme follows the chosen style.
-  static func markedText(korean: Bool, style: InlinePreeditPreference.Style, phrasePrefix: String, preedit: String,
+  /// The marked text for a composition. A scheme that composes in place (`inPlace`: Korean, Zhuyin, Vietnamese) always marks its preedit, whatever 行内预编辑 says: a Korean syllable, a Zhuyin conversion with its pending bopomofo, or a Vietnamese word is the text being written rather than a spelling waiting to be converted, and a keyboard that kept it off the field would leave the user typing into a strip above it. Every other scheme follows the chosen style.
+  static func markedText(inPlace: Bool, style: InlinePreeditPreference.Style, phrasePrefix: String, preedit: String,
                          editingText: String, japaneseReading: String?) -> String {
-    if korean { return preedit }
+    if inPlace { return preedit }
     return style.text(phrasePrefix: phrasePrefix, preedit: preedit, editingText: editingText,
                       japaneseReading: japaneseReading)
   }

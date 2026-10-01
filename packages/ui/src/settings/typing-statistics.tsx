@@ -9,7 +9,7 @@ import {
 } from "./keyboard-heatmap";
 import { scopedBreakdown } from "./typing-breakdown";
 import { chartGradient } from "./typing-chart";
-import { SettingField } from "./setting-field";
+import { SelectSettingField } from "./select-setting-field";
 import { SettingToggle } from "./setting-toggle";
 import {
   charactersPerMinute,
@@ -1875,29 +1875,26 @@ export function TypingStatisticsPage({
             onChange={(enabled) => void update(() => client.setEnabled(enabled))}
           />
           {client.setRetention && (
-            <SettingField
+            <SelectSettingField
               label="自动清理"
+              inputLabel="自动清理"
               description="按保留策略删除超期的每日记录并从累计中扣除，跨天后首次记录时执行。"
-              className="section-header mb-4"
+              fieldClassName="section-header mb-4"
+              value={statistics.retention ?? "forever"}
+              disabled={busy}
+              onChange={(value) => {
+                const setRetention = client.setRetention;
+                if (!setRetention) return;
+                const chosen = value as StatisticsRetention;
+                void update(() => setRetention(chosen));
+              }}
             >
-              <select
-                aria-label="自动清理"
-                value={statistics.retention ?? "forever"}
-                disabled={busy}
-                onChange={(event) => {
-                  const setRetention = client.setRetention;
-                  if (!setRetention) return;
-                  const chosen = event.target.value as StatisticsRetention;
-                  void update(() => setRetention(chosen));
-                }}
-              >
-                {retentionChoices.map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </SettingField>
+              {retentionChoices.map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </SelectSettingField>
           )}
           <div className="flex flex-wrap gap-[9px]">
             <button

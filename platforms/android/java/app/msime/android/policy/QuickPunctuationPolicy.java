@@ -20,13 +20,19 @@ public final class QuickPunctuationPolicy {
     private static final List<Entry> JAPANESE = List.of(
         new Entry("、", '\\'), new Entry("。", '.'), new Entry("？", '?'), new Entry("！", '!'),
         new Entry("「", '['), new Entry("」", ']'), new Entry("・", '/'));
+    // Dachen claims , . ; / - and the digits as bopomofo keys, so each mark is sent as the Shift key the Engine's Zhuyin overlay turns into it: < is ，, > is 。, [ and ] are 「」.
+    private static final List<Entry> ZHUYIN = List.of(
+        new Entry("，", '<'), new Entry("。", '>'), new Entry("？", '?'), new Entry("！", '!'),
+        new Entry("：", ':'), new Entry("「", '['), new Entry("」", ']'));
 
     private QuickPunctuationPolicy() {}
 
-    /** Returns display faces and the ASCII input each entry sends to Engine. Korean punctuation is half-width ASCII. */
+    /** Returns display faces and the ASCII input each entry sends to Engine. Korean and Vietnamese punctuation is half-width ASCII. */
     public static List<Entry> entries(boolean dedicatedEnglish, int scheme, String localMode) {
         if (dedicatedEnglish || !"none".equals(localMode)
-                || scheme == KoreanInputPolicy.KOREAN_SCHEME) return ASCII;
-        return scheme == 3 ? JAPANESE : CHINESE;
+                || scheme == InputSchemeTraits.KOREAN
+                || scheme == InputSchemeTraits.VIETNAMESE) return ASCII;
+        if (scheme == InputSchemeTraits.JAPANESE) return JAPANESE;
+        return scheme == InputSchemeTraits.ZHUYIN ? ZHUYIN : CHINESE;
     }
 }

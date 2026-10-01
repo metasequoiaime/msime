@@ -258,8 +258,11 @@ public final class KeyboardSheets {
         SettingsSheet sheet = new SettingsSheet(context, "输入方案",
             "换方案会同时换掉键盘布局。已经学到的词不受影响。");
         TextView status = sheet.addStatus();
+        // Cantonese and Zhuyin are offered only once their dictionary is installed: without it host-api falls back from them, so picking one would change nothing.
+        String languageDictionaries = HostStore.languageDictionaries(context);
         for (KeyboardScheme scheme : KeyboardScheme.values()) {
             if (scheme == KeyboardScheme.THOUGHTFUL_REPLY) continue;
+            if (!scheme.installed(languageDictionaries)) continue;
             sheet.add(choice(context, scheme.title(), scheme.glyph() + " · " + scheme.badge(),
                 scheme == current,
                 () -> applyScheme(fragment, snapshot, scheme, status, sheet, changed)));

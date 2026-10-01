@@ -70,6 +70,8 @@ const MAX_KEY_BYTES = 128;
 const MAX_STRING_BYTES = MAX_JSON_BYTES;
 
 const SCHEMES = ["quanpin", "shuangpin", "wubi", "japanese", "korean"];
+// Schemes this host types in that the cloud `input.schema` cannot carry (an older device would refuse the whole document), so uploading leaves the field out and the account keeps the scheme it holds.
+const LOCAL_ONLY_SCHEMES = ["cantonese", "zhuyin", "vietnamese"];
 const SHUANGPIN_PROFILES = ["xiaohe", "ziranma", "shoudao", "microsoft"];
 const FREQUENCY_MODES = ["disabled", "pin", "halve", "linear", "promote"];
 const LAYOUTS = ["twenty_six_key", "nine_key", "handwriting"];
@@ -214,8 +216,8 @@ export function localAccountPreferences(
 ): AccountPreferenceSettings {
   const frequency = record(member(preferences, "frequency")) ?? {};
   const customTheme = record(member(preferences, "custom_theme")) ?? {};
+  const scheme = member(preferences, "scheme");
   const settings: AccountPreferenceSettings = {
-    "input.schema": enumerated(member(preferences, "scheme"), SCHEMES, "quanpin"),
     "input.character_set": flag(member(preferences, "traditional_chinese_output"), false)
       ? "traditional"
       : "simplified",
@@ -279,6 +281,9 @@ export function localAccountPreferences(
       "medium",
     ),
   };
+  if (!(typeof scheme === "string" && LOCAL_ONLY_SCHEMES.includes(scheme))) {
+    settings["input.schema"] = enumerated(scheme, SCHEMES, "quanpin");
+  }
   return settings;
 }
 

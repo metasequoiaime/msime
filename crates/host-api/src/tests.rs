@@ -6408,9 +6408,9 @@ fn host_options_carry_vietnamese_settings_and_language_dictionaries_to_the_engin
     );
 }
 
-/// Cantonese and Zhuyin run on macOS and desktop Linux once their dictionary is installed beside the resources, and fall back without it; Vietnamese needs no data and runs there regardless. Every other build falls back from all three.
+/// Cantonese and Zhuyin run on every build but Windows once their dictionary is installed beside the resources, and fall back without it; Vietnamese needs no data and runs there regardless. Windows falls back from all three.
 #[test]
-fn installed_language_dictionaries_enable_their_schemes_on_macos_and_linux() {
+fn installed_language_dictionaries_enable_their_schemes_outside_windows() {
     let root = tempfile::tempdir().expect("tempdir");
     let resources = root.path().join("resources");
     std::fs::create_dir_all(&resources).expect("resources");
@@ -6426,10 +6426,7 @@ fn installed_language_dictionaries_enable_their_schemes_on_macos_and_linux() {
             .into_engine_options()
             .scheme
     };
-    let runs = cfg!(any(
-        target_os = "macos",
-        all(target_os = "linux", not(target_env = "ohos"))
-    ));
+    let runs = !cfg!(windows);
     // Without the directory both fall back to the last Chinese scheme, 五笔.
     assert_eq!(super::installed_language_dictionaries(&resources), None);
     assert_eq!(engine_scheme(InputScheme::Cantonese), 2);

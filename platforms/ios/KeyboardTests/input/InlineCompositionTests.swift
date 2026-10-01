@@ -51,12 +51,12 @@ final class InlineCompositionTests: XCTestCase {
   /// Korean marks the Hangul syllable whatever the style says, never its Dubeolsik key letters.
   func testKoreanAlwaysMarksTheSyllable() {
     for style in InlinePreeditPreference.Style.allCases {
-      XCTAssertEqual(InlineCompositionPolicy.markedText(korean: true, style: style, phrasePrefix: "", preedit: "녕",
+      XCTAssertEqual(InlineCompositionPolicy.markedText(inPlace: true, style: style, phrasePrefix: "", preedit: "녕",
                                                         editingText: "sud", japaneseReading: nil), "녕", "\(style)")
     }
-    XCTAssertEqual(InlineCompositionPolicy.markedText(korean: false, style: .off, phrasePrefix: "", preedit: "ni'hao",
+    XCTAssertEqual(InlineCompositionPolicy.markedText(inPlace: false, style: .off, phrasePrefix: "", preedit: "ni'hao",
                                                       editingText: "nihao", japaneseReading: nil), "")
-    XCTAssertEqual(InlineCompositionPolicy.markedText(korean: false, style: .raw, phrasePrefix: "", preedit: "ni'hao",
+    XCTAssertEqual(InlineCompositionPolicy.markedText(inPlace: false, style: .raw, phrasePrefix: "", preedit: "ni'hao",
                                                       editingText: "nihao", japaneseReading: nil), "nihao")
   }
 }

@@ -58,7 +58,8 @@ public final class KeyboardActionRow {
      */
     public static boolean usesLetterRows(int touchLayout, boolean symbols) {
         if (touchLayout == KeyboardLayout.STANDARD_TOUCH_LAYOUT
-                || touchLayout == KeyboardLayout.KOREAN_LAYOUT) return true;
+                || touchLayout == KeyboardLayout.KOREAN_LAYOUT
+                || touchLayout == KeyboardLayout.ZHUYIN_LAYOUT) return true;
         return touchLayout == KeyboardLayout.HANDWRITING_LAYOUT && symbols;
     }
 
@@ -67,9 +68,10 @@ public final class KeyboardActionRow {
         return usesLetterRows(touchLayout, symbols);
     }
 
-    /** Whether the last letter row starts with the case key; the digit page has no case to shift. */
+    /** Whether the last letter row starts with the case key; the digit page and the Dachen rows have no case to shift. */
     public static boolean rowsCarryCase(int touchLayout, boolean symbols) {
-        return usesLetterRows(touchLayout, symbols) && !symbols;
+        return usesLetterRows(touchLayout, symbols) && !symbols
+            && touchLayout != KeyboardLayout.ZHUYIN_LAYOUT;
     }
 
     /** Width share for the case and delete keys that bracket the last letter row. */
@@ -79,6 +81,7 @@ public final class KeyboardActionRow {
     public static String layerTitle(int touchLayout, boolean symbols) {
         if (!symbols) return "123";
         if (touchLayout == KeyboardLayout.KOREAN_LAYOUT) return "한";
+        if (touchLayout == KeyboardLayout.ZHUYIN_LAYOUT) return ZhuyinKeyboardLayout.LAYER_TITLE;
         return touchLayout == KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT ? "九键" : "ABC";
     }
 

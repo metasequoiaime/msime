@@ -14,6 +14,9 @@ export class TypingStatisticsPolicy {
     if (scheme === "wubi") return "wubi";
     if (scheme === "japanese") return "japanese";
     if (scheme === "korean") return "korean";
+    if (scheme === "cantonese") return "cantonese";
+    if (scheme === "zhuyin") return "zhuyin";
+    if (scheme === "vietnamese") return "vietnamese";
     if (scheme === "shuangpin") {
       if (profile === "ziranma") return "ziranma";
       if (profile === "microsoft") return "microsoft";

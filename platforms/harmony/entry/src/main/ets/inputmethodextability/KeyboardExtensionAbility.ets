@@ -25,6 +25,7 @@ import type { KeyEvent as InputKeyEvent } from '@ohos.multimodalInput.keyEvent';
 import { Action as KeyAction } from '@ohos.multimodalInput.keyEvent';
 import { StagedResources } from '../keyboard/StagedResources';
 import { HardwareKeyDispatch } from '../keyboard/HardwareKeyDispatch';
+import { SchemeTraits } from '../keyboard/SchemeTraits';
 import { PanelShortcutKey, PanelShortcutPolicy, PanelSurfaceAction }
   from '../keyboard/input/PanelShortcutPolicy';
 import { ToolbarButton } from '../keyboard/FloatingToolbarLayout';
@@ -622,11 +623,11 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     } else {
       this.heldKeys.release(event.key.code);
     }
-    // Korean reads a letter's case as the jamo (Shift+R is ㄲ), so only Shift decides it there: Caps Lock left on must not turn every ㄱ into ㄲ.
+    // Korean reads a letter's case as the jamo (Shift+R is ㄲ), so only Shift decides it there: Caps Lock left on must not turn every ㄱ into ㄲ. Vietnamese writes letters in the case they were typed, so Caps Lock there means capitals, as it does in any editor.
     const key: HardwareKey = HardwareKeyRouter.normalizeLetterCase({
       keyCode: event.key.code, unicodeChar: event.unicodeChar, ctrlKey: event.ctrlKey,
       altKey: event.altKey, logoKey: event.logoKey, shiftKey: event.shiftKey
-    }, event.capsLock && !session.isKorean());
+    }, event.capsLock && !session.isKorean() && session.rulesScheme() !== SchemeTraits.VIETNAMESE);
     session.setCapsLock(event.capsLock);
     const mode: ModeKey = {
       keyCode: event.key.code, down: event.action === KeyAction.DOWN, shiftKey: event.shiftKey,
@@ -747,7 +748,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
         session.hasHighlightedTranslation(), session.isJapanese(),
         session.wordCharacterBinding(), session.hasHighlightedCandidate(), session.hardwareSpelling(),
         session.isFullWidth(), session.punctuationLockedChinese(), session.isKorean(),
-        session.koreanHanjaListOpen());
+        session.candidateListOpen(), session.rulesScheme());
     if (decision.action === HardwareKeyAction.RELEASE) {
       // What the application types is still the user's typing, and Windows counts it (`stats_passthrough.h`).
       if (event.action === KeyAction.DOWN) {
@@ -866,6 +867,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     } else {
       StagedResources.unstage(`${files}/offline-glosses`, `${files}/offline-glosses.ready`);
     }
+    StagedResources.stageLanguageDictionaries(this.context.resourceDir, files);
     // The extension context knows the system colour mode; the view has no context of its own to ask.
     const systemDark: boolean =
       this.context.config.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK;
