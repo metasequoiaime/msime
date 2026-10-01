@@ -150,10 +150,12 @@ fn series_cache_key_with_prefix(
 
 /// Lowercase, drop `'`, keep `v` distinct from `u` (QD:75-88). The ü alias rewrite is a marking source by product decision: a typed `nue` whose primary segmentation is `nve` must compare as different.
 pub fn fold_reading(text: &str) -> String {
-    text.chars()
-        .filter(|&c| c != '\'')
-        .map(|c| c.to_ascii_lowercase())
-        .collect()
+    let capacity = text.bytes().filter(|&byte| byte != b'\'').count();
+    let mut folded = String::with_capacity(capacity);
+    for character in text.chars().filter(|&character| character != '\'') {
+        folded.push(character.to_ascii_lowercase());
+    }
+    folded
 }
 
 fn folded_reading_equal(left: &str, right: &str) -> bool {
@@ -338,7 +340,9 @@ mod tests {
 
     #[test]
     fn fold_keeps_v_distinct_from_u() {
-        assert_eq!(fold_reading("Sa'Hng"), "sahng");
+        let folded = fold_reading("Sa'Hng");
+        assert_eq!(folded, "sahng");
+        assert_eq!(folded.capacity(), folded.len());
         assert_eq!(fold_reading("nve"), "nve");
         assert_ne!(fold_reading("nve"), fold_reading("nue"));
     }
