@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Row, Switch } from "../core/platform-controls";
 import * as settings from "./settings-style";
 import { SecretSettingRow } from "./secret-setting-row";
+import { EndpointInput } from "./endpoint-input";
 
 export interface CustomTranslationSectionProps {
   enabled: boolean;
@@ -41,12 +42,11 @@ export function CustomTranslationSection({
         />
       </Row>
       <Row title="翻译 Endpoint">
-        <input
-          aria-label="自定义翻译 Endpoint"
-          type="url"
+        <EndpointInput
+          label="自定义翻译 Endpoint"
           value={endpoint}
           disabled={!available || !enabled}
-          onChange={(event) => onEndpointChange(event.target.value)}
+          onChange={onEndpointChange}
           placeholder="https://example.com/translate"
         />
       </Row>

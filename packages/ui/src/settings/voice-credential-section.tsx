@@ -2,6 +2,7 @@ import { findDoubaoStreamEndpoint } from "../voice/voice-providers";
 import { CredentialActions } from "./credential-actions";
 import { type CredentialStatusMessageValue } from "./credential-status-message";
 import { DoubaoStreamEndpointSelect } from "./doubao-stream-endpoint-section";
+import { EndpointInput } from "./endpoint-input";
 import { SettingField } from "./setting-field";
 
 export type VoiceCredentialSectionKind = "asr" | "polish";
@@ -111,11 +112,10 @@ export function VoiceCredentialSection({
         </SettingField>
       )}
       <SettingField label="接口地址" description="留空使用当前 provider 默认地址">
-        <input
-          aria-label={`${name}接口地址`}
-          type="url"
+        <EndpointInput
+          label={`${name}接口地址`}
           value={endpoint}
-          onChange={(event) => onChange({ endpoint: event.target.value })}
+          onChange={(endpoint) => onChange({ endpoint })}
         />
       </SettingField>
       {legacy && (

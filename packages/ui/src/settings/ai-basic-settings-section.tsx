@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { SettingField } from "./setting-field";
+import { EndpointInput } from "./endpoint-input";
 import { SettingToggle } from "./setting-toggle";
 
 export type AiProviderOption = { id: string; title: string };
@@ -65,11 +66,10 @@ export function AiBasicSettingsSection({
       </div>
       <div className="section">
         <SettingField label="接口地址">
-          <input
-            aria-label="AI 接口地址"
-            type="url"
+          <EndpointInput
+            label="AI 接口地址"
             value={endpoint}
-            onChange={(event) => onEndpointChange(event.target.value)}
+            onChange={onEndpointChange}
           />
         </SettingField>
       </div>

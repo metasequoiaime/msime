@@ -1,5 +1,6 @@
 import { SecretInput } from "../core/secret-input";
 import { SettingField } from "./setting-field";
+import { EndpointInput } from "./endpoint-input";
 
 export interface PolishCredentialFieldsSectionProps {
   endpoint: string;
@@ -18,11 +19,10 @@ export function PolishCredentialFieldsSection({
   return (
     <>
       <SettingField label="润色接口地址" description="留空使用当前 provider 默认地址">
-        <input
-          aria-label="润色接口地址"
-          type="url"
+        <EndpointInput
+          label="润色接口地址"
           value={endpoint}
-          onChange={(event) => onEndpointChange(event.target.value)}
+          onChange={onEndpointChange}
         />
       </SettingField>
       <SettingField label="润色 API Token" description="仅保存在本机设置中">

@@ -1,4 +1,5 @@
 import { Row } from "../core/platform-controls";
+import { EndpointInput } from "./endpoint-input";
 
 export interface VoiceEndpointSectionProps {
   value: string;
@@ -9,11 +10,10 @@ export interface VoiceEndpointSectionProps {
 export function VoiceEndpointSection({ value, onChange }: VoiceEndpointSectionProps) {
   return (
     <Row title="识别接口地址" description="留空使用当前 provider 默认地址">
-      <input
-        aria-label="识别接口地址"
-        type="url"
+      <EndpointInput
+        label="识别接口地址"
         value={value}
-        onChange={(event) => onChange(event.target.value)}
+        onChange={onChange}
       />
     </Row>
   );
