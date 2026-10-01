@@ -1,5 +1,6 @@
 import { ModelSelect } from "./model-select";
 import { SettingField } from "./setting-field";
+import { SettingActionHeader } from "./setting-action-header";
 
 export function AiModelCatalogSection({
   busy,
@@ -20,15 +21,14 @@ export function AiModelCatalogSection({
 }) {
   return (
     <div className="section">
-      <div className="section-header">
-        <span className="section-title">
-          服务模型
-          <small>从当前服务的模型目录读取；服务不支持时可继续手动填写模型。</small>
-        </span>
+      <SettingActionHeader
+        title="服务模型"
+        description="从当前服务的模型目录读取；服务不支持时可继续手动填写模型。"
+      >
         <button type="button" className="secondary" disabled={busy || !origin} onClick={onFetch}>
           {busy ? "获取中…" : "获取模型列表"}
         </button>
-      </div>
+      </SettingActionHeader>
       {models && models.length > 0 && (
         <SettingField label="已获取模型">
           <ModelSelect

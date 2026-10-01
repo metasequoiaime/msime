@@ -994,6 +994,10 @@ export {
 export { CredentialActions, type CredentialActionsProps } from "./settings/credential-actions";
 export { SettingToggle, type SettingToggleProps } from "./settings/setting-toggle";
 export { SettingField, type SettingFieldProps } from "./settings/setting-field";
+export {
+  SettingActionHeader,
+  type SettingActionHeaderProps,
+} from "./settings/setting-action-header";
 export { SettingTextarea, type SettingTextareaProps } from "./settings/setting-textarea";
 export { ModelSelect, type ModelSelectProps } from "./settings/model-select";
 export {

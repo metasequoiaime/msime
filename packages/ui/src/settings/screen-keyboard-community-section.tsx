@@ -1,3 +1,5 @@
+import { SettingActionHeader } from "./setting-action-header";
+
 export interface ScreenKeyboardCommunitySectionProps {
   onOpen: () => void;
 }
@@ -6,14 +8,11 @@ export interface ScreenKeyboardCommunitySectionProps {
 export function ScreenKeyboardCommunitySection({ onOpen }: ScreenKeyboardCommunitySectionProps) {
   return (
     <div className="section">
-      <div className="section-header">
-        <span className="section-title">
-          社区皮肤<small>看看别人做的键盘皮肤，可以直接试用或保存</small>
-        </span>
+      <SettingActionHeader title="社区皮肤" description="看看别人做的键盘皮肤，可以直接试用或保存">
         <button type="button" className="secondary" onClick={onOpen}>
           去社区发现皮肤
         </button>
-      </div>
+      </SettingActionHeader>
     </div>
   );
 }
