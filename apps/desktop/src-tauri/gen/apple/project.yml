@@ -56,6 +56,11 @@ targets:
       - path: ../../../../../target/ios/EngineResources
         buildPhase: resources
         type: folder
+      # Staged by platforms/ios/stage-resources.sh beside EngineResources, where host-api looks for the Cantonese and Zhuyin dictionaries; empty when none were built or fetched, and those schemes are then not offered.
+      - path: ../../../../../target/ios/language-dictionaries
+        buildPhase: resources
+        type: folder
+        optional: true
       - path: ../../../../../platforms/ios/SharedResources/MLKit-NOTICES.txt
         buildPhase: resources
       - path: ../../../../../platforms/ios/SharedResources/MLKit-Dependencies.txt
@@ -173,6 +178,11 @@ targets:
       - path: ../../../../../target/ios/EngineResources
         buildPhase: resources
         type: folder
+      # Staged by platforms/ios/stage-resources.sh beside EngineResources, where host-api looks for the Cantonese and Zhuyin dictionaries; empty when none were built or fetched, and those schemes are then not offered.
+      - path: ../../../../../target/ios/language-dictionaries
+        buildPhase: resources
+        type: folder
+        optional: true
       - path: ../../../../../platforms/ios/SharedResources/KeyboardBrand.png
         buildPhase: resources
       - path: ../../../../../platforms/ios/SharedResources/PrivacyInfo.xcprivacy

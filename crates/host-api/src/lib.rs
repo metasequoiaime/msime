@@ -875,7 +875,7 @@ fn language_dictionaries_directory(resources: &std::path::Path) -> Option<std::p
 }
 
 /// The `language_dictionaries` value HostOptions records for `resources`: the directory beside them, only when it holds a dictionary, so a host without them writes the document it always did.
-fn installed_language_dictionaries(resources: &std::path::Path) -> Option<String> {
+pub fn installed_language_dictionaries(resources: &std::path::Path) -> Option<String> {
     if language_dictionaries_beside(resources).is_empty() {
         return None;
     }

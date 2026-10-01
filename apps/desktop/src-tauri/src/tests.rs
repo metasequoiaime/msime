@@ -416,6 +416,26 @@ fn ios_first_run_host_options_use_packaged_resources_and_shared_state() {
     .expect("first-run options");
     assert_eq!(document["resources"], "/fixture/resources");
     assert_eq!(document["state_root"], "/fixture/shared-state");
+    assert!(document.get("language_dictionaries").is_none());
+}
+
+#[test]
+fn ios_first_run_host_options_name_the_bundled_language_dictionaries() {
+    let bundle = tempfile::tempdir().expect("bundle");
+    let resources = bundle.path().join("EngineResources");
+    let dictionaries = bundle.path().join("language-dictionaries");
+    std::fs::create_dir_all(&resources).expect("resources");
+    std::fs::create_dir_all(&dictionaries).expect("dictionaries");
+    let empty = super::ios_host_options_document(None, &resources, bundle.path())
+        .expect("first-run options");
+    assert!(empty.get("language_dictionaries").is_none());
+    std::fs::write(dictionaries.join("zhuyin.db"), b"fixture").expect("zhuyin.db");
+    let document = super::ios_host_options_document(None, &resources, bundle.path())
+        .expect("first-run options");
+    assert_eq!(
+        document["language_dictionaries"],
+        dictionaries.to_str().expect("utf-8 path")
+    );
 }
 
 #[test]

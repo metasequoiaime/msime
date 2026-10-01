@@ -148,6 +148,21 @@ class IOSProjectConfigTests(unittest.TestCase):
         self.assertIn("KeyboardBrand.png in Resources", generated)
         self.assertGreaterEqual(generated.count("KeyboardBrand.png in Resources"), 2)
 
+    def test_language_dictionaries_are_bundled_beside_engine_resources_for_app_and_extension(self):
+        project = (APPLE_ROOT / "project.yml").read_text()
+        generated = (APPLE_ROOT / "msime-desktop.xcodeproj/project.pbxproj").read_text()
+        rust_entry = (TAURI_ROOT / "src/lib.rs").read_text()
+
+        entry = (
+            "      - path: ../../../../../target/ios/language-dictionaries\n"
+            "        buildPhase: resources\n"
+            "        type: folder\n"
+            "        optional: true\n"
+        )
+        self.assertEqual(project.count(entry), 2)
+        self.assertEqual(generated.count("language-dictionaries in Resources */,"), 2)
+        self.assertIn("msime_host_api::installed_language_dictionaries(resources)", rust_entry)
+
     def test_tauri_app_embeds_the_native_keyboard_extension(self):
         project = (APPLE_ROOT / "project.yml").read_text()
         self.assertIn("  MSIMEKeyboardExtension:\n    type: app-extension", project)
