@@ -504,6 +504,8 @@ export interface KeyboardState {
   /** The candidate page on screen, from zero, and how many there are; a translation page is always the one page of one. */
   readonly page: number;
   readonly pageCount: number;
+  /** Whether the scheme's openable candidate list (the Korean Hanja list, the Zhuyin list) is on the strip; see `candidateListOpen`. */
+  readonly candidateListOpen: boolean;
 }
 
 interface EngineValue {
@@ -3274,11 +3276,15 @@ export class KeyboardSession implements HardwareKeyTarget {
    * The Windows host finalizes and then lets the application insert the key, so the character is typed as the key made it, halfwidth and unconverted. Here the keyboard inserts it itself, after the commit, because releasing the key would leave its order against the commit to the editor.
    */
   commitThenType(ascii: number): void {
+    this.commitThenInsert(String.fromCharCode(ascii));
+  }
+
+  /** `commitThenType` for text the keyboard chose rather than a key's own character: a Zhuyin symbol-layer mark whose ASCII key the Dachen editor would take as a phonetic or tone key. */
+  commitThenInsert(text: string): void {
     this.finishComposition();
     if (this.inputClient === undefined) return;
-    const literal: string = String.fromCharCode(ascii);
-    this.insertEditorText(literal);
-    this.recordTypingStatistics(literal, this.typingSource());
+    this.insertEditorText(text);
+    this.recordTypingStatistics(text, this.typingSource());
   }
 
   /**
@@ -3644,7 +3650,8 @@ export class KeyboardSession implements HardwareKeyTarget {
         english: view.dedicated_english,
         diagnostic: this.diagnostic,
         page: view.page,
-        pageCount: view.page_count
+        pageCount: view.page_count,
+        candidateListOpen: this.candidateListOpen()
       });
     }
     if (this.onCandidateWidth !== undefined) {
@@ -3692,7 +3699,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       spellings: view.nine_key_spellings,
       scheme: view.scheme, shuangpinProfile: view.shuangpin_profile, localMode: view.local_mode,
       english: view.dedicated_english, diagnostic: this.diagnostic,
-      page: view.page, pageCount: view.page_count
+      page: view.page, pageCount: view.page_count, candidateListOpen: this.candidateListOpen()
     });
     if (this.onCandidateWidth !== undefined) {
       this.onCandidateWidth(this.candidateWidthVp(entries, reading, view.page, view.page_count));
@@ -3750,7 +3757,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       scheme: view?.scheme ?? this.scheme, shuangpinProfile: view?.shuangpin_profile ?? this.profileName,
       localMode: view?.local_mode ?? this.localMode,
       english: view?.dedicated_english ?? this.englishMode, diagnostic: this.diagnostic,
-      page: 0, pageCount: 1
+      page: 0, pageCount: 1, candidateListOpen: false
     });
     if (this.onCandidateWidth !== undefined) {
       this.onCandidateWidth(this.candidateWidthVp(entries, view?.editing_text ?? this.editing, 0, 1));
