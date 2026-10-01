@@ -1058,6 +1058,7 @@ export {
   type TencentTranslationSectionProps,
 } from "./settings/tencent-translation-section";
 export { SecretSettingRow, type SecretSettingRowProps } from "./settings/secret-setting-row";
+export { TextInputRow, type TextInputRowProps } from "./settings/text-input-row";
 export { SecretSettingField, type SecretSettingFieldProps } from "./settings/secret-setting-field";
 export {
   PasswordSettingField,

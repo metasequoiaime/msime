@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Row, Switch } from "../core/platform-controls";
 import * as settings from "./settings-style";
 import { SecretSettingRow } from "./secret-setting-row";
+import { TextInputRow } from "./text-input-row";
 
 export interface TencentTranslationSectionProps {
   enabled: boolean;
@@ -46,18 +47,17 @@ export function TencentTranslationSection({
           onChange={onToggle}
         />
       </Row>
-      <Row title="SecretId">
-        <input
-          aria-label="腾讯云 SecretId"
-          type="text"
-          autoComplete="off"
-          spellCheck={false}
-          value={secretId}
-          disabled={!available || !enabled}
-          onChange={(event) => onSecretIdChange(event.target.value)}
-          placeholder="AKIDxxxxxxxxxxxxxxxx"
-        />
-      </Row>
+      <TextInputRow
+        title="SecretId"
+        label="腾讯云 SecretId"
+        type="text"
+        autoComplete="off"
+        spellCheck={false}
+        value={secretId}
+        disabled={!available || !enabled}
+        onChange={onSecretIdChange}
+        placeholder="AKIDxxxxxxxxxxxxxxxx"
+      />
       <SecretSettingRow
         title="SecretKey"
         label="腾讯云 SecretKey"
@@ -65,18 +65,17 @@ export function TencentTranslationSection({
         disabled={!available || !enabled}
         onChange={onSecretKeyChange}
       />
-      <Row title="地域">
-        <input
-          aria-label="腾讯云地域"
-          type="text"
-          autoComplete="off"
-          spellCheck={false}
-          value={region}
-          disabled={!available || !enabled}
-          onChange={(event) => onRegionChange(event.target.value)}
-          placeholder="ap-guangzhou"
-        />
-      </Row>
+      <TextInputRow
+        title="地域"
+        label="腾讯云地域"
+        type="text"
+        autoComplete="off"
+        spellCheck={false}
+        value={region}
+        disabled={!available || !enabled}
+        onChange={onRegionChange}
+        placeholder="ap-guangzhou"
+      />
       {enabled && children && <div className={settings.groupBlock}>{children}</div>}
       {available && enabled && credentialIssue && (
         <div className={settings.groupBlock}>

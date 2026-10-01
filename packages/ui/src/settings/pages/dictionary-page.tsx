@@ -10,6 +10,7 @@ import { PersonalDictionaryImportCard } from "../personal-dictionary-import-card
 import { DictionaryEntries } from "../dictionary-entries";
 import { DictionaryFailuresNotice } from "../dictionary-failures-notice";
 import { DictionaryPagination } from "../dictionary-pagination";
+import { TextInputRow } from "../text-input-row";
 import { DictionaryFormatOptions } from "../../dictionary/dictionary-format-options";
 
 export { dictionaryKindKeyHint } from "../../dictionary/dictionary-messages";
@@ -183,15 +184,14 @@ export function DictionarySettingsPage() {
                 <DictionaryFormatOptions pinyin={dictionaryKind === "pinyin"} rime />
               </Select>
             </Row>
-            <Row title="编码前缀">
-              <input
-                aria-label="编码前缀"
-                className={settings.fieldInput}
-                value={phraseSearch}
-                placeholder="留空查看全部"
-                onChange={(event) => setPhraseSearch(event.target.value)}
-              />
-            </Row>
+            <TextInputRow
+              title="编码前缀"
+              label="编码前缀"
+              className={settings.fieldInput}
+              value={phraseSearch}
+              placeholder="留空查看全部"
+              onChange={setPhraseSearch}
+            />
             <div className={settings.managerBlock}>
               {phraseError && (
                 <p role="alert" className="error">

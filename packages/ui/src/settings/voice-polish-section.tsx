@@ -3,6 +3,7 @@ import { GroupList, Row, Switch } from "../core/platform-controls";
 import { POLISH_PROVIDER_OPTIONS } from "../voice/voice-provider-options";
 import * as settings from "./settings-style";
 import { VoiceProviderSelect } from "./voice-provider-select";
+import { TextInputRow } from "./text-input-row";
 
 export interface VoicePolishSectionProps {
   enabled: boolean;
@@ -41,13 +42,7 @@ export function VoicePolishSection({
         />
       </Row>
       {providerPreset}
-      <Row title="模型">
-        <input
-          aria-label="文本润色模型"
-          value={model}
-          onChange={(event) => onModelChange(event.target.value)}
-        />
-      </Row>
+      <TextInputRow title="模型" label="文本润色模型" value={model} onChange={onModelChange} />
       {children}
     </GroupList>
   );

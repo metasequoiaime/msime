@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Row, Switch } from "../core/platform-controls";
 import * as settings from "./settings-style";
 import { SecretSettingRow } from "./secret-setting-row";
+import { TextInputRow } from "./text-input-row";
 
 export interface NiuTransSectionProps {
   enabled: boolean;
@@ -35,14 +36,13 @@ export function NiuTransSection({
           onChange={onToggle}
         />
       </Row>
-      <Row title="App ID">
-        <input
-          aria-label="NiuTrans App ID"
-          value={appId}
-          disabled={!available || !enabled}
-          onChange={(event) => onAppIdChange(event.target.value)}
-        />
-      </Row>
+      <TextInputRow
+        title="App ID"
+        label="NiuTrans App ID"
+        value={appId}
+        disabled={!available || !enabled}
+        onChange={onAppIdChange}
+      />
       <SecretSettingRow
         title="API Key"
         label="NiuTrans API Key"

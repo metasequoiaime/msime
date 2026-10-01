@@ -1,5 +1,6 @@
 import { GroupList, Row, Switch } from "../core/platform-controls";
 import * as settings from "./settings-style";
+import { TextInputRow } from "./text-input-row";
 
 export interface DoubaoOptionsSectionProps {
   linux: boolean;
@@ -39,13 +40,12 @@ export function DoubaoOptionsSection({
       <Row title="语义顺滑">
         <Switch aria-label="语义顺滑" checked={enableDdc} onChange={onEnableDdcChange} />
       </Row>
-      <Row title="热词表 ID">
-        <input
-          aria-label="热词表 ID"
-          value={boostingTableId}
-          onChange={(event) => onBoostingTableIdChange(event.target.value)}
-        />
-      </Row>
+      <TextInputRow
+        title="热词表 ID"
+        label="热词表 ID"
+        value={boostingTableId}
+        onChange={onBoostingTableIdChange}
+      />
     </GroupList>
   );
 }
