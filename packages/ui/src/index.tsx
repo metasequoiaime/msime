@@ -532,6 +532,7 @@ export {
   type OnboardingChoices,
   type OnboardingInputScheme,
 } from "./account/onboarding-page";
+export { completeOnboardingPreferences } from "./account/onboarding-preferences";
 export {
   LinuxSetupPage,
   type LinuxSetupClient,

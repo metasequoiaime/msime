@@ -23,6 +23,7 @@ import {
   CloudDictionaryFilesPanel,
   CloudDictionaryApplyPanel,
   CloudCandidatesPanel,
+  completeOnboardingPreferences,
   type AccountClient,
   type AccountPreferences,
   type AiSkinClient,
@@ -1020,22 +1021,10 @@ function HarmonySettings({
           // the user with a keyboard laid out the way they had just declined. Written the same way
           // the mobile hosts write it, so a profile carried between them means the same thing.
           const snapshot = await client.load();
-          const enabled = [...(snapshot.preferences.touch_keyboard_schemes?.enabled ?? [])];
-          if (!enabled.includes(scheme)) enabled.push(scheme);
-          await client.save(snapshot.revision, {
-            ...snapshot.preferences,
-            ...(choices.candidateEnglishGloss === undefined
-              ? {}
-              : { candidate_english_gloss: choices.candidateEnglishGloss }),
-            scheme: "quanpin",
-            last_chinese_scheme: "quanpin",
-            touch_keyboard_layout: scheme === "nine_key" ? "nine_key" : "twenty_six_key",
-            touch_keyboard_schemes: {
-              ...snapshot.preferences.touch_keyboard_schemes,
-              enabled,
-              selected: scheme,
-            },
-          });
+          await client.save(
+            snapshot.revision,
+            completeOnboardingPreferences(snapshot, scheme, choices),
+          );
           setInitialPage(choices.openAccount ? "account" : undefined);
           setBootstrapRequired(false);
         }}

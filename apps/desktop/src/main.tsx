@@ -23,6 +23,7 @@ import {
   EmojiPanel,
   HandwritingPanel,
   VoicePanel,
+  completeOnboardingPreferences,
   SettingsPage,
   SettingsStartupPage,
   WelcomeFlowPage,
@@ -882,22 +883,7 @@ function DesktopSettings() {
   };
   const completeOnboarding = async (scheme: OnboardingInputScheme, choices: OnboardingChoices) => {
     const snapshot = await client.load();
-    const enabled = [...(snapshot.preferences.touch_keyboard_schemes?.enabled ?? [])];
-    if (!enabled.includes(scheme)) enabled.push(scheme);
-    await client.save(snapshot.revision, {
-      ...snapshot.preferences,
-      ...(choices.candidateEnglishGloss === undefined
-        ? {}
-        : { candidate_english_gloss: choices.candidateEnglishGloss }),
-      scheme: "quanpin",
-      last_chinese_scheme: "quanpin",
-      touch_keyboard_layout: scheme === "nine_key" ? "nine_key" : "twenty_six_key",
-      touch_keyboard_schemes: {
-        ...snapshot.preferences.touch_keyboard_schemes,
-        enabled,
-        selected: scheme,
-      },
-    });
+    await client.save(snapshot.revision, completeOnboardingPreferences(snapshot, scheme, choices));
     if (onboardingPlatform === "ios") await invoke("ios_onboarding_complete");
     // Signing in happens on 我的, so the flow's 登录 lands there once the settings page mounts.
     if (choices.openAccount) requestSettingsPage("account");
