@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import {
   KeyboardPanel,
+  usePreferencesSnapshot,
   type PanelClient,
   type SettingsClient,
-  type Snapshot,
   type TouchKeyboardSkinDesign,
   defaultTouchKeyboardGeometry,
   keyboardThemeId,
@@ -40,42 +40,7 @@ export function DesktopKeyboard({
   preferences: ThemeClient;
 }) {
   const platform = useHostPlatform(preferences.host);
-  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
-  useEffect(() => {
-    let active = true;
-    let latestRevision = -1;
-    let unsubscribe: (() => void) | undefined;
-    setSnapshot(null);
-    const apply = (value: Snapshot) => {
-      if (!active || value.revision <= latestRevision) return;
-      latestRevision = value.revision;
-      setSnapshot(value);
-    };
-    const start = async () => {
-      // Subscribe before loading so a concurrent save cannot fall between them.
-      try {
-        const stop = await preferences.onPreferencesChanged?.(apply);
-        if (!active) {
-          stop?.();
-          return;
-        }
-        unsubscribe = stop;
-      } catch {
-        /* Initial loading still works when event subscription is unavailable. */
-      }
-      if (!active) return;
-      try {
-        apply(await preferences.load());
-      } catch {
-        /* Retain the last valid theme; default is dark. */
-      }
-    };
-    void start();
-    return () => {
-      active = false;
-      unsubscribe?.();
-    };
-  }, [preferences]);
+  const snapshot = usePreferencesSnapshot(preferences, true);
   const theme = useCandidatePreviewTheme(
     snapshot?.preferences.theme,
     snapshot?.preferences.screen_keyboard_theme,

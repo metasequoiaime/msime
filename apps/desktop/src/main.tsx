@@ -24,6 +24,7 @@ import {
   HandwritingPanel,
   VoicePanel,
   completeOnboardingPreferences,
+  usePreferencesSnapshot,
   SettingsPage,
   SettingsStartupPage,
   WelcomeFlowPage,
@@ -422,41 +423,7 @@ function DesktopPanelTheme({
   surface: "handwriting" | "voice" | "emoji";
   children: (theme: "dark" | "light") => ReactNode;
 }) {
-  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
-  useEffect(() => {
-    let active = true;
-    let unsubscribe: (() => void) | undefined;
-    let latestRevision = -1;
-    const apply = (value: Snapshot) => {
-      if (!active || value.revision <= latestRevision) return;
-      latestRevision = value.revision;
-      setSnapshot(value);
-    };
-    const start = async () => {
-      try {
-        const stop = await preferences.onPreferencesChanged?.(apply);
-        if (!active) {
-          stop?.();
-          return;
-        }
-        unsubscribe = stop;
-      } catch {
-        /* Initial loading still works when event subscription is unavailable. */
-      }
-      if (active) {
-        try {
-          apply(await preferences.load());
-        } catch {
-          /* Keep the dark panel default. */
-        }
-      }
-    };
-    void start();
-    return () => {
-      active = false;
-      unsubscribe?.();
-    };
-  }, [preferences]);
+  const snapshot = usePreferencesSnapshot(preferences);
   const surfaceTheme =
     surface === "handwriting"
       ? snapshot?.preferences.handwriting_theme

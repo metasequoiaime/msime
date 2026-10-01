@@ -534,6 +534,10 @@ export {
 } from "./account/onboarding-page";
 export { completeOnboardingPreferences } from "./account/onboarding-preferences";
 export {
+  usePreferencesSnapshot,
+  type PreferencesSnapshotClient,
+} from "./settings/use-preferences-snapshot";
+export {
   LinuxSetupPage,
   type LinuxSetupClient,
   type LinuxSetupLine,
