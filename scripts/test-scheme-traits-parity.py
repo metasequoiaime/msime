@@ -3,9 +3,11 @@
 
 The engine's `SchemeType` const fns (crates/engine/src/types.rs) are the one source of truth for what differs between input schemes, and input-runtime and host-api call them directly. Two places cannot: the macOS controller decides from a view's `scheme` number in C++, so `InputSchemeTraits.h` copies the predicates the view does not publish, and the settings page is TypeScript, so it keeps its own lists of which schemes are Chinese. Each copy compiles and passes its own tests on its own values, and a scheme added or moved on one side alone shows up only as a key that behaves like the wrong language.
 
+The Android input service decides from the same number in Java, so `InputSchemeTraits.java` copies the predicates it needs the same way and is checked the same way as the header.
+
 This reads all of them and checks:
 
-- the header's scheme constants are the engine ordinals;
+- the header's and the Android copy's scheme constants are the engine ordinals;
 - every header function that mirrors a `SchemeType` predicate, either by being named after it in CamelCase or by a comment starting with that predicate's name in backticks, answers the same as the engine for every scheme, and false for a number the engine does not know;
 - the header's host-only `OpensCandidateList` is the engine's `has_openable_candidate_list`, which is the same list under a host name;
 - the page's `chineseInputSchemeOptions` and `nonChineseSchemes` split the engine's schemes by `is_chinese`, in engine order, and `knownInputSchemes` names every scheme;
@@ -21,6 +23,7 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ENGINE = ROOT / "crates/engine/src/types.rs"
 HEADER = ROOT / "platforms/macos/src/input/InputSchemeTraits.h"
+ANDROID = ROOT / "platforms/android/java/app/msime/android/policy/InputSchemeTraits.java"
 OPTIONS = ROOT / "packages/ui/src/settings/input-scheme-options.ts"
 UI_TYPES = ROOT / "packages/ui/src/index.tsx"
 PREFERENCES = ROOT / "crates/client-core/src/preferences.rs"
@@ -101,17 +104,25 @@ class Engine:
 
 
 class Header:
+    path = HEADER
+    constant_pattern = r"constexpr int (\w+) = (\d+);"
+    function_pattern = r"((?:^//[^\n]*\n)*)^constexpr bool (\w+)\(int scheme\)\s*\{\s*return\s+(.*?);\s*\}"
+    missing = "no `constexpr bool <Trait>(int scheme)` functions"
+
     def __init__(self, text: str, errors: list[str]) -> None:
-        self.constants = {name: int(value) for name, value in re.findall(r"constexpr int (\w+) = (\d+);", text)}
+        self.constants = {name: int(value) for name, value in re.findall(self.constant_pattern, text)}
         # Function -> (the engine predicate its comment names or None, its boolean expression).
         self.functions: dict[str, tuple[str | None, str]] = {}
-        pattern = re.compile(r"((?:^//[^\n]*\n)*)^constexpr bool (\w+)\(int scheme\)\s*\{\s*return\s+(.*?);\s*\}", re.M | re.S)
-        for match in pattern.finditer(text):
+        for match in re.compile(self.function_pattern, re.M | re.S).finditer(text):
             comment = match.group(1).strip()
-            mirrored = re.match(r"//\s*`(\w+)`:", comment.splitlines()[-1]) if comment else None
+            mirrored = re.match(r"//\s*`(\w+)`:", comment.splitlines()[-1].strip()) if comment else None
             self.functions[match.group(2)] = (mirrored.group(1) if mirrored else None, " ".join(match.group(3).split()))
         if not self.functions:
-            errors.append(f"{rel(HEADER)}: no `constexpr bool <Trait>(int scheme)` functions")
+            errors.append(f"{rel(self.path)}: {self.missing}")
+
+    def scheme_constants(self) -> dict[str, int]:
+        """The scheme constants under the engine's CamelCase variant names."""
+        return self.constants
 
     def evaluate(self, function: str, scheme: int, depth: int = 0) -> bool:
         expression = self.functions[function][1]
@@ -131,6 +142,18 @@ class Header:
             if word not in names and word not in ("or", "and", "not"):
                 raise ValueError(f"`{function}` uses `{word}`, which is neither `scheme` nor a scheme constant")
         return bool(eval(python, {"__builtins__": {}}, names))
+
+
+class AndroidTraits(Header):
+    """The Android copy: `static final int QUANPIN = 0;` constants and `static boolean isChinese(int scheme) { return ...; }` traits, each optionally preceded by `// `predicate`: ...` comment lines."""
+
+    path = ANDROID
+    constant_pattern = r"static final int (\w+) = (\d+);"
+    function_pattern = r"((?:^[ \t]*//[^\n]*\n)*)^[ \t]*public static boolean (\w+)\(int scheme\)\s*\{\s*return\s+(.*?);\s*\}"
+    missing = "no `public static boolean <trait>(int scheme)` functions"
+
+    def scheme_constants(self) -> dict[str, int]:
+        return {"".join(part.capitalize() for part in name.split("_")): value for name, value in self.constants.items()}
 
 
 def ts_string_list(text: str, name: str) -> list[str] | None:
@@ -158,11 +181,11 @@ def rust_enum_names(text: str, name: str) -> list[str] | None:
 def check_header(engine: Engine, header: Header, errors: list[str]) -> int:
     for variant, ordinal in engine.ordinals.items():
         constant = "Japanese" if variant == "JapaneseRomaji" else variant
-        if header.constants.get(constant) != ordinal:
-            errors.append(f"{rel(HEADER)}: `{constant}` should be {ordinal}, the engine's `SchemeType::{variant}`, found {header.constants.get(constant)}")
-    extra = set(header.constants) - {("Japanese" if v == "JapaneseRomaji" else v) for v in engine.ordinals}
+        if header.scheme_constants().get(constant) != ordinal:
+            errors.append(f"{rel(header.path)}: `{constant}` should be {ordinal}, the engine's `SchemeType::{variant}`, found {header.scheme_constants().get(constant)}")
+    extra = set(header.scheme_constants()) - {("Japanese" if v == "JapaneseRomaji" else v) for v in engine.ordinals}
     for constant in sorted(extra):
-        errors.append(f"{rel(HEADER)}: scheme constant `{constant}` has no engine `SchemeType` variant")
+        errors.append(f"{rel(header.path)}: scheme constant `{constant}` has no engine `SchemeType` variant")
 
     compared = 0
     compared_functions: set[str] = set()
@@ -173,27 +196,28 @@ def check_header(engine: Engine, header: Header, errors: list[str]) -> int:
         if predicate is None:
             continue
         if predicate not in engine.predicates:
-            errors.append(f"{rel(HEADER)}: `{function}` mirrors `{predicate}`, which is not a SchemeType predicate")
+            errors.append(f"{rel(header.path)}: `{function}` mirrors `{predicate}`, which is not a SchemeType predicate")
             continue
         if mirrored and snake_case(function) != predicate:
-            errors.append(f"{rel(HEADER)}: `{function}` mirrors `{predicate}`, so it should be named after it")
+            errors.append(f"{rel(header.path)}: `{function}` mirrors `{predicate}`, so it should be named after it")
         compared += 1
         compared_functions.add(function)
         try:
             for variant, ordinal in engine.ordinals.items():
                 want = variant in engine.predicates[predicate]
                 if header.evaluate(function, ordinal) != want:
-                    errors.append(f"{rel(HEADER)}: `{function}({ordinal})` is {not want}, but the engine's `SchemeType::{variant}.{predicate}()` is {want}")
+                    errors.append(f"{rel(header.path)}: `{function}({ordinal})` is {not want}, but the engine's `SchemeType::{variant}.{predicate}()` is {want}")
             for unknown in UNKNOWN_SCHEMES:
                 if header.evaluate(function, unknown):
-                    errors.append(f"{rel(HEADER)}: `{function}({unknown})` is true for a scheme no build knows")
+                    errors.append(f"{rel(header.path)}: `{function}({unknown})` is true for a scheme no build knows")
         except ValueError as error:
-            errors.append(f"{rel(HEADER)}: {error}")
-    for function in HOST_ALIASES:
+            errors.append(f"{rel(header.path)}: {error}")
+    # The aliases are the macOS header's names; the Android copy names every trait after its predicate.
+    for function in () if isinstance(header, AndroidTraits) else HOST_ALIASES:
         if function not in header.functions:
-            errors.append(f"{rel(HEADER)}: `{function}` is gone; drop it from HOST_ALIASES here if the host no longer needs it")
+            errors.append(f"{rel(header.path)}: `{function}` is gone; drop it from HOST_ALIASES here if the host no longer needs it")
     if compared == 0:
-        errors.append(f"{rel(HEADER)}: no function is documented as mirroring a SchemeType predicate")
+        errors.append(f"{rel(header.path)}: no function is documented as mirroring a SchemeType predicate")
     # Host-only traits still have to answer false for an unknown number.
     for function in header.functions:
         if function in compared_functions:
@@ -201,9 +225,9 @@ def check_header(engine: Engine, header: Header, errors: list[str]) -> int:
         try:
             for unknown in UNKNOWN_SCHEMES:
                 if header.evaluate(function, unknown):
-                    errors.append(f"{rel(HEADER)}: `{function}({unknown})` is true for a scheme no build knows")
+                    errors.append(f"{rel(header.path)}: `{function}({unknown})` is true for a scheme no build knows")
         except ValueError as error:
-            errors.append(f"{rel(HEADER)}: {error}")
+            errors.append(f"{rel(header.path)}: {error}")
     return compared
 
 
@@ -233,6 +257,9 @@ def main() -> int:
 
     header = Header(HEADER.read_text(encoding="utf-8"), errors)
     compared = check_header(engine, header, errors)
+    android = 0
+    if ANDROID.is_file():
+        android = check_header(engine, AndroidTraits(ANDROID.read_text(encoding="utf-8"), errors), errors)
 
     chinese = engine.predicates["is_chinese"]
     all_names = engine.wire_names()
@@ -265,7 +292,7 @@ def main() -> int:
             print(f"FAIL {error}", file=sys.stderr)
         return 1
     print(
-        f"scheme traits: {len(engine.ordinals)} schemes; {compared} macOS traits match the engine predicates they mirror;"
+        f"scheme traits: {len(engine.ordinals)} schemes; {compared} macOS and {android} Android traits match the engine predicates they mirror;"
         f" the settings page and client-core split them {len(chinese_names)} Chinese / {len(other_names)} other as `is_chinese` does"
     )
     return 0
