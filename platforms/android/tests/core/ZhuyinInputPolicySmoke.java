@@ -42,6 +42,12 @@ public final class ZhuyinInputPolicySmoke {
         check(!ZhuyinInputPolicy.engineKey(false, '1', composing) && !ZhuyinInputPolicy.engineKey(true, 0x3105, composing)
             && !ZhuyinInputPolicy.engineKey(true, '\n', composing), "outside Zhuyin or outside ASCII the host keeps the key");
 
+        check(ZhuyinInputPolicy.spaceIsEngineKey(true, composing),
+            "touch Space on a composing conversion with its list closed is tone 1 for the Engine, not the commit command");
+        check(!ZhuyinInputPolicy.spaceIsEngineKey(true, "125890,./;-") && !ZhuyinInputPolicy.spaceIsEngineKey(true, "0,./;-"),
+            "idle or with the list open, touch Space keeps the plain space and the first-row pick");
+        check(!ZhuyinInputPolicy.spaceIsEngineKey(false, composing), "outside Zhuyin touch Space is unchanged");
+
         check(VietnameseInputPolicy.VIETNAMESE_SCHEME == 7, "the shared Engine ordinal for Vietnamese is 7");
         check(VietnameseInputPolicy.active(7, false) && !VietnameseInputPolicy.active(7, true)
             && !VietnameseInputPolicy.active(4, false), "only the Vietnamese scheme outside dedicated English composes Vietnamese");

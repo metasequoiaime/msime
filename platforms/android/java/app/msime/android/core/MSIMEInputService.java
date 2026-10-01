@@ -2423,6 +2423,9 @@ public final class MSIMEInputService extends InputMethodService {
     private void space() {
         if (connection == null) return;
         if (commitFirstHandwritingCandidate()) return;
+        // Space on a composing Zhuyin conversion is tone 1 or opens its list, as on a hardware keyboard; the commit command below would end the conversion and drop the pending syllable.
+        if (session != 0 && view != null && ZhuyinInputPolicy.spaceIsEngineKey(zhuyinSchemeActive(),
+                view.optString("spelling_symbols", "")) && character(' ', false)) return;
         JSONObject spaceDecision = smartPunctuationDecision(' ', getTextBeforeCursor());
         if (spaceDecision != null && !spaceDecision.isNull("space_ascii")) {
             int ascii = spaceDecision.optInt("space_ascii", 0);
