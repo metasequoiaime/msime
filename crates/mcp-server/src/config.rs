@@ -138,6 +138,20 @@ impl Config {
         Ok(document)
     }
 
+    /// The runtime-options document with its `preferences` replaced by the live preferences.json, which the hosts poll; the document's own copy is only what the settings page wrote when it prepared the host, and on macOS and Windows nothing refreshes it afterwards. A store that was never written leaves the document's copy alone.
+    pub fn read_host_options(&self) -> Result<Value, String> {
+        let mut document = self.read_options()?;
+        let snapshot =
+            msime_client_core::preferences::PreferencesStore::new(self.state_dir(&document)?)
+                .load()
+                .map_err(|error| error.to_string())?;
+        if snapshot.revision > 0 {
+            document["preferences"] =
+                serde_json::to_value(&snapshot.preferences).map_err(|error| error.to_string())?;
+        }
+        Ok(document)
+    }
+
     /// The directory holding preferences.json, typing-statistics.json and the skins folder.
     pub fn state_dir(&self, document: &Value) -> Result<PathBuf, String> {
         state_dir(self.state_dir.as_deref(), document, &self.options)
@@ -272,5 +286,42 @@ mod tests {
         } else {
             assert!(fallback.is_err());
         }
+    }
+
+    #[test]
+    fn the_live_preferences_replace_the_document_copy_once_written() {
+        use msime_client_core::preferences::{InputScheme, Preferences, PreferencesStore};
+        let directory = tempfile::tempdir().unwrap();
+        let options = directory.path().join("runtime-options.json");
+        std::fs::write(
+            &options,
+            json!({
+                "preferences": { "scheme": "wubi" },
+                "preferences_directory": directory.path().to_str().unwrap(),
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let config = Config {
+            options,
+            state_dir: None,
+            allow_write: false,
+            allow_dictionary_read: true,
+        };
+        assert_eq!(
+            config.read_host_options().unwrap()["preferences"]["scheme"],
+            "wubi"
+        );
+        let preferences = Preferences {
+            scheme: InputScheme::Quanpin,
+            ..Preferences::default()
+        };
+        PreferencesStore::new(directory.path())
+            .save(0, preferences)
+            .unwrap();
+        assert_eq!(
+            config.read_host_options().unwrap()["preferences"]["scheme"],
+            "quanpin"
+        );
     }
 }

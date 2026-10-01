@@ -252,31 +252,27 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
   }
 
   async function retryDictionaryFailure(requestId: string) {
-    if (!client.dictionary?.retry || !mounted.current) return;
-    setPhraseBusy(true);
-    setPhraseError("");
-    try {
-      await client.dictionary.retry(requestId);
-      await loadPhrases(dictionaryKind, phrasePage.offset);
-    } catch {
-      if (mounted.current) setPhraseError("词条重试失败，请稍后重试。");
-    } finally {
-      if (mounted.current) setPhraseBusy(false);
-    }
+    const retry = client.dictionary?.retry;
+    if (!retry) return;
+    await runPhraseAction(
+      async () => {
+        await retry(requestId);
+        await loadPhrases(dictionaryKind, phrasePage.offset);
+      },
+      () => "词条重试失败，请稍后重试。",
+    );
   }
 
   async function dismissDictionaryFailure(requestId: string) {
-    if (!client.dictionary?.dismissFailure || !mounted.current) return;
-    setPhraseBusy(true);
-    setPhraseError("");
-    try {
-      await client.dictionary.dismissFailure(requestId);
-      await loadPhrases(dictionaryKind, phrasePage.offset);
-    } catch {
-      if (mounted.current) setPhraseError("移除失败记录失败，请稍后重试。");
-    } finally {
-      if (mounted.current) setPhraseBusy(false);
-    }
+    const dismissFailure = client.dictionary?.dismissFailure;
+    if (!dismissFailure) return;
+    await runPhraseAction(
+      async () => {
+        await dismissFailure(requestId);
+        await loadPhrases(dictionaryKind, phrasePage.offset);
+      },
+      () => "移除失败记录失败，请稍后重试。",
+    );
   }
 
   async function deliverDictionaryExport(

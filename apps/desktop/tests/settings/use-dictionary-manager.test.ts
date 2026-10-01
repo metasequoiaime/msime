@@ -51,6 +51,41 @@ test("ignores a second all-dictionaries export while the first is pending", asyn
   expect(result.current.phraseBusy).toBe(false);
 });
 
+test("ignores a second dictionary failure retry while the first is pending", async () => {
+  let resolve!: () => void;
+  const pending = new Promise<void>((accept) => {
+    resolve = accept;
+  });
+  const retry = vi.fn().mockReturnValue(pending);
+  const list = vi.fn().mockResolvedValue({ entries: [], has_more: false });
+  const client: DictionaryManagerClient = {
+    dictionary: { list, edit: vi.fn().mockResolvedValue(undefined), retry },
+  };
+  const { result } = renderHook(() =>
+    useDictionaryManager({ client, confirm: vi.fn().mockResolvedValue(true) }),
+  );
+
+  let first!: Promise<void>;
+  act(() => {
+    first = result.current.retryDictionaryFailure("request-1");
+  });
+  await waitFor(() => expect(result.current.phraseBusy).toBe(true));
+
+  let second!: Promise<void>;
+  act(() => {
+    second = result.current.retryDictionaryFailure("request-1");
+  });
+  expect(retry).toHaveBeenCalledOnce();
+
+  resolve();
+  await act(async () => {
+    await first;
+    await second;
+  });
+  expect(list).toHaveBeenCalledOnce();
+  expect(result.current.phraseBusy).toBe(false);
+});
+
 test("a phrase list response from a replaced dictionary client is ignored", async () => {
   let resolve!: (value: {
     entries: Array<{ kind: "quick_phrase"; key: string; value: string; weight: number }>;

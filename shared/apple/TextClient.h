@@ -30,6 +30,12 @@ void MSIMEApplyTransitionWithPreeditStyle(NSDictionary *transition, id<MSIMEText
 /// `（你好|）`. Passing nil is the ordinary case and behaves exactly as the call above.
 void MSIMEApplyTransitionWithPendingClosing(NSDictionary *transition, id<MSIMETextClient> client,
                                             MSIMEInlinePreeditStyle style, NSString *closing);
+/// The same, for a host that knows whether the client still holds marked text this host wrote.
+///
+/// Every call into an IMK client is a synchronous round trip into another process, and a focus change makes one while the client is itself blocked waiting for the input method to activate: the two stall each other until IMK's XPC timeout, which is the 1-3 s hitch Chrome shows on every tab or window switch. Clearing marked text that was never set is the one write that changes nothing, so with nothing to commit, nothing to mark and `*clientHasMarkedText` NO the client is not called at all. A commit still sends the clear after it, exactly as above. `*clientHasMarkedText` is updated to what the client holds afterwards; NULL means unknown and always sends.
+void MSIMEApplyTransitionTrackingMarkedText(NSDictionary *transition, id<MSIMETextClient> client,
+                                            MSIMEInlinePreeditStyle style, NSString *closing,
+                                            BOOL *clientHasMarkedText);
 // UTF-16 display offset shared by marked text and the candidate preedit row.
 NSUInteger MSIMEPreeditCaretPosition(NSString *editing, NSString *preedit, id position);
 

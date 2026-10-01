@@ -439,8 +439,42 @@ static void TestEnginePreedit(FakeTextClient *client) {
     assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
 }
 
+// A focus change applies an empty composition to a client that is blocked waiting for this input method, so clearing marked text that was never set must not call the client at all.
+static void TestTrackedMarkedText() {
+    FakeTextClient *client = [FakeTextClient new];
+    client.events = [NSMutableArray array];
+    NSDictionary *idle = @{@"commit": NSNull.null, @"view": @{@"editing_text": @"", @"caret_position": @0}};
+    BOOL hasMarked = NO;
+    MSIMEApplyTransitionTrackingMarkedText(idle, client, MSIMEInlinePreeditStylePinyin, nil, &hasMarked);
+    assert(client.events.count == 0 && !hasMarked);
+    // A composition is written and remembered, and the clear that ends it still goes out.
+    MSIMEApplyTransitionTrackingMarkedText(@{@"view": @{@"editing_text": @"ni", @"caret_position": @2}}, client,
+                                           MSIMEInlinePreeditStylePinyin, nil, &hasMarked);
+    assert([client.markedString isEqual:@"ni"] && hasMarked);
+    MSIMEApplyTransitionTrackingMarkedText(idle, client, MSIMEInlinePreeditStylePinyin, nil, &hasMarked);
+    assert([client.events isEqual:(@[@"marked", @"marked"])] && client.markedString.length == 0 && !hasMarked);
+    MSIMEApplyTransitionTrackingMarkedText(idle, client, MSIMEInlinePreeditStylePinyin, nil, &hasMarked);
+    assert(client.events.count == 2);
+    // A closing mark with no composition is still marked text, and must reach the client.
+    MSIMEApplyTransitionTrackingMarkedText(idle, client, MSIMEInlinePreeditStyleEmpty, @"）", &hasMarked);
+    assert([client.markedString isEqual:@"）"] && hasMarked);
+    hasMarked = NO;
+    // A commit keeps the clear after it, whatever the client was believed to hold.
+    MSIMEApplyTransitionTrackingMarkedText(@{@"commit": @"你好", @"view": @{@"editing_text": @"", @"caret_position": @0}},
+                                           client, MSIMEInlinePreeditStylePinyin, nil, &hasMarked);
+    assert([client.events isEqual:(@[@"marked", @"marked", @"marked", @"commit", @"marked"])] && !hasMarked);
+    // The empty inline style never marks anything, so it never needs to clear.
+    MSIMEApplyTransitionTrackingMarkedText(@{@"view": @{@"editing_text": @"ni", @"caret_position": @2}}, client,
+                                           MSIMEInlinePreeditStyleEmpty, nil, &hasMarked);
+    assert(client.events.count == 5 && !hasMarked);
+    // Without tracking nothing is known about the client, and the clear is always sent.
+    MSIMEApplyTransitionWithPendingClosing(idle, client, MSIMEInlinePreeditStylePinyin, nil);
+    assert(client.events.count == 6);
+}
+
 int main() {
     @autoreleasepool {
+        TestTrackedMarkedText();
         FakeTextClient *client = [FakeTextClient new];
         client.events = [NSMutableArray array];
         TestEnginePreedit(client);

@@ -83,6 +83,12 @@ void MSIMEApplyTransitionWithPreeditStyle(NSDictionary *transition, id<MSIMEText
 
 void MSIMEApplyTransitionWithPendingClosing(NSDictionary *transition, id<MSIMETextClient> client,
                                             MSIMEInlinePreeditStyle style, NSString *closing) {
+    MSIMEApplyTransitionTrackingMarkedText(transition, client, style, closing, NULL);
+}
+
+void MSIMEApplyTransitionTrackingMarkedText(NSDictionary *transition, id<MSIMETextClient> client,
+                                            MSIMEInlinePreeditStyle style, NSString *closing,
+                                            BOOL *clientHasMarkedText) {
     if (!closing.length) closing = nil;
     id commit = transition[@"commit"];
     // A commit ends the pair: the closing mark goes in with the text it was holding open, and the
@@ -165,6 +171,10 @@ void MSIMEApplyTransitionWithPendingClosing(NSDictionary *transition, id<MSIMETe
         displayed = clauses;
     }
 #endif
+    // Only the clear of a composition that is not there is skipped; after a commit the clear still goes out, as it always has.
+    if (clientHasMarkedText && !*clientHasMarkedText && !marked.length && ![commit isKindOfClass:NSString.class]) return;
+    // Recorded before the write: IMK can service the next key inside it, and that nested write lands in the client after this one, so it must also be the one whose state is left recorded.
+    if (clientHasMarkedText) *clientHasMarkedText = marked.length > 0;
     [client setMarkedText:displayed selectionRange:NSMakeRange(caret, 0) replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
 }
 

@@ -203,7 +203,7 @@ impl MsimeServer {
         }
         let config = self.config.clone();
         blocking(move || {
-            let options = DictionaryOptions::from_host_document(config.read_options()?)?;
+            let options = DictionaryOptions::from_host_document(config.read_host_options()?)?;
             let page = msime_host_api::user_quick_phrases(
                 &options,
                 request.code_prefix.as_deref().unwrap_or(""),
@@ -240,7 +240,7 @@ impl MsimeServer {
         let edits: Vec<QuickPhraseEdit> = request.edits.into_iter().map(Into::into).collect();
         let outcome = blocking(move || {
             let _guard = guard;
-            let options = DictionaryOptions::from_host_document(config.read_options()?)?;
+            let options = DictionaryOptions::from_host_document(config.read_host_options()?)?;
             Ok(apply_edits(
                 &options,
                 &edits,
@@ -441,7 +441,7 @@ impl MsimeServer {
         }
         let config = self.config.clone();
         blocking(move || {
-            let options = DictionaryOptions::from_host_document(config.read_options()?)?;
+            let options = DictionaryOptions::from_host_document(config.read_host_options()?)?;
             let page = msime_host_api::dictionary_words(
                 &options,
                 request.dictionary.into(),
@@ -480,7 +480,7 @@ impl MsimeServer {
         let edits: Vec<WordEdit> = request.edits.into_iter().map(Into::into).collect();
         let outcome = blocking(move || {
             let _guard = guard;
-            let options = DictionaryOptions::from_host_document(config.read_options()?)?;
+            let options = DictionaryOptions::from_host_document(config.read_host_options()?)?;
             Ok(apply_edits(
                 &options,
                 &edits,
@@ -523,7 +523,7 @@ impl MsimeServer {
         let new_words = request.new_words();
         let result = blocking(move || {
             let _guard = guard;
-            let options = DictionaryOptions::from_host_document(config.read_options()?)?;
+            let options = DictionaryOptions::from_host_document(config.read_host_options()?)?;
             let request_id = msime_client_core::uuid::Uuid::new_v4().simple().to_string();
             let mut hosts = QuiescedHosts::new(Some(options.user_data()), || {});
             hosts.run(|| {
@@ -555,7 +555,7 @@ impl MsimeServer {
         let limit = request.limit.unwrap_or(words::DEFAULT_LOOKUP);
         let config = self.config.clone();
         blocking(move || {
-            let options = DictionaryOptions::from_host_document(config.read_options()?)?;
+            let options = DictionaryOptions::from_host_document(config.read_host_options()?)?;
             let candidates = msime_host_api::lookup_candidates(
                 &options,
                 request.scheme.map(Into::into),

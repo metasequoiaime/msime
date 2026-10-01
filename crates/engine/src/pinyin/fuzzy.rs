@@ -93,7 +93,8 @@ pub fn fuzzy_segmentations(
                 if next.len() == limit {
                     break 'beam;
                 }
-                let mut extended = path.clone();
+                let mut extended = Vec::with_capacity(path.len() + 1);
+                extended.extend_from_slice(path);
                 extended.push(alternative.clone());
                 next.push(extended);
             }
