@@ -10806,6 +10806,19 @@ group("account sync carries the Korean scheme", () => {
   check(applied.preferences.scheme === "korean", "and applied from another device");
 });
 
+group("account sync leaves the scheme out for Cantonese, Zhuyin and Vietnamese", () => {
+  for (const scheme of ["cantonese", "zhuyin", "vietnamese"]) {
+    const values = localAccountPreferences({ scheme }, syncFeedback);
+    check(!("input.schema" in values), `${scheme} never uploads an input schema`);
+    const merged = mergeAccountPreferences(
+      { revision: 3, settings: { "input.schema": "wubi" } },
+      values,
+      fullPreferenceSchema(),
+    );
+    check(merged.settings["input.schema"] === "wubi", `${scheme} keeps the account's scheme`);
+  }
+});
+
 group("a hardware keyboard on Korean composes letters and hands the rest back in order", () => {
   const key = (over: Record<string, unknown> = {}): HardwareKey => ({
     keyCode: 2017,
