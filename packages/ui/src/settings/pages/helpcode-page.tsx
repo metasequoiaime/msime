@@ -1,6 +1,7 @@
 import { Fragment } from "react";
 import * as settings from "../settings-style";
-import { GroupList, Row, Select, Switch } from "../../core/platform-controls";
+import { GroupList, Row, Switch } from "../../core/platform-controls";
+import { SelectRow } from "../select-row";
 
 export type HelpcodeSchema =
   | "lantian"
@@ -111,32 +112,31 @@ export function HelpcodeSettingsPage({
                     onChange={(enabled) => onChange({ [key]: { ...current, enabled } })}
                   />
                 </Row>
-                <Row title={`${label}辅助码方案`}>
-                  <Select
-                    disabled={!current.enabled}
-                    value={current.schema}
-                    onChange={(event) =>
-                      onChange({
-                        [key]: { ...current, schema: event.target.value as HelpcodeSchema },
-                      })
-                    }
-                  >
-                    {schemaOptions
-                      // Keep a previously selected table visible if the resource directory was
-                      // changed or is temporarily unavailable during settings startup.
-                      .concat(
-                        current.schema.startsWith("custom/") &&
-                          !schemaOptions.some(([schema]) => schema === current.schema)
-                          ? [[current.schema, current.schema] as const]
-                          : [],
-                      )
-                      .map(([schema, name]) => (
-                        <option key={schema} value={schema}>
-                          {name}
-                        </option>
-                      ))}
-                  </Select>
-                </Row>
+                <SelectRow
+                  title={`${label}辅助码方案`}
+                  disabled={!current.enabled}
+                  value={current.schema}
+                  onChange={(event) =>
+                    onChange({
+                      [key]: { ...current, schema: event.target.value as HelpcodeSchema },
+                    })
+                  }
+                >
+                  {schemaOptions
+                    // Keep a previously selected table visible if the resource directory was
+                    // changed or is temporarily unavailable during settings startup.
+                    .concat(
+                      current.schema.startsWith("custom/") &&
+                        !schemaOptions.some(([schema]) => schema === current.schema)
+                        ? [[current.schema, current.schema] as const]
+                        : [],
+                    )
+                    .map(([schema, name]) => (
+                      <option key={schema} value={schema}>
+                        {name}
+                      </option>
+                    ))}
+                </SelectRow>
                 <Row title={display}>
                   <Switch
                     checked={current.show_in_candidate_window}

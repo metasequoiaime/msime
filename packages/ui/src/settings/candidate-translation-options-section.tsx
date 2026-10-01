@@ -1,4 +1,5 @@
-import { Row, Select, Switch } from "../core/platform-controls";
+import { Row, Switch } from "../core/platform-controls";
+import { SelectRow } from "./select-row";
 
 export type TranslationLanguage = "en" | "fr" | "ja" | "es" | "ru" | "de" | "ko";
 export type TranslationSecondaryLanguage = TranslationLanguage | "";
@@ -42,37 +43,36 @@ export function CandidateTranslationOptionsSection({
       <Row title="候选词翻译" description="为当前候选请求翻译结果并显示在候选行">
         <Switch checked={enabled} onChange={onEnabledChange} />
       </Row>
-      <Row title="目标语言">
-        <Select
-          aria-label="候选词翻译目标语言"
+      <SelectRow
+        title="目标语言"
+        aria-label="候选词翻译目标语言"
+        disabled={!candidateGlossLanguagesEnabled}
+        value={targetLanguage}
+        onChange={(event) => onTargetLanguageChange(event.target.value as TranslationLanguage)}
+      >
+        {visibleLanguages.map(([value, label]) => (
+          <option key={value} value={value}>
+            {label}
+          </option>
+        ))}
+      </SelectRow>
+      {showSecondaryLanguage && (
+        <SelectRow
+          title="第二种语言"
+          description="候选词下方可同时显示第二种释义"
+          aria-label="候选词翻译第二种语言"
           disabled={!candidateGlossLanguagesEnabled}
-          value={targetLanguage}
-          onChange={(event) => onTargetLanguageChange(event.target.value as TranslationLanguage)}
+          value={secondaryLanguage ?? ""}
+          onChange={(event) =>
+            onSecondaryLanguageChange(event.target.value as TranslationSecondaryLanguage)
+          }
         >
-          {visibleLanguages.map(([value, label]) => (
-            <option key={value} value={value}>
+          {visibleSecondaryLanguages.map(([value, label]) => (
+            <option key={value || "none"} value={value}>
               {label}
             </option>
           ))}
-        </Select>
-      </Row>
-      {showSecondaryLanguage && (
-        <Row title="第二种语言" description="候选词下方可同时显示第二种释义">
-          <Select
-            aria-label="候选词翻译第二种语言"
-            disabled={!candidateGlossLanguagesEnabled}
-            value={secondaryLanguage ?? ""}
-            onChange={(event) =>
-              onSecondaryLanguageChange(event.target.value as TranslationSecondaryLanguage)
-            }
-          >
-            {visibleSecondaryLanguages.map(([value, label]) => (
-              <option key={value || "none"} value={value}>
-                {label}
-              </option>
-            ))}
-          </Select>
-        </Row>
+        </SelectRow>
       )}
       {showAccountTranslation && (
         <Row

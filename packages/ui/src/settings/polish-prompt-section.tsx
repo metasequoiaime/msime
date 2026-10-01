@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Row, Select } from "../core/platform-controls";
+import { SelectRow } from "./select-row";
 import * as settings from "./settings-style";
 import { CustomPromptSlotOptions } from "./custom-prompt-slot-options";
 import {
@@ -44,26 +44,25 @@ export function PolishPromptSection({
 
   return (
     <>
-      <Row title="润色方案">
-        <Select
-          aria-label="润色方案"
-          value={selectedSlot}
-          onChange={(event) => {
-            const nextSlot = normalizePolishSlot(event.target.value);
-            const nextDefault = isPolishCustomSlot(nextSlot)
-              ? (customPrompts[nextSlot as keyof PolishCustomPromptValues] ?? "")
-              : polishPresetPrompt(nextSlot);
-            onSelectPrompt(nextSlot, nextDefault);
-          }}
-        >
-          {POLISH_PRESET_IDS.map((id) => (
-            <option key={id} value={id}>
-              {POLISH_PRESET_NAMES[id]}
-            </option>
-          ))}
-          <CustomPromptSlotOptions />
-        </Select>
-      </Row>
+      <SelectRow
+        title="润色方案"
+        aria-label="润色方案"
+        value={selectedSlot}
+        onChange={(event) => {
+          const nextSlot = normalizePolishSlot(event.target.value);
+          const nextDefault = isPolishCustomSlot(nextSlot)
+            ? (customPrompts[nextSlot as keyof PolishCustomPromptValues] ?? "")
+            : polishPresetPrompt(nextSlot);
+          onSelectPrompt(nextSlot, nextDefault);
+        }}
+      >
+        {POLISH_PRESET_IDS.map((id) => (
+          <option key={id} value={id}>
+            {POLISH_PRESET_NAMES[id]}
+          </option>
+        ))}
+        <CustomPromptSlotOptions />
+      </SelectRow>
       <div className={settings.managerBlock}>
         <label className={settings.field}>
           <span>

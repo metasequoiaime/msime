@@ -1,6 +1,7 @@
 import { VoiceDevicePicker, type VoiceDeviceReader } from "../voice/voice-device-picker";
-import { GroupList, Row, Select } from "../core/platform-controls";
+import { GroupList, Row } from "../core/platform-controls";
 import * as settings from "./settings-style";
+import { SelectRow } from "./select-row";
 
 export type VoiceCaptureBackendOption = readonly [string, string];
 export type VoiceCaptureBackend =
@@ -38,25 +39,24 @@ export function VoiceCaptureDevicesSection({
   return (
     <GroupList title="录音设备">
       <p className={settings.groupNote}>保存后从下一次录音生效，不打断当前录音</p>
-      <Row title="录音后端">
-        <Select
-          aria-label="录音后端"
-          value={backend}
-          onChange={(event) => onBackendChange(event.target.value as VoiceCaptureBackend, "")}
-        >
-          <option value="">{windows ? "系统默认" : "沿用服务设置"}</option>
-          {backendOptions.map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-          {backend && !backendOptions.some(([value]) => value === backend) && (
-            <option value={backend} disabled>
-              {backend}（此平台不可用）
-            </option>
-          )}
-        </Select>
-      </Row>
+      <SelectRow
+        title="录音后端"
+        aria-label="录音后端"
+        value={backend}
+        onChange={(event) => onBackendChange(event.target.value as VoiceCaptureBackend, "")}
+      >
+        <option value="">{windows ? "系统默认" : "沿用服务设置"}</option>
+        {backendOptions.map(([value, label]) => (
+          <option key={value} value={value}>
+            {label}
+          </option>
+        ))}
+        {backend && !backendOptions.some(([value]) => value === backend) && (
+          <option value={backend} disabled>
+            {backend}（此平台不可用）
+          </option>
+        )}
+      </SelectRow>
       <div className={settings.groupBlock}>
         <VoiceDevicePicker
           read={readDevices}

@@ -1,8 +1,9 @@
 import type { ReactNode } from "react";
-import { Row, Select } from "../core/platform-controls";
+import { Row } from "../core/platform-controls";
 import * as settings from "./settings-style";
 import { FeedbackKindOptions } from "./feedback-kind-options";
 import { SettingField } from "./setting-field";
+import { SelectRow } from "./select-row";
 
 export interface FeedbackReportFieldsProps {
   grouped?: boolean;
@@ -24,15 +25,14 @@ export function FeedbackReportFields({
 }: FeedbackReportFieldsProps) {
   const controls = grouped ? (
     <>
-      <Row title="类型">
-        <Select
-          aria-label="反馈类型"
-          value={kind}
-          onChange={(event) => onKindChange(event.target.value)}
-        >
-          <FeedbackKindOptions />
-        </Select>
-      </Row>
+      <SelectRow
+        title="类型"
+        aria-label="反馈类型"
+        value={kind}
+        onChange={(event) => onKindChange(event.target.value)}
+      >
+        <FeedbackKindOptions />
+      </SelectRow>
       <div className={settings.managerBlock}>
         <label className={settings.field}>
           <span data-row-title="">描述</span>
