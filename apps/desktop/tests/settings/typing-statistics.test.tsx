@@ -112,7 +112,9 @@ test("desktop statistics split into content tabs over the cumulative and selecte
   fireEvent.click(screen.getByRole("button", { name: `${label(0)}，4 字符` }));
   const selectedTotal = screen.getByLabelText("当前范围输入字符数");
   expect(selectedTotal.textContent).toBe("4");
-  expect(selectedTotal.parentElement?.querySelector("span")?.textContent).toBe(label(0));
+  expect(selectedTotal.parentElement?.parentElement?.querySelector("span")?.textContent).toBe(
+    label(0),
+  );
   fireEvent.click(screen.getByRole("tab", { name: "类型" }));
   expect(screen.getByLabelText(/汉字 4 字符/)).not.toBeNull();
   expect(screen.getByLabelText("当前范围输入字符数").textContent).toBe("4");

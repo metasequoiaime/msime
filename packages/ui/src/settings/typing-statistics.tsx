@@ -36,10 +36,14 @@ export {
 } from "./typing-statistics-helpers";
 
 const heading = "m-0 [font-size:var(--p-row-fs)] font-semibold [color:var(--p-text)]";
-const metric =
-  "flex min-w-0 flex-col gap-1 [&>span]:[font-size:var(--p-sub-fs)] [&>span]:[color:var(--p-sub)]";
+// 摘要在标签行上方，切换标签时保持不动，所以压成紧凑的 3 × 2 网格，单位和数字放在同一行；会随标签变化的内容都放在标签下方。
+const metricGrid = "grid grid-cols-3 gap-x-6 gap-y-[18px] max-phone:grid-cols-2 max-phone:gap-x-3";
+const metric = "flex min-w-0 flex-col gap-1 [&>span]:text-xs [&>span]:[color:var(--p-sub)]";
+const metricLine =
+  "flex min-w-0 flex-wrap items-baseline gap-x-1 [&>small]:text-xs [&>small]:[color:var(--p-sub)]";
 const metricValue =
-  "text-[30px] font-[650] leading-tight break-anywhere tabular-nums [color:var(--p-accent-text)]";
+  "text-[22px] font-[650] leading-tight break-anywhere tabular-nums [color:var(--p-accent-text)]";
+const metricNote = "text-xs [color:var(--p-sub)]";
 const footerNote = "mt-3.5 mb-0 text-xs leading-relaxed [color:var(--p-sub)]";
 const privacy = "mt-4 mb-0 text-xs leading-[1.7] [color:var(--p-sub)]";
 const overviewPollMs = 5_000;
@@ -1592,86 +1596,66 @@ export function TypingStatisticsPage({
           </button>
         </section>
       )}
-      <section className="section m-0">
-        <div className={segmented(6)} role="tablist" aria-label="统计内容">
-          {(
-            [
-              ["trend", "趋势"],
-              ["kind", "类型"],
-              ["mode", "模式"],
-              ["scheme", "方案"],
-              ["ranks", "候选"],
-              ["keys", "按键"],
-            ] as const
-          ).map(([value, label]) => (
-            <button
-              type="button"
-              role="tab"
-              key={value}
-              aria-selected={contentTab === value}
-              onClick={() => {
-                setContentTab(value);
-                // The desktop keeps a picked day across tabs: its bars sit on 趋势, and the day's breakdown is what the other tabs are for.
-                if (mobile) setSelectedDay(null);
-              }}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        <div className="mt-[22px] grid grid-cols-2 gap-6 max-phone:gap-3">
+      <section className="section m-0" aria-label="统计概览">
+        <div className={metricGrid}>
           <div className={metric}>
-            <span className="text-secondary">今日输入</span>
-            <strong className={metricValue} aria-label="今日输入字符数">
-              {(statistics.days[today.key] ?? 0).toLocaleString("zh-CN")}
-            </strong>
-            <small className="m-0">字符</small>
+            <span>今日输入</span>
+            <div className={metricLine}>
+              <strong className={metricValue} aria-label="今日输入字符数">
+                {(statistics.days[today.key] ?? 0).toLocaleString("zh-CN")}
+              </strong>
+              <small>字符</small>
+            </div>
           </div>
           <div className={metric}>
-            <span className="text-secondary">{scopeTitle}</span>
-            <strong className={metricValue} aria-label="当前范围输入字符数">
-              {scopeTotal.toLocaleString("zh-CN")}
-            </strong>
-            <small className="m-0">字符</small>
-          </div>
-        </div>
-      </section>
-      <section className="section m-0" aria-labelledby="statistics-rhythm-title">
-        <h2 className={heading} id="statistics-rhythm-title">
-          输入节奏
-        </h2>
-        <div className="mt-[22px] grid grid-cols-2 gap-6 max-phone:gap-3">
-          <div className={metric}>
-            <span className="text-secondary">今日速度</span>
-            <strong className={metricValue} aria-label="今日输入速度">
-              {Math.round(activity.todaySpeed).toLocaleString("zh-CN")}
-            </strong>
-            <small className="m-0">字 / 分钟</small>
+            <span>{scopeTitle}</span>
+            <div className={metricLine}>
+              <strong className={metricValue} aria-label="当前范围输入字符数">
+                {scopeTotal.toLocaleString("zh-CN")}
+              </strong>
+              <small>字符</small>
+            </div>
           </div>
           <div className={metric}>
-            <span className="text-secondary">平均速度</span>
-            <strong className={metricValue} aria-label="平均输入速度">
-              {Math.round(activity.averageSpeed).toLocaleString("zh-CN")}
-            </strong>
-            <small className="m-0">
-              {activity.hasActivity
-                ? `字 / 分钟 · 共 ${formatActiveTime(activity.totalActiveMs)}`
-                : "字 / 分钟"}
+            <span title="连续打字的时间">今日活跃</span>
+            <div className={metricLine}>
+              <strong className={metricValue} aria-label="今日活跃时长">
+                {formatActiveTime(activity.todayActiveMs)}
+              </strong>
+            </div>
+          </div>
+          <div className={metric}>
+            <span>今日速度</span>
+            <div className={metricLine}>
+              <strong className={metricValue} aria-label="今日输入速度">
+                {Math.round(activity.todaySpeed).toLocaleString("zh-CN")}
+              </strong>
+              <small>字 / 分钟</small>
+            </div>
+          </div>
+          <div className={metric}>
+            <span>平均速度</span>
+            <div className={metricLine}>
+              <strong className={metricValue} aria-label="平均输入速度">
+                {Math.round(activity.averageSpeed).toLocaleString("zh-CN")}
+              </strong>
+              <small>字 / 分钟</small>
+            </div>
+            {activity.hasActivity && (
+              <small className={metricNote}>共 {formatActiveTime(activity.totalActiveMs)}</small>
+            )}
+          </div>
+          <div className={metric}>
+            <span>连续天数</span>
+            <div className={metricLine}>
+              <strong className={metricValue} aria-label="连续输入天数">
+                {activity.currentStreak.toLocaleString("zh-CN")}
+              </strong>
+              <small>天</small>
+            </div>
+            <small className={metricNote}>
+              最长 {activity.longestStreak.toLocaleString("zh-CN")} 天
             </small>
-          </div>
-          <div className={metric}>
-            <span className="text-secondary">今日活跃</span>
-            <strong className={metricValue} aria-label="今日活跃时长">
-              {formatActiveTime(activity.todayActiveMs)}
-            </strong>
-            <small className="m-0">连续打字的时间</small>
-          </div>
-          <div className={metric}>
-            <span className="text-secondary">连续天数</span>
-            <strong className={metricValue} aria-label="连续输入天数">
-              {activity.currentStreak.toLocaleString("zh-CN")}
-            </strong>
-            <small className="m-0">最长 {activity.longestStreak.toLocaleString("zh-CN")} 天</small>
           </div>
         </div>
         <div className={`${axis} flex-wrap gap-x-4`}>
@@ -1694,17 +1678,32 @@ export function TypingStatisticsPage({
             : "还没有测量到活跃时长。这项从本次更新后开始记录，之前的输入只有字数。"}
         </p>
       </section>
-      {activity.todayHours && (
-        <section className="section m-0" aria-labelledby="statistics-hours-title">
-          <h2 className={heading} id="statistics-hours-title">
-            今日时段
-          </h2>
-          <StatisticsHourlyBars
-            hours={activity.todayHours}
-            usual={usualHours(statistics.dailyHours, today.key)}
-          />
-        </section>
-      )}
+      <div className={segmented(6)} role="tablist" aria-label="统计内容">
+        {(
+          [
+            ["trend", "趋势"],
+            ["kind", "类型"],
+            ["mode", "模式"],
+            ["scheme", "方案"],
+            ["ranks", "候选"],
+            ["keys", "按键"],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            type="button"
+            role="tab"
+            key={value}
+            aria-selected={contentTab === value}
+            onClick={() => {
+              setContentTab(value);
+              // 桌面端切换标签时保留选中的那一天：它的柱子在「趋势」里，而其他标签正是用来看这一天的分项。
+              if (mobile) setSelectedDay(null);
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       {contentTab === "trend" && (
         <section className="section m-0" aria-labelledby="statistics-trend-title">
           <h2 className={heading} id="statistics-trend-title">
@@ -1782,6 +1781,17 @@ export function TypingStatisticsPage({
               返回整个时间范围
             </button>
           )}
+        </section>
+      )}
+      {contentTab === "trend" && activity.todayHours && (
+        <section className="section m-0" aria-labelledby="statistics-hours-title">
+          <h2 className={heading} id="statistics-hours-title">
+            今日时段
+          </h2>
+          <StatisticsHourlyBars
+            hours={activity.todayHours}
+            usual={usualHours(statistics.dailyHours, today.key)}
+          />
         </section>
       )}
       {contentTab === "trend" && (
