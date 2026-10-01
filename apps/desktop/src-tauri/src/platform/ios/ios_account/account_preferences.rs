@@ -1,6 +1,5 @@
-use crate::platform::mobile::mobile_account_helpers::valid_mobile_haptic_strength;
 use crate::platform::mobile::mobile_account_preferences::{
-    frequency_account_preferences, insert_bool, insert_string,
+    frequency_account_preferences, insert_bool, insert_string, valid_mobile_haptic_strength,
 };
 use msime_client_core::account::{
     validate_account_preferences, AccountError, AccountPreferenceValue, AccountPreferences,
