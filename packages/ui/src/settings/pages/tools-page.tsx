@@ -5,7 +5,7 @@ import { CLOUD_PANEL_SESSION_NOTE } from "../cloud-panel-session-notice";
 import { GroupList, Row } from "../../core/platform-controls";
 import { OpenPanelButton } from "../open-panel-button";
 
-/** The 云剪贴板 page of the settings form (route id `tools`): the clipboard history kept on this device and the cloud panels. */
+/** The 剪贴板 page of the settings form (route id `tools`): the clipboard history kept on this device and the cloud panels. */
 export function ToolsSettingsPage() {
   const {
     client,
@@ -20,7 +20,7 @@ export function ToolsSettingsPage() {
     toggleClipboardHistory,
   } = useSettingsForm();
   return (
-    <fieldset disabled={busy} hidden={page !== "tools"} aria-label="云剪贴板">
+    <fieldset disabled={busy} hidden={page !== "tools"} aria-label="剪贴板">
       <div className={settings.groups}>
         <ClipboardHistorySection
           client={client.clipboard}
@@ -48,10 +48,10 @@ export function ToolsSettingsPage() {
                   </Row>
                 )}
                 {client.openCloudDictionary && (
-                  <Row title="云词典">
+                  <Row title="云词库">
                     <OpenPanelButton
                       action={() => openPanel(client.openCloudDictionary)}
-                      label="打开云词典"
+                      label="打开云词库"
                     />
                   </Row>
                 )}

@@ -34,7 +34,7 @@ const macosHelpCards = [
         term: "在线释义",
         text: "默认不联网。只有在「翻译服务」里选了腾讯云、小牛翻译、自定义服务或「水杉账号」后，才会把当前页的中文候选词发给所选服务；选「水杉账号」会发到 api.msime.app，首次使用时创建一个匿名账号。",
       },
-      { term: "两种语言", text: "可以同时显示两种语言的释义，在表达页的候选词翻译里设置。" },
+      { term: "两种语言", text: "可以同时显示两种语言的释义，在标点与翻译页的候选词翻译里设置。" },
       {
         term: "Tab",
         text: "在候选词和它的释义之间切换要上屏的那一列，Shift+Tab 反向。切到哪一列，那一列就会加下划线，数字键、空格和点击上屏的都是它。",
@@ -54,7 +54,7 @@ const macosHelpCards = [
       },
       {
         term: "候选旁没有释义",
-        text: "先确认表达页的候选词翻译是开着的。词典没收录的词要联网查询，断网时只会显示词典里有的那些。",
+        text: "先确认标点与翻译页的候选词翻译是开着的。词典没收录的词要联网查询，断网时只会显示词典里有的那些。",
       },
       { term: "词库没有更新", text: "词库更新随版本发布。在「关于」页检查更新。" },
     ],
@@ -75,7 +75,7 @@ export interface HelpSettingsPageProps {
   onOpenSystemKeyboardSettings?: () => void;
 }
 
-/** The 帮助 page, shared by desktop and mobile settings hosts; it opens from a row on 反馈. */
+/** The 帮助 page, shared by desktop and mobile settings hosts; it opens from a row on 帮助与反馈. */
 export function HelpSettingsPage({
   busy,
   hidden,

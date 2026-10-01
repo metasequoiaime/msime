@@ -12,14 +12,14 @@ test("traditional output switch reports the changed value", () => {
   const onChange = vi.fn();
   render(<TraditionalChineseOutputSection value={false} onChange={onChange} />);
 
-  fireEvent.click(screen.getByLabelText("简繁输入"));
+  fireEvent.click(screen.getByLabelText("繁体输出"));
   expect(onChange).toHaveBeenCalledWith(true);
 });
 
 test("traditional output switch is disabled by default", () => {
   render(<TraditionalChineseOutputSection value={undefined} onChange={vi.fn()} />);
 
-  expect((screen.getByLabelText("简繁输入") as HTMLInputElement).checked).toBe(false);
+  expect((screen.getByLabelText("繁体输出") as HTMLInputElement).checked).toBe(false);
 });
 
 test.each(["cantonese", "zhuyin"] as const)(

@@ -17,7 +17,7 @@ const navigationOptions: [keyof NavigationPreferences, string][] = [
   ["brackets", "[ / ]"],
   ["tab", "Shift+Tab / Tab"],
   ["page_up_down", "PageUp / PageDown"],
-  ["mouse_wheel", "鼠标滚轮（候选面板支持时翻页）"],
+  ["mouse_wheel", "鼠标滚轮（候选窗口支持时翻页）"],
   ["arrows", "上 / 下（移动候选项）"],
 ];
 

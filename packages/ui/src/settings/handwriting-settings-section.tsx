@@ -64,7 +64,7 @@ export function HandwritingSettingsSection({
       <p className={settings.groupNote}>
         {mobile
           ? "请在系统输入法设置中启用水杉输入法，再从键盘的方案选择器切换到“手写”。"
-          : "请在系统输入法设置中启用水杉输入法；2-in-1 候选窗不绘制键面，请先从悬浮工具栏打开屏幕键盘，再从方案选择器切换到“手写”。"}
+          : "请在系统输入法设置中启用水杉输入法；2-in-1 候选窗口不绘制键面，请先从悬浮工具栏打开屏幕键盘，再从方案选择器切换到“手写”。"}
       </p>
       <p className={settings.groupNote}>
         识别由系统的 Core Vision Kit

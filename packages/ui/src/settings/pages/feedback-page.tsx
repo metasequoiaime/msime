@@ -34,7 +34,7 @@ export function FeedbackSettingsPage() {
     issuesUrl: platformIssuesUrl,
   });
   return (
-    <fieldset disabled={busy} hidden={page !== "feedback"} aria-label="反馈">
+    <fieldset disabled={busy} hidden={page !== "feedback"} aria-label="帮助与反馈">
       <div className={settings.groups}>
         <PageIntro>遇到问题或有功能建议时，可以通过以下渠道提交和交流。</PageIntro>
         <GroupList title="提交可复现的问题">

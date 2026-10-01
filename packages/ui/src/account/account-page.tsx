@@ -577,7 +577,7 @@ function SettingsSyncCard({ client, userId }: { client: SettingsSyncClient; user
     <section className={`${account.section} ${account.stack}`}>
       <h2 className={account.heading}>设置同步</h2>
       <p className={account.note}>
-        同步输入方案、简繁体、键盘声音与触感、词库学习开关和皮肤。凭据、联网授权及输入内容不会随设置上传。
+        同步输入方案、繁体输出、键盘声音与触感、词库学习开关和皮肤。凭据、联网授权及输入内容不会随设置上传。
       </p>
       {cloud && <p className={account.muted}>云端版本：{cloud.revision}</p>}
       <div className={account.actionRow}>

@@ -136,7 +136,7 @@ export function CandidateWindowStyleSection({
         value={colors.surface}
         fallback={light ? "#ffffff" : "#202020"}
         onChange={onColorChange}
-        description="选色后候选框使用该底色"
+        description="选色后候选窗口使用该底色"
         resetLabel="背景颜色跟随主题"
       />
       {showRowColors && (

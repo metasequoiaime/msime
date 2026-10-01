@@ -5,7 +5,7 @@ export interface CandidateEnglishGlossSectionProps {
   onChange: (value: boolean) => void;
 }
 
-/** Offline English gloss switch for hosts that expose candidate annotations: one row of the 多语言候选 group on the 表达 page. */
+/** Offline English gloss switch for hosts that expose candidate annotations: one row of the 多语言候选 group on the 标点与翻译 page. */
 export function CandidateEnglishGlossSection({
   value,
   onChange,

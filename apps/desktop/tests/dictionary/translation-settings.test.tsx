@@ -37,7 +37,7 @@ async function mount(preferences: Record<string, unknown> = {}) {
   await settingsFormReady();
   // The translation controls live on the 输入 page; other pages are hidden, and
   // hidden subtrees are absent from the accessibility tree.
-  fireEvent.click(screen.getByRole("button", { name: "表达" }));
+  fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
   return mounted;
 }
 

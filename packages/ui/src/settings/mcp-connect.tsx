@@ -45,7 +45,7 @@ const permissionFlags = [
   {
     flag: "--allow-write",
     title: "允许修改设置",
-    detail: "修改快捷短语和设置、制作候选框皮肤",
+    detail: "修改快捷短语和设置、制作候选窗口皮肤",
   },
   {
     flag: "--allow-dictionary-read",
@@ -105,7 +105,7 @@ function terminalInstructions(server: McpServerStatus, flags: readonly McpFlag[]
     "水杉输入法（MSIME）可以在终端里直接管理：",
     `- 查看可用的工具和参数：${program} tools`,
     `- 调用一个工具，参数是 JSON 对象，输出 JSON：${call}`,
-    `- 排查输入法问题（卡顿、候选框不见了）的步骤：${program} prompt diagnose`,
+    `- 排查输入法问题（卡顿、候选窗口不见了）的步骤：${program} prompt diagnose`,
   ].join("\n");
 }
 
@@ -269,8 +269,8 @@ export function McpConnectSection({
     <GroupList title="连接 AI 助手">
       <div className={settings.managerBlock} role="group" aria-label="连接 AI 助手">
         <p className={settings.managerNote}>
-          连接后，把输入法的问题（卡顿、候选框不见了）直接告诉 AI
-          助手：它会打开诊断日志、请你重做一遍出问题的操作，再读日志找原因；也能读取快捷短语、设置、打字统计和已安装的候选框皮肤。通过
+          连接后，把输入法的问题（卡顿、候选窗口不见了）直接告诉 AI
+          助手：它会打开诊断日志、请你重做一遍出问题的操作，再读日志找原因；也能读取快捷短语、设置、打字统计和已安装的候选窗口皮肤。通过
           MCP 在本机运行，不联网，除了开关诊断日志不改动任何设置。
         </p>
         {loadFailed && <p role="alert">无法读取 MCP 服务器的状态。</p>}

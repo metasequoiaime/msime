@@ -1090,12 +1090,12 @@ test("the Linux skin page describes the candidate window only", async () => {
   const external = await screen.findByRole("article", { name: /Sample skin/ });
   // Both Linux hosts present the toolbar as an input method menu, which no skin styles.
   expect(
-    screen.getByText("选择候选窗使用的主题；明暗预览仅影响当前卡片，不修改设置。"),
+    screen.getByText("选择候选窗口使用的主题；明暗预览仅影响当前卡片，不修改设置。"),
   ).toBeTruthy();
   // Every page is mounted at once; the toolbar page itself still names the toolbar.
   expect(within(external.closest("fieldset")!).queryByText(/悬浮工具栏/)).toBeNull();
   const builtin = screen.getByRole("article", { name: "夜青" });
-  expect(within(builtin).getByText("深色候选窗与键盘")).toBeTruthy();
+  expect(within(builtin).getByText("深色候选窗口与键盘")).toBeTruthy();
   expect(builtin.querySelectorAll("[data-skin-stage]")).toHaveLength(2);
   expect(external.querySelectorAll("[data-skin-stage]")).toHaveLength(2);
   expect(readSkinToolbarCss).not.toHaveBeenCalled();
@@ -1110,10 +1110,10 @@ test("the Windows skin page keeps the toolbar preview", async () => {
   );
   await settingsFormReady();
   expect(
-    screen.getByText("选择候选窗和悬浮工具栏使用的主题；明暗预览仅影响当前卡片，不修改设置。"),
+    screen.getByText("选择候选窗口和悬浮工具栏使用的主题；明暗预览仅影响当前卡片，不修改设置。"),
   ).toBeTruthy();
   const builtin = screen.getByRole("article", { name: "夜青" });
-  expect(within(builtin).getByText("深色候选窗、悬浮工具栏与键盘")).toBeTruthy();
+  expect(within(builtin).getByText("深色候选窗口、悬浮工具栏与键盘")).toBeTruthy();
   expect(builtin.querySelectorAll("[data-skin-stage]")).toHaveLength(3);
 });
 

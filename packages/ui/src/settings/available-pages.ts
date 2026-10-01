@@ -10,7 +10,7 @@ export interface AvailablePageCapabilities {
   floatingToolbar: boolean;
   /** The 插件 page: a host with a pack store, or one that plays or routes something it switches. */
   plugins: boolean;
-  /** 「开发者选项」页：宿主提供诊断日志、数据目录或 MCP 时才有。旧调用方不传这一项，按没有处理。 */
+  /** 「维护与诊断」页：宿主提供诊断日志、数据目录或 MCP 时才有。旧调用方不传这一项，按没有处理。 */
   developer?: boolean;
   mobile: boolean;
 }

@@ -49,7 +49,7 @@ test("builds the complete desktop page catalog in registry order", () => {
     "vocabulary",
     "help",
   ]);
-  // 「开发者选项」只在宿主声明 developer 时出现；不传这一项的旧调用方看到的页面不变。
+  // 「维护与诊断」只在宿主声明 developer 时出现；不传这一项的旧调用方看到的页面不变。
   expect(
     settingsPageCatalog({
       ...allCapabilities,

@@ -76,7 +76,7 @@ async function openDeveloper(extra: Partial<SettingsClient>) {
     />,
   );
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "开发者选项" }));
+  fireEvent.click(screen.getByRole("button", { name: "维护与诊断" }));
 }
 
 test("a host without the server shows no section", async () => {
@@ -314,7 +314,7 @@ test("the terminal tab tells an assistant how to run the tools directly, with th
       "水杉输入法（MSIME）可以在终端里直接管理：",
       `- 查看可用的工具和参数：${program} tools`,
       `- 调用一个工具，参数是 JSON 对象，输出 JSON：${program} call <工具名> '<JSON 参数>'，参数中有单引号时改为写进 UTF-8 文件并传 @<文件路径>`,
-      `- 排查输入法问题（卡顿、候选框不见了）的步骤：${program} prompt diagnose`,
+      `- 排查输入法问题（卡顿、候选窗口不见了）的步骤：${program} prompt diagnose`,
     ].join("\n"),
   );
   fireEvent.click(within(group).getByRole("switch", { name: "允许修改设置" }));

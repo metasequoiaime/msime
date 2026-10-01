@@ -10042,7 +10042,7 @@ group("keypad digits reach both digit paths", () => {
 group("Ctrl+Shift+F switches simplified and traditional, not the character width", () => {
   const routing: InputModeRouting = new InputModeRouting();
   routing.use(DEFAULT_MODE_BINDINGS);
-  // Windows `HandleImeKey` answers `IsCharacterSetShortcut` with `SetConfiguredCharacterSet`; the settings page labels the binding 切换简繁.
+  // Windows `HandleImeKey` answers `IsCharacterSetShortcut` with `SetConfiguredCharacterSet`; the settings page labels the binding 切换繁体输出.
   check(
     routing.accept(modeKey(2022, true, 0, { ctrlKey: true, shiftKey: true })) ===
       ModeGesture.TOGGLE_CHARACTER_SET,

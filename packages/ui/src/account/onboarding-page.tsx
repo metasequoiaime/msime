@@ -419,7 +419,7 @@ export function WelcomeFlowPage({
             <div className={onboarding.glossRow}>
               <span>
                 <strong>显示英文释义</strong>
-                <small>稍后可以在「表达」中修改。</small>
+                <small>稍后可以在「标点与翻译」中修改。</small>
               </span>
               <Switch aria-label="显示英文释义" checked={gloss ?? false} onChange={setGloss} />
             </div>

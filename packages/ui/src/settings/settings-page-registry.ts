@@ -4,7 +4,7 @@ export const pages = [
   { id: "input", title: "输入", icon: new URL("../assets/input.svg", import.meta.url).href },
   {
     id: "expression",
-    title: "表达",
+    title: "标点与翻译",
     icon: new URL("../assets/expression.svg", import.meta.url).href,
   },
   {
@@ -45,12 +45,12 @@ export const pages = [
   },
   {
     id: "tools",
-    title: "云剪贴板",
+    title: "剪贴板",
     icon: new URL("../assets/utilities.svg", import.meta.url).href,
   },
   {
     id: "typing-statistics",
-    title: "统计",
+    title: "打字统计",
     icon: new URL("../assets/statistics.svg", import.meta.url).href,
   },
   {
@@ -70,10 +70,14 @@ export const pages = [
   },
   {
     id: "developer",
-    title: "开发者选项",
+    title: "维护与诊断",
     icon: new URL("../assets/developer.svg", import.meta.url).href,
   },
-  { id: "feedback", title: "反馈", icon: new URL("../assets/feedback.svg", import.meta.url).href },
+  {
+    id: "feedback",
+    title: "帮助与反馈",
+    icon: new URL("../assets/feedback.svg", import.meta.url).href,
+  },
   { id: "about", title: "关于", icon: new URL("../assets/about.svg", import.meta.url).href },
   // Reached from inside a page rather than from the navigation; see `subPageParents`.
   { id: "ai", title: "AI 辅助", icon: new URL("../assets/ai.svg", import.meta.url).href },

@@ -49,7 +49,7 @@ export interface FuzzyPinyinSectionProps {
   confirm: (request: ConfirmRequest) => Promise<boolean>;
 }
 
-/** Shared fuzzy-pinyin rule controls used by settings hosts that expose the capability: the body of the 拼写纠错 group on the 表达 page. */
+/** Shared fuzzy-pinyin rule controls used by settings hosts that expose the capability: the body of the 拼写纠错 group on the 标点与翻译 page. */
 export function FuzzyPinyinSection({ preferences, onChange, confirm }: FuzzyPinyinSectionProps) {
   return (
     <div role="group" aria-label="模糊音" className={settings.rowStack}>

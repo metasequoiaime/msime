@@ -11,7 +11,7 @@ import { createTranslationSettingsBindings } from "../translation-settings-bindi
 import { MobileInputAiNotice } from "../mobile-input-ai-notice";
 
 /**
- * The 表达 page: how what is typed comes out -- punctuation, spelling tolerance, the candidates in other languages and the mixed-in English, emoji and kaomoji -- and the AI features that rewrite it, which open as pages of their own from here.
+ * The 标点与翻译 page: how what is typed comes out -- punctuation, spelling tolerance, the candidates in other languages and the mixed-in English, emoji and kaomoji -- and the AI features that rewrite it, which open as pages of their own from here.
  */
 export function ExpressionSettingsPage() {
   const {
@@ -64,7 +64,7 @@ export function ExpressionSettingsPage() {
   } = useSettingsForm();
   const { onPreferencesChange } = createSettingsDraftActions({ setDraft });
   return (
-    <fieldset disabled={busy} hidden={page !== "expression"} aria-label="表达">
+    <fieldset disabled={busy} hidden={page !== "expression"} aria-label="标点与翻译">
       <div className={settings.groups}>
         <GroupList title="标点">
           <PunctuationSection

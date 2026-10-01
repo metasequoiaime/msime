@@ -2507,7 +2507,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   // Helper codes are per-host rather than per-form-factor. The Android keyboard sends them: Shift during a quanpin or shuangpin composition passes the next letter to the Engine as a helper code, and the Engine reads the schema and the candidate-row hint from these very preferences. Hiding the group left that shipping feature with no way to pick a schema or turn it off. The iOS keyboard extension marks a helper code the same way, so the group also follows the host's `helpcode_shift_entry`; the platform names stay for hosts that predate the capability. HarmonyOS ships the same input: its ChineseHelpcodePolicy is the Android one, ported, and the session calls it on every shifted key.
   const showHelpcode =
     !mobilePlatform || showHelpcodeShiftEntry || androidPlatform || harmonyPlatform;
-  // The local MCP server, the diagnostic logs and the data directory are what 开发者选项 holds; a host with none of them has no such page.
+  // The local MCP server, the diagnostic logs and the data directory are what 维护与诊断 holds; a host with none of them has no such page.
   const showDeveloperPage =
     Boolean(client.mcpServerStatus) ||
     !client.host ||
@@ -2567,7 +2567,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
       accountLoginReturnPage,
     });
   const untitledOnPhone: readonly SettingsPageId[] = ["home", "typing-statistics", "account"];
-  // The design's row that opens a page from inside another, e.g. AI 辅助 on 表达.
+  // The design's row that opens a page from inside another, e.g. AI 辅助 on 标点与翻译.
   const pageEntry = (id: SettingsPageId) => availablePages.find((item) => item.id === id);
   const { openCommunity, openLocalDesigns } = useSettingsDestinationActions({
     selectPage,
@@ -2983,7 +2983,7 @@ export function SettingsPage(props: SettingsPageProps) {
   const titlebarShown =
     !mobilePlatform && !macShell && Boolean(client.windowControl || client.beginWindowDrag);
   const pageTitle = availablePages.find((item) => item.id === page)?.title ?? "输入";
-  // A sub-page (AI 辅助 under 表达, 背单词 under 词库, 帮助 under 反馈) names its parent on the way back.
+  // A sub-page (AI 辅助 under 标点与翻译, 背单词 under 词库, 帮助 under 帮助与反馈) names its parent on the way back.
   const parentPage =
     navigationPage !== page ? availablePages.find((item) => item.id === navigationPage) : undefined;
   // A phone collapses the large title into a compact bar on the 设置 tab's pages, the way the design does; the other tabs and the untitled pages have no large title to collapse.

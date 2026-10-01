@@ -51,7 +51,7 @@ test.each(["windows", "macos"])(
     );
     await settingsFormReady();
     expect(probe).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "表达" }));
+    fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
     fireEvent.click(screen.getByRole("button", { name: "AI 辅助" }));
     fireEvent.change(screen.getByLabelText("AI 模型"), { target: { value: "edited-model" } });
     fireEvent.click(screen.getByRole("button", { name: "测试 AI 辅助配置" }));

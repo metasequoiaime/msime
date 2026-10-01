@@ -34,7 +34,7 @@ export interface ClipboardHistorySectionProps {
   children?: ReactNode;
 }
 
-/** Shared local clipboard history controls used by desktop and mobile settings hosts: the 剪贴板 and 历史记录 groups of the 云剪贴板 page, followed by whatever the host adds (its cloud panels). */
+/** Shared local clipboard history controls used by desktop and mobile settings hosts: the 剪贴板 and 历史记录 groups of the 剪贴板 page, followed by whatever the host adds (its cloud panels). */
 export function ClipboardHistorySection({
   client,
   historyEnabled,

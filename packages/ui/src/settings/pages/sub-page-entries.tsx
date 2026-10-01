@@ -4,7 +4,7 @@ import { useSettingsForm } from "../settings-form-context";
 
 type PageId = Parameters<SettingsFormModel["selectPage"]>[0];
 
-/** Rows that open the pages living inside this one (AI 辅助 on 表达, 背单词 on 词库, 帮助 on 反馈). Each row is named by the page it opens; a page the host does not offer has no row. */
+/** Rows that open the pages living inside this one (AI 辅助 on 标点与翻译, 背单词 on 词库, 帮助 on 帮助与反馈). Each row is named by the page it opens; a page the host does not offer has no row. */
 export function SubPageEntries({
   title,
   pages,

@@ -75,7 +75,7 @@ export function ThemeSettingsSection({
           mobile
             ? "覆盖候选栏的明暗外观；跟随时使用键盘主题"
             : linux
-              ? "预览跟随颜色模式；IBus 候选窗与 Fcitx5 经典界面按此明暗着色"
+              ? "预览跟随颜色模式；IBus 候选窗口与 Fcitx5 经典界面按此明暗着色"
               : "预览跟随颜色模式"
         }
         value={preferences.candidate_theme}

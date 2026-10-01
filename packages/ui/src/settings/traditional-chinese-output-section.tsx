@@ -17,7 +17,7 @@ export function TraditionalChineseOutputSection({
   const native = scheme === "cantonese" || scheme === "zhuyin";
   return (
     <SwitchRow
-      title="简繁输入"
+      title="繁体输出"
       description={
         native
           ? "将提交的简体中文转换为繁体中文。粤拼与注音直接输出繁体，此开关不影响它们"

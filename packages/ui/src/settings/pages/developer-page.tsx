@@ -6,7 +6,7 @@ import { DataDirectorySection } from "../data-directory-section";
 import { createAboutSettingsActions } from "../about-settings-actions";
 
 /**
- * The 开发者选项 page: the local `msime-mcp` server, the diagnostic logs and where the data lives. The design's 显示调试信息, 日志级别 and 导出诊断包 have no counterpart in any host and are not drawn; its 重置所有设置 is the form's own 恢复默认设置.
+ * The 维护与诊断 page: the local `msime-mcp` server, the diagnostic logs and where the data lives. The design's 显示调试信息, 日志级别 and 导出诊断包 have no counterpart in any host and are not drawn; its 重置所有设置 is the form's own 恢复默认设置.
  */
 export function DeveloperSettingsPage() {
   const {
@@ -35,7 +35,7 @@ export function DeveloperSettingsPage() {
     setDraft,
   });
   return (
-    <fieldset disabled={busy} hidden={page !== "developer"} aria-label="开发者选项">
+    <fieldset disabled={busy} hidden={page !== "developer"} aria-label="维护与诊断">
       <div className={settings.groups}>
         {client.mcpServerStatus && (
           <McpConnectSection

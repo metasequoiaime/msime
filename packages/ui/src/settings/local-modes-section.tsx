@@ -110,7 +110,7 @@ const mentionPlacesRow: [LocalModeKey, string, string] = [
 
 /** Why /fy gives nothing while no translation service is chosen: it asks the chosen service only, and never falls back to another. */
 const commandTranslationNotice =
-  "fy 翻译需要先在「表达 → 候选词翻译」选择翻译服务，目前未选择，fy 不会出结果。";
+  "fy 翻译需要先在「标点与翻译 → 候选词翻译」选择翻译服务，目前未选择，fy 不会出结果。";
 
 const iosLocalModeDescriptions: Partial<Record<LocalModeKey, string>> = {
   quick_phrase: `${iosLocalModeEntry("快捷短语")}再输入编码即可调用快捷短语`,

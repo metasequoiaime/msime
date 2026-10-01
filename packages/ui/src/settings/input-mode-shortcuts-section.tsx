@@ -49,7 +49,7 @@ export function InputModeShortcutsSection({
     ],
     [
       "toggle_character_set_ctrl_shift_f",
-      macos ? "Control+Shift+F 切换简繁" : "Ctrl+Shift+F 切换简繁",
+      macos ? "Control+Shift+F 切换繁体输出" : "Ctrl+Shift+F 切换繁体输出",
     ],
   ];
 

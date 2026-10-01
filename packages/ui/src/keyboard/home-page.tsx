@@ -222,7 +222,7 @@ export function HomePage({
             glyph="◈"
             icon={new URL("../assets/skin.svg", import.meta.url).href}
           />
-          <strong className={quickTitle}>皮肤</strong>
+          <strong className={quickTitle}>主题</strong>
           <small className={quickNote}>{skinTitle}</small>
         </button>
         <button type="button" className={quickTile} onClick={() => onOpenPage("input")}>
@@ -331,7 +331,7 @@ export function HomePage({
         />
         <span className={rowBody}>
           <strong className={cardTitle}>全部设置</strong>
-          <small className={cardNote}>输入偏好、词库、AI 与语音</small>
+          <small className={cardNote}>打字、外观、语音与词库</small>
         </span>
         <span className={rowChevron} aria-hidden="true">
           ›

@@ -95,7 +95,7 @@ test("Harmony capability chrome stays split between phone and 2-in-1", async () 
   await settingsFormReady();
   expect(
     screen.getByText(
-      "在系统设置中启用并选择水杉输入法，再使用实体键盘、候选窗和悬浮工具栏输入。默认是全拼输入法。",
+      "在系统设置中启用并选择水杉输入法，再使用实体键盘、候选窗口和悬浮工具栏输入。默认是全拼输入法。",
     ),
   ).toBeTruthy();
   expect(screen.getByText("为 HarmonyOS 2-in-1 桌面输入体验打造的开放中文输入法。")).toBeTruthy();
@@ -104,7 +104,7 @@ test("Harmony capability chrome stays split between phone and 2-in-1", async () 
   expect(screen.getByRole("group", { name: "输入模式切换快捷键" })).toBeTruthy();
   expect(screen.getByRole("group", { name: "面板快捷键" })).toBeTruthy();
   expect(screen.getByRole("switch", { name: "数字键选词" })).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "表达" }));
+  fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
   expect(screen.getByRole("combobox", { name: "候选词翻译第二种语言" })).toBeTruthy();
 
   cleanup();
@@ -138,7 +138,7 @@ test("Harmony capability chrome stays split between phone and 2-in-1", async () 
   const phoneSettings = screen.getByRole("region", { name: "全部设置" });
   expect(within(phoneSettings).queryByRole("button", { name: "悬浮工具栏" })).toBeNull();
   expect(within(phoneSettings).queryByRole("button", { name: "快捷键" })).toBeNull();
-  fireEvent.click(within(phoneSettings).getByRole("button", { name: "表达" }));
+  fireEvent.click(within(phoneSettings).getByRole("button", { name: "标点与翻译" }));
   expect(screen.getByRole("combobox", { name: "候选词翻译第二种语言" })).toBeTruthy();
 });
 
@@ -219,12 +219,12 @@ test("Harmony handwriting instructions do not leak 2-in-1 controls onto phones",
   renderSettings("harmony", { mobile_settings: true }, "handwriting");
   await settingsFormReady();
   expect(screen.getByText(/再从键盘的方案选择器切换到“手写”/)).toBeTruthy();
-  expect(screen.queryByText(/2-in-1|2in1|候选窗不绘制键面/)).toBeNull();
+  expect(screen.queryByText(/2-in-1|2in1|候选窗口不绘制键面/)).toBeNull();
 
   cleanup();
   renderSettings("harmony", { mobile_settings: false }, "handwriting");
   await settingsFormReady();
-  expect(screen.getByText(/2-in-1 候选窗不绘制键面/)).toBeTruthy();
+  expect(screen.getByText(/2-in-1 候选窗口不绘制键面/)).toBeTruthy();
 });
 
 test("a desktop host keeps its window titlebar", async () => {

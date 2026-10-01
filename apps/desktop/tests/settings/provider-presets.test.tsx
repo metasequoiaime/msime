@@ -59,8 +59,8 @@ async function openPage(
     />,
   );
   await settingsFormReady();
-  // AI 辅助 is reached from inside the 表达 page.
-  if (page === "AI 辅助") fireEvent.click(screen.getByRole("button", { name: "表达" }));
+  // AI 辅助 is reached from inside the 标点与翻译 page.
+  if (page === "AI 辅助") fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
   fireEvent.click(screen.getByRole("button", { name: page }));
 }
 

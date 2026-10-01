@@ -121,7 +121,7 @@ test("the AI prompt slot selector is no longer Linux-only", async () => {
     />,
   );
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "表达" }));
+  fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
   fireEvent.click(screen.getByRole("button", { name: "AI 辅助" }));
   // Windows users could author three custom prompts but had no control that
   // would ever select one, so prompt_id stayed at whatever it was.

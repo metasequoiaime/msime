@@ -114,7 +114,7 @@ export function CandidateColorsSection({
           />
         </>
       ) : (
-        <p className={settings.groupNote}>当前宿主的候选面板不支持强调或选中行颜色。</p>
+        <p className={settings.groupNote}>当前宿主的候选窗口不支持强调或选中行颜色。</p>
       )}
       {showSelectionAppearance ? (
         <CandidateColorRow
@@ -128,8 +128,8 @@ export function CandidateColorsSection({
       ) : (
         <p className={settings.groupNote}>
           {linux
-            ? "悬停颜色不支持；边框仅在 Fcitx5 经典界面绘制，IBus 候选窗无边框。"
-            : "当前宿主的候选面板不支持悬停或边框颜色。"}
+            ? "悬停颜色不支持；边框仅在 Fcitx5 经典界面绘制，IBus 候选窗口无边框。"
+            : "当前宿主的候选窗口不支持悬停或边框颜色。"}
         </p>
       )}
       <CandidateColorRow

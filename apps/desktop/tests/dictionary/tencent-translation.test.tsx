@@ -53,7 +53,7 @@ test("the credentials can be entered and are saved", async () => {
   const save = vi.fn(async (_revision: number, _preferences: Preferences) => snapshot);
   render(<SettingsPage client={{ load: async () => snapshot, save }} />);
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "表达" }));
+  fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
 
   // Before this change there was no way to enter these at all.
   const id = await screen.findByLabelText("腾讯云 SecretId");
@@ -75,7 +75,7 @@ test("the credentials can be entered and are saved", async () => {
 test("empty credentials are called out instead of silently returning nothing", async () => {
   render(<SettingsPage client={{ load: async () => snapshot, save: vi.fn() }} />);
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "表达" }));
+  fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
 
   // This is the user-visible defect: translation on, no keys, no explanation.
   await screen.findByText(/未填写腾讯云凭据/);
@@ -93,7 +93,7 @@ test("empty credentials are called out instead of silently returning nothing", a
 test("the copy no longer claims a Linux provider on every platform", async () => {
   render(<SettingsPage client={{ load: async () => snapshot, save: vi.fn() }} />);
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "表达" }));
+  fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
   await screen.findByLabelText("腾讯云 SecretId");
   // Windows performs the request natively in TranslationWorker, so telling
   // every user it goes through a Linux provider socket was simply wrong.
@@ -113,7 +113,7 @@ test("Linux delegates Tencent credentials to the user-managed provider", async (
     />,
   );
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "表达" }));
+  fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
   const online = screen.getByRole("group", { name: "在线翻译服务" });
   expect(online.textContent).toContain("tencent-provider.json");
   expect(screen.queryByLabelText("腾讯云 SecretId")).toBeNull();
@@ -151,7 +151,7 @@ test("Linux saves Tencent credentials to the provider file", async () => {
     />,
   );
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "表达" }));
+  fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
   const online = screen.getByRole("group", { name: "在线翻译服务" });
   await waitFor(() => expect(credentials.status).toHaveBeenCalled());
   expect(online.textContent).toContain("tencent-provider.json");

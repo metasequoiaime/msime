@@ -100,19 +100,19 @@ test("typing statistics follow the injected client on any platform", async () =>
   // Previously this category was reachable only when the user agent matched Android.
   mount({ host: capabilities({ platform: "windows" }), typingStatistics: statistics });
   await settingsFormReady();
-  expect(screen.getByRole("button", { name: "统计" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "打字统计" })).toBeTruthy();
 });
 
-test("Windows and Linux hosts expose the shared fuzzy-pinyin settings on the 表达 page", async () => {
+test("Windows and Linux hosts expose the shared fuzzy-pinyin settings on the 标点与翻译 page", async () => {
   mount({ host: capabilities({ platform: "windows", fuzzy_pinyin: true }), fuzzyPinyin: true });
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "表达" }));
+  fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
   expect(screen.getByRole("group", { name: "模糊音" })).toBeTruthy();
 
   cleanup();
   mount({ host: capabilities({ platform: "linux", fuzzy_pinyin: true }), fuzzyPinyin: true });
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "表达" }));
+  fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
   expect(screen.getByRole("group", { name: "模糊音" })).toBeTruthy();
 });
 
@@ -246,9 +246,9 @@ test("candidate appearance follows host capabilities", async () => {
   expect(screen.getByLabelText("候选文字颜色")).toBeTruthy();
   expect(screen.getByLabelText("候选表面色")).toBeTruthy();
   expect(screen.getByLabelText("候选编号颜色")).toBeTruthy();
-  expect(screen.getByText("当前宿主的候选面板不支持自定义字体或字号。")).toBeTruthy();
+  expect(screen.getByText("当前宿主的候选窗口不支持自定义字体或字号。")).toBeTruthy();
   expect(
-    screen.getByText("悬停颜色不支持；边框仅在 Fcitx5 经典界面绘制，IBus 候选窗无边框。"),
+    screen.getByText("悬停颜色不支持；边框仅在 Fcitx5 经典界面绘制，IBus 候选窗口无边框。"),
   ).toBeTruthy();
 });
 
@@ -266,9 +266,9 @@ test("Linux offers the border colour Fcitx5 draws and says which host each colou
   expect(screen.getByLabelText("候选边框色")).toBeTruthy();
   expect(screen.queryByLabelText("候选悬停色")).toBeNull();
   expect(
-    screen.getByText("悬停颜色不支持；边框仅在 Fcitx5 经典界面绘制，IBus 候选窗无边框。"),
+    screen.getByText("悬停颜色不支持；边框仅在 Fcitx5 经典界面绘制，IBus 候选窗口无边框。"),
   ).toBeTruthy();
-  expect(screen.queryByText("当前宿主的候选面板不支持悬停或边框颜色。")).toBeNull();
+  expect(screen.queryByText("当前宿主的候选窗口不支持悬停或边框颜色。")).toBeNull();
   // The classic UI theme has no label or accent colour, so both pickers say they reach IBus only.
   const captions = screen.getAllByText(
     "Fcitx5 经典界面中编号跟随正文颜色、固定候选不单独着色，此项仅对 IBus 生效",
@@ -282,7 +282,7 @@ test("Linux offers the border colour Fcitx5 draws and says which host each colou
 test.each([
   [
     "gnome_shell",
-    "GNOME Shell 自己绘制 IBus 候选窗并跟随 Shell 主题，这里的候选字体、颜色和皮肤在当前桌面不会生效。",
+    "GNOME Shell 自己绘制 IBus 候选窗口并跟随 Shell 主题，这里的候选字体、颜色和皮肤在当前桌面不会生效。",
   ],
   [
     "fcitx_theme",
@@ -290,7 +290,7 @@ test.each([
   ],
   [
     "kimpanel",
-    "Fcitx5 的候选窗由桌面的 Kimpanel 绘制，使用桌面自己的字体和主题，这里的候选字体、颜色和皮肤不会生效。",
+    "Fcitx5 的候选窗口由桌面的 Kimpanel 绘制，使用桌面自己的字体和主题，这里的候选字体、颜色和皮肤不会生效。",
   ],
 ] as const)(
   "a Linux panel that ignores the appearance settings (%s) is named on the appearance and skin pages",
@@ -341,7 +341,7 @@ test("Linux panel font takes the family and size but not a preedit size", async 
   expect(screen.getByLabelText("候选窗字号")).toBeTruthy();
   // The application draws the composition there, so a preedit size would change nothing.
   expect(screen.queryByLabelText("候选窗预编辑字号")).toBeNull();
-  expect(screen.queryByText("当前宿主的候选面板不支持自定义字体或字号。")).toBeNull();
+  expect(screen.queryByText("当前宿主的候选窗口不支持自定义字体或字号。")).toBeNull();
 });
 
 test("Windows candidate appearance keeps native controls", async () => {

@@ -1083,7 +1083,7 @@ test("offers the built-in places under the @ switch, switchable only while @ is 
 });
 
 test("says /fy needs a translation service only while none is chosen", () => {
-  const notice = /fy 翻译需要先在「表达 → 候选词翻译」选择翻译服务/;
+  const notice = /fy 翻译需要先在「标点与翻译 → 候选词翻译」选择翻译服务/;
   render(
     <LocalModesSection
       preferences={defaultLocalModes}
