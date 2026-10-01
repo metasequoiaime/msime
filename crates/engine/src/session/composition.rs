@@ -441,8 +441,12 @@ impl InputSession {
         let completed = !transition.continues_composition;
         let can_store =
             completed && !normalize_canonical_pinyin_for_word(&pinyin, &word).is_empty();
+        let mut preedit =
+            String::with_capacity(word.len() + transition.current_segmentation_with_cases.len());
+        preedit.push_str(&word);
+        preedit.push_str(&transition.current_segmentation_with_cases);
         CreatingWordProgress {
-            preedit: format!("{word}{}", transition.current_segmentation_with_cases),
+            preedit,
             pinyin,
             word,
             completed,
@@ -665,6 +669,15 @@ mod tests {
         assert_eq!(known.pinyin, "xi'te'le");
         assert_eq!(known.word, "西特乐");
         assert_eq!(known.word.capacity(), known.word.len());
+        assert_eq!(known.preedit.capacity(), known.preedit.len());
+        let with_tail = SelectionTransition {
+            selected_canonical_pinyin: "te'le".into(),
+            current_segmentation_with_cases: "hao".into(),
+            ..SelectionTransition::default()
+        };
+        let with_tail = InputSession::update_creating_word_progress("xi", "西", "特乐", &with_tail);
+        assert_eq!(with_tail.preedit, "西特乐hao");
+        assert_eq!(with_tail.preedit.capacity(), with_tail.preedit.len());
 
         let unknown = InputSession::update_creating_word_progress("", "西", "特乐", &last);
         assert!(unknown.completed);
