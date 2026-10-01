@@ -1,4 +1,5 @@
 import { clamp } from "../core/number";
+import { SettingField } from "./setting-field";
 
 export function AiCandidateLimitSection({
   value,
@@ -9,8 +10,7 @@ export function AiCandidateLimitSection({
 }) {
   return (
     <div className="section">
-      <label className="section-header">
-        <span className="section-title">候选数量</span>
+      <SettingField label="候选数量">
         <input
           aria-label="AI 候选数量"
           type="number"
@@ -19,7 +19,7 @@ export function AiCandidateLimitSection({
           value={value}
           onChange={(event) => onChange(clamp(Number(event.target.value) || 3, 1, 10))}
         />
-      </label>
+      </SettingField>
     </div>
   );
 }
