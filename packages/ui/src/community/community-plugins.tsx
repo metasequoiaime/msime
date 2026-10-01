@@ -178,6 +178,7 @@ export function CommunityPluginsPage({
     closeDetail: closeGalleryDetail,
     rateSelected,
     unpublishSelected,
+    runAction,
   } = gallery;
   const [search, setSearch] = useState("");
   const [kind, setKind] = useState<CommunityPluginKind | null>(null);
@@ -207,36 +208,31 @@ export function CommunityPluginsPage({
 
   const install = async (replace: boolean) => {
     if (!selected) return;
-    const currentClient = gallery.beginAction();
-    if (currentClient === null) return;
     const target = selected;
-    gallery.setError("");
-    setActionNotice("");
     setInstalled(false);
-    try {
-      // An install replaces a pack of the same kind and id whole, so ask first. The scan is only a courtesy: when it fails the install goes ahead as the import from a local `.zip` would.
-      if (!replace && localPlugins) {
-        const catalog = await localPlugins().catch(() => null);
-        if (!gallery.isCurrent(currentClient)) return;
-        if (
-          catalog?.packages.some(
-            (item) => item.kind === target.kind && item.id === target.plugin_id,
-          )
-        ) {
-          setConfirmReplace(true);
-          return;
+    await runAction(
+      async (currentClient) => {
+        // An install replaces a pack of the same kind and id whole, so ask first. The scan is only a courtesy: when it fails the install goes ahead as the import from a local `.zip` would.
+        if (!replace && localPlugins) {
+          const catalog = await localPlugins().catch(() => null);
+          if (!gallery.isCurrent(currentClient)) return;
+          if (
+            catalog?.packages.some(
+              (item) => item.kind === target.kind && item.id === target.plugin_id,
+            )
+          ) {
+            setConfirmReplace(true);
+            return;
+          }
         }
-      }
-      const pack = await client.install(target.id, target.kind, target.plugin_id);
-      if (!gallery.isCurrent(currentClient)) return;
-      setConfirmReplace(false);
-      setInstalled(true);
-      onInstalled?.(pack);
-    } catch (actionError) {
-      if (gallery.isCurrent(currentClient)) gallery.fail(actionError);
-    } finally {
-      gallery.endAction(currentClient);
-    }
+        const pack = await client.install(target.id, target.kind, target.plugin_id);
+        if (!gallery.isCurrent(currentClient)) return;
+        setConfirmReplace(false);
+        setInstalled(true);
+        onInstalled?.(pack);
+      },
+      { clearNotice: true },
+    );
   };
 
   const publishDone = async () => {

@@ -334,6 +334,7 @@ export function CommunitySkinsPage({
     closeDetail: closeGalleryDetail,
     rateSelected,
     unpublishSelected,
+    runAction,
   } = gallery;
   const [search, setSearch] = useState("");
   const [trial, setTrial] = useState<CommunitySkinTrial | null>(null);
@@ -398,40 +399,29 @@ export function CommunitySkinsPage({
 
   const download = async () => {
     if (!selected) return;
-    const currentClient = gallery.beginAction();
-    if (currentClient === null) return;
-    setActionNotice("");
-    try {
-      const result = await client.download(selected.id, selected.name);
-      if (!gallery.isCurrent(currentClient)) return;
-      setSelected((current) => (current ? { ...current, design: result.skin.design } : current));
-      trialRef.current = result.trial;
-      setTrial(result.trial);
-      setActionNotice("已下载并开始试用；关闭此页会恢复原皮肤。");
-    } catch (actionError) {
-      if (gallery.isCurrent(currentClient)) {
-        gallery.fail(actionError);
-      }
-    } finally {
-      gallery.endAction(currentClient);
-    }
+    await runAction(
+      async (currentClient) => {
+        const result = await client.download(selected.id, selected.name);
+        if (!gallery.isCurrent(currentClient)) return;
+        setSelected((current) => (current ? { ...current, design: result.skin.design } : current));
+        trialRef.current = result.trial;
+        setTrial(result.trial);
+        setActionNotice("已下载并开始试用；关闭此页会恢复原皮肤。");
+      },
+      { clearNotice: true },
+    );
   };
 
   const finishTrial = async (keep: boolean) => {
     if (!trial) return;
-    const currentClient = gallery.beginAction();
-    if (currentClient === null) return;
-    try {
-      await client.finishTrial(trial.id, keep);
+    const pending = trial;
+    await runAction(async (currentClient) => {
+      await client.finishTrial(pending.id, keep);
       if (!gallery.isCurrent(currentClient)) return;
       trialRef.current = null;
       setTrial(null);
       setActionNotice(keep ? "已保留这款皮肤。" : "已恢复试用前的皮肤。");
-    } catch (actionError) {
-      if (gallery.isCurrent(currentClient)) gallery.fail(actionError);
-    } finally {
-      gallery.endAction(currentClient);
-    }
+    });
   };
 
   const unpublish = () => {

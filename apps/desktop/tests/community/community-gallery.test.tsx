@@ -28,6 +28,10 @@ function client(
   };
 }
 
+const galleryErrorMessage = () => "请先登录";
+const galleryNeedsSignIn = (value: unknown) => value === galleryFailure;
+const galleryFailure = { code: "community_unauthorized" };
+
 test("loads pages, deduplicates appended items, and keeps the active search", async () => {
   const gallery = client({
     list: vi
@@ -77,16 +81,39 @@ test("refreshes selected detail after rating and clears it after unpublishing", 
 });
 
 test("maps request failures and exposes when sign-in is required", async () => {
-  const failure = { code: "auth_required" };
+  const failure = galleryFailure;
   const gallery = client({ list: vi.fn().mockRejectedValue(failure) });
   const { result } = renderHook(() =>
     useCommunityGallery({
       client: gallery,
-      errorMessage: () => "请先登录",
-      needsSignIn: (value) => value === failure,
+      errorMessage: galleryErrorMessage,
+      needsSignIn: galleryNeedsSignIn,
     }),
   );
 
   await waitFor(() => expect(result.current.error).toBe("请先登录"));
+  expect(result.current.signInRequired).toBe(true);
+});
+
+test("runs custom gallery actions through the shared busy and error lifecycle", async () => {
+  const gallery = client();
+  const { result } = renderHook(() =>
+    useCommunityGallery({
+      client: gallery,
+      errorMessage: galleryErrorMessage,
+      needsSignIn: galleryNeedsSignIn,
+    }),
+  );
+
+  await waitFor(() => expect(gallery.list).toHaveBeenCalled());
+  await act(async () => result.current.runAction(async () => undefined));
+  expect(result.current.actionBusy).toBe(false);
+
+  await act(async () =>
+    result.current.runAction(async () => {
+      throw galleryFailure;
+    }),
+  );
+  expect(result.current.error).toBe("请先登录");
   expect(result.current.signInRequired).toBe(true);
 });

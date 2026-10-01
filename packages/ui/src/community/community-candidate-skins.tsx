@@ -252,6 +252,7 @@ export function CommunityCandidateSkinsPage({
     closeDetail: closeGalleryDetail,
     rateSelected,
     unpublishSelected,
+    runAction,
   } = gallery;
   const [search, setSearch] = useState("");
   const [installed, setInstalled] = useState(false);
@@ -281,63 +282,54 @@ export function CommunityCandidateSkinsPage({
 
   const install = async (replace: boolean) => {
     if (!selected) return;
-    const currentClient = gallery.beginAction();
-    if (currentClient === null) return;
     const target = selected;
-    gallery.setError("");
-    setActionNotice("");
     setInstalled(false);
-    try {
-      // Asking before the download spares a ~3 MB transfer the user may be about to refuse. The scan is only a courtesy: when it fails the install's own `candidate_skin_exists` still stops an overwrite.
-      if (!replace && localSkins) {
-        const catalog = await localSkins().catch(() => null);
-        if (!gallery.isCurrent(currentClient)) return;
-        if (catalog?.packages.some((item) => item.id === target.package_id)) {
-          setConfirmReplace(true);
-          return;
+    await runAction(
+      async (currentClient) => {
+        // Asking before the download spares a ~3 MB transfer the user may be about to refuse. The scan is only a courtesy: when it fails the install's own `candidate_skin_exists` still stops an overwrite.
+        if (!replace && localSkins) {
+          const catalog = await localSkins().catch(() => null);
+          if (!gallery.isCurrent(currentClient)) return;
+          if (catalog?.packages.some((item) => item.id === target.package_id)) {
+            setConfirmReplace(true);
+            return;
+          }
         }
-      }
-      await client.install(target.id, replace);
-      if (!gallery.isCurrent(currentClient)) return;
-      setConfirmReplace(false);
-      setInstalled(true);
-      onInstalled?.();
-    } catch (actionError) {
-      if (!gallery.isCurrent(currentClient)) return;
-      if (errorCode(actionError) === "candidate_skin_exists") {
-        setConfirmReplace(true);
-        return;
-      }
-      gallery.fail(actionError);
-    } finally {
-      gallery.endAction(currentClient);
-    }
+        await client.install(target.id, replace);
+        if (!gallery.isCurrent(currentClient)) return;
+        setConfirmReplace(false);
+        setInstalled(true);
+        onInstalled?.();
+      },
+      {
+        clearNotice: true,
+        ignoreError: (actionError) => errorCode(actionError) === "candidate_skin_exists",
+        onError: (actionError) => {
+          if (errorCode(actionError) === "candidate_skin_exists") setConfirmReplace(true);
+        },
+      },
+    );
   };
 
   const changeVisibility = async (visibility: CandidateSkinVisibility) => {
     if (!selected) return;
-    const currentClient = gallery.beginAction();
-    if (currentClient === null) return;
     const target = selected;
-    gallery.setError("");
-    setActionNotice("");
-    try {
-      const updated = await client.setVisibility(target.id, visibility);
-      if (!gallery.isCurrent(currentClient)) return;
-      gallery.setSelected(updated);
-      gallery.setItems((current) =>
-        current.map((item) => (item.id === updated.id ? updated : item)),
-      );
-      setActionNotice(
-        visibility === "public"
-          ? "已公开，其他用户现在可以下载这款皮肤。"
-          : "已设为私有，只有你能看到这款皮肤。",
-      );
-    } catch (actionError) {
-      if (gallery.isCurrent(currentClient)) gallery.fail(actionError);
-    } finally {
-      gallery.endAction(currentClient);
-    }
+    await runAction(
+      async (currentClient) => {
+        const updated = await client.setVisibility(target.id, visibility);
+        if (!gallery.isCurrent(currentClient)) return;
+        gallery.setSelected(updated);
+        gallery.setItems((current) =>
+          current.map((item) => (item.id === updated.id ? updated : item)),
+        );
+        setActionNotice(
+          visibility === "public"
+            ? "已公开，其他用户现在可以下载这款皮肤。"
+            : "已设为私有，只有你能看到这款皮肤。",
+        );
+      },
+      { clearNotice: true },
+    );
   };
 
   const unpublish = () => {

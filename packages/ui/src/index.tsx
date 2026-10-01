@@ -1047,6 +1047,7 @@ export {
 } from "./community/community-skins";
 export {
   useCommunityGallery,
+  type CommunityGalleryActionOptions,
   type CommunityGalleryClient,
   type CommunityGalleryOptions,
   type CommunityGalleryPage,

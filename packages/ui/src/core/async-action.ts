@@ -25,8 +25,8 @@ export async function runAsyncAction(
   try {
     await operation(isCurrent);
   } catch (error) {
-    if (isCurrent() && !ignoreError?.(error)) {
-      setError(formatError(error));
+    if (isCurrent()) {
+      if (!ignoreError?.(error)) setError(formatError(error));
       onError?.(error);
     }
   } finally {

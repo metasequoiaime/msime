@@ -18,6 +18,12 @@ export interface CommunityGalleryOptions<T extends { id: string }> {
   needsSignIn?: (failure: unknown) => boolean;
 }
 
+export interface CommunityGalleryActionOptions {
+  clearNotice?: boolean;
+  ignoreError?: (failure: unknown) => boolean;
+  onError?: (failure: unknown) => void;
+}
+
 const defaultErrorMessage = (failure: unknown) =>
   failure instanceof Error ? failure.message : "加载失败，请稍后重试。";
 const defaultNeedsSignIn = () => false;
@@ -153,7 +159,10 @@ export function useCommunityGallery<T extends { id: string }>({
   );
 
   const runAction = useCallback(
-    (action: (generation: number) => Promise<void>) => {
+    (
+      action: (generation: number) => Promise<void>,
+      options: CommunityGalleryActionOptions = {},
+    ) => {
       const generation = clientGeneration.current;
       setSignInRequired(false);
       return runAsyncAction(
@@ -162,11 +171,16 @@ export function useCommunityGallery<T extends { id: string }>({
           isCurrent: () => isCurrent(generation),
           setBusy: setActionBusy,
           setError,
+          setNotice: options.clearNotice ? setActionNotice : undefined,
         },
         () => action(generation),
         {
           formatError: errorMessage,
-          onError: (failure) => setSignInRequired(needsSignIn(failure)),
+          ignoreError: options.ignoreError,
+          onError: (failure) => {
+            setSignInRequired(needsSignIn(failure));
+            options.onError?.(failure);
+          },
         },
       );
     },
@@ -231,5 +245,6 @@ export function useCommunityGallery<T extends { id: string }>({
     beginAction,
     isCurrent,
     endAction,
+    runAction,
   };
 }
