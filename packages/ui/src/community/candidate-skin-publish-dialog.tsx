@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { boundedGraphemes } from "../core/text";
+import { communityPublishFields } from "./community-publish-validation";
 import { randomUuid } from "../core/random-id";
 import { errorCode } from "../core/error-code";
 import type { ExternalSkin, SkinCatalog } from "../skin/external-skins";
@@ -271,13 +272,8 @@ export function CandidateSkinPublishDialog({
     }
   };
 
-  const normalizedName = name.trim();
-  const normalizedDescription = description.trim();
-  const nameValid =
-    normalizedName.length > 0 &&
-    boundedGraphemes(normalizedName, 32) === normalizedName &&
-    [...normalizedName].length <= 32;
-  const descriptionValid = [...normalizedDescription].length <= 280;
+  const { normalizedName, normalizedDescription, nameValid, descriptionValid } =
+    communityPublishFields(name, description);
   const ready = Boolean(pack) && !packLoading && nameValid && descriptionValid && agreed;
 
   const submit = async () => {

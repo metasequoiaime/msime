@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { boundedGraphemes } from "../core/text";
+import { communityPublishFields } from "./community-publish-validation";
 import { randomUuid } from "../core/random-id";
 import {
   kindLabels,
@@ -335,7 +336,8 @@ export function CommunityPluginsPage({
               ariaLabel="确认替换插件"
               message={
                 <>
-                  已安装同 id 的{kindLabels[selected.kind]}“{selected.plugin_id}”，安装会整体替换它。
+                  已安装同 id 的{kindLabels[selected.kind]}“{selected.plugin_id}
+                  ”，安装会整体替换它。
                 </>
               }
               actionBusy={actionBusy}
@@ -591,13 +593,8 @@ export function CommunityPluginPublishDialog({
     };
   }, [client, chosen]);
 
-  const normalizedName = name.trim();
-  const normalizedDescription = description.trim();
-  const nameValid =
-    normalizedName.length > 0 &&
-    boundedGraphemes(normalizedName, 32) === normalizedName &&
-    [...normalizedName].length <= 32;
-  const descriptionValid = [...normalizedDescription].length <= 280;
+  const { normalizedName, normalizedDescription, nameValid, descriptionValid } =
+    communityPublishFields(name, description);
   const ready = Boolean(pack) && !packLoading && nameValid && descriptionValid && agreed;
 
   const submit = async () => {

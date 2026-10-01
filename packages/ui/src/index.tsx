@@ -1180,6 +1180,10 @@ export {
   type CommunityScopeButtonsProps,
 } from "./community/community-scope-buttons";
 export {
+  communityPublishFields,
+  type CommunityPublishFields,
+} from "./community/community-publish-validation";
+export {
   CommunityResourceScopeButtons,
   type CommunityResourceScopeButtonsProps,
 } from "./community/community-resource-scope-buttons";
