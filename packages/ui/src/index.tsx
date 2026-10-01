@@ -746,7 +746,11 @@ export {
   type CandidateSizingPreferences,
 } from "./settings/candidate-sizing-section";
 export {
+  CandidateFontPresetRow,
+  CandidateScaleRow,
   CandidateWindowStyleSection,
+  type CandidateFontPresetRowProps,
+  type CandidateScaleRowProps,
   type CandidateWindowStyleSectionPreferences,
   type CandidateWindowStyleSectionProps,
 } from "./settings/candidate-window-style-section";
@@ -756,6 +760,10 @@ export {
   CandidateFollowCursorSection,
   type CandidateFollowCursorSectionProps,
 } from "./settings/candidate-follow-cursor-section";
+export {
+  CandidatePageNumberSection,
+  type CandidatePageNumberSectionProps,
+} from "./settings/candidate-page-number-section";
 export {
   CandidatePanelLimitSection,
   type CandidatePanelLimit,

@@ -25,7 +25,7 @@ export interface CandidateColorsSectionProps {
 const linuxFcitxClassicColorNote =
   "Fcitx5 经典界面中编号跟随正文颜色、固定候选不单独着色，此项仅对 IBus 生效";
 
-/** One colour picker of the custom theme: the swatch, and a button that hands the slot back to the theme underneath. The 候选窗 section of the 候选窗口 page reuses it for its four colours. */
+/** One colour picker of the custom theme: the swatch, and a button that hands the slot back to the theme underneath. */
 export function CandidateColorRow({
   title,
   slot,
@@ -86,12 +86,31 @@ export function CandidateColorsSection({
   const light = previewTheme === "light";
   return (
     <>
+      {/* Background, then what is written on it, then the states a row can be in, then the frame. */}
+      <CandidateColorRow
+        title="候选表面色"
+        slot="surface"
+        value={preferences.surface}
+        fallback={light ? "#ffffff" : "#202020"}
+        onChange={onChange}
+        resetLabel="候选表面色跟随主题"
+        pressed={false}
+      />
       <CandidateColorRow
         title="候选文字颜色"
         slot="text"
         value={preferences.text}
         fallback={light ? "#1a1a1a" : "#e9e8e8"}
         onChange={onChange}
+      />
+      <CandidateColorRow
+        title="候选编号颜色"
+        slot="number"
+        value={preferences.number}
+        fallback={light ? "#5f6368" : "#bdc1c6"}
+        onChange={onChange}
+        resetLabel="候选编号颜色跟随主题"
+        description={linux ? linuxFcitxClassicColorNote : undefined}
       />
       {showRowColors ? (
         <>
@@ -132,15 +151,6 @@ export function CandidateColorsSection({
             : "当前宿主的候选窗口不支持悬停或边框颜色。"}
         </p>
       )}
-      <CandidateColorRow
-        title="候选表面色"
-        slot="surface"
-        value={preferences.surface}
-        fallback={light ? "#ffffff" : "#202020"}
-        onChange={onChange}
-        resetLabel="候选表面色跟随主题"
-        pressed={false}
-      />
       {showBorderColor && (
         <CandidateColorRow
           title="候选边框色"
@@ -152,15 +162,6 @@ export function CandidateColorsSection({
           pressed={false}
         />
       )}
-      <CandidateColorRow
-        title="候选编号颜色"
-        slot="number"
-        value={preferences.number}
-        fallback={light ? "#5f6368" : "#bdc1c6"}
-        onChange={onChange}
-        resetLabel="候选编号颜色跟随主题"
-        description={linux ? linuxFcitxClassicColorNote : undefined}
-      />
     </>
   );
 }

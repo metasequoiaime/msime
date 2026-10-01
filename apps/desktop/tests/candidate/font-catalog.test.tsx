@@ -30,13 +30,13 @@ test("search loads once and selects with keyboard without saving", async () => {
       client={{ load: async () => initial, save, listFontFamilies }}
     />,
   );
-  const primary = await screen.findByLabelText("候选窗主字体");
+  const primary = await screen.findByLabelText("主字体");
   expect(listFontFamilies).not.toHaveBeenCalled();
   fireEvent.focus(primary);
   await screen.findByRole("option", { name: "Alpha" });
   fireEvent.change(primary, { target: { value: "bet" } });
   expect(
-    within(screen.getByRole("listbox", { name: "候选窗主字体可用字体" })).getAllByRole("option"),
+    within(screen.getByRole("listbox", { name: "主字体可用字体" })).getAllByRole("option"),
   ).toHaveLength(1);
   fireEvent.keyDown(primary, { key: "ArrowDown" });
   fireEvent.keyDown(primary, { key: "Enter" });
@@ -59,7 +59,7 @@ test("late results from a replaced reader cannot reappear", async () => {
   const view = render(
     <SettingsPage initialPage="appearance" client={{ ...client, listFontFamilies: old }} />,
   );
-  fireEvent.focus(await screen.findByLabelText("候选窗主字体"));
+  fireEvent.focus(await screen.findByLabelText("主字体"));
   expect(screen.getByText("正在读取字体列表。")).toBeDefined();
   const next = vi.fn().mockResolvedValue(["New font"]);
   view.rerender(
@@ -80,7 +80,7 @@ test("failed catalog retries while allowing manual font entry", async () => {
       client={{ load: async () => initial, save: vi.fn(), listFontFamilies }}
     />,
   );
-  const input = await screen.findByLabelText("候选窗主字体");
+  const input = await screen.findByLabelText("主字体");
   fireEvent.focus(input);
   await screen.findByText(/读取字体列表失败/);
   fireEvent.change(input, { target: { value: "手动字体" } });
@@ -101,10 +101,10 @@ test("large catalogs bound visible options without losing searchable entries", a
       }}
     />,
   );
-  const input = await screen.findByLabelText("候选窗主字体");
+  const input = await screen.findByLabelText("主字体");
   fireEvent.focus(input);
   await screen.findByText("显示前 100 项，请输入名称缩小范围。");
-  const list = screen.getByRole("listbox", { name: "候选窗主字体可用字体" });
+  const list = screen.getByRole("listbox", { name: "主字体可用字体" });
   expect(within(list).getAllByRole("option")).toHaveLength(100);
   fireEvent.change(input, { target: { value: "Font100" } });
   expect(within(list).getAllByRole("option")).toHaveLength(1);

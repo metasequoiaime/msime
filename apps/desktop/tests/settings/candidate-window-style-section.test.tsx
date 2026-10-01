@@ -2,16 +2,20 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import {
+  CandidateFontPresetRow,
+  CandidateScaleRow,
   CandidateWindowStyleSection,
   settingsCapabilities,
-  type CandidateWindowStyleSectionProps,
   type HostCapabilities,
+  type HostPlatform,
+  type Preferences,
 } from "@msime/ui";
 import {
   candidateFontPresetAvailable,
   candidateFontPresetPatch,
   currentCandidateFontPreset,
 } from "../../../../packages/ui/src/candidate/candidate-font-presets";
+import { GroupList } from "../../../../packages/ui/src/core/platform-controls";
 import {
   candidateCornerRadius,
   candidateOpacityPercent,
@@ -25,76 +29,63 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function renderSection(overrides: Partial<CandidateWindowStyleSectionProps> = {}) {
-  const onChange = vi.fn();
-  const onColorChange = vi.fn();
-  const view = render(
-    <CandidateWindowStyleSection
-      preferences={{}}
-      colors={{}}
-      previewTheme="light"
-      platform="macos"
-      showFontPresets
-      showRowColors
-      showScale
-      showOpacity
-      showCornerRadius
-      onChange={onChange}
-      onColorChange={onColorChange}
-      {...overrides}
-    />,
-  );
-  return { onChange, onColorChange, view };
+interface SectionOptions {
+  preferences: Partial<Preferences>;
+  platform: HostPlatform;
+  showScale: boolean;
+  showOpacity: boolean;
+  showCornerRadius: boolean;
+  showFontPresets: boolean;
 }
 
-test("the section lists the design's rows in order under 候选窗", () => {
+/** The rows this file covers as the 候选窗口 page places them: the preset and the scale in 字体与大小, the opacity and the radius in 窗口样式. */
+function renderSection(overrides: Partial<SectionOptions> = {}) {
+  const options: SectionOptions = {
+    preferences: {},
+    platform: "macos",
+    showScale: true,
+    showOpacity: true,
+    showCornerRadius: true,
+    showFontPresets: true,
+    ...overrides,
+  };
+  const onChange = vi.fn();
+  const view = render(
+    <>
+      <GroupList title="字体与大小">
+        {options.showFontPresets && (
+          <CandidateFontPresetRow
+            preferences={options.preferences}
+            platform={options.platform}
+            onChange={onChange}
+          />
+        )}
+        {options.showScale && (
+          <CandidateScaleRow preferences={options.preferences} onChange={onChange} />
+        )}
+      </GroupList>
+      <CandidateWindowStyleSection
+        preferences={options.preferences}
+        showOpacity={options.showOpacity}
+        showCornerRadius={options.showCornerRadius}
+        onChange={onChange}
+      >
+        <p>跳转行</p>
+      </CandidateWindowStyleSection>
+    </>,
+  );
+  return { onChange, view };
+}
+
+test("窗口样式 holds the opacity and the radius, then the rows the page adds after them", () => {
   renderSection();
-  const group = screen.getByRole("region", { name: "候选窗" });
+  const group = screen.getByRole("region", { name: "窗口样式" });
   const titles = [...group.querySelectorAll("[data-row-title]")].map((row) => row.textContent);
-  expect(titles).toEqual([
-    "主题",
-    "候选字体",
-    "整体大小",
-    "不透明度",
-    "背景颜色",
-    "焦点高亮颜色",
-    "文字颜色",
-    "序号颜色",
-    "圆角大小",
-  ]);
-});
-
-test("the theme row writes candidate_theme with the global follow option first", () => {
-  const { onChange } = renderSection();
-  const select = screen.getByRole("combobox", { name: "主题" });
-  expect([...(select as HTMLSelectElement).options].map((option) => option.text)).toEqual([
-    "跟随全局",
-    "浅色",
-    "深色",
-  ]);
-  fireEvent.change(select, { target: { value: "dark" } });
-  expect(onChange).toHaveBeenCalledWith({ candidate_theme: "dark" });
-});
-
-test("the colour rows write the custom theme's surface, selected, text and number slots", () => {
-  const { onColorChange } = renderSection();
-  const slots: [string, string][] = [
-    ["背景颜色", "surface"],
-    ["焦点高亮颜色", "selected"],
-    ["文字颜色", "text"],
-    ["序号颜色", "number"],
-  ];
-  for (const [title, slot] of slots) {
-    fireEvent.change(screen.getByLabelText(title), { target: { value: "#123456" } });
-    expect(onColorChange).toHaveBeenLastCalledWith(slot, "#123456");
-  }
-  expect(screen.getByText("选中候选的底色，文字明暗自动适配")).toBeTruthy();
-});
-
-test("a set colour hands its slot back to the theme", () => {
-  const { onColorChange } = renderSection({ colors: { selected: "#123456" } });
-  fireEvent.click(screen.getByRole("button", { name: "焦点高亮颜色跟随主题" }));
-  expect(onColorChange).toHaveBeenCalledWith("selected", null);
+  expect(titles).toEqual(["不透明度", "圆角大小"]);
+  expect(group.lastElementChild?.lastElementChild?.textContent).toBe("跳转行");
+  // The colours and the light/dark are edited only on the 主题 page now.
+  expect(within(group).queryByRole("combobox")).toBeNull();
+  expect(group.querySelector('input[type="color"]')).toBeNull();
 });
 
 test("the sliders write the window style, leaving the defaults out of the document", () => {
@@ -154,12 +145,11 @@ test("the rows a host cannot draw are hidden", () => {
     showScale: false,
     showOpacity: false,
     showCornerRadius: false,
-    showRowColors: false,
     showFontPresets: false,
   });
-  for (const title of ["整体大小", "不透明度", "圆角大小", "焦点高亮颜色", "候选字体"])
+  for (const title of ["整体大小", "不透明度", "圆角大小", "候选字体"])
     expect(screen.queryByText(title)).toBeNull();
-  expect(screen.getByLabelText("背景颜色")).toBeTruthy();
+  expect(screen.getByRole("region", { name: "窗口样式" })).toBeTruthy();
 });
 
 test.each([

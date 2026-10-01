@@ -12,26 +12,23 @@ export interface CandidateSizingPreferences {
 
 export interface CandidateSizingSectionProps {
   preferences: CandidateSizingPreferences;
-  mobile: boolean;
   showFontControls: boolean;
   showPreeditFont: boolean;
   onChange: (patch: Partial<CandidateSizingPreferences>) => void;
 }
 
-/** Shared candidate font-size controls for settings hosts: the size rows of the 候选窗口 page's 字体 group. */
+/** Shared candidate font-size controls for settings hosts: the size rows of the 候选窗口 page's 字体与大小 group, titled without the surface since the page already names it. */
 export function CandidateSizingSection({
   preferences,
-  mobile,
   showFontControls,
   showPreeditFont,
   onChange,
 }: CandidateSizingSectionProps) {
-  const surface = mobile ? "候选栏" : "候选窗";
   return (
     <>
       {showFontControls && (
         <SelectRow
-          title={`${surface}字号`}
+          title={"字号"}
           value={candidateFontSize(preferences.candidate_font_size)}
           onChange={(event) => onChange({ candidate_font_size: Number(event.target.value) })}
         >
@@ -44,7 +41,7 @@ export function CandidateSizingSection({
       )}
       {showPreeditFont && (
         <SelectRow
-          title={`${surface}预编辑字号`}
+          title={"预编辑字号"}
           value={candidatePreeditFontSize(preferences.candidate_preedit_font_size)}
           onChange={(event) =>
             onChange({ candidate_preedit_font_size: Number(event.target.value) })

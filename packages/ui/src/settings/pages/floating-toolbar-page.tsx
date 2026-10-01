@@ -64,13 +64,8 @@ export function FloatingToolbarSettingsPage() {
   return (
     <fieldset disabled={busy} hidden={page !== "floating-toolbar"} aria-label="悬浮工具栏">
       <div className={settings.groups}>
-        <GroupList title="显示">
-          <Row title="在桌面显示悬浮工具栏" description="快速访问输入法状态与常用功能">
-            <Switch
-              checked={floatingToolbar.enabled}
-              onChange={(enabled) => onToolbarChange({ enabled })}
-            />
-          </Row>
+        {/* The preview leads the page: every group below changes what it draws. */}
+        <GroupList>
           <div className={settings.toolbarPreviewArea} aria-label="悬浮工具栏预览">
             <div className={settings.toolbarPreviewLabel}>预览</div>
             <div
@@ -96,6 +91,44 @@ export function FloatingToolbarSettingsPage() {
             </div>
           </div>
         </GroupList>
+        <GroupList title="显示">
+          <Row title="在桌面显示悬浮工具栏" description="快速访问输入法状态与常用功能">
+            <Switch
+              checked={floatingToolbar.enabled}
+              onChange={(enabled) => onToolbarChange({ enabled })}
+            />
+          </Row>
+        </GroupList>
+        {showToolbarComponents && (
+          <GroupList title="按钮">
+            <div className={settings.groupBlock}>
+              <Checks
+                legend="按钮"
+                description="勾选要显示在悬浮工具栏上的按钮"
+                items={[
+                  // The mode switch is the toolbar's reason to exist, so its box is drawn checked and cannot be cleared.
+                  {
+                    value: "mode_switch" as const,
+                    label: (
+                      <>
+                        中英文切换
+                        <span className={settings.toolbarRequiredLabel}>始终显示</span>
+                      </>
+                    ),
+                    checked: true,
+                    disabled: true,
+                  },
+                  ...floatingToolbarOptions
+                    .filter(([, , capability]) => !capability || !host || host[capability])
+                    .map(([key, label]) => ({ value: key, label, checked: floatingToolbar[key] })),
+                ]}
+                onChange={(key, checked) => {
+                  if (key !== "mode_switch") onToolbarChange({ [key]: checked });
+                }}
+              />
+            </div>
+          </GroupList>
+        )}
         <GroupList title="尺寸">
           {showToolbarAppearance ? (
             <>
@@ -137,39 +170,9 @@ export function FloatingToolbarSettingsPage() {
               </SelectRow>
             </>
           ) : (
-            <FloatingToolbarPlatformNotice />
+            <FloatingToolbarPlatformNotice buttons={showToolbarComponents} />
           )}
         </GroupList>
-        {showToolbarComponents && (
-          <GroupList title="按钮">
-            <div className={settings.groupBlock}>
-              <Checks
-                legend="工具栏组件"
-                description="勾选要显示在悬浮工具栏中的功能"
-                items={[
-                  // The mode switch is the toolbar's reason to exist, so its box is drawn checked and cannot be cleared.
-                  {
-                    value: "mode_switch" as const,
-                    label: (
-                      <>
-                        中英文切换
-                        <span className={settings.toolbarRequiredLabel}>始终显示</span>
-                      </>
-                    ),
-                    checked: true,
-                    disabled: true,
-                  },
-                  ...floatingToolbarOptions
-                    .filter(([, , capability]) => !capability || !host || host[capability])
-                    .map(([key, label]) => ({ value: key, label, checked: floatingToolbar[key] })),
-                ]}
-                onChange={(key, checked) => {
-                  if (key !== "mode_switch") onToolbarChange({ [key]: checked });
-                }}
-              />
-            </div>
-          </GroupList>
-        )}
       </div>
     </fieldset>
   );

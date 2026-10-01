@@ -162,11 +162,11 @@ test("Harmony appearance names only the surfaces the form factor actually has", 
     }),
   );
   expect(screen.getByRole("region", { name: "候选栏预览" })).toBeTruthy();
-  expect(screen.getByRole("combobox", { name: "候选栏字号" })).toBeTruthy();
-  expect(screen.getByRole("combobox", { name: "候选栏预编辑字号" })).toBeTruthy();
+  expect(screen.getByRole("combobox", { name: "字号" })).toBeTruthy();
+  expect(screen.getByRole("combobox", { name: "预编辑字号" })).toBeTruthy();
   expect(screen.getByRole("combobox", { name: "候选栏预编辑" })).toBeTruthy();
   expect(screen.queryByText("候选窗口预览")).toBeNull();
-  expect(screen.queryByLabelText("候选窗字号")).toBeNull();
+  expect(screen.queryByRole("combobox", { name: "候选窗预编辑" })).toBeNull();
 
   // The phone hides the physical-keyboard shortcut page everywhere, the sidebar included: a sidebar entry here was a button `selectPage` refused, and asserting the page's text passed only because the hidden fieldset stays in the DOM.
   expect(screen.queryByRole("button", { name: "快捷键" })).toBeNull();

@@ -18,14 +18,13 @@ test("candidate sizing controls report typed preference patches", () => {
   render(
     <CandidateSizingSection
       preferences={preferences}
-      mobile={false}
       showFontControls
       showPreeditFont
       onChange={onChange}
     />,
   );
 
-  fireEvent.change(screen.getByLabelText("候选窗字号"), { target: { value: "20" } });
+  fireEvent.change(screen.getByLabelText("字号"), { target: { value: "20" } });
   expect(onChange).toHaveBeenCalledWith({ candidate_font_size: 20 });
 });
 
@@ -33,13 +32,12 @@ test("candidate sizing controls honor host capability limits", () => {
   render(
     <CandidateSizingSection
       preferences={preferences}
-      mobile
       showFontControls={false}
       showPreeditFont={false}
       onChange={vi.fn()}
     />,
   );
 
-  expect(screen.queryByLabelText("候选栏字号")).toBeNull();
-  expect(screen.queryByLabelText("候选栏预编辑字号")).toBeNull();
+  expect(screen.queryByLabelText("字号")).toBeNull();
+  expect(screen.queryByLabelText("预编辑字号")).toBeNull();
 });

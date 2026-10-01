@@ -203,7 +203,7 @@ test("toolbar scale is hidden while Linux component choices remain available", a
   expect(screen.getByLabelText("在桌面显示悬浮工具栏")).toBeTruthy();
   expect(screen.queryByLabelText("工具栏缩放")).toBeNull();
   expect(screen.queryByLabelText("图标尺寸")).toBeNull();
-  expect(screen.getByText("工具栏组件")).toBeTruthy();
+  expect(screen.getByRole("group", { name: "按钮" })).toBeTruthy();
   menuOnly.unmount();
 
   // A host that draws its own toolbar keeps the full set.
@@ -236,9 +236,9 @@ test("candidate appearance follows host capabilities", async () => {
     }),
   });
   await settingsFormReady();
-  expect(screen.queryByLabelText("候选窗主字体")).toBeNull();
-  expect(screen.queryByLabelText("候选窗字号")).toBeNull();
-  expect(screen.queryByLabelText("候选窗预编辑字号")).toBeNull();
+  expect(screen.queryByLabelText("主字体")).toBeNull();
+  expect(screen.queryByLabelText("字号")).toBeNull();
+  expect(screen.queryByLabelText("预编辑字号")).toBeNull();
   expect(screen.getByLabelText("候选强调色")).toBeTruthy();
   expect(screen.getByLabelText("候选选中色")).toBeTruthy();
   expect(screen.queryByLabelText("候选悬停色")).toBeNull();
@@ -274,9 +274,9 @@ test("Linux offers the border colour Fcitx5 draws and says which host each colou
     "Fcitx5 经典界面中编号跟随正文颜色、固定候选不单独着色，此项仅对 IBus 生效",
   );
   expect(captions).toHaveLength(2);
-  // Each caption is the description of its colour's row, beside the row title.
-  expect(captions[0].parentElement?.textContent).toContain("候选强调色");
-  expect(captions[1].parentElement?.textContent).toContain("候选编号颜色");
+  // Each caption is the description of its colour's row, beside the row title; the number colour comes before the accent, right after the text it numbers.
+  expect(captions[0].parentElement?.textContent).toContain("候选编号颜色");
+  expect(captions[1].parentElement?.textContent).toContain("候选强调色");
 });
 
 test.each([
@@ -337,10 +337,10 @@ test("Linux panel font takes the family and size but not a preedit size", async 
     }),
   });
   await settingsFormReady();
-  expect(screen.getByLabelText("候选窗主字体")).toBeTruthy();
-  expect(screen.getByLabelText("候选窗字号")).toBeTruthy();
+  expect(screen.getByLabelText("主字体")).toBeTruthy();
+  expect(screen.getByLabelText("字号")).toBeTruthy();
   // The application draws the composition there, so a preedit size would change nothing.
-  expect(screen.queryByLabelText("候选窗预编辑字号")).toBeNull();
+  expect(screen.queryByLabelText("预编辑字号")).toBeNull();
   expect(screen.queryByText("当前宿主的候选窗口不支持自定义字体或字号。")).toBeNull();
 });
 
@@ -353,13 +353,13 @@ test("Windows candidate appearance keeps native controls", async () => {
     }),
   });
   await settingsFormReady();
-  expect(screen.getByLabelText("候选窗字号")).toBeTruthy();
+  expect(screen.getByLabelText("字号")).toBeTruthy();
   expect(screen.getByLabelText("候选强调色")).toBeTruthy();
   expect(screen.getByLabelText("候选边框色")).toBeTruthy();
   expect(screen.getByLabelText("候选悬停色")).toBeTruthy();
   expect(screen.queryByText(/Fcitx5 经典界面/)).toBeNull();
   // Windows places its own card, so pinning it is a real choice there.
-  expect(screen.getByLabelText("候选窗口跟随光标")).toBeTruthy();
+  expect(screen.getByLabelText("跟随光标")).toBeTruthy();
 });
 
 test("macOS candidate appearance exposes the shared English face control", async () => {
@@ -371,8 +371,8 @@ test("macOS candidate appearance exposes the shared English face control", async
     }),
   });
   await settingsFormReady();
-  expect(screen.getByLabelText("候选窗英文字体")).toBeTruthy();
-  expect(screen.getByLabelText("候选窗主字体")).toBeTruthy();
+  expect(screen.getByLabelText("英文字体")).toBeTruthy();
+  expect(screen.getByLabelText("主字体")).toBeTruthy();
 });
 
 test("Linux candidate appearance offers the English face, which leads the panel's Pango family list", async () => {
@@ -385,11 +385,11 @@ test("Linux candidate appearance offers the English face, which leads the panel'
     }),
   });
   await settingsFormReady();
-  const english = screen.getByLabelText("候选窗英文字体") as HTMLInputElement;
+  const english = screen.getByLabelText("英文字体") as HTMLInputElement;
   // Unset follows the primary family, which is what the panel draws until one is chosen.
   expect(english.value).toBe("Noto Sans SC");
   expect(screen.getByText(/未设置时跟随候选主字体/)).toBeTruthy();
-  expect(screen.getByLabelText("候选窗主字体")).toBeTruthy();
+  expect(screen.getByLabelText("主字体")).toBeTruthy();
 });
 
 test("Android candidate appearance exposes native font and color controls", async () => {
@@ -404,9 +404,9 @@ test("Android candidate appearance exposes native font and color controls", asyn
     }),
   });
   await settingsFormReady();
-  expect(screen.getByLabelText("候选栏英文字体")).toBeTruthy();
-  expect(screen.getByLabelText("候选栏主字体")).toBeTruthy();
-  expect(screen.getByLabelText("候选栏字号")).toBeTruthy();
+  expect(screen.getByLabelText("英文字体")).toBeTruthy();
+  expect(screen.getByLabelText("主字体")).toBeTruthy();
+  expect(screen.getByLabelText("字号")).toBeTruthy();
   expect(screen.getByLabelText("候选强调色")).toBeTruthy();
   expect(screen.getByLabelText("候选悬停色")).toBeTruthy();
   expect(screen.getByLabelText("候选边框色")).toBeTruthy();
@@ -417,7 +417,7 @@ test("a host that does not place its own card hides the follow-cursor choice", a
   // a setting the host cannot honour.
   mount({ host: capabilities({ platform: "linux", candidate_follow_cursor: false }) });
   await settingsFormReady();
-  expect(screen.queryByLabelText("候选窗口跟随光标")).toBeNull();
+  expect(screen.queryByLabelText("跟随光标")).toBeNull();
 });
 
 test("a host with one commit path is not offered a choice between three", async () => {
@@ -562,11 +562,11 @@ test("the candidate English font follows the capability rather than a list of pl
       />,
     );
   appearance(true);
-  expect(await screen.findByLabelText("候选窗英文字体")).toBeTruthy();
+  expect(await screen.findByLabelText("英文字体")).toBeTruthy();
   cleanup();
   appearance(false);
-  await screen.findByLabelText("候选窗主字体");
-  expect(screen.queryByLabelText("候选窗英文字体")).toBeNull();
+  await screen.findByLabelText("主字体");
+  expect(screen.queryByLabelText("英文字体")).toBeNull();
 });
 
 test("a host that can enumerate microphones gets the picker, whatever it is called", async () => {

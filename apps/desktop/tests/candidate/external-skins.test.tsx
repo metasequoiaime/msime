@@ -111,7 +111,7 @@ function packageCard(
   return <ExternalSkinCard {...cardProps} skin={skin} {...props} />;
 }
 
-// The theme page, where each package is a card of the carousel and the directory is the 外部皮肤 row of the 外观 group.
+// The theme page, where each package is a card of the carousel and the directory is the 外部皮肤 row of the 更多皮肤 group.
 function openSkinPage(client: Partial<SettingsClient> = {}) {
   return render(
     <SettingsPage
@@ -686,7 +686,7 @@ test("an external card is styled as the built-in theme cards are", async () => {
   expect(toggle.firstElementChild?.className).toBe(settingsStyle.skinSwitchKnob(false));
   // The title carries the drawn mode as the built-in titles do.
   expect(card.querySelector("[data-skin-card-header] span")?.textContent).toBe(
-    "Sample skin (Dark)",
+    "Sample skin（深色）",
   );
   expect(within(card).getByRole("button", { name: "预览浅色" }).className).toBe(
     settingsStyle.skinPreviewSwitch,

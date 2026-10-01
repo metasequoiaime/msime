@@ -3331,6 +3331,83 @@ test("the touch toolbar switches appear only on a host that reads them and save 
   });
 });
 
+test("the theme page runs from the colour mode to the per-surface overrides", async () => {
+  render(
+    <SettingsPage
+      initialPage="skin"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        scanSkinCatalog: vi.fn().mockResolvedValue({ directory: "", packages: [], issues: [] }),
+        host: {
+          platform: "linux",
+          candidate_panel_limit: "fcitx_theme",
+          candidate_row_colors: true,
+          candidate_selection_appearance: true,
+          candidate_border_color: true,
+        } as HostCapabilities,
+      }}
+    />,
+  );
+  await settingsReady();
+  const skin = screen.getByRole("group", { name: "主题" });
+  const groups = [...skin.querySelectorAll("[data-group-title]")].map((title) => title.textContent);
+  expect(groups).toEqual(["明暗", "更多皮肤", "自定义主题", "高级"]);
+  // The colour mode is its own group ahead of the cards, whose light/dark preview starts from it.
+  const mode = within(skin).getByRole("radiogroup", { name: "颜色模式" });
+  const firstCard = skin.querySelector("article")!;
+  expect(mode.compareDocumentPosition(firstCard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  // The colours run from the background to the frame.
+  const colours = [
+    ...within(skin)
+      .getByRole("region", { name: "自定义主题" })
+      .querySelectorAll("[data-row-title]"),
+  ].map((title) => title.textContent);
+  expect(colours).toEqual([
+    "候选表面色",
+    "候选文字颜色",
+    "候选编号颜色",
+    "候选强调色",
+    "候选选中色",
+    "候选悬停色",
+    "候选边框色",
+  ]);
+  // The Linux panel note leads the page, ahead of the groups whose skins and colours that panel ignores.
+  const note = within(skin).getByText(/Fcitx5 正在使用你在 Fcitx5 配置中选择的经典界面主题/);
+  expect(note.compareDocumentPosition(mode) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+
+test("the floating toolbar page leads with its preview, then 显示, 按钮 and 尺寸", async () => {
+  render(
+    <SettingsPage
+      initialPage="floating-toolbar"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: {
+          platform: "windows",
+          floating_toolbar: true,
+          floating_toolbar_components: true,
+          floating_toolbar_appearance: true,
+        } as HostCapabilities,
+      }}
+    />,
+  );
+  await settingsReady();
+  const toolbar = screen.getByRole("group", { name: "悬浮工具栏" });
+  const preview = within(toolbar).getByLabelText("悬浮工具栏预览");
+  const groups = [...toolbar.querySelectorAll("[data-group-title]")];
+  expect(groups.map((title) => title.textContent)).toEqual(["显示", "按钮", "尺寸"]);
+  expect(
+    preview.compareDocumentPosition(groups[0]!) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  // The preview is its own block, not a row of 显示.
+  expect(
+    within(screen.getByRole("region", { name: "显示" })).queryByLabelText("悬浮工具栏预览"),
+  ).toBeNull();
+  expect(within(toolbar).getByRole("group", { name: "按钮" })).toBeTruthy();
+});
+
 test("the iOS skin page hands the candidate strip to the desktop candidate skin", async () => {
   const load = vi.fn().mockResolvedValue({
     soundEnabled: true,
@@ -3570,10 +3647,10 @@ test("candidate appearance settings persist and use Windows baseline defaults", 
   expect((within(layout).getByRole("radio", { name: "纵向" }) as HTMLInputElement).checked).toBe(
     true,
   );
-  expect((screen.getByLabelText("候选窗字号") as HTMLSelectElement).value).toBe("18");
-  expect((screen.getByLabelText("候选窗预编辑字号") as HTMLSelectElement).value).toBe("15");
+  expect((screen.getByLabelText("字号") as HTMLSelectElement).value).toBe("18");
+  expect((screen.getByLabelText("预编辑字号") as HTMLSelectElement).value).toBe("15");
   fireEvent.click(within(layout).getByRole("radio", { name: "横向" }));
-  fireEvent.change(screen.getByLabelText("候选窗字号"), { target: { value: "20" } });
+  fireEvent.change(screen.getByLabelText("字号"), { target: { value: "20" } });
   fireEvent.click(screen.getByRole("button", { name: "主题" }));
   expect(screen.getByRole("switch", { name: /跟随系统/ }).getAttribute("aria-checked")).toBe(
     "true",
@@ -3621,7 +3698,7 @@ test("font family controls validate drafts and save Unicode without touching the
     preferences,
   }));
   const mounted = render(<SettingsPage client={{ load: async () => initial, save }} />);
-  const primary = await screen.findByLabelText("候选窗主字体");
+  const primary = await screen.findByLabelText("主字体");
   expect((primary as HTMLInputElement).value).toBe("Noto Sans SC");
   // An empty family holds the automatic save back, and submitting the form does not force one.
   fireEvent.change(primary, { target: { value: "" } });
@@ -3668,7 +3745,7 @@ test("the candidate window page has no fallback font editor and keeps the stored
       }}
     />,
   );
-  const primary = await screen.findByLabelText("候选窗主字体");
+  const primary = await screen.findByLabelText("主字体");
   expect(screen.queryByRole("button", { name: "添加补充字体" })).toBeNull();
   expect(screen.queryByLabelText(/^补充字体/)).toBeNull();
   expect(screen.queryByText(/补充字体/)).toBeNull();
@@ -3698,7 +3775,7 @@ test("on Windows the main font leads the fallback chain", async () => {
       }}
     />,
   );
-  const primary = await screen.findByLabelText("候选窗主字体");
+  const primary = await screen.findByLabelText("主字体");
   for (const typed of ["L", "LX", "LXGW WenKai"])
     fireEvent.change(primary, { target: { value: typed } });
   saveSettingsNow();
@@ -4567,6 +4644,11 @@ test("candidate text colour loads, previews, saves and resets to theme", async (
   expect(preview.style.getPropertyValue("--cand-text")).toBe("#123456");
   fireEvent.change(color, { target: { value: "#abcdef" } });
   expect(preview.style.getPropertyValue("--cand-num")).toBe("#ABCDEF9D");
+  // The 自定义 card on 主题, the preview next to the pickers now that 候选窗口 has none, redraws from the same draft.
+  const customCard = document.querySelector<HTMLElement>(
+    'article [data-skin-preview][data-global-theme="custom"]',
+  )!;
+  expect(customCard.style.getPropertyValue("--cand-text")).toBe("#ABCDEF");
   expect(save).not.toHaveBeenCalled();
   saveSettingsNow();
   await screen.findByText("已保存");
@@ -4676,8 +4758,8 @@ test("complete candidate and preedit font sizes load, preview independently and 
     .fn()
     .mockImplementation(async (_revision, preferences) => ({ ...saved, revision: 8, preferences }));
   render(<SettingsPage initialPage="appearance" client={{ load: async () => saved, save }} />);
-  const size = (await screen.findByLabelText("候选窗字号")) as HTMLSelectElement;
-  const preedit = screen.getByLabelText("候选窗预编辑字号") as HTMLSelectElement;
+  const size = (await screen.findByLabelText("字号")) as HTMLSelectElement;
+  const preedit = screen.getByLabelText("预编辑字号") as HTMLSelectElement;
   expect(size.value).toBe("19");
   expect(preedit.value).toBe("27");
   expect([...size.options].map((option) => option.value)).toEqual(
@@ -4723,7 +4805,7 @@ test("appearance preview follows drafts and skin selection before they are saved
       name: "横向",
     }),
   );
-  fireEvent.change(screen.getByLabelText("候选窗字号"), { target: { value: "20" } });
+  fireEvent.change(screen.getByLabelText("字号"), { target: { value: "20" } });
   fireEvent.change(screen.getByLabelText("每页候选项数量"), { target: { value: "9" } });
   // The brand mark leads the top row, ahead of the reading.
   expect(preview.querySelector(".pinyin > .candidate-brand + .text")).not.toBeNull();
@@ -5629,7 +5711,7 @@ test("a host without the defaults command shows no restore button", async () => 
   expect(screen.queryByRole("button", { name: "恢复默认设置" })).toBeNull();
 });
 
-// The reference window's 外观 page, in its order. Only the sections it also has are pinned, and only their relative order, so a host that hides a section (no candidate font control) does not fail this. Its colour and theme sections are on the 主题 page now, as the design groups them.
+// The 候选窗口 page no longer follows the reference window's 外观 page either: it runs basic to advanced (see the appearance order test below), and only the sections the reference also has are pinned there. Its colour and theme sections are on the 主题 page, which is their only entry now.
 // 输入页不再沿用参考窗口的顺序，改按「基础 → 进阶」排（见下面的输入页顺序用例），规则和外观页那条相同：只钉列出的那些节，只钉它们的相对顺序。列表之外的设置（全角输入、整句联想、英文建议等）可以在所属组里自由移动，不用改列表。
 // A section title is the element's own text plus a nested <small> description, so read only the
 // direct text nodes: "中文标点" has to stay distinguishable from "中文标点后按空格转换".
@@ -5668,14 +5750,14 @@ const referenceSections: {
     page: "appearance",
     button: "候选窗口",
     titles: [
-      "候选窗口跟随光标",
-      "候选窗主字体",
-      "候选窗字号",
-      "候选窗预编辑字号",
-      "每页候选项数量",
       "候选项排列方式",
-      "行内预编辑",
+      "每页候选项数量",
+      "跟随光标",
+      "主字体",
+      "字号",
+      "预编辑字号",
       "候选窗预编辑",
+      "行内预编辑",
     ],
   },
   {
@@ -5744,7 +5826,7 @@ const referenceSections: {
   {
     page: "floating-toolbar",
     button: "悬浮工具栏",
-    titles: ["在桌面显示悬浮工具栏", "工具栏缩放", "图标尺寸", "工具栏组件"],
+    titles: ["在桌面显示悬浮工具栏", "按钮", "工具栏缩放", "图标尺寸"],
   },
   {
     page: "screen-keyboard",
@@ -6038,7 +6120,7 @@ const referenceOptions: {
   options: string[];
 }[] = [
   {
-    // A segmented control in the design's 窗口布局 group, with the reference's two choices.
+    // A segmented control in the page's 布局 group, with the reference's two choices.
     page: "appearance",
     button: "候选窗口",
     control: "候选项排列方式",
@@ -6060,13 +6142,13 @@ const referenceOptions: {
   {
     page: "appearance",
     button: "候选窗口",
-    control: "候选窗字号",
+    control: "字号",
     options: Array.from({ length: 21 }, (_, index) => String(index + 12)),
   },
   {
     page: "appearance",
     button: "候选窗口",
-    control: "候选窗预编辑字号",
+    control: "预编辑字号",
     options: Array.from({ length: 21 }, (_, index) => String(index + 12)),
   },
   {
@@ -6286,7 +6368,7 @@ test.each(optionHosts)(
 );
 
 test.each(optionHosts)(
-  "the appearance page follows the reference window's order on %s",
+  "the appearance page runs basic to advanced on %s",
   async (_platform, host) => {
     render(
       <SettingsPage
@@ -6294,30 +6376,57 @@ test.each(optionHosts)(
         client={{
           load: vi.fn().mockResolvedValue(initial),
           save: vi.fn(),
-          host,
+          host: { ...host, candidate_page_number: true, shuangpin_preedit: true },
         }}
       />,
     );
     await settingsReady();
     const appearance = screen.getByRole("group", { name: "候选窗口" });
     const present = sectionTitles(appearance);
-    // The reference's 外观 page less its colour and theme sections, which the design moves to 主题.
-    const reference = [
-      "候选窗口跟随光标",
-      "候选窗主字体",
-      "候选窗字号",
-      "候选窗预编辑字号",
-      "每页候选项数量",
+    // The layout of the candidates first, then how big they are drawn, the window around them, and the preedit last. The page no longer follows the reference window's order, and its colours and light/dark are on 主题 only, which 窗口样式 links to.
+    const expected = [
+      "布局",
       "候选项排列方式",
-      "行内预编辑",
+      "每页候选项数量",
+      "显示页码",
+      "跟随光标",
+      "字体与大小",
+      "候选字体",
+      "主字体",
+      "字号",
+      "预编辑字号",
+      "窗口样式",
+      "预编辑",
       "候选窗预编辑",
+      "双拼预编辑",
+      "行内预编辑",
     ];
-    const ordered = present.filter((text) => reference.includes(text));
-    expect(ordered).toEqual(reference.filter((title) => ordered.includes(title)));
-    // Every host shows 候选窗主字体 now, Windows included, so none may go missing.
-    expect(ordered.length).toBe(reference.length);
+    const ordered = present.filter((text) => expected.includes(text));
+    expect(ordered).toEqual(expected);
+    // One entry per preference: the theme and the colour pickers are not repeated here.
+    expect(within(appearance).queryByRole("combobox", { name: "主题" })).toBeNull();
+    expect(appearance.querySelector('input[type="color"]')).toBeNull();
+    const link = within(appearance).getByRole("button", { name: "颜色与明暗" });
+    fireEvent.click(link);
+    expect(screen.getByRole("group", { name: "主题" }).hidden).toBe(false);
   },
 );
+
+test("the page number row needs a host that draws one", async () => {
+  render(
+    <SettingsPage
+      initialPage="appearance"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: { platform: "windows", candidate_font_controls: true } as HostCapabilities,
+      }}
+    />,
+  );
+  await settingsReady();
+  const appearance = screen.getByRole("group", { name: "候选窗口" });
+  expect(within(appearance).queryByLabelText("显示页码")).toBeNull();
+});
 
 test("macOS enables the shuangpin profile menu only under shuangpin", async () => {
   render(
@@ -7774,9 +7883,9 @@ test("an edit made while a save is in flight is kept and saved after it", async 
   expect(client.save).toHaveBeenCalledTimes(1);
   expect(screen.getByText("正在保存…")).toBeTruthy();
   // Nothing is locked while the first save runs.
-  fireEvent.change(screen.getByLabelText("候选窗字号"), { target: { value: "20" } });
+  fireEvent.change(screen.getByLabelText("字号"), { target: { value: "20" } });
   await act(async () => finishes[0](initial));
-  expect((screen.getByLabelText("候选窗字号") as HTMLSelectElement).value).toBe("20");
+  expect((screen.getByLabelText("字号") as HTMLSelectElement).value).toBe("20");
   await waitFor(() => expect(client.save).toHaveBeenCalledTimes(2));
   expect(client.save).toHaveBeenLastCalledWith(8, {
     ...initial.preferences,

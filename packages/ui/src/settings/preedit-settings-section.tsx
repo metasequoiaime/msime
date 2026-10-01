@@ -1,6 +1,5 @@
 import { Row, Switch } from "../core/platform-controls";
 import { PreeditStyleSelect } from "./preedit-style-select";
-import { SwitchRow } from "./switch-row";
 
 export type TsfPreeditStyle = "raw" | "pinyin" | "empty";
 export type CandidatePreeditStyle = "pinyin" | "empty";
@@ -9,26 +8,23 @@ export interface PreeditSettingsPreferences {
   shuangpin_preedit_uses_raw?: boolean;
   tsf_preedit_style?: TsfPreeditStyle;
   candidate_preedit_style?: CandidatePreeditStyle;
-  show_candidate_page_number?: boolean;
 }
 
 export interface PreeditSettingsSectionProps {
   preferences: PreeditSettingsPreferences;
   mobile: boolean;
   showShuangpinPreedit: boolean;
-  showPageNumber?: boolean;
   inlinePreedit?: boolean;
   inlinePreeditBusy: boolean;
   onChange: (patch: Partial<PreeditSettingsPreferences>) => void;
   onInlinePreeditChange?: (enabled: boolean) => void;
 }
 
-/** Shared preedit presentation controls for physical and touch keyboard hosts: the rows of the 候选窗口 page's 预编辑 group. */
+/** Shared preedit presentation controls for physical and touch keyboard hosts: the rows of the 候选窗口 page's 预编辑 group, the candidate window's own preedit first and the one written into the app last. */
 export function PreeditSettingsSection({
   preferences,
   mobile,
   showShuangpinPreedit,
-  showPageNumber = false,
   inlinePreedit,
   inlinePreeditBusy,
   onChange,
@@ -36,6 +32,15 @@ export function PreeditSettingsSection({
 }: PreeditSettingsSectionProps) {
   return (
     <>
+      <Row title={mobile ? "候选栏预编辑" : "候选窗预编辑"}>
+        <PreeditStyleSelect
+          mode="candidate"
+          value={preferences.candidate_preedit_style ?? "pinyin"}
+          onChange={(value) =>
+            onChange({ candidate_preedit_style: value as CandidatePreeditStyle })
+          }
+        />
+      </Row>
       {showShuangpinPreedit && (
         <Row
           title="双拼预编辑"
@@ -67,23 +72,6 @@ export function PreeditSettingsSection({
             onChange={(value) => onChange({ tsf_preedit_style: value as TsfPreeditStyle })}
           />
         </Row>
-      )}
-      <Row title={mobile ? "候选栏预编辑" : "候选窗预编辑"}>
-        <PreeditStyleSelect
-          mode="candidate"
-          value={preferences.candidate_preedit_style ?? "pinyin"}
-          onChange={(value) =>
-            onChange({ candidate_preedit_style: value as CandidatePreeditStyle })
-          }
-        />
-      </Row>
-      {showPageNumber && (
-        <SwitchRow
-          title="显示页码"
-          description="显示候选列表的当前页与总页数；关闭后仍可正常翻页。"
-          checked={preferences.show_candidate_page_number !== false}
-          onChange={(checked) => onChange({ show_candidate_page_number: checked })}
-        />
       )}
     </>
   );

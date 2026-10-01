@@ -89,9 +89,21 @@ export function SkinSettingsPage() {
       <fieldset disabled={busy} hidden={page !== "skin"} aria-label="主题">
         <div className={settings.groups}>
           <SkinPlatformNotice mobile={mobilePlatform} linux={linuxPlatform} />
+          {/* The note says the panel ignores this page's skins and colours, which are edited nowhere else, so it stays here as well as under the 候选窗口 preview. */}
           {host?.candidate_panel_limit && (
             <CandidatePanelLimitSection limit={host.candidate_panel_limit} />
           )}
+          {/* The colour mode comes before the cards because every card's light/dark preview starts from it. */}
+          <GroupList title="明暗">
+            <Row title="颜色模式" description="设置窗口和各界面的默认明暗模式">
+              <Segmented
+                aria-label="颜色模式"
+                options={themeModeOptions}
+                value={themeMode}
+                onChange={(theme) => onPreferencesChange({ theme })}
+              />
+            </Row>
+          </GroupList>
           <ThemeCarousel
             labels={[
               ...themeCatalog.map((entry) => entry.title),
@@ -123,7 +135,7 @@ export function SkinSettingsPage() {
                   <div className={settings.skinCardHeader} data-skin-card-header="">
                     <div className={settings.skinCardBody}>
                       <span className={settings.skinCardTitle}>
-                        {entry.title} ({previewTheme === "dark" ? "Dark" : "Light"})
+                        {entry.title}（{previewTheme === "dark" ? "深色" : "浅色"}）
                         {selected && <span className={settings.skinCardInUse}>使用中</span>}
                       </span>
                       <span className={settings.skinCardDescription}>
@@ -252,21 +264,21 @@ export function SkinSettingsPage() {
               {published === "private" ? "已保存到你的皮肤库，仅自己可见。" : "已发布到社区。"}
             </p>
           )}
-          <GroupList title="外观">
-            <Row title="颜色模式" description="设置窗口和各界面的默认明暗模式">
-              <Segmented
-                aria-label="颜色模式"
-                options={themeModeOptions}
-                value={themeMode}
-                onChange={(theme) => onPreferencesChange({ theme })}
-              />
-            </Row>
+          <GroupList title="更多皮肤">
             <ExternalSkinDirectoryRow
               skins={skins}
               scannable={!!client.scanSkinCatalog}
               openable={!!client.openSkinDirectory}
               importsSkin={importsSkin}
             />
+            {/* A desktop host with a community client lists 社区 in its sidebar, and its candidate skins are published from their cards above; this row is the phone's route to the keyboard-skin gallery. */}
+            {mobilePlatform && client.communitySkins && (
+              <Row title="社区皮肤" description="看看别人做的键盘皮肤，可以直接试用或保存">
+                <button type="button" className="secondary" onClick={() => openCommunity("all")}>
+                  去社区发现皮肤
+                </button>
+              </Row>
+            )}
           </GroupList>
           <GroupList title="自定义主题">
             {mobileKeyboardFeedback?.candidatePaletteFollowsDesktop !== undefined && (
@@ -326,14 +338,6 @@ export function SkinSettingsPage() {
                   onClose={() => setShowTouchSkinEditor(false)}
                 />
               </div>
-            )}
-            {/* A desktop host with a community client lists 社区 in its sidebar, and its candidate skins are published from their cards below; this row is the phone's route to the keyboard-skin gallery. */}
-            {mobilePlatform && client.communitySkins && (
-              <Row title="社区皮肤" description="看看别人做的键盘皮肤，可以直接试用或保存">
-                <button type="button" className="secondary" onClick={() => openCommunity("all")}>
-                  去社区发现皮肤
-                </button>
-              </Row>
             )}
           </GroupList>
           {/* Each surface can still hold its own light or dark over the colour mode; the design folds these under 高级 on the theme page. */}
