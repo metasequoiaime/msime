@@ -392,8 +392,8 @@ int main() {
         assert([inputMode.title isEqualToString:@"英"]);
         [panel updateEnglishInputMode:NO
                  englishCandidateMode:YES
-                    japaneseInputMode:YES
-                      koreanInputMode:NO
+                               scheme:@"japanese"
+                          schemeTitle:@"日语"
                              capsLock:NO
                 chinesePunctuationEnabled:YES
                          fullWidthEnabled:NO
@@ -401,8 +401,8 @@ int main() {
         assert([inputMode.title isEqualToString:@"En"]);
         [panel updateEnglishInputMode:NO
                  englishCandidateMode:NO
-                    japaneseInputMode:NO
-                      koreanInputMode:YES
+                               scheme:@"korean"
+                          schemeTitle:@"韩语"
                              capsLock:NO
                 chinesePunctuationEnabled:YES
                          fullWidthEnabled:NO
@@ -410,13 +410,51 @@ int main() {
         assert([inputMode.title isEqualToString:@"한"]);
         [panel updateEnglishInputMode:YES
                  englishCandidateMode:NO
-                    japaneseInputMode:NO
-                      koreanInputMode:YES
+                               scheme:@"korean"
+                          schemeTitle:@"韩语"
                              capsLock:NO
                 chinesePunctuationEnabled:YES
                          fullWidthEnabled:NO
           traditionalChineseOutputEnabled:NO];
         assert([inputMode.title isEqualToString:@"英"]);
+        // The button carries the input menu's badge for each Chinese scheme, and the tooltip names the Shuangpin keymap the glyph cannot.
+        [panel updateEnglishInputMode:NO
+                 englishCandidateMode:NO
+                               scheme:@"shuangpin"
+                          schemeTitle:@"小鹤双拼"
+                             capsLock:NO
+                chinesePunctuationEnabled:YES
+                         fullWidthEnabled:NO
+          traditionalChineseOutputEnabled:NO];
+        assert([inputMode.title isEqualToString:@"双"] && [inputMode.toolTip isEqualToString:@"小鹤双拼 · 切换到英文输入"] &&
+               [inputMode.accessibilityLabel isEqualToString:inputMode.toolTip]);
+        [panel updateEnglishInputMode:YES
+                 englishCandidateMode:NO
+                               scheme:@"shuangpin"
+                          schemeTitle:@"自然码双拼"
+                             capsLock:NO
+                chinesePunctuationEnabled:YES
+                         fullWidthEnabled:NO
+          traditionalChineseOutputEnabled:NO];
+        assert([inputMode.title isEqualToString:@"英"] && [inputMode.toolTip isEqualToString:@"自然码双拼 · 切换到中文输入"]);
+        [panel updateEnglishInputMode:NO
+                 englishCandidateMode:NO
+                               scheme:@"wubi"
+                          schemeTitle:@"五笔 86"
+                             capsLock:NO
+                chinesePunctuationEnabled:YES
+                         fullWidthEnabled:NO
+          traditionalChineseOutputEnabled:NO];
+        assert([inputMode.title isEqualToString:@"五"] && [inputMode.toolTip isEqualToString:@"五笔 86 · 切换到英文输入"]);
+        [panel updateEnglishInputMode:NO
+                 englishCandidateMode:NO
+                               scheme:@"quanpin"
+                          schemeTitle:@"全拼"
+                             capsLock:NO
+                chinesePunctuationEnabled:YES
+                         fullWidthEnabled:NO
+          traditionalChineseOutputEnabled:NO];
+        assert([inputMode.title isEqualToString:@"中"] && [inputMode.toolTip isEqualToString:@"全拼 · 切换到英文输入"]);
 
         FloatingToolbarTestDelegate *delegate = [FloatingToolbarTestDelegate new];
         panel.toolbarDelegate = delegate;

@@ -37,11 +37,11 @@ FOUNDATION_EXPORT NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
           chinesePunctuationEnabled:(BOOL)chinesePunctuationEnabled
                    fullWidthEnabled:(BOOL)fullWidthEnabled
     traditionalChineseOutputEnabled:(BOOL)traditionalChineseOutputEnabled;
-/// The mode button reads A under Caps Lock, then 英 for English, En for English candidates, 日 for the japanese scheme, 한 for the korean scheme and 中 otherwise.
+/// The mode button reads A under Caps Lock, then 英 for English, En for English candidates, and otherwise the scheme's badge - 中 for quanpin, 双 for shuangpin, 五 for wubi, 日 for japanese and 한 for korean, the badges the input menu shows. One glyph cannot tell the Shuangpin keymaps apart, so `schemeTitle` (小鹤双拼, 五笔 86, ...) leads the button's tooltip and accessibility label; nil leaves just the action.
 - (void)updateEnglishInputMode:(BOOL)englishInputMode
          englishCandidateMode:(BOOL)englishCandidateMode
-             japaneseInputMode:(BOOL)japaneseInputMode
-               koreanInputMode:(BOOL)koreanInputMode
+                        scheme:(NSString *)scheme
+                   schemeTitle:(NSString *)schemeTitle
                       capsLock:(BOOL)capsLock
           chinesePunctuationEnabled:(BOOL)chinesePunctuationEnabled
                    fullWidthEnabled:(BOOL)fullWidthEnabled

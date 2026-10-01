@@ -825,8 +825,8 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
 {
     [self updateEnglishInputMode:englishInputMode
              englishCandidateMode:NO
-              japaneseInputMode:NO
-                koreanInputMode:NO
+                         scheme:@"quanpin"
+                    schemeTitle:nil
                        capsLock:NO
               chinesePunctuationEnabled:chinesePunctuationEnabled
                        fullWidthEnabled:fullWidthEnabled
@@ -842,8 +842,8 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
 {
     [self updateEnglishInputMode:englishInputMode
              englishCandidateMode:NO
-              japaneseInputMode:japaneseInputMode
-                koreanInputMode:NO
+                         scheme:japaneseInputMode ? @"japanese" : @"quanpin"
+                    schemeTitle:nil
                        capsLock:capsLock
               chinesePunctuationEnabled:chinesePunctuationEnabled
                        fullWidthEnabled:fullWidthEnabled
@@ -852,17 +852,21 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
 
 - (void)updateEnglishInputMode:(BOOL)englishInputMode
          englishCandidateMode:(BOOL)englishCandidateMode
-             japaneseInputMode:(BOOL)japaneseInputMode
-               koreanInputMode:(BOOL)koreanInputMode
+                        scheme:(NSString *)scheme
+                   schemeTitle:(NSString *)schemeTitle
                       capsLock:(BOOL)capsLock
           chinesePunctuationEnabled:(BOOL)chinesePunctuationEnabled
                    fullWidthEnabled:(BOOL)fullWidthEnabled
     traditionalChineseOutputEnabled:(BOOL)traditionalChineseOutputEnabled
 {
+    NSDictionary<NSString *, NSString *> *schemeBadges =
+        @{@"shuangpin": @"双", @"wubi": @"五", @"japanese": @"日", @"korean": @"한"};
     NSString *inputModeTitle = capsLock ? @"A" :
-        (englishInputMode ? @"英" : (englishCandidateMode ? @"En" : (japaneseInputMode ? @"日" : (koreanInputMode ? @"한" : @"中"))));
+        (englishInputMode ? @"英" : (englishCandidateMode ? @"En" : (schemeBadges[scheme] ?: @"中")));
     _inputModeButton.title = inputModeTitle;
-    _inputModeButton.accessibilityLabel = englishInputMode || englishCandidateMode ? @"切换到中文输入" : @"切换到英文输入";
+    NSString *action = englishInputMode || englishCandidateMode ? @"切换到中文输入" : @"切换到英文输入";
+    _inputModeButton.accessibilityLabel =
+        schemeTitle.length ? [NSString stringWithFormat:@"%@ · %@", schemeTitle, action] : action;
     _punctuationButton.title = chinesePunctuationEnabled ? @"。" : @".";
     _punctuationButton.accessibilityLabel = chinesePunctuationEnabled ? @"切换到西文标点" : @"切换到中文标点";
     _fullWidthButton.title = fullWidthEnabled ? @"全" : @"半";

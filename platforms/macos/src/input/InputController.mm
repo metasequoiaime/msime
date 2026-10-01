@@ -2690,12 +2690,23 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
 - (void)refreshFloatingToolbarState {
     if (!_toolbar || !_appearance) return;
     const BOOL englishCandidateMode = [_view[@"dedicated_english"] boolValue] && !_appearance.englishMode;
-    const BOOL japaneseInputMode = [_view[@"scheme"] integerValue] == 3;
-    const BOOL koreanInputMode = [_view[@"scheme"] integerValue] == msime::mac::KoreanScheme;
+    // The view's scheme numbers, in the Engine's order: quanpin, shuangpin, wubi, japanese, korean.
+    NSArray<NSString *> *schemes = @[@"quanpin", @"shuangpin", @"wubi", @"japanese", @"korean"];
+    const NSInteger index = [_view[@"scheme"] integerValue];
+    NSString *scheme = index >= 0 && index < (NSInteger)schemes.count ? schemes[index] : @"quanpin";
+    NSString *profile = _view[@"shuangpin_profile"];
+    if (![profile isKindOfClass:NSString.class]) profile = _appearance.shuangpinProfile;
+    NSDictionary<NSString *, NSString *> *schemeTitles = @{
+        @"quanpin": @"全拼",
+        @"shuangpin": @(msime::mac::ShuangpinSchemaTitle(profile.UTF8String ?: "")),
+        @"wubi": @"五笔 86",
+        @"japanese": @"日语",
+        @"korean": @"韩语",
+    };
     [_toolbar updateEnglishInputMode:_appearance.englishMode
              englishCandidateMode:englishCandidateMode
-                   japaneseInputMode:japaneseInputMode
-                     koreanInputMode:koreanInputMode
+                              scheme:scheme
+                         schemeTitle:schemeTitles[scheme]
                             capsLock:_capsLock
               chinesePunctuationEnabled:_appearance.runtimeChinesePunctuation
                        fullWidthEnabled:_appearance.runtimeFullWidthInput

@@ -2508,16 +2508,16 @@ static void RecordBaseDeactivation(id object, SEL selector, id sender) {
 - (void)deactivateForDelegate:(id)delegate { (void)delegate; ++self.calls; }
 - (void)updateEnglishInputMode:(BOOL)englishInputMode
          englishCandidateMode:(BOOL)englishCandidateMode
-             japaneseInputMode:(BOOL)japaneseInputMode
-               koreanInputMode:(BOOL)koreanInputMode
+                        scheme:(NSString *)scheme
+                   schemeTitle:(NSString *)schemeTitle
                       capsLock:(BOOL)capsLock
           chinesePunctuationEnabled:(BOOL)chinesePunctuationEnabled
                    fullWidthEnabled:(BOOL)fullWidthEnabled
     traditionalChineseOutputEnabled:(BOOL)traditionalChineseOutputEnabled {
     (void)englishInputMode;
     (void)englishCandidateMode;
-    (void)japaneseInputMode;
-    (void)koreanInputMode;
+    (void)scheme;
+    (void)schemeTitle;
     (void)capsLock;
     (void)chinesePunctuationEnabled;
     (void)fullWidthEnabled;
