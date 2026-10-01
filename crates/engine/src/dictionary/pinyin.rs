@@ -408,9 +408,11 @@ fn exact_sql(table: &str) -> String {
 }
 
 fn range_sql(table: &str) -> String {
-    format!(
-        "SELECT \"key\", \"value\", \"weight\" FROM \"{table}\" WHERE \"key\" >= ? AND \"key\" < ? ORDER BY \"weight\" DESC LIMIT ?"
-    )
+    let mut sql = String::with_capacity(table.len() + 101);
+    sql.push_str("SELECT \"key\", \"value\", \"weight\" FROM \"");
+    sql.push_str(table);
+    sql.push_str("\" WHERE \"key\" >= ? AND \"key\" < ? ORDER BY \"weight\" DESC LIMIT ?");
+    sql
 }
 
 fn batch_sql(table: &str, key_count: usize) -> String {
@@ -498,6 +500,16 @@ mod tests {
         assert_eq!(
             sql,
             "SELECT \"key\", \"value\", \"weight\" FROM \"tbl_2_n\" WHERE \"key\" = ? ORDER BY \"weight\" DESC LIMIT ?"
+        );
+        assert_eq!(sql.capacity(), sql.len());
+    }
+
+    #[test]
+    fn range_sql_writes_the_lookup_statement_directly() {
+        let sql = range_sql("tbl_2_n");
+        assert_eq!(
+            sql,
+            "SELECT \"key\", \"value\", \"weight\" FROM \"tbl_2_n\" WHERE \"key\" >= ? AND \"key\" < ? ORDER BY \"weight\" DESC LIMIT ?"
         );
         assert_eq!(sql.capacity(), sql.len());
     }
