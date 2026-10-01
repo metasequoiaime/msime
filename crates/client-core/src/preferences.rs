@@ -577,6 +577,9 @@ pub struct Preferences {
     pub ui_backend: UiBackend,
     #[serde(default = "enabled_by_default")]
     pub candidate_follow_cursor: bool,
+    /// The current page and the page count (`1/3`) in the candidate window. Display only: paging, the candidate numbers, selection and the paging keys behave the same either way.
+    #[serde(default = "enabled_by_default")]
+    pub candidate_page_indicator: bool,
     /// macOS displays a short, non-activating badge after switching between
     /// Chinese and English input. Other hosts preserve this preference but do
     /// not render the native badge.
@@ -1646,6 +1649,7 @@ impl Default for Preferences {
             diagnostic_log: DiagnosticLogPreferences::default(),
             ui_backend: UiBackend::default(),
             candidate_follow_cursor: true,
+            candidate_page_indicator: true,
             input_mode_hud: true,
             scheme: InputScheme::default(),
             wubi_code_hint: None,

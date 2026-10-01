@@ -185,6 +185,9 @@ pub struct HostCapabilities {
     /// and positions the candidate list itself - cannot honour the choice, so
     /// it does not offer it.
     pub candidate_follow_cursor: bool,
+    /// The host reads `candidate_page_indicator` and drops the page number from its candidate window. A host older than the field sends none and keeps drawing the number, so the switch stays hidden there.
+    #[serde(default)]
+    pub candidate_page_indicator: bool,
     /// The host has more than one way to put a recognized result into the
     /// focused editor, so choosing between them is a real choice. A host with a
     /// single commit path does not offer it: a control with one outcome reads
@@ -494,6 +497,8 @@ impl HostCapabilities {
                 platform,
                 HostPlatform::Windows | HostPlatform::Macos | HostPlatform::Harmony
             ),
+            // Both Linux hosts write the page number into the panel's aux line themselves (IBus `candidate_aux_text`, Fcitx5 `FcitxState::candidateAux`), so they can leave it out. The other hosts draw their page indicators without reading this yet.
+            candidate_page_indicator: platform == HostPlatform::Linux,
             // macOS shows it from a non-activating panel. Harmony shows the same badge from a
             // status-bar panel on a 2in1, which is the one form factor with a hardware keyboard and
             // therefore the one where nothing else on screen says the mode changed; its phone

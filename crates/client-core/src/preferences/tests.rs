@@ -1027,6 +1027,7 @@ fn appearance_preferences_legacy_defaults_and_roundtrip() {
         "custom_theme",
         "ui_backend",
         "candidate_follow_cursor",
+        "candidate_page_indicator",
         "input_mode_hud",
     ] {
         legacy["preferences"].as_object_mut().unwrap().remove(key);
@@ -1050,6 +1051,7 @@ fn appearance_preferences_legacy_defaults_and_roundtrip() {
         toolbar_theme: SettingsTheme::Light,
         ui_backend: UiBackend::Webview2,
         candidate_follow_cursor: false,
+        candidate_page_indicator: false,
         input_mode_hud: false,
         ..Preferences::default()
     };

@@ -187,6 +187,8 @@ fn capabilities_describe_each_host() {
     assert!(linux.candidate_border_color);
     // IBus owns the candidate list's placement, so the host cannot pin it.
     assert!(!linux.candidate_follow_cursor);
+    // Both Linux hosts compose the aux line that carries the page number, so they can leave it out.
+    assert!(linux.candidate_page_indicator);
     // The host chooses the preedit string the panel draws, so the raw keys
     // and the expanded pinyin are both reachable from the shared page.
     assert!(linux.shuangpin_preedit);
@@ -230,6 +232,8 @@ fn capabilities_describe_each_host() {
     assert!(windows.candidate_border_color);
     // Windows positions its own card, so pinning it is a real choice there.
     assert!(windows.candidate_follow_cursor);
+    // The Windows card draws its page indicator without reading the switch, so the page does not offer it.
+    assert!(!windows.candidate_page_indicator);
     let macos = HostCapabilities::for_platform(HostPlatform::Macos);
     assert!(macos.restart_input_method);
     // InputMethodKit controllers identify the active application; the
@@ -247,6 +251,7 @@ fn capabilities_describe_each_host() {
     assert!(macos.candidate_selection_appearance);
     assert!(macos.candidate_border_color);
     assert!(macos.candidate_follow_cursor);
+    assert!(!macos.candidate_page_indicator);
     assert!(macos.panel_shortcuts);
     // Only the two hosts that can put a badge beside the caret claim it; a touch keyboard says
     // the mode on its own key faces, and Windows/Linux draw nothing of the kind.
