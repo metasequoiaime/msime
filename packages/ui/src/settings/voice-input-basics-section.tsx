@@ -1,25 +1,17 @@
 import type { VoiceInputPreferences } from "../index";
 import { asrProviderUpdate } from "../voice/voice-providers";
 import { VoiceInputCoreSection } from "./voice-input-core-section";
-import { VoiceInputIntroSection } from "./voice-input-intro-section";
+import {
+  VoiceInputIntroSection,
+  type VoiceInputIntroSectionProps,
+} from "./voice-input-intro-section";
 
-export interface VoiceInputBasicsSectionProps {
-  localVoice: boolean;
-  localVoiceModelsAvailable: boolean;
-  systemVoice: boolean;
-  systemVoiceHostName: string;
-  android: boolean;
-  ios: boolean;
-  macos: boolean;
-  harmony: boolean;
-  linux: boolean;
-  showVoiceProviderSettings: boolean;
+export interface VoiceInputBasicsSectionProps extends VoiceInputIntroSectionProps {
   localVoiceAvailable: boolean;
   nativeVoicePlatform: boolean;
   harmonyUnsupportedAsr: boolean;
   voiceInput: VoiceInputPreferences;
   updateVoice: (patch: Partial<VoiceInputPreferences>) => void;
-  onOpenVoice?: () => void;
 }
 
 /** Shared voice introduction and recognition enablement/provider controls. */
