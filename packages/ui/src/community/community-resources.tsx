@@ -309,16 +309,14 @@ function ResourceEditor({
                 disabled={busy}
                 onChange={setWord}
               />
-              <label className={style.field}>
-                权重
-                <input
-                  aria-label="社区词条权重"
-                  type="number"
-                  value={weight}
-                  disabled={busy}
-                  onChange={(event) => setWeight(event.target.value)}
-                />
-              </label>
+              <CommunityInputField
+                label="权重"
+                ariaLabel="社区词条权重"
+                type="number"
+                value={weight}
+                disabled={busy}
+                onChange={setWeight}
+              />
               <button type="button" className="secondary" disabled={busy} onClick={addEntry}>
                 添加词条
               </button>

@@ -1,10 +1,11 @@
-import type { ReactNode } from "react";
+import type { InputHTMLAttributes, ReactNode } from "react";
 import * as style from "./community-style";
 
 export interface CommunityInputFieldProps {
   label: ReactNode;
   ariaLabel: string;
   value: string;
+  type?: InputHTMLAttributes<HTMLInputElement>["type"];
   maxLength?: number;
   disabled?: boolean;
   placeholder?: string;
@@ -16,6 +17,7 @@ export function CommunityInputField({
   label,
   ariaLabel,
   value,
+  type,
   maxLength,
   disabled,
   placeholder,
@@ -27,6 +29,7 @@ export function CommunityInputField({
       <input
         className={style.fieldControl}
         aria-label={ariaLabel}
+        type={type}
         maxLength={maxLength}
         value={value}
         disabled={disabled}
