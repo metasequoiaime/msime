@@ -57,6 +57,7 @@ export function settingsCapabilities({
     ? (host.candidate_border_color ?? host.candidate_selection_appearance)
     : true;
   const showCandidateFollowCursor = host ? host.candidate_follow_cursor : false;
+  const showCandidatePageIndicator = host?.candidate_page_indicator === true;
   // A host older than these fields cannot draw them, so an absent flag hides the control.
   const showCandidateWindowScale = host ? host.candidate_window_scale === true : true;
   const showCandidateWindowOpacity = host ? host.candidate_window_opacity === true : true;
@@ -106,6 +107,7 @@ export function settingsCapabilities({
     showCandidateSelectionAppearance,
     showCandidateBorderColor,
     showCandidateFollowCursor,
+    showCandidatePageIndicator,
     showCandidateWindowScale,
     showCandidateWindowOpacity,
     showCandidateCornerRadius,

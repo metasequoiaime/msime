@@ -5,6 +5,7 @@ import { useSettingsForm } from "../settings-form-context";
 import * as settings from "../settings-style";
 import { GroupList } from "../../core/platform-controls";
 import { CandidateFollowCursorSection } from "../candidate-follow-cursor-section";
+import { CandidatePageIndicatorSection } from "../candidate-page-indicator-section";
 import { CandidateSizingSection } from "../candidate-sizing-section";
 import { CandidatePageSizeSection } from "../candidate-page-size-section";
 import { CandidateLayoutSection } from "../candidate-layout-section";
@@ -28,6 +29,7 @@ export function AppearanceSettingsPage() {
     showCandidateEnglishFont,
     showShuangpinPreedit,
     showCandidateFollowCursor,
+    showCandidatePageIndicator,
     showCandidateRowColors,
     showCandidateWindowScale,
     showCandidateWindowOpacity,
@@ -147,6 +149,14 @@ export function AppearanceSettingsPage() {
           />
         </GroupList>
         <GroupList title="翻页">
+          {showCandidatePageIndicator && (
+            <CandidatePageIndicatorSection
+              value={draft.candidate_page_indicator}
+              onChange={(candidate_page_indicator) =>
+                appearanceActions.onPreferencesChange({ candidate_page_indicator })
+              }
+            />
+          )}
           <NavigationSection
             navigation={navigation}
             wordCharacter={wordCharacter}

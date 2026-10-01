@@ -723,6 +723,10 @@ export {
   type CandidateFollowCursorSectionProps,
 } from "./settings/candidate-follow-cursor-section";
 export {
+  CandidatePageIndicatorSection,
+  type CandidatePageIndicatorSectionProps,
+} from "./settings/candidate-page-indicator-section";
+export {
   CandidatePanelLimitSection,
   type CandidatePanelLimit,
   type CandidatePanelLimitSectionProps,
@@ -1304,6 +1308,8 @@ export interface HostCapabilities {
   /** The host rounds its candidate card by `candidate_corner_radius`, ahead of the skin package's radius. */
   candidate_corner_radius?: boolean;
   candidate_follow_cursor: boolean;
+  /** The host can leave the page number out of its candidate window (`candidate_page_indicator`). Absent on a host older than the field. */
+  candidate_page_indicator?: boolean;
   input_mode_hud?: boolean;
   candidate_english_font?: boolean;
   english_suggestions?: boolean;
@@ -1417,6 +1423,8 @@ export type Preferences = {
   /** Candidate card corner radius in points (0-32). Absent or null follows the skin package's radius, then the host's own. */
   candidate_corner_radius?: number | null;
   candidate_follow_cursor?: boolean;
+  /** Show the current page and the page count in the candidate window. Absent means shown. */
+  candidate_page_indicator?: boolean;
   /** macOS-only non-activating badge shown after switching Chinese/English input. */
   input_mode_hud?: boolean;
   candidate_font_family?: string;
@@ -1936,6 +1944,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     showCandidateSelectionAppearance,
     showCandidateBorderColor,
     showCandidateFollowCursor,
+    showCandidatePageIndicator,
     showCandidateWindowScale,
     showCandidateWindowOpacity,
     showCandidateCornerRadius,
@@ -2474,6 +2483,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     showCandidateSelectionAppearance,
     showCandidateBorderColor,
     showCandidateFollowCursor,
+    showCandidatePageIndicator,
     showCandidateWindowScale,
     showCandidateWindowOpacity,
     showCandidateCornerRadius,

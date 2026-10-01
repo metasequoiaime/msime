@@ -420,6 +420,17 @@ test("a host that does not place its own card hides the follow-cursor choice", a
   expect(screen.queryByLabelText("候选窗口跟随光标")).toBeNull();
 });
 
+test("the page number switch is offered only where the host can leave the number out", async () => {
+  mount({ host: capabilities({ platform: "linux", candidate_page_indicator: true }) });
+  await settingsFormReady();
+  expect(screen.getByLabelText("显示页码")).toBeTruthy();
+  cleanup();
+  // A host older than the field sends none and keeps drawing the number.
+  mount({ host: capabilities({ platform: "windows" }) });
+  await settingsFormReady();
+  expect(screen.queryByLabelText("显示页码")).toBeNull();
+});
+
 test("a host with one commit path is not offered a choice between three", async () => {
   render(
     <SettingsPage
