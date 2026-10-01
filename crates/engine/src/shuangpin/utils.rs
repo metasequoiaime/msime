@@ -73,14 +73,27 @@ pub fn pinyin_segmentation(input: &str, profile: &ShuangpinProfile) -> String {
         return input.to_string();
     }
     let bytes = input.as_bytes();
-    let mut result = String::with_capacity(bytes.len() * 2);
-    let mut position = 0;
-    while position < bytes.len() {
-        let width = if takes_two_keys(bytes, position, profile) {
+    let width_at = |position: usize| {
+        if takes_two_keys(bytes, position, profile) {
             2
         } else {
             1
-        };
+        }
+    };
+    let mut piece_count = 0usize;
+    let mut position = 0;
+    while position < bytes.len() {
+        let width = width_at(position);
+        piece_count += 1;
+        position += width;
+    }
+    let leading_apostrophes = bytes.iter().take_while(|&&byte| byte == b'\'').count();
+    let copied_bytes = bytes.len() - leading_apostrophes;
+    let separators = piece_count.saturating_sub(leading_apostrophes + 1);
+    let mut result = String::with_capacity(copied_bytes + separators);
+    position = 0;
+    while position < bytes.len() {
+        let width = width_at(position);
         if !result.is_empty() {
             result.push('\'');
         }
@@ -239,7 +252,9 @@ mod tests {
     #[test]
     fn segments_forward_greedy_keeping_case() {
         assert_eq!(pinyin_segmentation("nihaoma", xiaohe()), "ni'ha'o'ma");
-        assert_eq!(pinyin_segmentation("nihcc", xiaohe()), "ni'hc'c");
+        let segmentation = pinyin_segmentation("nihcc", xiaohe());
+        assert_eq!(segmentation, "ni'hc'c");
+        assert_eq!(segmentation.capacity(), segmentation.len());
         assert_eq!(pinyin_segmentation("NiHc", xiaohe()), "Ni'Hc");
         assert_eq!(pinyin_segmentation("n", xiaohe()), "n");
         assert_eq!(pinyin_segmentation("cls", xiaohe()), "c'ls");
