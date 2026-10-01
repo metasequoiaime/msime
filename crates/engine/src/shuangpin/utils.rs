@@ -161,10 +161,10 @@ pub fn get_full_help_codes(pinyin_with_cases: &str) -> String {
     } else {
         (first, second)
     };
-    [first, second]
-        .iter()
-        .map(|byte| char::from(byte.to_ascii_lowercase()))
-        .collect()
+    let mut result = String::with_capacity(2);
+    result.push(char::from(first.to_ascii_lowercase()));
+    result.push(char::from(second.to_ascii_lowercase()));
+    result
 }
 
 #[cfg(test)]
@@ -218,6 +218,13 @@ mod tests {
     #[test]
     fn key_pair_lowering_stays_on_the_stack() {
         assert_eq!(lowercase_pair(b"NI", 0), [b'n', b'i']);
+    }
+
+    #[test]
+    fn full_help_codes_use_exact_string_capacity() {
+        let result = get_full_help_codes("xxAb");
+        assert_eq!(result, "ba");
+        assert_eq!(result.capacity(), result.len());
     }
 
     #[test]
