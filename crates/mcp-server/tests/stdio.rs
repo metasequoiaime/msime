@@ -559,3 +559,107 @@ async fn an_agent_turns_on_and_reads_the_diagnostic_log() {
 
     client.cancel().await.unwrap();
 }
+
+/// The command line: one tool per run, under the same flags and with the same answers as the server.
+fn run_cli(options: &Path, args: &[&str], stdin: Option<&str>) -> (i32, Value, String) {
+    use std::io::Write;
+    let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_msime-mcp"));
+    command.arg("--options").arg(options).args(args);
+    for name in [
+        "MSIME_CLIENT_HOST_OPTIONS",
+        "MSIME_IBUS_OPTIONS",
+        "MSIME_CLIENT_STATE_DIR",
+    ] {
+        command.env_remove(name);
+    }
+    let mut child = command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(stdin.unwrap_or("").as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    let stdout = if output.stdout.is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_slice(&output.stdout).unwrap()
+    };
+    (
+        output.status.code().unwrap(),
+        stdout,
+        String::from_utf8(output.stderr).unwrap(),
+    )
+}
+
+#[test]
+fn the_command_line_runs_the_same_tools() {
+    let directory = tempfile::tempdir().unwrap();
+    let options = fixture(directory.path());
+
+    let (code, tools, _) = run_cli(&options, &["tools"], None);
+    assert_eq!(code, 0);
+    let mut names: Vec<&str> = tools
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|tool| tool["name"].as_str().unwrap())
+        .collect();
+    names.sort();
+    assert_eq!(
+        names,
+        [
+            "get_preferences",
+            "get_typing_statistics",
+            "list_candidate_skins",
+            "list_quick_phrases",
+            "read_diagnostic_log",
+            "set_diagnostic_log"
+        ]
+    );
+    assert!(tools[0]["inputSchema"].is_object());
+
+    let edit = r#"{"edits":[{"op":"add","code":"yx","text":"someone@example.com"}]}"#;
+    let (code, _, error) = run_cli(&options, &["call", "edit_quick_phrases", edit], None);
+    assert_eq!(code, 1);
+    assert!(error.contains("--allow-write"), "{error}");
+
+    let (code, outcome, _) = run_cli(
+        &options,
+        &["--allow-write", "call", "edit-quick-phrases", "-"],
+        Some(edit),
+    );
+    assert_eq!(code, 0);
+    assert_eq!(outcome, json!({ "applied": 1 }));
+
+    let (code, page, _) = run_cli(
+        &options,
+        &["call", "list_quick_phrases", r#"{"code_prefix":"y"}"#],
+        None,
+    );
+    assert_eq!(code, 0);
+    assert_eq!(
+        page,
+        json!({ "phrases": [{ "code": "yx", "text": "someone@example.com" }], "has_more": false })
+    );
+
+    let (code, _, error) = run_cli(
+        &options,
+        &["call", "list_quick_phrases", r#"{"limit":0}"#],
+        None,
+    );
+    assert_eq!(code, 1);
+    assert!(
+        error.contains("limit must be between 1 and 1000"),
+        "{error}"
+    );
+
+    let (code, _, error) = run_cli(&options, &["call", "list_quick_phrases", "[]"], None);
+    assert_eq!(code, 2);
+    assert!(error.contains("JSON object"), "{error}");
+}

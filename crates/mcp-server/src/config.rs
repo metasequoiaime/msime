@@ -9,9 +9,11 @@ use std::path::{Path, PathBuf};
 /// The largest runtime-options document read. A macOS document carries the preferences, and with them a custom screen-keyboard photo of up to 1 MiB of base64.
 const OPTIONS_READ_LIMIT: u64 = 2 << 20;
 
-pub const USAGE: &str = "usage: msime-mcp [--options <runtime-options.json>] [--state-dir <directory>] [--allow-write] [--allow-dictionary-read]
+pub const USAGE: &str = "usage: msime-mcp [flags]                          serve the Model Context Protocol over stdio
+       msime-mcp [flags] tools                    list the tools, with their argument schemas, as JSON
+       msime-mcp [flags] call <tool> [<json>|-]   run one tool and print its result as JSON
 
-Serves the Model Context Protocol over stdio for 水杉输入法 (MSIME).
+Manages 水杉输入法 (MSIME) for an AI assistant: over stdio as an MCP server, or one tool per run from a shell. Both offer the same tools under the same flags. call takes the tool's arguments as a JSON object (default {}), or reads it from stdin when given -; tool names may use - for _. A refused call prints the reason to stderr and exits 1.
 
   --options <path>     The runtime-options document the input method hosts read. Defaults to MSIME_CLIENT_HOST_OPTIONS, then MSIME_IBUS_OPTIONS, then the platform's usual location.
   --state-dir <path>   The directory holding preferences.json, typing-statistics.json and the skins folder. Defaults to MSIME_CLIENT_STATE_DIR, then the document's preferences_directory.
@@ -23,8 +25,24 @@ Serves the Model Context Protocol over stdio for 水杉输入法 (MSIME).
 #[derive(Debug, PartialEq, Eq)]
 pub enum Command {
     Serve(Config),
+    /// List the tools the flags offer.
+    Tools(Config),
+    /// Run one tool from a shell.
+    Call {
+        config: Config,
+        tool: String,
+        arguments: Arguments,
+    },
     Help,
     Version,
+}
+
+/// Where `call` finds the tool's arguments.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Arguments {
+    Inline(String),
+    /// `-`: a document too long or too awkward to quote on a command line, such as a skin with its images.
+    Stdin,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -46,6 +64,7 @@ pub fn parse(
     let mut state_dir = None;
     let mut allow_write = false;
     let mut allow_dictionary_read = false;
+    let mut positional = Vec::new();
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
         match arg.to_str() {
@@ -64,6 +83,7 @@ pub fn parse(
                     state_dir = Some(value);
                 }
             }
+            Some(word) if !word.starts_with('-') || word == "-" => positional.push(word.to_owned()),
             _ => return Err(format!("unknown argument {}", arg.to_string_lossy())),
         }
     }
@@ -81,12 +101,34 @@ pub fn parse(
             return Err(format!("{} must be an absolute path", path.display()));
         }
     }
-    Ok(Command::Serve(Config {
+    let config = Config {
         options,
         state_dir,
         allow_write,
         allow_dictionary_read,
-    }))
+    };
+    let mut positional = positional.into_iter();
+    match (
+        positional.next().as_deref(),
+        positional.next(),
+        positional.next(),
+        positional.next(),
+    ) {
+        (None, ..) => Ok(Command::Serve(config)),
+        (Some("tools"), None, ..) => Ok(Command::Tools(config)),
+        (Some("call"), Some(tool), arguments, None) => Ok(Command::Call {
+            config,
+            // Tool names are snake_case; a shell user reaching for kebab-case means the same tool.
+            tool: tool.replace('-', "_"),
+            arguments: match arguments {
+                None => Arguments::Inline("{}".into()),
+                Some(text) if text == "-" => Arguments::Stdin,
+                Some(text) => Arguments::Inline(text),
+            },
+        }),
+        (Some("call"), None, ..) => Err("call needs a tool name".into()),
+        (Some(word), ..) => Err(format!("unknown command {word}")),
+    }
 }
 
 /// Where the desktop app keeps the document when nothing says otherwise.
@@ -245,6 +287,46 @@ mod tests {
         assert!(write.allow_write && !write.allow_dictionary_read);
         let read = config(&["--options", "/a.json", "--allow-dictionary-read"]);
         assert!(!read.allow_write && read.allow_dictionary_read);
+    }
+
+    #[test]
+    fn a_tool_runs_from_the_command_line_under_the_same_flags() {
+        let parsed = |list: &[&str]| parse(args(list), |_: &str| None);
+        let Command::Tools(config) = parsed(&["tools", "--options", "/a.json"]).unwrap() else {
+            panic!("expected tools");
+        };
+        assert!(!config.allow_write);
+        assert_eq!(
+            parsed(&[
+                "--options",
+                "/a.json",
+                "--allow-write",
+                "call",
+                "edit-quick-phrases",
+                "-"
+            ])
+            .unwrap(),
+            Command::Call {
+                config: Config {
+                    options: PathBuf::from("/a.json"),
+                    state_dir: None,
+                    allow_write: true,
+                    allow_dictionary_read: false,
+                },
+                tool: "edit_quick_phrases".into(),
+                arguments: Arguments::Stdin,
+            }
+        );
+        let Command::Call { arguments, .. } =
+            parsed(&["--options", "/a.json", "call", "get_preferences"]).unwrap()
+        else {
+            panic!("expected call");
+        };
+        assert_eq!(arguments, Arguments::Inline("{}".into()));
+        assert!(parsed(&["--options", "/a.json", "call"]).is_err());
+        assert!(parsed(&["--options", "/a.json", "tools", "extra"]).is_err());
+        assert!(parsed(&["--options", "/a.json", "call", "a", "{}", "extra"]).is_err());
+        assert!(parsed(&["--options", "/a.json", "serve"]).is_err());
     }
 
     #[test]
