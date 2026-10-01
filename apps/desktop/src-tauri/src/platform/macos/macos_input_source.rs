@@ -6,6 +6,7 @@
 //! is deliberately staged and atomic so a failed update never removes a
 //! working input source.
 
+use std::ffi::OsStr;
 use std::fs;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
@@ -459,8 +460,48 @@ fn install_unlocked(resource_directory: Option<&Path>) -> Result<(), InstallErro
         &std::env::current_dir().map_err(|_| InstallError::SourceUnavailable)?,
     )?;
     let input_methods = home_input_methods()?;
-    install_bundle_at_with_registration(&source, &input_methods, register_installed_bundle)
-        .map(|_| ())
+    let target =
+        install_bundle_at_with_registration(&source, &input_methods, register_installed_bundle)?;
+    stop_running_copies(&target);
+    Ok(())
+}
+
+/// A pattern for `pkill -f` that matches `path` literally: the text is an extended regular expression, and a bundle path holds at least the `.` of `.app`.
+fn literal_process_pattern(path: &Path) -> String {
+    let mut pattern = String::new();
+    for character in path.to_string_lossy().chars() {
+        if "\\.^$*+?()[]{}|".contains(character) {
+            pattern.push('\\');
+        }
+        pattern.push(character);
+    }
+    pattern
+}
+
+/// Stop every running copy of the input method, as `scripts/install.sh` does after it replaces the bundle.
+///
+/// A process that started before the replacement keeps serving the old code until it exits, and nothing on screen says so; the text input system starts the new bundle the next time a client asks for it. Best-effort: the install has already succeeded, and a copy that will not stop is replaced at the next login.
+fn stop_running_copies(bundle: &Path) {
+    let executable = bundle.join("Contents/MacOS").join(INPUT_SOURCE_EXECUTABLE);
+    let _ = Command::new("/usr/bin/pkill")
+        .arg("-f")
+        .arg(literal_process_pattern(&executable))
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+}
+
+/// Whether a launch's HostOptions override makes it a development run, which must not refresh the installed input method.
+///
+/// The input method passes the standard locator whenever it opens a settings page, and that launch has to refresh like any other, or a user who only ever opens settings from the input method's menu stays on the old input method indefinitely. Only a different file - the one a development host passes - holds the refresh back.
+pub(crate) fn development_options_override(
+    options_override: Option<&OsStr>,
+    standard_options: Option<&Path>,
+) -> bool {
+    match options_override {
+        None => false,
+        Some(path) => standard_options != Some(Path::new(path)),
+    }
 }
 
 /// The version an input method bundle declares: `CFBundleShortVersionString` first, then `CFBundleVersion`.
@@ -827,6 +868,37 @@ mod tests {
         assert_eq!(
             refresh_decision(Some(&current), None, true),
             Refresh::Update
+        );
+    }
+
+    #[test]
+    fn only_a_nonstandard_options_override_is_a_development_run() {
+        let standard = Path::new(
+            "/Users/dev/Library/Application Support/app.msime.macos/runtime-options.json",
+        );
+        assert!(!development_options_override(None, Some(standard)));
+        assert!(!development_options_override(
+            Some(standard.as_os_str()),
+            Some(standard)
+        ));
+        assert!(development_options_override(
+            Some(OsStr::new("/Users/dev/msime/target/dev-options.json")),
+            Some(standard),
+        ));
+        // Without a standard locator to compare with, any override is treated as development.
+        assert!(development_options_override(
+            Some(standard.as_os_str()),
+            None
+        ));
+    }
+
+    #[test]
+    fn process_pattern_escapes_regex_characters() {
+        assert_eq!(
+            literal_process_pattern(Path::new(
+                "/Users/a (b)/Input Methods/水杉输入法.app/Contents/MacOS/水杉输入法"
+            )),
+            "/Users/a \\(b\\)/Input Methods/水杉输入法\\.app/Contents/MacOS/水杉输入法"
         );
     }
 

@@ -4547,13 +4547,19 @@ pub fn run() {
             app.manage(macos_cloud_clipboard::CloudState::from_environment()?);
             #[cfg(target_os = "macos")]
             app.manage(macos_cloud_dictionary::DictionaryState::from_environment()?);
-            // Refresh the input method on every start, as the Windows installer registers its TSF DLLs on every install and upgrade. In the background so a slow or failed registration never holds up the window. A first install is left to the user: the window opens as the install window instead, and its button runs the install (`run_first_input_source_install`). Only a packaged app does this: `tauri dev`, `cargo run` and a binary under target/<profile> resolve their resource directory to the cargo output directory, where tauri-build has copied the development input method, and must not replace the developer's installed one. A run with its own host options and a panel the running input method asked for are skipped too.
+            // Refresh the input method on every start, as the Windows installer registers its TSF DLLs on every install and upgrade. In the background so a slow or failed registration never holds up the window. A first install is left to the user: the window opens as the install window instead, and its button runs the install (`run_first_input_source_install`). Only a packaged app does this: `tauri dev`, `cargo run` and a binary under target/<profile> resolve their resource directory to the cargo output directory, where tauri-build has copied the development input method, and must not replace the developer's installed one. A run with a HostOptions file other than the standard locator (a development host's) and a panel the running input method asked for are skipped too; a settings page the input method opens passes the standard locator and refreshes like any other start.
             #[cfg(target_os = "macos")]
             {
                 let startup = Arc::new(InputSourceStartupState::default());
                 app.manage(Arc::clone(&startup));
-                let development_run = std::env::var_os("MSIME_CLIENT_HOST_OPTIONS").is_some()
-                    || std::env::var_os("MSIME_IBUS_OPTIONS").is_some();
+                let standard_options = macos_launch::native_locator_root()
+                    .ok()
+                    .map(|root| root.join("runtime-options.json"));
+                let development_run = std::env::var_os("MSIME_IBUS_OPTIONS").is_some()
+                    || macos_input_source::development_options_override(
+                        std::env::var_os("MSIME_CLIENT_HOST_OPTIONS").as_deref(),
+                        standard_options.as_deref(),
+                    );
                 let panel_launch = requested_surface_route().and_then(|route| route.panel()).is_some();
                 match app.path().resource_dir() {
                     Ok(resource_directory)
