@@ -317,6 +317,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     return lines
   }
+
+  /// The lines reserved under each candidate for a scheme: the configured gloss lines, and in the Korean scheme one more for the Hanja's 훈음, which is drawn there whatever the gloss setting.
+  static func stripGlossLines(scheme: ChineseInputScheme, fullAccess: Bool, onlineRoute: Bool,
+                              offline: Set<String> = []) -> Int {
+    configuredGlossLines(fullAccess: fullAccess, onlineRoute: onlineRoute, offline: offline)
+      + (scheme.isKorean ? 1 : 0)
+  }
   private var glossLineCount = 0
   private var candidateFontScale: CGFloat = 1
   private var preeditFontScale: CGFloat = 1
@@ -2229,9 +2236,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func currentGlossLines() -> Int {
-    Self.configuredGlossLines(fullAccess: hasFullAccess, onlineRoute: translationRoute != .none,
-                              offline: offlineGlossLanguages)
+    Self.stripGlossLines(scheme: inputScheme, fullAccess: hasFullAccess, onlineRoute: translationRoute != .none,
+                         offline: offlineGlossLanguages)
   }
+
+  /// Whether the shared gloss path serves this scheme's candidates: Chinese ones, and the Hanja rows of the Korean scheme. Japanese is left out, as the Engine's translation query leaves it out.
+  private var glossesCandidates: Bool { inputScheme.writesChinese || inputScheme.isKorean }
 
   private var offlineGlossLanguages: Set<String> {
     guard let resources = session.candidateGlossResources() else { return [] }
@@ -2328,6 +2338,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateLanguageModeButton()
     render(snapshot, source: source)
     updateShortcutButtons()
+    // The Korean scheme reserves a line for the 훈음, so the strip height follows the scheme.
+    applyCandidateGlossLayout()
     synchronizeReplyKeyboard()
   }
 
@@ -2529,6 +2541,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateSchemeButton()
     updateLanguageModeButton()
     render(snapshot, source: source)
+    applyCandidateGlossLayout()
     synchronizeReplyKeyboard()
   }
 
@@ -3618,8 +3631,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       guard let chip = view as? KeyboardKeyButton else { continue }
       chip.isHidden = offset >= page.count
       guard offset < page.count else { continue }
+      // A Korean Hanja's 훈음 goes on the first line under it rather than after it, so it is not read as part of the candidate.
+      let annotation = candidateAnnotation(at: offset).text
       updateCandidateButton(
-        chip, candidate: page[offset], hint: candidateAnnotation(at: offset).text,
+        chip, candidate: page[offset], hint: typesKorean ? "" : annotation,
+        reading: typesKorean ? annotation : nil,
         glosses: candidateGlosses(at: offset), markers: candidateMarkers(at: offset), number: offset + 1,
         converting: japaneseConversionIndex == offset)
     }
@@ -3685,9 +3701,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return (bare, "编码提示 \(bare)")
   }
 
+  /// The gloss and translation lines under a strip candidate. A Korean Hanja's 훈음 is not one of them: it is drawn above them by the strip and never offered for insertion.
   private func candidateGlosses(at index: Int) -> [String] {
-    // A Korean Hanja carries its 훈음 as its hint and is not translated, so it reserves no gloss line either.
-    guard CandidateGlossPreference.enabled, !typesKorean, visibleCandidates.indices.contains(index) else { return [] }
+    guard CandidateGlossPreference.enabled, visibleCandidates.indices.contains(index) else { return [] }
     let word = visibleCandidates[index]
     var languages = [CandidateTranslationPreference.primary]
     if let secondary = CandidateTranslationPreference.secondary { languages.append(secondary) }
@@ -3719,9 +3735,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func gloss(word: String, language: CandidateTranslationLanguage, offline: String) -> String? {
-    if !CandidateTranslationPreference.needsNetwork(language), inputScheme.writesChinese,
+    if !CandidateTranslationPreference.needsNetwork(language), glossesCandidates,
        !offline.isEmpty, offline != word { return offline }
-    let target = !inputScheme.writesChinese ? nil : candidateTargetGlosses[language.code]?[word]
+    let target = !glossesCandidates ? nil : candidateTargetGlosses[language.code]?[word]
     let online = CandidateTranslationPreference.onlineEnabled ? translations.gloss(word: word, code: language.code) : nil
     return Self.preferredGloss(offline: target, online: online, route: translationRoute)
   }
@@ -3758,7 +3774,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func requestCandidateTranslations() {
     guard CandidateGlossPreference.enabled, CandidateTranslationPreference.onlineEnabled,
-          translationRoute != .none, hasFullAccess, inputScheme.writesChinese, !isInLocalMode,
+          translationRoute != .none, hasFullAccess, glossesCandidates, !isInLocalMode,
           !visibleCandidates.isEmpty else { translations.cancel(); return }
     var codes = [CandidateTranslationPreference.primary.code]
     if let secondary = CandidateTranslationPreference.secondary { codes.append(secondary.code) }
@@ -3791,7 +3807,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// the keyboard thread, then resolve it off-thread and apply only if the same composition is
   /// still visible. A failed or missing dictionary is intentionally silent.
   private func scheduleCandidateGlosses() {
-    guard CandidateGlossPreference.enabled, inputScheme.writesChinese,
+    guard CandidateGlossPreference.enabled, glossesCandidates,
           !isInLocalMode, !visibleCandidates.isEmpty,
           let resources = session.candidateGlossResources(), !resources.isEmpty else {
       let hadVisibleGlosses = !visibleCandidateGlosses.isEmpty || !candidateTargetGlosses.isEmpty
@@ -3826,7 +3842,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func requestCandidateGlosses() {
-    guard CandidateGlossPreference.enabled, inputScheme.writesChinese,
+    guard CandidateGlossPreference.enabled, glossesCandidates,
           !isInLocalMode, !visibleCandidates.isEmpty,
           let resources = session.candidateGlossResources(), !resources.isEmpty else { return }
     do {
@@ -3965,8 +3981,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       insets: NSDirectionalEdgeInsets(top: 4, leading: 9, bottom: 4, trailing: 9))
   }
 
+  /// `leadLine` is the width of a line under the candidate that must not be cut, a Korean Hanja's 훈음, which widens the chip as the candidate itself would.
   private func pinCandidateWidth(
-    of button: KeyboardKeyButton, firstLine title: AttributedString?, glossLines: Int
+    of button: KeyboardKeyButton, firstLine title: AttributedString?, glossLines: Int, leadLine: CGFloat = 0
   ) {
     let existing = button.constraints.first { $0.identifier == "candidateChipWidth" }
     guard glossLines > 0, let title else {
@@ -3979,7 +3996,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       ? NSRange(location: 0, length: text.length)
       : NSRange(location: 0, length: separator.location)
     let width = KeyboardKeyButton.chipWidth(
-      titleLine: text.attributedSubstring(from: head).size().width,
+      titleLine: max(text.attributedSubstring(from: head).size().width, leadLine),
       glossLines: glossLines, column: candidateColumnWidth(),
       insets: button.configuration?.contentInsets ?? .zero)
     if let existing {
@@ -3993,7 +4010,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func updateCandidateButton(
-    _ button: KeyboardKeyButton, candidate: String, hint: String, glosses: [String],
+    _ button: KeyboardKeyButton, candidate: String, hint: String, reading: String? = nil, glosses: [String],
     markers: [CandidateMarker] = [], number: Int, converting: Bool
   ) {
     let display = chineseOutput(candidate)
@@ -4018,6 +4035,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       button.layer.shadowOpacity = 0
     }
     let annotation = hint
+    // A Korean Hanja's 훈음 leads the lines under it, ahead of any gloss; one with none keeps the line so the glosses stay aligned across chips.
+    let lines = (reading.map { [$0.isEmpty ? Self.pendingGlossPlaceholder : $0] } ?? []) + glosses
     // On the keyboard's own colours the first candidate, the one space commits, is the selected one: the accent at weight 600 while the rest stay in the key text colour at 400 (dc.html `mobCands`). The desktop palette marks it with its fill instead.
     let selected = candidatePalette == nil && number == 1
     let weight: UIFont.Weight = selected ? .semibold : .regular
@@ -4026,7 +4045,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     configuration.baseForegroundColor = pinned || selected
       ? candidatePalette?.accent ?? skin.accent
       : candidatePalette?.text ?? skin.keyForeground
-    if annotation.isEmpty && glosses.isEmpty && markers.isEmpty {
+    // The 훈음 is drawn whole, like an inline hint was, so the chip widens to it rather than cutting it to the gloss column; the glosses under it fit that width.
+    var readingWidth: CGFloat = 0
+    if annotation.isEmpty && lines.isEmpty && markers.isEmpty {
       configuration.titleLineBreakMode = .byTruncatingTail
       configuration.attributedTitle = nil
       configuration.titleTextAttributesTransformer = Self.fontTransformer(
@@ -4050,11 +4071,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           .foregroundColor: annotationColor,
         ]))
       }
-      let content = KeyboardKeyButton.chipContentWidth(
-        titleLine: NSAttributedString(title).size().width, glossLines: glosses.count,
-        column: candidateColumnWidth())
       let caption = UIFont.preferredFont(forTextStyle: .caption2)
-      for gloss in glosses {
+      readingWidth = reading.map { ceil(($0 as NSString).size(withAttributes: [.font: caption]).width) } ?? 0
+      let content = KeyboardKeyButton.chipContentWidth(
+        titleLine: max(NSAttributedString(title).size().width, readingWidth), glossLines: lines.count,
+        column: candidateColumnWidth())
+      for gloss in lines {
         let fitted = KeyboardKeyButton.fittedGloss(gloss, font: caption, width: content)
         title += AttributedString("\n" + fitted.text, attributes: AttributeContainer([
           .font: fitted.font, .paragraphStyle: paragraph,
@@ -4064,19 +4086,21 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       configuration.attributedTitle = title
     }
     button.configuration = configuration
-    button.titleLineCount = 1 + glosses.count
-    pinCandidateWidth(of: button, firstLine: configuration.attributedTitle, glossLines: glosses.count)
-    // A Korean Hanja's annotation is its 훈음, not keys still to type.
+    button.titleLineCount = 1 + lines.count
+    pinCandidateWidth(of: button, firstLine: configuration.attributedTitle, glossLines: lines.count,
+                      leadLine: readingWidth)
     button.accessibilityLabel = annotation.isEmpty
       ? "候选词 \(number)：\(display)"
-      : typesKorean ? "候选词 \(number)：\(display)，训音 \(annotation)"
       : "候选词 \(number)：\(display)，还需输入 \(annotation)"
+    // A Korean Hanja's 훈음 is its meaning and reading, not keys still to type.
+    if let reading, !reading.isEmpty { button.accessibilityLabel? += "，训音 \(reading)" }
     for marker in markers { button.accessibilityLabel? += "，\(marker.spoken)" }
     let spoken = glosses.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
     if !spoken.isEmpty {
       button.accessibilityLabel? += "，释义 " + spoken.joined(separator: "，")
     }
-    button.accessibilityHint = spoken.isEmpty ? nil : "轻点输入，长按可输入释义"
+    // A Hanja's long press offers nothing (candidateMenuElements(at:)), so its glosses are read but not offered for insertion.
+    button.accessibilityHint = spoken.isEmpty || reading != nil ? nil : "轻点输入，长按可输入释义"
   }
 
   /// The markers as symbol attachments after the word, at the annotation's size and colour so they read as a suffix rather than as part of the candidate.

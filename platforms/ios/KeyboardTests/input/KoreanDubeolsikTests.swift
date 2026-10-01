@@ -193,10 +193,14 @@ final class KoreanDubeolsikTests: XCTestCase {
     controller.view.layoutIfNeeded()
     let first = try XCTUnwrap(visibleChip(1))
     let firstTitle = String(try XCTUnwrap(first.configuration?.attributedTitle).characters)
-    XCTAssertTrue(firstTitle.hasPrefix("韓"), firstTitle)
-    XCTAssertTrue(firstTitle.contains("나라 이름 한"), "the 훈음 follows the Hanja: \(firstTitle)")
+    let firstLines = firstTitle.components(separatedBy: "\n")
+    XCTAssertEqual(firstLines.first, "韓", "nothing follows the Hanja on its own line: \(firstTitle)")
+    XCTAssertEqual(firstLines.dropFirst().first, "나라 이름 한, 한나라 한", "the 훈음 is the first line under the Hanja, whole: \(firstTitle)")
     XCTAssertFalse(firstTitle.contains("gks"), "the key letters are not drawn")
-    XCTAssertEqual(first.accessibilityLabel, "候选词 1：韓，训音 나라 이름 한, 한나라 한")
+    XCTAssertTrue(first.accessibilityLabel?.hasPrefix("候选词 1：韓，训音 나라 이름 한, 한나라 한") == true,
+                  first.accessibilityLabel ?? "")
+    XCTAssertFalse(first.accessibilityLabel?.contains("还需输入") == true, "the 훈음 is not keys still to type")
+    XCTAssertTrue(controller.candidateMenuElements(at: 0).isEmpty, "a long press offers nothing, so the 훈음 can never be inserted")
     XCTAssertTrue(String(try XCTUnwrap(visibleChip(2)?.configuration?.attributedTitle).characters).hasPrefix("漢"))
     XCTAssertEqual(try button("preeditButton", in: controller).configuration?.title, "한", "the syllable keeps composing")
     XCTAssertEqual(hanja.accessibilityLabel, "关闭汉字列表")
@@ -245,6 +249,49 @@ final class KoreanDubeolsikTests: XCTestCase {
     XCTAssertNil(visibleChip(1))
     XCTAssertEqual(hanja.accessibilityLabel, "转换为汉字")
     XCTAssertEqual(try button("preeditButton", in: controller).configuration?.title, "ㄱ")
+  }
+
+  /// The 훈음 line is drawn and reserved whatever the gloss setting; the gloss lines come after it, and only when glosses are on.
+  func testHanjaReadingLineIsReservedWhateverTheGlossSetting() throws {
+    let previousScheme = InputSchemePreference.scheme
+    let previousGloss = CandidateGlossPreference.enabled
+    let previousSecondary = CandidateTranslationPreference.secondaryIndex
+    defer {
+      InputSchemePreference.scheme = previousScheme
+      CandidateGlossPreference.enabled = previousGloss
+      CandidateTranslationPreference.secondaryIndex = previousSecondary
+    }
+    CandidateTranslationPreference.secondaryIndex = -1
+
+    CandidateGlossPreference.enabled = false
+    XCTAssertEqual(KeyboardViewController.stripGlossLines(scheme: .korean, fullAccess: false, onlineRoute: false), 1,
+                   "the 훈음 keeps its line with glosses off")
+    XCTAssertEqual(KeyboardViewController.stripGlossLines(scheme: .quanpin, fullAccess: false, onlineRoute: false), 0)
+    CandidateGlossPreference.enabled = true
+    XCTAssertEqual(KeyboardViewController.stripGlossLines(scheme: .korean, fullAccess: false, onlineRoute: false), 2,
+                   "the English gloss line goes under the 훈음")
+    XCTAssertEqual(KeyboardViewController.stripGlossLines(scheme: .quanpin, fullAccess: false, onlineRoute: false), 1)
+
+    InputSchemePreference.scheme = .korean
+    for glosses in [false, true] {
+      CandidateGlossPreference.enabled = glosses
+      let controller = KeyboardViewController()
+      controller.loadViewIfNeeded()
+      controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: 260 + KeyboardViewController.stripExtraHeight)
+      controller.view.layoutIfNeeded()
+      for jamo in ["ㅎ", "ㅏ", "ㄴ"] {
+        try key(labelled: "字母 \(jamo)", in: controller).sendActions(for: .primaryActionTriggered)
+      }
+      try button("hanjaButton", in: controller).sendActions(for: .primaryActionTriggered)
+      controller.view.layoutIfNeeded()
+      let first = try XCTUnwrap(nodes(controller.view).first {
+        $0.accessibilityIdentifier == "candidate-1" && !$0.isHidden
+      } as? KeyboardKeyButton)
+      let lines = String(try XCTUnwrap(first.configuration?.attributedTitle).characters).components(separatedBy: "\n")
+      XCTAssertEqual(lines.first, "韓")
+      XCTAssertEqual(lines.dropFirst().first, "나라 이름 한, 한나라 한", "glosses \(glosses): \(lines)")
+      XCTAssertEqual(first.titleLineCount, glosses ? 3 : 2, "the Hanja, its 훈음, and the English gloss line when glosses are on")
+    }
   }
 
   func testSchemeSelectionWritesKoreanAndKeepsTheChineseScheme() throws {
