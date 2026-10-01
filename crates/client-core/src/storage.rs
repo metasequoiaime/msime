@@ -60,6 +60,9 @@ pub(crate) fn create_directory_and_check(path: &Path) -> io::Result<bool> {
     loop {
         match fs::symlink_metadata(current) {
             Ok(metadata) if metadata.file_type().is_symlink() => {
+                if current == Path::new("/tmp") || current == Path::new("/var") {
+                    break;
+                }
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
                     "storage path has a symbolic-link ancestor",
@@ -105,5 +108,16 @@ mod tests {
         let missing = linked.join("new-directory");
         assert!(create_directory_and_check(&missing).is_err());
         assert!(!outside.path().join("new-directory").exists());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn allows_missing_paths_below_macos_system_aliases() {
+        let path = std::path::Path::new("/tmp")
+            .join(format!("msime-storage-alias-{}", uuid::Uuid::new_v4()));
+        let _ = std::fs::remove_dir_all(&path);
+        assert!(create_directory_and_check(&path).unwrap());
+        assert!(std::fs::symlink_metadata(&path).unwrap().is_dir());
+        std::fs::remove_dir_all(path).unwrap();
     }
 }

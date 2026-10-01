@@ -61,7 +61,8 @@ pub fn fuzzy_syllables(syllable: &str, options: FuzzyPinyinOptions) -> Vec<Strin
     let (initial, final_part) = syllable.split_at(initial_length);
     let starts = with_partners(initial, &INITIAL_PAIRS, options);
     let ends = with_partners(final_part, &FINAL_PAIRS, options);
-    let mut result = vec![syllable.to_owned()];
+    let mut result = Vec::with_capacity(starts.len().saturating_mul(ends.len()));
+    result.push(syllable.to_owned());
     for start in &starts {
         for end in &ends {
             let mut candidate = String::with_capacity(start.len() + end.len());
@@ -162,6 +163,9 @@ mod tests {
             ["lan", "nan", "ran"]
         );
         assert_eq!(fuzzy_syllables("an", rules(fuzzy_rule::ALL)), ["an", "ang"]);
+        let lan = fuzzy_syllables("lan", rules(fuzzy_rule::ALL));
+        assert_eq!(lan.capacity(), 6);
+        assert_eq!(lan.len(), 6);
         assert_eq!(fuzzy_syllables("zh", rules(fuzzy_rule::ALL)), ["zh"]);
         assert_eq!(fuzzy_syllables("bian", rules(fuzzy_rule::AN_ANG)), ["bian"]);
         assert_eq!(fuzzy_syllables("zan", rules(0)), ["zan"]);

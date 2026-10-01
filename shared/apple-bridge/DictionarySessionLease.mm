@@ -1,8 +1,10 @@
 #include "DictionarySessionLease.h"
 #include <sys/file.h>
+#include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <cerrno>
+#include <filesystem>
 #include <stdexcept>
 
 namespace metasequoia::apple
@@ -18,9 +20,47 @@ int Lock(int fd, int flags)
     } while (result < 0 && errno == EINTR);
     return result;
 }
+
+bool SafeDirectoryPath(NSURL *user)
+{
+    if (!user || !user.isFileURL)
+        return false;
+    const std::filesystem::path path(user.fileSystemRepresentation);
+    if (!path.is_absolute())
+        return false;
+    auto current = path.root_path();
+    bool sawPrefixAlias = false;
+    bool sawRealComponent = false;
+    for (const auto &component : path.relative_path())
+    {
+        current /= component;
+        struct stat info = {};
+        if (lstat(current.c_str(), &info) != 0)
+        {
+            if (errno == ENOENT)
+                return true;
+            return false;
+        }
+        if (S_ISLNK(info.st_mode))
+        {
+            const bool systemAlias = !sawRealComponent && !sawPrefixAlias &&
+                                     (current == "/tmp" || current == "/var");
+            if (!systemAlias)
+                return false;
+            sawPrefixAlias = true;
+        }
+        else if (!S_ISDIR(info.st_mode))
+            return false;
+        else
+            sawRealComponent = true;
+    }
+    return true;
+}
 } // namespace
 DictionarySessionLease::DictionarySessionLease(NSURL *user)
 {
+    if (!SafeDirectoryPath(user))
+        throw std::runtime_error("Cannot use a symbolic-link dictionary session directory");
     if (![NSFileManager.defaultManager createDirectoryAtURL:user
                                 withIntermediateDirectories:YES
                                                  attributes:@{

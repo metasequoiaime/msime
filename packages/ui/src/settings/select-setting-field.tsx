@@ -6,6 +6,7 @@ export interface SelectSettingFieldProps
   label: ReactNode;
   inputLabel: string;
   description?: ReactNode;
+  fieldClassName?: string;
   value: string;
   onChange: (value: string) => void;
   children?: ReactNode;
@@ -16,13 +17,14 @@ export function SelectSettingField({
   label,
   inputLabel,
   description,
+  fieldClassName,
   value,
   onChange,
   children,
   ...selectProps
 }: SelectSettingFieldProps) {
   return (
-    <SettingField label={label} description={description}>
+    <SettingField label={label} description={description} className={fieldClassName}>
       <select
         {...selectProps}
         aria-label={inputLabel}
