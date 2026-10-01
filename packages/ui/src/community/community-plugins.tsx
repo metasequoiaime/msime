@@ -32,6 +32,7 @@ import {
   type CommunityReportReason,
 } from "./community-report";
 import { CommunitySkinCardMetrics } from "./community-skin-card-metrics";
+import { CommunityInstallButton } from "./community-install-button";
 import { CommunityReplaceConfirmation } from "./community-replace-confirmation";
 import { CommunityBackButton, CommunityLoadMoreButton } from "./community-gallery-controls";
 
@@ -322,14 +323,12 @@ export function CommunityPluginsPage({
               已安装到插件目录，可在「我的插件」中选用。
             </p>
           ) : (
-            <button
-              type="button"
-              className={`primary ${style.action}`}
-              disabled={actionBusy || detailBusy || confirmReplace}
-              onClick={() => void install(false)}
-            >
-              {actionBusy ? "正在安装…" : "一键安装"}
-            </button>
+            <CommunityInstallButton
+              actionBusy={actionBusy}
+              detailBusy={detailBusy}
+              confirmReplace={confirmReplace}
+              onInstall={() => void install(false)}
+            />
           )}
           {confirmReplace && (
             <CommunityReplaceConfirmation
