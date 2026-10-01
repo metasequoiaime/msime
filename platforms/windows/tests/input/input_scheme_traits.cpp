@@ -77,5 +77,18 @@ int main() {
   // Only the Zhuyin list refuses the mouse; the Korean Hanja list and every Chinese list stay clickable, and an unknown number keeps the mouse too.
   for (int scheme = Quanpin; scheme <= Vietnamese + 1; ++scheme)
     assert(KeyboardOnlyCandidateList(scheme) == (scheme == Zhuyin));
+  // Every mode code passes the TIP's frame check, the ones after Chinese and Japanese included, and so does a code from a newer Server, which reads as Chinese; an empty payload or one longer than a character does not.
+  for (const auto mode : {InputMode::Chinese, InputMode::Japanese, InputMode::Korean, InputMode::Cantonese,
+                          InputMode::Zhuyin, InputMode::Vietnamese}) {
+    const wchar_t payload[4] = {input_mode_code(mode), L'\0', L'\0', L'\0'};
+    assert(is_input_mode_payload(payload, 4));
+    assert(input_mode_from_code(payload[0]) == mode);
+  }
+  const wchar_t newer[4] = {L'9', L'\0', L'\0', L'\0'};
+  assert(is_input_mode_payload(newer, 4) && input_mode_from_code(newer[0]) == InputMode::Chinese);
+  const wchar_t empty[4] = {L'\0', L'\0', L'\0', L'\0'};
+  const wchar_t longer[4] = {L'2', L'2', L'\0', L'\0'};
+  assert(!is_input_mode_payload(empty, 4) && !is_input_mode_payload(longer, 4));
+  assert(!is_input_mode_payload(newer, 1));
   return 0;
 }

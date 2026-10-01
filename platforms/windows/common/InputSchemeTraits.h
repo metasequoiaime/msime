@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <string_view>
 
 // Scheme behaviour the Windows Server and TIP decide from a view's `scheme` number or from the configured scheme. The view publishes `chinese_text`, `script_conversion`, `spelling_symbols` and `candidate_list_open` itself, and those are read from the view where it is at hand; everything here is either a host-only trait or an Engine trait the view does not carry. An unknown scheme number answers false everywhere, the way host-api reads `SchemeType::from_u8`. scripts/test-scheme-traits-parity.py checks every Engine mirror below against crates/engine/src/types.rs.
@@ -247,6 +248,12 @@ constexpr InputMode input_mode_from_code(wchar_t code)
 }
 
 constexpr wchar_t input_mode_code(InputMode mode) { return static_cast<wchar_t>(mode); }
+
+// Whether a worker frame's payload is an InputModeChanged code: one character and its terminator within `size`. Every code is accepted, a known one or not, so a mode added after this build reads as Chinese (input_mode_from_code) rather than leaving the previous mode in force.
+constexpr bool is_input_mode_payload(const wchar_t *data, std::size_t size)
+{
+    return size >= 2 && data[0] != L'\0' && data[1] == L'\0';
+}
 
 // The representative scheme number of a mode, for the scheme traits above. Chinese stands for quanpin: the three schemes it covers answer every trait alike.
 constexpr int mode_scheme(InputMode mode)
