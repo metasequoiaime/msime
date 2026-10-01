@@ -9,7 +9,7 @@
 set -euo pipefail
 repo_root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$repo_root"
-resource_dir=${1:?usage: stage-resources.sh <verified-resource-directory> [offline-glosses-directory]}
+resource_dir=${1:?usage: stage-resources.sh <verified-resource-directory> [offline-glosses-directory] [language-dictionaries-directory]}
 resource_dir=$(cd "$resource_dir" && pwd)
 # The directory has to match the lock exactly, down to containing no extra file, because the same
 # check runs again on the device inside prepare_host. Failing here is far cheaper than failing there.
@@ -53,4 +53,31 @@ if compgen -G "$glosses_source/zh-*.db" >/dev/null && [ -f "$glosses_source/offl
   echo "Offline glosses staged for the HAP: $glosses_staged"
 else
   echo "no offline glosses at $glosses_source; candidates are glossed offline in English only"
+fi
+
+# Optional: the Cantonese and Zhuyin dictionaries fetched by scripts/fetch_language_dictionaries.py (or built by `msime-dict-build languages`), as on macOS and iOS. Beside the engine directory rather than in it, which the lock check above would reject; resfile extracts them to context.resourceDir/language-dictionaries, the keyboard copies them to language-dictionaries/ beside its copy of the resources, where host-api finds them and names them in the runtime options, and the keyboard and the settings page leave a scheme whose dictionary is missing out. Each dictionary is staged only with its licence text, which must travel with the data.
+languages_source=${3:-$repo_root/target/language-dictionaries}
+languages_staged="$repo_root/platforms/harmony/entry/src/main/resources/resfile/language-dictionaries"
+rm -rf "$languages_staged"
+staged_languages=()
+for pair in cantonese.db:rime_cantonese_LICENSE.txt zhuyin.db:libchewing_data_LICENSE.txt; do
+  database=${pair%%:*}
+  license=${pair#*:}
+  [ -f "$languages_source/$database" ] || continue
+  if [ ! -f "$languages_source/$license" ]; then
+    echo "$languages_source/$database has no $license beside it; refusing to ship the data without its licence" >&2
+    exit 1
+  fi
+  mkdir -p "$languages_staged"
+  cp "$languages_source/$database" "$languages_source/$license" "$languages_staged/"
+  staged_languages+=("$database")
+done
+if [ "${#staged_languages[@]}" -gt 0 ]; then
+  echo "Language dictionaries staged for the HAP (${staged_languages[*]}): $languages_staged"
+else
+  echo "no language dictionaries at $languages_source; Cantonese and Zhuyin stay unavailable"
+fi
+if [ "${MSIME_REQUIRE_LANGUAGE_DICTIONARIES:-0}" = 1 ] && [ "${#staged_languages[@]}" -ne 2 ]; then
+  echo "MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 but cantonese.db and zhuyin.db were not both staged from $languages_source" >&2
+  exit 1
 fi

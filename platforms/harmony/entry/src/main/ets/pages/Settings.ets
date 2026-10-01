@@ -15,6 +15,7 @@ import fileUri from '@ohos.file.fileuri';
 import { KeyboardLog, describeError } from '../keyboard/KeyboardLog';
 import { KeyboardSession } from '../keyboard/KeyboardSession';
 import { StagedResources } from '../keyboard/StagedResources';
+import { KeyboardScheme } from '../keyboard/KeyboardScheme';
 import { HarmonyAccountCloudBridge } from '../account/HarmonyAccountCloudBridge';
 import { HarmonyAiSkins } from '../account/HarmonyAiSkins';
 import { utf8Length } from '../keyboard/Utf8';
@@ -561,6 +562,8 @@ class SettingsBridge {
     // it too, and two staging rules for one directory is how it came to hold a set matching neither.
     StagedResources.stage(`${context.resourceDir}/engine`, `${context.filesDir}/engine`,
       `${context.filesDir}/engine.ready`);
+    // Here as well as in the keyboard, so the page offers Cantonese and Zhuyin (see hostCapabilities) before the keyboard has ever run.
+    StagedResources.stageLanguageDictionaries(context.resourceDir, context.filesDir);
   }
 
 
@@ -1254,6 +1257,13 @@ class SettingsBridge {
    * it the feedback page names the platform and quotes the web view's user agent, which identifies
    * the browser engine rather than the system a report would have to be reproduced on.
    */
+  /** Whether an input scheme's dictionary, if it needs one, is in the staged language-dictionaries directory. */
+  private languageDictionaryInstalled(scheme: string): boolean {
+    const file: string | null = KeyboardScheme.languageDictionary(scheme);
+    return file === null
+      || (this.context !== undefined && fs.accessSync(`${this.context.filesDir}/language-dictionaries/${file}`));
+  }
+
   hostCapabilities(): string {
     const document: string = client.hostCapabilities(PLATFORM);
     const release: string | null = OsVersionPolicy.release(deviceInfo.osFullName);
@@ -1292,6 +1302,12 @@ class SettingsBridge {
       value['typing_effects'] = projection.typingEffects;
       if (release !== null) {
         value['os_version'] = release;
+      }
+      // Cantonese and Zhuyin are offered only with their dictionary installed, as the desktop app's `drop_uninstalled_language_schemes` does; the keyboard leaves such a scheme out of its picker by the same rule.
+      const schemes: Object | undefined = value['input_schemes'];
+      if (Array.isArray(schemes)) {
+        value['input_schemes'] = (schemes as string[]).filter((scheme: string): boolean =>
+          this.languageDictionaryInstalled(scheme));
       }
       return JSON.stringify(reply);
     } catch (error) {

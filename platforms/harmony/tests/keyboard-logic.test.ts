@@ -1597,8 +1597,9 @@ group("enabled schemes keep the fixed order and never resolve to nothing", () =>
     "an all-unknown list falls back to quanpin rather than an empty keyboard",
   );
   check(
-    KeyboardScheme.enabledFromPreferenceIds(null).length === KeyboardScheme.SCHEMES.length,
-    "a null list means everything is enabled",
+    KeyboardScheme.enabledFromPreferenceIds(null) === KeyboardScheme.DEFAULT_ENABLED &&
+      KeyboardScheme.DEFAULT_ENABLED.length === KeyboardScheme.SCHEMES.length - 3,
+    "a null list means every scheme but the three the user turns on",
   );
 });
 
@@ -4489,63 +4490,66 @@ group("an engine annotation outranks a gloss in the shared hint slot", () => {
   );
 });
 
-group("a Korean Hanja row puts its 훈음 on the gloss line and keeps it out of the committed slot", () => {
-  check(
-    CandidateGlossPolicy.hunEum(true, "나라 이름 한") === "나라 이름 한",
-    "a Hanja row's annotation is its 훈음",
-  );
-  check(
-    CandidateGlossPolicy.hunEum(false, "ggll") === "",
-    "any other row's annotation is not a 훈음",
-  );
-  check(CandidateGlossPolicy.hunEum(true, null) === "", "a Hanja without a 훈음 has none");
-  check(
-    CandidateGlossPolicy.annotation(
-      CandidateGlossPolicy.slotAnnotation(true, "나라 이름 한"),
-      null,
-      false,
-    ) === "",
-    "with both switches off the shared slot, which the gloss menu types out, stays empty",
-  );
-  check(
-    CandidateGlossPolicy.annotation(
-      CandidateGlossPolicy.slotAnnotation(true, "나라 이름 한"),
-      "Korea",
-      true,
-    ) === "Korea" &&
-      CandidateGlossPolicy.annotationIsTranslation(
+group(
+  "a Korean Hanja row puts its 훈음 on the gloss line and keeps it out of the committed slot",
+  () => {
+    check(
+      CandidateGlossPolicy.hunEum(true, "나라 이름 한") === "나라 이름 한",
+      "a Hanja row's annotation is its 훈음",
+    );
+    check(
+      CandidateGlossPolicy.hunEum(false, "ggll") === "",
+      "any other row's annotation is not a 훈음",
+    );
+    check(CandidateGlossPolicy.hunEum(true, null) === "", "a Hanja without a 훈음 has none");
+    check(
+      CandidateGlossPolicy.annotation(
+        CandidateGlossPolicy.slotAnnotation(true, "나라 이름 한"),
+        null,
+        false,
+      ) === "",
+      "with both switches off the shared slot, which the gloss menu types out, stays empty",
+    );
+    check(
+      CandidateGlossPolicy.annotation(
         CandidateGlossPolicy.slotAnnotation(true, "나라 이름 한"),
         "Korea",
         true,
-      ),
-    "the 훈음 does not outrank a translation the way an Engine annotation does",
-  );
-  check(
-    CandidateGlossPolicy.slotAnnotation(false, "ggll") === "ggll",
-    "other schemes keep their Engine annotation in the slot",
-  );
-  check(
-    CandidateGlossPolicy.glossLine("나라 이름 한", "Korea") === "나라 이름 한 · Korea",
-    "the 훈음 leads the line and the translation follows it",
-  );
-  check(
-    CandidateGlossPolicy.glossLine("나라 이름 한", "") === "나라 이름 한",
-    "without a translation the line is the 훈음 alone",
-  );
-  check(
-    CandidateGlossPolicy.glossLine("", "Korea") === "Korea",
-    "without a 훈음 the line is the translation alone",
-  );
-  check(CandidateGlossPolicy.glossLine("", "") === "", "with neither the line is blank");
-  check(
-    CandidateGlossPolicy.hunEumAccessibilitySuffix("나라 이름 한") === "，训音：나라 이름 한",
-    "the announcement calls it 训音",
-  );
-  check(
-    CandidateGlossPolicy.hunEumAccessibilitySuffix("") === "",
-    "a row without one announces nothing extra",
-  );
-});
+      ) === "Korea" &&
+        CandidateGlossPolicy.annotationIsTranslation(
+          CandidateGlossPolicy.slotAnnotation(true, "나라 이름 한"),
+          "Korea",
+          true,
+        ),
+      "the 훈음 does not outrank a translation the way an Engine annotation does",
+    );
+    check(
+      CandidateGlossPolicy.slotAnnotation(false, "ggll") === "ggll",
+      "other schemes keep their Engine annotation in the slot",
+    );
+    check(
+      CandidateGlossPolicy.glossLine("나라 이름 한", "Korea") === "나라 이름 한 · Korea",
+      "the 훈음 leads the line and the translation follows it",
+    );
+    check(
+      CandidateGlossPolicy.glossLine("나라 이름 한", "") === "나라 이름 한",
+      "without a translation the line is the 훈음 alone",
+    );
+    check(
+      CandidateGlossPolicy.glossLine("", "Korea") === "Korea",
+      "without a 훈음 the line is the translation alone",
+    );
+    check(CandidateGlossPolicy.glossLine("", "") === "", "with neither the line is blank");
+    check(
+      CandidateGlossPolicy.hunEumAccessibilitySuffix("나라 이름 한") === "，训音：나라 이름 한",
+      "the announcement calls it 训音",
+    );
+    check(
+      CandidateGlossPolicy.hunEumAccessibilitySuffix("") === "",
+      "a row without one announces nothing extra",
+    );
+  },
+);
 
 group("the candidate family list names the English font ahead of the Chinese one", () => {
   // ArkUI resolves the list per glyph, so the order is the whole mechanism: Latin comes from the
@@ -10697,9 +10701,8 @@ group("Korean draws the syllable, not the key letters behind it", () => {
 
 group("the Korean scheme is one more card, and remembers the Chinese scheme it replaced", () => {
   check(
-    KeyboardScheme.SCHEMES[KeyboardScheme.SCHEMES.length - 1] === KeyboardScheme.KOREAN &&
-      KeyboardScheme.SCHEMES.length === 12,
-    "appended last, as the shared twelve-entry picker has it",
+    KeyboardScheme.SCHEMES[11] === KeyboardScheme.KOREAN && KeyboardScheme.SCHEMES.length === 15,
+    "appended after the first eleven, as the shared fifteen-entry picker has it",
   );
   check(
     KeyboardScheme.fromPreferenceId("korean") === KeyboardScheme.KOREAN,
