@@ -1,5 +1,6 @@
 import * as settings from "./settings-style";
 import { GroupList, Row, Select, Switch } from "../core/platform-controls";
+import { EnglishSuggestionsSection } from "./english-suggestions-section";
 
 export type MobileKeyboardFeedback = {
   soundEnabled: boolean;
@@ -84,16 +85,11 @@ export function MobileKeyboardFeedbackSection({
           </Row>
         )}
         {ios && (
-          <Row
-            title="英文建议"
-            description="英文 26 键直接输入时，在候选栏显示当前单词的补全建议；关闭后仍可正常输入英文。"
-          >
-            <Switch
-              disabled={busy}
-              checked={value.englishSuggestions !== false}
-              onChange={(checked) => onChange({ ...value, englishSuggestions: checked })}
-            />
-          </Row>
+          <EnglishSuggestionsSection
+            disabled={busy}
+            value={value.englishSuggestions !== false}
+            onChange={(englishSuggestions) => onChange({ ...value, englishSuggestions })}
+          />
         )}
       </div>
     </GroupList>
