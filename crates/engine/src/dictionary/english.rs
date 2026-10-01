@@ -85,7 +85,7 @@ impl EnglishDictionary {
         if !is_lower_ascii_word(prefix) || limit == 0 {
             return Vec::new();
         }
-        let upper_bound = format!("{prefix}{{");
+        let upper_bound = prefix_upper_bound(prefix);
         let Ok(mut statement) = connection.prepare_cached(PREFIX_SQL) else {
             return Vec::new();
         };
@@ -345,6 +345,13 @@ fn lookup_gloss(connection: &Connection, chinese_to_english: bool, key: &str) ->
     })
 }
 
+fn prefix_upper_bound(prefix: &str) -> String {
+    let mut result = String::with_capacity(prefix.len() + 1);
+    result.push_str(prefix);
+    result.push('{');
+    result
+}
+
 fn is_lower_ascii_word(value: &str) -> bool {
     !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_lowercase())
 }
@@ -409,6 +416,14 @@ mod tests {
             .unwrap()
             .query_row("PRAGMA user_version", (), |row| row.get(0))
             .unwrap()
+    }
+
+    #[test]
+    fn prefix_upper_bound_allocates_only_result_bytes() {
+        let prefix = "hello";
+        let result = prefix_upper_bound(prefix);
+        assert_eq!(result, "hello{");
+        assert_eq!(result.capacity(), result.len());
     }
 
     /// english_dictionary.cpp:325,371 set no busy timeout on the read connections, so a file another connection holds locked answers "no rows" at once instead of stalling the keystroke for rusqlite's default 5 s.
