@@ -400,9 +400,11 @@ fn open_connection(path: &Path) -> Option<Connection> {
 }
 
 fn exact_sql(table: &str) -> String {
-    format!(
-        "SELECT \"key\", \"value\", \"weight\" FROM \"{table}\" WHERE \"key\" = ? ORDER BY \"weight\" DESC LIMIT ?"
-    )
+    let mut sql = String::with_capacity(table.len() + 86);
+    sql.push_str("SELECT \"key\", \"value\", \"weight\" FROM \"");
+    sql.push_str(table);
+    sql.push_str("\" WHERE \"key\" = ? ORDER BY \"weight\" DESC LIMIT ?");
+    sql
 }
 
 fn range_sql(table: &str) -> String {
@@ -488,6 +490,16 @@ mod tests {
             batch_sql("tbl_2_n", 3),
             "SELECT \"key\", \"value\", \"weight\" FROM \"tbl_2_n\" WHERE \"key\" IN (?,?,?) ORDER BY \"weight\" DESC LIMIT ?"
         );
+    }
+
+    #[test]
+    fn exact_sql_writes_the_lookup_statement_directly() {
+        let sql = exact_sql("tbl_2_n");
+        assert_eq!(
+            sql,
+            "SELECT \"key\", \"value\", \"weight\" FROM \"tbl_2_n\" WHERE \"key\" = ? ORDER BY \"weight\" DESC LIMIT ?"
+        );
+        assert_eq!(sql.capacity(), sql.len());
     }
 
     fn cascade_fixture(directory: &Path) -> PinyinDatabase {
