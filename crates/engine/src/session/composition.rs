@@ -161,7 +161,11 @@ pub(super) fn append_canonical_pinyin(prefix: &str, suffix: &str) -> String {
     if suffix.is_empty() {
         return String::new();
     }
-    format!("{prefix}'{suffix}")
+    let mut result = String::with_capacity(prefix.len() + 1 + suffix.len());
+    result.push_str(prefix);
+    result.push('\'');
+    result.push_str(suffix);
+    result
 }
 
 /// Lowercased letters without delimiters, with the `v` spelling of ü folded onto `u`, so that length-preserving aliases (jv -> ju, nue -> nve) count as explained by the cut. It only compares two derived strings; the dictionary's `corrected_from` treats v and u as distinct on purpose.
@@ -641,8 +645,10 @@ mod tests {
     fn canonical_readings_append_and_empty_on_a_gap() {
         assert_eq!(append_canonical_pinyin("", "ni"), "ni");
         assert_eq!(append_canonical_pinyin("ni", "hao"), "ni'hao");
+        let result = append_canonical_pinyin("shan", "shui");
+        assert_eq!(result.capacity(), result.len());
         assert_eq!(append_canonical_pinyin("ni", ""), "");
-        assert_eq!(append_canonical_pinyin("shan", "shui"), "shan'shui");
+        assert_eq!(result, "shan'shui");
     }
 
     /// test_input_session.cpp:600-609: a phrase is storable only when every picked piece had a canonical reading.
