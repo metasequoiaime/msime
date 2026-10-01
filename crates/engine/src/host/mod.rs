@@ -27,7 +27,7 @@ pub use dictionary::{
 };
 pub use glosses::{
     candidate_glosses, candidate_glosses_with_user, candidate_target_glosses, english_completions,
-    save_candidate_gloss,
+    english_phonetics, save_candidate_gloss,
 };
 pub use options::{prepare_options, EngineOptions};
 pub use session::{

@@ -93,6 +93,12 @@ export function ExpressionSettingsPage() {
           onCandidateEnglishGlossChange={(candidate_english_gloss) =>
             onPreferencesChange({ candidate_english_gloss })
           }
+          showCandidatePronunciation={client.candidatePronunciation}
+          candidatePronunciation={draft.candidate_pronunciation ?? false}
+          candidatePronunciationDisabled={!candidateGlossLanguagesEnabled}
+          onCandidatePronunciationChange={(candidate_pronunciation) =>
+            onPreferencesChange({ candidate_pronunciation })
+          }
           showEnglishSuggestions={showEnglishSuggestions}
           englishSuggestions={englishSuggestions}
           onEnglishSuggestionsChange={(english_suggestions) =>

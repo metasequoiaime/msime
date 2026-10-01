@@ -3539,6 +3539,43 @@ fn translation_query_lists_installed_offline_gloss_languages() {
 }
 
 #[test]
+fn translation_query_carries_the_pronunciation_switch_only_when_on() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut preferences = Preferences {
+        candidate_english_gloss: true,
+        ..Preferences::default()
+    };
+    preferences.tencent_tmt.enabled = false;
+    let handle = test_host_preferences(dir.path(), preferences.clone());
+    read(msime_client_focus(handle, true));
+    for byte in b"U4e2d" {
+        read(msime_client_character(
+            handle,
+            *byte,
+            byte.is_ascii_uppercase(),
+        ));
+    }
+    let off = read(msime_client_translation_query(handle));
+    assert!(off["value"].is_object());
+    assert!(off["value"].get("candidate_pronunciation").is_none());
+
+    preferences.candidate_pronunciation = true;
+    update(handle, 1, &preferences);
+    let on = read(msime_client_translation_query(handle));
+    assert_eq!(on["value"]["candidate_pronunciation"], true);
+
+    // Pronunciation annotates a gloss; with every gloss source off there is nothing to annotate.
+    preferences.candidate_english_gloss = false;
+    preferences.candidate_translations = false;
+    update(handle, 2, &preferences);
+    assert_eq!(
+        read(msime_client_translation_query(handle))["value"],
+        Value::Null
+    );
+    read(msime_client_destroy(handle));
+}
+
+#[test]
 fn candidate_gloss_request_reads_the_offline_dictionary_for_its_target_language() {
     let directory = tempfile::tempdir().unwrap();
     let resources = directory.path().join("resources");
@@ -7538,4 +7575,269 @@ fn statistics_record_reports_the_milestone_field() {
     );
     assert_eq!(quiet["value"]["recorded"], 2, "{quiet}");
     assert!(quiet["value"].get("milestone").is_some());
+}
+
+#[test]
+fn pronunciation_request_reads_the_table_beside_resources() {
+    let root = tempfile::tempdir().unwrap();
+    let resources = root.path().join("generation");
+    std::fs::create_dir_all(&resources).unwrap();
+    let resources = resources.to_str().unwrap().to_owned();
+    let call = |request: Value| {
+        let request = serde_json::to_vec(&request).unwrap();
+        read(unsafe {
+            msime_client_pronunciation_request(
+                request.as_ptr(),
+                request.len(),
+                resources.as_ptr(),
+                resources.len(),
+            )
+        })
+    };
+    let request = json!({"generation": 7, "items": [
+        {"text": "love; affection", "language": "en"},
+        {"text": "Hello", "language": "en"},
+        {"text": "to love", "language": "en"},
+        {"text": "blue sky", "language": "en"},
+        {"text": "unknown sky", "language": "en"},
+        {"text": "你好", "language": "en"}
+    ]});
+    // Not installed: an empty answer, so a host draws the gloss as it did before.
+    let missing = call(request.clone());
+    assert_eq!(missing["ok"], true);
+    assert_eq!(
+        missing["value"],
+        json!({"generation": 7, "pronunciations": []})
+    );
+
+    let directory = root.path().join("pronunciations");
+    std::fs::create_dir_all(&directory).unwrap();
+    let database = rusqlite::Connection::open(directory.join("en-phonetic.db")).unwrap();
+    database
+        .execute_batch(
+            "CREATE TABLE en_phonetics(word TEXT PRIMARY KEY, phonetic TEXT NOT NULL) WITHOUT ROWID;
+             CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
+             INSERT INTO meta VALUES('kind', 'en_phonetic');
+             INSERT INTO en_phonetics VALUES('love', 'lʌv');
+             INSERT INTO en_phonetics VALUES('hello', 'həˈləʊ');
+             INSERT INTO en_phonetics VALUES('blue', 'bluː');
+             INSERT INTO en_phonetics VALUES('sky', 'skaɪ');
+             PRAGMA user_version = 1;",
+        )
+        .unwrap();
+    drop(database);
+    let result = call(request);
+    assert_eq!(result["ok"], true);
+    // A term with one unknown word is not half-pronounced; Chinese text is not English.
+    assert_eq!(
+        result["value"],
+        json!({"generation": 7, "pronunciations": [
+            {"text": "love; affection", "language": "en", "pronunciation": "/lʌv/"},
+            {"text": "Hello", "language": "en", "pronunciation": "/həˈləʊ/"},
+            {"text": "to love", "language": "en", "pronunciation": "/lʌv/"},
+            {"text": "blue sky", "language": "en", "pronunciation": "/bluː skaɪ/"}
+        ]})
+    );
+
+    for invalid in [
+        json!({"generation": 1, "items": [{"text": "愛する", "language": "ja"}]}),
+        json!({"generation": 1, "items": [{"text": "", "language": "en"}]}),
+        json!({"generation": 1, "items": [{"text": "a\nb", "language": "en"}]}),
+        json!({"generation": 1, "items": [], "extra": true}),
+    ] {
+        assert_eq!(call(invalid)["ok"], false);
+    }
+    let relative = b"relative/resources";
+    let request = serde_json::to_vec(&json!({"generation": 1, "items": []})).unwrap();
+    let refused = read(unsafe {
+        msime_client_pronunciation_request(
+            request.as_ptr(),
+            request.len(),
+            relative.as_ptr(),
+            relative.len(),
+        )
+    });
+    assert_eq!(refused["ok"], false);
+}
+
+#[test]
+fn english_glosses_fill_single_characters_from_the_character_table() {
+    let root = tempfile::tempdir().unwrap();
+    let resources = root.path().join("generation");
+    std::fs::create_dir_all(&resources).unwrap();
+    rusqlite::Connection::open(resources.join("english.db"))
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE english_words(word TEXT COLLATE BINARY NOT NULL,display TEXT NOT NULL,weight INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(word,display)) WITHOUT ROWID;
+             CREATE TABLE en_zh_glosses(english TEXT COLLATE BINARY PRIMARY KEY,chinese_gloss TEXT NOT NULL) WITHOUT ROWID;
+             CREATE TABLE zh_en_glosses(chinese TEXT COLLATE BINARY PRIMARY KEY,english_gloss TEXT NOT NULL) WITHOUT ROWID;
+             INSERT INTO zh_en_glosses VALUES ('你好','hello');",
+        )
+        .unwrap();
+    let resources = resources.to_str().unwrap().to_owned();
+    let call = || {
+        let request = serde_json::to_vec(&json!({"generation": 5, "candidates": [
+            {"text": "你好", "source": 0},
+            {"text": "猫", "source": 0},
+            {"text": "狗", "source": 0},
+            {"text": "天天", "source": 0},
+            {"text": "🙂", "source": 6}
+        ]}))
+        .unwrap();
+        read(unsafe {
+            msime_client_candidate_gloss_request(
+                request.as_ptr(),
+                request.len(),
+                resources.as_ptr(),
+                resources.len(),
+            )
+        })
+    };
+    // Without the table, single characters have no English gloss, as before.
+    assert_eq!(
+        call()["value"]["translations"],
+        json!([{"text": "你好", "translation": "hello"}])
+    );
+
+    let table = root.path().join("character-glosses/zh-en.db");
+    offline_gloss_fixture(&table, "en");
+    rusqlite::Connection::open(&table)
+        .unwrap()
+        .execute_batch(
+            "INSERT INTO zh_glosses VALUES('猫', 'cat; feline', 'unihan:kDefinition');
+             INSERT INTO zh_glosses VALUES('天', 'sky, heaven; god', 'unihan:kDefinition');",
+        )
+        .unwrap();
+    // english.db still answers words; the table fills only single characters it did not, and never two-character text.
+    assert_eq!(
+        call()["value"]["translations"],
+        json!([
+            {"text": "你好", "translation": "hello"},
+            {"text": "猫", "translation": "cat; feline"}
+        ])
+    );
+
+    // A damaged table costs the supplement, not the words english.db answered.
+    std::fs::write(&table, "synthetic damaged database").unwrap();
+    let damaged = call();
+    assert_eq!(damaged["ok"], true);
+    assert_eq!(
+        damaged["value"]["translations"],
+        json!([{"text": "你好", "translation": "hello"}])
+    );
+}
+
+#[test]
+fn english_glosses_prefer_the_dictionaries_and_keep_learned_ones() {
+    let root = tempfile::tempdir().unwrap();
+    let resources = root.path().join("generation");
+    std::fs::create_dir_all(&resources).unwrap();
+    rusqlite::Connection::open(resources.join("english.db"))
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE english_words(word TEXT COLLATE BINARY NOT NULL,display TEXT NOT NULL,weight INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(word,display)) WITHOUT ROWID;
+             CREATE TABLE en_zh_glosses(english TEXT COLLATE BINARY PRIMARY KEY,chinese_gloss TEXT NOT NULL) WITHOUT ROWID;
+             CREATE TABLE zh_en_glosses(chinese TEXT COLLATE BINARY PRIMARY KEY,english_gloss TEXT NOT NULL) WITHOUT ROWID;
+             INSERT INTO en_zh_glosses VALUES ('hello','你好');
+             INSERT INTO zh_en_glosses VALUES ('你好','hello');
+             INSERT INTO zh_en_glosses VALUES ('漂亮','chic');
+             INSERT INTO zh_en_glosses VALUES ('世界','world');",
+        )
+        .unwrap();
+    let characters = root.path().join("character-glosses/zh-en.db");
+    offline_gloss_fixture(&characters, "en");
+    rusqlite::Connection::open(&characters)
+        .unwrap()
+        .execute_batch("INSERT INTO zh_glosses VALUES('看', 'look, see', 'unihan:kDefinition');")
+        .unwrap();
+    let words = root.path().join("word-glosses/zh-en.db");
+    offline_gloss_fixture(&words, "en");
+    rusqlite::Connection::open(&words)
+        .unwrap()
+        .execute_batch(
+            "UPDATE zh_glosses SET gloss = 'hello, hi' WHERE chinese = '你好';
+             INSERT INTO zh_glosses VALUES('漂亮', 'pretty, beautiful', 'cc-cedict');
+             INSERT INTO zh_glosses VALUES('芋头', 'taro', 'cc-cedict');
+             INSERT INTO zh_glosses VALUES('看', 'to look after', 'cc-cedict');
+             INSERT INTO zh_glosses VALUES('猫', 'cat', 'cc-cedict');",
+        )
+        .unwrap();
+    let user = tempfile::tempdir().unwrap();
+    let user_path = user.path().to_str().unwrap().to_owned();
+    let resources = resources.to_str().unwrap().to_owned();
+    let call = |user_data: Option<&str>| {
+        let mut request = json!({"generation": 9, "candidates": [
+            {"text": "你好", "source": 0},
+            {"text": "漂亮", "source": 0},
+            {"text": "世界", "source": 0},
+            {"text": "芋头", "source": 0},
+            {"text": "看", "source": 0},
+            {"text": "猫", "source": 0},
+            {"text": "hello", "source": 4},
+            {"text": "狗狗", "source": 0}
+        ]});
+        if let Some(user_data) = user_data {
+            request["user_data"] = json!(user_data);
+        }
+        let request = serde_json::to_vec(&request).unwrap();
+        read(unsafe {
+            msime_client_candidate_gloss_request(
+                request.as_ptr(),
+                request.len(),
+                resources.as_ptr(),
+                resources.len(),
+            )
+        })
+    };
+    // The dictionaries win over english.db (漂亮 is "pretty", not "chic"); english.db still answers what they lack
+    // (世界) and English candidates; a character asks Unihan before CC-CEDICT.
+    assert_eq!(
+        call(None)["value"]["translations"],
+        json!([
+            {"text": "你好", "translation": "hello, hi"},
+            {"text": "漂亮", "translation": "pretty, beautiful"},
+            {"text": "世界", "translation": "world"},
+            {"text": "芋头", "translation": "taro"},
+            {"text": "看", "translation": "look, see"},
+            {"text": "猫", "translation": "cat"},
+            {"text": "hello", "translation": "你好"}
+        ])
+    );
+
+    // A gloss the user's own glossary holds is theirs and is never replaced.
+    let request = serde_json::to_vec(&json!({"target_language": "en", "translations": [
+        {"text": "漂亮", "translation": "gorgeous"}
+    ]}))
+    .unwrap();
+    let saved = read(unsafe {
+        msime_client_translation_gloss_save(
+            request.as_ptr(),
+            request.len(),
+            user_path.as_ptr(),
+            user_path.len(),
+        )
+    });
+    assert_eq!(saved["value"]["saved"], 1);
+    let learned = call(Some(&user_path));
+    assert_eq!(
+        learned["value"]["translations"][1],
+        json!({"text": "漂亮", "translation": "gorgeous"})
+    );
+    assert_eq!(
+        learned["value"]["translations"][0],
+        json!({"text": "你好", "translation": "hello, hi"})
+    );
+
+    // A damaged word table costs only what it would have added: english.db answers again.
+    std::fs::write(&words, "synthetic damaged database").unwrap();
+    assert_eq!(
+        call(None)["value"]["translations"],
+        json!([
+            {"text": "你好", "translation": "hello"},
+            {"text": "漂亮", "translation": "chic"},
+            {"text": "世界", "translation": "world"},
+            {"text": "看", "translation": "look, see"},
+            {"text": "hello", "translation": "你好"}
+        ])
+    );
 }

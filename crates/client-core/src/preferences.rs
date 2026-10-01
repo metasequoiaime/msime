@@ -725,6 +725,11 @@ pub struct Preferences {
     /// Show bounded offline English glosses from the packaged Engine dictionary.
     #[serde(default)]
     pub candidate_english_gloss: bool,
+    /// Show how a candidate's English and Japanese gloss lines are read: IPA from the offline
+    /// pronunciation table and romaji where the host can produce it. Display only; a committed
+    /// gloss column never includes it.
+    #[serde(default)]
+    pub candidate_pronunciation: bool,
     /// Show read-only English word completions in direct English touch input.
     /// Hosts without a direct English suggestion surface preserve this value.
     #[serde(default = "enabled_by_default")]
@@ -1700,6 +1705,7 @@ impl Default for Preferences {
             cloud_candidates: true,
             candidate_translations: true,
             candidate_english_gloss: false,
+            candidate_pronunciation: false,
             english_suggestions: true,
             translation_target_language: TranslationTargetLanguage::default(),
             translation_secondary_language: None,
