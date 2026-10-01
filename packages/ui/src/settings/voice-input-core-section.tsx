@@ -1,5 +1,6 @@
 import { GroupList, Row, Select, Switch } from "../core/platform-controls";
 import { ASR_PROVIDER_OPTIONS, VoiceProviderOptions } from "../voice/voice-provider-options";
+import { VoiceLanguageOptions } from "../voice/voice-language-options";
 
 export interface VoiceInputCoreSectionProps {
   enabled: boolean;
@@ -84,10 +85,7 @@ export function VoiceInputCoreSection({
           onChange={(event) => onLanguageChange(event.target.value)}
         />
         <datalist id="settings-voice-language-options">
-          <option value={systemVoice ? "zh-CN" : "zh-cn"}>中文（普通话）</option>
-          <option value={systemVoice ? "en-US" : "en"}>English</option>
-          <option value={systemVoice ? "ja-JP" : "ja"}>日本語</option>
-          {!systemVoice && <option value="auto">自动识别</option>}
+          <VoiceLanguageOptions systemVoice={systemVoice} />
         </datalist>
       </Row>
     </GroupList>

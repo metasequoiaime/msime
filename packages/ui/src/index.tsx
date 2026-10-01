@@ -688,6 +688,7 @@ export {
   type ThemePreferences,
 } from "./settings/theme-settings-section";
 export { SurfaceThemeSelect, type SurfaceThemeSelectProps } from "./settings/surface-theme-select";
+export { VoiceLanguageOptions, type VoiceLanguageOptionsProps } from "./voice/voice-language-options";
 export {
   CloudPinyinSchemeOptions,
   CloudShuangpinProfileOptions,

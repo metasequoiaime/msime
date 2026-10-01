@@ -26,6 +26,7 @@ import * as cloud from "./cloud-panel-style";
 import * as surface from "./panel-surface-style";
 import { normalizeHandwritingCandidates } from "./handwriting";
 import { validVoiceLanguage } from "./voice-panel";
+import { VoiceLanguageOptions } from "../voice/voice-language-options";
 import {
   isImeCommitKey,
   keyboardKeyWeight,
@@ -1640,10 +1641,7 @@ export function VoicePanel({
             disabled={busy}
           />
           <datalist id="voice-language-options">
-            <option value="zh-cn">中文（普通话）</option>
-            <option value="en">English</option>
-            <option value="ja">日本語</option>
-            <option value="auto">自动识别</option>
+            <VoiceLanguageOptions />
           </datalist>
         </label>
         <button
