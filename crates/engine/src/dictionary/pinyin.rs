@@ -353,10 +353,7 @@ impl PinyinDatabase {
         if table.is_empty() || keys.is_empty() || limit == 0 {
             return Vec::new();
         }
-        let placeholders = vec!["?"; keys.len()].join(",");
-        let sql = format!(
-            "SELECT \"key\", \"value\", \"weight\" FROM \"{table}\" WHERE \"key\" IN ({placeholders}) ORDER BY \"weight\" DESC LIMIT ?"
-        );
+        let sql = batch_sql(table, keys.len());
         let bound = sql_limit(limit);
         let mut params: Vec<&dyn ToSql> = keys.iter().map(|key| key as &dyn ToSql).collect();
         params.push(&bound);
@@ -414,6 +411,26 @@ fn range_sql(table: &str) -> String {
     )
 }
 
+fn batch_sql(table: &str, key_count: usize) -> String {
+    let mut sql = String::with_capacity(
+        table
+            .len()
+            .saturating_add(key_count.saturating_mul(2))
+            .saturating_add(96),
+    );
+    sql.push_str("SELECT \"key\", \"value\", \"weight\" FROM \"");
+    sql.push_str(table);
+    sql.push_str("\" WHERE \"key\" IN (");
+    for index in 0..key_count {
+        if index > 0 {
+            sql.push(',');
+        }
+        sql.push('?');
+    }
+    sql.push_str(") ORDER BY \"weight\" DESC LIMIT ?");
+    sql
+}
+
 fn contains_table_key(keys: &[String], key: &str) -> bool {
     keys.iter().any(|existing| existing == key)
 }
@@ -463,6 +480,14 @@ mod tests {
         let keys = vec!["ni'hao".to_owned()];
         assert!(contains_table_key(&keys, "ni'hao"));
         assert!(!contains_table_key(&keys, "ni'he"));
+    }
+
+    #[test]
+    fn batch_sql_writes_placeholders_without_intermediate_vectors() {
+        assert_eq!(
+            batch_sql("tbl_2_n", 3),
+            "SELECT \"key\", \"value\", \"weight\" FROM \"tbl_2_n\" WHERE \"key\" IN (?,?,?) ORDER BY \"weight\" DESC LIMIT ?"
+        );
     }
 
     fn cascade_fixture(directory: &Path) -> PinyinDatabase {
