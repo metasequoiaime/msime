@@ -32,6 +32,7 @@ import {
   type CommunityReportReason,
 } from "./community-report";
 import { CommunitySkinCardMetrics } from "./community-skin-card-metrics";
+import { CommunityBackButton, CommunityLoadMoreButton } from "./community-gallery-controls";
 
 /** The kinds a pack can be shared as; effect packs stay local for now. Mirrors `client-core::plugins::community::PUBLISHABLE_KINDS`. */
 export type CommunityPluginKind = Exclude<PluginKind, "effect">;
@@ -277,15 +278,7 @@ export function CommunityPluginsPage({
   if (selected) {
     return (
       <div className={style.page}>
-        <button
-          type="button"
-          className={style.back}
-          disabled={actionBusy}
-          onClick={closeDetail}
-          aria-label="返回社区"
-        >
-          ← 社区
-        </button>
+        <CommunityBackButton disabled={actionBusy} onClick={closeDetail} />
         {errorAlert}
         <section className={`section ${style.detail}`}>
           <div className={style.detailTitle}>
@@ -468,14 +461,10 @@ export function CommunityPluginsPage({
         ))}
       </div>
       {hasMore && (
-        <button
-          type="button"
-          className={`secondary ${style.more}`}
+        <CommunityLoadMoreButton
           disabled={listBusy}
           onClick={() => void requestList(activeSearch, true)}
-        >
-          加载更多
-        </button>
+        />
       )}
       {listBusy && (
         <p role="status" className={style.notice}>

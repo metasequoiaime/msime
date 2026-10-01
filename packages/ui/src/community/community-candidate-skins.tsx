@@ -18,6 +18,7 @@ import {
   type CommunityReportReason,
 } from "./community-report";
 import { CommunitySkinCardMetrics } from "./community-skin-card-metrics";
+import { CommunityBackButton, CommunityLoadMoreButton } from "./community-gallery-controls";
 import {
   CommunitySkinCategoryFilter,
   CommunitySkinCategorySelect,
@@ -429,15 +430,7 @@ export function CommunityCandidateSkinsPage({
     const selectedCategory = communitySkinCategoryLabel(selected.category);
     return (
       <div className={style.page}>
-        <button
-          type="button"
-          className={style.back}
-          disabled={actionBusy}
-          onClick={closeDetail}
-          aria-label="返回社区"
-        >
-          ← 社区
-        </button>
+      <CommunityBackButton disabled={actionBusy} onClick={closeDetail} />
         {errorAlert}
         <section className={`section ${style.detail}`}>
           <CandidateSkinPreviewImage
@@ -620,14 +613,10 @@ export function CommunityCandidateSkinsPage({
         ))}
       </div>
       {hasMore && (
-        <button
-          type="button"
-          className={`secondary ${style.more}`}
+        <CommunityLoadMoreButton
           disabled={listBusy}
           onClick={() => void requestList(activeSearch, true)}
-        >
-          加载更多
-        </button>
+        />
       )}
       {listBusy && (
         <p role="status" className={style.notice}>

@@ -28,6 +28,7 @@ import { CommunitySkinPublicationFields } from "./community-skin-publication-fie
 import { CommunitySelectField } from "./community-select-field";
 import { CommunitySkinModerationSection } from "./community-skin-moderation-section";
 import { CommunitySkinCardMetrics } from "./community-skin-card-metrics";
+import { CommunityBackButton, CommunityLoadMoreButton } from "./community-gallery-controls";
 import {
   CommunitySkinCategoryFilter,
   CommunitySkinCategorySelect,
@@ -504,15 +505,7 @@ export function CommunitySkinsPage({
   if (selected)
     return (
       <div className={style.page}>
-        <button
-          type="button"
-          className={style.back}
-          disabled={actionBusy}
-          onClick={() => void closeDetail()}
-          aria-label="返回社区"
-        >
-          ← 社区
-        </button>
+        <CommunityBackButton disabled={actionBusy} onClick={() => void closeDetail()} />
         {error && (
           <CommunityErrorAlert message={error} signInRequired={signInRequired} onLogin={onLogin} />
         )}
@@ -663,14 +656,10 @@ export function CommunitySkinsPage({
           ))}
       </div>
       {hasMore && (
-        <button
-          type="button"
-          className={`secondary ${style.more}`}
+        <CommunityLoadMoreButton
           disabled={listBusy}
           onClick={() => void requestList(activeSearch, true)}
-        >
-          加载更多
-        </button>
+        />
       )}
       {listBusy && (
         <p role="status" className={style.notice}>
