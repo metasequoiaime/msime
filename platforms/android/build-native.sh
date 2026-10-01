@@ -59,4 +59,6 @@ cp shared/voice/third_party/sherpa-onnx/LICENSE "$notices/sherpa-onnx.txt"
 cp platforms/linux/data/licenses/onnxruntime-MIT.txt "$notices/onnxruntime.txt"
 cp platforms/linux/data/licenses/onnxruntime-ThirdPartyNotices.txt "$notices/onnxruntime-third-party.txt"
 cp "$toolchain/sysroot/NOTICE" "$notices/ndk-sysroot.txt"
+# The input engine in libmsime_host_api.so embeds the Korean Hanja table from libhangul's data/hanja/hanja.txt, which is BSD-3-Clause: clause 2 requires its notice in every binary distribution, so it travels with the library's other notices into assets/native-notices.
+cp resources/licenses/libhangul-hanja-BSD-3-Clause.txt "$notices/libhangul-hanja.txt"
 echo "Android native libraries built: $output (not yet device-verified)"

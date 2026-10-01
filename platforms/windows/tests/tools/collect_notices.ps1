@@ -12,6 +12,7 @@ try {
     $repositoryNotices = @('resources/licenses/msime-engine-dictionary-NOTICE.md', 'resources/helpcodes/ENGINE-NOTICE.md',
         'resources/helpcodes/NOTICE.md', 'target/handwriting-model/HandwritingModel-LICENSE.txt',
         'resources/licenses/Zinnia-LICENSE.txt', 'resources/licenses/Administrative-divisions-of-China-WTFPL.txt',
+        'resources/licenses/libhangul-hanja-BSD-3-Clause.txt',
         'platforms/windows/third_party/miniaudio/LICENSE',
         'crates/client-core/data/opencc/LICENSE')
     foreach ($relative in $repositoryNotices) {

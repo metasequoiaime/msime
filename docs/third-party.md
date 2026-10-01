@@ -200,6 +200,7 @@ kaikki 每周覆盖同一个 URL，所以能复现构建的是 `filtered_input`�
 | 组件 | 许可证 | 位置与说明 |
 | --- | --- | --- |
 | [modood/Administrative-divisions-of-China](https://github.com/modood/Administrative-divisions-of-China) 的省、地、县三级行政区划，提交 `c49d495b40ac73eb1a66f6eeae5f8fd10696f035` | WTFPL（全文在 `resources/licenses/Administrative-divisions-of-China-WTFPL.txt`）；上游整理自国家统计局公布的统计用区划代码与城乡划分代码 | `crates/engine/src/local/places.tsv`，`@` 模式在用户自己的列表之后补充的内置地名（3302 个，约 126 KB，`include_str!` 编进引擎）。`msime-dict-build places` 读 `dist/provinces.csv`、`dist/cities.csv`、`dist/areas.csv` 三个文件生成这张表，三者的 URL、长度与 SHA-256 固定在 `resources/dictionary-sources.lock.json` 的 `places/` 条目；拼音由生成器按字注音，再用 `crates/dict-builder/src/places.rs` 的 `READINGS` 纠正地名专用读音。只取地名和上级关系，不带区划代码。设置里「@ 地名」默认关闭 |
+| [libhangul](https://github.com/libhangul/libhangul) 的 `data/hanja/hanja.txt`，提交 `717409ce61524bb3d8426060a384822f21354c62` | BSD-3-Clause（文件头单独声明，Copyright (c) 2005,2006 Choe Hwanjin；全文在 `resources/licenses/libhangul-hanja-BSD-3-Clause.txt`）。libhangul 仓库整体是 LGPL-2.1，但本仓只取这一份单独声明 BSD-3 的数据文件。上游提交历史说明 2006–2007 年部分读音和词表整理自国立国语院的材料，这些材料能否以 BSD 再授权无法独立核实，属于上游作者的声明 | `crates/engine/src/korean/hanja.tsv`，韩语模式把正在组字的音节转换成汉字时的候选表（555 个音节、28416 行，约 430 KB，`include_str!` 编进引擎）。`msime-dict-build hanja` 读这一个文件生成这张表，其 URL、长度与 SHA-256 固定在 `resources/dictionary-sources.lock.json` 的 `hanja/` 条目。只取单音节条目：键是一个预组合音节，值是基本多文种平面内的一个统一汉字，即 CJK 统一汉字、扩展 A 区汉字，或兼容汉字区里 NFC 不改写的 12 个统一汉字（U+FA0E 﨎、U+FA11 﨑 等）；真正的兼容汉字（NFC 会改写，固定版本的单音节条目里没有）、辅助平面汉字和两字值都丢弃；每个音节内保持上游顺序，保留上游的训音（훈음）注释，约 27% 的行有训音，扩展 A 区一行都没有。词条级数据（约 5.7 MB）不使用。BSD-3 第 2 条要求二进制分发时附带版权声明和条款，表编进引擎后随六个平台的引擎一起分发，所以六个平台的通知渠道都收录这份文本：Windows 的 `Collect-Notices.ps1`，macOS 输入法包的 `Resources/Licenses`（`CMakeLists.txt` 与 `THIRD_PARTY_NOTICES.txt`），Linux 安装的声明（`CMakeLists.txt` 与 `data/THIRD_PARTY_NOTICES.txt`），Android 的 `assets/native-notices`（`build-native.sh`），iOS App 的资源（`project.yml`），HarmonyOS 的 `resfile/licenses`（`stage-resources.sh`）。`scripts/test-korean-hanja-table.py` 检查这几处都还在 |
 | [OpenCC](https://github.com/BYVoid/OpenCC) 词典，提交 `26753884f1984add422f3b0249ccee8613deaff6` | Apache-2.0 | `crates/client-core/data/opencc/`，许可证全文在同目录 `LICENSE`。`STPhrases.txt`、`STCharacters.txt`、`CJK_Compatibility_Ideographs.txt` 原样取自该提交的 `data/dictionary/`；`STPhrases_GeneratedFromRegionalPhrases.txt` 是该提交的 OpenCC 构建产物（`data/scripts/generate_st_phrases_from_regional_phrases.py` 用 `t2s.json` 生成），本仓不重新生成。提交号与来源 MSIME-Windows 的 `vendor/opencc` 子模块一致。只使用数据，不链接 OpenCC 的 C++ 库；`chinese_conversion.rs` 按 `s2t.json` 的规则实现转换。Windows 通知由 `Collect-Notices.ps1` 一并收集 |
 
 ## 本地语音识别
@@ -266,7 +267,10 @@ kaikki 每周覆盖同一个 URL，所以能复现构建的是 `filtered_input`�
 | 位置 | 覆盖范围 |
 | --- | --- |
 | `platforms/macos/resources/Licenses/THIRD_PARTY_NOTICES.txt` | macOS 客户端内嵌组件的完整通知 |
-| `platforms/ios/SharedResources/MLKit-NOTICES.txt`、`MLKit-Dependencies.txt` | iOS 的 ML Kit 依赖通知 |
+| `platforms/linux/data/THIRD_PARTY_NOTICES.txt` | Linux 安装到 `${CMAKE_INSTALL_DATADIR}/doc/msime-client/` 的组件总览，许可证全文由 `platforms/linux/CMakeLists.txt` 的 `MSIME_NOTICE_SOURCES` 一并安装 |
+| `platforms/ios/SharedResources/MLKit-NOTICES.txt`、`MLKit-Dependencies.txt` | iOS 的 ML Kit 依赖通知；编进引擎的韩语汉字表的 `libhangul-hanja-BSD-3-Clause.txt` 由 `platforms/ios/project.yml` 作为 App 资源打包 |
+| Android APK 的 `assets/native-notices/` | `platforms/android/build-native.sh` 收集的原生依赖声明，含编进引擎的韩语汉字表的 libhangul BSD-3-Clause 声明；两条打包路径都放进 APK |
+| HarmonyOS HAP 的 `resfile/licenses/` | `platforms/harmony/stage-resources.sh` 暂存的编进引擎的韩语汉字表的 libhangul BSD-3-Clause 声明 |
 | `apps/desktop/src-tauri/gen/android/gradle/LICENSE-2.0.txt`、同目录 `NOTICE.md` | Android Gradle 模板的 Apache-2.0 文本与来源说明 |
 | `platforms/windows/Notices.md` | Windows 通知生成器的用法与限制；产物由 `Collect-Notices.ps1` 生成 |
 

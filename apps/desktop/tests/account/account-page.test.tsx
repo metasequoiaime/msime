@@ -847,6 +847,30 @@ test("mobile app icon choices read system state and use an explicit selection", 
   ).toBe("true");
 });
 
+test("app icon selection ignores a same-tick duplicate", async () => {
+  const pending = deferred<{ supported: boolean; selected: string }>();
+  const set = vi.fn().mockReturnValue(pending.promise);
+  render(
+    <AccountPage
+      client={account({
+        appIcon: {
+          info: vi.fn().mockResolvedValue({ supported: true, selected: "classic" }),
+          set,
+        },
+      })}
+    />,
+  );
+  await screen.findByRole("button", { name: "原版，经典黑白，简洁如初" });
+  const forest = screen.getByRole("button", { name: "杉林，杉叶青绿，沉静自然" });
+  act(() => {
+    fireEvent.click(forest);
+    fireEvent.click(forest);
+  });
+  expect(set).toHaveBeenCalledOnce();
+  pending.resolve({ supported: true, selected: "forest" });
+  await waitFor(() => expect(forest.getAttribute("aria-pressed")).toBe("true"));
+});
+
 test("app icon errors are ignored only when the reread system state matches", async () => {
   const info = vi
     .fn()

@@ -101,6 +101,7 @@ target_compile_features(msime-tsf-punctuation-key-policy-test PRIVATE cxx_std_17
 add_test(NAME msime-tsf-punctuation-key-policy COMMAND msime-tsf-punctuation-key-policy-test)
 add_executable(msime-tsf-korean-key-test tests/input/korean_key.cpp)
 target_compile_features(msime-tsf-korean-key-test PRIVATE cxx_std_17)
+target_include_directories(msime-tsf-korean-key-test PRIVATE ../../../crates/host-api/include)
 add_test(NAME msime-tsf-korean-key COMMAND msime-tsf-korean-key-test)
 # How the TIP routes the keys of the V, "/" and "@" modes, which must match the Server's EditPolicy.h.
 add_executable(msime-tsf-local-mode-key-policy-test tests/input/local_mode_key_policy.cpp)

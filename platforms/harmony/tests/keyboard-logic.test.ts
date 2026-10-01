@@ -268,6 +268,7 @@ import {
   HardwareKey,
   HardwareKeyDecision,
   HardwareSpelling,
+  HardwareNavigationPreferences,
   PLAIN_SPELLING,
 } from "../entry/src/main/ets/keyboard/HardwareKeyRouter";
 import {
@@ -3260,7 +3261,7 @@ group("maps desktop candidate wheel movement to page commands", () => {
   );
 });
 
-group("releases the candidate number row when the shared preference asks", () => {
+group("the number row follows the shared number_row_selection preference", () => {
   const key: HardwareKey = {
     keyCode: 0,
     unicodeChar: "2".charCodeAt(0),
@@ -3270,15 +3271,16 @@ group("releases the candidate number row when the shared preference asks", () =>
     shiftKey: false,
   };
   check(
-    HardwareKeyRouter.route(key, true, true).action === HardwareKeyAction.SELECT,
-    "the default hardware route selects a candidate",
+    HardwareKeyRouter.route(key, true, true).action === HardwareKeyAction.SELECT &&
+      HardwareKeyRouter.route(key, true, true, true).action === HardwareKeyAction.SELECT,
+    "on, the shared default, a digit selects a candidate",
   );
   check(
-    HardwareKeyRouter.route(key, true, true, true).action === HardwareKeyAction.COMMIT_THEN_TYPE,
-    "the preference turns the digit into text, after the composition it ends",
+    HardwareKeyRouter.route(key, true, true, false).action === HardwareKeyAction.COMMIT_THEN_TYPE,
+    "off, the digit is text, typed after the composition it ends",
   );
   check(
-    HardwareKeyRouter.route(key, false, true, true).action === HardwareKeyAction.RELEASE,
+    HardwareKeyRouter.route(key, false, true, false).action === HardwareKeyAction.RELEASE,
     "with nothing composed the digit is the editor's",
   );
 });
@@ -3307,12 +3309,12 @@ group("a character the composition cannot use ends it before it is typed", () =>
     "with nothing composed a 0 is the editor's",
   );
   check(
-    HardwareKeyRouter.route(key(2000, 0x30), true, true, false, undefined, false, true).action ===
+    HardwareKeyRouter.route(key(2000, 0x30), true, true, true, undefined, false, true).action ===
       HardwareKeyAction.COMMIT_THEN_TYPE,
     "a Japanese composition ends before a digit too",
   );
   check(
-    HardwareKeyRouter.route(key(0, 0x21), true, true, false, undefined, false, true).action ===
+    HardwareKeyRouter.route(key(0, 0x21), true, true, true, undefined, false, true).action ===
       HardwareKeyAction.PUNCTUATION,
     "Japanese punctuation goes through the punctuation route, which also finishes the composition first",
   );
@@ -3359,7 +3361,7 @@ group("punctuation locked to Chinese stays Chinese in English mode", () => {
       comma,
       false,
       false,
-      false,
+      true,
       undefined,
       false,
       false,
@@ -3436,13 +3438,13 @@ group("commits the highlighted candidate when punctuation arrives mid-compositio
   // Japanese punctuation ends a composition the same way; with nothing composed it is the application's.
   for (const character of ["!", "?", "/", ";", "."]) {
     check(
-      HardwareKeyRouter.route(mark(character), true, true, false, undefined, false, true).action ===
+      HardwareKeyRouter.route(mark(character), true, true, true, undefined, false, true).action ===
         HardwareKeyAction.PUNCTUATION,
       `Japanese ${character} finishes the composition rather than landing ahead of the kana`,
     );
   }
   check(
-    HardwareKeyRouter.route(mark("!"), false, true, false, undefined, false, true).action ===
+    HardwareKeyRouter.route(mark("!"), false, true, true, undefined, false, true).action ===
       HardwareKeyAction.RELEASE,
     "Japanese leaves punctuation to the application while nothing is composed",
   );
@@ -3467,47 +3469,47 @@ group("maps hardware navigation according to the shared preferences", () => {
     shiftKey,
   });
   check(
-    HardwareKeyRouter.route(key(2068), true, true, false, navigation).action ===
+    HardwareKeyRouter.route(key(2068), true, true, true, navigation).action ===
       HardwareKeyAction.PREVIOUS_PAGE,
     "PageUp goes to the previous page",
   );
   check(
-    HardwareKeyRouter.route(key(2069), true, true, false, navigation).action ===
+    HardwareKeyRouter.route(key(2069), true, true, true, navigation).action ===
       HardwareKeyAction.NEXT_PAGE,
     "PageDown goes to the next page",
   );
   check(
-    HardwareKeyRouter.route(key(2012), true, true, false, navigation).action ===
+    HardwareKeyRouter.route(key(2012), true, true, true, navigation).action ===
       HardwareKeyAction.PREVIOUS_CANDIDATE,
     "Up goes to the previous candidate",
   );
   check(
-    HardwareKeyRouter.route(key(2013), true, true, false, navigation).action ===
+    HardwareKeyRouter.route(key(2013), true, true, true, navigation).action ===
       HardwareKeyAction.NEXT_CANDIDATE,
     "Down goes to the next candidate",
   );
   check(
-    HardwareKeyRouter.route(key(2049, true), true, true, false, navigation).action ===
+    HardwareKeyRouter.route(key(2049, true), true, true, true, navigation).action ===
       HardwareKeyAction.PREVIOUS_PAGE,
     "Shift+Tab goes to the previous page",
   );
   check(
-    HardwareKeyRouter.route(key(2049), true, true, false, navigation).action ===
+    HardwareKeyRouter.route(key(2049), true, true, true, navigation).action ===
       HardwareKeyAction.NEXT_PAGE,
     "Tab goes to the next page",
   );
   check(
-    HardwareKeyRouter.route(key(2057), true, true, false, navigation).action ===
+    HardwareKeyRouter.route(key(2057), true, true, true, navigation).action ===
       HardwareKeyAction.PREVIOUS_PAGE,
     "minus goes to the previous page",
   );
   check(
-    HardwareKeyRouter.route(key(2059), true, true, false, navigation).action ===
+    HardwareKeyRouter.route(key(2059), true, true, true, navigation).action ===
       HardwareKeyAction.IGNORED,
     "disabled brackets are consumed without text input",
   );
   check(
-    HardwareKeyRouter.route({ ...key(2012), ctrlKey: true }, true, true, false, navigation)
+    HardwareKeyRouter.route({ ...key(2012), ctrlKey: true }, true, true, true, navigation)
       .action === HardwareKeyAction.RELEASE,
     "modifier shortcuts remain with the editor",
   );
@@ -3523,12 +3525,12 @@ group("maps Windows word-to-character bindings to highlighted candidate edges", 
     shiftKey,
   });
   check(
-    HardwareKeyRouter.route(key(2059), true, true, false, undefined, false, false, "brackets", true)
+    HardwareKeyRouter.route(key(2059), true, true, true, undefined, false, false, "brackets", true)
       .action === HardwareKeyAction.WORD_CHARACTER_FIRST,
     "left bracket selects the first Han character",
   );
   check(
-    HardwareKeyRouter.route(key(2060), true, true, false, undefined, false, false, "brackets", true)
+    HardwareKeyRouter.route(key(2060), true, true, true, undefined, false, false, "brackets", true)
       .action === HardwareKeyAction.WORD_CHARACTER_LAST,
     "right bracket selects the last Han character",
   );
@@ -3537,7 +3539,7 @@ group("maps Windows word-to-character bindings to highlighted candidate edges", 
       key(2057),
       true,
       true,
-      false,
+      true,
       undefined,
       false,
       false,
@@ -3551,7 +3553,7 @@ group("maps Windows word-to-character bindings to highlighted candidate edges", 
       key(2058),
       true,
       true,
-      false,
+      true,
       undefined,
       false,
       false,
@@ -3561,17 +3563,8 @@ group("maps Windows word-to-character bindings to highlighted candidate edges", 
     "equals selects the last Han character",
   );
   check(
-    HardwareKeyRouter.route(
-      key(2059),
-      true,
-      true,
-      false,
-      undefined,
-      false,
-      false,
-      "brackets",
-      false,
-    ).action !== HardwareKeyAction.WORD_CHARACTER_FIRST,
+    HardwareKeyRouter.route(key(2059), true, true, true, undefined, false, false, "brackets", false)
+      .action !== HardwareKeyAction.WORD_CHARACTER_FIRST,
     "without a highlighted candidate the bracket remains navigation/editor input",
   );
   check(
@@ -3579,7 +3572,7 @@ group("maps Windows word-to-character bindings to highlighted candidate edges", 
       key(2059, true),
       true,
       true,
-      false,
+      true,
       undefined,
       false,
       false,
@@ -3613,7 +3606,7 @@ group("word-to-character answers only the configured unmodified pair", () => {
       press(keyCode, held),
       true,
       true,
-      false,
+      true,
       undefined,
       false,
       false,
@@ -3773,23 +3766,23 @@ group("maps hardware composition editing commands like Windows", () => {
     );
   }
   check(
-    HardwareKeyRouter.route(key(2054, true), true, true, false, navigation, true).action ===
+    HardwareKeyRouter.route(key(2054, true), true, true, true, navigation, true).action ===
       HardwareKeyAction.COMMIT_TRANSLATION,
     "Ctrl+Enter commits a highlighted candidate translation",
   );
   // Windows claims Ctrl+Enter whenever candidates are up and answers NavigationIgnored without a translation (`HandleTranslationCommitKey`); a chat application must not send the message with the spelling still open.
   check(
-    HardwareKeyRouter.route(key(2054, true), true, true, false, navigation, false).action ===
+    HardwareKeyRouter.route(key(2054, true), true, true, true, navigation, false).action ===
       HardwareKeyAction.IGNORED,
     "Ctrl+Enter without a translation is consumed mid-composition",
   );
   check(
-    HardwareKeyRouter.route(key(2119, true), true, true, false, navigation, false).action ===
+    HardwareKeyRouter.route(key(2119, true), true, true, true, navigation, false).action ===
       HardwareKeyAction.IGNORED,
     "and so is the keypad Enter",
   );
   check(
-    HardwareKeyRouter.route(key(2054, true), false, true, false, navigation, false).action ===
+    HardwareKeyRouter.route(key(2054, true), false, true, true, navigation, false).action ===
       HardwareKeyAction.RELEASE,
     "with nothing composed Ctrl+Enter is the application's",
   );
@@ -3802,17 +3795,17 @@ group("maps hardware composition editing commands like Windows", () => {
     shiftKey: false,
   };
   check(
-    HardwareKeyRouter.route(japaneseMinus, false, true, false, navigation, false, true).action ===
+    HardwareKeyRouter.route(japaneseMinus, false, true, true, navigation, false, true).action ===
       HardwareKeyAction.COMPOSE,
     "Japanese minus starts a long-vowel composition",
   );
   check(
-    HardwareKeyRouter.route(japaneseMinus, false, true, false, navigation, false, true)
-      .character === "-".charCodeAt(0),
+    HardwareKeyRouter.route(japaneseMinus, false, true, true, navigation, false, true).character ===
+      "-".charCodeAt(0),
     "Japanese minus reaches the Engine as a hyphen",
   );
   check(
-    HardwareKeyRouter.route(japaneseMinus, true, true, false, navigation, false, true).action ===
+    HardwareKeyRouter.route(japaneseMinus, true, true, true, navigation, false, true).action ===
       HardwareKeyAction.COMPOSE,
     "Japanese minus remains a long-vowel composition key",
   );
@@ -3828,27 +3821,27 @@ group("maps hardware composition editing commands like Windows", () => {
   const equals: HardwareKey = japaneseMark(2058, "=", false);
   const underscore: HardwareKey = japaneseMark(2057, "_", true);
   check(
-    HardwareKeyRouter.route(equals, true, true, false, navigation, false, true).action ===
+    HardwareKeyRouter.route(equals, true, true, true, navigation, false, true).action ===
       HardwareKeyAction.PUNCTUATION,
     "Japanese equals mid-composition commits and then types the mark",
   );
   check(
-    HardwareKeyRouter.route(underscore, true, true, false, navigation, false, true).action ===
+    HardwareKeyRouter.route(underscore, true, true, true, navigation, false, true).action ===
       HardwareKeyAction.PUNCTUATION,
     "so does Shift+minus",
   );
   check(
-    HardwareKeyRouter.route(equals, false, true, false, navigation, false, true).action ===
+    HardwareKeyRouter.route(equals, false, true, true, navigation, false, true).action ===
       HardwareKeyAction.RELEASE,
     "with nothing composed Japanese equals is the application's",
   );
   check(
-    HardwareKeyRouter.route(key(2050), true, true, false, navigation, false, true).action ===
+    HardwareKeyRouter.route(key(2050), true, true, true, navigation, false, true).action ===
       HardwareKeyAction.JAPANESE_CONVERT,
     "Japanese Space starts or advances conversion without committing",
   );
   check(
-    HardwareKeyRouter.route(key(2054), true, true, false, navigation, false, true).action ===
+    HardwareKeyRouter.route(key(2054), true, true, true, navigation, false, true).action ===
       HardwareKeyAction.JAPANESE_COMMIT,
     "Japanese Return commits conversion state rather than raw romaji",
   );
@@ -3881,7 +3874,7 @@ group("routes Chinese hardware punctuation without stealing editor navigation", 
     "English punctuation remains application-owned",
   );
   check(
-    HardwareKeyRouter.route(key(0x2c), false, true, false, undefined, false, true).action ===
+    HardwareKeyRouter.route(key(0x2c), false, true, true, undefined, false, true).action ===
       HardwareKeyAction.RELEASE,
     "Japanese punctuation remains application-owned",
   );
@@ -5509,6 +5502,10 @@ function recordingTarget(log: string[]): HardwareKeyTarget {
     },
     commitThenType: (character: number) => log.push(`commitThenType ${character}`),
     finishBeforeKey: () => log.push("finishBeforeKey"),
+    convertHanja: () => {
+      log.push("convertHanja");
+      return true;
+    },
   };
 }
 
@@ -9587,7 +9584,7 @@ group("fullwidth mode widens what a hardware keyboard would hand the application
       hardware,
       composing,
       chinese,
-      false,
+      true,
       undefined,
       false,
       false,
@@ -9726,7 +9723,7 @@ group("keypad digits reach both digit paths", () => {
     { keyCode: 2105, unicodeChar: 0, ctrlKey: true, altKey: true, shiftKey: true, logoKey: false },
     true,
     true,
-    false,
+    true,
     compose,
   );
   check(
@@ -9744,7 +9741,7 @@ group("keypad digits reach both digit paths", () => {
     },
     true,
     true,
-    false,
+    true,
     compose,
   );
   check(
@@ -9783,7 +9780,7 @@ group("a hardware key spells or punctuates depending on what is being spelled", 
       } as HardwareKey,
       true,
       true,
-      false,
+      true,
       undefined,
       false,
       false,
@@ -10718,7 +10715,7 @@ group("a hardware keyboard on Korean composes letters and hands the rest back in
       hardware,
       composing,
       true,
-      false,
+      true,
       undefined,
       false,
       false,
@@ -10806,6 +10803,240 @@ group("a hardware keyboard on Korean composes letters and hands the rest back in
       recordingTarget(log),
     ) && log.join(",") === "finishBeforeKey",
     "the commit is written first and the key is then handed back",
+  );
+});
+
+group("a Korean syllable lists its Hanja and the open list takes the candidate keys", () => {
+  check(
+    KoreanCompositionPolicy.hanjaListOpen(true, 3) &&
+      !KoreanCompositionPolicy.hanjaListOpen(true, 0),
+    "a Korean composition with candidates is its Hanja list",
+  );
+  check(
+    !KoreanCompositionPolicy.hanjaListOpen(false, 3),
+    "candidates outside the Korean rules (English, a local mode) are no Hanja list",
+  );
+  check(
+    KoreanCompositionPolicy.convertsHanja(true, "한") &&
+      !KoreanCompositionPolicy.convertsHanja(true, "") &&
+      !KoreanCompositionPolicy.convertsHanja(false, "nihao"),
+    "the command and the 漢 button apply only while a Korean syllable composes",
+  );
+  check(
+    ReturnKeyAction.dispatch(false, true, 5, false, true) === ReturnDispatch.COMMIT_HIGHLIGHTED,
+    "touch Return chooses the highlighted Hanja while the list is open",
+  );
+  check(
+    KeyAccessibilityPolicy.hanja(false) === "转换为汉字" &&
+      KeyAccessibilityPolicy.hanja(true) === "关闭汉字列表",
+    "漢 is read as what the next tap does",
+  );
+
+  const key = (over: Record<string, unknown> = {}): HardwareKey => ({
+    keyCode: 2017,
+    unicodeChar: 0x72,
+    ctrlKey: false,
+    altKey: false,
+    shiftKey: false,
+    logoKey: false,
+    ...over,
+  });
+  const allOn: HardwareNavigationPreferences = {
+    minusEqual: true,
+    commaPeriod: true,
+    brackets: true,
+    tab: true,
+    pageUpDown: true,
+    mouseWheel: false,
+    arrows: true,
+  };
+  const route = (
+    hardware: HardwareKey,
+    composing: boolean,
+    hanjaList: boolean,
+    navigation: HardwareNavigationPreferences = allOn,
+    numberRowSelection: boolean = true,
+  ): HardwareKeyDecision =>
+    HardwareKeyRouter.route(
+      hardware,
+      composing,
+      true,
+      numberRowSelection,
+      navigation,
+      false,
+      false,
+      "brackets",
+      hanjaList,
+      PLAIN_SPELLING,
+      false,
+      false,
+      true,
+      hanjaList,
+    );
+  const HANJA = 2614;
+  const F9 = 2098;
+
+  check(
+    route(key({ keyCode: HANJA, unicodeChar: 0 }), true, false).action ===
+      HardwareKeyAction.CONVERT_HANJA,
+    "the Hanja key (Lang2) lists the composing syllable's Hanja",
+  );
+  check(
+    route(key({ keyCode: F9, unicodeChar: 0 }), true, false).action ===
+      HardwareKeyAction.CONVERT_HANJA,
+    "and so does F9, as on Linux and Android",
+  );
+  check(
+    route(key({ keyCode: HANJA, unicodeChar: 0 }), true, true).action ===
+      HardwareKeyAction.CONVERT_HANJA,
+    "pressed again it closes the list",
+  );
+  check(
+    route(key({ keyCode: HANJA, unicodeChar: 0 }), false, false).action ===
+      HardwareKeyAction.RELEASE &&
+      route(key({ keyCode: F9, unicodeChar: 0 }), false, false).action ===
+        HardwareKeyAction.RELEASE,
+    "with nothing composed both keys stay the application's",
+  );
+  check(
+    route(key({ keyCode: F9, unicodeChar: 0, ctrlKey: true }), true, false).action ===
+      HardwareKeyAction.RELEASE &&
+      route(key({ keyCode: F9, unicodeChar: 0, shiftKey: true }), true, false).action ===
+        HardwareKeyAction.RELEASE,
+    "a chord on F9 is not the Hanja key",
+  );
+
+  check(
+    route(key({ keyCode: 2050, unicodeChar: 0x20 }), true, true).action ===
+      HardwareKeyAction.COMMIT,
+    "Space chooses the highlighted Hanja",
+  );
+  check(
+    route(key({ keyCode: 2054, unicodeChar: 0 }), true, true).action === HardwareKeyAction.COMMIT &&
+      route(key({ keyCode: 2119, unicodeChar: 0 }), true, true).action === HardwareKeyAction.COMMIT,
+    "and so do Return and the keypad Enter",
+  );
+  const third: HardwareKeyDecision = route(key({ keyCode: 2003, unicodeChar: 0x33 }), true, true);
+  check(
+    third.action === HardwareKeyAction.SELECT && third.index === 2,
+    "with number-row selection on, the shared default, 3 picks the third Hanja on the page",
+  );
+  const released: HardwareKeyDecision = route(
+    key({ keyCode: 2003, unicodeChar: 0x33 }),
+    true,
+    true,
+    allOn,
+    false,
+  );
+  check(
+    released.action === HardwareKeyAction.COMMIT_THEN_TYPE && released.character === 0x33,
+    "with number-row selection turned off a digit commits the syllable and is typed, as without the list",
+  );
+  check(
+    route(key({ keyCode: 2000, unicodeChar: 0x30 }), true, true).action ===
+      HardwareKeyAction.COMMIT_THEN_TYPE,
+    "0 picks nothing",
+  );
+  check(
+    route(key({ keyCode: 2013, unicodeChar: 0 }), true, true).action ===
+      HardwareKeyAction.NEXT_CANDIDATE &&
+      route(key({ keyCode: 2012, unicodeChar: 0 }), true, true).action ===
+        HardwareKeyAction.PREVIOUS_CANDIDATE,
+    "Down and Up move the highlight",
+  );
+  check(
+    route(key({ keyCode: 2015, unicodeChar: 0 }), true, true).action ===
+      HardwareKeyAction.NEXT_CANDIDATE &&
+      route(key({ keyCode: 2014, unicodeChar: 0 }), true, true).action ===
+        HardwareKeyAction.PREVIOUS_CANDIDATE,
+    "Right and Left move it too, a syllable having no caret to move",
+  );
+  check(
+    route(key({ keyCode: 2069, unicodeChar: 0 }), true, true).action ===
+      HardwareKeyAction.NEXT_PAGE &&
+      route(key({ keyCode: 2068, unicodeChar: 0 }), true, true).action ===
+        HardwareKeyAction.PREVIOUS_PAGE &&
+      route(key({ keyCode: 2049, unicodeChar: 0 }), true, true).action ===
+        HardwareKeyAction.NEXT_PAGE &&
+      route(key({ keyCode: 2049, unicodeChar: 0, shiftKey: true }), true, true).action ===
+        HardwareKeyAction.PREVIOUS_PAGE,
+    "Page Down, Page Up, Tab and Shift+Tab page",
+  );
+  const noArrows: HardwareNavigationPreferences = { ...allOn, arrows: false, tab: false };
+  check(
+    route(key({ keyCode: 2014, unicodeChar: 0 }), true, true, noArrows).action ===
+      HardwareKeyAction.COMMIT_THEN_RELEASE &&
+      route(key({ keyCode: 2013, unicodeChar: 0 }), true, true, noArrows).action ===
+        HardwareKeyAction.COMMIT_THEN_RELEASE &&
+      route(key({ keyCode: 2049, unicodeChar: 0 }), true, true, noArrows).action ===
+        HardwareKeyAction.COMMIT_THEN_RELEASE,
+    "a navigation binding turned off leaves its key with its plain Korean meaning",
+  );
+  check(
+    route(key({ keyCode: 2081, unicodeChar: 0 }), true, true).action ===
+      HardwareKeyAction.COMMIT_THEN_RELEASE,
+    "Home commits the Hangul and moves the caret, as without the list",
+  );
+  for (const [code, mark] of [
+    [2057, 0x2d],
+    [2058, 0x3d],
+    [2059, 0x5b],
+    [2060, 0x5d],
+    [2043, 0x2c],
+    [2044, 0x2e],
+  ]) {
+    const decided: HardwareKeyDecision = route(
+      key({ keyCode: code, unicodeChar: mark }),
+      true,
+      true,
+    );
+    check(
+      decided.action === HardwareKeyAction.PUNCTUATION && decided.character === mark,
+      `${String.fromCharCode(mark)} stays punctuation, which writes the Hangul with the mark`,
+    );
+  }
+  check(
+    route(key({ keyCode: 2055, unicodeChar: 0 }), true, true).action ===
+      HardwareKeyAction.BACKSPACE &&
+      route(key({ keyCode: 2070, unicodeChar: 0 }), true, true).action === HardwareKeyAction.CANCEL,
+    "Backspace and Escape reach the Engine, which closes the list and keeps the syllable",
+  );
+  const letter: HardwareKeyDecision = route(key(), true, true);
+  check(
+    letter.action === HardwareKeyAction.COMPOSE && letter.character === 0x72,
+    "a letter composes as usual",
+  );
+  check(
+    route(key({ keyCode: 2054, unicodeChar: 0, altKey: true }), true, true).action ===
+      HardwareKeyAction.COMMIT_THEN_RELEASE,
+    "Alt+Enter still commits the Hangul and goes on to the application",
+  );
+  check(
+    route(key({ keyCode: 2050, unicodeChar: 0x20 }), true, false).action ===
+      HardwareKeyAction.COMMIT_THEN_TYPE &&
+      route(key({ keyCode: 2003, unicodeChar: 0x33 }), true, false).action ===
+        HardwareKeyAction.COMMIT_THEN_TYPE &&
+      route(key({ keyCode: 2013, unicodeChar: 0 }), true, false).action ===
+        HardwareKeyAction.COMMIT_THEN_RELEASE &&
+      route(key({ keyCode: 2044, unicodeChar: 0x2e }), true, false).action ===
+        HardwareKeyAction.PUNCTUATION,
+    "with no list open Space, digits, arrows and marks keep their Korean meaning",
+  );
+
+  const log: string[] = [];
+  check(
+    HardwareKeyDispatch.apply(
+      { action: HardwareKeyAction.CONVERT_HANJA, character: 0, index: 0 },
+      false,
+      {
+        ...recordingTarget(log),
+        convertHanja: () => {
+          log.push("convertHanja");
+          return false;
+        },
+      },
+    ) && log.join(",") === "convertHanja",
+    "the Hanja key is consumed even when the Engine declines a lone jamo",
   );
 });
 
@@ -11312,7 +11543,7 @@ group("V mode spells digits and operators the Engine lists, and Shift+digit pick
       } as HardwareKey,
       true,
       true,
-      false,
+      true,
       undefined,
       false,
       false,

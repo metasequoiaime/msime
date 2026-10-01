@@ -71,7 +71,7 @@ pub enum SchemeType {
     Shuangpin = 1,
     Wubi = 2,
     JapaneseRomaji = 3,
-    /// Korean Hangul on the Dubeolsik layout: syllables compose in the preedit and commit themselves, with no candidates.
+    /// Korean Hangul on the Dubeolsik layout: syllables compose in the preedit and commit themselves; the only candidates are the composing syllable's Hanja, after `Command::ConvertHanja`.
     Korean = 4,
 }
 
@@ -284,6 +284,8 @@ pub struct QueryRequest {
     pub sentence_association: SentenceAssociationOptions,
     /// Committed text the neural sentence models condition on.
     pub rescoring_context: String,
+    /// Korean only: the Hanja list of the composing syllable is open, so the request is answered with its Hanja.
+    pub korean_hanja: bool,
     /// False means no query at all.
     pub valid: bool,
 }
@@ -320,6 +322,8 @@ pub enum Command {
     CycleKanaVariant = 9,
     /// Japanese only: commit the kana reading.
     CommitReading = 10,
+    /// Korean only: open the composing syllable's Hanja list, or close it when it is open.
+    ConvertHanja = 11,
 }
 
 impl Command {
@@ -336,6 +340,7 @@ impl Command {
             8 => Self::DeleteForward,
             9 => Self::CycleKanaVariant,
             10 => Self::CommitReading,
+            11 => Self::ConvertHanja,
             _ => return None,
         })
     }
@@ -353,11 +358,12 @@ impl Command {
             Self::DeleteForward => "DeleteForward",
             Self::CycleKanaVariant => "CycleKanaVariant",
             Self::CommitReading => "CommitReading",
+            Self::ConvertHanja => "ConvertHanja",
         }
     }
 
     pub fn from_name(name: &str) -> Option<Self> {
-        (0..=10)
+        (0..=11)
             .filter_map(Self::from_u8)
             .find(|command| command.name() == name)
     }

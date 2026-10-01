@@ -29,9 +29,14 @@ export class ReturnKeyAction {
     japaneseConverted: boolean = false,
     korean: boolean = false,
   ): ReturnDispatch {
-    // A Korean syllable is finished text rather than a spelling to confirm, so Return commits it and still breaks the line or submits, as every Korean keyboard does.
+    // A Korean syllable is finished text rather than a spelling to confirm, so Return commits it and still breaks the line or submits, as every Korean keyboard does. The one exception is the syllable's open Hanja list, the only candidates Korean has: there Return chooses the highlighted Hanja, which only the session knows (msime_client.h).
     if (korean) {
-      return composing ? ReturnDispatch.FINISH_THEN_EDITOR : ReturnDispatch.EDITOR;
+      if (!composing) {
+        return ReturnDispatch.EDITOR;
+      }
+      return candidateCount > 0
+        ? ReturnDispatch.COMMIT_HIGHLIGHTED
+        : ReturnDispatch.FINISH_THEN_EDITOR;
     }
     if (japanese && composing) {
       return japaneseConverted ? ReturnDispatch.COMMIT_HIGHLIGHTED : ReturnDispatch.COMMIT_READING;

@@ -27,9 +27,11 @@ inline constexpr unsigned candidate_source_english_dictionary = 4;
 // would fail. This is the guard HarmonyOS had written against the scheme *name*
 // while its view held the Engine's numeric id, where it never fired at all.
 inline constexpr unsigned candidate_scheme_japanese = 3;
+// Korean's only candidates are the Hanja of the composing syllable, which the Engine keeps in table order and refuses to pin, fix or remove: they come from a table compiled into the Engine, not from the user's dictionary.
+inline constexpr unsigned candidate_scheme_korean = 4;
 
 inline bool candidate_actions_available(unsigned scheme, unsigned source) {
-  if (scheme == candidate_scheme_japanese)
+  if (scheme == candidate_scheme_japanese || scheme == candidate_scheme_korean)
     return false;
   return source == candidate_source_database ||
          source == candidate_source_user_database ||

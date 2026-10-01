@@ -2188,7 +2188,7 @@ int main(int argc, char **argv) {
       require(press(FcitxKey_d) && press(FcitxKey_k) && press(FcitxKey_s), "Korean letters compose");
       require(state->view_.at("scheme") == 4 && preedit() == "안" && ic.committed == before,
               "the syllable is drawn inline while it composes");
-      require(state->view_.at("candidates").empty(), "Korean offers no candidates");
+      require(state->view_.at("candidates").empty(), "Korean offers no candidates before the Hanja key");
       require(ic.inputPanel().clientPreedit().cursor() == static_cast<int>(std::string("안").size()),
               "the caret follows the syllable");
       require(press(FcitxKey_s) && ic.committed == before + "안" && preedit() == "ㄴ",
@@ -2218,6 +2218,76 @@ int main(int argc, char **argv) {
               "Enter commits the syllable and reaches the application");
       require(press(FcitxKey_r) && press(FcitxKey_apostrophe) && ic.committed == before + "가가ㄱ'",
               "an apostrophe is a mark after the syllable");
+      // Hangul_Hanja or a bare F9 converts the composing syllable to Hanja (msime_client.h, MSIME_CONVERT_HANJA). With the list open the candidate keys choose, Escape and Backspace only close it, a letter closes it and composes, a mark writes the Hangul with it, and a trigger is never passed on while a syllable composes.
+      {
+        const auto candidates = [&] { return state->view_.value("candidates", Json::array()); };
+        const auto first = [&] {
+          const auto list = candidates();
+          return list.empty() ? std::string() : list.at(0).value("text", std::string());
+        };
+        const auto hangul = [&] { return press(FcitxKey_g) && press(FcitxKey_k) && press(FcitxKey_s); };
+        state->preferences_["number_row_selection"] = true;
+        before = ic.committed;
+        require(!press(FcitxKey_F9) && !press(FcitxKey_Hangul_Hanja) && ic.committed == before,
+                "with nothing composing the trigger is the application's");
+        require(hangul() && press(FcitxKey_Hangul_Hanja) && first() == "韓" && preedit() == "한" &&
+                    ic.committed == before,
+                "Hangul_Hanja opens the Hanja list of the composing syllable");
+        require(candidates().at(0).value("annotation", std::string()) == "나라 이름 한, 한나라 한",
+                "a Hanja carries its 훈음 as the annotation");
+        require(press(FcitxKey_F9) && candidates().empty() && preedit() == "한", "the trigger again closes the list");
+        require(press(FcitxKey_F9) && first() == "韓", "a bare F9 opens it too");
+        require(press(FcitxKey_Down) && press(FcitxKey_Return) && ic.committed == before + "漢" &&
+                    preedit().empty() && candidates().empty(),
+                "Return chooses the highlighted Hanja instead of breaking the line");
+        before = ic.committed;
+        require(hangul() && press(FcitxKey_F9) && press(FcitxKey_space) && ic.committed == before + "韓",
+                "Space chooses the highlighted Hanja");
+        before = ic.committed;
+        require(hangul() && press(FcitxKey_F9) && press(FcitxKey_2) && ic.committed == before + "漢",
+                "a digit chooses from the page");
+        before = ic.committed;
+        require(hangul() && press(FcitxKey_F9) && press(FcitxKey_Escape) && candidates().empty() &&
+                    preedit() == "한" && ic.committed == before,
+                "Escape closes the list and keeps the syllable");
+        require(press(FcitxKey_F9) && press(FcitxKey_BackSpace) && candidates().empty() && preedit() == "한" &&
+                    ic.committed == before,
+                "Backspace closes the list and keeps the syllable");
+        require(press(FcitxKey_F9) && press(FcitxKey_period) && ic.committed == before + "한." &&
+                    preedit().empty() && candidates().empty(),
+                "a paging mark is punctuation that writes the Hangul, not a page turn");
+        before = ic.committed;
+        require(press(FcitxKey_r) && press(FcitxKey_k) && press(FcitxKey_F9) && press(FcitxKey_r) &&
+                    preedit() == "각" && candidates().empty() && ic.committed == before,
+                "a letter closes the list and composes");
+        require(press(FcitxKey_Escape) && press(FcitxKey_r) && press(FcitxKey_F9) && preedit() == "ㄱ" &&
+                    candidates().empty() && ic.committed == before,
+                "a lone jamo has no Hanja, and its trigger is still not passed on");
+        require(press(FcitxKey_Escape) && preedit().empty(), "Escape discards the lone jamo");
+        state->preferences_["number_row_selection"] = false;
+        require(hangul() && press(FcitxKey_F9) && !press(FcitxKey_1) && ic.committed == before + "한" &&
+                    preedit().empty() && candidates().empty(),
+                "with number-row selection off a digit writes the Hangul and reaches the application");
+        state->preferences_["number_row_selection"] = true;
+        before = ic.committed;
+        require(hangul() && press(FcitxKey_F9) && !press(FcitxKey_c, fcitx::KeyStates(fcitx::KeyState::Ctrl)) &&
+                    ic.committed == before + "한" && preedit().empty() && candidates().empty(),
+                "a shortcut writes the Hangul, never a Hanja");
+        // Traditional output is for Chinese text, so it leaves the Hanja list alone: s2t maps 后 to 後, and a row drawn through it would show 後 while committing 后.
+        state->traditional_ = true;
+        before = ic.committed;
+        require(press(FcitxKey_g) && press(FcitxKey_n) && press(FcitxKey_F9) && preedit() == "후" &&
+                    candidates().size() > 3 && candidates().at(3).value("text", std::string()) == "后",
+                "the Hanja list of 후 holds 后 fourth");
+        const auto *panel = ic.inputPanel().candidateList().get();
+        require(panel && panel->size() == static_cast<int>(candidates().size()), "the panel shows the Hanja list");
+        for (int row = 0; row < panel->size(); ++row)
+          require(panel->candidate(row).text().toString().rfind(
+                      candidates().at(row).value("text", std::string()), 0) == 0,
+                  "with traditional output on a Hanja row shows the character it commits");
+        require(press(FcitxKey_4) && ic.committed == before + "后", "the row showing 后 commits 后");
+        state->traditional_ = false;
+      }
       before = ic.committed;
       require(press(FcitxKey_r) && press(FcitxKey_k) && !press(FcitxKey_c, fcitx::KeyStates(fcitx::KeyState::Ctrl)) &&
                   ic.committed == before + "가" && preedit().empty(),

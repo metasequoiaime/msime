@@ -22,7 +22,7 @@ use crate::user_dictionary::removal::learn_entered_english_word;
 /// The weight an entered English word is learned at: the C++ default argument of `learn_entered_english_word` (user_dictionary_journal.h:136-137), which the bridge relied on.
 const ENTERED_ENGLISH_WORD_WEIGHT: i64 = 10;
 
-/// The host's command numbering. `CommitRawWithoutLearning` has no engine counterpart.
+/// The host's command numbering. `CommitRawWithoutLearning` has no engine counterpart, and took 11 before the engine's `ConvertHanja` existed, so that one is 12 here and mapped by name rather than by ordinal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Command {
@@ -39,6 +39,8 @@ pub enum Command {
     CommitReading = 10,
     /// Commit the letters as typed without learning them as an English word.
     CommitRawWithoutLearning = 11,
+    /// Korean only: open or close the composing syllable's Hanja list.
+    ConvertHanja = 12,
 }
 
 /// Every `candidate_*` vector has `candidates.len()` elements; the runtime's reorderings require it.
@@ -368,6 +370,9 @@ impl Session {
         match command {
             Command::CommitRaw => Ok(self.commit_raw_with_policy()),
             Command::CommitRawWithoutLearning => Ok(self.commit_raw_without_learning()),
+            Command::ConvertHanja => Ok(result_for(
+                self.inner.command(crate::types::Command::ConvertHanja),
+            )),
             _ => {
                 // The other host codes are the engine's ordinals one for one (bridge.cpp:1302-1319).
                 let engine = crate::types::Command::from_u8(command as u8)

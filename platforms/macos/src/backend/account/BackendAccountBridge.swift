@@ -14,7 +14,7 @@ public func msimeStartTelemetry() {
 /// bridge.
 @_cdecl("MSIMEBackendAccountSignedIn")
 public func msimeBackendAccountSignedIn() -> Bool {
-  if ((try? BackendKeychain().load()) ?? nil) != nil { return true }
+  if ((try? BackendDesktopSessionFile().load()) ?? nil) != nil { return true }
   return ((try? BackendAnonymousAccount.sessionStorage().load()) ?? nil) != nil
 }
 

@@ -92,6 +92,15 @@ class ProjectConfigurationTests(unittest.TestCase):
             self.assertTrue(any((IOS_ROOT / path).is_file() for path in (f"SharedResources/{resource}", f"../linux/data/licenses/{resource}")))
             self.assertEqual(generated.count(f"{resource} in Resources"), 2)
 
+    def test_app_ships_the_licence_of_the_embedded_hanja_table(self):
+        # The engine linked into the app and its keyboard extension embeds libhangul's Hanja table, which is BSD-3-Clause.
+        project = (IOS_ROOT / "project.yml").read_text()
+        app = dict(target_blocks(project))["MSIMEApp"]
+        blocks = source_path_blocks(app, "../../resources/licenses/libhangul-hanja-BSD-3-Clause.txt")
+        self.assertEqual(len(blocks), 1)
+        self.assertIn("buildPhase: resources", blocks[0])
+        self.assertIn("Choe Hwanjin", (IOS_ROOT / "../../resources/licenses/libhangul-hanja-BSD-3-Clause.txt").read_text())
+
     def test_app_and_keyboard_share_the_declared_app_group(self):
         expected = "group.app.msime.ios"
         app = (IOS_ROOT / "App/Resources/MSIMEApp.entitlements").read_text()

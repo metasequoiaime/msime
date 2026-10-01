@@ -227,7 +227,8 @@ fn is_gloss_han(character: char) -> bool {
 
 /// `candidate_gloss_display` (bridge.cpp:206-237): senses split on `;` or `；`, ASCII whitespace collapsed, empty senses dropped, at most two joined with `"; "`. A control character anywhere in the result withholds the whole gloss, because a learned gloss came from the network and must not reach the candidate window unfiltered.
 pub(super) fn candidate_gloss_display(text: &str) -> String {
-    let mut output = String::new();
+    // Joining two senses adds at most one byte beyond the source's separators.
+    let mut output = String::with_capacity(text.len() + 1);
     let mut count = 0;
     let mut rest = text;
     while count < MAXIMUM_GLOSS_SENSES {

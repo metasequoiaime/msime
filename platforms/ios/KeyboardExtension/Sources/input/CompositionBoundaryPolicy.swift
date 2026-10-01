@@ -14,16 +14,21 @@ enum CompositionBoundaryAction: Equatable {
   case none
   case commitRaw
   case finishComposition
+  /// MSIME_COMMIT_CANDIDATE: choose the leading Hanja of an open Korean Hanja list.
+  case commitCandidate
 }
 
 /// What a boundary does to an open composition, the rule the Windows host and the HarmonyOS keyboard share: switching modes or pressing Return keeps what was typed as typed (any half-chosen phrase, then the raw letters), so `iphone` + Return is `iphone` and a wubi code + 英 is the code, while leaving the composition any other way commits the conversion. Japanese always converts, since its raw romaji is not what anyone meant to write, and so does nine-key, whose raw keys are digits rather than letters.
 ///
-/// A Korean syllable is already the text being written, so every boundary commits it. Return takes the raw commit, which the runtime answers unhandled, so the newline (or the field's send action) still follows the syllable as it does on every Korean keyboard; the other boundaries finish it.
+/// A Korean syllable is already the text being written, so every boundary commits it. Return takes the raw commit, which the runtime answers unhandled, so the newline (or the field's send action) still follows the syllable as it does on every Korean keyboard; the other boundaries finish it. With the syllable's Hanja list open Return chooses a Hanja instead, as Space does: the Korean contract in msime_client.h sends MSIME_COMMIT_CANDIDATE for it, which commits the Hanja handled, so no newline follows. The other boundaries still finish, which closes the list and commits the Hangul.
 enum CompositionBoundaryPolicy {
-  static func action(composing: Bool, scheme: ChineseInputScheme,
-                     boundary: CompositionBoundary) -> CompositionBoundaryAction {
+  static func action(composing: Bool, scheme: ChineseInputScheme, boundary: CompositionBoundary,
+                     koreanHanjaListOpen: Bool = false) -> CompositionBoundaryAction {
     guard composing else { return .none }
-    if scheme.isKorean { return boundary == .returnKey ? .commitRaw : .finishComposition }
+    if scheme.isKorean {
+      guard boundary == .returnKey else { return .finishComposition }
+      return koreanHanjaListOpen ? .commitCandidate : .commitRaw
+    }
     if boundary == .deactivate || scheme.isJapanese || scheme == .nineKey { return .finishComposition }
     return .commitRaw
   }

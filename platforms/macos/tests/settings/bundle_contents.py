@@ -168,6 +168,9 @@ def main() -> int:
     # The engine embeds the place names `@` mode offers from modood/Administrative-divisions-of-China.
     if not (contents / "Resources" / "Licenses" / "Administrative-divisions-of-China-WTFPL.txt").is_file():
         failures.append("Contents/Resources/Licenses/Administrative-divisions-of-China-WTFPL.txt is missing; the built-in place names ship without their licence")
+    # The engine embeds the Korean Hanja table from libhangul, whose BSD-3-Clause licence requires the notice in binary distributions.
+    if not (contents / "Resources" / "Licenses" / "libhangul-hanja-BSD-3-Clause.txt").is_file():
+        failures.append("Contents/Resources/Licenses/libhangul-hanja-BSD-3-Clause.txt is missing; the built-in Korean Hanja table ships without its licence")
 
     if failures:
         for failure in failures:

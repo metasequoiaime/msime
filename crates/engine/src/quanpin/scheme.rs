@@ -2,7 +2,7 @@
 
 use crate::pinyin::active_helpcode::{detect_active_helpcode_length, strip_active_helpcodes};
 use crate::pinyin::segment::{cut_pinyin_by_mode, join_segments, CutMode};
-use crate::shuangpin::query::apply_segmentation_cases;
+use crate::shuangpin::query::{apply_segmentation_cases, remove_manual_delimiters};
 use crate::types::{QueryRequest, SchemeKey, SchemeType};
 
 #[derive(Debug, Clone, Default)]
@@ -73,7 +73,7 @@ impl QuanpinScheme {
         let normalized_source =
             strip_active_helpcodes(&request.raw_input, &request.raw_input_with_cases);
 
-        request.normalized_input = normalized_source.replace('\'', "");
+        request.normalized_input = remove_manual_delimiters(&normalized_source);
         request.normalized_segmentation = if request.normalized_input.is_empty() {
             String::new()
         } else {
@@ -187,6 +187,10 @@ mod tests {
     fn active_helpcode_letters_are_split_off() {
         let request = typed("nihaoAB").build_request();
         assert_eq!(request.normalized_input, "nihao");
+        assert_eq!(
+            request.normalized_input.capacity(),
+            request.normalized_input.len()
+        );
         assert_eq!(request.segmentation, "ni'hao");
         assert_eq!(request.raw_segmentation, "ni'hao'AB");
     }

@@ -416,9 +416,7 @@ impl HostCapabilities {
                     | HostPlatform::Macos
                     | HostPlatform::Harmony
             ),
-            // Harmony 2-in-1 hardware keyboards use the same candidate number
-            // row as Windows; the ArkTS router releases digits when this
-            // preference is enabled, so the focused editor can consume them.
+            // Harmony 2-in-1 hardware keyboards use the same candidate number row as Windows: the ArkTS router picks with 1 through 9 while this preference is on and gives the digits to the focused editor once it is turned off.
             number_row_selection: matches!(
                 platform,
                 HostPlatform::Linux | HostPlatform::Android | HostPlatform::Harmony

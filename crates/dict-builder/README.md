@@ -8,6 +8,7 @@ target/release/msime-dict-build --cache <sources-cache> --out <output>          
 target/release/msime-dict-build --cache <sources-cache> --out <output> --skip ngram   # without the zhwiki pass
 target/release/msime-dict-build --list
 target/release/msime-dict-build places --cache <sources-cache>                        # the @ place table the engine embeds
+target/release/msime-dict-build hanja --cache <sources-cache>                         # the Korean Hanja table the engine embeds
 ```
 
 ## Inputs
@@ -28,6 +29,10 @@ Inputs without a redistribution grant (`src/licensing.rs`) are left out unless `
 ## The `@` place table
 
 `@` mode can offer Chinese administrative divisions after the user's own mention list. Unlike the dictionary artifacts, that table is small enough to ship inside the engine: `msime-dict-build places --cache <sources-cache>` reads `places/provinces.csv`, `places/cities.csv` and `places/areas.csv` from [modood/Administrative-divisions-of-China](https://github.com/modood/Administrative-divisions-of-China) (WTFPL, see `resources/licenses/Administrative-divisions-of-China-WTFPL.txt`) at the commit the lock pins, and rewrites `crates/engine/src/local/places.tsv`, which is committed. Place names whose per-character pinyin is wrong (重庆, 六安, 蚌埠, ...) are listed in `READINGS` in `src/places.rs`; the command fails when an entry there no longer matches any name. To take newer data, move the three `places/` entries in the lock to the new commit, rerun the command, and review the diff of `places.tsv`.
+
+## The Korean Hanja table
+
+Korean mode converts the composing syllable to Hanja from a table that also ships inside the engine: `msime-dict-build hanja --cache <sources-cache>` reads `hanja/hanja.txt` from [libhangul](https://github.com/libhangul/libhangul) (`data/hanja/hanja.txt`, BSD-3-Clause, see `resources/licenses/libhangul-hanja-BSD-3-Clause.txt`) at the commit the lock pins, and rewrites `crates/engine/src/korean/hanja.tsv`, which is committed. Only single-syllable readings are kept: one precomposed Hangul syllable mapped to one Hanja in CJK Unified Ideographs, Extension A, or one of the twelve unified ideographs of the CJK Compatibility Ideographs block (U+FA0E, U+FA11 and so on, which NFC leaves alone). True compatibility ideographs, characters outside the BMP and multi-character values are dropped, each syllable keeps the source's order, and the source's 훈음 comment becomes the third column. `scripts/test-korean-hanja-table.py` checks the committed table against these rules, and against the generator's output when the pinned source is in `target/dictionary-sources`. To take newer data, move the `hanja/` entry in the lock to the new commit, rerun the command, and review the diff of `hanja.tsv`.
 
 Releases are cut by the manually dispatched `.github/workflows/release-dictionary.yml`: it builds every artifact from the pinned sources without `--include-unlicensed`, checks `SHA256SUMS.txt`, and uploads the result as a workflow artifact; only with `publish` set does it create the `dict-vX.Y.Z` release on metasequoiaime/msime with the artifacts, `dictionary-manifest.json` and `SHA256SUMS.txt` as the builder wrote them. After a release is published, bump `resources/desktop-dictionary.lock.json` to the new files.
 

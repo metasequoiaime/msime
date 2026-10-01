@@ -61,6 +61,7 @@ function AiSkinGeneration({
   const [publishBusy, setPublishBusy] = useState(false);
   const publishRunning = useRef(false);
   const generateRunning = useRef(false);
+  const saveRunning = useRef(false);
   const requestRef = useRef("");
   const mounted = useRef(true);
 
@@ -135,7 +136,8 @@ function AiSkinGeneration({
 
   const save = async (proposal: AiSkinProposal): Promise<SavedTouchKeyboardSkin | null> => {
     const existing = saved[proposal.name];
-    if (existing) return existing;
+    if (existing || saveRunning.current) return existing ?? null;
+    saveRunning.current = true;
     try {
       const current = await library.load();
       if (current.length >= 12) throw { code: "custom_skin_full" };
@@ -155,6 +157,8 @@ function AiSkinGeneration({
     } catch (error) {
       if (mounted.current) setMessage(libraryError(error));
       return null;
+    } finally {
+      saveRunning.current = false;
     }
   };
 

@@ -2187,6 +2187,278 @@ fn korean_ignores_the_caret_and_switching_to_it_starts_empty() {
     assert!(words(&session).contains(&"你".to_owned()));
 }
 
+// ---- Korean Hanja conversion ----
+
+/// The leading Hanja of 한 in the embedded table, in its order.
+const HAN_FIRST: [&str; 3] = ["韓", "漢", "寒"];
+
+fn korean_session(fixture: &Fixture) -> Session {
+    fixture.session_with(|options| options.scheme = SchemeType::Korean)
+}
+
+/// Rows in every table of the user journal, 0 when nothing ever opened it.
+fn journal_rows(journal: &Path) -> i64 {
+    let Ok(connection) = Connection::open(journal) else {
+        return 0;
+    };
+    let tables: Vec<String> = connection
+        .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+        .and_then(|mut statement| {
+            statement
+                .query_map([], |row| row.get(0))?
+                .collect::<rusqlite::Result<Vec<String>>>()
+        })
+        .unwrap_or_default();
+    tables
+        .iter()
+        .map(|table| count(journal, &format!("SELECT count(*) FROM \"{table}\"")))
+        .sum()
+}
+
+/// Types `keys` and opens the Hanja list of the syllable they leave composing.
+fn open_hanja(session: &mut Session, keys: &str) {
+    type_korean(session, keys);
+    let opened = session.command(Command::ConvertHanja);
+    assert!(
+        opened.handled && opened.commit.is_none(),
+        "{keys}: {opened:?}"
+    );
+}
+
+#[test]
+fn korean_hanja_list_offers_the_composing_syllable_with_its_gloss() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = korean_session(&fixture);
+    // 한국: 한 has left the composition, so the list is for 국.
+    assert_eq!(
+        type_korean(&mut session, "gksrnr"),
+        [None, None, None, Some("한".to_owned()), None, None]
+    );
+    assert!(session.command(Command::ConvertHanja).handled);
+    assert_eq!(words(&session)[0], "國");
+    session.command(Command::Cancel);
+    session.command(Command::Cancel);
+
+    open_hanja(&mut session, "gks");
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.preedit, "한");
+    assert_eq!(snapshot.editing_text, "gks");
+    assert_eq!(words(&session)[..3], HAN_FIRST);
+    assert_eq!(snapshot.candidate_annotations[0], "나라 이름 한, 한나라 한");
+    assert_eq!(snapshot.candidate_annotations[1], "한수 한");
+    // About three quarters of the source rows carry no 훈음, so some rows show none.
+    assert!(snapshot.candidate_annotations.iter().any(String::is_empty));
+    assert_eq!(
+        snapshot.candidate_annotations.len(),
+        snapshot.candidates.len()
+    );
+    assert!(snapshot
+        .candidate_sources
+        .iter()
+        .all(|source| *source == CandidateSource::Database));
+    assert!(snapshot
+        .candidate_answers_key
+        .iter()
+        .all(|answers| *answers));
+    assert!(snapshot
+        .candidates
+        .iter()
+        .all(|item| item.scheme == SchemeType::Korean && item.pinyin == "gks"));
+    assert!(session.online_query().is_none());
+}
+
+#[test]
+fn choosing_a_hanja_commits_it_and_learns_nothing() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Korean;
+        options.frequency = FrequencyAdjustmentOptions {
+            mode: FrequencyAdjustmentMode::Promote,
+            trigger_count: 1,
+            linear_step: 1,
+        };
+    });
+    TestClock::install(&mut session);
+    for _ in 0..2 {
+        open_hanja(&mut session, "gks");
+        let chosen = session.select(1);
+        assert!(chosen.handled);
+        assert_eq!(chosen.commit.as_deref(), Some("漢"));
+        assert_eq!(chosen.diagnostic, None);
+        let snapshot = session.snapshot();
+        assert_eq!(snapshot.preedit, "");
+        assert!(snapshot.candidates.is_empty());
+    }
+    // The order is the table's, not one the choices taught.
+    open_hanja(&mut session, "gks");
+    assert_eq!(words(&session)[..3], HAN_FIRST);
+    // CommitCandidate takes the first Hanja while the list is open.
+    let first = session.command(Command::CommitCandidate);
+    assert!(first.handled);
+    assert_eq!(first.commit.as_deref(), Some("韓"));
+    // The engine's own candidate key picks from the list too.
+    open_hanja(&mut session, "gks");
+    assert_eq!(session.candidate_key(b'2').commit.as_deref(), Some("漢"));
+    // Dropping the session writes whatever context learning it queued.
+    drop(session);
+    assert_eq!(journal_rows(&fixture.journal()), 0);
+}
+
+#[test]
+fn korean_hanja_rows_cannot_be_pinned_removed_or_fixed() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = korean_session(&fixture);
+    open_hanja(&mut session, "gks");
+    assert!(!session.pin(1).handled);
+    assert!(!session.remove(1).handled);
+    assert!(!session.fix_position(1, 1).handled);
+    assert!(!session.clear_position(1).handled);
+    assert_eq!(words(&session)[..3], HAN_FIRST);
+    assert_eq!(session.snapshot().preedit, "한");
+    drop(session);
+    assert_eq!(journal_rows(&fixture.journal()), 0);
+}
+
+#[test]
+fn a_digit_in_the_open_hanja_list_is_left_to_page_selection() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = korean_session(&fixture);
+    open_hanja(&mut session, "gks");
+    // Unhandled with nothing committed: the runtime picks the row on the visible page, and the Hangul is still there if it does not.
+    let digit = session.character(b'2', false);
+    assert!(!digit.handled);
+    assert_eq!(digit.commit, None);
+    assert_eq!(session.snapshot().preedit, "한");
+    assert_eq!(words(&session)[..3], HAN_FIRST);
+    // 0 and Space are not selections: they commit the Hangul and go to the host, as with the list closed.
+    for key in *b"0 " {
+        let result = session.character(key, false);
+        assert!(!result.handled);
+        assert_eq!(result.commit.as_deref(), Some("한"));
+        assert!(session.snapshot().candidates.is_empty());
+        open_hanja(&mut session, "gks");
+    }
+}
+
+#[test]
+fn cancel_and_backspace_close_the_hanja_list_and_keep_the_syllable() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = korean_session(&fixture);
+    for command in [Command::Cancel, Command::Backspace] {
+        open_hanja(&mut session, "gks");
+        let closed = session.command(command);
+        assert!(closed.handled && closed.commit.is_none(), "{command:?}");
+        let snapshot = session.snapshot();
+        assert_eq!(snapshot.preedit, "한", "{command:?}");
+        assert!(snapshot.candidates.is_empty(), "{command:?}");
+        assert!(snapshot.candidate_annotations.is_empty(), "{command:?}");
+        // With the list closed the key does its usual work.
+        session.command(command);
+        let expected = if command == Command::Cancel {
+            ""
+        } else {
+            "하"
+        };
+        assert_eq!(session.snapshot().preedit, expected, "{command:?}");
+        session.command(Command::Cancel);
+    }
+    // The trigger closes the list it opened.
+    open_hanja(&mut session, "gks");
+    let toggled = session.command(Command::ConvertHanja);
+    assert!(toggled.handled && toggled.commit.is_none());
+    assert!(session.snapshot().candidates.is_empty());
+    assert_eq!(session.snapshot().preedit, "한");
+}
+
+#[test]
+fn a_letter_closes_the_hanja_list_and_keeps_composing() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = korean_session(&fixture);
+    open_hanja(&mut session, "rk");
+    let typed = session.character(b'r', false);
+    assert!(typed.handled && typed.commit.is_none());
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.preedit, "각");
+    assert!(snapshot.candidates.is_empty());
+    // A letter that starts the next syllable commits the Hangul, never a Hanja.
+    open_hanja(&mut session, "");
+    assert_eq!(words(&session)[0], "各");
+    let next = session.character(b'k', false);
+    assert_eq!(next.commit.as_deref(), Some("가"));
+    assert_eq!(session.snapshot().preedit, "가");
+    assert!(session.snapshot().candidates.is_empty());
+}
+
+#[test]
+fn finishing_with_the_hanja_list_open_commits_the_hangul() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = korean_session(&fixture);
+    // The index is the host's highlight; finishing closes the list first, so no highlight turns into a Hanja.
+    for index in [0, 1, 99] {
+        open_hanja(&mut session, "gks");
+        let finished = session.finish(index);
+        assert!(finished.handled);
+        assert_eq!(finished.commit.as_deref(), Some("한"), "{index}");
+        assert_eq!(session.snapshot().preedit, "");
+        assert!(session.snapshot().candidates.is_empty());
+    }
+    open_hanja(&mut session, "gks");
+    let punctuated = session.punctuation(b'.');
+    assert!(punctuated.handled);
+    assert_eq!(punctuated.commit.as_deref(), Some("한."));
+    // The caret and commit commands end the syllable as Hangul too.
+    open_hanja(&mut session, "gks");
+    let raw = session.command(Command::CommitRaw);
+    assert!(!raw.handled);
+    assert_eq!(raw.commit.as_deref(), Some("한"));
+}
+
+#[test]
+fn convert_hanja_is_unhandled_without_a_syllable_that_has_hanja() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = korean_session(&fixture);
+    // Nothing composed.
+    assert!(!session.command(Command::ConvertHanja).handled);
+    // A lone jamo has no Hanja: the key goes back to the host and the jamo keeps composing.
+    type_korean(&mut session, "r");
+    let jamo = session.command(Command::ConvertHanja);
+    assert!(!jamo.handled && jamo.commit.is_none());
+    assert_eq!(session.snapshot().preedit, "ㄱ");
+    assert!(session.snapshot().candidates.is_empty());
+    // A letter after the refused trigger composes as usual.
+    type_korean(&mut session, "k");
+    assert_eq!(session.snapshot().preedit, "가");
+    session.command(Command::Cancel);
+
+    // Dedicated English keeps its own rules inside the Korean scheme.
+    session.set_dedicated_english(true);
+    type_text(&mut session, "gks");
+    let english = session.command(Command::ConvertHanja);
+    assert!(!english.handled && english.commit.is_none());
+    assert_eq!(session.snapshot().preedit, "gks");
+    session.set_dedicated_english(false);
+
+    // Another scheme has no Hanja at all.
+    let mut quanpin = fixture.session();
+    type_text(&mut quanpin, "ni");
+    let before = words(&quanpin);
+    let result = quanpin.command(Command::ConvertHanja);
+    assert!(!result.handled && result.commit.is_none());
+    assert_eq!(words(&quanpin), before);
+    assert_eq!(quanpin.snapshot().preedit, "ni");
+}
+
+#[test]
+fn convert_hanja_is_named_for_the_golden_scenarios() {
+    assert_eq!(Command::from_u8(11), Some(Command::ConvertHanja));
+    assert_eq!(
+        Command::from_name("ConvertHanja"),
+        Some(Command::ConvertHanja)
+    );
+    assert_eq!(Command::ConvertHanja.name(), "ConvertHanja");
+    assert_eq!(Command::from_u8(12), None);
+}
+
 // ---- expression, command and mention modes ----
 
 fn generated_modes_session(fixture: &Fixture) -> Session {

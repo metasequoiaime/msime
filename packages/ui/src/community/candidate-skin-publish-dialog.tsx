@@ -102,6 +102,10 @@ export function CandidateSkinPublishDialog({
   const clientGeneration = useRef(0);
   const packGeneration = useRef(0);
   const actionRunning = useRef(false);
+  const drawRunning = useRef(false);
+  const drawOwner = useRef(0);
+  const licenseRunning = useRef(false);
+  const licenseOwner = useRef(0);
   // The package whose name the form was filled from, so switching visibility re-checks the package without discarding a name the user typed.
   const namedSkin = useRef("");
 
@@ -109,7 +113,13 @@ export function CandidateSkinPublishDialog({
     const generation = ++clientGeneration.current;
     let active = true;
     actionRunning.current = false;
+    drawOwner.current++;
+    drawRunning.current = false;
+    licenseOwner.current++;
+    licenseRunning.current = false;
     setBusy(false);
+    setDrawing(false);
+    setWritingLicense(false);
     if (localSkins) {
       setOptionsLoading(true);
       void localSkins()
@@ -182,7 +192,9 @@ export function CandidateSkinPublishDialog({
         )
       : undefined;
   const drawPreview = async () => {
-    if (!previewless || !readImage || drawing) return;
+    if (!previewless || !readImage || drawing || drawRunning.current) return;
+    const owner = ++drawOwner.current;
+    drawRunning.current = true;
     const clientGenerationAtStart = clientGeneration.current;
     const packGenerationAtStart = packGeneration.current;
     setDrawing(true);
@@ -204,11 +216,13 @@ export function CandidateSkinPublishDialog({
       )
         setDrawFailed(true);
     } finally {
+      if (drawOwner.current === owner) drawRunning.current = false;
       if (
         packGenerationAtStart === packGeneration.current &&
         clientGenerationAtStart === clientGeneration.current
       )
         setDrawing(false);
+      else if (drawOwner.current === owner) setDrawing(false);
     }
   };
 
@@ -218,7 +232,9 @@ export function CandidateSkinPublishDialog({
   const licenseValid =
     licenseValue.length > 0 && new TextEncoder().encode(licenseValue).length <= assetLicenseLimit;
   const writeLicense = async () => {
-    if (!licenseless || !licenseValid || writingLicense) return;
+    if (!licenseless || !licenseValid || writingLicense || licenseRunning.current) return;
+    const owner = ++licenseOwner.current;
+    licenseRunning.current = true;
     const clientGenerationAtStart = clientGeneration.current;
     const packGenerationAtStart = packGeneration.current;
     setWritingLicense(true);
@@ -239,11 +255,13 @@ export function CandidateSkinPublishDialog({
       )
         setLicenseFailed(true);
     } finally {
+      if (licenseOwner.current === owner) licenseRunning.current = false;
       if (
         packGenerationAtStart === packGeneration.current &&
         clientGenerationAtStart === clientGeneration.current
       )
         setWritingLicense(false);
+      else if (licenseOwner.current === owner) setWritingLicense(false);
     }
   };
 

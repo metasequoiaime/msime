@@ -4,7 +4,7 @@ import { PluginsSection } from "../plugins-section";
 import { pluginPreferences } from "../plugin-preferences";
 import { createSettingsDraftActions } from "../settings-draft-actions";
 
-/** The 插件 page of the settings form (route id `plugins`): sound packs, typing effects, background music, command tables and the @ name list. `hidden` is set while the page shows the community gallery in its place. */
+/** The 插件 page of the settings form (route id `plugins`): the installed packs, each opening its own detail, with 声音与效果 and the @ name list as entries above them. `hidden` is set while the page shows the community gallery in its place. */
 export function PluginsSettingsPage({ hidden = false }: { hidden?: boolean }) {
   const {
     client,

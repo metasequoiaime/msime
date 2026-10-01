@@ -118,6 +118,8 @@ public final class MSIMEInputService extends InputMethodService {
     private TextView candidatePage;
     private KeyboardBrandMark candidateBrandMark;
     private Button exitLocalModeButton;
+    /** 漢 in the candidate header: converts the composing Korean syllable to Hanja, or closes its list. */
+    private Button hanjaButton;
     private LinearLayout nineKeySpellings;
     private HorizontalScrollView nineKeySpellingScroll;
     private final java.util.List<Button> nineKeySpellingButtons = new java.util.ArrayList<>();
@@ -2451,6 +2453,26 @@ public final class MSIMEInputService extends InputMethodService {
             && KoreanInputPolicy.active(view.optInt("scheme", -1), dedicatedEnglish);
     }
 
+    /** Whether the Hanja list of the composing Korean syllable is on the strip. */
+    private boolean koreanHanjaListOpen() {
+        if (view == null) return false;
+        JSONArray entries = view.optJSONArray("candidates");
+        return KoreanInputPolicy.hanjaListOpen(koreanSchemeActive(),
+            view.optString("local_mode", "none"), entries == null ? 0 : entries.length());
+    }
+
+    /** Drops the composition without writing it. With a Korean Hanja list open the first cancel only closes the list, so this sends as many as KoreanInputPolicy.cancelsToDiscard says. */
+    private void discardComposition() {
+        for (int cancels = KoreanInputPolicy.cancelsToDiscard(koreanHanjaListOpen()); cancels > 0; cancels--)
+            command(3);
+    }
+
+    /** Whether the Hanja command applies now: a Korean syllable is composing, with or without its list open. */
+    private boolean koreanConvertsHanja() {
+        return view != null && KoreanInputPolicy.convertsHanja(koreanSchemeActive(),
+            view.optString("local_mode", "none"), view.optString("editing_text", ""));
+    }
+
     private boolean japaneseNineKeyActive() {
         return displayedTouchLayout(view) == JAPANESE_NINE_KEY_LAYOUT;
     }
@@ -2619,6 +2641,8 @@ public final class MSIMEInputService extends InputMethodService {
     private void enter() {
         if (connection == null) return;
         if (commitFirstHandwritingCandidate()) return;
+        // With a Korean Hanja list open Return chooses the highlighted Hanja, as Space does: only the session knows the highlight, so it is the candidate command (msime_client.h). With no list Return writes the syllable out and then does its editor action below.
+        if (koreanHanjaListOpen() && command(1)) return;
         if (japaneseSchemeActive() && view != null
                 && !view.optString("editing_text", "").isEmpty()) {
             if (japaneseConversionIndex != null && command(1)) return;
@@ -2635,11 +2659,11 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     /**
-     * Whether the return key only confirms the composition. A Korean syllable is committed by Enter and the key still does its own work, so the key keeps its editor action there.
+     * Whether the return key only confirms the composition. A Korean syllable is committed by Enter and the key still does its own work, so the key keeps its editor action there, unless the syllable's Hanja list is open: then Enter only chooses a Hanja.
      */
     private boolean returnKeyConfirms() {
         return view != null && !view.optString("editing_text", "").isEmpty()
-            && !koreanSchemeActive();
+            && (!koreanSchemeActive() || koreanHanjaListOpen());
     }
 
     /** The return key's face: accent-filled 确认 while composing, the function tint otherwise. */
@@ -2806,6 +2830,12 @@ public final class MSIMEInputService extends InputMethodService {
             return true;
         }
         if (modifierTapStartedAt >= 0 && keyCode != modifierTapKeyCode) modifierTapInvalid = true;
+        // F9 while a Korean syllable composes converts it to Hanja, or closes its open list. The key stays the input method's whatever the Engine answers: a lone jamo has no Hanja, and F9 handed on would reach the editor beside a syllable still composing. A held key converts once, so the list does not flicker open and shut. With nothing composing F9 is the editor's as before.
+        if (KoreanInputPolicy.hanjaKey(keyCode, event.isShiftPressed(), event.isCtrlPressed(),
+                event.isAltPressed(), event.isMetaPressed()) && session != 0 && koreanConvertsHanja()) {
+            if (event.getRepeatCount() == 0) command(KoreanInputPolicy.CONVERT_HANJA_COMMAND);
+            return true;
+        }
         HardwareShortcutPolicy.Action shortcut = HardwareShortcutPolicy.chord(
             keyCode, event.isShiftPressed(), event.isCtrlPressed(), event.isAltPressed(),
             event.getRepeatCount(), hardwareLanguageShift, hardwareCharacterSet, hardwareFullWidth);
@@ -2881,16 +2911,26 @@ public final class MSIMEInputService extends InputMethodService {
             deleteFromHandwriting();
             return true;
         }
+        // A Korean Hanja is one character already, so there is no word to take one from: with the list open the pair is punctuation, which closes the list and writes the Hangul with the mark.
         WordCharacterPolicy.Edge wordCharacterEdge = WordCharacterPolicy.edgeFor(
-            keyCode, event.isShiftPressed(), wordCharacterBinding, highlightedCandidate() != null);
+            keyCode, event.isShiftPressed(), wordCharacterBinding,
+            highlightedCandidate() != null && !koreanSchemeActive());
         if (wordCharacterEdge != WordCharacterPolicy.Edge.NONE
                 && selectCandidateEdge(wordCharacterEdge)) return true;
         // Paging only means something while there is a candidate list. With nothing composed these
         // keys are the editor's: Tab moves focus, Page Down scrolls, and a comma is a comma.
-        // Korean has no candidate list: its punctuation follows the syllable, and Home/End end the syllable through HardwareKeyPolicy below and then move the caret.
-        if (hasEngineComposition() && !koreanSchemeActive()) {
+        // Korean has no candidate list until its Hanja list opens: until then its punctuation follows the syllable, and Home/End end the syllable through HardwareKeyPolicy below and then move the caret. With the list open these keys page and move the highlight as for any list, except that the marks stay punctuation and Left/Right, which have no caret inside a syllable to move, move the highlight; Escape closes the list and keeps the syllable.
+        boolean koreanHanjaList = koreanHanjaListOpen();
+        if (koreanHanjaList && keyCode == KeyEvent.KEYCODE_ESCAPE)
+            return command(3) || super.onKeyDown(keyCode, event);
+        if (hasEngineComposition() && (!koreanSchemeActive() || koreanHanjaList)
+                && !(koreanHanjaList && KoreanInputPolicy.hanjaListMark(keyCode))) {
             int navigationCommand = CandidateNavigationPolicy.commandFor(
                 keyCode, event.isShiftPressed(), candidateNavigation, japaneseSchemeActive());
+            if (navigationCommand == CandidateNavigationPolicy.NONE && koreanHanjaList) {
+                navigationCommand = KoreanInputPolicy.hanjaListArrowCommand(keyCode,
+                    candidateNavigation != null && candidateNavigation.arrows());
+            }
             if (navigationCommand != CandidateNavigationPolicy.NONE) {
                 return command(navigationCommand) || super.onKeyDown(keyCode, event);
             }
@@ -2921,6 +2961,11 @@ public final class MSIMEInputService extends InputMethodService {
             modifierTapStartedAt = -1;
             modifierTapKeyCode = -1;
             modifierTapInvalid = false;
+            // A lone right Ctrl tap is the Hanja key while a Korean syllable composes, where many keyboards without one put it, and it takes precedence over the Ctrl language toggle only then, as on Windows. With nothing composing the tap keeps its meaning.
+            if (valid && keyCode == KeyEvent.KEYCODE_CTRL_RIGHT && session != 0 && koreanConvertsHanja()) {
+                command(KoreanInputPolicy.CONVERT_HANJA_COMMAND);
+                return true;
+            }
             if (valid && ((shift && hardwareLanguageShift) || (!shift && hardwareLanguageCtrl))) {
                 toggleInputLanguage();
                 return true;
@@ -2958,7 +3003,11 @@ public final class MSIMEInputService extends InputMethodService {
             // Don't apply an empty composition over the editor's newly moved selection.
             // A Korean syllable is already the final Hangul, marked inline; finishing the region below leaves it in the document, so it counts as typed.
             if (koreanSchemeActive()) recordTypingStatistics(view.optString("reading", ""), typingSource());
-            try { value(NativeClient.command(session, 3)); } catch (JSONException | LinkageError error) { fail(); }
+            try {
+                // With a Korean Hanja list open the first cancel only closes the list (msime_client.h), so it takes a second to drop the syllable the editor now holds as typed text.
+                for (int cancels = KoreanInputPolicy.cancelsToDiscard(koreanHanjaListOpen()); cancels > 0; cancels--)
+                    value(NativeClient.command(session, 3));
+            } catch (JSONException | LinkageError error) { fail(); }
             if (connection != null) bridge.abandon(sink(typingSource()));
             view = null;
             render();
@@ -3135,7 +3184,8 @@ public final class MSIMEInputService extends InputMethodService {
                             backspaceRepeated = true;
                             if (hasEngineComposition()) {
                                 playFeedback(button);
-                                command(3);
+                                // A held delete drops the whole syllable, also through an open Hanja list.
+                                discardComposition();
                                 backspaceClearedComposition = true;
                                 main.removeCallbacks(this);
                                 backspaceRepeatTask = null;
@@ -7561,6 +7611,21 @@ public final class MSIMEInputService extends InputMethodService {
         replyShortcutButton = shortcutButton(shortcutBar, "回复",
             KeyboardShortcutIconPolicy.Icon.REPLY, this::showReplyKeyboard);
         replyShortcutButton.setContentDescription("生成高情商回复");
+        // 漢 is the touch counterpart of a Korean keyboard's Hanja key: it lists the Hanja of the composing syllable on the strip below and closes the list again. It sits in the header so it stays put while the list fills the strip, and render() shows it only while a Korean syllable composes; the filled face says the list is open.
+        KeyboardPressButton hanja = new KeyboardPressButton(this);
+        hanja.setKeyboardRole(KeyboardKeyRole.GLYPH);
+        hanjaButton = hanja;
+        hanjaButton.setAllCaps(false);
+        hanjaButton.setText("漢");
+        hanjaButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        hanjaButton.setContentDescription("转换为汉字");
+        hanjaButton.setVisibility(View.GONE);
+        hanjaButton.setOnClickListener(ignored -> {
+            playFeedback(hanjaButton);
+            command(KoreanInputPolicy.CONVERT_HANJA_COMMAND);
+        });
+        candidateHeader.addView(hanjaButton, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         KeyboardPressButton expand = new KeyboardPressButton(this);
         expand.setKeyboardRole(KeyboardKeyRole.GLYPH);
         expandCandidates = expand;
@@ -8078,6 +8143,14 @@ public final class MSIMEInputService extends InputMethodService {
             exitLocalModeButton.setContentDescription("退出本地模式");
             styleButton(exitLocalModeButton, KeyboardKeyRole.GLYPH, skin);
         }
+        if (hanjaButton != null) {
+            boolean offersHanja = session != 0 && koreanConvertsHanja();
+            boolean hanjaListOpen = offersHanja && koreanHanjaListOpen();
+            hanjaButton.setVisibility(offersHanja ? View.VISIBLE : View.GONE);
+            hanjaButton.setEnabled(offersHanja);
+            hanjaButton.setSelected(hanjaListOpen);
+            hanjaButton.setContentDescription(hanjaListOpen ? "关闭汉字列表" : "转换为汉字");
+        }
         boolean hasDiagnostic = InputDiagnosticPolicy.visible(diagnosticMessage);
         if (diagnosticView != null) {
             diagnosticView.setText(diagnosticMessage);
@@ -8281,7 +8354,7 @@ public final class MSIMEInputService extends InputMethodService {
             pagingKey("上一页", "上一页候选", () -> command(101));
             pagingKey("下一页", "下一页候选", () -> command(100));
             pagingKey("删除", "删除光标后一个字符", () -> command(8));
-            pagingKey("取消", "取消本次组词", () -> command(3));
+            pagingKey("取消", "取消本次组词", this::discardComposition);
         }
         if (hasDiagnostic) closeCandidatePanel();
         resetCandidateScrollIfViewChanged();

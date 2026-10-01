@@ -42,8 +42,9 @@ impl InputSession {
         KeyResult::committed(character)
     }
 
-    /// Commit segment by segment until nothing is composing.
+    /// Commit segment by segment until nothing is composing. An open Korean Hanja list is closed first, so finishing (punctuation, leaving the client, a host's finish key) commits the Hangul: only an explicit choice commits a Hanja.
     pub(super) fn finish_composition(&mut self, first_index: usize) -> KeyResult {
+        self.close_korean_hanja();
         let mut result = KeyResult::unhandled();
         let mut index = first_index;
         while self.has_composition() {
@@ -70,6 +71,13 @@ impl InputSession {
         // A selection made while a caret prefix is decoded leaves prefix mode: the rest of the composition decodes whole again.
         self.caret = None;
         let selected = self.candidates().get(index).cloned();
+        // A Korean commit is the chosen Hanja or the Hangul itself, and nothing about it is learned: the rows are keyed by Dubeolsik letters, which every learning path below would read as pinyin.
+        if self.korean_rules_apply() {
+            let text = selected.map_or_else(|| self.preedit(), |item| item.word);
+            self.reset_composition();
+            self.chain.reset();
+            return KeyResult::committed(text);
+        }
         let text = match &selected {
             Some(item) => Some(item.word.clone()),
             // The bare prefix letter of a temporary mode is a marker, not text.

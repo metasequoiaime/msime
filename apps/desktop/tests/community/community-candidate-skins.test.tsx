@@ -437,6 +437,31 @@ test("publish dialog: a license of the author's own is trimmed, bounded, and a f
   expect(screen.queryByRole("textbox", { name: "发布皮肤名称" })).toBeNull();
 });
 
+test("license writing ignores a same-tick duplicate submission", async () => {
+  const pending = deferred<SkinCatalog>();
+  const addLicense = vi.fn().mockReturnValue(pending.promise);
+  const communityClient = client({
+    packPreview: vi.fn().mockRejectedValue({ code: "candidate_skin_license_required" }),
+    addLicense,
+  });
+  render(
+    <CandidateSkinPublishDialog
+      client={communityClient}
+      initialSkinId="ink-wash"
+      onClose={vi.fn()}
+      onPublished={vi.fn()}
+    />,
+  );
+  const write = await screen.findByRole("button", { name: "使用此授权并继续" });
+  act(() => {
+    fireEvent.click(write);
+    fireEvent.click(write);
+  });
+  expect(addLicense).toHaveBeenCalledOnce();
+  pending.resolve(catalog(["ink-wash"]));
+  await settle();
+});
+
 test("publish dialog: a package without a preview can have one drawn and saved", async () => {
   const missing = catalog(["ink-wash"]);
   missing.packages[0].preview = null;
@@ -533,9 +558,42 @@ test("publish dialog: a preview write from a replaced client is ignored", async 
     />,
   );
   await screen.findByRole("alert");
+  expect((screen.getByRole("button", { name: "生成预览图" }) as HTMLButtonElement).disabled).toBe(
+    false,
+  );
   pending.resolve(catalog(["ink-wash"]));
   await settle();
   expect(nextClient.packPreview).toHaveBeenCalledTimes(1);
+});
+
+test("preview generation ignores a same-tick duplicate submission", async () => {
+  const missing = catalog(["ink-wash"]);
+  missing.packages[0].preview = null;
+  const pending = deferred<SkinCatalog>();
+  const communityClient = client({
+    packPreview: vi.fn().mockRejectedValue({ code: "candidate_skin_preview_required" }),
+    addPreview: vi.fn().mockReturnValue(pending.promise),
+  });
+  renderSkinPreview.mockResolvedValue([137, 80, 78, 71]);
+  render(
+    <CandidateSkinPublishDialog
+      client={communityClient}
+      localSkins={vi.fn().mockResolvedValue(missing)}
+      initialSkinId="ink-wash"
+      readImage={vi.fn()}
+      onClose={vi.fn()}
+      onPublished={vi.fn()}
+    />,
+  );
+  const draw = await screen.findByRole("button", { name: "生成预览图" });
+  act(() => {
+    fireEvent.click(draw);
+    fireEvent.click(draw);
+  });
+  await waitFor(() => expect(communityClient.addPreview).toHaveBeenCalled());
+  expect(communityClient.addPreview).toHaveBeenCalledOnce();
+  pending.resolve(catalog(["ink-wash"]));
+  await settle();
 });
 
 test("publish dialog: without an image reader a missing preview is explained", async () => {

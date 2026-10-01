@@ -415,6 +415,14 @@ V（计算与数字）、/（指令）和 @（名字与地点）三个局部模�
 
 TSF 在收到 Server 回复之前就要决定一个键是组合输入还是选词，所以同一条规则在 `tsf/Global/LocalModeKeyPolicy.h` 里还有一份：键击缓冲以 V 开头且 V 模式开启时按上面的规则分类，空组合的 `/`、`@` 在中文标点且对应模式开启时作为组合的第一个字符，而不是标点。V 模式符号表的两份拷贝由 `scripts/test-windows-expression-symbols-parity.py` 核对。三个开关由 Server 经 Worker 帧 LocalModeTriggersChanged（28，载荷为 V、/、@ 三个 `0`/`1`）随其余 TSF 本地设置一起推送，只在拼音方案下为真；格式不对时 TIP 三个全关，旧版 TIP 把未知类型直接丢弃。这些模式上屏的是生成文本：commit_context.typing_statistics 为 false 时 Server 不记打字统计，也就不触发成就音。
 
+### 韩语的汉字转换
+
+韩语（Dubeolsik）组字时按汉字键（VK_HANJA，0x19），或者单独轻按一下右 Ctrl（按下到松开之间没有别的键，且在 500 ms 内松开），发送 `MSIME_CONVERT_HANJA`，列出正在组字的那一个音节的汉字，再按一次关闭。右 Ctrl 只在韩语有音节在组字时这样解释，这时它优先于“单击 Ctrl 切换语言”；没有组字时两个键都照旧交给应用或切换语言。纯辅音（ㄱ）没有汉字，按键被吞掉，音节继续组字。已经上屏的音节不转换。
+
+列表打开时的按键规则只有一份，在 `common/KoreanHanjaKey.h`：TIP 用它驱动自己的 host session，Server 用它驱动自己的会话（`ReplyComposer::korean_hanja`），两边对同一个键做同一件事，不看中文候选的翻页绑定。数字 1-9（主键盘或小键盘）选本页，空格和回车选高亮项，方向键移动高亮，PageUp/PageDown 翻页，Home/End 到首尾，Esc 和退格只关闭列表、保留音节。其余键照没有列表时的规则：字母关闭列表并继续组字；标点（包括 `-` `=` `[` `]` `,` `.`）、`0`、Tab、Insert、Delete 关闭列表并提交韩文，与 macOS 和 Linux 一致。TIP 上屏的是自己 host session 选出的汉字，Server 对这些键不回帧，只计入打字统计；在候选窗口里点选时由 Server 选出，TIP 写入后丢弃 host session 里的音节。TIP 先决定吃不吃键、再执行：排在别的键后面的键，按“前面的键执行完以后列表开没开”的推算来分类。推算从 host session 的实际状态出发，汉字键打开或关闭列表，Esc、退格、选字和字母关闭列表。推算列表关着时，每个键照没有列表时的规则分类，所以从不按汉字键的韩文输入和以前完全一样；推算列表开着时，列表的键在执行时再按 host session 的实际状态决定，Server 也按自己会话的状态决定，两边一致。纯辅音按汉字键不会打开列表，推算会暂时偏开，但键在执行时仍按实际状态处理，只是排在后面的键的推算要等队列排空才校正。Ctrl+Enter 在韩语下始终交给应用，汉字候选没有译文。列表在音节仍在组字时关闭，TIP 的候选 presenter 会安静地撤掉，不发 HideCandidateWnd，否则 Server 会取消它仍在组的音节；Server 的 `cancel_composition` 遇到列表打开时会连发两次 `MSIME_CANCEL`。汉字候选不提供置顶、固定排位和删除菜单。
+
+未在真机核实：TIP 只注册在 zh-CN 配置下，韩国键盘的汉字键在这种情况下能否送到 0x19，以及右 Ctrl 在各种键盘驱动下是否作为右 Ctrl 而不是汉字键上报。
+
 ### 按键音、上屏音与背景音乐
 
 播放由共享库完成（host-api 的 kira 播放器，设置来自会话的 `preferences.plugins`），Server 只在自己的输入队列上报事件，TSF DLL 从不调用任何音频接口：它把同一个 `msime_host_api.dll` 加载进每个宿主进程，而播放器要等第一次有开关打开的调用才启动。`FocusedSession::configured_key` 在 Engine 处理完一个它接受的键之后调用 `msime_client_key_sound`，类别由 `src/input/KeySoundPolicy.h` 决定（空格 1、回车 2、退格 3、其他 0；Ctrl/Alt 组合键和单独的修饰键不出声），英文模式下不出声。TSF 只把输入法接手的键转给 Server，所以没有组合时的空格、回车等交给应用的键不会出声。确认送达的上屏在 `record_commit` 里调用 `msime_client_commit_sound`。获得焦点时调用 `msime_client_music_set_active(true)`，失去焦点、会话销毁时置为 false，偏好更新后在仍持有焦点时再报一次，让中途打开的背景音乐立即开始。前台是全屏应用（`FullscreenForeground.h`）时按键音、上屏音都不出，获得焦点时也不开音乐。

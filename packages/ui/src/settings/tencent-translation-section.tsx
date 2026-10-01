@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
-import { SecretInput } from "../core/secret-input";
 import { Row, Switch } from "../core/platform-controls";
 import * as settings from "./settings-style";
+import { SecretSettingRow } from "./secret-setting-row";
 
 export interface TencentTranslationSectionProps {
   enabled: boolean;
@@ -58,14 +58,13 @@ export function TencentTranslationSection({
           placeholder="AKIDxxxxxxxxxxxxxxxx"
         />
       </Row>
-      <Row title="SecretKey">
-        <SecretInput
-          label="腾讯云 SecretKey"
-          value={secretKey}
-          disabled={!available || !enabled}
-          onChange={onSecretKeyChange}
-        />
-      </Row>
+      <SecretSettingRow
+        title="SecretKey"
+        label="腾讯云 SecretKey"
+        value={secretKey}
+        disabled={!available || !enabled}
+        onChange={onSecretKeyChange}
+      />
       <Row title="地域">
         <input
           aria-label="腾讯云地域"

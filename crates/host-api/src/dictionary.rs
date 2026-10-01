@@ -1911,7 +1911,7 @@ pub fn import_dictionary_words(
     Ok(outcome)
 }
 
-/// The scheme a candidate lookup types in. Japanese and Korean are left out: Japanese candidates come through a kana reading, not a code, and Korean has no candidates.
+/// The scheme a candidate lookup types in. Japanese and Korean are left out: Japanese candidates come through a kana reading, not a code, and Korean's only candidates are the Hanja of the syllable being composed, not rows a code looks up.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LookupScheme {
     Quanpin,

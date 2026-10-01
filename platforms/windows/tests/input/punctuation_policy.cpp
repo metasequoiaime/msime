@@ -64,7 +64,7 @@ int main() {
     REQUIRE(!candidate_punctuation(key(0x6B, '+'), no_paging, true));
     REQUIRE(!candidate_punctuation(key(0xBB, '='), no_paging));
 
-    // Korean has no candidates to page, so every ASCII mark is punctuation there, whatever the paging bindings say, and '-' and '=' among them. Letters, digits and marks above ASCII are not.
+    // Korean never pages on punctuation, even with a Hanja list open, so every ASCII mark is punctuation there, whatever the paging bindings say, and '-' and '=' among them. Letters, digits and marks above ASCII are not.
     {
       NavigationBindings paging = no_paging;
       paging.comma_period = true;

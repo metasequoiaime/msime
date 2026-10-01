@@ -1105,14 +1105,9 @@ STDAPI CMetasequoiaIME::OnCompositionTerminated(TfEditCookie ecWrite, _In_ ITfCo
     }
 
     // An application that ends a Korean composition keeps its syllable in the document as text. The host session has to let go of it as well, or the next letter would build on that syllable and commit it a second time. An ending this TIP made itself has already settled the host, which may by then hold the next syllable.
-    if (!_terminatingOwnComposition && Global::KoreanInputModeEnabled.load(std::memory_order_relaxed) &&
-        _pCompositionProcessorEngine)
+    if (!_terminatingOwnComposition && Global::KoreanInputModeEnabled.load(std::memory_order_relaxed))
     {
-        if (auto *host = _pCompositionProcessorEngine->GetHostEngineAdapter(); host && host->valid())
-        {
-            std::string raw, error;
-            (void)host->command(MSIME_CANCEL, &raw, &error);
-        }
+        (void)_CancelHostComposition();
     }
 
     // Detach and end the old candidate/session before the COM cleanup calls

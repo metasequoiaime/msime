@@ -76,6 +76,8 @@ export enum HardwareKeyAction {
   COMMIT_THEN_TYPE,
   /** Korean: commit the open syllable, then hand the key to the application to do its own work (Return, a caret key, Delete, Tab). */
   COMMIT_THEN_RELEASE,
+  /** Korean: list the Hanja of the composing syllable, or close the open list (MSIME_CONVERT_HANJA). */
+  CONVERT_HANJA,
 }
 
 export interface HardwareKeyDecision {
@@ -148,6 +150,9 @@ const KEYCODE_PAGE_DOWN: number = 2069;
 const KEYCODE_FORWARD_DEL: number = 2071;
 const KEYCODE_MOVE_HOME: number = 2081;
 const KEYCODE_MOVE_END: number = 2082;
+const KEYCODE_F9: number = 2098;
+// KEYCODE_HANJA in @ohos.multimodalInput.keyCode: the Hanja key of a Korean keyboard, which KeyIdPolicy counts as Lang2.
+const KEYCODE_HANJA: number = 2614;
 // The number row. Matched by key rather than by the resolved character: with Ctrl+Shift+Alt held
 // the system resolves nothing useful, and Shift alone would already have turned 1 into '!'.
 const KEYCODE_1: number = 2001;
@@ -266,14 +271,16 @@ export class HardwareKeyRouter {
   /**
    * @param composing whether the Engine is holding a composition right now, as `composing` answers it
    * @param chinese whether the Engine would spell with a letter rather than pass it through
+   * @param numberRowSelection the shared `number_row_selection` preference: true, its default, has 1 through 9 pick a candidate off the visible page; false gives the number row back to the application, a digit then ending the composition and being typed after it
    * @param chinesePunctuationInEnglish whether punctuation is still the keyboard's in English mode, which the Windows host does when `punctuation_lock` is Chinese (`ResolvePunctuationOpen`)
    * @param korean whether letters go to the Korean Hangul automaton, which routes on rules of its own; see routeKorean
+   * @param hanjaList whether the composing Korean syllable's Hanja list is open, as KoreanCompositionPolicy.hanjaListOpen answers it
    */
   static route(
     key: HardwareKey,
     composing: boolean,
     chinese: boolean,
-    releaseNumberRow: boolean = false,
+    numberRowSelection: boolean = true,
     navigation: HardwareNavigationPreferences = {
       minusEqual: true,
       commaPeriod: true,
@@ -291,6 +298,7 @@ export class HardwareKeyRouter {
     fullWidth: boolean = false,
     chinesePunctuationInEnglish: boolean = false,
     korean: boolean = false,
+    hanjaList: boolean = false,
   ): HardwareKeyDecision {
     // Applied once, before anything reads the key, so no digit path can be left out of it. The
     // resolved character is filled in as well as the code: with Ctrl+Shift+Alt held the system
@@ -298,7 +306,13 @@ export class HardwareKeyRouter {
     // the character and a keypad digit does not always carry one.
     key = HardwareKeyRouter.normalizeNumpad(key);
     if (korean) {
-      return HardwareKeyRouter.routeKorean(key, composing);
+      return HardwareKeyRouter.routeKorean(
+        key,
+        composing,
+        hanjaList,
+        numberRowSelection,
+        navigation,
+      );
     }
     // Japanese romaji reserves an unmodified minus for the long-vowel mark. It is a composition key even before the first kana exists. '=' and shifted '-' are never paging keys in Japanese (`IsJapaneseDisabledPagingKey` on Windows): mid-composition they are punctuation that commits the highlighted candidate first, and with nothing composed they are the application's.
     if (
@@ -438,7 +452,7 @@ export class HardwareKeyRouter {
       // 1 through 9 pick a candidate off the strip while something is being spelled, which is what
       // the number row is for on every desktop input method.
       if (key.unicodeChar >= 0x31 && key.unicodeChar <= 0x39) {
-        if (releaseNumberRow) {
+        if (!numberRowSelection) {
           return decision(HardwareKeyAction.COMMIT_THEN_TYPE, key.unicodeChar);
         }
         return decision(HardwareKeyAction.SELECT, 0, key.unicodeChar - 0x31);
@@ -472,11 +486,19 @@ export class HardwareKeyRouter {
   }
 
   /**
-   * A key on the Korean Hangul automaton, which has no candidates to pick, page or navigate and no Chinese punctuation.
+   * A key on the Korean Hangul automaton, which has no Chinese punctuation and no candidates to pick, page or navigate until the composing syllable's Hanja list opens.
    *
    * Letters always compose, in the case the caller normalized them to (Shift gives ㄲ ㄸ ㅃ ㅆ ㅉ ㅒ ㅖ). With nothing composed every other key is the application's, punctuation included: Korean writes it as half-width ASCII, so the application typing the key is exactly right, and fullwidth does not apply. With a syllable open, Backspace takes one jamo back and Escape discards the syllable; a punctuation mark goes through the Engine, which commits the syllable and the mark as one; Space and the other printable keys commit the syllable and are typed after it by the keyboard, so their order against the commit is not left to the editor; and Return, the caret keys, Delete, Tab and the page keys, with or without a modifier, commit the syllable and then do their own work in the application. Any other chord, and a modifier on its own, leaves the syllable open, as it does for every other scheme.
+   *
+   * The Hanja key (a Korean keyboard's own, or F9 as on the Linux and Android hosts) lists the composing syllable's Hanja and closes the list again; see routeHanjaList for the keys that reach the list while it is open. With nothing composed the Hanja key is the application's like every other key.
    */
-  private static routeKorean(key: HardwareKey, composing: boolean): HardwareKeyDecision {
+  private static routeKorean(
+    key: HardwareKey,
+    composing: boolean,
+    hanjaList: boolean,
+    numberRowSelection: boolean,
+    navigation: HardwareNavigationPreferences,
+  ): HardwareKeyDecision {
     const character: number = key.unicodeChar;
     const modified: boolean = key.ctrlKey || key.altKey || key.logoKey;
     const letter: boolean =
@@ -486,6 +508,24 @@ export class HardwareKeyRouter {
     }
     if (!composing) {
       return RELEASE;
+    }
+    // Claimed while composing whatever the Engine answers: a lone jamo has no Hanja, and the key handed on would reach the editor beside a syllable still composing (msime_client.h).
+    if (
+      !modified &&
+      !key.shiftKey &&
+      (key.keyCode === KEYCODE_HANJA || key.keyCode === KEYCODE_F9)
+    ) {
+      return decision(HardwareKeyAction.CONVERT_HANJA);
+    }
+    if (hanjaList && !modified) {
+      const listDecision: HardwareKeyDecision | undefined = HardwareKeyRouter.routeHanjaList(
+        key,
+        numberRowSelection,
+        navigation,
+      );
+      if (listDecision !== undefined) {
+        return listDecision;
+      }
     }
     if (!modified) {
       if (key.keyCode === KEYCODE_DEL) {
@@ -505,6 +545,54 @@ export class HardwareKeyRouter {
       return decision(HardwareKeyAction.COMMIT_THEN_RELEASE);
     }
     return RELEASE;
+  }
+
+  /**
+   * A key that means something to the open Hanja list of a Korean syllable, or undefined for one that keeps its plain Korean meaning.
+   *
+   * Space and Return choose the highlighted Hanja; Return sends the candidate command because only the session knows the highlight (msime_client.h). The number row picks from the visible page while `number_row_selection` is on; with it off a digit commits the syllable and is typed as it is without the list. Up and Down, the page keys and Tab move through the list as their navigation bindings say, and Left and Right move the highlight while the arrow binding is on, since a syllable has no caret inside it to move. A binding turned off leaves its key with its plain Korean meaning rather than eating it, and so do Home and End. The marks - = [ ] , . stay punctuation rather than paging or taking a character from a word: a Hanja is one character already, and the Engine closes the list and writes the Hangul with the mark, as every other host does with the list open. Backspace and Escape need nothing here: the Engine has them close the list and keep the syllable.
+   */
+  private static routeHanjaList(
+    key: HardwareKey,
+    numberRowSelection: boolean,
+    navigation: HardwareNavigationPreferences,
+  ): HardwareKeyDecision | undefined {
+    const code: number = key.keyCode;
+    if (code === KEYCODE_SPACE || code === KEYCODE_ENTER || code === KEYCODE_NUMPAD_ENTER) {
+      return decision(HardwareKeyAction.COMMIT);
+    }
+    if (key.unicodeChar >= 0x31 && key.unicodeChar <= 0x39) {
+      return numberRowSelection
+        ? decision(HardwareKeyAction.SELECT, 0, key.unicodeChar - 0x31)
+        : decision(HardwareKeyAction.COMMIT_THEN_TYPE, key.unicodeChar);
+    }
+    if (code === KEYCODE_DPAD_LEFT || code === KEYCODE_DPAD_RIGHT) {
+      if (!navigation.arrows) {
+        return undefined;
+      }
+      return decision(
+        code === KEYCODE_DPAD_LEFT
+          ? HardwareKeyAction.PREVIOUS_CANDIDATE
+          : HardwareKeyAction.NEXT_CANDIDATE,
+      );
+    }
+    if (
+      code !== KEYCODE_DPAD_UP &&
+      code !== KEYCODE_DPAD_DOWN &&
+      code !== KEYCODE_PAGE_UP &&
+      code !== KEYCODE_PAGE_DOWN &&
+      code !== KEYCODE_TAB
+    ) {
+      return undefined;
+    }
+    const navigationDecision: HardwareKeyDecision | undefined = HardwareKeyRouter.navigation(
+      key,
+      navigation,
+    );
+    return navigationDecision === undefined ||
+      navigationDecision.action === HardwareKeyAction.IGNORED
+      ? undefined
+      : navigationDecision;
   }
 
   /**

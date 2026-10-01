@@ -1,10 +1,11 @@
-//! The providers, one per scheme family (`R/providers/provider_registry.cpp`, `pinyin_candidate_provider.cpp`): pinyin (quanpin and shuangpin engines), wubi and Japanese. Korean has no provider: its syllables are the text, so every Korean query answers nothing.
+//! The providers, one per scheme family (`R/providers/provider_registry.cpp`, `pinyin_candidate_provider.cpp`): pinyin (quanpin and shuangpin engines), wubi and Japanese. Korean syllables are the text, so a Korean query answers nothing until the user opens the Hanja list, and then the embedded Hanja table (`korean::hanja`) answers it.
 //!
 //! The registry answers queries and lookups only. The reference also routed `create_word` / `update_weight_by_pinyin_and_word` / `delete_by_pinyin_and_word` through it; here the session writes pins, removals and frequency learning into user_dictionary itself, choosing the dictionary kind from the selected row's scheme (overlays.md §3.3), and phrases through its own canonical-pinyin `QuanpinEngine`, so a second writer path would only diverge from it.
 
 use crate::assets;
 use crate::helpcode::SharedKeymap;
 use crate::japanese::JapaneseProvider;
+use crate::korean::hanja;
 use crate::paths::RuntimePaths;
 use crate::quanpin::QuanpinEngine;
 use crate::shuangpin::profile::profile;
@@ -50,6 +51,7 @@ impl ProviderRegistry {
             SchemeType::Shuangpin => self.shuangpin.query(request, keymap),
             SchemeType::Wubi => return self.wubi.query(request),
             SchemeType::JapaneseRomaji => return self.japanese.query(request),
+            SchemeType::Korean if request.korean_hanja => return hanja::candidates(request),
             SchemeType::Korean => return Vec::new(),
         };
         for item in &mut candidates {

@@ -673,6 +673,21 @@ static BOOL MSIMEKoreanComposition(NSDictionary *view) {
     id mode = view[@"local_mode"];
     return ![mode isKindOfClass:NSString.class] || [mode isEqualToString:@"none"];
 }
+// The Korean Hanja list is open exactly while the Korean rules hold and the view carries candidates: the Engine offers no other candidates in that scheme (msime_client.h, MSIME_CONVERT_HANJA).
+static BOOL MSIMEKoreanHanjaListOpen(NSDictionary *view) {
+    if (!MSIMEKoreanComposition(view)) return NO;
+    id candidates = view[@"candidates"];
+    return [candidates isKindOfClass:NSArray.class] && [candidates count] > 0;
+}
+// Option+Return (or keypad Enter) with no other modifier while a Korean syllable composes, the system Korean input method's Hanja key. Either Option key counts.
+static BOOL MSIMEKoreanHanjaTrigger(NSEvent *event, NSDictionary *view) {
+    if (event.type != NSEventTypeKeyDown || (event.keyCode != 36 && event.keyCode != 76)) return NO;
+    if ((event.modifierFlags & (NSEventModifierFlagControl | NSEventModifierFlagShift | NSEventModifierFlagOption |
+                                NSEventModifierFlagCommand)) != NSEventModifierFlagOption) return NO;
+    if (!MSIMEKoreanComposition(view)) return NO;
+    id editing = view[@"editing_text"];
+    return [editing isKindOfClass:NSString.class] && [editing length] > 0;
+}
 // Match the Windows TSF classifier's CapsLock special case. CapsLock turns an
 // unshifted alphabetic key into an uppercase character, but an uppercase key
 // must remain a native application key when a new composition would otherwise
@@ -2429,7 +2444,7 @@ static NSImage *MSIMECandidateLogoImage() {
     if (!query || ![targets containsObject:@"en"]) return nil;
     if (_glossTargetLanguages && ![_glossTargetLanguages isEqual:targets]) return nil;
     NSDictionary *view = [self serviceSnapshotView];
-    // Windows suppresses candidate translations in Japanese, including a temporary Japanese composition whose view retains its original scheme. Korean has no candidates to translate.
+    // Windows suppresses candidate translations in Japanese, including a temporary Japanese composition whose view retains its original scheme. Korean's only candidates are the Hanja of one syllable, which carry their 훈음 as the annotation and are not translated.
     if ([view[@"scheme"] isEqual:@3] || [view[@"scheme"] isEqual:@(msime::mac::KoreanScheme)] ||
         [view[@"local_mode"] isEqual:@"temporary_japanese"]) return nil;
     if (![view[@"generation"] isEqual:query[@"generation"]]) return nil;
@@ -4776,6 +4791,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
 - (BOOL)wordCharacterClaimsEvent:(NSEvent *)event {
     NSDictionary *wordCharacter = [_appearance wordCharacterOptions];
     if (![wordCharacter[@"enabled"] boolValue]) return NO;
+    // A Korean Hanja is one character already, so there is no word to take a character from: the pair is punctuation there (see koreanHanjaMark in handleEvent:client:).
+    if (MSIMEKoreanComposition(_view)) return NO;
     NSString *characters = event.charactersIgnoringModifiers;
     if (characters.length != 1) return NO;
     const unichar character = [characters characterAtIndex:0];
@@ -5370,6 +5387,13 @@ static __weak MSIMEInputController *MSIMEMusicOwner;
             return YES;
         }
     }
+    // Option+Return converts the composing Korean syllable to Hanja, the key the system's Korean input method uses, and closes the list again while it is open. It is decided before the rule below, which would finish the syllable and hand the chord to the application as a line break. While a syllable composes the chord stays the input method's whatever the Engine answers: a lone jamo has no Hanja, and passing the chord on would write the jamo out and break the line. With nothing composing it is the application's as before. A repeat is swallowed so that holding the chord does not flicker the list open and shut.
+    if (MSIMEKoreanHanjaTrigger(event, _view)) {
+        if (event.isARepeat) return YES;
+        NSDictionary *transition = [_session command:MSIME_CONVERT_HANJA error:nil];
+        if (transition) [self apply:transition];
+        return YES;
+    }
     if (event.modifierFlags & (NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption)) {
         [self apply:[_session command:MSIME_FINISH_COMPOSITION error:nil]];
         return NO;
@@ -5409,8 +5433,10 @@ static __weak MSIMEInputController *MSIMEMusicOwner;
     // The test is the one the word-to-character branch below applies, so the key is excluded from paging
     // exactly when that branch will claim it: whichever way it goes, the keystroke has an owner.
     const BOOL wordCharacterOwnsKey = [self wordCharacterClaimsEvent:event];
+    // The marks among the paging keys (- = [ ] , .) are punctuation while a Korean Hanja list is open, as they are with no list: the Engine closes it and writes the Hangul with the mark, so a mark typed after a syllable never turns a page instead. Page Up and Page Down still page.
+    const BOOL koreanHanjaMark = MSIMEKoreanHanjaListOpen(_view) && event.keyCode != 116 && event.keyCode != 121;
     if (_panel.isVisible && !(event.modifierFlags & NSEventModifierFlagShift) &&
-        physicalPageDirection != 0 && !japaneseMinusEqual && !engineInputKey && !wordCharacterOwnsKey) {
+        physicalPageDirection != 0 && !japaneseMinusEqual && !engineInputKey && !wordCharacterOwnsKey && !koreanHanjaMark) {
         const BOOL previous = physicalPageDirection < 0 &&
             ((event.keyCode == 27 && [_appearance navigationEnabled:@"minus_equal"]) ||
              (event.keyCode == 33 && [_appearance navigationEnabled:@"brackets"]) ||
@@ -5473,6 +5499,11 @@ static __weak MSIMEInputController *MSIMEMusicOwner;
             return YES;
         }
         if (!horizontal) return YES;
+        // A Korean Hanja list belongs to one syllable with no caret inside it, so the caret move would only write the syllable out and leave the key to the application. Across a vertical list Left and Right turn the page instead.
+        if (MSIMEKoreanHanjaListOpen(_view)) {
+            [self apply:[_session command:event.keyCode == 123 ? MSIME_PREVIOUS_PAGE : MSIME_NEXT_PAGE error:nil]];
+            return YES;
+        }
     }
     if (_panel.isVisible && event.keyCode == 49 &&
         !(event.modifierFlags & (NSEventModifierFlagShift | NSEventModifierFlagControl |
@@ -5542,10 +5573,10 @@ static __weak MSIMEInputController *MSIMEMusicOwner;
         return YES;
     }
     const BOOL korean = MSIMEKoreanComposition(_view);
-    // With its navigation binding off, a paging or arrow key is the application's and moves the caret, so it ends a Korean syllable the way Tab does below.
+    // With its navigation binding off, a paging or arrow key is the application's and moves the caret, so it ends a Korean syllable the way Tab does below. A Hanja list on screen keeps the key instead, as every candidate list does (the switch below swallows it), so the syllable is not written out.
     const BOOL applicationNavigationKey = ((event.keyCode == 116 || event.keyCode == 121) && ![_appearance navigationEnabled:@"page_up_down"]) ||
         ((event.keyCode == 125 || event.keyCode == 126) && ![_appearance navigationEnabled:@"arrows"]);
-    if (korean && applicationNavigationKey && [_view[@"editing_text"] length]) [self apply:[_session command:MSIME_FINISH_COMPOSITION error:nil]];
+    if (korean && applicationNavigationKey && !_panel.isVisible && [_view[@"editing_text"] length]) [self apply:[_session command:MSIME_FINISH_COMPOSITION error:nil]];
     switch (event.keyCode) {
         case 48:
             // With no candidate panel on screen (the caret rect was invalid or there is no screen to show it on) Tab and Shift+Tab are the application's, whatever navigation.tab says. A composition still being edited is finished first, for every scheme and not only a Korean syllable, so the key does not move focus away from marked text that would then dangle in the old field. With nothing composed the session is left alone.
@@ -5553,7 +5584,8 @@ static __weak MSIMEInputController *MSIMEMusicOwner;
                 [self apply:[_session command:MSIME_FINISH_COMPOSITION error:nil]];
             return NO;
         case 51: command = MSIME_BACKSPACE; break;
-        case 36: case 76: command = MSIME_COMMIT_RAW; break;
+        // With a Korean Hanja list open Return chooses the highlighted Hanja, as Space does; only the session knows the highlight, so the command is the candidate one (msime_client.h). Otherwise Return writes the syllable out and breaks the line.
+        case 36: case 76: command = MSIMEKoreanHanjaListOpen(_view) ? MSIME_COMMIT_CANDIDATE : MSIME_COMMIT_RAW; break;
         case 53: [self flushPendingPairedClosing]; _pairedPunctuation.clear(); command = MSIME_CANCEL; break;
         case 49: command = MSIME_COMMIT_CANDIDATE; break;
         case 123: command = MSIME_MOVE_LEFT; break;
@@ -5762,7 +5794,7 @@ static __weak MSIMEInputController *MSIMEMusicOwner;
     const uint64_t applySequence = ++_applySequence;
     const uint64_t glossViewSequence = _glossViewSequence;
     NSString *pendingClosing = _pendingPairedClosing;
-    // The Korean syllable has no candidate window to show it in, so it is always drawn inline, whatever the preedit display preference says: hidden it would be text the user cannot see being written.
+    // The Korean syllable is always drawn inline, whatever the preedit display preference says: until Option+Return opens its Hanja list there is no candidate window to show it in, and hidden it would be text the user cannot see being written.
     const MSIMEInlinePreeditStyle preeditStyle = MSIMEKoreanComposition(displayTransition[@"view"])
         ? MSIMEInlinePreeditStylePinyin : _appearance.inlinePreeditStyle;
     MSIMEApplyTransitionTrackingMarkedText(displayTransition, (id<MSIMETextClient>)_activeClient, preeditStyle, pendingClosing, &_clientHasMarkedText);
@@ -6345,6 +6377,8 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
 - (NSMenu *)menuForCandidate:(NSDictionary *)candidate {
     NSDictionary *identifier = candidate[@"id"];
     if (!MSIMECurrentCandidateIdentity(identifier, _view) || !_candidateMenuToken) return nil;
+    // Korean Hanja rows come from the table compiled into the Engine, which pins, fixes and removes none of them, and the list learns nothing; the local pin below would still reorder the list under the syllable. So they get no menu.
+    if (MSIMEKoreanHanjaListOpen(_view)) return nil;
     NSString *text = [candidate[@"text"] isKindOfClass:NSString.class] ? candidate[@"text"] : @"";
     NSDictionary *context = @{@"id":[identifier copy], @"text":text, @"render":_candidateMenuToken};
     NSMenuItem *(^item)(NSString *, NSInteger) = ^NSMenuItem *(NSString *title, NSInteger tag) {

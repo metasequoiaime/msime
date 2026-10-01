@@ -375,11 +375,13 @@ function AppIconSettingsCard({
   const [error, setError] = useState("");
   const mounted = useRef(true);
   const generation = useRef(0);
+  const changeRunning = useRef(false);
 
   useEffect(() => {
     let active = true;
     const current = ++generation.current;
     mounted.current = true;
+    changeRunning.current = false;
     setInfo(null);
     setError("");
     void client
@@ -398,8 +400,9 @@ function AppIconSettingsCard({
   }, [client]);
 
   const choose = async (style: string) => {
-    if (!info?.supported || pending || info.selected === style) return;
+    if (!info?.supported || pending || changeRunning.current || info.selected === style) return;
     const current = generation.current;
+    changeRunning.current = true;
     setPending(style);
     setError("");
     try {
@@ -420,6 +423,7 @@ function AppIconSettingsCard({
           setError("图标未能更换，请稍后重试。");
       }
     } finally {
+      if (generation.current === current) changeRunning.current = false;
       if (mounted.current && generation.current === current) setPending(null);
     }
   };

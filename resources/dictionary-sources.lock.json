@@ -203,6 +203,12 @@
       "url": "https://raw.githubusercontent.com/modood/Administrative-divisions-of-China/c49d495b40ac73eb1a66f6eeae5f8fd10696f035/dist/areas.csv",
       "sha256": "169b8d99654c28cbd285e771e00688837f77af8d50c2b703592146388d2a99ab",
       "size": 85403
+    },
+    {
+      "path": "hanja/hanja.txt",
+      "url": "https://raw.githubusercontent.com/libhangul/libhangul/717409ce61524bb3d8426060a384822f21354c62/data/hanja/hanja.txt",
+      "sha256": "b1004034589f1357daaea3534a6136f6b5ef825afa8779886b20f0b7908bbe3b",
+      "size": 6452537
     }
   ]
 }

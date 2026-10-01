@@ -55,6 +55,8 @@ export type CommunityPlugin = {
 export type CommunityPluginPage = {
   plugins: CommunityPlugin[];
   has_more: boolean;
+  /** Listed packs of a kind this client cannot install (effect packs), left out by the host but still counted toward the next offset. */
+  skipped?: number;
 };
 
 /** What the host's packer made of an installed pack before anything is uploaded. */
@@ -144,7 +146,7 @@ export function CommunityPluginsPage({
     () => ({
       list: async (offset, search) => {
         const page = await client.list(offset, search, kindFilter.current);
-        return { items: page.plugins, has_more: page.has_more };
+        return { items: page.plugins, has_more: page.has_more, skipped: page.skipped };
       },
       detail: client.detail,
       rate: async (id, stars) => {
@@ -403,7 +405,22 @@ export function CommunityPluginsPage({
           {actionNotice}
         </p>
       )}
-      {!listBusy && plugins.length === 0 && <p className={style.notice}>暂时没有匹配的插件。</p>}
+      {!listBusy && !error && plugins.length === 0 && hasMore && (
+        <p className={style.notice}>
+          {activeSearch || kind
+            ? "前面的插件这台设备都不能安装，点「加载更多」继续查找。"
+            : "前面的插件这台设备都不能安装，点「加载更多」查看更早发布的插件。"}
+        </p>
+      )}
+      {!listBusy && !error && plugins.length === 0 && !hasMore && (
+        <p className={style.notice}>
+          {activeSearch || kind
+            ? "没有匹配的插件。"
+            : localPlugins
+              ? "社区里还没有插件，安装或制作插件后可以点「发布我的插件」分享出来。"
+              : "社区里还没有插件。"}
+        </p>
+      )}
       <div className={style.grid}>
         {plugins.map((plugin) => (
           <CommunityPluginCard key={plugin.id} plugin={plugin} open={() => open(plugin)} />

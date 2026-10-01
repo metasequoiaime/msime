@@ -346,4 +346,25 @@ assert 'fcitx::startProcess({guide, "--host", "fcitx5"})' in source
 assert 'MSIME_BINDIR="${CMAKE_INSTALL_FULL_BINDIR}"' in cmake_fcitx5
 assert "scripts/msime-linux-first-run-guide" in cmake
 
+# The Korean Hanja keys (Hangul_Hanja and a bare F9) and the open list are read through the shared core/KoreanHanja.h in both hosts. The keys are decided before the rules that would finish the syllable and hand the key to the application, so a trigger the Engine leaves unhandled (a lone jamo) never writes the syllable out and then leaks the key.
+fcitx_convert = 'command(MSIME_CONVERT_HANJA)'
+ibus_convert = 'msime_client_command(s.session, MSIME_CONVERT_HANJA)'
+assert source.count(fcitx_convert) == 1 and ibus_source.count(ibus_convert) == 1
+for host in (source, ibus_source):
+    assert 'msime::linux_host::korean_hanja_key(' in host
+    assert 'msime::linux_host::korean_composition(' in host
+    assert 'msime::linux_host::korean_hanja_list_open(' in host
+assert 'msime::linux_host::korean_hanja_punctuation_key(' in ibus_source
+fcitx_key = source[source.index("bool FcitxState::key(fcitx::KeyEvent &event) {"):]
+fcitx_key = fcitx_key[:fcitx_key.index("\n}\n")]
+assert fcitx_key.index(fcitx_convert) < fcitx_key.index("if (composing && korean() && !koreanHanjaList)")
+assert fcitx_key.index(fcitx_convert) < fcitx_key.rindex("if (composing) command(MSIME_FINISH_COMPOSITION);")
+ibus_key = ibus_source[ibus_source.index("gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) {"):]
+ibus_key = ibus_key[:ibus_key.index("\n}\n")]
+assert ibus_key.index(ibus_convert) < ibus_key.index("korean_scheme && has_composition)")
+# With the list open Return chooses the highlighted Hanja in both hosts rather than writing the Hangul out and breaking the line.
+assert "command(koreanHanjaList ? MSIME_COMMIT_CANDIDATE : MSIME_COMMIT_RAW)" in fcitx_key
+ibus_return = ibus_key[ibus_key.index("case IBUS_Return:"):]
+assert ibus_return.index("if (korean_hanja_list) {") < ibus_return.index("command = MSIME_COMMIT_RAW;")
+
 print("Fcitx5 addon metadata passed")

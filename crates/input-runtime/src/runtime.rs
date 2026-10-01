@@ -118,7 +118,7 @@ pub struct Runtime<E: InputEngine = Session> {
 /// whose members really are alternative readings of the same key.
 pub(crate) const LATTICE_SOURCE: u8 = 8;
 
-/// `SchemeType::Korean`: Hangul syllables that compose in the preedit, with no candidates and no Chinese punctuation.
+/// `SchemeType::Korean`: Hangul syllables that compose in the preedit, with no Chinese punctuation; the only candidates are the composing syllable's Hanja, in the Engine's table order, once the host asks for them.
 pub const KOREAN_SCHEME: u8 = 4;
 
 /// Move the flagged elements to the end, keeping both groups in their existing order.
@@ -1432,6 +1432,10 @@ impl<E: InputEngine> Runtime<E> {
 
     fn rerank(&mut self) -> bool {
         const WUBI: u8 = 2;
+        // A Korean Hanja list is a table in frequency order for one syllable, not Chinese text the language model can read.
+        if self.cached.scheme == KOREAN_SCHEME {
+            return false;
+        }
         // A Wubi list the table answered is ranked by the table: the Engine seats the Wubi rows first (`merge_pinyin_fallback`) and appends the mixed-in pinyin rows after them. Those pinyin rows are corrections of the same letters (dyn read as dun), so the corrected-key rule below would strip the exact code hit (态 on dyn) of its dictionary exemption and let the model promote a longer code's row (太快 on dynn) over it. Only a list the pinyin fallback answered alone is pinyin, and that one is reranked like pinyin.
         if self.cached.scheme == WUBI && !self.cached.answered_by_pinyin_fallback {
             return false;
@@ -1510,6 +1514,10 @@ impl<E: InputEngine> Runtime<E> {
         const LONG_SENTENCE_CHARACTERS: usize = 3;
         const SENTENCE_READINGS: usize = 3;
 
+        // Korean Hanja rows are not lattice readings, and their table order is the one to keep.
+        if self.cached.scheme == KOREAN_SCHEME {
+            return false;
+        }
         let snapshot = &self.cached;
         let count = snapshot.candidates.len();
         if count < 2
@@ -1649,7 +1657,7 @@ impl<E: InputEngine> Runtime<E> {
         let result = if korean_composition {
             self.engine.finish(0)
         } else {
-            self.engine.command(Command::Cancel)
+            self.discard_composition()
         };
         self.refresh()?;
         let mut result = result?;
@@ -1664,6 +1672,15 @@ impl<E: InputEngine> Runtime<E> {
         self.engine.set_rescoring_context("");
         self.engine.reset_context();
         Ok(self.transition(result))
+    }
+
+    /// Throw the composition away. With a Korean Hanja list open, Cancel is the user's Escape and only closes the list, leaving the syllable composing, so a second Cancel takes the syllable too.
+    fn discard_composition(&mut self) -> Result<EngineResult, RuntimeError> {
+        let result = self.engine.command(Command::Cancel)?;
+        if self.cached.scheme == KOREAN_SCHEME && !self.engine.snapshot()?.editing_text.is_empty() {
+            return self.engine.command(Command::Cancel);
+        }
+        Ok(result)
     }
 
     fn punctuation(&mut self, value: u8) -> Result<EngineResult, RuntimeError> {
@@ -1913,8 +1930,9 @@ impl<E: InputEngine> Runtime<E> {
                     if !result.handled && value.is_ascii_punctuation() {
                         return self.punctuation(value);
                     }
-                    // Let Engine consume numeric input (Unicode mode, nine-key, etc.) first.
+                    // Let Engine consume numeric input (Unicode mode, nine-key, etc.) first. A result that already committed (a Korean syllable the digit ended) is final: selecting now would replace that commit and lose the text.
                     if result.handled
+                        || result.has_commit
                         || self.cached.nine_key
                         || !(b'1'..=b'9').contains(&value)
                         || len == 0

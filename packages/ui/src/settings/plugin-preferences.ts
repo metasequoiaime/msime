@@ -119,3 +119,28 @@ export function withoutRemovedPack(
     melody: preferences.melody.pack === id ? { pack: DEFAULT_MELODY_PACK } : preferences.melody,
   };
 }
+
+/** The section with a pack made the current one of its kind: a key sound pack becomes the pack keys, commits and achievements play from, a melody pack the melody, an effect pack the effect, a music pack the music (whether music plays stays as it was), and a command table is enabled after the ones already enabled. */
+export function withPackSelected(
+  preferences: PluginPreferences,
+  pack: {
+    kind: "sound" | "music" | "command_table" | "effect";
+    id: string;
+    mode?: "keys" | "sequence";
+  },
+): PluginPreferences {
+  switch (pack.kind) {
+    case "sound":
+      return pack.mode === "sequence"
+        ? { ...preferences, melody: { pack: pack.id } }
+        : { ...preferences, key_sound: { ...preferences.key_sound, pack: pack.id } };
+    case "effect":
+      return { ...preferences, effect_pack: pack.id };
+    case "music":
+      return { ...preferences, music: { ...preferences.music, pack: pack.id } };
+    case "command_table":
+      return preferences.command_tables.includes(pack.id)
+        ? preferences
+        : { ...preferences, command_tables: [...preferences.command_tables, pack.id] };
+  }
+}

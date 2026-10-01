@@ -40,6 +40,8 @@ public:
   void cancel_composition(uint64_t epoch);
   // MSIME_FINISH_COMPOSITION: the open composition becomes the commit. Korean uses it for the keys that end a syllable without a character of their own.
   nlohmann::json finish_composition(uint64_t epoch);
+  // One MsimeCommand, for a key whose command does not follow from translate_key: the Korean Hanja list's keys (KoreanHanjaKey.h). Requires input enabled.
+  nlohmann::json command(uint64_t epoch, uint32_t command);
   // Clear the Engine candidate-provider cache without requiring focus.
   void reset_cache();
   void set_input_enabled(uint64_t epoch, bool enabled);

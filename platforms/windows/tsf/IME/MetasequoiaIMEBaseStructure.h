@@ -82,7 +82,9 @@ enum KEYSTROKE_FUNCTION
     // Korean: commit the open syllable, then insert the key's own ASCII character when it has one (space, digit, punctuation). Caret and editing keys commit and then reach the application.
     FUNCTION_COMMIT_SYLLABLE,
     // Korean, behind the deferred-key barrier: a caret or editing key was eaten to keep its place in the queue, so after the syllable is committed the key is replayed to the application.
-    FUNCTION_COMMIT_SYLLABLE_AND_REPLAY
+    FUNCTION_COMMIT_SYLLABLE_AND_REPLAY,
+    // Korean: the Hanja key, or a key the open Hanja list takes (KoreanHanjaKey.h). Decided against the host session when the key runs, so a list key queued behind the key that opened or closed the list still does the right thing.
+    FUNCTION_KOREAN_HANJA_KEY
 };
 
 static_assert(FUNCTION_MOVE_UP == 16 && FUNCTION_MOVE_PAGE_BOTTOM == 21,
@@ -91,7 +93,8 @@ static_assert(FUNCTION_INSERT_TEXT == 25 && FUNCTION_TOGGLE_CHARACTER_SET == 29,
               "Preserve unsolicited input and character-set function ordinals");
 static_assert(FUNCTION_SMART_PUNCTUATION_REVERT == 31 && FUNCTION_BACKSPACE_SEGMENT == 32 &&
                   FUNCTION_MOVE_LEFT_SEGMENT == 33 && FUNCTION_MOVE_RIGHT_SEGMENT == 34 &&
-                  FUNCTION_COMMIT_SYLLABLE == 35 && FUNCTION_COMMIT_SYLLABLE_AND_REPLAY == 36,
+                  FUNCTION_COMMIT_SYLLABLE == 35 && FUNCTION_COMMIT_SYLLABLE_AND_REPLAY == 36 &&
+                  FUNCTION_KOREAN_HANJA_KEY == 37,
               "New composition functions must be append-only");
 
 //---------------------------------------------------------------------

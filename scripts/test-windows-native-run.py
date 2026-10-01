@@ -86,6 +86,16 @@ COMPANIONS: dict[str, tuple[list[str], bool]] = {
         ],
         True,
     ),
+    # The Server side of the Korean scheme and its Hanja list, through the reply composer against a real Engine session.
+    "input/korean_keys.cpp": (
+        [
+            "src/ipc/ReplyComposer.cpp",
+            "src/ipc/ReplyCodec.cpp",
+            "src/ipc/ServerSession.cpp",
+            "src/input/ChineseTextConversion.cpp",
+        ],
+        True,
+    ),
     # Book-title nesting paid back after the TSF auto-closes, against a real Engine session.
     "input/paired_punctuation_balance.cpp": (
         ["src/ipc/ServerSession.cpp", "src/ipc/ReplyCodec.cpp", "src/input/ChineseTextConversion.cpp"],

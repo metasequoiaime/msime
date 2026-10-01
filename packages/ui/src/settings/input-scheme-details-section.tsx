@@ -5,6 +5,21 @@ import { SettingToggle } from "./setting-toggle";
 export type InputSchemeDetailsScheme = "quanpin" | "shuangpin" | "wubi" | "japanese" | "korean";
 export type ShuangpinProfile = "xiaohe" | "ziranma" | "shoudao" | "microsoft";
 
+function ShuangpinProfileOptions() {
+  return (
+    <>
+      <option value="xiaohe">小鹤双拼</option>
+      <option value="ziranma">自然码双拼</option>
+      <option value="shoudao">首道双拼</option>
+      <option value="microsoft">微软双拼</option>
+    </>
+  );
+}
+
+function WubiSchemeOption() {
+  return <option value="wubi86">86 五笔</option>;
+}
+
 export interface InputSchemeDetailsSectionProps {
   scheme: InputSchemeDetailsScheme;
   shuangpinProfile: ShuangpinProfile;
@@ -40,10 +55,7 @@ export function InputSchemeDetailsSection({
             value={shuangpinProfile}
             onChange={(event) => onShuangpinProfileChange(event.target.value as ShuangpinProfile)}
           >
-            <option value="xiaohe">小鹤双拼</option>
-            <option value="ziranma">自然码双拼</option>
-            <option value="shoudao">首道双拼</option>
-            <option value="microsoft">微软双拼</option>
+            <ShuangpinProfileOptions />
           </Select>
         </Row>
         {macosShuangpinKeymap !== undefined && (
@@ -60,7 +72,7 @@ export function InputSchemeDetailsSection({
         )}
         <Row title="五笔方案" hidden={hideChineseSchemeOptions}>
           <Select value="wubi86" onChange={() => {}}>
-            <option value="wubi86">86 五笔</option>
+            <WubiSchemeOption />
           </Select>
         </Row>
         <Row
@@ -96,10 +108,7 @@ export function InputSchemeDetailsSection({
             value={shuangpinProfile}
             onChange={(event) => onShuangpinProfileChange(event.target.value as ShuangpinProfile)}
           >
-            <option value="xiaohe">小鹤双拼</option>
-            <option value="ziranma">自然码双拼</option>
-            <option value="shoudao">首道双拼</option>
-            <option value="microsoft">微软双拼</option>
+            <ShuangpinProfileOptions />
           </select>
         </label>
       </div>
@@ -119,7 +128,7 @@ export function InputSchemeDetailsSection({
         <label className="section-header">
           <span className="section-title">五笔方案</span>
           <select aria-label="五笔方案" value="wubi86" onChange={() => {}}>
-            <option value="wubi86">86 五笔</option>
+            <WubiSchemeOption />
           </select>
         </label>
       </div>

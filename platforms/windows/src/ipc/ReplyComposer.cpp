@@ -1,6 +1,7 @@
 #include "ReplyComposer.h"
 #include "CandidateTranslationPolicy.h"
 #include "ChineseTextConversion.h"
+#include "KoreanHanjaKey.h"
 #include "PunctuationPolicy.h"
 #include <algorithm>
 #include <limits>
@@ -306,6 +307,9 @@ std::optional<PendingReply> ReplyComposer::basic_key(
     if (auto translation = translation_page_key(session, packet, epoch))
       return translation;
   }
+  // Ahead of the reset route, which would treat Escape as discarding the syllable when with the list open it only closes the list.
+  if (auto hanja = korean_hanja(session, packet, epoch))
+    return hanja;
   const auto action = translate_key(packet);
   const bool uiless = (packet.modifiers_down & FanyImePipeFlags::UiLess) != 0;
   if (action.kind == KeyKind::LocalReset)
@@ -678,6 +682,48 @@ std::optional<PendingReply> ReplyComposer::restore_segment(
     throw std::runtime_error("Unencodable segment restoration");
   pending_ = std::move(next);
   return pending_;
+}
+
+std::optional<PendingReply> ReplyComposer::korean_hanja(
+    ServerSession &session, const FanyImeNamedpipeData &packet,
+    uint64_t epoch) {
+  if (!session.input_enabled() ||
+      packet.event_type != FanyImePipeEventType::KeyEvent ||
+      (PipeMetadata::key_modifiers(packet.modifiers_down) & ~1u) != 0)
+    return std::nullopt;
+  const auto key = korean_hanja_key(packet.keycode, static_cast<uint32_t>(packet.wch));
+  if (key.kind == KoreanHanjaKeyKind::None)
+    return std::nullopt;
+  const auto current = session.view();
+  // The Korean rules hold only outside the dedicated English mode and every local mode, which keep their own rules in that scheme.
+  const bool korean = current.value("scheme", 0u) == 4u &&
+                      !current.value("dedicated_english", false) &&
+                      current.at("local_mode").get<std::string>() == "none";
+  const bool composing = korean && !current.at("editing_text").get<std::string>().empty();
+  const bool trigger = packet.keycode == kVirtualKeyHanja;
+  // Under the Korean rules the Engine lists candidates only after MSIME_CONVERT_HANJA, so a composing view with candidates is the Hanja list.
+  if (!trigger && (!composing || current.at("candidates").empty()))
+    return std::nullopt;
+  const bool uiless = (packet.modifiers_down & FanyImePipeFlags::UiLess) != 0;
+  nlohmann::json transition;
+  if (!composing) {
+    // The TIP eats the Hanja key only while a Korean syllable composes. One that arrives after the syllable ended, or after the scheme changed, is spent here too rather than left with no reply.
+    transition = {{"handled", false}, {"commit", nullptr}, {"view", current}};
+  } else if (key.kind == KoreanHanjaKeyKind::Select) {
+    // A digit past the visible page chooses nothing.
+    const auto &page = current.at("candidates");
+    if (key.value < page.size()) {
+      const auto &id = page.at(key.value).at("id");
+      transition = session.select(epoch, id.at("generation").get<uint64_t>(), id.at("index").get<size_t>());
+    } else {
+      transition = {{"handled", true}, {"commit", nullptr}, {"view", current}};
+    }
+  } else {
+    transition = session.command(epoch, key.value);
+  }
+  // The TIP has already written a chosen Hanja from its own session, so a commit is only counted, as for a syllable.
+  const auto path = transition.at("commit").is_null() ? ReplyPath::NoReply : ReplyPath::SyllableCommit;
+  return stage({client_, epoch_, packet.request_id, false, std::move(transition)}, path, uiless);
 }
 
 std::optional<PendingReply> ReplyComposer::korean_syllable_end(

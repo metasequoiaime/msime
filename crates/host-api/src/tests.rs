@@ -1104,6 +1104,75 @@ fn korean_scheme_crosses_the_host_boundary() {
     read(msime_client_destroy(handle));
 }
 
+/// MSIME_CONVERT_HANJA (16) reaches the Korean engine through the runtime: it opens the composing syllable's Hanja list, the ordinary candidate commands choose from it, and Cancel and Finish keep the Hangul.
+#[test]
+fn korean_hanja_conversion_crosses_the_host_boundary() {
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host_preferences(
+        dir.path(),
+        Preferences {
+            scheme: InputScheme::Korean,
+            ..chinese_preferences()
+        },
+    );
+    read(msime_client_focus(handle, true));
+    let type_keys = |keys: &[u8]| {
+        for character in keys {
+            read(msime_client_character(handle, *character, false));
+        }
+    };
+
+    type_keys(b"gks");
+    let opened = read(msime_client_command(handle, 16));
+    assert_eq!(opened["value"]["handled"], true);
+    assert!(opened["value"]["commit"].is_null());
+    let view = &opened["value"]["view"];
+    assert_eq!(view["scheme"], 4);
+    assert_eq!(view["preedit"], "한");
+    assert_eq!(view["candidates"][0]["text"], "韓");
+    assert_eq!(
+        view["candidates"][0]["annotation"],
+        "나라 이름 한, 한나라 한"
+    );
+    assert_eq!(view["candidates"][1]["text"], "漢");
+    assert!(view["page_count"].as_u64().unwrap() > 1);
+
+    // The ordinary candidate commands: next candidate, then commit the highlighted one.
+    read(msime_client_command(handle, 102));
+    let chosen = read(msime_client_command(handle, 1));
+    assert_eq!(chosen["value"]["handled"], true);
+    assert_eq!(chosen["value"]["commit"], "漢");
+    assert_eq!(chosen["value"]["commit_context"]["scheme"], 4);
+    assert_eq!(chosen["value"]["view"]["editing_text"], "");
+
+    // Cancel closes the list and keeps the syllable; the trigger reopens it and Finish commits the Hangul.
+    type_keys(b"gks");
+    read(msime_client_command(handle, 16));
+    let cancelled = read(msime_client_command(handle, 3));
+    assert_eq!(cancelled["value"]["handled"], true);
+    assert_eq!(cancelled["value"]["view"]["preedit"], "한");
+    assert_eq!(cancelled["value"]["view"]["candidates"], json!([]));
+    read(msime_client_command(handle, 16));
+    read(msime_client_command(handle, 102));
+    let finished = read(msime_client_command(handle, 9));
+    assert_eq!(finished["value"]["commit"], "한");
+    assert_eq!(finished["value"]["view"]["candidates"], json!([]));
+
+    // A lone jamo has no Hanja: the command is unhandled and the jamo keeps composing.
+    type_keys(b"r");
+    let refused = read(msime_client_command(handle, 16));
+    assert_eq!(refused["value"]["handled"], false);
+    assert!(refused["value"]["commit"].is_null());
+    assert_eq!(refused["value"]["view"]["preedit"], "ㄱ");
+
+    // 16 is the last command before the navigation block; the next number is still unknown.
+    assert_eq!(
+        read(msime_client_command(handle, 17))["error"],
+        "unknown input command"
+    );
+    read(msime_client_destroy(handle));
+}
+
 #[test]
 fn handwriting_layout_is_exposed_only_after_pending_composition_finishes() {
     let dir = tempfile::tempdir().unwrap();

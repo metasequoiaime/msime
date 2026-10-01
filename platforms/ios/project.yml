@@ -77,6 +77,9 @@ targets:
         buildPhase: resources
       - path: ../linux/data/licenses/onnxruntime-ThirdPartyNotices.txt
         buildPhase: resources
+      # The input engine in libmsime_host_api, linked into this app and into the keyboard extension it embeds, carries the Korean Hanja table from libhangul's data/hanja/hanja.txt, whose BSD-3-Clause licence requires the notice in binary distributions.
+      - path: ../../resources/licenses/libhangul-hanja-BSD-3-Clause.txt
+        buildPhase: resources
       - path: SharedResources/PrivacyInfo.xcprivacy
         buildPhase: resources
     settings:

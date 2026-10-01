@@ -269,8 +269,8 @@ impl InputSession {
         word: &str,
         selected_scheme: SchemeType,
     ) -> bool {
-        // Japanese and native wubi selections always finish: their advancement never continues.
-        if self.is_japanese() || selected_scheme == SchemeType::Wubi {
+        // Japanese, Korean and native wubi selections always finish: their advancement never continues.
+        if self.is_japanese() || self.is_korean() || selected_scheme == SchemeType::Wubi {
             return true;
         }
         let request = self.engine.request();
@@ -561,6 +561,15 @@ impl InputSession {
                     }
                     _ => String::new(),
                 })
+                .collect();
+        }
+        // A Hanja row shows its 훈음 (나라 이름 한), the reading a Korean user picks a Hanja by.
+        if self.korean_rules_apply() {
+            let syllable = &self.engine.request().normalized_segmentation;
+            return self
+                .candidates()
+                .iter()
+                .map(|item| crate::korean::hanja::gloss(syllable, &item.word).to_owned())
                 .collect();
         }
         let enabled = self.helpcode_enabled();

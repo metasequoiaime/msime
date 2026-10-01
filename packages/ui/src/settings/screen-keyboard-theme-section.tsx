@@ -1,5 +1,5 @@
-import { Row, Select } from "../core/platform-controls";
-import type { SurfaceTheme } from "./theme-settings-section";
+import { Row } from "../core/platform-controls";
+import { SurfaceThemeSelect, type SurfaceTheme } from "./surface-theme-select";
 
 export interface ScreenKeyboardThemeSectionProps {
   mobile: boolean;
@@ -20,15 +20,7 @@ export function ScreenKeyboardThemeSection({
         mobile ? "覆盖主题模式；当前屏幕键盘支持此设置" : "覆盖主题模式；桌面屏幕键盘支持此设置"
       }
     >
-      <Select
-        aria-label="屏幕键盘主题"
-        value={value}
-        onChange={(event) => onChange(event.target.value as SurfaceTheme)}
-      >
-        <option value="follow">跟随全局</option>
-        <option value="dark">深色</option>
-        <option value="light">浅色</option>
-      </Select>
+      <SurfaceThemeSelect label="屏幕键盘主题" value={value} onChange={onChange} />
     </Row>
   );
 }

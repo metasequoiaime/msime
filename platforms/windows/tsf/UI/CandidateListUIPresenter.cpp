@@ -77,6 +77,11 @@ HRESULT CMetasequoiaIME::_HandleCandidateFinalize(TfEditCookie ec, _In_ ITfConte
             {
                 return hr;
             }
+            // A Hanja clicked in the candidate window was chosen by the Server's session. The host session still holds the syllable with its list open, and would otherwise build the next letter on it.
+            if (hostOwnsComposition && Global::KoreanInputModeEnabled.load(std::memory_order_relaxed))
+            {
+                (void)_CancelHostComposition();
+            }
 
             PerfTimer completeTimer;
             _HandleCompleteCommitFirst(ec, pContext);

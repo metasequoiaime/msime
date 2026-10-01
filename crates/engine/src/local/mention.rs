@@ -58,17 +58,21 @@ pub fn query_mentions(code: &str, entries: &[MentionEntry], with_places: bool) -
                 .collect(),
         ]
     };
-    let mut rows: Vec<&MentionEntry> = Vec::new();
-    for exact in [true, false] {
-        for entry in entries {
-            if spelled(&spellings(entry), code, exact)
-                && !rows.iter().any(|kept| std::ptr::eq(*kept, entry))
-            {
-                rows.push(entry);
+    let row_limit = RESULT_LIMIT.min(entries.len());
+    let mut rows: Vec<&MentionEntry> = Vec::with_capacity(row_limit);
+    let mut prefix_rows: Vec<&MentionEntry> = Vec::with_capacity(row_limit);
+    for entry in entries {
+        let entry_spellings = spellings(entry);
+        if spelled(&entry_spellings, code, true) {
+            rows.push(entry);
+            if rows.len() == RESULT_LIMIT {
+                break;
             }
+        } else if prefix_rows.len() < RESULT_LIMIT && spelled(&entry_spellings, code, false) {
+            prefix_rows.push(entry);
         }
     }
-    rows.truncate(RESULT_LIMIT);
+    rows.extend(prefix_rows.into_iter().take(RESULT_LIMIT - rows.len()));
     let mut matches: Vec<(&str, &str)> = rows
         .iter()
         .map(|entry| (entry.key.as_str(), entry.text.as_str()))
@@ -175,6 +179,20 @@ mod tests {
             .map(|row| row.word)
             .collect();
         assert_eq!(rows, ["张三"]);
+    }
+
+    #[test]
+    fn a_row_matching_both_passes_appears_once_before_prefix_rows() {
+        let entries = usable_mentions(&[
+            mention("前缀", "zhang'shan'shan"),
+            mention("双重", "z'san"),
+            mention("完整", "z's"),
+        ]);
+        let rows: Vec<String> = query_mentions("zs", &entries, false)
+            .into_iter()
+            .map(|row| row.word)
+            .collect();
+        assert_eq!(rows, ["双重", "完整", "前缀"]);
     }
 
     fn with_places(code: &str, entries: &[MentionEntry]) -> Vec<String> {

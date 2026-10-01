@@ -10,6 +10,7 @@
 #include "NativeCompose.h"
 #include "PhrasePreedit.h"
 #include "JapaneseConversion.h"
+#include "KoreanHanja.h"
 #include "CandidateSkinCatalog.h"
 #include "GlobalTheme.h"
 #include "DictionaryQuiesceLease.h"
@@ -3612,7 +3613,7 @@ void render(IBusEngine *engine, const Json &view) {
   const auto composed = msime::linux_host::compose_phrase_preedit(
       view.value("phrase_prefix", std::string{}), text, caret);
   text = composed.text;
-  // A Korean syllable is text the user already wrote and has no candidate window to show it in, so it is always drawn inline with the caret after it, whatever the preedit style. IBus commits a preedit in COMMIT mode itself when the client loses focus, which is how the open syllable reaches the client being left (see focus_out).
+  // A Korean syllable is text the user already wrote, so it is always drawn inline with the caret after it, whatever the preedit style: until its Hanja list opens there is no candidate window to show it in. IBus commits a preedit in COMMIT mode itself when the client loses focus, which is how the open syllable reaches the client being left (see focus_out).
   const bool korean = view.value("scheme", 0) == 4 && !view.value("dedicated_english", false) &&
                       view.value("local_mode", std::string("none")) == "none";
   // IBus counts the cursor in Unicode scalars, and the piece is not ASCII.
@@ -6427,6 +6428,15 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       handled = true;
       return;
     }
+    // Hangul_Hanja, or a bare F9, converts the composing Korean syllable to Hanja, the keys of ibus-hangul and fcitx5-hangul; pressed again with the list open it closes it (msime_client.h, MSIME_CONVERT_HANJA). Ctrl+F9 is the voice toggle above. While a syllable composes the key stays the input method's whatever the Engine answers: a lone jamo has no Hanja, and the end of this function would write the syllable out and hand the key to the application. With nothing composing it is the application's as before.
+    if (modifiers == 0 && msime::linux_host::korean_hanja_key(key) &&
+        msime::linux_host::korean_composition(s.view)) {
+      apply(engine, msime_client_command(s.session, MSIME_CONVERT_HANJA));
+      handled = true;
+      return;
+    }
+    // With its Hanja list open a Korean syllable has candidates, which the candidate keys below act on as for any list.
+    const bool korean_hanja_list = msime::linux_host::korean_hanja_list_open(s.view);
     if (key == IBUS_BackSpace || key == IBUS_Delete || key == IBUS_KP_Delete ||
         key == IBUS_Return || key == IBUS_KP_Enter || key == IBUS_Escape ||
         key == IBUS_Left || key == IBUS_KP_Left || key == IBUS_Right ||
@@ -6442,9 +6452,11 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         s.view.at("editing_text").get<std::string>().empty() &&
         s.view.at("candidates").empty())
       return;
-    // Apply configured candidate bindings before punctuation can consume them.
+    // Apply configured candidate bindings before punctuation can consume them. The marks among them stay punctuation while a Korean Hanja list is open, as they are with no list (KoreanHanja.h): the Engine closes the list and writes the Hangul with the mark. Tab, Page Up/Down and the arrows still page and move.
+    const bool korean_hanja_mark =
+        korean_hanja_list && msime::linux_host::korean_hanja_punctuation_key(key);
     if ((modifiers & ~IBUS_SHIFT_MASK) == 0 &&
-        !s.view.at("candidates").empty()) {
+        !s.view.at("candidates").empty() && !korean_hanja_mark) {
       if (!japanese_long_vowel) {
         if (const auto edge =
                 s.word_character.edge(key, (flags & IBUS_SHIFT_MASK) != 0)) {
@@ -6575,11 +6587,12 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         msime::linux_host::navigation_key(key)) {
       const bool binding_enabled = s.navigation.command(
           key, (flags & IBUS_SHIFT_MASK) != 0).has_value();
-      // A Korean syllable never has a candidate page for a binding to act on, so the key always finishes it and goes to the application.
+      // A Korean syllable has no candidate page for a binding to act on unless its Hanja list is open, so the key always finishes it and goes to the application. With the list open an enabled binding was taken above; a disabled one is the application's as for any list, and FINISH writes the Hangul, where the candidate command would write the highlighted Hanja.
       if ((!binding_enabled || korean_scheme) &&
           (!s.view.at("editing_text").get<std::string>().empty() ||
            !s.view.at("candidates").empty()))
-        apply(engine, msime_client_command(s.session, MSIME_COMMIT_CANDIDATE));
+        apply(engine, msime_client_command(s.session, korean_hanja_list ? MSIME_FINISH_COMPOSITION
+                                                                         : MSIME_COMMIT_CANDIDATE));
       return;
     }
     if (modifiers == IBUS_CONTROL_MASK && key == IBUS_period) {
@@ -6620,7 +6633,11 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         !s.rendered_candidates.empty()) {
       if (const auto index =
               candidate_digit_slot(key, keycode, flags, s.rendered_view)) {
-        if (*index >= s.rendered_candidates.size()) return;
+        // A digit past the end of a Hanja page picks nothing and is swallowed, as the runtime swallows it, rather than typed beside the open syllable.
+        if (*index >= s.rendered_candidates.size()) {
+          handled = korean_hanja_list;
+          return;
+        }
         const auto &candidate = s.rendered_candidates.at(*index);
         const auto &id = candidate.at("id");
         if (id.at("session").get<uint64_t>() != s.session) return;
@@ -6647,9 +6664,10 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
          (key >= IBUS_KP_0 && key <= IBUS_KP_9));
     if (ordinary_candidate_digit &&
         (!s.number_row_selection || modifiers != 0)) {
-      // The shared runtime's character action has a legacy numeric fallback
-      // that selects candidates. Keep that fallback behind the Linux host
-      // toggle, and never turn shifted digits into candidate selection.
+      // The shared runtime's character action has a legacy numeric fallback that selects candidates. Keep that fallback behind the Linux host toggle, and never turn shifted digits into candidate selection.
+      // A digit released while a Korean Hanja list is open ends the syllable first, as a digit does with no list: the Hangul is written and the digit follows it, rather than the digit landing in the document before a syllable and list left hanging.
+      if (korean_hanja_list)
+        apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
       return;
     }
     if (const auto keypad = keypad_punctuation(key)) {
@@ -6908,6 +6926,23 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       handled = apply(engine, msime_client_command(s.session, command));
       return;
     }
+    // Settle Space (and Return in a Korean Hanja list) against the candidate page most recently handed to the IBus panel. Engine may have rebuilt or reordered its live view while the panel was still processing the previous update; selecting by the rendered candidate identity keeps the key aligned with what the user was shown, just like the Windows painted-page selection fence.
+    const auto select_rendered_highlight = [&] {
+      if (!candidate_active || s.rendered_session != s.session ||
+          !s.rendered_candidates.is_array() || s.rendered_candidates.empty())
+        return false;
+      for (const auto &candidate : s.rendered_candidates) {
+        if (!candidate.is_object() || !candidate.value("highlighted", false))
+          continue;
+        const auto &id = candidate.value("id", Json::object());
+        if (!id.is_object() || id.value("session", uint64_t{0}) != s.session)
+          return false;
+        return apply(engine, msime_client_select(
+            s.session, id.value("generation", uint64_t{0}),
+            id.value("index", size_t{0})));
+      }
+      return false;
+    };
     uint32_t command = UINT32_MAX;
     switch (key) {
     case IBUS_BackSpace:
@@ -6916,6 +6951,15 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       break;
     case IBUS_Return:
     case IBUS_KP_Enter:
+      // With a Korean Hanja list open Return chooses the highlighted Hanja, as Space does; otherwise it writes the syllable out and breaks the line.
+      if (korean_hanja_list) {
+        if (select_rendered_highlight()) {
+          handled = true;
+          return;
+        }
+        command = MSIME_COMMIT_CANDIDATE;
+        break;
+      }
       // Japanese commits the kana, or the conversion the user stepped to with Space. Sending the
       // raw-input command here - which every scheme used to do - commits the romaji.
       if (japanese_composition && has_composition) {
@@ -6981,26 +7025,9 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
             return;
         }
       }
-      // Settle Space against the candidate page most recently handed to the
-      // IBus panel. Engine may have rebuilt or reordered its live view while
-      // the panel was still processing the previous update; selecting by the
-      // rendered candidate identity keeps the key aligned with what the user
-      // was shown, just like the Windows painted-page selection fence.
-      if (candidate_active && s.rendered_session == s.session &&
-          s.rendered_candidates.is_array() && !s.rendered_candidates.empty()) {
-        for (const auto &candidate : s.rendered_candidates) {
-          if (!candidate.is_object() || !candidate.value("highlighted", false))
-            continue;
-          const auto &id = candidate.value("id", Json::object());
-          if (!id.is_object() || id.value("session", uint64_t{0}) != s.session)
-            break;
-          handled = apply(engine, msime_client_select(
-              s.session, id.value("generation", uint64_t{0}),
-              id.value("index", size_t{0})));
-          if (handled)
-            return;
-          break;
-        }
+      if (select_rendered_highlight()) {
+        handled = true;
+        return;
       }
       command = MSIME_COMMIT_CANDIDATE;
       break;

@@ -108,6 +108,11 @@ export class KeyAccessibilityPolicy {
     return `${KeyAccessibilityPolicy.punctuationWidth()}，当前${chinese ? "中文标点" : "英文标点"}`;
   }
 
+  /** The 漢 button over a composing Korean syllable, read as what the next tap does: list the syllable's Hanja, or close the open list. */
+  static hanja(listOpen: boolean): string {
+    return listOpen ? "关闭汉字列表" : "转换为汉字";
+  }
+
   /** The candidate translation switch, named as the panel's 译 tile titles it; the strip's 译 pill reads the same name. */
   static translations(): string {
     return "显示译文";

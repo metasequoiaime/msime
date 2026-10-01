@@ -267,4 +267,20 @@ pub trait AccountSessionStorage: Send + Sync + 'static {
     fn load(&self) -> Result<Option<SavedAccountSession>, AccountError>;
     fn save(&self, session: &SavedAccountSession) -> Result<(), AccountError>;
     fn clear(&self) -> Result<(), AccountError>;
+
+    /// Whether other processes read and write this store. The backend rotates the refresh token on every refresh and revokes the whole session when a used one is presented again, so a session that holds a shared store in memory would refresh from a token another process already spent. A shared store is therefore read on every access, and refreshed only under [`Self::with_refresh_lock`].
+    fn shared_across_processes(&self) -> bool {
+        false
+    }
+
+    /// Runs `body` holding the lock every process sharing this store takes around a refresh, a sign-in and a sign-out, so none of them can rotate the session between another's read and its save. A store no other process opens needs no lock.
+    fn with_refresh_lock<T>(
+        &self,
+        body: impl FnOnce() -> Result<T, AccountError>,
+    ) -> Result<T, AccountError>
+    where
+        Self: Sized,
+    {
+        body()
+    }
 }

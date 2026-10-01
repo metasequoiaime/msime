@@ -1,5 +1,6 @@
 import { Row } from "../core/platform-controls";
 import * as settings from "./settings-style";
+import { SettingField } from "./setting-field";
 
 export type TranslationProvider = "none" | "custom" | "tencent" | "niutrans" | "account";
 
@@ -42,10 +43,7 @@ export function TranslationServiceSelectorSection({
     </div>
   ) : (
     <div className="section" role="group" aria-label="候选词翻译服务">
-      <label className="section-header">
-        <span className="section-title">翻译服务</span>
-        {selector}
-      </label>
+      <SettingField label="翻译服务">{selector}</SettingField>
     </div>
   );
 }

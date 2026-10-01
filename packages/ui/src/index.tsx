@@ -662,6 +662,7 @@ export {
   MAX_COMMAND_TABLES,
   defaultPluginPreferences,
   pluginPreferences,
+  withPackSelected,
   withoutRemovedPack,
   type AchievementPreferences,
   type CommitSoundPreferences,
@@ -679,6 +680,7 @@ export {
   type ThemePreferenceKey,
   type ThemePreferences,
 } from "./settings/theme-settings-section";
+export { SurfaceThemeSelect, type SurfaceThemeSelectProps } from "./settings/surface-theme-select";
 export {
   CandidateColorsSection,
   type CandidateColorKey,
@@ -991,6 +993,7 @@ export {
 } from "./settings/credential-status-message";
 export { CredentialActions, type CredentialActionsProps } from "./settings/credential-actions";
 export { SettingToggle, type SettingToggleProps } from "./settings/setting-toggle";
+export { SettingField, type SettingFieldProps } from "./settings/setting-field";
 export {
   AiCredentialSection,
   type AiCredentialSectionProps,
@@ -1010,6 +1013,7 @@ export {
   TencentTranslationSection,
   type TencentTranslationSectionProps,
 } from "./settings/tencent-translation-section";
+export { SecretSettingRow, type SecretSettingRowProps } from "./settings/secret-setting-row";
 export {
   LinuxTencentCredentialsSection,
   type LinuxTencentCredentialsSectionProps,

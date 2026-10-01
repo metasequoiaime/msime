@@ -275,13 +275,22 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 ## 韩语 Dubeolsik（두벌식）
 
-韩语是输入法里与日语并列的又一个方案，不是单独的系统语言：选择器末尾多一张「韩语 26 键」卡（`KeyboardScheme.KOREAN`，偏好 id 与 Engine 方案名都是 `korean`，Engine 编号 4），选中时和日语一样把被替换的中文方案记进 `last_chinese_scheme`。账号同步的 `input.schema` 接受 `korean`，打字统计记在 `korean` 名下。没有候选、云候选、学习和繁体转换。
+韩语是输入法里与日语并列的又一个方案，不是单独的系统语言：选择器末尾多一张「韩语 26 键」卡（`KeyboardScheme.KOREAN`，偏好 id 与 Engine 方案名都是 `korean`，Engine 编号 4），选中时和日语一样把被替换的中文方案记进 `last_chinese_scheme`。账号同步的 `input.schema` 接受 `korean`，打字统计记在 `korean` 名下。唯一的候选是组字音节的汉字（한자）列表，见下文；没有云候选、学习和繁体转换。
 
 26 键面换成 `DubeolsikLayout` 的字母键：键帽画的是该键对应的韩文字母（ㅂㅈㄷㄱㅅ…），按住 Shift 时 Q W E R T O P 换成 ㅃㅉㄸㄲㅆㅒㅖ；点击发出的仍是 ASCII 字母，Shift 下发大写，Engine 按大小写区分 ㄱ 与 ㄲ。第二排去掉了 `;` 键，符号键面、`,` 键和快捷标点菜单都显示并输出半角 ASCII，语言键写「한」。
 
 组字中的音节在编辑器里以预览文本内联显示（手机上也是，不看 `tsf_preedit_style`），候选条画的是音节本身而不是 `editing_text` 里的按键字母。空格、数字先提交音节再由键盘自己打出这个键；回车先同步提交音节再执行编辑器动作；标点由 Engine 与音节一起提交；切换方案、切到英文、失去焦点都提交而不是丢弃音节。
 
 硬件键盘走 `HardwareKeyRouter.routeKorean`：字母总是组字，大小写只看 Shift、不看 Caps Lock；空闲时其余按键全部交还应用；组字时退格删一个字母、Esc 丢弃，回车、方向键、Home/End、Delete、Tab、翻页键先同步提交音节再交还应用（`COMMIT_THEN_RELEASE`）。以上只由 `tests/run.sh` 的逻辑测试覆盖，尚未在设备上验证。
+
+### 汉字（한자）转换
+
+只转换当前正在组字的那一个音节（已上屏的音节不转换），汉字表由 Engine 内置（取自 libhangul，BSD-3-Clause 声明随 HAP 放在 `resfile/licenses/`）。宿主发 `MSIME_CONVERT_HANJA`（`InputCommand.CONVERT_HANJA = 16`）打开列表，再发一次关闭；判断“列表开着”的依据是 Korean 规则成立且视图带候选（`KoreanCompositionPolicy.hanjaListOpen`），因为 Korean 在这条命令之前没有任何候选。
+
+- 触屏：组字时候选条组字行末尾出现「漢」按钮（2in1 的候选窗不画，那里用硬件键），点一下列出汉字，列表开着时底色填充，再点关闭；单个字母没有汉字，Engine 不处理，组字行提示「单个字母没有对应的汉字」。列表开着时空格和回车选高亮的汉字（回车键面已是「确认」），点候选直接上屏，长按退格清空组字时连发两次取消，否则第一次只关掉列表。
+- 硬件键盘：组字时韩文键盘的汉字键（`KEYCODE_HANJA` = 2614，即 `Lang2`）或不带修饰键的 F9 触发，按住只触发一次；无论 Engine 是否处理都吞掉这个键，空闲时交还应用。列表开着时 `routeKorean` 先让给 `routeHanjaList`：空格、回车、小键盘回车选高亮项，1–9 选本页（共享偏好 `number_row_selection` 关闭时仍是提交韩文再打数字），上下键、翻页键、Tab 按导航偏好翻页和移动高亮，左右键在方向键导航打开时移动高亮；关掉的绑定和 Home/End 保持 Korean 原有含义。`- = [ ] , .` 仍是标点，由 Engine 关掉列表并把韩文和标点一起提交；退格、Esc 只关列表、保留音节；字母关掉列表后照常组字；切换方案、失焦和编辑器自己的改动提交的是韩文。
+
+列表没打开时，所有按键与点按的行为与上文完全一致。以上由 `tests/run.sh` 的逻辑测试和 `hvigorw assembleHap` 的 ArkTS 编译覆盖，尚未在设备上验证。
 
 ## 2026-09-21：首次在模拟器上跑起来
 
@@ -369,6 +378,8 @@ hvigorw assembleHap
 ```
 
 `stage-resources.sh` 还把仓库自带的六套辅助码表（`resources/helpcodes`，不在词库发布里）连同来源声明放进 `resfile/engine/helpcodes/`：Engine 从资源目录下的 `helpcodes/` 读辅助码表，共享校验放行这个真实目录。`StagedResources` 按相对路径列出其中的文件，所以辅助码表跟其他资源一起复制到 `files/engine`，表有变化时同样重新暂存。
+
+引擎编进了取自 libhangul `data/hanja/hanja.txt` 的韩语汉字表，其 BSD-3-Clause 许可第 2 条要求二进制分发附带声明，所以 `stage-resources.sh` 把 `resources/licenses/libhangul-hanja-BSD-3-Clause.txt` 暂存到与 `resfile/engine` 相邻的 `resfile/licenses/`，随 HAP 一起分发；放在 `engine` 里会被锁文件校验拒绝。
 
 `stage-resources.sh` 的第二个参数（默认 `target/offline-glosses`）是可选的非英文离线释义，由 `scripts/build_offline_glosses.py` 生成。数据库和 `offline-glosses-NOTICE.txt` 都在时暂存到 `resfile/offline-glosses`，键盘启动时用同一个 `StagedResources` 复制到 `files/offline-glosses`，与 `files/engine` 相邻，引擎就在那里找 `zh-<lang>.db`；新包不带它们时会删掉旧副本。已安装词典的目标语言在翻译查询里以 `offline_gloss_languages` 出现：用户自己配置的在线翻译先答，离线词典只补在线没答上的候选，同一行按目标顺序合并。
 

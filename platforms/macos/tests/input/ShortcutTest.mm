@@ -3406,6 +3406,100 @@ static void TestRealSessionComposition() {
     assert([controller handleEvent:letter(@"r", 15, 0) client:client]);
     [controller apply:[koreanSession setFocused:NO error:&error]];
     assert(!error && client.insertions.count == 6 && [client.insertions[5] isEqual:@"ㄱ"] && client.marked.length == 0);
+    [controller apply:[koreanSession setFocused:YES error:&error]];
+    assert(!error);
+
+    // Option+Return converts the composing syllable to Hanja: the list opens in the candidate window, the syllable stays marked, and nothing reaches the document.
+    [client.insertions removeAllObjects];
+    NSEvent *(^chord)(NSString *, unsigned short, NSEventModifierFlags) = ^NSEvent *(NSString *typed, unsigned short code, NSEventModifierFlags flags) {
+        return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:flags timestamp:0 windowNumber:0
+                                 context:nil characters:typed charactersIgnoringModifiers:typed isARepeat:NO keyCode:code];
+    };
+    NSEvent *hanja = chord(@"\r", 36, NSEventModifierFlagOption);
+    NSEvent *keypadHanja = chord(@"\x03", 76, NSEventModifierFlagOption | NSEventModifierFlagNumericPad);
+    void (^typeHan)(void) = ^{
+        for (NSArray *stroke in @[@[@"g", @5], @[@"k", @40], @[@"s", @1]])
+            assert([controller handleEvent:letter(stroke[0], [stroke[1] unsignedShortValue], 0) client:client]);
+        assert([client.marked isEqual:@"한"]);
+    };
+    NSDictionary *(^currentView)(void) = ^NSDictionary *{ return [controller valueForKey:@"view"]; };
+    typeHan();
+    assert(!panel.isVisible && !MSIMEKoreanHanjaListOpen(currentView()));
+    assert([controller handleEvent:hanja client:client]);
+    assert(MSIMEKoreanHanjaListOpen(currentView()) && panel.isVisible);
+    assert([currentView()[@"candidates"][0][@"text"] isEqual:@"韓"] && [currentView()[@"candidates"][1][@"text"] isEqual:@"漢"]);
+    assert([client.marked isEqual:@"한"] && client.insertions.count == 0);
+    // Hanja rows take no pin, fixed position or removal, so a right click offers no menu for them.
+    assert([controller menuForCandidate:currentView()[@"candidates"][0]] == nil);
+    // Return chooses the highlighted Hanja instead of writing the syllable out and breaking the line.
+    assert([controller handleEvent:enter client:client]);
+    assert(client.insertions.count == 1 && [client.insertions[0] isEqual:@"韓"] && client.marked.length == 0 && !panel.isVisible);
+
+    // In a horizontal list Right moves the highlight, and a digit chooses from the page.
+    const BOOL savedVertical = prefs.vertical;
+    prefs.vertical = NO;
+    typeHan();
+    assert([controller handleEvent:keypadHanja client:client]);
+    assert(MSIMEKoreanHanjaListOpen(currentView()));
+    assert([controller handleEvent:KeypadKey(124, @"\uF703", NSEventModifierFlagFunction | NSEventModifierFlagNumericPad, NO) client:client]);
+    assert([currentView()[@"candidates"][1][@"highlighted"] isEqual:@YES] && [client.marked isEqual:@"한"]);
+    assert([controller handleEvent:enter client:client]);
+    assert(client.insertions.count == 2 && [client.insertions[1] isEqual:@"漢"]);
+    typeHan();
+    assert([controller handleEvent:hanja client:client]);
+    assert([controller handleEvent:KeypadKey(19, @"2", 0, NO) client:client]);
+    assert(client.insertions.count == 3 && [client.insertions[2] isEqual:@"漢"] && client.marked.length == 0);
+
+    // A vertical list leaves Left and Right to the composition caret in other schemes; a Hanja list has no caret, so they turn the page and the syllable stays.
+    prefs.vertical = YES;
+    typeHan();
+    assert([controller handleEvent:hanja client:client]);
+    assert([currentView()[@"page"] isEqual:@0]);
+    assert([controller handleEvent:KeypadKey(124, @"\uF703", NSEventModifierFlagFunction | NSEventModifierFlagNumericPad, NO) client:client]);
+    assert([currentView()[@"page"] isEqual:@1] && [client.marked isEqual:@"한"] && client.insertions.count == 3);
+    assert([controller handleEvent:KeypadKey(123, @"\uF702", NSEventModifierFlagFunction | NSEventModifierFlagNumericPad, NO) client:client]);
+    assert([currentView()[@"page"] isEqual:@0] && MSIMEKoreanHanjaListOpen(currentView()));
+    assert([controller handleEvent:KeypadKey(125, @"\uF701", NSEventModifierFlagFunction | NSEventModifierFlagNumericPad, NO) client:client]);
+    assert([currentView()[@"candidates"][1][@"highlighted"] isEqual:@YES]);
+    prefs.vertical = savedVertical;
+    // With its paging binding off Page Down is swallowed while the list is on screen, as it is for any candidate list, instead of writing the syllable out for the application.
+    [prefs setNavigation:@"page_up_down" enabled:NO];
+    assert([controller handleEvent:KeypadKey(121, @"\uF72D", NSEventModifierFlagFunction, NO) client:client]);
+    assert(MSIMEKoreanHanjaListOpen(currentView()) && [client.marked isEqual:@"한"] && client.insertions.count == 3);
+    [prefs setNavigation:@"page_up_down" enabled:YES];
+
+    // Escape closes the list and keeps the syllable composing; the trigger reopens it, and a second press closes it again.
+    assert([controller handleEvent:escape client:client]);
+    assert(!MSIMEKoreanHanjaListOpen(currentView()) && !panel.isVisible && [client.marked isEqual:@"한"] && client.insertions.count == 3);
+    assert([controller handleEvent:hanja client:client]);
+    assert(MSIMEKoreanHanjaListOpen(currentView()));
+    assert([controller handleEvent:hanja client:client]);
+    assert(!MSIMEKoreanHanjaListOpen(currentView()) && [client.marked isEqual:@"한"] && client.insertions.count == 3);
+
+    // The paging marks and the word-to-character pair are punctuation while the list is open: the Hangul is written with the mark, never a page turned or a Hanja picked.
+    assert([prefs navigationEnabled:@"comma_period"] && [prefs navigationEnabled:@"minus_equal"]);
+    [prefs setWordCharacterEnabled:YES keys:@"brackets"];
+    assert([controller handleEvent:hanja client:client]);
+    assert([controller handleEvent:KeypadKey(47, @".", 0, NO) client:client]);
+    assert(client.insertions.count == 4 && [client.insertions[3] isEqual:@"한."] && client.marked.length == 0);
+    typeHan();
+    assert([controller handleEvent:hanja client:client]);
+    assert([controller handleEvent:KeypadKey(27, @"-", 0, NO) client:client]);
+    assert(client.insertions.count == 5 && [client.insertions[4] isEqual:@"한-"]);
+    typeHan();
+    assert([controller handleEvent:hanja client:client]);
+    assert([controller handleEvent:KeypadKey(33, @"[", 0, NO) client:client]);
+    assert(client.insertions.count == 6 && [client.insertions[5] isEqual:@"한["] && !panel.isVisible);
+    [prefs setWordCharacterEnabled:NO keys:@"brackets"];
+
+    // A lone jamo has no Hanja. The chord is still swallowed while it composes, so the jamo is not written out with a line break after it; with nothing composing the chord is the application's.
+    assert([controller handleEvent:letter(@"r", 15, 0) client:client]);
+    assert([controller handleEvent:hanja client:client]);
+    assert([client.marked isEqual:@"ㄱ"] && client.insertions.count == 6 && !MSIMEKoreanHanjaListOpen(currentView()));
+    assert([controller handleEvent:escape client:client]);
+    assert(client.marked.length == 0);
+    assert(![controller handleEvent:hanja client:client]);
+    assert(client.insertions.count == 6);
     [prefs applySharedInputPreferences:@{@"tsf_preedit_style": @"raw"}];
     assert([koreanSession closeWithError:&error] && !error);
 

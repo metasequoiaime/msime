@@ -160,6 +160,11 @@ VOID CMetasequoiaIME::_DeleteCandidateList(BOOL isForce, _In_opt_ ITfContext *pC
         PerfTimer endCandidateTimer;
         CCandidateListUIPresenter *pPresenter = _pCandidateListUIPresenter;
         _pCandidateListUIPresenter = nullptr;
+        // In Korean the only list is the Hanja list, and it can close while the syllable keeps composing; the Server follows that from the keys themselves.
+        if (Global::KoreanInputModeEnabled.load(std::memory_order_relaxed))
+        {
+            pPresenter->_ForgetCandidateUiSession();
+        }
         if (isForce || _msgWndHandle == nullptr)
         {
             delete pPresenter; // destructor calls _EndCandidateList() once
@@ -292,6 +297,96 @@ HRESULT CMetasequoiaIME::_HandleSyllableCommit(TfEditCookie ec, _In_ ITfContext 
     return S_OK;
 }
 
+namespace
+{
+// Under the Korean rules the Engine lists candidates only after MSIME_CONVERT_HANJA, so a composing Korean view with candidates is the Hanja list (msime_client.h). The TIP never enters a local or dedicated English mode in Korean, the two states that keep their own rules there.
+bool KoreanHanjaListOpen(const msime::tsf::EngineView &view)
+{
+    return view.scheme == 4 && !view.editing_text.empty() && !view.candidates.empty();
+}
+} // namespace
+
+bool CMetasequoiaIME::_IsKoreanHanjaListOpen() const
+{
+    auto *host = _pCompositionProcessorEngine ? _pCompositionProcessorEngine->GetHostEngineAdapter() : nullptr;
+    if (!host || !host->valid()) return false;
+    std::string raw, error;
+    msime::tsf::EngineResult current;
+    return host->view(&raw, &error) && msime::tsf::EngineSessionAdapter::parse_result(raw, &current, &error) &&
+           KoreanHanjaListOpen(current.view);
+}
+
+HRESULT CMetasequoiaIME::_HandleKoreanHanjaKey(TfEditCookie ec, _In_ ITfContext *pContext, UINT code, WCHAR wch,
+                                               uint64_t requestId)
+{
+    auto *host = _pCompositionProcessorEngine ? _pCompositionProcessorEngine->GetHostEngineAdapter() : nullptr;
+    if (!host || !host->valid()) return S_OK;
+    std::string raw, error;
+    msime::tsf::EngineResult current;
+    if (!host->view(&raw, &error) || !msime::tsf::EngineSessionAdapter::parse_result(raw, &current, &error))
+        return E_FAIL;
+    const auto key = msime::windows::korean_hanja_key(code, static_cast<uint32_t>(wch));
+    const bool trigger = code == msime::tsf::kVirtualKeyHanja;
+    const bool listOpen = KoreanHanjaListOpen(current.view);
+    if (!trigger && !listOpen)
+    {
+        // A key queued behind the one that closed the list, or classified before the list opened: it does what it does with no list. It was eaten, so a caret or editing key is replayed to the application after the syllable.
+        switch (msime::tsf::korean_key_action(code, wch, true))
+        {
+        case msime::tsf::KoreanKeyAction::CommitWithText:
+            return _HandleSyllableCommit(ec, pContext, code, wch);
+        case msime::tsf::KoreanKeyAction::CommitAndPass:
+            return _HandleSyllableCommit(ec, pContext, code, wch, true);
+        default:
+            break;
+        }
+        if (code == VK_BACK) return _HandleCompositionBackspace(ec, pContext, requestId);
+        if (code == VK_ESCAPE) return _HandleCancel(ec, pContext);
+        return S_OK;
+    }
+    // The Hanja key with nothing composing is the application's and never eaten; one eaten while the composition ended on the way is spent.
+    if (current.view.editing_text.empty()) return S_OK;
+
+    raw.clear();
+    bool applied = false;
+    if (key.kind == msime::windows::KoreanHanjaKeyKind::Select)
+    {
+        // A digit past the visible page chooses nothing and is swallowed, as with any candidate list.
+        if (key.value >= current.view.candidates.size()) return S_OK;
+        applied = host->select(current.view.generation, current.view.candidates[key.value].index, &raw, &error);
+    }
+    else
+    {
+        applied = host->command(key.value, &raw, &error);
+    }
+    msime::tsf::EngineResult result;
+    if (!applied || !msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error)) return E_FAIL;
+
+    if (result.has_commit && !result.commit.empty() &&
+        result.commit.size() <= static_cast<size_t>((std::numeric_limits<int>::max)()))
+    {
+        // A Hanja was chosen and the composition is over.
+        const int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, result.commit.data(),
+                                               static_cast<int>(result.commit.size()), nullptr, 0);
+        if (length <= 0) return E_FAIL;
+        std::wstring text(static_cast<size_t>(length), L'\0');
+        if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, result.commit.data(),
+                                static_cast<int>(result.commit.size()), text.data(), length) != length)
+            return E_FAIL;
+        CStringRange range;
+        range.Set(text.c_str(), text.size());
+        const HRESULT hr = _AddCharAndFinalize(ec, pContext, &range);
+        if (FAILED(hr)) return hr;
+        _smartPunctuationShadowChar = text.back();
+        _smartPunctuationShadowValid = true;
+        return _HandleCompleteCommitFirst(ec, pContext);
+    }
+    // The list opened, moved or closed and the syllable is still composing. A closed list takes the presenter with it (quietly, see _DeleteCandidateList), so a later commit does not hide a composition the Server is still holding.
+    if (result.view.candidates.empty()) _DeleteCandidateList(FALSE, pContext);
+    if (result.view.editing_text.empty()) return _HandleCompleteCommitFirst(ec, pContext);
+    return _HandleCompositionInputWorker(_pCompositionProcessorEngine, ec, pContext, FANY_IME_NO_REQUEST_ID);
+}
+
 void CMetasequoiaIME::_QueueKoreanSyllableKeyReplay(UINT virtualKey)
 {
     if (_msgWndHandle == nullptr || !msime::tsf::is_korean_caret_or_edit_key(virtualKey))
@@ -404,14 +499,7 @@ HRESULT CMetasequoiaIME::_ApplyKeyboardCancellation(TfEditCookie ec, ITfContext 
             const HRESULT result = ClearKeyboardRange(range.value, ec);
             if (result != S_OK) return result;
             if (!current()) return S_FALSE;
-            if (_pCompositionProcessorEngine)
-            {
-                if (auto *host = _pCompositionProcessorEngine->GetHostEngineAdapter(); host && host->valid())
-                {
-                    std::string raw, error;
-                    if (!host->command(MSIME_CANCEL, &raw, &error)) return E_FAIL;
-                }
-            }
+            if (!_CancelHostComposition()) return E_FAIL;
             g_toggleImeFallbackBuffer.clear();
             GlobalIme::word_for_creating_word.clear();
             GlobalIme::pending_create_word_preedit.clear();
@@ -425,17 +513,24 @@ HRESULT CMetasequoiaIME::_ApplyKeyboardCancellation(TfEditCookie ec, ITfContext 
         });
 }
 
+bool CMetasequoiaIME::_CancelHostComposition()
+{
+    auto *host = _pCompositionProcessorEngine ? _pCompositionProcessorEngine->GetHostEngineAdapter() : nullptr;
+    if (!host || !host->valid()) return true;
+    std::string raw, error;
+    if (!host->command(MSIME_CANCEL, &raw, &error)) return false;
+    // With a Korean Hanja list open MSIME_CANCEL only closes the list and the syllable keeps composing (msime_client.h), so a second one discards it.
+    msime::tsf::EngineResult result;
+    if (msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error) && result.view.scheme == 4 &&
+        !result.has_commit && !result.view.editing_text.empty())
+        return host->command(MSIME_CANCEL, &raw, &error);
+    return true;
+}
+
 HRESULT CMetasequoiaIME::_HandleCancel(TfEditCookie ec, _In_ ITfContext *pContext)
 {
     PerfTimer timer;
-    if (_pCompositionProcessorEngine)
-    {
-        if (auto *host = _pCompositionProcessorEngine->GetHostEngineAdapter(); host && host->valid())
-        {
-            std::string raw, error;
-            (void)host->command(MSIME_CANCEL, &raw, &error);
-        }
-    }
+    (void)_CancelHostComposition();
     g_toggleImeFallbackBuffer.clear();
     _creatingWordRestoreHistory.clear();
     GlobalIme::word_for_creating_word = L"";
@@ -1057,6 +1152,11 @@ HRESULT CMetasequoiaIME::_HandleCompositionInputWorker(_In_ CCompositionProcesso
             }
             setTextElapsedMs = setTextTimer.ElapsedMs();
         }
+    }
+    else if (_pCandidateListUIPresenter && Global::KoreanInputModeEnabled.load(std::memory_order_relaxed))
+    {
+        // A letter typed into an open Hanja list closed it and keeps composing: the presenter goes with the list, quietly (see _DeleteCandidateList).
+        _DeleteCandidateList(FALSE, pContext);
     }
     else if (_pCandidateListUIPresenter)
     {

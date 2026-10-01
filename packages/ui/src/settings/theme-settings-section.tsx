@@ -1,9 +1,10 @@
 import type { ReactNode } from "react";
-import { GroupList, Row, Select } from "../core/platform-controls";
+import { GroupList, Row } from "../core/platform-controls";
 import { ScreenKeyboardThemeSection } from "./screen-keyboard-theme-section";
+import { SurfaceThemeSelect, type SurfaceTheme } from "./surface-theme-select";
 
 export type ThemeMode = "dark" | "light" | "system";
-export type SurfaceTheme = "follow" | "dark" | "light";
+export type { SurfaceTheme } from "./surface-theme-select";
 
 /** The surfaces that can hold their own light or dark over the colour mode. The colour mode itself (`theme`) is the 外观 group's segmented control on the 主题 page, not one of these. */
 export type ThemePreferenceKey =
@@ -41,15 +42,7 @@ function SurfaceThemeRow({
 }) {
   return (
     <Row title={title} description={description}>
-      <Select
-        aria-label={title}
-        value={value ?? "follow"}
-        onChange={(event) => onChange(event.target.value as SurfaceTheme)}
-      >
-        <option value="follow">跟随全局</option>
-        <option value="dark">深色</option>
-        <option value="light">浅色</option>
-      </Select>
+      <SurfaceThemeSelect label={title} value={value ?? "follow"} onChange={onChange} />
     </Row>
   );
 }

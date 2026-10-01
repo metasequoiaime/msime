@@ -86,6 +86,9 @@ pub struct CommunityPlugin {
 pub struct CommunityPluginPage {
     pub plugins: Vec<CommunityPlugin>,
     pub has_more: bool,
+    /// How many items of a kind this client cannot install (an effect pack) the server listed on this page and [`validate_page`] left out. The gallery adds them to the next offset so 加载更多 resumes after them. Only the client sets it: a server response that carries it is refused.
+    #[serde(default, skip_deserializing)]
+    pub skipped: usize,
 }
 
 /// A downloaded pack: the archive in standard base64 with the size and SHA-256 the server recorded for it. [`install`] checks both before anything is written.
@@ -184,8 +187,7 @@ impl CommunityPluginApi for BackendAccountClient {
             percent_encode(search)
         );
         let page = self.json::<CommunityPluginPage, ()>(Method::GET, &path, token, None)?;
-        validate_page(&page)?;
-        Ok(page)
+        validate_page(page)
     }
 
     fn community_plugin(
@@ -425,18 +427,22 @@ fn validate_publish(request: &CommunityPluginPublishRequest) -> Result<(), Accou
     Ok(())
 }
 
-fn validate_page(page: &CommunityPluginPage) -> Result<(), AccountError> {
-    if page.plugins.len() > MAXIMUM_PAGE_ITEMS
-        || (page.has_more && page.plugins.is_empty())
-        || page.plugins.iter().any(|item| validate_item(item).is_err())
-    {
+/// Check a listed page and drop the items of a kind this client cannot install. The server lists every kind it accepts, effect packs included, so one such item must not make the whole page unreadable; the dropped ones are counted in `skipped` so paging stays aligned with the server's offsets.
+fn validate_page(mut page: CommunityPluginPage) -> Result<CommunityPluginPage, AccountError> {
+    if page.plugins.len() > MAXIMUM_PAGE_ITEMS || (page.has_more && page.plugins.is_empty()) {
+        return Err(AccountError::Unavailable);
+    }
+    let listed = page.plugins.len();
+    page.plugins.retain(|item| publishable(item.kind));
+    page.skipped = listed - page.plugins.len();
+    if page.plugins.iter().any(|item| validate_item(item).is_err()) {
         return Err(AccountError::Unavailable);
     }
     let mut ids = BTreeSet::new();
     if page.plugins.iter().any(|item| !ids.insert(item.id)) {
         return Err(AccountError::Unavailable);
     }
-    Ok(())
+    Ok(page)
 }
 
 fn validate_item(item: &CommunityPlugin) -> Result<(), AccountError> {

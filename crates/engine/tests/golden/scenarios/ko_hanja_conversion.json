@@ -1,0 +1,102 @@
+{
+ "name": "ko_hanja_conversion",
+ "source": "crates/engine/src/korean (no C++ reference: Hanja conversion is Rust-only, so the expected file was recorded from this engine and checked by hand against crates/engine/src/korean/hanja.tsv)",
+ "covers": [
+  "korean hanja list",
+  "korean hanja selection",
+  "korean hanja close keeps the syllable",
+  "korean hanja letter closes the list",
+  "korean hanja finish commits hangul",
+  "korean hanja lone jamo"
+ ],
+ "fixture": {},
+ "options": {
+  "scheme": "korean"
+ },
+ "steps": [
+  {
+   "op": "type",
+   "arg": "rmf"
+  },
+  {
+   "op": "command",
+   "arg": "ConvertHanja"
+  },
+  {
+   "op": "select",
+   "arg": 1
+  },
+  {
+   "op": "type",
+   "arg": "xj"
+  },
+  {
+   "op": "command",
+   "arg": "ConvertHanja"
+  },
+  {
+   "op": "command",
+   "arg": "Cancel"
+  },
+  {
+   "op": "command",
+   "arg": "ConvertHanja"
+  },
+  {
+   "op": "command",
+   "arg": "ConvertHanja"
+  },
+  {
+   "op": "command",
+   "arg": "ConvertHanja"
+  },
+  {
+   "op": "char",
+   "arg": "q"
+  },
+  {
+   "op": "command",
+   "arg": "Backspace"
+  },
+  {
+   "op": "command",
+   "arg": "ConvertHanja"
+  },
+  {
+   "op": "command",
+   "arg": "Backspace"
+  },
+  {
+   "op": "command",
+   "arg": "ConvertHanja"
+  },
+  {
+   "op": "punctuation",
+   "arg": "."
+  },
+  {
+   "op": "type",
+   "arg": "sla"
+  },
+  {
+   "op": "command",
+   "arg": "ConvertHanja"
+  },
+  {
+   "op": "finish",
+   "arg": 2
+  },
+  {
+   "op": "type",
+   "arg": "r"
+  },
+  {
+   "op": "command",
+   "arg": "ConvertHanja"
+  },
+  {
+   "op": "command",
+   "arg": "Backspace"
+  }
+ ]
+}

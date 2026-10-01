@@ -151,6 +151,37 @@ impl ImeSession {
         true
     }
 
+    /// Opens the Hanja list of the composing Korean syllable. False, with the list left closed, for every other scheme and for a composition the table has no Hanja for (a lone jamo).
+    pub fn open_korean_hanja(&mut self) -> bool {
+        let Scheme::Korean(korean) = &mut self.scheme else {
+            return false;
+        };
+        korean.open_hanja();
+        self.refresh_candidates();
+        if !self.state.candidates.is_empty() {
+            return true;
+        }
+        self.close_korean_hanja();
+        false
+    }
+
+    /// Closes the Hanja list, so the composition answers nothing again; false when no list was open.
+    pub fn close_korean_hanja(&mut self) -> bool {
+        let Scheme::Korean(korean) = &mut self.scheme else {
+            return false;
+        };
+        if !korean.hanja_open() {
+            return false;
+        }
+        korean.close_hanja();
+        self.refresh_candidates();
+        true
+    }
+
+    pub fn korean_hanja_open(&self) -> bool {
+        matches!(&self.scheme, Scheme::Korean(korean) if korean.hanja_open())
+    }
+
     /// The Korean syllables the last key finished, which leave the composition as a commit; empty for every other scheme.
     pub fn take_korean_commit(&mut self) -> String {
         let Scheme::Korean(korean) = &mut self.scheme else {

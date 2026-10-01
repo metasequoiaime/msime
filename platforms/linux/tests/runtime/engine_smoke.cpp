@@ -3031,6 +3031,57 @@ int main(int argc, char **argv) {
       require(key('r') && key('k') && !key('1') &&
                   seen.committed == before + "안녀가.가" && !seen.preedit_visible,
               "A digit did not end the Korean syllable");
+      // Hangul_Hanja or a bare F9 converts the composing syllable to Hanja (msime_client.h, MSIME_CONVERT_HANJA). With the list open the candidate keys choose, Escape only closes it, a paging mark writes the Hangul with it, and a trigger is never passed on while a syllable composes.
+      auto hanja_commit = seen.committed;
+      require(!key(IBUS_F9) && !key(IBUS_Hangul_Hanja) && seen.committed == hanja_commit,
+              "A Hanja key with nothing composing was not left to the application");
+      require(key('g') && key('k') && key('s') && key(IBUS_Hangul_Hanja) && seen.lookup_visible &&
+                  !seen.candidates.empty() &&
+                  seen.candidates.front() == "韓  나라 이름 한, 한나라 한" &&
+                  seen.preedit == "한" && seen.committed == hanja_commit,
+              "Hangul_Hanja did not open the Hanja list with its 훈음");
+      require(key(IBUS_F9) && seen.preedit == "한" && seen.committed == hanja_commit,
+              "The trigger did not keep the syllable when closing the list");
+      settle_lookup();
+      require(!seen.lookup_visible, "The trigger did not close the Hanja list");
+      require(key(IBUS_F9) && seen.lookup_visible && key(IBUS_Down) && key(IBUS_Return) &&
+                  seen.committed == hanja_commit + "漢" && !seen.preedit_visible,
+              "Return did not choose the highlighted Hanja");
+      hanja_commit = seen.committed;
+      require(key('g') && key('k') && key('s') && key(IBUS_F9) && key(IBUS_space) &&
+                  seen.committed == hanja_commit + "韓",
+              "Space did not choose the highlighted Hanja");
+      hanja_commit = seen.committed;
+      require(key('g') && key('k') && key('s') && key(IBUS_F9) && key(IBUS_2) &&
+                  seen.committed == hanja_commit + "漢",
+              "A digit did not choose from the Hanja page");
+      hanja_commit = seen.committed;
+      require(key('g') && key('k') && key('s') && key(IBUS_F9) && key(IBUS_Escape) &&
+                  seen.preedit == "한" && seen.committed == hanja_commit,
+              "Escape did not close the Hanja list and keep the syllable");
+      require(key(IBUS_F9) && key(IBUS_period) && seen.committed == hanja_commit + "한." &&
+                  !seen.preedit_visible,
+              "A paging mark turned a page instead of writing the Hangul with it");
+      hanja_commit = seen.committed;
+      require(key('r') && key(IBUS_F9) && seen.preedit == "ㄱ" && seen.committed == hanja_commit,
+              "The trigger of a lone jamo was passed on");
+      require(key(IBUS_Escape) && !seen.preedit_visible, "Escape did not discard the lone jamo");
+      // With number-row selection off a digit is the application's, and it must not land in the document before a syllable and list left hanging: the Hangul is written first.
+      invoke("PropertyActivate",
+             g_variant_new("(su)", "NumberRowSelection", PROP_STATE_UNCHECKED));
+      require(wait_saved_preferences([](const nlohmann::json &preferences) {
+                return !preferences.value("number_row_selection", true);
+              }),
+              "Korean number-row selection was not turned off");
+      require(key('g') && key('k') && key('s') && key(IBUS_F9) && seen.lookup_visible &&
+                  !key(IBUS_1) && seen.committed == hanja_commit + "한" && !seen.preedit_visible,
+              "With number-row selection off a digit did not write the Hangul before reaching the application");
+      invoke("PropertyActivate",
+             g_variant_new("(su)", "NumberRowSelection", PROP_STATE_CHECKED));
+      require(wait_saved_preferences([](const nlohmann::json &preferences) {
+                return preferences.value("number_row_selection", false);
+              }),
+              "Korean number-row selection was not restored");
     }
     invoke("Reset");
     invoke("PropertyActivate",

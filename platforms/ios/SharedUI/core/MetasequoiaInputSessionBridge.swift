@@ -149,7 +149,7 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
   let candidates: [String]
   let candidateCodes: [String]
   let candidateGlosses: [String]
-  /// The Engine's display suffix for each candidate, aligned with `candidates`: its helpcode when the scheme's "show helpcode" setting is on, or the spelling a typo correction replaced. Never part of the committed text.
+  /// The Engine's display suffix for each candidate, aligned with `candidates`: its helpcode when the scheme's "show helpcode" setting is on, the spelling a typo correction replaced, or a Korean Hanja's 훈음. Never part of the committed text.
   let candidateAnnotations: [String]
   /// The Engine `CandidateSource` (cloud, AI, dictionary...) and pinned slot of each candidate, aligned with `candidates`; a source of -1 means the row carried none, and a fixed position of zero is a word ranked by use.
   let candidateSources: [Int]
@@ -678,6 +678,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   func moveCaretToStart() -> MetasequoiaInputSnapshot { command(6) }
   func moveCaretToEnd() -> MetasequoiaInputSnapshot { command(7) }
   func deleteForward() -> MetasequoiaInputSnapshot { command(8) }
+  /// MSIME_CONVERT_HANJA (msime_client.h): lists the Hanja of the composing Korean syllable as candidates, or closes that list when it is open. Unhandled when nothing is composing or the composition is a lone jamo, which has no Hanja.
+  func convertHanja() -> MetasequoiaInputSnapshot { command(16) }
   /// Drops the Engine's cached candidate lookups, which Windows does on Ctrl+Shift+Alt+C.
   func resetCache() -> MetasequoiaInputSnapshot { dispatch { msimeClientResetCache(handle) } }
 

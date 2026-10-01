@@ -3183,6 +3183,353 @@ fn korean_syllables_are_never_held_as_a_phrase_prefix() {
     assert_eq!(runtime.view().preedit, "나");
 }
 
+fn korean_runtime(directory: &std::path::Path) -> Runtime {
+    let mut options = real_engine_options(directory);
+    options.scheme = KOREAN_SCHEME;
+    let session = msime_engine::host::Session::new(&options).unwrap();
+    let mut runtime = Runtime::new(session, 5).unwrap();
+    runtime.focus(true).unwrap();
+    runtime
+}
+
+/// Types `keys` and opens the Hanja list of the syllable they leave composing.
+fn open_korean_hanja(runtime: &mut Runtime, keys: &str) -> Transition {
+    for value in keys.bytes() {
+        runtime
+            .dispatch(Action::Character {
+                value,
+                shift: false,
+            })
+            .unwrap();
+    }
+    let opened = runtime
+        .dispatch(Action::Command(Command::ConvertHanja))
+        .unwrap();
+    assert!(opened.handled && opened.commit.is_none(), "{keys}");
+    opened
+}
+
+fn texts(view: &View) -> Vec<String> {
+    view.candidates
+        .iter()
+        .map(|candidate| candidate.text.clone())
+        .collect()
+}
+
+/// The Hanja list pages and navigates like any candidate list: Space takes the highlighted row, a digit the row on the visible page, and the arrows move the highlight. The table's order is kept.
+#[test]
+fn a_korean_hanja_list_pages_and_selects_through_the_runtime() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = korean_runtime(directory.path());
+    let opened = open_korean_hanja(&mut runtime, "gks");
+    assert_eq!(texts(&opened.view)[..3], ["韓", "漢", "寒"]);
+    assert_eq!(
+        opened.view.candidates[0].annotation,
+        "나라 이름 한, 한나라 한"
+    );
+    assert_eq!(opened.view.preedit, "한");
+    assert!(opened.view.page_count > 2);
+    assert!(opened.view.candidates[0].highlighted);
+
+    // Next and previous candidate move the highlight; Space commits it.
+    runtime.dispatch(Action::NextCandidate).unwrap();
+    let moved = runtime.dispatch(Action::NextCandidate).unwrap();
+    assert!(moved.handled);
+    assert!(moved.view.candidates[2].highlighted);
+    runtime.dispatch(Action::PreviousCandidate).unwrap();
+    let space = runtime.dispatch(Action::SelectHighlighted).unwrap();
+    assert!(space.handled);
+    assert_eq!(space.commit.as_deref(), Some("漢"));
+    assert_eq!(
+        space.commit_context.as_ref().map(|context| context.scheme),
+        Some(KOREAN_SCHEME)
+    );
+    assert_eq!(space.view.editing_text, "");
+    assert!(space.view.candidates.is_empty());
+
+    // A digit picks from the page on screen, so the Hangul is not committed first and the choice is not lost.
+    open_korean_hanja(&mut runtime, "gks");
+    let paged = runtime.dispatch(Action::NextPage).unwrap();
+    assert_eq!(paged.view.page, 1);
+    let second_on_page = paged.view.candidates[1].text.clone();
+    let digit = runtime
+        .dispatch(Action::Character {
+            value: b'2',
+            shift: false,
+        })
+        .unwrap();
+    assert!(digit.handled);
+    assert_eq!(digit.commit.as_deref(), Some(second_on_page.as_str()));
+    assert_eq!(digit.view.editing_text, "");
+
+    // A digit past the end of the page is swallowed and the syllable keeps composing.
+    open_korean_hanja(&mut runtime, "rmf");
+    let outside = runtime
+        .dispatch(Action::Character {
+            value: b'9',
+            shift: false,
+        })
+        .unwrap();
+    assert!(outside.handled && outside.commit.is_none());
+    assert_eq!(outside.view.preedit, "글");
+    // 0 is not a selection: it commits the Hangul and goes to the host.
+    let zero = runtime
+        .dispatch(Action::Character {
+            value: b'0',
+            shift: false,
+        })
+        .unwrap();
+    assert!(!zero.handled);
+    assert_eq!(zero.commit.as_deref(), Some("글"));
+}
+
+/// Escape and the trigger close the list and keep the syllable; a letter closes it and keeps composing. Every way of ending without a choice - punctuation, the host's finish key, leaving the client - commits the Hangul, whatever row is highlighted.
+#[test]
+fn closing_or_finishing_a_korean_hanja_list_keeps_the_hangul() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = korean_runtime(directory.path());
+
+    open_korean_hanja(&mut runtime, "gks");
+    let escape = runtime.dispatch(Action::Command(Command::Cancel)).unwrap();
+    assert!(escape.handled && escape.commit.is_none());
+    assert_eq!(escape.view.preedit, "한");
+    assert!(escape.view.candidates.is_empty());
+    let toggled = runtime
+        .dispatch(Action::Command(Command::ConvertHanja))
+        .unwrap();
+    assert!(!toggled.view.candidates.is_empty());
+    let closed = runtime
+        .dispatch(Action::Command(Command::ConvertHanja))
+        .unwrap();
+    assert!(closed.handled && closed.view.candidates.is_empty());
+    runtime.dispatch(Action::Command(Command::Cancel)).unwrap();
+    open_korean_hanja(&mut runtime, "gk");
+    let letter = runtime
+        .dispatch(Action::Character {
+            value: b'r',
+            shift: false,
+        })
+        .unwrap();
+    assert!(letter.handled && letter.commit.is_none());
+    assert_eq!(letter.view.preedit, "학");
+    runtime.dispatch(Action::Command(Command::Cancel)).unwrap();
+    assert_eq!(runtime.view().editing_text, "");
+
+    // Punctuation with the second row highlighted.
+    open_korean_hanja(&mut runtime, "gks");
+    runtime.dispatch(Action::NextCandidate).unwrap();
+    let period = runtime.dispatch(Action::Punctuation(b'.')).unwrap();
+    assert!(period.handled);
+    assert_eq!(period.commit.as_deref(), Some("한."));
+    assert!(period.view.candidates.is_empty());
+
+    // The host's finish key with the second row highlighted.
+    open_korean_hanja(&mut runtime, "gks");
+    runtime.dispatch(Action::NextCandidate).unwrap();
+    let finished = runtime.dispatch(Action::Finish).unwrap();
+    assert_eq!(finished.commit.as_deref(), Some("한"));
+    assert!(finished.view.candidates.is_empty());
+
+    // Leaving the client.
+    open_korean_hanja(&mut runtime, "gks");
+    runtime.dispatch(Action::NextCandidate).unwrap();
+    let left = runtime.focus(false).unwrap();
+    assert_eq!(left.commit.as_deref(), Some("한"));
+    assert_eq!(left.view.editing_text, "");
+    assert!(left.view.candidates.is_empty());
+}
+
+/// Attaching a client discards what was composing in the previous one. A Cancel with the Hanja list open only closes the list, so the discard must not stop there and carry the syllable into the new client.
+#[test]
+fn attaching_a_client_discards_a_syllable_whose_hanja_list_is_open() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = korean_runtime(directory.path());
+    open_korean_hanja(&mut runtime, "gks");
+    let attached = runtime.focus(true).unwrap();
+    assert!(attached.commit.is_none());
+    assert_eq!(attached.view.editing_text, "");
+    assert_eq!(attached.view.preedit, "");
+    assert!(attached.view.candidates.is_empty());
+    // The next key starts from nothing rather than finishing 한 into the new client.
+    let typed = runtime
+        .dispatch(Action::Character {
+            value: b'r',
+            shift: false,
+        })
+        .unwrap();
+    assert!(typed.commit.is_none());
+    assert_eq!(typed.view.preedit, "ㄱ");
+}
+
+/// The model reorders Chinese candidates; a Hanja list is a table in frequency order for one syllable and keeps that order, as does the runner-up demotion that only lattice readings are for.
+#[test]
+fn korean_lists_are_never_reranked_or_demoted() {
+    let reordered = |scheme: u8, words: &[&str], sources: Vec<u8>, model: Option<SentenceModel>| {
+        let mut runtime = Runtime::new(
+            Fixture {
+                scheme,
+                local_mode: "none".into(),
+                words: words.iter().map(|word| (*word).to_owned()).collect(),
+                codes: vec!["gks".into(); words.len()],
+                sources,
+                ..Fixture::default()
+            },
+            5,
+        )
+        .unwrap();
+        if let Some(model) = model {
+            runtime.set_reranker(Some(Reranker::new(std::sync::Arc::new(model))));
+        }
+        runtime.focus(true).unwrap();
+        runtime
+            .dispatch(Action::Character {
+                value: b'g',
+                shift: false,
+            })
+            .unwrap();
+        texts(&runtime.view())
+    };
+    let hanja = ["韓", "漢", "寒"];
+    let favours_cold = || Some(favouring_model(&['韓', '漢', '寒'], &['寒']));
+    // The same rows under a pinyin scheme are reranked, so the model would move 寒 up if Korean let it.
+    assert_eq!(
+        reordered(0, &hanja, vec![LATTICE_SOURCE; 3], favours_cold()),
+        ["寒", "韓", "漢"]
+    );
+    assert_eq!(
+        reordered(
+            KOREAN_SCHEME,
+            &hanja,
+            vec![LATTICE_SOURCE; 3],
+            favours_cold()
+        ),
+        hanja
+    );
+    // Lattice-sourced sentence rows are demoted behind the first under a pinyin scheme and left alone under Korean.
+    // The runtime pages five rows, so the view is the first page.
+    let sentences = ["韓國語", "漢國語", "寒國語", "閑國語", "限國語", "國", "語"];
+    let sources = || {
+        let mut sources = vec![LATTICE_SOURCE; 5];
+        sources.extend([0, 0]);
+        sources
+    };
+    assert_eq!(
+        reordered(0, &sentences, sources(), None),
+        ["韓國語", "漢國語", "寒國語", "國", "語"]
+    );
+    assert_eq!(
+        reordered(KOREAN_SCHEME, &sentences, sources(), None),
+        sentences[..5]
+    );
+}
+
+/// An Engine whose digits end the composition with a commit and are left to the host, as Korean digits are with the Hanja list closed, while it still shows candidates.
+struct DigitCommitsEngine {
+    reading: String,
+}
+
+impl InputEngine for DigitCommitsEngine {
+    fn snapshot(&self) -> Result<EngineSnapshot, RuntimeError> {
+        let words: Vec<String> = if self.reading.is_empty() {
+            Vec::new()
+        } else {
+            vec!["甲".into(), "乙".into()]
+        };
+        let count = words.len();
+        Ok(EngineSnapshot {
+            scheme: KOREAN_SCHEME,
+            nine_key: false,
+            nine_key_spellings: Vec::new(),
+            candidate_codes: vec![self.reading.clone(); count],
+            candidate_annotations: vec![String::new(); count],
+            candidate_sources: vec![0; count],
+            candidate_positions: vec![0; count],
+            candidate_corrected: vec![false; count],
+            candidate_answers_key: vec![true; count],
+            microsoft_shuangpin: false,
+            shuangpin_profile: "xiaohe".into(),
+            answered_by_pinyin_fallback: false,
+            wubi_unique_four_code: false,
+            local_mode: "none".into(),
+            spelling_symbols: String::new(),
+            dedicated_english: false,
+            preedit: self.reading.clone(),
+            reading: self.reading.clone(),
+            editing_text: self.reading.clone(),
+            caret_position: self.reading.len(),
+            segment_raw_boundaries: Vec::new(),
+            candidates: words,
+        })
+    }
+    fn character(&mut self, value: u8, _shift: bool) -> Result<EngineResult, RuntimeError> {
+        if value.is_ascii_digit() {
+            return Ok(EngineResult {
+                handled: false,
+                has_commit: true,
+                commit: std::mem::take(&mut self.reading),
+                diagnostic: String::new(),
+            });
+        }
+        self.reading.push(value as char);
+        Ok(empty_result(true))
+    }
+    fn command(&mut self, _command: Command) -> Result<EngineResult, RuntimeError> {
+        self.reading.clear();
+        Ok(empty_result(true))
+    }
+    fn select(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
+        self.reading.clear();
+        Ok(EngineResult {
+            handled: true,
+            has_commit: true,
+            commit: ["甲", "乙"][index].to_owned(),
+            diagnostic: String::new(),
+        })
+    }
+    fn finish(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
+        self.select(index)
+    }
+    fn punctuation(&mut self, _value: u8) -> Result<EngineResult, RuntimeError> {
+        Ok(empty_result(false))
+    }
+    fn select_edge(
+        &mut self,
+        index: usize,
+        _edge: CandidateEdge,
+    ) -> Result<EngineResult, RuntimeError> {
+        self.select(index)
+    }
+}
+
+/// A digit the Engine already answered with a commit is not also a page selection: selecting would replace the commit, and the text it carried - a Korean syllable - would be lost.
+#[test]
+fn a_digit_that_already_committed_is_not_also_a_selection() {
+    let mut runtime = Runtime::new(
+        DigitCommitsEngine {
+            reading: String::new(),
+        },
+        5,
+    )
+    .unwrap();
+    runtime.focus(true).unwrap();
+    runtime
+        .dispatch(Action::Character {
+            value: b'x',
+            shift: false,
+        })
+        .unwrap();
+    assert_eq!(runtime.view().candidates.len(), 2);
+    let digit = runtime
+        .dispatch(Action::Character {
+            value: b'1',
+            shift: false,
+        })
+        .unwrap();
+    assert!(!digit.handled);
+    assert_eq!(digit.commit.as_deref(), Some("x"));
+    assert!(digit.view.candidates.is_empty());
+}
+
 fn generated_mode_runtime(directory: &std::path::Path) -> Runtime {
     let mut options = real_engine_options(directory);
     options.local_expression = true;

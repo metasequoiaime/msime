@@ -59,6 +59,20 @@ if rg -n -i '0xac00|44032|0x3131|12593' "$repo_root/platforms/android/java/app/m
   echo "Android must not compose Hangul syllables itself; the Engine owns the Korean automaton" >&2
   exit 1
 fi
+# The Hanja command is shared command 16 at both ends: the header's MSIME_CONVERT_HANJA, the FFI's ConvertHanja and this host's named constant must agree, and the service reaches it by name so a renumbering cannot leave a bare 16 behind.
+if ! rg -q 'MSIME_CONVERT_HANJA = 16,' "$repo_root/crates/host-api/include/msime_client.h" \
+  || ! rg -q '^\s*16 => Action::Command\(Command::ConvertHanja\),' "$repo_root/crates/host-api/src/ffi/input.rs" \
+  || ! rg -q 'CONVERT_HANJA_COMMAND = 16;' \
+    "$repo_root/platforms/android/java/app/msime/android/policy/KoreanInputPolicy.java"; then
+  echo "Android CONVERT_HANJA_COMMAND no longer matches the shared Host API command 16" >&2
+  exit 1
+fi
+if rg -n 'command\((session, )?16\)' "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+  || ! rg -q 'command\(KoreanInputPolicy\.CONVERT_HANJA_COMMAND\)' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
+  echo "Android input service must send the Hanja command as KoreanInputPolicy.CONVERT_HANJA_COMMAND" >&2
+  exit 1
+fi
 # The Korean inline composition is the Hangul in View.reading; editing_text holds only the key letters.
 if ! rg -q 'KoreanInputPolicy\.composing' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then

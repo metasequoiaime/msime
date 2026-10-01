@@ -294,7 +294,7 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
             let Some(candidates_view) = session.runtime.translation_candidates() else {
                 return Ok(Value::Null);
             };
-            // Windows does not request glosses for Japanese candidates. Use Engine's active mode, including temporary Japanese composition. Korean has no candidates to gloss.
+            // Windows does not request glosses for Japanese candidates. Use Engine's active mode, including temporary Japanese composition. Korean's only candidates are the Hanja of the composing syllable, which carry their own 훈음.
             if candidates_view.scheme == 3
                 || candidates_view.scheme == KOREAN_SCHEME
                 || candidates_view.local_mode == "temporary_japanese"

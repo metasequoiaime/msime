@@ -81,6 +81,10 @@ void ServerSession::set_input_enabled(uint64_t epoch, bool enabled) {
 void ServerSession::cancel_composition(uint64_t epoch) {
   check_active(epoch);
   auto result = response(msime_client_command(session_, MSIME_CANCEL));
+  // With a Korean Hanja list open MSIME_CANCEL only closes the list and the syllable keeps composing (msime_client.h); a second one discards it.
+  if (result.at("commit").is_null() && result.at("view").value("scheme", 0u) == 4u &&
+      !result.at("view").at("editing_text").get<std::string>().empty())
+    result = response(msime_client_command(session_, MSIME_CANCEL));
   if (!result.at("commit").is_null() ||
       !result.at("view").at("editing_text").get<std::string>().empty() ||
       !result.at("view").at("candidates").empty())
@@ -89,6 +93,12 @@ void ServerSession::cancel_composition(uint64_t epoch) {
 nlohmann::json ServerSession::finish_composition(uint64_t epoch) {
   check_active(epoch);
   return response(msime_client_command(session_, MSIME_FINISH_COMPOSITION));
+}
+nlohmann::json ServerSession::command(uint64_t epoch, uint32_t command) {
+  check_active(epoch);
+  if (!input_enabled_)
+    throw std::logic_error("Session command while input disabled");
+  return response(msime_client_command(session_, command));
 }
 void ServerSession::reset_cache() {
   check_thread();
@@ -155,9 +165,10 @@ KeyResult ServerSession::key(const FanyImeNamedpipeData &packet,
   // more candidates would have been worse, committing candidate 17 for a
   // letter press. Typing shuangpin through this path could not work at all,
   // and nothing noticed because these suites had never been run.
-  // Korean has no candidates to choose: a digit is text that ends the syllable, which the Engine does when it receives it as a character.
-  const bool selection_digit = digit_key >= '1' && digit_key <= '9' &&
-                               !(current.is_object() && current.value("scheme", 0u) == 4u);
+  // Korean has candidates only while its Hanja list is open, and a digit then chooses from it. Otherwise a digit is text that ends the syllable, which the Engine does when it receives it as a character.
+  const bool selection_digit =
+      digit_key >= '1' && digit_key <= '9' &&
+      !(current.is_object() && current.value("scheme", 0u) == 4u && current.at("candidates").empty());
   if (selection_digit && !current.is_null() &&
       digit_selects_candidate(
           current.at("local_mode").get<std::string>(),
@@ -553,7 +564,7 @@ ServerSession::word_character(const FanyImeNamedpipeData &packet,
   if (!input_enabled_)
     return std::nullopt;
   const auto current = view();
-  // Korean has no candidate to take a character from; its '-', '=', '[' and ']' are punctuation.
+  // Korean's '-', '=', '[' and ']' are punctuation, with or without a Hanja list open: the Engine closes the list and writes the Hangul with the mark, as on every other host, rather than taking an edge character of a single Hanja.
   // A key the Engine spells in its current state (V mode's '-') is input, as `edit_kind` routes it; taking it here first would commit the highlighted row instead.
   if (current.at("local_mode") == "unknown" ||
       current.at("editing_text").get<std::string>().empty() ||

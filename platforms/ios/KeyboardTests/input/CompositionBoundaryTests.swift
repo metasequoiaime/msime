@@ -34,6 +34,10 @@ final class CompositionBoundaryTests: XCTestCase {
     XCTAssertEqual(CompositionBoundaryPolicy.action(composing: true, scheme: .korean, boundary: .returnKey), .commitRaw)
     XCTAssertEqual(CompositionBoundaryPolicy.action(composing: true, scheme: .korean, boundary: .modeSwitch), .finishComposition)
     XCTAssertEqual(CompositionBoundaryPolicy.action(composing: true, scheme: .korean, boundary: .deactivate), .finishComposition)
+    // With the syllable's Hanja list open Return chooses a Hanja, and the other boundaries still write the Hangul out.
+    XCTAssertEqual(CompositionBoundaryPolicy.action(composing: true, scheme: .korean, boundary: .returnKey, koreanHanjaListOpen: true), .commitCandidate)
+    XCTAssertEqual(CompositionBoundaryPolicy.action(composing: true, scheme: .korean, boundary: .modeSwitch, koreanHanjaListOpen: true), .finishComposition)
+    XCTAssertEqual(CompositionBoundaryPolicy.action(composing: true, scheme: .korean, boundary: .deactivate, koreanHanjaListOpen: true), .finishComposition)
 
     let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
     _ = bridge.switchToKorean()

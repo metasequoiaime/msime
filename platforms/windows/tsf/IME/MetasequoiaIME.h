@@ -189,6 +189,14 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     // Korean: commit the open syllable, then insert `wch` when it is printable ASCII. `code` is the key that ended the syllable, or 0 when no key did (focus or scheme change).
     HRESULT _HandleSyllableCommit(TfEditCookie ec, _In_ ITfContext *pContext, UINT code, WCHAR wch,
                                   bool replayKey = false);
+    // Korean: the Hanja key converts the composing syllable (or closes its list), and a key the open Hanja list takes chooses, moves or closes. Both are applied to the host session, which the Server's session follows from the same key; with no list open by the time the key runs, it does what it does without one.
+    HRESULT _HandleKoreanHanjaKey(TfEditCookie ec, _In_ ITfContext *pContext, UINT code, WCHAR wch, uint64_t requestId);
+    // Whether the host session's composing Korean syllable has its Hanja list open.
+    bool _IsKoreanHanjaListOpen() const;
+    // A lone right Ctrl tap while a Korean syllable composes converts it as the Hanja key does: on the release the tap is queued as that key and true is returned. Checked ahead of the single-Ctrl language toggle, which it takes precedence over only in that state.
+    bool _QueueKoreanHanjaTap(_In_ ITfContext *pContext, WPARAM wParam, LPARAM lParam);
+    // MSIME_CANCEL to the host session, twice when the first only closed a Korean Hanja list, so the composition is discarded either way. True without a host session.
+    bool _CancelHostComposition();
     // A caret or editing key that ended a Korean syllable behind the deferred-key barrier was eaten to keep its place in the queue; once the syllable is committed it is sent again through the input queue so the application still does its own work with it.
     void _QueueKoreanSyllableKeyReplay(UINT virtualKey);
     void _RunKoreanSyllableKeyReplay(UINT virtualKey);
@@ -414,7 +422,7 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     bool _HasDeferredKeyBarrier() const;
     bool _DeferredKeyQueueHasCapacity() const;
     void _EnsureDeferredKeyProjection();
-    void _ApplyDeferredKeyProjection(const _KEYSTROKE_STATE &keyState, WCHAR wch);
+    void _ApplyDeferredKeyProjection(const _KEYSTROKE_STATE &keyState, WCHAR wch, UINT code);
     void _ApplyDeferredPreservedKeyProjection(REFGUID preservedKey);
     bool _RefreshDeferredRecoveryPrefix(_In_ ITfContext *pContext);
     void _ArmDeferredRecoveryForTransport(_In_opt_ ITfContext *pContext);
@@ -719,6 +727,7 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     size_t _deferredProjectedCaret;
     bool _deferredProjectedCandidateActive;
     bool _deferredProjectedUnicodeMode;
+    bool _deferredProjectedKoreanHanjaListOpen;
     uint64_t _deferredKeyFocusGeneration;
     bool _deferredKeyDrainPosted;
     bool _serverUnavailableFallbackActive;

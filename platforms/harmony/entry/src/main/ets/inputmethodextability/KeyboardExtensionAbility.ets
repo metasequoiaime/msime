@@ -608,9 +608,12 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
 
   private readonly typed: (event: InputKeyEvent) => boolean = (event: InputKeyEvent): boolean => {
     const session: KeyboardSession = KeyboardSession.shared;
+    // Whether this key-down is a new press rather than a repeat of a key still held, which OpenHarmony delivers as another key-down.
+    let newPress: boolean = false;
     // Counted for the key heatmap before anything claims or releases the key, so a key the application types counts the same as one the Engine composes, and a modifier or shortcut chord counts as the presses it is. The session declines for a password field.
     if (event.action === KeyAction.DOWN) {
-      if (this.heldKeys.press(event.key.code)) {
+      newPress = this.heldKeys.press(event.key.code);
+      if (newPress) {
         session.recordKey(KeyIdPolicy.hardware(event.key.code));
       }
     } else {
@@ -740,7 +743,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       KeyboardSession.shared.preferences().navigation,
         session.hasHighlightedTranslation(), session.isJapanese(),
         session.wordCharacterBinding(), session.hasHighlightedCandidate(), session.hardwareSpelling(),
-        session.isFullWidth(), session.punctuationLockedChinese(), session.isKorean());
+        session.isFullWidth(), session.punctuationLockedChinese(), session.isKorean(),
+        session.koreanHanjaListOpen());
     if (decision.action === HardwareKeyAction.RELEASE) {
       // What the application types is still the user's typing, and Windows counts it (`stats_passthrough.h`).
       if (event.action === KeyAction.DOWN) {
@@ -750,6 +754,10 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       return false;
     }
     if (event.action !== KeyAction.DOWN) {
+      return true;
+    }
+    // A held Hanja key converts once rather than opening and closing the list with every repeat.
+    if (decision.action === HardwareKeyAction.CONVERT_HANJA && !newPress) {
       return true;
     }
     const applied: boolean = HardwareKeyDispatch.apply(decision, key.shiftKey, session);

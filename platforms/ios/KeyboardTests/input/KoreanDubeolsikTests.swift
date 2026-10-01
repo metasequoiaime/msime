@@ -163,6 +163,90 @@ final class KoreanDubeolsikTests: XCTestCase {
     XCTAssertNil(nodes(controller.view).first { $0.accessibilityLabel == "符号 ；" })
   }
 
+  /// 漢 shows only while a syllable composes, lists its Hanja with their 훈음 on the strip, and turns Return into choosing one; with the list closed Korean is unchanged.
+  func testHanjaButtonListsTheComposingSyllablesHanja() throws {
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    InputSchemePreference.scheme = .korean
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: 260 + KeyboardViewController.stripExtraHeight)
+    controller.view.layoutIfNeeded()
+    func visibleChip(_ number: Int) -> UIButton? {
+      nodes(controller.view).first { $0.accessibilityIdentifier == "candidate-\(number)" && !$0.isHidden } as? UIButton
+    }
+    func press(_ label: String) throws {
+      try key(labelled: label, in: controller).sendActions(for: .primaryActionTriggered)
+      controller.view.layoutIfNeeded()
+    }
+
+    let hanja = try button("hanjaButton", in: controller)
+    XCTAssertTrue(hanja.isHidden, "nothing is composing")
+    for jamo in ["ㅎ", "ㅏ", "ㄴ"] { try press("字母 \(jamo)") }
+    XCTAssertEqual(try button("preeditButton", in: controller).configuration?.title, "한")
+    XCTAssertFalse(hanja.isHidden)
+    XCTAssertEqual(hanja.accessibilityLabel, "转换为汉字")
+    XCTAssertNil(visibleChip(1), "Korean has no candidates until 漢")
+    XCTAssertEqual(try button("returnKey", in: controller).accessibilityLabel, "换行")
+
+    hanja.sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    let first = try XCTUnwrap(visibleChip(1))
+    let firstTitle = String(try XCTUnwrap(first.configuration?.attributedTitle).characters)
+    XCTAssertTrue(firstTitle.hasPrefix("韓"), firstTitle)
+    XCTAssertTrue(firstTitle.contains("나라 이름 한"), "the 훈음 follows the Hanja: \(firstTitle)")
+    XCTAssertFalse(firstTitle.contains("gks"), "the key letters are not drawn")
+    XCTAssertEqual(first.accessibilityLabel, "候选词 1：韓，训音 나라 이름 한, 한나라 한")
+    XCTAssertTrue(String(try XCTUnwrap(visibleChip(2)?.configuration?.attributedTitle).characters).hasPrefix("漢"))
+    XCTAssertEqual(try button("preeditButton", in: controller).configuration?.title, "한", "the syllable keeps composing")
+    XCTAssertEqual(hanja.accessibilityLabel, "关闭汉字列表")
+    XCTAssertTrue(hanja.accessibilityTraits.contains(.selected))
+    XCTAssertEqual(try button("returnKey", in: controller).accessibilityLabel, "确认", "Return chooses a Hanja")
+
+    let attachment = XCTAttachment(image: UIGraphicsImageRenderer(bounds: controller.view.bounds).image {
+      controller.view.layer.render(in: $0.cgContext)
+    })
+    attachment.name = "Korean Hanja list"
+    attachment.lifetime = .keepAlways
+    add(attachment)
+
+    // 漢 again closes the list and keeps the syllable.
+    hanja.sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertNil(visibleChip(1))
+    XCTAssertEqual(try button("preeditButton", in: controller).configuration?.title, "한")
+    XCTAssertEqual(hanja.accessibilityLabel, "转换为汉字")
+    XCTAssertEqual(try button("returnKey", in: controller).accessibilityLabel, "换行")
+
+    // Choosing a Hanja ends the composition, and 漢 goes with it.
+    hanja.sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    try XCTUnwrap(visibleChip(2)).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertNil(visibleChip(1))
+    XCTAssertTrue(hanja.isHidden)
+    XCTAssertEqual(try button("returnKey", in: controller).accessibilityLabel, "换行")
+
+    // Return with the list open chooses the leading Hanja rather than writing the Hangul out.
+    for jamo in ["ㄱ", "ㅏ"] { try press("字母 \(jamo)") }
+    hanja.sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertNotNil(visibleChip(1))
+    try button("returnKey", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertNil(visibleChip(1))
+    XCTAssertTrue(hanja.isHidden)
+
+    // A lone jamo has no Hanja: 漢 shows, the Engine declines, and the jamo keeps composing.
+    try press("字母 ㄱ")
+    XCTAssertFalse(hanja.isHidden)
+    hanja.sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertNil(visibleChip(1))
+    XCTAssertEqual(hanja.accessibilityLabel, "转换为汉字")
+    XCTAssertEqual(try button("preeditButton", in: controller).configuration?.title, "ㄱ")
+  }
+
   func testSchemeSelectionWritesKoreanAndKeepsTheChineseScheme() throws {
     let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
     XCTAssertTrue(bridge.setTouchKeyboardScheme(.wubi, enabledSchemes: [.quanpin, .wubi, .korean]))
@@ -241,6 +325,67 @@ final class KoreanDubeolsikTests: XCTestCase {
 
     XCTAssertEqual(type("rhkd", into: bridge).preedit, "광")
     for expected in ["과", "고", "ㄱ"] { XCTAssertEqual(bridge.handleBackspace().preedit, expected) }
+  }
+
+  /// The Hanja list as the bridge carries it: MSIME_CONVERT_HANJA opens and closes it over a syllable that keeps composing, the candidate commands and digits choose from it, Cancel closes it, Finish writes the Hangul, and a lone jamo has none.
+  func testHanjaListThroughTheBridge() {
+    let bridge = koreanBridge()
+    XCTAssertEqual(type("gks", into: bridge).preedit, "한")
+    let opened = bridge.convertHanja()
+    XCTAssertTrue(opened.isHandled)
+    XCTAssertNil(opened.commitText)
+    XCTAssertEqual(opened.preedit, "한")
+    XCTAssertEqual(Array(opened.candidates.prefix(2)), ["韓", "漢"])
+    XCTAssertEqual(opened.candidateAnnotations.first, "나라 이름 한, 한나라 한")
+    XCTAssertEqual(opened.candidateCodes.first, "gks")
+
+    let closed = bridge.convertHanja()
+    XCTAssertTrue(closed.isHandled)
+    XCTAssertTrue(closed.candidates.isEmpty)
+    XCTAssertEqual(closed.preedit, "한")
+
+    _ = bridge.convertHanja()
+    let cancelled = bridge.cancel()
+    XCTAssertTrue(cancelled.isHandled)
+    XCTAssertTrue(cancelled.candidates.isEmpty, "Cancel only closes the list")
+    XCTAssertEqual(cancelled.preedit, "한")
+    XCTAssertTrue(bridge.cancel().preedit.isEmpty, "a second Cancel drops the syllable")
+
+    _ = type("gks", into: bridge)
+    _ = bridge.convertHanja()
+    let chosen = bridge.commitCandidate()
+    XCTAssertTrue(chosen.isHandled, "Return and Space take no newline or space after a Hanja")
+    XCTAssertEqual(chosen.commitText, "韓")
+    XCTAssertTrue(chosen.preedit.isEmpty)
+
+    _ = type("gks", into: bridge)
+    _ = bridge.convertHanja()
+    let digit = bridge.handleCharacter("2")
+    XCTAssertTrue(digit.isHandled)
+    XCTAssertEqual(digit.commitText, "漢")
+
+    _ = type("gks", into: bridge)
+    _ = bridge.convertHanja()
+    let selected = bridge.selectCandidate(at: 1)
+    XCTAssertEqual(selected.commitText, "漢")
+
+    _ = type("gks", into: bridge)
+    _ = bridge.convertHanja()
+    let letter = bridge.handleCharacter("r")
+    XCTAssertEqual(letter.commitText, "한", "a letter closes the list and composes on")
+    XCTAssertTrue(letter.candidates.isEmpty)
+    XCTAssertEqual(letter.preedit, "ㄱ")
+    let lone = bridge.convertHanja()
+    XCTAssertFalse(lone.isHandled, "a lone jamo has no Hanja")
+    XCTAssertTrue(lone.candidates.isEmpty)
+    XCTAssertEqual(lone.preedit, "ㄱ")
+
+    _ = bridge.cancel()
+    _ = type("gks", into: bridge)
+    _ = bridge.convertHanja()
+    let finished = bridge.finishComposition()
+    XCTAssertEqual(finished.commitText, "한", "finishing writes the Hangul, never a Hanja")
+    XCTAssertTrue(finished.candidates.isEmpty)
   }
 
   func testKeysThatEndTheSyllableCommitItUnhandled() {

@@ -289,6 +289,12 @@ export const pageHeader = "mb-6 flex items-center gap-2.5 hm2:mb-4";
 /** The way back from a sub-page (AI 辅助, 背单词, 帮助) to the page it opens from, above the title. */
 export const backLink =
   "mb-1 inline-flex min-h-8 items-center self-start rounded-md border-0 bg-transparent px-0 text-[13px] text-accent hover:underline focus-visible:outline-2 focus-visible:outline-accent";
+/** A view inside a page (a plugin's detail on 插件): the back link over a title one step below the page's own. */
+export const subViewHeader = "flex min-w-0 flex-col items-start gap-1";
+/** A stack of groups inside a page's own stack, spaced as the page spaces them. */
+export const subViewStack = "flex min-w-0 flex-col gap-6";
+export const subViewTitle =
+  "m-0 text-[20px] leading-tight font-semibold [color:var(--p-text)] break-anywhere";
 export const pageTitle =
   "m-0 text-[length:var(--p-title-fs)] leading-tight [font-weight:var(--p-title-w)]";
 /**

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Row, Select } from "../core/platform-controls";
 import * as settings from "./settings-style";
+import { CustomPromptSlotOptions } from "./custom-prompt-slot-options";
 import {
   POLISH_CUSTOM_IDS,
   POLISH_PRESET_IDS,
@@ -60,9 +61,7 @@ export function PolishPromptSection({
               {POLISH_PRESET_NAMES[id]}
             </option>
           ))}
-          <option value="custom_1">自定义一</option>
-          <option value="custom_2">自定义二</option>
-          <option value="custom_3">自定义三</option>
+          <CustomPromptSlotOptions />
         </Select>
       </Row>
       <div className={settings.managerBlock}>

@@ -740,7 +740,8 @@ struct KeyboardView {
       this.backspaceRepeated = true;
       if (action === BackspaceHoldAction.CANCEL_COMPOSITION) {
         this.backspaceTimer = -1;
-        KeyboardSession.shared.cancel();
+        // The whole composition, a Korean syllable whose Hanja list is open included, which a single cancel would only close.
+        KeyboardSession.shared.discardComposition();
         return;
       }
       KeyboardSession.shared.backspace();
@@ -805,6 +806,37 @@ struct KeyboardView {
    */
   private koreanFace(): boolean {
     return KoreanCompositionPolicy.selected(this.scheme.engineScheme, this.english, this.localMode);
+  }
+
+  /** Whether the Engine last reported a Korean composition under the Korean rules, as opposed to the face the keyboard draws before it has. */
+  private koreanComposition(): boolean {
+    return KoreanCompositionPolicy.active(this.engineScheme, this.english, this.localMode);
+  }
+
+  /** Whether the strip holds the Hanja list of the composing Korean syllable. */
+  private koreanHanjaListOpen(): boolean {
+    return KoreanCompositionPolicy.hanjaListOpen(this.koreanComposition(), this.candidates.length);
+  }
+
+  /**
+   * Whether the touch strip offers 漢: while a Korean syllable composes, its list open or not. A 2in1 candidate window does not draw it, since that machine has the hardware Hanja key and the window is sized to its candidates; see HardwareKeyRouter.routeKorean.
+   */
+  private showsHanjaButton(): boolean {
+    return !KeyboardFormFactor.isDesktop()
+      && KoreanCompositionPolicy.convertsHanja(this.koreanComposition(), this.editing);
+  }
+
+  /**
+   * The 漢 button: list the Hanja of the composing syllable, or close the open list and keep the syllable composing. A lone jamo has no Hanja and the Engine leaves it alone, so the strip says why nothing opened, as on iOS.
+   */
+  private convertKoreanSyllableToHanja(): void {
+    if (!this.showsHanjaButton()) {
+      return;
+    }
+    if (!KeyboardSession.shared.convertHanja()) {
+      this.diagnostic = '单个字母没有对应的汉字';
+      this.clearDiagnosticLater();
+    }
   }
 
   private tapLetter(letter: string): void {
@@ -1527,7 +1559,11 @@ struct KeyboardView {
   private activateSpace(): void {
     KeyboardSession.shared.recordKey(KeyIdPolicy.SPACE);
     if (this.koreanFace()) {
-      // Space ends the open syllable and is still a space, so the keyboard types it after the commit.
+      // Space ends the open syllable and is still a space, so the keyboard types it after the commit. With the syllable's Hanja list open it chooses the highlighted Hanja instead, as Return does.
+      if (this.koreanHanjaListOpen()) {
+        KeyboardSession.shared.commitHighlighted();
+        return;
+      }
       KeyboardSession.shared.commitThenType(0x20);
       return;
     }
@@ -2038,6 +2074,9 @@ struct KeyboardView {
         if (this.effectBadge.length > 0 && this.comboOnCompositionLine()) {
           this.comboBadge()
         }
+        if (this.showsHanjaButton()) {
+          this.hanjaButton()
+        }
         if (this.showsCandidatePager()) {
           this.candidatePager()
         }
@@ -2114,6 +2153,27 @@ struct KeyboardView {
       }
     }
     .width('100%')
+  }
+
+  /**
+   * 漢, the touch counterpart of a Korean keyboard's Hanja key, at the end of the composition line. It sits on that line rather than among the candidates so it stays put while the list it opens fills the row below, and its filled face says the list is open.
+   */
+  @Builder
+  hanjaButton() {
+    Text('漢')
+      .fontSize(this.settings.candidatePreeditFontSize)
+      .fontColor(this.skin.accent)
+      .fontFamily(this.candidateFontFamily())
+      .maxLines(1)
+      .height('100%')
+      .padding({ left: 12, right: 12 })
+      .borderRadius(STRIP_PILL_RADIUS_VP)
+      .backgroundColor(this.koreanHanjaListOpen() ? this.skin.keyBackground : TRANSPARENT)
+      .flexShrink(0)
+      .accessibilityText(KeyAccessibilityPolicy.hanja(this.koreanHanjaListOpen()))
+      .onClick((): void => {
+        this.convertKoreanSyllableToHanja();
+      })
   }
 
   /** The typing combo: its count in the accent colour, swelling in power mode. */

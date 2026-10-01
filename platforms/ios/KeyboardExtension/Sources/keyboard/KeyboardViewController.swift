@@ -78,6 +78,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var synchronizingPersonalDictionary = false
   private let preeditButton = UIButton()
   private let exitLocalModeButton = UIButton()
+  /// 漢 on the candidate row: the touch counterpart of a Korean keyboard's Hanja key. Shown only while a Korean syllable composes; it lists the syllable's Hanja on the strip and closes the list again.
+  private let hanjaButton = UIButton()
   private var localModeTrigger: String?
   private var standardRowHeights: [(UIView, NSLayoutConstraint)] = []
   private let candidateScrollView = CandidateScrollView()
@@ -169,6 +171,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var supportsLocalTools: Bool { isChineseMode && inputScheme != .wubi && inputScheme.writesChinese }
   /// Whether the letter keys feed the Korean syllable automaton: their faces are jamo and Shift picks the tense consonants instead of switching to English.
   private var typesKorean: Bool { isChineseMode && inputScheme.isKorean && !isInLocalMode }
+  /// Whether the Hanja list of the composing Korean syllable is on the strip. The Engine offers Korean no candidates until MSIME_CONVERT_HANJA (msime_client.h), so a Korean composition with candidates is that list.
+  private var koreanHanjaListOpen: Bool { typesKorean && hasComposition && !visibleCandidates.isEmpty }
   private var nineKeyRows: [UIView] = []
   private var actionRow: UIStackView!
   private var actionDeleteButton: UIButton!
@@ -527,13 +531,20 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if !inlineMarkedText.isEmpty {
       inlineMarkedText = ""
       textDocumentProxy.unmarkText()
-      render(session.cancel())
+      render(discardComposition())
       return
     }
     // A genuine host-initiated change — the caret moved, the field was cleared, the document was
     // swapped. Commit what is composed rather than discarding it, the way macOS commits on every
     // automatic boundary.
     render(session.finishComposition())
+  }
+
+  /// MSIME_CANCEL for a composition the keyboard abandons. With a Korean Hanja list open the first cancel only closes the list (msime_client.h), so it takes a second to drop the syllable, which would otherwise stay composing in the Engine after the host took it as typed text.
+  private func discardComposition() -> MetasequoiaInputSnapshot {
+    let closesHanjaList = koreanHanjaListOpen
+    let snapshot = session.cancel()
+    return closesHanjaList ? session.cancel() : snapshot
   }
 
   override func textDidChange(_ textInput: UITextInput?) {
@@ -974,7 +985,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
     let content = UIStackView(arrangedSubviews: [
       candidateScrollView, diagnosticLabel,
-      candidateEmptySpacer, expandCandidatesButton, exitLocalModeButton,
+      candidateEmptySpacer, expandCandidatesButton, exitLocalModeButton, hanjaButton,
     ])
     content.axis = .horizontal
     content.alignment = .center
@@ -994,6 +1005,19 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       guard let self else { return }
       render(session.cancel())
     }, for: .primaryActionTriggered)
+    // 漢 sits at the trailing end of the candidate row, after the list it opens, so the Hanja scroll beside it and it stays put while the list fills the row.
+    var hanjaConfiguration = UIButton.Configuration.plain()
+    hanjaConfiguration.title = "漢"
+    hanjaConfiguration.baseForegroundColor = KeyboardTheme.current.accent
+    hanjaConfiguration.contentInsets = .zero
+    hanjaConfiguration.background.cornerRadius = 9
+    hanjaConfiguration.titleTextAttributesTransformer = Self.fontTransformer(.body, scale: 1)
+    hanjaButton.configuration = hanjaConfiguration
+    hanjaButton.accessibilityIdentifier = "hanjaButton"
+    hanjaButton.widthAnchor.constraint(equalToConstant: 38).isActive = true
+    hanjaButton.isHidden = true
+    hanjaButton.addTarget(self, action: #selector(prepareKeyFeedback), for: .touchDown)
+    hanjaButton.addAction(UIAction { [weak self] _ in self?.convertKoreanSyllableToHanja() }, for: .primaryActionTriggered)
     installShortcutBar(in: container)
 
     let stripHeight = container.heightAnchor.constraint(
@@ -1738,7 +1762,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       return
     }
 
-    // Korean has no candidates to number. A digit ends the open syllable, which comes back as the commit of an unhandled key, and is then typed after it.
+    // Korean digits go to the session as characters. With the Hanja list open a digit 1-9 chooses from its page and comes back handled with the Hanja as the commit; otherwise the digit ends the open syllable, which comes back as the commit of an unhandled key, and is then typed after it.
     if typesKorean, symbol.count == 1, symbol >= "0", symbol <= "9" {
       let snapshot = session.handleCharacter(symbol)
       render(snapshot)
@@ -1904,7 +1928,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // insert its remaining preedit into the new field while changing the keyboard's presentation.
     // The marked text belonged to the old field too, so there is nothing here to clear.
     inlineMarkedText = ""
-    render(session.cancel())
+    render(discardComposition())
     isChineseMode = chinese
     showsSymbols = false
     letterCaseState = .lowercase
@@ -2127,8 +2151,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       title = "换行"
     }
 
-    // Return commits what is being composed rather than doing the field's action, so it says so. A Korean syllable is already text: Return commits it and still does the field's action, so the key keeps the field's name.
-    let confirms = hasComposition && !(isChineseMode && inputScheme.isKorean)
+    // Return commits what is being composed rather than doing the field's action, so it says so. A Korean syllable is already text: Return commits it and still does the field's action, so the key keeps the field's name, unless the syllable's Hanja list is open, where Return only chooses a Hanja.
+    let confirms = hasComposition && (!(isChineseMode && inputScheme.isKorean) || koreanHanjaListOpen)
     let shownTitle = !confirms ? title : inputScheme.isJapanese ? "確定" : "确认"
     if var configuration = japaneseReturnButton?.configuration {
       let japaneseTitle = hasComposition ? "確定" : "改行"
@@ -2151,8 +2175,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     guard let enterButton, var configuration = enterButton.configuration else { return }
     let skin = KeyboardTheme.current
     guard skin.design == nil else { return }
-    // A Korean syllable is nearly always open while typing, and Return does not merely confirm it, so the key stays a function key.
-    let emphasized = hasComposition && !(isChineseMode && inputScheme.isKorean)
+    // A Korean syllable is nearly always open while typing, and Return does not merely confirm it, so the key stays a function key until the syllable's Hanja list opens.
+    let emphasized = hasComposition && (!(isChineseMode && inputScheme.isKorean) || koreanHanjaListOpen)
     let background = emphasized ? skin.actionBackground : skin.functionKeyBackground
     let foreground = emphasized ? skin.actionForeground : skin.keyForeground
     guard configuration.background.backgroundColor != background || configuration.baseForegroundColor != foreground
@@ -3263,7 +3287,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       return
     }
     let snapshot = endComposition(at: .returnKey)
-    // An unhandled Return can still carry a commit: the Korean syllable it ended. That goes in first and the newline after it.
+    // An unhandled Return can still carry a commit: the Korean syllable it ended. That goes in first and the newline after it. A Hanja chosen from the open list comes back handled, with no newline.
     render(snapshot)
     if !snapshot.isHandled {
       pairedPunctuation.clear()
@@ -3273,8 +3297,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// Ends an open composition the way `boundary` calls for. An idle session still gets finishComposition, which reports itself unhandled so the caller knows nothing was committed.
   private func endComposition(at boundary: CompositionBoundary) -> MetasequoiaInputSnapshot {
-    switch CompositionBoundaryPolicy.action(composing: hasComposition, scheme: inputScheme, boundary: boundary) {
+    switch CompositionBoundaryPolicy.action(composing: hasComposition, scheme: inputScheme, boundary: boundary,
+                                            koreanHanjaListOpen: koreanHanjaListOpen) {
     case .commitRaw: session.commitRaw()
+    case .commitCandidate: session.commitCandidate()
     case .finishComposition, .none: session.finishComposition()
     }
   }
@@ -3483,6 +3509,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
                     replacingComposition: true)
     }
     let wasComposing = hasComposition
+    let wasKoreanHanjaListOpen = koreanHanjaListOpen
     hasComposition = !snapshot.preedit.isEmpty
     if !hasComposition || snapshot.commitText != nil { japaneseConversionIndex = nil }
     if inputScheme.isJapanese {
@@ -3520,6 +3547,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
                          candidateFixedPositions: snapshot.candidateFixedPositions,
                          candidatePageCount: snapshot.candidatePageCount,
                          answeredByPinyinFallback: snapshot.answeredByPinyinFallback)
+    // The Hanja list opens and closes while the syllable keeps composing, and Return chooses a Hanja only while it is open.
+    if !inputScheme.isJapanese && koreanHanjaListOpen != wasKoreanHanjaListOpen { updateReturnKey() }
     refreshCandidatePanelAnnotations()
     updateSpellingStrip()
     scheduleCandidateGlosses()
@@ -3575,6 +3604,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func renderCandidateStrip() {
     exitLocalModeButton.isHidden = !isInLocalMode
+    updateHanjaButton()
     let showsCandidates = isInLocalMode || !visiblePreedit.isEmpty || !visibleCandidates.isEmpty || visibleDiagnostic != nil
     shortcutBar.isHidden = showsCandidates
     candidateContent?.isHidden = !showsCandidates
@@ -3602,6 +3632,32 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     candidateEmptySpacer.isHidden = !visibleCandidates.isEmpty || visibleDiagnostic != nil
   }
 
+  /// 漢 shows while a Korean syllable composes, its list open or not, so a lone jamo is left to the Engine, which declines it, and the keyboard needs no jamo table. The tinted face says the list is open.
+  private func updateHanjaButton() {
+    let offersHanja = typesKorean && hasComposition
+    let listOpen = koreanHanjaListOpen
+    hanjaButton.isHidden = !offersHanja
+    guard offersHanja, var configuration = hanjaButton.configuration else { return }
+    let accent = candidatePalette?.accent ?? KeyboardTheme.current.accent
+    configuration.baseForegroundColor = accent
+    configuration.background.backgroundColor = listOpen ? accent.withAlphaComponent(0.22) : .clear
+    hanjaButton.configuration = configuration
+    hanjaButton.accessibilityLabel = listOpen ? "关闭汉字列表" : "转换为汉字"
+    hanjaButton.accessibilityTraits = listOpen ? [.button, .selected] : .button
+  }
+
+  /// The 漢 button: MSIME_CONVERT_HANJA lists the Hanja of the composing syllable, or closes the open list and keeps the syllable composing. A lone jamo has no Hanja and the Engine leaves it alone, so the strip says why nothing opened.
+  private func convertKoreanSyllableToHanja() {
+    guard typesKorean, hasComposition else { return }
+    playInputClick()
+    let snapshot = session.convertHanja()
+    render(snapshot)
+    if !snapshot.isHandled {
+      showDiagnostic("单个字母没有对应的汉字")
+      renderCandidateStrip()
+    }
+  }
+
   private func candidateMarkers(at index: Int) -> [CandidateMarker] {
     CandidateMarker.markers(
       source: visibleCandidateSources.indices.contains(index) ? visibleCandidateSources[index] : 0,
@@ -3619,6 +3675,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func codeHint(code: String, engine: String, typed: String) -> (String, String) {
     let wubi = wubiCodeHint(code: code, typed: typed)
     if !wubi.isEmpty { return (wubi, "还需输入 \(wubi)") }
+    // A Hanja carries its 훈음 (meaning and reading) as the Engine's annotation; its code is only the key letters, which is not drawn (msime_client.h).
+    if typesKorean { return engine.isEmpty ? ("", "") : (engine, "训音 \(engine)") }
     // Pinyin schemes only: that is where the Engine puts helpcodes and corrections, and what other schemes carry there is not something these settings govern.
     guard !engine.isEmpty, !isInLocalMode, inputScheme == .quanpin || usesShuangpin else { return ("", "") }
     // The Engine brackets its suffix for desktop windows that append it after the word; here it sits under the word like the Wubi hint, which is bare.
@@ -3628,7 +3686,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func candidateGlosses(at index: Int) -> [String] {
-    guard CandidateGlossPreference.enabled, visibleCandidates.indices.contains(index) else { return [] }
+    // A Korean Hanja carries its 훈음 as its hint and is not translated, so it reserves no gloss line either.
+    guard CandidateGlossPreference.enabled, !typesKorean, visibleCandidates.indices.contains(index) else { return [] }
     let word = visibleCandidates[index]
     var languages = [CandidateTranslationPreference.primary]
     if let secondary = CandidateTranslationPreference.secondary { languages.append(secondary) }
@@ -4007,8 +4066,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     button.configuration = configuration
     button.titleLineCount = 1 + glosses.count
     pinCandidateWidth(of: button, firstLine: configuration.attributedTitle, glossLines: glosses.count)
+    // A Korean Hanja's annotation is its 훈음, not keys still to type.
     button.accessibilityLabel = annotation.isEmpty
       ? "候选词 \(number)：\(display)"
+      : typesKorean ? "候选词 \(number)：\(display)，训音 \(annotation)"
       : "候选词 \(number)：\(display)，还需输入 \(annotation)"
     for marker in markers { button.accessibilityLabel? += "，\(marker.spoken)" }
     let spoken = glosses.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }

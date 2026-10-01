@@ -2,7 +2,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { runAsyncAction } from "../core/async-action";
 import { appendUniqueById } from "./community-helpers";
 
-export type CommunityGalleryPage<T> = { items: T[]; has_more: boolean };
+export type CommunityGalleryPage<T> = {
+  items: T[];
+  has_more: boolean;
+  /** Rows the server listed on this page that the host left out (a kind this client cannot install). They still count toward the next offset, so 加载更多 resumes after them instead of reading them again. */
+  skipped?: number;
+};
 
 export interface CommunityGalleryClient<T extends { id: string }> {
   list(offset: number, search: string, mine?: boolean): Promise<CommunityGalleryPage<T>>;
@@ -23,6 +28,9 @@ export interface CommunityGalleryActionOptions {
   ignoreError?: (failure: unknown) => boolean;
   onError?: (failure: unknown) => void;
 }
+
+/** How many pages in a row that the host emptied (see `CommunityGalleryPage.skipped`) one request reads past before it stops and leaves the rest to 加载更多. */
+const MAX_SKIPPED_PAGES = 5;
 
 const defaultErrorMessage = (failure: unknown) =>
   failure instanceof Error ? failure.message : "加载失败，请稍后重试。";
@@ -72,10 +80,25 @@ export function useCommunityGallery<T extends { id: string }>({
       setError("");
       setSignInRequired(false);
       try {
-        const page = await client.list(offset, query, mine);
+        let page = await client.list(offset, query, mine);
+        let pageOffset = offset;
+        // A page the host emptied by leaving out every row (all of a kind this client cannot install) shows nothing yet has more after it: read on, a few pages at most, so the list does not look empty while installable rows follow.
+        for (
+          let extra = 0;
+          extra < MAX_SKIPPED_PAGES &&
+          page.items.length === 0 &&
+          page.has_more &&
+          (page.skipped ?? 0) > 0;
+          extra++
+        ) {
+          if (generation !== listGeneration.current) return true;
+          pageOffset += page.skipped ?? 0;
+          page = await client.list(pageOffset, query, mine);
+        }
         if (generation !== listGeneration.current) return true;
-        setItems((current) => (append ? appendUniqueById(current, page.items) : page.items));
-        nextOffset.current = offset + page.items.length;
+        const items = page.items;
+        setItems((current) => (append ? appendUniqueById(current, items) : items));
+        nextOffset.current = pageOffset + page.items.length + (page.skipped ?? 0);
         if (!append) {
           activeSearch.current = query;
           activeMine.current = mine;

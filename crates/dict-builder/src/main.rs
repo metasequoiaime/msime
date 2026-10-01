@@ -5,11 +5,13 @@
 //! msime-dict-build --cache <dir> --out <dir> --skip ngram    a quick local build without the corpus pass
 //! msime-dict-build --list
 //! msime-dict-build places --cache <dir> [--out <places.tsv>] [--offline]
+//! msime-dict-build hanja --cache <dir> [--out <hanja.tsv>] [--offline]
 //! msime-dict-build check-words [--base <words.txt> --head <words.txt>] [--translations-base <translations.txt> --translations-head <translations.txt>] [--english-base <english.txt> --english-head <english.txt>] [--msime-db <msime.db>] [--english-db <english.db>] [--json <report.json>] [--markdown <summary.md>]
 //! ```
 
 mod check_words;
 mod english;
+mod hanja;
 mod japanese;
 mod licensing;
 mod msime;
@@ -119,6 +121,8 @@ enum Command {
     CheckWords(CheckWords),
     /// Write the `@` mode place table (crates/engine/src/local/places.tsv) from the administrative divisions pinned under places/ in the sources lock.
     Places(Places),
+    /// Write the Korean Hanja table (crates/engine/src/korean/hanja.tsv) from the libhangul hanja.txt pinned under hanja/ in the sources lock.
+    Hanja(Hanja),
 }
 
 #[derive(Args)]
@@ -155,6 +159,45 @@ fn build_places(arguments: &Places) -> Result<()> {
     eprintln!(
         "[done] {} places -> {}",
         places.len(),
+        arguments.out.display()
+    );
+    Ok(())
+}
+
+#[derive(Args)]
+struct Hanja {
+    /// Where pinned sources are downloaded and reused from.
+    #[arg(long)]
+    cache: PathBuf,
+    /// The table to write; the engine's embedded copy by default.
+    #[arg(long, default_value_os_t = repository_root().join("crates/engine/src/korean/hanja.tsv"))]
+    out: PathBuf,
+    /// Fail instead of downloading a source that is not cached.
+    #[arg(long)]
+    offline: bool,
+    /// The msime checkout the sources lock is read from.
+    #[arg(long, default_value_os_t = repository_root())]
+    repository: PathBuf,
+}
+
+fn build_hanja(arguments: &Hanja) -> Result<()> {
+    let root = &arguments.repository;
+    let sources = Sources {
+        lock: Lock::load(&root.join("resources/dictionary-sources.lock.json"))?,
+        repository_inputs: root.join("resources/dictionary-sources"),
+        cache: arguments.cache.clone(),
+        offline: arguments.offline,
+    };
+    let readings = hanja::build(&text::read(&sources.pinned(hanja::SOURCE)?)?)?;
+    hanja::write(&readings, &arguments.out)?;
+    let syllables = readings
+        .iter()
+        .map(|reading| reading.syllable)
+        .collect::<std::collections::HashSet<_>>()
+        .len();
+    eprintln!(
+        "[done] {} readings of {syllables} syllables -> {}",
+        readings.len(),
         arguments.out.display()
     );
     Ok(())
@@ -484,6 +527,9 @@ fn main() -> Result<()> {
     let arguments = Arguments::parse();
     if let Some(Command::Places(places)) = &arguments.command {
         return build_places(places);
+    }
+    if let Some(Command::Hanja(hanja)) = &arguments.command {
+        return build_hanja(hanja);
     }
     if let Some(Command::CheckWords(check)) = &arguments.command {
         match check_words(check) {

@@ -1,3 +1,5 @@
+import { CustomPromptSlotOptions } from "./custom-prompt-slot-options";
+
 export function AiPromptSettingsSection({
   promptId,
   prompt,
@@ -36,9 +38,7 @@ export function AiPromptSettingsSection({
             value={promptId === "custom" ? "custom_1" : promptId || "custom_1"}
             onChange={(event) => onPromptIdChange(event.target.value)}
           >
-            <option value="custom_1">自定义一</option>
-            <option value="custom_2">自定义二</option>
-            <option value="custom_3">自定义三</option>
+            <CustomPromptSlotOptions />
           </select>
         </label>
       </div>

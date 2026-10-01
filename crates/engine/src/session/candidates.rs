@@ -148,7 +148,10 @@ impl InputSession {
         let journal = self.journal_path();
         let regular = self.local_mode == LocalInputMode::None
             && !self.dedicated_english
-            && self.scheme() != SchemeType::JapaneseRomaji;
+            && !matches!(
+                self.scheme(),
+                SchemeType::JapaneseRomaji | SchemeType::Korean
+            );
         let include_missing = self.engine.request().raw_input.len() == 1;
         let keep_dynamic = self.has_active_helpcode();
         let engine = &self.engine;

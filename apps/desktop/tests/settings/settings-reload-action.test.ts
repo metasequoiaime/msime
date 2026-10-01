@@ -38,3 +38,20 @@ test("does not reload when discarding is canceled", async () => {
 
   expect(reload).not.toHaveBeenCalled();
 });
+
+test("ignores a same-tick duplicate reload", async () => {
+  let resolve!: () => void;
+  const reload = vi.fn().mockReturnValue(
+    new Promise<void>((accept) => {
+      resolve = accept;
+    }),
+  );
+  const action = createSettingsReloadAction({ dirty: false, reload, confirm: vi.fn() });
+
+  const first = action();
+  const second = action();
+  expect(reload).toHaveBeenCalledOnce();
+  resolve();
+  await first;
+  await second;
+});

@@ -338,14 +338,16 @@ impl InputSession {
         KeyResult::handled().with_diagnostic(self.update_local_candidates())
     }
 
-    /// Korean keys: every letter is a jamo and always handled, carrying the syllables it finished as a commit. Any other key leaves the scheme alone. Punctuation stays unhandled without touching the composition, because the punctuation route commits the open syllable ahead of the mark; a digit, a space or another symbol commits the open syllable and stays unhandled, so the host inserts the key after the commit.
+    /// Korean keys: every letter is a jamo and always handled, carrying the syllables it finished as a commit; a letter typed into an open Hanja list closes it and keeps composing. Any other key leaves the scheme alone. Punctuation stays unhandled without touching the composition, because the punctuation route commits the open syllable ahead of the mark; a digit 1-9 with the Hanja list open stays unhandled with nothing committed, so the runtime's page selection picks the Hanja; any other digit, a space or another symbol commits the open syllable and stays unhandled, so the host inserts the key after the commit.
     fn handle_korean_character(&mut self, value: u8) -> KeyResult {
         if !value.is_ascii_alphabetic() {
             if !self.has_composition() {
                 self.reset_commit_context();
                 return KeyResult::unhandled();
             }
-            if value.is_ascii_punctuation() {
+            if value.is_ascii_punctuation()
+                || ((b'1'..=b'9').contains(&value) && self.engine.korean_hanja_open())
+            {
                 return KeyResult::unhandled();
             }
             return self.commit_korean_composition();
@@ -380,10 +382,13 @@ impl InputSession {
             self.chain.reset();
             return KeyResult::unhandled();
         }
-        // A Korean syllable has no candidates to choose and no caret inside it: the commit and caret commands all end it and hand the key back. Backspace, Cancel and the Japanese-only variant command take the shared paths below.
-        if self.is_korean()
-            && self.local_mode == LocalInputMode::None
-            && !self.dedicated_english
+        if self.korean_rules_apply() {
+            if let Some(result) = self.handle_korean_hanja_command(command) {
+                return result;
+            }
+        }
+        // A Korean syllable has no caret inside it, and outside the Hanja list nothing to choose: the commit and caret commands all end it and hand the key back. Backspace, Cancel and the Japanese-only variant command take the shared paths below.
+        if self.korean_rules_apply()
             && matches!(
                 command,
                 Command::CommitCandidate
@@ -433,7 +438,39 @@ impl InputSession {
                 self.chain.same_composition = false;
                 KeyResult::handled()
             }
+            // Only a Korean syllable converts to Hanja; the host keeps the key.
+            Command::ConvertHanja => KeyResult::unhandled(),
         }
+    }
+
+    /// The Hanja list of the composing Korean syllable. The trigger opens it, or closes it when it is open, and is unhandled when the syllable has no Hanja (a lone jamo), so the host keeps the key. With the list open, Cancel and Backspace only close it and leave the syllable composing, and CommitCandidate chooses the first Hanja. `None` leaves the command to the Korean rules.
+    fn handle_korean_hanja_command(&mut self, command: Command) -> Option<KeyResult> {
+        match command {
+            Command::ConvertHanja => {
+                if self.close_korean_hanja() {
+                    return Some(KeyResult::handled());
+                }
+                if !self.engine.open_korean_hanja() {
+                    return Some(KeyResult::unhandled());
+                }
+                self.update_mixed_candidates();
+                Some(KeyResult::handled())
+            }
+            Command::Cancel | Command::Backspace if self.close_korean_hanja() => {
+                Some(KeyResult::handled())
+            }
+            Command::CommitCandidate if self.engine.korean_hanja_open() => Some(self.commit(0)),
+            _ => None,
+        }
+    }
+
+    /// Closes an open Korean Hanja list and rebuilds the displayed list from the engine's, which is empty again; false when no list was open. Every path that ends the list without choosing goes through here, so `candidates()` never keeps Hanja rows the engine no longer has.
+    pub(super) fn close_korean_hanja(&mut self) -> bool {
+        if !self.engine.close_korean_hanja() {
+            return false;
+        }
+        self.update_mixed_candidates();
+        true
     }
 
     /// input_session.cpp:247-258.
@@ -795,6 +832,11 @@ impl InputSession {
         self.engine.current_scheme_type() == SchemeType::Korean
     }
 
+    /// The Korean scheme's own rules are in force: dedicated English and the local modes keep theirs inside it.
+    pub(super) fn korean_rules_apply(&self) -> bool {
+        self.is_korean() && self.local_mode == LocalInputMode::None && !self.dedicated_english
+    }
+
     /// The helpcode switch of the session's scheme; other schemes have none.
     pub(super) fn helpcode_enabled(&self) -> bool {
         match self.scheme() {
@@ -1005,10 +1047,14 @@ impl InputSession {
         item.scheme == SchemeType::Wubi
     }
 
-    /// Whether a row came from a dictionary a pin, fixed position or removal can write to.
+    /// Whether a row came from a dictionary a pin, fixed position or removal can write to. Japanese rows come from a read-only model and Korean Hanja rows from the embedded table; keyed by their letters, either would land in the pinyin user dictionary.
     pub(super) fn is_editable_source(&self, item: &WordItem) -> bool {
         item.source == CandidateSource::EnglishDictionary
-            || (item.source.is_dictionary() && self.scheme() != SchemeType::JapaneseRomaji)
+            || (item.source.is_dictionary()
+                && !matches!(
+                    self.scheme(),
+                    SchemeType::JapaneseRomaji | SchemeType::Korean
+                ))
     }
 }
 

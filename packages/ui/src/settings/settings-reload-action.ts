@@ -15,17 +15,24 @@ export function createSettingsReloadAction({
   reload,
   confirm,
 }: CreateSettingsReloadActionOptions) {
+  let running = false;
   return async () => {
-    if (!dirty) {
-      await reload();
-      return;
+    if (running) return;
+    running = true;
+    try {
+      if (!dirty) {
+        await reload();
+        return;
+      }
+      const confirmed = await confirm({
+        title: "重新读取",
+        message: "尚未保存的修改会被放弃。",
+        confirmLabel: "放弃并重新读取",
+        danger: true,
+      });
+      if (confirmed) await reload();
+    } finally {
+      running = false;
     }
-    const confirmed = await confirm({
-      title: "重新读取",
-      message: "尚未保存的修改会被放弃。",
-      confirmLabel: "放弃并重新读取",
-      danger: true,
-    });
-    if (confirmed) await reload();
   };
 }

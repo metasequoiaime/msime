@@ -371,6 +371,7 @@ mod anonymous;
 mod api;
 mod avatar;
 mod client;
+mod file_storage;
 mod google;
 mod session;
 mod validate;
@@ -382,6 +383,7 @@ pub use anonymous::{
 pub use api::*;
 pub use avatar::*;
 pub use client::*;
+pub use file_storage::*;
 pub use google::*;
 pub use session::*;
 pub use validate::*;

@@ -50,11 +50,14 @@ export function ChatPage({
   const generation = useRef(0);
   const modelGeneration = useRef(0);
   const mounted = useRef(true);
+  const sendingRef = useRef(false);
+  const modelsRunning = useRef(false);
   const nextMessageId = useRef(1);
   const composer = useRef<HTMLTextAreaElement>(null);
 
   const loadModels = async () => {
-    if (!mounted.current) return;
+    if (!mounted.current || modelsRunning.current) return;
+    modelsRunning.current = true;
     const current = ++modelGeneration.current;
     setLoadingModels(true);
     setError("");
@@ -72,6 +75,7 @@ export function ChatPage({
       setLoginNeeded(unauthorized);
       setError(chatError(cause));
     } finally {
+      if (modelGeneration.current === current) modelsRunning.current = false;
       if (mounted.current && modelGeneration.current === current) setLoadingModels(false);
     }
   };
@@ -83,6 +87,8 @@ export function ChatPage({
       mounted.current = false;
       modelGeneration.current += 1;
       generation.current += 1;
+      sendingRef.current = false;
+      modelsRunning.current = false;
     };
   }, [client]);
 
@@ -93,8 +99,9 @@ export function ChatPage({
   }, [autoFocus]);
 
   const requestReply = async (history: DisplayMessage[]) => {
-    if (sending || !selectedModel) return;
+    if (sending || sendingRef.current || !selectedModel) return;
     const version = ++generation.current;
+    sendingRef.current = true;
     setSending(true);
     setError("");
     try {
@@ -110,7 +117,10 @@ export function ChatPage({
       setLoginNeeded(unauthorized);
       setError(chatError(cause));
     } finally {
-      if (generation.current === version) setSending(false);
+      if (generation.current === version) {
+        sendingRef.current = false;
+        setSending(false);
+      }
     }
   };
 
@@ -140,6 +150,7 @@ export function ChatPage({
 
   const cancel = () => {
     generation.current += 1;
+    sendingRef.current = false;
     setSending(false);
   };
 

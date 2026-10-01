@@ -4405,6 +4405,66 @@ test("AI skin publish ignores a same-tick duplicate submission", async () => {
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "发布 AI 皮肤" })).toBeNull());
 });
 
+test("AI skin save ignores a same-tick duplicate submission", async () => {
+  const pendingMutate = deferred<SavedTouchKeyboardSkin[]>();
+  const mutate = vi.fn().mockReturnValue(pendingMutate.promise);
+  const aiSkins = {
+    generate: vi.fn().mockResolvedValue([
+      {
+        name: "AI 保存重复测试",
+        description: "合成设计说明",
+        artworkPrompt: "原创背景场景，中央留白",
+        design: savedSkinDesign(),
+        artwork: {
+          b64_json:
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+          mime_type: "image/png" as const,
+          width: 1,
+          height: 1,
+        },
+      },
+    ]),
+    cancel: vi.fn().mockResolvedValue(undefined),
+  };
+  render(
+    <SettingsPage
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        customTouchKeyboardSkins: true,
+        aiSkins,
+        customSkinLibrary: { load: vi.fn().mockResolvedValue([]), mutate },
+      }}
+    />,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "主题" }));
+  fireEvent.click(screen.getByRole("button", { name: "设计我的皮肤" }));
+  const editor = screen.getByLabelText("自定义皮肤编辑器");
+  await waitFor(() =>
+    expect(
+      (within(editor).getByRole("button", { name: "AI 皮肤抽卡" }) as HTMLButtonElement).disabled,
+    ).toBe(false),
+  );
+  fireEvent.click(within(editor).getByRole("button", { name: "AI 皮肤抽卡" }));
+  fireEvent.click(screen.getByRole("button", { name: "抽三张皮肤" }));
+  await screen.findByRole("heading", { name: "AI 保存重复测试" });
+  const save = screen.getByRole("button", { name: "保存到我的皮肤" });
+  act(() => {
+    fireEvent.click(save);
+    fireEvent.click(save);
+  });
+  await waitFor(() => expect(mutate).toHaveBeenCalled());
+  expect(mutate).toHaveBeenCalledOnce();
+  pendingMutate.resolve([
+    {
+      id: "55555555-5555-4555-8555-555555555555",
+      name: "AI 保存重复测试",
+      design: savedSkinDesign(),
+    },
+  ]);
+  await screen.findByText("已保存到“我的皮肤”。");
+});
+
 test("toolbar theme loads, previews independently, saves and reloads", async () => {
   let snapshot: Snapshot = {
     ...initial,

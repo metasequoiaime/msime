@@ -10,7 +10,27 @@ use super::ShuangpinProfile;
 
 pub fn segment_input(raw: &str, profile: &ShuangpinProfile) -> String {
     // Empty chunks from `''` or a leading or trailing `'` contribute nothing (:20-54).
-    let mut result = String::with_capacity(raw.len() * 2);
+    let mut output_len = 0usize;
+    let mut piece_count = 0usize;
+    let mut chunk_count = 0usize;
+    for chunk in raw.split('\'').filter(|chunk| !chunk.is_empty()) {
+        chunk_count += 1;
+        output_len += chunk.len();
+        let bytes = chunk.as_bytes();
+        let mut position = 0;
+        while position < bytes.len() {
+            position += if takes_two_keys(bytes, position, profile) {
+                2
+            } else {
+                1
+            };
+            piece_count += 1;
+        }
+    }
+    // Segmentation keeps one delimiter between every pair of pieces, including chunks that
+    // were separated manually; empty chunks contribute neither letters nor delimiters.
+    output_len += piece_count.saturating_sub(1) + chunk_count.saturating_sub(1);
+    let mut result = String::with_capacity(output_len);
     for chunk in raw.split('\'').filter(|chunk| !chunk.is_empty()) {
         if !result.is_empty() {
             result.push('\'');
@@ -206,7 +226,9 @@ mod tests {
 
     #[test]
     fn segments_each_manual_chunk() {
-        assert_eq!(segment_input("nihcc", xiaohe()), "ni'hc'c");
+        let segmentation = segment_input("nihcc", xiaohe());
+        assert_eq!(segmentation, "ni'hc'c");
+        assert_eq!(segmentation.capacity(), segmentation.len());
         assert_eq!(segment_input("ni''hc'", xiaohe()), "ni'hc");
         assert_eq!(segment_input("'ui'u", xiaohe()), "ui'u");
         assert_eq!(segment_input("", xiaohe()), "");
