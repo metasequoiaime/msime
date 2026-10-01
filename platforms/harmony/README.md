@@ -287,6 +287,8 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 只转换当前正在组字的那一个音节（已上屏的音节不转换），汉字表由 Engine 内置（取自 libhangul，BSD-3-Clause 声明随 HAP 放在 `resfile/licenses/`）。宿主发 `MSIME_CONVERT_HANJA`（`InputCommand.CONVERT_HANJA = 16`）打开列表，再发一次关闭；判断“列表开着”的依据是 Korean 规则成立且视图带候选（`KoreanCompositionPolicy.hanjaListOpen`），因为 Korean 在这条命令之前没有任何候选。
 
+显示：候选正文只有汉字本身。Engine 把训音（훈음，如 韓 的「나라 이름 한」）放在候选的 annotation 里，宿主把它取到 `CandidateEntry.hunEum`（`CandidateGlossPolicy.hunEum`），画在候选下方的释义行上，与「随包英文释义」「候选翻译」两个开关无关：Korean 方案下 `glossRows()` 至少为 1（`CandidateGlossLayoutPolicy.schemeRows`），按方案而不是按列表是否打开预留，所以打开列表不会改变键盘高度；切换进出 Korean 时 `useScheme` 按 `译` 开关同样的方式通知视图和 ability 重算高度。共享翻译查询现在也为 Korean 的汉字行取释义，开关打开且有结果时译文接在训音后面，同一行写成「훈음 · 译文」，单行放不下就截尾；没有训音的行（约四分之三）只显示译文或留空。训音不进共享的 annotation 槽位，所以长按「插入释义」只会打出译文，训音永远不会上屏；读屏念作「训音：…」。展开候选面板同样在汉字下方显示「훈음 · 译文」。2in1 竖排候选窗没有释义行，训音以小号字画在汉字旁边。
+
 - 触屏：组字时候选条组字行末尾出现「漢」按钮（2in1 的候选窗不画，那里用硬件键），点一下列出汉字，列表开着时底色填充，再点关闭；单个字母没有汉字，Engine 不处理，组字行提示「单个字母没有对应的汉字」。列表开着时空格和回车选高亮的汉字（回车键面已是「确认」），点候选直接上屏，长按退格清空组字时连发两次取消，否则第一次只关掉列表。
 - 硬件键盘：组字时韩文键盘的汉字键（`KEYCODE_HANJA` = 2614，即 `Lang2`）或不带修饰键的 F9 触发，按住只触发一次；无论 Engine 是否处理都吞掉这个键，空闲时交还应用。列表开着时 `routeKorean` 先让给 `routeHanjaList`：空格、回车、小键盘回车选高亮项，1–9 选本页（共享偏好 `number_row_selection` 关闭时仍是提交韩文再打数字），上下键、翻页键、Tab 按导航偏好翻页和移动高亮，左右键在方向键导航打开时移动高亮；关掉的绑定和 Home/End 保持 Korean 原有含义。`- = [ ] , .` 仍是标点，由 Engine 关掉列表并把韩文和标点一起提交；退格、Esc 只关列表、保留音节；字母关掉列表后照常组字；切换方案、失焦和编辑器自己的改动提交的是韩文。
 

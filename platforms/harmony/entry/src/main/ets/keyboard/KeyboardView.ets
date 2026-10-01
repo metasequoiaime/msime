@@ -2337,6 +2337,12 @@ struct KeyboardView {
         Text(candidate.hint).fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
           .fontColor(this.candidateDetailColor()).padding({ left: 2 })
       }
+      // Only where there is no gloss line, the vertical 2in1 list; everywhere else the 훈음 is on the line under the Hanja.
+      if (candidate.hunEum.length > 0 && !this.candidateUsesGlossLine()) {
+        Text(candidate.hunEum)
+          .fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
+          .fontColor(this.candidateDetailColor()).padding({ left: 4 })
+      }
       if (candidate.annotation.length > 0 && !this.candidateUsesGlossLine()) {
         if (candidate.annotationIsTranslation) {
           Text(candidate.annotation)
@@ -2368,10 +2374,17 @@ struct KeyboardView {
   private candidateLabel(candidate: CandidateEntry, index: number): string {
     const annotation: string | null =
       candidate.annotation.length > 0 ? candidate.annotation : null;
-    const suffix: string = CandidateGlossPolicy.accessibilitySuffix(
-      candidate.annotationIsTranslation ? null : annotation,
-      candidate.annotationIsTranslation ? annotation : null, true);
+    const suffix: string = CandidateGlossPolicy.hunEumAccessibilitySuffix(candidate.hunEum)
+      + CandidateGlossPolicy.accessibilitySuffix(
+        candidate.annotationIsTranslation ? null : annotation,
+        candidate.annotationIsTranslation ? annotation : null, true);
     return KeyAccessibilityPolicy.candidate(index + 1, candidate.text, candidate.hint, suffix);
+  }
+
+  /** The line under a candidate: a Korean Hanja's 훈음 and then the translation. An Engine annotation is not on it; that stays beside the word. */
+  private candidateGlossLine(candidate: CandidateEntry): string {
+    return CandidateGlossPolicy.glossLine(candidate.hunEum,
+      candidate.annotationIsTranslation ? candidate.annotation : '');
   }
 
   @Builder
@@ -2388,11 +2401,11 @@ struct KeyboardView {
       if (this.candidateUsesGlossLine()) {
         Column() {
           this.candidatePrimaryLine(candidate)
-          Text(candidate.annotationIsTranslation ? candidate.annotation : ' ')
+          Text(this.candidateGlossLine(candidate).length > 0 ? this.candidateGlossLine(candidate) : ' ')
             .fontSize(CandidateTranslationStyle.fontSize(this.settings.candidateFontSize))
             .fontColor(this.candidateDetailColor())
             // The line is reserved whether or not this candidate has a gloss, so the row heights stay level.
-            .opacity(candidate.annotationIsTranslation ? 1 : 0)
+            .opacity(this.candidateGlossLine(candidate).length > 0 ? 1 : 0)
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
             .height(KeyboardMetrics.glossHeightVp(KeyboardSession.shared.glossRows(),
@@ -4530,6 +4543,12 @@ struct KeyboardView {
     .height(this.surfaceHeight())
   }
 
+  /** The line under an expanded-panel word, the strip's gloss line with a Korean Hanja's 훈음 ahead of the annotation. */
+  private expandedGlossLine(index: number): string {
+    const row: ExpandedCandidate = this.expanded[index];
+    return CandidateGlossPolicy.glossLine(row.hunEum, row.annotation);
+  }
+
   /**
    * What a long press offers, drawn in the panel rather than as a popup menu.
    *
@@ -4723,8 +4742,8 @@ struct KeyboardView {
                       .textOverflow({ overflow: TextOverflow.Ellipsis })
                     // The same line the strip draws under a candidate. It used to be dropped on the
                     // way here, so the panel listed words while the strip beside it explained them.
-                    if (this.expanded[index].annotation.length > 0) {
-                      Text(this.expanded[index].annotation)
+                    if (this.expandedGlossLine(index).length > 0) {
+                      Text(this.expandedGlossLine(index))
                         .fontSize(Math.max(KEY_HINT_FONT_SIZE,
                           this.settings.candidateFontSize - 8))
                         .fontColor(this.candidateDetailColor())

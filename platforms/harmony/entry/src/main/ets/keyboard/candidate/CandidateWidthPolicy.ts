@@ -11,6 +11,8 @@ export interface CandidateWidthEntry {
   readonly badge: string;
   readonly hint: string;
   readonly annotation: string;
+  /** A Korean Hanja row's 훈음, which the vertical list draws beside the word; see CandidateGlossPolicy.hunEum. */
+  readonly hunEum?: string;
 }
 
 export class CandidateWidthPolicy {
@@ -59,7 +61,7 @@ export class CandidateWidthPolicy {
     }
     let contentWidth: number = CandidateWidthPolicy.textWidthVp(editing, preeditFontSize);
     for (const entry of entries) {
-      const suffix = entry.badge + entry.hint + entry.annotation;
+      const suffix = entry.badge + entry.hint + (entry.hunEum ?? "") + entry.annotation;
       const candidateWidth =
         CandidateWidthPolicy.textWidthVp(entry.text, candidateFontSize) +
         CandidateWidthPolicy.textWidthVp(suffix, Math.max(12, candidateFontSize - 8));

@@ -2902,6 +2902,21 @@ group("sizes desktop candidate windows from bounded display estimates", () => {
   check(annotated > plain, "badges and annotations contribute to width");
   check(
     CandidateWidthPolicy.widthVp(
+      [{ text: "韓", badge: "", hint: "", annotation: "", hunEum: "나라 이름 한".repeat(3) }],
+      "",
+      18,
+      15,
+    ) >
+      CandidateWidthPolicy.widthVp(
+        [{ text: "韓", badge: "", hint: "", annotation: "" }],
+        "",
+        18,
+        15,
+      ),
+    "the vertical list makes room for a 훈음 drawn beside the Hanja",
+  );
+  check(
+    CandidateWidthPolicy.widthVp(
       [{ text: "x".repeat(200), badge: "", hint: "", annotation: "" }],
       "",
       18,
@@ -3056,6 +3071,18 @@ group("candidate gloss layout follows both independent switches before answers a
   check(
     CandidateGlossLayoutPolicy.rows(false, ["ja"], false, none, ["ja"]) === 0,
     "both switches off reserve nothing even with a dictionary installed",
+  );
+  check(
+    CandidateGlossLayoutPolicy.schemeRows(0, true) === 1,
+    "Korean keeps the 훈음 line with both switches off",
+  );
+  check(
+    CandidateGlossLayoutPolicy.schemeRows(1, true) === 1,
+    "Korean with translations on shares that one line rather than adding a second",
+  );
+  check(
+    CandidateGlossLayoutPolicy.schemeRows(0, false) === 0,
+    "every other scheme still reserves nothing with both switches off",
   );
 });
 
@@ -4459,6 +4486,64 @@ group("an engine annotation outranks a gloss in the shared hint slot", () => {
   check(
     CandidateGlossPolicy.accessibilitySuffix(null, null, true) === "",
     "with neither there is nothing to announce",
+  );
+});
+
+group("a Korean Hanja row puts its 훈음 on the gloss line and keeps it out of the committed slot", () => {
+  check(
+    CandidateGlossPolicy.hunEum(true, "나라 이름 한") === "나라 이름 한",
+    "a Hanja row's annotation is its 훈음",
+  );
+  check(
+    CandidateGlossPolicy.hunEum(false, "ggll") === "",
+    "any other row's annotation is not a 훈음",
+  );
+  check(CandidateGlossPolicy.hunEum(true, null) === "", "a Hanja without a 훈음 has none");
+  check(
+    CandidateGlossPolicy.annotation(
+      CandidateGlossPolicy.slotAnnotation(true, "나라 이름 한"),
+      null,
+      false,
+    ) === "",
+    "with both switches off the shared slot, which the gloss menu types out, stays empty",
+  );
+  check(
+    CandidateGlossPolicy.annotation(
+      CandidateGlossPolicy.slotAnnotation(true, "나라 이름 한"),
+      "Korea",
+      true,
+    ) === "Korea" &&
+      CandidateGlossPolicy.annotationIsTranslation(
+        CandidateGlossPolicy.slotAnnotation(true, "나라 이름 한"),
+        "Korea",
+        true,
+      ),
+    "the 훈음 does not outrank a translation the way an Engine annotation does",
+  );
+  check(
+    CandidateGlossPolicy.slotAnnotation(false, "ggll") === "ggll",
+    "other schemes keep their Engine annotation in the slot",
+  );
+  check(
+    CandidateGlossPolicy.glossLine("나라 이름 한", "Korea") === "나라 이름 한 · Korea",
+    "the 훈음 leads the line and the translation follows it",
+  );
+  check(
+    CandidateGlossPolicy.glossLine("나라 이름 한", "") === "나라 이름 한",
+    "without a translation the line is the 훈음 alone",
+  );
+  check(
+    CandidateGlossPolicy.glossLine("", "Korea") === "Korea",
+    "without a 훈음 the line is the translation alone",
+  );
+  check(CandidateGlossPolicy.glossLine("", "") === "", "with neither the line is blank");
+  check(
+    CandidateGlossPolicy.hunEumAccessibilitySuffix("나라 이름 한") === "，训音：나라 이름 한",
+    "the announcement calls it 训音",
+  );
+  check(
+    CandidateGlossPolicy.hunEumAccessibilitySuffix("") === "",
+    "a row without one announces nothing extra",
   );
 });
 

@@ -144,6 +144,8 @@ export interface CandidateEntry {
   /** The annotation slot is a translation rather than an Engine annotation; they are styled
    * differently because the source styles only one of them. */
   readonly annotationIsTranslation: boolean;
+  /** A Korean Hanja row's 훈음, drawn on the gloss line whatever the translation switches say and never committed; "" for any other row. */
+  readonly hunEum: string;
   /** Engine-selected candidate; selection is not necessarily the first row. */
   readonly highlighted: boolean;
   readonly badge: string;
@@ -358,6 +360,8 @@ export interface ExpandedCandidate {
   readonly text: string;
   readonly annotation: string;
   readonly annotationIsTranslation: boolean;
+  /** As CandidateEntry.hunEum. */
+  readonly hunEum: string;
 }
 
 interface CandidateSnapshot {
@@ -1971,12 +1975,12 @@ export class KeyboardSession implements HardwareKeyTarget {
    * and pushes the rest along. Off means no room is kept and the chips are as wide as their words.
    */
   glossesExpected(): boolean {
-    return this.candidateGlossRows > 0;
+    return this.glossRows() > 0;
   }
 
-  /** Fixed horizontal rows reserved before asynchronous candidate glosses arrive. */
+  /** Fixed horizontal rows reserved before asynchronous candidate glosses arrive; Korean always keeps one for the 훈음 of its Hanja rows. */
   glossRows(): number {
-    return this.candidateGlossRows;
+    return CandidateGlossLayoutPolicy.schemeRows(this.candidateGlossRows, this.schemeName === 'korean');
   }
 
   /** True when the Engine is composing English rather than Chinese. */
@@ -2385,6 +2389,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** Tells the Engine which grid the user is typing on, so a 2 means ABC rather than a digit. */
   /** The scheme now in force, which decides whether the nine-key flag means anything. */
   useScheme(name: string, profileName: string | null = null): void {
+    const glossRows: number = this.glossRows();
     this.schemeName = name;
     if (profileName !== null) {
       this.profileName = profileName;
@@ -2392,6 +2397,10 @@ export class KeyboardSession implements HardwareKeyTarget {
     // Scheme changes happen from the keyboard's own picker as well as the desktop toolbar. Keep
     // the persistent toolbar's language face in sync before the next key or button action.
     this.refreshToolbar();
+    // Korean keeps a gloss line for the 훈음 whatever the switches say, so entering or leaving it can move the keyboard's height; the view and the ability are told the way the 译 switch tells them.
+    if (this.glossRows() !== glossRows) {
+      this.announcePreferencesReloaded();
+    }
   }
 
   setNineKey(enabled: boolean): void {
@@ -3572,6 +3581,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       }
     }
     const reading: string = KeyboardSession.drawnReading(view);
+    // Korean's only candidates are the Hanja of the composing syllable, and their annotation is the 훈음 (msime_client.h).
+    const hanja: boolean = KoreanCompositionPolicy.active(view.scheme, view.dedicated_english, view.local_mode);
     const entries: CandidateEntry[] = [];
     for (const candidate of view.candidates) {
       entries.push({
@@ -3585,10 +3596,13 @@ export class KeyboardSession implements HardwareKeyTarget {
         // decides; this just supplies what it reasons about.
         hint: WubiCodeHintPolicy.hint(candidate.code, view.preedit, this.wubiCodeHint, view.scheme,
           view.local_mode, view.answered_by_pinyin_fallback),
-        annotation: CandidateGlossPolicy.annotation(candidate.annotation,
+        annotation: CandidateGlossPolicy.annotation(
+          CandidateGlossPolicy.slotAnnotation(hanja, candidate.annotation),
           candidate.translation ?? null, this.candidateGlossEnabled),
-        annotationIsTranslation: CandidateGlossPolicy.annotationIsTranslation(candidate.annotation,
-          candidate.translation ?? null, this.candidateGlossEnabled)
+        annotationIsTranslation: CandidateGlossPolicy.annotationIsTranslation(
+          CandidateGlossPolicy.slotAnnotation(hanja, candidate.annotation),
+          candidate.translation ?? null, this.candidateGlossEnabled),
+        hunEum: CandidateGlossPolicy.hunEum(hanja, candidate.annotation)
       });
     }
     if (this.onChanged !== undefined) {
@@ -3629,6 +3643,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   private publishCurrentCandidates(): void {
     const view: EngineView | undefined = this.lastView;
     if (view === undefined || this.onChanged === undefined) return;
+    const hanja: boolean = KoreanCompositionPolicy.active(view.scheme, view.dedicated_english, view.local_mode);
     const entries: CandidateEntry[] = view.candidates.map((candidate: Candidate): CandidateEntry => ({
       text: this.asTraditional(candidate.text), highlighted: candidate.highlighted,
       badge: CandidatePresentationPolicy.badge(candidate.source),
@@ -3636,10 +3651,13 @@ export class KeyboardSession implements HardwareKeyTarget {
       translation: candidate.translation ?? null,
       hint: WubiCodeHintPolicy.hint(candidate.code, view.preedit, this.wubiCodeHint, view.scheme,
         view.local_mode, view.answered_by_pinyin_fallback),
-      annotation: CandidateGlossPolicy.annotation(candidate.annotation,
+      annotation: CandidateGlossPolicy.annotation(
+        CandidateGlossPolicy.slotAnnotation(hanja, candidate.annotation),
         candidate.translation ?? null, this.candidateGlossEnabled),
-      annotationIsTranslation: CandidateGlossPolicy.annotationIsTranslation(candidate.annotation,
-        candidate.translation ?? null, this.candidateGlossEnabled)
+      annotationIsTranslation: CandidateGlossPolicy.annotationIsTranslation(
+        CandidateGlossPolicy.slotAnnotation(hanja, candidate.annotation),
+        candidate.translation ?? null, this.candidateGlossEnabled),
+      hunEum: CandidateGlossPolicy.hunEum(hanja, candidate.annotation)
     }));
     const reading: string = KeyboardSession.drawnReading(view);
     this.onChanged({
@@ -3694,7 +3712,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (translations === null || this.onChanged === undefined) return;
     const view: EngineView | undefined = this.lastView;
     const entries: CandidateEntry[] = translations.map((text: string, index: number): CandidateEntry => ({
-      text: text, hint: '', annotation: '', annotationIsTranslation: false,
+      text: text, hint: '', annotation: '', annotationIsTranslation: false, hunEum: '',
       highlighted: index === this.translationHighlight, badge: '',
       fixedPosition: 0, source: 0, translation: null
     }));
@@ -5336,14 +5354,19 @@ export class KeyboardSession implements HardwareKeyTarget {
       // The generation identifies the composition these belong to; selecting against a stale one
       // would act on a list the user is no longer looking at.
       this.generation = response.value.generation;
+      // The snapshot carries no scheme; the list being the Hanja one is read from the view it expands.
+      const hanja: boolean = this.koreanHanjaListOpen();
       const entries: ExpandedCandidate[] = [];
       for (const candidate of response.value.candidates) {
         entries.push({
           text: this.asTraditional(candidate.text),
-          annotation: CandidateGlossPolicy.annotation(candidate.annotation,
+          annotation: CandidateGlossPolicy.annotation(
+            CandidateGlossPolicy.slotAnnotation(hanja, candidate.annotation),
             candidate.translation ?? null, this.candidateGlossEnabled),
           annotationIsTranslation: CandidateGlossPolicy.annotationIsTranslation(
-            candidate.annotation, candidate.translation ?? null, this.candidateGlossEnabled)
+            CandidateGlossPolicy.slotAnnotation(hanja, candidate.annotation),
+            candidate.translation ?? null, this.candidateGlossEnabled),
+          hunEum: CandidateGlossPolicy.hunEum(hanja, candidate.annotation)
         });
       }
       return entries;

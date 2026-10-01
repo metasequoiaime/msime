@@ -36,6 +36,13 @@ export class CandidateGlossLayoutPolicy {
     return offline || online ? 1 : 0;
   }
 
+  /**
+   * The rows the strip keeps under its candidates for the current scheme. Korean keeps at least one whatever the switches say, because its Hanja rows always draw their 훈음 there; it follows the scheme rather than whether the Hanja list is open, so opening the list never changes the keyboard's height.
+   */
+  static schemeRows(rows: number, korean: boolean): number {
+    return korean ? Math.max(rows, 1) : rows;
+  }
+
   private static hasProvider(providers: CandidateGlossProviderState): boolean {
     if (providers.niuTransEnabled) {
       return (

@@ -90,6 +90,35 @@ export class CandidateGlossPolicy {
     return gloss.length === 0 ? "" : "，英文释义：" + gloss;
   }
 
+  /**
+   * The 훈음 of a Korean Hanja row, which the Engine sends as the row's annotation (나라 이름 한 for 韓), or "" for any other row.
+   *
+   * A Korean user picks a Hanja by its 훈음, so it is drawn on the gloss line under the Hanja whatever the translation switches say, and the main text stays the Hanja alone. It is a separate field rather than the shared annotation slot because that slot is what the gloss menu types into the document, and the 훈음 is never committed.
+   */
+  static hunEum(koreanHanja: boolean, engineAnnotation: string | null): string {
+    return koreanHanja && CandidateGlossPolicy.bounded(engineAnnotation) && engineAnnotation !== null
+      ? engineAnnotation
+      : "";
+  }
+
+  /** The Engine annotation left for the shared slot: none for a Korean Hanja row, whose annotation is its 훈음 and has a line of its own, so a translation can take the slot. */
+  static slotAnnotation(koreanHanja: boolean, engineAnnotation: string | null): string | null {
+    return koreanHanja ? null : engineAnnotation;
+  }
+
+  /** What the gloss line under a candidate says: the 훈음 and then the translation, on one line separated by a middle dot, either alone when the other is missing. */
+  static glossLine(hunEum: string, translation: string): string {
+    if (hunEum.length === 0) {
+      return translation;
+    }
+    return translation.length === 0 ? hunEum : hunEum + " · " + translation;
+  }
+
+  /** The screen reader's words for a 훈음, read ahead of any translation suffix. */
+  static hunEumAccessibilitySuffix(hunEum: string): string {
+    return hunEum.length === 0 ? "" : "，训音：" + hunEum;
+  }
+
   private static bounded(value: string | null): boolean {
     return value !== null && value.length > 0 && utf8Length(value) <= MAX_ENTRY_BYTES;
   }
