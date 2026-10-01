@@ -198,7 +198,7 @@ kaikki 每周覆盖同一个 URL，所以能复现构建的是 `filtered_input`�
 
 ## 粤语与注音的数据（rime-cantonese、libchewing-data）
 
-粤语（粤拼）与注音（大千）两个方案的音节和词条来自两份固定提交的上游数据，由 `msime-dict-build languages` 转换成 `cantonese.db` 与 `zhuyin.db`。两份数据库放在资源目录的兄弟目录 `language-dictionaries/`，不进 `desktop-dictionary.lock.json`，上面「九个产物」不变；理由与 `offline-glosses/` 相同：资源目录必须和词库锁逐字节一致，而且只有 macOS 提供这两个方案。数据库不在时，这两个方案显示为不可用。
+粤语（粤拼）与注音（大千）两个方案的音节和词条来自两份固定提交的上游数据，由 `msime-dict-build languages` 转换成 `cantonese.db` 与 `zhuyin.db`。两份数据库放在资源目录的兄弟目录 `language-dictionaries/`，不进 `desktop-dictionary.lock.json`，上面「九个产物」不变；理由与 `offline-glosses/` 相同：资源目录必须和词库锁逐字节一致，而且只有 macOS 与 Windows 提供这两个方案（Windows 安装包放在 `server\language-dictionaries`，与 `server\resources` 同级）。数据库不在时，这两个方案显示为不可用。
 
 | 组件 | 许可证 | 位置与说明 |
 | --- | --- | --- |
