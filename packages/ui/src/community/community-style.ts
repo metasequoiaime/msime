@@ -40,7 +40,7 @@ export const headingNote = "mt-[5px] mb-0 [font-size:var(--p-sub-fs)] [color:var
  * past the right edge with nothing to scroll it into view.
  */
 export const headingActions =
-  "flex shrink-0 grow-0 basis-auto flex-col items-end gap-2 max-tight:flex-row max-tight:flex-wrap max-tight:items-center max-tight:justify-start [&>button]:m-0 [&>button]:whitespace-nowrap";
+  "flex shrink-0 grow-0 basis-auto flex-col items-end gap-2 max-tight:flex-row max-tight:flex-wrap max-tight:items-center max-tight:justify-start [&>button]:m-0 [&>button]:whitespace-nowrap [&>.primary]:rounded-lg [&>.primary]:border [&>.primary]:border-accent-soft-border [&>.primary]:bg-accent-strong [&>.primary]:px-3 [&>.primary]:py-[7px] [&>.primary]:text-white";
 /**
  * A scope switch that stays put. Two buttons fit a phone, and the skin gallery has exactly two -- the
  * stylesheet hid these below 560px for every page, which left that gallery with no way to reach 我的作品

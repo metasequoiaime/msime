@@ -8,7 +8,7 @@ export interface AvailablePageCapabilities {
   chat: boolean;
   community: boolean;
   floatingToolbar: boolean;
-  /** The 扩展 page: a host with a pack store, or one that plays or routes something it switches. */
+  /** The 插件 page: a host with a pack store, or one that plays or routes something it switches. */
   plugins: boolean;
   mobile: boolean;
 }

@@ -94,7 +94,7 @@ fn every_pack_gets_one_line_in_order_and_any_failure_fails_the_run() {
     assert_eq!(
         lines[4],
         format!(
-            "error {}: plugin_unsupported_source: 只接受扩展包文件夹或 .zip 文件",
+            "error {}: plugin_unsupported_source: 只接受插件文件夹或 .zip 文件",
             missing.display()
         )
     );
@@ -119,7 +119,7 @@ fn a_built_in_id_is_refused_as_import_refuses_it() {
     assert_eq!(
         out,
         format!(
-            "error {}: plugin_reserved: 这个 id 属于内置扩展包，不能导入\n",
+            "error {}: plugin_reserved: 这个 id 属于内置插件，不能导入\n",
             pack.display()
         )
     );

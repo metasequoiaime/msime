@@ -11,7 +11,7 @@ export interface SettingsPageProjectionOptions {
   hasCommunity: boolean;
   showFloatingToolbar: boolean;
   showDeveloperPage: boolean;
-  /** The 扩展 page: a host with a pack store, or one that plays or routes something it switches. */
+  /** The 插件 page: a host with a pack store, or one that plays or routes something it switches. */
   hasPlugins: boolean;
   mobileHiddenPageIds: readonly SettingsPageId[];
   mobilePageTitle: (id: SettingsPageId, title: string) => string;

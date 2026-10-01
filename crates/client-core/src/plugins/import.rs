@@ -186,7 +186,7 @@ impl Budget {
         self.files += 1;
         self.bytes += bytes;
         if self.files > MAX_PACK_FILES || bytes > MAX_FILE_BYTES || self.bytes > MAX_TOTAL_BYTES {
-            return Err(PluginError::Invalid("扩展包太大".into()));
+            return Err(PluginError::Invalid("插件太大".into()));
         }
         Ok(())
     }
@@ -315,7 +315,7 @@ struct DirectoryTooLarge;
 
 impl std::fmt::Display for DirectoryTooLarge {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("压缩包的目录太大，里面的文件远多于扩展包允许的数量")
+        formatter.write_str("压缩包的目录太大，里面的文件远多于插件允许的数量")
     }
 }
 

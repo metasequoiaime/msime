@@ -462,7 +462,8 @@ import type { CommunitySkinClient } from "./community/community-skins";
 import { communityDestinationView } from "./community/community-destination";
 import type { CommunityResourceClient } from "./community/community-resources";
 import type { CandidateSkinCommunityClient } from "./community/community-candidate-skins";
-import type { CommunityPluginClient } from "./community/community-plugins";
+import { CommunityPluginsPage, type CommunityPluginClient } from "./community/community-plugins";
+import * as communityStyle from "./community/community-style";
 import { CommunityPage } from "./community/community-page";
 export { useConfirm, type ConfirmRequest } from "./core/confirm";
 export {
@@ -1846,7 +1847,7 @@ export interface SettingsClient {
   aiSkins?: AiSkinClient;
   /** Mobile and desktop hosts can show packaged offline English glosses without changing candidate identity. */
   candidateEnglishGloss?: boolean;
-  /** The desktop hosts' plugin pack store and the @ name list, behind the 扩展 page. */
+  /** The desktop hosts' plugin pack store and the @ name list, behind the 插件 page. */
   plugins?: PluginClient;
   /**
    * Which packaged dictionary is installed, for the dictionary page to state.
@@ -2387,10 +2388,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
       hasAccount: Boolean(client.account || client.appIcon),
       hasChat: Boolean(client.chat),
       hasCommunity: Boolean(
-        client.communitySkins ||
-        client.communityResources ||
-        client.communityCandidateSkins ||
-        client.communityPlugins,
+        client.communitySkins || client.communityResources || client.communityCandidateSkins,
       ),
       showFloatingToolbar,
       showDeveloperPage,
@@ -2398,6 +2396,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
       hasPlugins:
         !mobilePlatform &&
         (Boolean(client.plugins) ||
+          Boolean(client.communityPlugins) ||
           showKeySound ||
           showMusic ||
           showPluginTriggers ||
@@ -2716,6 +2715,8 @@ export function SettingsPage(props: SettingsPageProps) {
   const { onReplayOnboarding } = props;
   const model = useSettingsPageModel(props);
   const [customHelpcodeSchemas, setCustomHelpcodeSchemas] = useState<CustomHelpcodeSchema[]>([]);
+  // The 插件 page shows either the installed packs (a page of the settings form) or the community gallery, which has its own search form and so is drawn outside the settings one.
+  const [pluginView, setPluginView] = useState<"mine" | "community">("mine");
   useEffect(() => {
     let active = true;
     const reader = props.client.listHelpcodeSchemas;
@@ -3112,8 +3113,6 @@ export function SettingsPage(props: SettingsPageProps) {
                 skins={client.communitySkins}
                 resources={client.communityResources}
                 candidateSkins={client.communityCandidateSkins}
-                plugins={client.communityPlugins}
-                localPlugins={client.plugins?.catalog}
                 localSkins={client.scanSkinCatalog}
                 openSkinDirectory={client.openSkinDirectory}
                 readSkinImage={client.readSkinImage}
@@ -3144,6 +3143,35 @@ export function SettingsPage(props: SettingsPageProps) {
                 openPanel={client.openVocabulary}
               />
             )}
+            {page === "plugins" && client.communityPlugins && (
+              <div className={communityStyle.categoryTabsPair} role="tablist" aria-label="插件来源">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={pluginView === "mine"}
+                  onClick={() => setPluginView("mine")}
+                >
+                  我的插件
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={pluginView === "community"}
+                  onClick={() => setPluginView("community")}
+                >
+                  社区插件
+                </button>
+              </div>
+            )}
+            {page === "plugins" && client.communityPlugins && pluginView === "community" && (
+              <div className="mt-4">
+                <CommunityPluginsPage
+                  client={client.communityPlugins}
+                  localPlugins={client.plugins?.catalog}
+                  onLogin={openAccountLogin}
+                />
+              </div>
+            )}
             {draft && isSettingsFormPage(page) && (
               <SettingsFormFrame showReload={false} busy={busy}>
                 <SettingsFormContext.Provider value={{ ...model, draft }}>
@@ -3168,7 +3196,9 @@ export function SettingsPage(props: SettingsPageProps) {
                   <VoiceSettingsPage />
                   <HandwritingSettingsPage />
                   <ToolsSettingsPage />
-                  <PluginsSettingsPage />
+                  <PluginsSettingsPage
+                    hidden={Boolean(client.communityPlugins) && pluginView === "community"}
+                  />
                   <DownloadSettingsPage />
                   <DeveloperSettingsPage />
                   <FeedbackSettingsPage />

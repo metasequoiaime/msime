@@ -4457,7 +4457,7 @@ pub fn run() {
     } else {
         builder
     };
-    // The 扩展 page's import picker. Rust calls it host-side; no capability grants the webview any dialog command, so the page cannot open a dialog or name a path itself.
+    // The 插件 page's import picker. Rust calls it host-side; no capability grants the webview any dialog command, so the page cannot open a dialog or name a path itself.
     #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
     let builder = builder.plugin(tauri_plugin_dialog::init());
     #[cfg(target_os = "android")]

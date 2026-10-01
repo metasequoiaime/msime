@@ -140,7 +140,7 @@ print(json.loads(f.read(n))["__metadata__"]["attribution"])
 | `kira`（关闭默认特性，只开 `cpal`、`wav`、`pcm`、`ogg`、`vorbis`） | 0.12 | MIT OR Apache-2.0 | 混音、复音、按半音变调播放旋律、流式播放背景音乐。输出走上表已有的 `cpal` 0.18，不另带一份。带进 `glam`（MIT OR Apache-2.0）、`mint`（MIT）、`rtrb`（MIT OR Apache-2.0）、`atomic-arena`（MIT OR Apache-2.0）、`triple_buffer`（MPL-2.0）；`send_wrapper`（MIT OR Apache-2.0）只在 wasm 目标下用到 |
 | `symphonia`（关闭默认特性，只开 `wav`、`pcm`、`ogg`、`vorbis`） | 0.6 | MPL-2.0 | WAV 与 Ogg Vorbis 解码，是 `kira` 自己用的解码器；`host-api` 直接调用它，在包的时长上限内逐包解码（`decode.rs`），不整段解码后再检查。带进 `symphonia-core`、`symphonia-common`、`symphonia-metadata`、`symphonia-format-riff`、`symphonia-format-ogg`、`symphonia-codec-pcm`、`symphonia-codec-vorbis`（均为 MPL-2.0）、`extended`（MIT）、`regex-lite`（MIT OR Apache-2.0） |
 
-设置窗口「扩展」页导入插件包时弹出的系统选择框，只链进 macOS、Windows、Linux 的 Tauri 外壳（`apps/desktop/src-tauri/src/platform/desktop/desktop_plugins.rs`）。选择框只由 Rust 端调用，没有任何 capability 把对话框命令开放给网页：
+设置窗口「插件」页导入插件时弹出的系统选择框，只链进 macOS、Windows、Linux 的 Tauri 外壳（`apps/desktop/src-tauri/src/platform/desktop/desktop_plugins.rs`）。选择框只由 Rust 端调用，没有任何 capability 把对话框命令开放给网页：
 
 | crate | 版本 | 许可证 | 用途 |
 | --- | --- | --- | --- |

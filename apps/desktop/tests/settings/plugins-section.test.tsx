@@ -42,7 +42,7 @@ test("ignores a duplicate plugin import while the first import is pending", asyn
     />,
   );
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "扩展" }));
+  fireEvent.click(screen.getByRole("button", { name: "插件" }));
   const importButton = await screen.findByRole("button", { name: "导入文件夹" });
   await act(async () => {
     fireEvent.click(importButton);
@@ -78,7 +78,7 @@ test("a plugin removal response from a replaced client cannot update preferences
       confirm={vi.fn(async () => true)}
     />,
   );
-  const list = await screen.findByLabelText("已安装的扩展包");
+  const list = await screen.findByLabelText("已安装的插件");
   fireEvent.click(within(list).getByRole("button", { name: "删除打字机" }));
   await waitFor(() => expect(oldClient.remove).toHaveBeenCalledWith("sound", "typewriter"));
 
@@ -95,7 +95,7 @@ test("a plugin removal response from a replaced client cannot update preferences
       confirm={vi.fn(async () => true)}
     />,
   );
-  await screen.findByLabelText("已安装的扩展包");
+  await screen.findByLabelText("已安装的插件");
   await act(async () => {
     resolveRemove();
     await Promise.resolve();
@@ -301,7 +301,7 @@ test("lists every pack with its licence and removes only installed ones", async 
     key_sound: { ...defaultPluginPreferences.key_sound, pack: "typewriter" },
   };
   const { client, confirm, onChange } = renderSection({}, selected);
-  const list = await screen.findByLabelText("已安装的扩展包");
+  const list = await screen.findByLabelText("已安装的插件");
 
   await waitFor(() => expect(within(list).getByText("打字机 1.0.0")).toBeTruthy());
   expect(within(list).getByText("音效包 · 作者 测试者 · 许可证 CC0-1.0")).toBeTruthy();
@@ -354,7 +354,7 @@ test("imports through the host picker and reports what was installed", async () 
 test("says which rule a refused pack broke", async () => {
   const client = fakeClient({
     importPack: vi.fn(async () => {
-      throw { code: "plugin_invalid", detail: "扩展包不能申请权限，permissions 必须为空" };
+      throw { code: "plugin_invalid", detail: "插件不能申请权限，permissions 必须为空" };
     }),
   });
   const { onError } = renderSection({ client });
@@ -363,7 +363,7 @@ test("says which rule a refused pack broke", async () => {
   fireEvent.click(screen.getByRole("button", { name: "导入文件夹" }));
   await waitFor(() =>
     expect(onError).toHaveBeenCalledWith(
-      "扩展包不符合要求（扩展包不能申请权限，permissions 必须为空）。",
+      "插件不符合要求（插件不能申请权限，permissions 必须为空）。",
     ),
   );
 });
@@ -455,7 +455,7 @@ test("checks a name list the way the host does", () => {
 
 test("decodes host failures, falling back for unknown ones", () => {
   expect(pluginErrorMessage({ code: "plugin_reserved" }, "失败")).toBe(
-    "这个 id 属于内置扩展包，不能覆盖或删除。",
+    "这个 id 属于内置插件，不能覆盖或删除。",
   );
   expect(pluginErrorMessage({ code: "plugin_archive", detail: "压缩包里的文件太多" }, "失败")).toBe(
     "压缩包无法读取（压缩包里的文件太多）。",
@@ -746,7 +746,7 @@ const snapshot: Snapshot = {
   },
 };
 
-test("the 扩展 page saves plugin settings into the preferences document", async () => {
+test("the 插件 page saves plugin settings into the preferences document", async () => {
   const save = vi.fn(async (_revision: number, preferences: Preferences) => ({
     ...snapshot,
     revision: 4,
@@ -763,8 +763,8 @@ test("the 扩展 page saves plugin settings into the preferences document", asyn
     />,
   );
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "扩展" }));
-  const form = screen.getByRole("group", { name: "扩展" });
+  fireEvent.click(screen.getByRole("button", { name: "插件" }));
+  const form = screen.getByRole("group", { name: "插件" });
   await within(form).findByText("打字机 1.0.0");
 
   fireEvent.click(within(form).getByRole("switch", { name: "按键音" }));
@@ -773,7 +773,7 @@ test("the 扩展 page saves plugin settings into the preferences document", asyn
   expect(save.mock.calls.at(-1)?.[1].plugins?.key_sound.enabled).toBe(true);
 });
 
-test("the 扩展 page offers the typing effects where the host draws them, and only the combo count on Linux", async () => {
+test("the 插件 page offers the typing effects where the host draws them, and only the combo count on Linux", async () => {
   const save = vi.fn(async (_revision: number, preferences: Preferences) => ({
     ...snapshot,
     revision: 4,
@@ -789,8 +789,8 @@ test("the 扩展 page offers the typing effects where the host draws them, and o
     />,
   );
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "扩展" }));
-  const form = screen.getByRole("group", { name: "扩展" });
+  fireEvent.click(screen.getByRole("button", { name: "插件" }));
+  const form = screen.getByRole("group", { name: "插件" });
   expect(within(form).getByRole("radiogroup", { name: "效果样式" })).toBeTruthy();
   fireEvent.click(within(form).getByRole("radio", { name: "火花" }));
   saveSettingsNow();
@@ -808,8 +808,8 @@ test("the 扩展 page offers the typing effects where the host draws them, and o
     />,
   );
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "扩展" }));
-  const linux = screen.getByRole("group", { name: "扩展" });
+  fireEvent.click(screen.getByRole("button", { name: "插件" }));
+  const linux = screen.getByRole("group", { name: "插件" });
   expect(within(linux).getByRole("switch", { name: "连击计数" })).toBeTruthy();
   expect(within(linux).queryByRole("radiogroup", { name: "效果样式" })).toBeNull();
   expect(within(linux).queryByRole("switch", { name: "升档音" })).toBeNull();
@@ -854,7 +854,7 @@ test("the @ switch is offered only where the host can edit the name list", async
   expect(within(form).queryByRole("switch", { name: /@ 模式/ })).toBeNull();
 });
 
-test("the 扩展 page is not offered on a phone or a host that backs none of it", async () => {
+test("the 插件 page is not offered on a phone or a host that backs none of it", async () => {
   render(
     <SettingsPage
       client={{
@@ -865,7 +865,7 @@ test("the 扩展 page is not offered on a phone or a host that backs none of it"
     />,
   );
   await settingsFormReady();
-  expect(screen.queryByRole("button", { name: "扩展" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "插件" })).toBeNull();
 
   cleanup();
   render(
@@ -879,5 +879,5 @@ test("the 扩展 page is not offered on a phone or a host that backs none of it"
     />,
   );
   await settingsFormReady();
-  expect(screen.queryByRole("button", { name: "扩展" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "插件" })).toBeNull();
 });

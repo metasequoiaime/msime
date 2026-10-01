@@ -55,7 +55,7 @@ export const pages = [
   },
   {
     id: "plugins",
-    title: "扩展",
+    title: "插件",
     icon: new URL("../assets/plugins.svg", import.meta.url).href,
   },
   {

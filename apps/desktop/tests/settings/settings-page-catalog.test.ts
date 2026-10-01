@@ -114,7 +114,7 @@ test("keeps helper codes on Android and HarmonyOS while exposing keyboard shortc
   expect(harmonyTwoInOne.mobileSecondaryPages.map((page) => page.id)).toContain("shortcuts");
 });
 
-test("offers the 扩展 page only where the host backs it", () => {
+test("offers the 插件 page only where the host backs it", () => {
   const catalog = settingsPageCatalog({
     ...allCapabilities,
     plugins: false,

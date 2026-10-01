@@ -599,7 +599,7 @@ pub enum SettingsCategory {
     Voice,
     Ai,
     Tools,
-    /// 扩展: sound packs, background music, command tables and the @ name list.
+    /// 插件: sound packs, background music, command tables and the @ name list.
     Plugins,
     FloatingToolbar,
     /// 开发者选项, which holds the local MCP server.

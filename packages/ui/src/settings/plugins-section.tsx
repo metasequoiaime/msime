@@ -50,7 +50,7 @@ export type PluginCatalogResult = { packages: PluginPackage[]; issues: PluginIss
 export type MentionEntry = { text: string; key: string };
 
 /**
- * The host side of the 扩展 page. The host resolves every directory itself: the page reads the catalog, asks the host to show its own picker for an import, and names a pack to remove by kind and id, never by path.
+ * The host side of the 插件 page. The host resolves every directory itself: the page reads the catalog, asks the host to show its own picker for an import, and names a pack to remove by kind and id, never by path.
  */
 export interface PluginClient {
   catalog(): Promise<PluginCatalogResult>;
@@ -127,15 +127,15 @@ export function pluginErrorMessage(error: unknown, fallback: string): string {
   const reason = typeof detail === "string" && detail ? `（${detail}）` : "";
   switch (code) {
     case "plugin_invalid":
-      return `扩展包不符合要求${reason}。`;
+      return `插件不符合要求${reason}。`;
     case "plugin_archive":
       return `压缩包无法读取${reason}。`;
     case "plugin_unsupported_source":
-      return "只能导入扩展包文件夹或 .zip 文件。";
+      return "只能导入插件文件夹或 .zip 文件。";
     case "plugin_reserved":
-      return "这个 id 属于内置扩展包，不能覆盖或删除。";
+      return "这个 id 属于内置插件，不能覆盖或删除。";
     case "plugin_storage":
-      return "扩展目录不可用，请检查数据目录的权限。";
+      return "插件目录不可用，请检查数据目录的权限。";
     case "mention_invalid":
       return `名单有误${reason}。`;
     case "mention_format":
@@ -192,7 +192,7 @@ export interface PluginsSectionProps {
   confirm: (request: ConfirmRequest) => Promise<boolean>;
 }
 
-/** The 扩展 page: key sounds, the typing melody, typing effects, background music, command tables, the installed packs and the @ name list. */
+/** The 插件 page: key sounds, the typing melody, typing effects, background music, command tables, the installed packs and the @ name list. */
 export function PluginsSection({
   client,
   preferences,
@@ -232,7 +232,7 @@ export function PluginsSection({
         setCatalogLoaded(true);
       })
       .catch((error: unknown) => {
-        if (current) onError(pluginErrorMessage(error, "无法读取扩展包列表，请重试。"));
+        if (current) onError(pluginErrorMessage(error, "无法读取插件列表，请重试。"));
       });
     if (mentionsEditable) {
       void client
@@ -275,7 +275,7 @@ export function PluginsSection({
       setCatalogLoaded(true);
     } catch (error) {
       if (generation === clientGeneration.current)
-        onError(pluginErrorMessage(error, "无法读取扩展包列表，请重试。"));
+        onError(pluginErrorMessage(error, "无法读取插件列表，请重试。"));
     }
   };
 
@@ -608,10 +608,10 @@ export function PluginsSection({
         </GroupList>
       )}
       {client && (
-        <GroupList title="扩展包">
+        <GroupList title="插件管理">
           <div className={settings.managerBlock}>
             <p className={settings.managerNote}>
-              扩展包只含音频、指令模板等数据，不能带任何可执行内容，每个包都必须声明许可证。可以导入一个包的文件夹，或者打包好的
+              插件只含音频、指令模板等数据，不能带任何可执行内容，每个包都必须声明许可证。可以导入一个包的文件夹，或者打包好的
               .zip 文件。
             </p>
             <div className={settings.managerActions}>
@@ -638,9 +638,9 @@ export function PluginsSection({
               </p>
             )}
           </div>
-          <div className={settings.clipboardList} aria-label="已安装的扩展包">
+          <div className={settings.clipboardList} aria-label="已安装的插件">
             {catalog.packages.length === 0 ? (
-              <p className={settings.clipboardEmpty}>没有扩展包</p>
+              <p className={settings.clipboardEmpty}>没有插件</p>
             ) : (
               catalog.packages.map((pack) => (
                 <div className={settings.clipboardRow} key={`${pack.kind}/${pack.id}`}>
@@ -677,7 +677,7 @@ export function PluginsSection({
             )}
           </div>
           {catalog.issues.length > 0 && (
-            <div className={settings.managerBlock} role="list" aria-label="无法载入的扩展包">
+            <div className={settings.managerBlock} role="list" aria-label="无法载入的插件">
               {catalog.issues.map((issue) => (
                 <p
                   className={settings.managerNote}

@@ -1,4 +1,4 @@
-//! 扩展 page commands for the macOS, Windows and Linux shells: the plugin packs installed under the state directory, the built-in sound packs the bundle ships, and the @ mode's name list.
+//! 插件 page commands for the macOS, Windows and Linux shells: the plugin packs installed under the state directory, the built-in sound packs the bundle ships, and the @ mode's name list.
 //!
 //! Every rule lives in `msime_client_core::plugins`; these are shims that resolve the roots host-side and hand them over. The page never names a path: it asks for the catalog, asks the host to show its own picker for an import, and names a pack to remove by kind and id. The input processes read the same `<state>/plugins` directory (`preferences_directory/plugins` in host-api), so an import or a name-list save reaches them without any notification of its own: sound and music settings travel through the preferences document, and the command tables and the name list are reread when a field gains focus after their files changed.
 
@@ -127,12 +127,10 @@ pub async fn import_plugin_pack(
         let dialog = app.dialog().file().set_parent(&window);
         // The dialog runs on the main thread; this worker only waits for the answer.
         let picked = match source {
-            PluginImportSource::Folder => {
-                dialog.set_title("选择扩展包文件夹").blocking_pick_folder()
-            }
+            PluginImportSource::Folder => dialog.set_title("选择插件文件夹").blocking_pick_folder(),
             PluginImportSource::Archive => dialog
-                .set_title("选择扩展包")
-                .add_filter("扩展包", &["zip"])
+                .set_title("选择插件")
+                .add_filter("插件", &["zip"])
                 .blocking_pick_file(),
         };
         let Some(picked) = picked else {

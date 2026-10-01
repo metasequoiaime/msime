@@ -194,8 +194,8 @@ fn a_nonexistent_root_is_an_empty_catalog() {
 fn manifests_are_refused_for_every_rule_they_break() {
     let root = tempdir().unwrap();
     let cases: &[(&str, &str, &str)] = &[
-        ("kind = 'sound'", "kind = 'script'", "不是已知的扩展类型"),
-        ("kind = 'sound'", "kind = 'wasm'", "不是已知的扩展类型"),
+        ("kind = 'sound'", "kind = 'script'", "不是已知的插件类型"),
+        ("kind = 'sound'", "kind = 'wasm'", "不是已知的插件类型"),
         (
             "permissions = []",
             "permissions = ['network']",
@@ -649,7 +649,7 @@ fn symbolic_links_are_never_followed_into_or_out_of_a_pack() {
         kind_directory(root.path(), PluginKind::Sound).join("typewriter"),
     )
     .unwrap();
-    assert!(reason(root.path(), PluginKind::Sound, "typewriter").contains("不是扩展包文件夹"));
+    assert!(reason(root.path(), PluginKind::Sound, "typewriter").contains("不是插件文件夹"));
     let catalog = scan(root.path(), None);
     assert!(catalog.packages.is_empty());
     assert_eq!(catalog.issues[0].folder, "typewriter");
@@ -682,7 +682,7 @@ fn built_in_ids_are_reserved_and_resolved_only_from_the_bundle() {
     installed_sound(root.path(), &SOUND.replace("typewriter", "default"));
     assert!(reason(root.path(), PluginKind::Sound, "default").contains("内置音效包不可用"));
     let catalog = scan(root.path(), None);
-    assert!(catalog.issues[0].reason.contains("属于内置扩展包"));
+    assert!(catalog.issues[0].reason.contains("属于内置插件"));
     let resolved = load_package(
         root.path(),
         Some(&builtin_root()),
