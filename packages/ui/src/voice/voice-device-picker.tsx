@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { runAsyncAction } from "../core/async-action";
 
 export type VoiceCaptureDevice = {
   backend: "pulse" | "pipewire" | "alsa" | "windows" | "macos" | "harmony";
@@ -34,25 +35,30 @@ export function VoiceDevicePicker({
   async function refresh() {
     if (pending.current) return;
     const current = ++revision.current;
-    pending.current = true;
-    setBusy(true);
-    try {
-      const result = await read();
-      if (current !== revision.current) return;
-      setDevices(result);
-      setNotice(
-        result.length
-          ? "选择设备后从下一次录音生效"
-          : "未发现设备，可手动填写设备名称或使用默认设备",
-      );
-    } catch {
-      if (current === revision.current) setNotice("无法读取设备列表，可重试或手动填写");
-    } finally {
-      if (current === revision.current) {
-        pending.current = false;
-        setBusy(false);
-      }
-    }
+    void runAsyncAction(
+      {
+        busy: pending.current,
+        isCurrent: () => current === revision.current,
+        setBusy: (value) => {
+          pending.current = value;
+          setBusy(value);
+        },
+        setError: (message) => {
+          if (message) setNotice(message);
+        },
+      },
+      async (isCurrent) => {
+        const result = await read();
+        if (!isCurrent()) return;
+        setDevices(result);
+        setNotice(
+          result.length
+            ? "选择设备后从下一次录音生效"
+            : "未发现设备，可手动填写设备名称或使用默认设备",
+        );
+      },
+      { formatError: () => "无法读取设备列表，可重试或手动填写" },
+    );
   }
   const selected = devices.findIndex((item) => item.backend === backend && item.id === device);
   return (

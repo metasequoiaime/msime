@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { VoiceCaptureDevicesSection } from "@msime/ui";
+import { VoiceDevicePicker } from "../../../../packages/ui/src/voice/voice-device-picker";
 
 afterEach(() => {
   cleanup();
@@ -46,4 +47,25 @@ test("uses platform-specific microphone guidance", () => {
   );
 
   expect(screen.getByText(/设备类型与地址/)).toBeTruthy();
+});
+
+test("ignores a second device refresh while the first is pending", async () => {
+  let resolveRead!: (devices: never[]) => void;
+  const read = vi.fn(
+    () =>
+      new Promise<never[]>((resolve) => {
+        resolveRead = resolve;
+      }),
+  );
+  render(<VoiceDevicePicker read={read} backend="" device="" choose={vi.fn()} />);
+  const refresh = screen.getByRole("button", { name: "刷新设备" });
+  act(() => {
+    fireEvent.click(refresh);
+    fireEvent.click(refresh);
+  });
+  expect(read).toHaveBeenCalledOnce();
+  resolveRead([]);
+  await waitFor(() =>
+    expect(screen.getByText("未发现设备，可手动填写设备名称或使用默认设备")).toBeTruthy(),
+  );
 });
