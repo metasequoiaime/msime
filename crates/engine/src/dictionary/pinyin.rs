@@ -108,10 +108,7 @@ impl PinyinDatabase {
         if !first.is_ascii_lowercase() || limit == 0 {
             return Vec::new();
         }
-        let sql = format!(
-            "SELECT \"key\", \"value\", \"weight\" FROM \"tbl_1_{}\" WHERE \"key\" >= ?1 AND \"key\" < ?2 ORDER BY \"weight\" DESC LIMIT ?3",
-            first as char
-        );
+        let sql = initial_sql(first);
         // The upper bound is written out here in the reference too (QQ:1083).
         let upper_bound = format!("{prefix}{{");
         self.rows(&sql, (prefix, upper_bound.as_str(), sql_limit(limit)))
@@ -441,6 +438,14 @@ fn jianpin_sql(table: &str) -> String {
     sql
 }
 
+fn initial_sql(first: u8) -> String {
+    let mut sql = String::with_capacity(111);
+    sql.push_str("SELECT \"key\", \"value\", \"weight\" FROM \"tbl_1_");
+    sql.push(first as char);
+    sql.push_str("\" WHERE \"key\" >= ?1 AND \"key\" < ?2 ORDER BY \"weight\" DESC LIMIT ?3");
+    sql
+}
+
 fn contains_table_key(keys: &[String], key: &str) -> bool {
     keys.iter().any(|existing| existing == key)
 }
@@ -526,6 +531,16 @@ mod tests {
         assert_eq!(
             sql,
             "SELECT \"key\", \"value\", \"weight\" FROM \"tbl_2_n\" WHERE \"jp\" = ? ORDER BY \"weight\" DESC LIMIT ?"
+        );
+        assert_eq!(sql.capacity(), sql.len());
+    }
+
+    #[test]
+    fn initial_sql_writes_the_lookup_statement_directly() {
+        let sql = initial_sql(b'n');
+        assert_eq!(
+            sql,
+            "SELECT \"key\", \"value\", \"weight\" FROM \"tbl_1_n\" WHERE \"key\" >= ?1 AND \"key\" < ?2 ORDER BY \"weight\" DESC LIMIT ?3"
         );
         assert_eq!(sql.capacity(), sql.len());
     }
