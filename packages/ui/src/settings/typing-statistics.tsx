@@ -10,6 +10,7 @@ import {
 import { scopedBreakdown } from "./typing-breakdown";
 import { chartGradient } from "./typing-chart";
 import { SettingField } from "./setting-field";
+import { SettingToggle } from "./setting-toggle";
 import {
   charactersPerMinute,
   readableCharacters,
@@ -1853,20 +1854,16 @@ export function TypingStatisticsPage({
         </section>
       ) : (
         <section className="section m-0">
-          <SettingField
+          <SettingToggle
             label="记录打字统计"
             description="关闭后，新提交不会增加统计。"
-            className="section-header mb-4"
-          >
-            <input
-              aria-label="记录打字统计"
-              className="toggle"
-              type="checkbox"
-              checked={statistics.enabled}
-              disabled={busy}
-              onChange={(event) => void update(() => client.setEnabled(event.target.checked))}
-            />
-          </SettingField>
+            ariaLabel="记录打字统计"
+            rowClassName="mb-4"
+            compact
+            checked={statistics.enabled}
+            disabled={busy}
+            onChange={(enabled) => void update(() => client.setEnabled(enabled))}
+          />
           {client.setRetention && (
             <SettingField
               label="自动清理"
