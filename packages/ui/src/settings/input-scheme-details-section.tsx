@@ -8,8 +8,8 @@ import {
   vietnameseToneStyleOptions,
   zhuyinLayoutOptions,
 } from "./input-scheme-options";
+import { SelectSettingField } from "./select-setting-field";
 import { SettingToggle } from "./setting-toggle";
-import { SettingField } from "./setting-field";
 import { SelectRow } from "./select-row";
 
 export type InputSchemeDetailsScheme = InputScheme;
@@ -166,20 +166,19 @@ export function InputSchemeDetailsSection({
   return (
     <>
       <div className="section" hidden={hideChineseSchemeOptions}>
-        <SettingField label="双拼方案">
+        <SelectSettingField
+          label="双拼方案"
+          inputLabel="双拼方案"
+          disabled={macos && scheme !== "shuangpin"}
+          value={shuangpinProfile}
+          onChange={(value) => onShuangpinProfileChange(value as ShuangpinProfile)}
+        >
           {/* The source disables this menu unless Shuangpin is the active scheme
               (`_shuangpinSchemeButton.enabled = storedScheme == 1`): until then the
               choice changes nothing, and a live control that does nothing reads as a
               setting being ignored. Other hosts keep it always editable. */}
-          <select
-            aria-label="双拼方案"
-            disabled={macos && scheme !== "shuangpin"}
-            value={shuangpinProfile}
-            onChange={(event) => onShuangpinProfileChange(event.target.value as ShuangpinProfile)}
-          >
-            <ShuangpinProfileOptions />
-          </select>
-        </SettingField>
+          <ShuangpinProfileOptions />
+        </SelectSettingField>
       </div>
       {macosShuangpinKeymap !== undefined && (
         <div className="section" hidden={hasTouchKeyboardSchemes || scheme !== "shuangpin"}>
@@ -194,11 +193,9 @@ export function InputSchemeDetailsSection({
         </div>
       )}
       <div className="section" hidden={hideChineseSchemeOptions}>
-        <SettingField label="五笔方案">
-          <select aria-label="五笔方案" value="wubi86" onChange={() => {}}>
-            <WubiSchemeOption />
-          </select>
-        </SettingField>
+        <SelectSettingField label="五笔方案" inputLabel="五笔方案" value="wubi86" onChange={() => {}}>
+          <WubiSchemeOption />
+        </SelectSettingField>
       </div>
       <div
         className="section"
