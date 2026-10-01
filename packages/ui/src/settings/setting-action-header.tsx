@@ -1,13 +1,13 @@
 import type { ReactNode } from "react";
 
-export interface SettingActionHeaderProps {
+export interface SettingSectionHeaderProps {
   title: ReactNode;
   description?: ReactNode;
-  children: ReactNode;
+  children?: ReactNode;
 }
 
-/** Shared title, description and action layout for standalone settings sections. */
-export function SettingActionHeader({ title, description, children }: SettingActionHeaderProps) {
+/** Shared title and optional description layout for standalone settings sections. */
+export function SettingSectionHeader({ title, description, children }: SettingSectionHeaderProps) {
   return (
     <div className="section-header">
       <span className="section-title">
@@ -17,4 +17,13 @@ export function SettingActionHeader({ title, description, children }: SettingAct
       {children}
     </div>
   );
+}
+
+export interface SettingActionHeaderProps extends SettingSectionHeaderProps {
+  children: ReactNode;
+}
+
+/** Shared title, description and action layout for standalone settings sections. */
+export function SettingActionHeader(props: SettingActionHeaderProps) {
+  return <SettingSectionHeader {...props} />;
 }

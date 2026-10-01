@@ -1008,6 +1008,8 @@ export { SettingField, type SettingFieldProps } from "./settings/setting-field";
 export {
   SettingActionHeader,
   type SettingActionHeaderProps,
+  SettingSectionHeader,
+  type SettingSectionHeaderProps,
 } from "./settings/setting-action-header";
 export { SettingTextarea, type SettingTextareaProps } from "./settings/setting-textarea";
 export { ModelSelect, type ModelSelectProps } from "./settings/model-select";
