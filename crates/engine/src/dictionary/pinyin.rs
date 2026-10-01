@@ -326,9 +326,7 @@ impl PinyinDatabase {
             return rows;
         }
 
-        let jp_sql = format!(
-            "SELECT \"key\", \"value\", \"weight\" FROM \"{table}\" WHERE \"jp\" = ? ORDER BY \"weight\" DESC LIMIT ?"
-        );
+        let jp_sql = jianpin_sql(&table);
         if needs_mixed_jianpin_query(segments, source) {
             let scan_limit = sql_limit(build_mixed_jianpin_scan_limit(limit));
             let rows: Vec<DictRow> = self
@@ -435,6 +433,14 @@ fn batch_sql(table: &str, key_count: usize) -> String {
     sql
 }
 
+fn jianpin_sql(table: &str) -> String {
+    let mut sql = String::with_capacity(table.len() + 85);
+    sql.push_str("SELECT \"key\", \"value\", \"weight\" FROM \"");
+    sql.push_str(table);
+    sql.push_str("\" WHERE \"jp\" = ? ORDER BY \"weight\" DESC LIMIT ?");
+    sql
+}
+
 fn contains_table_key(keys: &[String], key: &str) -> bool {
     keys.iter().any(|existing| existing == key)
 }
@@ -510,6 +516,16 @@ mod tests {
         assert_eq!(
             sql,
             "SELECT \"key\", \"value\", \"weight\" FROM \"tbl_2_n\" WHERE \"key\" >= ? AND \"key\" < ? ORDER BY \"weight\" DESC LIMIT ?"
+        );
+        assert_eq!(sql.capacity(), sql.len());
+    }
+
+    #[test]
+    fn jianpin_sql_writes_the_lookup_statement_directly() {
+        let sql = jianpin_sql("tbl_2_n");
+        assert_eq!(
+            sql,
+            "SELECT \"key\", \"value\", \"weight\" FROM \"tbl_2_n\" WHERE \"jp\" = ? ORDER BY \"weight\" DESC LIMIT ?"
         );
         assert_eq!(sql.capacity(), sql.len());
     }
