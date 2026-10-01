@@ -25,6 +25,7 @@ import {
 } from "../dictionary/dictionary-errors";
 import type { DictionaryClient, DictionaryFailure, DictionaryImportResult } from "../index";
 import type { DictionaryPhraseForm } from "./dictionary-entries";
+import { useMountedRef } from "./use-mounted-ref";
 
 export interface DictionaryManagerClient {
   dictionary?: DictionaryClient;
@@ -62,15 +63,14 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
   const phraseActionBusy = useRef(false);
   const phraseActionOwner = useRef(0);
   const phraseListRef = useRef<HTMLUListElement>(null);
-  const mounted = useRef(true);
+  const mounted = useMountedRef();
 
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
+  useEffect(
+    () => () => {
       phraseRequestGeneration.current += 1;
-    };
-  }, []);
+    },
+    [],
+  );
 
   useEffect(() => {
     const generation = ++phraseRequestGeneration.current;

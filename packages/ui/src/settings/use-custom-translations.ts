@@ -11,6 +11,7 @@ import {
   type SettingsSaveState,
 } from "./use-settings-persistence";
 import { useFlushOnWindowLeave } from "./use-flush-on-window-leave";
+import { useMountedRef } from "./use-mounted-ref";
 
 export interface CustomTranslationsClient {
   load(): Promise<string>;
@@ -34,7 +35,7 @@ export function useCustomTranslations({ client }: UseCustomTranslationsOptions) 
     ? `${report.entries.length} 条释义` + (report.skipped ? `，${report.skipped} 行无法识别` : "")
     : "还没有自定义释义。";
 
-  const mounted = useRef(true);
+  const mounted = useMountedRef();
   const clientRef = useRef(client);
   clientRef.current = client;
   // The text as last edited, and whether it differs from what was last written; the save loop reads these so edits made while a save is in flight are not lost.
@@ -43,13 +44,6 @@ export function useCustomTranslations({ client }: UseCustomTranslationsOptions) 
   const savingRef = useRef(false);
   const autosaveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const savedStatusTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
 
   useEffect(() => {
     if (!client) return;
