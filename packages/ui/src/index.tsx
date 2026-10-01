@@ -536,6 +536,10 @@ export {
   type AccountConfirmationAction,
   type AccountConfirmationProps,
 } from "./account/account-confirmation";
+export {
+  AccountIdentityDetails,
+  type AccountIdentityDetailsProps,
+} from "./account/account-identity-details";
 export { copyAccountId, type AccountIdCopyOptions } from "./account/account-id-copy";
 export { runAccountOperation, type AccountOperationState } from "./account/account-operation";
 export {
@@ -691,7 +695,10 @@ export { SurfaceThemeSelect, type SurfaceThemeSelectProps } from "./settings/sur
 export { EndpointInput, type EndpointInputProps } from "./settings/endpoint-input";
 export { FeedbackKindOptions } from "./settings/feedback-kind-options";
 export { OpenPanelButton, type OpenPanelButtonProps } from "./settings/open-panel-button";
-export { VoiceLanguageOptions, type VoiceLanguageOptionsProps } from "./voice/voice-language-options";
+export {
+  VoiceLanguageOptions,
+  type VoiceLanguageOptionsProps,
+} from "./voice/voice-language-options";
 export {
   CloudPinyinSchemeOptions,
   CloudShuangpinProfileOptions,
@@ -1051,10 +1058,7 @@ export {
   type TencentTranslationSectionProps,
 } from "./settings/tencent-translation-section";
 export { SecretSettingRow, type SecretSettingRowProps } from "./settings/secret-setting-row";
-export {
-  SecretSettingField,
-  type SecretSettingFieldProps,
-} from "./settings/secret-setting-field";
+export { SecretSettingField, type SecretSettingFieldProps } from "./settings/secret-setting-field";
 export {
   PasswordSettingField,
   type PasswordSettingFieldProps,

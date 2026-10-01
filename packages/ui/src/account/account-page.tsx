@@ -5,10 +5,11 @@ import { GroupList, Row } from "../core/platform-controls";
 import * as doc from "../settings/document-style";
 import * as account from "./account-style";
 import { AccountAvatar } from "./account-avatar";
-import { accountProviderName, preferredAccountName } from "./account-labels";
+import { preferredAccountName } from "./account-labels";
 import { accountMessage, isAccountCancellation } from "./account-errors";
 import { AccountConfirmation } from "./account-confirmation";
 import { AccountNicknameField } from "./account-nickname-field";
+import { AccountIdentityDetails } from "./account-identity-details";
 import { pushMobileSettingsState } from "../settings/mobile-navigation";
 import { copyAccountId as copyAccountIdToClipboard } from "./account-id-copy";
 import { runAccountOperation } from "./account-operation";
@@ -276,30 +277,12 @@ function MobileAccountProfilePage({
       </section>
       <section className={`${account.section} ${account.stack}`}>
         <h2 className={account.heading}>账号信息</h2>
-        <dl className={account.details}>
-          <div>
-            <dt>账号 ID</dt>
-            <dd>
-              <button type="button" className={account.copyId} onClick={copyId}>
-                {copied ? "已复制" : `#${user.id.slice(0, 6).toUpperCase()}`}
-              </button>
-            </dd>
-          </div>
-          {user.email && (
-            <div>
-              <dt>邮箱</dt>
-              <dd>{user.email}</dd>
-            </div>
-          )}
-          <div>
-            <dt>登录方式</dt>
-            <dd>{profile?.providers.map(accountProviderName).join("、") || "正在读取"}</dd>
-          </div>
-          <div>
-            <dt>加入水杉</dt>
-            <dd>{new Date(user.createdAt).toLocaleDateString("zh-CN")}</dd>
-          </div>
-        </dl>
+        <AccountIdentityDetails
+          user={user}
+          providers={profile?.providers ?? []}
+          copied={copied}
+          onCopy={copyId}
+        />
       </section>
       <section className={`${account.section} ${account.stack}`}>
         <h2 className={account.heading}>账号操作</h2>
@@ -1436,30 +1419,12 @@ function AccountDetailsPage({
               onChange={setName}
             />
             <p className={account.muted}>昵称会显示在社区作品中，已发布的作品也会同步更新。</p>
-            <dl className={account.details}>
-              <div>
-                <dt>账号 ID</dt>
-                <dd>
-                  <button type="button" className={account.copyId} onClick={copyAccountId}>
-                    {copiedAccountId ? "已复制" : `#${user.id.slice(0, 6).toUpperCase()}`}
-                  </button>
-                </dd>
-              </div>
-              {user.email && (
-                <div>
-                  <dt>邮箱</dt>
-                  <dd>{user.email}</dd>
-                </div>
-              )}
-              <div>
-                <dt>登录方式</dt>
-                <dd>{profile?.providers.map(accountProviderName).join("、") || "正在读取"}</dd>
-              </div>
-              <div>
-                <dt>加入水杉</dt>
-                <dd>{new Date(user.createdAt).toLocaleDateString("zh-CN")}</dd>
-              </div>
-            </dl>
+            <AccountIdentityDetails
+              user={user}
+              providers={profile?.providers ?? []}
+              copied={copiedAccountId}
+              onCopy={copyAccountId}
+            />
             <div className={account.actionRow}>
               <button
                 type="button"
