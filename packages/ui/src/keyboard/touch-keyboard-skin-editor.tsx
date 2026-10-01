@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { errorCode } from "../core/error-code";
+import { runAsyncAction } from "../core/async-action";
 import { aiSkinMessage, libraryError } from "./touch-keyboard-skin-errors";
 import { createAiSkinPrompt } from "./touch-keyboard-skin-ai";
 import { randomRequestId } from "../core/random-id";
@@ -381,29 +382,40 @@ export function TouchKeyboardSkinEditor({
   const [skinName, setSkinName] = useState("");
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [aiGenerationOpen, setAiGenerationOpen] = useState(false);
+  const mounted = useRef(true);
+  const libraryGeneration = useRef(0);
+  const libraryActionBusy = useRef(false);
+  useEffect(
+    () => () => {
+      mounted.current = false;
+      libraryGeneration.current += 1;
+      libraryActionBusy.current = false;
+    },
+    [],
+  );
   useEffect(() => {
-    let current = true;
-    if (!library)
-      return () => {
-        current = false;
-      };
-    setLibraryBusy(true);
-    void library
-      .load()
-      .then((items) => {
-        if (current) {
-          setSaved(items);
-          setLibraryNotice("");
-        }
-      })
-      .catch((error) => {
-        if (current) setLibraryNotice(libraryError(error));
-      })
-      .finally(() => {
-        if (current) setLibraryBusy(false);
-      });
+    const generation = ++libraryGeneration.current;
+    if (!library) return;
+    libraryActionBusy.current = true;
+    void runAsyncAction(
+      {
+        busy: false,
+        isCurrent: () => mounted.current && generation === libraryGeneration.current,
+        setBusy: (busy) => {
+          libraryActionBusy.current = busy;
+          setLibraryBusy(busy);
+        },
+        setError: setLibraryNotice,
+      },
+      async (isCurrent) => {
+        const items = await library.load();
+        if (isCurrent()) setSaved(items);
+      },
+      { formatError: libraryError },
+    );
     return () => {
-      current = false;
+      if (generation === libraryGeneration.current) libraryGeneration.current += 1;
+      libraryActionBusy.current = false;
     };
   }, [library]);
   const apply = (next: TouchKeyboardSkinDesign, record = true) => {
@@ -446,19 +458,31 @@ export function TouchKeyboardSkinEditor({
     });
   };
   const mutateLibrary = async (action: CustomSkinLibraryAction, success: string) => {
-    if (!library) return false;
-    setLibraryBusy(true);
-    setLibraryNotice("");
-    try {
-      setSaved(await library.mutate(action));
-      setLibraryNotice(success);
-      return true;
-    } catch (error) {
-      setLibraryNotice(libraryError(error));
-      return false;
-    } finally {
-      setLibraryBusy(false);
-    }
+    if (!library || libraryActionBusy.current) return false;
+    libraryActionBusy.current = true;
+    const generation = libraryGeneration.current;
+    let succeeded = false;
+    await runAsyncAction(
+      {
+        busy: false,
+        isCurrent: () => mounted.current && generation === libraryGeneration.current,
+        setBusy: (busy) => {
+          libraryActionBusy.current = busy;
+          setLibraryBusy(busy);
+        },
+        setError: setLibraryNotice,
+      },
+      async (isCurrent) => {
+        const items = await library.mutate(action);
+        if (!isCurrent()) return;
+        setSaved(items);
+        setLibraryNotice(success);
+        succeeded = true;
+      },
+      { formatError: libraryError },
+    );
+    libraryActionBusy.current = false;
+    return succeeded;
   };
   const submitName = async () => {
     if (!nameEditor) return;
