@@ -19,7 +19,7 @@ import {
   candidateScaleSlider,
 } from "../candidate/candidate-window-style";
 import { CandidateColorRow, type CandidateColorKey } from "./candidate-colors-section";
-import type { SurfaceTheme } from "./theme-settings-section";
+import { SurfaceThemeSelect, type SurfaceTheme } from "./surface-theme-select";
 import type { CustomCandidateColors } from "../theme/global-theme";
 import * as settings from "./settings-style";
 
@@ -75,14 +75,12 @@ export function CandidateWindowStyleSection({
   return (
     <GroupList title="候选窗">
       <Row title="主题" description="跟随全局时使用颜色模式的明暗">
-        <Select
+        <SurfaceThemeSelect
+          label="主题"
           value={preferences.candidate_theme ?? "follow"}
-          onChange={(event) => onChange({ candidate_theme: event.target.value as SurfaceTheme })}
-        >
-          <option value="follow">跟随全局</option>
-          <option value="light">浅色</option>
-          <option value="dark">深色</option>
-        </Select>
+          optionOrder={["follow", "light", "dark"]}
+          onChange={(value) => onChange({ candidate_theme: value })}
+        />
       </Row>
       {showFontPresets && (
         <Row
