@@ -2,14 +2,13 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { boundedGraphemes } from "../core/text";
 import { randomUuid } from "../core/random-id";
 import { errorCode } from "../core/error-code";
-import { runAsyncAction } from "../core/async-action";
 import type { ExternalSkin, SkinCatalog } from "../skin/external-skins";
 import type { SkinImageReader } from "../skin/skin-image";
 import { renderSkinPreview } from "../skin/skin-preview-render";
 import {
   candidateSkinMegabytes,
   candidateSkinMessage,
-  communityNeedsSignIn,
+  runCommunityPublishAction,
 } from "./community-helpers";
 import * as style from "./community-style";
 import { CommunitySkinPublicationFields } from "./community-skin-publication-fields";
@@ -284,36 +283,28 @@ export function CandidateSkinPublishDialog({
   const submit = async () => {
     if (busy || actionRunning.current || !ready || !skinId) return;
     const generation = clientGeneration.current;
-    actionRunning.current = true;
-    setSignInRequired(false);
-    try {
-      await runAsyncAction(
-        {
-          busy,
-          isCurrent: () => generation === clientGeneration.current,
-          setBusy,
-          setError,
-        },
-        async (isCurrent) => {
-          const published = await client.publish(
-            skinId,
-            publicationId,
-            normalizedName,
-            normalizedDescription,
-            visibility,
-            category,
-          );
-          if (!isCurrent()) return;
-          await onPublished(published);
-        },
-        {
-          formatError: (publishError) => candidateSkinMessage(publishError, true),
-          onError: (publishError) => setSignInRequired(communityNeedsSignIn(publishError)),
-        },
-      );
-    } finally {
-      if (generation === clientGeneration.current) actionRunning.current = false;
-    }
+    await runCommunityPublishAction({
+      busy,
+      generation,
+      clientGeneration,
+      actionRunning,
+      setBusy,
+      setError,
+      setSignInRequired,
+      formatError: (publishError) => candidateSkinMessage(publishError, true),
+      operation: async (isCurrent) => {
+        const published = await client.publish(
+          skinId,
+          publicationId,
+          normalizedName,
+          normalizedDescription,
+          visibility,
+          category,
+        );
+        if (!isCurrent()) return;
+        await onPublished(published);
+      },
+    });
   };
 
   const openFolder = async () => {

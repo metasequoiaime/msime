@@ -1,4 +1,5 @@
 import { errorCode } from "../core/error-code";
+import { runAsyncAction } from "../core/async-action";
 import { pluginErrorMessage } from "../settings/plugins-section";
 import type { CommunityResourceKind, CommunityResourceScope } from "./community-resources";
 
@@ -203,6 +204,54 @@ export function candidateSkinMegabytes(bytes: number): string {
 
 export function communityNeedsSignIn(error: unknown): boolean {
   return errorCode(error) === "community_unauthorized";
+}
+
+type CurrentGeneration = { current: number };
+type RunningAction = { current: boolean };
+
+export interface CommunityPublishActionOptions {
+  busy: boolean;
+  generation: number;
+  clientGeneration: CurrentGeneration;
+  actionRunning: RunningAction;
+  setBusy: (busy: boolean) => void;
+  setError: (message: string) => void;
+  setSignInRequired: (value: boolean) => void;
+  formatError: (error: unknown) => string;
+  operation: (isCurrent: () => boolean) => Promise<void>;
+}
+
+/** Runs a guarded community publish action with shared busy and sign-in handling. */
+export async function runCommunityPublishAction({
+  busy,
+  generation,
+  clientGeneration,
+  actionRunning,
+  setBusy,
+  setError,
+  setSignInRequired,
+  formatError,
+  operation,
+}: CommunityPublishActionOptions): Promise<void> {
+  actionRunning.current = true;
+  setSignInRequired(false);
+  try {
+    await runAsyncAction(
+      {
+        busy,
+        isCurrent: () => generation === clientGeneration.current,
+        setBusy,
+        setError,
+      },
+      operation,
+      {
+        formatError,
+        onError: (error) => setSignInRequired(communityNeedsSignIn(error)),
+      },
+    );
+  } finally {
+    if (generation === clientGeneration.current) actionRunning.current = false;
+  }
 }
 
 /** Append only items whose ids are not already present, preserving source order. */

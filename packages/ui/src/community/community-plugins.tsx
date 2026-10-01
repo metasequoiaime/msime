@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { boundedGraphemes } from "../core/text";
 import { randomUuid } from "../core/random-id";
-import { runAsyncAction } from "../core/async-action";
 import {
   kindLabels,
   type PluginCatalogResult,
@@ -12,6 +11,7 @@ import {
   candidateSkinMegabytes,
   communityNeedsSignIn,
   communityPluginMessage,
+  runCommunityPublishAction,
 } from "./community-helpers";
 import { useCommunityGallery, type CommunityGalleryClient } from "./community-gallery";
 import { CommunityErrorAlert } from "./community-error-alert";
@@ -626,35 +626,27 @@ export function CommunityPluginPublishDialog({
   const submit = async () => {
     if (busy || actionRunning.current || !ready || !chosen) return;
     const generation = clientGeneration.current;
-    actionRunning.current = true;
-    setSignInRequired(false);
-    try {
-      await runAsyncAction(
-        {
-          busy,
-          isCurrent: () => generation === clientGeneration.current,
-          setBusy,
-          setError,
-        },
-        async (isCurrent) => {
-          const published = await client.publish(
-            chosen.kind,
-            chosen.id,
-            publicationId,
-            normalizedName,
-            normalizedDescription,
-          );
-          if (!isCurrent()) return;
-          await onPublished(published);
-        },
-        {
-          formatError: (publishError) => communityPluginMessage(publishError, true),
-          onError: (publishError) => setSignInRequired(communityNeedsSignIn(publishError)),
-        },
-      );
-    } finally {
-      if (generation === clientGeneration.current) actionRunning.current = false;
-    }
+    await runCommunityPublishAction({
+      busy,
+      generation,
+      clientGeneration,
+      actionRunning,
+      setBusy,
+      setError,
+      setSignInRequired,
+      formatError: (publishError) => communityPluginMessage(publishError, true),
+      operation: async (isCurrent) => {
+        const published = await client.publish(
+          chosen.kind,
+          chosen.id,
+          publicationId,
+          normalizedName,
+          normalizedDescription,
+        );
+        if (!isCurrent()) return;
+        await onPublished(published);
+      },
+    });
   };
 
   // Enter in a text field would otherwise submit whichever form this dialog sits in.

@@ -3,13 +3,13 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { boundedGraphemes } from "../core/text";
 import { randomUuid } from "../core/random-id";
-import { runAsyncAction } from "../core/async-action";
 import { pushMobileSettingsState } from "../settings/mobile-navigation";
 import { ScreenKeyboardPreview } from "../keyboard/screen-keyboard-preview";
 import {
-  communityNeedsSignIn,
   communitySkinMessage,
   communitySkinPublishMessage,
+  communityNeedsSignIn,
+  runCommunityPublishAction,
 } from "./community-helpers";
 import { useCommunityGallery, type CommunityGalleryClient } from "./community-gallery";
 import { CommunityErrorAlert } from "./community-error-alert";
@@ -172,35 +172,27 @@ function CommunitySkinPublishDialog({
       setError("请填写有效名称和说明，并确认拥有公开发布所需的素材权利。");
       return;
     }
-    actionRunning.current = true;
-    setSignInRequired(false);
-    try {
-      await runAsyncAction(
-        {
-          busy,
-          isCurrent: () => generation === clientGeneration.current,
-          setBusy,
-          setError,
-        },
-        async () => {
-          await client.publish(
-            publicationId,
-            normalizedName,
-            normalizedDescription,
-            selected.design,
-            category,
-          );
-          if (generation !== clientGeneration.current) return;
-          await onPublished();
-        },
-        {
-          formatError: communitySkinPublishMessage,
-          onError: (publishError) => setSignInRequired(communityNeedsSignIn(publishError)),
-        },
-      );
-    } finally {
-      if (generation === clientGeneration.current) actionRunning.current = false;
-    }
+    await runCommunityPublishAction({
+      busy,
+      generation,
+      clientGeneration,
+      actionRunning,
+      setBusy,
+      setError,
+      setSignInRequired,
+      formatError: communitySkinPublishMessage,
+      operation: async () => {
+        await client.publish(
+          publicationId,
+          normalizedName,
+          normalizedDescription,
+          selected.design,
+          category,
+        );
+        if (generation !== clientGeneration.current) return;
+        await onPublished();
+      },
+    });
   };
 
   return (
