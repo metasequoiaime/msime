@@ -60,6 +60,9 @@ inline EditKind edit_kind(const FanyImeNamedpipeData &packet,
     if (key == 0x25 || key == 0x27)
       return EditKind::Caret;
   }
+  // A scheme that spells with Space lists it among its spelling symbols (Zhuyin's first tone). Its Space command then types that key rather than picking a row (the runtime's SelectHighlighted), so it is composition input like any spelled symbol.
+  if (key == 0x20 && modifiers == 0 && spelling_symbols.find(' ') != std::string_view::npos)
+    return EditKind::Character;
   if (translate_key(packet).kind != KeyKind::Character)
     return EditKind::None;
   if (microsoft_shuangpin && mode == "none" && key == 0xBA && text == ';') {

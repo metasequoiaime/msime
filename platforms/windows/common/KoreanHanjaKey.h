@@ -1,5 +1,6 @@
 #pragma once
 
+#include "InputSchemeTraits.h"
 #include "msime_client.h"
 #include <cstdint>
 
@@ -58,5 +59,16 @@ constexpr KoreanHanjaKey korean_hanja_key(std::uint32_t virtual_key, std::uint32
 // A key the open Hanja list takes, other than the Hanja key itself.
 constexpr bool is_korean_hanja_list_key(std::uint32_t virtual_key, std::uint32_t text) {
   return virtual_key != kVirtualKeyHanja && korean_hanja_key(virtual_key, text).kind != KoreanHanjaKeyKind::None;
+}
+
+inline constexpr std::uint32_t kVirtualKeyDown = 0x28;
+
+// The unmodified key that sends MSIME_OPEN_CANDIDATE_LIST while a scheme with an openable list (scheme::OpensCandidateList) composes. Korean's is the Hanja key, which opens a closed list and closes an open one. Zhuyin's is Down on a closed list, libchewing's key for it and the one macOS uses; once its list is open Down moves the highlight like any list key. The Zhuyin list opens from Space as well, but that is the first tone the Engine spells, so it goes on as a character. Every other scheme has no such key.
+constexpr bool opens_candidate_list(int scheme, std::uint32_t virtual_key, bool list_open) {
+  if (scheme == scheme::Korean)
+    return virtual_key == kVirtualKeyHanja;
+  if (scheme == scheme::Zhuyin)
+    return virtual_key == kVirtualKeyDown && !list_open;
+  return false;
 }
 } // namespace msime::windows
