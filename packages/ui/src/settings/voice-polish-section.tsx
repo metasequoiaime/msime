@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
-import { GroupList, Row, Select, Switch } from "../core/platform-controls";
-import { POLISH_PROVIDER_OPTIONS, VoiceProviderOptions } from "../voice/voice-provider-options";
+import { GroupList, Row, Switch } from "../core/platform-controls";
+import { POLISH_PROVIDER_OPTIONS } from "../voice/voice-provider-options";
 import * as settings from "./settings-style";
+import { VoiceProviderSelect } from "./voice-provider-select";
 
 export interface VoicePolishSectionProps {
   enabled: boolean;
@@ -32,13 +33,12 @@ export function VoicePolishSection({
         <Switch aria-label="启用文本润色" checked={enabled} onChange={onEnabledChange} />
       </Row>
       <Row title="服务提供商">
-        <Select
-          aria-label="文本润色服务提供商"
+        <VoiceProviderSelect
+          options={POLISH_PROVIDER_OPTIONS}
+          ariaLabel="文本润色服务提供商"
           value={provider}
-          onChange={(event) => onProviderChange(event.target.value)}
-        >
-          <VoiceProviderOptions options={POLISH_PROVIDER_OPTIONS} />
-        </Select>
+          onChange={onProviderChange}
+        />
       </Row>
       {providerPreset}
       <Row title="模型">

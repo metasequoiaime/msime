@@ -1002,6 +1002,10 @@ export {
   type VoiceCredentialStatus,
 } from "./settings/voice-credential-section";
 export {
+  VoiceProviderSelect,
+  type VoiceProviderSelectProps,
+} from "./settings/voice-provider-select";
+export {
   CredentialTestSection,
   type CredentialTestSectionProps,
   type CredentialTestState,
