@@ -128,14 +128,19 @@ int main() {
     assert(vietnamese.editing() == "hoa");
   }
 
-  // Escape discards the word: the TIP discards it from its own host session in one key, so the Server does not stop at the raw keys the Engine's first cancel shows. The routed clear does the same.
-  {
-    Fixture vietnamese(serialized);
-    vietnamese.type("hoaf");
+  // The first Escape shows the keys typed for the word again and the word keeps composing, as the TIP keeps it in its own host session; nothing is sent back for it. A second Escape discards the word. The routed clear a terminated composition sends discards it in one go.
+  for (const auto &[method, keys] : {std::pair<const std::string *, const char *>{&serialized, "hoaf"}, {&vni, "tieng5"}}) {
+    Fixture vietnamese(*method);
+    vietnamese.type(keys);
+    assert(vietnamese.editing() != keys);
+    const auto restored = vietnamese.press(0x1B, 0);
+    assert(restored && !restored->committed_text && !restored->encoded);
+    assert(vietnamese.editing() == keys);
+    assert(vietnamese.session.view().at("preedit").get<std::string>() == keys);
     const auto cancelled = vietnamese.press(0x1B, 0);
     assert(cancelled && !cancelled->committed_text);
     assert(vietnamese.editing().empty());
-    vietnamese.type("hoaf");
+    vietnamese.type(keys);
     vietnamese.session.cancel_composition(1);
     assert(vietnamese.editing().empty());
   }

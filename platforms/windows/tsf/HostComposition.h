@@ -48,4 +48,18 @@ template<class Host> HostCompositionEnd EndHostComposition(Host &host, int schem
     end.hostLetGo = end.commit.empty();
     return end;
 }
+
+// The first Escape on a word whose cancel shows its raw keys again (scheme::CancelRestoresRaw): one MSIME_CANCEL, and true when the host session is still composing after it, so the TIP draws those keys and keeps the composition, as the Server keeps it in its own session. False without sending anything when the scheme discards on Escape or nothing composes, and false when that cancel left nothing, which is the Escape with the raw keys already showing; the caller then discards the composition as for any Escape.
+template<class Host> bool RestoreHostRawOnEscape(Host &host, std::string *error) {
+    std::string raw;
+    EngineResult current;
+    if (!host.view(&raw, error) || !EngineSessionAdapter::parse_result(raw, &current, error) ||
+        !msime::windows::scheme::CancelRestoresRaw(static_cast<int>(current.view.scheme)) ||
+        current.view.editing_text.empty())
+        return false;
+    raw.clear();
+    EngineResult result;
+    return host.command(MSIME_CANCEL, &raw, error) && EngineSessionAdapter::parse_result(raw, &result, error) &&
+           !result.has_commit && !result.view.editing_text.empty();
+}
 } // namespace msime::tsf

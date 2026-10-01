@@ -211,8 +211,10 @@ KeyResult ServerSession::key(const FanyImeNamedpipeData &packet,
       return {client_, epoch_, packet.request_id, false, std::move(result)};
     }
     result = response(msime_client_command(session_, action.value));
-    // Escape discards the composition, as the TIP discards it from its own host session.
-    if (action.kind == KeyKind::LocalReset)
+    // A reset discards the composition, as the TIP discards it from its own host session. Escape on a word whose first cancel only shows its raw keys again stops there, as the TIP does (scheme::CancelRestoresRaw).
+    if (action.kind == KeyKind::LocalReset &&
+        !(packet.keycode == kVirtualKeyEscape &&
+          scheme::CancelRestoresRaw(static_cast<int>(result.at("view").value("scheme", 0u)))))
       result = cancel_again(std::move(result));
     if (action.kind == KeyKind::CancelAndForward ||
         action.kind == KeyKind::LocalReset)

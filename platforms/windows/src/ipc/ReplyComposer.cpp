@@ -314,8 +314,14 @@ std::optional<PendingReply> ReplyComposer::basic_key(
     return hanja;
   const auto action = translate_key(packet);
   const bool uiless = (packet.modifiers_down & FanyImePipeFlags::UiLess) != 0;
-  if (action.kind == KeyKind::LocalReset)
-    return dispatch(session, packet, epoch, ReplyPath::LocalCancel, uiless);
+  if (action.kind == KeyKind::LocalReset) {
+    // The first Escape on a Vietnamese word shows its raw keys again and the word keeps composing, so there is no cleared composition to report; the TIP stays composing with the same keys.
+    const auto current = session.view();
+    const bool restores_raw = packet.keycode == kVirtualKeyEscape && session.input_enabled() &&
+                              scheme::CancelRestoresRaw(view_scheme(current)) &&
+                              !current.at("editing_text").get<std::string>().empty();
+    return dispatch(session, packet, epoch, restores_raw ? ReplyPath::NoReply : ReplyPath::LocalCancel, uiless);
+  }
   if (action.kind == KeyKind::Ignore)
     return dispatch(session, packet, epoch, ReplyPath::NoReply, uiless);
   // Ctrl+Shift+E reaches the Server as an ordinary key whose composition the TSF has already cancelled without reading a reply, the same contract as Escape. Toggle the mode here, as the reference does unconditionally, instead of letting the generic modifier fallback drop it.

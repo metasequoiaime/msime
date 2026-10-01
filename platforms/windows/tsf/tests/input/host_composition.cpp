@@ -50,6 +50,33 @@ struct Host {
     }
 };
 
+// A host session whose cancel behaves as the Engine's: a Vietnamese word shows its raw keys on the first one and is discarded by the next; every other scheme discards on the first.
+struct EscapeHost {
+    int scheme_number = scheme::Vietnamese;
+    std::string shown = "tiếng";
+    std::string keys = "tieng5";
+    bool raw_showing = false;
+    unsigned cancels = 0;
+
+    bool view(std::string *raw, std::string *) const {
+        *raw = answer("", shown, scheme_number);
+        return true;
+    }
+    bool command(uint32_t command, std::string *raw, std::string *) {
+        if (command != MSIME_CANCEL) std::abort();
+        ++cancels;
+        if (scheme_number == scheme::Vietnamese && !shown.empty() && !raw_showing) {
+            raw_showing = true;
+            shown = keys;
+        } else {
+            shown.clear();
+            raw_showing = false;
+        }
+        *raw = answer("", shown, scheme_number);
+        return true;
+    }
+};
+
 bool check(bool condition) {
     if (!condition) std::exit(EXIT_FAILURE);
     return condition;
@@ -115,6 +142,25 @@ int main() {
         check(ended.commit.empty() && ended.hostLetGo && ended.keyFollows);
         const auto marked = EndHostComposition(host, scheme::Zhuyin, L'?', &error);
         check(marked.commit == "？" && marked.hostLetGo && !marked.keyFollows);
+    }
+
+    // Vietnamese 'tieng5' and Escape: the host session shows 'tieng5' and keeps composing; a second Escape empties it, and the caller discards the composition.
+    {
+        EscapeHost host;
+        check(msime::tsf::RestoreHostRawOnEscape(host, &error));
+        check(host.shown == "tieng5" && host.cancels == 1);
+        check(!msime::tsf::RestoreHostRawOnEscape(host, &error));
+        check(host.shown.empty() && host.cancels == 2);
+        // Nothing composing: nothing is sent.
+        check(!msime::tsf::RestoreHostRawOnEscape(host, &error) && host.cancels == 2);
+    }
+
+    // Every other host-composed scheme discards on Escape as before, so the helper leaves its session alone.
+    for (const int other : {scheme::Korean, scheme::Zhuyin}) {
+        EscapeHost host;
+        host.scheme_number = other;
+        host.shown = "su3";
+        check(!msime::tsf::RestoreHostRawOnEscape(host, &error) && host.cancels == 0 && host.shown == "su3");
     }
     return EXIT_SUCCESS;
 }

@@ -552,6 +552,16 @@ bool CMetasequoiaIME::_CancelHostComposition()
     return true;
 }
 
+HRESULT CMetasequoiaIME::_HandleEscape(TfEditCookie ec, _In_ ITfContext *pContext)
+{
+    // A Vietnamese word shows its raw keys again on the first Escape and keeps composing; the next Escape discards it like every other composition.
+    auto *host = _pCompositionProcessorEngine ? _pCompositionProcessorEngine->GetHostEngineAdapter() : nullptr;
+    std::string error;
+    if (host && host->valid() && _IsComposing() && msime::tsf::RestoreHostRawOnEscape(*host, &error))
+        return _HandleCompositionInputWorker(_pCompositionProcessorEngine, ec, pContext, FANY_IME_NO_REQUEST_ID);
+    return _HandleCancel(ec, pContext);
+}
+
 HRESULT CMetasequoiaIME::_HandleCancel(TfEditCookie ec, _In_ ITfContext *pContext)
 {
     PerfTimer timer;

@@ -32,6 +32,9 @@ constexpr bool OpensCandidateList(int scheme) { return scheme == Korean || schem
 // The composition is always drawn inline whatever the preedit display preference says: until a list is opened there is no candidate window to show it in, and hidden it would be text the user cannot see being written.
 constexpr bool AlwaysInlinePreedit(int scheme) { return LetterComposition(scheme) || OpensCandidateList(scheme); }
 
+// Escape first shows the keys typed for the composing word again and keeps composing, and only an Escape with those keys already showing discards it (`restore_vietnamese_raw` in crates/engine/src/ime/mod.rs). The TIP and the Server each send one MSIME_CANCEL for the key, so their sessions take the same step.
+constexpr bool CancelRestoresRaw(int scheme) { return scheme == Vietnamese; }
+
 // ---- Engine traits the view does not publish; each mirrors the `SchemeType` predicate of the same name ----
 
 // `is_chinese`: a Chinese scheme, the kind `last_chinese_scheme` remembers and the Chinese mode returns to.

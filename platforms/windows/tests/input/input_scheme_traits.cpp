@@ -71,5 +71,8 @@ int main() {
   assert(OpensCandidateList(Korean) && OpensCandidateList(Zhuyin) && !OpensCandidateList(Vietnamese));
   assert(AlwaysInlinePreedit(Zhuyin) && AlwaysInlinePreedit(Vietnamese) && !AlwaysInlinePreedit(Cantonese));
   assert(FoldsLetterCase(Korean) && !FoldsLetterCase(Vietnamese));
+  // Only a Vietnamese word keeps composing after an Escape; every other composition, schemes 0-4 included, is discarded by it.
+  for (int scheme = Quanpin; scheme <= Vietnamese; ++scheme)
+    assert(CancelRestoresRaw(scheme) == (scheme == Vietnamese));
   return 0;
 }
