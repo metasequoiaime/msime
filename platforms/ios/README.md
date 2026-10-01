@@ -92,7 +92,11 @@ Apple 客户端旧版 `english.mixedCandidates` 布尔值在创建首个共享�
 
 韩语方案（「韩语 26 键」，共享偏好里是 `korean`）是同一个输入法里的又一个方案，按两套式（두벌식）键位输入：字母键的键帽换成对应的韩文字母（자모），键盘只把键帽下面的 ASCII 字母交给 Engine，音节由 Engine 的自动机拼成（`DubeolsikKeyLayout`）。Shift 在这里是键位自己的上档，Q W E R T O P 上档出 ㅃ ㅉ ㄸ ㄲ ㅆ ㅒ ㅖ 并以大写字母发送，其余键上档不变；它不切英文，也不打开本地模式。正在拼的音节总是作为标记文本写进输入框，不受「行内预编辑」影响，候选栏显示这个音节，除了下文的汉字列表韩语没有候选；下一键开始新音节时，上一个音节随同一次快照的 commit 上屏。空格、回车、数字和光标移动先把音节上屏，再做按键本来的事（插入空格或换行、执行输入框的发送动作），所以回车键在组字中仍显示输入框自己的名称；标点一律是半角 ASCII，全角开关、中文标点开关、繁体输出、候选释义和本地输入都不作用于韩语。按住删除键一次退一个字母，退完音节后继续删文档里的字；拖动空格先把音节上屏再移动光标。
 
-韩语组字时候选行末尾出现「漢」按钮，对应韩国键盘的汉字键（键盘扩展收不到硬件键，iPad 外接键盘也一样，所以只有这个按钮）。点一下发送共享命令 16（`MSIME_CONVERT_HANJA`，桥接层的 `convertHanja()`），按 libhangul 汉字表的顺序在候选条上列出正在组字的那一个音节的汉字，训音（훈음）以释义行的小字显示在汉字下方的第一行，完整显示（候选按训音的宽度加宽，不截断），不受「候选释义」开关影响，韩语方案的候选条始终为这一行留出高度；打开候选释义时，翻译和释义（离线词典、自定义与学习到的释义、在线翻译，与中文候选走同一条路径）排在训音下面。VoiceOver 把训音读作「训音」、翻译读作「释义」。训音只用于显示，不会上屏，也不出现在长按菜单里；按键字母不显示；再点一次关闭列表，列表打开时按钮带底色。只有单独的辅音或元音（如 ㄱ）时没有汉字，Engine 不处理这一下，字母继续组字，候选栏提示「单个字母没有对应的汉字」。列表打开时：点选候选、空格和回车提交汉字（空格、回车提交排在最前的那个，不再插入空格或换行，回车键显示带强调色的「确认」），数字键选择本页对应项，退格只关闭列表、音节继续组字；字母关闭列表并继续组字；标点、切换中/英和切换方案关闭列表并把韩文上屏；宿主移动了光标或换了输入框时音节原样留在文档里，键盘连发两次取消，让 Engine 也丢掉它（第一次只关闭列表）。汉字候选不学习，没有长按菜单。只能转换正在组字的那一个音节，已经上屏的音节不转换。汉字表编进了 App 与键盘扩展共用的引擎库，它的 BSD-3-Clause 声明（`resources/licenses/libhangul-hanja-BSD-3-Clause.txt`）作为 App 的资源随包分发。引擎里粤语与注音方案所用数据的声明（`resources/licenses/rime-cantonese-CC-BY-4.0.txt` 与 `resources/licenses/libchewing-data-LGPL-2.1.txt`）同样作为 App 的资源随包分发，尽管 iOS 不提供这两个方案。
+韩语组字时候选行末尾出现「漢」按钮，对应韩国键盘的汉字键（键盘扩展收不到硬件键，iPad 外接键盘也一样，所以只有这个按钮）。点一下发送共享命令 16（`MSIME_CONVERT_HANJA`，桥接层的 `convertHanja()`），按 libhangul 汉字表的顺序在候选条上列出正在组字的那一个音节的汉字，训音（훈음）以释义行的小字显示在汉字下方的第一行，完整显示（候选按训音的宽度加宽，不截断），不受「候选释义」开关影响，韩语方案的候选条始终为这一行留出高度；打开候选释义时，翻译和释义（离线词典、自定义与学习到的释义、在线翻译，与中文候选走同一条路径）排在训音下面。VoiceOver 把训音读作「训音」、翻译读作「释义」。训音只用于显示，不会上屏，也不出现在长按菜单里；按键字母不显示；再点一次关闭列表，列表打开时按钮带底色。只有单独的辅音或元音（如 ㄱ）时没有汉字，Engine 不处理这一下，字母继续组字，候选栏提示「单个字母没有对应的汉字」。列表打开时：点选候选、空格和回车提交汉字（空格、回车提交排在最前的那个，不再插入空格或换行，回车键显示带强调色的「确认」），数字键选择本页对应项，退格只关闭列表、音节继续组字；字母关闭列表并继续组字；标点、切换中/英和切换方案关闭列表并把韩文上屏；宿主移动了光标或换了输入框时音节原样留在文档里，键盘连发两次取消，让 Engine 也丢掉它（第一次只关闭列表）。汉字候选不学习，没有长按菜单。只能转换正在组字的那一个音节，已经上屏的音节不转换。汉字表编进了 App 与键盘扩展共用的引擎库，它的 BSD-3-Clause 声明（`resources/licenses/libhangul-hanja-BSD-3-Clause.txt`）作为 App 的资源随包分发。引擎里粤语与注音方案所用数据的声明（`resources/licenses/rime-cantonese-CC-BY-4.0.txt` 与 `resources/licenses/libchewing-data-LGPL-2.1.txt`）同样作为 App 的资源随包分发；随包的 `cantonese.db` 与 `zhuyin.db` 旁边还各带一份同名数据的许可证文本。
+
+粤拼、大千注音和越南语是另外三个方案（共享偏好里分别是 `cantonese`、`zhuyin`、`vietnamese`），全新安装默认不启用，在 App 的「输入方案」里打开后出现在键盘的方案选择里（「粤 26」「注 大千」「越 26」），中/英键分别显示「粤」「注」「越」。粤拼和注音读随包的语言词库：两个数据库放在键盘扩展里 EngineResources 的同级目录 `language-dictionaries/`，host-api 准备会话配置时自动找到它们，键盘不另传路径；缺少某个数据库时，键盘的方案选择不显示对应方案，已经选中它的共享偏好由 Engine 退回最近一次的中文方案。App 本身不带 EngineResources，判断不了词库是否在，所以 App 里的方案列表照常显示这两项，也不会改写已经选中的方案。粤拼与全拼一样是字母拼写加候选，拼写里可以移动光标，标点、「中文标点」开关与中文一致。越南语按 Telex（数字键为 VNI 声调）输入，是另一种语言而不是中文方案：从中文切到越南语再切回来，回到原来的中文方案。
+
+注音方案换成大千键盘：四排键对应标准键盘的数字行和三排字母（含 `- ; , . /`），键帽画注音符号或声调（3 ˇ、4 ˋ、6 ˊ、7 ˙），按下时发送键帽下面的 ASCII 键，由 Engine 的注音编辑器拼音、选字（`ZhuyinKeyLayout`），输出固定为繁体，不经过简繁转换。空格在有待定音节时是一声，没有待定音节时打开候选列表；列表打开时点选候选或按空格选字，选中的字留在转换结果里继续组字，回车随时把整段转换结果上屏；数字 1–9 在 Engine 里是选本页的行，所以键盘先关闭列表再发送，按键始终输入键帽上的符号；退格和取消先关闭列表。没有组字时单独按声调键不输入。符号面板里的标点先把转换结果上屏，再直接写入中文标点。注音与越南语都是就地组字：正在转换的文字或正在拼的词总是作为标记文本写进输入框，不受「行内预编辑」影响，拼写里没有可移动的光标，按住退格逐键删除并继续删到文档里；回车把它原样上屏（注音不再换行，越南语随后换行并执行输入框的动作），空格、数字、光标移动和切换方案先上屏再做按键本来的事。越南语没有候选，字母的 Shift 与 Caps Lock 是大小写，不切英文，标点和全角开关都按半角处理；宿主移动光标后键盘连发两次取消，第一次 Engine 只是恢复原始按键。统计页把粤拼和注音计入中文模式，越南语单独一项。
 
 键盘按宿主给出的 trait 区分手机与平板形态（`KeyboardFormFactor`），不按机型判断：只有 regular 宽度的 iPad 才画平板键盘，iPad 的浮动键盘、Slide Over 与台前调度里的窄窗口是 compact 宽度，和系统键盘一样退回手机布局，停靠与浮动切换时随 size class 变化重新布局。平板键盘更高且横屏比竖屏高，第三排字母末尾带逗号和句号（中文模式显示中文标点，仍以 ASCII 交给 Engine）。平板键盘默认还有桌面键盘那样的数字行和 Tab 键（「键盘设置 → iPad → 数字行与 Tab 键」，App Group `keyboard.tablet.fullKeys`，这一节只在 iPad 上出现）：数字行在字母上方，打开时键盘加高一排而不压扁字母，和符号层的数字走同一条路径，组字时 1–9 选候选、没有组字时直接输入；Tab 在 Q 左边，宽一格半。桌面组字时 Tab 翻到下一页候选（共享的 `navigation.tab`，默认开），iOS 候选栏没有分页，只有背后的全部候选面板，所以组字且有候选时 Tab 打开这个面板；`navigation.tab` 关闭或没有组字时，结束组字并输入制表符。符号层、九键、手写和假名布局不显示数字行。iPad 没有 Taptic Engine，键盘「更多」面板、App 的输入设置和皮肤编辑器在非 iPhone 上不显示按键振动与振动强度；存储值不被改写，设置同步仍把它原样带给用户的 iPhone。
 
@@ -149,6 +153,8 @@ platforms/ios/stage-resources.sh "$resource_dir"
 
 第二个可选参数是非英语离线释义目录（默认 `target/offline-glosses`，由 `scripts/build_offline_glosses.py` 生成，见 [docs/third-party.md](../../docs/third-party.md#非英语离线释义resourcesoffline-glosseslockjson)）。其中的 `zh-<语言>.db` 与 NOTICE 暂存到 `target/ios/offline-glosses`，键盘扩展把它作为 EngineResources 的同级目录打包；候选释义语言选了已安装的语言时，该行不需要完全访问或网络即可显示。目录总会创建，没有词典时为空，只有英语走离线释义。
 
+第三个可选参数是粤语与注音的语言词库目录（默认 `target/language-dictionaries`，由 `scripts/fetch_language_dictionaries.py` 按 `resources/language-dictionaries.lock.json` 下载，或由 `msime-dict-build languages` 生成）。其中的 `cantonese.db`、`zhuyin.db` 连同各自的许可证文本暂存到 `target/ios/language-dictionaries`，键盘扩展和测试宿主把它作为 EngineResources 的同级目录打包；数据库缺少许可证文本时脚本报错退出。目录总会创建，没有词库时为空，这时键盘不提供这两个方案。发版构建设 `MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1`，两个数据库没有都暂存就失败。`build-app.sh` 在暂存前先运行下载脚本；锁里还没有固定发布时它只打印一行跳过信息。
+
 只构建 Rust 宿主库时运行：
 
 ```sh
@@ -169,6 +175,7 @@ platforms/ios/build-app.sh "$resource_dir" simulator
 
 ```sh
 resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources -- target/resources)"
+python3 scripts/fetch_language_dictionaries.py
 platforms/ios/stage-resources.sh "$resource_dir"
 platforms/ios/build-native.sh device
 python3 scripts/fetch_voice_runtime.py --platform ios
