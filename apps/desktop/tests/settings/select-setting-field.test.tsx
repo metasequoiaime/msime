@@ -38,6 +38,7 @@ test("passes native select state through", () => {
     <SelectSettingField
       label="地域"
       inputLabel="腾讯云地域"
+      fieldClassName="custom-field"
       value="ap-test"
       disabled
       required
@@ -50,4 +51,5 @@ test("passes native select state through", () => {
   const select = screen.getByLabelText("腾讯云地域") as HTMLSelectElement;
   expect(select.disabled).toBe(true);
   expect(select.required).toBe(true);
+  expect(select.closest("label")?.classList.contains("custom-field")).toBe(true);
 });
