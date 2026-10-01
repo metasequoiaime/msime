@@ -38,15 +38,15 @@
 
 ## 随包资源（`resources/desktop-dictionary.lock.json`）
 
-锁文件固定九个产物的长度和 SHA-256，每个都带可匿名下载的 URL：八个来自 `metasequoiaime/msime-engine` 的 `dict-v2.0.1` 发布，`sentence-model.safetensors` 来自 `metasequoiaime/chinese-ime-lm` 的 `model-v1`——两者是不同的仓库和不同的发布，以锁文件里各自的 `url` 为准。原先的第十个产物 `dict_pinyin.dat` 只供 Google 整句解码器使用，随解码器一起去掉。**锁文件本身不记录许可证字段**，来源信息分散在别处：
+锁文件固定九个产物的长度和 SHA-256，每个都带可匿名下载的 URL：八个来自本仓库 `metasequoiaime/msime` 的 `dict-v2.0.2` 发布（由 `.github/workflows/release-dictionary.yml` 构建），`sentence-model.safetensors` 来自 `metasequoiaime/chinese-ime-lm` 的 `model-v1`——两者是不同的仓库和不同的发布，以锁文件里各自的 `url` 为准。原先的第十个产物 `dict_pinyin.dat` 只供 Google 整句解码器使用，随解码器一起去掉。**锁文件本身不记录许可证字段**，来源信息分散在别处：
 
 | 产物 | 大小 | 已知来源 |
 | --- | --- | --- |
-| `msime.db` | 76.3 MB | Engine 发布的工作词库 |
-| `english.db` | 1.7 MB | Engine 发布的英文词库 |
+| `msime.db` | 81.9 MB | 工作词库，含 86 与 98 五笔码表 |
+| `english.db` | 1.5 MB | Engine 发布的英文词库 |
 | `bigram.bin` | 12.0 MB | Engine 发布的二元语言模型表，整句词格仲裁按它加权 |
 | `trigram.bin` | 12.0 MB | Engine 发布的三元语言模型表，同上 |
-| `others.db` | 1.5 MB | Engine 发布的表情等数据 |
+| `others.db` | 1.3 MB | Engine 发布的表情等数据 |
 | `dict_japanese.dat` | 66.5 MB | Mozc 的开源版日文词库，构成见[下一节](#日文词库的分发义务) |
 | `mozc_dictionary_oss_README.txt` | 5.8 KB | 上述词库的许可证全文。**分发时必须一同携带**，理由见下节 |
 | `dictionary-manifest.json` | 2.5 KB | 资源清单 |

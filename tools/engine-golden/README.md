@@ -42,7 +42,7 @@ Links `libMetasequoiaImeEngine.a` the way the reference test targets do (Boost h
 
 ## 3. Resource directory (real-dictionary goldens)
 
-The `dict-v2.0.1` set pinned by `resources/desktop-dictionary.lock.json` (sha256 of every file checked against the lock), minus `dict_pinyin.dat` and `sentence-model*.safetensors`: `msime.db english.db bigram.bin trigram.bin others.db dict_japanese.dat dictionary-manifest.json mozc_dictionary_oss_README.txt`.
+The `dict-v2.0.2` set pinned by `resources/desktop-dictionary.lock.json` (sha256 of every file checked against the lock), minus `dict_pinyin.dat` and `sentence-model*.safetensors`: `msime.db english.db bigram.bin trigram.bin others.db dict_japanese.dat dictionary-manifest.json mozc_dictionary_oss_README.txt`.
 
 ## 4. Record
 
