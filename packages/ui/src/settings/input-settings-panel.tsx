@@ -10,11 +10,8 @@ import { MobileKeyboardFeedbackSettings } from "./mobile-keyboard-feedback-setti
 import { InputSchemeSettingsContent } from "./input-scheme-settings-content";
 import { NavigationSection, defaultNavigation } from "./navigation-section";
 import type { TouchKeyboardScheme as TouchKeyboardSchemePreference } from "./touch-keyboard-scheme-helpers";
-import {
-  type TranslationLanguage,
-  type TranslationSecondaryLanguage,
-} from "./candidate-translation-options-section";
 import { TranslationSettingsContent } from "./translation-settings-content";
+import { createCandidateTranslationSettings } from "./translation-candidate-settings";
 import { createTranslationProviderSettings } from "./translation-provider-settings";
 import { type TranslationProvider } from "./translation-service-selector-section";
 import { defaultWordCharacter } from "./word-character-section";
@@ -225,36 +222,26 @@ export function InputSettingsPanel({
         }
       />
       <TranslationSettingsContent
-        candidate={{
-          enabled: candidateTranslations,
-          targetLanguage: translationTargetLanguage,
-          secondaryLanguage: translationSecondaryLanguage ?? "",
+        candidate={createCandidateTranslationSettings({
+          candidateTranslations,
+          translationTargetLanguage,
+          translationSecondaryLanguage,
           candidateGlossLanguagesEnabled,
-          visibleLanguages: visibleTranslationLanguages,
+          visibleTranslationLanguages,
           visibleSecondaryLanguages,
-          showSecondaryLanguage: androidPlatform || iosPlatform || macosPlatform || harmonyPlatform,
-          showAccountTranslation: androidPlatform,
-          accountTranslation: draft.translation_account ?? false,
-          onEnabledChange: (candidate_translations) =>
-            onPreferencesChange({ candidate_translations }),
-          onTargetLanguageChange: (translation_target_language: TranslationLanguage) =>
-            onPreferencesChange({ translation_target_language }),
-          onSecondaryLanguageChange: (value: TranslationSecondaryLanguage) =>
-            onPreferencesChange({
-              translation_secondary_language: value === "" ? null : value,
-            }),
-          onAccountTranslationChange: (enabled) =>
-            enabled
-              ? setTranslationProvider("account")
-              : onPreferencesChange({ translation_account: undefined }),
-          onDeviceMissingLanguages: onDeviceMissingLanguages.map(([, label]) => label),
+          android: androidPlatform,
+          ios: iosPlatform,
+          macos: macosPlatform,
+          harmony: harmonyPlatform,
+          linux: linuxPlatform,
+          translationAccount: draft.translation_account ?? false,
+          onPreferencesChange,
+          onDeviceMissingLanguages,
           openSettings: client.onDeviceTranslation?.openSettings,
           onError,
-          showTranslationService: !androidPlatform,
           translationProvider,
-          showAccountProvider: macosPlatform || linuxPlatform,
-          onTranslationProviderChange: setTranslationProvider,
-        }}
+          setTranslationProvider,
+        })}
         providers={
           !androidPlatform
             ? createTranslationProviderSettings({

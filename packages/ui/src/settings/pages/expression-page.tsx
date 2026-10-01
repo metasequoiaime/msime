@@ -7,6 +7,7 @@ import { FuzzyPinyinSection } from "../fuzzy-pinyin-section";
 import { InputLanguageOptionsSection } from "../input-language-options-section";
 import { PunctuationSection } from "../punctuation-section";
 import { TranslationSettingsContent } from "../translation-settings-content";
+import { createCandidateTranslationSettings } from "../translation-candidate-settings";
 import { createTranslationProviderSettings } from "../translation-provider-settings";
 
 /**
@@ -99,36 +100,27 @@ export function ExpressionSettingsPage() {
           }
         />
         <TranslationSettingsContent
-          candidate={{
+          candidate={createCandidateTranslationSettings({
             grouped: true,
-            enabled: candidateTranslations,
-            targetLanguage: translationTargetLanguage,
-            secondaryLanguage: draft.translation_secondary_language ?? "",
+            candidateTranslations,
+            translationTargetLanguage,
+            translationSecondaryLanguage: draft.translation_secondary_language,
             candidateGlossLanguagesEnabled,
-            visibleLanguages: visibleTranslationLanguages,
+            visibleTranslationLanguages,
             visibleSecondaryLanguages,
-            showSecondaryLanguage:
-              androidPlatform || iosPlatform || macosPlatform || harmonyPlatform,
-            showAccountTranslation: androidPlatform,
-            accountTranslation: draft.translation_account ?? false,
-            onEnabledChange: (candidate_translations) =>
-              onPreferencesChange({ candidate_translations }),
-            onTargetLanguageChange: (translation_target_language) =>
-              onPreferencesChange({ translation_target_language }),
-            onSecondaryLanguageChange: (value) =>
-              onPreferencesChange({ translation_secondary_language: value === "" ? null : value }),
-            onAccountTranslationChange: (enabled) =>
-              enabled
-                ? setTranslationProvider("account")
-                : onPreferencesChange({ translation_account: undefined }),
-            onDeviceMissingLanguages: onDeviceMissingLanguages.map(([, label]) => label),
+            android: androidPlatform,
+            ios: iosPlatform,
+            macos: macosPlatform,
+            harmony: harmonyPlatform,
+            linux: linuxPlatform,
+            translationAccount: draft.translation_account ?? false,
+            onPreferencesChange,
+            onDeviceMissingLanguages,
             openSettings: client.onDeviceTranslation?.openSettings,
             onError: setError,
-            showTranslationService: !androidPlatform,
             translationProvider,
-            showAccountProvider: macosPlatform || linuxPlatform,
-            onTranslationProviderChange: setTranslationProvider,
-          }}
+            setTranslationProvider,
+          })}
           providers={
             !androidPlatform
               ? createTranslationProviderSettings({
