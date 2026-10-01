@@ -1911,7 +1911,7 @@ pub fn import_dictionary_words(
     Ok(outcome)
 }
 
-/// The scheme a candidate lookup types in: the schemes whose candidates are rows of the shared dictionary a code looks up, engine scheme codes 0 to 2. Japanese and Korean are left out: Japanese candidates come through a kana reading, not a code, and Korean's only candidates are the Hanja of the syllable being composed, not rows a code looks up. Cantonese and Zhuyin read their own language dictionaries, which only macOS installs, and Vietnamese has no candidates, so none of the three is offered here either.
+/// The scheme a candidate lookup types in: the schemes whose candidates are rows of the shared dictionary a code looks up, engine scheme codes 0 to 2. Japanese and Korean are left out: Japanese candidates come through a kana reading, not a code, and Korean's only candidates are the Hanja of the syllable being composed, not rows a code looks up. Cantonese and Zhuyin read their own language dictionaries, which only the hosts offering those schemes install, and Vietnamese has no candidates, so none of the three is offered here either.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LookupScheme {
     Quanpin,

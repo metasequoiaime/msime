@@ -343,24 +343,25 @@ fn capabilities_round_trip_and_reject_unknown_keys() {
 }
 
 #[test]
-fn only_macos_offers_cantonese_zhuyin_and_vietnamese() {
+fn macos_and_the_mobile_hosts_offer_cantonese_zhuyin_and_vietnamese() {
     use crate::preferences::InputScheme;
-    let macos = HostCapabilities::for_platform(HostPlatform::Macos);
-    assert_eq!(macos.input_schemes.len(), 8);
-    for scheme in [
-        InputScheme::Cantonese,
-        InputScheme::Zhuyin,
-        InputScheme::Vietnamese,
-    ] {
-        assert!(macos.input_schemes.contains(&scheme));
-    }
     for platform in [
-        HostPlatform::Windows,
-        HostPlatform::Linux,
+        HostPlatform::Macos,
         HostPlatform::Android,
         HostPlatform::Ios,
         HostPlatform::Harmony,
     ] {
+        let schemes = HostCapabilities::for_platform(platform).input_schemes;
+        assert_eq!(schemes.len(), 8, "{platform:?}");
+        for scheme in [
+            InputScheme::Cantonese,
+            InputScheme::Zhuyin,
+            InputScheme::Vietnamese,
+        ] {
+            assert!(schemes.contains(&scheme), "{platform:?} {scheme:?}");
+        }
+    }
+    for platform in [HostPlatform::Windows, HostPlatform::Linux] {
         let schemes = HostCapabilities::for_platform(platform).input_schemes;
         assert_eq!(
             schemes,
@@ -393,9 +394,17 @@ fn capabilities_without_input_schemes_offer_the_base_five() {
 
 #[test]
 fn a_build_compiles_the_schemes_its_platform_offers() {
-    // macOS compiles all eight; every other target the base five, which is what Linux offers.
+    // macOS and the mobile hosts compile all eight; Windows and desktop Linux the base five.
     let platform = if cfg!(target_os = "macos") {
         HostPlatform::Macos
+    } else if cfg!(target_os = "android") {
+        HostPlatform::Android
+    } else if cfg!(target_os = "ios") {
+        HostPlatform::Ios
+    } else if cfg!(target_env = "ohos") {
+        HostPlatform::Harmony
+    } else if cfg!(windows) {
+        HostPlatform::Windows
     } else {
         HostPlatform::Linux
     };
