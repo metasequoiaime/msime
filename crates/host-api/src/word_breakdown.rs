@@ -6,6 +6,11 @@
 //! `我 I · 喜欢 to like · 你 you`. It is not a translation; it lines the words of the sentence up with English ones,
 //! which is what a learner reading the candidate wants, and it needs nothing but the tables already installed. Hosts
 //! draw it on its own line under the gloss lines, never as a committable gloss column.
+//!
+//! A dictionary's first phrase is the sense it lists first, not the one a sentence means: Unihan leads 是 with
+//! "indeed", 要 with "necessary" and 和 with "harmony", and CC-CEDICT leads 一起 with "in the same place". The
+//! candidate glosses keep the full definition, so a reader sees every sense there; a breakdown shows one phrase per
+//! word, so for the words that make up most sentences `LEARNER_PHRASES` names the sense a learner needs.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -16,6 +21,143 @@ const MAX_WORD_CHARS: usize = 8;
 pub(crate) const MAX_PIECES: usize = 8;
 /// Candidates longer than this are not broken down at all.
 pub(crate) const MAX_CANDIDATE_CHARS: usize = 32;
+
+/// One phrase per frequent word or particle, used in the breakdown instead of the dictionary's first phrase.
+///
+/// Only words whose first dictionary phrase misleads in a sentence are listed; 很 (very), 学生 (student) and the like
+/// need no entry. A grammatical particle gets a parenthesised role, which `first_phrase` keeps whole, in the same
+/// style CC-CEDICT uses for 的. Add to it by word, with the sense a sentence almost always means.
+const LEARNER_PHRASES: &[(&str, &str)] = &[
+    // pronouns and question words
+    ("他", "he"),
+    ("哪", "which"),
+    ("哪儿", "where"),
+    ("哪里", "where"),
+    ("谁", "who"),
+    ("什么", "what"),
+    ("怎么", "how"),
+    ("为什么", "why"),
+    ("多少", "how many"),
+    ("那个", "that"),
+    ("这样", "like this"),
+    ("那样", "like that"),
+    ("个", "(measure word)"),
+    // verbs
+    ("是", "to be"),
+    ("去", "to go"),
+    ("来", "to come"),
+    ("有", "to have"),
+    ("没有", "not have"),
+    ("做", "to do"),
+    ("看", "to look"),
+    ("说", "to say"),
+    ("想", "to want"),
+    ("要", "to want"),
+    ("会", "can"),
+    ("能", "can"),
+    ("给", "to give"),
+    ("让", "to let"),
+    ("在", "at"),
+    ("到", "to arrive"),
+    ("用", "to use"),
+    ("吃", "to eat"),
+    ("喝", "to drink"),
+    ("爱", "to love"),
+    ("走", "to walk"),
+    ("回", "to return"),
+    ("进", "to enter"),
+    ("买", "to buy"),
+    ("卖", "to sell"),
+    ("找", "to look for"),
+    ("学", "to study"),
+    ("打", "to hit"),
+    ("开", "to open"),
+    ("关", "to close"),
+    ("住", "to live"),
+    ("坐", "to sit"),
+    ("站", "to stand"),
+    ("听", "to listen"),
+    ("写", "to write"),
+    ("读", "to read"),
+    ("玩", "to play"),
+    ("睡", "to sleep"),
+    ("起", "to get up"),
+    ("穿", "to wear"),
+    ("带", "to bring"),
+    ("等", "to wait"),
+    ("帮", "to help"),
+    ("问", "to ask"),
+    ("告诉", "to tell"),
+    ("觉得", "to feel"),
+    ("准备", "to prepare"),
+    // adverbs, conjunctions and prepositions
+    ("不", "not"),
+    ("都", "all"),
+    ("太", "too"),
+    ("就", "then"),
+    ("才", "only then"),
+    ("又", "again"),
+    ("真", "really"),
+    ("刚", "just"),
+    ("别", "do not"),
+    ("一起", "together"),
+    ("一直", "always"),
+    ("一定", "definitely"),
+    ("可能", "maybe"),
+    ("应该", "should"),
+    ("正在", "(in progress)"),
+    ("比较", "rather"),
+    ("特别", "especially"),
+    ("突然", "suddenly"),
+    ("和", "and"),
+    ("跟", "with"),
+    ("对", "to / correct"),
+    ("把", "(object marker)"),
+    ("被", "(passive marker)"),
+    ("比", "than"),
+    ("为", "for"),
+    ("关于", "about"),
+    ("像", "like"),
+    ("离", "from"),
+    ("当", "when"),
+    // particles
+    ("的", "(possessive)"),
+    ("了", "(completed)"),
+    ("着", "(ongoing)"),
+    ("过", "(experienced)"),
+    ("得", "(complement)"),
+    ("地", "(adverbial)"),
+    ("吗", "(question)"),
+    ("呢", "(question)"),
+    ("吧", "(suggestion)"),
+    // nouns and time words
+    ("东西", "thing"),
+    ("事", "matter"),
+    ("事情", "matter"),
+    ("地方", "place"),
+    ("办法", "way"),
+    ("意思", "meaning"),
+    ("人", "person"),
+    ("家", "home"),
+    ("天", "day"),
+    ("日", "day"),
+    ("月", "month"),
+    ("上", "on"),
+    ("前", "before"),
+    ("后", "after"),
+    ("中", "middle"),
+    ("晚", "late"),
+    ("坏", "bad"),
+    ("快", "fast"),
+];
+
+/// The learner phrase for `piece`, if it has one.
+fn learner_phrase(piece: &str) -> Option<&'static str> {
+    use std::sync::LazyLock;
+    static TABLE: LazyLock<HashMap<&'static str, &'static str>> =
+        LazyLock::new(|| LEARNER_PHRASES.iter().copied().collect());
+    TABLE.get(piece).copied()
+}
 
 fn is_han(character: char) -> bool {
     matches!(character as u32, 0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xF900..=0xFAFF | 0x20000..=0x2FA1F)
@@ -50,8 +192,8 @@ fn first_phrase(gloss: &str) -> String {
     }
 }
 
-/// Cut `text` by longest match against `known`, a map from Chinese piece to gloss. Characters with no gloss stay as
-/// pieces of their own without one.
+/// Cut `text` by longest match against `known`, a map from Chinese piece to gloss, and the learner phrases.
+/// Characters with no gloss stay as pieces of their own without one.
 pub(crate) fn segment(
     text: &str,
     known: &HashMap<String, String>,
@@ -64,13 +206,14 @@ pub(crate) fn segment(
             .rev()
             .find_map(|length| {
                 let piece = characters[start..start + length].iter().collect::<String>();
-                known
-                    .get(&piece)
-                    .map(|gloss| (length, piece, gloss.as_str()))
+                let phrase = learner_phrase(&piece)
+                    .map(str::to_owned)
+                    .or_else(|| known.get(&piece).map(|gloss| first_phrase(gloss)))?;
+                Some((length, piece, phrase))
             });
         match longest {
-            Some((length, piece, gloss)) => {
-                pieces.push((piece, Some(first_phrase(gloss))));
+            Some((length, piece, phrase)) => {
+                pieces.push((piece, Some(phrase)));
                 start += length;
             }
             None => {
@@ -200,11 +343,11 @@ mod tests {
         let table = known(&[
             ("这个", "(pronoun) this; that"),
             ("英语", "English (language)"),
-            ("的", "(possessive particle)"),
+            ("啊", "(exclamatory particle)"),
         ]);
         assert_eq!(
-            render(&segment("这个英语的", &table)).as_deref(),
-            Some("这个 this · 英语 English · 的 (possessive particle)")
+            render(&segment("这个英语啊", &table)).as_deref(),
+            Some("这个 this · 英语 English · 啊 (exclamatory particle)")
         );
     }
 
@@ -212,8 +355,8 @@ mod tests {
     fn an_unknown_character_stays_without_a_gloss() {
         let table = known(&[("我", "I"), ("你", "you")]);
         assert_eq!(
-            render(&segment("我爱你", &table)).as_deref(),
-            Some("我 I · 爱 · 你 you")
+            render(&segment("我疼你", &table)).as_deref(),
+            Some("我 I · 疼 · 你 you")
         );
     }
 
@@ -221,7 +364,7 @@ mod tests {
     fn a_breakdown_that_does_not_help_is_not_shown() {
         let table = known(&[("我", "I")]);
         assert_eq!(
-            render(&segment("我爱", &table)),
+            render(&segment("我疼", &table)),
             None,
             "one glossed piece is not a breakdown"
         );
@@ -231,6 +374,49 @@ mod tests {
             None,
             "too many pieces"
         );
+    }
+
+    #[test]
+    fn a_learner_phrase_replaces_the_dictionary_first_phrase() {
+        let table = known(&[
+            ("我", "I, me; we, us"),
+            ("是", "indeed, yes, right; to be"),
+            ("学生", "student; schoolchild"),
+            ("一起", "(in) the same place; together, in company (with)"),
+            ("去", "go away, leave, depart"),
+            ("学校", "school"),
+        ]);
+        assert_eq!(
+            render(&segment("我是学生", &table)).as_deref(),
+            Some("我 I · 是 to be · 学生 student")
+        );
+        assert_eq!(
+            render(&segment("一起去学校", &table)).as_deref(),
+            Some("一起 together · 去 to go · 学校 school")
+        );
+    }
+
+    #[test]
+    fn a_listed_word_is_cut_out_even_when_no_table_has_it() {
+        let table = known(&[("你", "you"), ("好", "good")]);
+        assert_eq!(
+            render(&segment("你好吗", &table)).as_deref(),
+            Some("你 you · 好 good · 吗 (question)")
+        );
+    }
+
+    #[test]
+    fn the_learner_table_has_no_duplicates_and_no_dictionary_notes() {
+        let mut seen = std::collections::HashSet::new();
+        for (piece, phrase) in LEARNER_PHRASES {
+            assert!(seen.insert(piece), "{piece} is listed twice");
+            assert!(piece.chars().all(is_han), "{piece} is not Han text");
+            assert_eq!(
+                first_phrase(phrase),
+                *phrase,
+                "{piece}: {phrase} would be cut by first_phrase"
+            );
+        }
     }
 
     #[test]

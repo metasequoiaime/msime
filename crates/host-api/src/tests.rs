@@ -7803,7 +7803,7 @@ fn gloss_breakdown_request_lines_sentences_up_with_english_words() {
         .execute_batch(
             "INSERT INTO zh_glosses VALUES('我', 'I, me; we, us', 'unihan:kDefinition');
              INSERT INTO zh_glosses VALUES('你', 'you', 'unihan:kDefinition');
-             INSERT INTO zh_glosses VALUES('要', 'want, ask; necessary', 'unihan:kDefinition');",
+             INSERT INTO zh_glosses VALUES('哭', 'weep, cry; wail', 'unihan:kDefinition');",
         )
         .unwrap();
     let words = root.path().join("word-glosses/zh-en.db");
@@ -7812,16 +7812,25 @@ fn gloss_breakdown_request_lines_sentences_up_with_english_words() {
         .unwrap()
         .execute_batch(
             "INSERT INTO zh_glosses VALUES('喜欢', 'to like, to be fond of', 'cc-cedict');
-             INSERT INTO zh_glosses VALUES('要', 'to demand', 'cc-cedict');",
+             INSERT INTO zh_glosses VALUES('哭', 'to cry', 'cc-cedict');",
         )
         .unwrap();
-    // A single character's gloss comes from Unihan before CC-CEDICT (要 "want", not "to demand"); an English text, a
-    // single character and a sentence with one glossed piece are omitted.
+    // A single character's gloss comes from Unihan before CC-CEDICT (哭 "weep", not "to cry"); a word in the learner
+    // table (要) shows its learner phrase whether or not a table has it; an English text, a single character and a
+    // sentence with one glossed piece are omitted.
     assert_eq!(
-        call(json!(["我喜欢你", "我要你", "hello", "我", "我哈"]))["value"]["breakdowns"],
+        call(json!([
+            "我喜欢你",
+            "我哭你",
+            "我要你",
+            "hello",
+            "我",
+            "我哈"
+        ]))["value"]["breakdowns"],
         json!([
             {"text": "我喜欢你", "breakdown": "我 I · 喜欢 to like · 你 you"},
-            {"text": "我要你", "breakdown": "我 I · 要 want · 你 you"}
+            {"text": "我哭你", "breakdown": "我 I · 哭 weep · 你 you"},
+            {"text": "我要你", "breakdown": "我 I · 要 to want · 你 you"}
         ])
     );
     for invalid in [
