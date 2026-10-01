@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { SelectRow } from "./select-row";
+import { SettingsTextareaField } from "./settings-textarea-field";
 import * as settings from "./settings-style";
 import { CustomPromptSlotOptions } from "./custom-prompt-slot-options";
 import {
@@ -64,18 +65,15 @@ export function PolishPromptSection({
         <CustomPromptSlotOptions />
       </SelectRow>
       <div className={settings.managerBlock}>
-        <label className={settings.field}>
-          <span>
-            <span data-row-title="">润色提示词</span>{" "}
-            {customSlot ? "这一段会保存到所选的自定义方案" : "内置方案的完整提示词，可以就地修改"}
-          </span>
-          <textarea
-            aria-label="润色提示词"
-            className={settings.promptInput}
-            value={prompt}
-            onChange={(event) => onPromptChange(event.target.value, customSlot)}
-          />
-        </label>
+        <SettingsTextareaField
+          label="润色提示词"
+          ariaLabel="润色提示词"
+          description={
+            customSlot ? "这一段会保存到所选的自定义方案" : "内置方案的完整提示词，可以就地修改"
+          }
+          value={prompt}
+          onChange={(value) => onPromptChange(value, customSlot)}
+        />
         <div className={settings.managerActions}>
           <button
             type="button"

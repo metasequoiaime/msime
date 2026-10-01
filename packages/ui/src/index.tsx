@@ -1038,6 +1038,10 @@ export {
   type SettingSectionHeaderProps,
 } from "./settings/setting-action-header";
 export { SettingTextarea, type SettingTextareaProps } from "./settings/setting-textarea";
+export {
+  SettingsTextareaField,
+  type SettingsTextareaFieldProps,
+} from "./settings/settings-textarea-field";
 export { ModelSelect, type ModelSelectProps } from "./settings/model-select";
 export {
   AiCredentialSection,

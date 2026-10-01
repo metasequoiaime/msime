@@ -4,6 +4,7 @@ import * as settings from "./settings-style";
 import { FeedbackKindOptions } from "./feedback-kind-options";
 import { SelectSettingField } from "./select-setting-field";
 import { SelectRow } from "./select-row";
+import { SettingsTextareaField } from "./settings-textarea-field";
 
 export interface FeedbackReportFieldsProps {
   grouped?: boolean;
@@ -34,18 +35,15 @@ export function FeedbackReportFields({
         <FeedbackKindOptions />
       </SelectRow>
       <div className={settings.managerBlock}>
-        <label className={settings.field}>
-          <span data-row-title="">描述</span>
-          <textarea
-            aria-label="反馈描述"
-            className={settings.promptInput}
-            maxLength={4000}
-            value={detail}
-            onChange={(event) => onDetailChange(event.target.value)}
-            placeholder="发生了什么？如果和打字有关，写出输入方案、编码和期望结果。"
-            rows={6}
-          />
-        </label>
+        <SettingsTextareaField
+          label="描述"
+          ariaLabel="反馈描述"
+          maxLength={4000}
+          value={detail}
+          onChange={onDetailChange}
+          placeholder="发生了什么？如果和打字有关，写出输入方案、编码和期望结果。"
+          rows={6}
+        />
         {children}
       </div>
     </>
