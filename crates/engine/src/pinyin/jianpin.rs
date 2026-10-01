@@ -97,7 +97,10 @@ pub fn build_key_like_pattern(segments: &[String]) -> String {
 
 /// `prefix + "{"`: `{` sorts right after `z` (QQ:276-279).
 pub fn key_prefix_upper_bound(prefix: &str) -> String {
-    format!("{prefix}{{")
+    let mut result = String::with_capacity(prefix.len() + 1);
+    result.push_str(prefix);
+    result.push('{');
+    result
 }
 
 #[cfg(test)]
@@ -210,6 +213,8 @@ mod tests {
         assert_eq!(build_key_like_pattern(&segments(&["n", "h"])), "n%'h%");
         assert_eq!(build_key_like_pattern(&[]), "");
         assert_eq!(key_prefix_upper_bound("ni'hao"), "ni'hao{");
+        let prefix = "ping'guo'ji'hao";
+        assert_eq!(key_prefix_upper_bound(prefix).capacity(), prefix.len() + 1);
         assert_eq!(build_mixed_jianpin_scan_limit(1), 128);
         assert_eq!(build_mixed_jianpin_scan_limit(20), 320);
         assert_eq!(
