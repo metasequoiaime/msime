@@ -59,6 +59,9 @@ pub fn custom_helpcode_path(resources: &Path, schema: &str) -> Option<PathBuf> {
 /// semantics. Results are ordered by file stem for stable settings UI presentation.
 pub fn list_custom_helpcode_schemas(resources: &Path) -> Vec<CustomHelpcodeSchema> {
     let directory = custom_helpcode_directory(resources);
+    if crate::storage::reject_symlink(&directory).is_err() {
+        return Vec::new();
+    }
     let Ok(entries) = std::fs::read_dir(directory) else {
         return Vec::new();
     };
@@ -253,5 +256,20 @@ mod tests {
         symlink(outside.path(), &directory).unwrap();
 
         assert_eq!(custom_helpcode_path(resources.path(), "custom/mine"), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn does_not_list_tables_from_a_symlinked_custom_directory() {
+        use std::os::unix::fs::symlink;
+
+        let resources = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let directory = custom_helpcode_directory(resources.path());
+        fs::create_dir_all(directory.parent().unwrap()).unwrap();
+        fs::write(outside.path().join("mine.txt"), "你=ab\n").unwrap();
+        symlink(outside.path(), &directory).unwrap();
+
+        assert!(list_custom_helpcode_schemas(resources.path()).is_empty());
     }
 }

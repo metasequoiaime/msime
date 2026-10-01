@@ -1,4 +1,7 @@
 #include "msime_client.h"
+#ifdef MSIME_FCITX5_TELEMETRY
+#include "Telemetry.h"
+#endif
 #include "../src/system/ChineseTextConversion.h"
 #include <fcitx-utils/capabilityflags.h>
 #include <fcitx-utils/key.h>
@@ -5416,6 +5419,9 @@ public:
           timer->setOneShot();
           return true;
         });
+#ifdef MSIME_FCITX5_TELEMETRY
+    startTelemetry();
+#endif
   }
   // The theme worker runs addon code on a schedule rather than on user action, so it is the detached job most likely to be in flight when Fcitx5 unloads the addon. Waiting for it here (its portal call gives up after 1 s) keeps that code from running after the library is gone; the other detached jobs keep the risk their comment accepts.
   // The key press counts get the same care: every context's pending batch is written here, synchronously, and so is any a context still flushes when the factory destroys it; batches already handed to a thread (contexts Fcitx5 destroyed before unloading the addon) are waited for. A store write takes milliseconds; the bound only keeps a wedged store from holding the exit.
@@ -5427,7 +5433,52 @@ public:
     });
     fcitx_key_press_writes.wait_idle(std::chrono::seconds(2));
     if (system_theme_job_.valid()) system_theme_job_.wait_for(std::chrono::seconds(2));
+#ifdef MSIME_FCITX5_TELEMETRY
+    stopTelemetry();
+#endif
   }
+#ifdef MSIME_FCITX5_TELEMETRY
+  // Usage reporting (see platforms/common/Telemetry.h): one session per addon lifetime in this Fcitx5 process, in a directory of its own so it never shares a session marker with an IBus host of the same user. Crash capture only writes the record and then hands the signal to whatever handler Fcitx5 installed before. Nothing touches the network on the loop: the session starts and the queue is sent on a worker, again every 30 minutes, and the switch is read from the shared preferences on every round.
+  void startTelemetry() {
+    std::filesystem::path preferences;
+    try {
+      const auto directory = readOptions().value("preferences_directory", std::string{});
+      if (!directory.empty() && directory.front() == '/') preferences = directory;
+    } catch (...) {
+    }
+    const auto root = msime::telemetry::default_directory();
+    if (root.empty()) return;
+    msime::telemetry::install_crash_handlers();
+    telemetry_job_ = detachedJob([host = msime::telemetry::Host{"linux", MSIME_LINUX_VERSION, root / "fcitx5", std::nullopt, preferences}] {
+      msime::telemetry::begin(host);
+      msime::telemetry::flush();
+      return Json();
+    });
+    telemetry_timer_ = instance_->eventLoop().addTimeEvent(
+        CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + kTelemetryIntervalUs, 0,
+        [this](fcitx::EventSourceTime *timer, uint64_t) {
+          // One round at a time; a slow endpoint just skips a turn.
+          if (!telemetry_job_.valid() || telemetry_job_.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+            telemetry_job_ = detachedJob([] {
+              msime::telemetry::flush();
+              return Json();
+            });
+          timer->setNextInterval(kTelemetryIntervalUs);
+          timer->setOneShot();
+          return true;
+        });
+  }
+  // The addon's code must not run after Fcitx5 unloads it: wait (bounded, as for the theme worker) for a round in flight, close the session and give the signals back.
+  void stopTelemetry() {
+    telemetry_timer_.reset();
+    if (telemetry_job_.valid()) telemetry_job_.wait_for(std::chrono::seconds(2));
+    msime::telemetry::end();
+    msime::telemetry::remove_crash_handlers();
+  }
+  static constexpr uint64_t kTelemetryIntervalUs = 30ull * 60 * 1000000;
+  std::shared_future<Json> telemetry_job_;
+  std::unique_ptr<fcitx::EventSourceTime> telemetry_timer_;
+#endif
   // The desktop appearance (the portal's color-scheme) is probed once for the whole addon, not once per input context, and never on the loop: fcitx_system_dark_theme is a synchronous portal round trip that can block for its full 1 s D-Bus timeout. One worker is in flight at a time; the loop polls it every 250 ms and starts the next one 5 s after the last answer, so a theme switch reaches every context within about 5 s, as when each context probed on its own. Returns the microseconds until the next step.
   uint64_t stepSystemTheme() {
     constexpr uint64_t kPollUs = 250000;

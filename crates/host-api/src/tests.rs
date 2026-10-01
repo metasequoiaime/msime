@@ -95,6 +95,36 @@ fn resource_verification_rejects_a_symlinked_state_root() {
     assert!(!outside.path().join("verified-resources.json").exists());
 }
 
+#[cfg(unix)]
+#[test]
+fn resource_verification_rejects_an_existing_state_root_below_a_symlink() {
+    let root = tempfile::tempdir().unwrap();
+    let resources = root.path().join("resources");
+    std::fs::create_dir_all(&resources).unwrap();
+    std::fs::write(resources.join("fixture.db"), b"fixture").unwrap();
+    let specification = ResourceSet {
+        source_commit: "a".repeat(40),
+        artifacts: vec![msime_client_core::resources::Artifact {
+            name: "fixture.db".into(),
+            url: "https://example.invalid/fixture.db".into(),
+            sha256: hex::encode(Sha256::digest(b"fixture")),
+            size: 7,
+        }],
+    };
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::create_dir(outside.path().join("state")).unwrap();
+    let parent = tempfile::tempdir().unwrap();
+    let linked = parent.path().join("linked");
+    std::os::unix::fs::symlink(outside.path(), &linked).unwrap();
+    let state = linked.join("state");
+
+    assert!(verify_resources_once(&resources, &specification, &state).is_err());
+    assert!(!outside
+        .path()
+        .join("state/verified-resources.json")
+        .exists());
+}
+
 #[test]
 fn resource_verification_removes_the_retired_pinyin_dictionary_in_place() {
     let root = tempfile::tempdir().unwrap();
@@ -8137,4 +8167,226 @@ fn statistics_record_reports_the_milestone_field() {
     );
     assert_eq!(quiet["value"]["recorded"], 2, "{quiet}");
     assert!(quiet["value"].get("milestone").is_some());
+}
+
+fn reporting_call(
+    function: unsafe extern "C" fn(*const u8, usize) -> *mut c_char,
+    request: Value,
+) -> Value {
+    let bytes = request.to_string();
+    // SAFETY: the buffer outlives the call and its length is exact.
+    read(unsafe { function(bytes.as_ptr(), bytes.len()) })
+}
+
+#[test]
+fn telemetry_abi_runs_a_session_through_a_crash_and_clears_when_turned_off() {
+    use crate::ffi::reporting::*;
+    let root = tempfile::tempdir().unwrap();
+    let directory = root.path().join("telemetry");
+    let request = |enabled: bool| {
+        json!({
+            "directory": directory,
+            "platform": "win",
+            "version": "0.50.0-build.7",
+            "enabled": enabled,
+        })
+    };
+    let started = reporting_call(msime_client_telemetry_begin, request(true));
+    assert_eq!(started["ok"], true, "{started}");
+    assert_eq!(started["value"]["enabled"], true);
+    let record = std::path::PathBuf::from(started["value"]["crash_record_path"].as_str().unwrap());
+    assert!(record.parent().unwrap().is_dir());
+
+    let crash = reporting_call(
+        msime_client_telemetry_record_crash,
+        json!({"directory": directory, "message": "std::terminate: bad_alloc", "stack": "msime-server.exe+0x10"}),
+    );
+    assert_eq!(crash["value"], true);
+    assert!(record.is_file());
+
+    let next = reporting_call(msime_client_telemetry_begin, request(true));
+    assert_eq!(next["value"]["previous_session_crashed"], true);
+    assert_eq!(next["value"]["crashes"], 1);
+    let ended = reporting_call(msime_client_telemetry_end, json!({"directory": directory}));
+    assert_eq!(ended["value"], true);
+
+    let store = msime_client_core::telemetry::TelemetryStore::new(&directory);
+    let kinds: Vec<_> = store
+        .queued()
+        .unwrap()
+        .into_iter()
+        .map(|event| serde_json::to_value(event.kind).unwrap())
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            json!("active"),
+            json!("session_crash"),
+            json!("crash"),
+            json!("session")
+        ]
+    );
+    assert!(store
+        .queued()
+        .unwrap()
+        .iter()
+        .all(|event| event.platform == "windows"));
+
+    // Turned off: flush sends nothing and clears the queue.
+    let flushed = reporting_call(msime_client_telemetry_flush, request(false));
+    assert_eq!(flushed["value"]["enabled"], false);
+    assert!(store.queued().unwrap().is_empty());
+
+    let invalid = reporting_call(
+        msime_client_telemetry_begin,
+        json!({"directory": "relative", "platform": "linux", "version": "1", "enabled": true}),
+    );
+    assert_eq!(invalid["ok"], false);
+    let unknown = reporting_call(
+        msime_client_telemetry_begin,
+        json!({"directory": directory, "platform": "linux", "version": "1", "enabled": true, "extra": 1}),
+    );
+    assert_eq!(unknown["ok"], false);
+}
+
+#[test]
+fn telemetry_abi_reads_consent_from_the_shared_preferences() {
+    use crate::ffi::reporting::*;
+    let root = tempfile::tempdir().unwrap();
+    let preferences = root.path().join("preferences");
+    let directory = root.path().join("telemetry");
+    let request = json!({
+        "directory": directory,
+        "platform": "linux",
+        "version": "0.50.0",
+        "preferences_directory": preferences,
+    });
+    // No preferences saved yet: the default, which is on.
+    let started = reporting_call(msime_client_telemetry_begin, request.clone());
+    assert_eq!(started["value"]["enabled"], true, "{started}");
+
+    let store = PreferencesStore::new(&preferences);
+    let off = Preferences {
+        usage_reporting: false,
+        ..Preferences::default()
+    };
+    store.save(0, off).unwrap();
+    let stopped = reporting_call(msime_client_telemetry_begin, request);
+    assert_eq!(stopped["value"]["enabled"], false);
+    assert!(
+        msime_client_core::telemetry::TelemetryStore::new(&directory)
+            .queued()
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn notice_abi_serves_the_cached_feed_with_rendered_html_and_dismissals() {
+    use crate::ffi::reporting::*;
+    let root = tempfile::tempdir().unwrap();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    // A feed fetched just now is served from the cache, so this test never reaches the network.
+    std::fs::write(
+        root.path().join("notices.json"),
+        json!({
+            "feed": "app/harmony",
+            "attempted_at_unix_ms": now,
+            "items": [
+                {"id": "2", "title": "维护", "body": "**今晚** <b>维护</b>", "targets": ["harmony"], "channels": ["app"], "published_at": "2026-10-01T03:00:00Z"},
+                {"id": "1", "title": "上线", "body": "[官网](https://msime.app)", "targets": ["all"], "channels": ["app"], "published_at": "2026-09-30T03:00:00Z"}
+            ],
+            "dismissed": []
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let request = json!({"directory": root.path(), "platform": "ohos"});
+    let listed = reporting_call(msime_client_notices, request.clone());
+    assert_eq!(listed["ok"], true, "{listed}");
+    let items = listed["value"]["items"].as_array().unwrap();
+    assert_eq!(items.len(), 2);
+    assert_eq!(
+        items[0]["html"],
+        "<p><strong>今晚</strong> &lt;b&gt;维护&lt;/b&gt;</p>\n"
+    );
+    let dismissed = reporting_call(
+        msime_client_notice_dismiss,
+        json!({"directory": root.path(), "id": "2"}),
+    );
+    assert_eq!(dismissed["value"], true);
+    let after = reporting_call(msime_client_notices, request);
+    let items = after["value"]["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["id"], "1");
+
+    let markdown = "[x](javascript:alert(1)) *y*";
+    // SAFETY: the buffer outlives the call and its length is exact.
+    let html = read(unsafe { msime_client_markdown_to_html(markdown.as_ptr(), markdown.len()) });
+    assert_eq!(html["value"], "<p>x <em>y</em></p>\n");
+}
+
+#[test]
+fn community_moderation_abi_lists_reasons_builds_reports_and_words_refusals() {
+    use crate::ffi::moderation::msime_client_community_moderation;
+    let reasons = reporting_call(
+        msime_client_community_moderation,
+        json!({"operation": "reasons"}),
+    );
+    assert_eq!(
+        reasons["value"],
+        json!([
+            "侵权/抄袭",
+            "色情低俗",
+            "违法违规",
+            "垃圾广告",
+            "恶意插件",
+            "其他"
+        ])
+    );
+
+    let report = reporting_call(
+        msime_client_community_moderation,
+        json!({"operation": "report", "kind": "candidate-skins", "item_id": "10000000-0000-4000-8000-000000000001", "reason": "垃圾广告", "detail": "  spam link  "}),
+    );
+    assert_eq!(report["ok"], true, "{report}");
+    assert_eq!(report["value"]["path"], "/v1/community/reports");
+    assert_eq!(
+        report["value"]["body"],
+        json!({"kind": "candidate-skins", "item_id": "10000000-0000-4000-8000-000000000001", "reason": "垃圾广告", "detail": "spam link"})
+    );
+    for bad in [
+        json!({"operation": "report", "kind": "skins", "item_id": "10000000-0000-4000-8000-000000000001", "reason": "不喜欢"}),
+        json!({"operation": "report", "kind": "skins", "item_id": "not-a-uuid", "reason": "其他"}),
+        json!({"operation": "report", "kind": "skins", "item_id": "10000000-0000-4000-8000-000000000001", "reason": "其他", "detail": "x".repeat(1001)}),
+    ] {
+        let refused = reporting_call(msime_client_community_moderation, bad);
+        assert_eq!(refused["error"], "community_invalid", "{refused}");
+    }
+
+    let error = |status: u16, code: &str| {
+        reporting_call(
+            msime_client_community_moderation,
+            json!({"operation": "error", "status": status, "body": json!({"error": {"code": code, "message": code}}).to_string()}),
+        )["value"]
+            .clone()
+    };
+    let blocked = error(422, "blocked_content");
+    assert_eq!(blocked["code"], "account_blocked_content");
+    assert_eq!(
+        blocked["message"],
+        "内容包含不允许发布的词语，请修改后再提交"
+    );
+    assert_eq!(blocked["retry"], false);
+    let screening = error(503, "screening_unavailable");
+    assert_eq!(screening["code"], "account_screening_unavailable");
+    assert_eq!(screening["message"], "审核服务暂时不可用，请稍后重试");
+    assert_eq!(screening["retry"], true);
+    assert_eq!(error(403, "account_banned")["code"], "account_banned");
+    let generic = error(404, "not_found");
+    assert_eq!(generic["code"], "account_unavailable");
+    assert!(generic["message"].is_null());
 }

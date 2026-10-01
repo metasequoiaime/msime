@@ -165,13 +165,7 @@ impl ZhuyinScheme {
 
     /// The keys that typed the composition, in order, for the caret-locked editing text.
     pub fn editing_text(&self) -> String {
-        let mut keys: String = self
-            .syllables
-            .iter()
-            .map(|syllable| syllable.keys.as_str())
-            .collect();
-        keys.push_str(&self.pending.keys());
-        keys
+        build_editing_keys(&self.syllables, &self.pending)
     }
 
     /// The converted text followed by the pending bopomofo, e.g. `你好ㄇㄚ`.
@@ -202,10 +196,7 @@ impl ZhuyinScheme {
     }
 
     pub fn converted_text(&self) -> String {
-        self.conversion
-            .iter()
-            .map(|span| span.text.as_str())
-            .collect()
+        build_converted_text(&self.conversion)
     }
 
     pub fn list_open(&self) -> bool {
@@ -296,7 +287,9 @@ impl ZhuyinScheme {
         let mut list = Vec::new();
         for start in 0..count {
             let key = self.key(start, count);
-            for entry in self.dictionary.lookup(&key, usize::MAX)? {
+            let entries = self.dictionary.lookup(&key, usize::MAX)?;
+            list.reserve(entries.len());
+            for entry in entries {
                 list.push(ListCandidate {
                     text: entry.text,
                     start,
@@ -323,11 +316,7 @@ impl ZhuyinScheme {
     }
 
     fn key(&self, start: usize, end: usize) -> String {
-        self.syllables[start..end]
-            .iter()
-            .map(|syllable| syllable.toned.as_str())
-            .collect::<Vec<_>>()
-            .join(" ")
+        build_zhuyin_key(&self.syllables[start..end])
     }
 
     fn reconvert(&mut self) -> Result<()> {
@@ -348,6 +337,48 @@ impl ZhuyinScheme {
         })?;
         Ok(())
     }
+}
+
+fn build_editing_keys(syllables: &[Syllable], pending: &PendingSyllable) -> String {
+    let pending_capacity = usize::from(pending.initial.is_some())
+        + usize::from(pending.medial.is_some())
+        + usize::from(pending.rime.is_some());
+    let capacity = syllables
+        .iter()
+        .map(|syllable| syllable.keys.len())
+        .sum::<usize>()
+        + pending_capacity;
+    let mut keys = String::with_capacity(capacity);
+    for syllable in syllables {
+        keys.push_str(&syllable.keys);
+    }
+    pending.append_keys(&mut keys);
+    keys
+}
+
+fn build_converted_text(spans: &[Span]) -> String {
+    let capacity = spans.iter().map(|span| span.text.len()).sum();
+    let mut text = String::with_capacity(capacity);
+    for span in spans {
+        text.push_str(&span.text);
+    }
+    text
+}
+
+fn build_zhuyin_key(syllables: &[Syllable]) -> String {
+    let capacity = syllables
+        .iter()
+        .map(|syllable| syllable.toned.len())
+        .sum::<usize>()
+        .saturating_add(syllables.len().saturating_sub(1));
+    let mut key = String::with_capacity(capacity);
+    for (index, syllable) in syllables.iter().enumerate() {
+        if index > 0 {
+            key.push(' ');
+        }
+        key.push_str(&syllable.toned);
+    }
+    key
 }
 
 #[cfg(test)]
@@ -376,6 +407,61 @@ mod tests {
         ("ㄇㄚ", "媽", 700),
         ("ㄢ", "安", 100),
     ];
+
+    #[test]
+    fn editing_keys_append_syllables_and_pending_keys_in_order() {
+        let syllables = vec![
+            Syllable {
+                toned: "ㄋㄧˇ".to_owned(),
+                keys: "su3".to_owned(),
+            },
+            Syllable {
+                toned: "ㄏㄠˇ".to_owned(),
+                keys: "lc3".to_owned(),
+            },
+        ];
+        let pending = PendingSyllable {
+            initial: Some('ㄇ'),
+            medial: Some('ㄚ'),
+            rime: None,
+        };
+
+        assert_eq!(build_editing_keys(&syllables, &pending), "su3lc3a8");
+    }
+
+    #[test]
+    fn dictionary_key_joins_toned_syllables_in_order() {
+        let syllables = vec![
+            Syllable {
+                toned: "ㄋㄧˇ".to_owned(),
+                keys: "su3".to_owned(),
+            },
+            Syllable {
+                toned: "ㄏㄠˇ".to_owned(),
+                keys: "lc3".to_owned(),
+            },
+        ];
+
+        assert_eq!(build_zhuyin_key(&syllables), "ㄋㄧˇ ㄏㄠˇ");
+    }
+
+    #[test]
+    fn converted_text_appends_spans_in_order() {
+        let spans = vec![
+            Span {
+                start: 0,
+                end: 2,
+                text: "你好".to_owned(),
+            },
+            Span {
+                start: 2,
+                end: 3,
+                text: "嗎".to_owned(),
+            },
+        ];
+
+        assert_eq!(build_converted_text(&spans), "你好嗎");
+    }
 
     fn scheme() -> (tempfile::TempDir, ZhuyinScheme) {
         scheme_with(&ENTRIES)
@@ -534,6 +620,7 @@ mod tests {
         type_keys(&mut scheme, "u4");
         assert!(scheme.handle_key(ZhuyinKey::OpenList).unwrap());
         assert_eq!(scheme.candidates().len(), 215);
+        assert_eq!(scheme.list.capacity(), scheme.list.len());
         assert_eq!(scheme.candidates()[214].text, texts[214]);
     }
 

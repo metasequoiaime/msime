@@ -1,6 +1,7 @@
 #include "PanelInputChannel.h"
 
 #include <cassert>
+#include <filesystem>
 #include <string>
 #include <utility>
 #include <vector>
@@ -45,6 +46,21 @@ void rejects_what_the_ime_route_does_not_carry() {
   assert(!parse_panel_input_request(R"({"op":"paste"})"));
   assert(!parse_panel_input_request(R"(["op","text"])"));
   assert(!parse_panel_input_request("not json"));
+}
+
+void rejects_socket_directories_below_a_symlink() {
+  const auto root = std::filesystem::temp_directory_path() / "msime-panel-input-path-test";
+  const auto outside = root / "outside";
+  std::error_code error;
+  std::filesystem::remove_all(root, error);
+  std::filesystem::create_directories(outside);
+  const auto linked = root / "linked";
+  std::filesystem::create_directory_symlink(outside, linked);
+
+  msime::linux_host::PanelInputSocket socket;
+  assert(!socket.open((linked / "nested" / "panel-input.sock").string()));
+  assert(!std::filesystem::exists(outside / "nested"));
+  std::filesystem::remove_all(root, error);
 }
 
 struct Harness {
@@ -191,6 +207,7 @@ void runs_keys_through_the_input_method_first() {
 int main() {
   parses_the_three_requests();
   rejects_what_the_ime_route_does_not_carry();
+  rejects_socket_directories_below_a_symlink();
   delivers_at_once_to_a_focused_context();
   answers_the_generation_without_needing_focus();
   waits_for_a_focus_newer_than_the_panel();

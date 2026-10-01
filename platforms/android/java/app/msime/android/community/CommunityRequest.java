@@ -34,23 +34,117 @@ public final class CommunityRequest {
         public String searchHint() { return searchHint; }
     }
 
+    /**
+     * 社区键盘皮肤的发布分类，顺序即筛选条上按钮的顺序。
+     *
+     * <p>分类只是发布元数据，不属于皮肤设计本身，也不进任何请求摘要。服务端将来新增的分类 id 一律读作 {@link #OTHER}，旧客户端不会因此读不出整页。
+     */
+    public enum Category {
+        NATURE("nature", "自然"),
+        GUOFENG("guofeng", "国风"),
+        ACG("acg", "二次元"),
+        CUTE("cute", "可爱"),
+        FOOD("food", "美食"),
+        TECH("tech", "科技夜色"),
+        MINIMAL("minimal", "简约"),
+        OTHER("other", "其他");
+
+        private final String id;
+        private final String label;
+
+        Category(String id, String label) {
+            this.id = id;
+            this.label = label;
+        }
+
+        public String id() { return id; }
+
+        public String label() { return label; }
+
+        /**
+         * 读条目里的 `category` 字段。
+         *
+         * <p>早于分类功能的服务端不返回这个字段（它只回给带了 `include=category` 的请求），缺失（调用方把 JSON `null` 也作为 Java null 传进来）读作 {@link #OTHER}；不认识的 id 同样读作 {@link #OTHER}。不是字符串的值是服务端故障，返回 null 让调用方按坏条目处理。参数是 `Object` 而不是 `JSONObject`，是为了让 JVM smoke 不碰 android.jar 里会抛异常的 org.json 桩。
+         */
+        public static Category parse(Object raw) {
+            if (raw == null) return OTHER;
+            if (!(raw instanceof String value)) return null;
+            for (Category category : values()) {
+                if (category.id.equals(value)) return category;
+            }
+            return OTHER;
+        }
+    }
+
     /** One page of results. */
     public static final int PAGE_SIZE = 20;
+
+    /** The fixed report reasons, in dialog order, each the exact string the server accepts. The same list on every host. */
+    public static final List<String> REPORT_REASONS =
+        List.of("侵权/抄袭", "色情低俗", "违法违规", "垃圾广告", "恶意插件", "其他");
+    /** The longest optional detail a report may carry, in characters (code points). */
+    public static final int MAX_REPORT_DETAIL = 1000;
+    public static final String REPORT_PATH = "/v1/community/reports";
 
     private CommunityRequest() {}
 
     public static List<Kind> kinds() { return List.of(Kind.values()); }
 
-    /** The catalogue path for one kind, scope and search term. */
+    /**
+     * 返回皮肤条目的请求都要带上它，服务端才会在每个条目里给出 `category`；不带的请求拿到的条目没有这个字段，以免读条目时拒绝未知字段的旧客户端出错。
+     */
+    public static final String INCLUDE_CATEGORY = "include=category";
+
+    public static List<Category> categories() { return List.of(Category.values()); }
+
+    /** The catalogue path for one kind, scope and search term, across every category. */
     public static String path(Kind kind, String scope, String search, int offset) {
+        return path(kind, scope, search, offset, null);
+    }
+
+    /**
+     * The catalogue path for one kind, scope, search term and category.
+     *
+     * <p>分类只对皮肤有意义；`category` 为 null 时列出全部分类。词库和回复走资源端点，那里没有分类，传了也不带上。
+     */
+    public static String path(Kind kind, String scope, String search, int offset,
+            Category category) {
         String bounded = search == null ? "" : search.trim();
         int page = Math.max(0, offset);
         if (kind == Kind.SKIN) {
-            return "/v1/community/skins?offset=" + page + "&q=" + encode(bounded);
+            return "/v1/community/skins?offset=" + page + "&q=" + encode(bounded)
+                + (category == null ? "" : "&category=" + category.id())
+                + "&" + INCLUDE_CATEGORY;
         }
         return "/v1/community/resources?kind=" + kind.id()
             + "&scope=" + encode(scope == null ? "" : scope)
             + "&q=" + encode(bounded) + "&offset=" + page;
+    }
+
+    /** The `kind` a report names this catalogue's items by. */
+    public static String reportKind(Kind kind) {
+        return switch (kind) {
+            case SKIN -> "skins";
+            case DICTIONARY -> "dictionaries";
+            case REPLY -> "replies";
+        };
+    }
+
+    /** Whether a report can be sent as written: one of the fixed reasons, and a detail within the limit. */
+    public static boolean validReport(String reason, String detail) {
+        if (reason == null || !REPORT_REASONS.contains(reason)) return false;
+        String text = detail == null ? "" : detail;
+        return text.codePointCount(0, text.length()) <= MAX_REPORT_DETAIL;
+    }
+
+    /** 作者修改自己皮肤的分类：`PATCH` 这条路径，回来的是改过之后的条目，所以同样带上 `include=category`。 */
+    public static String skinPath(String id) {
+        return "/v1/community/skins/" + encode(id) + "?" + INCLUDE_CATEGORY;
+    }
+
+    /** 修改分类的请求体，只有 `category` 一个字段。分类 id 是固定的 ASCII 小写字母，不需要转义。 */
+    public static String categoryBody(Category category) {
+        return "{\"category\":\"" + category.id() + "\"}";
     }
 
     /**
@@ -92,6 +186,13 @@ public final class CommunityRequest {
             case "skin_publish_limit" -> "最多发布 50 款皮肤，请先下架部分作品。";
             case "recent_login_required" -> "请退出并重新登录后，再注销账号。";
             case "invalid_skin_design", "invalid_skin_metadata" -> "皮肤内容或名称不符合发布要求。";
+            // Content screening and moderation. A refused word is the text's problem, never a service that is down.
+            case "blocked_content" -> "内容包含不允许发布的词语，请修改后再提交";
+            case "screening_unavailable" -> "审核服务暂时不可用，请稍后重试";
+            case "account_banned" -> "该账号已被封禁，暂时无法使用账号相关功能";
+            case "item_not_found" -> "作品不存在或已下架。";
+            case "invalid_report_reason", "invalid_report_detail", "invalid_report_kind" ->
+                "举报内容不符合要求，请重新选择原因。";
             default -> "";
         };
         if (!named.isEmpty()) return named;

@@ -70,6 +70,11 @@ struct KeyboardTheme: Equatable {
 
   var title: String { GlobalThemeCatalog.title(id) }
   var isCustom: Bool { id == GlobalThemeCatalog.customId }
+  /// Whether the keyboard is drawn with UIKit's own tokens: no resolved palette and no design.
+  /// iOS 26 sometimes draws a strip of its own keyboard backdrop above a third-party keyboard, outside the extension's
+  /// window, where nothing the extension draws can cover it. A keyboard in the native tokens leaves its background clear
+  /// so that same backdrop shows through and the strip reads as part of the keyboard.
+  var drawsNativeBackground: Bool { palette == nil && design == nil }
 
   var background: UIColor {
     if let design { return CustomKeyboardSkin.color(design.background) }

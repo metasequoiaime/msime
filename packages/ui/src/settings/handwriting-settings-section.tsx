@@ -1,6 +1,7 @@
 import * as surface from "../keyboard/panel-surface-style";
 import { GroupList, Row } from "../core/platform-controls";
 import * as settings from "./settings-style";
+import { OpenPanelButton } from "./open-panel-button";
 
 export function HandwritingSettingsSection({
   ios,
@@ -81,14 +82,10 @@ export function HandwritingSettingsSection({
   ) : (
     <GroupList title="手写识别板">
       <Row title="打开手写识别板" description="使用鼠标或触控方式手写输入，自动识别候选汉字">
-        <button
-          type="button"
+        <OpenPanelButton
+          action={onOpenHandwriting}
           className={`secondary ${settings.openButton}`}
-          disabled={!openHandwriting}
-          onClick={onOpenHandwriting}
-        >
-          打开
-        </button>
+        />
       </Row>
       <div className={settings.groupPreview} aria-label="手写识别板预览">
         <div className={settings.panelPreviewLabel}>预览</div>

@@ -70,6 +70,7 @@ impl CantoneseScheme {
     /// Replaces the composition with a host edit: letters are lowercased, `'` and the spaces `editing_text` shows at syllable boundaries are both boundaries, anything else is dropped, and boundaries are normalized as typing would leave them. Reading a space as a boundary keeps the syllables the user saw when an edit changes the letters around them (`ngo oi` edited to `ngo i` stays two syllables rather than becoming `ngoi`).
     pub fn set_raw_input(&mut self, raw: &str) {
         self.input.clear();
+        self.input.reserve(raw.len());
         for character in raw.chars() {
             if character.is_ascii_alphabetic() {
                 self.input.push(character.to_ascii_lowercase());
@@ -96,7 +97,20 @@ impl CantoneseScheme {
     /// The typed letters with a space at each syllable boundary (`nei hou`). Letters no syllable reads follow after a space as typed, and a trailing `'` stays visible so the key shows an effect.
     pub fn editing_text(&self) -> String {
         let reading = self.segmentation();
-        let mut text = reading.texts(&self.input).collect::<Vec<_>>().join(" ");
+        let mut text = String::with_capacity(
+            reading
+                .syllables
+                .iter()
+                .map(|syllable| syllable.end - syllable.start)
+                .sum::<usize>()
+                .saturating_add(reading.syllables.len().saturating_sub(1)),
+        );
+        for (index, syllable) in reading.syllables.iter().enumerate() {
+            if index > 0 {
+                text.push(' ');
+            }
+            text.push_str(&self.input[syllable.start..syllable.end]);
+        }
         let rest = self.input[reading.end()..].trim_start_matches('\'');
         if !rest.is_empty() {
             if !text.is_empty() {
@@ -141,7 +155,12 @@ impl CantoneseScheme {
             && input[reading.end()..].bytes().all(|byte| byte == b'\'');
         let mut seen = HashSet::new();
         let mut candidates = Vec::new();
-        let mut push = |key: String, text: String, weight: i64, syllables: usize| {
+        let push = |seen: &mut HashSet<(String, usize)>,
+                    candidates: &mut Vec<CantoneseCandidate>,
+                    key: String,
+                    text: String,
+                    weight: i64,
+                    syllables: usize| {
             if seen.insert((text.clone(), syllables)) {
                 candidates.push(CantoneseCandidate {
                     text,
@@ -156,17 +175,47 @@ impl CantoneseScheme {
         if full {
             let whole = reading.key(input, count);
             if reading.ends_in_prefix() {
-                for (key, entry) in dictionary.lookup_completions(&whole, COMPLETION_LIMIT)? {
-                    push(key, entry.text, entry.weight, count);
+                let completions = dictionary.lookup_completions(&whole, COMPLETION_LIMIT)?;
+                seen.reserve(completions.len());
+                candidates.reserve_exact(completions.len());
+                for (key, entry) in completions {
+                    push(
+                        &mut seen,
+                        &mut candidates,
+                        key,
+                        entry.text,
+                        entry.weight,
+                        count,
+                    );
                 }
             } else {
-                for entry in dictionary.lookup(&whole, SPAN_LIMIT)? {
-                    push(whole.clone(), entry.text, entry.weight, count);
+                let entries = dictionary.lookup(&whole, SPAN_LIMIT)?;
+                seen.reserve(entries.len());
+                candidates.reserve_exact(entries.len());
+                for entry in entries {
+                    push(
+                        &mut seen,
+                        &mut candidates,
+                        whole.clone(),
+                        entry.text,
+                        entry.weight,
+                        count,
+                    );
                 }
                 let last = reading.texts(input).last().unwrap_or_default();
                 if self.inventory.is_prefix(last) {
-                    for (key, entry) in dictionary.lookup_completions(&whole, COMPLETION_LIMIT)? {
-                        push(key, entry.text, entry.weight, count);
+                    let completions = dictionary.lookup_completions(&whole, COMPLETION_LIMIT)?;
+                    seen.reserve(completions.len());
+                    candidates.reserve_exact(completions.len());
+                    for (key, entry) in completions {
+                        push(
+                            &mut seen,
+                            &mut candidates,
+                            key,
+                            entry.text,
+                            entry.weight,
+                            count,
+                        );
                     }
                 }
             }
@@ -174,8 +223,18 @@ impl CantoneseScheme {
         }
         for length in (1..=spans).rev() {
             let key = reading.key(input, length);
-            for entry in dictionary.lookup(&key, SPAN_LIMIT)? {
-                push(key.clone(), entry.text, entry.weight, length);
+            let entries = dictionary.lookup(&key, SPAN_LIMIT)?;
+            seen.reserve(entries.len());
+            candidates.reserve_exact(entries.len());
+            for entry in entries {
+                push(
+                    &mut seen,
+                    &mut candidates,
+                    key.clone(),
+                    entry.text,
+                    entry.weight,
+                    length,
+                );
             }
         }
         Ok(candidates)
@@ -309,6 +368,29 @@ mod tests {
     }
 
     #[test]
+    fn candidates_reserve_each_dictionary_batch() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cantonese.db");
+        build(&path);
+        let connection = Connection::open(&path).unwrap();
+        connection.execute("DELETE FROM entries", []).unwrap();
+        for index in 0..23 {
+            connection
+                .execute(
+                    "INSERT INTO entries VALUES (?1, ?2, ?3)",
+                    ("nei haa", format!("字{index:02}"), index),
+                )
+                .unwrap();
+        }
+        drop(connection);
+        let dictionary = open_read_only(&path).unwrap();
+
+        let candidates = typed("neih").candidates(&dictionary).unwrap();
+        assert_eq!(candidates.len(), 23);
+        assert_eq!(candidates.capacity(), candidates.len());
+    }
+
+    #[test]
     fn a_trailing_prefix_is_completed() {
         let fixture = fixture();
         let scheme = typed("neih");
@@ -430,12 +512,25 @@ mod tests {
 
         scheme.set_raw_input("'Nei'' hou1");
         assert_eq!(scheme.input(), "nei'hou");
-        assert_eq!(scheme.editing_text(), "nei hou");
+        let editing = scheme.editing_text();
+        assert_eq!(editing, "nei hou");
+        assert_eq!(editing.capacity(), editing.len());
         scheme.reset();
         assert!(scheme.is_empty());
         assert_eq!(scheme.editing_text(), "");
         let fixture = fixture();
         assert!(scheme.candidates(&fixture.dictionary).unwrap().is_empty());
+    }
+
+    #[test]
+    fn set_raw_input_reserves_source_capacity() {
+        let source: String = (0..100)
+            .map(|index| if index % 5 == 3 { ' ' } else { 'a' })
+            .collect();
+        let mut scheme = CantoneseScheme::new(Arc::new(inventory()));
+        scheme.set_raw_input(&source);
+        assert_eq!(scheme.input.len(), source.len());
+        assert_eq!(scheme.input.capacity(), source.len());
     }
 
     #[test]

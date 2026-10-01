@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { runAsyncAction } from "../core/async-action";
 import { appendUniqueById } from "./community-helpers";
+import { communityReportedNotice, type CommunityReportReason } from "./community-report";
 
 export type CommunityGalleryPage<T> = {
   items: T[];
@@ -14,6 +15,8 @@ export interface CommunityGalleryClient<T extends { id: string }> {
   detail(id: string): Promise<T>;
   rate(id: string, stars: number): Promise<void>;
   unpublish(id: string): Promise<void>;
+  /** Reports another user's item to the moderators; absent hides the 举报 entry. */
+  report?(id: string, reason: CommunityReportReason, detail: string): Promise<void>;
 }
 
 export interface CommunityGalleryOptions<T extends { id: string }> {
@@ -249,6 +252,26 @@ export function useCommunityGallery<T extends { id: string }>({
     [actionBusy, client, isCurrent, requestList, runAction, selected],
   );
 
+  /** Resolves true once the report was accepted, so the form can close; a failure shows in the gallery's error like any other action. */
+  const reportSelected = useCallback(
+    async (reason: CommunityReportReason, detail: string) => {
+      const report = client.report;
+      if (!selected || actionBusy || !report) return false;
+      let reported = false;
+      await runAction(
+        async (generation) => {
+          await report(selected.id, reason, detail);
+          if (!isCurrent(generation)) return;
+          reported = true;
+          setActionNotice(communityReportedNotice);
+        },
+        { clearNotice: true },
+      );
+      return reported;
+    },
+    [actionBusy, client, isCurrent, runAction, selected],
+  );
+
   return {
     items,
     hasMore,
@@ -274,6 +297,7 @@ export function useCommunityGallery<T extends { id: string }>({
     closeDetail,
     rateSelected,
     unpublishSelected,
+    reportSelected,
     beginAction,
     isCurrent,
     endAction,

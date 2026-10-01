@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The 社区 tab in the design's Android form: large title, the 皮肤/词库/短语 segmented control, a pill search field, then the listing. Skins lay out as a two-column grid of preview cards; dictionaries and replies as rows in one grouped card (see CommunityAdapter). The list is inset 10dp so the 6dp margins around each card land its outer edge on the 16dp page margin with a 12dp gutter between columns. -->
+<!-- The 社区 tab in the design's Android form: large title, the 皮肤/词库/短语 segmented control, a pill search field, the skin category chips, then the listing. Skins lay out as a two-column grid of preview cards; dictionaries and replies as rows in one grouped card (see CommunityAdapter). The list is inset 10dp so the 6dp margins around each card land its outer edge on the 16dp page margin with a 12dp gutter between columns. -->
 <LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -62,6 +62,26 @@
             android:textColorHint="@color/text_secondary"
             android:textSize="15sp" />
     </com.google.android.material.textfield.TextInputLayout>
+
+    <!-- 皮肤的分类筛选条：「全部」和八个分类，一行横向滚动。词库和回复没有分类，切过去时隐藏。 -->
+    <HorizontalScrollView
+        android:id="@+id/community_categories_scroll"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:clipToPadding="false"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:scrollbars="none">
+
+        <com.google.android.material.chip.ChipGroup
+            android:id="@+id/community_categories"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            app:selectionRequired="true"
+            app:singleLine="true"
+            app:singleSelection="true" />
+    </HorizontalScrollView>
 
     <TextView
         android:id="@+id/community_state"

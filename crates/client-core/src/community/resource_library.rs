@@ -149,6 +149,7 @@ mod tests {
             rating_count: 0,
             rating_average: 0.0,
             my_rating: 0,
+            moderation: None,
         }
     }
 

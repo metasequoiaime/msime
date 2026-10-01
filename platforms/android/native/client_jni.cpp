@@ -90,6 +90,34 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_loadPreferences
     env->ReleaseByteArrayElements(directory, bytes, JNI_ABORT);
     return response(env, result);
 }
+// Usage reporting and notices: one UTF-8 JSON request in, the shared envelope out (msime_client.h documents each request).
+static jbyteArray json_call(JNIEnv *env, jbyteArray request, char *(*call)(const uint8_t *, size_t)) {
+    if (!request) return response(env, call(nullptr, 0));
+    jsize length = env->GetArrayLength(request);
+    jbyte *bytes = env->GetByteArrayElements(request, nullptr);
+    if (!bytes) return nullptr;
+    char *result = call(reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
+    env->ReleaseByteArrayElements(request, bytes, JNI_ABORT);
+    return response(env, result);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_telemetryBeginRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return json_call(env, request, msime_client_telemetry_begin);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_telemetryEndRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return json_call(env, request, msime_client_telemetry_end);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_telemetryFlushRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return json_call(env, request, msime_client_telemetry_flush);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_telemetryClearRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return json_call(env, request, msime_client_telemetry_clear);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_noticesRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return json_call(env, request, msime_client_notices);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_noticeDismissRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return json_call(env, request, msime_client_notice_dismiss);
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_themeCatalogRaw(JNIEnv *env, jclass) {
     return response(env, msime_client_theme_catalog());
 }

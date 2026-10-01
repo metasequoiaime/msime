@@ -1,6 +1,9 @@
 import type { ReactNode } from "react";
-import { SettingField } from "./setting-field";
+import { EndpointInput } from "./endpoint-input";
 import { SettingToggle } from "./setting-toggle";
+import { SelectSettingField } from "./select-setting-field";
+import { SettingField } from "./setting-field";
+import { TextSettingField } from "./text-setting-field";
 
 export type AiProviderOption = { id: string; title: string };
 
@@ -39,37 +42,34 @@ export function AiBasicSettingsSection({
         onChange={onEnabledChange}
       />
       <div className="section">
-        <SettingField label="服务提供商">
-          <select
-            aria-label="AI 服务提供商"
-            value={provider}
-            onChange={(event) => onProviderChange(event.target.value)}
-          >
-            {providerOptions.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.title}
-              </option>
-            ))}
-          </select>
-        </SettingField>
+        <SelectSettingField
+          label="服务提供商"
+          inputLabel="AI 服务提供商"
+          value={provider}
+          onChange={onProviderChange}
+        >
+          {providerOptions.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.title}
+            </option>
+          ))}
+        </SelectSettingField>
       </div>
       {providerPreset}
       <div className="section">
-        <SettingField label="模型">
-          <input
-            aria-label="AI 模型"
-            value={model}
-            onChange={(event) => onModelChange(event.target.value)}
-          />
-        </SettingField>
+        <TextSettingField
+          label="模型"
+          inputLabel="AI 模型"
+          value={model}
+          onChange={onModelChange}
+        />
       </div>
       <div className="section">
         <SettingField label="接口地址">
-          <input
-            aria-label="AI 接口地址"
-            type="url"
+          <EndpointInput
+            label="AI 接口地址"
             value={endpoint}
-            onChange={(event) => onEndpointChange(event.target.value)}
+            onChange={onEndpointChange}
           />
         </SettingField>
       </div>

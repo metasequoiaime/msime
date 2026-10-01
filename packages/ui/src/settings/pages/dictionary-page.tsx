@@ -4,12 +4,14 @@ import { localDictionaryKinds } from "../../dictionary/dictionary-kinds";
 import { DICTIONARY_PAGE_SIZE } from "../../dictionary/dictionary-file";
 import { useSettingsForm } from "../settings-form-context";
 import { SubPageEntries } from "./sub-page-entries";
-import { GroupList, Row, Select } from "../../core/platform-controls";
+import { GroupList, Row } from "../../core/platform-controls";
 import { DictionaryManifestCard } from "../dictionary-manifest-card";
 import { PersonalDictionaryImportCard } from "../personal-dictionary-import-card";
 import { DictionaryEntries } from "../dictionary-entries";
 import { DictionaryFailuresNotice } from "../dictionary-failures-notice";
 import { DictionaryPagination } from "../dictionary-pagination";
+import { TextInputRow } from "../text-input-row";
+import { SelectRow } from "../select-row";
 import { DictionaryFormatOptions } from "../../dictionary/dictionary-format-options";
 
 export { dictionaryKindKeyHint } from "../../dictionary/dictionary-messages";
@@ -150,48 +152,43 @@ export function DictionarySettingsPage() {
                 onDismiss={(requestId) => void dismissDictionaryFailure(requestId)}
               />
             </div>
-            <Row title="词库">
-              <Select
-                aria-label="本地词库类型"
-                value={dictionaryKind}
-                disabled={phraseBusy}
-                onChange={(event) => {
-                  const kind = event.target.value as LocalDictionaryKind;
-                  setDictionaryKind(kind);
-                  if (kind !== "pinyin" && dictionaryFormat === "hans")
-                    setDictionaryFormat("standard");
-                  setPhrases([]);
-                  void loadPhrases(kind);
-                }}
-              >
-                {localDictionaryKinds.map(([kind, label]) => (
-                  <option key={kind} value={kind}>
-                    {label}
-                  </option>
-                ))}
-              </Select>
-            </Row>
-            <Row title="文件格式">
-              <Select
-                aria-label="本地词库文件格式"
-                value={dictionaryFormat}
-                disabled={phraseBusy}
-                onChange={(event) =>
-                  setDictionaryFormat(event.target.value as LocalDictionaryFormat)
-                }
-              >
-                <DictionaryFormatOptions pinyin={dictionaryKind === "pinyin"} rime />
-              </Select>
-            </Row>
-            <Row title="编码前缀">
-              <input
-                aria-label="编码前缀"
-                className={settings.fieldInput}
-                value={phraseSearch}
-                placeholder="留空查看全部"
-                onChange={(event) => setPhraseSearch(event.target.value)}
-              />
-            </Row>
+            <SelectRow
+              title="词库"
+              aria-label="本地词库类型"
+              value={dictionaryKind}
+              disabled={phraseBusy}
+              onChange={(event) => {
+                const kind = event.target.value as LocalDictionaryKind;
+                setDictionaryKind(kind);
+                if (kind !== "pinyin" && dictionaryFormat === "hans")
+                  setDictionaryFormat("standard");
+                setPhrases([]);
+                void loadPhrases(kind);
+              }}
+            >
+              {localDictionaryKinds.map(([kind, label]) => (
+                <option key={kind} value={kind}>
+                  {label}
+                </option>
+              ))}
+            </SelectRow>
+            <SelectRow
+              title="文件格式"
+              aria-label="本地词库文件格式"
+              value={dictionaryFormat}
+              disabled={phraseBusy}
+              onChange={(event) => setDictionaryFormat(event.target.value as LocalDictionaryFormat)}
+            >
+              <DictionaryFormatOptions pinyin={dictionaryKind === "pinyin"} rime />
+            </SelectRow>
+            <TextInputRow
+              title="编码前缀"
+              label="编码前缀"
+              className={settings.fieldInput}
+              value={phraseSearch}
+              placeholder="留空查看全部"
+              onChange={setPhraseSearch}
+            />
             <div className={settings.managerBlock}>
               {phraseError && (
                 <p role="alert" className="error">

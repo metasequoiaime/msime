@@ -27,14 +27,27 @@ public final class CommunityCatalogSmoke {
             "validItem", CommunityCatalog.Item.class, CommunityRequest.Kind.class);
         validItem.setAccessible(true);
         CommunityCatalog.Item malformed = new CommunityCatalog.Item(
-            "not-a-uuid", CommunityRequest.Kind.SKIN, "名称", "说明", "作者", 0, 0, 0, null);
+            "not-a-uuid", CommunityRequest.Kind.SKIN, "名称", "说明", "作者", 0, 0, 0, null,
+            CommunityRequest.Category.OTHER, false);
         check(!(boolean) validItem.invoke(null, malformed, CommunityRequest.Kind.SKIN),
             "malformed community items must be rejected");
         CommunityCatalog.Item invalidRating = new CommunityCatalog.Item(
             UUID.randomUUID().toString(), CommunityRequest.Kind.SKIN, "名称", "说明", "作者",
-            0, 0, 1, null);
+            0, 0, 1, null, CommunityRequest.Category.OTHER, false);
         check(!(boolean) validItem.invoke(null, invalidRating, CommunityRequest.Kind.SKIN),
             "a rating average without ratings must be rejected");
+        // 分类只属于皮肤：皮肤条目必须有分类（缺失时已解析成 other），词库和回复条目不能有。
+        Method validCategory = CommunityCatalog.class.getDeclaredMethod(
+            "validCategory", CommunityRequest.Kind.class, CommunityRequest.Category.class);
+        validCategory.setAccessible(true);
+        check((boolean) validCategory.invoke(null, CommunityRequest.Kind.SKIN,
+            CommunityRequest.Category.GUOFENG), "a skin with a category is valid");
+        check(!(boolean) validCategory.invoke(null, CommunityRequest.Kind.SKIN, null),
+            "a skin whose category did not parse must be rejected");
+        check(!(boolean) validCategory.invoke(null, CommunityRequest.Kind.DICTIONARY,
+            CommunityRequest.Category.OTHER), "a dictionary carries no category");
+        check((boolean) validCategory.invoke(null, CommunityRequest.Kind.REPLY, null),
+            "a reply set without a category is valid");
         System.out.println("Android community catalogue bounds passed");
     }
 

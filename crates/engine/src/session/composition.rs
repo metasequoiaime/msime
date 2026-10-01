@@ -98,7 +98,9 @@ fn remove_manual_delimiters_cow(raw: &str) -> Cow<'_, str> {
 }
 
 fn remove_delimiters(segmented: &str) -> String {
-    segmented.chars().filter(|c| *c != '\'').collect()
+    let mut result = String::with_capacity(segmented.len());
+    result.extend(segmented.chars().filter(|c| *c != '\''));
+    result
 }
 
 /// A consumed prefix can leave the remainder starting with the separator that followed it.

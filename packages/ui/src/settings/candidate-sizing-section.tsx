@@ -3,7 +3,7 @@ import {
   candidateFontSizes,
   candidatePreeditFontSize,
 } from "../candidate/candidate-font-size";
-import { Row, Select } from "../core/platform-controls";
+import { SelectRow } from "./select-row";
 
 export interface CandidateSizingPreferences {
   candidate_font_size?: number;
@@ -30,34 +30,32 @@ export function CandidateSizingSection({
   return (
     <>
       {showFontControls && (
-        <Row title={`${surface}字号`}>
-          <Select
-            value={candidateFontSize(preferences.candidate_font_size)}
-            onChange={(event) => onChange({ candidate_font_size: Number(event.target.value) })}
-          >
-            {candidateFontSizes.map((size) => (
-              <option key={size} value={size}>
-                {size}
-              </option>
-            ))}
-          </Select>
-        </Row>
+        <SelectRow
+          title={`${surface}字号`}
+          value={candidateFontSize(preferences.candidate_font_size)}
+          onChange={(event) => onChange({ candidate_font_size: Number(event.target.value) })}
+        >
+          {candidateFontSizes.map((size) => (
+            <option key={size} value={size}>
+              {size}
+            </option>
+          ))}
+        </SelectRow>
       )}
       {showPreeditFont && (
-        <Row title={`${surface}预编辑字号`}>
-          <Select
-            value={candidatePreeditFontSize(preferences.candidate_preedit_font_size)}
-            onChange={(event) =>
-              onChange({ candidate_preedit_font_size: Number(event.target.value) })
-            }
-          >
-            {candidateFontSizes.map((size) => (
-              <option key={size} value={size}>
-                {size}
-              </option>
-            ))}
-          </Select>
-        </Row>
+        <SelectRow
+          title={`${surface}预编辑字号`}
+          value={candidatePreeditFontSize(preferences.candidate_preedit_font_size)}
+          onChange={(event) =>
+            onChange({ candidate_preedit_font_size: Number(event.target.value) })
+          }
+        >
+          {candidateFontSizes.map((size) => (
+            <option key={size} value={size}>
+              {size}
+            </option>
+          ))}
+        </SelectRow>
       )}
     </>
   );

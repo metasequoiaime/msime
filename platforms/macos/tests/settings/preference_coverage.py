@@ -32,7 +32,6 @@ NOT_APPLICABLE = {
     "touch_toolbar": "the touch keyboard's row above the keys",
     "number_row_selection": "releasing the number row back to the editor, offered only where the host advertises it - Linux and HarmonyOS; Windows and macOS both keep number selection",
     "english_suggestions": "the mobile suggestion strip; desktop hosts show English candidates through mixed_input instead",
-    "telemetry_enabled": "the Windows Server's opt-in for its start and crash events; the macOS input method reports through BackendTelemetryClient, which reads no preference, and the settings page offers this switch on Windows only",
 }
 
 

@@ -8,7 +8,7 @@ const draft: Preferences = {
   learning: true,
   chinese_punctuation: true,
   diagnostic_log: { server: false, tsf: false },
-  telemetry_enabled: false,
+  usage_reporting: true,
 };
 
 test("creates about maintenance and preference actions", () => {
@@ -23,14 +23,14 @@ test("creates about maintenance and preference actions", () => {
   });
 
   actions.onDiagnosticLogChange({ server: true });
-  actions.onTelemetryChange(true);
+  actions.onTelemetryChange(false);
   actions.onHelp();
   actions.onFeedback();
 
   const diagnosticUpdater = setDraft.mock.calls[0][0] as (value: Preferences) => Preferences;
   const telemetryUpdater = setDraft.mock.calls[1][0] as (value: Preferences) => Preferences;
   expect(diagnosticUpdater(draft)).toMatchObject({ diagnostic_log: { server: true, tsf: false } });
-  expect(telemetryUpdater(draft)).toMatchObject({ telemetry_enabled: true });
+  expect(telemetryUpdater(draft)).toMatchObject({ usage_reporting: false });
   expect(selectPage).toHaveBeenNthCalledWith(1, "help");
   expect(selectPage).toHaveBeenNthCalledWith(2, "feedback");
 });

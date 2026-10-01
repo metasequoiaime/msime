@@ -22,7 +22,7 @@ use std::{
     collections::{HashMap, HashSet},
     ffi::{c_char, c_void},
     io::{BufRead, BufReader, Write},
-    path::Path,
+    path::{Component, Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
         Mutex, OnceLock,
@@ -276,10 +276,48 @@ fn inspect_snapshot_record(
     }
 }
 
+fn reject_symlinked_snapshot_path(path: &Path) -> Result<(), &'static str> {
+    let mut current = PathBuf::new();
+    let mut saw_prefix_alias = false;
+    let mut saw_real_component = false;
+    let components: Vec<_> = path.components().collect();
+    for (index, component) in components.iter().enumerate() {
+        match component {
+            Component::Prefix(_) | Component::RootDir => current.push(component),
+            Component::CurDir => {}
+            Component::ParentDir => current.push(component),
+            Component::Normal(_) => {
+                current.push(component);
+                match std::fs::symlink_metadata(&current) {
+                    Ok(metadata) if metadata.file_type().is_symlink() => {
+                        let system_alias = path.is_absolute()
+                            && !saw_real_component
+                            && !saw_prefix_alias
+                            && matches!(component, Component::Normal(name) if *name == std::ffi::OsStr::new("tmp") || *name == std::ffi::OsStr::new("var"));
+                        if index + 1 == components.len()
+                            || saw_real_component
+                            || saw_prefix_alias
+                            || !system_alias
+                        {
+                            return Err("snapshot file unavailable");
+                        }
+                        saw_prefix_alias = true;
+                    }
+                    Ok(_) => saw_real_component = true,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(_) => return Err("snapshot file unavailable"),
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Validate the complete NDJSON envelope before a host calls the expensive Engine staging path.
 /// Header/footer order, exact body checksum, category order and record bounds are all part of the
 /// cloud format. Engine records receive their deeper scheme-specific validation during prepare.
 fn inspect_snapshot(path: &Path) -> Result<SnapshotMetadata, &'static str> {
+    reject_symlinked_snapshot_path(path)?;
     let metadata = std::fs::symlink_metadata(path).map_err(|_| "snapshot file unavailable")?;
     if !metadata.file_type().is_file() || metadata.len() == 0 || metadata.len() > MAX_SNAPSHOT_BYTES
     {
@@ -895,6 +933,7 @@ struct SnapshotFileRecords {
 
 impl SnapshotFileRecords {
     fn open(path: &Path) -> Result<Self, &'static str> {
+        reject_symlinked_snapshot_path(path)?;
         let file = std::fs::File::open(path).map_err(|_| "snapshot file unavailable")?;
         Ok(Self {
             reader: BufReader::with_capacity(MAX_SNAPSHOT_LINE_BYTES, file),

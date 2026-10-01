@@ -7,8 +7,6 @@ use std::cell::{Cell, RefCell};
 use std::fs;
 use std::path::PathBuf;
 
-const PNG: [u8; 8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
-
 fn manifest(id: &str, name: &str, head: &str, tail: &str) -> String {
     format!("schema_version = 1\nid = '{id}'\nname = '{name}'\ndescription = '{name}的说明'\nversion = '1.0'\nbase = 'paper'\npreview = 'preview.png'\n{head}[supports]\nlayouts = ['vertical', 'horizontal']\nthemes = ['light', 'dark']\n[candidate_window]\nmin_width_dip = 10\n[candidate_window.decoration]\ntop_inset_dip = 0\nwidth_dip = 0\n{tail}")
 }
@@ -22,9 +20,12 @@ fn write_skin_with(root: &Path, id: &str, name: &str, seed: u8, head: &str, tail
     let skin = root.join(id);
     fs::create_dir_all(&skin).unwrap();
     fs::write(skin.join("skin.toml"), manifest(id, name, head, tail)).unwrap();
-    let mut preview = PNG.to_vec();
-    preview.extend([seed; 16]);
-    fs::write(skin.join("preview.png"), preview).unwrap();
+    // 安装和发布都会完整解码图片，所以这里是一张真的 PNG，颜色随 `seed` 变化。
+    let mut preview = std::io::Cursor::new(Vec::new());
+    image::RgbImage::from_pixel(2, 2, image::Rgb([seed, 7, 9]))
+        .write_to(&mut preview, image::ImageFormat::Png)
+        .unwrap();
+    fs::write(skin.join("preview.png"), preview.into_inner()).unwrap();
 }
 
 struct Row {
@@ -125,6 +126,7 @@ impl Library {
             visibility: row.visibility,
             updated_at: row.updated_at.clone(),
             request_sha256: row.digest.clone(),
+            moderation: None,
             category: row.category,
         })
     }
@@ -766,6 +768,29 @@ fn a_missing_skin_root_deletes_nothing_once_packages_are_remembered() {
         sync_candidate_skins(&fixture.root, &fixture.state, &fixture.library),
         Err(AccountError::Storage)
     );
+    assert!(!fixture.library.calls().contains(&"unpublish".to_owned()));
+    assert_eq!(fixture.library.rows.borrow().len(), 1);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_skin_root_deletes_nothing_once_packages_are_remembered() {
+    use std::os::unix::fs::symlink;
+
+    let fixture = Fixture::new();
+    write_skin(&fixture.root, "sakura", "樱花", 1);
+    fixture.sync();
+    let outside = tempfile::tempdir().unwrap();
+    write_skin(outside.path(), "outside", "外部", 2);
+    fs::remove_dir_all(&fixture.root).unwrap();
+    symlink(outside.path(), &fixture.root).unwrap();
+    fixture.library.calls();
+
+    assert_eq!(
+        sync_candidate_skins(&fixture.root, &fixture.state, &fixture.library),
+        Err(AccountError::Storage)
+    );
+    assert!(outside.path().join("outside/skin.toml").is_file());
     assert!(!fixture.library.calls().contains(&"unpublish".to_owned()));
     assert_eq!(fixture.library.rows.borrow().len(), 1);
 }

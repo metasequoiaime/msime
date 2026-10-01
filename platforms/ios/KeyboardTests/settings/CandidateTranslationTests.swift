@@ -45,6 +45,25 @@ private final class BlockingTranslationService: CandidateTranslationService, @un
   }
 }
 
+private final class FlakyTranslationService: CandidateTranslationService, @unchecked Sendable {
+  private let lock = NSLock()
+  private var count = 0
+
+  var callCount: Int {
+    lock.lock(); defer { lock.unlock() }
+    return count
+  }
+
+  func translate(words: [String], target: String) async throws -> [String] {
+    lock.lock()
+    count += 1
+    let call = count
+    lock.unlock()
+    if call == 1 { throw NSError(domain: "CandidateTranslationTests", code: 1) }
+    return words.map { _ in "hello" }
+  }
+}
+
 @MainActor
 final class CandidateTranslationTests: XCTestCase {
   func testOnlyCandidatesWithHanCharactersGoOutToTheNetwork() {
@@ -139,6 +158,20 @@ final class CandidateTranslationTests: XCTestCase {
     store.refresh(words: ["你好"], codes: ["EN"])
     try await Task.sleep(nanoseconds: 900_000_000)
     XCTAssertEqual(service.callCount, 2)
+    store.cancel()
+  }
+
+  func testFailedRequestCanBeRetriedForTheSameCandidates() async throws {
+    let service = FlakyTranslationService()
+    let store = CandidateTranslationStore(service: service)
+    store.refresh(words: ["你好"], codes: ["EN"])
+    try await Task.sleep(nanoseconds: 900_000_000)
+    XCTAssertEqual(service.callCount, 1)
+
+    store.refresh(words: ["你好"], codes: ["EN"])
+    try await Task.sleep(nanoseconds: 900_000_000)
+    XCTAssertEqual(service.callCount, 2)
+    XCTAssertEqual(store.gloss(word: "你好", code: "EN"), "hello")
     store.cancel()
   }
 

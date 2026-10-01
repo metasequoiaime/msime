@@ -1,8 +1,7 @@
 import type { ReactNode } from "react";
-import { SecretInput } from "../core/secret-input";
 import { type CredentialStatusMessageValue } from "./credential-status-message";
 import { CredentialActions } from "./credential-actions";
-import { SettingField } from "./setting-field";
+import { SecretSettingField } from "./secret-setting-field";
 
 export interface AiCredentialStored {
   endpoint: string;
@@ -42,8 +41,10 @@ export function AiCredentialSection({
   const matchesStored = stored?.endpoint === endpoint && stored.model === model;
   return (
     <div className="section" role="group" aria-label="AI 凭据">
-      <SettingField
+      <SecretSettingField
         label="API Token"
+        inputLabel="AI API Token"
+        value={token}
         description={
           invalid
             ? "现有 ai-provider.json 无效，provider 服务不会发出任何 AI 请求；请修复或删除该文件"
@@ -53,14 +54,9 @@ export function AiCredentialSection({
                 ? "已保存，留空则保留原凭据"
                 : `已保存的凭据绑定 ${stored.endpoint}（${stored.model}），与上方设置不一致；保存后改为绑定当前接口和模型`
         }
-      >
-        <SecretInput
-          label="AI API Token"
-          disabled={!origin}
-          value={token}
-          onChange={onTokenChange}
-        />
-      </SettingField>
+        disabled={!origin}
+        onChange={onTokenChange}
+      />
       <CredentialActions
         saveDisabled={busy || !origin || !model.trim() || (!token.trim() && !stored)}
         clearDisabled={busy}

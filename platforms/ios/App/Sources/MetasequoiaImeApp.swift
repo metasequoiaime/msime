@@ -7,17 +7,13 @@ struct MetasequoiaImeApp: App {
   @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
 
   init() {
-    Task { await BackendTelemetryClient.shared.recordFirstLaunch() }
     // The device's anonymous MSIME account is registered on first launch, before the keyboard needs it. The identity and session live in the app group, so the keyboard reuses them. A saved signed-in or anonymous session, even an expired one, skips the request rather than refreshing it on every launch; a failure is retried on the next launch.
     Task.detached(priority: .utility) {
       if (try? BackendKeychain().load()) != nil { return }
       if (try? BackendAnonymousAccount.sessionStorage().load()) != nil { return }
       _ = try? await BackendAnonymousAccount.ensureSignedIn(session: BackendAnonymousAccount.session, client: BackendAccountClient())
     }
-    NSSetUncaughtExceptionHandler { exception in
-      BackendTelemetryClient.persistCrash(message: exception.reason ?? exception.name.rawValue,
-                                          stack: exception.callStackSymbols.joined(separator: "\n"))
-    }
+    CrashDiagnostics.shared.start()
     try? KeyboardSkinTrialStore().restorePending()
     CharacterWidthPreference.migrateLegacySwitch()
     #if DEBUG
@@ -66,7 +62,12 @@ struct MetasequoiaImeApp: App {
       applicationContent
       #endif
     }
-    .onChange(of: scenePhase) { if $0 == .active { applyAppearance() } }
+    .onChange(of: scenePhase) { phase in
+      guard phase == .active else { return }
+      applyAppearance()
+      // Sends what the keyboard queued, which it cannot send itself without Full Access.
+      Task.detached(priority: .utility) { UsageReporting.flush() }
+    }
   }
 
   /// 设置界面主题 (see AppAppearancePreference) on every window. A window override rather than `preferredColorScheme`, so going back to 跟随系统 hands the style back to the device reliably and sheets follow too.

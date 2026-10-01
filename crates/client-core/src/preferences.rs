@@ -818,9 +818,9 @@ pub struct Preferences {
     /// True when the MSIME account (水杉账号) is the candidate translation service; candidates are then sent to `https://api.msime.app/v1/translate`. Fresh macOS and Linux installs start with it chosen (see `Default`), while a stored document without the field reads false, so a user who never chose it keeps the behaviour they had. Omitted while false so documents that never chose it stay readable by older strict parsers.
     #[serde(default, skip_serializing_if = "is_false")]
     pub translation_account: bool,
-    /// Send the anonymous start and crash events to `https://api.msime.app/v1/telemetry/events`. Off until the user turns it on. Only the Windows Server reads it so far; the other hosts keep their own telemetry behaviour, described in PRIVACY.md.
-    #[serde(default)]
-    pub telemetry_enabled: bool,
+    /// Send anonymous usage reports (daily activity, session ends, crash summaries; see [`crate::telemetry`] and PRIVACY.md) to `https://api.msime.app/v1/telemetry/events`. On by default; turning it off stops all reporting and clears the local queue. Replaces the opt-in `telemetry_enabled`, which is no longer read: a stored document that still carries that key loads with it dropped. Omitted while on, so a document that never turned it off stays readable by older strict parsers; a reader treats an absent key as on.
+    #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
+    pub usage_reporting: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1786,7 +1786,7 @@ impl Default for Preferences {
             translation_secondary_language: None,
             // Only the desktop hosts that offer 水杉账号 in the translation service picker default to it; Android, iOS, Windows and HarmonyOS keep it as an explicit choice.
             translation_account: cfg!(any(target_os = "macos", target_os = "linux")),
-            telemetry_enabled: false,
+            usage_reporting: true,
         }
     }
 }
@@ -1834,6 +1834,10 @@ impl FuzzyPinyinRule {
             Self::UanUang => 1 << 10,
         }
     }
+}
+
+fn is_true(value: &bool) -> bool {
+    *value
 }
 
 fn is_false(value: &bool) -> bool {
@@ -2420,7 +2424,7 @@ impl PreferencesStore {
             .get_mut("preferences")
             .and_then(serde_json::Value::as_object_mut)
         {
-            migrate_retired_skin_fields(preferences);
+            migrate_retired_fields(preferences);
         }
         let mut snapshot: PreferencesSnapshot = serde_json::from_value(document)?;
         if snapshot.format_version != 1 {
@@ -2641,6 +2645,16 @@ impl PreferencesStore {
     }
 }
 
+/// Keys of [`Preferences`] that were replaced and are dropped on read, so a document an older build saved still loads. `telemetry_enabled` was the opt-in reporting switch; its replacement `usage_reporting` is on by default and deliberately does not inherit the old value.
+const RETIRED_KEYS: [&str; 1] = ["telemetry_enabled"];
+
+fn migrate_retired_fields(preferences: &mut serde_json::Map<String, serde_json::Value>) {
+    for key in RETIRED_KEYS {
+        preferences.remove(key);
+    }
+    migrate_retired_skin_fields(preferences);
+}
+
 /// The candidate colour pickers #1187 moved from the top level into `custom_theme.candidate_colors`, old key and new.
 const RETIRED_CANDIDATE_COLORS: [(&str, &str); 7] = [
     ("candidate_text_color", "text"),
@@ -2746,7 +2760,7 @@ fn salvage_preferences(
             _ => return Ok((default, false)),
         },
     };
-    migrate_retired_skin_fields(&mut source);
+    migrate_retired_fields(&mut source);
     let mut kept = false;
     for (key, value) in &source {
         let mut candidate = salvaged.clone();

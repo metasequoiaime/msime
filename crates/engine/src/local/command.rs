@@ -66,7 +66,7 @@ pub fn takes_word_separator(code: &str) -> bool {
 
 /// The rows that are usable of a host table: valid triggers and templates, the first command of a trigger, at most `TABLE_LIMIT`.
 pub fn usable_command_table(table: &[CommandTableEntry]) -> Vec<CommandTableEntry> {
-    let mut usable: Vec<CommandTableEntry> = Vec::new();
+    let mut usable: Vec<CommandTableEntry> = Vec::with_capacity(TABLE_LIMIT.min(table.len()));
     for entry in table {
         if usable.len() == TABLE_LIMIT {
             break;
@@ -341,6 +341,16 @@ mod tests {
             })
             .collect();
         assert_eq!(usable_command_table(&many).len(), TABLE_LIMIT);
+    }
+
+    #[test]
+    fn usable_command_table_reserves_the_input_bound() {
+        let table = [
+            entry("a", "甲", "一"),
+            entry("b", "乙", "二"),
+            entry("c", "丙", "三"),
+        ];
+        assert_eq!(usable_command_table(&table).capacity(), table.len());
     }
 
     #[test]

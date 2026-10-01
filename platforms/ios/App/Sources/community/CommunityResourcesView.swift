@@ -175,7 +175,10 @@ struct CommunityResourceDetail: View {
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 18) {
-        Label(item.name, systemImage: item.kind.icon).font(.title2.bold())
+        HStack {
+          Label(item.name, systemImage: item.kind.icon).font(.title2.bold())
+          if item.removed { CommunityRemovedBadge() }
+        }
         Text("\(item.author) · v\(item.revision)").foregroundStyle(.secondary)
         Text(item.description)
         HStack {
@@ -228,6 +231,7 @@ struct CommunityResourceDetail: View {
                 .accessibilityLabel("\(stars) 星").disabled(busy || !item.saved)
             }
           }
+          CommunityReportButton(kind: item.kind == .dictionary ? "dictionaries" : "replies", itemID: item.id)
         } else {
           Button("编辑并发布新版本") { editing = true }.disabled(busy)
           Button("下架作品", role: .destructive) { confirmDelete = true }.disabled(busy)

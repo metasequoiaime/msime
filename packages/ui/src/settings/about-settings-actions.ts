@@ -31,7 +31,7 @@ export function createAboutSettingsActions({
           ? { ...current, diagnostic_log: { ...diagnosticLogPreferences(current), ...patch } }
           : current,
       ),
-    onTelemetryChange: (telemetry_enabled: boolean) => onPreferencesChange({ telemetry_enabled }),
+    onTelemetryChange: (usage_reporting: boolean) => onPreferencesChange({ usage_reporting }),
     onHelp: () => selectPage("help"),
     onFeedback: () => selectPage("feedback"),
   } as const;

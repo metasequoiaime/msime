@@ -20,6 +20,7 @@ import app.msime.android.KeyboardScheme;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.R;
 import app.msime.android.TextPolicy;
+import app.msime.android.core.Telemetry;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.button.MaterialButtonToggleGroup;
 import com.google.android.material.materialswitch.MaterialSwitch;
@@ -320,8 +321,11 @@ public final class KeyboardSheets {
             for (InputFeatureToggle feature : InputFeatureToggle.of(group)) {
                 sheet.add(toggle(context, feature.title(), feature.description(),
                     preferences.optBoolean(feature.key(), feature.enabledByDefault()),
-                    value -> save(fragment, snapshot, feature.key(), value, status, null,
-                        changed)));
+                    value -> {
+                        save(fragment, snapshot, feature.key(), value, status, null, changed);
+                        // Off has to stop reporting now, not on the next start: the queue is cleared at once.
+                        if (feature == InputFeatureToggle.USAGE_REPORTING) Telemetry.setEnabled(context, value);
+                    }));
             }
         }
         sheet.addNote("模糊音、辅助码和候选外观在键盘自己的设置面板里，那里能一边改一边看。");

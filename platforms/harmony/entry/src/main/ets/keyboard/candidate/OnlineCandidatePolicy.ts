@@ -57,6 +57,14 @@ export class OnlineCandidatePolicy {
       + `${query.cloud_candidates}:${assistant?.enabled === true ? JSON.stringify(assistant) : ''}`;
   }
 
+  /** 判断失败请求是否仍可释放当前签名，让同一输入在下一次渲染时重试。 */
+  static shouldReleaseAfterFailure(requestSignature: string, currentSignature: string,
+    requestEpoch: number, currentEpoch: number, requestHandle: number,
+    currentHandle: number): boolean {
+    return requestEpoch === currentEpoch && requestHandle === currentHandle
+      && requestSignature.length > 0 && requestSignature === currentSignature;
+  }
+
   static aiCandidates(body: string, limit: number): string[] | null {
     if (utf8Length(body) > OnlineCandidatePolicy.MAX_AI_RESPONSE_BYTES
       || !Number.isInteger(limit) || limit < 1 || limit > 10) {

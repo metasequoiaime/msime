@@ -112,10 +112,7 @@ fn single_hanzi_map(connection: &Connection) -> (HanziReadings, bool) {
     let mut complete = true;
     let mut result = HanziReadings::new();
     for initial in b'a'..=b'z' {
-        let sql = format!(
-            "SELECT \"key\", \"value\" FROM \"tbl_1_{}\" ORDER BY \"weight\" DESC, \"key\" ASC",
-            initial as char
-        );
+        let sql = single_hanzi_sql(initial);
         let mut statement = match connection.prepare_cached(&sql) {
             Ok(statement) => statement,
             Err(error) => {
@@ -142,6 +139,16 @@ fn single_hanzi_map(connection: &Connection) -> (HanziReadings, bool) {
         }
     }
     (result, complete)
+}
+
+fn single_hanzi_sql(initial: u8) -> String {
+    const PREFIX: &str = "SELECT \"key\", \"value\" FROM \"tbl_1_";
+    const SUFFIX: &str = "\" ORDER BY \"weight\" DESC, \"key\" ASC";
+    let mut sql = String::with_capacity(PREFIX.len() + 1 + SUFFIX.len());
+    sql.push_str(PREFIX);
+    sql.push(initial as char);
+    sql.push_str(SUFFIX);
+    sql
 }
 
 /// The single-character scan walks about twenty thousand rows with no index to sort by, and the personal dictionary validation calls this once per word for up to a thousand words, so the map is built once per dictionary path (bridge.cpp:257-284). Keyed by path because two sessions may point at different dictionaries. It is built outside the lock: two callers arriving together may both scan, the first to finish wins, and no caller waits behind another's scan.
@@ -206,6 +213,16 @@ mod tests {
         assert_eq!(
             sql,
             "SELECT \"key\" FROM \"tbl_2_n\" WHERE \"value\"=?1 ORDER BY \"weight\" DESC, \"key\" ASC LIMIT 1"
+        );
+        assert_eq!(sql.capacity(), sql.len());
+    }
+
+    #[test]
+    fn single_hanzi_sql_writes_the_lookup_statement_directly() {
+        let sql = single_hanzi_sql(b'n');
+        assert_eq!(
+            sql,
+            "SELECT \"key\", \"value\" FROM \"tbl_1_n\" ORDER BY \"weight\" DESC, \"key\" ASC"
         );
         assert_eq!(sql.capacity(), sql.len());
     }

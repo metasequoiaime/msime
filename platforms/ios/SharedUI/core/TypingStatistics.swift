@@ -317,19 +317,28 @@ extension TypingStatistics {
 
 /// The key ids the shared store accepts, W3C `KeyboardEvent.code` names plus the on-screen keys a touch keyboard has and a hardware one does not. A copy of `KEY_IDS` in `crates/client-core/src/typing_statistics.rs`: the store rejects a whole batch that carries any other id, so a key that maps to nothing here is left uncounted rather than given a made-up name.
 enum TypingKeyID {
-  static let all: [String] =
-    (UnicodeScalar("A").value...UnicodeScalar("Z").value).map { "Key\(Character(UnicodeScalar($0)!))" }
-    + (0...9).map { "Digit\($0)" }
-    + ["Backquote", "Minus", "Equal", "BracketLeft", "BracketRight", "Backslash", "Semicolon", "Quote", "Comma", "Period", "Slash",
-       "IntlBackslash", "IntlRo", "IntlYen", "Lang1", "Lang2", "Convert", "NonConvert", "KanaMode",
-       "Space", "Enter", "Backspace", "Tab", "Escape", "Delete", "Insert", "Home", "End", "PageUp", "PageDown",
-       "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight",
-       "CapsLock", "ShiftLeft", "ShiftRight", "ControlLeft", "ControlRight", "AltLeft", "AltRight", "MetaLeft", "MetaRight", "Fn", "ContextMenu"]
-    + (1...12).map { "F\($0)" }
-    + (0...9).map { "Numpad\($0)" }
-    + ["NumpadDecimal", "NumpadEnter", "NumpadAdd", "NumpadSubtract", "NumpadMultiply", "NumpadDivide", "NumLock"]
-    + (0...9).map { "Nine\($0)" }
-    + ["SoftPunctuation", "SoftSymbol", "SoftLayer", "SoftLanguage", "SoftGlobe", "SoftEmoji", "SoftVoice"]
+  // Built from typed parts: as one chain of `+` over closures and literals, the Xcode 26.2 compiler gives up with
+  // "unable to type-check this expression in reasonable time" and the keyboard extension does not build.
+  static let all: [String] = {
+    let letters: [String] = (UnicodeScalar("A").value...UnicodeScalar("Z").value).map { "Key\(Character(UnicodeScalar($0)!))" }
+    let digits: [String] = (0...9).map { "Digit\($0)" }
+    let editing: [String] = [
+      "Backquote", "Minus", "Equal", "BracketLeft", "BracketRight", "Backslash", "Semicolon", "Quote", "Comma", "Period", "Slash",
+      "IntlBackslash", "IntlRo", "IntlYen", "Lang1", "Lang2", "Convert", "NonConvert", "KanaMode",
+      "Space", "Enter", "Backspace", "Tab", "Escape", "Delete", "Insert", "Home", "End", "PageUp", "PageDown",
+      "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight",
+      "CapsLock", "ShiftLeft", "ShiftRight", "ControlLeft", "ControlRight", "AltLeft", "AltRight", "MetaLeft", "MetaRight", "Fn", "ContextMenu"]
+    let functionKeys: [String] = (1...12).map { "F\($0)" }
+    let numpadDigits: [String] = (0...9).map { "Numpad\($0)" }
+    let numpad: [String] = ["NumpadDecimal", "NumpadEnter", "NumpadAdd", "NumpadSubtract", "NumpadMultiply", "NumpadDivide", "NumLock"]
+    let nineKey: [String] = (0...9).map { "Nine\($0)" }
+    let soft: [String] = ["SoftPunctuation", "SoftSymbol", "SoftLayer", "SoftLanguage", "SoftGlobe", "SoftEmoji", "SoftVoice"]
+    var keys: [String] = letters
+    for part in [digits, editing, functionKeys, numpadDigits, numpad, nineKey, soft] {
+      keys += part
+    }
+    return keys
+  }()
   static let known = Set(all)
 
   static let space = "Space"

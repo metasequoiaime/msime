@@ -45,6 +45,9 @@ import { SettingsFormFactorCapabilities, SettingsFormFactorProjection }
   from '../keyboard/settings/SettingsFormFactorCapabilities';
 import { LocalVoiceModelAction, LocalVoiceModelPolicy } from '../keyboard/settings/LocalVoiceModelPolicy';
 import { AiAuthenticationPolicy } from '../keyboard/settings/AiAuthenticationPolicy';
+import { HarmonyTelemetry } from '../telemetry/Telemetry';
+import { TelemetryPolicy } from '../telemetry/TelemetryPolicy';
+import { NoticeItem, NoticePolicy } from '../notices/NoticePolicy';
 
 /** `{root}` for the list, `{root, id, mirror}` for an install, `{root, id}` for a removal, `{id}` for a cancel. */
 interface LocalVoiceModelRequest {
@@ -133,6 +136,14 @@ interface VoiceCaptureDeviceReply {
 
 const BRIDGE_NAME: string = 'msimeHarmony';
 const PLATFORM: string = 'harmony';
+
+/** `{directory, platform, channel}` for `client.notices`; `{directory, id}` for `client.noticeDismiss`. */
+interface NoticesRequest {
+  directory: string;
+  platform?: string;
+  channel?: string;
+  id?: string;
+}
 
 /** One AI skin request from the page: start a run, or stop the one under that id. */
 interface AiSkinAction {
@@ -478,6 +489,12 @@ struct Settings {
   private controller: web_webview.WebviewController = new web_webview.WebviewController();
   private context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
   private bridge: SettingsBridge = new SettingsBridge();
+  // Notices from the MSIME service that the user has not dismissed, newest first; the card shows the first.
+  @State notices: NoticeItem[] = [];
+  private noticeController: web_webview.WebviewController = new web_webview.WebviewController();
+  private noticeAttached: boolean = false;
+  // The notice whose body the card's web view holds, so a refresh that changes nothing does not reload it.
+  private noticeShown: string = '';
 
   aboutToAppear(): void {
     this.bridge.attach(this.context);
@@ -485,7 +502,120 @@ struct Settings {
     // Started here rather than on demand: the page reads the answer synchronously, and the reply
     // carries whether it is ready so the page waits instead of acting on a default.
     this.bridge.prepareOnboarding();
-    EntryAbility.onActivated = (): void => this.bridge.refreshPreferencesIfChanged();
+    this.loadNotices();
+    EntryAbility.onActivated = (): void => {
+      this.bridge.refreshPreferencesIfChanged();
+      this.loadNotices();
+    };
+  }
+
+  /**
+   * Fetches the notices when the window opens or comes back to the front, never on a timer: client-core answers from its copy for a minute after a fetch, which is as often as the service wants to be asked.
+   */
+  private loadNotices(): void {
+    const request: NoticesRequest = {
+      directory: `${this.context.filesDir}/state/notices`, platform: PLATFORM, channel: 'app'
+    };
+    client.notices(JSON.stringify(request)).then((reply: string): void => {
+      this.notices = NoticePolicy.items(reply);
+      this.renderNotice();
+    }).catch((error: Error): void => {
+      KeyboardLog.error(`notices unavailable: ${describeError(error)}`);
+    });
+  }
+
+  private dismissNotice(id: string): void {
+    const request: NoticesRequest = { directory: `${this.context.filesDir}/state/notices`, id: id };
+    const reply: string = client.noticeDismiss(JSON.stringify(request));
+    if (!NoticePolicy.accepted(reply)) {
+      KeyboardLog.error(`notice dismissal not saved: ${reply}`);
+    }
+    this.notices = NoticePolicy.without(this.notices, id);
+    this.renderNotice();
+  }
+
+  /** Loads the first notice's body into the card, as base64 so no character in it is read as part of a data URL. */
+  private renderNotice(): void {
+    if (this.notices.length === 0) {
+      // The card and its web view leave the page; a later notice attaches a new one.
+      this.noticeAttached = false;
+      this.noticeShown = '';
+      return;
+    }
+    if (!this.noticeAttached || this.notices[0].id === this.noticeShown) {
+      return;
+    }
+    const notice: NoticeItem = this.notices[0];
+    try {
+      const bytes: Uint8Array = util.TextEncoder.create('utf-8').encodeInto(NoticePolicy.page(notice.html));
+      this.noticeController.loadData(new util.Base64Helper().encodeToStringSync(bytes), 'text/html', 'base64');
+      this.noticeShown = notice.id;
+    } catch (error) {
+      KeyboardLog.error(`notice not shown: ${describeError(error)}`);
+    }
+  }
+
+  /** A link in a notice opens in the system browser or mail application, never inside the card. */
+  private openNoticeLink(url: string): void {
+    const link: string | null = NoticePolicy.externalLink(url);
+    if (link === null) {
+      KeyboardLog.error('refused to open a notice link');
+      return;
+    }
+    const want: Want = { action: 'ohos.want.action.viewData', entities: ['entity.system.browsable'], uri: link };
+    this.context.startAbility(want).catch((error: Object): void => {
+      KeyboardLog.error(`notice link would not open: ${describeError(error)}`);
+    });
+  }
+
+  @Builder
+  noticeCard() {
+    Column() {
+      Row() {
+        Text(this.notices[0].title)
+          .fontSize(16)
+          .fontWeight(FontWeight.Medium)
+          .fontColor($r('sys.color.ohos_id_color_text_primary'))
+          .layoutWeight(1)
+          .maxLines(2)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        Button() {
+          Text('✕').fontSize(14).fontColor($r('sys.color.ohos_id_color_text_secondary'))
+        }
+        .type(ButtonType.Circle)
+        .width(32)
+        .height(32)
+        .backgroundColor(Color.Transparent)
+        .accessibilityText('关闭公告')
+        .onClick((): void => this.dismissNotice(this.notices[0].id))
+      }
+      .width('100%')
+      Web({ src: 'about:blank', controller: this.noticeController })
+        .javaScriptAccess(false)
+        .domStorageAccess(false)
+        .fileAccess(false)
+        .onlineImageAccess(false)
+        .backgroundColor(Color.Transparent)
+        .onControllerAttached((): void => {
+          this.noticeAttached = true;
+          this.noticeShown = '';
+          this.renderNotice();
+        })
+        .onLoadIntercept((event: OnLoadInterceptEvent): boolean => {
+          const url: string = event.data.getRequestUrl();
+          if (NoticePolicy.ownPage(url)) {
+            return false;
+          }
+          this.openNoticeLink(url);
+          return true;
+        })
+        .width('100%')
+        .height(96)
+    }
+    .padding({ left: 16, right: 8, top: 8, bottom: 8 })
+    .margin({ left: 12, right: 12, top: 8, bottom: 4 })
+    .borderRadius(16)
+    .backgroundColor($r('sys.color.ohos_id_color_card_bg'))
   }
 
   aboutToDisappear(): void {
@@ -496,6 +626,9 @@ struct Settings {
 
   build() {
     Column() {
+      if (this.notices.length > 0) {
+        this.noticeCard()
+      }
       Web({ src: $rawfile('settings/index.html'), controller: this.controller })
         .javaScriptAccess(true)
         .domStorageAccess(true)
@@ -521,7 +654,7 @@ struct Settings {
           }
         })
         .width('100%')
-        .height('100%')
+        .layoutWeight(1)
     }
     .width('100%')
     .height('100%')
@@ -1246,6 +1379,10 @@ class SettingsBridge {
   savePreferences(expectedRevision: number, document: string): string {
     const reply: string = client.savePreferences(this.stateDirectory, expectedRevision, document);
     this.rememberRevision(reply);
+    // Turning usage reporting off drops what is queued at once rather than at the next start; the keyboard's running session goes with it.
+    if (TelemetryPolicy.reportingTurnedOff(document, reply)) {
+      HarmonyTelemetry.reportingTurnedOff(this.stateDirectory);
+    }
     return PreferencesErrorCode.rewrite(reply);
   }
 

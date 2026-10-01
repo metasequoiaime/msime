@@ -34,6 +34,7 @@ import { AttachedInputDevice, DeviceChange, HardwareKeyboardPolicy, KeyRoutingTr
 import { HarmonyHardwareKeyboards } from '../keyboard/input/HarmonyHardwareKeyboards';
 import { HardwareBackspaceGuard } from '../keyboard/input/BackspaceHoldPolicy';
 import { HeldKeys, KeyIdPolicy } from '../keyboard/KeyIdPolicy';
+import { HarmonyTelemetry } from '../telemetry/Telemetry';
 
 // Where the badge goes and how long it stays, from platforms/macos/src/input/InputModeHUDPanel.mm: shown long enough to read and gone before the next word. Its size is the floating toolbar's, from InputModeHudPolicy.sizeVp.
 const HUD_SCREEN_MARGIN_VP: number = 8;
@@ -544,6 +545,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
                              inputClient: inputMethodEngine.InputClient) => void =
     (kbController: inputMethodEngine.KeyboardController,
      inputClient: inputMethodEngine.InputClient): void => {
+      // A keyboard process can live for days; this sends the new day's active at most every few hours, off this thread.
+      HarmonyTelemetry.keyboardShown();
       if (this.panel === undefined) {
         this.pending = inputClient;
         return;
@@ -851,6 +854,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     client.ensureAnonymousAccount(state).catch((error: Error): void => {
       KeyboardLog.error(`anonymous account: ${describeError(error)}`);
     });
+    // One usage-reporting session per keyboard process, started before the early returns below so a process that never gets a panel still has one.
+    HarmonyTelemetry.keyboardStarted(state);
     if (!StagedResources.stage(`${this.context.resourceDir}/engine`, resources,
         `${files}/engine.ready`)) {
       return;
@@ -1043,6 +1048,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
 
   onDestroy(): void {
     this.teardown();
+    // Here rather than in teardown, which a failed onCreate also runs: only the framework destroying the extension ends the session normally.
+    HarmonyTelemetry.keyboardStopped();
   }
 
   /** Undoes everything onCreate installed. Safe to run twice: a failed onCreate and then onDestroy. */

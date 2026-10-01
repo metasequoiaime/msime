@@ -529,6 +529,14 @@ int main() {
   assert(read(file) == theme && staged(directory).empty());
   assert(files_with(directory, "shape-") == shapes_named(theme));
 
+  const auto outside = root / "outside-theme-state";
+  const auto linked = root / "linked-theme-state";
+  std::filesystem::create_directory(outside);
+  std::filesystem::create_directory_symlink(outside, linked);
+  const auto linked_file = linked / "new-dir" / "theme.conf";
+  assert(!host::write_fcitx_candidate_theme(linked_file, plain, false, std::nullopt));
+  assert(!std::filesystem::exists(outside / "new-dir"));
+
   // The stamp stands in for the image between refreshes: nothing without a decoration, and a different one once the image changes.
   assert(host::fcitx_overlay_stamp(std::nullopt).empty());
   const auto before = host::fcitx_overlay_stamp(ears);

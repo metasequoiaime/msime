@@ -126,6 +126,7 @@ final class KeyboardCloudClipboard {
     notice = "正在发到云剪贴板…"
     onChange?()
     let service = service
+    let uploadGeneration = generation
     Task { [weak self] in
       var refreshed: State?
       var notice: String
@@ -149,7 +150,7 @@ final class KeyboardCloudClipboard {
       self.notice = notice
       if let refreshed {
         // A newer list or a refresh still in flight wins over what this upload saw.
-        if !self.isLoading { self.state = refreshed }
+        if self.generation == uploadGeneration && !self.isLoading { self.state = refreshed }
         if refreshed.isSignedOut { self.signedIn = false }
       }
       self.onChange?()

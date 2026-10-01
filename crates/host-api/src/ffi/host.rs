@@ -1379,8 +1379,37 @@ fn reject_symlinked_path(root: &std::path::Path, path: &std::path::Path) -> Resu
     }
 }
 
+/// 创建尚不存在的根目录前检查最近的现存祖先。
+/// 只调用 `symlink_metadata(root)` 看不到缺失根目录的父级符号链接，
+/// 而 `create_dir_all` 会沿着该链接继续创建。
+fn reject_symlinked_creation_ancestor(root: &std::path::Path) -> Result<(), String> {
+    let mut current = root;
+    loop {
+        match std::fs::symlink_metadata(current) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                #[cfg(target_os = "macos")]
+                if current == std::path::Path::new("/var")
+                    || current == std::path::Path::new("/tmp")
+                {
+                    return Ok(());
+                }
+                return Err("clipboard migration path is a symbolic link".into());
+            }
+            Ok(metadata) if metadata.is_dir() => return Ok(()),
+            Ok(_) => return Err("clipboard migration path unavailable".into()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                current = current
+                    .parent()
+                    .ok_or_else(|| "clipboard migration path unavailable".to_owned())?;
+            }
+            Err(_) => return Err("clipboard migration path unavailable".into()),
+        }
+    }
+}
+
 fn apple_clipboard_migration_lock(root: &std::path::Path) -> Result<std::fs::File, String> {
     reject_symlinked_path(root, root)?;
+    reject_symlinked_creation_ancestor(root)?;
     std::fs::create_dir_all(root).map_err(|_| "clipboard migration unavailable")?;
     let lock_path = root.join(".msime-clipboard-history-migration.lock");
     let lock = msime_client_core::file_lock::open_private_lock_file(lock_path)
@@ -1952,5 +1981,18 @@ mod migration_path_tests {
             reject_symlinked_path(std::path::Path::new("/"), std::path::Path::new("/")),
             Ok(())
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn migration_lock_rejects_missing_root_below_symlink_without_creating_outside() {
+        let host = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let linked = host.path().join("linked");
+        symlink(outside.path(), &linked).unwrap();
+        let root = linked.join("new-state");
+
+        assert!(super::apple_clipboard_migration_lock(&root).is_err());
+        assert!(!outside.path().join("new-state").exists());
     }
 }

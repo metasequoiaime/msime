@@ -1,5 +1,8 @@
 import { expect, test, vi } from "vitest";
-import { createDesktopCandidateSkinCommunity } from "../../src/core/desktop-host-services";
+import {
+  createDesktopCandidateSkinCommunity,
+  createDesktopPluginCommunity,
+} from "../../src/core/desktop-host-services";
 
 test("the desktop candidate-skin community invokes the host commands with camelCase args", async () => {
   const invoke = vi.fn(async () => undefined);
@@ -19,6 +22,7 @@ test("the desktop candidate-skin community invokes the host commands with camelC
   await community.setVisibility(id, "public");
   await community.setCategory(id, "food");
   await community.sync();
+  await community.report?.(id, "侵权/抄袭", "抄袭了我的作品");
 
   expect(invoke.mock.calls).toEqual([
     [
@@ -45,5 +49,25 @@ test("the desktop candidate-skin community invokes the host commands with camelC
     ["candidate_skin_community_set_visibility", { id, visibility: "public" }],
     ["candidate_skin_community_set_category", { id, category: "food" }],
     ["candidate_skin_community_sync"],
+    [
+      "community_report",
+      { kind: "candidate-skins", id, reason: "侵权/抄袭", detail: "抄袭了我的作品" },
+    ],
+  ]);
+});
+
+test("the desktop plugin community lists the user's own packs and reports with the plugins kind", async () => {
+  const invoke = vi.fn(async () => undefined);
+  const community = createDesktopPluginCommunity(
+    invoke as unknown as Parameters<typeof createDesktopPluginCommunity>[0],
+  );
+  const id = "10000000-0000-4000-8000-000000000002";
+
+  await community.list(0, "", "sound", true);
+  await community.report?.(id, "恶意插件", "");
+
+  expect(invoke.mock.calls).toEqual([
+    ["plugin_community_list", { offset: 0, search: "", kind: "sound", mine: true }],
+    ["community_report", { kind: "plugins", id, reason: "恶意插件", detail: "" }],
   ]);
 });

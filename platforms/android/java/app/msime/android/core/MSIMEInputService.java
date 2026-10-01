@@ -1,6 +1,7 @@
 package app.msime.android;
 
 import android.inputmethodservice.InputMethodService;
+import app.msime.android.core.Telemetry;
 import android.app.AlertDialog;
 import android.content.ClipDescription;
 import android.content.Intent;
@@ -923,8 +924,15 @@ public final class MSIMEInputService extends InputMethodService {
         synchronizeReplyKeyboard();
     }
 
+    // One reporting session per keyboard process: a crash here is recorded against it, and a session that ends through onDestroy counts as a normal one.
+    @Override public void onCreate() {
+        super.onCreate();
+        Telemetry.beginInputSession(this);
+    }
+
     @Override public void onStartInputView(EditorInfo info, boolean restarting) {
         super.onStartInputView(info, restarting);
+        Telemetry.inputViewShown(this);
         cancelInputViewRefresh();
         final long expectedGeneration = engineStartGeneration;
         final InputConnection expectedConnection = connection;
@@ -1042,6 +1050,7 @@ public final class MSIMEInputService extends InputMethodService {
         onlineCandidateWorker.shutdownNow();
         aiPolishClient.close();
         connection = null;
+        Telemetry.endInputSession(this);
         super.onDestroy();
     }
     @Override public boolean onEvaluateFullscreenMode() { return false; }
@@ -2088,59 +2097,79 @@ public final class MSIMEInputService extends InputMethodService {
         final long epoch = onlineEpoch;
         final long targetSession = session;
         final String document = query.toString();
+        final String requestSignature = signature;
         onlineTask = () -> {
             onlineTask = null;
             if (epoch != onlineEpoch || targetSession != session) return;
             try {
                 onlineCandidateWorker.execute(() -> fetchOnlineCandidates(
-                    targetSession, document, epoch));
+                    targetSession, document, epoch, requestSignature));
             } catch (RuntimeException ignored) {
-                // A stopped or saturated host must not affect input.
+                releaseOnlineSignatureIfCurrent(requestSignature, epoch, targetSession);
             }
         };
         main.postDelayed(onlineTask, OnlineCandidatePolicy.QUIET_INTERVAL_MILLIS);
     }
 
-    /** Runs on the online worker. Nothing here touches Engine or the editor directly. */
-    private void fetchOnlineCandidates(long targetSession, String document, long epoch) {
-        JSONObject query;
-        try { query = new JSONObject(document); }
-        catch (JSONException error) { return; }
-        String aiDocument = document;
-        if (requestsCloud(query)) {
-            String url = cloudRequestUrl(document);
-            if (!url.isEmpty()) {
-                String body = OnlineCandidateTransport.cloud(url);
-                if (OnlineCandidatePolicy.acceptsCloudBody(body)) {
-                    // Applying a cloud result advances Engine's generation, so the AI request has
-                    // to be built from the query as it stands afterwards or it arrives stale.
-                    String refreshed = applyOnlineResult(targetSession, epoch,
-                        () -> NativeClient.applyCloudResponse(targetSession, document, body));
-                    if (refreshed != null) aiDocument = refreshed;
+    /** 在线 worker 执行网络请求；失败时释放仍属于本请求的签名。 */
+    private void fetchOnlineCandidates(long targetSession, String document, long epoch,
+            String requestSignature) {
+        boolean cloudComplete = false;
+        boolean aiComplete = false;
+        try {
+            JSONObject query = new JSONObject(document);
+            cloudComplete = !requestsCloud(query);
+            String aiDocument = document;
+            if (requestsCloud(query)) {
+                String url = cloudRequestUrl(document);
+                if (!url.isEmpty()) {
+                    String body = OnlineCandidateTransport.cloud(url);
+                    if (OnlineCandidatePolicy.acceptsCloudBody(body)) {
+                        String refreshed = applyOnlineResult(targetSession, epoch,
+                            () -> NativeClient.applyCloudResponse(targetSession, document, body));
+                        cloudComplete = refreshed != null;
+                        if (refreshed != null) aiDocument = refreshed;
+                    }
                 }
             }
+            if (epoch != onlineEpoch) return;
+            JSONObject aiQuery = new JSONObject(aiDocument);
+            JSONObject aiAssistant = aiQuery.optJSONObject("ai_assistant");
+            int limit = OnlineCandidatePolicy.aiCandidateLimit(
+                aiAssistant == null ? 0 : aiAssistant.optInt("candidate_limit", 0));
+            if (!requestsAi(aiQuery) || limit == 0) {
+                aiComplete = true;
+                return;
+            }
+            final String queryDocument = aiDocument;
+            JSONObject descriptor = aiRequestDescriptor(onSessionThread(targetSession, epoch,
+                () -> NativeClient.aiRequestForQuery(targetSession, queryDocument)));
+            if (descriptor == null) return;
+            java.util.List<String> candidates = OnlineCandidatePolicy.aiCandidates(
+                aiCandidateTexts(OnlineCandidateTransport.ai(descriptor)), limit);
+            if (candidates.isEmpty()) return;
+            JSONArray payload = new JSONArray();
+            for (String candidate : candidates) payload.put(candidate);
+            final String finalDocument = aiDocument;
+            aiComplete = applyOnlineResult(targetSession, epoch,
+                () -> NativeClient.applyOnlineCandidates(
+                    targetSession, finalDocument, payload.toString(), 1)) != null;
+        } catch (JSONException | RuntimeException | LinkageError ignored) {
+            // 在线候选是可选能力，解析或服务异常交给 finally 触发下一次重试。
+        } finally {
+            if (!cloudComplete || !aiComplete)
+                releaseOnlineSignatureIfCurrent(requestSignature, epoch, targetSession);
         }
-        if (epoch != onlineEpoch) return;
-        JSONObject aiQuery;
-        try { aiQuery = new JSONObject(aiDocument); }
-        catch (JSONException error) { return; }
-        JSONObject aiAssistant = aiQuery.optJSONObject("ai_assistant");
-        int limit = OnlineCandidatePolicy.aiCandidateLimit(
-            aiAssistant == null ? 0 : aiAssistant.optInt("candidate_limit", 0));
-        if (!requestsAi(aiQuery) || limit == 0) return;
-        // Sessions are bound to the main thread; only the network request stays on the worker.
-        final String queryDocument = aiDocument;
-        JSONObject descriptor = aiRequestDescriptor(onSessionThread(targetSession, epoch,
-            () -> NativeClient.aiRequestForQuery(targetSession, queryDocument)));
-        if (descriptor == null) return;
-        java.util.List<String> candidates = OnlineCandidatePolicy.aiCandidates(
-            aiCandidateTexts(OnlineCandidateTransport.ai(descriptor)), limit);
-        if (candidates.isEmpty()) return;
-        JSONArray payload = new JSONArray();
-        for (String candidate : candidates) payload.put(candidate);
-        final String finalDocument = aiDocument;
-        applyOnlineResult(targetSession, epoch, () -> NativeClient.applyOnlineCandidates(
-            targetSession, finalDocument, payload.toString(), 1));
+    }
+
+    private void releaseOnlineSignatureIfCurrent(String requestSignature, long requestEpoch,
+            long targetSession) {
+        Runnable release = () -> {
+            if (OnlineCandidatePolicy.shouldReleaseAfterFailure(requestSignature, onlineSignature,
+                    requestEpoch, onlineEpoch, targetSession, session)) onlineSignature = "";
+        };
+        if (Looper.myLooper() == main.getLooper()) release.run();
+        else main.post(release);
     }
 
     /**

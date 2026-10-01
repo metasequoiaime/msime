@@ -1,4 +1,5 @@
 #include "../src/core/PreparePaths.h"
+#include "../src/core/PrepareState.h"
 
 #include <cassert>
 #include <filesystem>
@@ -26,6 +27,13 @@ int main() {
   assert(msime_linux::installed_sound_pack_directory(executable) ==
          std::filesystem::canonical(root / "share/msime-client/sound-packs").string());
   assert(msime_linux::installed_sound_pack_directory("bin/msime-linux-ibus").empty());
+
+  const auto outside = root / "outside";
+  std::filesystem::create_directories(outside);
+  const auto linked = root / "linked";
+  std::filesystem::create_directory_symlink(outside, linked);
+  assert(!msime_linux::state_directory_path_is_safe(linked / "new-state"));
+  assert(msime_linux::state_directory_path_is_safe(root / "fresh-state"));
 
   std::filesystem::remove_all(root, error);
   return 0;

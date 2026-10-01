@@ -3251,8 +3251,8 @@ private:
 
     auto privacy = add_group(page, L"数据与隐私");
     bool_row(privacy, 0xE9D2, L"匿名使用统计",
-             L"默认关闭。开启后，Server 每次启动向 https://api.msime.app/v1/telemetry/events 发送一条事件，只含随机事件 id、类型、平台名 windows 和版本号；Server 崩溃时再发一条，另带固定文本 std::terminate。不含输入内容、候选、剪贴板或账号信息。",
-             L"telemetry_enabled", false);
+             L"默认开启，可随时关闭。开启时向 https://api.msime.app/v1/telemetry/events 发送匿名事件：每天一条活跃记录；输入法服务每次正常结束一条会话记录；服务崩溃后，下次启动时补发一条崩溃记录，含异常摘要和调用栈（只有模块文件名和偏移，不含文件夹路径）。每条事件只带随机事件 id、本机随机生成的安装 id、平台名 windows 和版本号，不含输入内容、候选、剪贴板、账号或设备信息。关闭后不再发送，并删除尚未发送的记录。",
+             L"usage_reporting", true);
     url_row(privacy, 0xEA18, L"隐私政策", L"设置保存到当前输入法数据目录，详细说明见隐私政策。",
             L"查看", privacy_url);
     url_row(privacy, 0xE8A5, L"开源许可", L"水杉输入法的开源许可证", L"查看", license_url);

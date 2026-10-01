@@ -470,9 +470,7 @@ inline bool write_fcitx_candidate_theme(const std::filesystem::path &file, const
                                         const std::optional<FcitxThemeLogo> &logo = std::nullopt,
                                         bool user_radius = false) {
   const auto directory = file.parent_path();
-  std::error_code error;
-  std::filesystem::create_directories(directory, error);
-  if (error) return false;
+  if (!prepare_candidate_directory(directory)) return false;
   const auto overlay = decoration ? stage_fcitx_overlay(directory, *decoration) : std::nullopt;
   const auto theme = fcitx_candidate_theme_files(colors, dark, overlay, corner_radius, logo, user_radius);
   std::vector<std::string> shapes;

@@ -10,7 +10,7 @@
 
 默认配置下，**会把你输入的内容发出设备的只有云联想，以及 macOS 与 Linux 新装时的候选翻译**。它默认开启，把当前正在组的拼音串发给 Google 输入工具；Windows、Linux 与 macOS 在第一次使用时先问（见[云联想](#云联想默认开启)），macOS 在回答之前不发请求。其余所有联网功能——语音识别、语音润色、AI 联想、账号同步——默认凭据为空，你不填自己的密钥它们就不会发出任何请求。候选翻译在 macOS 与 Linux 新装时默认用「水杉账号」，把当前页的中文候选词发到 `api.msime.app`（见[候选翻译](#候选翻译macos-与-linux-新装默认用水杉账号)）；其他平台默认不联网，需要你在设置里选择一个翻译服务（自己的凭据，或显式选择「水杉账号」）。
 
-另有一条不携带输入内容的自有上报路径，端点是本项目自己的 `https://api.msime.app`：macOS、iOS、Android、Linux、HarmonyOS 会在启动时发一次安装计数，其中除 HarmonyOS 外还会在进程崩溃时发送异常信息，这五个平台默认开启且没有开关；Windows 的同一条路径**默认关闭**，只有在设置页「关于」里打开「匿名使用统计」（`telemetry_enabled`）之后才发送启动与崩溃事件。去重、调用栈和离线重试这三件事逐平台不同，不要按「六个平台一样」理解，差异逐条列在[安装与崩溃上报](#安装与崩溃上报)。六个平台还会在安装后首次启动时向同一端点注册一个本机匿名水杉账号，只发送本机随机生成的标识与口令，见[账号与同步](#账号与同步需要登录)。仓库不接入任何第三方统计或崩溃上报 SDK。
+另有一条不携带输入内容的自有上报路径，端点是本项目自己的 `https://api.msime.app`：六个平台都会发送匿名使用统计（每天一条活跃记录、每个输入法进程一条会话记录、崩溃时的错误摘要与调用栈），**默认开启**，可以在设置里用「匿名使用统计」（偏好字段 `usage_reporting`）关闭，关闭后不再发送并清空本机队列，见[使用统计与崩溃上报](#使用统计与崩溃上报默认开启可关闭)。设置窗口或 App 首页打开时会拉取一次不带凭据的[服务公告](#服务公告)；社区里只有你主动提交时才会发出[举报](#社区举报与审核)。六个平台还会在安装后首次启动时向同一端点注册一个本机匿名水杉账号，只发送本机随机生成的标识与口令，见[账号与同步](#账号与同步需要登录)。仓库不接入任何第三方统计或崩溃上报 SDK。
 
 ## 逐项说明
 
@@ -93,7 +93,7 @@ macOS 26 及以上在没有选择任何服务时（候选翻译开启，小牛�
 - Android：应用首次打开时（`AccountIdentity.register`），已存有匿名会话（即使已过期）就不发请求，存于应用私有存储。
 - HarmonyOS：应用首次启动或键盘首次加载时，存于应用的 `files/state` 目录。
 
-Windows 与 HarmonyOS 目前只注册，不用这个账号发送任何内容。候选翻译在选择了「水杉账号」时才发送（macOS 与 Linux 新装默认选中），见[候选翻译](#候选翻译macos-与-linux-新装默认用水杉账号)；Android 浏览社区皮肤与词库目录时，也会带上匿名账号的令牌（`platforms/android/java/app/msime/android/community/CommunityCatalog.java`），取不到照常列出目录。凭据的存放：iOS 用 Keychain（`crates/tauri-mobile-platform/ios/Sources/MobilePlatformPlugin.swift`），Android 用 Keystore 加密后落盘；macOS、Windows 与 Linux 桌面端存在当前用户私有的 `account-session.json` 里（`crates/client-core/src/account/file_storage.rs`），只有本人可读写，不加密。
+Windows 与 HarmonyOS 除了你主动提交的[社区举报](#社区举报与审核)之外，不用这个账号发送任何内容。候选翻译在选择了「水杉账号」时才发送（macOS 与 Linux 新装默认选中），见[候选翻译](#候选翻译macos-与-linux-新装默认用水杉账号)；Android 浏览社区皮肤与词库目录时，也会带上匿名账号的令牌（`platforms/android/java/app/msime/android/community/CommunityCatalog.java`），取不到照常列出目录。凭据的存放：iOS 用 Keychain（`crates/tauri-mobile-platform/ios/Sources/MobilePlatformPlugin.swift`），Android 用 Keystore 加密后落盘；macOS、Windows 与 Linux 桌面端存在当前用户私有的 `account-session.json` 里（`crates/client-core/src/account/file_storage.rs`），只有本人可读写，不加密。
 
 ### 云剪贴板（需要登录）
 
@@ -112,25 +112,52 @@ Windows 与 HarmonyOS 目前只注册，不用这个账号发送任何内容。�
 
 Android 的手写识别使用 ML Kit，**首次使用需要联网下载识别模型**，之后在设备上离线识别。Linux 与桌面端使用 Engine 随附的离线 Zinnia 模型，从安装路径读取，全程不联网。
 
-### 安装与崩溃上报
+### 使用统计与崩溃上报（默认开启，可关闭）
 
-六个平台都实现了向 `https://api.msime.app/v1/telemetry/events` POST 事件的路径：Windows 默认关闭、要用户在设置里打开，其余五个平台默认开启。**事件里没有任何输入内容、候选、剪贴板或账号标识**，字段只有事件 id、类型、平台名、版本号，崩溃事件另带异常信息，其中两个平台还带调用栈。
+六个平台都通过同一份共享实现向 `https://api.msime.app/v1/telemetry/events` POST 事件：`crates/client-core/src/telemetry.rs`（队列、安装 id、事件规则、发送与重试），原生宿主经 `crates/host-api` 的 `msime_client_telemetry_{begin,end,record_crash,flush,clear}`（`crates/host-api/src/ffi/reporting.rs`，声明在 `crates/host-api/include/msime_client.h`）调用它。**事件里没有任何输入内容、候选、剪贴板、账号标识或硬件信息**。
 
 | | |
 | --- | --- |
-| 目的地 | `https://api.msime.app/v1/telemetry/events` |
-| `kind: "download"` | 启动计数。字段：随机 id、平台名、版本号。**只有 Apple 与 Android 做了本地去重**，各自只在首次启动发一次；Linux（IBus 宿主）、Windows（开关打开时）、HarmonyOS 的宿主进程每次拉起都发一次（Linux 上 launcher 在崩溃后重启的宿主除外），且 id 每次随机，服务端无法合并，所以这三个平台上它实际是启动计数而不是装机计数 |
-| `kind: "crash"` | 进程崩溃。异常信息截断到 2048 字节。**调用栈只有 Apple 与 Android 有**（截断到 12000 字节）；Linux 与 Windows 的崩溃事件没有 stack 字段，message 是固定字面量 `"std::terminate"`，不携带真实异常信息；HarmonyOS 没有崩溃上报 |
+| 目的地 | `https://api.msime.app/v1/telemetry/events`，不带任何凭据（服务端和任何请求一样能看到来源 IP） |
+| 偏好开关 | `usage_reporting`，默认 `true`。设置页「关于 → 隐私 → 匿名使用统计」在所有平台都显示（`packages/ui/src/settings/telemetry-section.tsx`）；Windows 原生设置在「关于」里另有同一开关（`platforms/windows/settings/main.cpp`），iOS 在「关于水杉 → 发送匿名使用统计」，Android 在「词库与输入 → 需要留意的 → 匿名使用统计」。旧字段 `telemetry_enabled` 不再读取 |
+| 每条事件的字段 | 随机事件 id、`kind`、`platform`（`windows`/`macos`/`linux`/`android`/`ios`/`harmony`）、`version`（应用的真实版本号）、`install_id`；只有 `crash` 另带 `message` 与 `stack` |
+| `install_id` | 每个安装首次使用时随机生成一次，存在本机的 `telemetry-state.json` 里，不由硬件、账号或任何用户数据派生 |
 | 需要凭据 | 否 |
-| 偏好开关 | Windows：`telemetry_enabled`，默认 `false`，即设置页「关于」里的「匿名使用统计」，设置页只在 Windows 上显示它。其余五个平台**没有**，这条路径不读任何偏好字段 |
 
-实现分三份，能力逐份不同：
+事件只有四种，客户端不再发送 `download`（GitHub Release 的下载数由服务端统计，装机数由 `active` 统计）：
 
-- Apple（macOS 输入法进程、iOS 主 App）：`shared/backend/account/BackendTelemetryClient.swift`。macOS 由 `platforms/macos/src/input/input_method_main.mm` 在启动时 `dlsym` 调起，iOS 由 `platforms/ios/App/Sources/MetasequoiaImeApp.swift` 的 `init` 调起；两者同时注册 `NSSetUncaughtExceptionHandler`。首次启动以 `UserDefaults` 的 `msime.telemetry.firstLaunchRecorded` 去重。
-- Linux 与 Windows（C++ 宿主进程）：`platforms/common/Telemetry.cpp`，没有首次启动去重。download 事件的 JSON 只有 id（随机十六进制串）、kind、platform（`"linux"` 或 `"windows"`）、version 四个字段，version 是构建时写入的发布版本：Linux 为 CMake 的 `MSIME_LINUX_VERSION`，与 `.deb`/`.tar.gz` 的包版本相同（发布工作流取 `platforms/linux/version.txt`），Windows 为 `MSIME_WINDOWS_VERSION`。Windows 由 `platforms/windows/src/entrypoints/server_main.cpp` 在读到已保存的偏好之后判断 `telemetry_enabled`（`platforms/windows/src/system/TelemetryConsent.h`，只有显式的 `true` 算开启，缺省、类型不对都算关闭）：开启时另起一个不等待的后台线程发送启动事件，端点慢或不可达都不会拖住 Server 启动；关闭时既不发送，也不写 `telemetry.json`。崩溃回调在 `wmain` 开头注册，但只在开关当时为开时才上报，设置页保存后立即按新值生效；启动事件则在 Server 下一次启动时按当时的值决定。Linux 只有 IBus 宿主 `msime-linux-ibus` 上报：`platforms/linux/src/entrypoints/ibus_main.cpp` 在向 ibus-daemon 注册 component 成功之后，另起一个不等待的后台线程发送，所以端点慢或不可达都不会拖住输入法注册；每次由 ibus-daemon 或用户拉起的宿主发一次，`msime-linux-ibus-launcher` 的崩溃守护重启的宿主（带 `--recovered`）不发。Fcitx5 插件（`msime-fcitx5`）不链接 `Telemetry.cpp`，既不发启动事件也不发崩溃事件。崩溃走 `std::set_terminate`，回调传的 message 是写死的 `"std::terminate"`，既没有异常内容也没有调用栈——`crash()` 组装的 JSON 只有 id、kind、platform、version、message 五个字段；Linux 上崩溃守护重启的宿主同样注册这个回调。
-- Android 与 HarmonyOS：`platforms/android/java/app/msime/android/core/Telemetry.java`（由 `HomeActivity` 调起，`SharedPreferences` 的 `first-launch` 去重，`Thread.setDefaultUncaughtExceptionHandler` 捕获崩溃）和 `platforms/harmony/entry/src/main/ets/telemetry/Telemetry.ets`（由 `EntryAbility.onCreate` 调起，只有装机事件，没有崩溃捕获，也没有本地去重）。
+- `active`：每个安装每个 UTC 日最多一条，id 固定为 `active-<install_id>-<yyyymmdd>`，重复发送也只记一次。
+- `session`：输入法宿主进程正常结束时记一条（iOS 键盘是每次键盘弹出到收起），在下一次发送时送出。
+- `session_crash`：上一个会话没有正常结束**并且**崩溃处理程序为它写下了崩溃记录时才记。只留下会话标记（注销、关机、系统杀进程、内存不足）不算崩溃，不产生任何事件。
+- `crash`：崩溃处理程序在崩溃时**只写本地文件、不联网**，下次启动时才转成事件发送。`message` 是异常或信号的摘要（最多 1000 个字符），`stack` 是调用栈帧（最多 16000 个字符、12 KiB，在行边界截断）。共享层在入队前去掉每一行路径里的目录部分，只留文件名，所以用户名和文件夹名不会离开设备。每次启动最多转换 8 条崩溃记录。
 
-事件都是先落盘再发送、发送成功才从队列移除，但**补发只有 Apple 与 Android 做了**：这两份实现在每次启动时遍历整个队列重试，所以离线期间攒下的事件联网后会补发。Linux 与 Windows 只落盘、只尝试发当前这一条，从不回头读队列里的历史事件——离线时写进 `telemetry.json` 的事件会一直留在那里，直到被 64 条上限挤掉，永远不会补发。HarmonyOS 连落盘都没有，`Telemetry.ets` 直接发一次 HTTP 请求，失败即丢弃。队列上限 64 条，文件位置：Apple 为应用支持目录下的 `MSIME/telemetry-events.json`（iOS 放在 App Group 容器里，文件权限 0600）、Windows 为 `%LOCALAPPDATA%\MSIME\telemetry.json`、Linux 为 `$XDG_STATE_HOME/msime/telemetry.json`（未设时为 `~/.local/state/msime/telemetry.json`）、Android 在 `msime-telemetry` 这个 SharedPreferences 里。在 Windows 上保持「匿名使用统计」关闭（出厂即关闭）就不会发送；从此前版本升级的 Windows 用户，旧版本已写下的 `telemetry.json` 会留在原处，关闭开关不会删除它，也不会补发。其余平台想让它彻底不发，目前只能在构建时去掉调用点，或者在网络层阻断该端点。
+发送与保留：事件先写进本机队列再发送，`202` 后移除；`400` 类拒绝直接丢弃不再重试；`429`（遵守 `Retry-After`）、`5xx` 和网络错误保留到下次用同一个 id 重发。队列最多 64 条，超出时丢弃最旧的。关闭开关后什么都不发送，并立即删除队列、会话标记和崩溃记录；`install_id` 文件保留，这样重新打开时不会把同一个安装算成两次。旧版本留下的队列文件中的 `download` 事件在读取时丢弃，Apple 与 Android 旧格式的队列（`telemetry-events.json`、`msime-telemetry` SharedPreferences）直接删除、不补发。
+
+各平台的会话边界、崩溃来源和文件位置：
+
+- **Windows**（`platforms/windows/src/entrypoints/server_main.cpp`，包装层 `platforms/common/Telemetry.cpp`）：会话是 Server 进程从启动到消息循环结束；开关读自偏好里的 `usage_reporting`（`platforms/windows/src/system/TelemetryConsent.h`：缺省算开启，显式 `false` 算关闭，读不出来的值或文件算关闭），设置页保存后立即生效。启动时发送一次，之后每 30 分钟一次。崩溃来源：`std::terminate` 记录异常类型和 `what()` 的第一行（JSON 解析异常只记类型和编号，因为其文本可能引用用户文件的内容）；未处理的结构化异常由 `SetUnhandledExceptionFilter` 记录异常名与代码、出错模块文件名+偏移和逐帧的模块+偏移（例如 `EXCEPTION_ACCESS_VIOLATION (0xc0000005) in module.dll+0x…`）。文件在 `%LOCALAPPDATA%\MSIME\` 下：`telemetry.json`、`telemetry-state.json`、`telemetry-session.json`、`telemetry-crashes\`。安装器的「联网功能」页说明了这项统计默认开启（`platforms/windows/installer/msime_setup.iss`）。
+- **Linux**：IBus 宿主（`platforms/linux/src/entrypoints/ibus_main.cpp`）的会话是 `msime-linux-ibus` 从启动到主循环返回，崩溃守护以 `--recovered` 重启的进程同样如此；Fcitx5 插件（`platforms/linux/fcitx5/FcitxEngine.cpp`）的会话是插件实例的生存期，发送在后台任务里进行，不占用事件循环。崩溃来源：`std::terminate`（规则同 Windows），以及 SIGSEGV、SIGBUS、SIGILL、SIGFPE、SIGABRT 的信号处理程序，写下 `SIGSEGV: segmentation fault (code N)` 这样的摘要和 `backtrace_symbols_fd` 的栈帧，然后交回原先的处理程序（Fcitx5 自己的崩溃日志照常工作）。启动时发送一次，之后每 30 分钟一次。开关是共享偏好 `preferences.json` 里的 `usage_reporting`。文件在 `$XDG_STATE_HOME/msime/`（未设时为 `~/.local/state/msime/`）下，文件名同 Windows；Fcitx5 用自己的子目录 `$XDG_STATE_HOME/msime/fcitx5/`，因此有自己的 `install_id`，同一台机器上两种框架都用会被算成两个安装。
+- **macOS**（`platforms/macos/src/core/UsageReporting.mm`，由 `input_method_main.mm` 调用）：会话是输入法进程的生存期，单独打开的设置窗口不算。崩溃来源：`NSSetUncaughtExceptionHandler`（异常名、原因和 `callStackSymbols`）和 SIGSEGV、SIGBUS、SIGILL、SIGFPE、SIGABRT、SIGTRAP 的信号处理程序（`backtrace_symbols_fd`：二进制文件名、地址、符号+偏移）。启动时发送一次，之后每 3 小时一次。开关是共享设置页的「匿名使用统计」。文件在 `~/Library/Application Support/MSIME/telemetry/`。
+- **iOS**（`platforms/ios/SharedUI/core/UsageReporting.swift`）：会话是键盘的一次弹出到收起（`KeyboardExtension/Sources/core/KeyboardUsageReporting.swift`），App 本身不产生会话。崩溃来源：键盘里的信号处理程序（`CrashSignalRecorder.c`，信号名和 `backtrace_symbols_fd` 的栈帧）和未捕获异常处理程序（异常名、原因和 `callStackSymbols`）；App 的崩溃来自系统的 MetricKit 诊断（`CrashDiagnostics.swift`），只取异常类型、代码、信号、ObjC 异常名、系统给出的终止原因和「二进制名+偏移」形式的栈帧，从不取 ObjC 的 `composedMessage`。键盘只有在「允许完全访问」打开时才发送，最多每 15 分钟一次；否则由 App 在回到前台时发送。文件在 App Group 容器的 `MSIME/telemetry/` 下，App 与键盘共用一个 `install_id`。`PrivacyInfo.xcprivacy` 声明了 CrashData、ProductInteraction 与 DeviceID（随机安装 id），均为不关联身份、不用于跟踪。
+- **Android**（`platforms/android/java/app/msime/android/core/Telemetry.java`，经 `platforms/android/native/client_jni.cpp` 调用共享层）：会话只在 `:ime` 进程里，是 `MSIMEInputService` 从 `onCreate` 到 `onDestroy`。崩溃来源：两个进程的未捕获异常处理程序，记录 `Throwable.toString()` 的第一行（**可能包含异常自带的消息文本**）和 Java 栈帧（类、方法、源文件名与行号，最多 4 层 Caused by）；App 进程的崩溃在键盘下次启动时作为单独的 `crash` 发送。原生（信号）崩溃目前不捕获。App 打开时发送，键盘弹出时最多每 6 小时发送一次。文件在应用私有目录 `files/telemetry/`。
+- **HarmonyOS**（`platforms/harmony/entry/src/main/ets/telemetry/Telemetry.ets`，经 `platforms/harmony/native/client_napi.cpp` 调用共享层）：会话是键盘进程从 `KeyboardExtensionAbility.onCreate` 到 `onDestroy`，设置应用只发送不产生会话。崩溃来源只有系统在下次启动时投递的 HiAppEvent `APP_CRASH`：JS 崩溃取错误名、消息第一行和引擎调用栈；原生崩溃取信号名与代码和「文件名+pc+符号」形式的栈帧，不含故障地址和目录。键盘启动时与之后每 6 小时（打字时检查）发送一次，设置应用打开时也发送。文件在 `files/state/telemetry/` 下，另有只存键盘进程号的 `harmony-keyboard-process.json`。
+
+### 服务公告
+
+设置窗口或 App 首页打开时，向 `GET https://api.msime.app/v1/notices?channel=app&platform=<平台>` 拉取一次公告列表，不带凭据，也不带安装 id；服务端缓存一分钟，客户端最快一分钟问一次，输入法进程从不在后台拉取。共享实现在 `crates/client-core/src/notices.rs`。拉取的地方：
+
+- Windows、macOS、Linux 的共享设置窗口，以及 Tauri 版 Android/iOS 设置（`apps/desktop/src-tauri/src/notices.rs`，在设置页挂载时读取一次）；缓存与已关闭的 id（最多 200 个）存在共享状态目录的 `notices.json`。
+- iOS App 的「设置」首页打开或回到前台时（`platforms/ios/SharedUI/core/AppNotices.swift`），存在 `Application Support/MSIME/notices`；键盘不拉取。
+- Android App 的「设置」页出现时（`platforms/android/java/app/msime/android/home/NoticeBanner.java`），存在 `files/notices`；`:ime` 进程不拉取。
+- HarmonyOS 设置窗口打开或回到前台时（`platforms/harmony/entry/src/main/ets/pages/Settings.ets`），存在 `files/state/notices`；键盘不拉取。
+
+公告正文是简单 Markdown，在本机渲染，原始 HTML 不执行，不加载图片；正文里的链接只有在你点击时才用系统浏览器（或邮件应用）打开，且只接受 `http`、`https` 和 `mailto`。关闭某条公告只记在本机。
+
+### 社区举报与审核
+
+社区里看别人发布的皮肤、候选窗皮肤、插件、词库和回复模板时，每一项都有「举报」入口。只有你选择理由并提交时，才会向 `POST https://api.msime.app/v1/community/reports` 发送 `{kind, item_id, reason, detail}`：`reason` 是固定的六个理由之一（侵权/抄袭、色情低俗、违法违规、垃圾广告、恶意插件、其他），`detail` 是你自己填写的可选说明（最多 1000 字）。请求带账号令牌，已登录用登录账号，否则用本机匿名账号。共享实现在 `crates/client-core/src/community/report.rs`。
+
+社区采用先发布后审核：发布的内容立即公开，管理员可以下架。查看「我的作品」或自己作品详情时，请求带 `fields=moderation`，只用来在被下架的作品上显示「已下架」；不会显示下架理由，也没有待审核状态。
 
 ## 留在本地的东西
 
@@ -141,7 +168,14 @@ Android 的手写识别使用 ML Kit，**首次使用需要联网下载识别模
 
 ## 没有的东西
 
-没有第三方统计、用户行为分析或崩溃上报 SDK：Sentry、Mixpanel、Amplitude、Crashlytics、Google Analytics 及其等价物既不在依赖里，也不在代码里。全仓库唯一的上报路径是上面那条自己实现的[安装与崩溃上报](#安装与崩溃上报)，命中的文件应当只有它的那几份实现、调用点与构建配置（`platforms/linux/CMakeLists.txt`、`platforms/windows/CMakeLists.txt`），外加描述它的 `platforms/linux/README.md`、Windows 开关所在的偏好定义与设置页（`crates/client-core/src/preferences.rs`、`packages/ui/src/index.tsx`）和钉住它的测试（`shared/backend/Tests/BackendTelemetryClientTests.swift`、`platforms/linux/tests/core/ibus_startup_telemetry.py`、`platforms/windows/tests/runtime/telemetry_consent.cpp`、`crates/client-core/src/preferences/tests.rs`、`apps/desktop/tests/settings/settings.test.tsx`）：
+没有第三方统计、用户行为分析或崩溃上报 SDK：Sentry、Mixpanel、Amplitude、Crashlytics、Google Analytics 及其等价物既不在依赖里，也不在代码里。全仓库唯一的上报路径是上面那条自己实现的[使用统计与崩溃上报](#使用统计与崩溃上报默认开启可关闭)。下面的命令命中的文件应当只有这几类：
+
+- 共享实现与 C ABI：`crates/client-core/src/telemetry.rs`、`crates/client-core/src/telemetry/tests.rs`、`crates/client-core/src/lib.rs`、`crates/client-core/src/account/client.rs`（发送用的 HTTP 客户端）、`crates/client-core/src/notices.rs`（文档注释里提到它）、`crates/client-core/src/preferences.rs`（`usage_reporting` 开关）、`crates/host-api/include/msime_client.h`、`crates/host-api/src/ffi/reporting.rs`、`crates/host-api/src/tests.rs`。
+- 设置页开关：`packages/ui/src/index.tsx`、`packages/ui/src/settings/telemetry-section.tsx`、`packages/ui/src/settings/about-settings-actions.ts`、`packages/ui/src/settings/pages/about-page.tsx`、`apps/desktop/tests/settings/settings.test.tsx`。
+- Windows 与 Linux：`platforms/common/Telemetry.{h,cpp}`、`platforms/common/tests/telemetry.cpp`、`platforms/windows/CMakeLists.txt`、`platforms/windows/settings/main.cpp`、`platforms/windows/src/entrypoints/server_main.cpp`、`platforms/linux/CMakeLists.txt`、`platforms/linux/README.md`、`platforms/linux/fcitx5/CMakeLists.txt`、`platforms/linux/fcitx5/FcitxEngine.cpp`、`platforms/linux/src/entrypoints/ibus_main.cpp`、`platforms/linux/tests/core/ibus_startup_telemetry.py`。
+- Apple：`platforms/macos/src/core/UsageReporting.{h,mm}`、`platforms/ios/SharedUI/core/UsageReporting.swift`、`platforms/ios/tests/core/UsageReportingTests.swift`。
+- Android：`platforms/android/README.md`、`platforms/android/java/app/msime/android/core/{Telemetry,MSIMEInputService}.java`、`platforms/android/java/app/msime/android/home/{HomeActivity,KeyboardSheets}.java`、`platforms/android/tests/core/TelemetryHandlerSmoke.java`。
+- HarmonyOS：`platforms/harmony/README.md`、`platforms/harmony/native/client_napi.cpp`、`platforms/harmony/entry/src/main/ets/telemetry/Telemetry.ets`、`platforms/harmony/entry/src/main/ets/entryability/EntryAbility.ets`、`platforms/harmony/entry/src/main/ets/inputmethodextability/KeyboardExtensionAbility.ets`、`platforms/harmony/entry/src/main/ets/pages/Settings.ets`、`platforms/harmony/tests/keyboard-logic.test.ts`、`platforms/harmony/tests/tsconfig.json`。
 
 ```sh
 git grep -ilwE '(telemetry|analytics|sentry|mixpanel|crashlytics)' -- crates apps packages platforms shared

@@ -1,0 +1,29 @@
+{
+  "source_commit": "418b90518dfc0a6867de3fd05c95ce28fab17c0e",
+  "artifacts": [
+    {
+      "name": "cantonese.db",
+      "url": "https://github.com/metasequoiaime/msime/releases/download/langdict-v1.0.0/cantonese.db",
+      "sha256": "dd320d9b6a3751857fc32b4f6acd1eb80bc007fa7a600cfb7ef8fade7a2bf4c1",
+      "size": 7241728
+    },
+    {
+      "name": "zhuyin.db",
+      "url": "https://github.com/metasequoiaime/msime/releases/download/langdict-v1.0.0/zhuyin.db",
+      "sha256": "8c610e3faf46aad1caacd951dc9ecab9383cf091d31bb20a54d249e626df9fdd",
+      "size": 11628544
+    },
+    {
+      "name": "rime_cantonese_LICENSE.txt",
+      "url": "https://github.com/metasequoiaime/msime/releases/download/langdict-v1.0.0/rime_cantonese_LICENSE.txt",
+      "sha256": "d02c17226d724bfd0b30fef1e9b423e4f004ed3c10e4f39e73c3d49b99c3315a",
+      "size": 20179
+    },
+    {
+      "name": "libchewing_data_LICENSE.txt",
+      "url": "https://github.com/metasequoiaime/msime/releases/download/langdict-v1.0.0/libchewing_data_LICENSE.txt",
+      "sha256": "97ef498416e8347d4911e9b6c8db760263b6f279d037167fc12fb7a340049878",
+      "size": 27515
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 import type { InputScheme } from "../index";
-import { Row, Switch } from "../core/platform-controls";
+import { SwitchRow } from "./switch-row";
 
 export interface TraditionalChineseOutputSectionProps {
   value?: boolean;
@@ -16,15 +16,15 @@ export function TraditionalChineseOutputSection({
 }: TraditionalChineseOutputSectionProps) {
   const native = scheme === "cantonese" || scheme === "zhuyin";
   return (
-    <Row
+    <SwitchRow
       title="简繁输入"
       description={
         native
           ? "将提交的简体中文转换为繁体中文。粤拼与注音直接输出繁体，此开关不影响它们"
           : "将提交的简体中文转换为繁体中文"
       }
-    >
-      <Switch checked={value ?? false} onChange={onChange} />
-    </Row>
+      checked={value ?? false}
+      onChange={onChange}
+    />
   );
 }

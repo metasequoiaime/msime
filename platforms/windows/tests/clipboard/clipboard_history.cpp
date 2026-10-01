@@ -141,6 +141,21 @@ int main() {
   }
   std::filesystem::remove(outside_store, error);
   std::filesystem::remove_all(outside_directory, error);
+
+  // 持锁期间锁文件不能被删除，否则新建的同名文件会绕过原来的字节范围锁。
+  {
+    const auto lock_path = path.wstring() + L".lock";
+    HANDLE holder = CreateFileW(lock_path.c_str(), GENERIC_READ | GENERIC_WRITE,
+                                FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS,
+                                FILE_ATTRIBUTE_NORMAL, nullptr);
+    REQUIRE(holder != INVALID_HANDLE_VALUE);
+    OVERLAPPED offset{};
+    REQUIRE(LockFileEx(holder, LOCKFILE_EXCLUSIVE_LOCK, 0, MAXDWORD, MAXDWORD, &offset));
+    REQUIRE(!DeleteFileW(lock_path.c_str()));
+    REQUIRE(GetLastError() == ERROR_SHARING_VIOLATION);
+    UnlockFileEx(holder, 0, MAXDWORD, MAXDWORD, &offset);
+    CloseHandle(holder);
+  }
 #endif
 
   std::filesystem::remove_all(directory, error);

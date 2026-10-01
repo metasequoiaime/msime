@@ -127,10 +127,12 @@ async function settle() {
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((accept) => {
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((accept, decline) => {
     resolve = accept;
+    reject = decline;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 async function openDetail(name = "水墨") {
@@ -971,6 +973,31 @@ test("a failed category switch keeps the previous category selected", async () =
     "true",
   );
   expect(screen.getByRole("button", { name: "查看候选窗皮肤 水墨" })).not.toBeNull();
+});
+
+test("a failed rapid category switch returns to the category of the displayed list", async () => {
+  const pending = deferred<CommunityCandidateSkinPage>();
+  const failed = deferred<CommunityCandidateSkinPage>();
+  const list = vi
+    .fn()
+    .mockResolvedValueOnce({ skins: [first, second], has_more: true })
+    .mockReturnValueOnce(pending.promise)
+    .mockReturnValueOnce(failed.promise)
+    .mockResolvedValueOnce({ skins: [third], has_more: false });
+  render(<CommunityCandidateSkinsPage client={client({ list })} />);
+  await screen.findByRole("button", { name: "查看候选窗皮肤 青绿" });
+  const chips = screen.getByRole("group", { name: "候选窗皮肤分类" });
+
+  fireEvent.click(within(chips).getByRole("button", { name: "自然" }));
+  fireEvent.click(within(chips).getByRole("button", { name: "美食" }));
+  await act(async () => failed.reject({ code: "community_unavailable" }));
+
+  expect(within(chips).getByRole("button", { name: "全部" }).getAttribute("aria-pressed")).toBe(
+    "true",
+  );
+  fireEvent.click(screen.getByRole("button", { name: "加载更多" }));
+  await waitFor(() => expect(list).toHaveBeenLastCalledWith(2, "", false, null));
+  await act(async () => pending.resolve({ skins: [first], has_more: false }));
 });
 
 test("cards and the detail view show the category label, and an item without one shows none", async () => {

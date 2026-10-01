@@ -216,6 +216,12 @@ TEXT_ENTRY(KeySoundPack, msime_client_key_sound_pack)
 TEXT_ENTRY(MusicPack, msime_client_music_pack)
 TEXT_ENTRY(Plugins, msime_client_plugins)
 TEXT_ENTRY(Create, msime_client_create)
+// Usage reporting without the network: each touches a few small files under the telemetry directory, so the crash observer can call record_crash before the process goes.
+TEXT_ENTRY(TelemetryBegin, msime_client_telemetry_begin)
+TEXT_ENTRY(TelemetryEnd, msime_client_telemetry_end)
+TEXT_ENTRY(TelemetryRecordCrash, msime_client_telemetry_record_crash)
+TEXT_ENTRY(TelemetryClear, msime_client_telemetry_clear)
+TEXT_ENTRY(NoticeDismiss, msime_client_notice_dismiss)
 
 struct SnapshotRestoreWork {
     napi_async_work work = nullptr;
@@ -401,6 +407,64 @@ static napi_value EnsureAnonymousAccount(napi_env env, napi_callback_info info) 
         return invalid(env, "Unable to queue anonymous account worker");
     }
     return promise;
+}
+
+// The usage-report flush and the notice fetch wait on the network, so they run as async work and answer through a promise; a refusal or a failed request arrives as {"ok":false}. Both take one JSON request and differ only in the entry point they call.
+using RequestCall = char *(*)(const uint8_t *, size_t);
+
+struct NetworkRequestWork {
+    napi_async_work work = nullptr;
+    napi_deferred deferred = nullptr;
+    RequestCall call = nullptr;
+    std::string request;
+    char *result = nullptr;
+};
+
+static void executeNetworkRequest(napi_env, void *data) {
+    auto *work = static_cast<NetworkRequestWork *>(data);
+    work->result = work->call(
+        reinterpret_cast<const uint8_t *>(work->request.data()), work->request.size());
+}
+
+static void completeNetworkRequest(napi_env env, napi_status status, void *data) {
+    auto *work = static_cast<NetworkRequestWork *>(data);
+    settleVoicePromise(env, status, work->deferred, work->result, "Network request worker failed");
+    napi_delete_async_work(env, work->work);
+    delete work;
+}
+
+static napi_value queueNetworkRequest(napi_env env, napi_callback_info info, RequestCall call,
+                                      const char *name) {
+    std::vector<napi_value> argv;
+    auto *work = new NetworkRequestWork();
+    work->call = call;
+    if (!arguments(env, info, 1, argv) || !argumentText(env, argv[0], work->request)) {
+        delete work;
+        return invalid(env, "Expected a request document");
+    }
+    napi_value promise = nullptr;
+    napi_value resource = nullptr;
+    if (napi_create_promise(env, &work->deferred, &promise) != napi_ok
+            || napi_create_string_utf8(env, name, NAPI_AUTO_LENGTH, &resource) != napi_ok
+            || napi_create_async_work(env, nullptr, resource, executeNetworkRequest,
+                completeNetworkRequest, work, &work->work) != napi_ok) {
+        delete work;
+        return invalid(env, "Unable to create network request worker");
+    }
+    if (napi_queue_async_work(env, work->work) != napi_ok) {
+        napi_delete_async_work(env, work->work);
+        delete work;
+        return invalid(env, "Unable to queue network request worker");
+    }
+    return promise;
+}
+
+static napi_value TelemetryFlush(napi_env env, napi_callback_info info) {
+    return queueNetworkRequest(env, info, msime_client_telemetry_flush, "MSIME telemetry flush");
+}
+
+static napi_value Notices(napi_env env, napi_callback_info info) {
+    return queueNetworkRequest(env, info, msime_client_notices, "MSIME notices");
 }
 
 // A pack import extracts or copies up to a music pack's size and validates it before swapping it into place, which the header says belongs on a worker thread, so it runs as async work and answers through a promise. The small catalog, remove and name-list calls stay on the synchronous `plugins` entry.
@@ -1163,6 +1227,13 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("plugins", Plugins),
         ENTRY("pluginsAsync", PluginsAsync),
         ENTRY("ensureAnonymousAccount", EnsureAnonymousAccount),
+        ENTRY("telemetryBegin", TelemetryBegin),
+        ENTRY("telemetryEnd", TelemetryEnd),
+        ENTRY("telemetryRecordCrash", TelemetryRecordCrash),
+        ENTRY("telemetryFlush", TelemetryFlush),
+        ENTRY("telemetryClear", TelemetryClear),
+        ENTRY("notices", Notices),
+        ENTRY("noticeDismiss", NoticeDismiss),
         ENTRY("keySoundRenderNotes", KeySoundRenderNotes),
         ENTRY("aiRequestForQuery", AiRequestForQuery),
         ENTRY("aiHttpRequest", AiHttpRequest),

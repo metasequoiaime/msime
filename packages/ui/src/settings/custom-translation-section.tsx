@@ -1,7 +1,9 @@
 import type { ReactNode } from "react";
-import { Row, Switch } from "../core/platform-controls";
+import { Row } from "../core/platform-controls";
 import * as settings from "./settings-style";
 import { SecretSettingRow } from "./secret-setting-row";
+import { EndpointInput } from "./endpoint-input";
+import { SwitchRow } from "./switch-row";
 
 export interface CustomTranslationSectionProps {
   enabled: boolean;
@@ -29,24 +31,20 @@ export function CustomTranslationSection({
 }: CustomTranslationSectionProps) {
   return (
     <div role="group" aria-label="自定义翻译服务" className={settings.rowStack}>
-      <Row
+      <SwitchRow
         title="自定义翻译服务"
         description="改用自建的兼容 DeepLX 的 HTTPS 服务；关闭后候选词翻译使用上面选择的在线服务"
-      >
-        <Switch
-          aria-label="自定义翻译服务"
-          disabled={!available}
-          checked={enabled}
-          onChange={onToggle}
-        />
-      </Row>
+        aria-label="自定义翻译服务"
+        disabled={!available}
+        checked={enabled}
+        onChange={onToggle}
+      />
       <Row title="翻译 Endpoint">
-        <input
-          aria-label="自定义翻译 Endpoint"
-          type="url"
+        <EndpointInput
+          label="自定义翻译 Endpoint"
           value={endpoint}
           disabled={!available || !enabled}
-          onChange={(event) => onEndpointChange(event.target.value)}
+          onChange={onEndpointChange}
           placeholder="https://example.com/translate"
         />
       </Row>

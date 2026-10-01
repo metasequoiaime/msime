@@ -26,6 +26,7 @@ import * as cloud from "./cloud-panel-style";
 import * as surface from "./panel-surface-style";
 import { normalizeHandwritingCandidates } from "./handwriting";
 import { validVoiceLanguage } from "./voice-panel";
+import { VoiceLanguageOptions } from "../voice/voice-language-options";
 import {
   isImeCommitKey,
   keyboardKeyWeight,
@@ -37,9 +38,13 @@ import { keyboardSkinStyles } from "./keyboard-skin-styles";
 import { keyboardRows, nineKeyRows } from "./panel-keyboard-layouts";
 import { CloudDictionaryEntryForm } from "./cloud-dictionary-entry-form";
 import { CloudPanelHeader } from "./cloud-panel-header";
+import { CloudDictionaryPagination } from "./cloud-dictionary-pagination";
+import { NativePanelHeader } from "./native-panel-header";
 import { CloudDictionaryKindTabs } from "./cloud-dictionary-kind-tabs";
 import type { CloudDictionaryKind } from "./cloud-dictionary-kind-tabs";
 import { CloudDictionaryKindSelect } from "./cloud-dictionary-kind-select";
+import { CloudDictionaryQueryToolbar } from "./cloud-dictionary-query-toolbar";
+import { CloudPinyinSchemeOptions, CloudShuangpinProfileOptions } from "./cloud-scheme-options";
 import {
   clipboardTooltip,
   emojiDisplayName,
@@ -651,7 +656,12 @@ export function KeyboardPanel({
       data-keyboard-layout={activeLayout}
       aria-label="屏幕键盘"
     >
-      <header className={`native-panel-header ${surface.keyboardHeader}`} {...drag}>
+      <NativePanelHeader
+        className={`native-panel-header ${surface.keyboardHeader}`}
+        drag={drag}
+        closeDisabled={openingVoice}
+        onClose={closeKeyboard}
+      >
         <span className={surface.keyboardNotice} role="status" title={notice}>
           {notice}
         </span>
@@ -668,10 +678,7 @@ export function KeyboardPanel({
             语音
           </button>
         )}
-        <button type="button" aria-label="关闭" disabled={openingVoice} onClick={closeKeyboard}>
-          ×
-        </button>
-      </header>
+      </NativePanelHeader>
       <div className={surface.keyboardBody}>
         <div className={surface.keyboardLayout} data-keyboard-layout-grid="" style={keyboardStyle}>
           {rows.map((row, rowIndex) => (
@@ -1172,17 +1179,13 @@ export function HandwritingPanel({
       data-panel-theme={theme}
       aria-label="手写识别板"
     >
-      <header className={`native-panel-header ${surface.panelHeader}`} {...drag}>
-        <span>水杉手写识别板</span>
-        <button
-          type="button"
-          aria-label="关闭"
-          disabled={closing}
-          onClick={() => void closeHandwriting()}
-        >
-          ×
-        </button>
-      </header>
+      <NativePanelHeader
+        title="水杉手写识别板"
+        className={`native-panel-header ${surface.panelHeader}`}
+        drag={drag}
+        closeDisabled={closing}
+        onClose={() => void closeHandwriting()}
+      />
       <div className={surface.handwritingBody}>
         <section className={surface.inkSection}>
           <svg
@@ -1605,12 +1608,12 @@ export function VoicePanel({
       data-panel-theme={theme}
       aria-label="语音输入"
     >
-      <header className={`native-panel-header ${surface.panelHeader}`} {...drag}>
-        <span>水杉语音输入</span>
-        <button type="button" aria-label="关闭" onClick={() => void close()}>
-          ×
-        </button>
-      </header>
+      <NativePanelHeader
+        title="水杉语音输入"
+        className={`native-panel-header ${surface.panelHeader}`}
+        drag={drag}
+        onClose={() => void close()}
+      />
       <div className={surface.voiceBody}>
         <div className={surface.voiceIcon} aria-hidden="true">
           🎙
@@ -1636,10 +1639,7 @@ export function VoicePanel({
             disabled={busy}
           />
           <datalist id="voice-language-options">
-            <option value="zh-cn">中文（普通话）</option>
-            <option value="en">English</option>
-            <option value="ja">日本語</option>
-            <option value="auto">自动识别</option>
+            <VoiceLanguageOptions />
           </datalist>
         </label>
         <button
@@ -2143,30 +2143,22 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
           管理当前账号的云端词条。修改需要 provider 提供登录态和同步服务。
         </p>
         <CloudDictionaryKindTabs value={kind} disabled={busy} onChange={changeKind} />
-        <div className={cloud.dictionaryToolbar}>
-          <label className={`${cloud.dictionaryField} ${cloud.dictionaryDesktopOnlyField}`}>
-            词库
-            <CloudDictionaryKindSelect value={kind} disabled={busy} onChange={changeKind} />
-          </label>
-          <label className={cloud.dictionarySearch}>
-            搜索
-            <input
-              className={cloud.dictionaryInput}
-              aria-label="搜索云词条"
-              value={search}
-              onChange={(event) => {
-                searchRef.current = event.target.value;
-                setSearch(event.target.value);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") void refresh(0);
-              }}
-              placeholder="词条或编码"
-            />
-          </label>
-          <button type="button" onClick={() => void refresh(0)} disabled={busy}>
-            查询
-          </button>
+        <CloudDictionaryQueryToolbar
+          kind={kind}
+          busy={busy}
+          queryLabel="搜索"
+          queryAriaLabel="搜索云词条"
+          queryValue={search}
+          queryButtonLabel="查询"
+          inputClassName={cloud.dictionaryInput}
+          onKindChange={changeKind}
+          onQueryChange={(value) => {
+            searchRef.current = value;
+            setSearch(value);
+          }}
+          onQuery={() => void refresh(0)}
+          placeholder="词条或编码"
+        >
           <button type="button" onClick={beginAdd} disabled={busy}>
             添加词条
           </button>
@@ -2190,7 +2182,7 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
               应用到本机
             </button>
           )}
-        </div>
+        </CloudDictionaryQueryToolbar>
         {form && (
           <CloudDictionaryEntryForm
             value={form}
@@ -2256,25 +2248,13 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
             <p className={cloud.dictionaryEmpty}>暂无词条</p>
           )}
         </div>
-        <div className={cloud.dictionaryPagination}>
-          <button
-            className={cloud.dictionaryButton}
-            type="button"
-            onClick={() => void refresh(Math.max(0, offset - 100))}
-            disabled={busy || offset === 0}
-          >
-            上一页
-          </button>
-          <span>第 {Math.floor(offset / 100) + 1} 页</span>
-          <button
-            className={cloud.dictionaryButton}
-            type="button"
-            onClick={() => void refresh(offset + 100)}
-            disabled={busy || !hasMore}
-          >
-            下一页
-          </button>
-        </div>
+        <CloudDictionaryPagination
+          offset={offset}
+          hasMore={hasMore}
+          busy={busy}
+          onPrevious={() => void refresh(Math.max(0, offset - 100))}
+          onNext={() => void refresh(offset + 100)}
+        />
         <p className={cloud.dictionaryNote} role="status">
           {notice}
         </p>
@@ -3099,33 +3079,21 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
         onClose={() => void client.close()}
       />
       <div className={cloud.dictionaryBody}>
-        <div className={cloud.dictionaryToolbar}>
-          <label className={`${cloud.dictionaryField} ${cloud.dictionaryDesktopOnlyField}`}>
-            词库
-            <CloudDictionaryKindSelect value={kind} disabled={busy} onChange={changeKind} />
-          </label>
-          <label className={cloud.dictionarySearch}>
-            编码
-            <input
-              className={cloud.dictionaryInput}
-              aria-label="完整目录编码"
-              value={code}
-              onChange={(event) => setCode(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") void queryCatalog();
-              }}
-              placeholder={kind === "quick" ? "可留空" : "例如 shi、a 或 hello"}
-            />
-          </label>
-          <button
-            className={cloud.dictionaryButton}
-            type="button"
-            onClick={() => void queryCatalog()}
-            disabled={busy || (kind !== "quick" && !code.trim())}
-          >
-            查询完整目录
-          </button>
-        </div>
+        <CloudDictionaryQueryToolbar
+          kind={kind}
+          busy={busy}
+          queryLabel="编码"
+          queryAriaLabel="完整目录编码"
+          queryValue={code}
+          queryButtonLabel="查询完整目录"
+          queryDisabled={kind !== "quick" && !code.trim()}
+          inputClassName={cloud.dictionaryInput}
+          onKindChange={changeKind}
+          onQueryChange={setCode}
+          onQuery={() => void queryCatalog()}
+          placeholder={kind === "quick" ? "可留空" : "例如 shi、a 或 hello"}
+          queryButtonClassName={cloud.dictionaryButton}
+        />
         {kind === "pinyin" && (
           <div className={cloud.dictionaryActions}>
             <label className={cloud.dictionaryField}>
@@ -3137,8 +3105,7 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
                 onChange={(event) => setScheme(event.target.value)}
                 disabled={busy}
               >
-                <option value="pinyin">全拼</option>
-                <option value="shuangpin">双拼</option>
+                <CloudPinyinSchemeOptions />
               </select>
             </label>
             {scheme === "shuangpin" && (
@@ -3151,10 +3118,7 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
                   onChange={(event) => setProfile(event.target.value)}
                   disabled={busy}
                 >
-                  <option value="xiaohe">小鹤</option>
-                  <option value="ziranma">自然码</option>
-                  <option value="microsoft">微软</option>
-                  <option value="shoudao">首道</option>
+                  <CloudShuangpinProfileOptions />
                 </select>
               </label>
             )}
@@ -3224,25 +3188,13 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
           />
         )}
         {confirmed && (
-          <div className={cloud.dictionaryPagination}>
-            <button
-              className={cloud.dictionaryButton}
-              type="button"
-              onClick={() => void queryCatalog(Math.max(0, offset - 100), confirmed)}
-              disabled={busy || offset === 0}
-            >
-              上一页
-            </button>
-            <span>第 {Math.floor(offset / 100) + 1} 页</span>
-            <button
-              className={cloud.dictionaryButton}
-              type="button"
-              onClick={() => void queryCatalog(offset + 100, confirmed)}
-              disabled={busy || !hasMore}
-            >
-              下一页
-            </button>
-          </div>
+          <CloudDictionaryPagination
+            offset={offset}
+            hasMore={hasMore}
+            busy={busy}
+            onPrevious={() => void queryCatalog(Math.max(0, offset - 100), confirmed)}
+            onNext={() => void queryCatalog(offset + 100, confirmed)}
+          />
         )}
         <p className={cloud.dictionaryNote} role="status">
           {notice}
@@ -3487,33 +3439,21 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
         onClose={() => void client.close()}
       />
       <div className={cloud.dictionaryBody}>
-        <div className={cloud.dictionaryToolbar}>
-          <label className={`${cloud.dictionaryField} ${cloud.dictionaryDesktopOnlyField}`}>
-            词库
-            <CloudDictionaryKindSelect value={kind} disabled={busy} onChange={changeKind} />
-          </label>
-          <label className={cloud.dictionarySearch}>
-            编码
-            <input
-              aria-label="云端候选编码"
-              value={text}
-              onChange={(event) => {
-                textRef.current = event.target.value;
-                setText(event.target.value);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") void queryCandidates();
-              }}
-            />
-          </label>
-          <button
-            type="button"
-            onClick={() => void queryCandidates()}
-            disabled={busy || !text.trim()}
-          >
-            查询云端候选
-          </button>
-        </div>
+        <CloudDictionaryQueryToolbar
+          kind={kind}
+          busy={busy}
+          queryLabel="编码"
+          queryAriaLabel="云端候选编码"
+          queryValue={text}
+          queryButtonLabel="查询云端候选"
+          queryDisabled={!text.trim()}
+          onKindChange={changeKind}
+          onQueryChange={(value) => {
+            textRef.current = value;
+            setText(value);
+          }}
+          onQuery={() => void queryCandidates()}
+        />
         {kind === "pinyin" && (
           <div className={cloud.dictionaryActions}>
             <label>
@@ -3533,8 +3473,7 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
                 onChange={(event) => setScheme(event.target.value)}
                 disabled={busy}
               >
-                <option value="pinyin">全拼</option>
-                <option value="shuangpin">双拼</option>
+                <CloudPinyinSchemeOptions />
               </select>
             </label>
             {scheme === "shuangpin" && (
@@ -3546,10 +3485,7 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
                   onChange={(event) => setProfile(event.target.value)}
                   disabled={busy}
                 >
-                  <option value="xiaohe">小鹤</option>
-                  <option value="ziranma">自然码</option>
-                  <option value="microsoft">微软</option>
-                  <option value="shoudao">首道</option>
+                  <CloudShuangpinProfileOptions />
                 </select>
               </label>
             )}
@@ -4332,19 +4268,12 @@ export function EmojiPanel({
       data-panel-theme={theme}
       aria-label="表情与符号"
     >
-      <header
+      <NativePanelHeader
+        title="Emoji and more"
         className={`native-panel-header flex-[0_0_38px] border-b ${panelDivider} ${panelSurface} ${panelText} [&>button]:text-[#aeb0b7] group-data-[panel-theme=light]:[&>button]:text-[#656a73]`}
-      >
-        <span>Emoji and more</span>
-        <button
-          type="button"
-          aria-label="关闭"
-          disabled={clipboardBusy}
-          onClick={() => void closeEmoji()}
-        >
-          ×
-        </button>
-      </header>
+        closeDisabled={clipboardBusy}
+        onClose={() => void closeEmoji()}
+      />
       <div
         className={`mx-6 mt-3.5 flex flex-[0_0_52px] items-center gap-2 rounded-[10px] px-3.5 max-phone:mx-3.5 ${panelField} focus-within:border-[#5fbf84] focus-within:shadow-[0_0_0_1px_rgba(95,191,132,0.35)] group-data-[panel-theme=light]:focus-within:border-[#2c7a4b] group-data-[panel-theme=light]:focus-within:shadow-[0_0_0_1px_rgba(154,98,173,0.28)]`}
       >

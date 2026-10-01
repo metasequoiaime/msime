@@ -18,7 +18,6 @@ export function AboutSettingsPage() {
   const {
     client,
     linuxPlatform,
-    windowsPlatform,
     macosPlatform,
     clientHostedPlatform,
     platformLicenseUrl,
@@ -142,10 +141,7 @@ export function AboutSettingsPage() {
             onCancelUninstall={cancelUninstall}
           />
         )}
-        {/* Only the Windows Server reads this switch; the other hosts report on their own terms, described in PRIVACY.md, so offering it there would be a switch that changes nothing. */}
-        {windowsPlatform && (
-          <TelemetrySection value={draft?.telemetry_enabled} onChange={onTelemetryChange} />
-        )}
+        <TelemetrySection value={draft?.usage_reporting} onChange={onTelemetryChange} />
       </div>
     </fieldset>
   );

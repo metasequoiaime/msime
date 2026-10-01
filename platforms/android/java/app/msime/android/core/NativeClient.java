@@ -197,6 +197,14 @@ public final class NativeClient {
         return text(savePreferencesRaw(directory.getBytes(StandardCharsets.UTF_8), expectedRevision,
             snapshot.getBytes(StandardCharsets.UTF_8)));
     }
+    /** Usage reporting (msime_client_telemetry_*): begin, end and clear touch only files; flush blocks on the network. Call on a worker. */
+    public static String telemetryBegin(String request) { return text(telemetryBeginRaw(request.getBytes(StandardCharsets.UTF_8))); }
+    public static String telemetryEnd(String request) { return text(telemetryEndRaw(request.getBytes(StandardCharsets.UTF_8))); }
+    public static String telemetryFlush(String request) { return text(telemetryFlushRaw(request.getBytes(StandardCharsets.UTF_8))); }
+    public static String telemetryClear(String request) { return text(telemetryClearRaw(request.getBytes(StandardCharsets.UTF_8))); }
+    /** The app notices feed (cached for a minute, dismissed ones left out). Blocks on the network: call on a worker, from the app, never from the input method. */
+    public static String notices(String request) { return text(noticesRaw(request.getBytes(StandardCharsets.UTF_8))); }
+    public static String noticeDismiss(String request) { return text(noticeDismissRaw(request.getBytes(StandardCharsets.UTF_8))); }
     /** Applies a bounded batch of queued personal dictionary edits. Call with no active session. */
     public static String personalDictionarySync(String options) {
         return text(personalDictionarySyncRaw(options.getBytes(StandardCharsets.UTF_8)));
@@ -430,6 +438,12 @@ public final class NativeClient {
     private static native byte[] snapshotDiscardRaw(long handle);
     private static native byte[] snapshotActivateRaw(long handle, byte[] expectedVersion);
     private static native byte[] loadPreferencesRaw(byte[] directory);
+    private static native byte[] telemetryBeginRaw(byte[] request);
+    private static native byte[] telemetryEndRaw(byte[] request);
+    private static native byte[] telemetryFlushRaw(byte[] request);
+    private static native byte[] telemetryClearRaw(byte[] request);
+    private static native byte[] noticesRaw(byte[] request);
+    private static native byte[] noticeDismissRaw(byte[] request);
     private static native byte[] typingStatisticsRaw(byte[] request);
     private static native int typingStatisticsEnabledRaw(byte[] directory);
     private static native byte[] themeCatalogRaw();

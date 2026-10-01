@@ -55,6 +55,7 @@ import {
   type VoicePanelClient,
   type Preferences,
   type PreferencesRecovery,
+  type AppNotice,
   type SettingsClient,
   type Snapshot,
   type DictionaryClient,
@@ -244,6 +245,11 @@ const client: SettingsClient = {
   onPreferencesChanged: (listener) =>
     listen<Snapshot>("preferences-changed", (event) => listener(event.payload)),
   openExternalUrl: (url) => invoke("open_external_url", { url }),
+  // The settings window asks for the console's notices when it opens; the host caches the feed for the server's one minute and keeps dismissals per notice id.
+  notices: {
+    list: () => invoke<AppNotice[]>("notices_list"),
+    dismiss: (id) => invoke<void>("notice_dismiss", { id }),
+  },
   openThirdPartyLicenses: () => invoke("open_third_party_licenses"),
   loadMacosShuangpinKeymap: () => invoke<boolean>("load_macos_shuangpin_keymap"),
   saveMacosShuangpinKeymap: (enabled) => invoke("save_macos_shuangpin_keymap", { enabled }),

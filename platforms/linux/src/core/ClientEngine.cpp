@@ -2290,21 +2290,32 @@ void translation_complete(GObject *source, GAsyncResult *result, gpointer) {
     return;
   }
   auto translations = request->local_translations;
+  bool provider_response_valid = false;
+  bool provider_answered = false;
   if (raw) {
     try {
       const auto document = Json::parse(raw.get());
       if (document.value("ok", false)) {
         const auto &value = document.at("value");
-        if (value.is_object() && request->prefer_online && !request->offline)
-          translations = prefer_online_translations(translations, value.at("translations"));
-        else if (value.is_object())
-          for (const auto &item : value.at("translations"))
-            translations.push_back(item);
+        if (value.is_object() && value.at("translations").is_array()) {
+          const auto &remote = value.at("translations");
+          provider_response_valid = true;
+          provider_answered = !remote.empty();
+          if (request->prefer_online && !request->offline)
+            translations = prefer_online_translations(translations, remote);
+          else
+            for (const auto &item : remote)
+              translations.push_back(item);
+        }
       }
     } catch (...) {}
   }
   try {
     auto query = Json::parse(request->query);
+    if (msime::linux_host::should_retry_translation_after_provider(
+            !request->offline, provider_response_valid, provider_answered) &&
+        s.translation_dispatched_query == request->query)
+      s.translation_dispatched_query.clear();
     const auto generation = query.at("generation").get<uint64_t>();
     const auto encoded = translations.dump();
     auto applied = response(msime_client_apply_translations(

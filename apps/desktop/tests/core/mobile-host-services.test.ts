@@ -35,16 +35,52 @@ test("Android and iOS share Tauri account, community, AI and skin services", asy
     expect(services.mobileKeyboardFeedback).toBeDefined();
   }
 
-  await android.communitySkins?.list(0, "杉");
-  await ios.communitySkins?.list(0, "杉");
+  await android.communitySkins?.list(0, "杉", false, null);
+  await ios.communitySkins?.list(0, "杉", true, "acg");
   expect(androidDependencies.invokeMock).toHaveBeenCalledWith("community_skin_list", {
     offset: 0,
     search: "杉",
+    mine: false,
+    category: null,
   });
   expect(iosDependencies.invokeMock).toHaveBeenCalledWith("community_skin_list", {
     offset: 0,
     search: "杉",
+    mine: true,
+    category: "acg",
   });
+
+  // 发布带上分类，作者修改分类走单独的命令。
+  const id = "10000000-0000-4000-8000-000000000001";
+  await android.communitySkins?.publish(id, "晨雾", "", {} as never, "guofeng");
+  expect(androidDependencies.invokeMock).toHaveBeenCalledWith("community_skin_publish", {
+    id,
+    name: "晨雾",
+    description: "",
+    design: {},
+    category: "guofeng",
+  });
+  await ios.communitySkins?.setCategory(id, "food");
+  expect(iosDependencies.invokeMock).toHaveBeenCalledWith("community_skin_set_category", {
+    id,
+    category: "food",
+  });
+});
+
+test("mobile reports name the backend kind of each gallery", async () => {
+  const mobile = dependencies();
+  const services = createMobileHostServices("android", mobile.value);
+  const id = "10000000-0000-4000-8000-000000000003";
+
+  await services.communitySkins?.report?.(id, "色情低俗", "");
+  await services.communityResources?.report?.("dictionary", id, "垃圾广告", "刷屏");
+  await services.communityResources?.report?.("reply", id, "其他", "");
+
+  expect(mobile.invokeMock.mock.calls).toEqual([
+    ["community_report", { kind: "skins", id, reason: "色情低俗", detail: "" }],
+    ["community_report", { kind: "dictionaries", id, reason: "垃圾广告", detail: "刷屏" }],
+    ["community_report", { kind: "replies", id, reason: "其他", detail: "" }],
+  ]);
 });
 
 test("platform-only mobile actions stay explicit", async () => {

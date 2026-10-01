@@ -1,13 +1,18 @@
 package app.msime.android.home;
 
+import android.content.Context;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
+import android.widget.LinearLayout;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.appcompat.app.AlertDialog;
 import androidx.fragment.app.Fragment;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
@@ -17,8 +22,12 @@ import app.msime.android.CommunityRequest;
 import app.msime.android.R;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.button.MaterialButtonToggleGroup;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.google.android.material.chip.Chip;
+import com.google.android.material.chip.ChipGroup;
 import com.google.android.material.snackbar.Snackbar;
 import com.google.android.material.textfield.TextInputEditText;
+import com.google.android.material.textfield.TextInputLayout;
 import java.nio.file.Paths;
 
 /**
@@ -27,6 +36,7 @@ import java.nio.file.Paths;
  * Read-only. Publishing and rating need a signed-in account, and this host carries only the
  * keyboard's anonymous identity; a publish button that always answers "请先登录" would be worse
  * than the honest absence of one. Saving a skin, which is what people open this tab to do, works.
+ * 例外是分类：登录了水杉账号的作者可以在详情里改自己皮肤的分类。
  */
 public final class CommunityFragment extends Fragment {
     private static final String ARG_KIND = "kind";
@@ -34,6 +44,8 @@ public final class CommunityFragment extends Fragment {
     private CommunityRequest.Kind kind = CommunityRequest.Kind.SKIN;
     private CommunityAdapter adapter;
     private String search = "";
+    // 皮肤的分类筛选，null 是「全部」。只在皮肤页生效，词库和回复没有分类。
+    @Nullable private CommunityRequest.Category category;
     private boolean loading;
     private boolean hasMore;
     // 详情里的预览按用户自己的布局画。读不到就按 26 键，那是默认值。
@@ -82,9 +94,36 @@ public final class CommunityFragment extends Fragment {
                 if (segments[index] != id || values.get(index) == kind) continue;
                 kind = values.get(index);
                 updateSearchHint();
+                updateCategories();
                 load(true);
             }
         });
+
+        // 分类筛选条：「全部」在最前，后面是固定的八个分类。换分类和换搜索词一样从第一页重新载入。
+        ChipGroup categories = view.findViewById(R.id.community_categories);
+        java.util.List<CommunityRequest.Category> choices = CommunityRequest.categories();
+        int[] chips = new int[choices.size() + 1];
+        for (int index = 0; index < chips.length; index++) {
+            Chip chip = new Chip(requireContext());
+            chip.setId(View.generateViewId());
+            chip.setText(index == 0 ? "全部" : choices.get(index - 1).label());
+            chip.setCheckable(true);
+            categories.addView(chip);
+            chips[index] = chip.getId();
+        }
+        categories.check(chips[category == null ? 0 : choices.indexOf(category) + 1]);
+        categories.setOnCheckedStateChangeListener((group, checked) -> {
+            if (checked.isEmpty()) return;
+            int id = checked.get(0);
+            CommunityRequest.Category next = null;
+            for (int index = 1; index < chips.length; index++) {
+                if (chips[index] == id) next = choices.get(index - 1);
+            }
+            if (next == category) return;
+            category = next;
+            load(true);
+        });
+        updateCategories();
 
         adapter = new CommunityAdapter(this::open);
         HostTask.run(this, HostStore::loadPreferences, snapshot -> {
@@ -140,6 +179,19 @@ public final class CommunityFragment extends Fragment {
         ((TextInputEditText) view.findViewById(R.id.community_search)).setHint(kind.searchHint());
     }
 
+    /** 分类筛选条只属于皮肤页。 */
+    private void updateCategories() {
+        View view = getView();
+        if (view == null) return;
+        view.findViewById(R.id.community_categories_scroll).setVisibility(
+            kind == CommunityRequest.Kind.SKIN ? View.VISIBLE : View.GONE);
+    }
+
+    /** 本次请求实际用的分类：只有皮肤按分类筛选。 */
+    @Nullable private CommunityRequest.Category requestCategory() {
+        return kind == CommunityRequest.Kind.SKIN ? category : null;
+    }
+
     private void load(boolean fresh) {
         View view = getView();
         if (view == null) return;
@@ -156,13 +208,16 @@ public final class CommunityFragment extends Fragment {
         }
         CommunityRequest.Kind requested = kind;
         String term = search;
+        CommunityRequest.Category filter = requestCategory();
         HostTask.run(this,
-            context -> new CommunityCatalog(context).list(requested, term, offset),
+            context -> new CommunityCatalog(context).list(requested, term, offset, filter),
             page -> {
-                // The tab or the search may have moved on while this page was in flight. A stale
-                // answer must not write over what the user is now looking at, and must not clear
-                // the flag belonging to the request that replaced it.
-                if (requested != kind || !term.equals(search)) return;
+                // The tab, the search or the category may have moved on while this page was in
+                // flight. A stale answer must not write over what the user is now looking at, and
+                // must not clear the flag belonging to the request that replaced it.
+                if (requested != kind || !term.equals(search) || filter != requestCategory()) {
+                    return;
+                }
                 loading = false;
                 if (page == null) {
                     state(CommunityRequest.message(null, 0), true);
@@ -179,9 +234,11 @@ public final class CommunityFragment extends Fragment {
     }
 
     private String emptyMessage() {
+        CommunityRequest.Category filter = requestCategory();
+        String what = filter == null ? kind.title() : "「" + filter.label() + "」分类的" + kind.title();
         return search.isEmpty()
-            ? "社区里还没有公开的" + kind.title() + "。"
-            : "没有找到匹配「" + search + "」的" + kind.title() + "。";
+            ? "社区里还没有公开的" + what + "。"
+            : "没有找到匹配「" + search + "」的" + what + "。";
     }
 
     private void state(String message, boolean retryable) {
@@ -196,7 +253,84 @@ public final class CommunityFragment extends Fragment {
 
     private void open(CommunityCatalog.Item item) {
         CommunitySkinSheet.show(requireContext(), item, nineKey,
-            CommunitySkinSheet.installable(item) ? () -> install(item) : null);
+            CommunitySkinSheet.installable(item) ? () -> install(item) : null,
+            () -> report(item),
+            item.owned() && item.category() != null ? next -> changeCategory(item, next) : null);
+    }
+
+    /** 举报：one of the fixed reasons and an optional detail, sent with this device's account (the anonymous one counts). */
+    private void report(CommunityCatalog.Item item) {
+        Context context = requireContext();
+        int padding = ListRows.dp(context, 20);
+        LinearLayout form = new LinearLayout(context);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(padding, ListRows.dp(context, 8), padding, 0);
+        RadioGroup reasons = new RadioGroup(context);
+        for (String reason : CommunityRequest.REPORT_REASONS) {
+            RadioButton choice = new RadioButton(context);
+            choice.setId(View.generateViewId());
+            choice.setText(reason);
+            choice.setTag(reason);
+            reasons.addView(choice);
+        }
+        form.addView(reasons);
+        TextInputLayout detailField = new TextInputLayout(context);
+        detailField.setHint("补充说明（可选）");
+        detailField.setCounterEnabled(true);
+        detailField.setCounterMaxLength(CommunityRequest.MAX_REPORT_DETAIL);
+        TextInputEditText detail = new TextInputEditText(detailField.getContext());
+        detail.setMaxLines(4);
+        detailField.addView(detail);
+        form.addView(detailField);
+
+        AlertDialog dialog = new MaterialAlertDialogBuilder(context)
+            .setTitle("举报「" + item.name() + "」")
+            .setView(form)
+            .setNegativeButton("取消", null)
+            .setPositiveButton("提交", null)
+            .create();
+        dialog.setOnShowListener(ignored -> {
+            View submit = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+            submit.setEnabled(false);
+            reasons.setOnCheckedChangeListener((group, checked) -> submit.setEnabled(checked != -1));
+            submit.setOnClickListener(clicked -> {
+                View checked = reasons.findViewById(reasons.getCheckedRadioButtonId());
+                String reason = checked == null ? "" : String.valueOf(checked.getTag());
+                String text = detail.getText() == null ? "" : detail.getText().toString().trim();
+                if (!CommunityRequest.validReport(reason, text)) {
+                    detailField.setError("最多 " + CommunityRequest.MAX_REPORT_DETAIL + " 字");
+                    return;
+                }
+                dialog.dismiss();
+                HostTask.run(this, worker -> new CommunityCatalog(worker).report(item, reason, text),
+                    failure -> {
+                        View view = getView();
+                        if (view == null) return;
+                        Snackbar.make(view, failure == null || failure.isEmpty()
+                            ? "已收到举报，管理员会尽快处理。" : failure, Snackbar.LENGTH_LONG).show();
+                    });
+            });
+        });
+        dialog.show();
+    }
+
+    private void changeCategory(CommunityCatalog.Item item, CommunityRequest.Category next) {
+        HostTask.run(this, context -> new CommunityCatalog(context).setCategory(item, next),
+            update -> {
+                View view = getView();
+                if (view == null) return;
+                if (update == null || update.failed()) {
+                    Snackbar.make(view, update == null ? CommunityRequest.message(null, 0)
+                        : update.failure(), Snackbar.LENGTH_LONG).show();
+                    return;
+                }
+                // 正在按分类筛选时，改到别的分类的那一款就不属于这一页了。
+                CommunityRequest.Category filter = requestCategory();
+                adapter.replace(update.item(), filter == null || filter == next);
+                if (adapter.size() == 0) state(emptyMessage(), false);
+                Snackbar.make(view, "已改为「" + next.label() + "」分类。",
+                    Snackbar.LENGTH_LONG).show();
+            });
     }
 
     private void install(CommunityCatalog.Item item) {

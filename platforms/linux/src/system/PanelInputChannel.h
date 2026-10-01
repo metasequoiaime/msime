@@ -5,11 +5,13 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fcntl.h>
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <poll.h>
 #include <string>
+#include <system_error>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -203,6 +205,35 @@ inline std::string panel_input_socket_path() {
   return std::string(runtime) + "/msime-client/panel-input.sock";
 }
 
+// 逐组件检查 socket 目录，避免 mkdir 沿着中间符号链接在外部创建目录。
+inline bool panel_input_directory_is_safe(const std::filesystem::path &directory) {
+  if (!directory.is_absolute()) return false;
+  std::filesystem::path current = directory.root_path();
+  bool saw_prefix_alias = false;
+  bool saw_real_component = false;
+  std::error_code error;
+  for (const auto &component : directory) {
+    if (component == directory.root_name() || component == directory.root_directory()) continue;
+    current /= component;
+    const auto status = std::filesystem::symlink_status(current, error);
+    if (!error) {
+      if (std::filesystem::is_symlink(status)) {
+        const bool system_alias = !saw_real_component && !saw_prefix_alias &&
+                                  (component == "tmp" || component == "var");
+        if (!system_alias) return false;
+        saw_prefix_alias = true;
+        continue;
+      }
+      if (!std::filesystem::is_directory(status)) return false;
+      saw_real_component = true;
+      continue;
+    }
+    if (error != std::errc::no_such_file_or_directory) return false;
+    error.clear();
+  }
+  return true;
+}
+
 // The listening socket. IBus and Fcitx5 may both be installed; whichever host binds first serves the panels, and the other leaves a live socket alone rather than stealing it.
 class PanelInputSocket {
 public:
@@ -221,6 +252,7 @@ public:
     const auto slash = path.rfind('/');
     if (slash == std::string::npos || slash == 0) return false;
     const auto directory = path.substr(0, slash);
+    if (!panel_input_directory_is_safe(std::filesystem::path(directory))) return false;
     if (::mkdir(directory.c_str(), 0700) != 0 && errno != EEXIST) return false;
     struct stat info {};
     // Other session services share this directory. It must belong to this user and admit no one else's writes; the socket itself is 0600 and every peer is checked below as well.

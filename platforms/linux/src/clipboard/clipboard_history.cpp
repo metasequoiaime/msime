@@ -103,10 +103,9 @@ int main(int argc, char **argv) {
     try { (void)Json(added_text).dump(); } catch (...) { return 2; }
     if (invalid_input) return 2;
     if (added_text.empty()) return 0;
-    std::error_code error;
-    if (!path.parent_path().empty())
-      std::filesystem::create_directories(path.parent_path(), error);
-    if (error) return 1;
+    if (!path.parent_path().empty() &&
+        !msime::linux_host::prepare_clipboard_directory(path.parent_path()))
+      return 1;
   }
   HistoryLock lock(path);
   if (!lock.acquired()) return 1;

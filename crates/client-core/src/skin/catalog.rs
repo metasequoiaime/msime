@@ -284,6 +284,9 @@ fn enum_array(
 }
 
 fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
+    if crate::storage::reject_symlink(root).is_err() {
+        return Err("missing skin directory".into());
+    }
     if !safe_id(folder) || is_reserved(folder) {
         return Err("invalid skin id".into());
     }
@@ -713,6 +716,9 @@ pub fn load_package(root: impl AsRef<Path>, id: &str) -> Result<SkinSummary, Str
 pub fn scan(root: impl AsRef<Path>) -> SkinCatalog {
     let root = root.as_ref();
     let mut out = SkinCatalog::default();
+    if crate::storage::reject_symlink(root).is_err() {
+        return out;
+    }
     let Ok(entries) = fs::read_dir(root) else {
         return out;
     };
