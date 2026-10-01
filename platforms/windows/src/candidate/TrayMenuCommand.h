@@ -22,6 +22,9 @@ enum class TrayMenuCommand {
   SelectWubi,
   SelectJapanese,
   SelectKorean,
+  SelectCantonese,
+  SelectZhuyin,
+  SelectVietnamese,
   // Settings pages.
   OpenTheme,
   OpenDictionary,

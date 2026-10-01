@@ -4,6 +4,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 using namespace msime::windows;
 namespace {
@@ -73,14 +74,19 @@ int main() {
     require(frame_text(frames[3]) == L"1"); // paired punctuation on
     require(frame_text(frames[4]) == L"1"); // Microsoft shuangpin on
 
-    // The input-mode frame names the scheme: "0" Chinese, "1" Japanese, "2" Korean.
+    // The input-mode frame names the scheme's family: "0" quanpin, shuangpin or wubi, "1" Japanese, "2" Korean, "3" Cantonese, "4" Zhuyin, "5" Vietnamese. The first three keep the codes an older DLL compares against.
     require(frame_text(frames[5]) == L"0");
-    config.japanese_input_mode = true;
-    require(frame_text(tsf_config_frames(config)[5]) == L"1");
-    config.japanese_input_mode = false;
-    config.korean_input_mode = true;
-    require(frame_text(tsf_config_frames(config)[5]) == L"2");
-    config.korean_input_mode = false;
+    const std::pair<msime::windows::scheme::InputMode, const wchar_t *> modes[] = {
+        {msime::windows::scheme::InputMode::Japanese, L"1"},
+        {msime::windows::scheme::InputMode::Korean, L"2"},
+        {msime::windows::scheme::InputMode::Cantonese, L"3"},
+        {msime::windows::scheme::InputMode::Zhuyin, L"4"},
+        {msime::windows::scheme::InputMode::Vietnamese, L"5"},
+        {msime::windows::scheme::InputMode::Chinese, L"0"}};
+    for (const auto &[mode, code] : modes) {
+      config.input_mode = mode;
+      require(frame_text(tsf_config_frames(config)[5]) == code);
+    }
 
     // The preedit style rides along with the paging frame after a '|'; there is
     // no separate message type for it, which is why it stayed stuck at raw.

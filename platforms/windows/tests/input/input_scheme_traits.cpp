@@ -31,6 +31,25 @@ int main() {
     assert(ScriptConversionApplies(representative) == ScriptConversionApplies(scheme));
     assert(CommitsOnBlur(representative) == CommitsOnBlur(scheme));
   }
+  for (int scheme = Quanpin; scheme <= Vietnamese; ++scheme)
+    assert(scheme_from_name(scheme_name(scheme)) == scheme);
+  assert(scheme_name(8).empty() && scheme_name(-1).empty());
+
+  // The scheme that runs, as host-api's effective_scheme picks it: Cantonese and Zhuyin need their dictionary, and without it the last Chinese scheme that can run takes over, then quanpin.
+  constexpr LanguageDictionaryPresence none{};
+  constexpr LanguageDictionaryPresence both{true, true};
+  constexpr LanguageDictionaryPresence cantonese_only{true, false};
+  for (int scheme = Quanpin; scheme <= Vietnamese; ++scheme)
+    assert(effective_scheme(names[scheme], "wubi", both) == scheme);
+  assert(effective_scheme("zhuyin", "shuangpin", none) == Shuangpin);
+  assert(effective_scheme("zhuyin", "cantonese", cantonese_only) == Cantonese);
+  assert(effective_scheme("zhuyin", "zhuyin", cantonese_only) == Quanpin);
+  assert(effective_scheme("cantonese", "", none) == Quanpin);
+  assert(effective_scheme("vietnamese", "zhuyin", none) == Vietnamese);
+  assert(effective_scheme("pinyin", "wubi", none) == Wubi);
+  assert(effective_scheme("japanese", "korean", none) == Japanese);
+  // A last_chinese_scheme that names a language is not a Chinese scheme to return to.
+  assert(effective_scheme("zhuyin", "japanese", none) == Quanpin);
   assert(scheme_from_name("pinyin") == -1 && input_mode("pinyin") == InputMode::Chinese);
   assert(input_mode(-1) == InputMode::Chinese && input_mode(8) == InputMode::Chinese);
 

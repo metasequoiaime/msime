@@ -32,6 +32,9 @@ enum class TypingSource {
   Wubi,
   Japanese,
   Korean,
+  Cantonese,
+  Zhuyin,
+  Vietnamese,
   Handwriting,
   English,
   Local,
@@ -61,6 +64,12 @@ constexpr std::string_view typing_source_id(TypingSource source) {
     return "japanese";
   case TypingSource::Korean:
     return "korean";
+  case TypingSource::Cantonese:
+    return "cantonese";
+  case TypingSource::Zhuyin:
+    return "zhuyin";
+  case TypingSource::Vietnamese:
+    return "vietnamese";
   case TypingSource::Handwriting:
     return "handwriting";
   case TypingSource::English:
@@ -79,7 +88,7 @@ constexpr std::string_view typing_source_id(TypingSource source) {
   return "unknown";
 }
 
-// The shared Engine exposes numeric schemes in its View: 0 quanpin, 1 shuangpin, 2 wubi, 3 Japanese and 4 Korean. Local modes take precedence over the keyboard scheme, matching the Android, Apple and Linux hosts.
+// The shared Engine exposes numeric schemes in its View: 0 quanpin, 1 shuangpin, 2 wubi, 3 Japanese, 4 Korean, 5 Cantonese, 6 Zhuyin and 7 Vietnamese. Local modes take precedence over the keyboard scheme, matching the Android, Apple and Linux hosts.
 constexpr TypingSource
 resolve_typing_source(int scheme, bool nine_key, bool dedicated_english,
                       std::string_view local_mode,
@@ -107,6 +116,12 @@ resolve_typing_source(int scheme, bool nine_key, bool dedicated_english,
     return TypingSource::Japanese;
   case 4:
     return TypingSource::Korean;
+  case 5:
+    return TypingSource::Cantonese;
+  case 6:
+    return TypingSource::Zhuyin;
+  case 7:
+    return TypingSource::Vietnamese;
   default:
     return TypingSource::Unknown;
   }

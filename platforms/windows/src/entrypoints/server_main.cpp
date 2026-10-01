@@ -15,6 +15,7 @@
 #include "FirstRun.h"
 #include "FloatingToolbarWindow.h"
 #include "FocusedSession.h"
+#include "InputSchemeTraits.h"
 #include "FullscreenForeground.h"
 #include "SoundPackRoot.h"
 #include "MaintenanceHotkey.h"
@@ -387,7 +388,7 @@ bool toggle_stored_flag(const std::filesystem::path &directory,
     return false;
   }
 }
-// Select an input scheme through the revisioned store, keeping last_chinese_scheme the way the settings page does: a Chinese scheme is also the one Japanese and Korean return to, and choosing Japanese or Korean remembers the Chinese scheme it replaces. Moving between Japanese and Korean keeps the remembered one, because neither is a Chinese scheme the store would accept there.
+// Select an input scheme through the revisioned store, keeping last_chinese_scheme the way the settings page does: a Chinese scheme (Cantonese and Zhuyin included) is also the one Japanese, Korean and Vietnamese return to, and choosing one of those languages remembers the Chinese scheme it replaces. Moving between them keeps the remembered one, because none is a Chinese scheme the store would accept there.
 bool store_input_scheme(const std::filesystem::path &directory,
                         const std::string &scheme) {
   try {
@@ -410,12 +411,10 @@ bool store_input_scheme(const std::filesystem::path &directory,
             : std::string("quanpin");
     if (current == scheme)
       return true;
-    const auto chinese = [](const std::string &value) {
-      return value != "japanese" && value != "korean";
-    };
-    if (chinese(scheme))
+    // Cantonese and Zhuyin are Chinese schemes, remembered like the others; Japanese, Korean and Vietnamese are languages of their own (client-core's ChineseScheme).
+    if (msime::windows::scheme::is_chinese_scheme_name(scheme))
       preferences["last_chinese_scheme"] = scheme;
-    else if (chinese(current))
+    else if (msime::windows::scheme::is_chinese_scheme_name(current))
       preferences["last_chinese_scheme"] = current;
     preferences["scheme"] = scheme;
     const auto serialized = snapshot.dump();
@@ -434,6 +433,24 @@ bool store_input_scheme(const std::filesystem::path &directory,
     return false;
   }
 }
+// The Cantonese and Zhuyin dictionaries the package installed beside the resources, where host-api looks for them (language_dictionaries_beside). They arrive with a package, so one look at startup holds for the process.
+msime::windows::scheme::LanguageDictionaryPresence
+installed_language_dictionaries(const std::filesystem::path &resources) {
+  const auto directory = resources.parent_path() / L"language-dictionaries";
+  std::error_code error;
+  return {std::filesystem::is_regular_file(directory / L"cantonese.db", error),
+          std::filesystem::is_regular_file(directory / L"zhuyin.db", error)};
+}
+// The scheme the Engine runs for the stored preferences, which is the stored one unless it needs a dictionary that is not installed.
+std::string running_scheme(
+    const nlohmann::json &preferences,
+    msime::windows::scheme::LanguageDictionaryPresence installed) {
+  return std::string(msime::windows::scheme::scheme_name(
+      msime::windows::scheme::effective_scheme(
+          preferences.value("scheme", std::string("quanpin")),
+          preferences.value("last_chinese_scheme", std::string("quanpin")),
+          installed)));
+}
 // The stored preferences the tray card shows. The preference monitor publishes them and the UI thread reads them whenever the card is built.
 struct TrayMenuPreferences {
   bool translations = true;
@@ -441,10 +458,13 @@ struct TrayMenuPreferences {
   std::string shuangpin_profile = "xiaohe";
   std::string language_hint;
 };
-TrayMenuPreferences tray_menu_preferences(const nlohmann::json &preferences) {
+TrayMenuPreferences tray_menu_preferences(
+    const nlohmann::json &preferences,
+    msime::windows::scheme::LanguageDictionaryPresence installed) {
   TrayMenuPreferences result;
   result.translations = preferences.value("candidate_translations", true);
-  result.scheme = preferences.value("scheme", std::string("quanpin"));
+  // The scheme that runs, so a Cantonese or Zhuyin choice made before its dictionary was installed checks the scheme the Engine fell back to, as the macOS input menu does.
+  result.scheme = running_scheme(preferences, installed);
   result.shuangpin_profile =
       preferences.value("shuangpin_profile", std::string("xiaohe"));
   // The same defaults publish_switch_language_keybindings writes for the TIP.
@@ -467,8 +487,12 @@ TrayMenuPreferences tray_menu_preferences(const nlohmann::json &preferences) {
 // key instead of sending the previous provider's key to the new endpoint. The
 // flat field remains the value the box currently holds, so it is the right
 // fallback for a store written before the slots existed.
-msime::windows::TsfLocalConfig tsf_local_config(const nlohmann::json &preferences) {
+msime::windows::TsfLocalConfig tsf_local_config(
+    const nlohmann::json &preferences,
+    msime::windows::scheme::LanguageDictionaryPresence installed) {
   msime::windows::TsfLocalConfig config;
+  // The TIP keys the scheme the Engine runs: Zhuyin chosen without zhuyin.db runs a pinyin scheme, and keying it as Zhuyin would swallow the tone digits.
+  const auto scheme = running_scheme(preferences, installed);
   const auto navigation =
       preferences.value("navigation", nlohmann::json::object());
   config.paging_comma_period = navigation.value("comma_period", true);
@@ -490,19 +514,15 @@ msime::windows::TsfLocalConfig tsf_local_config(const nlohmann::json &preference
       preferences.value("smart_punctuation_direct_letter", false);
   config.paired_punctuation = preferences.value("paired_punctuation", true);
   config.microsoft_shuangpin =
-      preferences.value("scheme", std::string("quanpin")) == "shuangpin" &&
+      scheme == "shuangpin" &&
       preferences.value("shuangpin_profile", std::string("xiaohe")) == "microsoft";
-  config.japanese_input_mode =
-      preferences.value("scheme", std::string("quanpin")) == "japanese";
-  config.korean_input_mode =
-      preferences.value("scheme", std::string("quanpin")) == "korean";
+  config.input_mode = msime::windows::scheme::input_mode(scheme);
   config.tsf_diagnostic_log =
       preferences.value("diagnostic_log", nlohmann::json::object())
           .value("tsf", false);
   const auto lock = preferences.value("punctuation_lock", std::string("follow"));
   config.punctuation_lock = lock == "chinese" ? 1 : lock == "english" ? 2 : 0;
   // The Engine opens V, "/" and "@" only in the pinyin schemes. The switches are left out of the stored document while off.
-  const auto scheme = preferences.value("scheme", std::string("quanpin"));
   const bool pinyin = scheme == "quanpin" || scheme == "shuangpin";
   const auto local_modes =
       preferences.value("local_modes", nlohmann::json::object());
@@ -747,14 +767,18 @@ int wmain(int argc, wchar_t **argv) {
     }
     diagnostic_log.server(std::string(production ? "Production" : "Preview") +
                           " Server starting");
+    const auto language_dictionaries =
+        installed_language_dictionaries(config.resources);
     auto traditional_output = std::make_shared<std::atomic<bool>>(
         prepared.at("value").at("preferences")
             .value("traditional_chinese_output", false));
     auto tsf_config = std::make_shared<msime::windows::TsfLocalConfig>(
-        tsf_local_config(prepared.at("value").at("preferences")));
+        tsf_local_config(prepared.at("value").at("preferences"),
+                         language_dictionaries));
     auto tsf_config_mutex = std::make_shared<std::mutex>();
     auto tray_preferences = std::make_shared<TrayMenuPreferences>(
-        tray_menu_preferences(prepared.at("value").at("preferences")));
+        tray_menu_preferences(prepared.at("value").at("preferences"),
+                              language_dictionaries));
     auto tray_preferences_mutex = std::make_shared<std::mutex>();
     // Set on every publication and on each focus session, so a TIP that
     // registers later is not left holding compiled defaults.
@@ -841,7 +865,8 @@ int wmain(int argc, wchar_t **argv) {
          toolbar_enabled, follow_cursor, effect_intensity, voice_theme, candidate_fonts, candidate_style,
          toolbar_theme, menu_theme, mode_scope_global, tsf_config, candidate_layout,
          tsf_config_mutex, tray_preferences, tray_preferences_mutex,
-         tsf_config_dirty, candidate_theme, toolbar_settings](const PreferenceSnapshot &snapshot) {
+         tsf_config_dirty, candidate_theme, toolbar_settings,
+         language_dictionaries](const PreferenceSnapshot &snapshot) {
           const auto preferences =
               nlohmann::json::parse(snapshot.serialized()).at("preferences");
           candidate_theme->publish(preferences);
@@ -891,12 +916,12 @@ int wmain(int argc, wchar_t **argv) {
           {
             std::lock_guard<std::mutex> lock(*tsf_config_mutex);
             const bool dedicated_english = tsf_config->dedicated_english;
-            *tsf_config = tsf_local_config(preferences);
+            *tsf_config = tsf_local_config(preferences, language_dictionaries);
             tsf_config->dedicated_english = dedicated_english;
             tsf_config_dirty->store(true, std::memory_order_release);
           }
           {
-            auto menu = tray_menu_preferences(preferences);
+            auto menu = tray_menu_preferences(preferences, language_dictionaries);
             std::lock_guard<std::mutex> lock(*tray_preferences_mutex);
             *tray_preferences = std::move(menu);
           }
@@ -1277,6 +1302,8 @@ int wmain(int argc, wchar_t **argv) {
     menu_capabilities.keyboard_panel = preview_shell.has_value();
     menu_capabilities.voice_input = true;
     menu_capabilities.settings = settings_shell.has_value();
+    menu_capabilities.cantonese = language_dictionaries.cantonese;
+    menu_capabilities.zhuyin = language_dictionaries.zhuyin;
     const auto themes = theme_catalog();
     TrayMenuWindow tray(
         menu_capabilities,
@@ -1694,7 +1721,7 @@ int wmain(int argc, wchar_t **argv) {
           follow_cursor->load(std::memory_order_acquire));
       candidates.set_effect_intensity(
           effect_intensity->load(std::memory_order_acquire));
-      // The language button shows 'A' while Caps Lock is on, 日 in Japanese mode, 한 in Korean mode and an underlined "En" in the Engine's own English mode, so it has to follow all of them. Showing 中 with Caps Lock on tells the user the wrong thing about what the next letter key will do.
+      // The language button shows 'A' while Caps Lock is on, 日 in Japanese mode, 한 in Korean mode, 粤, 注 or 越 in Cantonese, Zhuyin or Vietnamese, and an underlined "En" in the Engine's own English mode, so it has to follow all of them. Showing 中 with Caps Lock on tells the user the wrong thing about what the next letter key will do.
       {
         ToolbarLanguageState language;
         language.caps_lock = caps_lock.load(std::memory_order_acquire);
@@ -1706,8 +1733,7 @@ int wmain(int argc, wchar_t **argv) {
         }
         {
           std::lock_guard<std::mutex> lock(*tsf_config_mutex);
-          language.japanese = tsf_config->japanese_input_mode;
-          language.korean = tsf_config->korean_input_mode;
+          language.mode = tsf_config->input_mode;
           // The TIP's V-mode key rule follows the focused session's English mode (Ctrl+Shift+E, the toolbar exit, a focus change): the next pass pushes the trigger frame again.
           if (tsf_config->dedicated_english != language.dedicated_english) {
             tsf_config->dedicated_english = language.dedicated_english;

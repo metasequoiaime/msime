@@ -157,6 +157,62 @@ constexpr int scheme_from_name(std::string_view name)
     return -1;
 }
 
+// The configured spelling of a scheme number, the inverse of scheme_from_name; empty for an unknown number.
+constexpr std::string_view scheme_name(int scheme)
+{
+    switch (scheme)
+    {
+    case Quanpin:
+        return "quanpin";
+    case Shuangpin:
+        return "shuangpin";
+    case Wubi:
+        return "wubi";
+    case Japanese:
+        return "japanese";
+    case Korean:
+        return "korean";
+    case Cantonese:
+        return "cantonese";
+    case Zhuyin:
+        return "zhuyin";
+    case Vietnamese:
+        return "vietnamese";
+    default:
+        return {};
+    }
+}
+
+// Which of the Cantonese and Zhuyin dictionaries are installed (language-dictionaries/cantonese.db and zhuyin.db beside the resources).
+struct LanguageDictionaryPresence
+{
+    bool cantonese = false;
+    bool zhuyin = false;
+};
+
+// Whether a scheme can run with the installed dictionaries: Cantonese and Zhuyin need their own, the others read only the shared resources. An unknown scheme cannot.
+constexpr bool scheme_installed(int scheme, LanguageDictionaryPresence installed)
+{
+    if (scheme == Cantonese)
+        return installed.cantonese;
+    if (scheme == Zhuyin)
+        return installed.zhuyin;
+    return scheme >= Quanpin && scheme <= Vietnamese;
+}
+
+// The scheme the Engine actually runs for a configured `scheme` and `last_chinese_scheme`, as host-api's `effective_scheme` decides it: a scheme that cannot run falls back to the last Chinese scheme when that one can, and to quanpin otherwise. The TIP has to key the scheme that runs, not the one the user picked before its dictionary was installed.
+constexpr int effective_scheme(std::string_view scheme_name, std::string_view last_chinese_scheme,
+                               LanguageDictionaryPresence installed)
+{
+    const int preferred = scheme_from_name(scheme_name);
+    if (scheme_installed(preferred, installed))
+        return preferred;
+    const int last = scheme_from_name(last_chinese_scheme);
+    if (IsChinese(last) && scheme_installed(last, installed))
+        return last;
+    return Quanpin;
+}
+
 // The mode of a configured `scheme` preference. An unknown name is Chinese: host-api falls back to quanpin for it.
 constexpr InputMode input_mode(std::string_view scheme_name) { return input_mode(scheme_from_name(scheme_name)); }
 

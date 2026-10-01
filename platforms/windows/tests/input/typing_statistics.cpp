@@ -49,6 +49,17 @@ int main() {
             TypingSource::Japanese);
     require(resolve_typing_source(4, false, false, "none", "xiaohe") ==
             TypingSource::Korean);
+    require(resolve_typing_source(5, false, false, "none", "xiaohe") ==
+            TypingSource::Cantonese);
+    require(resolve_typing_source(6, false, false, "none", "xiaohe") ==
+            TypingSource::Zhuyin);
+    require(resolve_typing_source(7, false, false, "none", "xiaohe") ==
+            TypingSource::Vietnamese);
+    require(typing_source_id(TypingSource::Cantonese) == "cantonese" &&
+            typing_source_id(TypingSource::Zhuyin) == "zhuyin" &&
+            typing_source_id(TypingSource::Vietnamese) == "vietnamese");
+    require(resolve_typing_source(8, false, false, "none", "xiaohe") ==
+            TypingSource::Unknown);
     require(resolve_typing_source(-1, false, false, "none", "xiaohe") ==
             TypingSource::Unknown);
     // Local modes outrank the keyboard scheme, and the temporary Japanese mode
