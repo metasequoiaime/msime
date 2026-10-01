@@ -1,4 +1,5 @@
 import { GroupList, Row, Select, Switch } from "../core/platform-controls";
+import { ASR_PROVIDER_OPTIONS, VoiceProviderOptions } from "../voice/voice-provider-options";
 
 export interface VoiceInputCoreSectionProps {
   enabled: boolean;
@@ -46,12 +47,7 @@ export function VoiceInputCoreSection({
             value={provider}
             onChange={(event) => onProviderChange(event.target.value)}
           >
-            <option value="doubao">豆包</option>
-            <option value="siliconflow">SiliconFlow</option>
-            <option value="openai">OpenAI</option>
-            <option value="groq">Groq</option>
-            <option value="everyapi">EveryAPI</option>
-            <option value="mistral">Mistral · Voxtral</option>
+            <VoiceProviderOptions options={ASR_PROVIDER_OPTIONS} />
             {macos && <option value="system">macOS 系统识别</option>}
             {localVoiceAvailable && <option value="local">本地模型（离线）</option>}
             {!localVoiceAvailable && provider === "local" && (

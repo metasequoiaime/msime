@@ -1166,6 +1166,12 @@ export {
   type ProviderDefaults,
 } from "./voice/voice-providers";
 export {
+  ASR_PROVIDER_OPTIONS,
+  POLISH_PROVIDER_OPTIONS,
+  VoiceProviderOptions,
+  type VoiceProviderOption,
+} from "./voice/voice-provider-options";
+export {
   asrProviderCredentialTestConfig,
   asrServiceCredentialTestConfig,
   polishProviderCredentialTestConfig,

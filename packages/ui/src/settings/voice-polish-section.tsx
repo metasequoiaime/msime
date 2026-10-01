@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { GroupList, Row, Select, Switch } from "../core/platform-controls";
+import { POLISH_PROVIDER_OPTIONS, VoiceProviderOptions } from "../voice/voice-provider-options";
 import * as settings from "./settings-style";
 
 export interface VoicePolishSectionProps {
@@ -12,13 +13,6 @@ export interface VoicePolishSectionProps {
   onProviderChange: (provider: string) => void;
   onModelChange: (model: string) => void;
 }
-
-const providers = [
-  ["siliconflow", "SiliconFlow"],
-  ["openai", "OpenAI"],
-  ["deepseek", "DeepSeek"],
-  ["groq", "Groq"],
-] as const;
 
 /** Shared voice text-polish provider controls and extension slot for credentials and prompts. */
 export function VoicePolishSection({
@@ -43,11 +37,7 @@ export function VoicePolishSection({
           value={provider}
           onChange={(event) => onProviderChange(event.target.value)}
         >
-          {providers.map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
+          <VoiceProviderOptions options={POLISH_PROVIDER_OPTIONS} />
         </Select>
       </Row>
       {providerPreset}
