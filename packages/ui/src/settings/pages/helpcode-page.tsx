@@ -31,8 +31,16 @@ export type HelpcodeSettings = Partial<Record<HelpcodeKey, HelpcodePreferences>>
 
 /** The core's `default_quanpin_helpcode` / `default_shuangpin_helpcode`, used wherever a document carries no helpcode object for a scheme: this form and the candidate previews. */
 export const defaultHelpcode: Readonly<Record<HelpcodeKey, HelpcodePreferences>> = {
-  quanpin_helpcode: { enabled: true, schema: "ziranma", show_in_candidate_window: false },
-  shuangpin_helpcode: { enabled: true, schema: "lantian", show_in_candidate_window: true },
+  quanpin_helpcode: {
+    enabled: true,
+    schema: "ziranma",
+    show_in_candidate_window: false,
+  },
+  shuangpin_helpcode: {
+    enabled: true,
+    schema: "lantian",
+    show_in_candidate_window: true,
+  },
 };
 
 const helpcodeSchemas: readonly (readonly [HelpcodeSchema, string])[] = [
@@ -62,16 +70,31 @@ export interface HelpcodeSettingsPageProps {
   onChange: (patch: HelpcodeSettings) => void;
 }
 
-/** The shared helper-code settings form used by desktop and mobile hosts: the 辅助码 group, shown on the 输入 page (the former `helpcode` route opens that page). */
+/** 独立成页的辅助码表单：一个 fieldset 里只有「辅助码」这一组。设置窗口本身不用它，输入页直接放 `HelpcodeSettingsGroup`；它留给自己拼页面的宿主。 */
 export function HelpcodeSettingsPage({
+  disabled = false,
+  hidden = false,
+  ...group
+}: HelpcodeSettingsPageProps) {
+  return (
+    <fieldset disabled={disabled} hidden={hidden} aria-label="辅助码">
+      <div className={settings.groups}>
+        <HelpcodeSettingsGroup {...group} />
+      </div>
+    </fieldset>
+  );
+}
+
+export type HelpcodeSettingsGroupProps = Omit<HelpcodeSettingsPageProps, "disabled" | "hidden">;
+
+/** 桌面和触屏宿主共用的「辅助码」组，放在输入页的进阶区（旧的 `helpcode` 路由会打开输入页）。 */
+export function HelpcodeSettingsGroup({
   value: draft,
   mobile,
   showShiftEntry,
-  disabled = false,
-  hidden = false,
   customSchemas = [],
   onChange,
-}: HelpcodeSettingsPageProps) {
+}: HelpcodeSettingsGroupProps) {
   const schemaOptions = [
     ...helpcodeSchemas,
     ...customSchemas.map((schema): readonly [HelpcodeSchema, string] => [
@@ -81,75 +104,70 @@ export function HelpcodeSettingsPage({
   ];
 
   return (
-    <fieldset disabled={disabled} hidden={hidden} aria-label="辅助码">
-      <div className={settings.groups}>
-        <GroupList title="辅助码">
-          {showShiftEntry && (
-            <p className={settings.groupNote}>
-              全拼或双拼组字时，按 Shift
-              再输入的字母作为辅助码交给输入引擎，用于缩小候选。五笔、日语、韩语、粤拼、注音、越南语和本地输入模式不使用辅助码。
-            </p>
-          )}
-          {(
-            [
-              ["shuangpin_helpcode", "双拼"],
-              ["quanpin_helpcode", "全拼"],
-            ] as const
-          ).map(([key, label]) => {
-            const current = {
-              ...defaultHelpcode[key],
-              ...draft[key],
-            } as Required<HelpcodePreferences>;
-            // Named after its own scheme, the way the reference window names these: both rows are on the page at once, so one shared wording left two switches with the same accessible name and nothing to tell a screen reader -- or a test -- which one it had.
-            const display = mobile
-              ? `在候选栏中显示${label}辅助码`
-              : `在候选窗口中显示${label}辅助码`;
-            return (
-              <Fragment key={key}>
-                <Row title={`${label}辅助码`}>
-                  <Switch
-                    checked={current.enabled}
-                    onChange={(enabled) => onChange({ [key]: { ...current, enabled } })}
-                  />
-                </Row>
-                <SelectRow
-                  title={`${label}辅助码方案`}
-                  disabled={!current.enabled}
-                  value={current.schema}
-                  onChange={(event) =>
-                    onChange({
-                      [key]: { ...current, schema: event.target.value as HelpcodeSchema },
-                    })
-                  }
-                >
-                  {schemaOptions
-                    // Keep a previously selected table visible if the resource directory was
-                    // changed or is temporarily unavailable during settings startup.
-                    .concat(
-                      current.schema.startsWith("custom/") &&
-                        !schemaOptions.some(([schema]) => schema === current.schema)
-                        ? [[current.schema, current.schema] as const]
-                        : [],
-                    )
-                    .map(([schema, name]) => (
-                      <option key={schema} value={schema}>
-                        {name}
-                      </option>
-                    ))}
-                </SelectRow>
-                <Row title={display}>
-                  <Switch
-                    checked={current.show_in_candidate_window}
-                    onChange={(show_in_candidate_window) =>
-                      onChange({ [key]: { ...current, show_in_candidate_window } })
-                    }
-                  />
-                </Row>
-              </Fragment>
-            );
-          })}
-        </GroupList>
-      </div>
-    </fieldset>
+    <GroupList title="辅助码">
+      {showShiftEntry && (
+        <p className={settings.groupNote}>
+          全拼或双拼组字时，按 Shift
+          再输入的字母作为辅助码交给输入引擎，用于缩小候选。五笔、日语、韩语、粤拼、注音、越南语和本地输入模式不使用辅助码。
+        </p>
+      )}
+      {/* 全拼在前，和输入方案选择器「全拼、双拼」的顺序一致。 */}
+      {(
+        [
+          ["quanpin_helpcode", "全拼"],
+          ["shuangpin_helpcode", "双拼"],
+        ] as const
+      ).map(([key, label]) => {
+        const current = {
+          ...defaultHelpcode[key],
+          ...draft[key],
+        } as Required<HelpcodePreferences>;
+        // Named after its own scheme, the way the reference window names these: both rows are on the page at once, so one shared wording left two switches with the same accessible name and nothing to tell a screen reader -- or a test -- which one it had.
+        const display = mobile ? `在候选栏中显示${label}辅助码` : `在候选窗口中显示${label}辅助码`;
+        return (
+          <Fragment key={key}>
+            <Row title={`${label}辅助码`}>
+              <Switch
+                checked={current.enabled}
+                onChange={(enabled) => onChange({ [key]: { ...current, enabled } })}
+              />
+            </Row>
+            <SelectRow
+              title={`${label}辅助码方案`}
+              disabled={!current.enabled}
+              value={current.schema}
+              onChange={(event) =>
+                onChange({
+                  [key]: { ...current, schema: event.target.value as HelpcodeSchema },
+                })
+              }
+            >
+              {schemaOptions
+                // Keep a previously selected table visible if the resource directory was
+                // changed or is temporarily unavailable during settings startup.
+                .concat(
+                  current.schema.startsWith("custom/") &&
+                    !schemaOptions.some(([schema]) => schema === current.schema)
+                    ? [[current.schema, current.schema] as const]
+                    : [],
+                )
+                .map(([schema, name]) => (
+                  <option key={schema} value={schema}>
+                    {name}
+                  </option>
+                ))}
+            </SelectRow>
+            <Row title={display}>
+              <Switch
+                checked={current.show_in_candidate_window}
+                onChange={(show_in_candidate_window) =>
+                  onChange({ [key]: { ...current, show_in_candidate_window } })
+                }
+              />
+            </Row>
+          </Fragment>
+        );
+      })}
+    </GroupList>
   );
 }

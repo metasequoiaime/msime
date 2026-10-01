@@ -31,8 +31,15 @@ export interface InputSharedSettingsSectionProps {
   onMixedInputChange?: InputLanguageOptionsSectionProps["onMixedInputChange"];
   showCandidateEnglishGloss?: boolean;
   showEnglishSuggestions?: boolean;
+  /** 分组布局里放在「候选与联想」组的「学习选词习惯」之前；旧面板里放在以词定字与学习之间。 */
   beforeLearning?: ReactNode;
+  /** 只用于分组布局：「候选与联想」组末尾的行。 */
+  afterLearning?: ReactNode;
   beforeLanguage?: ReactNode;
+  /** 只用于分组布局：「中英文」组末尾的行。 */
+  modeExtra?: ReactNode;
+  /** 只用于分组布局：「选词与翻页」组里以词定字之后的翻页设置，两者互斥，所以放在同一组里同屏可见。 */
+  paging?: ReactNode;
   outputExtra?: ReactNode;
   beforeFrequency?: ReactNode;
   afterFrequency?: ReactNode;
@@ -54,54 +61,100 @@ export function InputSharedSettingsSection({
   showCandidateEnglishGloss = false,
   showEnglishSuggestions = false,
   beforeLearning,
+  afterLearning,
   beforeLanguage,
+  modeExtra,
+  paging,
   outputExtra,
   beforeFrequency,
   afterFrequency,
   onPreferencesChange,
 }: InputSharedSettingsSectionProps) {
-  const wordAndLearning = (
-    <>
-      <WordCharacterSection
-        preferences={wordCharacter}
-        navigation={navigation}
-        ios={ios}
-        onChange={({ wordCharacter: nextWordCharacter, navigation: nextNavigation }) =>
-          onPreferencesChange({
-            word_character: nextWordCharacter,
-            navigation: nextNavigation,
-          })
-        }
-      />
-      {beforeLearning}
-      <LearningSection
-        value={preferences.learning}
-        onChange={(learning) => onPreferencesChange({ learning })}
-      />
-    </>
+  const wordCharacterRows = (
+    <WordCharacterSection
+      preferences={wordCharacter}
+      navigation={navigation}
+      ios={ios}
+      onChange={({ wordCharacter: nextWordCharacter, navigation: nextNavigation }) =>
+        onPreferencesChange({
+          word_character: nextWordCharacter,
+          navigation: nextNavigation,
+        })
+      }
+    />
+  );
+  const learningRow = (
+    <LearningSection
+      value={preferences.learning}
+      onChange={(learning) => onPreferencesChange({ learning })}
+    />
+  );
+  const cloudCandidatesRow = (
+    <CloudCandidatesSection
+      value={preferences.cloud_candidates}
+      onChange={(cloud_candidates) => onPreferencesChange({ cloud_candidates })}
+    />
+  );
+  const traditionalOutputRow = (
+    <TraditionalChineseOutputSection
+      value={preferences.traditional_chinese_output}
+      scheme={preferences.scheme}
+      onChange={(traditional_chinese_output) => onPreferencesChange({ traditional_chinese_output })}
+    />
   );
 
-  const modeAndLanguage = grouped ? (
-    <GroupList title="中英文">
-      <DefaultImeModeSection
-        value={preferences.default_ime_mode}
-        onChange={(default_ime_mode) => onPreferencesChange({ default_ime_mode })}
-      />
-      {showModeScope && (
-        <ImeModeScopeSection
-          value={preferences.ime_mode_scope}
-          onChange={(ime_mode_scope) => onPreferencesChange({ ime_mode_scope })}
+  // 输入页的分组布局按「基础 → 进阶」排列：先是每个人都会碰到的中英文和选词翻页，再是候选来源和输出形式，进阶的快捷模式、模糊音、辅助码由页面经 beforeFrequency 放在调频之前。
+  if (grouped) {
+    return (
+      <>
+        <GroupList title="中英文">
+          <DefaultImeModeSection
+            value={preferences.default_ime_mode}
+            onChange={(default_ime_mode) => onPreferencesChange({ default_ime_mode })}
+          />
+          {showModeScope && (
+            <ImeModeScopeSection
+              value={preferences.ime_mode_scope}
+              onChange={(ime_mode_scope) => onPreferencesChange({ ime_mode_scope })}
+            />
+          )}
+          {showInputModeHUD && (
+            <InputModeHudSection
+              value={preferences.input_mode_hud}
+              onChange={(input_mode_hud) => onPreferencesChange({ input_mode_hud })}
+            />
+          )}
+          {modeExtra}
+        </GroupList>
+        <GroupList title="选词与翻页">
+          {wordCharacterRows}
+          {paging}
+        </GroupList>
+        <GroupList title="候选与联想">
+          {cloudCandidatesRow}
+          {beforeLearning}
+          {learningRow}
+          {afterLearning}
+        </GroupList>
+        <GroupList title="输出">
+          {outputExtra}
+          {traditionalOutputRow}
+        </GroupList>
+        {beforeFrequency}
+        <FrequencySection
+          preferences={frequency}
+          onChange={(nextFrequency) => onPreferencesChange({ frequency: nextFrequency })}
         />
-      )}
-      {showInputModeHUD && (
-        <InputModeHudSection
-          value={preferences.input_mode_hud}
-          onChange={(input_mode_hud) => onPreferencesChange({ input_mode_hud })}
-        />
-      )}
-    </GroupList>
-  ) : (
+        {afterFrequency}
+      </>
+    );
+  }
+
+  return (
     <>
+      {wordCharacterRows}
+      {beforeLearning}
+      {learningRow}
       {beforeLanguage}
       <InputLanguageOptionsSection
         includeMixed={Boolean(mixedInput && onMixedInputChange)}
@@ -137,45 +190,8 @@ export function InputSharedSettingsSection({
           onChange={(ime_mode_scope) => onPreferencesChange({ ime_mode_scope })}
         />
       )}
-    </>
-  );
-
-  const output = grouped ? (
-    <GroupList title="输出">
-      {outputExtra}
-      <TraditionalChineseOutputSection
-        value={preferences.traditional_chinese_output}
-        scheme={preferences.scheme}
-        onChange={(traditional_chinese_output) =>
-          onPreferencesChange({ traditional_chinese_output })
-        }
-      />
-      <CloudCandidatesSection
-        value={preferences.cloud_candidates}
-        onChange={(cloud_candidates) => onPreferencesChange({ cloud_candidates })}
-      />
-    </GroupList>
-  ) : (
-    <>
-      <TraditionalChineseOutputSection
-        value={preferences.traditional_chinese_output}
-        scheme={preferences.scheme}
-        onChange={(traditional_chinese_output) =>
-          onPreferencesChange({ traditional_chinese_output })
-        }
-      />
-      <CloudCandidatesSection
-        value={preferences.cloud_candidates}
-        onChange={(cloud_candidates) => onPreferencesChange({ cloud_candidates })}
-      />
-    </>
-  );
-
-  return (
-    <>
-      {grouped ? <GroupList title="选词">{wordAndLearning}</GroupList> : wordAndLearning}
-      {modeAndLanguage}
-      {output}
+      {traditionalOutputRow}
+      {cloudCandidatesRow}
       {beforeFrequency}
       <FrequencySection
         preferences={frequency}

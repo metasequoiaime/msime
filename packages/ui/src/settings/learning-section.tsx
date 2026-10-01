@@ -5,7 +5,7 @@ export interface LearningSectionProps {
   onChange: (value: boolean) => void;
 }
 
-/** Learning preference switch shared by hosts that expose the input settings page: one row of the 选词 group. */
+/** 有输入设置页的宿主共用的学习开关：输入页「候选与联想」组里的一行。 */
 export function LearningSection({ value, onChange }: LearningSectionProps) {
   return (
     <SwitchRow

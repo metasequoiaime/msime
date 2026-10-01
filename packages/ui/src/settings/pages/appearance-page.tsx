@@ -1,6 +1,5 @@
 import { AppearanceCandidatePreview } from "../../candidate/appearance-candidate-preview";
 import { CandidateFontControls } from "../../candidate/candidate-font-controls";
-import { defaultNavigation } from "../navigation-section";
 import { useSettingsForm } from "../settings-form-context";
 import * as settings from "../settings-style";
 import { GroupList } from "../../core/platform-controls";
@@ -9,7 +8,6 @@ import { CandidateSizingSection } from "../candidate-sizing-section";
 import { CandidatePageSizeSection } from "../candidate-page-size-section";
 import { CandidateLayoutSection } from "../candidate-layout-section";
 import { PreeditSettingsSection } from "../preedit-settings-section";
-import { NavigationSection } from "../navigation-section";
 import { appearanceSettingsPreferences } from "../appearance-settings-preferences";
 import { CandidatePanelLimitSection } from "../candidate-panel-limit-section";
 import { CandidateFontUnsupportedNotice } from "../candidate-font-unsupported-notice";
@@ -20,7 +18,6 @@ import { CandidateWindowStyleSection } from "../candidate-window-style-section";
 export function AppearanceSettingsPage() {
   const {
     client,
-    linuxPlatform,
     mobilePlatform,
     host,
     showCandidateFontControls,
@@ -43,9 +40,7 @@ export function AppearanceSettingsPage() {
     mobileKeyboardFeedback,
     mobileKeyboardFeedbackBusy,
     saveMobileKeyboardFeedback,
-    wordCharacter,
   } = useSettingsForm();
-  const navigation = draft.navigation ?? defaultNavigation;
   const appearanceActions = createAppearanceSettingsActions({
     mobileKeyboardFeedback,
     saveMobileKeyboardFeedback,
@@ -68,7 +63,7 @@ export function AppearanceSettingsPage() {
       {host?.candidate_panel_limit && (
         <CandidatePanelLimitSection limit={host.candidate_panel_limit} />
       )}
-      {/* The groups keep the reference window's order of these settings (following, fonts, page size and layout, preedit, paging); the design's 窗口布局 group leads with the layout instead. */}
+      {/* 这几组沿用参考窗口的顺序（跟随光标、字体、每页数量与排列、预编辑）；设计稿的「窗口布局」组则以排列方式开头。翻页方式已移到输入页「选词与翻页」组，和以词定字放在一起。 */}
       <div className={settings.groups}>
         <CandidateWindowStyleSection
           preferences={draft}
@@ -145,22 +140,6 @@ export function AppearanceSettingsPage() {
             inlinePreeditBusy={mobileKeyboardFeedbackBusy}
             onChange={appearanceActions.onPreferencesChange}
             onInlinePreeditChange={appearanceActions.onInlinePreeditChange}
-          />
-        </GroupList>
-        <GroupList title="翻页">
-          <NavigationSection
-            navigation={navigation}
-            wordCharacter={wordCharacter}
-            linux={linuxPlatform}
-            onChange={(next) =>
-              appearanceActions.onPreferencesChange({
-                // Only a paging key that takes 以词定字's key touches it; otherwise an unset value stays unset.
-                ...(next.wordCharacter !== wordCharacter
-                  ? { word_character: next.wordCharacter }
-                  : {}),
-                navigation: next.navigation,
-              })
-            }
           />
         </GroupList>
       </div>

@@ -6,18 +6,15 @@ import { createShortcutsSettingsActions } from "../shortcuts-settings-actions";
 /** The 快捷键 page of the settings form. */
 export function ShortcutSettingsPage() {
   const {
-    client,
     linuxPlatform,
     harmonyPlatform,
     mobilePlatform,
     windowsPlatform,
     macosPlatform,
+    iosPlatform,
     showModeSwitchShortcuts,
     showPanelShortcuts,
     showNumberRowSelection,
-    showRestartInputMethod,
-    showInstallInputSource,
-    showInputModeHUD,
     showDesktopMaintenanceShortcuts,
     showFullwidthChord,
     fullwidthChord,
@@ -27,11 +24,12 @@ export function ShortcutSettingsPage() {
     busy,
     page,
     keybindings,
-    inputModeHUD,
+    wordCharacter,
   } = useSettingsForm();
   const navigation = draft.navigation ?? defaultNavigation;
-  const { onKeybindingsChange, onInputModeHUDChange, onNumberRowSelectionChange } =
-    createShortcutsSettingsActions({ setDraft });
+  const { onKeybindingsChange, onNumberRowSelectionChange } = createShortcutsSettingsActions({
+    setDraft,
+  });
   return (
     <ShortcutsSettingsSection
       disabled={busy}
@@ -39,15 +37,14 @@ export function ShortcutSettingsPage() {
       mobile={mobilePlatform}
       keybindings={keybindings}
       onKeybindingsChange={onKeybindingsChange}
-      onInputModeHUDChange={onInputModeHUDChange}
       showModeSwitchShortcuts={showModeSwitchShortcuts}
       macos={macosPlatform}
-      showInputModeHUD={showInputModeHUD}
-      inputModeHUD={inputModeHUD}
       showFullwidthChord={showFullwidthChord}
       fullwidthChord={fullwidthChord}
       windows={windowsPlatform}
       navigation={navigation}
+      // iOS 键盘扩展收不到实体键，以词定字靠长按候选，没有可列的键。
+      wordCharacter={iosPlatform ? undefined : wordCharacter}
       numberRowSelection={draft.number_row_selection ?? true}
       showNumberRowSelection={showNumberRowSelection}
       onNumberRowSelectionChange={onNumberRowSelectionChange}
@@ -56,9 +53,6 @@ export function ShortcutSettingsPage() {
       showDesktopMaintenanceShortcuts={showDesktopMaintenanceShortcuts}
       linux={linuxPlatform}
       maintenanceChord={maintenanceChord}
-      showRestartInputMethod={Boolean(showRestartInputMethod)}
-      restartInputMethod={client.restartInputMethod}
-      installInputSource={showInstallInputSource ? client.installInputSource : undefined}
     />
   );
 }

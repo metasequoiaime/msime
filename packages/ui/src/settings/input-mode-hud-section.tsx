@@ -7,7 +7,7 @@ export interface InputModeHudSectionProps {
   shortcut?: boolean;
 }
 
-/** Input-mode badge switch shared by the input and shortcut settings pages: one row of the group it is placed in. */
+/** 中英文切换提示开关：设置窗口里是输入页「中英文」组的一行；`shortcut` 措辞留给把它放进快捷键组的宿主。 */
 export function InputModeHudSection({
   value,
   onChange,

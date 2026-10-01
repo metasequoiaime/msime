@@ -34,7 +34,7 @@ export interface NavigationSectionProps {
   }) => void;
 }
 
-/** Shared candidate paging controls and their mutual exclusion with 以词定字: the contents of the 翻页 group. */
+/** 共用的候选翻页设置及其与以词定字的互斥：输入页「选词与翻页」组里以词定字之后的部分。 */
 export function NavigationSection({
   navigation,
   wordCharacter,

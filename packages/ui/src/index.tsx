@@ -424,7 +424,6 @@ import { createSettingsReloadAction } from "./settings/settings-reload-action";
 import { deepEqual } from "./core/deep-equal";
 import { createSettingsPageSelection } from "./settings/settings-page-selection";
 import { createSettingsDraftActions } from "./settings/settings-draft-actions";
-import { createHelpcodeSettingsActions } from "./settings/helpcode-settings-actions";
 import { createSettingsStatusActions } from "./settings/settings-status-actions";
 import { createSettingsExternalActions } from "./settings/settings-external-actions";
 import { createSettingsNavigationActions } from "./settings/settings-navigation-actions";
@@ -444,7 +443,6 @@ import { PluginsSettingsPage } from "./settings/pages/plugins-page";
 import type { PluginClient } from "./settings/plugins-section";
 import type { PluginPreferences } from "./settings/plugin-preferences";
 import { AboutSettingsPage } from "./settings/pages/about-page";
-import { HelpcodeSettingsPage } from "./settings/pages/helpcode-page";
 import type { CustomHelpcodeSchema, HelpcodePreferences } from "./settings/pages/helpcode-page";
 import type { ClipboardHistoryClient } from "./settings/clipboard-history-section";
 import type { CloudClipboardRequest } from "./settings/cloud-clipboard-send";
@@ -591,6 +589,8 @@ export {
 export { SettingsStartupPage } from "./settings/settings-startup-page";
 export {
   HelpcodeSettingsPage,
+  HelpcodeSettingsGroup,
+  type HelpcodeSettingsGroupProps,
   type CustomHelpcodeSchema,
   type HelpcodePreferences,
   type HelpcodeSchema,
@@ -2037,6 +2037,33 @@ type SettingsPageProps = {
   onReplayOnboarding?: () => void;
 };
 
+/** 宿主资源目录里找到的自定义辅助码表；宿主不支持扫描或读取失败时为空。 */
+function useCustomHelpcodeSchemas(
+  reader: SettingsClient["listHelpcodeSchemas"],
+): CustomHelpcodeSchema[] {
+  const [schemas, setSchemas] = useState<CustomHelpcodeSchema[]>([]);
+  useEffect(() => {
+    let active = true;
+    if (!reader) {
+      setSchemas([]);
+      return () => {
+        active = false;
+      };
+    }
+    void reader()
+      .then((next) => {
+        if (active) setSchemas(next);
+      })
+      .catch(() => {
+        if (active) setSchemas([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [reader]);
+  return schemas;
+}
+
 // The state, effects and handlers behind the settings window. The shell below and every page component read the same values - the pages through `SettingsFormContext` - so splitting the page into files changed where the markup lives, not what it closes over.
 function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps) {
   const { confirm, confirmation } = useConfirm();
@@ -2189,6 +2216,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     readAppVersion: client.readAppVersion,
     fallbackVersion: fallbackAppVersion,
   });
+  const customHelpcodeSchemas = useCustomHelpcodeSchemas(client.listHelpcodeSchemas);
   const {
     value: mobileKeyboardFeedback,
     busy: mobileKeyboardFeedbackBusy,
@@ -2507,9 +2535,10 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   // Helper codes are per-host rather than per-form-factor. The Android keyboard sends them: Shift during a quanpin or shuangpin composition passes the next letter to the Engine as a helper code, and the Engine reads the schema and the candidate-row hint from these very preferences. Hiding the group left that shipping feature with no way to pick a schema or turn it off. The iOS keyboard extension marks a helper code the same way, so the group also follows the host's `helpcode_shift_entry`; the platform names stay for hosts that predate the capability. HarmonyOS ships the same input: its ChineseHelpcodePolicy is the Android one, ported, and the session calls it on every shifted key.
   const showHelpcode =
     !mobilePlatform || showHelpcodeShiftEntry || androidPlatform || harmonyPlatform;
-  // The local MCP server, the diagnostic logs and the data directory are what 维护与诊断 holds; a host with none of them has no such page.
+  // 维护与诊断页收纳本地 MCP 服务、诊断日志、数据目录和输入法服务（重启、重新注册）；这些一样都没有的宿主不显示这一页。
   const showDeveloperPage =
     Boolean(client.mcpServerStatus) ||
+    Boolean(showRestartInputMethod) ||
     !client.host ||
     linuxPlatform ||
     windowsPlatform ||
@@ -2608,6 +2637,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     showEnglishSuggestions,
     showHelpcodeShiftEntry,
     showHelpcode,
+    customHelpcodeSchemas,
     showShuangpinPreedit,
     showCharacterWidth,
     showVoiceCommitMode,
@@ -2860,29 +2890,8 @@ export type SettingsPageModel = ReturnType<typeof useSettingsPageModel>;
 export function SettingsPage(props: SettingsPageProps) {
   const { onReplayOnboarding } = props;
   const model = useSettingsPageModel(props);
-  const [customHelpcodeSchemas, setCustomHelpcodeSchemas] = useState<CustomHelpcodeSchema[]>([]);
   // The 插件 page shows either the installed packs (a page of the settings form) or the community gallery, which has its own search form and so is drawn outside the settings one.
   const [pluginView, setPluginView] = useState<"mine" | "community">("mine");
-  useEffect(() => {
-    let active = true;
-    const reader = props.client.listHelpcodeSchemas;
-    if (!reader) {
-      setCustomHelpcodeSchemas([]);
-      return () => {
-        active = false;
-      };
-    }
-    void reader()
-      .then((schemas) => {
-        if (active) setCustomHelpcodeSchemas(schemas);
-      })
-      .catch(() => {
-        if (active) setCustomHelpcodeSchemas([]);
-      });
-    return () => {
-      active = false;
-    };
-  }, [props.client.listHelpcodeSchemas]);
   // Filters the sidebar by page name; the model does not need it, since it never leaves the shell.
   const [navQuery, setNavQuery] = useState("");
   // The phone page that has scrolled its large title away, which brings in the compact bar. Keyed by page so that arriving on another page, which opens at its top, never inherits the bar.
@@ -2940,9 +2949,6 @@ export function SettingsPage(props: SettingsPageProps) {
     initialCommunityScope,
     initialCommunityMine,
   } = model;
-  const { onChange: onHelpcodeChange } = createHelpcodeSettingsActions({
-    setDraft: model.setDraft,
-  });
   const reloadSettings = createSettingsReloadAction({ dirty, reload, confirm });
   const { onOpenPage } = createSettingsPageSelection({ selectPage });
   const statusActions = createSettingsStatusActions({
@@ -3331,15 +3337,6 @@ export function SettingsPage(props: SettingsPageProps) {
                   <AppearanceSettingsPage />
                   <FloatingToolbarSettingsPage />
                   <InputSettingsPage />
-                  <HelpcodeSettingsPage
-                    value={draft}
-                    customSchemas={customHelpcodeSchemas}
-                    mobile={mobilePlatform}
-                    showShiftEntry={model.showHelpcodeShiftEntry}
-                    disabled={busy}
-                    hidden={page !== "input" || !model.showHelpcode}
-                    onChange={onHelpcodeChange}
-                  />
                   <ExpressionSettingsPage />
                   <AiSettingsPage />
                   <ShortcutSettingsPage />

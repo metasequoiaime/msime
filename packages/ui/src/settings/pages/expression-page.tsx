@@ -3,7 +3,6 @@ import { useSettingsForm } from "../settings-form-context";
 import { createSettingsDraftActions } from "../settings-draft-actions";
 import { SubPageEntries } from "./sub-page-entries";
 import { GroupList } from "../../core/platform-controls";
-import { FuzzyPinyinSection } from "../fuzzy-pinyin-section";
 import { InputLanguageOptionsSection } from "../input-language-options-section";
 import { PunctuationSection } from "../punctuation-section";
 import { TranslationSettingsContent } from "../translation-settings-content";
@@ -11,12 +10,11 @@ import { createTranslationSettingsBindings } from "../translation-settings-bindi
 import { MobileInputAiNotice } from "../mobile-input-ai-notice";
 
 /**
- * The 标点与翻译 page: how what is typed comes out -- punctuation, spelling tolerance, the candidates in other languages and the mixed-in English, emoji and kaomoji -- and the AI features that rewrite it, which open as pages of their own from here.
+ * 标点与翻译页：打出来的内容以什么形式出现——标点、其他语言的候选、混入的英文与表情颜文字——以及改写它的 AI 功能，后者从这里进入各自的页面。模糊音改的是拼音怎么解析，在输入页。
  */
 export function ExpressionSettingsPage() {
   const {
     client,
-    confirm,
     linuxPlatform,
     androidPlatform,
     iosPlatform,
@@ -42,7 +40,6 @@ export function ExpressionSettingsPage() {
     providerCredentialBusy,
     flushCustomTranslations,
     mixedInput,
-    fuzzyPinyin,
     candidateTranslations,
     candidateEnglishGloss,
     englishSuggestions,
@@ -73,15 +70,6 @@ export function ExpressionSettingsPage() {
             onChange={onPreferencesChange}
           />
         </GroupList>
-        {client.fuzzyPinyin && (
-          <GroupList title="拼写纠错">
-            <FuzzyPinyinSection
-              preferences={fuzzyPinyin}
-              onChange={(fuzzy_pinyin) => onPreferencesChange({ fuzzy_pinyin })}
-              confirm={confirm}
-            />
-          </GroupList>
-        )}
         <InputLanguageOptionsSection
           grouped
           includeMixed

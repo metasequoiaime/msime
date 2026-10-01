@@ -10,6 +10,8 @@ export interface MobileKeyboardFeedbackSettingsProps {
   value: MobileKeyboardFeedback | undefined;
   busy: boolean;
   ios: boolean;
+  /** 见 `MobileKeyboardFeedbackSectionProps.showEnglishSuggestions`。 */
+  showEnglishSuggestions?: boolean;
   onChange: (value: MobileKeyboardFeedback) => void;
   onPreview: () => void;
 }
@@ -21,6 +23,7 @@ export function MobileKeyboardFeedbackSettings({
   value,
   busy,
   ios,
+  showEnglishSuggestions,
   onChange,
   onPreview,
 }: MobileKeyboardFeedbackSettingsProps) {
@@ -31,6 +34,7 @@ export function MobileKeyboardFeedbackSettings({
       value={value}
       busy={busy}
       ios={ios}
+      showEnglishSuggestions={showEnglishSuggestions}
       canPreview={Boolean(client.preview)}
       onChange={onChange}
       onPreview={onPreview}

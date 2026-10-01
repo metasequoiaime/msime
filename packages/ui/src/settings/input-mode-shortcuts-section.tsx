@@ -17,8 +17,9 @@ export interface InputModeShortcutsSectionProps {
   onInputModeHUDChange?: (value: boolean) => void;
   showModeSwitchShortcuts: boolean;
   macos: boolean;
-  showInputModeHUD: boolean;
-  inputModeHUD: boolean;
+  /** 设置窗口把中英文切换提示放在输入页，所以快捷键页不传；留给自己拼快捷键组、想把提示放在这里的宿主，只在 macOS 生效。 */
+  showInputModeHUD?: boolean;
+  inputModeHUD?: boolean;
   showFullwidthChord: boolean;
   fullwidthChord?: string;
   windows: boolean;
@@ -31,8 +32,8 @@ export function InputModeShortcutsSection({
   onInputModeHUDChange,
   showModeSwitchShortcuts,
   macos,
-  showInputModeHUD,
-  inputModeHUD,
+  showInputModeHUD = false,
+  inputModeHUD = false,
   showFullwidthChord,
   fullwidthChord = "Alt+Shift+H",
   windows,
@@ -85,23 +86,12 @@ export function InputModeShortcutsSection({
             />
           </Row>
         )}
+        {/* Ctrl+Space 是 Windows 自己的快捷键，这里只说明去哪里改，压成组末一行。 */}
         {windows && (
-          <div className={`${settings.groupBlock} ${settings.shortcutIntro}`}>
-            <div className="section-title">修改或关闭 Ctrl+Space（系统）</div>
-            <small>
-              Ctrl+Space 由 Windows 管理，此处不控制。请前往系统设置修改“输入法 /
-              非输入法切换”的按键顺序：
-            </small>
-            <ol>
-              <li>打开“设置”，进入“时间和语言” → “输入”。</li>
-              <li>选择“高级键盘设置” → “输入语言热键”。</li>
-              <li>选中“中文（简体）输入法 - 输入法 / 非输入法切换”，点击“更改按键顺序”。</li>
-              <li>关闭该按键顺序，或将 Ctrl+Space 改为其他不常用组合。</li>
-            </ol>
-            <small>
-              不同 Windows 版本的选项名称可能略有差异；修改后如未立即生效，请重新登录或重启电脑。
-            </small>
-          </div>
+          <Row
+            title="Ctrl+Space（由 Windows 管理）"
+            description="此处不控制。要修改或关闭，打开「设置 › 时间和语言 › 输入 › 高级键盘设置 › 输入语言热键」，选中「中文（简体）输入法 - 输入法 / 非输入法切换」，点「更改按键顺序」后关闭它或改成不常用的组合。不同 Windows 版本的名称可能略有差异；未立即生效时请重新登录或重启电脑。"
+          />
         )}
       </div>
     </GroupList>

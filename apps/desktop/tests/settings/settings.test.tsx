@@ -142,14 +142,14 @@ test("macOS exposes the non-activating input-mode HUD preference", async () => {
       client={{
         load: async () => initial,
         save,
-        // macOS always reports mode-switch shortcuts, and the HUD lives with the chords it reacts to.
+        // 中英文切换提示在所有平台都放在输入页「中英文」组，macOS 也不例外。
         host: { platform: "macos", mode_switch_shortcuts: true } as HostCapabilities,
       }}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "快捷键" }));
+  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
   const toggle = screen.getByRole("switch", {
-    name: "切换中英文时显示提示",
+    name: "中英文切换提示",
   }) as HTMLInputElement;
   expect(toggle.checked).toBe(true);
   fireEvent.click(toggle);
@@ -223,20 +223,24 @@ test("Android fuzzy-pinyin settings preserve rules while disabled and reset expl
   const save = vi.fn().mockResolvedValue(initial);
   render(<SettingsPage client={{ load: async () => initial, save, fuzzyPinyin: true }} />);
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
   const enabled = screen.getByRole("switch", { name: "启用模糊音" }) as HTMLInputElement;
-  const rule = screen.getByRole("checkbox", { name: "模糊音规则 z-zh" }) as HTMLInputElement;
+  // 总开关关着时规则列表收起，只留总开关。
   expect(enabled.checked).toBe(false);
-  expect(rule.disabled).toBe(true);
+  expect(screen.queryByRole("checkbox", { name: "模糊音规则 z-zh" })).toBeNull();
   fireEvent.click(enabled);
+  const rule = screen.getByRole("checkbox", { name: "模糊音规则 z-zh" }) as HTMLInputElement;
   expect(rule.checked).toBe(true);
   fireEvent.click(rule);
   expect(rule.checked).toBe(false);
   fireEvent.click(rule);
   expect(rule.checked).toBe(true);
   fireEvent.click(enabled);
+  expect(screen.queryByRole("checkbox", { name: "模糊音规则 z-zh" })).toBeNull();
+  // 关掉再打开，之前选的规则原样还在。
+  fireEvent.click(enabled);
   expect(rule.checked).toBe(true);
-  expect(rule.disabled).toBe(true);
+  expect(rule.disabled).toBe(false);
   fireEvent.click(screen.getByRole("button", { name: "重置模糊音配置" }));
   expect((await screen.findByRole("alertdialog")).textContent).toContain("所有模糊音规则会被清空");
   await answerConfirm("confirm");
@@ -251,7 +255,7 @@ test("Android fuzzy-pinyin first enable seeds every rule once", async () => {
     preferences,
   }));
   render(<SettingsPage client={{ load: async () => initial, save, fuzzyPinyin: true }} />);
-  fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
+  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
   const enabled = screen.getByRole("switch", { name: "启用模糊音" }) as HTMLInputElement;
   fireEvent.click(enabled);
   for (const id of [
@@ -1487,16 +1491,12 @@ test("word-to-character and paging disable each other while preserving the chose
   expect(word.checked).toBe(true);
   expect(minus.disabled).toBe(true);
   fireEvent.click(word);
-  // Paging is on the 候选窗口 page and 以词定字 on 输入; both edit one draft.
-  fireEvent.click(screen.getByRole("button", { name: "候选窗口" }));
+  // 翻页方式和以词定字同在输入页「选词与翻页」组，在一处勾选会同屏改掉另一处。
   fireEvent.click(screen.getByRole("checkbox", { name: "[ / ]" }));
-  fireEvent.click(screen.getByRole("button", { name: "输入" }));
   expect(word.checked).toBe(false);
   fireEvent.click(word);
-  fireEvent.click(screen.getByRole("button", { name: "候选窗口" }));
   expect((screen.getByRole("checkbox", { name: "[ / ]" }) as HTMLInputElement).checked).toBe(false);
   fireEvent.click(screen.getByRole("checkbox", { name: "- / =" }));
-  fireEvent.click(screen.getByRole("button", { name: "输入" }));
   expect(minus.disabled).toBe(false);
   fireEvent.click(minus);
   saveSettingsNow();
@@ -1526,7 +1526,7 @@ test("paging defaults match Windows and individual edits persist", async () => {
   };
   render(<SettingsPage client={client} />);
   await settingsReady();
-  fireEvent.click(screen.getByRole("button", { name: "候选窗口" }));
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
   const brackets = (await screen.findByRole("checkbox", { name: "[ / ]" })) as HTMLInputElement;
   expect(brackets.checked).toBe(false);
   for (const name of [
@@ -1567,7 +1567,7 @@ test("candidate-panel mouse-wheel paging is opt-in and persists", async () => {
   };
   render(<SettingsPage client={client} />);
   await settingsReady();
-  fireEvent.click(screen.getByRole("button", { name: "候选窗口" }));
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
   const wheel = (await screen.findByRole("checkbox", {
     name: "鼠标滚轮（候选窗口支持时翻页）",
   })) as HTMLInputElement;
@@ -1599,7 +1599,7 @@ test("Linux explains what the mouse-wheel paging switch does on IBus and Fcitx5"
       />,
     );
     await settingsReady();
-    fireEvent.click(screen.getByRole("button", { name: "候选窗口" }));
+    fireEvent.click(screen.getByRole("button", { name: "输入" }));
     await screen.findByRole("checkbox", { name: "鼠标滚轮（候选窗口支持时翻页）" });
     const note = screen.queryByText(/在 IBus 候选窗口上滚动即翻页/);
     if (shown) {
@@ -1654,6 +1654,10 @@ test("shortcut page reflects enabled navigation shortcuts", async () => {
   fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
   expect(await screen.findByText("候选操作")).toBeDefined();
   expect(screen.getAllByText("- / =").length).toBeGreaterThan(0);
+  // 开着的几组翻页键合在同一行里，不再各占一行同名的「向前 / 向后翻页」。
+  expect(screen.getAllByText("向前 / 向后翻页")).toHaveLength(1);
+  // 以词定字默认开着，用 [ / ] 上屏首字和末字。
+  expect(screen.getByText("以词定字（上屏首字 / 末字）")).toBeDefined();
   expect(screen.getByText("↑ / ↓")).toBeDefined();
   expect(screen.getByText("Home / End")).toBeDefined();
   // Home/End move across the whole candidate list, as on Windows, not within the current page.
@@ -1692,6 +1696,8 @@ test("Linux appearance and maintenance copy names both hosts and the Fcitx5 relo
     screen.getByText("Ctrl+Shift+Alt+R").parentElement?.parentElement?.textContent ?? "";
   expect(restartRow).toContain("IBus 执行 ibus restart");
   expect(restartRow).toContain("Fcitx5 重置水杉插件，不影响其他输入法");
+  // 重启输入法服务在「维护与诊断」页。
+  fireEvent.click(screen.getByRole("button", { name: "维护与诊断" }));
   const service = screen.getByRole("region", { name: "输入法服务" }).textContent ?? "";
   expect(service).toContain("重启 IBus 输入法服务");
   expect(service).toContain("使用 Fcitx5 时重载水杉插件");
@@ -1744,6 +1750,7 @@ test("macOS maintenance shortcuts use the current input context and Option", asy
   expect(screen.queryByText("Ctrl+Shift+Alt+C")).toBeNull();
   expect(screen.getByText("重新注册并重启当前输入法")).toBeDefined();
   expect(screen.getByText("立即退出当前输入法进程")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "维护与诊断" }));
   fireEvent.click(screen.getByRole("button", { name: "重新注册" }));
   await waitFor(() => expect(restartInputMethod).toHaveBeenCalledOnce());
   expect(await screen.findByText("已重新注册输入源。")).toBeDefined();
@@ -1762,7 +1769,7 @@ test("Linux restart copy covers both input method frameworks", async () => {
       }}
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+  fireEvent.click(screen.getByRole("button", { name: "维护与诊断" }));
   expect(
     await screen.findByText(
       "重启 IBus 输入法服务；使用 Fcitx5 时重载水杉插件，关闭并重建所有输入会话，不影响其他输入法。",
@@ -1786,7 +1793,7 @@ test("macOS service page exposes installation separately from re-registration", 
       }}
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+  fireEvent.click(screen.getByRole("button", { name: "维护与诊断" }));
   expect(await screen.findByText("安装或更新水杉输入源")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "安装 / 更新" }));
   await waitFor(() => expect(installInputSource).toHaveBeenCalledOnce());
@@ -3140,7 +3147,36 @@ test("mobile input settings expose native keyboard sound and haptic feedback", a
   expect(within(feedback).getByLabelText("振动强度")).toBeTruthy();
   fireEvent.click(within(feedback).getByRole("button", { name: "试一下振动" }));
   await waitFor(() => expect(preview).toHaveBeenCalledWith("medium"));
-  fireEvent.click(within(feedback).getByLabelText("英文建议"));
+  // 「英文建议」管的是候选，在输入页「候选与联想」组，不在按键反馈里重复出现。
+  expect(within(feedback).queryByLabelText("英文建议")).toBeNull();
+});
+
+test("iOS English suggestions sit with the candidate settings on the input page", async () => {
+  const load = vi.fn().mockResolvedValue({
+    soundEnabled: true,
+    hapticsEnabled: false,
+    hapticStrength: "medium",
+    englishSuggestions: true,
+  });
+  const save = vi.fn().mockImplementation(async (settings) => settings);
+  render(
+    <SettingsPage
+      initialPage="input"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: { platform: "ios" } as HostCapabilities,
+        home: { openKeyboard: vi.fn() },
+        mobileKeyboardFeedback: { load, save },
+      }}
+    />,
+  );
+  const candidates = await screen.findByRole("region", { name: "候选与联想" });
+  const toggle = (await within(candidates).findByRole("switch", {
+    name: "英文建议",
+  })) as HTMLInputElement;
+  expect(toggle.checked).toBe(true);
+  fireEvent.click(toggle);
   await waitFor(() =>
     expect(save).toHaveBeenCalledWith(expect.objectContaining({ englishSuggestions: false })),
   );
@@ -3374,7 +3410,10 @@ test("iOS describes local modes and 以词定字 the way its keyboard reaches th
   const input = await screen.findByRole("group", { name: "输入" }, { timeout: 3000 });
   expect(within(input).getByText(/「更多 → 本地输入」里选「快捷短语」/)).toBeTruthy();
   expect(within(input).getByText(/「更多 → 本地输入」里选「英文补全」/)).toBeTruthy();
-  expect(within(input).queryByText(/Shift\+[A-Z]/)).toBeNull();
+  // 只看快捷模式组：同页「选词与翻页」组的翻页方式里有 Shift+Tab 这样的键名。
+  expect(
+    within(within(input).getByRole("region", { name: "快捷模式" })).queryByText(/Shift\+[A-Z]/),
+  ).toBeNull();
   expect(within(input).getByText(/长按两个字以上的候选/)).toBeTruthy();
   expect(within(input).queryByText("以词定字快捷键")).toBeNull();
 });
@@ -5403,7 +5442,7 @@ test("the sidebar follows the six titled navigation groups", async () => {
   }
 });
 
-test("macOS shortcut page owns the mode HUD and the full-width chord", async () => {
+test("macOS shortcut page owns the full-width chord and the input page the mode HUD", async () => {
   const save = vi.fn().mockResolvedValue({ ...initial, revision: 8 });
   render(
     <SettingsPage
@@ -5419,8 +5458,8 @@ test("macOS shortcut page owns the mode HUD and the full-width chord", async () 
   // The chords are named for the keys a Mac keyboard actually has.
   expect(await screen.findByText("单击 Control 切换中英文")).toBeDefined();
   expect(screen.getByText("Control+Option+Space 切换中英文")).toBeDefined();
-  const hud = screen.getByRole("switch", { name: "切换中英文时显示提示" });
-  expect((hud as HTMLInputElement).checked).toBe(true);
+  // 中英文切换提示不在快捷键页重复出现。
+  expect(screen.queryByRole("switch", { name: "切换中英文时显示提示" })).toBeNull();
   const fullWidth = screen.getByRole("switch", { name: "Option+Shift+H 切换全半角" });
   expect((fullWidth as HTMLInputElement).checked).toBe(true);
   fireEvent.click(fullWidth);
@@ -5432,9 +5471,12 @@ test("macOS shortcut page owns the mode HUD and the full-width chord", async () 
       keybindings: expect.objectContaining({ toggle_fullwidth_option_shift_h: false }),
     }),
   );
-  // The HUD toggle moved here from the input page rather than being shown twice.
+  // 它和其他平台一样在输入页「中英文」组。
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
-  expect(screen.queryByRole("switch", { name: "中英文切换提示" })).toBeNull();
+  const hud = within(screen.getByRole("region", { name: "中英文" })).getByRole("switch", {
+    name: "中英文切换提示",
+  });
+  expect((hud as HTMLInputElement).checked).toBe(true);
 });
 
 test("the feedback report leads with the release and the scheme", async () => {
@@ -5588,10 +5630,7 @@ test("a host without the defaults command shows no restore button", async () => 
 });
 
 // The reference window's 外观 page, in its order. Only the sections it also has are pinned, and only their relative order, so a host that hides a section (no candidate font control) does not fail this. Its colour and theme sections are on the 主题 page now, as the design groups them.
-// The reference window's 输入 page, in its order, same rules as the appearance one below: only the
-// sections it also has, only their relative order. The settings this client adds -- 全拼纠错, 模糊音,
-// 全角输入, 英文建议 and the rest -- sit next to the reference section they belong with, so
-// they are free to move without touching this list.
+// 输入页不再沿用参考窗口的顺序，改按「基础 → 进阶」排（见下面的输入页顺序用例），规则和外观页那条相同：只钉列出的那些节，只钉它们的相对顺序。列表之外的设置（全角输入、整句联想、英文建议等）可以在所属组里自由移动，不用改列表。
 // A section title is the element's own text plus a nested <small> description, so read only the
 // direct text nodes: "中文标点" has to stay distinguishable from "中文标点后按空格转换".
 // A row built from the platform primitives marks its name with `data-row-title` instead, and a group of them its own with `data-group-title`: the reference's 拼音方案调频 is a section of three settings, which is a group here.
@@ -5620,7 +5659,7 @@ const sectionTitles = (scope: HTMLElement) =>
 const referenceSections: {
   page: string;
   button: string;
-  // A sub-page is opened from inside its parent, and a group that shares its page with others (辅助码 on 输入) is found by its own name.
+  // 子页从父页里进入；与别的组共用一页的组（输入页上的辅助码）按组名找它的 region。
   via?: string;
   group?: string;
   titles: string[];
@@ -5637,8 +5676,6 @@ const referenceSections: {
       "候选项排列方式",
       "行内预编辑",
       "候选窗预编辑",
-      // The reference keeps paging on its 输入 page; the design puts it with the candidate window it pages.
-      "翻页方式",
     ],
   },
   {
@@ -5651,6 +5688,8 @@ const referenceSections: {
       "五笔方案",
       "日语方案",
       "以词定字",
+      // 参考窗口也把翻页放在输入页；这里放在「选词与翻页」组，和与它互斥的以词定字同屏。
+      "翻页方式",
       "默认中英文",
       "中英文状态",
       "繁体输出",
@@ -5844,7 +5883,9 @@ test.each(referenceSections)(
     await settingsReady();
     if (via) fireEvent.click(screen.getByRole("button", { name: via }));
     fireEvent.click(screen.getByRole("button", { name: button }));
-    const page = await screen.findByRole("group", { name: group ?? button });
+    const page = group
+      ? await screen.findByRole("region", { name: group })
+      : await screen.findByRole("group", { name: button });
     const present = sectionTitles(page);
     expect(titles.filter((title) => !present.includes(title))).toEqual([]);
   },
@@ -5933,7 +5974,9 @@ test.each(referenceSections)(
     await settingsReady();
     if (via) fireEvent.click(screen.getByRole("button", { name: via }));
     fireEvent.click(screen.getByRole("button", { name: button }));
-    const page = await screen.findByRole("group", { name: group ?? button });
+    const page = group
+      ? await screen.findByRole("region", { name: group })
+      : await screen.findByRole("group", { name: button });
     const present = sectionTitles(page);
     const wanted = titles.filter((title) => !(title in macosAbsentSections));
     expect(wanted.filter((title) => !present.includes(title))).toEqual([]);
@@ -6188,7 +6231,7 @@ test.each(
 );
 
 test.each(optionHosts)(
-  "the input page follows the reference window's order on %s",
+  "the input page goes from the basic groups to the advanced ones on %s",
   async (_platform, host) => {
     render(
       <SettingsPage
@@ -6196,35 +6239,49 @@ test.each(optionHosts)(
           load: vi.fn().mockResolvedValue(initial),
           save: vi.fn(),
           host,
+          fuzzyPinyin: true,
         }}
       />,
     );
     await settingsReady();
-    // The page starts on 候选窗口, and a hidden fieldset is out of the accessibility tree.
     fireEvent.click(screen.getByRole("button", { name: "输入" }));
     const input = await screen.findByRole("group", { name: "输入" });
+    // 组的顺序：方案 → 中英文 → 选词与翻页 → 候选与联想 → 输出 → 快捷模式 → 模糊音 → 辅助码 → 拼音方案调频。不再沿用参考窗口的顺序。
+    const groups = [...input.querySelectorAll("[data-group-title]")].map(
+      (node) => node.textContent ?? "",
+    );
+    expect(groups).toEqual([
+      "方案",
+      "中英文",
+      "选词与翻页",
+      "候选与联想",
+      "输出",
+      "快捷模式",
+      "模糊音",
+      "辅助码",
+      "拼音方案调频",
+    ]);
     const present = sectionTitles(input);
-    // The reference's 输入 page less what the design moved: 翻页方式 to 候选窗口, and translation, punctuation and mixed input to 表达.
-    const reference = [
+    const expected = [
       "输入模式",
       "输入方案",
       "双拼方案",
+      // 五笔、日语只有一个方案，只在对应方案下显示，但仍在页面里。
       "五笔方案",
       "日语方案",
-      "以词定字",
       "默认中英文",
       "中英文状态",
-      "繁体输出",
+      "以词定字",
+      "翻页方式",
       "云候选",
+      "繁体输出",
       "拼音方案调频",
     ];
-    const ordered = present.filter((text) => reference.includes(text));
+    const ordered = present.filter((text) => expected.includes(text));
     // 输入方案 has a touch variant and a desktop variant; only one is ever shown, but both can be in
     // the tree, so collapse a repeat rather than reading it as a move.
     const collapsed = ordered.filter((title, index) => title !== ordered[index - 1]);
-    expect(collapsed).toEqual(reference.filter((title) => collapsed.includes(title)));
-    // Every one of them is on both hosts once the moved sections are out, so none may go missing here.
-    expect(collapsed.length).toBe(reference.length);
+    expect(collapsed).toEqual(expected);
   },
 );
 

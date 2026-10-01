@@ -28,9 +28,26 @@ export interface MobileKeyboardFeedbackSectionProps {
   value: MobileKeyboardFeedback;
   busy: boolean;
   ios: boolean;
+  /** 是否在这一组里画 iOS 的「英文建议」，默认跟随 `ios`。设置窗口把它放在输入页「候选与联想」组，所以屏幕键盘页传 false。 */
+  showEnglishSuggestions?: boolean;
   canPreview: boolean;
   onChange: (value: MobileKeyboardFeedback) => void;
   onPreview: () => void;
+}
+
+/** iOS 键盘的「英文建议」开关，存在原生 App Group 里，而不是共享偏好的 `english_suggestions`。 */
+export function MobileEnglishSuggestionsRow({
+  value,
+  busy,
+  onChange,
+}: Pick<MobileKeyboardFeedbackSectionProps, "value" | "busy" | "onChange">) {
+  return (
+    <EnglishSuggestionsSection
+      disabled={busy}
+      value={value.englishSuggestions !== false}
+      onChange={(englishSuggestions) => onChange({ ...value, englishSuggestions })}
+    />
+  );
 }
 
 /** Shared mobile keyboard sound, haptic, and iOS English suggestion controls: the 屏幕键盘 page's 按键反馈 group. */
@@ -38,6 +55,7 @@ export function MobileKeyboardFeedbackSection({
   value,
   busy,
   ios,
+  showEnglishSuggestions = ios,
   canPreview,
   onChange,
   onPreview,
@@ -84,12 +102,8 @@ export function MobileKeyboardFeedbackSection({
             </Select>
           </Row>
         )}
-        {ios && (
-          <EnglishSuggestionsSection
-            disabled={busy}
-            value={value.englishSuggestions !== false}
-            onChange={(englishSuggestions) => onChange({ ...value, englishSuggestions })}
-          />
+        {showEnglishSuggestions && (
+          <MobileEnglishSuggestionsRow value={value} busy={busy} onChange={onChange} />
         )}
       </div>
     </GroupList>

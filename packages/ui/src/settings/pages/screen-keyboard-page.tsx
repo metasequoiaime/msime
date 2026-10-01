@@ -84,6 +84,8 @@ export function ScreenKeyboardSettingsPage() {
           value={mobileKeyboardFeedback}
           busy={mobileKeyboardFeedbackBusy}
           ios={iosPlatform}
+          // 「英文建议」管的是候选，放在输入页的「候选与联想」组。
+          showEnglishSuggestions={false}
           onChange={(value) => void saveMobileKeyboardFeedback(value)}
           onPreview={() => void previewMobileKeyboardHaptics()}
         />
@@ -91,9 +93,7 @@ export function ScreenKeyboardSettingsPage() {
           <Row title="打开屏幕键盘" description="使用鼠标或触控方式输入文字与快捷按键">
             <OpenPanelButton
               action={
-                client.openScreenKeyboard
-                  ? () => openPanel(client.openScreenKeyboard)
-                  : undefined
+                client.openScreenKeyboard ? () => openPanel(client.openScreenKeyboard) : undefined
               }
               className={`secondary ${settings.openButton}`}
             />

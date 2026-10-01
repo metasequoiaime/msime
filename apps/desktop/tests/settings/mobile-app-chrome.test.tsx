@@ -210,7 +210,7 @@ test("Harmony appearance names only the surfaces the form factor actually has", 
   expect(shortcuts.hidden).toBe(false);
   expect(
     within(shortcuts).getByText(
-      "输入法快捷键仅在对应输入状态或候选窗口显示时生效。翻页方式可在“候选窗口”中启用或关闭。",
+      "输入法快捷键仅在对应输入状态或候选窗口显示时生效。翻页方式和以词定字在「输入 › 选词与翻页」中设置。",
     ),
   ).toBeTruthy();
 });

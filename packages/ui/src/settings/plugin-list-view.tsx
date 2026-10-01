@@ -185,7 +185,7 @@ export function PluginListView({
           <GroupList key={kind} title={kindLabels[kind]}>
             {kind === "command_table" && triggers && (
               <p className={settings.groupNote}>
-                在「输入 → 实用功能」打开 / 指令后，按 /
+                在「输入 → 快捷模式」打开 / 指令后，按 /
                 再输入指令字母即可使用。启用的指令表按启用顺序排列，同一指令以靠前的表为准；最多启用{" "}
                 {MAX_COMMAND_TABLES} 个。
               </p>

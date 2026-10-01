@@ -3,10 +3,11 @@ import { McpConnectSection } from "../mcp-connect";
 import { useSettingsForm } from "../settings-form-context";
 import { DiagnosticLogsSection } from "../diagnostic-logs-section";
 import { DataDirectorySection } from "../data-directory-section";
+import { InputMethodServiceSection } from "../input-method-service-section";
 import { createAboutSettingsActions } from "../about-settings-actions";
 
 /**
- * The 维护与诊断 page: the local `msime-mcp` server, the diagnostic logs and where the data lives. The design's 显示调试信息, 日志级别 and 导出诊断包 have no counterpart in any host and are not drawn; its 重置所有设置 is the form's own 恢复默认设置.
+ * 维护与诊断页：重启或重新注册输入法服务、本地 `msime-mcp` 服务、诊断日志和数据目录。设计稿里的「显示调试信息」「日志级别」「导出诊断包」在任何宿主上都没有对应能力，所以不画；它的「重置所有设置」就是表单自己的「恢复默认设置」。
  */
 export function DeveloperSettingsPage() {
   const {
@@ -14,6 +15,8 @@ export function DeveloperSettingsPage() {
     linuxPlatform,
     windowsPlatform,
     macosPlatform,
+    showRestartInputMethod,
+    showInstallInputSource,
     setDraft,
     busy,
     setError,
@@ -37,6 +40,13 @@ export function DeveloperSettingsPage() {
   return (
     <fieldset disabled={busy} hidden={page !== "developer"} aria-label="维护与诊断">
       <div className={settings.groups}>
+        <InputMethodServiceSection
+          visible={Boolean(showRestartInputMethod)}
+          macos={macosPlatform}
+          linux={linuxPlatform}
+          restartInputMethod={client.restartInputMethod}
+          installInputSource={showInstallInputSource ? client.installInputSource : undefined}
+        />
         {client.mcpServerStatus && (
           <McpConnectSection
             status={client.mcpServerStatus}

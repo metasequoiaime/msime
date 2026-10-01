@@ -135,7 +135,7 @@ export interface LocalModesSectionProps {
   onChange: (preferences: LocalModePreferences) => void;
 }
 
-/** Shared local input mode switches for desktop and touch settings hosts: the 实用功能 group. */
+/** 桌面和触屏宿主共用的本地输入模式开关：输入页「快捷模式」组。组名不带「Shift+字母」：iOS 从「更多 → 本地输入」进入，V、/、@ 三种也不是 Shift 组合。 */
 export function LocalModesSection({
   preferences,
   ios,
@@ -152,7 +152,7 @@ export function LocalModesSection({
       ]
     : localModeRows;
   return (
-    <GroupList title="实用功能">
+    <GroupList title="快捷模式">
       {rows.map(([key, label, description]) => (
         <Row
           key={key}

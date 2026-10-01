@@ -101,9 +101,10 @@ export function InputSchemeDetailsSection({
             />
           </Row>
         )}
+        {/* 五笔、日语、韩语各只有一个方案，选择器改不了任何东西，只在对应方案下作为说明出现。 */}
         <SelectRow
           title="五笔方案"
-          hidden={hideChineseSchemeOptions}
+          hidden={hasTouchKeyboardSchemes || scheme !== "wubi"}
           value="wubi86"
           onChange={() => {}}
         >
@@ -193,7 +194,12 @@ export function InputSchemeDetailsSection({
         </div>
       )}
       <div className="section" hidden={hideChineseSchemeOptions}>
-        <SelectSettingField label="五笔方案" inputLabel="五笔方案" value="wubi86" onChange={() => {}}>
+        <SelectSettingField
+          label="五笔方案"
+          inputLabel="五笔方案"
+          value="wubi86"
+          onChange={() => {}}
+        >
           <WubiSchemeOption />
         </SelectSettingField>
       </div>

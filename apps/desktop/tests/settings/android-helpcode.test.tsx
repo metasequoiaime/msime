@@ -59,7 +59,7 @@ async function openMoreSetting(title: string) {
 // The helper-code settings are a group of the 输入 page; the former `helpcode` route opens that page.
 async function openHelpcode() {
   await openMoreSetting("输入");
-  return screen.getByRole("group", { name: "辅助码" });
+  return screen.getByRole("region", { name: "辅助码" });
 }
 
 // The Android keyboard sends helper codes -- Shift during a quanpin or shuangpin
@@ -125,7 +125,7 @@ test("an iOS host without the capability keeps the helper-code settings hidden",
   renderSettings("ios");
 
   await openMoreSetting("输入");
-  expect(screen.queryByRole("group", { name: "辅助码" })).toBeNull();
+  expect(screen.queryByRole("region", { name: "辅助码" })).toBeNull();
 });
 
 test("the desktop input page keeps the helper-code settings and their window wording", async () => {
@@ -133,7 +133,7 @@ test("the desktop input page keeps the helper-code settings and their window wor
 
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
-  expect(screen.getByRole("group", { name: "辅助码" })).toBeTruthy();
+  expect(screen.getByRole("region", { name: "辅助码" })).toBeTruthy();
   expect(screen.getByLabelText("在候选窗口中显示双拼辅助码")).toBeTruthy();
   expect(screen.getByLabelText("在候选窗口中显示全拼辅助码")).toBeTruthy();
 });
@@ -198,6 +198,6 @@ test("a host that appends helper codes is not told to hold Shift", async () => {
   );
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
-  expect(screen.getByRole("group", { name: "辅助码" })).toBeTruthy();
+  expect(screen.getByRole("region", { name: "辅助码" })).toBeTruthy();
   expect(screen.queryByText(/按 Shift\s*再输入的字母作为辅助码/)).toBeNull();
 });

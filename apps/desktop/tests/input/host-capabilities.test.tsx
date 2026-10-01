@@ -103,16 +103,16 @@ test("typing statistics follow the injected client on any platform", async () =>
   expect(screen.getByRole("button", { name: "打字统计" })).toBeTruthy();
 });
 
-test("Windows and Linux hosts expose the shared fuzzy-pinyin settings on the 标点与翻译 page", async () => {
+test("Windows and Linux hosts expose the shared fuzzy-pinyin settings on the 输入 page", async () => {
   mount({ host: capabilities({ platform: "windows", fuzzy_pinyin: true }), fuzzyPinyin: true });
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
   expect(screen.getByRole("group", { name: "模糊音" })).toBeTruthy();
 
   cleanup();
   mount({ host: capabilities({ platform: "linux", fuzzy_pinyin: true }), fuzzyPinyin: true });
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
   expect(screen.getByRole("group", { name: "模糊音" })).toBeTruthy();
 });
 
@@ -175,7 +175,7 @@ test("the restart action needs both the capability and an injected handler", asy
     host: capabilities({ platform: "linux", restart_input_method: true }),
   });
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+  fireEvent.click(screen.getByRole("button", { name: "维护与诊断" }));
   expect(screen.queryByRole("button", { name: "重启" })).toBeNull();
   withoutHandler.unmount();
 
@@ -184,7 +184,7 @@ test("the restart action needs both the capability and an injected handler", asy
     restartInputMethod: vi.fn(),
   });
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+  fireEvent.click(screen.getByRole("button", { name: "维护与诊断" }));
   expect(screen.getByRole("button", { name: "重启" })).toBeTruthy();
 });
 
