@@ -411,7 +411,9 @@ impl InputSession {
         selected_word: &str,
         transition: &SelectionTransition,
     ) -> CreatingWordProgress {
-        let word = format!("{current_word}{selected_word}");
+        let mut word = String::with_capacity(current_word.len() + selected_word.len());
+        word.push_str(current_word);
+        word.push_str(selected_word);
         if transition.wubi_native {
             // Wubi phrases are not composed from partial selections: a wubi code is one word.
             return CreatingWordProgress {
@@ -662,6 +664,7 @@ mod tests {
         assert!(known.completed && known.can_store);
         assert_eq!(known.pinyin, "xi'te'le");
         assert_eq!(known.word, "西特乐");
+        assert_eq!(known.word.capacity(), known.word.len());
 
         let unknown = InputSession::update_creating_word_progress("", "西", "特乐", &last);
         assert!(unknown.completed);
