@@ -3478,6 +3478,50 @@ fn offline_gloss_fixture(path: &std::path::Path, language: &str) {
         .unwrap();
 }
 
+/// A Traditional candidate - a Korean Hanja, or a candidate under Traditional output - is glossed under its Simplified characters when its own spelling finds nothing, and the reply names it as shown.
+#[test]
+fn candidate_gloss_request_retries_traditional_candidates_under_their_simplified_form() {
+    let directory = tempfile::tempdir().unwrap();
+    let resources = directory.path().join("resources");
+    std::fs::create_dir_all(&resources).unwrap();
+    let resources = resources.to_str().unwrap().as_bytes().to_vec();
+    let database = directory.path().join("offline-glosses/zh-fr.db");
+    offline_gloss_fixture(&database, "fr");
+    rusqlite::Connection::open(&database)
+        .unwrap()
+        .execute_batch("INSERT INTO zh_glosses VALUES('韩', 'Corée', 'korea'); INSERT INTO zh_glosses VALUES('漢', 'Han (as stored)', 'han');")
+        .unwrap();
+    let request = serde_json::to_vec(&json!({
+        "generation": 3,
+        "target_language": "fr",
+        "candidates": [
+            {"text":"韓","source":0},
+            {"text":"漢","source":0},
+            {"text":"寒","source":0},
+            {"text":"你好","source":0}
+        ]
+    }))
+    .unwrap();
+    let reply = read(unsafe {
+        msime_client_candidate_gloss_request(
+            request.as_ptr(),
+            request.len(),
+            resources.as_ptr(),
+            resources.len(),
+        )
+    });
+    assert_eq!(reply["ok"], true);
+    // 韓 is found under 韩; 漢 has its own row, which wins over 汉; 寒 is the same in both scripts and has none.
+    assert_eq!(
+        reply["value"],
+        json!({"generation":3,"translations":[
+            {"text":"韓","translation":"Corée"},
+            {"text":"漢","translation":"Han (as stored)"},
+            {"text":"你好","translation":"bonjour, salut"}
+        ]})
+    );
+}
+
 /// A non-English offline dictionary is announced only when it is installed, and the query without one is the one hosts always received.
 #[test]
 fn translation_query_lists_installed_offline_gloss_languages() {

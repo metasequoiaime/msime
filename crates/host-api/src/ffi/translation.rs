@@ -571,29 +571,55 @@ pub unsafe extern "C" fn msime_client_candidate_gloss_request(
         {
             return Err("user data path must be absolute".into());
         }
-        let glosses = match target_language.as_deref() {
-            None | Some("en") => {
-                msime_engine::host::candidate_glosses_with_user(resources, user_data, &candidates)
-                    .map_err(|_| "candidate gloss dictionary unavailable")?
-            }
-            // Another language reads only its offline dictionary: the learned store and custom_translations.txt hold English. A dictionary that is not installed answers nothing, so the host keeps whatever the online path brings.
-            Some(language) if crate::OFFLINE_GLOSS_LANGUAGES.contains(&language) => {
-                let Some(database) =
-                    crate::offline_glosses_beside(std::path::Path::new(resources), language)
-                else {
-                    return Ok(json!({
-                        "generation": generation,
-                        "translations": [],
-                    }));
-                };
-                let database = database
-                    .to_str()
-                    .ok_or("candidate gloss dictionary unavailable")?;
-                msime_engine::host::candidate_target_glosses(database, language, &candidates)
-                    .map_err(|_| "candidate gloss dictionary unavailable")?
-            }
-            Some(_) => return Err("invalid candidate gloss request".into()),
+        let lookup = |candidates: &[(String, u8)]| -> Result<Vec<String>, String> {
+            Ok(match target_language.as_deref() {
+                None | Some("en") => msime_engine::host::candidate_glosses_with_user(
+                    resources, user_data, candidates,
+                )
+                .map_err(|_| "candidate gloss dictionary unavailable")?,
+                // Another language reads only its offline dictionary: the learned store and custom_translations.txt hold English. A dictionary that is not installed answers nothing, so the host keeps whatever the online path brings.
+                Some(language) if crate::OFFLINE_GLOSS_LANGUAGES.contains(&language) => {
+                    let Some(database) =
+                        crate::offline_glosses_beside(std::path::Path::new(resources), language)
+                    else {
+                        return Ok(vec![String::new(); candidates.len()]);
+                    };
+                    let database = database
+                        .to_str()
+                        .ok_or("candidate gloss dictionary unavailable")?;
+                    msime_engine::host::candidate_target_glosses(database, language, candidates)
+                        .map_err(|_| "candidate gloss dictionary unavailable")?
+                }
+                Some(_) => return Err("invalid candidate gloss request".into()),
+            })
         };
+        let mut glosses = lookup(&candidates)?;
+        // The gloss tables are keyed by Simplified text, so a Traditional candidate - a Korean Hanja such as 韓, or any candidate under Traditional output - finds nothing under its own spelling. Ask again under the Simplified characters for the ones that missed; the reply still names the candidate as shown.
+        if glosses.len() == candidates.len() {
+            let mut retry = Vec::new();
+            let mut retry_index = Vec::new();
+            for (index, ((text, source), gloss)) in candidates.iter().zip(&glosses).enumerate() {
+                if !gloss.is_empty() {
+                    continue;
+                }
+                let simplified =
+                    msime_client_core::chinese_conversion::traditional_to_simplified_characters(
+                        text,
+                    );
+                if simplified != *text {
+                    retry.push((simplified, *source));
+                    retry_index.push(index);
+                }
+            }
+            if !retry.is_empty() {
+                let found = lookup(&retry)?;
+                if found.len() == retry.len() {
+                    for (index, gloss) in retry_index.into_iter().zip(found) {
+                        glosses[index] = gloss;
+                    }
+                }
+            }
+        }
         if glosses.len() != candidates.len() {
             return Err("candidate gloss response mismatch".into());
         }
