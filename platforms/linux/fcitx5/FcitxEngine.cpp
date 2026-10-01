@@ -3004,6 +3004,7 @@ public:
   }
   void render();
   std::string candidateAux() const;
+  fcitx::Text candidateAuxText() const;
   bool removeCandidateSlot(size_t slot) {
     if (!ensure() || restricted() || privateInput() || !ic_.hasFocus()) return false;
     const auto candidates = view_.value("candidates", Json::array());
@@ -3090,7 +3091,7 @@ public:
     if (combo == typing_combo_) return;
     typing_combo_ = combo;
     if (view_.is_object() && view_.contains("candidates") && !view_.at("candidates").empty()) {
-      ic_.inputPanel().setAuxDown(fcitx::Text(candidateAux()));
+      ic_.inputPanel().setAuxDown(candidateAuxText());
       ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
     }
   }
@@ -5866,26 +5867,36 @@ void FcitxState::refreshToolbar() {
   ic_.updateUserInterface(fcitx::UserInterfaceComponent::StatusArea);
 }
 
-// The aux line below a candidate page: the page number, the local mode, the reading when the candidate preedit shows it, and the typing combo while there is one.
+// The aux line below a candidate page: the page number when candidate_page_indicator shows it, the local mode, the reading when the candidate preedit shows it, and the typing combo while there is one. Empty when none of them is shown, and the panel then draws no aux line at all.
 std::string FcitxState::candidateAux() const {
-  std::string aux = std::to_string(view_.at("page").get<int>() + 1) +
-      "/" + std::to_string(view_.at("page_count").get<int>());
+  std::string aux;
+  const auto append = [&aux](const std::string &part) {
+    if (part.empty()) return;
+    if (!aux.empty()) aux += " · ";
+    aux += part;
+  };
+  if (preferences_.value("candidate_page_indicator", true))
+    append(std::to_string(view_.at("page").get<int>() + 1) + "/" +
+           std::to_string(view_.at("page_count").get<int>()));
   const auto mode = view_.value("local_mode", std::string("none"));
   if (const char *modeLabel = msime::linux_host::candidate_local_mode_label(mode))
-    aux += " · " + std::string(modeLabel);
+    append(modeLabel);
   if (preferences_.value("candidate_preedit_style", std::string("pinyin")) == "pinyin") {
     const auto candidatePreedit = view_.value("preedit", std::string{});
     if (!candidatePreedit.empty()) {
       const auto editing = view_.value("editing_text", std::string());
       const auto caret = std::min(editing.size(), view_.value("caret_position", editing.size()));
-      const auto displayed = msime::linux_host::candidate_preedit_with_caret(
-          candidatePreedit, editing, caret);
-      if (!displayed.empty()) aux += " · " + displayed;
+      append(msime::linux_host::candidate_preedit_with_caret(candidatePreedit, editing, caret));
     }
   }
-  const auto combo = msime::linux_host::typing_combo_label(typing_combo_);
-  if (!combo.empty()) aux += " · " + combo;
+  append(msime::linux_host::typing_combo_label(typing_combo_));
   return aux;
+}
+
+// An empty aux is the Text with no fragments, what inputPanel().reset() leaves, rather than one holding a single empty fragment, so no panel finds an aux line to keep a row for.
+fcitx::Text FcitxState::candidateAuxText() const {
+  auto aux = candidateAux();
+  return aux.empty() ? fcitx::Text() : fcitx::Text(std::move(aux));
 }
 
 void FcitxState::render() {
@@ -5932,7 +5943,7 @@ void FcitxState::render() {
   if (!view_.at("candidates").empty()) {
     // Look up the registered factory via the owning engine for stable candidate callbacks.
     if (engine_) ic_.inputPanel().setCandidateList(std::make_unique<FcitxPage>(*this, &engine_->factory_));
-    ic_.inputPanel().setAuxDown(fcitx::Text(candidateAux()));
+    ic_.inputPanel().setAuxDown(candidateAuxText());
   }
   if (emoji_search_mode_)
     ic_.inputPanel().setAuxUp(fcitx::Text("Emoji 搜索：" + emoji_search_));

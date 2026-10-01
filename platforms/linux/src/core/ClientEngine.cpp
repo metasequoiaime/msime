@@ -369,6 +369,7 @@ struct State {
   bool english_mode = false;
   bool traditional_output = false;
   std::string candidate_preedit_style = "pinyin";
+  bool candidate_page_indicator = true;
   bool learning = true;
   uint8_t frequency_trigger_count = 1;
   uint8_t frequency_linear_step = 1;
@@ -838,6 +839,7 @@ struct State {
         preferences.value("candidate_preedit_style", "pinyin");
     if (candidate_preedit_style != "empty")
       candidate_preedit_style = "pinyin";
+    candidate_page_indicator = preferences.value("candidate_page_indicator", true);
     learning = options.at("preferences").value("learning", true);
     const auto frequency_preferences = options.at("preferences").value("frequency", Json::object());
     frequency_trigger_count = static_cast<uint8_t>(std::clamp(
@@ -962,6 +964,7 @@ struct State {
     candidate_preedit_style = preferences.value("candidate_preedit_style", "pinyin");
     if (candidate_preedit_style != "empty")
       candidate_preedit_style = "pinyin";
+    candidate_page_indicator = preferences.value("candidate_page_indicator", true);
     const auto active_scheme = scheme_override.value_or(
         preferences.value("scheme", "quanpin"));
     if (active_scheme == "quanpin" || active_scheme == "shuangpin")
@@ -3522,31 +3525,41 @@ void underline_preedit(IBusText *text, guint length) {
                              IBUS_ATTR_UNDERLINE_SINGLE, 0,
                              static_cast<gint>(length));
 }
-// The aux line above a candidate page: the page number, the reading when the candidate preedit shows it, the local mode, and the typing combo while there is one.
+// The aux line above a candidate page: the page number when candidate_page_indicator shows it, the reading when the candidate preedit shows it, the local mode, and the typing combo while there is one. Empty when none of them is shown.
 std::string candidate_aux_text(IBusEngine *engine, const Json &view) {
-  auto paging = std::to_string(view.at("page").get<size_t>() + 1) + "/" +
-                std::to_string(view.at("page_count").get<size_t>());
+  std::string aux;
+  const auto append = [&aux](const std::string &part) {
+    if (part.empty())
+      return;
+    if (!aux.empty())
+      aux += "  · ";
+    aux += part;
+  };
+  if (state(engine).candidate_page_indicator)
+    append(std::to_string(view.at("page").get<size_t>() + 1) + "/" +
+           std::to_string(view.at("page_count").get<size_t>()));
   if (state(engine).candidate_preedit_style == "pinyin") {
     const auto candidate_preedit = view.value("preedit", std::string{});
     if (!candidate_preedit.empty()) {
-      paging += "  · ";
       const auto editing_text = view.value("editing_text", std::string{});
       const auto caret = view.value("caret_position", editing_text.size());
-      paging += msime::linux_host::candidate_preedit_with_caret(
-          candidate_preedit, editing_text, caret);
+      append(msime::linux_host::candidate_preedit_with_caret(
+          candidate_preedit, editing_text, caret));
     }
   }
   const auto mode = view.at("local_mode").get<std::string>();
-  if (const char *label = msime::linux_host::candidate_local_mode_label(mode)) {
-    paging += "  · ";
-    paging += label;
-  }
-  const auto combo = msime::linux_host::typing_combo_label(state(engine).typing_combo);
-  if (!combo.empty()) {
-    paging += "  · ";
-    paging += combo;
-  }
-  return paging;
+  if (const char *label = msime::linux_host::candidate_local_mode_label(mode))
+    append(label);
+  append(msime::linux_host::typing_combo_label(state(engine).typing_combo));
+  return aux;
+}
+// Shows the aux line for a candidate page, or hides it when there is nothing on it, so the panel keeps no blank row for an empty one.
+void show_candidate_aux(IBusEngine *engine, const Json &view) {
+  const auto aux = candidate_aux_text(engine, view);
+  if (aux.empty())
+    ibus_engine_hide_auxiliary_text(engine);
+  else
+    ibus_engine_update_auxiliary_text(engine, ibus_text_new_from_string(aux.c_str()), TRUE);
 }
 void render(IBusEngine *engine, const Json &view) {
   cancel_candidate_hide(engine);
@@ -3640,8 +3653,7 @@ void render(IBusEngine *engine, const Json &view) {
       ibus_engine_hide_lookup_table(engine);
     return;
   }
-  ibus_engine_update_auxiliary_text(
-      engine, ibus_text_new_from_string(candidate_aux_text(engine, view).c_str()), TRUE);
+  show_candidate_aux(engine, view);
   auto table = ibus_lookup_table_new(static_cast<guint>(candidates.size()), 0,
                                      TRUE, FALSE);
   ibus_lookup_table_set_orientation(table, state(engine).candidate_orientation);
@@ -7736,9 +7748,7 @@ void play_key_sound(IBusEngine *engine, guint key, guint flags) {
   s.typing_combo = combo;
   if (s.rendered_session == s.session && s.rendered_view.is_object() &&
       s.rendered_candidates.is_array() && !s.rendered_candidates.empty())
-    ibus_engine_update_auxiliary_text(
-        engine, ibus_text_new_from_string(candidate_aux_text(engine, s.rendered_view).c_str()),
-        TRUE);
+    show_candidate_aux(engine, s.rendered_view);
 }
 // Characters the IME hands back to the application are still typed text: Windows counts them in the statistics (ShouldCountPassthroughChar), so English-mode letters and Chinese-mode keys the Engine declines show up in the daily totals. Keys the IME consumed already recorded their committed text.
 gboolean process_key_and_count(IBusEngine *engine, guint key, guint keycode,

@@ -47,6 +47,17 @@ assert toggle.index("render();") < toggle.index("showInputModeHud();")
 assert "input_mode_hud" in source
 assert 'tsf_preedit_style' in source
 assert 'candidate_preedit_style' in source
+# 显示页码：关掉后页码不进辅助行；辅助行为空时两个宿主都不留空白行（Fcitx5 给空 Text，IBus 隐藏辅助文本），翻页本身不受影响。
+fcitx_aux = source[source.index("std::string FcitxState::candidateAux() const"):]
+fcitx_aux = fcitx_aux[:fcitx_aux.index("void FcitxState::render()")]
+assert 'preferences_.value("candidate_page_indicator", true)' in fcitx_aux
+assert "aux.empty() ? fcitx::Text() : fcitx::Text(std::move(aux))" in fcitx_aux
+ibus_aux = ibus_source[ibus_source.index("std::string candidate_aux_text("):]
+ibus_aux = ibus_aux[:ibus_aux.index("void render(IBusEngine *engine")]
+assert "state(engine).candidate_page_indicator" in ibus_aux
+assert "ibus_engine_hide_auxiliary_text(engine);" in ibus_aux
+assert "candidate_aux_text(engine, view).c_str()" not in ibus_source
+assert ibus_source.count('candidate_page_indicator = preferences.value("candidate_page_indicator", true);') == 2
 assert 'FcitxSchemeBooleanAction' in source
 assert '英文输入模式' in source
 assert 'msime-shuangpin-preedit' in source
@@ -118,8 +129,8 @@ for host in (source, ibus_source):
     assert 'typing_combo_label(' in host
 assert ibus_source.index('msime_client_key_sound(s.session, key_class)') < ibus_source.index('kTypingEffectRepeat')
 assert source.index('msime_client_key_sound(session_, keyClass)') < source.index('kTypingEffectRepeat')
-assert 'setAuxDown(fcitx::Text(candidateAux()))' in source
-assert 'setAuxUp(fcitx::Text(candidateAux()))' not in source
+assert source.count('setAuxDown(candidateAuxText())') == 2
+assert 'setAuxUp(candidateAuxText())' not in source
 # /fy's translation goes to the selected service whatever the gloss switches say, and never to an offline gloss.
 for host in (source, ibus_source):
     assert 'command_translation_query(' in host
