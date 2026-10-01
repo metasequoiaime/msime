@@ -3,6 +3,7 @@ import { fontFamilyKey } from "./font-family";
 import { animationVariables } from "./skin-animation-variables";
 import { preserveAnimationShorthands, preserveFontShorthands } from "./animation-shorthand-source";
 import { installConditionalFonts, type ConditionalFont } from "./conditional-fonts";
+import { walkCssRules } from "./css-rules";
 
 export function splitCssFontList(value: string): string[] {
   const parts: string[] = [];
@@ -166,27 +167,15 @@ export async function prepareToolbarFonts(
     if (!found) partial = true;
   }
   const styles: CSSStyleDeclaration[] = [];
-  function visit(rules: CSSRuleList) {
-    for (const rule of Array.from(rules)) {
-      if (rule.type === CSSRule.FONT_FACE_RULE) partial = true;
-      if (
-        rule.type === CSSRule.STYLE_RULE ||
-        rule.type === CSSRule.KEYFRAME_RULE ||
-        rule.constructor.name === "CSSNestedDeclarations"
-      )
-        styles.push((rule as CSSStyleRule).style);
-      if (
-        rule.type === CSSRule.STYLE_RULE ||
-        rule.type === CSSRule.MEDIA_RULE ||
-        rule.type === CSSRule.SUPPORTS_RULE ||
-        rule.type === CSSRule.KEYFRAMES_RULE
-      ) {
-        const nested = (rule as CSSGroupingRule).cssRules;
-        if (nested) visit(nested);
-      }
-    }
-  }
-  visit(sheet.cssRules);
+  walkCssRules(sheet.cssRules, (rule) => {
+    if (rule.type === CSSRule.FONT_FACE_RULE) partial = true;
+    if (
+      rule.type === CSSRule.STYLE_RULE ||
+      rule.type === CSSRule.KEYFRAME_RULE ||
+      rule.constructor.name === "CSSNestedDeclarations"
+    )
+      styles.push((rule as CSSStyleRule).style);
+  });
   const familyParser = new CSSStyleSheet();
   familyParser.insertRule(".family-parser {}", 0);
   const familyStyle = (familyParser.cssRules[0] as CSSStyleRule).style;

@@ -1,4 +1,5 @@
 import { animationVariables, type AnimationMode } from "./skin-animation-variables";
+import { walkCssRules } from "./css-rules";
 // Names are decoded by the browser using the same grammar as @keyframes.
 // A sticky token scan keeps quoted/escaped commas inside their name.
 export function rewriteAnimationNames(
@@ -39,28 +40,14 @@ let generation = 0;
 export function isolateToolbarAnimations(sheet: CSSStyleSheet): boolean {
   const prefix = "msime-skin-animation-" + ++generation + "-";
   const names = new Map<string, string>();
-  function visit(rules: CSSRuleList, action: (rule: CSSRule) => void) {
-    for (const rule of Array.from(rules)) {
-      action(rule);
-      if (
-        rule.type === CSSRule.STYLE_RULE ||
-        rule.type === CSSRule.MEDIA_RULE ||
-        rule.type === CSSRule.SUPPORTS_RULE ||
-        rule.type === CSSRule.KEYFRAMES_RULE
-      ) {
-        const nested = (rule as CSSGroupingRule).cssRules;
-        if (nested) visit(nested, action);
-      }
-    }
-  }
-  visit(sheet.cssRules, (rule) => {
+  walkCssRules(sheet.cssRules, (rule) => {
     if (rule.type !== CSSRule.KEYFRAMES_RULE) return;
     const frames = rule as CSSKeyframesRule;
     if (!names.has(frames.name)) names.set(frames.name, prefix + names.size);
     frames.name = names.get(frames.name)!;
   });
   const styles: CSSStyleDeclaration[] = [];
-  visit(sheet.cssRules, (rule) => {
+  walkCssRules(sheet.cssRules, (rule) => {
     if (
       rule.type === CSSRule.STYLE_RULE ||
       rule.type === CSSRule.KEYFRAME_RULE ||
