@@ -1,10 +1,10 @@
-//! The tools from a shell, one per run, for an assistant that drives a terminal rather than speaking MCP.
+//! The tools and prompts from a shell, one per run, for an assistant that drives a terminal rather than speaking MCP.
 //!
 //! The command line does not reimplement any tool: it starts the same server in process and calls it over an in-memory pipe as an MCP client would, so the tools offered, their arguments, their limits and their answers are the server's own.
 
 use crate::config::Config;
 use crate::server::MsimeServer;
-use rmcp::model::CallToolRequestParams;
+use rmcp::model::{CallToolRequestParams, GetPromptRequestParams};
 use rmcp::ServiceExt;
 use serde_json::{Map, Value};
 use std::process::ExitCode;
@@ -16,6 +16,11 @@ pub enum Action {
     Tools,
     Call {
         tool: String,
+        arguments: Map<String, Value>,
+    },
+    Prompts,
+    Prompt {
+        name: String,
         arguments: Map<String, Value>,
     },
 }
@@ -64,6 +69,28 @@ pub async fn run(config: Config, action: Action) -> Result<ExitCode, Box<dyn std
                 }
                 ExitCode::SUCCESS
             }
+        }
+        Action::Prompts => {
+            let prompts = client.list_all_prompts().await?;
+            println!("{}", serde_json::to_string_pretty(&prompts)?);
+            ExitCode::SUCCESS
+        }
+        Action::Prompt { name, arguments } => {
+            // A prompt the flags do not offer is the likeliest refusal, as for a tool.
+            let prompt = client
+                .get_prompt(GetPromptRequestParams::new(name).with_arguments(arguments))
+                .await
+                .map_err(|error| {
+                    format!("{error}; `prompts` lists what these flags offer: make_skin needs --allow-write")
+                })?;
+            // The instructions are written for an assistant that calls the tools over MCP; from a shell each tool is one `call`.
+            for message in &prompt.messages {
+                if let Some(text) = message.content.as_text() {
+                    println!("{}", text.text);
+                }
+            }
+            println!("\nFrom a shell, run each tool this names as `msime-mcp <the same flags> call <tool> '<json arguments>'`.");
+            ExitCode::SUCCESS
         }
     };
     client.cancel().await?;

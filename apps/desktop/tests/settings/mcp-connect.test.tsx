@@ -302,3 +302,24 @@ test("a late status response cannot update an unmounted section or replace a new
   late.resolve(status());
   await Promise.resolve();
 });
+
+test("the terminal tab tells an assistant how to run the tools directly, with the chosen flags", async () => {
+  const copyText = vi.fn(async () => {});
+  await openDeveloper({ mcpServerStatus: async () => status(), copyText });
+  const group = await screen.findByRole("group", { name: "连接 AI 助手" });
+  fireEvent.click(within(group).getByRole("radio", { name: "命令行" }));
+  const program = "/opt/msime/msime-mcp --options /state/runtime-options.json";
+  expect(within(group).getByLabelText("命令行用法").textContent).toBe(
+    [
+      "水杉输入法（MSIME）可以在终端里直接管理：",
+      `- 查看可用的工具和参数：${program} tools`,
+      `- 调用一个工具，参数是 JSON 对象，输出 JSON：${program} call <工具名> '<JSON 参数>'`,
+      `- 排查输入法问题（卡顿、候选框不见了）的步骤：${program} prompt diagnose`,
+    ].join("\n"),
+  );
+  fireEvent.click(within(group).getByRole("switch", { name: "允许修改设置" }));
+  const usage = within(group).getByLabelText("命令行用法").textContent!;
+  expect(usage).toContain(`${program} --allow-write tools`);
+  fireEvent.click(within(group).getByRole("button", { name: "复制说明" }));
+  await waitFor(() => expect(copyText).toHaveBeenCalledWith(usage));
+});

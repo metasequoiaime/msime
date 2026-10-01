@@ -562,6 +562,16 @@ async fn an_agent_turns_on_and_reads_the_diagnostic_log() {
 
 /// The command line: one tool per run, under the same flags and with the same answers as the server.
 fn run_cli(options: &Path, args: &[&str], stdin: Option<&str>) -> (i32, Value, String) {
+    let (code, stdout, stderr) = run_cli_text(options, args, stdin);
+    let stdout = if stdout.is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_str(&stdout).unwrap()
+    };
+    (code, stdout, stderr)
+}
+
+fn run_cli_text(options: &Path, args: &[&str], stdin: Option<&str>) -> (i32, String, String) {
     use std::io::Write;
     let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_msime-mcp"));
     command.arg("--options").arg(options).args(args);
@@ -585,14 +595,9 @@ fn run_cli(options: &Path, args: &[&str], stdin: Option<&str>) -> (i32, Value, S
         .write_all(stdin.unwrap_or("").as_bytes())
         .unwrap();
     let output = child.wait_with_output().unwrap();
-    let stdout = if output.stdout.is_empty() {
-        Value::Null
-    } else {
-        serde_json::from_slice(&output.stdout).unwrap()
-    };
     (
         output.status.code().unwrap(),
-        stdout,
+        String::from_utf8(output.stdout).unwrap(),
         String::from_utf8(output.stderr).unwrap(),
     )
 }
@@ -662,4 +667,78 @@ fn the_command_line_runs_the_same_tools() {
     let (code, _, error) = run_cli(&options, &["call", "list_quick_phrases", "[]"], None);
     assert_eq!(code, 2);
     assert!(error.contains("JSON object"), "{error}");
+}
+
+#[test]
+fn writes_from_separate_runs_are_spaced_out_too() {
+    let directory = tempfile::tempdir().unwrap();
+    let options = fixture(directory.path());
+    let add = |text: &str| format!(r#"{{"edits":[{{"op":"add","code":"yx","text":"{text}"}}]}}"#);
+    let (code, _, error) = run_cli(
+        &options,
+        &[
+            "--allow-write",
+            "call",
+            "edit_quick_phrases",
+            &add("one@example.com"),
+        ],
+        None,
+    );
+    assert_eq!(code, 0, "{error}");
+    let (code, _, error) = run_cli(
+        &options,
+        &[
+            "--allow-write",
+            "call",
+            "edit_quick_phrases",
+            &add("two@example.com"),
+        ],
+        None,
+    );
+    assert_eq!(code, 1);
+    assert!(error.contains("one a second"), "{error}");
+    std::thread::sleep(Duration::from_millis(1100));
+    let (code, _, error) = run_cli(
+        &options,
+        &[
+            "--allow-write",
+            "call",
+            "edit_quick_phrases",
+            &add("two@example.com"),
+        ],
+        None,
+    );
+    assert_eq!(code, 0, "{error}");
+}
+
+#[test]
+fn the_command_line_prints_the_prompts() {
+    let directory = tempfile::tempdir().unwrap();
+    let options = fixture(directory.path());
+    let (code, prompts, _) = run_cli(&options, &["prompts"], None);
+    assert_eq!(code, 0);
+    let names: Vec<&str> = prompts
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|prompt| prompt["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["diagnose"]);
+
+    let (code, text, _) = run_cli_text(
+        &options,
+        &["prompt", "diagnose", r#"{"problem":"候选窗不见了"}"#],
+        None,
+    );
+    assert_eq!(code, 0);
+    assert!(text.contains("候选窗不见了"), "{text}");
+    assert!(text.contains("read_diagnostic_log"), "{text}");
+    assert!(text.contains("msime-mcp <the same flags> call"), "{text}");
+
+    let (code, _, error) = run_cli_text(&options, &["prompt", "make-skin"], None);
+    assert_eq!(code, 1);
+    assert!(error.contains("--allow-write"), "{error}");
+    let (code, text, _) = run_cli_text(&options, &["--allow-write", "prompt", "make-skin"], None);
+    assert_eq!(code, 0);
+    assert!(text.contains("create_candidate_skin"), "{text}");
 }

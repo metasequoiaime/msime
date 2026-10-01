@@ -37,6 +37,18 @@ fn main() -> ExitCode {
                     return ExitCode::from(2);
                 }
             },
+            Ok(config::Command::Prompts(config)) => (config, Some(cli::Action::Prompts)),
+            Ok(config::Command::Prompt {
+                config,
+                name,
+                arguments,
+            }) => match call_arguments(arguments) {
+                Ok(arguments) => (config, Some(cli::Action::Prompt { name, arguments })),
+                Err(error) => {
+                    eprintln!("msime-mcp: {error}");
+                    return ExitCode::from(2);
+                }
+            },
             Ok(config::Command::Help) => {
                 eprintln!("{}", config::USAGE);
                 return ExitCode::SUCCESS;
@@ -86,7 +98,7 @@ fn main() -> ExitCode {
     }
 }
 
-/// The JSON object `call` passes to the tool.
+/// The JSON object `call` passes to the tool, or `prompt` to the prompt.
 fn call_arguments(arguments: config::Arguments) -> Result<serde_json::Map<String, Value>, String> {
     let text = match arguments {
         config::Arguments::Inline(text) => text,

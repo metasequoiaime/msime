@@ -14,6 +14,7 @@ use crate::words::{
     WordListRequest,
 };
 use msime_client_core::dictionary::quiesce::QuiescedHosts;
+use msime_client_core::file_lock;
 use msime_host_api::{DictionaryOptions, QuickPhrase, QuickPhraseEdit, WordEdit};
 use rmcp::handler::server::router::prompt::PromptRouter;
 use rmcp::handler::server::router::tool::ToolRouter;
@@ -22,9 +23,11 @@ use rmcp::model::{Implementation, ServerCapabilities, ServerConfig};
 use rmcp::schemars::JsonSchema;
 use rmcp::{prompt_handler, tool, tool_handler, tool_router, Json, ServerHandler};
 use serde::{Deserialize, Serialize};
+use std::fs::File;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const DEFAULT_PAGE: usize = 100;
 const MAX_PAGE: usize = 1000;
@@ -32,6 +35,8 @@ const MAX_PAGE: usize = 1000;
 const MAX_EDITS: usize = 50;
 /// The shortest gap between two writing calls, so an agent stuck in a loop cannot rewrite the dictionary or the preferences many times a second.
 const WRITE_INTERVAL: Duration = Duration::from_secs(1);
+/// In the state directory: when the last write began, shared by every server and command line on this computer.
+const WRITE_LOCK: &str = "mcp-write.lock";
 
 const WRITE_TOOLS: [&str; 3] = [
     "create_candidate_skin",
@@ -240,6 +245,7 @@ impl MsimeServer {
         let edits: Vec<QuickPhraseEdit> = request.edits.into_iter().map(Into::into).collect();
         let outcome = blocking(move || {
             let _guard = guard;
+            let _shared = claim_shared_write(&config)?;
             let options = DictionaryOptions::from_host_document(config.read_host_options()?)?;
             Ok(apply_edits(
                 &options,
@@ -296,6 +302,7 @@ impl MsimeServer {
         let config = self.config.clone();
         let result = blocking(move || {
             let _guard = guard;
+            let _shared = claim_shared_write(&config)?;
             let state_dir = config.state_dir(&config.read_options()?)?;
             preferences::update(&state_dir, &config.options, &change).map(Json)
         })
@@ -339,6 +346,7 @@ impl MsimeServer {
         let config = self.config.clone();
         let result = blocking(move || {
             let _guard = guard;
+            let _shared = claim_shared_write(&config)?;
             let state_dir = config.state_dir(&config.read_options()?)?;
             skins::create(&state_dir, &request).map(Json)
         })
@@ -406,6 +414,7 @@ impl MsimeServer {
         let config = self.config.clone();
         let result = blocking(move || {
             let _guard = guard;
+            let _shared = claim_shared_write(&config)?;
             let state_dir = config.state_dir(&config.read_options()?)?;
             diagnostics::set(&state_dir, &config.options, request.enabled).map(Json)
         })
@@ -480,6 +489,7 @@ impl MsimeServer {
         let edits: Vec<WordEdit> = request.edits.into_iter().map(Into::into).collect();
         let outcome = blocking(move || {
             let _guard = guard;
+            let _shared = claim_shared_write(&config)?;
             let options = DictionaryOptions::from_host_document(config.read_host_options()?)?;
             Ok(apply_edits(
                 &options,
@@ -523,6 +533,7 @@ impl MsimeServer {
         let new_words = request.new_words();
         let result = blocking(move || {
             let _guard = guard;
+            let _shared = claim_shared_write(&config)?;
             let options = DictionaryOptions::from_host_document(config.read_host_options()?)?;
             let request_id = msime_client_core::uuid::Uuid::new_v4().simple().to_string();
             let mut hosts = QuiescedHosts::new(Some(options.user_data()), || {});
@@ -607,6 +618,32 @@ impl MsimeServer {
         *last = Some(now);
         Ok(guard)
     }
+}
+
+/// Space writes across processes as `claim_write` spaces them within one: each `msime-mcp call` is a process of its own, and a server may run beside it. The returned file holds the lock for the whole write, so two processes never overlap on a check-then-write edit either. Waits for a write another process is running, then refuses when that one began less than the interval ago.
+fn claim_shared_write(config: &Config) -> Result<File, String> {
+    let state_dir = config.state_dir(&config.read_options()?)?;
+    let mut file = file_lock::open_private_lock_file(state_dir.join(WRITE_LOCK))
+        .map_err(|_| "cannot open the write lock in the state directory")?;
+    file_lock::exclusive(&file).map_err(|_| "cannot take the write lock")?;
+    let mut text = String::new();
+    file.read_to_string(&mut text)
+        .map_err(|_| "cannot read the write lock")?;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| "the system clock is before 1970")?
+        .as_millis();
+    // A time ahead of the clock is a clock set back, not a recent write.
+    if let Ok(previous) = text.trim().parse::<u128>() {
+        if previous <= now && now - previous < WRITE_INTERVAL.as_millis() {
+            return Err("writes are limited to one a second; try again shortly".into());
+        }
+    }
+    file.set_len(0)
+        .and_then(|()| file.seek(SeekFrom::Start(0)))
+        .and_then(|_| file.write_all(now.to_string().as_bytes()))
+        .map_err(|_| "cannot record the write")?;
+    Ok(file)
 }
 
 /// Clears the write-in-progress flag when the write it covers ends, however it ends.

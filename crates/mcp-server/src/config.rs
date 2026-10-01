@@ -12,8 +12,10 @@ const OPTIONS_READ_LIMIT: u64 = 2 << 20;
 pub const USAGE: &str = "usage: msime-mcp [flags]                          serve the Model Context Protocol over stdio
        msime-mcp [flags] tools                    list the tools, with their argument schemas, as JSON
        msime-mcp [flags] call <tool> [<json>|-]   run one tool and print its result as JSON
+       msime-mcp [flags] prompts                  list the guided tasks (prompts), as JSON
+       msime-mcp [flags] prompt <name> [<json>]   print a guided task's instructions, such as diagnose or make_skin
 
-Manages 水杉输入法 (MSIME) for an AI assistant: over stdio as an MCP server, or one tool per run from a shell. Both offer the same tools under the same flags. call takes the tool's arguments as a JSON object (default {}), or reads it from stdin when given -; tool names may use - for _. A refused call prints the reason to stderr and exits 1.
+Manages 水杉输入法 (MSIME) for an AI assistant: over stdio as an MCP server, or one tool per run from a shell. Both offer the same tools and prompts under the same flags. call takes the tool's arguments as a JSON object (default {}), or reads it from stdin when given -; tool names may use - for _. A refused call prints the reason to stderr and exits 1.
 
   --options <path>     The runtime-options document the input method hosts read. Defaults to MSIME_CLIENT_HOST_OPTIONS, then MSIME_IBUS_OPTIONS, then the platform's usual location.
   --state-dir <path>   The directory holding preferences.json, typing-statistics.json and the skins folder. Defaults to MSIME_CLIENT_STATE_DIR, then the document's preferences_directory.
@@ -31,6 +33,14 @@ pub enum Command {
     Call {
         config: Config,
         tool: String,
+        arguments: Arguments,
+    },
+    /// List the prompts the flags offer.
+    Prompts(Config),
+    /// Print one prompt.
+    Prompt {
+        config: Config,
+        name: String,
         arguments: Arguments,
     },
     Help,
@@ -127,6 +137,17 @@ pub fn parse(
             },
         }),
         (Some("call"), None, ..) => Err("call needs a tool name".into()),
+        (Some("prompts"), None, ..) => Ok(Command::Prompts(config)),
+        (Some("prompt"), Some(name), arguments, None) => Ok(Command::Prompt {
+            config,
+            name: name.replace('-', "_"),
+            arguments: match arguments {
+                None => Arguments::Inline("{}".into()),
+                Some(text) if text == "-" => Arguments::Stdin,
+                Some(text) => Arguments::Inline(text),
+            },
+        }),
+        (Some("prompt"), None, ..) => Err("prompt needs a prompt name".into()),
         (Some(word), ..) => Err(format!("unknown command {word}")),
     }
 }
@@ -327,6 +348,26 @@ mod tests {
         assert!(parsed(&["--options", "/a.json", "tools", "extra"]).is_err());
         assert!(parsed(&["--options", "/a.json", "call", "a", "{}", "extra"]).is_err());
         assert!(parsed(&["--options", "/a.json", "serve"]).is_err());
+        assert!(matches!(
+            parsed(&["--options", "/a.json", "prompts"]).unwrap(),
+            Command::Prompts(_)
+        ));
+        let Command::Prompt {
+            name, arguments, ..
+        } = parsed(&[
+            "--options",
+            "/a.json",
+            "prompt",
+            "make-skin",
+            r#"{"style":"夜色"}"#,
+        ])
+        .unwrap()
+        else {
+            panic!("expected prompt");
+        };
+        assert_eq!(name, "make_skin");
+        assert_eq!(arguments, Arguments::Inline(r#"{"style":"夜色"}"#.into()));
+        assert!(parsed(&["--options", "/a.json", "prompt"]).is_err());
     }
 
     #[test]

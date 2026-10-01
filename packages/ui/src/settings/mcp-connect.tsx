@@ -56,8 +56,8 @@ const permissionFlags = [
 
 type McpFlag = (typeof permissionFlags)[number]["flag"];
 
-/** The tabs: two command-line assistants, the clients the host writes into, and the JSON for anything else. */
-type McpTab = "claude_code" | "codex" | McpClientId | "json";
+/** The tabs: two command-line assistants, running the tools straight from a terminal, the clients the host writes into, and the JSON for anything else. */
+type McpTab = "claude_code" | "codex" | "terminal" | McpClientId | "json";
 
 /** One argument quoted for the shell the command is pasted into: double quotes for a Windows path, single quotes for a POSIX shell, and nothing when the argument needs none. */
 function shellQuote(value: string, windows: boolean): string {
@@ -71,18 +71,34 @@ function serverArgs(server: McpServerStatus, flags: readonly McpFlag[]): string[
   return [...(server.options ? ["--options", server.options] : []), ...flags];
 }
 
+/** `msime-mcp` with the runtime options and the chosen flags, quoted for the shell. */
+function serverProgram(server: McpServerStatus, flags: readonly McpFlag[]): string {
+  const windows = /^[A-Za-z]:\\/.test(server.command);
+  return [server.command, ...serverArgs(server, flags)]
+    .map((part) => shellQuote(part, windows))
+    .join(" ");
+}
+
 function installCommand(
   assistant: "claude_code" | "codex",
   server: McpServerStatus,
   flags: readonly McpFlag[],
 ): string {
-  const windows = /^[A-Za-z]:\\/.test(server.command);
-  const program = [server.command, ...serverArgs(server, flags)]
-    .map((part) => shellQuote(part, windows))
-    .join(" ");
+  const program = serverProgram(server, flags);
   return assistant === "claude_code"
     ? `claude mcp add --scope user msime -- ${program}`
     : `codex mcp add msime -- ${program}`;
+}
+
+/** What to tell an assistant that works in a terminal, such as in its AGENTS.md or CLAUDE.md: the same tools without registering a server, one command per tool. */
+function terminalInstructions(server: McpServerStatus, flags: readonly McpFlag[]): string {
+  const program = serverProgram(server, flags);
+  return [
+    "水杉输入法（MSIME）可以在终端里直接管理：",
+    `- 查看可用的工具和参数：${program} tools`,
+    `- 调用一个工具，参数是 JSON 对象，输出 JSON：${program} call <工具名> '<JSON 参数>'`,
+    `- 排查输入法问题（卡顿、候选框不见了）的步骤：${program} prompt diagnose`,
+  ].join("\n");
 }
 
 /** Removes an earlier registration: both assistants refuse to add a name that is already there, so changing the permissions means removing it first. */
@@ -107,7 +123,7 @@ function configWithFlags(config: string, flags: readonly McpFlag[]): string {
 }
 
 /**
- * 「连接 AI 助手」: the `msime-mcp` entry an assistant runs, to copy or to write into Claude Desktop's or Cursor's configuration.
+ * 「连接 AI 助手」: the `msime-mcp` entry an assistant runs, to copy or to write into Claude Desktop's or Cursor's configuration, or the commands a terminal assistant runs the tools with directly.
  *
  * The callbacks are passed in rather than read from the settings client so that the page decides, at the call site in `index.tsx`, which of them a host offers; that is where the settings action guard looks.
  */
@@ -223,6 +239,7 @@ export function McpConnectSection({
   const tabs: { value: McpTab; label: string }[] = [
     { value: "claude_code", label: "Claude Code" },
     { value: "codex", label: "Codex" },
+    { value: "terminal", label: "命令行" },
     ...writableClients.map((client) => ({ value: client.id, label: clientNames[client.id] })),
     { value: "json", label: "其他" },
   ];
@@ -286,6 +303,19 @@ export function McpConnectSection({
                     {removeCommand(shownTab)}
                   </pre>
                   {copyButton(`${shownTab}-remove`, "复制移除命令", removeCommand(shownTab))}
+                </>
+              )}
+              {shownTab === "terminal" && (
+                <>
+                  <p className={settings.managerNote}>
+                    不注册 MCP 也可以：能在终端里运行命令的助手（Claude Code、Codex
+                    等）直接调用同一组工具，权限开关相同，不用重启助手。把下面这段话告诉助手，或放进项目的
+                    AGENTS.md / CLAUDE.md：
+                  </p>
+                  <pre className={command} aria-label="命令行用法">
+                    {terminalInstructions(server, flags)}
+                  </pre>
+                  {copyButton("terminal", "复制说明", terminalInstructions(server, flags))}
                 </>
               )}
               {client && (
