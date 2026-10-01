@@ -481,7 +481,9 @@ export function ExternalSkinDirectoryRow({
             </span>
             {status}
             {skins.catalog?.directory && (
-              <code className={settings.externalDirectory}>{skins.catalog.directory}</code>
+              <code className={settings.externalDirectory} title={skins.catalog.directory}>
+                {skins.catalog.directory}
+              </code>
             )}
           </>
         }

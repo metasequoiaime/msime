@@ -49,8 +49,7 @@ export const externalHeading =
   "mx-1 mt-7 mb-3 flex items-start justify-between gap-[18px] [&>div]:min-w-0";
 export const externalActions =
   "flex shrink-0 grow-0 basis-auto gap-2 [&>button]:mt-0.5 [&>button]:h-[30px] [&>button]:shrink-0 [&>button]:grow-0 [&>button]:basis-auto";
-export const externalDirectory =
-  "mt-2 inline-block max-w-[620px] rounded-[5px] bg-[var(--button-secondary-bg)] px-[7px] py-1 break-anywhere text-muted";
+export const externalDirectory = "mt-1.5 block font-mono text-xs break-anywhere text-muted";
 export const externalMeta = "mt-1 text-xs break-anywhere text-muted";
 export const externalDiagnostics =
   "mx-1 mt-2.5 text-xs break-anywhere text-muted [&>summary]:cursor-pointer [&>ul]:mt-[7px] [&>ul]:mb-0 [&>ul]:pl-5";
