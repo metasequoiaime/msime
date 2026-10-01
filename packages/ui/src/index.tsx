@@ -689,6 +689,10 @@ export {
 } from "./settings/theme-settings-section";
 export { SurfaceThemeSelect, type SurfaceThemeSelectProps } from "./settings/surface-theme-select";
 export {
+  CloudPinyinSchemeOptions,
+  CloudShuangpinProfileOptions,
+} from "./keyboard/cloud-scheme-options";
+export {
   PreeditStyleSelect,
   type PreeditStyle,
   type PreeditStyleSelectMode,

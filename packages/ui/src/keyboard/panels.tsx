@@ -41,6 +41,10 @@ import { CloudDictionaryKindTabs } from "./cloud-dictionary-kind-tabs";
 import type { CloudDictionaryKind } from "./cloud-dictionary-kind-tabs";
 import { CloudDictionaryKindSelect } from "./cloud-dictionary-kind-select";
 import {
+  CloudPinyinSchemeOptions,
+  CloudShuangpinProfileOptions,
+} from "./cloud-scheme-options";
+import {
   clipboardTooltip,
   emojiDisplayName,
   flattenGroups,
@@ -3137,8 +3141,7 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
                 onChange={(event) => setScheme(event.target.value)}
                 disabled={busy}
               >
-                <option value="pinyin">全拼</option>
-                <option value="shuangpin">双拼</option>
+                <CloudPinyinSchemeOptions />
               </select>
             </label>
             {scheme === "shuangpin" && (
@@ -3151,10 +3154,7 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
                   onChange={(event) => setProfile(event.target.value)}
                   disabled={busy}
                 >
-                  <option value="xiaohe">小鹤</option>
-                  <option value="ziranma">自然码</option>
-                  <option value="microsoft">微软</option>
-                  <option value="shoudao">首道</option>
+                  <CloudShuangpinProfileOptions />
                 </select>
               </label>
             )}
@@ -3533,8 +3533,7 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
                 onChange={(event) => setScheme(event.target.value)}
                 disabled={busy}
               >
-                <option value="pinyin">全拼</option>
-                <option value="shuangpin">双拼</option>
+                <CloudPinyinSchemeOptions />
               </select>
             </label>
             {scheme === "shuangpin" && (
@@ -3546,10 +3545,7 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
                   onChange={(event) => setProfile(event.target.value)}
                   disabled={busy}
                 >
-                  <option value="xiaohe">小鹤</option>
-                  <option value="ziranma">自然码</option>
-                  <option value="microsoft">微软</option>
-                  <option value="shoudao">首道</option>
+                  <CloudShuangpinProfileOptions />
                 </select>
               </label>
             )}
