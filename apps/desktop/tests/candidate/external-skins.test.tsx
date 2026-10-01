@@ -1232,6 +1232,7 @@ test("the theme page opens the candidate publish dialog outside the settings fie
     rate: vi.fn(),
     unpublish: vi.fn(),
     setVisibility: vi.fn(),
+    setCategory: vi.fn(),
     sync: vi.fn(),
   };
   render(

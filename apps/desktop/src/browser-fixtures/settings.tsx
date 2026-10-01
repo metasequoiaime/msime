@@ -49,6 +49,7 @@ export function mount() {
     rate: unavailable,
     unpublish: unavailable,
     setVisibility: unavailable,
+    setCategory: unavailable,
     sync: unavailable,
   };
   const catalog: SkinCatalog = {

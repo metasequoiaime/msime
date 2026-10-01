@@ -15,11 +15,14 @@ import * as style from "./community-style";
 import { CommunitySkinPublicationFields } from "./community-skin-publication-fields";
 import { CommunityErrorAlert } from "./community-error-alert";
 import { CommunityDialogHeader } from "./community-dialog";
-import type {
-  CandidateSkinCommunityClient,
-  CandidateSkinPackPreview,
-  CandidateSkinVisibility,
-  CommunityCandidateSkin,
+import {
+  candidateSkinCategories,
+  candidateSkinCategoryLabels,
+  type CandidateSkinCategory,
+  type CandidateSkinCommunityClient,
+  type CandidateSkinPackPreview,
+  type CandidateSkinVisibility,
+  type CommunityCandidateSkin,
 } from "./community-candidate-skins";
 
 type LocalSkinOption = { id: string; name: string };
@@ -94,6 +97,7 @@ export function CandidateSkinPublishDialog({
   const [description, setDescription] = useState("");
   const [agreed, setAgreed] = useState(false);
   const [visibility, setVisibility] = useState<CandidateSkinVisibility>("public");
+  const [category, setCategory] = useState<CandidateSkinCategory>("other");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [signInRequired, setSignInRequired] = useState(false);
@@ -125,7 +129,10 @@ export function CandidateSkinPublishDialog({
       void localSkins()
         .then((catalog) => {
           if (!active) return;
-          const loaded = catalog.packages.map((item) => ({ id: item.id, name: item.name }));
+          const loaded = catalog.packages.map((item) => ({
+            id: item.id,
+            name: item.name,
+          }));
           setPackages(catalog.packages);
           setOptions(loaded);
           setSkinId((current) =>
@@ -294,6 +301,7 @@ export function CandidateSkinPublishDialog({
             normalizedName,
             normalizedDescription,
             visibility,
+            category,
           );
           if (!isCurrent()) return;
           await onPublished(published);
@@ -509,6 +517,26 @@ export function CandidateSkinPublishDialog({
               }}
               onAgreedChange={setAgreed}
             />
+            <label className={style.field}>
+              分类
+              <select
+                className={style.fieldControl}
+                aria-label="发布分类"
+                value={category}
+                disabled={busy}
+                onChange={(event) => {
+                  // 分类也是这次发布的内容，换了分类就是另一次发布，不能沿用上一次的发布 id。
+                  setPublicationId(randomUuid());
+                  setCategory(event.target.value as CandidateSkinCategory);
+                }}
+              >
+                {candidateSkinCategories.map((item) => (
+                  <option key={item} value={item}>
+                    {candidateSkinCategoryLabels[item]}
+                  </option>
+                ))}
+              </select>
+            </label>
             <p className={style.warning}>{publishWarning}</p>
           </>
         )}

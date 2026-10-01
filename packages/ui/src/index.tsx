@@ -1105,6 +1105,9 @@ export {
 } from "./community/community-resources";
 export {
   CommunityCandidateSkinsPage,
+  candidateSkinCategories,
+  candidateSkinCategoryLabels,
+  type CandidateSkinCategory,
   type CandidateSkinCommunityClient,
   type CandidateSkinPackPreview,
   type CandidateSkinSyncReport,

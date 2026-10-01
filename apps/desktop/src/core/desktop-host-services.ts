@@ -21,11 +21,12 @@ type Invoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>
  */
 export function createDesktopCandidateSkinCommunity(invoke: Invoke): CandidateSkinCommunityClient {
   return {
-    list: (offset, search, mine) =>
+    list: (offset, search, mine, category) =>
       invoke<CommunityCandidateSkinPage>("candidate_skin_community_list", {
         offset,
         search,
         mine,
+        category,
       }),
     detail: (id) => invoke<CommunityCandidateSkin>("candidate_skin_community_detail", { id }),
     preview: (id) => invoke<{ dataUrl: string }>("candidate_skin_community_preview", { id }),
@@ -37,25 +38,40 @@ export function createDesktopCandidateSkinCommunity(invoke: Invoke): CandidateSk
         visibility,
       }),
     addPreview: (skinId, bytes) =>
-      invoke<SkinCatalog>("candidate_skin_community_add_preview", { skinId, bytes }),
+      invoke<SkinCatalog>("candidate_skin_community_add_preview", {
+        skinId,
+        bytes,
+      }),
     addLicense: (skinId, assets) =>
-      invoke<SkinCatalog>("candidate_skin_community_add_license", { skinId, assets }),
-    publish: (skinId, id, name, description, visibility) =>
+      invoke<SkinCatalog>("candidate_skin_community_add_license", {
+        skinId,
+        assets,
+      }),
+    publish: (skinId, id, name, description, visibility, category) =>
       invoke<CommunityCandidateSkin>("candidate_skin_community_publish", {
         skinId,
         id,
         name,
         description,
         visibility,
+        category,
       }),
     setVisibility: (id, visibility) =>
       invoke<CommunityCandidateSkin>("candidate_skin_community_set_visibility", {
         id,
         visibility,
       }),
+    setCategory: (id, category) =>
+      invoke<CommunityCandidateSkin>("candidate_skin_community_set_category", {
+        id,
+        category,
+      }),
     sync: () => invoke<CandidateSkinSyncReport>("candidate_skin_community_sync"),
     rate: (id, stars) => invoke<{ stars: number }>("candidate_skin_community_rate", { id, stars }),
-    unpublish: (id) => invoke<{ deleted: boolean }>("candidate_skin_community_unpublish", { id }),
+    unpublish: (id) =>
+      invoke<{ deleted: boolean }>("candidate_skin_community_unpublish", {
+        id,
+      }),
   };
 }
 
@@ -67,10 +83,17 @@ export function createDesktopCandidateSkinCommunity(invoke: Invoke): CandidateSk
 export function createDesktopPluginCommunity(invoke: Invoke): CommunityPluginClient {
   return {
     list: (offset, search, kind) =>
-      invoke<CommunityPluginPage>("plugin_community_list", { offset, search, kind }),
+      invoke<CommunityPluginPage>("plugin_community_list", {
+        offset,
+        search,
+        kind,
+      }),
     detail: (id) => invoke<CommunityPlugin>("plugin_community_detail", { id }),
     packPreview: (kind, pluginId) =>
-      invoke<CommunityPluginPackPreview>("plugin_community_pack_preview", { kind, pluginId }),
+      invoke<CommunityPluginPackPreview>("plugin_community_pack_preview", {
+        kind,
+        pluginId,
+      }),
     publish: (kind, pluginId, id, name, description) =>
       invoke<CommunityPlugin>("plugin_community_publish", {
         kind,
