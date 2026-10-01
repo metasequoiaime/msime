@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { runAsyncAction } from "../core/async-action";
 import { aiCredentialOrigin } from "./credential-utils";
 import { aiPolishTestPrompt } from "./ai-assistant-defaults";
 import type { AiAssistantClient, AiAssistantPreferences } from "../index";
@@ -61,25 +62,29 @@ export function useAiAssistant({
       return;
     }
     const generation = requestGeneration.current;
-    setModelsBusy(true);
-    setModelsStatus("");
-    try {
-      const available = await client.fetchModels({
-        endpoint: ai.endpoint,
-        token,
-        provider: ai.provider,
-      });
-      if (generation !== requestGeneration.current) return;
-      setModels(available);
-      setModelsStatus(`已获取 ${available.length} 个可用模型。`);
-      if (available.length && !available.includes(ai.model)) updateAi({ model: available[0] });
-    } catch (cause) {
-      setModelsStatus(
-        cause instanceof Error ? cause.message : "获取模型失败，请检查地址、密钥和网络。",
-      );
-    } finally {
-      if (generation === requestGeneration.current) setModelsBusy(false);
-    }
+    await runAsyncAction(
+      {
+        busy: modelsBusy,
+        isCurrent: () => generation === requestGeneration.current,
+        setBusy: setModelsBusy,
+        setError: setModelsStatus,
+      },
+      async (isCurrent) => {
+        const available = await client.fetchModels({
+          endpoint: ai.endpoint,
+          token,
+          provider: ai.provider,
+        });
+        if (!isCurrent()) return;
+        setModels(available);
+        setModelsStatus(`已获取 ${available.length} 个可用模型。`);
+        if (available.length && !available.includes(ai.model)) updateAi({ model: available[0] });
+      },
+      {
+        formatError: (cause) =>
+          cause instanceof Error ? cause.message : "获取模型失败，请检查地址、密钥和网络。",
+      },
+    );
   };
 
   const test = async () => {
@@ -97,28 +102,32 @@ export function useAiAssistant({
       return;
     }
     const generation = ++requestGeneration.current;
-    setTestBusy(true);
-    setTestStatus("");
     setTestOutput("");
-    try {
-      const result = await client.test({
-        endpoint: ai.endpoint,
-        model: ai.model,
-        provider: ai.provider,
-        prompt: aiPolishTestPrompt,
-        token,
-        text: testInput,
-      });
-      if (generation !== requestGeneration.current) return;
-      setTestOutput(result);
-      setTestStatus("已完成");
-    } catch (cause) {
-      setTestStatus(
-        cause instanceof Error ? cause.message : "AI 请求失败，请检查地址、模型、密钥和网络。",
-      );
-    } finally {
-      if (generation === requestGeneration.current) setTestBusy(false);
-    }
+    await runAsyncAction(
+      {
+        busy: testBusy,
+        isCurrent: () => generation === requestGeneration.current,
+        setBusy: setTestBusy,
+        setError: setTestStatus,
+      },
+      async (isCurrent) => {
+        const result = await client.test({
+          endpoint: ai.endpoint,
+          model: ai.model,
+          provider: ai.provider,
+          prompt: aiPolishTestPrompt,
+          token,
+          text: testInput,
+        });
+        if (!isCurrent()) return;
+        setTestOutput(result);
+        setTestStatus("已完成");
+      },
+      {
+        formatError: (cause) =>
+          cause instanceof Error ? cause.message : "AI 请求失败，请检查地址、模型、密钥和网络。",
+      },
+    );
   };
 
   return {
