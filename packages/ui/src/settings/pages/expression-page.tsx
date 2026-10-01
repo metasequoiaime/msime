@@ -2,12 +2,13 @@ import * as settings from "../settings-style";
 import { useSettingsForm } from "../settings-form-context";
 import { createSettingsDraftActions } from "../settings-draft-actions";
 import { SubPageEntries } from "./sub-page-entries";
-import { GroupList, Row, Switch } from "../../core/platform-controls";
+import { GroupList } from "../../core/platform-controls";
 import { FuzzyPinyinSection } from "../fuzzy-pinyin-section";
 import { InputLanguageOptionsSection } from "../input-language-options-section";
 import { PunctuationSection } from "../punctuation-section";
 import { TranslationSettingsContent } from "../translation-settings-content";
 import { createTranslationSettingsBindings } from "../translation-settings-bindings";
+import { MobileInputAiNotice } from "../mobile-input-ai-notice";
 
 /**
  * The 表达 page: how what is typed comes out -- punctuation, spelling tolerance, the candidates in other languages and the mixed-in English, emoji and kaomoji -- and the AI features that rewrite it, which open as pages of their own from here.
@@ -142,18 +143,7 @@ export function ExpressionSettingsPage() {
             onError: setError,
           })}
         />
-        {mobilePlatform && (
-          <GroupList title="高情商回复">
-            <Row
-              title="高情商回复"
-              description="复制对方的话，切换到高情商回复键盘，点“粘贴”后选择回复风格。支持帮你回、帮润色和换一句，点选回复插入聊天输入框。"
-            >
-              <button type="button" className="secondary" onClick={() => selectPage("ai")}>
-                配置键盘 AI
-              </button>
-            </Row>
-          </GroupList>
-        )}
+        {mobilePlatform && <MobileInputAiNotice grouped onOpenAi={() => selectPage("ai")} />}
         <SubPageEntries
           title="AI"
           pages={[
