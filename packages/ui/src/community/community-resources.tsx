@@ -25,6 +25,9 @@ import {
   type CommunityResourceScope,
 } from "./community-resource-scope-buttons";
 import { CommunityRightsAgreement } from "./community-rights-agreement";
+import { CommunityInputField } from "./community-input-field";
+import { CommunitySelectField } from "./community-select-field";
+import { CommunityTextareaField } from "./community-textarea-field";
 
 export type CommunityResourceKind = "dictionary" | "reply";
 export type { CommunityResourceScope } from "./community-resource-scope-buttons";
@@ -250,75 +253,62 @@ function ResourceEditor({
             {error}
           </p>
         )}
-        <label className={style.field}>
-          作品名称
-          <input
-            aria-label="社区作品名称"
-            maxLength={32}
-            value={name}
-            disabled={busy}
-            onChange={(event) => setName(event.target.value)}
-          />
-        </label>
-        <label className={style.field}>
-          作品说明
-          <textarea
-            aria-label="社区作品说明"
-            maxLength={280}
-            rows={3}
-            value={description}
-            disabled={busy}
-            onChange={(event) => setDescription(event.target.value)}
-          />
-        </label>
+        <CommunityInputField
+          label="作品名称"
+          ariaLabel="社区作品名称"
+          maxLength={32}
+          value={name}
+          disabled={busy}
+          onChange={setName}
+        />
+        <CommunityTextareaField
+          label="作品说明"
+          ariaLabel="社区作品说明"
+          maxLength={280}
+          rows={3}
+          value={description}
+          disabled={busy}
+          onChange={setDescription}
+        />
         {kind === "reply" ? (
-          <label className={style.field}>
-            回复提示词
-            <textarea
-              aria-label="社区回复提示词"
-              maxLength={2000}
-              rows={8}
-              value={prompt}
-              disabled={busy}
-              onChange={(event) => setPrompt(event.target.value)}
-            />
-          </label>
+          <CommunityTextareaField
+            label="回复提示词"
+            ariaLabel="社区回复提示词"
+            maxLength={2000}
+            rows={8}
+            value={prompt}
+            disabled={busy}
+            onChange={setPrompt}
+          />
         ) : (
           <>
             <div className={style.entryForm}>
-              <label className={style.field}>
-                类型
-                <select
-                  aria-label="社区词条类型"
-                  value={entryKind}
-                  onChange={(event) =>
-                    setEntryKind(event.target.value as CommunitySharedWord["kind"])
-                  }
-                >
-                  <option value="pinyin">拼音</option>
-                  <option value="wubi">五笔</option>
-                  <option value="quick">快捷短语</option>
-                  <option value="english">英文</option>
-                </select>
-              </label>
-              <label className={style.field}>
-                编码
-                <input
-                  aria-label="社区词条编码"
-                  value={code}
-                  disabled={busy}
-                  onChange={(event) => setCode(event.target.value)}
-                />
-              </label>
-              <label className={style.field}>
-                词语
-                <input
-                  aria-label="社区词条文字"
-                  value={word}
-                  disabled={busy}
-                  onChange={(event) => setWord(event.target.value)}
-                />
-              </label>
+              <CommunitySelectField
+                label="类型"
+                ariaLabel="社区词条类型"
+                value={entryKind}
+                disabled={busy}
+                onChange={(value) => setEntryKind(value as CommunitySharedWord["kind"])}
+              >
+                <option value="pinyin">拼音</option>
+                <option value="wubi">五笔</option>
+                <option value="quick">快捷短语</option>
+                <option value="english">英文</option>
+              </CommunitySelectField>
+              <CommunityInputField
+                label="编码"
+                ariaLabel="社区词条编码"
+                value={code}
+                disabled={busy}
+                onChange={setCode}
+              />
+              <CommunityInputField
+                label="词语"
+                ariaLabel="社区词条文字"
+                value={word}
+                disabled={busy}
+                onChange={setWord}
+              />
               <label className={style.field}>
                 权重
                 <input
