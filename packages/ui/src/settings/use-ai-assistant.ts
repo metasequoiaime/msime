@@ -26,11 +26,49 @@ export function useAiAssistant({
   const [testStatus, setTestStatus] = useState("");
   const [testBusy, setTestBusy] = useState(false);
   const requestGeneration = useRef(0);
+  const modelsActionBusy = useRef(false);
+  const modelsActionOwner = useRef(0);
+  const testActionBusy = useRef(false);
+  const testActionOwner = useRef(0);
   const origin = aiCredentialOrigin(ai.endpoint);
   const token = origin ? (ai.tokens?.[origin] ?? "") : "";
 
+  const runAction = async (
+    busyRef: { current: boolean },
+    ownerRef: { current: number },
+    busy: boolean,
+    setBusy: (value: boolean) => void,
+    setError: (message: string) => void,
+    generation: number,
+    operation: (isCurrent: () => boolean) => Promise<void>,
+    formatError: (error: unknown) => string,
+  ) => {
+    if (busyRef.current || busy) return;
+    const owner = ++ownerRef.current;
+    busyRef.current = true;
+    await runAsyncAction(
+      {
+        busy: false,
+        isCurrent: () => generation === requestGeneration.current && owner === ownerRef.current,
+        setBusy: (value) => {
+          if (owner !== ownerRef.current) return;
+          busyRef.current = value;
+          setBusy(value);
+        },
+        setError,
+      },
+      operation,
+      { formatError },
+    );
+    if (owner === ownerRef.current) busyRef.current = false;
+  };
+
   useEffect(() => {
     requestGeneration.current += 1;
+    modelsActionOwner.current += 1;
+    modelsActionBusy.current = false;
+    testActionOwner.current += 1;
+    testActionBusy.current = false;
     setModels(null);
     setModelsStatus("");
     setModelsBusy(false);
@@ -44,6 +82,10 @@ export function useAiAssistant({
 
   const updateAi = (patch: Partial<AiAssistantPreferences>) => {
     requestGeneration.current += 1;
+    modelsActionOwner.current += 1;
+    modelsActionBusy.current = false;
+    testActionOwner.current += 1;
+    testActionBusy.current = false;
     setModelsBusy(false);
     setTestBusy(false);
     setTestOutput("");
@@ -57,6 +99,10 @@ export function useAiAssistant({
 
   const updateToken = (value: string) => {
     requestGeneration.current += 1;
+    modelsActionOwner.current += 1;
+    modelsActionBusy.current = false;
+    testActionOwner.current += 1;
+    testActionBusy.current = false;
     setModelsBusy(false);
     setTestBusy(false);
     setTestOutput("");
@@ -75,13 +121,13 @@ export function useAiAssistant({
       return;
     }
     const generation = requestGeneration.current;
-    await runAsyncAction(
-      {
-        busy: modelsBusy,
-        isCurrent: () => generation === requestGeneration.current,
-        setBusy: setModelsBusy,
-        setError: setModelsStatus,
-      },
+    await runAction(
+      modelsActionBusy,
+      modelsActionOwner,
+      modelsBusy,
+      setModelsBusy,
+      setModelsStatus,
+      generation,
       async (isCurrent) => {
         const available = await client.fetchModels({
           endpoint: ai.endpoint,
@@ -93,10 +139,8 @@ export function useAiAssistant({
         setModelsStatus(`已获取 ${available.length} 个可用模型。`);
         if (available.length && !available.includes(ai.model)) updateAi({ model: available[0] });
       },
-      {
-        formatError: (cause) =>
-          cause instanceof Error ? cause.message : "获取模型失败，请检查地址、密钥和网络。",
-      },
+      (cause) =>
+        cause instanceof Error ? cause.message : "获取模型失败，请检查地址、密钥和网络。",
     );
   };
 
@@ -114,15 +158,16 @@ export function useAiAssistant({
       );
       return;
     }
+    if (testActionBusy.current || testBusy) return;
     const generation = ++requestGeneration.current;
     setTestOutput("");
-    await runAsyncAction(
-      {
-        busy: testBusy,
-        isCurrent: () => generation === requestGeneration.current,
-        setBusy: setTestBusy,
-        setError: setTestStatus,
-      },
+    await runAction(
+      testActionBusy,
+      testActionOwner,
+      testBusy,
+      setTestBusy,
+      setTestStatus,
+      generation,
       async (isCurrent) => {
         const result = await client.test({
           endpoint: ai.endpoint,
@@ -136,10 +181,8 @@ export function useAiAssistant({
         setTestOutput(result);
         setTestStatus("已完成");
       },
-      {
-        formatError: (cause) =>
-          cause instanceof Error ? cause.message : "AI 请求失败，请检查地址、模型、密钥和网络。",
-      },
+      (cause) =>
+        cause instanceof Error ? cause.message : "AI 请求失败，请检查地址、模型、密钥和网络。",
     );
   };
 
