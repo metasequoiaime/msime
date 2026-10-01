@@ -35,6 +35,38 @@ test("clipboard history loads entries and toggles a pin", async () => {
   expect(await screen.findByRole("button", { name: "取消固定剪贴板记录" })).toBeTruthy();
 });
 
+test("ignores a second clipboard mutation while the first is pending", async () => {
+  let resolvePin!: () => void;
+  const setPinned = vi.fn(
+    () =>
+      new Promise<void>((resolve) => {
+        resolvePin = resolve;
+      }),
+  );
+  const list = vi
+    .fn()
+    .mockResolvedValue([{ text: "合成测试", timestampMs: 1_700_000_000_000, pinned: false }]);
+  render(
+    <ClipboardHistorySection
+      client={{ clear: vi.fn(), list, setPinned }}
+      historyEnabled
+      persistedHistoryEnabled
+      revision={1}
+      ios={false}
+      onToggle={vi.fn()}
+      onError={vi.fn()}
+    />,
+  );
+
+  const pin = await screen.findByRole("button", { name: "固定剪贴板记录" });
+  fireEvent.click(pin);
+  fireEvent.click(pin);
+  expect(setPinned).toHaveBeenCalledOnce();
+
+  resolvePin();
+  await waitFor(() => expect(setPinned).toHaveBeenCalledOnce());
+});
+
 test("a clipboard mutation from a replaced client cannot restore stale entries", async () => {
   let resolvePin!: () => void;
   const oldClient = {
