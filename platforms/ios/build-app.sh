@@ -10,6 +10,8 @@ case "$variant" in
   *) echo "Unsupported iOS variant: $variant" >&2; exit 2 ;;
 esac
 
+# The Cantonese and Zhuyin dictionaries pinned by resources/language-dictionaries.lock.json, into target/language-dictionaries where stage-resources.sh looks for them. Until a release is pinned the script prints a skipped line and fetches nothing.
+python3 "$repo_root/scripts/fetch_language_dictionaries.py" >/dev/null
 bash "$repo_root/platforms/ios/stage-resources.sh" "$resource_dir"
 bash "$repo_root/platforms/ios/build-native.sh" "$variant"
 

@@ -4,7 +4,7 @@ umask 077
 
 repo_root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$repo_root"
-source_dir=${1:?usage: stage-resources.sh <verified-resource-directory> [offline-glosses-directory]}
+source_dir=${1:?usage: stage-resources.sh <verified-resource-directory> [offline-glosses-directory] [language-dictionaries-directory]}
 source_dir=$(cd "$source_dir" && pwd)
 destination="$repo_root/target/ios/EngineResources"
 artifacts=$(cargo run --quiet -p msime-client-core --example verify_resources --locked -- "$source_dir")
@@ -34,5 +34,31 @@ if compgen -G "$glosses_source/zh-*.db" >/dev/null && [ -f "$glosses_source/offl
   echo "offline glosses staged: $glosses_destination"
 else
   echo "no offline glosses at $glosses_source; candidates are glossed offline in English only"
+fi
+# Optional: the Cantonese and Zhuyin dictionaries fetched by scripts/fetch_language_dictionaries.py (or built by `msime-dict-build languages`), as on macOS. host-api finds them in language-dictionaries/ beside EngineResources and names them in the runtime options; the keyboard leaves an enabled scheme whose dictionary is missing out of its picker. The directory is always created, empty when there are none, since the keyboard target bundles it as a folder. Each dictionary is staged only with its licence text, which must travel with the data.
+languages_source=${3:-$repo_root/target/language-dictionaries}
+languages_destination="$repo_root/target/ios/language-dictionaries"
+rm -rf "$languages_destination"
+mkdir -p "$languages_destination"
+staged_languages=()
+for pair in cantonese.db:rime_cantonese_LICENSE.txt zhuyin.db:libchewing_data_LICENSE.txt; do
+  database=${pair%%:*}
+  license=${pair#*:}
+  [ -f "$languages_source/$database" ] || continue
+  if [ ! -f "$languages_source/$license" ]; then
+    echo "$languages_source/$database has no $license beside it; refusing to ship the data without its licence" >&2
+    exit 1
+  fi
+  cp "$languages_source/$database" "$languages_source/$license" "$languages_destination/"
+  staged_languages+=("$database")
+done
+if [ "${#staged_languages[@]}" -gt 0 ]; then
+  echo "language dictionaries staged (${staged_languages[*]}): $languages_destination"
+else
+  echo "no language dictionaries at $languages_source; Cantonese and Zhuyin stay unavailable"
+fi
+if [ "${MSIME_REQUIRE_LANGUAGE_DICTIONARIES:-0}" = 1 ] && [ "${#staged_languages[@]}" -ne 2 ]; then
+  echo "MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 but cantonese.db and zhuyin.db were not both staged from $languages_source" >&2
+  exit 1
 fi
 echo "iOS resources staged from the pinned dictionary release: $destination"
