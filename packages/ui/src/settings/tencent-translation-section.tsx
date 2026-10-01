@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 import { SecretInput } from "../core/secret-input";
 import { Row, Switch } from "../core/platform-controls";
 import * as settings from "./settings-style";
-import { SettingToggle } from "./setting-toggle";
 
 export interface TencentTranslationSectionProps {
   enabled: boolean;

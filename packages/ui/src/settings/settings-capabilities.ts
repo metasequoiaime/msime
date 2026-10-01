@@ -19,7 +19,6 @@ export function settingsCapabilities({
   host,
   linux,
   android,
-  ios,
   harmony,
   windows,
   macos,

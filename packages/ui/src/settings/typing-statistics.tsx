@@ -17,9 +17,7 @@ import {
 } from "./typing-speed";
 export type { TypingBreakdown } from "./typing-speed";
 import {
-  dayKey,
   dayLabel,
-  addDays,
   currentStreak,
   formatActiveTime,
   longestStreak,

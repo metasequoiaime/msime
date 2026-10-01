@@ -1,7 +1,6 @@
 import { Checks } from "../core/platform-controls";
 import * as settings from "./settings-style";
 import type { NavigationPreferences, WordCharacterPreferences } from "./word-character-section";
-import { SettingCheck } from "./setting-check";
 
 export const defaultNavigation: NavigationPreferences = {
   minus_equal: true,

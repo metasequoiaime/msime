@@ -3,7 +3,7 @@ import { SkinCandidatePreview } from "./skin-candidate-preview";
 import { SkinToolbarPreview } from "./skin-toolbar-preview";
 import { useSkinImage, type SkinImageReader } from "./skin-image";
 import type { SkinFontReader } from "./skin-font";
-import { selectedBarCss, useSelectedBarPalette } from "./skin-palette";
+import { useSelectedBarPalette } from "./skin-palette";
 export { selectedBarCss } from "./skin-palette";
 import { useToolbarCss, type ToolbarCssReader } from "./use-toolbar-css";
 import * as settings from "../settings/settings-style";

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render } from "@testing-library/react";
 import { SettingsPage, type HostCapabilities, type Snapshot } from "@msime/ui";
 
 afterEach(() => {

@@ -1986,14 +1986,7 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
     weight: number;
   } | null>(null);
   const [notice, setNotice] = useState("管理当前账号的云端词条");
-  const {
-    busy,
-    busyRef,
-    revisionRef: refreshRevision,
-    run,
-    invalidate,
-    isCurrent,
-  } = usePanelAction(setNotice);
+  const { busy, busyRef, run, invalidate, isCurrent } = usePanelAction(setNotice);
   const searchRef = useRef("");
 
   async function load(
@@ -2943,14 +2936,7 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
     weight: number;
   } | null>(null);
   const [notice, setNotice] = useState("查询基础词库与当前账号的完整目录");
-  const {
-    busy,
-    busyRef,
-    revisionRef: requestRevision,
-    run,
-    invalidate,
-    isCurrent,
-  } = usePanelAction(setNotice);
+  const { busy, busyRef, run, invalidate, isCurrent } = usePanelAction(setNotice);
 
   useEffect(() => {
     invalidate();
@@ -3298,14 +3284,7 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
   const [context, setContext] = useState("");
   const [revision, setRevision] = useState(0);
   const [notice, setNotice] = useState("仅在点击查询时发送编码；修改只保存到当前账号");
-  const {
-    busy,
-    busyRef,
-    revisionRef: requestRevision,
-    run,
-    invalidate,
-    isCurrent,
-  } = usePanelAction(setNotice);
+  const { busy, busyRef, run, invalidate, isCurrent } = usePanelAction(setNotice);
   const textRef = useRef("");
 
   useEffect(() => {

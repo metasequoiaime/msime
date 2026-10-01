@@ -339,14 +339,6 @@ import { useAiAssistant } from "./settings/use-ai-assistant";
 export { useAiAssistant, type UseAiAssistantOptions } from "./settings/use-ai-assistant";
 import type { FontCatalogReader } from "./candidate/font-catalog";
 import {
-  isPolishCustomSlot,
-  normalizePolishSlot,
-  polishPromptFor,
-  polishPresetPrompt,
-  polishSlotField,
-} from "./voice/polish-presets";
-import {
-  customThemeBase,
   type CustomTheme,
   type GlobalTheme,
   type ResolveThemeRequest,
@@ -385,7 +377,6 @@ export {
 import {
   type AiSkinClient,
   type CustomSkinLibraryClient,
-  type TouchKeyboardSkinDesign,
 } from "./keyboard/touch-keyboard-skin-design";
 export type {
   AiSkinClient,
@@ -444,20 +435,15 @@ import { HelpcodeSettingsPage } from "./settings/pages/helpcode-page";
 import type { CustomHelpcodeSchema, HelpcodePreferences } from "./settings/pages/helpcode-page";
 import type { ClipboardHistoryClient } from "./settings/clipboard-history-section";
 import type { CloudClipboardRequest } from "./settings/cloud-clipboard-send";
-import { defaultFuzzyPinyin, type FuzzyPinyinPreferences } from "./settings/fuzzy-pinyin-section";
-import {
-  defaultWordCharacter,
-  type NavigationPreferences,
-} from "./settings/word-character-section";
-import { defaultMixedInput, type MixedInputPreferences } from "./settings/mixed-input-section";
-import { defaultFrequency, type FrequencyPreferences } from "./settings/frequency-section";
-import { defaultLocalModes, type LocalModePreferences } from "./settings/local-modes-section";
+import { type FuzzyPinyinPreferences } from "./settings/fuzzy-pinyin-section";
+import { type NavigationPreferences } from "./settings/word-character-section";
+import { type MixedInputPreferences } from "./settings/mixed-input-section";
+import { type FrequencyPreferences } from "./settings/frequency-section";
+import { type LocalModePreferences } from "./settings/local-modes-section";
 import { floatingToolbarPreferences } from "./settings/floating-toolbar-preferences";
-import { defaultKeybindings } from "./settings/keybinding-defaults";
 import type { SurfaceTheme, ThemeMode } from "./settings/theme-settings-section";
 import type { TouchToolbarPreferences } from "./settings/touch-keyboard-geometry-section";
 import { HelpSettingsPage } from "./settings/help-settings-page";
-import { VoiceCredentialControl } from "./settings/voice-credential-control";
 import type { MobileKeyboardFeedbackClient } from "./settings/mobile-keyboard-feedback-section";
 import { HandwritingSettingsPage } from "./settings/pages/handwriting-page";
 import { FeedbackSettingsPage } from "./settings/pages/feedback-page";

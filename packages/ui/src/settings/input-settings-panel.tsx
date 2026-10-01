@@ -2,7 +2,6 @@ import type { Dispatch, SetStateAction } from "react";
 import type { Preferences, ProviderCredentialStatus, SettingsClient } from "../index";
 import type { useProviderCredentials } from "./use-provider-credentials";
 import type { useTranslationSettings } from "./use-translation-settings";
-import type { useCustomTranslations } from "./use-custom-translations";
 import type { SettingsSaveState } from "./use-settings-persistence";
 import { HandwritingPlatformNotice } from "./handwriting-platform-notice";
 import { MobileInputAiNotice } from "./mobile-input-ai-notice";
@@ -13,16 +12,14 @@ import type { TouchKeyboardScheme as TouchKeyboardSchemePreference } from "./tou
 import { TranslationSettingsContent } from "./translation-settings-content";
 import { createTranslationSettingsBindings } from "./translation-settings-bindings";
 import { type TranslationProvider } from "./translation-service-selector-section";
-import { defaultWordCharacter } from "./word-character-section";
-import { FuzzyPinyinSection, defaultFuzzyPinyin } from "./fuzzy-pinyin-section";
+import { FuzzyPinyinSection } from "./fuzzy-pinyin-section";
 import { PunctuationSection } from "./punctuation-section";
-import { defaultMixedInput, type MixedInputPreferences } from "./mixed-input-section";
-import { defaultFrequency } from "./frequency-section";
+import { type MixedInputPreferences } from "./mixed-input-section";
 import { InputSharedSettingsSection } from "./input-shared-settings-section";
 import type { MobileKeyboardFeedback } from "./mobile-keyboard-feedback-section";
 import type { FuzzyPinyinPreferences } from "./fuzzy-pinyin-section";
 import type { FrequencyPreferences } from "./frequency-section";
-import type { NavigationPreferences, WordCharacterPreferences } from "./word-character-section";
+import type { WordCharacterPreferences } from "./word-character-section";
 import { createSettingsDraftActions } from "./settings-draft-actions";
 
 export interface InputSettingsPanelProps {

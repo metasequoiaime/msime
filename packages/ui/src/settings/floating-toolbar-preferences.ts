@@ -1,4 +1,4 @@
-import type { FloatingToolbarPreferences, Preferences } from "../index";
+import type { FloatingToolbarPreferences } from "../index";
 import { defaultFloatingToolbar } from "./floating-toolbar-defaults";
 
 export type FloatingToolbarPreferencesSource = {

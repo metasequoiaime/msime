@@ -75,4 +75,3 @@ export function WordCharacterSection({
     </>
   );
 }
-import { SettingToggle } from "./setting-toggle";

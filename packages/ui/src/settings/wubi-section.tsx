@@ -53,4 +53,3 @@ export function WubiSection({
     </>
   );
 }
-import { SettingToggle } from "./setting-toggle";

@@ -26,4 +26,3 @@ export function InputModeHudSection({
     </Row>
   );
 }
-import { SettingToggle } from "./setting-toggle";

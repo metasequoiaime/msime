@@ -6,7 +6,6 @@ import {
   localModelLanguages,
   localModelProgressPercent,
   localModelStageLabel,
-  validModelMirror,
   visibleLocalModels,
 } from "./local-model-helpers";
 export {

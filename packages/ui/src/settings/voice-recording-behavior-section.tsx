@@ -51,4 +51,3 @@ export function VoiceRecordingBehaviorSection({
     </GroupList>
   );
 }
-import { SettingToggle } from "./setting-toggle";

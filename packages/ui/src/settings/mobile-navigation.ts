@@ -1,8 +1,4 @@
-import {
-  mobilePrimaryPageIds,
-  mobileTabForPage,
-  type MobilePrimaryPageId,
-} from "./settings-navigation-helpers";
+import { mobilePrimaryPageIds, type MobilePrimaryPageId } from "./settings-navigation-helpers";
 
 export {
   mobilePrimaryPageIds,
