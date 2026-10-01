@@ -119,24 +119,47 @@ pub fn execute(bytes: &[u8]) -> Result<Value, &'static str> {
         };
         match request.action {
             Action::Lookup => {
-                let learned = msime_engine::host::candidate_glosses_with_user(
-                    "",
-                    &request.directory,
-                    &[(key, if chinese { 0 } else { 4 })],
-                )
-                .ok()
-                .and_then(|values| values.into_iter().next())
-                .filter(|text| !text.is_empty());
-                if let Some(translation) = learned {
-                    translations.push(json!({"text":item.text,"translation":translation}));
-                    continue;
-                }
-                match legacy.lookup(&request.target_language, item.direction, &item.text) {
-                    Ok(Some(translation)) => {
-                        translations.push(json!({"text":item.text,"translation":translation}))
+                // The glossary is keyed by the text a gloss was learned for, which is almost always Simplified, so a Traditional candidate - a Korean Hanja such as 韓, or any candidate under Traditional output - is looked up again under its Simplified characters when its own spelling finds nothing. The reply still names the candidate as shown.
+                let mut keys = vec![key];
+                if chinese {
+                    let simplified =
+                        msime_client_core::chinese_conversion::traditional_to_simplified_characters(
+                            &item.text,
+                        );
+                    if simplified != item.text {
+                        keys.push(simplified);
                     }
-                    Ok(None) | Err(GlossStoreError::InvalidRecord) => {}
-                    Err(_) => return Err("learned translation storage unavailable"),
+                }
+                let mut found = None;
+                for key in keys {
+                    let learned = msime_engine::host::candidate_glosses_with_user(
+                        "",
+                        &request.directory,
+                        &[(key.clone(), if chinese { 0 } else { 4 })],
+                    )
+                    .ok()
+                    .and_then(|values| values.into_iter().next())
+                    .filter(|text| !text.is_empty());
+                    if learned.is_some() {
+                        found = learned;
+                        break;
+                    }
+                    let legacy_key = if chinese {
+                        key.as_str()
+                    } else {
+                        item.text.as_str()
+                    };
+                    match legacy.lookup(&request.target_language, item.direction, legacy_key) {
+                        Ok(Some(translation)) => {
+                            found = Some(translation);
+                            break;
+                        }
+                        Ok(None) | Err(GlossStoreError::InvalidRecord) => {}
+                        Err(_) => return Err("learned translation storage unavailable"),
+                    }
+                }
+                if let Some(translation) = found {
+                    translations.push(json!({"text":item.text,"translation":translation}));
                 }
             }
             Action::Remember => {
@@ -211,6 +234,31 @@ mod tests {
         );
         read["target_language"] = json!("fr");
         assert_eq!(run(&read).unwrap()["translations"], json!([]));
+    }
+    #[test]
+    fn a_traditional_candidate_finds_the_gloss_learned_for_its_simplified_form() {
+        let root = tempfile::tempdir().unwrap();
+        let write = request(
+            root.path(),
+            "remember",
+            json!([
+            {"text":"韩","direction":"chinese_to_english","translation":"Han"},
+            {"text":"寒","direction":"chinese_to_english","translation":"Cold"}]),
+        );
+        assert_eq!(run(&write).unwrap()["saved"], 2);
+        let read = request(
+            root.path(),
+            "lookup",
+            json!([
+            {"text":"韓","direction":"chinese_to_english"},
+            {"text":"寒","direction":"chinese_to_english"},
+            {"text":"閑","direction":"chinese_to_english"}]),
+        );
+        // 韓 is answered under 韩 and named as shown; 寒 is the same in both scripts; 閑 has nothing learned under either spelling.
+        assert_eq!(
+            run(&read).unwrap()["translations"],
+            json!([{"text":"韓","translation":"Han"},{"text":"寒","translation":"Cold"}])
+        );
     }
     #[test]
     fn malformed_batch_never_partially_writes() {
