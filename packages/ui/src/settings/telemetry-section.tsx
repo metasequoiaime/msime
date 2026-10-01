@@ -1,4 +1,5 @@
-import { GroupList, Row, Switch } from "../core/platform-controls";
+import { GroupList } from "../core/platform-controls";
+import { SwitchRow } from "./switch-row";
 
 export interface TelemetrySectionProps {
   /** `usage_reporting`; an absent value means on, the default. */
@@ -14,9 +15,12 @@ export const usageReportingDescription =
 export function TelemetrySection({ value, onChange }: TelemetrySectionProps) {
   return (
     <GroupList title="隐私">
-      <Row title="匿名使用统计" description={usageReportingDescription}>
-        <Switch checked={value ?? true} onChange={onChange} />
-      </Row>
+      <SwitchRow
+        title="匿名使用统计"
+        description={usageReportingDescription}
+        checked={value ?? true}
+        onChange={onChange}
+      />
     </GroupList>
   );
 }

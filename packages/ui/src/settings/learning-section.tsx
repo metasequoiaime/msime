@@ -1,4 +1,4 @@
-import { Row, Switch } from "../core/platform-controls";
+import { SwitchRow } from "./switch-row";
 
 export interface LearningSectionProps {
   value: boolean;
@@ -8,8 +8,11 @@ export interface LearningSectionProps {
 /** Learning preference switch shared by hosts that expose the input settings page: one row of the 选词 group. */
 export function LearningSection({ value, onChange }: LearningSectionProps) {
   return (
-    <Row title="学习选词习惯" description="根据选词调整候选顺序">
-      <Switch checked={value} onChange={onChange} />
-    </Row>
+    <SwitchRow
+      title="学习选词习惯"
+      description="根据选词调整候选顺序"
+      checked={value}
+      onChange={onChange}
+    />
   );
 }

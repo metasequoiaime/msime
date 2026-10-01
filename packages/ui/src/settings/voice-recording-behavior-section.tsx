@@ -1,5 +1,6 @@
-import { GroupList, Row, Switch } from "../core/platform-controls";
+import { GroupList } from "../core/platform-controls";
 import * as settings from "./settings-style";
+import { SwitchRow } from "./switch-row";
 
 export interface VoiceRecordingBehaviorSectionProps {
   linux: boolean;
@@ -32,22 +33,30 @@ export function VoiceRecordingBehaviorSection({
           ? "这些选项会随请求传给用户管理的语音服务，不包含凭据"
           : "录音期间的提示音与静音由输入法在本机处理"}
       </p>
-      <Row title="语音提示音">
-        <Switch aria-label="语音提示音" checked={soundEnabled} onChange={onSoundEnabledChange} />
-      </Row>
-      <Row title="开始录音提示音">
-        <Switch aria-label="开始录音提示音" checked={startSound} onChange={onStartSoundChange} />
-      </Row>
-      <Row title="结束录音提示音">
-        <Switch aria-label="结束录音提示音" checked={endSound} onChange={onEndSoundChange} />
-      </Row>
-      <Row title="录音时静音其他声音">
-        <Switch
-          aria-label="录音时静音其他声音"
-          checked={muteSystemAudio}
-          onChange={onMuteSystemAudioChange}
-        />
-      </Row>
+      <SwitchRow
+        title="语音提示音"
+        aria-label="语音提示音"
+        checked={soundEnabled}
+        onChange={onSoundEnabledChange}
+      />
+      <SwitchRow
+        title="开始录音提示音"
+        aria-label="开始录音提示音"
+        checked={startSound}
+        onChange={onStartSoundChange}
+      />
+      <SwitchRow
+        title="结束录音提示音"
+        aria-label="结束录音提示音"
+        checked={endSound}
+        onChange={onEndSoundChange}
+      />
+      <SwitchRow
+        title="录音时静音其他声音"
+        aria-label="录音时静音其他声音"
+        checked={muteSystemAudio}
+        onChange={onMuteSystemAudioChange}
+      />
     </GroupList>
   );
 }

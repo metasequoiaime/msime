@@ -1,7 +1,8 @@
-import { GroupList, Row, Switch } from "../core/platform-controls";
+import { GroupList, Row } from "../core/platform-controls";
 import { ASR_PROVIDER_OPTIONS } from "../voice/voice-provider-options";
 import { VoiceLanguageOptions } from "../voice/voice-language-options";
 import { VoiceProviderSelect } from "./voice-provider-select";
+import { SwitchRow } from "./switch-row";
 
 export interface VoiceInputCoreSectionProps {
   enabled: boolean;
@@ -39,9 +40,13 @@ export function VoiceInputCoreSection({
 }: VoiceInputCoreSectionProps) {
   return (
     <GroupList title="识别">
-      <Row title="语音输入" description="使用语音识别将录音转换为文字">
-        <Switch aria-label="启用语音输入" checked={enabled} onChange={onEnabledChange} />
-      </Row>
+      <SwitchRow
+        title="语音输入"
+        description="使用语音识别将录音转换为文字"
+        aria-label="启用语音输入"
+        checked={enabled}
+        onChange={onEnabledChange}
+      />
       {showProviderSettings && (
         <Row title="识别服务">
           <VoiceProviderSelect
