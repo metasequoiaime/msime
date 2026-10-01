@@ -44,6 +44,31 @@ if compgen -G "$glosses_source/zh-*.db" >/dev/null && [ -f "$glosses_source/offl
 else
   echo "no offline glosses at $glosses_source; candidates are glossed offline in English only"
 fi
+# Optional Cantonese and Zhuyin dictionaries fetched by scripts/fetch_language_dictionaries.py (or built by `msime-dict-build languages`), as on macOS, iOS and HarmonyOS. Bootstrap extracts them to language-dictionaries/ beside the resources, where host-api finds them and names them in the runtime options; the keyboard and the settings page leave a scheme whose dictionary is missing out. Each dictionary is packaged only with its licence text, which must travel with the data.
+languages_source=${MSIME_LANGUAGE_DICTIONARIES:-$repo_root/target/language-dictionaries}
+rm -rf "$assets/language-dictionaries"
+staged_languages=()
+for pair in cantonese.db:rime_cantonese_LICENSE.txt zhuyin.db:libchewing_data_LICENSE.txt; do
+  database=${pair%%:*}
+  license=${pair#*:}
+  [ -f "$languages_source/$database" ] || continue
+  if [ ! -f "$languages_source/$license" ]; then
+    echo "$languages_source/$database has no $license beside it; refusing to ship the data without its licence" >&2
+    exit 1
+  fi
+  mkdir -p "$assets/language-dictionaries"
+  cp "$languages_source/$database" "$languages_source/$license" "$assets/language-dictionaries/"
+  staged_languages+=("$database")
+done
+if [ "${#staged_languages[@]}" -gt 0 ]; then
+  echo "language dictionaries packaged (${staged_languages[*]}) from $languages_source"
+else
+  echo "no language dictionaries at $languages_source; Cantonese and Zhuyin stay unavailable"
+fi
+if [ "${MSIME_REQUIRE_LANGUAGE_DICTIONARIES:-0}" = 1 ] && [ "${#staged_languages[@]}" -ne 2 ]; then
+  echo "MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 but cantonese.db and zhuyin.db were not both packaged from $languages_source" >&2
+  exit 1
+fi
 
 gradle_dir="$repo_root/platforms/android/gradle-app"
 tauri_gradlew="$repo_root/apps/desktop/src-tauri/gen/android/gradlew"
@@ -66,5 +91,13 @@ fi
   --out target/android/msime-client.apk "$repo_root/target/android/aligned.apk"
 "$tools_dir/apksigner" verify --verbose target/android/msime-client.apk
 "$tools_dir/zipalign" -c -P 16 4 target/android/msime-client.apk
+# The package is only worth shipping if it carries each dictionary staged above, beside its licence (a release, MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1, has already refused to stage fewer than both).
+apk_entries=$(unzip -Z1 target/android/msime-client.apk)
+for pair in cantonese.db:rime_cantonese_LICENSE.txt zhuyin.db:libchewing_data_LICENSE.txt; do
+  [ -f "$assets/language-dictionaries/${pair%%:*}" ] || continue
+  for entry in "${pair%%:*}" "${pair#*:}"; do
+    grep -qxF "assets/language-dictionaries/$entry" <<< "$apk_entries" || { echo "target/android/msime-client.apk has no assets/language-dictionaries/$entry although it was staged" >&2; exit 1; }
+  done
+done
 rm -f "$repo_root/target/android/aligned.apk"
 echo "Development APK built: $repo_root/target/android/msime-client.apk; not installed or device-verified"

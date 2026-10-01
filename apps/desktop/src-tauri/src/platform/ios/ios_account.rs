@@ -26,7 +26,7 @@ use std::collections::HashMap;
 #[cfg(target_os = "ios")]
 use serde_json::Value;
 
-#[cfg(target_os = "ios")]
+#[cfg(any(target_os = "ios", test))]
 mod account_preferences;
 
 #[cfg(target_os = "ios")]

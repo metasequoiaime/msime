@@ -50,6 +50,12 @@ export function InputSchemeSettingsContent({
   onMacosWubiAutoCommitUniqueChange,
 }: InputSchemeSettingsContentProps) {
   const chineseSchemes = isChineseScheme(preferences.scheme);
+  // The Cantonese, Zhuyin and Vietnamese touch keyboards type their own input scheme, so they are offered only where the host offers that scheme (Cantonese and Zhuyin also need their installed dictionary).
+  const touchOptions = touchKeyboardSchemeOptions.filter(
+    ([scheme]) =>
+      (scheme !== "cantonese" && scheme !== "zhuyin" && scheme !== "vietnamese") ||
+      inputSchemes.includes(scheme),
+  );
   const content = (
     <>
       {!grouped && !hasTouchKeyboardSchemes && (
@@ -71,7 +77,7 @@ export function InputSchemeSettingsContent({
       )}
       {hasTouchKeyboardSchemes && (
         <TouchKeyboardSchemesSection
-          options={touchKeyboardSchemeOptions}
+          options={touchOptions}
           enabled={touchKeyboardSchemes.enabled}
           selected={selectedTouchKeyboardScheme}
           onSelect={(scheme) => onSelectTouchKeyboardScheme(scheme as TouchKeyboardScheme)}

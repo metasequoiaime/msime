@@ -2,7 +2,7 @@ import Foundation
 import Darwin
 
 enum TypingSource: String, CaseIterable {
-  case quanpin, nineKey, shuangpin, ziranma, microsoft, shoudao, wubi, japanese, korean, handwriting, english, local, ai, reply, voice, unknown
+  case quanpin, nineKey, shuangpin, ziranma, microsoft, shoudao, wubi, japanese, korean, cantonese, zhuyin, vietnamese, handwriting, english, local, ai, reply, voice, unknown
   var title: String {
     switch self {
     case .quanpin: "全拼 26 键"
@@ -14,6 +14,9 @@ enum TypingSource: String, CaseIterable {
     case .wubi: "86 五笔"
     case .japanese: "日语"
     case .korean: "韩语"
+    case .cantonese: "粤语"
+    case .zhuyin: "注音"
+    case .vietnamese: "越南语"
     case .handwriting: "手写"
     case .english: "英文键盘"
     case .local: "本地输入"

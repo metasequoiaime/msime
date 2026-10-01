@@ -1,5 +1,4 @@
-import { ModelSelect } from "./model-select";
-import { SettingField } from "./setting-field";
+import { ModelSettingField } from "./model-setting-field";
 import { SettingActionHeader } from "./setting-action-header";
 
 export function AiModelCatalogSection({
@@ -30,15 +29,14 @@ export function AiModelCatalogSection({
         </button>
       </SettingActionHeader>
       {models && models.length > 0 && (
-        <SettingField label="已获取模型">
-          <ModelSelect
-            models={models}
-            model={selectedModel}
-            ariaLabel="已获取的 AI 模型"
-            emptyLabel="选择模型…"
-            onSelect={onSelect}
-          />
-        </SettingField>
+        <ModelSettingField
+          label="已获取模型"
+          inputLabel="已获取的 AI 模型"
+          models={models}
+          model={selectedModel}
+          emptyLabel="选择模型…"
+          onSelect={onSelect}
+        />
       )}
       {status && <p role="status">{status}</p>}
     </div>

@@ -251,7 +251,7 @@ final class NineKeyKeyboardTests: XCTestCase {
       InputSchemePreference.scheme = previousScheme
     }
     defaults.removeObject(forKey: InputSchemePreference.enabledSchemesKey)
-    XCTAssertEqual(InputSchemePreference.enabledSchemes, ChineseInputScheme.allCases)
+    XCTAssertEqual(InputSchemePreference.enabledSchemes, ChineseInputScheme.allCases.filter { !ChineseInputScheme.optInSchemes.contains($0) })
     InputSchemePreference.scheme = .japanese
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
@@ -1254,7 +1254,15 @@ final class NineKeyKeyboardTests: XCTestCase {
         for symbols in [false, true] {
           if symbols { try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered) }
           controller.view.layoutIfNeeded()
-          XCTAssertEqual(try button("returnKey", in: controller).bounds.height, reference, accuracy: 0.5)
+          if scheme == .zhuyin && !symbols {
+            // The Dachen layout fits four rows of keys above the action row into the same keyboard height, as the system Zhuyin keyboard does, so its rows are shorter than the three letter rows and all of them stay the same height.
+            let returnHeight = try button("returnKey", in: controller).bounds.height
+            XCTAssertLessThan(returnHeight, reference)
+            XCTAssertGreaterThanOrEqual(returnHeight, 30)
+            XCTAssertEqual(try button("zhuyinKeyq", in: controller).bounds.height, returnHeight, accuracy: 0.5)
+          } else {
+            XCTAssertEqual(try button("returnKey", in: controller).bounds.height, reference, accuracy: 0.5)
+          }
           XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, 260 + KeyboardViewController.stripExtraHeight)
           if !symbols && [.nineKey, .quanpin].contains(scheme) {
             let selector = try button("schemeButton", in: controller)
@@ -1277,7 +1285,7 @@ final class NineKeyKeyboardTests: XCTestCase {
           let punctuation = try button("quickPunctuationKey", in: controller)
           XCTAssertEqual(punctuation.isHidden, symbols || [.nineKey, .japaneseNineKey, .handwriting].contains(scheme))
           if !punctuation.isHidden {
-            XCTAssertEqual(punctuation.configuration?.title, scheme.isJapanese ? "、" : scheme.isKorean ? "," : "，")
+            XCTAssertEqual(punctuation.configuration?.title, scheme.isJapanese ? "、" : scheme.writesAsciiPunctuation ? "," : "，")
             XCTAssertEqual(punctuation.bounds.width, 44, accuracy: 0.5)
             XCTAssertGreaterThanOrEqual(try button("spaceKey", in: controller).bounds.width, 79.2)
             XCTAssertEqual(punctuation.menu?.children.count, 7)
@@ -1285,7 +1293,7 @@ final class NineKeyKeyboardTests: XCTestCase {
           // The Japanese nine-key owns its delete key inside the kana grid, including its digit
           // layer; the shared action-row delete remains hidden in both states.
           XCTAssertEqual(try button("symbolDeleteKey", in: controller).isHidden, !symbols || scheme == .japaneseNineKey)
-          if !symbols && ![.nineKey, .japaneseNineKey, .handwriting].contains(scheme) {
+          if !symbols && ![.nineKey, .japaneseNineKey, .handwriting, .zhuyin].contains(scheme) {
             let delete = try button("letterDeleteKey", in: controller)
             let shift = try button("shiftButton", in: controller)
             // Korean keys are named by the jamo they type.
@@ -1772,7 +1780,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     let nine = try button("nineKey6", in: controller)
     XCTAssertFalse(try XCTUnwrap(nine.superview).isHidden)
     try button("schemeButton", in: controller).sendActions(for: .primaryActionTriggered)
-    XCTAssertEqual(descendants(controller.view).filter { $0.accessibilityIdentifier?.hasPrefix("schemeCard-") == true }.count, InputSchemePreference.enabledSchemes.count)
+    XCTAssertEqual(descendants(controller.view).filter { $0.accessibilityIdentifier?.hasPrefix("schemeCard-") == true }.count, InputSchemePreference.offeredSchemes.count)
     try button("closeSchemePicker", in: controller).sendActions(for: .primaryActionTriggered)
     for digit in "64426" {
       try button("nineKey\(digit)", in: controller).sendActions(for: .primaryActionTriggered)

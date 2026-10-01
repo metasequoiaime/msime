@@ -299,7 +299,7 @@ struct DictionarySettingsView: View {
       }
       Section("已安装词库") {
         Label("内置离线多方案词库", systemImage: "checkmark.circle.fill")
-        Text("支持全拼 26 键、全拼 9 键、小鹤／自然码／微软／首道双拼、86 五笔、日语罗马字和韩语两套式；提供英文补全、快捷短语、表情及颜文字。")
+        Text("支持全拼 26 键、全拼 9 键、小鹤／自然码／微软／首道双拼、86 五笔、日语罗马字、韩语两套式、粤拼、大千注音（繁体输出）和越南语 Telex／VNI；粤拼和注音需要安装包里带有对应的语言词库，默认不启用，可在方案设置里打开；提供英文补全、快捷短语、表情及颜文字。")
           .foregroundStyle(.secondary)
         HStack {
           Text("更新方式")
@@ -324,7 +324,7 @@ struct DictionarySettingsView: View {
         Label("长按候选词", systemImage: "hand.tap")
         Text("全拼 26 键、九键、双拼和五笔支持长按候选词：优先显示、固定到前五位中的某一位、取消固定或删除词条。删除需要再次确认，单个汉字由引擎保护。")
           .foregroundStyle(.secondary)
-        Text("日语、韩语和本地工具暂不支持候选词管理。第三方词库文件（词在前、编码在前或 Rime 格式）在「个人词库」的「导入个人词库」里导入。")
+        Text("日语、韩语、粤拼、注音、越南语和本地工具暂不支持候选词管理。第三方词库文件（词在前、编码在前或 Rime 格式）在「个人词库」的「导入个人词库」里导入。")
           .foregroundStyle(.secondary)
       }
     }

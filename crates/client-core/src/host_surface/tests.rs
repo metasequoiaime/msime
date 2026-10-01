@@ -343,12 +343,15 @@ fn capabilities_round_trip_and_reject_unknown_keys() {
 }
 
 #[test]
-fn only_the_desktop_hosts_offer_cantonese_zhuyin_and_vietnamese() {
+fn every_host_offers_cantonese_zhuyin_and_vietnamese() {
     use crate::preferences::InputScheme;
     for platform in [
         HostPlatform::Macos,
         HostPlatform::Windows,
         HostPlatform::Linux,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
     ] {
         let schemes = HostCapabilities::for_platform(platform).input_schemes;
         assert_eq!(schemes.len(), 8, "{platform:?}");
@@ -357,26 +360,8 @@ fn only_the_desktop_hosts_offer_cantonese_zhuyin_and_vietnamese() {
             InputScheme::Zhuyin,
             InputScheme::Vietnamese,
         ] {
-            assert!(schemes.contains(&scheme), "{platform:?}");
+            assert!(schemes.contains(&scheme), "{platform:?} {scheme:?}");
         }
-    }
-    for platform in [
-        HostPlatform::Android,
-        HostPlatform::Ios,
-        HostPlatform::Harmony,
-    ] {
-        let schemes = HostCapabilities::for_platform(platform).input_schemes;
-        assert_eq!(
-            schemes,
-            [
-                InputScheme::Quanpin,
-                InputScheme::Shuangpin,
-                InputScheme::Wubi,
-                InputScheme::Japanese,
-                InputScheme::Korean,
-            ],
-            "{platform:?}"
-        );
     }
 }
 
@@ -391,18 +376,28 @@ fn capabilities_without_input_schemes_offer_the_base_five() {
     let decoded: HostCapabilities = serde_json::from_value(document).expect("deserializes");
     assert_eq!(
         decoded.input_schemes,
-        HostCapabilities::for_platform(HostPlatform::Android).input_schemes
+        [
+            InputScheme::Quanpin,
+            InputScheme::Shuangpin,
+            InputScheme::Wubi,
+            InputScheme::Japanese,
+            InputScheme::Korean,
+        ]
     );
 }
 
 #[test]
 fn a_build_compiles_the_schemes_its_platform_offers() {
-    // macOS, Windows and desktop Linux compile all eight; every other target the base five. HarmonyOS builds for `target_os = "linux"` and still compiles five.
+    // Every target compiles all eight.
     let platform = if cfg!(target_os = "macos") {
         HostPlatform::Macos
-    } else if cfg!(target_os = "windows") {
-        HostPlatform::Windows
-    } else if cfg!(all(target_os = "linux", not(target_env = "ohos"))) {
+    } else if cfg!(target_os = "android") {
+        HostPlatform::Android
+    } else if cfg!(target_os = "ios") {
+        HostPlatform::Ios
+    } else if cfg!(target_env = "ohos") {
+        HostPlatform::Harmony
+    } else if cfg!(target_os = "linux") {
         HostPlatform::Linux
     } else {
         HostPlatform::Windows

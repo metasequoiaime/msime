@@ -5,6 +5,8 @@
  * Java spells this as an enum carrying fields. ArkTS enums hold only a value, so each scheme is a
  * frozen record and SCHEMES preserves the declaration order the Apple hosts also rely on.
  */
+import { SchemeTraits } from "./SchemeTraits";
+
 export interface SchemeDefinition {
   readonly id: string;
   readonly preferenceId: string;
@@ -124,6 +126,36 @@ const KOREAN: SchemeDefinition = {
   glyph: "한",
   badge: "26",
 };
+const CANTONESE: SchemeDefinition = {
+  id: "CANTONESE",
+  preferenceId: "cantonese",
+  engineScheme: "cantonese",
+  shuangpinProfile: null,
+  touchKeyboardLayout: "twenty_six_key",
+  title: "粤拼 26 键",
+  glyph: "粤",
+  badge: "26",
+};
+const ZHUYIN: SchemeDefinition = {
+  id: "ZHUYIN",
+  preferenceId: "zhuyin",
+  engineScheme: "zhuyin",
+  shuangpinProfile: null,
+  touchKeyboardLayout: "twenty_six_key",
+  title: "大千注音",
+  glyph: "注",
+  badge: "大千",
+};
+const VIETNAMESE: SchemeDefinition = {
+  id: "VIETNAMESE",
+  preferenceId: "vietnamese",
+  engineScheme: "vietnamese",
+  shuangpinProfile: null,
+  touchKeyboardLayout: "twenty_six_key",
+  title: "越南语 26 键",
+  glyph: "越",
+  badge: "26",
+};
 const HANDWRITING: SchemeDefinition = {
   id: "HANDWRITING",
   preferenceId: "handwriting",
@@ -158,6 +190,9 @@ export class KeyboardScheme {
   static readonly HANDWRITING: SchemeDefinition = HANDWRITING;
   static readonly THOUGHTFUL_REPLY: SchemeDefinition = THOUGHTFUL_REPLY;
   static readonly KOREAN: SchemeDefinition = KOREAN;
+  static readonly CANTONESE: SchemeDefinition = CANTONESE;
+  static readonly ZHUYIN: SchemeDefinition = ZHUYIN;
+  static readonly VIETNAMESE: SchemeDefinition = VIETNAMESE;
 
   /** Declaration order is the fixed order the pickers render. */
   static readonly SCHEMES: SchemeDefinition[] = [
@@ -174,7 +209,39 @@ export class KeyboardScheme {
     THOUGHTFUL_REPLY,
     // Appended, as the shared `TouchKeyboardScheme::ALL` appends it, so the existing cards keep their places.
     KOREAN,
+    CANTONESE,
+    ZHUYIN,
+    VIETNAMESE,
   ];
+
+  /** What a keyboard shows before the user picks any, as the shared `TouchKeyboardScheme::DEFAULT_ENABLED` has it: Cantonese, Zhuyin and Vietnamese are turned on by the user, so a device without a stored list keeps the keyboard it always had. */
+  static readonly DEFAULT_ENABLED: SchemeDefinition[] = KeyboardScheme.SCHEMES.filter(
+    (candidate: SchemeDefinition): boolean =>
+      candidate !== CANTONESE && candidate !== ZHUYIN && candidate !== VIETNAMESE,
+  );
+
+  /** The dictionary file an Engine scheme (by wire name) cannot type without, or null when it needs none. Cantonese and Zhuyin read their own lexicon from the language-dictionaries directory beside the Engine resources; the file names are the ones the Engine looks for. */
+  static languageDictionary(engineScheme: string): string | null {
+    if (engineScheme === "cantonese") {
+      return "cantonese.db";
+    }
+    if (engineScheme === "zhuyin") {
+      return "zhuyin.db";
+    }
+    return null;
+  }
+
+  /** Drops the schemes whose dictionary `installed` says is missing; falls back to 全拼 rather than an empty keyboard. */
+  static withInstalledDictionaries(
+    enabled: SchemeDefinition[],
+    installed: (file: string) => boolean,
+  ): SchemeDefinition[] {
+    const available: SchemeDefinition[] = enabled.filter((candidate: SchemeDefinition): boolean => {
+      const file: string | null = KeyboardScheme.languageDictionary(candidate.engineScheme);
+      return file === null || installed(file);
+    });
+    return available.length === 0 ? [QUANPIN] : available;
+  }
 
   static fromPreferenceId(value: string | null): SchemeDefinition | null {
     if (value === null) {
@@ -191,7 +258,7 @@ export class KeyboardScheme {
   /** Resolves preference IDs in the fixed order and ignores unknown duplicates. */
   static enabledFromPreferenceIds(ids: string[] | null): SchemeDefinition[] {
     if (ids === null) {
-      return KeyboardScheme.SCHEMES;
+      return KeyboardScheme.DEFAULT_ENABLED;
     }
     const enabled: SchemeDefinition[] = [];
     for (const candidate of KeyboardScheme.SCHEMES) {
@@ -292,8 +359,8 @@ export class KeyboardScheme {
       KeyboardScheme.isChineseScheme(currentLastChineseScheme) && currentLastChineseScheme !== null
         ? currentLastChineseScheme
         : "quanpin";
-    // Japanese and Korean replace the Chinese scheme without becoming one, so the one they replaced is what 中文 goes back to.
-    if (scheme.engineScheme !== "japanese" && scheme.engineScheme !== "korean") {
+    // Japanese, Korean and Vietnamese replace the Chinese scheme without becoming one, so the one they replaced is what 中文 goes back to.
+    if (KeyboardScheme.isChineseScheme(scheme.engineScheme)) {
       lastChinese = scheme.engineScheme;
     }
     return {
@@ -321,6 +388,12 @@ export class KeyboardScheme {
         return "japanese";
       case 4:
         return "korean";
+      case 5:
+        return "cantonese";
+      case 6:
+        return "zhuyin";
+      case 7:
+        return "vietnamese";
       default:
         return "quanpin";
     }
@@ -344,7 +417,7 @@ export class KeyboardScheme {
   }
 
   private static isChineseScheme(value: string | null): boolean {
-    return value === "quanpin" || value === "shuangpin" || value === "wubi";
+    return value !== null && SchemeTraits.isChinese(SchemeTraits.fromName(value));
   }
 
   private static normalizedProfile(value: string | null): string {

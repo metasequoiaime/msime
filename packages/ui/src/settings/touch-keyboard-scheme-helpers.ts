@@ -13,7 +13,10 @@ export type TouchKeyboardScheme =
   | "japanese"
   | "handwriting"
   | "thoughtful_reply"
-  | "korean";
+  | "korean"
+  | "cantonese"
+  | "zhuyin"
+  | "vietnamese";
 export type TouchKeyboardSchemePreferences = {
   enabled: TouchKeyboardScheme[];
   selected?: TouchKeyboardScheme;
@@ -35,10 +38,16 @@ export function touchKeyboardSchemeTitle(preferences: Preferences): string {
       handwriting: "手写",
       thoughtful_reply: "高情商回复",
       korean: "韩语 26 键",
+      cantonese: "粤拼 26 键",
+      zhuyin: "大千注音",
+      vietnamese: "越南语 26 键",
     }[selected];
   }
-  // Korean has only the 26-key Dubeolsik keyboard, whatever layout the document carries.
+  // Korean, Cantonese, Zhuyin and Vietnamese each have one keyboard, whatever layout the document carries.
   if (preferences.scheme === "korean") return "韩语 26 键";
+  if (preferences.scheme === "cantonese") return "粤拼 26 键";
+  if (preferences.scheme === "zhuyin") return "大千注音";
+  if (preferences.scheme === "vietnamese") return "越南语 26 键";
   if (preferences.touch_keyboard_layout === "handwriting") return "手写";
   if (preferences.touch_keyboard_layout === "nine_key")
     return preferences.scheme === "japanese" ? "日语 9 键" : "全拼 9 键";
@@ -61,22 +70,37 @@ export const touchKeyboardSchemeOptions: [TouchKeyboardScheme, string][] = [
   ["handwriting", "手写"],
   ["thoughtful_reply", "高情商回复"],
   ["korean", "韩语 26 键"],
+  ["cantonese", "粤拼 26 键"],
+  ["zhuyin", "大千注音"],
+  ["vietnamese", "越南语 26 键"],
 ];
+/** Every touch scheme in picker order; schemes are appended, never reordered. Mirrors `TouchKeyboardScheme::ALL` in client-core. */
 export const allTouchKeyboardSchemes = touchKeyboardSchemeOptions.map(([scheme]) => scheme);
+/** The schemes a document without a stored list shows. Cantonese, Zhuyin and Vietnamese are opt-in so that adding them changes no existing keyboard. Mirrors `TouchKeyboardScheme::DEFAULT_ENABLED` in client-core. */
+export const defaultTouchKeyboardSchemes: TouchKeyboardScheme[] = allTouchKeyboardSchemes.filter(
+  (scheme) => scheme !== "cantonese" && scheme !== "zhuyin" && scheme !== "vietnamese",
+);
 
 export function inferredTouchKeyboardScheme(preferences: Preferences): TouchKeyboardScheme {
-  const enabled = preferences.touch_keyboard_schemes?.enabled ?? allTouchKeyboardSchemes;
+  const enabled = preferences.touch_keyboard_schemes?.enabled ?? defaultTouchKeyboardSchemes;
   const selected = preferences.touch_keyboard_schemes?.selected;
   if (selected && enabled.includes(selected)) return selected;
-  let inferred = touchSchemeOf(preferences, preferences.scheme);
-  if (preferences.touch_keyboard_layout === "handwriting" && preferences.scheme === "quanpin")
+  const scheme = preferences.scheme;
+  // Cantonese, Zhuyin and Vietnamese have their own touch keyboard; while it is not enabled they show the remembered Chinese scheme's.
+  if (
+    (scheme === "cantonese" || scheme === "zhuyin" || scheme === "vietnamese") &&
+    enabled.includes(scheme)
+  )
+    return scheme;
+  let inferred = touchSchemeOf(preferences, scheme);
+  if (preferences.touch_keyboard_layout === "handwriting" && scheme === "quanpin")
     inferred = "handwriting";
-  else if (preferences.touch_keyboard_layout === "nine_key" && preferences.scheme !== "korean")
-    inferred = preferences.scheme === "japanese" ? "japanese_nine_key" : "nine_key";
+  else if (preferences.touch_keyboard_layout === "nine_key" && scheme !== "korean")
+    inferred = scheme === "japanese" ? "japanese_nine_key" : "nine_key";
   return enabled.includes(inferred) ? inferred : (enabled[0] ?? "quanpin");
 }
 
-/** The touch scheme for a document scheme. Cantonese, Zhuyin and Vietnamese have no touch keyboard, so they map to the remembered Chinese scheme's touch scheme, or 全拼 when that has none either. */
+/** The touch scheme for a document scheme. Cantonese, Zhuyin and Vietnamese map to the remembered Chinese scheme's touch scheme, or 全拼 when that has none either, for documents that have not enabled their own touch keyboard. */
 function touchSchemeOf(
   preferences: Preferences,
   scheme: Preferences["scheme"],
@@ -110,7 +134,7 @@ export function selectTouchKeyboardScheme(
   selected: TouchKeyboardScheme,
 ): Preferences {
   const touch_keyboard_schemes = {
-    enabled: preferences.touch_keyboard_schemes?.enabled ?? allTouchKeyboardSchemes,
+    enabled: preferences.touch_keyboard_schemes?.enabled ?? defaultTouchKeyboardSchemes,
     selected,
   };
   if (["xiaohe", "ziranma", "microsoft", "shoudao"].includes(selected))
@@ -135,6 +159,22 @@ export function selectTouchKeyboardScheme(
       ...preferences,
       scheme: "korean",
       last_chinese_scheme: rememberedChineseScheme(preferences),
+      touch_keyboard_layout: "twenty_six_key",
+      touch_keyboard_schemes,
+    };
+  if (selected === "vietnamese")
+    return {
+      ...preferences,
+      scheme: "vietnamese",
+      last_chinese_scheme: rememberedChineseScheme(preferences),
+      touch_keyboard_layout: "twenty_six_key",
+      touch_keyboard_schemes,
+    };
+  if (selected === "cantonese" || selected === "zhuyin")
+    return {
+      ...preferences,
+      scheme: selected,
+      last_chinese_scheme: selected,
       touch_keyboard_layout: "twenty_six_key",
       touch_keyboard_schemes,
     };
@@ -167,7 +207,9 @@ export function updateTouchKeyboardSchemeEnabled(
   enabled: boolean,
   selectedTouchKeyboardScheme = inferredTouchKeyboardScheme(preferences),
 ): Preferences | null {
-  const visible = new Set(preferences.touch_keyboard_schemes?.enabled ?? allTouchKeyboardSchemes);
+  const visible = new Set(
+    preferences.touch_keyboard_schemes?.enabled ?? defaultTouchKeyboardSchemes,
+  );
   if (enabled) visible.add(scheme);
   else visible.delete(scheme);
   if (visible.size === 0) return null;
@@ -184,7 +226,9 @@ export function selectHomeTouchKeyboardScheme(
   preferences: Preferences,
   scheme: TouchKeyboardScheme,
 ): Preferences {
-  const visible = new Set(preferences.touch_keyboard_schemes?.enabled ?? allTouchKeyboardSchemes);
+  const visible = new Set(
+    preferences.touch_keyboard_schemes?.enabled ?? defaultTouchKeyboardSchemes,
+  );
   visible.add(scheme);
   const enabled = allTouchKeyboardSchemes.filter((value) => visible.has(value));
   const next = selectTouchKeyboardScheme(preferences, scheme);

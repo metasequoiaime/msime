@@ -232,6 +232,10 @@ public final class MSIMEInputService extends InputMethodService {
     private KeyboardScheme selectedScheme = KeyboardScheme.QUANPIN;
     private java.util.List<KeyboardScheme> enabledSchemes =
         KeyboardScheme.enabledFromPreferenceIds(null);
+    // The schemes the picker offers: `enabledSchemes` without those whose dictionary `languageDictionaries` lacks. `enabledSchemes` stays the stored list, so a picker save does not drop a scheme the user turned on before its dictionary arrived.
+    private java.util.List<KeyboardScheme> visibleSchemes = enabledSchemes;
+    // The runtime options' `language_dictionaries` directory, read with them in onStartInput; empty when the configuration names none.
+    private String languageDictionaries = "";
     private boolean sharedSchemePreferences;
     private SharedPreferences schemeHostPreferences;
     private boolean soundEnabled = true;
@@ -458,7 +462,8 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private record SchemeConfiguration(
-        java.util.List<KeyboardScheme> enabled, KeyboardScheme selected, boolean shared) {}
+        java.util.List<KeyboardScheme> enabled, java.util.List<KeyboardScheme> visible,
+        KeyboardScheme selected, boolean shared) {}
 
     private record SkinChoice(String id, String title, KeyboardSkin skin, JSONObject design) {}
 
@@ -469,13 +474,15 @@ public final class MSIMEInputService extends InputMethodService {
         if (shared == null) {
             java.util.List<String> legacyIds = new java.util.ArrayList<>();
             for (KeyboardScheme candidate : KeyboardScheme.values()) {
+                // A configuration that never stored a list offers what it offered before these schemes existed.
+                if (candidate.optIn()) continue;
                 if (candidate != KeyboardScheme.THOUGHTFUL_REPLY
                         || legacyThoughtfulReplyEnabled()) {
                     legacyIds.add(candidate.preferenceId());
                 }
             }
-            return new SchemeConfiguration(
-                KeyboardScheme.enabledFromPreferenceIds(legacyIds), hostScheme(engineScheme), false);
+            java.util.List<KeyboardScheme> legacy = KeyboardScheme.enabledFromPreferenceIds(legacyIds);
+            return new SchemeConfiguration(legacy, legacy, hostScheme(engineScheme), false);
         }
         JSONArray values = shared.optJSONArray("enabled");
         java.util.List<String> ids = new java.util.ArrayList<>();
@@ -486,9 +493,12 @@ public final class MSIMEInputService extends InputMethodService {
             }
         }
         java.util.List<KeyboardScheme> enabled = KeyboardScheme.enabledFromPreferenceIds(ids);
+        // A selection whose dictionary is missing falls back like one the user turned off; host-api would fall back from it anyway.
+        java.util.List<KeyboardScheme> visible =
+            KeyboardScheme.installedOf(enabled, languageDictionaries);
         String selected = shared.isNull("selected") ? null : shared.optString("selected", null);
-        return new SchemeConfiguration(enabled,
-            KeyboardScheme.resolveEnabledSelection(engineScheme, selected, enabled), true);
+        return new SchemeConfiguration(enabled, visible,
+            KeyboardScheme.resolveEnabledSelection(engineScheme, selected, visible), true);
     }
 
     /**
@@ -539,6 +549,7 @@ public final class MSIMEInputService extends InputMethodService {
         SchemeConfiguration schemeConfiguration = schemeConfiguration(preferences, engineScheme);
         alignEngineSchemeWithSelection(preferences, engineScheme, schemeConfiguration);
         enabledSchemes = schemeConfiguration.enabled();
+        visibleSchemes = schemeConfiguration.visible();
         selectedScheme = schemeConfiguration.selected();
         sharedSchemePreferences = schemeConfiguration.shared();
         skin = keyboardSkin(preferences);
@@ -854,6 +865,8 @@ public final class MSIMEInputService extends InputMethodService {
         }
         sharedSchemePreferences = false;
         enabledSchemes = KeyboardScheme.enabledFromPreferenceIds(null);
+        visibleSchemes = enabledSchemes;
+        languageDictionaries = "";
         letterCase.reset();
         clearEnglishSuggestions();
         keyboardLayer = KeyboardLayout.Layer.LETTERS;
@@ -874,6 +887,7 @@ public final class MSIMEInputService extends InputMethodService {
             File file = new File(getFilesDir(), "runtime-options.json");
             JSONObject options = new JSONObject(HostOptionsPolicy.read(file));
             statisticsPreferences = options.optString("preferences_directory", "");
+            languageDictionaries = options.optString("language_dictionaries", "");
             JSONObject preferences = options.optJSONObject("preferences");
             applyEditorPreferences(preferences);
             if (newDocument) {
@@ -1572,6 +1586,7 @@ public final class MSIMEInputService extends InputMethodService {
         JSONObject nextView = result.getJSONObject("view");
         boolean rebuildLayout = displayedTouchLayout(view) != displayedTouchLayout(nextView);
         enabledSchemes = nextSchemeConfiguration.enabled();
+        visibleSchemes = nextSchemeConfiguration.visible();
         selectedScheme = nextSchemeConfiguration.selected();
         sharedSchemePreferences = nextSchemeConfiguration.shared();
         preferencesSnapshot = accepted;
@@ -1607,10 +1622,12 @@ public final class MSIMEInputService extends InputMethodService {
             // that is already fullwidth, and would put this host's own rule ahead of the shared one.
             commit = chineseOutput(commit, result.optJSONObject("commit_context"));
         }
-        // Korean marks the composing Hangul, not the key letters editing_text holds; a transition may carry the syllable the key finished and the next one together, and the bridge writes the commit first.
+        // Korean marks the composing Hangul, not the key letters editing_text holds; a transition may carry the syllable the key finished and the next one together, and the bridge writes the commit first. Zhuyin's editing_text is the Dachen keys too, and it marks the reading (the conversion and the pending bopomofo) by the same rule.
+        int nextViewScheme = next.optInt("scheme", -1);
+        boolean nextDedicatedEnglish = next.optBoolean("dedicated_english", dedicatedEnglish);
         String composing = KoreanInputPolicy.composing(
-            KoreanInputPolicy.active(next.optInt("scheme", -1),
-                next.optBoolean("dedicated_english", dedicatedEnglish)),
+            KoreanInputPolicy.active(nextViewScheme, nextDedicatedEnglish)
+                || ZhuyinInputPolicy.active(nextViewScheme, nextDedicatedEnglish),
             next.optString("phrase_prefix", ""), next.getString("editing_text"),
             next.optString("reading", ""));
         if (connection != null
@@ -1770,7 +1787,8 @@ public final class MSIMEInputService extends InputMethodService {
     /** Copies Engine candidates on the IME thread, then performs only session-free IO off-thread. */
     private void scheduleCandidateGlosses() {
         if (!candidateEnglishGloss || session == 0 || view == null
-                || candidateGlossResources.isEmpty()) return;
+                || candidateGlossResources.isEmpty()
+                || !schemeShowsGlosses(view.optInt("scheme", -1))) return;
         long generation = view.optLong("generation", -1);
         if (generation < 0 || (candidateGlossRequestedSession == session
                 && candidateGlossRequestedGeneration == generation)) return;
@@ -1868,11 +1886,17 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
+    /** Cantonese, Zhuyin and Vietnamese candidates carry no glosses of any kind (`shows_glosses`). The schemes before them keep the rules this host already had, which still gloss Japanese candidates in English. */
+    private static boolean schemeShowsGlosses(int scheme) {
+        return scheme != InputSchemeTraits.CANTONESE && scheme != InputSchemeTraits.ZHUYIN
+            && scheme != InputSchemeTraits.VIETNAMESE;
+    }
+
     private void scheduleCandidateTranslations() {
         if (!candidateTranslationAccount || session == 0 || view == null
                 || candidateTranslationStore == null
                 || !"none".equals(view.optString("local_mode", "none"))) return;
-        if (view.optInt("scheme", -1) == 3) return;
+        if (view.optInt("scheme", -1) == 3 || !schemeShowsGlosses(view.optInt("scheme", -1))) return;
         JSONArray entries = view.optJSONArray("candidates");
         long generation = view.optLong("generation", -1);
         if (entries == null || entries.length() == 0 || generation < 0) return;
@@ -2351,6 +2375,11 @@ public final class MSIMEInputService extends InputMethodService {
         }
         int preceding = SmartPunctuationContext.precedingCodePoint(before);
         try {
+            // Zhuyin's marks are bopomofo keys or its Shift overlay, which the Engine writes in any state, so smart punctuation neither replaces them nor arms on what they commit (as on macOS).
+            if (zhuyinSchemeActive()) {
+                clearSmartPunctuationSnapshots();
+                return apply(NativeClient.punctuationWithContext(session, ascii, preceding));
+            }
             JSONObject decision = smartPunctuationDecision((char) ascii, before);
             // `isNull` first: org.json's optString hands back the four-letter string "null" for a
             // JSON null, not the fallback. Reading it without this asked the editor to delete the
@@ -2423,6 +2452,9 @@ public final class MSIMEInputService extends InputMethodService {
     private void space() {
         if (connection == null) return;
         if (commitFirstHandwritingCandidate()) return;
+        // Space on a composing Zhuyin conversion is tone 1 or opens its list, as on a hardware keyboard; the commit command below would end the conversion and drop the pending syllable.
+        if (session != 0 && view != null && ZhuyinInputPolicy.spaceIsEngineKey(zhuyinSchemeActive(),
+                view.optString("spelling_symbols", "")) && character(' ', false)) return;
         JSONObject spaceDecision = smartPunctuationDecision(' ', getTextBeforeCursor());
         if (spaceDecision != null && !spaceDecision.isNull("space_ascii")) {
             int ascii = spaceDecision.optInt("space_ascii", 0);
@@ -2487,10 +2519,47 @@ public final class MSIMEInputService extends InputMethodService {
             view.optString("local_mode", "none"), entries == null ? 0 : entries.length());
     }
 
-    /** Drops the composition without writing it. With a Korean Hanja list open the first cancel only closes the list, so this sends as many as KoreanInputPolicy.cancelsToDiscard says. */
+    private boolean zhuyinSchemeActive() {
+        return view != null
+            && ZhuyinInputPolicy.active(view.optInt("scheme", -1), dedicatedEnglish);
+    }
+
+    private boolean vietnameseSchemeActive() {
+        return view != null
+            && VietnameseInputPolicy.active(view.optInt("scheme", -1), dedicatedEnglish);
+    }
+
+    /** Korean or Vietnamese: letters build the written text directly, so Shift is their case and the return key keeps its editor action. */
+    private boolean letterCompositionActive() {
+        return koreanSchemeActive() || vietnameseSchemeActive();
+    }
+
+    /** Korean, Zhuyin or Vietnamese (`locks_caret`, `commits_on_blur`): the composition is text the user already wrote, with no caret inside it and no candidate list until one is opened. */
+    private boolean writtenCompositionActive() {
+        return view != null && !dedicatedEnglish
+            && InputSchemeTraits.locksCaret(view.optInt("scheme", -1));
+    }
+
+    /** Whether the candidate list of the composing Zhuyin conversion is on the strip. */
+    private boolean zhuyinListOpen() {
+        if (view == null) return false;
+        JSONArray entries = view.optJSONArray("candidates");
+        return ZhuyinInputPolicy.listOpen(zhuyinSchemeActive(),
+            view.optString("local_mode", "none"), entries == null ? 0 : entries.length());
+    }
+
+    /** Whether the Zhuyin open-list command applies now: a conversion is composing, with or without its list open. */
+    private boolean zhuyinOpensList() {
+        return view != null && ZhuyinInputPolicy.opensList(zhuyinSchemeActive(),
+            view.optString("local_mode", "none"), view.optString("editing_text", ""));
+    }
+
+    /** Drops the composition without writing it. With a Korean Hanja list open the first cancel only closes the list, so this sends as many as KoreanInputPolicy.cancelsToDiscard says; Zhuyin's first cancel likewise only closes its list and Vietnamese's only takes the word back to its raw keys (`cancel_keeps_composition`), so a composition they leave standing takes one more. */
     private void discardComposition() {
+        boolean keepsComposition = !koreanSchemeActive() && writtenCompositionActive();
         for (int cancels = KoreanInputPolicy.cancelsToDiscard(koreanHanjaListOpen()); cancels > 0; cancels--)
             command(3);
+        if (keepsComposition && hasEngineComposition()) command(3);
     }
 
     /** Whether the Hanja command applies now: a Korean syllable is composing, with or without its list open. */
@@ -2581,7 +2650,7 @@ public final class MSIMEInputService extends InputMethodService {
         int scheme = view == null ? -1 : view.optInt("scheme", -1);
         String profile = view == null ? "" : view.optString("shuangpin_profile", "");
         String localMode = view == null ? "none" : view.optString("local_mode", "none");
-        boolean chineseMode = !dedicatedEnglish;
+        boolean chineseMode = !dedicatedEnglish && !vietnameseSchemeActive();
         boolean local = view != null && !"none".equals(localMode);
         boolean shifted = letterCase.usesUppercase();
         if (!profile.equals(shuangpinHintsProfile)) {
@@ -2613,8 +2682,8 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void updateAutomaticCapitalization() {
         if (!dedicatedEnglish) {
-            // On the Korean keycaps Shift is the double consonant the user chose, not capitalisation, so an editor update must not drop it.
-            if (!koreanSchemeActive()) letterCase.reset();
+            // On the Korean keycaps Shift is the double consonant the user chose, not capitalisation, and in Vietnamese it is the case of the next letter or a Caps Lock, so an editor update must not drop it.
+            if (!letterCompositionActive()) letterCase.reset();
             return;
         }
         CharSequence context = null;
@@ -2669,6 +2738,8 @@ public final class MSIMEInputService extends InputMethodService {
         if (commitFirstHandwritingCandidate()) return;
         // With a Korean Hanja list open Return chooses the highlighted Hanja, as Space does: only the session knows the highlight, so it is the candidate command (msime_client.h). With no list Return writes the syllable out and then does its editor action below.
         if (koreanHanjaListOpen() && command(1)) return;
+        // An open Zhuyin list is chosen from the same way.
+        if (zhuyinListOpen() && command(1)) return;
         if (japaneseSchemeActive() && view != null
                 && !view.optString("editing_text", "").isEmpty()) {
             if (japaneseConversionIndex != null && command(1)) return;
@@ -2685,11 +2756,11 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     /**
-     * Whether the return key only confirms the composition. A Korean syllable is committed by Enter and the key still does its own work, so the key keeps its editor action there, unless the syllable's Hanja list is open: then Enter only chooses a Hanja.
+     * Whether the return key only confirms the composition. A Korean syllable is committed by Enter and the key still does its own work, so the key keeps its editor action there, unless the syllable's Hanja list is open: then Enter only chooses a Hanja. A Vietnamese word is the same: Enter writes it out and then does its editor action.
      */
     private boolean returnKeyConfirms() {
         return view != null && !view.optString("editing_text", "").isEmpty()
-            && (!koreanSchemeActive() || koreanHanjaListOpen());
+            && (!letterCompositionActive() || koreanHanjaListOpen());
     }
 
     /** The return key's face: accent-filled 确认 while composing, the function tint otherwise. */
@@ -2885,6 +2956,13 @@ public final class MSIMEInputService extends InputMethodService {
             toggleChinesePunctuation();
             return true;
         }
+        // A key the Dachen editor claims in its current state (a bopomofo or tone key, Space while a syllable is pending) or one of its Shift marks is Zhuyin input, decided before the number row picks a candidate or a mark pages the list, as on macOS.
+        if (session != 0 && view != null && !event.isCtrlPressed() && !event.isAltPressed()
+                && !event.isMetaPressed() && ZhuyinInputPolicy.engineKey(zhuyinSchemeActive(),
+                    event.getUnicodeChar(), view.optString("spelling_symbols", ""))) {
+            return character(event.getUnicodeChar(), event.isShiftPressed())
+                || super.onKeyDown(keyCode, event);
+        }
         // Shift belongs to the policy rather than to this condition: which face of the number row
         // picks a candidate depends on the local mode, because in U mode the plain digits are the
         // code point and the pick moves to the shifted face.
@@ -2937,23 +3015,30 @@ public final class MSIMEInputService extends InputMethodService {
             deleteFromHandwriting();
             return true;
         }
-        // A Korean Hanja is one character already, so there is no word to take one from: with the list open the pair is punctuation, which closes the list and writes the Hangul with the mark.
+        // A Korean Hanja is one character already, so there is no word to take one from: with the list open the pair is punctuation, which closes the list and writes the Hangul with the mark. A Zhuyin list keeps its marks for the Engine the same way, and Vietnamese has no list.
         WordCharacterPolicy.Edge wordCharacterEdge = WordCharacterPolicy.edgeFor(
             keyCode, event.isShiftPressed(), wordCharacterBinding,
-            highlightedCandidate() != null && !koreanSchemeActive());
+            highlightedCandidate() != null && !writtenCompositionActive());
         if (wordCharacterEdge != WordCharacterPolicy.Edge.NONE
                 && selectCandidateEdge(wordCharacterEdge)) return true;
         // Paging only means something while there is a candidate list. With nothing composed these
         // keys are the editor's: Tab moves focus, Page Down scrolls, and a comma is a comma.
         // Korean has no candidate list until its Hanja list opens: until then its punctuation follows the syllable, and Home/End end the syllable through HardwareKeyPolicy below and then move the caret. With the list open these keys page and move the highlight as for any list, except that the marks stay punctuation and Left/Right, which have no caret inside a syllable to move, move the highlight; Escape closes the list and keeps the syllable.
+        // Zhuyin and Vietnamese follow the same split: with no list open (Vietnamese never has one) these keys end the composition and do their own work, and an open Zhuyin list pages and moves its highlight like the Hanja list. Down opens a closed Zhuyin list, libchewing's key for it, whatever the arrow binding says, since with the list closed there is no highlight to move.
         boolean koreanHanjaList = koreanHanjaListOpen();
-        if (koreanHanjaList && keyCode == KeyEvent.KEYCODE_ESCAPE)
+        boolean openedList = koreanHanjaList || zhuyinListOpen();
+        if (ZhuyinInputPolicy.listDownKey(keyCode, event.isShiftPressed(), zhuyinOpensList(),
+                zhuyinListOpen())) {
+            command(ZhuyinInputPolicy.OPEN_CANDIDATE_LIST_COMMAND);
+            return true;
+        }
+        if (openedList && keyCode == KeyEvent.KEYCODE_ESCAPE)
             return command(3) || super.onKeyDown(keyCode, event);
-        if (hasEngineComposition() && (!koreanSchemeActive() || koreanHanjaList)
+        if (hasEngineComposition() && (!writtenCompositionActive() || openedList)
                 && !(koreanHanjaList && KoreanInputPolicy.hanjaListMark(keyCode))) {
             int navigationCommand = CandidateNavigationPolicy.commandFor(
                 keyCode, event.isShiftPressed(), candidateNavigation, japaneseSchemeActive());
-            if (navigationCommand == CandidateNavigationPolicy.NONE && koreanHanjaList) {
+            if (navigationCommand == CandidateNavigationPolicy.NONE && openedList) {
                 navigationCommand = KoreanInputPolicy.hanjaListArrowCommand(keyCode,
                     candidateNavigation != null && candidateNavigation.arrows());
             }
@@ -3027,11 +3112,19 @@ public final class MSIMEInputService extends InputMethodService {
         if (session != 0 && view != null && !view.optString("editing_text").isEmpty()
                 && (newStart != composingEnd || newEnd != composingEnd)) {
             // Don't apply an empty composition over the editor's newly moved selection.
-            // A Korean syllable is already the final Hangul, marked inline; finishing the region below leaves it in the document, so it counts as typed.
-            if (koreanSchemeActive()) recordTypingStatistics(view.optString("reading", ""), typingSource());
+            // A Korean syllable is already the final Hangul, marked inline; finishing the region below leaves it in the document, so it counts as typed. A Zhuyin conversion and a Vietnamese word are written text the same way (`commits_on_blur`).
+            if (koreanSchemeActive() || zhuyinSchemeActive())
+                recordTypingStatistics(view.optString("reading", ""), typingSource());
+            else if (vietnameseSchemeActive())
+                recordTypingStatistics(view.optString("editing_text", ""), typingSource());
+            boolean keepsComposition = !koreanSchemeActive() && writtenCompositionActive();
             try {
-                // With a Korean Hanja list open the first cancel only closes the list (msime_client.h), so it takes a second to drop the syllable the editor now holds as typed text.
+                // With a Korean Hanja list open the first cancel only closes the list (msime_client.h), so it takes a second to drop the syllable the editor now holds as typed text. Zhuyin's first cancel only closes its list and Vietnamese's only takes the word back to its keys, so whatever they leave composing takes one more.
+                JSONObject cancelled = null;
                 for (int cancels = KoreanInputPolicy.cancelsToDiscard(koreanHanjaListOpen()); cancels > 0; cancels--)
+                    cancelled = value(NativeClient.command(session, 3));
+                JSONObject left = cancelled == null ? null : cancelled.optJSONObject("view");
+                if (keepsComposition && left != null && !left.optString("editing_text", "").isEmpty())
                     value(NativeClient.command(session, 3));
             } catch (JSONException | LinkageError error) { fail(); }
             if (connection != null) bridge.abandon(sink(typingSource()));
@@ -3677,8 +3770,8 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** Width for the text this host commits itself, which never passes through the runtime. */
     private String fullWidthOutput(String text) {
-        // Korean writes half-width ASCII whatever the width setting says, as the runtime does for its own Korean commits.
-        return FullWidthInputPolicy.output(text, fullWidthInput && !koreanSchemeActive());
+        // Korean and Vietnamese write half-width ASCII whatever the width setting says (`widens_full_width`), as the runtime does for their own commits.
+        return FullWidthInputPolicy.output(text, fullWidthInput && !letterCompositionActive());
     }
 
     /**
@@ -3756,9 +3849,10 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean supportsLocalTools() {
         if (view == null) return false;
         int scheme = view.optInt("scheme", 0);
-        // Korean has no local modes: Shift+letter is a double consonant there.
+        // Korean has no local modes: Shift+letter is a double consonant there. Nor do Cantonese, Zhuyin and Vietnamese (`opens_local_modes`).
         return !dedicatedEnglish && scheme != 2 && scheme != 3
-            && scheme != KoreanInputPolicy.KOREAN_SCHEME;
+            && scheme != KoreanInputPolicy.KOREAN_SCHEME
+            && (!InputSchemeTraits.known(scheme) || InputSchemeTraits.opensLocalModes(scheme));
     }
 
     private void showLocalInputMenu() {
@@ -5309,7 +5403,7 @@ public final class MSIMEInputService extends InputMethodService {
         // 自己的底色，与卡片同一套配色，比那块空白好看。
         schemePanel.addView(schemeSurface, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        java.util.List<KeyboardScheme> schemes = enabledSchemes;
+        java.util.List<KeyboardScheme> schemes = visibleSchemes;
         int cardCount = schemes.size() + 1;
         // The English card sits third when there are enough schemes to put it there, and last
         // otherwise. Pinning it to index 2 made a single enabled scheme index past the end of
@@ -6033,7 +6127,9 @@ public final class MSIMEInputService extends InputMethodService {
 
     private boolean traditionalOutputToolAvailable() {
         int scheme = view == null ? -1 : view.optInt("scheme", -1);
+        // Cantonese and Zhuyin write Traditional characters already, and Vietnamese is not Chinese (`script_conversion_applies`).
         return scheme != 3 && scheme != KoreanInputPolicy.KOREAN_SCHEME
+            && (!InputSchemeTraits.known(scheme) || InputSchemeTraits.scriptConversionApplies(scheme))
             && canSaveChineseOutput();
     }
 
@@ -6161,7 +6257,10 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean candidateManagementEnabled() {
         if (view == null || !view.optString("local_mode", "none").equals("none")) return false;
         int scheme = view.optInt("scheme", 0);
-        return scheme != 2 && scheme != 3 && scheme != KoreanInputPolicy.KOREAN_SCHEME;
+        // Cantonese, Zhuyin and Vietnamese rows are not the pinyin user dictionary's to pin, delete or reorder.
+        return scheme != 2 && scheme != 3 && scheme != KoreanInputPolicy.KOREAN_SCHEME
+            && scheme != InputSchemeTraits.CANTONESE && scheme != InputSchemeTraits.ZHUYIN
+            && scheme != InputSchemeTraits.VIETNAMESE;
     }
 
     private void editCandidate(JSONObject id, CandidateManagementAction action) {
@@ -6210,7 +6309,8 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean candidateGlossInsertionEnabled() {
         if (view == null || !"none".equals(view.optString("local_mode", "none"))) return false;
         int scheme = view.optInt("scheme", 0);
-        return scheme != 3 && scheme != KoreanInputPolicy.KOREAN_SCHEME;
+        return scheme != 3 && scheme != KoreanInputPolicy.KOREAN_SCHEME
+            && schemeShowsGlosses(scheme);
     }
 
     private void insertCandidateGloss(int slot, JSONObject id, String text, String gloss) {
@@ -6986,14 +7086,18 @@ public final class MSIMEInputService extends InputMethodService {
             applyKeyboardGeometry();
             return;
         }
-        boolean chineseMode = !dedicatedEnglish;
+        // A Vietnamese letter is written in the case it is typed in, so its keys show that case as the English keys do rather than the caps of a Chinese keyboard.
+        boolean chineseMode = !dedicatedEnglish && !vietnameseSchemeActive();
         boolean localMode = view != null
             && !"none".equals(view.optString("local_mode", "none"));
         boolean shifted = letterCase.usesUppercase();
         boolean koreanKeycaps = keyboardLayer == KeyboardLayout.Layer.LETTERS
             && displayedTouchLayout(view) == KeyboardLayout.KOREAN_LAYOUT;
+        boolean zhuyinLayout = displayedTouchLayout(view) == KeyboardLayout.ZHUYIN_LAYOUT;
+        boolean zhuyinKeycaps = zhuyinLayout && keyboardLayer == KeyboardLayout.Layer.LETTERS;
         // The face is the policy's job; the key itself always sends its canonical lowercase form.
-        java.util.List<java.util.List<String>> rows = KeyboardLayout.rows(keyboardLayer);
+        java.util.List<java.util.List<String>> rows = KeyboardLayout.rows(keyboardLayer,
+            displayedTouchLayout(view));
         for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
             java.util.List<String> keys = rows.get(rowIndex);
             LinearLayout row = new LinearLayout(this);
@@ -7006,9 +7110,20 @@ public final class MSIMEInputService extends InputMethodService {
                 String face = keyboardLayer == KeyboardLayout.Layer.SYMBOLS
                     ? ChineseSymbolFaces.face(key, sendsChinesePunctuation())
                     : koreanKeycaps ? KoreanKeyboardLayout.face(key, shifted)
+                    : zhuyinKeycaps ? ZhuyinKeyboardLayout.face(key)
                     : LetterKeyFacePolicy.face(key, chineseMode, localMode, shifted);
                 Button keyButton;
-                if (koreanKeycaps) {
+                if (zhuyinKeycaps) {
+                    // Bopomofo keycaps over the Dachen keys: type() sends the ASCII key, and the Engine spells and converts.
+                    keyButton = keyboardKey(face, face, () -> type(input.charAt(0)));
+                    keyButton.setContentDescription(ZhuyinKeyboardLayout.accessibilityLabel(key));
+                    if (keyButton instanceof KeyboardPressButton press)
+                        press.setKeyboardRole(KeyboardKeyRole.KEY);
+                } else if (zhuyinLayout && ZhuyinKeyboardLayout.claimsSymbol(key)) {
+                    // Dachen reads these digits and marks as bopomofo and tone keys, so the symbol page writes what its key shows instead of handing the key to the Engine.
+                    keyButton = keyboardKey(face, face, () -> commitNineKeyLiteral(
+                        ChineseSymbolFaces.face(input, sendsChinesePunctuation())));
+                } else if (koreanKeycaps) {
                     // Jamo keycaps over the same QWERTY letters: type() sends the letter, and the Engine composes the syllable.
                     keyButton = keyboardKey(face, face, () -> type(input.charAt(0)));
                     keyButton.setContentDescription(
@@ -7025,7 +7140,7 @@ public final class MSIMEInputService extends InputMethodService {
                     keyButton = keyboardKey(face, face, () -> type(input.charAt(0)));
                 }
                 keyId(keyButton, KeyPressIds.forCharacter(input.charAt(0)));
-                if (keyboardLayer == KeyboardLayout.Layer.LETTERS && !koreanKeycaps) {
+                if (keyboardLayer == KeyboardLayout.Layer.LETTERS && !koreanKeycaps && !zhuyinKeycaps) {
                     keyButton.setContentDescription(LetterKeyFacePolicy.accessibilityLabel(
                         input, chineseMode, localMode, shifted));
                     // 字母键读作「字母 Q」而不是「按键 Q」，所以描述推导一直把它判成 action 面，
@@ -7040,7 +7155,8 @@ public final class MSIMEInputService extends InputMethodService {
                 row.addView(keyButton, new LinearLayout.LayoutParams(0,
                     LinearLayout.LayoutParams.MATCH_PARENT, 1));
             }
-            if (keyboardLayer == KeyboardLayout.Layer.LETTERS && rowIndex == 1) {
+            // The Dachen rows carry their own ; key (ㄤ), and no double-pinyin final.
+            if (keyboardLayer == KeyboardLayout.Layer.LETTERS && rowIndex == 1 && !zhuyinKeycaps) {
                 microsoftFinalKey = keyId(shuangpinKeyboardKey(";", "微软双拼 ing", () -> type(';')),
                     "Semicolon");
                 shuangpinKeyButtons.add((ShuangpinHintButton) microsoftFinalKey);
@@ -7652,7 +7768,7 @@ public final class MSIMEInputService extends InputMethodService {
         replyShortcutButton = shortcutButton(shortcutBar, "回复",
             KeyboardShortcutIconPolicy.Icon.REPLY, this::showReplyKeyboard);
         replyShortcutButton.setContentDescription("生成高情商回复");
-        // 漢 is the touch counterpart of a Korean keyboard's Hanja key: it lists the Hanja of the composing syllable on the strip below and closes the list again. It sits in the header so it stays put while the list fills the strip, and render() shows it only while a Korean syllable composes; the filled face says the list is open.
+        // 漢 is the touch counterpart of a Korean keyboard's Hanja key: it lists the Hanja of the composing syllable on the strip below and closes the list again. It sits in the header so it stays put while the list fills the strip, and render() shows it only while a Korean syllable composes; the filled face says the list is open. While a Zhuyin conversion composes the same key reads 選 and opens the conversion's list, through the same shared command 16 (MSIME_OPEN_CANDIDATE_LIST).
         KeyboardPressButton hanja = new KeyboardPressButton(this);
         hanja.setKeyboardRole(KeyboardKeyRole.GLYPH);
         hanjaButton = hanja;
@@ -7755,9 +7871,9 @@ public final class MSIMEInputService extends InputMethodService {
         // toolbar, and what the action row keeps is whatever KeyboardActionRow lists for the surface.
         LinearLayout controls = new LinearLayout(this);
         shiftButton = button(controls, "⇧", () -> {
-            // On the Korean keycaps Shift is the double consonant row, not the way into English.
+            // On the Korean keycaps Shift is the double consonant row, not the way into English, and in Vietnamese it is the letter case.
             if (!dedicatedEnglish && session != 0 && !helpcodeCompositionEligible()
-                    && !koreanSchemeActive()) {
+                    && !letterCompositionActive()) {
                 toggleInputLanguage();
                 if (!dedicatedEnglish) return;
                 // Match Apple: the Shift that entered English starts from lowercase even if the
@@ -8186,11 +8302,16 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (hanjaButton != null) {
             boolean offersHanja = session != 0 && koreanConvertsHanja();
-            boolean hanjaListOpen = offersHanja && koreanHanjaListOpen();
-            hanjaButton.setVisibility(offersHanja ? View.VISIBLE : View.GONE);
-            hanjaButton.setEnabled(offersHanja);
-            hanjaButton.setSelected(hanjaListOpen);
-            hanjaButton.setContentDescription(hanjaListOpen ? "关闭汉字列表" : "转换为汉字");
+            boolean offersZhuyinList = session != 0 && zhuyinOpensList();
+            boolean listOpen = (offersHanja && koreanHanjaListOpen())
+                || (offersZhuyinList && zhuyinListOpen());
+            hanjaButton.setText(offersZhuyinList ? "選" : "漢");
+            hanjaButton.setVisibility(offersHanja || offersZhuyinList ? View.VISIBLE : View.GONE);
+            hanjaButton.setEnabled(offersHanja || offersZhuyinList);
+            hanjaButton.setSelected(listOpen);
+            hanjaButton.setContentDescription(offersZhuyinList
+                ? (listOpen ? "关闭候选列表" : "打开候选列表")
+                : (listOpen ? "关闭汉字列表" : "转换为汉字"));
         }
         boolean hasDiagnostic = InputDiagnosticPolicy.visible(diagnosticMessage);
         if (diagnosticView != null) {
@@ -8214,14 +8335,24 @@ public final class MSIMEInputService extends InputMethodService {
             int scheme = view == null
                 ? ((selectedScheme == KeyboardScheme.JAPANESE
                     || selectedScheme == KeyboardScheme.JAPANESE_NINE_KEY) ? 3
-                    : selectedScheme == KeyboardScheme.KOREAN ? KoreanInputPolicy.KOREAN_SCHEME : -1)
+                    : selectedScheme == KeyboardScheme.KOREAN ? KoreanInputPolicy.KOREAN_SCHEME
+                    : selectedScheme == KeyboardScheme.CANTONESE ? InputSchemeTraits.CANTONESE
+                    : selectedScheme == KeyboardScheme.ZHUYIN ? InputSchemeTraits.ZHUYIN
+                    : selectedScheme == KeyboardScheme.VIETNAMESE ? InputSchemeTraits.VIETNAMESE : -1)
                 : view.optInt("scheme", -1);
             boolean japanese = scheme == 3;
             boolean korean = scheme == KoreanInputPolicy.KOREAN_SCHEME;
-            scriptShortcutButton.setEnabled(!japanese && !korean && canSaveChineseOutput());
+            boolean cantonese = scheme == InputSchemeTraits.CANTONESE;
+            boolean zhuyin = scheme == InputSchemeTraits.ZHUYIN;
+            boolean vietnamese = scheme == InputSchemeTraits.VIETNAMESE;
+            scriptShortcutButton.setEnabled(!japanese && !korean && !cantonese && !zhuyin
+                && !vietnamese && canSaveChineseOutput());
             String label = traditionalChineseOutput ? "切换到简体" : "切换到繁体";
             String outputState = japanese ? "日语不使用简繁转换"
                 : korean ? "韩语不使用简繁转换"
+                : cantonese ? "粤拼直接输出繁体"
+                : zhuyin ? "注音直接输出繁体"
+                : vietnamese ? "越南语不使用简繁转换"
                 : traditionalOutputSaving ? "正在保存"
                 : traditionalChineseOutput ? "繁体" : "简体";
             scriptShortcutButton.setContentDescription(
@@ -8284,7 +8415,8 @@ public final class MSIMEInputService extends InputMethodService {
             styleButton(shiftButton, KeyboardKeyRole.ACCENT, skin);
             String caseLabel = shiftLayout == KeyboardLayout.KOREAN_LAYOUT
                 ? KoreanKeyboardLayout.SHIFT_LABEL
-                : letterCase.accessibilityLabel(dedicatedEnglish || session == 0);
+                : letterCase.accessibilityLabel(dedicatedEnglish || session == 0
+                    || vietnameseSchemeActive());
             String caseValue = letterCase.accessibilityValue();
             shiftButton.setContentDescription(Build.VERSION.SDK_INT >= 30
                 ? caseLabel : caseLabel + "，" + caseValue);

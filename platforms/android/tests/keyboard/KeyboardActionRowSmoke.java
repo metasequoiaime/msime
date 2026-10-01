@@ -22,7 +22,7 @@ public final class KeyboardActionRowSmoke {
             "the Korean keycaps sit over the standard rows and keep the standard action row");
         for (int layout : new int[] {KeyboardLayout.STANDARD_TOUCH_LAYOUT,
                 KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, KeyboardLayout.HANDWRITING_LAYOUT,
-                KeyboardLayout.KOREAN_LAYOUT}) {
+                KeyboardLayout.KOREAN_LAYOUT, KeyboardLayout.ZHUYIN_LAYOUT}) {
             List<Slot> slots = slots(layout, true);
             check(slots.contains(Slot.SPACE) && slots.contains(Slot.RETURN)
                 && slots.contains(Slot.LANGUAGE), "every action row commits, spaces and switches");
@@ -59,6 +59,14 @@ public final class KeyboardActionRowSmoke {
                 && KeyboardActionRow.rowsCarryDelete(KeyboardLayout.KOREAN_LAYOUT, true)
                 && !KeyboardActionRow.rowsCarryCase(KeyboardLayout.KOREAN_LAYOUT, true),
             "the Korean rows carry Shift for the double consonants and delete, like the standard rows");
+        check(KeyboardActionRow.rowsCarryDelete(KeyboardLayout.ZHUYIN_LAYOUT, false)
+                && KeyboardActionRow.rowsCarryDelete(KeyboardLayout.ZHUYIN_LAYOUT, true)
+                && !KeyboardActionRow.rowsCarryCase(KeyboardLayout.ZHUYIN_LAYOUT, false)
+                && !KeyboardActionRow.rowsCarryCase(KeyboardLayout.ZHUYIN_LAYOUT, true),
+            "the Dachen rows carry delete but no case key: bopomofo has no case");
+        check(slots(KeyboardLayout.ZHUYIN_LAYOUT, true).equals(
+                slots(KeyboardLayout.STANDARD_TOUCH_LAYOUT, true)),
+            "the Dachen rows keep the standard action row");
         check(KeyboardActionRow.letterRowEdgeWeight(false)
             > KeyboardActionRow.letterRowEdgeWeight(true),
             "the ten-key symbol row leaves its edges less room than the seven-key letter row");
@@ -72,6 +80,9 @@ public final class KeyboardActionRowSmoke {
         check("123".equals(KeyboardActionRow.layerTitle(KeyboardLayout.KOREAN_LAYOUT, false))
                 && "한".equals(KeyboardActionRow.layerTitle(KeyboardLayout.KOREAN_LAYOUT, true)),
             "the Korean digit page returns to the Hangul keycaps");
+        check("123".equals(KeyboardActionRow.layerTitle(KeyboardLayout.ZHUYIN_LAYOUT, false))
+                && "注".equals(KeyboardActionRow.layerTitle(KeyboardLayout.ZHUYIN_LAYOUT, true)),
+            "the Zhuyin digit page returns to the Dachen keycaps");
         check("切换到数字和符号".equals(KeyboardActionRow.layerDescription(false))
             && "切换到字母键盘".equals(KeyboardActionRow.layerDescription(true)),
             "layer key descriptions");

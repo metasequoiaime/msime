@@ -23,7 +23,7 @@ pub struct Places {
 
 impl Places {
     fn parse(table: &'static str) -> Self {
-        let mut places = Vec::new();
+        let mut places = Vec::with_capacity(table.lines().count());
         for line in table.lines() {
             let mut fields = line.split('\t');
             if let (Some(name), Some(key), Some(parent), None) =
@@ -76,6 +76,7 @@ mod tests {
     fn the_embedded_table_is_well_formed() {
         let table = places();
         assert_eq!(table.places.len(), TABLE.lines().count());
+        assert_eq!(table.places.capacity(), TABLE.lines().count());
         assert!(table.places.len() > 3000);
         assert_eq!(table.parents.len(), table.places.len());
         for place in &table.places {

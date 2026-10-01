@@ -16,7 +16,7 @@ import java.nio.file.StandardOpenOption;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** First-install preparation only. Existing configurations are never upgraded in place; only the optional offline glosses follow the installed package. */
+/** First-install preparation only. Existing configurations are never re-prepared from here; the optional offline glosses, helpcode tables and language dictionaries follow the installed package, and an existing configuration is only refreshed so that it names the language dictionaries installed beside its resources. */
 public final class Bootstrap {
     private Bootstrap() {}
     public static boolean prepare(Context context) throws Exception {
@@ -26,8 +26,13 @@ public final class Bootstrap {
             if (!lock.isValid()) throw new IllegalStateException("Bootstrap lock unavailable");
             installOfflineGlosses(context, new File(root, "bootstrap/offline-glosses"));
             installHelpcodes(context, new File(root, "bootstrap/resources/helpcodes"));
+            // Before the configuration exists, so that prepare_host below finds them beside the resources and records them.
+            installLanguageDictionaries(context, new File(root, "bootstrap/language-dictionaries"));
             File configuration = new File(root, "runtime-options.json");
-            if (configuration.exists()) return false;
+            if (configuration.exists()) {
+                refreshLanguageDictionaries(configuration);
+                return false;
+            }
             File resources = new File(root, "bootstrap/resources");
             ensureSafeDirectory(resources.toPath());
             JSONObject manifest;
@@ -155,6 +160,55 @@ public final class Bootstrap {
         } catch (Exception error) {
             // Bootstrap has no editor or session input; never use this logging for keystrokes.
             android.util.Log.w("MSIMEBootstrap", "Helpcode table extraction failed", error);
+        }
+    }
+
+    /**
+     * The Cantonese and Zhuyin dictionaries (scripts/fetch_language_dictionaries.py), extracted to language-dictionaries/ beside the resources, where host-api looks for `cantonese.db` and `zhuyin.db` and names the directory in the runtime options.
+     *
+     * <p>Like the offline glosses they are not part of the verified dictionary, so they follow the installed package: an update replaces them, and a package built without them removes any an earlier one left, which takes those schemes off the keyboard once the configuration is refreshed. The directory is swapped whole through a staging sibling and an atomic rename. A failure leaves Cantonese and Zhuyin unavailable, never the keyboard without an Engine.
+     */
+    private static void installLanguageDictionaries(Context context, File destination) {
+        try {
+            String stamp = Long.toString(context.getPackageManager()
+                .getPackageInfo(context.getPackageName(), 0).lastUpdateTime);
+            File marker = new File(destination, ".package");
+            if (marker.isFile() && stamp.equals(readMarker(marker.toPath()))) return;
+            File staging = new File(destination.getParentFile(), "language-dictionaries.staging");
+            ensureSafeDirectory(destination.getParentFile().toPath());
+            deleteTree(staging);
+            ensureSafeDirectory(staging.toPath());
+            String[] names = context.getAssets().list("language-dictionaries");
+            for (String name : names == null ? new String[0] : names) {
+                if (!name.matches("[A-Za-z0-9_.-]+") || name.contains("..")) throw new IllegalArgumentException("Invalid asset name");
+                try (InputStream input = context.getAssets().open("language-dictionaries/" + name)) {
+                    Files.copy(input, new File(staging, name).toPath());
+                }
+            }
+            Files.write(new File(staging, ".package").toPath(), stamp.getBytes(StandardCharsets.UTF_8));
+            deleteTree(destination);
+            Files.move(staging.toPath(), destination.toPath(), StandardCopyOption.ATOMIC_MOVE);
+        } catch (Exception error) {
+            // Bootstrap has no editor or session input; never use this logging for keystrokes.
+            android.util.Log.w("MSIMEBootstrap", "Language dictionary extraction failed", error);
+        }
+    }
+
+    /**
+     * Brings `language_dictionaries` in an existing configuration in step with the dictionaries installed beside its resources, through the shared `msime_client_refresh_host`. The input method and this preparation run from the same package, so no older host is left reading a key it does not know.
+     *
+     * <p>The same call also re-prepares a configuration whose working dictionaries belong to an older resource generation. This host never replaces the resources of an existing configuration, so that step reports the resources outdated and leaves the file as it was, and the language dictionaries are then not recorded either; the keyboard keeps offering only the schemes it can run. A failure is logged without the path.
+     */
+    private static void refreshLanguageDictionaries(File configuration) {
+        try {
+            JSONObject result = new JSONObject(NativeClient.refreshHost(configuration.getAbsolutePath()));
+            if (!result.optBoolean("ok")) {
+                android.util.Log.w("MSIMEBootstrap", "Runtime options refresh failed: "
+                    + (result.optString("error").startsWith("dictionary_outdated") ? "dictionary_outdated" : "error"));
+            }
+        } catch (Exception | LinkageError error) {
+            // Bootstrap has no editor or session input; never use this logging for keystrokes.
+            android.util.Log.w("MSIMEBootstrap", "Runtime options refresh failed", error);
         }
     }
 

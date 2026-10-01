@@ -178,6 +178,11 @@ targets:
         buildPhase: resources
         type: folder
         optional: true
+      # Staged by stage-resources.sh beside EngineResources, where host-api looks for the Cantonese and Zhuyin dictionaries; empty when none were built or fetched, and those schemes are then not offered.
+      - path: ../../target/ios/language-dictionaries
+        buildPhase: resources
+        type: folder
+        optional: true
       - path: SharedResources/KeyboardBrand.png
         buildPhase: resources
       - path: SharedResources/PrivacyInfo.xcprivacy
@@ -209,6 +214,11 @@ targets:
         type: folder
       # Staged by stage-resources.sh, empty unless offline gloss dictionaries were given to it.
       - path: ../../target/ios/offline-glosses
+        buildPhase: resources
+        type: folder
+        optional: true
+      # Staged by stage-resources.sh beside EngineResources, where host-api looks for the Cantonese and Zhuyin dictionaries; empty when none were built or fetched, and those schemes are then not offered.
+      - path: ../../target/ios/language-dictionaries
         buildPhase: resources
         type: folder
         optional: true

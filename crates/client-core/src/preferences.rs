@@ -349,10 +349,36 @@ pub enum TouchKeyboardScheme {
     Handwriting,
     ThoughtfulReply,
     Korean,
+    /// 粤拼 26 键: toneless Jyutping on the pinyin 26-key letters (`InputScheme::Cantonese`).
+    Cantonese,
+    /// 大千注音: bopomofo on the four-row Dachen keyboard, each key sending its Dachen ASCII key (`InputScheme::Zhuyin`).
+    Zhuyin,
+    /// 越南语 26 键: Vietnamese on the Latin 26-key letters, composed by the method in `Preferences::vietnamese` (`InputScheme::Vietnamese`).
+    Vietnamese,
 }
 
 impl TouchKeyboardScheme {
-    pub const ALL: [Self; 12] = [
+    /// Every touch scheme in picker order. Schemes are appended, never reordered.
+    pub const ALL: [Self; 15] = [
+        Self::Quanpin,
+        Self::NineKey,
+        Self::Xiaohe,
+        Self::Ziranma,
+        Self::Microsoft,
+        Self::Shoudao,
+        Self::Wubi,
+        Self::JapaneseNineKey,
+        Self::Japanese,
+        Self::Handwriting,
+        Self::ThoughtfulReply,
+        Self::Korean,
+        Self::Cantonese,
+        Self::Zhuyin,
+        Self::Vietnamese,
+    ];
+
+    /// The schemes a keyboard shows before the user picks any: all but Cantonese, Zhuyin and Vietnamese, which the user turns on, as on macOS where their input modes start disabled. A document without `touch_keyboard_schemes` therefore keeps the keyboard it always had.
+    pub const DEFAULT_ENABLED: [Self; 12] = [
         Self::Quanpin,
         Self::NineKey,
         Self::Xiaohe,
@@ -378,7 +404,7 @@ pub struct TouchKeyboardSchemePreferences {
 }
 
 fn default_touch_keyboard_schemes() -> BTreeSet<TouchKeyboardScheme> {
-    TouchKeyboardScheme::ALL.into_iter().collect()
+    TouchKeyboardScheme::DEFAULT_ENABLED.into_iter().collect()
 }
 
 impl Default for TouchKeyboardSchemePreferences {

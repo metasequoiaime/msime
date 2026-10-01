@@ -12,6 +12,9 @@ private enum StatisticsSymbol {
     case .wubi: return "scribble"
     case .japanese: return "character.bubble"
     case .korean: return "character.bubble.fill"
+    case .cantonese: return "character.book.closed"
+    case .zhuyin: return "character.phonetic"
+    case .vietnamese: return "textformat.abc.dottedunderline"
     case .handwriting: return "hand.draw"
     case .english: return "abc"
     case .local: return "clock.arrow.circlepath"
@@ -87,7 +90,7 @@ struct TypingStatisticsView: View {
   /// 扇区颜色:品牌绿的一条明度梯度,不是八个互不相干的色相。
   ///
   /// 原先是 `.teal .blue .indigo .orange .pink .purple .brown .gray`。图表确实需要相邻扇区能分开,但八种色相除了"彼此不同"之外什么都没说,而且这一页因此和应用其余部分不是一套配色。梯度按同一顺序排进图例,所以哪一档对应哪一项仍然读得出来。
-  private let colors: [Color] = MetasequoiaTheme.chartRamp(9)
+  private let colors: [Color] = MetasequoiaTheme.chartRamp(10)
   @State private var availability = TypingStatisticsStore.Availability.neverWritten
   // The old copy asked for Full Access unconditionally, so it said the same thing whether the
   // setting was the problem or not and carried no information. Each case here is a different
@@ -135,15 +138,16 @@ struct TypingStatisticsView: View {
   private var languageSlices: [StatisticsSlice] {
     let sources = breakdown.sources
     return [
-      StatisticsSlice(id: "chinese", title: "中文模式", count: ["quanpin", "nineKey", "shuangpin", "ziranma", "microsoft", "shoudao", "wubi"].reduce(0) { $0 + (sources[$1] ?? 0) }, color: colors[0], symbol: "character.textbox"),
+      StatisticsSlice(id: "chinese", title: "中文模式", count: ["quanpin", "nineKey", "shuangpin", "ziranma", "microsoft", "shoudao", "wubi", "cantonese", "zhuyin"].reduce(0) { $0 + (sources[$1] ?? 0) }, color: colors[0], symbol: "character.textbox"),
       StatisticsSlice(id: "japanese", title: "日语模式", count: sources["japanese"] ?? 0, color: colors[1], symbol: "character.bubble"),
       StatisticsSlice(id: "korean", title: "韩语模式", count: sources["korean"] ?? 0, color: colors[2], symbol: "character.bubble.fill"),
-      StatisticsSlice(id: "english", title: "英文模式", count: sources["english"] ?? 0, color: colors[3], symbol: "abc"),
-      StatisticsSlice(id: "local", title: "本地输入", count: sources["local"] ?? 0, color: colors[4], symbol: "clock.arrow.circlepath"),
-      StatisticsSlice(id: "ai", title: "AI 润色", count: sources["ai"] ?? 0, color: colors[5], symbol: "sparkles"),
-      StatisticsSlice(id: "reply", title: "高情商回复", count: sources["reply"] ?? 0, color: colors[6], symbol: "bubble.left.and.bubble.right"),
-      StatisticsSlice(id: "voice", title: "语音输入", count: sources["voice"] ?? 0, color: colors[7], symbol: "waveform"),
-      StatisticsSlice(id: "unknown", title: "历史未分类", count: sources["unknown"] ?? 0, color: colors[8], symbol: "questionmark.circle"),
+      StatisticsSlice(id: "vietnamese", title: "越南语模式", count: sources["vietnamese"] ?? 0, color: colors[3], symbol: "textformat.abc.dottedunderline"),
+      StatisticsSlice(id: "english", title: "英文模式", count: sources["english"] ?? 0, color: colors[4], symbol: "abc"),
+      StatisticsSlice(id: "local", title: "本地输入", count: sources["local"] ?? 0, color: colors[5], symbol: "clock.arrow.circlepath"),
+      StatisticsSlice(id: "ai", title: "AI 润色", count: sources["ai"] ?? 0, color: colors[6], symbol: "sparkles"),
+      StatisticsSlice(id: "reply", title: "高情商回复", count: sources["reply"] ?? 0, color: colors[7], symbol: "bubble.left.and.bubble.right"),
+      StatisticsSlice(id: "voice", title: "语音输入", count: sources["voice"] ?? 0, color: colors[8], symbol: "waveform"),
+      StatisticsSlice(id: "unknown", title: "历史未分类", count: sources["unknown"] ?? 0, color: colors[9], symbol: "questionmark.circle"),
     ]
   }
 
@@ -184,7 +188,7 @@ struct TypingStatisticsView: View {
         Section {
           distribution(languageSlices, chart: .donut)
         } header: { Text("语言模式") }
-          footer: { Text("按提交时使用的键盘模式统计，不推测文本语言；中文模式下输入的数字仍计入中文模式。AI 润色和语音输入单独按来源统计。") }
+          footer: { Text("按提交时使用的键盘模式统计，不推测文本语言；粤拼和大千注音计入中文模式，中文模式下输入的数字仍计入中文模式。AI 润色和语音输入单独按来源统计。") }
       case .scheme:
         Section {
           distribution(sourceSlices, chart: .rank)

@@ -4374,10 +4374,17 @@ fn ios_host_options_document(
     match contents {
         Some(contents) => serde_json::from_str(contents)
             .map_err(|_| "Cannot parse prepared HostOptions JSON".to_owned()),
-        None => Ok(serde_json::json!({
-            "resources": resources.to_string_lossy(),
-            "state_root": state_root.to_string_lossy(),
-        })),
+        None => {
+            let mut document = serde_json::json!({
+                "resources": resources.to_string_lossy(),
+                "state_root": state_root.to_string_lossy(),
+            });
+            // The Cantonese and Zhuyin dictionaries are bundled beside EngineResources; naming them here is what lets host-api run those schemes and the page offer them.
+            if let Some(directory) = msime_host_api::installed_language_dictionaries(resources) {
+                document["language_dictionaries"] = Value::String(directory);
+            }
+            Ok(document)
+        }
     }
 }
 
