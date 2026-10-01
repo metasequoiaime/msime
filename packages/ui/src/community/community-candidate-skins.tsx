@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { errorCode } from "../core/error-code";
 import type { SkinCatalog } from "../skin/external-skins";
 import { CandidateSkinPublishDialog } from "./candidate-skin-publish-dialog";
-import { candidateSkinMessage, communityNeedsSignIn, communityRating } from "./community-helpers";
+import { candidateSkinMessage, communityNeedsSignIn } from "./community-helpers";
 import { useCommunityGallery, type CommunityGalleryClient } from "./community-gallery";
 import { CommunityErrorAlert } from "./community-error-alert";
 import { CommunityDetailStatus } from "./community-detail-status";
@@ -10,6 +10,7 @@ import * as style from "./community-style";
 import { CommunitySearchForm } from "./community-search-form";
 import { CommunityScopeButtons } from "./community-scope-buttons";
 import { CommunitySkinModerationSection } from "./community-skin-moderation-section";
+import { CommunitySkinCardMetrics } from "./community-skin-card-metrics";
 
 /** The server's license columns; each is `""` when the manifest leaves it out. */
 export type CommunityCandidateSkinLicense = { code: string; assets: string; source: string };
@@ -173,10 +174,11 @@ function CommunityCandidateSkinCard({
         {skin.owned ? "我的作品" : skin.author}
         {skin.visibility === "private" && " · 私有"}
       </span>
-      <span className={style.cardMetrics}>
-        <span>↓ {skin.downloads.toLocaleString("zh-CN")}</span>
-        <span>☆ {communityRating(skin.rating_count, skin.rating_average)}</span>
-      </span>
+      <CommunitySkinCardMetrics
+        downloads={skin.downloads}
+        ratingCount={skin.rating_count}
+        ratingAverage={skin.rating_average}
+      />
       {skin.license.assets.trim() && (
         <span className={style.cardAuthor}>素材授权 {skin.license.assets.trim()}</span>
       )}

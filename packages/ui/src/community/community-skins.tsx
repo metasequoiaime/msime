@@ -7,7 +7,6 @@ import { pushMobileSettingsState } from "../settings/mobile-navigation";
 import { ScreenKeyboardPreview } from "../keyboard/screen-keyboard-preview";
 import {
   communityNeedsSignIn,
-  communityRating,
   communitySkinMessage,
   communitySkinPublishMessage,
 } from "./community-helpers";
@@ -19,6 +18,7 @@ import { CommunitySearchForm } from "./community-search-form";
 import { CommunityScopeButtons } from "./community-scope-buttons";
 import { CommunitySkinPublicationFields } from "./community-skin-publication-fields";
 import { CommunitySkinModerationSection } from "./community-skin-moderation-section";
+import { CommunitySkinCardMetrics } from "./community-skin-card-metrics";
 import type {
   CustomSkinLibraryClient,
   SavedTouchKeyboardSkin,
@@ -263,10 +263,11 @@ function CommunitySkinCard({
       </span>
       <strong>{skin.name}</strong>
       <span className={style.cardAuthor}>{skin.owned ? "我的作品" : skin.author}</span>
-      <span className={style.cardMetrics}>
-        <span>↓ {skin.downloads.toLocaleString("zh-CN")}</span>
-        <span>☆ {communityRating(skin.rating_count, skin.rating_average)}</span>
-      </span>
+      <CommunitySkinCardMetrics
+        downloads={skin.downloads}
+        ratingCount={skin.rating_count}
+        ratingAverage={skin.rating_average}
+      />
     </button>
   );
 }
