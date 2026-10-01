@@ -278,7 +278,10 @@ pub fn split_segments(segmentation: &str) -> Vec<String> {
     if segmentation.is_empty() {
         return Vec::new();
     }
-    segmentation.split('\'').map(str::to_owned).collect()
+    let count = segmentation.bytes().filter(|&byte| byte == b'\'').count() + 1;
+    let mut segments = Vec::with_capacity(count);
+    segments.extend(segmentation.split('\'').map(str::to_owned));
+    segments
 }
 
 /// Join with `'` (QQ:988-1000).
@@ -464,7 +467,12 @@ mod tests {
     #[test]
     fn utilities_follow_the_reference() {
         assert!(split_segments("").is_empty());
-        assert_eq!(split_segments("ni''hao'"), ["ni", "", "hao", ""]);
+        let segments = split_segments("ni''hao'");
+        assert_eq!(segments, ["ni", "", "hao", ""]);
+        assert_eq!(segments.capacity(), segments.len());
+        let many = split_segments("a'a'a'a'a");
+        assert_eq!(many.len(), 5);
+        assert_eq!(many.capacity(), many.len());
         assert_eq!(join_segments(&split_segments("ni'hao")), "ni'hao");
         assert_eq!(segments_to_jianpin(&split_segments("ni''hao")), "nh");
         // Spellings only a minimum-segment cut can split are complete (test_input_session.cpp:978-986).
