@@ -1,3 +1,15 @@
+import {
+  mobilePrimaryPageIds,
+  mobileTabForPage,
+  type MobilePrimaryPageId,
+} from "./settings-navigation-helpers";
+
+export {
+  mobilePrimaryPageIds,
+  mobileTabForPage,
+  type MobilePrimaryPageId,
+} from "./settings-navigation-helpers";
+
 /**
  * The settings pages shared by the desktop sidebar and the mobile navigation.
  *
@@ -90,18 +102,6 @@ export const pages = [
 ] as const;
 
 export type SettingsPageId = (typeof pages)[number]["id"];
-export type MobilePrimaryPageId = Extract<
-  SettingsPageId,
-  "home" | "community" | "typing-statistics" | "account"
->;
-
-export const mobilePrimaryPageIds: readonly MobilePrimaryPageId[] = [
-  "home",
-  "community",
-  "typing-statistics",
-  "account",
-];
-
 /** Primary mobile pages whose content already supplies its own heading. */
 export const mobileHeaderlessPageIds: readonly SettingsPageId[] = [
   "home",
@@ -124,12 +124,6 @@ export function splitMobilePages<T extends { id: string }>(
       !hiddenPageIds.includes(item.id),
   );
   return { primary, secondary };
-}
-
-export function mobileTabForPage(page: SettingsPageId): MobilePrimaryPageId {
-  return mobilePrimaryPageIds.includes(page as MobilePrimaryPageId)
-    ? (page as MobilePrimaryPageId)
-    : "home";
 }
 
 /** A host-provided route opens a known section, while an unknown id falls back to appearance. */
