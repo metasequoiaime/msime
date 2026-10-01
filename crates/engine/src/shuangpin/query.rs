@@ -74,7 +74,12 @@ pub fn normalize_input(raw: &str, profile: &ShuangpinProfile) -> String {
 }
 
 pub fn remove_manual_delimiters(raw: &str) -> String {
-    raw.replace('\'', "")
+    let capacity = raw.bytes().filter(|&byte| byte != b'\'').count();
+    let mut compact = String::with_capacity(capacity);
+    for part in raw.split('\'') {
+        compact.push_str(part);
+    }
+    compact
 }
 
 pub fn effective_input_length(raw: &str) -> usize {
@@ -236,7 +241,12 @@ mod tests {
 
     #[test]
     fn effective_prefixes_skip_delimiters() {
-        assert_eq!(remove_manual_delimiters("ni'hc'"), "nihc");
+        let compact = remove_manual_delimiters("ni'hc'");
+        assert_eq!(compact, "nihc");
+        assert_eq!(compact.capacity(), compact.len());
+        let many = remove_manual_delimiters("a'a'a'a'a");
+        assert_eq!(many, "aaaaa");
+        assert_eq!(many.capacity(), many.len());
         assert_eq!(effective_input_length("ni'hc'"), 4);
         assert_eq!(raw_length_for_effective_prefix("ni'hc", 2), 2);
         assert_eq!(raw_length_for_effective_prefix("ni'hc", 3), 4);
