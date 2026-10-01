@@ -225,6 +225,7 @@ export {
   SettingsFeedbackPage,
   type SettingsFeedbackPageProps,
 } from "./settings/settings-feedback-page";
+export { FeedbackChannels, type FeedbackChannelsProps } from "./settings/feedback-channels";
 export {
   SettingsUtilityPages,
   type SettingsUtilityPagesProps,

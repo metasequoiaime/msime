@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """The QQ group and the Telegram link are the same on every host that lists them.
 
-There is no shared constant for these two strings. The reference's feedback page has them, and each
-host has since written them out again: the shared settings page, macOS, iOS, and now Android - four
-copies of a number and a URL that only mean anything if they are identical. A typo in one of them
-sends that platform's users to a group that does not exist, and nothing else in this repository
-would notice, because each copy is correct on its own terms.
+The shared settings surfaces use one public component for the two strings. Native hosts still carry
+their own copies, so a typo in one of them sends that platform's users to a group that does not
+exist, and nothing else in this repository would notice, because each copy is correct on its own
+terms.
 
 Android is the reason this exists: it shipped with a feedback screen that listed neither channel at
 all, so its users' only route was the GitHub issue form. Adding the fifth copy without a check
@@ -24,14 +23,18 @@ QQ_GROUP = "829919142"
 TELEGRAM = "t.me/msimegroup"
 
 SURFACES = {
-    "shared settings page": "packages/ui/src/settings/pages/feedback-page.tsx",
+    "shared feedback channel component": "packages/ui/src/settings/feedback-channels.tsx",
     "macOS": "platforms/macos/src/core/SupportWindowController.mm",
     "iOS": "platforms/ios/App/Sources/settings/HelpAndFeedbackViews.swift",
     "Android strings": "platforms/android/res/values/strings.xml",
     "Android feedback screen": "platforms/android/java/app/msime/android/home/FeedbackActivity.java",
 }
 
-missing = []
+shared_page = ROOT / "packages/ui/src/settings/pages/feedback-page.tsx"
+if not shared_page.exists() or "FeedbackChannels" not in shared_page.read_text():
+    missing = ["shared settings page: does not render the shared FeedbackChannels component"]
+else:
+    missing = []
 listing = 0
 for host, relative in SURFACES.items():
     path = ROOT / relative

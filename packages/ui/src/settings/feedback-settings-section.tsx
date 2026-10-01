@@ -1,3 +1,4 @@
+import { FeedbackChannels } from "./feedback-channels";
 export function FeedbackSettingsSection({
   hero,
   eyebrow,
@@ -107,41 +108,18 @@ export function FeedbackSettingsSection({
           提交会打开 GitHub 并预填报告；网址长度有限，过长描述会被截断，完整内容请先复制。
         </small>
       </div>
-      <div className={feedbackList}>
-        <div className={`section ${feedbackCard}`}>
-          <div className={feedbackIcon}>GH</div>
-          <div className={feedbackBody}>
-            <div className={feedbackTitle}>GitHub Issues</div>
-            <p>适合提交可复现的问题、功能建议和开发讨论。</p>
-            <code>{issuesUrl.replace("https://", "")}</code>
-          </div>
-          <button type="button" className="secondary" onClick={onOpenIssues}>
-            查看 Issues
-          </button>
-        </div>
-        <div className={`section ${feedbackCard}`}>
-          <div className={feedbackIcon}>QQ</div>
-          <div className={feedbackBody}>
-            <div className={feedbackTitle}>QQ 交流群</div>
-            <p>适合中文用户进行日常交流、测试反馈和使用讨论。</p>
-            <code>群号：829919142</code>
-          </div>
-          <button type="button" className="secondary" onClick={onCopyGroup}>
-            {feedbackCopied ? "已复制" : "复制群号"}
-          </button>
-        </div>
-        <div className={`section ${feedbackCard}`}>
-          <div className={feedbackIcon}>TG</div>
-          <div className={feedbackBody}>
-            <div className={feedbackTitle}>Telegram 群组</div>
-            <p>面向国际用户和开发者的即时讨论频道。</p>
-            <code>t.me/msimegroup</code>
-          </div>
-          <button type="button" className="secondary" onClick={onOpenTelegram}>
-            打开群组
-          </button>
-        </div>
-      </div>
+      <FeedbackChannels
+        issuesUrl={issuesUrl}
+        feedbackCopied={feedbackCopied}
+        onOpenIssues={onOpenIssues}
+        onCopyGroup={onCopyGroup}
+        onOpenTelegram={onOpenTelegram}
+        listClassName={feedbackList}
+        cardClassName={feedbackCard}
+        iconClassName={feedbackIcon}
+        bodyClassName={feedbackBody}
+        titleClassName={feedbackTitle}
+      />
       <div className={`section ${note}`}>
         <strong>提交问题时建议附上</strong>
         <span>系统版本、输入方案、复现步骤、相关截图，以及 Debug 输出中的关键日志。</span>

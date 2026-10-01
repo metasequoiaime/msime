@@ -4,6 +4,7 @@ import { useSettingsForm } from "../settings-form-context";
 import { GroupList, Row, Select } from "../../core/platform-controls";
 import { SubPageEntries } from "./sub-page-entries";
 import { createSettingsExternalActions } from "../settings-external-actions";
+import { FeedbackChannels } from "../feedback-channels";
 
 /** The 反馈 page of the settings form. */
 export function FeedbackSettingsPage() {
@@ -86,47 +87,17 @@ export function FeedbackSettingsPage() {
           </div>
         </GroupList>
         <GroupList title="反馈与交流">
-          <div className={doc.feedbackCard}>
-            <div className={doc.feedbackIcon}>GH</div>
-            <div className={doc.feedbackBody}>
-              <div className={doc.feedbackTitle}>GitHub Issues</div>
-              <p>适合提交可复现的问题、功能建议和开发讨论。</p>
-              <code>{platformIssuesUrl.replace("https://", "")}</code>
-            </div>
-            <button
-              type="button"
-              className="secondary"
-              onClick={externalActions.onOpenIssues}
-            >
-              查看 Issues
-            </button>
-          </div>
-          <div className={doc.feedbackCard}>
-            <div className={doc.feedbackIcon}>QQ</div>
-            <div className={doc.feedbackBody}>
-              <div className={doc.feedbackTitle}>QQ 交流群</div>
-              <p>适合中文用户进行日常交流、测试反馈和使用讨论。</p>
-              <code>群号：829919142</code>
-            </div>
-            <button type="button" className="secondary" onClick={copyFeedbackGroup}>
-              {feedbackCopied ? "已复制" : "复制群号"}
-            </button>
-          </div>
-          <div className={doc.feedbackCard}>
-            <div className={doc.feedbackIcon}>TG</div>
-            <div className={doc.feedbackBody}>
-              <div className={doc.feedbackTitle}>Telegram 群组</div>
-              <p>面向国际用户和开发者的即时讨论频道。</p>
-              <code>t.me/msimegroup</code>
-            </div>
-            <button
-              type="button"
-              className="secondary"
-              onClick={externalActions.onOpenTelegram}
-            >
-              打开群组
-            </button>
-          </div>
+          <FeedbackChannels
+            issuesUrl={platformIssuesUrl}
+            feedbackCopied={feedbackCopied}
+            onOpenIssues={externalActions.onOpenIssues}
+            onCopyGroup={copyFeedbackGroup}
+            onOpenTelegram={externalActions.onOpenTelegram}
+            cardClassName={doc.feedbackCard}
+            iconClassName={doc.feedbackIcon}
+            bodyClassName={doc.feedbackBody}
+            titleClassName={doc.feedbackTitle}
+          />
         </GroupList>
         <GroupList title="提交问题时建议附上">
           <p className={settings.groupNote}>
