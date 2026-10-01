@@ -7,6 +7,7 @@ import {
   communityRating,
   resourceKindTitle,
   resourceMessage,
+  runCommunityAction,
 } from "./community-helpers";
 import type { CustomSkinLibraryClient } from "../keyboard/touch-keyboard-skin-design";
 import * as style from "./community-style";
@@ -206,32 +207,28 @@ function ResourceEditor({
       return;
     }
     const generation = clientGeneration.current;
-    actionRunning.current = true;
-    try {
-      await runAsyncAction(
-        {
-          busy,
-          isCurrent: () => mounted.current && generation === clientGeneration.current,
-          setBusy,
-          setError,
-        },
-        async () => {
-          await client.publish(
-            id,
-            kind,
-            normalizedName,
-            normalizedDescription,
-            kind === "reply" ? { prompt } : { entries },
-            existing?.revision ?? 0,
-          );
-          if (!mounted.current || generation !== clientGeneration.current) return;
-          await onPublished();
-        },
-        { formatError: resourceMessage },
-      );
-    } finally {
-      if (generation === clientGeneration.current) actionRunning.current = false;
-    }
+    await runCommunityAction({
+      busy,
+      generation,
+      clientGeneration,
+      actionRunning,
+      setBusy,
+      setError,
+      isCurrent: () => mounted.current && generation === clientGeneration.current,
+      formatError: resourceMessage,
+      operation: async (isCurrent) => {
+        await client.publish(
+          id,
+          kind,
+          normalizedName,
+          normalizedDescription,
+          kind === "reply" ? { prompt } : { entries },
+          existing?.revision ?? 0,
+        );
+        if (!isCurrent()) return;
+        await onPublished();
+      },
+    });
   };
   return (
     <div className={style.backdrop}>
