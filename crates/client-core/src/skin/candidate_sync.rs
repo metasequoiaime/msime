@@ -5,9 +5,10 @@
 //! Packages installed from someone else's publication are left alone: they are recorded by [`record_install`], and uploading them would copy another author's work into this library.
 
 use super::candidate_community::{
-    self, pack_as, request_digest, BackendCandidateSkinCommunityService, CandidateSkinCommunityApi,
-    CandidateSkinItem, CandidateSkinPackage, CandidateSkinPublishRequest,
-    CandidateSkinReplaceRequest, CandidateSkinSyncEntry, CandidateSkinVisibility, PackedSkin,
+    self, pack_as, request_digest, BackendCandidateSkinCommunityService, CandidateSkinCategory,
+    CandidateSkinCommunityApi, CandidateSkinItem, CandidateSkinPackage,
+    CandidateSkinPublishRequest, CandidateSkinReplaceRequest, CandidateSkinSyncEntry,
+    CandidateSkinVisibility, PackedSkin,
 };
 use super::catalog;
 use crate::account::{AccountApi, AccountError, AccountSessionStorage};
@@ -57,6 +58,11 @@ pub trait CandidateSkinSyncRemote {
         id: Uuid,
         visibility: CandidateSkinVisibility,
     ) -> Result<CandidateSkinItem, AccountError>;
+    fn set_category(
+        &self,
+        id: Uuid,
+        category: CandidateSkinCategory,
+    ) -> Result<CandidateSkinItem, AccountError>;
     fn download(&self, id: Uuid) -> Result<CandidateSkinPackage, AccountError>;
     fn unpublish(&self, id: Uuid) -> Result<(), AccountError>;
 }
@@ -94,6 +100,13 @@ where
         visibility: CandidateSkinVisibility,
     ) -> Result<CandidateSkinItem, AccountError> {
         BackendCandidateSkinCommunityService::set_visibility(self, id, visibility)
+    }
+    fn set_category(
+        &self,
+        id: Uuid,
+        category: CandidateSkinCategory,
+    ) -> Result<CandidateSkinItem, AccountError> {
+        BackendCandidateSkinCommunityService::set_category(self, id, category)
     }
     fn download(&self, id: Uuid) -> Result<CandidateSkinPackage, AccountError> {
         BackendCandidateSkinCommunityService::download(self, id)
@@ -242,7 +255,7 @@ pub enum CandidateSkinPublishError {
     Account(AccountError),
 }
 
-/// Publish the installed package `package_id` to the library under `name` and `description` with `visibility`. A package sync already keeps in the library is updated in place, content and visibility, so publishing never leaves a second row of the same package behind; any other package is created as the publication `publication`. The state is updated either way, so the next run sees the package as in step.
+/// Publish the installed package `package_id` to the library under `name` and `description` with `visibility` and, when given, `category`. A package sync already keeps in the library is updated in place, content, visibility and category, so publishing never leaves a second row of the same package behind; any other package is created as the publication `publication`. The state is updated either way, so the next run sees the package as in step.
 #[allow(clippy::too_many_arguments)]
 pub fn publish(
     root: &Path,
@@ -253,6 +266,7 @@ pub fn publish(
     name: String,
     description: String,
     visibility: CandidateSkinVisibility,
+    category: Option<CandidateSkinCategory>,
 ) -> Result<CandidateSkinItem, CandidateSkinPublishError> {
     let _run = lock_runs();
     let packed =
@@ -286,7 +300,15 @@ pub fn publish(
         },
     };
     let item = match existing {
-        Some(id) => match update_in_place(remote, id, &name, &description, &packed, visibility) {
+        Some(id) => match update_in_place(
+            remote,
+            id,
+            &name,
+            &description,
+            &packed,
+            visibility,
+            category,
+        ) {
             Err(AccountError::NotFound) => None,
             result => Some(result.map_err(CandidateSkinPublishError::Account)?),
         },
@@ -301,6 +323,7 @@ pub fn publish(
                 description,
                 packed,
                 visibility,
+                category,
             ))
             .map_err(CandidateSkinPublishError::Account)?,
     };
@@ -324,6 +347,7 @@ fn update_in_place(
     description: &str,
     packed: &PackedSkin,
     visibility: CandidateSkinVisibility,
+    category: Option<CandidateSkinCategory>,
 ) -> Result<CandidateSkinItem, AccountError> {
     // A private package may carry no license, so the content goes up before the row is made public, and the server's license check sees the new content.
     let item = remote.replace(
@@ -335,10 +359,16 @@ fn update_in_place(
             files: packed.files.clone(),
         },
     )?;
-    if item.visibility == visibility {
-        return Ok(item);
+    let item = if item.visibility == visibility {
+        item
+    } else {
+        remote.set_visibility(id, visibility)?
+    };
+    // 分类不在替换请求里，同步按私有方式存入库中的行由这次发布补上分类。
+    match category {
+        Some(category) if item.category != Some(category) => remote.set_category(id, category),
+        _ => Ok(item),
     }
-    remote.set_visibility(id, visibility)
 }
 
 /// Bring the skin root `root` and the signed-in user's library in step, remembering the outcome in `state_path`.
@@ -564,6 +594,7 @@ impl<R: CandidateSkinSyncRemote> Run<'_, R> {
             description,
             packed,
             CandidateSkinVisibility::Private,
+            None,
         );
         let cloud_digest = match request_digest(
             &request.name,

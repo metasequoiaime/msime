@@ -5245,6 +5245,8 @@ pub fn run() {
             #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
             desktop_candidate_skin_community::candidate_skin_community_set_visibility,
             #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+            desktop_candidate_skin_community::candidate_skin_community_set_category,
+            #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
             desktop_candidate_skin_community::candidate_skin_community_sync,
             #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
             desktop_plugin_community::plugin_community_list,

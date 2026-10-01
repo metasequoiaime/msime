@@ -50,6 +50,8 @@ const MAX_SYNC_RESPONSE_BYTES: usize = 512 * 1024;
 const MAX_SYNC_ENTRIES: usize = 1000;
 /// The query every list and detail request carries so the server includes `visibility`, `updated_at` and the signed-in user's private packages. Clients released before private packages existed read items with unknown fields refused, so the server sends the new fields only to clients that ask for them.
 const SYNC_FIELDS: &str = "fields=sync";
+/// 每个返回 `CandidateSkinItem` 的请求都带上这个查询参数，服务端才会在条目里加上 `category`。早于分类功能发布的客户端以 `deny_unknown_fields` 读取条目，所以服务端只对显式请求的客户端返回该字段。
+const INCLUDE_CATEGORY: &str = "include=category";
 const TRANSFER_TIMEOUT: Duration = Duration::from_secs(90);
 const MAX_RESOURCE_PATH_BYTES: usize = 256;
 const MANIFEST_FILE: &str = "skin.toml";
@@ -86,6 +88,50 @@ pub enum CandidateSkinVisibility {
     Private,
 }
 
+/// 社区候选窗皮肤的发布分类。分类只是发布元数据，不属于 `skin.toml`。服务端将来新增的分类 id 一律读作 [`CandidateSkinCategory::Other`]，这样旧客户端不会因新分类而读取失败。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CandidateSkinCategory {
+    Nature,
+    Guofeng,
+    Acg,
+    Cute,
+    Food,
+    Tech,
+    Minimal,
+    #[default]
+    #[serde(other)]
+    Other,
+}
+
+impl CandidateSkinCategory {
+    /// 全部分类，顺序即界面上筛选按钮的顺序。
+    pub const ALL: [Self; 8] = [
+        Self::Nature,
+        Self::Guofeng,
+        Self::Acg,
+        Self::Cute,
+        Self::Food,
+        Self::Tech,
+        Self::Minimal,
+        Self::Other,
+    ];
+
+    /// 服务端使用的分类 id。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Nature => "nature",
+            Self::Guofeng => "guofeng",
+            Self::Acg => "acg",
+            Self::Cute => "cute",
+            Self::Food => "food",
+            Self::Tech => "tech",
+            Self::Minimal => "minimal",
+            Self::Other => "other",
+        }
+    }
+}
+
 /// One published package as the gallery lists it. It never carries the manifest or any image bytes.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -117,6 +163,9 @@ pub struct CandidateSkinItem {
     /// [`request_digest`] of the request that last set the content. The server sends it only for the signed-in user's own packages; `""` otherwise.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub request_sha256: String,
+    /// 发布分类。客户端总是带 `include=category` 请求，早于分类功能的服务端不返回它，此时为 `None`。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<CandidateSkinCategory>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -154,6 +203,9 @@ pub struct CandidateSkinPublishRequest {
     pub manifest: String,
     pub files: BTreeMap<String, String>,
     pub visibility: CandidateSkinVisibility,
+    /// 发布分类；`None` 时不发送该字段，由服务端归入默认分类。分类不计入 [`request_digest`]。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category: Option<CandidateSkinCategory>,
 }
 
 impl CandidateSkinPublishRequest {
@@ -164,6 +216,7 @@ impl CandidateSkinPublishRequest {
         description: String,
         packed: PackedSkin,
         visibility: CandidateSkinVisibility,
+        category: Option<CandidateSkinCategory>,
     ) -> Self {
         Self {
             id,
@@ -172,6 +225,7 @@ impl CandidateSkinPublishRequest {
             manifest: packed.manifest,
             files: packed.files,
             visibility,
+            category,
         }
     }
 }
@@ -220,6 +274,7 @@ pub trait CandidateSkinCommunityApi: Send + Sync + 'static {
         offset: usize,
         search: &str,
         mine: bool,
+        category: Option<CandidateSkinCategory>,
         token: Option<&str>,
     ) -> Result<CandidateSkinPage, AccountError>;
     fn candidate_skin(
@@ -256,6 +311,12 @@ pub trait CandidateSkinCommunityApi: Send + Sync + 'static {
         visibility: CandidateSkinVisibility,
         token: &str,
     ) -> Result<CandidateSkinItem, AccountError>;
+    fn set_candidate_skin_category(
+        &self,
+        id: Uuid,
+        category: CandidateSkinCategory,
+        token: &str,
+    ) -> Result<CandidateSkinItem, AccountError>;
 }
 
 impl CandidateSkinCommunityApi for BackendAccountClient {
@@ -264,6 +325,7 @@ impl CandidateSkinCommunityApi for BackendAccountClient {
         offset: usize,
         search: &str,
         mine: bool,
+        category: Option<CandidateSkinCategory>,
         token: Option<&str>,
     ) -> Result<CandidateSkinPage, AccountError> {
         validate_query(offset, search)?;
@@ -271,8 +333,11 @@ impl CandidateSkinCommunityApi for BackendAccountClient {
             return Err(AccountError::Unauthorized);
         }
         let scope = if mine { "&scope=mine" } else { "" };
+        let filter = category
+            .map(|category| format!("&category={}", category.as_str()))
+            .unwrap_or_default();
         let path = format!(
-            "/v1/community/candidate-skins?offset={offset}&q={}{scope}&{SYNC_FIELDS}",
+            "/v1/community/candidate-skins?offset={offset}&q={}{scope}{filter}&{SYNC_FIELDS}&{INCLUDE_CATEGORY}",
             percent_encode(search)
         );
         let page = self.json::<CandidateSkinPage, ()>(Method::GET, &path, token, None)?;
@@ -289,7 +354,7 @@ impl CandidateSkinCommunityApi for BackendAccountClient {
             return Err(AccountError::Invalid);
         }
         let path = format!(
-            "/v1/community/candidate-skins/{}?{SYNC_FIELDS}",
+            "/v1/community/candidate-skins/{}?{SYNC_FIELDS}&{INCLUDE_CATEGORY}",
             id.hyphenated()
         );
         let item = self.json::<CandidateSkinItem, ()>(Method::GET, &path, token, None)?;
@@ -324,7 +389,7 @@ impl CandidateSkinCommunityApi for BackendAccountClient {
         validate_publish(request)?;
         let item = self.json_with_limits_timeout::<CandidateSkinItem, _>(
             Method::POST,
-            "/v1/community/candidate-skins",
+            &format!("/v1/community/candidate-skins?{INCLUDE_CATEGORY}"),
             Some(token),
             Some(request),
             MAX_PUBLISH_BODY_BYTES,
@@ -422,7 +487,10 @@ impl CandidateSkinCommunityApi for BackendAccountClient {
         token: &str,
     ) -> Result<CandidateSkinItem, AccountError> {
         validate_replace(id, request)?;
-        let path = format!("/v1/community/candidate-skins/{}", id.hyphenated());
+        let path = format!(
+            "/v1/community/candidate-skins/{}?{INCLUDE_CATEGORY}",
+            id.hyphenated()
+        );
         let item = self.json_with_limits_timeout::<CandidateSkinItem, _>(
             Method::PUT,
             &path,
@@ -452,7 +520,10 @@ impl CandidateSkinCommunityApi for BackendAccountClient {
         struct VisibilityRequest {
             visibility: CandidateSkinVisibility,
         }
-        let path = format!("/v1/community/candidate-skins/{}", id.hyphenated());
+        let path = format!(
+            "/v1/community/candidate-skins/{}?{INCLUDE_CATEGORY}",
+            id.hyphenated()
+        );
         let item = self.json::<CandidateSkinItem, _>(
             Method::PATCH,
             &path,
@@ -461,6 +532,37 @@ impl CandidateSkinCommunityApi for BackendAccountClient {
         )?;
         validate_item(&item)?;
         if item.id != id || item.visibility != visibility {
+            return Err(AccountError::Unavailable);
+        }
+        Ok(item)
+    }
+
+    fn set_candidate_skin_category(
+        &self,
+        id: Uuid,
+        category: CandidateSkinCategory,
+        token: &str,
+    ) -> Result<CandidateSkinItem, AccountError> {
+        if id.is_nil() {
+            return Err(AccountError::Invalid);
+        }
+        #[derive(Serialize)]
+        struct CategoryRequest {
+            category: CandidateSkinCategory,
+        }
+        let path = format!(
+            "/v1/community/candidate-skins/{}?{INCLUDE_CATEGORY}",
+            id.hyphenated()
+        );
+        let item = self.json::<CandidateSkinItem, _>(
+            Method::PATCH,
+            &path,
+            Some(token),
+            Some(&CategoryRequest { category }),
+        )?;
+        validate_item(&item)?;
+        // 回显的分类不一致说明修改没有生效。
+        if item.id != id || item.category != Some(category) {
             return Err(AccountError::Unavailable);
         }
         Ok(item)
@@ -483,16 +585,17 @@ where
     A: AccountApi + CandidateSkinCommunityApi,
     S: AccountSessionStorage,
 {
-    /// One page of published packages, newest first. `mine` lists only the signed-in user's own, and so requires a session.
+    /// One page of published packages, newest first. `mine` lists only the signed-in user's own, and so requires a session. `category` 为 `Some` 时只列出该分类。
     pub fn list(
         &self,
         offset: usize,
         search: &str,
         mine: bool,
+        category: Option<CandidateSkinCategory>,
     ) -> Result<CandidateSkinPage, AccountError> {
         validate_query(offset, search)?;
         request_with_account_session(&self.api, &self.session, mine, |api, token| {
-            api.candidate_skins(offset, search, mine, token)
+            api.candidate_skins(offset, search, mine, category, token)
         })
     }
 
@@ -583,6 +686,20 @@ where
                 visibility,
                 token.ok_or(AccountError::Unauthorized)?,
             )
+        })
+    }
+
+    /// 修改自己作品的发布分类。
+    pub fn set_category(
+        &self,
+        id: Uuid,
+        category: CandidateSkinCategory,
+    ) -> Result<CandidateSkinItem, AccountError> {
+        if id.is_nil() {
+            return Err(AccountError::Invalid);
+        }
+        request_with_account_session(&self.api, &self.session, true, |api, token| {
+            api.set_candidate_skin_category(id, category, token.ok_or(AccountError::Unauthorized)?)
         })
     }
 

@@ -8,8 +8,8 @@ use crate::{CommandError, RuntimeOptionsState, SkinCatalogResponse, SkinDirector
 use msime_client_core::account::AccountError;
 use msime_client_core::account::BackendAccountClient;
 use msime_client_core::skin::candidate_community::{
-    self, BackendCandidateSkinCommunityService, CandidateSkinItem, CandidateSkinPackage,
-    CandidateSkinPage, CandidateSkinVisibility,
+    self, BackendCandidateSkinCommunityService, CandidateSkinCategory, CandidateSkinItem,
+    CandidateSkinPackage, CandidateSkinPage, CandidateSkinVisibility,
 };
 use msime_client_core::skin::candidate_sync::{
     self, CandidateSkinPublishError, CandidateSkinSyncReport,
@@ -80,9 +80,11 @@ pub async fn candidate_skin_community_list(
     offset: usize,
     search: String,
     mine: bool,
+    // 不传或为 null 时列出全部分类。
+    category: Option<CandidateSkinCategory>,
 ) -> Result<CandidateSkinPage, CommandError> {
     community_service_call(Arc::clone(&state.service), move |service| {
-        service.list(offset, &search, mine)
+        service.list(offset, &search, mine, category)
     })
     .await
 }
@@ -207,6 +209,8 @@ pub async fn candidate_skin_community_publish(
     description: String,
     // None publishes publicly, as every page did before private packages.
     visibility: Option<CandidateSkinVisibility>,
+    // 不传时不发送分类，由服务端归入默认分类。
+    category: Option<CandidateSkinCategory>,
 ) -> Result<CandidateSkinItem, CommandError> {
     let id = community_id(&id)?;
     let service = Arc::clone(&state.service);
@@ -221,6 +225,7 @@ pub async fn candidate_skin_community_publish(
             name,
             description,
             visibility.unwrap_or_default(),
+            category,
         )
         .map_err(|error| match error {
             CandidateSkinPublishError::Package(code) => package_error(code),
@@ -256,6 +261,19 @@ pub async fn candidate_skin_community_set_visibility(
     let id = community_id(&id)?;
     community_service_call(Arc::clone(&state.service), move |service| {
         service.set_visibility(id, visibility)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn candidate_skin_community_set_category(
+    state: State<'_, CandidateSkinCommunityState>,
+    id: String,
+    category: CandidateSkinCategory,
+) -> Result<CandidateSkinItem, CommandError> {
+    let id = community_id(&id)?;
+    community_service_call(Arc::clone(&state.service), move |service| {
+        service.set_category(id, category)
     })
     .await
 }
