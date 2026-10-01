@@ -104,8 +104,12 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
             stage = "React touch scheme settings";
             js("Array.from(document.querySelectorAll('button')).find(button => button.textContent?.trim() === '输入').click(); true");
             awaitJs("!!(" + NINE_KEY_TOGGLE + ")");
-            awaitJs("JSON.stringify(Array.from(document.querySelectorAll('.touch-keyboard-scheme-select')).map(button => button.textContent.replace('✓', '')))"
-                + " === JSON.stringify(['全拼 26 键','全拼 9 键','小鹤双拼','自然码双拼','微软双拼','首道双拼','86 五笔','日语 9 键','日语 26 键','手写','高情商回复','韩语 26 键'])");
+            // Vietnamese is always offered here; Cantonese and Zhuyin only when the APK carried their dictionaries, so the tail is the installed subset in picker order.
+            awaitJs("(titles => JSON.stringify(titles.slice(0, 12))"
+                + " === JSON.stringify(['全拼 26 键','全拼 9 键','小鹤双拼','自然码双拼','微软双拼','首道双拼','86 五笔','日语 9 键','日语 26 键','手写','高情商回复','韩语 26 键'])"
+                + " && JSON.stringify(titles.slice(12)) === JSON.stringify(['粤拼 26 键','大千注音','越南语 26 键'].filter(title => titles.includes(title)))"
+                + " && titles.includes('越南语 26 键'))"
+                + "(Array.from(document.querySelectorAll('.touch-keyboard-scheme-select')).map(button => button.textContent.replace('✓', '')))");
             if (!"true".equals(js("(" + QUANPIN_TOGGLE + ").checked")))
                 js("(" + QUANPIN_TOGGLE + ").click(); true");
             if (!"true".equals(js("(" + NINE_KEY_TOGGLE + ").checked")))

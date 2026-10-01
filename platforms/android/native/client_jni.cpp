@@ -339,6 +339,15 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_prepareHostRaw(
     env->ReleaseByteArrayElements(options, bytes, JNI_ABORT);
     return response(env, result);
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_refreshHostRaw(JNIEnv *env, jclass, jbyteArray path) {
+    if (!path) return response(env, msime_client_refresh_host(nullptr, 0));
+    jsize length = env->GetArrayLength(path);
+    jbyte *bytes = env->GetByteArrayElements(path, nullptr);
+    if (!bytes) return nullptr;
+    char *result = msime_client_refresh_host(reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
+    env->ReleaseByteArrayElements(path, bytes, JNI_ABORT);
+    return response(env, result);
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_snapshotVersionRaw(JNIEnv *env, jclass, jbyteArray options) {
     if (!options) return response(env, msime_client_snapshot_version(nullptr, 0));
     jsize length = env->GetArrayLength(options);

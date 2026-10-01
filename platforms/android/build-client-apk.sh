@@ -65,6 +65,31 @@ if compgen -G "$glosses_source/zh-*.db" >/dev/null && [ -f "$glosses_source/offl
 else
   echo "no offline glosses at $glosses_source; candidates are glossed offline in English only"
 fi
+# Optional Cantonese and Zhuyin dictionaries fetched by scripts/fetch_language_dictionaries.py (or built by `msime-dict-build languages`), as on macOS, iOS and HarmonyOS. Bootstrap extracts them to language-dictionaries/ beside the resources, where host-api finds them and names them in the runtime options; the keyboard and the settings page leave a scheme whose dictionary is missing out. Each dictionary is packaged only with its licence text, which must travel with the data.
+languages_source=${MSIME_LANGUAGE_DICTIONARIES:-$repo_root/target/language-dictionaries}
+rm -rf "$assets/language-dictionaries"
+staged_languages=()
+for pair in cantonese.db:rime_cantonese_LICENSE.txt zhuyin.db:libchewing_data_LICENSE.txt; do
+  database=${pair%%:*}
+  license=${pair#*:}
+  [ -f "$languages_source/$database" ] || continue
+  if [ ! -f "$languages_source/$license" ]; then
+    echo "$languages_source/$database has no $license beside it; refusing to ship the data without its licence" >&2
+    exit 1
+  fi
+  mkdir -p "$assets/language-dictionaries"
+  cp "$languages_source/$database" "$languages_source/$license" "$assets/language-dictionaries/"
+  staged_languages+=("$database")
+done
+if [ "${#staged_languages[@]}" -gt 0 ]; then
+  echo "language dictionaries packaged (${staged_languages[*]}) from $languages_source"
+else
+  echo "no language dictionaries at $languages_source; Cantonese and Zhuyin stay unavailable"
+fi
+if [ "${MSIME_REQUIRE_LANGUAGE_DICTIONARIES:-0}" = 1 ] && [ "${#staged_languages[@]}" -ne 2 ]; then
+  echo "MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 but cantonese.db and zhuyin.db were not both packaged from $languages_source" >&2
+  exit 1
+fi
 ANDROID_HOME="$android_sdk" NDK_HOME="$android_ndk" TAURI_ANDROID_DIR="$tauri_android_dir" \
   pnpm --filter @msime/desktop tauri android build --apk --target "$tauri_target" --ci
 unsigned="$repo_root/apps/desktop/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk"

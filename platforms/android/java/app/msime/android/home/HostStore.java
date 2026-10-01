@@ -38,13 +38,22 @@ public final class HostStore {
      * looks at, which is the one failure mode that looks like it is working.
      */
     public static String directory(Context context) {
+        return runtimeOption(context, "preferences_directory");
+    }
+
+    /** The runtime options' `language_dictionaries` directory, the one the keyboard reads Cantonese and Zhuyin from, or an empty string when the configuration names none. */
+    public static String languageDictionaries(Context context) {
+        return runtimeOption(context, "language_dictionaries");
+    }
+
+    private static String runtimeOption(Context context, String key) {
         File files = context.getFilesDir();
         if (files == null) return "";
         File options = new File(files, "runtime-options.json");
         if (!options.isFile()) return "";
         try {
             JSONObject root = new JSONObject(HostOptionsPolicy.read(options));
-            return root.optString("preferences_directory", "");
+            return root.optString(key, "");
         } catch (JSONException | java.io.IOException | SecurityException error) {
             return "";
         }
