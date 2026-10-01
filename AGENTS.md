@@ -14,6 +14,23 @@
 
 - **Xcode 27 的模拟器界面是 `/Applications/Xcode.app/Contents/Applications/DeviceHub.app`，`Simulator.app` 已经不存在了。** `open -a Simulator` 和 `open -b com.apple.iphonesimulator` 都会失败，而 `xcrun simctl` 的 boot、install、launch、screenshot 全都照常工作——于是很容易把「窗口没出现」误判成「模拟器没起来」。设备真实状态以 `xcrun simctl list devices` 为准，要看画面才需要开 DeviceHub。
 
+## 语言
+
+本仓库的以下文本一律使用中文：
+
+- 代码注释：新增或修改的注释，包括 Rust、Swift、C++、Kotlin、ArkTS、TypeScript、Python 和脚本中的注释与文档注释。
+- Pull Request：标题和正文。
+- 评论：PR 评论、issue 评论，以及对他人评论的回复。
+- Code review：review 总结和每一条行内评论。
+
+说明：
+
+- 本规则优先于代理全局配置中「GitHub 上的文本用英文」之类的约定，只作用于本仓库。
+- 代码中的标识符、命令、路径、错误码、日志字段和接口字段保持原样，不翻译；中文句子里引用它们时用反引号括起来。
+- 修改已有的英文注释时，把改动到的那条注释改写成中文；不要为了改语言而批量重写没有改动的代码。
+- PR 标题保留英文的 Conventional Commits 类型前缀，冒号后面写中文，例如 `fix(linux): 焦点进入时显示当前输入模式`。前缀不能翻译：`pr-triage.yml` 的 Conventional title 检查只接受英文类型，squash 合并后标题成为 develop 上的提交标题，release-please 也靠前缀归类，因此更新日志会是中文摘要。
+- commit message 不在本规则范围内，格式见下一节。
+
 ## 提交
 
 - 格式为 `type(scope): 摘要`，遵循 Conventional Commits。
