@@ -172,6 +172,27 @@ int main(int argc, char **argv) {
     assert(zhuyin.editing().empty());
   }
 
+  // A click on a row is refused: the pick would fix a reading the TIP's host session never saw, so the list is driven from the keyboard only.
+  {
+    Fixture zhuyin(serialized);
+    zhuyin.type("su3");
+    assert(zhuyin.press(0x28, 0) && !zhuyin.candidates().empty());
+    const auto view = zhuyin.session.view();
+    const auto session = view.at("session").get<uint64_t>();
+    const auto generation = view.at("generation").get<uint64_t>();
+    assert(!zhuyin.composer.select_candidate(zhuyin.session, session, generation, 0));
+    assert(zhuyin.editing() == "su3" && !zhuyin.candidates().empty());
+  }
+
+  // Shift and a letter is not phonetic: the TIP commits the conversion and the letter after it, and the Server counts the commit without spelling the letter.
+  {
+    Fixture zhuyin(serialized);
+    zhuyin.type("su3");
+    const auto ended = zhuyin.press('A', u'A', 1u);
+    assert(ended && ended->committed_text && ended->committed_text->rfind("你", 0) == 0);
+    assert(zhuyin.editing().empty());
+  }
+
   // Down with nothing composing is the application's: it is not routed as a list key.
   {
     Fixture zhuyin(serialized);

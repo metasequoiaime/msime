@@ -501,6 +501,9 @@ std::optional<PendingReply> ReplyComposer::select_candidate(ServerSession &sessi
       (session_ && session_ != expected_session) ||
       view.at("generation") != generation || !view.at("focused").get<bool>())
     return std::nullopt;
+  // A Zhuyin row fixes one reading and keeps the conversion composing, and that conversion lives in the TIP's own host session, which a pick made here would leave behind; the list is driven from the keyboard only.
+  if (view_scheme(view) == scheme::Zhuyin)
+    return std::nullopt;
   const auto raw_before = view.at("editing_text").get<std::string>();
   if (translation_page_active_) {
     if (index >= translation_page_items_.size())
