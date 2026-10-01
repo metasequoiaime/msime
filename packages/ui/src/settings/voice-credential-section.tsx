@@ -3,6 +3,7 @@ import { CredentialActions } from "./credential-actions";
 import { type CredentialStatusMessageValue } from "./credential-status-message";
 import { DoubaoStreamEndpointSelect } from "./doubao-stream-endpoint-section";
 import { EndpointInput } from "./endpoint-input";
+import { PasswordSettingField } from "./password-setting-field";
 import { SettingField } from "./setting-field";
 
 export type VoiceCredentialSectionKind = "asr" | "polish";
@@ -119,25 +120,20 @@ export function VoiceCredentialSection({
         />
       </SettingField>
       {legacy && (
-        <SettingField label="Doubao App Key" description="旧版控制台鉴权使用">
-          <input
-            aria-label="Doubao App Key"
-            type="password"
-            autoComplete="off"
-            value={input.appKey}
-            onChange={(event) => onChange({ appKey: event.target.value })}
-          />
-        </SettingField>
-      )}
-      <SettingField label={tokenLabel}>
-        <input
-          aria-label={tokenLabel}
-          type="password"
-          autoComplete="off"
-          value={input.token}
-          onChange={(event) => onChange({ token: event.target.value })}
+        <PasswordSettingField
+          label="Doubao App Key"
+          inputLabel="Doubao App Key"
+          description="旧版控制台鉴权使用"
+          value={input.appKey}
+          onChange={(appKey) => onChange({ appKey })}
         />
-      </SettingField>
+      )}
+      <PasswordSettingField
+        label={tokenLabel}
+        inputLabel={tokenLabel}
+        value={input.token}
+        onChange={(token) => onChange({ token })}
+      />
       <CredentialActions
         saveDisabled={
           busy ||

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { CredentialActions } from "./credential-actions";
 import { type CredentialStatusMessageValue } from "./credential-status-message";
+import { PasswordSettingField } from "./password-setting-field";
 import { SettingField } from "./setting-field";
 
 export interface LinuxTencentCredentialStatus {
@@ -60,24 +61,18 @@ export function LinuxTencentCredentialsSection({
       ) : (
         <>
           <p className="input-setting-description">{description}</p>
-          <SettingField label="SecretId">
-            <input
-              aria-label="腾讯云 SecretId"
-              type="password"
-              autoComplete="off"
-              value={input.secretId}
-              onChange={(event) => onInputChange({ secretId: event.target.value })}
-            />
-          </SettingField>
-          <SettingField label="SecretKey">
-            <input
-              aria-label="腾讯云 SecretKey"
-              type="password"
-              autoComplete="off"
-              value={input.secretKey}
-              onChange={(event) => onInputChange({ secretKey: event.target.value })}
-            />
-          </SettingField>
+          <PasswordSettingField
+            label="SecretId"
+            inputLabel="腾讯云 SecretId"
+            value={input.secretId}
+            onChange={(secretId) => onInputChange({ secretId })}
+          />
+          <PasswordSettingField
+            label="SecretKey"
+            inputLabel="腾讯云 SecretKey"
+            value={input.secretKey}
+            onChange={(secretKey) => onInputChange({ secretKey })}
+          />
           <SettingField label="地域">
             <input
               aria-label="腾讯云地域"
